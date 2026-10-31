@@ -15,7 +15,7 @@
  * until the person picks it.
  *
  * ```ts
- * const appData = await openAppData();
+ * const appData = await openAppData(captureSettings);
  * if (appData.error !== null) return appData;
  * const device = await openDataFolder(capture, { appData: appData.data });
  * ```
@@ -25,8 +25,8 @@ import { getName } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir, homeDir, join } from '@tauri-apps/api/path';
 import { Ok, type Result } from 'wellcrafted/result';
-import { type AppConfig, appConfig } from './app-config.js';
 import { OpenDeviceError } from './errors.js';
+import type { FolderSettings, SettingsContract } from './settings.js';
 import { openDevice } from './tauri.js';
 
 /** Whether Epicenter syncs the folder, as far as the window can tell. */
@@ -36,19 +36,21 @@ export type FolderSync = 'synced' | 'not-synced' | 'unknown';
 export type FolderRequest = { ok: true } | { ok: false; message: string };
 
 /**
- * The AppData root's client: its `settings.md` (`appConfig`), never synced.
- * The shell bound the window to this directory before the page ran.
+ * The AppData root's client, through the app's own settings contract (its
+ * `settings.md` with `folder`, and any other settings notes): this
+ * computer's settings, never synced. The shell bound the window to this
+ * directory before the page ran.
  */
-export async function openAppData(): Promise<
-	Result<Client<AppConfig>, OpenDeviceError>
-> {
+export async function openAppData<TContract extends SettingsContract>(
+	contract: TContract,
+): Promise<Result<Client<TContract>, OpenDeviceError>> {
 	let path: string;
 	try {
 		path = await appDataDir();
 	} catch (cause) {
 		return OpenDeviceError.StorageUnavailable({ cause });
 	}
-	return openDevice(appConfig, { path });
+	return openDevice(contract, { path });
 }
 
 /**
@@ -60,7 +62,7 @@ export async function openAppData(): Promise<
  */
 export async function openDataFolder<TContract extends Contract>(
 	contract: TContract,
-	{ appData }: { appData: Client<AppConfig> },
+	{ appData }: { appData: FolderSettings },
 ): Promise<Result<Client<TContract>, OpenDeviceError>> {
 	const settings = await appData.settings.get({});
 	if (settings.error !== null && settings.error.name !== 'NotFound')

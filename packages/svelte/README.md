@@ -68,8 +68,9 @@ A page uses one or the other, never both.
 
 A standalone desktop app (`epicenter-standalone`) keeps the person's files
 in its data folder, `~/Epicenter/<productName>` unless the person chose
-another (decisions 88 to 97). Its startup opens the AppData root and then
-the data folder before any page renders (one top-level `await`, under the
+another (decisions 88 to 97). Its startup opens the AppData root, through
+the app's own settings contract, and then the data folder before any page
+renders (one top-level `await`, under the
 layout's `<svelte:boundary>`, whose `pending` is the UI kit's spinner), and
 renders the app's desktop root over both, or `Recovery` when one does not
 open. `Recovery` switches on the `OpenDeviceError`: Allow access (the native
@@ -87,7 +88,7 @@ folder:
   let attempt = $state(0);
   const retry = () => attempt++;
   const again = <T,>(_attempt: number, open: () => Promise<T>) => open();
-  const appData = $derived(await again(attempt, openAppData));
+  const appData = $derived(await again(attempt, () => openAppData(captureSettings)));
   const device = $derived(appData.error === null ? await openDataFolder(capture, { appData: appData.data }) : null);
 </script>
 

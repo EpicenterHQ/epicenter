@@ -11,6 +11,7 @@
 	import Recovery from '@epicenter/svelte/recovery';
 	import type { Snippet } from 'svelte';
 	import { type Whispering, whispering } from '../contract.js';
+	import { whisperingSettings } from '../settings.tauri.js';
 	import DesktopRoot from './DesktopRoot.svelte';
 
 	let { children }: { children: Snippet<[Client<Whispering>]> } = $props();
@@ -20,7 +21,7 @@
 	const retry = () => attempt++;
 	const again = <T,>(_attempt: number, open: () => Promise<T>) => open();
 
-	const appData = $derived(await again(attempt, openAppData));
+	const appData = $derived(await again(attempt, () => openAppData(whisperingSettings)));
 	const device = $derived(appData.error === null ? await openDataFolder(whispering, { appData: appData.data }) : null);
 </script>
 

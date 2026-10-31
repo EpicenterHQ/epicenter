@@ -16,12 +16,11 @@
  * <Button onclick={sync.chooseDataFolder}>Choose data folder…</Button>
  * ```
  */
-import type { Client } from '@epicenter/definition/contract';
 import {
-	type AppConfig,
 	chooseFolder,
 	defaultDataFolder,
 	type FolderRequest,
+	type FolderSettings,
 	type FolderSync,
 	rememberFolder,
 	syncedWithEpicenter,
@@ -40,7 +39,7 @@ export function folderSync({
 	appData,
 	contract,
 }: {
-	appData: Client<AppConfig>;
+	appData: FolderSettings;
 	contract: string;
 }) {
 	let path = $state<string>();

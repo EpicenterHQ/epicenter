@@ -2,13 +2,13 @@
  * `#platform/connections` in Vocab's desktop window: the endpoints a learner
  * connected on this computer. The list (each endpoint's id, name, base URL
  * and models) is `connections.md` at the top of the AppData root, beside
- * `settings.md`: machine-local, never synced, read and written through its
- * own contract's client. Each API key is in the keychain under the
- * connection's id (`keychain` from `@epicenter/auth/tauri`), saved with the
- * endpoint it was entered for and applied only while the connection still
- * names that endpoint (ADR-0564: an endpoint is stored with its key), so a
- * `connections.md` changed behind the app's back cannot send a key
- * somewhere else. Nothing about connections is in the data folder, which
+ * `settings.md`: machine-local, never synced, read and written through
+ * Vocab's settings contract (`vocabSettings`). Each API key is in the
+ * keychain under the connection's id (`keychain` from
+ * `@epicenter/auth/tauri`), saved with the endpoint it was entered for and
+ * applied only while the connection still names that endpoint (ADR-0564: an
+ * endpoint is stored with its key), so a `connections.md` changed behind the
+ * app's back cannot send a key somewhere else. Nothing about connections is in the data folder, which
  * Epicenter syncs, or in `settings.md`.
  */
 import {
@@ -19,53 +19,17 @@ import {
 	openConnectionCatalog,
 } from '@epicenter/ai/connections';
 import { keychain } from '@epicenter/auth/tauri';
-import {
-	type Client,
-	defineContract,
-	type Version,
-} from '@epicenter/definition/contract';
+import type { Client, Version } from '@epicenter/definition/contract';
 import { nanoid } from '@epicenter/definition/ids';
-import { openDevice } from '@epicenter/folder/tauri';
-import { appDataDir } from '@tauri-apps/api/path';
+import { openAppData } from '@epicenter/folder/tauri';
 import { createLogger } from 'wellcrafted/logger';
+import { type VocabSettings, vocabSettings } from './folder.tauri.js';
 import type { OpenConnections } from './platform.js';
 
 const log = createLogger('vocab-connections');
 
-/**
- * The AppData root's `connections.md`: one note whose `connections` list is
- * the connected endpoints in the learner's order, never a key. An id is the
- * name its key is kept under in the keychain, so it is a keychain name.
- */
-export const machineConnections = defineContract({
-	name: 'vocab-connections',
-	description:
-		"Vocab's connected endpoints on this computer, never synced: each one's id, name, base URL and models. Their keys are in the keychain.",
-	collections: {
-		connections: {
-			path: 'connections.md',
-			fields: {
-				connections: {
-					type: 'array',
-					items: {
-						type: 'object',
-						properties: {
-							id: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,64}$' },
-							name: { type: 'string' },
-							baseUrl: { type: 'string' },
-							models: { type: 'array', items: { type: 'string' } },
-						},
-						required: ['id', 'name', 'baseUrl', 'models'],
-					},
-				},
-			},
-			required: ['connections'],
-		},
-	},
-});
-
 /** `connections.md`'s client. */
-export type ConnectionsFile = Client<typeof machineConnections>['connections'];
+export type ConnectionsFile = Client<VocabSettings>['connections'];
 
 /** The keychain as the connections reach it (`keychain`); tests stand in for it. */
 export type ConnectionKeys = {
@@ -331,13 +295,7 @@ function hostOf(baseUrl: string) {
 }
 
 export const openConnections: OpenConnections = async () => {
-	let path: string;
-	try {
-		path = await appDataDir();
-	} catch (cause) {
-		throw new Error("Vocab's AppData folder could not be found.", { cause });
-	}
-	const opened = await openDevice(machineConnections, { path });
+	const opened = await openAppData(vocabSettings);
 	if (opened.error !== null)
 		throw new Error(
 			`Vocab's connections could not be opened: ${opened.error.message}`,

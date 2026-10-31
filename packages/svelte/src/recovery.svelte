@@ -15,10 +15,9 @@
 	```
 -->
 <script lang="ts">
-	import type { Client } from '@epicenter/definition/contract';
 	import {
-		type AppConfig,
 		chooseFolder,
+		type FolderSettings,
 		defaultDataFolder,
 		type OpenDeviceError,
 		rememberFolder,
@@ -38,7 +37,7 @@
 		/** Why the root did not open. */
 		error: OpenDeviceError;
 		/** The AppData root's client, when it opened: the data folder did not. */
-		appData?: Client<AppConfig>;
+		appData?: FolderSettings;
 		/** Open the roots again. */
 		retry: () => void;
 	} = $props();
@@ -50,7 +49,7 @@
 	const busy = $derived(acting || retrying);
 
 	/** Remember `folder` (forget it for the default), then open the roots again. */
-	async function remember(settings: Client<AppConfig>, folder: string | undefined) {
+	async function remember(settings: FolderSettings, folder: string | undefined) {
 		const fallback = await defaultDataFolder();
 		const chosen = folder === undefined || (fallback.error === null && folder === fallback.data) ? undefined : folder;
 		const { error: failed } = await rememberFolder(settings, chosen);
@@ -62,7 +61,7 @@
 	}
 
 	/** The native picker at `at`; picking a folder allows it and remembers it. */
-	async function pick(settings: Client<AppConfig>, title: string, at?: string) {
+	async function pick(settings: FolderSettings, title: string, at?: string) {
 		acting = true;
 		problem = undefined;
 		const picked = await chooseFolder({ title, at });
@@ -71,7 +70,7 @@
 		acting = false;
 	}
 
-	async function useDefault(settings: Client<AppConfig>) {
+	async function useDefault(settings: FolderSettings) {
 		acting = true;
 		problem = undefined;
 		await remember(settings, undefined);
@@ -93,11 +92,11 @@
 	<Button disabled={busy} onclick={() => retry()}>{retrying ? 'Retrying…' : 'Retry'}</Button>
 {/snippet}
 
-{#snippet chooseButton(settings: Client<AppConfig>)}
+{#snippet chooseButton(settings: FolderSettings)}
 	<Button variant="outline" disabled={busy} onclick={() => void pick(settings, `Choose ${app}'s data folder`)}>Choose folder…</Button>
 {/snippet}
 
-{#snippet defaultButton(settings: Client<AppConfig>)}
+{#snippet defaultButton(settings: FolderSettings)}
 	<Button variant="outline" disabled={busy} onclick={() => void useDefault(settings)}>Use the default folder</Button>
 {/snippet}
 

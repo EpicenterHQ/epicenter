@@ -8,11 +8,11 @@
 <script lang="ts">
 	import { APPS } from '@epicenter/constants/apps';
 	import type { Client } from '@epicenter/definition/contract';
-	import type { AppConfig } from '@epicenter/folder/tauri';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
 	import type { Snippet } from 'svelte';
+	import type { WhisperingSettings } from '../settings.tauri.js';
 
-	let { appData, children }: { appData: Client<AppConfig>; children: Snippet } = $props();
+	let { appData, children }: { appData: Client<WhisperingSettings>; children: Snippet } = $props();
 
 	/**
 	 * Where Whispering's web app publishes its contract (`static/contract.json`):

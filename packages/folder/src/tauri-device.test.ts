@@ -88,6 +88,14 @@ const notes = defineContract({
 	},
 });
 
+/** The app's settings contract over its AppData root: `settings.md` with `folder`. */
+const notesSettings = defineContract({
+	name: 'notes-settings',
+	collections: {
+		settings: { path: 'settings.md', fields: { folder: { type: 'string' } } },
+	},
+});
+
 const removed: string[] = [];
 beforeEach(async () => {
 	shell = createGrantedShell(await grantedDirectory('tauri-device-'));
@@ -276,7 +284,7 @@ test('the data folder is ~/Epicenter/<productName> when settings.md names none, 
 	const fallback = join(home, 'Epicenter', 'Notes Dev');
 	productName = 'Notes Dev';
 	shell = createGrantedShell(shell.root, { grants: [fallback] });
-	const appData = unwrap(await openAppData());
+	const appData = unwrap(await openAppData(notesSettings));
 	const device = unwrap(await openDataFolder(notes, { appData }));
 	expectOk(await device.notes.create({ id: 'a', title: 'Default' }));
 	expect(await readFile(join(fallback, 'notes/a.md'), 'utf8')).toContain(
@@ -290,7 +298,7 @@ test('a folder settings.md names opens as it is: never made, and NotGranted unti
 	home = await allowed('tauri-device-home-');
 	const chosen = await allowed('tauri-device-chosen-');
 	const gone = join(chosen, 'gone');
-	const appData = unwrap(await openAppData());
+	const appData = unwrap(await openAppData(notesSettings));
 	expectOk(await rememberFolder(appData, chosen));
 	// Written by hand or an agent: the shell's scope does not allow it.
 	expect(expectErr(await openDataFolder(notes, { appData }))).toMatchObject({

@@ -9,17 +9,16 @@
 	import { auth } from '#platform/auth';
 	import type { Vocab } from '../contract.js';
 	import type { Client } from '@epicenter/definition/contract';
-	import type { AppConfig } from '@epicenter/folder/tauri';
 	import { fromClient } from '@epicenter/svelte/client';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
 	import type { Snippet } from 'svelte';
-	import { CONTRACT_URL, setAppData, setDevice } from '../folder.tauri.js';
+	import { CONTRACT_URL, setAppData, setDevice, type VocabSettings } from '../folder.tauri.js';
 
 	let {
 		appData,
 		device,
 		children,
-	}: { appData: Client<AppConfig>; device: Client<Vocab>; children: Snippet } = $props();
+	}: { appData: Client<VocabSettings>; device: Client<Vocab>; children: Snippet } = $props();
 
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally

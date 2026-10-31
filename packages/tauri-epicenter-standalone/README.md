@@ -3,10 +3,10 @@
 A standalone Epicenter app is its own small Tauri program over a folder it
 owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
 shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines. Its
-TypeScript counterparts are in `@epicenter/folder/tauri`: `openAppData()` and
-`openDataFolder(contract, { appData })`, which open the window's two roots,
-`chooseFolder` (the native picker), `rememberFolder`, `syncWithEpicenter` and
-`syncedWithEpicenter`. The page's UI for them is in `@epicenter/svelte`:
+TypeScript counterparts are in `@epicenter/folder/tauri`:
+`openAppData(settingsContract)` and `openDataFolder(contract, { appData })`,
+which open the window's two roots, `chooseFolder` (the native picker),
+`rememberFolder`, `syncWithEpicenter` and `syncedWithEpicenter`. The page's UI for them is in `@epicenter/svelte`:
 `recovery` (the screen when a root does not open) and `folder-sync` with
 `folder-sync-actions` (sync state, Sync with Epicenter, Choose data
 folder…).
@@ -15,8 +15,11 @@ folder…).
 
 - **The AppData root** is fixed: the operating system's application data
   directory for the app, never synced and never chosen. Its settings notes
-  sit at its top (`settings.md`, `shortcuts.md`). `settings.md` holds
-  `folder` only when the person chose a data folder.
+  sit at its top (`settings.md`, `shortcuts.md`), read through the app's own
+  settings contract (an ordinary `defineContract` whose `settings.md` has
+  `folder`). `settings.md` holds `folder` only when the person chose a data
+  folder; any other key there, or in another note, overrides on this
+  computer the same note's value in the data folder.
 - **The data root** is the person's files: `~/Epicenter/<productName>` by
   default, or the folder `settings.md` names. `productName` is the merged
   Tauri configuration's: `Capture` for the shipped app, `Capture Dev` under
@@ -51,7 +54,7 @@ The page's startup awaits the two roots in order, under its layout's
 whose actions write or clear `folder` and open the roots again:
 
 ```ts
-const appData = await openAppData();
+const appData = await openAppData(captureSettings); // the app's own settings contract
 if (appData.error !== null) return appData; // "could not open its own settings": Retry
 const device = await openDataFolder(capture, { appData: appData.data }); // the default is made when missing
 ```
@@ -105,9 +108,9 @@ example.
    A leaf is TypeScript, exporting components where the variants render
    differently (`export const Startup: Platform['Startup'] = OnlineRoot;`)
    and how the pages read the store (`store()`), so neither build carries
-   the other's root. The desktop leaf's `Startup`
-   awaits `openAppData()` and `openDataFolder(...)` and renders the app's
-   desktop root over them (which sets `setAppData(fromClient(appData))` and
+   the other's root. The desktop leaf's `Startup` awaits
+   `openAppData(<app>Settings)` and `openDataFolder(...)` and renders the
+   app's desktop root over them (which sets `setAppData(fromClient(appData))` and
    `setDevice(fromClient(device))`), or `@epicenter/svelte/recovery`; the
    app's layout wraps `Startup` in `<svelte:boundary>` with the UI kit's
    spinner as its `pending`, and `svelte.config.js` turns on

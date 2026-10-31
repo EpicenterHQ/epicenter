@@ -25,8 +25,8 @@ import { unwrap } from 'wellcrafted/result';
 import {
 	type ConnectionKeys,
 	createKeychainConnections,
-	machineConnections,
 } from './connections.tauri.js';
+import { vocabSettings } from './folder.tauri.js';
 
 const ENDPOINT = 'https://api.openai.com/v1';
 const roots: string[] = [];
@@ -66,7 +66,7 @@ async function open({
 } = {}) {
 	const path = root ?? (await mkdtemp(join(tmpdir(), 'vocab-appdata-')));
 	if (root === undefined) roots.push(path);
-	const device = unwrap(await openDevice(machineConnections, { path }));
+	const device = unwrap(await openDevice(vocabSettings, { path }));
 	const connections = createKeychainConnections({
 		file: device.connections,
 		keys: keys.keys,
@@ -193,7 +193,7 @@ test('subscribers hear the keys with the list; a change made to the note behind 
 	expect(heard.at(-1)).toEqual(['sk-1']);
 	await connections.update(id, { apiKey: '' });
 	const path = join(root, 'connections.md');
-	const other = unwrap(await openDevice(machineConnections, { path: root }));
+	const other = unwrap(await openDevice(vocabSettings, { path: root }));
 	const read = unwrap(await other.connections.get({}));
 	unwrap(
 		await other.connections.update(

@@ -100,7 +100,7 @@ routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
     Online.svelte              {#key account}: setRepo(openRemote(capture, { account }))
-  Startup.svelte               desktop: await openAppData(), openDataFolder(); Recovery
+  Startup.svelte               desktop: await openAppData(captureSettings), openDataFolder(); Recovery
     DesktopRoot.svelte         setAppData/setDevice(fromClient(...)), setFolderSync
 routes/(app)/+page.svelte      CaptureApp over store().captures (#platform/root)
   CaptureApp.svelte            header (Chrome from #platform/root), then
@@ -139,11 +139,12 @@ bun run --cwd apps/capture build:desktop   # a local, unsigned macOS app bundle
 Its Tauri shell (`src-tauri/`, on the shared
 [`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
 crate) starts the window on Capture's AppData root, whose `settings.md`
-(`appConfig`, machine-local, never synced) names a data folder only when the
+(`captureSettings` in `src/lib/folder.tauri.ts`, machine-local, never
+synced) names a data folder only when the
 person chose one. There is no first-run question: the page opens
 `~/Epicenter/Capture` (`~/Epicenter/Capture Dev` under `tauri.dev.conf.json`,
 whose `productName` is `Capture Dev`), made when missing, or the chosen
-folder (`openAppData`, then `openDataFolder`). Tauri decides which folders
+folder (`openAppData(captureSettings)`, then `openDataFolder`). Tauri decides which folders
 the window may open: the shell allows the default at startup, the native
 picker allows a folder the person picks, and persisted-scope keeps that
 across launches. A `folder` written into `settings.md` by hand opens as not

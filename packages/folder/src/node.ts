@@ -23,7 +23,6 @@ import { checkStore, formatStore } from './device/folder-tools.js';
 import { nodeStore } from './device/node-store.js';
 import { OpenDeviceError } from './errors.js';
 
-export { type AppConfig, appConfig, defineAppConfig } from './app-config.js';
 export { OpenDeviceError } from './errors.js';
 
 /**

@@ -28,12 +28,6 @@ import { openRefusal } from './native/open-refusal.js';
 import { storageHost } from './storage.js';
 import { tauriHostFiles } from './tauri-files.js';
 
-export {
-	type AppConfig,
-	appConfig,
-	defineAppConfig,
-	rememberFolder,
-} from './app-config.js';
 export * from './contract.js';
 export {
 	chooseFolder,
@@ -48,6 +42,11 @@ export {
 	syncedWithEpicenter,
 	syncWithEpicenter,
 } from './epicenter-sync.js';
+export {
+	type FolderSettings,
+	rememberFolder,
+	type SettingsContract,
+} from './settings.js';
 
 /**
  * The typed client of `contract` over a directory the desktop shell lets

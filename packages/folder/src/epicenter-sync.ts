@@ -1,9 +1,9 @@
 /**
  * How a desktop app's folder reaches Epicenter (decisions 81 and 82): the
  * app asks the shell to open `epicenter://init?path=<folder>&contract=<url>`,
- * naming the folder it keeps its files in (`folder` in its `appConfig`
- * settings) and the URL its contract is published at (an app constant: the
- * published URL is deployment, not data). Epicenter, if installed, asks the
+ * naming the folder it keeps its files in (`folder` in its AppData
+ * `settings.md`) and the URL its contract is published at (an app constant:
+ * the published URL is deployment, not data). Epicenter, if installed, asks the
  * person where to sync the folder and runs `epicenter init`. The app can also
  * ask whether Epicenter already syncs a folder.
  */

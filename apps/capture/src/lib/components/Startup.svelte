@@ -10,6 +10,7 @@
 	import { openAppData, openDataFolder } from '@epicenter/folder/tauri';
 	import Recovery from '@epicenter/svelte/recovery';
 	import type { Snippet } from 'svelte';
+	import { captureSettings } from '../folder.tauri.js';
 	import DesktopRoot from './DesktopRoot.svelte';
 
 	let { children }: { children: Snippet } = $props();
@@ -19,7 +20,7 @@
 	const retry = () => attempt++;
 	const again = <T,>(_attempt: number, open: () => Promise<T>) => open();
 
-	const appData = $derived(await again(attempt, openAppData));
+	const appData = $derived(await again(attempt, () => openAppData(captureSettings)));
 	const device = $derived(appData.error === null ? await openDataFolder(capture, { appData: appData.data }) : null);
 </script>
 

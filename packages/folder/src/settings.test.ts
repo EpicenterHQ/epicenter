@@ -1,12 +1,12 @@
 /**
- * App Config Tests
+ * Settings Tests
  *
- * A desktop app's `settings.md` (`appConfig`) over a real directory, as the
- * page writes it through its config device and the shell reads it.
+ * `folder` in a desktop app's AppData `settings.md`, over a real directory,
+ * as the page writes it through the app's own settings contract.
  *
  * Key behaviors:
- * - The first folder chosen creates the note, in the form the shell reads
- * - A later choice changes only `folder`, keeping other machine settings
+ * - The first folder chosen creates the note
+ * - A later choice changes only `folder`, keeping the app's other settings
  * - Choosing the folder already recorded writes nothing
  * - The default folder is no `folder` at all: choosing it removes the key
  */
@@ -15,15 +15,31 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { defineContract } from '@epicenter/definition/contract';
 import { unwrap } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { appConfig, rememberFolder } from './app-config.js';
 import { openDevice } from './node.js';
+import { rememberFolder } from './settings.js';
+
+/** An app's settings contract: `folder` beside a key of its own, and a note per other concern. */
+const notesSettings = defineContract({
+	name: 'notes-settings',
+	collections: {
+		settings: {
+			path: 'settings.md',
+			fields: { folder: { type: 'string' }, theme: { type: 'string' } },
+		},
+		shortcuts: {
+			path: 'shortcuts.md',
+			fields: { toggle: { type: 'string' } },
+		},
+	},
+});
 
 let directory: string;
 
 beforeEach(async () => {
-	directory = await mkdtemp(join(tmpdir(), 'app-config-'));
+	directory = await mkdtemp(join(tmpdir(), 'settings-'));
 });
 
 afterEach(async () => {
@@ -32,8 +48,8 @@ afterEach(async () => {
 
 const settings = () => readFile(join(directory, 'settings.md'), 'utf8');
 
-test('the first folder chosen creates settings.md as the shell reads it', async () => {
-	const config = unwrap(await openDevice(appConfig, { path: directory }));
+test('the first folder chosen creates settings.md', async () => {
+	const config = unwrap(await openDevice(notesSettings, { path: directory }));
 	expectOk(await rememberFolder(config, '/Users/me/Epicenter/Capture'));
 	expect(await settings()).toBe(
 		'---\nfolder: "/Users/me/Epicenter/Capture"\n---\n',
@@ -45,7 +61,7 @@ test('a later choice changes only folder; the same one writes nothing', async ()
 		join(directory, 'settings.md'),
 		'---\nfolder: "/old"\ntheme: dark\n---\n',
 	);
-	const config = unwrap(await openDevice(appConfig, { path: directory }));
+	const config = unwrap(await openDevice(notesSettings, { path: directory }));
 	expectOk(await rememberFolder(config, '/new'));
 	const after = await settings();
 	expect(after).toContain('folder: "/new"');
@@ -59,14 +75,14 @@ test('the default folder removes folder and keeps the rest', async () => {
 		join(directory, 'settings.md'),
 		'---\nfolder: "/old"\ntheme: dark\n---\n',
 	);
-	const config = unwrap(await openDevice(appConfig, { path: directory }));
+	const config = unwrap(await openDevice(notesSettings, { path: directory }));
 	expectOk(await rememberFolder(config, undefined));
 	expect(await settings()).toBe('---\ntheme: dark\n---\n');
-	const fresh = await mkdtemp(join(tmpdir(), 'app-config-fresh-'));
+	const fresh = await mkdtemp(join(tmpdir(), 'settings-fresh-'));
 	try {
 		expectOk(
 			await rememberFolder(
-				unwrap(await openDevice(appConfig, { path: fresh })),
+				unwrap(await openDevice(notesSettings, { path: fresh })),
 				undefined,
 			),
 		);
