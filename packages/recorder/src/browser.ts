@@ -2,10 +2,14 @@
  * Recording in a browser tab, with `MediaRecorder`.
  *
  * A page has no native side, so the audio is held in memory while it records
- * and written to the folder as `<path>.<extension>` on stop, through the
- * folder's own write, from no file. A refresh or a closed tab loses the recording
- * in progress; the folder then shows a row without audio. `recoverRecordings`
- * has nothing to repair.
+ * and `stop` answers it: its bytes, the extension of the type the browser
+ * actually produced, and how long it ran. The app keeps it where it keeps
+ * files. A refresh or a closed tab loses the recording in progress.
+ *
+ * AAC in MP4 is asked for first (`.m4a`), since a recording lands in folders
+ * that native players open, then Opus in WebM (`.webm`). Never bare
+ * `audio/mp4`, whose codec differs by engine. The extension is read from what
+ * was produced, not from the request: engines differ in what they honor.
  *
  * A chosen microphone is asked for by its exact ID. When the browser cannot
  * open exactly that one, the answer is a refusal: no other microphone is
@@ -21,8 +25,8 @@ import { openMicrophone, release } from './microphone.js';
 import {
 	RecorderError,
 	type RecordingEndedReason,
-	type RecoverRecordings,
-	type StartRecording,
+	type RecordingHandle,
+	type RecordingStart,
 } from './recording.js';
 
 export * from './recording.js';
@@ -64,7 +68,8 @@ export type BrowserEnvironment = {
 	readonly now: () => number;
 };
 
-function browserEnvironment(): BrowserEnvironment {
+/** The browser's own microphone, encoder, audio graph and clock. */
+export function browserEnvironment(): BrowserEnvironment {
 	return {
 		mediaDevices:
 			typeof navigator === 'undefined' ||
@@ -80,21 +85,50 @@ function browserEnvironment(): BrowserEnvironment {
 	};
 }
 
-/** Containers in preference order, with the extension each is saved under. */
-const CONTAINERS = [
-	{ type: 'audio/webm;codecs=opus', extension: 'webm' },
-	{ type: 'audio/webm', extension: 'webm' },
-	{ type: 'audio/mp4', extension: 'mp4' },
-	{ type: 'audio/ogg;codecs=opus', extension: 'ogg' },
+/** What a browser recording asks `MediaRecorder` for, in order (decision 56). */
+export const RECORDING_TYPES = [
+	'audio/mp4;codecs=mp4a.40.2',
+	'audio/webm;codecs=opus',
 ] as const;
 
-/** The extension for what the recorder says it produces; WebM when it says nothing. */
-function extensionOf(mimeType: string): string {
-	const container = mimeType.split(';')[0]?.trim().toLowerCase();
-	if (container === 'audio/mp4' || container === 'video/mp4') return 'mp4';
-	if (container === 'audio/ogg') return 'ogg';
-	return 'webm';
+/** The container of a produced type, by the extension its file is named with. */
+const EXTENSIONS: Record<string, { extension: string; mimeType: string }> = {
+	'audio/mp4': { extension: 'm4a', mimeType: 'audio/mp4' },
+	'video/mp4': { extension: 'm4a', mimeType: 'audio/mp4' },
+	'audio/webm': { extension: 'webm', mimeType: 'audio/webm' },
+	'video/webm': { extension: 'webm', mimeType: 'audio/webm' },
+	'audio/ogg': { extension: 'ogg', mimeType: 'audio/ogg' },
+};
+
+/**
+ * The file extension and plain MIME type of what a recorder produced, read
+ * from its type (`audio/mp4; codecs=mp4a.40.2` is `m4a`). WebM when the
+ * browser names no type, as a recorder left to its default records WebM.
+ */
+export function containerOf(type: string): {
+	extension: string;
+	mimeType: string;
+} {
+	const base = type.split(';')[0]?.trim().toLowerCase() ?? '';
+	return EXTENSIONS[base] ?? EXTENSIONS['audio/webm']!;
 }
+
+/** A finished browser recording: its audio, and how long it ran. */
+export type RecordedAudio = {
+	readonly bytes: Uint8Array;
+	/** `m4a` or `webm` (or `ogg`), from the type the browser produced. */
+	readonly extension: string;
+	/** The produced container's MIME type, without codecs. */
+	readonly mimeType: string;
+	readonly durationMs: number;
+};
+
+/** A recording in a browser tab: `stop` answers its audio. */
+export type BrowserRecording = RecordingHandle<RecordedAudio>;
+
+export type StartBrowserRecording = (
+	options?: RecordingStart,
+) => Promise<Result<BrowserRecording, RecorderError>>;
 
 /** How often the level is read while recording. */
 const LEVEL_INTERVAL_MS = 50;
@@ -143,12 +177,10 @@ function meter(
 export function createBrowserRecorder(
 	environment: BrowserEnvironment = browserEnvironment(),
 ) {
-	const startRecording: StartRecording = async ({
-		folder,
-		path,
+	const startRecording: StartBrowserRecording = async ({
 		input,
 		signal,
-	}) => {
+	} = {}) => {
 		const { mediaDevices, Recorder } = environment;
 		if (mediaDevices === undefined)
 			return RecorderError.Unavailable({
@@ -164,14 +196,14 @@ export function createBrowserRecorder(
 			signal,
 		);
 		if (openError !== null) return Err(openError);
-		const container = CONTAINERS.find(({ type }) =>
+		const requested = RECORDING_TYPES.find((type) =>
 			Recorder.isTypeSupported(type),
 		);
 		let recorder: MediaRecorder;
 		try {
 			recorder = new Recorder(
 				stream,
-				container === undefined ? undefined : { mimeType: container.type },
+				requested === undefined ? undefined : { mimeType: requested },
 			);
 		} catch (cause) {
 			release(stream);
@@ -191,7 +223,6 @@ export function createBrowserRecorder(
 		const levels = new Set<(level: number) => void>();
 		const endings = new Set<(reason: RecordingEndedReason) => void>();
 		const stopMeter = meter(environment, stream, levels);
-		const file = `${path}.${container?.extension ?? extensionOf(recorder.mimeType)}`;
 		let settled = false;
 		let ended: { reason: RecordingEndedReason; at: number } | undefined;
 		function interrupted(reason: RecordingEndedReason) {
@@ -230,7 +261,9 @@ export function createBrowserRecorder(
 				);
 			},
 		);
-		async function finish(): Promise<Result<Uint8Array, RecorderError>> {
+		async function finish(): Promise<
+			Result<{ bytes: Uint8Array; type: string }, RecorderError>
+		> {
 			try {
 				if (recorder.state !== 'inactive') recorder.stop();
 			} catch (cause) {
@@ -238,11 +271,15 @@ export function createBrowserRecorder(
 			}
 			const { error } = await finished;
 			if (error !== null) return Err(error);
-			return Ok(new Uint8Array(await new Blob(chunks).arrayBuffer()));
+			// The produced type, not the requested one: read it from the data.
+			const type = chunks[0]?.type || recorder.mimeType || requested || '';
+			return Ok({
+				bytes: new Uint8Array(await new Blob(chunks).arrayBuffer()),
+				type,
+			});
 		}
 
 		return Ok({
-			path: file,
 			startedAt,
 			device: stream.getAudioTracks()[0]?.label || input?.label || '',
 			onLevel(listener) {
@@ -267,26 +304,22 @@ export function createBrowserRecorder(
 				const durationMs = Math.round(
 					(ended?.at ?? environment.now()) - startedAt,
 				);
-				const { data: bytes, error } = await finish();
+				const { data: produced, error } = await finish();
 				release(stream);
 				if (error !== null) return Err(error);
-				if (bytes.byteLength === 0) return RecorderError.Empty();
-				const { error: writeError } = await folder.write(file, bytes);
-				if (writeError !== null)
-					return RecorderError.Refused({ reason: writeError.message });
-				return Ok({ path: file, durationMs });
+				if (produced.bytes.byteLength === 0) return RecorderError.Empty();
+				return Ok({
+					bytes: produced.bytes,
+					...containerOf(produced.type),
+					durationMs,
+				});
 			},
 		});
 	};
 
-	return {
-		startRecording,
-		recoverRecordings,
-	};
+	return { startRecording };
 }
 
-export const startRecording: StartRecording = (options) =>
+/** Record from `input` (or the system default) in this tab. */
+export const startRecording: StartBrowserRecording = (options) =>
 	createBrowserRecorder().startRecording(options);
-
-/** A browser recording is written whole on stop, so none is ever cut off. */
-export const recoverRecordings: RecoverRecordings = async () => Ok([]);
