@@ -19,12 +19,6 @@ import { watchDirectory } from './native/watch.js';
 import { storageHost } from './storage.js';
 
 export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
-export {
-	type CheckedTable,
-	checkFolder,
-	type Finding,
-	type FolderCheck,
-} from './check-folder.js';
 export * from './contract.js';
 export {
 	formatDefinition,
@@ -51,20 +45,9 @@ export {
 	locateGit,
 	runGit,
 } from './git/native-host.js';
-export {
-	exportFolderSchemas,
-	importFolderSchemas,
-} from './native/declaration.js';
 export { holdingFileLock } from './native/directory.js';
 export { DEFINITION_PATH } from './paths.js';
-export { describeTables } from './projection.js';
 export { queryDocuments } from './query-documents.js';
-export {
-	type QueryAnswer,
-	QueryFolderError,
-	queryFolder,
-} from './query-folder.js';
-export { exportTables } from './schema-export.js';
 
 export async function openFolder<const T extends Tables>({
 	directory,

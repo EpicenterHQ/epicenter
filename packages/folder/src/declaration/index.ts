@@ -18,4 +18,3 @@ export {
 	validateTableSchema,
 } from '../declaration-schema.js';
 export { changeSavedView, type SavedViewChange } from '../declaration-write.js';
-export { exportTables } from '../schema-export.js';

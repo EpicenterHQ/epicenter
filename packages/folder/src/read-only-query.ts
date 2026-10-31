@@ -1,26 +1,18 @@
 /**
- * Answer one read-only SQL statement over a checked data folder, in Bun
- * (ADR-0520, ADR-0494): the rows that conform are projected into an in-memory
- * `bun:sqlite` database, the statement runs, and the database is dropped.
- * Files that do not conform are left out whole and named.
+ * Answer one read-only SQL statement over a disposable in-memory `bun:sqlite`
+ * projection that the caller populates (ADR-0494). The desktop editor's
+ * `documents-query` reads saved Markdown documents through it.
  */
 
 import { Database } from 'bun:sqlite';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { excludedFiles, type FolderCheck } from './check-folder.js';
-import {
-	projectionProblem,
-	projectTables,
-	readingStatementProblem,
-	type SqlTarget,
-} from './projection.js';
 
-export const QueryFolderError = defineErrors({
-	/** The definition cannot be projected, or the statement may not run. */
+export const QueryError = defineErrors({
+	/** The statement may not run. */
 	Refused: ({ reason }: { reason: string }) => ({ message: reason, reason }),
 });
-export type QueryFolderError = InferErrors<typeof QueryFolderError>;
+export type QueryError = InferErrors<typeof QueryError>;
 
 /** What a statement answered, and the files left out of every table. */
 export type QueryAnswer = {
@@ -30,37 +22,28 @@ export type QueryAnswer = {
 	truncated?: boolean;
 };
 
-/** The two calls the projection asks of a database, over `bun:sqlite`. */
-function sqlTarget(db: Database): SqlTarget {
-	return {
-		run: (sql, parameters = []) => db.run(sql, [...parameters]),
-		transaction: (run) => db.transaction(run).immediate(),
-	};
-}
-
 const TRAILING_TRIVIA = /--[^\n]*|\/\*[\s\S]*?\*\/|[\s;]/g;
 
+const LEADING_TRIVIA = /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/;
+/** The keywords a statement over a projection may start with. */
+const READING_KEYWORDS = ['SELECT', 'WITH', 'VALUES', 'EXPLAIN'];
+
 /**
- * Run `sql` over the rows of `checked` that conform. The statement must be
- * exactly one that only reads: the projection refuses one that does not
- * start with a reading keyword, and SQLite prepares only the first of
- * several statements, so anything after it is refused rather than silently
- * ignored.
+ * Why `sql` may not run over a projection, or `undefined` when its first
+ * keyword reads. `query_only` stops changes to the projection, but not
+ * `ATTACH` or `VACUUM INTO`, which create files, so a statement must start
+ * with a reading keyword. The engine that prepares it still refuses anything
+ * after the first statement.
  */
-export function queryFolder(
-	checked: FolderCheck,
-	sql: string,
-): Result<QueryAnswer, QueryFolderError> {
-	for (const table of checked.tables) {
-		const problem = projectionProblem(table);
-		if (problem !== undefined)
-			return QueryFolderError.Refused({ reason: problem });
-	}
-	return queryProjection(
-		sql,
-		(db) => projectTables(sqlTarget(db), checked.tables),
-		excludedFiles(checked),
-	);
+export function readingStatementProblem(sql: string): string | undefined {
+	const keyword = sql
+		.replace(LEADING_TRIVIA, '')
+		.match(/^[A-Za-z]+/)?.[0]
+		?.toUpperCase();
+	if (!keyword) return 'query takes one SQL statement; this one is empty';
+	if (!READING_KEYWORDS.includes(keyword))
+		return `query only reads: a statement must start with SELECT, WITH, VALUES, or EXPLAIN, not ${keyword}`;
+	return undefined;
 }
 
 /** One executor owns SQLite read-only policy for every disposable projection. */
@@ -69,10 +52,9 @@ export function queryProjection(
 	populate: (db: Database) => void,
 	excluded: string[] = [],
 	limits: { rows: number; bytes: number } | undefined = undefined,
-): Result<QueryAnswer, QueryFolderError> {
+): Result<QueryAnswer, QueryError> {
 	const problem = readingStatementProblem(sql);
-	if (problem !== undefined)
-		return QueryFolderError.Refused({ reason: problem });
+	if (problem !== undefined) return QueryError.Refused({ reason: problem });
 	const db = new Database(':memory:');
 	try {
 		populate(db);
@@ -80,12 +62,12 @@ export function queryProjection(
 		try {
 			statement = db.query(sql);
 		} catch (cause) {
-			return QueryFolderError.Refused({
+			return QueryError.Refused({
 				reason: cause instanceof Error ? cause.message : String(cause),
 			});
 		}
 		if (sql.slice(statement.toString().length).replace(TRAILING_TRIVIA, ''))
-			return QueryFolderError.Refused({
+			return QueryError.Refused({
 				reason: 'query runs one statement; remove everything after the first',
 			});
 		const rows: Record<string, unknown>[] = [];
@@ -116,7 +98,7 @@ export function queryProjection(
 				rows.push(normalized);
 			}
 		} catch (cause) {
-			return QueryFolderError.Refused({
+			return QueryError.Refused({
 				reason: cause instanceof Error ? cause.message : String(cause),
 			});
 		}

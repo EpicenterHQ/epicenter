@@ -56,7 +56,7 @@ To build a local macOS app that you can quit and reopen from Finder, run `bun bu
 
 Standalone and hosted Todos open one fixed default, `<library>/so.epicenter.todos`, where the library is `~/Epicenter`, `~/Epicenter Dev` in development, or `EPICENTER_FOLDER_DIR`. An ordinary launch creates it when missing and otherwise reuses it as it is; nothing is saved, so a default that was moved or deleted is made again empty by the next launch, and no other folder is searched for. Todos rows land at `todos/<id>.md` inside the bound folder. The save lock and scratch directory sit beside it.
 
-Startup reads no configuration and never looks for, reads, or moves data in an earlier location such as `~/Epicenter/Todos` or a saved home in `folders.json`. Such a folder still opens explicitly in Epicenter's launcher.
+Startup reads no configuration.
 
 Both native shells use `defaults::DesktopPaths::open_default(library::TODOS)`
 from the folder plugin, one row of its shared default table; app-specific
@@ -113,17 +113,3 @@ bun run --cwd apps/todos build:host
 cargo test --manifest-path apps/todos/src-tauri/Cargo.toml
 bun build:todos:desktop
 ```
-
-## Export the table schema
-
-The app's TypeBox module owns both runtime validation and developer types.
-To distribute a portable copy without opening a data folder:
-
-```sh
-bun run --cwd apps/todos schema:export > todos-schema.json
-epicenter schema import FOLDER todos-schema.json
-```
-
-Replace `FOLDER` with an existing data directory. Importing writes only the
-exported table definitions in `epicenter.json`; opening or updating Todos
-publishes no schema. A conflicting definition requires `--replace`.

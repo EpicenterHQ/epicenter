@@ -20,7 +20,6 @@
 
 import { isOptional, isTableName } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { FolderStorage } from './boundary.js';
 import {
 	DECLARATION_KEYS,
 	type Declaration,
@@ -31,7 +30,6 @@ import {
 } from './declaration-schema.js';
 import type { Definition } from './definition.js';
 import { parseJsonObject } from './json-object.js';
-import { DEFINITION_PATH } from './paths.js';
 
 /** The `epicenter.json` text of a prepared definition. */
 export function formatDefinition(definition: Definition): string {
@@ -56,8 +54,6 @@ export function formatDefinition(definition: Definition): string {
 		2,
 	)}\n`;
 }
-
-const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 const TOP_LEVEL_KEYS = DECLARATION_KEYS;
 
@@ -174,35 +170,6 @@ export function readTableSchemas(
 		folded.add(name.toLowerCase());
 	}
 	return prepared;
-}
-
-/** CLI checking requires declared tables; optional views never change that requirement. */
-export async function readDefinition(
-	storage: Pick<FolderStorage, 'read'>,
-): Promise<
-	Result<
-		{ tables: NonNullable<Declaration['tables']> } | undefined,
-		{ reason: string }
-	>
-> {
-	const { data: read, error } = await storage.read(DEFINITION_PATH);
-	if (error !== null)
-		return error.name === 'NotFound'
-			? Ok(undefined)
-			: Err({ reason: error.message });
-	let text: string;
-	try {
-		text = utf8.decode(read.bytes);
-	} catch {
-		return Err({ reason: 'it is not UTF-8 text' });
-	}
-	const parsed = readDeclaredTables(text);
-	if (parsed.error !== null) return parsed;
-	if (parsed.data === undefined)
-		return Err({
-			reason: "it has no 'tables'; query requires declared table schemas",
-		});
-	return Ok({ tables: parsed.data });
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

@@ -1,6 +1,6 @@
 /** Read-only SQL over the generic editor's saved Markdown interpretation. */
 import type { DocumentReading } from './documents.js';
-import { queryProjection } from './query-folder.js';
+import { queryProjection } from './read-only-query.js';
 
 /**
  * A stable relation avoids inventing column types from whichever files were

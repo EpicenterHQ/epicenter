@@ -15,22 +15,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary: 'Beeper operation as JSON on stdin',
 	},
 	{
-		path: ['schema', 'export'],
-		args: '<dir>',
-		minArgs: 1,
-		maxArgs: 1,
-		summary: "print the folder's declared table schemas as JSON",
-	},
-	{
-		path: ['schema', 'import'],
-		args: '<dir> <file|->',
-		minArgs: 2,
-		maxArgs: 2,
-		options: [{ name: 'replace' }],
-		summary:
-			'import every source table schema, preserving the rest of epicenter.json',
-	},
-	{
 		path: ['documents-query'],
 		args: '<dir>',
 		minArgs: 1,
@@ -81,14 +65,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 1,
 		maxArgs: 2,
 		summary: "rewrite every note an app's contract claims in house style",
-	},
-	{
-		path: ['query'],
-		args: '<dir> [<sql>]',
-		minArgs: 1,
-		maxArgs: 2,
-		summary:
-			'describe the tables, or answer one read-only SQL statement over the files that conform',
 	},
 	{
 		path: ['init'],

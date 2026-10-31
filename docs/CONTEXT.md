@@ -55,11 +55,10 @@ and hosted Todos share `so.epicenter.todos`; Epicenter's records use
 or explicitly chosen directory is refused. There is no first-use path selection
 or independently configurable app home (ADR-0672).
 
-AppData's machine-local `bookmarks.json` stores a JSON array of folder paths.
-`epicenter folders add|list|forget` edits that list under the same save lock as
-desktop. Earlier `folders.json` selections and shortcuts are not read or
-migrated. Scanned library children need no bookmark. Forgetting removes no data
-and changes no Git remote or live editor.
+AppData's machine-local `navigation.sqlite` stores pinned and recently opened
+folder paths. `epicenter folders pin|unpin|list|remove-recent` edits it in the
+same SQLite transactions as desktop. Scanned library children need no pin.
+Unpinning removes no data and changes no Git remote or live editor.
 A CLI `open <directory>` command remains unbuilt. A data folder's
 `epicenter.json` has the separate portable declaration role described next.
 
@@ -104,10 +103,10 @@ commits unless Git ignores them. The folder's `.gitignore` files travel as
 ordinary content, and native Git also honors machine-specific excludes. Schema
 disagreements retain raw source.
 
-ADR-0648 records optional table schemas, shared saved views, and explicit
-app-schema import. The canonical TypeBox format, whole-table readers,
-section-preserving writers, schema exchange, grid, board, saved-view settings,
-and desktop SQL are implemented. Grid and board configurations name a top-level
+ADR-0648 records optional table schemas and shared saved views. The canonical
+TypeBox format, whole-table readers, grid, board, saved-view settings, and
+desktop SQL are implemented; schema exchange and `epicenter query` are deleted
+(decision 72). Grid and board configurations name a top-level
 directory without requiring a schema. They retain column choices, filters, and
 sort rules. Grid cells and board moves share the editor's existing file edits;
 moving a card edits its grouping field without a separate rank record.
@@ -241,8 +240,8 @@ additional current APIs.
 | `@epicenter/folder` | Public `openFolder`, `Folder`, and `Row.id` across root, `/browser`, `/tauri`, and `/bun`. Apps supply TypeBox row schemas and neither read nor publish a declaration when opening. Older `defineFolder`, `Definition`, and `stem` remain in the Bun CLI tools. |
 | `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser` and `openDevice(contract, { path })` from `/node`, `openRemote(contract, { account })` and `startUploading` from `/remote`, over a contract from `@epicenter/definition/contract`. |
 | `@epicenter/folder` browser engine (`src/browser/`) | Internal `openRepository`, `LocalRepository`, caller-supplied `schemas`, and `Row.id`. It has no package entry point; only `openFolder({ tables })` reaches it. |
-| `@epicenter/folder/declaration` | Canonical portable schema, `SavedView`, `readSavedViews`, and explicit app `exportTables`. The pure `changeSavedView` transform composes into the same declaration file editor used for raw text. |
-| CLI | Implemented commands include `auth`, `folders list|pin|unpin|remove-recent`, `schema export|import`, `check`, `format`, `query`, `init`, `sync`, `clone`, `forget`, `status`, and `repos`. The source-installed `app` command group is removed. External-schema flags and CLI `open` remain deferred. |
+| `@epicenter/folder/declaration` | Canonical portable schema, `SavedView`, and `readSavedViews`. The pure `changeSavedView` transform composes into the same declaration file editor used for raw text. |
+| CLI | Implemented commands include `auth`, `folders list|pin|unpin|remove-recent`, `check`, `format`, `init`, `sync`, `clone`, `forget`, `status`, and `repos`. External-schema flags and CLI `open` remain deferred. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 
 For the full dated inventory and the review's accepted and rejected collapses,

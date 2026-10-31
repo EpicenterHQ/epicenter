@@ -2,10 +2,7 @@
 
 `check` and `format` take an app's contract, as a URL or a file path, and
 read or rewrite a folder against it; a folder holds no `epicenter.json` for
-them. `query` still requires declared table schemas in a legacy root
-`epicenter.json`, and `schema export` and `schema import` exchange those
-schemas explicitly. See [portable declarations](../folder/README.md#helpers)
-and [shared vocabulary](../../docs/CONTEXT.md).
+them. See [shared vocabulary](../../docs/CONTEXT.md).
 
 The `epicenter` command. Each command is a thin wrapper over a function in a
 shared package; the CLI parses, prints, and picks the exit code, and holds no
@@ -16,7 +13,6 @@ is deleted. ADR-0611 describes the planned reduction.
 
 ```sh
 bun run epicenter check path/to/contract.json path/to/folder   # from the repository root
-bun packages/cli/src/bin.ts query path/to/folder 'SELECT stem FROM posts'
 ```
 
 `init`, `clone`, `sync`, `status`, and `forget` keep a data folder's history
@@ -40,12 +36,9 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter folders unpin <directory>` | built | Remove a pin without changing files |
 | `epicenter folders list` | built | Pinned and recent paths and their availability |
 | `epicenter folders remove-recent <directory>` | built | Remove a recent entry without changing files |
-| `epicenter schema export <dir>` | built | Export the declared `tables` as JSON |
-| `epicenter schema import <dir> <file\|-> [--replace]` | built | Import all tables from the source, preserving unrelated sections |
 | `epicenter documents-query <dir>` | built, hidden | Desktop saved-document SQL; statement on stdin |
 | `epicenter check <contract> [<dir>]` | built | `checkFiles` in `@epicenter/folder/node` |
 | `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
-| `epicenter query <dir> [<sql>]` | built | `checkFolder`, `queryFolder`, `describeTables` |
 | `epicenter init [<dir>] [--enclosing-ok]` | built | `src/sync/setup.ts` |
 | `epicenter sync [<dir>] [--watch]` | built | `src/sync/sync.ts` |
 | `epicenter status [<dir>]` | built | `src/sync/status.ts` |
@@ -70,28 +63,8 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 `merge-driver`, `sync --interval`, and `--desktop` are left out of `--help`:
 the desktop app or Git runs them.
 
-The source installer, the `app` group, is deleted, with no alias: Epicenter
-bundles its apps. Clones an earlier build installed under `apps/` in the data
-directory, and builds under `builds/` in the cache directory, are left on
-disk, never read and never removed.
-
-## Exchange schemas
-
-```sh
-epicenter schema export SOURCE_FOLDER > app-schema.json
-epicenter schema import TARGET_FOLDER app-schema.json
-```
-
-Replace `SOURCE_FOLDER` and `TARGET_FOLDER` with existing directory paths.
-Import changes only the source document's table entries. A conflicting table
-requires `--replace`; case-colliding table names are refused. Use `-` as the
-source to read JSON from stdin. Neither operation executes folder code.
-Generation also preserves views and editor hints on every conditional write
-attempt.
-
-The hidden desktop SQL operation uses the generic document reader and the
-`documents` relation. Public `query` retains its declared, conforming-row table
-projection. Both use the same read-only SQLite executor.
+The hidden desktop SQL operation, `documents-query`, reads the generic
+`documents` relation through one read-only SQLite executor.
 
 ## Folder locations on this computer
 
@@ -126,12 +99,8 @@ to 20 entries.
 An absent database means empty lists and a read creates nothing. Native and
 CLI writes serialize through SQLite transactions; a read sees one consistent
 snapshot. Foreign, future, corrupt, or non-DELETE-journal databases are
-refused without replacement. The launcher observes committed CLI writes. Each
-folders command discards obsolete `bookmarks.json` metadata under its old save
-lock without parsing it, following a symlink, or touching a folder it named.
-A directory at that name is reported and left alone. The earlier `folders.json`
-and app-scoped device storage are separate and untouched. Stray
-`navigation.json` files are ignored. Navigation stays local to this machine.
+refused without replacement. The launcher observes committed CLI writes.
+Navigation stays local to this machine.
 
 ## Hosted repositories
 
@@ -324,8 +293,8 @@ and both audiences. Each refresh names one audience, and the server narrows
 that access token to the audience's scopes while the grant keeps all of
 them. `auth login` then caches an API token and reads who approved the grant
 from the server's userinfo, which `auth status` reports without a network
-request. A first status read upgrades a legacy desktop grant with a random
-generation under the grant lock; token refresh keeps it unchanged. The device
+request. Each sign-in records a random generation; token refresh keeps it
+unchanged. The device
 login also sets, in Git's global configuration, an empty
 `credential.<git audience>.helper` and then `!'<home>/.local/bin/epicenter'
 auth git-credential`, so no broader helper is asked to store the token. Only
@@ -395,7 +364,6 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/cli.ts` | `runCli`: help, version, and dispatch to the built commands. |
 | `src/commands.ts` | Every command, with its usage. |
 | `src/parse.ts` | The hand-written parser. |
-| `src/folder-commands.ts` | `query`, printing what `@epicenter/folder/bun` returns. |
 | `src/contract-commands.ts` | `check` and `format` against an app's contract, over `@epicenter/folder/node`. |
 | `src/sync/` | `init`, `sync`, `status`, `clone`, `forget`, and the merge driver, over the system `git`. |
 | `src/install-command.ts` | `install-command`: the one link Git's configuration runs. |

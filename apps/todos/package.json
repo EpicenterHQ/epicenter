@@ -8,7 +8,6 @@
 		"./definition": "./src/lib/definition.ts"
 	},
 	"scripts": {
-		"schema:export": "bun scripts/export-schema.ts",
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
 		"dev:desktop": "bun run build:host && tauri dev --config src-tauri/tauri.dev.conf.json",

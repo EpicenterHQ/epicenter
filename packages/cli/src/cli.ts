@@ -28,18 +28,6 @@ type Run = (
  */
 const HANDLERS: Record<string, Run> = {
 	messages: async () => (await import('./messages.js')).messagesCommand(),
-	'schema export': async ({ positionals: [directory], json }) =>
-		(await import('./schema-commands.ts')).exportSchemas(
-			directory as string,
-			json,
-		),
-	'schema import': async ({ positionals: [directory, input], options, json }) =>
-		(await import('./schema-commands.ts')).importSchemas(
-			directory as string,
-			input as string,
-			options.replace === true,
-			json,
-		),
 	'documents-query': async ({ positionals: [directory], json }) =>
 		(await import('./document-commands.ts')).documentsQuery(
 			directory as string,
@@ -69,8 +57,6 @@ const HANDLERS: Record<string, Run> = {
 			dir ?? '.',
 			json,
 		),
-	query: async ({ positionals: [dir, sql], json }) =>
-		(await import('./folder-commands.ts')).query(dir as string, sql, json),
 	init: async ({ positionals: [dir], options, json, grant }) =>
 		(await import('./sync/commands.ts')).initCommand(dir, options, json, grant),
 	sync: async ({ positionals: [dir], options, json, grant }) =>
@@ -174,12 +160,6 @@ block YAML, the body untouched. A note whose front matter does not parse is
 left as it is and named. Each note is replaced only while it still holds the
 bytes read. Exits 0 when every note is in house style, 1 when one was left as
 it is, and 2 when the contract or the folder cannot be used.`,
-	query: `Without a statement, describes each table's columns and what they hold.
-With one, runs that single read-only statement (SELECT, WITH, VALUES, or
-EXPLAIN) over the files that conform and prints tab-separated rows. A file
-that does not conform is left out of every table and named on stderr (in
-"excluded" with --json). Exits 0 when it answers and 2 when
-the folder, the definition, or the statement cannot be used.`,
 	'auth key': `Keeps an AI connection's endpoint and key in this computer's keychain,
 under the connection's id, the stem of its row in so.epicenter/connections
 (ADR-0557). set reads {"endpoint": "<url>", "key": "<key>"} as JSON on
@@ -257,14 +237,6 @@ syncs again after each change and every 30 seconds until stopped. With
 folder synced, 1 when a round should run again (a lock, the network), and 2
 when a folder stopped for a person (a rewritten remote, a merge Epicenter does
 not settle, a folder init did not set up).`,
-	'schema export': `Prints one JSON document containing only the declared tables from
-<dir>/epicenter.json. It executes no code and changes no files. The exported
-copy can be imported into another folder. Output is JSON with or without --json.`,
-	'schema import': `Reads a JSON document with a tables section from <file>, or stdin for -.
-Imports those tables into <dir>/epicenter.json, creating the file when absent.
-Preserves other tables, saved views, title, local rules, and editor schema hints.
-A different existing table schema requires --replace. Invalid or duplicate-key
-JSON remains unchanged. Opening or updating an app never imports its schema.`,
 };
 
 const name = (command: CommandSpec) => command.path.join(' ');
@@ -278,7 +250,6 @@ function helpText(group?: string) {
 		`  ${usageLine(c).padEnd(width)}  ${c.summary}`;
 	const folder = visible.filter((c) => c.path.length === 1);
 	const folders = visible.filter((c) => c.path[0] === 'folders');
-	const schema = visible.filter((c) => c.path[0] === 'schema');
 	const auth = visible.filter((c) => c.path[0] === 'auth');
 	return [
 		`Usage: epicenter ${group ?? '<command>'} ... [--json]`,
@@ -287,9 +258,6 @@ function helpText(group?: string) {
 			: []),
 		...(folders.length
 			? ['', 'Folders on this computer:', ...folders.map(line)]
-			: []),
-		...(schema.length
-			? ['', 'Portable table schemas:', ...schema.map(line)]
 			: []),
 		...(auth.length ? ['', 'Your Epicenter account:', ...auth.map(line)] : []),
 		'',
