@@ -9,7 +9,6 @@ license = "AGPL-3.0-or-later"
 publish = false
 links = "tauri-plugin-epicenter-recorder"
 
-[workspace]
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
@@ -41,12 +40,3 @@ objc2-av-foundation = { version = "0.3.2", default-features = false, features = 
 tempfile = "3.8"
 # The mock runtime drives the real invoke handler in tests. Test builds only.
 tauri = { version = "2.12", features = ["test"] }
-
-# The same pins as apps/epicenter/src-tauri/Cargo.toml. They apply when this
-# crate is built on its own; a shell that depends on it carries its own copy.
-[patch.crates-io]
-specta = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-macros = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-serde = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-typescript = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-util = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
