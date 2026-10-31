@@ -118,60 +118,90 @@ export async function sync(stack: Stack, person: Person, folder: string) {
 /**
  * Every file in the page origin's OPFS but the device's staging area, by
  * path, as sha256. A file the page moves or removes during the walk is not
- * listed.
+ * listed; a file a write lands on while it is read is read again.
  */
 export function opfsFiles(page: Page): Promise<Record<string, string>> {
-	return page.evaluate(async () => {
-		type Directory = {
-			entries(): AsyncIterable<
-				[string, { kind: 'file' | 'directory' } & FileSystemHandle]
-			>;
-		};
-		const files: Record<string, string> = {};
-		/**
-		 * Whether `cause` says an entry went while it was being read: the
-		 * page's own writes move and remove files. WebKit names a file
-		 * removed during its read `NotReadableError`.
-		 */
-		const went = (cause: unknown) =>
-			cause instanceof DOMException &&
-			(cause.name === 'NotFoundError' || cause.name === 'NotReadableError');
-		async function walk(directory: Directory, prefix: string) {
-			try {
-				for await (const [name, handle] of directory.entries()) {
-					const path = `${prefix}${name}`;
-					if (handle.kind === 'directory') {
-						await walk(handle as unknown as Directory, `${path}/`);
-						continue;
-					}
-					try {
-						const file = await (handle as FileSystemFileHandle).getFile();
-						const digest = await crypto.subtle.digest(
-							'SHA-256',
-							await file.arrayBuffer(),
-						);
-						files[path] = [...new Uint8Array(digest)]
-							.map((byte) => byte.toString(16).padStart(2, '0'))
-							.join('');
-					} catch (cause) {
-						if (!went(cause)) throw cause;
-					}
-				}
-			} catch (cause) {
-				if (!went(cause)) throw cause;
-			}
-		}
-		await walk(
-			(await navigator.storage.getDirectory()) as unknown as Directory,
-			'',
-		);
-		for (const path of Object.keys(files))
-			if (path.startsWith('.epicenter/staging/')) delete files[path];
-		return files;
-	});
+	return page.evaluate(digestTree, undefined);
 }
 
-/** The text of the file at `path` in the page origin's OPFS, or null when there is none. */
+/**
+ * Every file under `root` (the origin's OPFS when omitted) but the device's
+ * staging area, by path, as sha256: `opfsFiles` in the page.
+ *
+ * The page's own writes run beside the walk. A file that went between being
+ * named and being read is left out. A file a write landed on between taking
+ * it and reading its bytes is still there, and is read again: Chromium says
+ * `NotReadableError` for that and WebKit `NotFoundError`, the same names
+ * either engine gives a file that went, so only a look at the directory
+ * tells them apart (the device's own `read` does the same).
+ *
+ * Self-contained, so Playwright can send it to the page: it names nothing
+ * outside itself.
+ */
+export async function digestTree(
+	root?: FileSystemDirectoryHandle,
+): Promise<Record<string, string>> {
+	type Directory = FileSystemDirectoryHandle & {
+		entries(): AsyncIterable<[string, FileSystemHandle]>;
+	};
+	const files: Record<string, string> = {};
+	/** What a read says when its file changed or went under it. */
+	const unsettled = (cause: unknown) =>
+		cause instanceof DOMException &&
+		(cause.name === 'NotFoundError' || cause.name === 'NotReadableError');
+	/** The sha256 of `name` in `directory`, or undefined when it went. */
+	async function digestOf(directory: Directory, name: string) {
+		for (let attempt = 1; ; attempt++) {
+			try {
+				const file = await (await directory.getFileHandle(name)).getFile();
+				const digest = await crypto.subtle.digest(
+					'SHA-256',
+					await file.arrayBuffer(),
+				);
+				return [...new Uint8Array(digest)]
+					.map((byte) => byte.toString(16).padStart(2, '0'))
+					.join('');
+			} catch (cause) {
+				if (!unsettled(cause)) throw cause;
+				const there = await directory.getFileHandle(name).then(
+					() => true,
+					() => false,
+				);
+				if (!there) return undefined;
+				if (attempt === 5) throw cause;
+			}
+		}
+	}
+	async function walk(directory: Directory, prefix: string) {
+		try {
+			for await (const [name, handle] of directory.entries()) {
+				const path = `${prefix}${name}`;
+				if (handle.kind === 'directory') {
+					await walk(handle as Directory, `${path}/`);
+					continue;
+				}
+				const digest = await digestOf(directory, name);
+				if (digest !== undefined) files[path] = digest;
+			}
+		} catch (cause) {
+			// The directory itself went (its last file moved or was deleted).
+			if (!unsettled(cause)) throw cause;
+		}
+	}
+	await walk(
+		(root ?? (await navigator.storage.getDirectory())) as Directory,
+		'',
+	);
+	for (const path of Object.keys(files))
+		if (path.startsWith('.epicenter/staging/')) delete files[path];
+	return files;
+}
+
+/**
+ * The text of the file at `path` in the page origin's OPFS, or null when
+ * there is none. A file a write lands on while it is read is read again,
+ * as in `digestTree`.
+ */
 export function opfsText(page: Page, path: string): Promise<string | null> {
 	return page.evaluate(async (path) => {
 		let directory = await navigator.storage.getDirectory();
@@ -180,11 +210,22 @@ export function opfsText(page: Page, path: string): Promise<string | null> {
 		try {
 			for (const segment of segments)
 				directory = await directory.getDirectoryHandle(segment);
-			return await (await directory.getFileHandle(name))
-				.getFile()
-				.then((file) => file.text());
 		} catch {
 			return null;
+		}
+		for (let attempt = 1; ; attempt++) {
+			try {
+				return await (await directory.getFileHandle(name))
+					.getFile()
+					.then((file) => file.text());
+			} catch (cause) {
+				const there = await directory.getFileHandle(name).then(
+					() => true,
+					() => false,
+				);
+				if (!there) return null;
+				if (attempt === 5) throw cause;
+			}
 		}
 	}, path);
 }
