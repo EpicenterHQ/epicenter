@@ -39,7 +39,7 @@
  * - `field.optional` makes a field absentable; `field.nullable` over an
  *   optional schema throws
  * - A `settings` table prepares like any other: a published declaration that
- *   requires a setting is read as written (only `defineFolder` refuses one)
+ *   requires a setting is read as written
  * - A native `default` annotation is admitted and inert: it fills nothing, and
  *   a missing required field is still an issue
  * - A frozen declared schema is prepared with every check it had

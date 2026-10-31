@@ -71,7 +71,6 @@ mock.module('@tauri-apps/api/app', () => ({
 }));
 
 const {
-	chooseFolder,
 	openAppData,
 	openDataFolder,
 	openDevice,
@@ -79,6 +78,7 @@ const {
 	rememberFolder,
 	rootOf,
 } = await import('./tauri.js');
+const { chooseFolder } = await import('./desktop-folder.js');
 
 const notes = defineContract({
 	name: 'notes',

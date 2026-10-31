@@ -18,7 +18,7 @@
  * an empty definition.
  */
 
-import { isOptional, isTableName } from '@epicenter/definition';
+import { isTableName } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	DECLARATION_KEYS,
@@ -28,32 +28,7 @@ import {
 	type SavedView,
 	savedViewProblem,
 } from './declaration-schema.js';
-import type { Definition } from './definition.js';
 import { parseJsonObject } from './json-object.js';
-
-/** The `epicenter.json` text of a prepared definition. */
-export function formatDefinition(definition: Definition): string {
-	const tables: Record<string, unknown> = {};
-	for (const [name, table] of Object.entries(definition.tables))
-		tables[name] = {
-			type: 'object',
-			properties: table.fields,
-			required: Object.keys(table.fields).filter(
-				(key) => !isOptional(table.fields[key]!),
-			),
-			...(table.additionalProperties === false
-				? { additionalProperties: false }
-				: {}),
-		};
-	return `${JSON.stringify(
-		{
-			...(definition.title === undefined ? {} : { title: definition.title }),
-			tables,
-		},
-		null,
-		2,
-	)}\n`;
-}
 
 const TOP_LEVEL_KEYS = DECLARATION_KEYS;
 

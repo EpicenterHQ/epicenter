@@ -192,7 +192,7 @@ command naming a root the page has not opened is `NotGranted`.
 could open, with the same refusals in the same order, and opens, watches and
 makes nothing. The folder picker answers the path the person reached, which
 may pass through a link (`/tmp` is `/private/tmp` on macOS); the page
-remembers the canonical path (`chooseFolder` in `@epicenter/folder/tauri`),
+remembers the canonical path (`pickDataFolder` in `@epicenter/folder/tauri`),
 so a folder is one setting however it was picked.
 
 The page registers one private close channel with `subscribe_close`; it

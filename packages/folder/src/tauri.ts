@@ -30,7 +30,6 @@ import { tauriHostFiles } from './tauri-files.js';
 
 export * from './contract.js';
 export {
-	chooseFolder,
 	defaultDataFolder,
 	type FolderRequest,
 	type FolderSync,
@@ -38,11 +37,7 @@ export {
 	openDataFolder,
 	pickDataFolder,
 } from './desktop-folder.js';
-export {
-	EpicenterSyncError,
-	syncedWithEpicenter,
-	syncWithEpicenter,
-} from './epicenter-sync.js';
+export { syncedWithEpicenter, syncWithEpicenter } from './epicenter-sync.js';
 export {
 	type FolderSettings,
 	rememberFolder,
@@ -57,7 +52,7 @@ export {
  * a root by its path: the window's own folder, or any folder Tauri's
  * runtime file-system scope allows, which the standalone shell does for the
  * app's default data folder at startup and the folder picker
- * (`chooseFolder`) does for the folder a person picks. `create` makes a
+ * (`pickDataFolder`) does for the folder a person picks. `create` makes a
  * missing root (only a default should be made); otherwise a missing one is
  * `Missing`.
  *

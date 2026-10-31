@@ -250,7 +250,7 @@ function validatorOf(schema: TSchema & object): ReturnType<typeof Compile> {
 	const validator = validators.get(schema);
 	if (validator === undefined)
 		throw new Error(
-			'This schema was not prepared. Read fields from the schema that prepareDefinition or defineFolder returned.',
+			'This schema was not prepared. Read fields from the schema that prepareDefinition returned.',
 		);
 	return validator;
 }

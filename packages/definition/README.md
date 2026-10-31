@@ -154,15 +154,13 @@ What preparation adds is ownership and a validator:
   ordinary entry and a name the schema lacks reads as `undefined`.
 - A table named `settings` (`SETTINGS_TABLE`) holds settings, one row per
   concern, and declares only `field.optional` fields: a setting may always be
-  unset. A required field there is refused with its name; `defineFolder`
-  refuses it in the types too.
+  unset. A required field there is refused with its name.
 - TypeBox's compiled validator for each field is held privately beside it.
   `check` looks it up by the field's identity.
 
 `prepareDefinition` is memoized on the definition object and on the one it
 returns, so preparing a prepared definition returns it. A definition with an
-`id` is malformed. `defineFolder` returns the prepared definition, and the
-folders opened from it read through that snapshot.
+`id` is malformed.
 
 The one read is `check(fields, values, mode)`; see
 [Checking values](#checking-values). A field that was never prepared has no
@@ -174,7 +172,7 @@ silent `false`.
 
 | Package | What it adds |
 | --- | --- |
-| `@epicenter/folder` | `defineFolder`, which prepares a `Definition`. A folder's row body is the file's Markdown text. The opener names the folder. |
+| `@epicenter/folder` | Table schemas for `openFolder`. A folder's row body is the file's Markdown text. The opener names the folder. |
 
 It gets the `defineTable` brand, the `CreateRowOf` type, and `check` over the prepared fields. It does not copy a validator.
 
@@ -376,8 +374,8 @@ and the editor follows the schema.
 
 `prepareDefinition` takes ownership. Every field of every preparation gets its own
 frozen copy and validator, so one declared schema used in two declarations, or
-under two names, is prepared twice: edit it between two `defineFolder` calls
-and the first folder keeps the checks it was defined with while the second
+under two names, is prepared twice: edit it between two `prepareDefinition`
+calls and the first keeps the checks it was defined with while the second
 reads the edit. The author's own schema object is not a prepared field, and
 `check` refuses it.
 

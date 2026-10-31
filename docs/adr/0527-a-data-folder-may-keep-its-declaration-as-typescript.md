@@ -104,5 +104,5 @@ epicenter generate <dir>          write epicenter.json from epicenter.ts
 reporting it unchanged, the `check` line, refusal of a missing source, a
 missing default export, a misspelled key, and a declaration preparation
 refuses, and that `check` and `query` never run `epicenter.ts`.
-`packages/folder/src/definition.test.ts` covers `defineFolder` refusing an
+`86ddc758e5:packages/folder/src/definition.test.ts` covers `defineFolder` refusing an
 unknown key.

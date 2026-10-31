@@ -10,7 +10,6 @@ import type { Fetched, FolderHost, Listed } from './storage.js';
 export { OpenFolderError } from './errors.js';
 export { createFolder } from './folder.js';
 export { ReadError, SaveError } from './shared/errors.js';
-export { WriteRefusal } from './write-refusal.js';
 
 const encoder = new TextEncoder();
 

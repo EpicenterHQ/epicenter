@@ -116,25 +116,6 @@ export function pathProblem(path: string): string | undefined {
 	return undefined;
 }
 
-export function basename(path: string): string {
-	const slash = path.lastIndexOf('/');
-	return slash < 0 ? path : path.slice(slash + 1);
-}
-
-export function dirname(path: string): string {
-	const slash = path.lastIndexOf('/');
-	return slash < 0 ? '' : path.slice(0, slash);
-}
-
-/** Every proper ancestor directory of a path, nearest last. */
-export function ancestors(path: string): string[] {
-	const parts = path.split('/');
-	const result: string[] = [];
-	for (let index = 1; index < parts.length; index++)
-		result.push(parts.slice(0, index).join('/'));
-	return result;
-}
-
 export const ROW_EXTENSION = '.md';
 
 /**
@@ -182,9 +163,6 @@ export function collisionKey(path: string): string {
 		.toLowerCase()
 		.normalize('NFC');
 }
-
-/** Where an opened folder publishes its declaration (ADR-0517). */
-export const DEFINITION_PATH = 'epicenter.json';
 
 /**
  * Why `tables` cannot be opened: the first name that is not one top-level

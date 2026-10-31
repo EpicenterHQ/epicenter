@@ -246,10 +246,9 @@ additional current APIs.
 
 | Source | Names and current behavior |
 | --- | --- |
-| `@epicenter/folder` | Public `openFolder`, `Folder`, and `Row.id` across root, `/browser`, `/tauri`, and `/bun`. Apps supply TypeBox row schemas and neither read nor publish a declaration when opening. Older `defineFolder`, `Definition`, and `stem` remain in the Bun CLI tools. |
+| `@epicenter/folder` | Public `openFolder` from `/tauri` and `/bun`, with `Folder` and `Row.id` from every entry. Apps supply TypeBox row schemas and neither read nor publish a declaration when opening. |
 | `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser`, `openDevice(contract, { path })` from `/node`, `openDevice(contract, { path? })` from `/tauri`, and `openRemote(contract, { account })` from `/remote`, over a contract from `@epicenter/definition/contract`. |
-| `@epicenter/folder` browser engine (`src/browser/`) | Internal `openRepository`, `LocalRepository`, caller-supplied `schemas`, and `Row.id`. It has no package entry point; only `openFolder({ tables })` reaches it. |
-| `@epicenter/folder/declaration` | Canonical portable schema, `SavedView`, and `readSavedViews`. The pure `changeSavedView` transform composes into the same declaration file editor used for raw text. |
+| `@epicenter/folder/declaration` | `SavedView`, `readSavedViews`, and the portable schema types. The pure `changeSavedView` transform composes into the same declaration file editor used for raw text. |
 | CLI | Implemented commands include `auth`, `check`, `format`, `init`, `sync`, `clone`, `forget`, `status`, `repos`, `share`, and `unshare`. External-schema flags and CLI `open` remain deferred. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 
