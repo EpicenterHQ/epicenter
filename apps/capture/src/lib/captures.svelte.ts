@@ -1,14 +1,13 @@
 /**
- * What Capture's views do with its list: the timeline, which capture is
- * open and how, Add, and deletion.
+ * What one of Capture's views does with its list: the timeline, which
+ * capture is open and how, Add, and deletion.
  *
- * The list is this browser's captures signed out and, signed in, `oneList`
- * over them and the person's `capture` repository (decision 12): the
- * captures still in the browser ("not uploaded yet") and the repository's.
- * The timeline shows them newest first. Signed in, a new capture is still
- * written to the browser first and recorded to upload (`createOn: 'device'`),
- * so Add never waits on the server and works offline; the uploader moves
- * it, and an edit made meanwhile follows.
+ * Capture has two views (decision 76), each over one client's captures:
+ * "On this device" over this browser's files, "Synced" over the person's
+ * `capture` repository. Add writes to the view's own client, so on this
+ * device it never waits on the server and works offline; signed in, the
+ * uploader then moves the capture to the repository, where "Synced" shows
+ * it. The timeline shows the list newest first.
  */
 import {
 	type CaptureNote,
@@ -26,13 +25,15 @@ import {
 	noteText,
 } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import type { NoteList, Side } from '@epicenter/svelte/client';
+import type { ReactiveNotes } from '@epicenter/svelte/client';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { TextRange } from './capture-actions.svelte.js';
 
-/** The captures the views read: this browser's signed out, the one list signed in. */
-export type CaptureList = NoteList<CaptureNotes>;
+/** Which of Capture's two views a page is: this browser's files, or the repository's. */
+export type View = 'device' | 'synced';
+/** The captures a view reads and edits: that view's client's. */
+export type CaptureList = ReactiveNotes<CaptureNotes>;
 export type Captures = ReturnType<typeof createCaptures>;
 export type Mode = 'capture' | 'text';
 export type Focus = 'new-thought' | TextRange;
@@ -46,7 +47,6 @@ export type TimelineRow = {
 	readonly capturedAt: Date | undefined;
 	readonly preview: string;
 	readonly thoughtCount: number;
-	readonly where: Side;
 };
 /** A capture's file that opens as text: it does not read, or its Thoughts are ambiguous. */
 export type Repair = {
@@ -95,13 +95,11 @@ export const readCaptureBody = (note: Pick<CaptureNote, 'body'>) =>
 
 /**
  * What the timeline shows: captures newest first, files that open as text
- * to repair, and files that are not text. `whereOf` says which side a
- * capture's copy is on.
+ * to repair, and files that are not text.
  */
 export function timelineOf(
 	items: readonly CaptureNote[],
 	invalid: readonly InvalidCapture[],
-	whereOf: (id: string) => Side,
 ) {
 	const rows: TimelineRow[] = [];
 	const repairs: Repair[] = [];
@@ -121,7 +119,6 @@ export function timelineOf(
 			capturedAt: instantOf(note.capturedAt),
 			preview: excerpt(reading.data.text),
 			thoughtCount: reading.data.thoughts.length,
-			where: whereOf(note.id),
 		});
 	}
 	for (const file of invalid) {
@@ -138,25 +135,11 @@ export function timelineOf(
 	return { rows, repairs: repairs.sort(byPath), notText };
 }
 
-/**
- * What the views do with `list`. `uploads` is whether captures in the
- * browser go up to a repository (signed in), so the timeline marks the ones
- * that have not yet.
- */
-export function createCaptures(
-	list: CaptureList,
-	{ uploads }: { uploads: boolean },
-) {
+/** What the view `view` does with `list`, its client's captures. */
+export function createCaptures(list: CaptureList, { view }: { view: View }) {
 	let opened = $state.raw<Opened | undefined>();
 	let navigation = 0;
-	const timeline = $derived(
-		timelineOf(
-			list.items,
-			list.invalid,
-			// Signed out, every capture is in this browser.
-			(id) => list.where?.({ id }) ?? 'device',
-		),
-	);
+	const timeline = $derived(timelineOf(list.items, list.invalid));
 
 	/** Open `id` as asked, unless a later navigation came first; a capture that does not read opens as text. */
 	function go(requested: number, id: string, mode: Mode, focus?: Focus) {
@@ -174,7 +157,7 @@ export function createCaptures(
 
 	return {
 		list,
-		uploads,
+		view,
 		get timeline() {
 			return timeline;
 		},

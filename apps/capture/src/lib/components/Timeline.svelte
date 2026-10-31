@@ -1,12 +1,10 @@
 <!--
-	The timeline: New capture, then every capture newest first, then the
-	files at a capture's path that open as text to repair, and those that are
-	not text. Signed in, a capture still in this browser says so until it is
-	in the repository.
+	The timeline of one view's captures: New capture, then every capture
+	newest first, then the files at a capture's path that open as text to
+	repair, and those that are not text.
 -->
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
@@ -35,7 +33,6 @@
 				size="sm"
 				class="w-full text-left hover:bg-muted"
 				data-id={row.id}
-				data-where={row.where}
 				onclick={() => captures.open(row.id, 'capture')}
 			>
 				<Item.Content>
@@ -49,9 +46,6 @@
 						{#if row.thoughtCount > 0} · {row.thoughtCount} {row.thoughtCount === 1 ? 'thought' : 'thoughts'}{/if}
 					</Item.Description>
 				</Item.Content>
-				{#if captures.uploads && row.where === 'device'}
-					<Item.Actions><Badge variant="outline" class="font-normal text-muted-foreground">Not uploaded yet</Badge></Item.Actions>
-				{/if}
 			</Item.Button>
 		{/each}
 	</Item.Group>
@@ -95,9 +89,9 @@
 {/if}
 
 <footer class="mt-10 border-t pt-4 text-xs text-muted-foreground">
-	{#if captures.uploads}
-		<p>Captures are kept in your Epicenter repository, each as a Markdown file in <code>captures</code>. New ones are written in this browser first and upload on their own.</p>
+	{#if captures.view === 'synced'}
+		<p>These captures are kept in your Epicenter repository, each as a Markdown file in <code>captures</code>.</p>
 	{:else}
-		<p>Captures are kept in this browser, each as a Markdown file in <code>captures</code>. Sign in to keep them in your Epicenter repository.</p>
+		<p>These captures are kept in this browser, each as a Markdown file in <code>captures</code>. Signed in, they upload to your Epicenter repository on their own and are then under Synced.</p>
 	{/if}
 </footer>

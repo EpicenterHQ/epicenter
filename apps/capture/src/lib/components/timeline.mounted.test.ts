@@ -2,7 +2,7 @@
  * Mounted Timeline Tests
  *
  * The real timeline over real device clients: New capture, the files it
- * lists, another writer's change, and the not-uploaded mark.
+ * lists, and another writer's change.
  *
  * Key behaviors:
  * - New capture writes nothing until Add, then opens Add a thought
@@ -10,7 +10,6 @@
  * - A file that does not read is listed to repair, not as a capture
  * - Another writer's change shows without a reload
  * - An Add whose text makes the Thoughts ambiguous opens as text
- * - Signed in, a capture still in this browser says it is not uploaded yet
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -112,25 +111,4 @@ test('an ambiguous Add opens the saved file as text', async () => {
 				?.value.includes('## Thoughts') === true,
 	);
 	expect(h.target.textContent).toContain('Needs repair');
-});
-
-test('signed in, a capture still in this browser says it is not uploaded yet', async () => {
-	const h = await setup(
-		{ 'captures/here.md': `---\ncapturedAt: ${AT}\n---\nHere\n` },
-		{
-			repository: {
-				[PATH]: `---\ncapturedAt: 2026-10-03T00:00:00Z\n---\nThere\n`,
-			},
-		},
-	);
-	await until(() => h.target.querySelectorAll('[data-id]').length === 2);
-	const marked = [...h.target.querySelectorAll('[data-id]')].map((row) => [
-		row.getAttribute('data-id'),
-		row.getAttribute('data-where'),
-		row.textContent?.includes('Not uploaded yet'),
-	]);
-	expect(marked).toEqual([
-		['here', 'device', true],
-		['one', 'repository', false],
-	]);
 });

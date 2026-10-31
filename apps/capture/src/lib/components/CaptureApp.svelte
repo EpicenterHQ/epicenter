@@ -1,9 +1,8 @@
 <!--
-	Capture: a header that says where the captures are and who is signed in,
-	then the timeline or the one open capture. Signed out, the captures are
-	this browser's; signed in (under the signed-in boundary), this browser's
-	and the person's `capture` repository's as one list, and the ones made
-	here count as "not uploaded yet" until they are up.
+	One of Capture's two views (decision 76): a header with the two views,
+	what the open one shows, and the account, then the timeline or the one
+	open capture, over one client's captures: this browser's ("On this
+	device") or the person's `capture` repository's ("Synced").
 -->
 <script lang="ts">
 	import StatusPopover from '@epicenter/svelte/status-popover';
@@ -11,54 +10,44 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
-	import { type Capture, capture } from '@epicenter/capture';
-	import { fromClient, oneList } from '@epicenter/svelte/client';
-	import { getRepo } from '@epicenter/svelte/repo';
+	import { resolve } from '$app/paths';
 	import { webAuth } from '$lib/auth.js';
-	import { type CaptureList, createCaptures } from '$lib/captures.svelte.js';
-	import { device } from '$lib/device.js';
+	import { type CaptureList, createCaptures, type View } from '$lib/captures.svelte.js';
 	import CaptureDetail from './CaptureDetail.svelte';
 	import TextDetail from './TextDetail.svelte';
 	import Timeline from './Timeline.svelte';
 
-	/** Whether this renders under the signed-in boundary, which has the repository. */
-	let { signedIn }: { signedIn: boolean } = $props();
+	let {
+		view,
+		list,
+	}: {
+		/** Which view this is: this browser's captures, or the repository's. */
+		view: View;
+		/** That view's client's captures, which every component under it reads and edits. */
+		list: CaptureList;
+	} = $props();
 
-	// The list and the account stay fixed until this app root unmounts.
+	// A page shows one client's captures for its life.
 	// svelte-ignore state_referenced_locally
-	const list: CaptureList = signedIn
-		? oneList(fromClient(device).captures, fromClient(getRepo<Capture>()).captures, {
-				createOn: 'device',
-			})
-		: fromClient(device).captures;
-	// svelte-ignore state_referenced_locally
-	const captures = createCaptures(list, { uploads: signedIn });
+	const captures = createCaptures(list, { view });
 	const auth = webAuth();
 
 	/** One page: the timeline or the one open capture. */
 	const item = $derived(captures.opened);
-	/** Signed in, the captures made here that have not reached the repository yet. */
-	const waiting = $derived(list.items.filter(({ id }) => list.where?.({ id }) === 'device').length);
 	const status = $derived.by((): StatusLine => {
-		if (list.error !== null)
-			return { label: 'Not readable here', detail: list.error.message, tone: 'error' };
-		if (!signedIn) return { label: 'On this device', tone: 'neutral' };
+		if (view === 'device') {
+			if (list.error !== null)
+				return { label: 'Not readable here', detail: list.error.message, tone: 'error' };
+			return { label: 'On this device', tone: 'neutral' };
+		}
 		if (auth.state.status === 'reauth-required')
 			return {
-				label: 'Uploads paused',
+				label: 'Sign in again',
 				detail: 'Sign in again to upload and to edit your repository.',
 				tone: 'warning',
 			};
-		// New captures still save, to this browser, and upload once it is back.
-		if (list.repositoryError)
-			return {
-				label: 'Offline: new captures wait to upload',
-				short: 'Offline',
-				detail: list.repositoryError.message,
-				tone: 'warning',
-			};
-		if (waiting > 0) return { label: `${waiting} not uploaded yet`, tone: 'busy' };
-		return { label: 'In your repository', tone: 'good' };
+		if (list.error !== null) return { label: 'Offline', detail: list.error.message, tone: 'warning' };
+		return { label: 'Synced', tone: 'good' };
 	});
 
 	async function signIn() {
@@ -74,15 +63,36 @@
 
 <header class="border-b">
 	<div class="mx-auto flex h-12 max-w-3xl items-center gap-2 px-4 sm:px-6">
-		<Button variant="ghost" size="sm" class="-ml-2.5" onclick={() => captures.leave()}>Capture</Button>
+		<!-- On narrow screens the views say what this is; the width goes to them and status. -->
+		<Button variant="ghost" size="sm" class="-ml-2.5 max-sm:hidden" onclick={() => captures.leave()}>Capture</Button>
+		<nav class="flex items-center gap-1" aria-label="Views">
+			<Button
+				size="sm"
+				variant={view === 'device' ? 'secondary' : 'ghost'}
+				href={resolve('/')}
+				aria-current={view === 'device' ? 'page' : undefined}
+			>
+				On this device
+			</Button>
+			<Button
+				size="sm"
+				variant={view === 'synced' ? 'secondary' : 'ghost'}
+				href={resolve('/synced')}
+				aria-current={view === 'synced' ? 'page' : undefined}
+			>
+				Synced
+			</Button>
+		</nav>
 		<StatusPopover summary={status} details={[{ name: 'Status', testid: 'status-files', line: status }]}>
 			<StatusRow name="Where">
-				<span class="font-medium" data-testid="status-where">{signedIn ? 'Your repository' : 'This browser'}</span>
+				<span class="font-medium" data-testid="status-where">{view === 'synced' ? 'Your repository' : 'This browser'}</span>
 				<span class="mt-0.5 block text-xs text-muted-foreground">
-					{#if signedIn}
-						Your Epicenter repository, capture. Captures made here go to this browser first and upload on their own.
+					{#if view === 'synced'}
+						Your Epicenter repository, capture.
+					{:else if auth.state.status !== 'signed-out'}
+						Kept in this browser until they upload to your repository on their own; then they are under Synced.
 					{:else}
-						Kept in this browser. Sign in to keep them in your Epicenter repository; these upload then.
+						Kept in this browser. Sign in and they upload to your Epicenter repository, under Synced.
 					{/if}
 				</span>
 			</StatusRow>

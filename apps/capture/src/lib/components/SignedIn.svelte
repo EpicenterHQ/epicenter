@@ -1,7 +1,7 @@
 <!--
 	The signed-in boundary: the person's `capture` repository for everything
-	under it (`getRepo`), and the uploader that moves the captures made here
-	into it (decision 12).
+	under it (`getRepo`, read by the "Synced" page), and the uploader that
+	moves every capture in this browser into it (decisions 12 and 76).
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';
@@ -18,7 +18,8 @@
 
 	// svelte-ignore state_referenced_locally
 	const repo = setRepo(openRemote(capture, { account }));
-	// The uploader's writes reach both sides' listeners, so the list follows it.
+	// Each view follows its own client: an uploaded capture leaves this
+	// browser's and appears in the repository's.
 	const uploader = startUploading(device, repo);
 	onDestroy(() => uploader[Symbol.dispose]());
 </script>

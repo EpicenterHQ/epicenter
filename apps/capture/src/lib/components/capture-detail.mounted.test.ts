@@ -17,6 +17,8 @@
  *   elsewhere, each with what can be done
  * - A thought's Edit as text selects its lines, after pending typing lands
  * - Thought moves and deletes refuse a list that changed beneath them
+ * - Deleting a capture asks first, saying whether it can be brought back:
+ *   not on this device, from Git history in "Synced"
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -52,14 +54,18 @@ function submit(form: Element | null | undefined) {
 	if (!(form instanceof HTMLFormElement)) throw new Error('Expected a form');
 	form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 }
-async function setup(files: Record<string, string>, mode: 'capture' | 'text') {
-	const h = await openCaptures(files);
+async function setup(
+	files: Record<string, string>,
+	mode: 'capture' | 'text',
+	view: 'device' | 'synced' = 'device',
+) {
+	const h = await openCaptures(files, { view });
 	h.captures.open('one', mode);
 	const target = document.createElement('main');
 	document.body.replaceChildren(target);
-	const view = mount(ViewHost, { target, props: { captures: h.captures } });
+	const host = mount(ViewHost, { target, props: { captures: h.captures } });
 	cleanup.push(async () => {
-		await unmount(view);
+		await unmount(host);
 		await h.close();
 	});
 	flushSync();
@@ -301,6 +307,20 @@ test('deleting from the text editor with a draft does not recreate the file', as
 	button(document, 'Delete').click();
 	await until(() => h.captures.opened === undefined);
 	expect(await h.text(PATH)).toBeNull();
+});
+
+test('deleting a capture asks first, saying whether it can be brought back', async () => {
+	for (const [view, says] of [
+		['device', 'cannot be brought back'],
+		['synced', 'Its Git history keeps them'],
+	] as const) {
+		const h = await setup({ [PATH]: FILE }, 'text', view);
+		button(h.target, 'Delete…').click();
+		await until(() => document.body.textContent?.includes(says) === true);
+		button(document, 'Cancel').click();
+		flushSync();
+		expect(await h.text(PATH)).toBe(FILE);
+	}
 });
 
 test('a failed delete keeps the file open and reports the failure', async () => {

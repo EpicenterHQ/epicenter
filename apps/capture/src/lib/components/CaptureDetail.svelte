@@ -1,11 +1,10 @@
-<!-- One capture as its text and thoughts. One body edit holds both until each save answers, wherever the capture's copy is. -->
+<!-- One capture as its text and thoughts. One body edit holds both until each save answers. -->
 <script lang="ts">
 	import { captureBody } from '@epicenter/capture';
 	import { describeIssues } from '@epicenter/definition/contract';
 	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
@@ -36,7 +35,7 @@
 	onDestroy(() => {
 		active = false;
 	});
-	/** The capture as shown, wherever its copy is (it may move while this is open). */
+	/** The capture as shown. */
 	const note = $derived(list.get(args));
 	/** The file at this capture's path, when it does not read as a capture. */
 	const broken = $derived(list.invalid.find((file) => file.id === args.id));
@@ -168,7 +167,13 @@
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This capture is no longer here</Empty.Title>
-					<Empty.Description>It was deleted, here, in another tab, or on another device.</Empty.Description>
+					<Empty.Description>
+						{#if captures.view === 'device'}
+							It was deleted, here or in another tab, or it uploaded to your repository and is under Synced.
+						{:else}
+							It was deleted, here, in another tab, or on another device.
+						{/if}
+					</Empty.Description>
 				</Empty.Header>
 			</Empty.Root>
 		{/if}
@@ -182,9 +187,6 @@
 				<time datetime={capturedAt.toISOString()}>{when.format(capturedAt)}</time>
 			{:else}
 				Capture with no date
-			{/if}
-			{#if captures.uploads && note && captures.list.where?.({ id: note.id }) === 'device'}
-				<Badge variant="outline" class="ml-2 align-middle font-normal text-muted-foreground">Not uploaded yet</Badge>
 			{/if}
 		</h1>
 		<Button variant="outline" size="sm" onclick={openText}>Edit as text</Button>

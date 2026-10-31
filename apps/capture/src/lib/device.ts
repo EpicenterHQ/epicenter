@@ -1,8 +1,8 @@
 /**
  * This browser's files for Capture (OPFS, `@epicenter/folder/browser`),
- * opened once for the page and always there (decision 10). A capture is
- * written here first; signed in, the uploader moves it to the person's
- * `capture` repository (decision 12).
+ * opened once for the page and always there (decision 10): the "On this
+ * device" view's client. Signed in, the uploader moves each capture here to
+ * the person's `capture` repository (decisions 12 and 76).
  */
 
 import { capture } from '@epicenter/capture';

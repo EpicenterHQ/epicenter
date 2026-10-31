@@ -1,13 +1,12 @@
 /**
  * Capture Store Tests
  *
- * The store over real device clients (`capture-device.test-support.ts`):
- * Add, the timeline, edits through the one list, navigation, and deletion.
+ * The store over a real device client (`capture-device.test-support.ts`):
+ * Add, the timeline, edits through the list, navigation, and deletion.
  *
  * Key behaviors:
  * - Add writes one finished capture at `captures/<timeId>.md`, in house
- *   style, records it to upload, and opens it at Add a thought
- * - Signed in, Add still writes to this browser first (`createOn: 'device'`)
+ *   style, to the view's own client, and opens it at Add a thought
  * - Blank or failed Add leaves no file
  * - The timeline orders by the instant captured and lists files to repair
  *   and files that are not text
@@ -60,22 +59,10 @@ test('Add writes one finished capture in house style, keeps it in this browser, 
 	expect(await h.text(`captures/${id}.md`)).toBe(
 		`---\ncapturedAt: "${note?.capturedAt}"\n---\n${composeBody('Hello\nworld').body}`,
 	);
-	expect(h.captures.timeline.rows[0]).toMatchObject({ id, where: 'device' });
+	expect(h.captures.timeline.rows[0]?.id).toBe(id);
 	// Signed out nothing is queued: the uploader's first run at sign-in
 	// adopts every capture in this browser that no upload names.
 	expect(expectOk(await outboxOf(h.device).list()).items).toEqual([]);
-});
-
-test('signed in, Add writes to this browser first, marked not uploaded yet', async () => {
-	const h = await open({}, { repository: { [PATH]: HAND } });
-	expect(h.captures.uploads).toBe(true);
-	const { id } = expectOk(await h.captures.create('Quick'));
-	await until(() => h.captures.timeline.rows.length === 2);
-	expect(h.captures.timeline.rows.map(({ id, where }) => [id, where])).toEqual([
-		[id, 'device'],
-		['one', 'repository'],
-	]);
-	expect(await h.repositoryText(`captures/${id}.md`)).toBeNull();
 });
 
 test('blank and failed Add leave no file and keep the timeline empty', async () => {

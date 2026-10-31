@@ -1,7 +1,6 @@
 /**
- * Capture over real device clients (`@epicenter/folder/node`) in temporary
- * directories: one for this browser's files and, when asked, a second that
- * stands in for the person's repository. The device client the list writes
+ * Capture over a real device client (`@epicenter/folder/node`) in a
+ * temporary directory, as one view composes it. The client the list writes
  * through can be made to fail, or to hold its writes until released, the
  * way a full disk or a slow write would.
  *
@@ -21,8 +20,9 @@ import { join } from 'node:path';
 import { type Capture, capture } from '@epicenter/capture';
 import { type Client, ClientError } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
+import type { View } from './captures.svelte.ts';
 
-const { fromClient, oneList } = await import('@epicenter/svelte/client');
+const { fromClient } = await import('@epicenter/svelte/client');
 const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 );
@@ -59,22 +59,15 @@ export async function until(
 }
 
 /**
- * The capture store over a device holding `files` and, with `repository`,
- * a second device holding those files as the repository, as the page
- * composes them: the device's captures signed out, the one list signed in.
- * Writes fail or wait on command signed out; signed in the one list writes
- * through the device client itself, whose outbox it records to.
+ * The capture store of the view `view` over a client holding `files`, as
+ * its page composes it. Writes fail or wait on command.
  */
 export async function openCaptures(
 	files: Files = {},
-	{ repository }: { repository?: Files } = {},
+	{ view = 'device' }: { view?: View } = {},
 ) {
 	const root = await directory(files);
 	const device = openDevice(capture, { path: root });
-	const repositoryRoot = repository ? await directory(repository) : null;
-	const remote = repositoryRoot
-		? openDevice(capture, { path: repositoryRoot })
-		: null;
 
 	let failing: string | null = null;
 	let gate: Promise<void> | null = null;
@@ -98,12 +91,8 @@ export async function openCaptures(
 		},
 	};
 
-	const list = remote
-		? oneList(fromClient(device).captures, fromClient(remote).captures, {
-				createOn: 'device',
-			})
-		: fromClient(client).captures;
-	const captures = createCaptures(list, { uploads: remote !== null });
+	const list = fromClient(client).captures;
+	const captures = createCaptures(list, { view });
 	// Read the list in an effect, as the views do, so it lists and listens.
 	const watching = follow(() => [list.items, list.invalid, list.loading]);
 	await until(() => !list.loading);
@@ -115,11 +104,6 @@ export async function openCaptures(
 		/** The text at `path` on the device, or null. */
 		text: (path: string) =>
 			readFile(join(root, path), 'utf8').catch(() => null),
-		/** The text at `path` in the repository, or null. */
-		repositoryText: (path: string) =>
-			repositoryRoot
-				? readFile(join(repositoryRoot, path), 'utf8').catch(() => null)
-				: Promise.resolve(null),
 		/** Write `path` on the device as another tab or program would. */
 		writeElsewhere: (path: string, text: string) => put(root, path, text),
 		/** Delete `path` on the device as another tab or program would. */
@@ -145,8 +129,6 @@ export async function openCaptures(
 		async close() {
 			watching.stop();
 			await rm(root, { recursive: true, force: true });
-			if (repositoryRoot)
-				await rm(repositoryRoot, { recursive: true, force: true });
 		},
 	};
 }

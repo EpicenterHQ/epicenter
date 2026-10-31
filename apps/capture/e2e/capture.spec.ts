@@ -2,23 +2,28 @@
  * Capture end to end, per engine, as one person in one persistent browser
  * profile with a desktop sandbox beside it (see `stack.ts`):
  *
- * 1. Signed out, captures are added (opening at Add a thought), given
- *    thoughts, edited and deleted in the browser (OPFS), as Markdown notes
- *    at `captures/<id>.md`, and are still there after a reload.
- * 2. Signed in, they upload on their own and the browser lets go of them; a
- *    capture added signed in opens at once and uploads behind it.
- * 3. With the server unreachable, a new capture and a thought added to it
- *    wait in the browser under a warning, and upload once it is back.
- * 4. `epicenter clone` holds them byte for byte, and `epicenter check`
+ * Capture has two views (decision 76): "On this device" (`/`), this
+ * browser's files, and "Synced" (`/synced`), the person's repository.
+ *
+ * 1. Signed out, captures are added on this device (opening at Add a
+ *    thought), given thoughts, edited and deleted in the browser (OPFS), as
+ *    Markdown notes at `captures/<id>.md`, and are still there after a
+ *    reload; "Synced" asks for a sign-in.
+ * 2. Signed in, they upload on their own: each leaves "On this device" and
+ *    the browser's files, and appears in "Synced". One added on this device
+ *    while signed in follows; one added in "Synced", and a thought added
+ *    there, go to the repository.
+ * 3. `epicenter clone` holds them byte for byte, and `epicenter check`
  *    passes against the published contract.
- * 5. A thought added on the desktop and synced shows in the open capture
- *    with no reload; a thought added on the web reaches the desktop.
- * 6. A note the desktop wrote that does not read as a capture is listed with
- *    its text; Save refuses a fix that still does not fit and repairs it
- *    with one that does.
- * 7. Signing out leaves this browser with no captures.
- * 8. (Chromium) The page opens with no network, through its service worker,
- *    and a capture added then waits in the browser.
+ * 4. A thought added on the desktop and synced shows in the capture open in
+ *    "Synced" with no reload; a thought added there reaches the desktop.
+ * 5. A note the desktop wrote that does not read as a capture is listed in
+ *    "Synced" with its text; Save refuses a fix that still does not fit and
+ *    repairs it with one that does.
+ * 6. Signing out leaves this browser with no captures, and "Synced" asks for
+ *    a sign-in again.
+ * 7. (Chromium) The page opens with no network, through its service worker,
+ *    and a capture added then is kept in the browser.
  */
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -29,8 +34,10 @@ import {
 	epicenter,
 	opfsFiles,
 	opfsText,
+	recordUploaderStarts,
 	stackTest,
 	sync,
+	uploaderStarts,
 } from '../../../packages/cli/src/app-e2e.test-support.ts';
 
 const test = stackTest('CAPTURE_E2E_STATE');
@@ -44,7 +51,7 @@ let page: Page;
 /** What the first steps learn, for the later ones. */
 let milk: string;
 let milkFile: string;
-let offline: string;
+let train: string;
 let clone: string;
 
 test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
@@ -53,8 +60,8 @@ test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 	context = await playwright[browserName].launchPersistentContext(profile, {
 		...launchOptions,
 		viewport: { width: 1280, height: 800 },
-		// Routing (step 3) does not see the requests of a page a service
-		// worker controls; step 8 opens offline in a context of its own.
+		// The steps here run without the service worker; step 7 opens
+		// offline in a context of its own.
 		serviceWorkers: 'block',
 	});
 	page = context.pages()[0] ?? (await context.newPage());
@@ -65,6 +72,8 @@ test.afterAll(async () => {
 	if (profile) await rm(profile, { recursive: true, force: true });
 });
 
+const views = () => page.getByRole('navigation', { name: 'Views' });
+const status = () => page.getByTestId('status-summary');
 const rows = () => page.locator('[data-id]');
 const row = (id: string) => page.locator(`[data-id="${id}"]`);
 const back = () =>
@@ -114,8 +123,11 @@ test('1. signed out, captures are added, given thoughts, edited and deleted in t
 	await emptyOpfs(page);
 	await page.goto(`${stack.app}/`);
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+	await expect(
+		views().getByRole('link', { name: 'On this device' }),
+	).toHaveAttribute('aria-current', 'page');
 	await expect(page.getByText('No captures yet')).toBeVisible();
-	await expect(page.getByTestId('status-summary')).toHaveAttribute(
+	await expect(status()).toHaveAttribute(
 		'aria-label',
 		/^Status: On this device\./,
 	);
@@ -173,64 +185,76 @@ test('1. signed out, captures are added, given thoughts, edited and deleted in t
 	await page.reload();
 	await expect(row(milk)).toContainText('Buy oat milk, unsweetened');
 	await expect(row(milk)).toContainText('2 thoughts');
+
+	// "Synced" is the repository's, which needs a sign-in.
+	await views().getByRole('link', { name: 'Synced' }).click();
+	await expect(
+		page.getByText('Sign in to see the captures in your Epicenter repository.'),
+	).toBeVisible();
+	await page.getByRole('link', { name: 'On this device' }).click();
+	await expect(rows()).toHaveCount(1);
 });
 
-test('2. signed in, the captures upload and leave the browser, and a new one opens at once and uploads behind it', async ({
+test('2. signed in, the captures upload: each leaves this device and appears in Synced', async ({
 	stack,
 	person,
 }) => {
 	// A signed-in session on the API; the real authorization redirect does the rest.
+	await recordUploaderStarts(context);
 	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
 	await page.getByRole('button', { name: 'Sign in' }).click();
 	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+	// The callback page only finishes sign-in: no repository, no uploader.
+	const uploaders = await uploaderStarts(page);
+	expect(uploaders.length).toBeGreaterThan(0);
+	expect(uploaders.filter((path) => path.includes('/auth/callback'))).toEqual(
+		[],
+	);
 
-	await expect(row(milk)).toHaveAttribute('data-where', 'repository');
-	await expect(page.getByText('Not uploaded yet')).toHaveCount(0);
-	// The browser let go of every capture and of the outbox: the repository has them.
+	// The uploader moves them: this device's view and files empty.
+	await expect(row(milk)).toHaveCount(0);
+	await expect(page.getByText('No captures yet')).toBeVisible();
 	await expect.poll(() => opfsFiles(page)).toEqual({});
 
-	const bakery = await add('Call the bakery');
-	await expect(row(bakery)).toHaveAttribute('data-where', 'repository');
+	// One added on this device while signed in follows on its own: it opens,
+	// then leaves this device for the repository.
+	await page
+		.getByLabel('New capture', { exact: true })
+		.fill('Idea on the train');
+	await page
+		.getByLabel('New capture', { exact: true })
+		.press('ControlOrMeta+Enter');
+	await expect(
+		page.getByText('it uploaded to your repository and is under Synced'),
+	).toBeVisible();
 	await expect.poll(() => opfsFiles(page)).toEqual({});
-	await expect(page.getByTestId('status-summary')).toHaveAttribute(
-		'aria-label',
-		/^Status: In your repository\./,
-	);
-});
+	await back();
+	await expect(rows()).toHaveCount(0);
 
-test('3. offline, a new capture and its thought wait in the browser, and upload once the server is back', async ({
-	stack,
-}) => {
-	// The server cannot be reached, which is all Capture knows of being offline.
-	// (Not `setOffline`: WebKit's emulation of it fails OPFS reads too.)
-	const unreachable = `${stack.origin}/**`;
-	await context.route(unreachable, (route) => route.abort());
-	offline = await add('Idea on the train');
-	await expect(row(offline)).toHaveAttribute('data-where', 'device');
-	await expect(row(offline)).toContainText('Not uploaded yet');
-	await expect(page.getByTestId('status-summary')).toHaveAttribute(
-		'aria-label',
-		/^Status: Offline: new captures wait to upload\./,
+	await views().getByRole('link', { name: 'Synced' }).click();
+	await expect(views().getByRole('link', { name: 'Synced' })).toHaveAttribute(
+		'aria-current',
+		'page',
 	);
-	await row(offline).click();
-	await addThought('Still works offline');
-	await expect
-		.poll(() => opfsText(page, `captures/${offline}.md`))
-		.toContain('- Still works offline');
+	await expect(status()).toHaveAttribute('aria-label', /^Status: Synced\./);
+	await expect(row(milk)).toContainText('Buy oat milk, unsweetened');
+	await expect(row(milk)).toContainText('2 thoughts');
+	const trainRow = rows().filter({ hasText: 'Idea on the train' });
+	await expect(trainRow).toHaveCount(1);
+	train = (await trainRow.getAttribute('data-id')) as string;
+
+	// A thought added in "Synced" goes to the repository.
+	await trainRow.click();
+	await addThought('Written in Synced');
 	await back();
 
-	// Back: the browser says so, and the uploader runs.
-	await context.unroute(unreachable);
-	await page.evaluate(() => window.dispatchEvent(new Event('online')));
-	await expect(row(offline)).toHaveAttribute('data-where', 'repository');
-	await expect.poll(() => opfsFiles(page)).toEqual({});
-	await expect(page.getByTestId('status-summary')).toHaveAttribute(
-		'aria-label',
-		/^Status: In your repository\./,
-	);
+	// One added in "Synced" goes to the repository, never this device.
+	await add('Call the bakery');
+	await expect(rows()).toHaveCount(3);
+	expect(await opfsFiles(page)).toEqual({});
 });
 
-test('4. a desktop clone holds the captures as written, and the folder fits the contract', async ({
+test('3. a desktop clone holds the captures as written, and the folder fits the contract', async ({
 	stack,
 	person,
 }) => {
@@ -247,11 +271,11 @@ test('4. a desktop clone holds the captures as written, and the folder fits the 
 	expect(await readFile(join(clone, `captures/${milk}.md`), 'utf8')).toBe(
 		milkFile,
 	);
-	const train = await readFile(join(clone, `captures/${offline}.md`), 'utf8');
-	expect(train).toBe(
+	const trainFile = await readFile(join(clone, `captures/${train}.md`), 'utf8');
+	expect(trainFile).toBe(
 		captureFile(
-			capturedAtOf(train),
-			'\nIdea on the train\n\n## Thoughts\n\n- Still works offline\n',
+			capturedAtOf(trainFile),
+			'\nIdea on the train\n\n## Thoughts\n\n- Written in Synced\n',
 		),
 	);
 
@@ -265,7 +289,7 @@ test('4. a desktop clone holds the captures as written, and the folder fits the 
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('5. a thought added on the desktop shows in the open capture with no reload, and one added on the web reaches the desktop', async ({
+test('4. a thought added on the desktop shows in the capture open in Synced with no reload, and one added there reaches the desktop', async ({
 	stack,
 	person,
 }) => {
@@ -298,7 +322,7 @@ test('5. a thought added on the desktop shows in the open capture with no reload
 	await back();
 });
 
-test('6. a note that does not read as a capture is listed with its text, and repaired on the web', async ({
+test('5. a note that does not read as a capture is listed in Synced with its text, and repaired there', async ({
 	stack,
 	person,
 }) => {
@@ -341,7 +365,7 @@ test('6. a note that does not read as a capture is listed with its text, and rep
 	await expect(page.getByLabel('Capture text')).toHaveValue('Found note');
 	await back();
 	await expect(repair).toHaveCount(0);
-	await expect(row('found')).toHaveAttribute('data-where', 'repository');
+	await expect(row('found')).toContainText('Found note');
 
 	await sync(stack, person, clone);
 	expect(await readFile(join(clone, 'captures/found.md'), 'utf8')).toBe(
@@ -349,20 +373,24 @@ test('6. a note that does not read as a capture is listed with its text, and rep
 	);
 });
 
-test('7. signed out, the browser holds no captures', async () => {
+test('6. signed out, the browser holds no captures, and Synced asks for a sign-in', async () => {
 	await page.getByRole('button', { name: 'Sign out' }).click();
+	await expect(
+		page.getByText('Sign in to see the captures in your Epicenter repository.'),
+	).toBeVisible();
+	await page.getByRole('link', { name: 'On this device' }).click();
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 	await expect(page.getByText('No captures yet')).toBeVisible();
 	expect(await opfsFiles(page)).toEqual({});
 });
 
-test('8. the page opens with no network through its service worker, and a capture waits in the browser', async ({
+test('7. the page opens with no network through its service worker, and a capture is kept in the browser', async ({
 	playwright,
 	browserName,
 	launchOptions,
 	stack,
 }) => {
-	// WebKit's offline emulation also fails OPFS (see step 3).
+	// WebKit's offline emulation also fails OPFS reads.
 	test.skip(browserName !== 'chromium', 'Chromium only');
 	const own = await mkdtemp(join(tmpdir(), `capture-offline-${browserName}-`));
 	const offlineContext = await playwright[browserName].launchPersistentContext(

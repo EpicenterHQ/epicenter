@@ -1,3 +1,7 @@
+<!--
+	Every page of Capture: the chrome only. The views and their signed-in
+	boundary are the `(app)` group's; the sign-in callback is outside it.
+-->
 <script lang="ts">
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
