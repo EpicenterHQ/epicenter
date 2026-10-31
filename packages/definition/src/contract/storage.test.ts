@@ -31,7 +31,7 @@ const PATHS = [
 	'sub/.gitignore',
 	'.DS_Store',
 	'recordings/.DS_Store',
-	'.epicenter/outbox/c1.json',
+	'.trash/c1.json',
 	'recordings/.cache/a.webm',
 	'sub/.trash/a.webm',
 	'.obsidian/workspace.md',

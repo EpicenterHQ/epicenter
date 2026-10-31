@@ -245,10 +245,10 @@ describe('epicenter sync over stock git', () => {
 				`${NOTE}: merge: epicenter`,
 			]);
 
-			// Operating system clutter and the device outbox never travel (decision 58 keeps hidden paths raw, not ignored).
+			// Operating system clutter and Epicenter's own .epicenter/ never travel (decision 58 keeps hidden paths raw, not ignored).
 			write(A, '.DS_Store', new Uint8Array([0, 0, 0, 1, 66, 117, 100, 49]));
 			write(A, 'notes/.DS_Store', new Uint8Array([0, 1, 2]));
-			write(A, '.epicenter/outbox/c1.json', '{"state":"pending"}\n');
+			write(A, '.epicenter/c1.json', '{"state":"pending"}\n');
 			expect(
 				(
 					await quiet(
@@ -256,11 +256,11 @@ describe('epicenter sync over stock git', () => {
 						'check-ignore',
 						'.DS_Store',
 						'notes/.DS_Store',
-						'.epicenter/outbox/c1.json',
+						'.epicenter/c1.json',
 						'.obsidian/workspace.json',
 					)
 				).split('\n'),
-			).toEqual(['.DS_Store', 'notes/.DS_Store', '.epicenter/outbox/c1.json']);
+			).toEqual(['.DS_Store', 'notes/.DS_Store', '.epicenter/c1.json']);
 
 			const pushed = await syncJson(A);
 			expect(pushed.code).toBe(0);

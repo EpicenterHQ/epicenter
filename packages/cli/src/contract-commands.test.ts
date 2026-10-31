@@ -91,7 +91,7 @@ async function setup() {
 
 test('check passes a folder whose files fit, skipping hidden paths', async () => {
 	const { folder, contractPath, write, run } = await setup();
-	await write('.epicenter/outbox/x.json', '{}');
+	await write('.obsidian/workspace.json', '{}');
 	await write('.gitattributes', '* text\n');
 	const result = run('check', contractPath, folder);
 	expect(result).toMatchObject({

@@ -10,7 +10,7 @@
  *
  * 1. A note lands in house style at its contract path, and 5 MB of audio
  *    reads back byte for byte, its version the sha256 of its bytes.
- * 2. A second tab reads the same files and the outbox capture.
+ * 2. A second tab reads the same files.
  * 3. Two tabs racing an update over one version: one lands, one `Conflict`.
  *    Two tabs racing a create of one path: one lands, one `Occupied`. The
  *    Web Lock per path is what serializes them across the tabs' Workers.
@@ -114,22 +114,17 @@ try {
 				seeded.occupied === 'Occupied',
 				`second create: ${seeded.occupied}`,
 			);
-			check(seeded.capture === 'pending', `capture: ${seeded.capture}`);
-			steps.push(
-				'note in house style; 5 MB audio round trip; Occupied; capture pending',
-			);
+			steps.push('note in house style; 5 MB audio round trip; Occupied');
 
 			const b = await page(context);
 			const seen = await b.evaluate(() => deviceSmoke.read('r1'));
 			check(
 				JSON.stringify(seen.notes) ===
 					JSON.stringify([{ id: 'r1', title: 'Standup' }]) &&
-					JSON.stringify(seen.captures) ===
-						JSON.stringify([{ id: 'r1', state: 'pending' }]) &&
 					seen.audioHash === seeded.expectedAudioHash,
 				`second tab read: ${JSON.stringify(seen)}`,
 			);
-			steps.push('second tab reads the same files and capture');
+			steps.push('second tab reads the same files');
 
 			await Promise.all([
 				a.evaluate(() => deviceSmoke.listen()),

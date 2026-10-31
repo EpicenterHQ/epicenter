@@ -159,8 +159,8 @@ async function went(
 
 /**
  * Every file, with its stamp. Writes run beside a listing, so an entry can
- * go between being named and being read (the uploader deletes what it sent
- * while the page lists): it is skipped, as a listing a moment later would
+ * go between being named and being read (another tab deletes it while this
+ * one lists): it is skipped, as a listing a moment later would
  * skip it, rather than failing the whole listing.
  */
 async function list() {

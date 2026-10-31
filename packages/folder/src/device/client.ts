@@ -14,9 +14,9 @@
  * was read is a `Conflict` whose `current` is null.
  *
  * A collection's listeners hear every change that lands through this client
- * (its outbox and cache included) before the write resolves, and the store's
- * outside changes (other tabs, the shell's watcher, other programs) as they
- * come, each only when it touches a path the contract gives the collection.
+ * before the write resolves, and the store's outside changes (other tabs,
+ * the shell's watcher, other programs) as they come, each only when it
+ * touches a path the contract gives the collection.
  */
 import {
 	type Client,
@@ -41,10 +41,20 @@ import {
 	pathOf,
 	type Value,
 } from '../note-codec.js';
-import { registerDevice } from './outbox.js';
 import type { DeviceStore } from './store.js';
 
 const encoder = new TextEncoder();
+
+/** The store under each client `createDeviceClient` made, for `storeOf`. */
+const stores = new WeakMap<object, DeviceStore>();
+
+/** The store under a client `openDevice` returned. */
+export function storeOf(device: object): DeviceStore {
+	const store = stores.get(device);
+	if (store === undefined)
+		throw new Error('expected a client that openDevice returned');
+	return store;
+}
 
 /** The sha256 that is a device version. */
 export const versionOf = async (bytes: Uint8Array) =>
@@ -71,7 +81,7 @@ export function createDeviceClient<TContract extends Contract>(
 				store.watch(forCollection(compiled, collection.name, listener)),
 		};
 	const client = clients as Client<TContract>;
-	registerDevice(client, { compiled, store });
+	stores.set(client, store);
 	return client;
 }
 

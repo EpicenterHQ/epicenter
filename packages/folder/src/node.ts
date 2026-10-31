@@ -9,7 +9,7 @@
  *
  * @example
  * ```ts
- * import { openDevice, outboxOf } from '@epicenter/folder/node';
+ * import { openDevice } from '@epicenter/folder/node';
  *
  * const device = openDevice(recorder, { path: '/Users/me/Recordings' });
  * const note = await device.recordings.create({ id: timeId(), title: 'Standup' });
@@ -19,24 +19,6 @@ import type { Client, Contract } from '@epicenter/definition/contract';
 import { createDeviceClient } from './device/client.js';
 import { checkStore, formatStore } from './device/folder-tools.js';
 import { nodeStore } from './device/node-store.js';
-
-export {
-	CACHE_DIRECTORY,
-	CACHE_LIMIT,
-	type Cache,
-	type CachedFile,
-} from './device/cache.js';
-export {
-	type Capture,
-	cacheOf,
-	type NewFile,
-	type Outbox,
-	OutboxError,
-	type OutboxFile,
-	outboxOf,
-	type Receipt,
-	saveCapture,
-} from './device/outbox.js';
 
 /**
  * The typed client of `contract` over the directory at `path`, made at the

@@ -21,7 +21,7 @@
  * note, or for a file `Occupied` or `Conflict`, since its bytes are not at
  * the path.
  *
- * A collection's listeners hear this client's own writes (its uploads
+ * A collection's listeners hear this client's own writes (a file's bytes
  * included) before they resolve, and, while any listens, every move of
  * `main` by another writer: one poller per client reads `main` every
  * `POLL_MS`, and stops with the last listener or the account. The notify
@@ -76,23 +76,6 @@ const READS_AT_ONCE = 8;
 /** How often a remote with listeners reads `main` to hear that it moved. */
 const POLL_MS = 3000;
 
-/** What a remote client is made of, for this package's uploader. */
-export type RemoteParts = {
-	account: RemoteAccount;
-	compiled: CompiledContract;
-	wire: Wire;
-};
-
-const remotes = new WeakMap<object, RemoteParts>();
-
-/** The parts of a client `openRemote` returned. */
-export function remoteParts(remote: object): RemoteParts {
-	const parts = remotes.get(remote);
-	if (parts === undefined)
-		throw new Error('expected a client that openRemote returned');
-	return parts;
-}
-
 /**
  * The client of `contract` over `repository` (`<owner>/<name>`, by default
  * `~/<contract name>`) as `account` reaches it. A contract that is not well
@@ -125,7 +108,6 @@ export function createRemoteClient<TContract extends Contract>(
 			subscribe: (listener: () => void) =>
 				changes.watch(forCollection(compiled, collection.name, listener)),
 		};
-	remotes.set(clients, { account, compiled, wire });
 	return clients as Client<TContract>;
 }
 

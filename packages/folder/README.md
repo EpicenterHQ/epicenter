@@ -18,9 +18,9 @@ landed storage.
 | Import | Purpose |
 | --- | --- |
 | `@epicenter/folder` | Open this browser origin's default folder or the directory bound to this Tauri window. Apps may alias this exact specifier to one platform entry at build time. |
-| `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, `closeDevice`, and `outboxOf`; and `openFolder`, the fixed IndexedDB folder in a web page, which refuses inside Tauri. |
-| `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), `outboxOf`, and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
-| `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository, and `startUploading(device, remote)`. |
+| `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; and `openFolder`, the fixed IndexedDB folder in a web page, which refuses inside Tauri. |
+| `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
+| `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
 | `@epicenter/folder/tauri` | `openDevice(contract, { path? })` over the directory the shell bound to this window (its local data folder), and `openFolder` over the same directory. Both refuse outside Tauri. |
 | `@epicenter/folder/bun` | Open an existing directory with `{ directory, tables }`; also exports the CLI's declaration tools, `holdingFileLock`, and the system `git` runner. |
 | `@epicenter/folder/testing` | Construct a folder over `memoryHost` and control its storage in tests. |
@@ -132,22 +132,16 @@ A UI edit and its retry or discard controls belong to
 the contract's paths:
 
 ```ts
-import { openDevice, outboxOf } from '@epicenter/folder/browser'; // OPFS
+import { openDevice } from '@epicenter/folder/browser'; // OPFS
 // import { openDevice } from '@epicenter/folder/node';           // a directory: openDevice(c, { path })
 // import { openDevice } from '@epicenter/folder/tauri';          // the window's bound directory
 
 const device = openDevice(recorder);
 const id = timeId();
-const note = await device.recordings.create({ id, title: 'Standup' });
+// The audio first: a note never names bytes that are not there yet.
 const audio = await device.audio.create({ id, ext: 'm4a', bytes });
-if (note.error === null && audio.error === null)
-	await outboxOf(device).add({
-		id,
-		files: [
-			{ collection: 'recordings', ...note.data },
-			{ collection: 'audio', ...audio.data },
-		],
-	});
+if (audio.error === null)
+	await device.recordings.create({ id, title: 'Standup' });
 ```
 
 Every note it writes is in house style, the contract's keys first. Every
@@ -156,9 +150,7 @@ only while the file still holds it (`Conflict` otherwise); `create` never
 replaces a file (`Occupied`). In the browser, one dedicated Worker owns the
 origin's private file system, with a Web Lock per path; a browser that gives
 the page no private storage answers `Unavailable` with a
-`DeviceError.StorageRefused` cause. The outbox records captures for upload
-as sidecars under `.epicenter/outbox/`, and `cacheOf(device)` reads the
-files it uploaded, kept under `.epicenter/cache/` (below). `/node` also exports `checkFiles`
+`DeviceError.StorageRefused` cause. `/node` also exports `checkFiles`
 and `formatNotes`, which `epicenter check` and `epicenter format` run. In a
 Tauri window the client works over the directory the shell bound to the
 window, through the folder plugin's commands, and the shell holds the save
@@ -169,7 +161,7 @@ browser opener in Playwright Chromium and WebKit.
 
 Each collection's `subscribe(listener)` hears that its files changed, with
 no word of what (read again to see). The device hears every write through
-it, its outbox and cache included, before the write resolves, and outside
+it before the write resolves, and outside
 writes as they come: other tabs through the Worker's `epicenter-device`
 broadcast channel, the shell's watcher in Tauri, a recursive watch in Bun.
 A remote hears its own writes the same way, and other writers' by reading
@@ -188,48 +180,24 @@ over a client.
 `openRemote(contract, { account })` returns the same client over the
 signed-in person's repository for the app, `<git audience>/~/<contract
 name>.git`, through `account.fetch` (any `@epicenter/auth` `Account`). A
-remote version is the Git blob id on `main`. `startUploading` sends each
-capture in the device's outbox, once signed in and online, and lets go of
-each file only at the version it sent, after the server's reply shows it
-landed. The server keeps nothing about a write, so after a lost reply the
-same write goes again and is judged like any write: bytes already there land
-as nothing, and a note edited meanwhile gains at most one conflict block.
-A file other than a note moves into the device's cache as it goes:
+remote version is the Git blob id on `main`, and every write is one commit.
+It keeps nothing on the device: it works online only, and stops when the
+account is retired.
 
 ```ts
-import { openRemote, startUploading } from '@epicenter/folder/remote';
+import { openRemote } from '@epicenter/folder/remote';
 
 const remote = openRemote(recorder, { account });
-using uploader = startUploading(device, remote); // Symbol.dispose stops it
-
 const note = await remote.recordings.get({ id });
 if (note.error === null)
 	await remote.recordings.update({ id }, { title: 'Daily' }, { over: note.data.version });
 ```
 
-The cache (`src/device/cache.ts`) holds uploaded files other than notes at
-`.epicenter/cache/<path>`, read only and outside the contract, so nothing in
-it is ever sent. An app reads it before the remote, giving the remote's
-version when it has one, so a file the repository has since replaced is not
-answered:
-
-```ts
-import { cacheOf } from '@epicenter/folder/browser';
-
-const cached = await cacheOf(device).read(
-	{ collection: 'audio', id, ext },
-	{ version: listed.version }, // omit offline
-);
-const bytes = cached.data?.bytes ?? (await remote.audio.get({ id, ext })).data?.bytes;
-```
-
-The browser may evict it at any time; past `CACHE_LIMIT` (32) files, the
-first by file name go; `startUploading` clears it when the account is
-retired; `clear()` drops it on request.
-
-The web never syncs: edits and deletes of repository files need the server,
-and only files created on the device wait in the outbox. Uploading stops
-when the account is retired. See `src/remote/`.
+The two openers are two stores, and nothing moves between them
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)): an app's local web variant opens the device
+for its life, its online web variant the remote, and its desktop variant the
+folder through `/tauri`, which only `epicenter sync` moves. Sign-in grants
+capabilities, never storage. See `src/remote/`.
 
 ## Browser storage
 
@@ -292,8 +260,8 @@ chooses at call time and loads only the chosen engine. The
 | --- | --- |
 | `src/folder.ts`, `storage.ts`, `patch.ts`, `write-refusal.ts` | Mirror, host contract, canonical patches, and write refusals. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts`, `node.ts`, `testing.ts` | Public and test entries. |
-| `src/device/` | `openDevice`: the contract client, its Bun and OPFS stores, the outbox, and `check`/`format`. |
-| `src/remote/` | `openRemote`, its wire to the server, and the uploader. |
+| `src/device/` | `openDevice`: the contract client, its Bun, OPFS and Tauri stores, and `check`/`format`. |
+| `src/remote/` | `openRemote` and its wire to the server. |
 | `src/browser/` | The legacy IndexedDB repository behind `openFolder`. |
 | `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, bindings, and save locks. |
 | `src/shared/` | Markdown reading, rows, and the legacy engine's file content types. |

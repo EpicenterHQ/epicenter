@@ -2,9 +2,9 @@
  * `@epicenter/folder/browser`: two openers for this web origin.
  *
  * - `openDevice(contract)`: a contract's typed client over the origin's
- *   private file system (OPFS), at the same paths a desktop folder holds,
- *   with the outbox of captures still to upload (`outboxOf`) and the cache
- *   of files it uploaded (`cacheOf`).
+ *   private file system (OPFS), at the same paths a desktop folder holds:
+ *   an app's local web variant, which keeps its files in this browser for
+ *   good and never uploads them (ADR-0700).
  * - `openFolder({ tables })`: the legacy default local folder, kept in
  *   IndexedDB as a Git working tree. A blob's oid is its change stamp, and
  *   other tabs' saves arrive as hints.
@@ -14,9 +14,8 @@ import { isTauri } from '@tauri-apps/api/core';
 import { Ok, type Result } from 'wellcrafted/result';
 import { openRepository } from './browser/repository.js';
 import { snapshotContent } from './browser/storage.js';
-import { createDeviceClient } from './device/client.js';
+import { createDeviceClient, storeOf } from './device/client.js';
 import { opfsStore } from './device/opfs-store.js';
-import { deviceParts } from './device/outbox.js';
 import { OpenFolderError } from './errors.js';
 import {
 	createFolder,
@@ -28,24 +27,7 @@ import { ReadError } from './shared/errors.js';
 import type { Fetched, FolderHost } from './storage.js';
 
 export * from './contract.js';
-export {
-	CACHE_DIRECTORY,
-	CACHE_LIMIT,
-	type Cache,
-	type CachedFile,
-} from './device/cache.js';
 export { DeviceError } from './device/opfs-store.js';
-export {
-	type Capture,
-	cacheOf,
-	type NewFile,
-	type Outbox,
-	OutboxError,
-	type OutboxFile,
-	outboxOf,
-	type Receipt,
-	saveCapture,
-} from './device/outbox.js';
 
 /**
  * The typed client of `contract` over this origin's private file system.
@@ -76,7 +58,7 @@ export function openDevice<TContract extends Contract>(
  * `Unavailable`. Its files stay.
  */
 export function closeDevice(device: Client<Contract>): void {
-	deviceParts(device).store.close?.();
+	storeOf(device).close?.();
 }
 
 /** The same fixed key as the browser's default folder, so its files carry over. */

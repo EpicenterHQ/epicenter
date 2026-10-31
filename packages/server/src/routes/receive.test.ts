@@ -293,7 +293,7 @@ describe('receivePush', () => {
 		const hidden = await r.commit({
 			'.DS_Store': new Uint8Array([0, 0, 0, 1, 66, 117, 100, 49]),
 			'recordings/.DS_Store': new Uint8Array([0, 1, 2]),
-			'.epicenter/outbox/c1.json': '{"state":"pending"}\n',
+			'.trash/c1.json': '{"state":"pending"}\n',
 			'recordings/.cache/a.webm': new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
 		});
 		expect(await r.push(hidden)).toContain(`ok ${MAIN}`);

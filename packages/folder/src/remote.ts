@@ -1,7 +1,8 @@
 /**
  * `@epicenter/folder/remote`: a contract's typed client over its repository
- * on Epicenter's server (decision 7), and the automatic upload of a
- * device's captures to it (decision 12).
+ * on Epicenter's server (decision 7), what an app's online web variant
+ * reads and writes. It keeps nothing on the device: every call is a request,
+ * and every write a commit (ADR-0700).
  *
  * `openRemote(contract, { account })` reaches `<git>/~/<contract name>.git`,
  * the signed-in person's own repository for the app (decision 46);
@@ -13,13 +14,10 @@
  *
  * @example
  * ```ts
- * import { openDevice, outboxOf } from '@epicenter/folder/browser';
- * import { openRemote, startUploading } from '@epicenter/folder/remote';
+ * import { openRemote } from '@epicenter/folder/remote';
  *
- * const device = openDevice(recorder);
  * const remote = openRemote(recorder, { account });
  * const shared = openRemote(recorder, { account, repository: 'k3x9m2p7q1zt/recorder' });
- * using uploader = startUploading(device, remote);
  *
  * const listed = await remote.recordings.list();
  * const note = await remote.recordings.get({ id });
@@ -31,14 +29,6 @@ import type { Client, Contract } from '@epicenter/definition/contract';
 import { createRemoteClient } from './remote/client.js';
 import type { RemoteAccount } from './remote/wire.js';
 
-export {
-	QUIET_MS,
-	startUploading,
-	UPLOAD_LOCK,
-	type Uploader,
-	UploadRefusal,
-	type UploadReport,
-} from './remote/upload.js';
 export { type RemoteAccount, RemoteError } from './remote/wire.js';
 
 /**

@@ -1,20 +1,18 @@
 /**
  * `@epicenter/svelte/repo`: the person's repository in Svelte context
- * (decision 10). The signed-in boundary (a signed-in route layout, or the
- * one component that renders only when signed in) opens the repository for
- * its account and sets it; every component under it reads it. The device
- * is no context: it is the app's module singleton (`$lib/device.ts`).
+ * (decision 10). An app's online variant has a signed-in layout that opens
+ * the repository for its account and sets it; every component under it
+ * reads it. The local variant never sets one: its device is the app's
+ * module singleton (`$lib/device.ts`), and the two never meet on a page.
  *
  * @example
  * ```svelte
- * <!-- The signed-in boundary -->
+ * <!-- The online variant's signed-in layout -->
  * <script lang="ts">
- * 	const repo = setRepo(openRemote(todos, { account }));
- * 	const uploader = startUploading(device, repo);
- * 	onDestroy(() => uploader[Symbol.dispose]());
+ * 	setRepo(openRemote(todos, { account }));
  * </script>
  *
- * <!-- The synced view, a page under it -->
+ * <!-- A page under it -->
  * <script lang="ts">
  * 	const todos = fromClient(getRepo<Todos>()).todos;
  * </script>
@@ -34,14 +32,14 @@ export function setRepo<TContract extends Contract>(
 }
 
 /**
- * The repository the signed-in boundary above set, as the client of the
+ * The repository the signed-in layout above set, as the client of the
  * contract `TContract` names. Call during component setup. Outside that
  * boundary there is none, and calling it there is a bug: it throws.
  */
 export function getRepo<TContract extends Contract>(): Client<TContract> {
 	if (!hasContext(REPO))
 		throw new Error(
-			'getRepo() was called outside the signed-in boundary: only a component rendered under the one that calls setRepo(repo) has a repository',
+			'getRepo() was called outside the signed-in layout: only a component rendered under the one that calls setRepo(repo) has a repository',
 		);
 	return getContext<Client<TContract>>(REPO);
 }

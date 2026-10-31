@@ -42,30 +42,26 @@ the draft began from, so another writer's change since is a `Conflict`
 instead of being overwritten; without `over`, `replace` writes over the
 version shown.
 
-### This device and the repository: two views
+### One store per page: this browser or the repository
 
-An app whose files are kept on the device and upload to the person's
-repository (decision 12) shows them as two separate views (decision 76),
-each over its own client. "On this device" is `fromClient(device).x`; it
-works signed out and offline. "Synced", under the signed-in boundary, is
-`fromClient(getRepo()).x`. Each view reads and writes its own side only:
+An app's web build has up to two variants, each over one store for the
+page's life, and nothing moves between them
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
+The local variant reads `fromClient(device).x`, this browser's files; it
+works signed out and offline, and signing in only adds hosted capabilities.
+The online variant, under a signed-in layout that calls `setRepo`, reads
+`fromClient(getRepo()).x`, the person's repository through the server:
 
 ```ts
 import { fromClient } from '@epicenter/svelte/client';
 import { getRepo } from '@epicenter/svelte/repo';
 
-const onDevice = fromClient(device).todos; // the "On this device" page
-const synced = fromClient(getRepo<Todos>()).todos; // the "Synced" page
-const shown = $derived(onDevice.items.toSorted(openFirst)); // the app's order
+const local = fromClient(device).todos; // the local variant's pages
+const online = fromClient(getRepo<Todos>()).todos; // the online variant's pages
+const shown = $derived(local.items.toSorted(openFirst)); // the app's order
 ```
 
-The signed-in boundary owns the uploader (`startUploading` from
-`@epicenter/folder/remote`), which moves every device file into the
-repository in the background (a file written directly once it has gone
-five seconds unchanged, a capture at once): the file leaves the device view and appears
-in the synced view, each view following its own client. Nothing holds a
-file on screen across the move; an editor open on it in the device view
-sees it gone. A merged view of both sides can come back later.
+A page uses one or the other, never both.
 
 ### Leaving while a save is out
 

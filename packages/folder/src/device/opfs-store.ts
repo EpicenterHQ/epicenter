@@ -8,8 +8,9 @@
  * A browser that gives the page no private storage, as WebKit does in an
  * ephemeral context, refuses `getDirectory()`: each call is then
  * `Unavailable`, its cause a `DeviceError.StorageRefused`, never a throw.
- * OPFS is evictable (`persist()` was false in every headless probe), so what
- * the device holds should reach the server once it can (the outbox).
+ * OPFS is evictable (`persist()` was false in every headless probe): a local
+ * web variant's files are this browser's alone (ADR-0700), and live as
+ * long as the browser keeps them.
  *
  * Other tabs' writes arrive on the broadcast channel the Worker posts every
  * landed change to (`CHANGES`); a store skips the ones it asked for itself.

@@ -209,7 +209,7 @@ test('list reads every note of the collection, reports the ones that do not fit,
 	await put('recordings/c.md', '---\ndurationMs: 3\n---\n');
 	await put('recordings/a.webm', bytes(1, 2, 3));
 	await put('notes/elsewhere.md', '---\ntitle: X\n---\n');
-	await put('.epicenter/outbox/x.json', '{}');
+	await put('.obsidian/workspace.json', '{}');
 	const { items, invalid } = expectOk(await device.recordings.list());
 	expect(items.map(({ id, title }) => ({ id, title }))).toEqual([
 		{ id: 'a', title: 'A' },
@@ -376,7 +376,7 @@ test('a write by another program to the folder reaches listeners; a hidden path 
 	let heard = 0;
 	const stop = device.recordings.subscribe(() => heard++);
 	await Bun.sleep(50);
-	await put('.epicenter/outbox/x.json', '{}');
+	await put('.obsidian/workspace.json', '{}');
 	await Bun.sleep(150);
 	expect(heard).toBe(0);
 	await put('recordings/b.md', '---\ntitle: B\n---\n');

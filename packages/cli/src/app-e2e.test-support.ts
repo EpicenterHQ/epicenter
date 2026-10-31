@@ -204,44 +204,6 @@ export function emptyOpfs(page: Page) {
 }
 
 /**
- * Record, in each page's session storage, the path of every page that
- * starts an uploader: the uploader takes the upload Web Lock
- * (`epicenter-upload`) the moment it starts. Call before the navigations to
- * watch; read the record with `uploaderStarts`.
- */
-export function recordUploaderStarts(context: BrowserContext) {
-	return context.addInitScript(() => {
-		// The prototype, not `navigator.locks`: WebKit may not have made the
-		// instance yet when a page reached by a redirect runs this.
-		const proto = LockManager.prototype;
-		const request = proto.request;
-		proto.request = function (
-			this: LockManager,
-			name: string,
-			...rest: unknown[]
-		) {
-			if (name === 'epicenter-upload') {
-				const seen = JSON.parse(sessionStorage.getItem('uploaders') ?? '[]');
-				seen.push(location.pathname);
-				sessionStorage.setItem('uploaders', JSON.stringify(seen));
-			}
-			return (request as (...args: unknown[]) => unknown).call(
-				this,
-				name,
-				...rest,
-			);
-		} as typeof proto.request;
-	});
-}
-
-/** The paths of the pages in this tab that started an uploader, as `recordUploaderStarts` saw. */
-export function uploaderStarts(page: Page): Promise<string[]> {
-	return page.evaluate(
-		() => JSON.parse(sessionStorage.getItem('uploaders') ?? '[]') as string[],
-	);
-}
-
-/**
  * Take the network away from every page of `context`: each http(s) request
  * fails as a disconnected one would. Answers the function that gives it
  * back.

@@ -4,7 +4,7 @@
  * `globalThis.deviceSmoke`. Each step returns plain data the runner checks.
  */
 import { defineContract, type Version } from '@epicenter/definition/contract';
-import { openDevice, outboxOf } from '../src/browser.js';
+import { openDevice } from '../src/browser.js';
 
 const recorder = defineContract({
 	name: 'recorder',
@@ -66,7 +66,7 @@ const smoke = {
 		device.recordings.subscribe(() => heard++);
 	},
 	heard: () => heard,
-	/** Create a note and 5 MB of audio, read both back, and record a capture. */
+	/** Create a note and 5 MB of audio, and read both back. */
 	async seed(id: string) {
 		const note = await device.recordings.create({
 			id,
@@ -81,13 +81,6 @@ const smoke = {
 		const read = await device.audio.get({ id, ext: 'm4a' });
 		if (read.error !== null) return { error: read.error.message };
 		const occupied = await device.recordings.create({ id, title: 'Again' });
-		const captured = await outboxOf(device).add({
-			id,
-			files: [
-				{ collection: 'recordings', ...note.data },
-				{ collection: 'audio', ...audio.data },
-			],
-		});
 		return {
 			noteText: await opfsText(`recordings/${id}.md`),
 			noteVersion: note.data.version,
@@ -97,15 +90,12 @@ const smoke = {
 			readVersion: read.data.version,
 			callerBytesIntact: bytes.byteLength === 5 * 1024 * 1024,
 			occupied: occupied.error?.name ?? null,
-			capture:
-				captured.error !== null ? captured.error.name : captured.data.state,
 		};
 	},
 	/** What the device lists now, as plain data. */
 	async read(id: string) {
 		const notes = await device.recordings.list();
 		const files = await device.audio.list();
-		const captures = await outboxOf(device).list();
 		const audio = await device.audio.get({ id, ext: 'm4a' });
 		return {
 			notes:
@@ -113,10 +103,6 @@ const smoke = {
 					? notes.error.name
 					: notes.data.items.map(({ id, title }) => ({ id, title })),
 			files: files.error !== null ? files.error.name : files.data.items,
-			captures:
-				captures.error !== null
-					? captures.error.name
-					: captures.data.items.map(({ id, state }) => ({ id, state })),
 			audioHash:
 				audio.error !== null
 					? audio.error.name
@@ -138,8 +124,8 @@ const smoke = {
 		return created.error?.name ?? 'landed';
 	},
 	/**
-	 * Delete `count` notes while listing over and over, as the uploader
-	 * deletes what it sent while the page lists: every listing must answer.
+	 * Delete `count` notes while listing over and over, as another tab may
+	 * delete while this page lists: every listing must answer.
 	 */
 	async listDuringDeletes(count: number) {
 		const made = [];
