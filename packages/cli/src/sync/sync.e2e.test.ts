@@ -885,4 +885,49 @@ describe('epicenter sync over stock git', () => {
 		},
 		LONG,
 	);
+
+	test(
+		"sync --watch --desktop ends when its stdin closes, as it does when the app dies; a person's watch does not",
+		async () => {
+			const start = (...flags: string[]) =>
+				Bun.spawn(
+					[
+						EPICENTER,
+						'sync',
+						A,
+						'--watch',
+						'--interval',
+						'1',
+						'--json',
+						...flags,
+					],
+					{ cwd: BOX, env: ENV, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' },
+				);
+			/** Resolves once the watcher has reported its first round. */
+			const firstRound = async (watching: ReturnType<typeof start>) => {
+				const reader = watching.stdout.getReader();
+				await reader.read();
+				reader.releaseLock();
+			};
+			const desktop = start('--desktop');
+			const person = start();
+			await Promise.all([firstRound(desktop), firstRound(person)]);
+
+			// The kernel closes the app's end of the pipe however the app ends.
+			desktop.stdin.end();
+			person.stdin.end();
+			const ended = await Promise.race([
+				desktop.exited,
+				Bun.sleep(10_000).then(() => 'still running' as const),
+			]);
+			if (ended === 'still running') desktop.kill('SIGKILL');
+			expect(ended).toBe(129);
+
+			await Bun.sleep(1500);
+			expect(person.exitCode).toBeNull();
+			person.kill('SIGTERM');
+			expect(await person.exited).toBe(143);
+		},
+		LONG,
+	);
 });

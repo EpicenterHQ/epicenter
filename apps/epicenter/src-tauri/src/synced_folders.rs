@@ -542,8 +542,10 @@ async fn run_service<R: Runtime>(app: AppHandle<R>, generation: u64) {
     loop {
         let folders = app.state::<SyncedFolders>();
         let invocation = match cli::invocation(&app) {
+            // The lifeline ends the watch with the app, however the app ends.
             Ok(invocation) => invocation
                 .desktop()
+                .lifeline()
                 .owned_by(&app.state::<CliChildren>(), SERVICE)
                 .recording_child(&folders.child),
             Err(error) => {

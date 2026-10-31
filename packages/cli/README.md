@@ -156,7 +156,9 @@ with real `git add`, so Git LFS's filters run.
   "status", "head", "notes", "message"}}` line per folder per round. Exit
   codes: 0 synced, 1 run again, 2 stopped for a person or agent.
   `--watch` runs a round after each change under the folders and every 30
-  seconds (`--interval`) until a stop signal.
+  seconds (`--interval`) until a stop signal. With `--desktop` it also
+  stops, as on `SIGHUP` (exit 129), when stdin closes: the desktop app holds
+  stdin open while it lives, so the watch cannot outlive it.
 - `status [<dir>]` reads `git status --porcelain` for the folder and the
   ahead and behind counts against the last fetched `origin/main`, and fetches
   and writes nothing. Without `<dir>` it reads every registered folder, like

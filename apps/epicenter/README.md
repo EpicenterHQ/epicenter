@@ -356,7 +356,9 @@ starting, it stops, and the window shows **Syncing is paused** with the CLI's
 last line of stderr and **Start syncing again** (`restart_sync_service`). No
 window owns the service, so reloading or closing a page does not end it. At
 application exit the shell sends `SIGTERM` to its process group on macOS and
-Linux.
+Linux. An app that crashes or is killed sends nothing, so the shell also
+holds the run's stdin open without writing to it; the system closes it
+however the app ends, and `sync --watch --desktop` stops when it does.
 
 ### Folder actions
 

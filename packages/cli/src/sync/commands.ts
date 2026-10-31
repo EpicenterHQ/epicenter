@@ -225,11 +225,12 @@ export async function syncCommand(
 	json: boolean,
 	grant: GrantKind,
 ) {
-	const [{ syncFolder }, { endGitCommands }, { onStop }] = await Promise.all([
-		import('./sync.ts'),
-		import('@epicenter/folder/bun'),
-		import('../stop.ts'),
-	]);
+	const [{ syncFolder }, { endGitCommands }, { onStop, stopWhenStdinCloses }] =
+		await Promise.all([
+			import('./sync.ts'),
+			import('@epicenter/folder/bun'),
+			import('../stop.ts'),
+		]);
 	// When the shell ends this process, every git it started ends too (ADR-0559).
 	onStop(endGitCommands);
 	const credential = credentialFor(grant);
@@ -256,6 +257,9 @@ export async function syncCommand(
 		options.interval === undefined ? 30 : Number(options.interval);
 	if (!(interval > 0))
 		return fail('--interval takes a number of seconds above 0', json);
+	// The desktop app holds stdin open while it lives, so its watch cannot
+	// outlive it however it ends. A person's watch may run with stdin closed.
+	if (grant === 'desktop') stopWhenStdinCloses();
 	return watch(folders, roundOf, interval);
 }
 

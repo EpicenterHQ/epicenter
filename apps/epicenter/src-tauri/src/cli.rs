@@ -342,6 +342,7 @@ pub(crate) struct Invocation {
     program: Program,
     env: Vec<(OsString, OsString)>,
     desktop: bool,
+    lifeline: bool,
     owner: Option<(CliChildren, String, Option<String>)>,
     started: Option<StartedChild>,
 }
@@ -366,6 +367,7 @@ impl Invocation {
                 ),
             ],
             desktop: false,
+            lifeline: false,
             owner: None,
             started: None,
         }
@@ -380,6 +382,15 @@ impl Invocation {
     /// Run as the desktop app's grant: `--desktop` follows the arguments.
     pub(crate) fn desktop(mut self) -> Self {
         self.desktop = true;
+        self
+    }
+
+    /// Hold a run's stdin open, unwritten, until the run ends, for a run
+    /// given no stdin body. The system closes it however this app ends, so
+    /// a command that stops when stdin closes (`sync --watch --desktop`)
+    /// cannot outlive the app, even one that crashes or is killed.
+    pub(crate) fn lifeline(mut self) -> Self {
+        self.lifeline = true;
         self
     }
 
@@ -427,6 +438,7 @@ impl Invocation {
             &args,
             &self.env,
             stdin,
+            self.lifeline,
             on_line,
             end.clone(),
             self.started.as_ref(),
@@ -485,6 +497,7 @@ async fn run_child(
     args: &[OsString],
     env: &[(OsString, OsString)],
     stdin: Option<Vec<u8>>,
+    lifeline: bool,
     mut on_line: impl FnMut(String) -> Result<(), String>,
     end: Option<Arc<Notify>>,
     started: Option<&StartedChild>,
@@ -502,7 +515,7 @@ async fn run_child(
         .args(&program.prefix)
         .args(args)
         .envs(env.iter().map(|(name, value)| (name, value)))
-        .stdin(if stdin.is_some() {
+        .stdin(if stdin.is_some() || lifeline {
             Stdio::piped()
         } else {
             Stdio::null()
@@ -522,14 +535,19 @@ async fn run_child(
         *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = child.id();
     }
 
-    let writer = match (stdin, child.stdin.take()) {
-        (Some(body), Some(mut pipe)) => Some(tokio::spawn(async move {
-            // A child that exits without reading all of it closes the pipe;
-            // its exit code says why, so a broken pipe is not the failure.
-            let _ = pipe.write_all(&body).await;
-            let _ = pipe.shutdown().await;
-        })),
-        _ => None,
+    // A lifeline's pipe is held, never written, until this run returns.
+    let (writer, _lifeline) = match (stdin, child.stdin.take()) {
+        (Some(body), Some(mut pipe)) => (
+            Some(tokio::spawn(async move {
+                // A child that exits without reading all of it closes the pipe;
+                // its exit code says why, so a broken pipe is not the failure.
+                let _ = pipe.write_all(&body).await;
+                let _ = pipe.shutdown().await;
+            })),
+            None,
+        ),
+        (None, pipe) => (None, pipe),
+        (Some(_), None) => (None, None),
     };
     let mut stderr_pipe = child
         .stderr
@@ -1490,6 +1508,37 @@ process.exitCode = 1;
                 message: "the page went away".into()
             }
         );
+    }
+
+    /// A lifeline run holds the child's stdin open, unwritten, for as long
+    /// as the run lasts; the system closes it however this app ends, which
+    /// is what ends `sync --watch --desktop`. A run without one gives the
+    /// child a stdin that is closed from the start.
+    #[tokio::test]
+    async fn a_lifeline_run_holds_stdin_open_while_it_runs() {
+        let program = Program {
+            program: PathBuf::from("bun"),
+            prefix: vec![
+                "-e".into(),
+                "let closed = false; \
+                 process.stdin.on('data', () => {}); \
+                 process.stdin.on('end', () => { closed = true; }); \
+                 await Bun.sleep(500); \
+                 console.log(closed ? 'closed' : 'open'); \
+                 process.exit(0);"
+                    .into(),
+            ],
+        };
+        let stdin_of = |invocation: Invocation| async move {
+            invocation
+                .run(&[], None, |_| Ok(()))
+                .await
+                .unwrap()
+                .reply
+                .unwrap()
+        };
+        assert_eq!(stdin_of(plain(program.clone()).lifeline()).await, "open");
+        assert_eq!(stdin_of(plain(program)).await, "closed");
     }
 
     /// A run that ends early asks the child to stop and gives it
