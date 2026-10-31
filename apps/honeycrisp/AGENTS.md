@@ -5,15 +5,20 @@ for the layout and page flow, and verify it against the code.
 
 ## The files are the data
 
-- Honeycrisp is online web only for now (a desktop app comes later). Every
-  read and write goes through the contract's client, one store per page:
-  `openRemote` from `@epicenter/folder/remote`, set by the signed-in layout
-  (`src/routes/(app)/+layout.svelte`, `setRepo`) and passed by the page to
-  `HoneycrispApp` through `fromClient(getRepo())`. Nothing is kept in the
-  browser: no device, OPFS, uploader, or service worker (ADR-0700).
-  Components take the state from context and never import a client, so a
-  later variant is a new root. Do not add another store, cache, or save
-  queue.
+- Honeycrisp has two variants, chosen at build time by the `#platform/root`
+  seam (`package.json` "imports"), never a run-time check: the online web
+  app (`root.ts`: `openRemote` from `@epicenter/folder/remote` behind
+  sign-in) and the desktop app (`root.tauri.ts`: the window's folder through
+  `openDevice` from `@epicenter/folder/tauri`, which never signs in). Every
+  read and write goes through the contract's client, one store per page: the
+  variant's `Root` sets it (`setRepo`) and the page passes it to
+  `HoneycrispApp` through `fromClient(getRepo())`. The web app keeps
+  nothing in the browser: no device, OPFS, uploader, or service worker
+  (ADR-0700). Components take the state from context and never import a
+  client or know which store they are over; only the header's `Chrome`
+  says. Leaves and the components they import use relative imports, not
+  `$lib`, so `platform.test.ts` can bundle them. Do not add another store,
+  cache, or save queue.
 - A change to the layout is a change to `src/lib/contract.ts`, then
   `bun run contract`; the fit test fails until the two agree. No migration or
   compatibility code: there is no earlier data to read (decision 72).

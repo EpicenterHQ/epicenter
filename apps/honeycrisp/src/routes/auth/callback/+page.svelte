@@ -1,29 +1,10 @@
 <!--
-	The end of sign-in: finish it, then load the page it started from, so the
-	app always starts with one account for the page's whole life.
+	The end of sign-in, the variant's (`#platform/root`): the web app finishes
+	it and loads the page it started from; the desktop window never signs in.
 -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { Loading } from '@epicenter/ui/loading';
-	import { webAuth } from '$lib/auth.js';
-
-	let errorMessage = $state<string | null>(null);
-
-	$effect(() => {
-		const auth = webAuth();
-		if (auth === null) return;
-		void auth.completeSignIn().then(({ data, error }) => {
-			if (error !== null) errorMessage = error.message;
-			else window.location.replace(data.returnTo ?? resolve('/'));
-		});
-	});
+	import { Callback } from '#platform/root';
 </script>
 
-{#if errorMessage}
-	<div class="flex h-dvh flex-col items-center justify-center gap-2 px-6 text-center text-sm">
-		<p class="text-destructive">Sign-in failed: {errorMessage}</p>
-		<a class="underline" href={resolve('/')}>Back to Honeycrisp</a>
-	</div>
-{:else}
-	<Loading class="h-dvh" label="Signing in…" />
-{/if}
+<Callback home={resolve('/')} />

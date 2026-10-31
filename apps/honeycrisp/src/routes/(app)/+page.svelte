@@ -1,7 +1,8 @@
 <!--
-	Honeycrisp over its one store: the notes and folders in the person's
-	`honeycrisp` repository, which the signed-in layout set. Every edit is a
-	commit there; nothing is kept in the browser.
+	Honeycrisp over its one store, which the variant's root set: the notes
+	and folders in the person's `honeycrisp` repository on the web, where
+	every edit is a commit and nothing is kept in the browser, or in the
+	desktop window's folder.
 -->
 <script lang="ts">
 	import { fromClient } from '@epicenter/svelte/client';

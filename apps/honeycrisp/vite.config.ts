@@ -1,16 +1,21 @@
 import { APPS } from '@epicenter/constants/apps';
-import { workspaceAppViteConfig } from '@epicenter/vite-config';
+import { desktopVariant, workspaceAppViteConfig } from '@epicenter/vite-config';
 import { defineConfig, mergeConfig } from 'vite';
 
 export default defineConfig(
-	mergeConfig(workspaceAppViteConfig(APPS.HONEYCRISP), {
-		// localhost, not 127.0.0.1: the API registers Honeycrisp's sign-in
-		// callback at `http://localhost:5175`.
-		server: { host: 'localhost' },
-		preview: {
-			port: APPS.HONEYCRISP.port,
-			strictPort: true,
-			host: 'localhost',
+	mergeConfig(
+		// `bun run build:native` is the desktop window's build: its
+		// `#platform/*` seams resolve to their `.tauri.ts` leaves.
+		mergeConfig(workspaceAppViteConfig(APPS.HONEYCRISP), desktopVariant()),
+		{
+			// localhost, not 127.0.0.1: the API registers Honeycrisp's sign-in
+			// callback at `http://localhost:5175`.
+			server: { host: 'localhost' },
+			preview: {
+				port: APPS.HONEYCRISP.port,
+				strictPort: true,
+				host: 'localhost',
+			},
 		},
-	}),
+	),
 );

@@ -35,10 +35,13 @@ repository's Git history keeps what a delete removed.
 Honeycrisp has no settings, so it has no settings note, and keeps no other
 files.
 
-Honeycrisp is a web app for now; a desktop app comes later. Until then, a
-folder of notes on a computer is a clone of the person's repository
-(`epicenter clone <handle>/honeycrisp`), kept with `epicenter sync`, and any
-editor can change it.
+Honeycrisp has two variants, one store each and nothing moving between them
+(decisions 77 to 79): the online web app over the signed-in person's
+repository, and a desktop app over a folder of notes it keeps on the
+computer (below). A folder of notes on a computer, the desktop app's or a
+clone of the person's repository (`epicenter clone <handle>/honeycrisp`), is
+synced by Epicenter (`epicenter sync`), never by Honeycrisp, and any editor
+can change it.
 
 ## The web app
 
@@ -65,6 +68,49 @@ audience only (`src/lib/auth.ts`, made on first use). The server is
 `VITE_EPICENTER_SERVER` at build time, else Epicenter's. The hosted API does
 not serve web writes yet, so signing in works against a local or self-hosted
 API.
+
+## The desktop app
+
+```sh
+bun run --cwd apps/honeycrisp dev:desktop     # needs a Rust toolchain
+bun run --cwd apps/honeycrisp build:desktop   # a local, unsigned macOS app bundle
+```
+
+Its Tauri shell (`src-tauri/`, identifier `so.epicenter.honeycrisp`, on the
+shared [`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
+crate) gives the window two roots (decision 82): Honeycrisp's configuration
+directory, whose `settings.md` (`appConfig`, machine-local, never synced)
+records `folder`, and that folder, where the notes are. Honeycrisp has no
+other machine setting. On first run there is no folder, and the page asks
+"Where should Honeycrisp keep its files?" (`ChooseFolder` from
+`@epicenter/svelte`): the Epicenter folder `~/Epicenter/Honeycrisp`
+(recommended; `~/Epicenter Dev/Honeycrisp` for `dev:desktop`), the app data
+folder, or "Choose folder…". The shell refuses an unsafe answer in one line,
+creates the folder or reuses it with its files, and reopens the window
+there; the page then records it in `settings.md`. The notes stay when the
+app is removed.
+
+The page is the same UI as the web, built as the desktop variant
+(`bun run build:native`, into `build-desktop/`), over the folder
+(`openDevice(honeycrisp, { path: folder })`) with no sign-in: Honeycrisp
+makes no inference calls, and Epicenter syncs the folder. Its header says
+"On this computer", or "Synced by Epicenter" once Epicenter syncs the folder
+(asked again each time the window gains focus), offers **Sync with
+Epicenter** until it does (`syncWithEpicenter({ path, contract })`, the
+contract at `APPS.HONEYCRISP.url`'s `contract.json`), and holds the folder's
+path and **Choose folder…** in the status details. Closing the window or
+quitting waits for saves, a note's body still being typed included (the
+leave guard), and so does Choose folder….
+
+The variant is chosen at build time through the `#platform/root` seam, as
+[the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant)
+describes: `desktopVariant()` in `vite.config.ts`, `tsconfig.tauri.json`, and
+`src/lib/platform.test.ts`, which names a seam whose desktop leaf went
+missing and checks that the desktop build carries no sign-in.
+
+| Seam | Web leaf | Desktop leaf |
+| --- | --- | --- |
+| `#platform/root` | `root.ts`: the repository behind sign-in, the account, and the end of sign-in | `root.tauri.ts`: the folder or the question of where, its sync, and no sign-in |
 
 ## Editing
 
@@ -116,36 +162,42 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 
 ```text
 routes/+layout.svelte          every page: the chrome and the leave guard
-routes/(app)/+layout.svelte    the root that decides the store, the signed-in layout:
-                               signed out, a sign-in; signed in,
-  Online.svelte                {#key account}: setRepo(openRemote(honeycrisp, { account }))
+routes/(app)/+layout.svelte    the root that decides the store: Root from #platform/root
+  OnlineRoot.svelte            web: signed out, a sign-in; signed in,
+    Online.svelte              {#key account}: setRepo(openRemote(honeycrisp, { account }))
+  DesktopRoot.svelte           desktop: ChooseFolder, or setRepo(the folder's client)
 routes/(app)/+page.svelte      HoneycrispApp over fromClient(getRepo<Honeycrisp>())
-  HoneycrispApp.svelte         header (where, status, account), folders, notes, the open note
-routes/auth/callback           finishes sign-in, outside (app), then returns to /
+  HoneycrispApp.svelte         header (Chrome from #platform/root), folders, notes, the open note
+routes/auth/callback           Callback from #platform/root: the web app finishes sign-in,
+                               outside (app), then returns to /
 ```
 
 Components read and write only through the client they are given
 (`createHoneycrisp`, in context), never a client of their own; only the
-`(app)` layout chooses the store. Another variant, such as the desktop app
-to come, needs only a new root that passes `HoneycrispApp` its own store's
-client.
+variant's root chooses the store. Another variant needs only a new root
+that sets its own store, and a header that says what it is.
 
 | Path | Role |
 | --- | --- |
 | `src/lib/contract.ts` | The contract. |
 | `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome and the leave guard. |
-| `src/routes/(app)/+layout.svelte` | The signed-in layout: asks for a sign-in, or opens the repository per account. |
+| `src/routes/(app)/+layout.svelte` | The variant's root (`#platform/root`). |
+| `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte`, `SignInCallback.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account; the end of sign-in. |
 | `src/lib/components/Online.svelte` | The repository (`setRepo`), per account. |
-| `src/routes/(app)/+page.svelte` | `HoneycrispApp` over `fromClient(getRepo())`. |
+| `src/lib/components/DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: the folder (`setRepo`) or the question of where; the header's sync status, Sync with Epicenter, and Choose folder…. |
+| `src/lib/folder.tauri.ts` | The desktop window's folder and settings (`desktopFolder`), and the folder's client. |
+| `src/routes/(app)/+page.svelte` | `HoneycrispApp` over `fromClient(getRepo())`, the store's client. |
 | `src/lib/honeycrisp.svelte.ts` | The orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections, over the client it is given. |
 | `src/lib/editor/` | The CodeMirror note editor: the binding that writes local edits and follows changes from elsewhere, live preview, conflict cards. It knows nothing of the app's UI or storage. |
 | `src/lib/components/` | Honeycrisp's UI, which reads and writes only through the state in context. |
+| `src-tauri/` | The desktop shell: `main.rs` names Honeycrisp to `epicenter-standalone`; `capabilities/honeycrisp.json` grants the folder plugin and `choose_folder`. |
 
 ## Tests
 
 ```sh
-bun run --cwd apps/honeycrisp test        # contract, state over a stand-in client, the editor over jsdom
-bun run --cwd apps/honeycrisp typecheck
+bun run --cwd apps/honeycrisp test        # contract, state over a stand-in client, the editor over jsdom, both builds' seams
+bun run --cwd apps/honeycrisp typecheck   # the web and the desktop leaves
+cargo test -p honeycrisp -p epicenter-standalone   # the desktop shell: capability, identity, first run, Choose folder…, Quit
 bun x playwright test -c apps/honeycrisp/playwright.config.ts                    # both engines
 bun x playwright test -c apps/honeycrisp/playwright.config.ts --project=webkit   # one
 ```

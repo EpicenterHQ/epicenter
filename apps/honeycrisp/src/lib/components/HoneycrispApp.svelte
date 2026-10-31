@@ -20,7 +20,7 @@
 	let {
 		client,
 	}: {
-		/** The person's repository's client, which every component under it reads and edits. */
+		/** The store's client, which every component under it reads and edits. */
 		client: ReactiveClient<Honeycrisp>;
 	} = $props();
 

@@ -1,13 +1,22 @@
 {
 	"name": "@epicenter/honeycrisp",
-	"description": "Markdown notes with a live-preview editor, in the signed-in person's Epicenter repository, online only",
+	"description": "Markdown notes with a live-preview editor: online in the signed-in person's Epicenter repository, or on the desktop in a folder Honeycrisp keeps its notes in",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
+	"imports": {
+		"#platform/root": {
+			"tauri": "./src/lib/root.tauri.ts",
+			"default": "./src/lib/root.ts"
+		}
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
 		"build": "NODE_ENV=production vite build",
+		"build:native": "EPICENTER_DESKTOP=1 HONEYCRISP_BUILD_DIR=build-desktop NODE_ENV=production vite build",
+		"dev:desktop": "bun run build:native && tauri dev --config src-tauri/tauri.dev.conf.json",
+		"build:desktop": "bun run build:native && tauri build --bundles app",
 		"preview": "vite preview",
 		"deploy": "wrangler deploy",
 		"demo": "bun e2e/stack.ts --demo",
@@ -15,7 +24,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun test --isolate --conditions=browser --conditions=svelte src",
 		"test:e2e": "playwright test -c playwright.config.ts",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json && tsc -p tsconfig.scripts.json"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
@@ -25,6 +34,7 @@
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
+		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"mode-watcher": "catalog:",
 		"playwright": "^1.61.1",
@@ -47,6 +57,7 @@
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
+		"@tauri-apps/api": "catalog:",
 		"bits-ui": "catalog:",
 		"date-fns": "catalog:",
 		"wellcrafted": "catalog:"

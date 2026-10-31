@@ -1,8 +1,9 @@
 /**
  * Honeycrisp's state over one store's two collections, notes and folders.
  * The root that passes the client chooses the store (the person's
- * `honeycrisp` repository, ADR-0700). Honeycrisp adds its orders, what the
- * lists and the detail show, and the actions that span both collections.
+ * `honeycrisp` repository on the web, ADR-0700, or the desktop window's
+ * folder). Honeycrisp adds its orders, what the lists and the detail show,
+ * and the actions that span both collections.
  *
  * A note names its folder by id. Deleting a folder deletes its file only:
  * its notes keep their `folderId`, show in All Notes, and say their folder
