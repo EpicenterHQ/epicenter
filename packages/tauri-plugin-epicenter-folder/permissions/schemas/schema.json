@@ -403,6 +403,30 @@
           "markdownDescription": "Denies the subscribe_close command without any pre-configured scope."
         },
         {
+          "description": "Enables the sync_with_epicenter command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sync-with-epicenter",
+          "markdownDescription": "Enables the sync_with_epicenter command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sync_with_epicenter command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sync-with-epicenter",
+          "markdownDescription": "Denies the sync_with_epicenter command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the synced_with_epicenter command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-synced-with-epicenter",
+          "markdownDescription": "Enables the synced_with_epicenter command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the synced_with_epicenter command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-synced-with-epicenter",
+          "markdownDescription": "Denies the synced_with_epicenter command without any pre-configured scope."
+        },
+        {
           "description": "Enables the unsubscribe_close command without any pre-configured scope.",
           "type": "string",
           "const": "allow-unsubscribe-close",
@@ -415,10 +439,10 @@
           "markdownDescription": "Denies the unsubscribe_close command without any pre-configured scope."
         },
         {
-          "description": "Open the folder the shell bound to this window, then read and change its files through the shell.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-subscribe-close`\n- `allow-unsubscribe-close`\n- `allow-destroy-bound-window`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`",
+          "description": "Open the folder the shell bound to this window, read and change its files through the shell, and ask Epicenter to sync it.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-subscribe-close`\n- `allow-unsubscribe-close`\n- `allow-destroy-bound-window`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Open the folder the shell bound to this window, then read and change its files through the shell.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-subscribe-close`\n- `allow-unsubscribe-close`\n- `allow-destroy-bound-window`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`"
+          "markdownDescription": "Open the folder the shell bound to this window, read and change its files through the shell, and ask Epicenter to sync it.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-subscribe-close`\n- `allow-unsubscribe-close`\n- `allow-destroy-bound-window`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`"
         }
       ]
     }

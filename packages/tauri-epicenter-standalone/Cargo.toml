@@ -1,0 +1,19 @@
+[package]
+name = "epicenter-standalone"
+version = "0.0.1"
+description = "One folder the app owns, in one guarded window, for Epicenter's standalone desktop apps"
+authors = ["Epicenter"]
+repository = "https://github.com/EpicenterHQ/epicenter"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[dependencies]
+serde_json = "1"
+tauri = "2.12"
+tauri-plugin-dialog = "2.7"
+tauri-plugin-epicenter-folder = { path = "../tauri-plugin-epicenter-folder" }
+
+[dev-dependencies]
+tauri = { version = "2.12", features = ["test"] }
+tempfile = "3.8"

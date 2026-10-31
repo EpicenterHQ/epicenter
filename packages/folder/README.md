@@ -21,7 +21,7 @@ landed storage.
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; and `openFolder`, the fixed IndexedDB folder in a web page, which refuses inside Tauri. |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
-| `@epicenter/folder/tauri` | `openDevice(contract, { path? })` over the directory the shell bound to this window (its local data folder), and `openFolder` over the same directory. Both refuse outside Tauri. |
+| `@epicenter/folder/tauri` | `openDevice(contract, { path? })` over the directory the shell bound to this window (the folder the app keeps its files in), and `openFolder` over the same directory. Both refuse outside Tauri. `syncWithEpicenter({ path, contract })` asks the shell to open `epicenter://init?path=<path>&contract=<contract>` (decisions 81 and 82), and `syncedWithEpicenter({ path })` says whether `epicenter init` set that folder up (its `.git/config` names it as `epicenter.root`). `appConfig` (also from `/node`) is a desktop app's machine-local `settings.md`, whose `folder` is where it keeps the person's files. |
 | `@epicenter/folder/bun` | Open an existing directory with `{ directory, tables }`; also exports the CLI's declaration tools, `holdingFileLock`, and the system `git` runner. |
 | `@epicenter/folder/testing` | Construct a folder over `memoryHost` and control its storage in tests. |
 | `@epicenter/folder/file-browser` | Pure path, tree, text classification, and newline helpers. |

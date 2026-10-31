@@ -3,7 +3,7 @@
 # Granting this to a window lets it call the plugin. It does not choose a
 # folder: a window reaches only the directory the shell bound to its label.
 [default]
-description = "Open the folder the shell bound to this window, then read and change its files through the shell."
+description = "Open the folder the shell bound to this window, read and change its files through the shell, and ask Epicenter to sync it."
 permissions = [
   "allow-open-folder",
   "allow-subscribe-close",
@@ -15,4 +15,6 @@ permissions = [
   "allow-put-folder-file",
   "allow-make-folder-directory",
   "allow-remove-folder-directory",
+  "allow-sync-with-epicenter",
+  "allow-synced-with-epicenter",
 ]
