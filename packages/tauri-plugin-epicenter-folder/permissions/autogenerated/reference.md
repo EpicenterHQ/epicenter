@@ -1,10 +1,11 @@
 ## Default Permission
 
-Open the folder the shell bound to this window, and other folders Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.
+Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.
 
 #### This default permission set includes the following:
 
 - `allow-open-folder`
+- `allow-resolve-folder`
 - `allow-subscribe-close`
 - `allow-unsubscribe-close`
 - `allow-destroy-bound-window`
@@ -230,6 +231,32 @@ Enables the remove_folder_directory command without any pre-configured scope.
 <td>
 
 Denies the remove_folder_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:allow-resolve-folder`
+
+</td>
+<td>
+
+Enables the resolve_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-resolve-folder`
+
+</td>
+<td>
+
+Denies the resolve_folder command without any pre-configured scope.
 
 </td>
 </tr>

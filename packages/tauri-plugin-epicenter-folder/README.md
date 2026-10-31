@@ -189,6 +189,13 @@ An opened root stays reachable by its path, and watched, until the window
 closes; switching between roots a page opened costs nothing. A storage
 command naming a root the page has not opened is `NotGranted`.
 
+`resolve_folder({ root })` answers the canonical path of a root the page
+could open, with the same refusals in the same order, and opens, watches and
+makes nothing. The folder picker answers the path the person reached, which
+may pass through a link (`/tmp` is `/private/tmp` on macOS); the page
+remembers the canonical path (`chooseFolder` in `@epicenter/folder/tauri`),
+so a folder is one setting however it was picked.
+
 The page registers one private close channel with `subscribe_close`; it
 releases that registration with `unsubscribe_close`. On window close, Rust
 sends the request to the page. `<OpenFolder>` waits for `folder.idle()`, then

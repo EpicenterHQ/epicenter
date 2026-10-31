@@ -1390,3 +1390,38 @@ fn admitted_work_keeps_its_root_after_the_label_is_reused() {
     assert_eq!(std::fs::read(fixture.root.join("a.md")).unwrap(), b"first");
     assert!(!other.join("a.md").exists());
 }
+
+/// The folder picker answers the path the person reached, which may pass
+/// through a link (`/tmp` is `/private/tmp` on macOS), so "Choose folder…"
+/// and "Allow access" could name one folder two ways. `resolve_folder`
+/// answers the one canonical path a page remembers, for a folder Tauri's
+/// scope allows, and opens, watches and makes nothing.
+#[cfg(unix)]
+#[test]
+fn resolve_folder_answers_the_canonical_path_of_an_allowed_folder() {
+    let (fixture, main) = opened("resolve");
+    let base = fixture.root.parent().unwrap().to_path_buf();
+    let chosen = base.join("Chosen");
+    std::fs::create_dir(&chosen).unwrap();
+    let alias = base.join("alias");
+    std::os::unix::fs::symlink(&base, &alias).unwrap();
+    let picked = alias.join("Chosen");
+    let resolve = |path: &Path| invoke(&main, "resolve_folder", json!({ "root": path }));
+    assert_eq!(
+        resolve(&picked).unwrap_err(),
+        json!({ "name": "NotGranted", "root": picked })
+    );
+    // The picker allows the path it answered, as the dialog plugin does.
+    fixture
+        .app
+        .fs_scope()
+        .allow_directory(&picked, true)
+        .unwrap();
+    assert_eq!(resolve(&picked).unwrap(), json!(chosen));
+    assert_eq!(resolve(&chosen).unwrap(), json!(chosen));
+    let gone = alias.join("Gone");
+    fixture.app.fs_scope().allow_directory(&gone, true).unwrap();
+    assert_eq!(resolve(&gone).unwrap_err(), json!({ "name": "Missing" }));
+    assert!(!base.join("Gone").exists());
+    assert_eq!(std::fs::read_dir(&chosen).unwrap().count(), 0);
+}

@@ -16,10 +16,9 @@
 -->
 <script lang="ts">
 	import {
-		chooseFolder,
 		type FolderSettings,
-		defaultDataFolder,
 		type OpenDeviceError,
+		pickDataFolder,
 		rememberFolder,
 	} from '@epicenter/folder/tauri';
 	import * as Alert from '@epicenter/ui/alert';
@@ -48,32 +47,23 @@
 	const retrying = $derived($effect.pending() > 0);
 	const busy = $derived(acting || retrying);
 
-	/** Remember `folder` (forget it for the default), then open the roots again. */
-	async function remember(settings: FolderSettings, folder: string | undefined) {
-		const fallback = await defaultDataFolder();
-		const chosen = folder === undefined || (fallback.error === null && folder === fallback.data) ? undefined : folder;
-		const { error: failed } = await rememberFolder(settings, chosen);
-		if (failed !== null) {
-			problem = `settings.md: ${failed.message}`;
-			return;
-		}
-		retry();
-	}
-
-	/** The native picker at `at`; picking a folder allows it and remembers it. */
+	/** The native picker at `at`; picking a folder allows it and remembers it, then the roots open again. */
 	async function pick(settings: FolderSettings, title: string, at?: string) {
 		acting = true;
 		problem = undefined;
-		const picked = await chooseFolder({ title, at });
+		const picked = await pickDataFolder(settings, { title, at });
 		if (picked.error !== null) problem = picked.error.message;
-		else if (picked.data !== null) await remember(settings, picked.data);
+		else if (picked.data) retry();
 		acting = false;
 	}
 
+	/** Forget `folder`, then open the roots again over the default. */
 	async function useDefault(settings: FolderSettings) {
 		acting = true;
 		problem = undefined;
-		await remember(settings, undefined);
+		const { error: failed } = await rememberFolder(settings, undefined);
+		if (failed !== null) problem = `settings.md: ${failed.message}`;
+		else retry();
 		acting = false;
 	}
 </script>

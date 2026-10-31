@@ -5,9 +5,10 @@
 # root only when Tauri's runtime file-system scope allows it (a default the
 # shell allowed, or a folder the dialog granted).
 [default]
-description = "Open the folder the shell bound to this window, and other folders Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them."
+description = "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them."
 permissions = [
   "allow-open-folder",
+  "allow-resolve-folder",
   "allow-subscribe-close",
   "allow-unsubscribe-close",
   "allow-destroy-bound-window",

@@ -95,6 +95,27 @@ pub async fn open_folder<R: Runtime>(
     .await
 }
 
+/// The canonical path of `root`, a folder this window may open: what a page
+/// remembers for a folder the person picked, since the picker answers the
+/// path they reached, which may pass through a link (`/tmp` is
+/// `/private/tmp` on macOS). `Refused`, `NotGranted` and `Missing` as
+/// `open_folder` answers them; nothing is opened, watched or made.
+#[tauri::command]
+#[specta::specta]
+pub async fn resolve_folder<R: Runtime>(
+    webview: Webview<R>,
+    root: String,
+) -> Result<String, WindowError> {
+    blocking(
+        move || {
+            admit(&webview, &root, false)
+                .map(|directory| directory.root().to_string_lossy().into_owned())
+        },
+        |message| Err(WindowError::Unavailable { message }),
+    )
+    .await
+}
+
 /// Let this bound window answer its own native close requests.
 #[tauri::command]
 #[specta::specta]

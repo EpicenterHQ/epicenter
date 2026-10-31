@@ -24,7 +24,7 @@ import {
 	type FolderChanged,
 	type WindowError,
 } from './native/bindings.gen.js';
-import { openRefusal } from './native/open-refusal.js';
+import { deviceRefusal, openRefusal } from './native/open-refusal.js';
 import { storageHost } from './storage.js';
 import { tauriHostFiles } from './tauri-files.js';
 
@@ -36,6 +36,7 @@ export {
 	type FolderSync,
 	openAppData,
 	openDataFolder,
+	pickDataFolder,
 } from './desktop-folder.js';
 export {
 	EpicenterSyncError,
@@ -112,32 +113,6 @@ const isAbsolute = (path: string) =>
 	path.startsWith('/') ||
 	/^[A-Za-z]:[\\/]/.test(path) ||
 	path.startsWith('\\\\');
-
-/** Why the shell opened no root, as `openDevice` says it. */
-function deviceRefusal(refusal: unknown, folder: string) {
-	// Tauri also rejects with strings for missing commands or permissions;
-	// only an object with a name is the shell's own refusal.
-	if (typeof refusal !== 'object' || refusal === null || !('name' in refusal))
-		return OpenDeviceError.StorageUnavailable({ cause: refusal });
-	const error = refusal as WindowError;
-	switch (error.name) {
-		case 'Missing':
-			return OpenDeviceError.Missing({ folder });
-		case 'NotGranted':
-			return OpenDeviceError.NotGranted({ folder });
-		case 'Refused':
-			return OpenDeviceError.Refused({ folder, reason: error.reason });
-		case 'Unavailable':
-			return OpenDeviceError.Unreadable({ folder, cause: error.message });
-		case 'NotBound':
-		case 'ShuttingDown':
-			return OpenDeviceError.StorageUnavailable({ cause: error.name });
-		default:
-			return OpenDeviceError.StorageUnavailable({
-				cause: error satisfies never,
-			});
-	}
-}
 
 /** A root the shell opened: its canonical path, and its watcher's changes. */
 type OpenedRoot = { root: string; watch: ChangeSource };

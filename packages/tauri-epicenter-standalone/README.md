@@ -5,8 +5,8 @@ owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
 shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines. Its
 TypeScript counterparts are in `@epicenter/folder/tauri`:
 `openAppData(settingsContract)` and `openDataFolder(contract, { appData })`,
-which open the window's two roots, `chooseFolder` (the native picker),
-`rememberFolder`, `syncWithEpicenter` and `syncedWithEpicenter`. The page's UI for them is in `@epicenter/svelte`:
+which open the window's two roots, `chooseFolder` (the native picker,
+answering the canonical path), `pickDataFolder`, `rememberFolder`, `syncWithEpicenter` and `syncedWithEpicenter`. The page's UI for them is in `@epicenter/svelte`:
 `recovery` (the screen when a root does not open) and `folder-sync` with
 `folder-sync-actions` (sync state, Sync with Epicenter, Choose data
 folder…).

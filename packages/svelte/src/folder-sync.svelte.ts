@@ -17,12 +17,11 @@
  * ```
  */
 import {
-	chooseFolder,
 	defaultDataFolder,
 	type FolderRequest,
 	type FolderSettings,
 	type FolderSync,
-	rememberFolder,
+	pickDataFolder,
 	syncedWithEpicenter,
 	syncWithEpicenter,
 } from '@epicenter/folder/tauri';
@@ -109,22 +108,13 @@ export function folderSync({
 		chooseDataFolder() {
 			void ask(async () => {
 				await whenSaved();
-				const picked = await chooseFolder({
+				const picked = await pickDataFolder(appData, {
 					title: 'Choose the data folder',
 					at: path,
 				});
 				if (picked.error !== null)
 					return { ok: false, message: picked.error.message };
-				if (picked.data === null) return { ok: true };
-				const fallback = await defaultDataFolder();
-				const folder =
-					fallback.error === null && picked.data === fallback.data
-						? undefined
-						: picked.data;
-				const remembered = await rememberFolder(appData, folder);
-				if (remembered.error !== null)
-					return { ok: false, message: remembered.error.message };
-				window.location.reload();
+				if (picked.data) window.location.reload();
 				return { ok: true };
 			});
 		},

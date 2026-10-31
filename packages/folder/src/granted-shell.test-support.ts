@@ -254,6 +254,15 @@ export function createGrantedShell(
 			admitted.add(named);
 			return named;
 		},
+		/** The canonical path of an allowed folder, as Tauri's scope matches both spellings. */
+		async resolve_folder(args) {
+			const named = args.root as string;
+			const real = await nodeFs.realpath(named).catch(() => undefined);
+			if (!granted.has(named) && (real === undefined || !granted.has(real)))
+				throw { name: 'NotGranted', root: named };
+			if (real === undefined) throw { name: 'Missing' };
+			return real;
+		},
 		list_folder: (args) => answered(storageFor(args).list()),
 		read_folder_children: (args) =>
 			answered(storageFor(args).children(args.directory as string)),

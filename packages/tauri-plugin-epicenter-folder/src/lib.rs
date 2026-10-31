@@ -72,6 +72,7 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
         .plugin_name(PLUGIN_NAME)
         .commands(tauri_specta::collect_commands![
             commands::open_folder::<tauri::Wry>,
+            commands::resolve_folder::<tauri::Wry>,
             commands::subscribe_close::<tauri::Wry>,
             commands::unsubscribe_close::<tauri::Wry>,
             commands::destroy_bound_window::<tauri::Wry>,

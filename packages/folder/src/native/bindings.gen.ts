@@ -18,6 +18,14 @@ export const commands = {
 	 *  (`storage::sweep_scratch`).
 	 */
 	openFolder: (root: string | null, create: boolean, onChange: Channel<FolderChanged>) => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|open_folder", { root, create, onChange })),
+	/**
+	 *  The canonical path of `root`, a folder this window may open: what a page
+	 *  remembers for a folder the person picked, since the picker answers the
+	 *  path they reached, which may pass through a link (`/tmp` is
+	 *  `/private/tmp` on macOS). `Refused`, `NotGranted` and `Missing` as
+	 *  `open_folder` answers them; nothing is opened, watched or made.
+	 */
+	resolveFolder: (root: string) => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|resolve_folder", { root })),
 	/**  Let this bound window answer its own native close requests. */
 	subscribeClose: (onClose: Channel<null>) => typedError<number, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|subscribe_close", { onClose })),
 	unsubscribeClose: (token: number) => __TAURI_INVOKE<void>("plugin:epicenter-folder|unsubscribe_close", { token }),

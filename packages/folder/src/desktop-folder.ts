@@ -21,13 +21,23 @@
  * const device = await openDataFolder(capture, { appData: appData.data });
  * ```
  */
-import type { Client, Contract } from '@epicenter/definition/contract';
+import type {
+	Client,
+	ClientError,
+	Contract,
+} from '@epicenter/definition/contract';
 import { getName } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir, homeDir, join } from '@tauri-apps/api/path';
 import { Ok, type Result } from 'wellcrafted/result';
 import { OpenDeviceError } from './errors.js';
-import type { FolderSettings, SettingsContract } from './settings.js';
+import { commands } from './native/bindings.gen.js';
+import { deviceRefusal } from './native/open-refusal.js';
+import {
+	type FolderSettings,
+	rememberFolder,
+	type SettingsContract,
+} from './settings.js';
 import { openDevice } from './tauri.js';
 
 /** Whether Epicenter syncs the folder, as far as the window can tell. */
@@ -92,12 +102,16 @@ export async function defaultDataFolder(): Promise<
 }
 
 /**
- * The native folder picker, starting `at` a folder: the path picked, or
- * `null` when the person cancels. Picking allows the folder (and everything
- * in it) in Tauri's file-system scope, which persisted-scope keeps, so
- * `openDevice` opens it from then on. It is the dialog plugin's `open`
- * command, as `@tauri-apps/plugin-dialog`'s `open()` sends it; the window's
- * capability grants `dialog:allow-open`.
+ * The native folder picker, starting `at` a folder: the canonical path of
+ * the folder picked, or `null` when the person cancels. The picker answers
+ * the path the person reached, which may pass through a link (`/tmp` is
+ * `/private/tmp` on macOS); the shell's `resolve_folder` answers the one
+ * spelling, so a folder is remembered the same way whichever way it was
+ * picked. Picking allows the folder (and everything in it) in Tauri's
+ * file-system scope, which persisted-scope keeps, so `openDevice` opens it
+ * from then on. It is the dialog plugin's `open` command, as
+ * `@tauri-apps/plugin-dialog`'s `open()` sends it; the window's capability
+ * grants `dialog:allow-open`.
  */
 export async function chooseFolder({
 	title,
@@ -106,8 +120,9 @@ export async function chooseFolder({
 	title: string;
 	at?: string;
 }): Promise<Result<string | null, OpenDeviceError>> {
+	let picked: string | null;
 	try {
-		const picked = await invoke<string | null>('plugin:dialog|open', {
+		picked = await invoke<string | null>('plugin:dialog|open', {
 			options: {
 				title,
 				directory: true,
@@ -117,8 +132,56 @@ export async function chooseFolder({
 				defaultPath: at,
 			},
 		});
-		return Ok(picked);
 	} catch (cause) {
 		return OpenDeviceError.StorageUnavailable({ cause });
+	}
+	return picked === null ? Ok(null) : canonicalFolder(picked);
+}
+
+/**
+ * "Choose folder…", "Allow access" and "Choose data folder…": the picker
+ * (`chooseFolder`) at `at`, then the folder picked remembered as `folder` in
+ * `appData`'s `settings.md` by its canonical path, or forgotten when it is
+ * the default folder. `true` once remembered, `false` when the person
+ * cancelled; the caller opens the roots again.
+ */
+export async function pickDataFolder(
+	appData: FolderSettings,
+	options: { title: string; at?: string },
+): Promise<Result<boolean, OpenDeviceError | ClientError>> {
+	const picked = await chooseFolder(options);
+	if (picked.error !== null) return picked;
+	if (picked.data === null) return Ok(false);
+	const remembered = await rememberFolder(
+		appData,
+		(await isDefaultFolder(picked.data)) ? undefined : picked.data,
+	);
+	if (remembered.error !== null) return remembered;
+	return Ok(true);
+}
+
+/**
+ * Whether the canonical `folder` is the default data folder, which may be
+ * named through a link (a home folder under `/tmp`) or not be there yet:
+ * compared by its canonical path when the shell can resolve it.
+ */
+async function isDefaultFolder(folder: string): Promise<boolean> {
+	const fallback = await defaultDataFolder();
+	if (fallback.error !== null) return false;
+	const resolved = await canonicalFolder(fallback.data);
+	return folder === (resolved.data ?? fallback.data);
+}
+
+/** The canonical path of `folder`, which Tauri's scope must allow. */
+async function canonicalFolder(
+	folder: string,
+): Promise<Result<string, OpenDeviceError>> {
+	try {
+		const resolved = await commands.resolveFolder(folder);
+		return resolved.error === null
+			? Ok(resolved.data)
+			: deviceRefusal(resolved.error, folder);
+	} catch (cause) {
+		return deviceRefusal(cause, folder);
 	}
 }
