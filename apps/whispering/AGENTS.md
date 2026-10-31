@@ -28,9 +28,8 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   Nothing a sign-in or sign-out does touches the files.
   `src/lib/page-boundary.test.ts` enforces this; keep it passing.
 - **No migration or compatibility code** (decision 72). Nothing reads an
-  earlier build's IndexedDB folder or Yjs store. Do not reintroduce
-  `openFolder`, `svelteFolder`, `defineTable`, `@epicenter/svelte/folder`, a
-  second store, or a cache of notes.
+  earlier build's IndexedDB folder or Yjs store. Do not add a second store
+  or a cache of notes.
 - **Capabilities through the seam.** Capture, inference, connections and
   preferences come from `#platform/services`, auth from `#platform/auth`
   (`src/lib/platform/`). Nothing under `src/` imports Node or Bun, and only

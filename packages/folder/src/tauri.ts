@@ -1,34 +1,20 @@
 /**
  * `@epicenter/folder/tauri`: open a directory the desktop shell lets this
- * window reach, as a contract's typed client (`openDevice`) or as a folder
- * of tables (`openFolder`). The shell answers each storage command, and its
- * watcher sends the paths that changed. A standalone app opens its two roots
- * with `openAppData` and `openDataFolder`.
+ * window reach as a contract's typed client (`openDevice`). The shell
+ * answers each storage command, and its watcher sends the paths that
+ * changed. A standalone app opens its two roots with `openAppData` and
+ * `openDataFolder`.
  */
 import type { Client, Contract } from '@epicenter/definition/contract';
 import { Channel, isTauri } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { hostStorage } from './boundary.js';
 import type { ChangeListener, ChangeSource } from './changes.js';
 import { createDeviceClient } from './device/client.js';
 import { tauriStore } from './device/tauri-store.js';
-import { OpenDeviceError, OpenFolderError } from './errors.js';
-import {
-	createFolder,
-	type Opened,
-	type OpenOptions,
-	type Tables,
-} from './folder.js';
-import {
-	commands,
-	type FolderChanged,
-	type WindowError,
-} from './native/bindings.gen.js';
-import { deviceRefusal, openRefusal } from './native/open-refusal.js';
-import { storageHost } from './storage.js';
-import { tauriHostFiles } from './tauri-files.js';
+import { OpenDeviceError } from './errors.js';
+import { commands, type FolderChanged } from './native/bindings.gen.js';
+import { deviceRefusal } from './native/open-refusal.js';
 
-export * from './contract.js';
 export {
 	defaultDataFolder,
 	type FolderRequest,
@@ -38,6 +24,7 @@ export {
 	pickDataFolder,
 } from './desktop-folder.js';
 export { syncedWithEpicenter, syncWithEpicenter } from './epicenter-sync.js';
+export { OpenDeviceError } from './errors.js';
 export {
 	type FolderSettings,
 	rememberFolder,
@@ -155,27 +142,4 @@ async function openRoot(
 			return () => known.delete(listener);
 		},
 	});
-}
-
-/**
- * The window's own folder as a folder of tables, watched by the shell. Outside
- * Tauri it is `NotTauri`; a shell refusal is the matching `OpenFolderError`.
- */
-export async function openFolder<const T extends Tables>(
-	options: OpenOptions<T>,
-): Opened<T> {
-	if (!isTauri()) return OpenFolderError.NotTauri();
-	const opened = await openRoot(null, false);
-	if (opened.error !== null) {
-		const { cause: error } = opened.error;
-		// Tauri also rejects with strings for missing commands or permissions;
-		// only an object with a name is the shell's own refusal.
-		if (typeof error !== 'object' || error === null || !('name' in error))
-			return OpenFolderError.Unavailable({ cause: error });
-		return openRefusal(error as WindowError);
-	}
-	return createFolder(
-		storageHost(hostStorage(tauriHostFiles()), { watch: opened.data.watch }),
-		options,
-	);
 }

@@ -5,7 +5,7 @@
 - **Amends:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) at the unit table's "a row, `<table>/<stem>.md`", the whole-file merge of `epicenter.json` with its union of `local`, "Sync, the one write, and the merge driver take the same rule", "Plain Git keeps its conflicts", and the rejected alternative "No merge driver": a `.md` file with readable frontmatter merges by field wherever it is, every `.json` file merges key by key, and the plain-Git merge driver is deleted. [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "History and Sync use the handle's definition": history and Sync read no definition.
 - **Amended by:** [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) at "`epicenter.json` included": a `table.json` is text and merges as any text file does; [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) at "one region of body lines", "other UTF-8 text | one region of lines", the line merge `rowTextWins`, "a `.json` file, `epicenter.json` included | one key of an object", and "binary, or a side absent | the whole file" for a side absent: all text, `.json` included, merges by diff3 region, and an edit beats a delete it never saw.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at "Epicenter registers no plain-Git merge driver": `merge=epicenter` runs `epicenter merge-driver`.
-- **Unbuilt:** deleting `localPatterns`, which stays in `packages/folder/src/declaration.ts` while publication and history still read `local`, until ADR-0592 removes it.
+- **Unbuilt:** deleting `localPatterns`, which stays in `4467140355:packages/folder/src/declaration.ts` while publication and history still read `local`, until ADR-0592 removes it.
 
 Retired source files below use their last tracked Git snapshot (`commit:path`);
 inspect one with `git show commit:path`.
@@ -20,11 +20,11 @@ side with `parseRow(table)` (`:315`) and writes the result with
 `writeRow(table)` (`:321`); a side that fails the table's schema sends the
 file to a line merge (`rowTextWins`, `:386`). `writeRow` orders keys by
 `Object.keys(table.fields)` through `formatRowSource`
-(`packages/folder/src/row-text.ts:147-150`).
+(`4467140355:packages/folder/src/row-text.ts:147-150`).
 
 The validity gate protects nothing a field merge could break: `check`
 validates one field at a time with no rule across fields
-(`packages/definition/src/prepare.ts:316-342`), and every merged value
+(`4467140355:packages/definition/src/prepare.ts:316-342`), and every merged value
 comes from ours or theirs, so a field merge of two valid rows is always
 valid. The gate only demoted an invalid side to a coarser merge. The field
 merge itself needs no table: `mergeRows`

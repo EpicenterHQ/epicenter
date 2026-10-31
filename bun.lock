@@ -576,7 +576,6 @@
         "@tauri-apps/api": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
-        "yaml": "catalog:",
       },
       "devDependencies": {
         "@epicenter/auth": "workspace:*",
@@ -658,7 +657,6 @@
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@tauri-apps/api": "catalog:",
-        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {

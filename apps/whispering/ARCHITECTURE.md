@@ -58,10 +58,8 @@ calls `openRemote`, `setRepo` or `getRepo`, or imports
 `filesOf` and `createLibrary` only in `WhisperingApp`; `fromClient` only
 where each build's store is opened (`LocalStartup`, `DesktopRoot`, which
 also wraps the AppData root); auth only through `#platform/auth`; services only through
-`#platform/services`; nothing from Node or Bun, Tauri only in the desktop
-leaves; and no use of the
-retired folder and table API (`openFolder`, `svelteFolder`, `defineTable`,
-`@epicenter/svelte/folder`) anywhere, tests included.
+`#platform/services`; and nothing from Node or Bun, Tauri only in the desktop
+leaves.
 
 ## The files
 

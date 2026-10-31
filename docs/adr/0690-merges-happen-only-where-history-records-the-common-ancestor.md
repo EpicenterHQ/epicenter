@@ -14,7 +14,7 @@ Before this record, two merge designs were tried and removed. The Yjs store
 was the authority and Markdown files were a read-only projection of it
 (removed in commit `9f75a9bd51`); agents edit files, so every file edit needed a
 custom import back into Yjs. A local based-write merge then had each whole-file
-write in `packages/folder/src/folder.ts` carry the text it was based on and
+write in `4467140355:packages/folder/src/folder.ts` carry the text it was based on and
 three-way merge at its queue turn (removed in commit `9d1611c67f`). Its base was
 inferred from editor state, and every review round found a new way for that
 inference to drop or duplicate typed text.
@@ -45,7 +45,7 @@ sets those fields on the file as storage holds it at its turn;
 storage; `Folder.replace(path, data)` replaces an existing file and answers
 `NothingToUpdate` when it is gone; `Folder.write(path, data)` creates or
 replaces. Updates are checked and answer `WriteRefusal.KeptChanging` after three
-changed attempts. `absorb` in `packages/folder/src/folder.ts` folds a waiting
+changed attempts. `absorb` in `4467140355:packages/folder/src/folder.ts` folds a waiting
 write into a newer one of the same kind for the same path; create, delete, and
 move keep their order. No local write merges text.
 

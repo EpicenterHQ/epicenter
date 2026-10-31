@@ -37,34 +37,25 @@
 
 ## The Folder
 
-`@epicenter/folder` opens one rooted set of local files. Tables interpret
-Markdown files through schemas an app supplies. Opening needs no account,
-remote, Git repository, or declaration file. A desktop app opens a directory
-the shell grants (`@epicenter/folder/tauri`); a Bun script names one
-(`@epicenter/folder/bun`).
+`@epicenter/folder` opens an app's files as the typed client its file
+contract derives. Notes are Markdown files at the contract's paths; the
+contract's schemas interpret them. Opening needs no account, remote, Git
+repository, or declaration file. A browser keeps its files in the origin's
+private file system; a desktop app or a Bun script opens a directory.
 
 ```ts
-import { openFolder } from '@epicenter/folder/tauri';
-import { Type } from 'typebox';
+import { openDevice } from '@epicenter/folder/node';
 
-const { data: folder, error } = await openFolder({
-  tables: { todos: Type.Object({ title: Type.String(), done: Type.Boolean() }) },
-});
-if (error !== null) throw error;
+const device = await openDevice(todosContract, { path: '/Users/me/Todos' });
+if (device.error !== null) throw device.error;
 
-const saved = await folder.tables.todos.write('milk', {
-  fields: { title: 'Milk', done: false },
-});
+const saved = await device.data.todos.create({ id: 'milk', title: 'Milk', done: false });
 if (saved.error !== null) throw saved.error;
-folder.close();
 ```
 
-Desktop pages open the directory bound to their window; a Bun script passes
-`directory` with `tables`. Schemas change interpretation, not write authority.
-Ordinary edits use the acquired working document, shared by typing, structured
-`set`, and autosave. Complete `write` submissions create or replace a file once.
-Both hosts publish local changes in order per path, without comparing previous
-content. Git exchange is separate from opening the Folder.
+Each write is conditional on the version its writer read, so another
+writer's change since is a `Conflict` rather than overwritten. Git exchange
+is separate from opening the folder: `epicenter sync` commits and merges.
 
 [Read the folder API](packages/folder/README.md)
 

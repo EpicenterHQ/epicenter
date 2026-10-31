@@ -26,7 +26,7 @@ The decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in-code-on-th
 | --- | --- |
 | Epicenter | The toolkit and optional hosted services. It does not name one person's body of data. |
 | Local dataset | The local data selected by an app, with identity independent of account, remote URL, or hosted repository ID. Say "local data" in ordinary explanations. |
-| Folder handle | The public `Folder`: one opened lifetime over rooted local paths and contents, on disk or in browser-private storage. A caller may open several handles. |
+| Client | The typed client a contract derives (`Client<T>`), opened over a device's files (`openDevice`) or the signed-in person's repository (`openRemote`). A caller may open several. |
 | Directory | A physical filesystem location. In ordinary explanations, folder can name a disk directory; qualify a browser folder when its private storage matters. |
 | Remembered path | An optional machine-local shortcut shared by Epicenter desktop and CLI. It grants no access and does not configure where a standalone app saves. |
 | Repository | A Git repository; repo is its shorthand, not another concept. A hosted repository also has a stable service ID, a changeable label, and membership. |
@@ -41,8 +41,7 @@ The decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in-code-on-th
 | Reference | A value interpreted by its app's format, or a literal Markdown link. Existing record IDs remain; automatic cross-repository navigation is deferred. |
 
 Browser local data lives under its web origin: in the origin's private file
-system for a contract's `openDevice`, or in IndexedDB for the legacy
-`openFolder`. It is not an ordinary folder that another app origin or desktop
+system for a contract's `openDevice`. It is not an ordinary folder that another app origin or desktop
 editor can open. Disk data can be shared by cooperating clients at the same
 path. The web never syncs. An app has up to three variants, each with one
 store for its life: desktop (the folder, synced only by `epicenter sync`),
@@ -61,9 +60,7 @@ a recovery screen, never another folder, and there is no first-run question
 awaits `openDevice(contract)` over the origin's private file system; an
 online web variant opens the repository with `openRemote`.
 
-The legacy `openFolder({ tables })` remains in `/tauri` and in Bun, which
-passes an explicit `directory`, with no app caller left. Epicenter's records keep the
-library's fixed reverse-DNS default, `so.epicenter` under `~/Epicenter`
+Epicenter's records keep the library's fixed reverse-DNS default, `so.epicenter` under `~/Epicenter`
 (`~/Epicenter Dev` in development)
 ([ADR-0672](adr/0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md)).
 
@@ -93,11 +90,10 @@ several apps can use the same files through their own schemas.
 | Schema or table schema | JSON Schema expectations for a row's frontmatter object, supplied by the reader. It does not validate the complete API Row wrapper. |
 | Field schema | The expectations for one frontmatter value within a table schema. |
 | Contract | An app's file layout: collections of notes (`.md`, front matter fields plus a body) and files at path templates such as `recordings/{id}.md`, written with `defineContract` and published as JSON. `epicenter check` and `epicenter format` take one as a URL or a file path; a folder holds no copy. |
-| Folder declaration | The legacy portable root `epicenter.json`, with independently optional `tables` and saved `views`. CLI `query` requires its table schemas. The document schema is distinct from the row schemas it contains. |
+| Folder declaration | A folder's optional root `epicenter.json`, the legacy portable schema and saved-view file. No current tool reads or writes it; a file already there stays as ordinary content. |
 | Reader or writer | A role performed by an app, CLI, or agent, not another product or data owner. |
 | Issue or diagnostic | A specific parsing or schema problem, with its source. A schema disagreement is distinct from unparseable source or a storage failure. |
 | View | A presentation of data. Selecting another schema changes interpretation, not saved files or edit ownership. |
-| Saved view | A grid, board, or SQL configuration in the folder declaration. An opaque key identifies it; its display title can change. View settings travel with the folder, without a personal override. |
 | Query projection | Derived query data, such as an in-memory SQLite table built from files and selected schemas. It is not another durable data owner. |
 
 Apps supply their own read schemas and need no schema file. CLI `query`
@@ -120,7 +116,7 @@ desktop editor that showed grids, boards, saved views, and SQL over a folder
 (2026-11-01). Saved views already in a folder's `epicenter.json` stay there
 as ordinary text.
 
-A schema-distribution service remains unbuilt. Existing app callers use Folder;
+A schema-distribution service remains unbuilt. Every app is on a contract;
 migration of older stored browser data is separate. The CLI retains its
 required-schema `query`; `epicenter generate` is deleted.
 
@@ -136,7 +132,7 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | --- | --- |
 | Edit or unsaved input | Text an editor holds after the person typed it and until its save lands. The folder shows only what landed; a failed save keeps the edit on screen for retry, discard, or copy. |
 | Save | Acknowledged local persistence of an edit. It does not promise a Git commit or remote receipt. |
-| Write | A file or storage operation. Folder `write` creates or replaces a whole file, while `replace` requires an existing file. It is not a second kind of dataset or an automatic upload. |
+| Write | A file or storage operation. A client's write is conditional on the version its writer read. It is not a second kind of dataset or an automatic upload. |
 | Commit or version | A fixed Git snapshot. Prefer commit in technical text; version can explain it in a UI. |
 | Sync | `epicenter sync`: commit a registered folder's files with `git add`, fetch, merge, and push. It is the only desktop committer; the server commits web writes. Apps never commit. |
 | Merge | Combine base, current, and incoming (the later arrival): a front matter key goes to the later arrival; the body merges by line, then by word; an edit beats a delete. Schemas do not choose merge behavior. |
@@ -149,27 +145,17 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | Transaction or publication | Atomic storage work that acknowledges local state. This publication is unrelated to the retired app-owned schema publication. |
 | Cache | Data rebuilt without losing saved work. Unlanded edits and uncertain pending commits are not caches. |
 
-A Folder shows what storage last returned or accepted; an edit shows what a
-person typed until that text's save answers. `folder.files()` and table rows are
-landed values. Each `write`, `replace`, `update`, `create`, or `delete` joins one serial
-queue and answers after its put lands and the mirror shows it,
-or with a `WriteError`. A row update composes over the file as it stands when
-the operation runs. It preserves unrelated values but rewrites frontmatter
-canonically. Updates make up to three checked attempts, then fail if the file
-keeps changing. A whole-file write replaces the file at its turn; `replace`
-refuses if the file was deleted. Later writes win on the same field, body, or
-whole-file unit. A Folder runs no Git merge; `epicenter sync` does.
+A client's write lands only while the file holds the version its writer
+read. Another writer's change since is a `Conflict`: a change to a different
+field is carried over, and a same-field `Conflict` keeps the typed text for
+retry (overwrite) or discard (take theirs). A client runs no Git merge;
+`epicenter sync` does.
 
-A Svelte editor creates one `edit(source, save)` for its input. Its
-`save(value)` receives each typed value. The edit shows typed text until the corresponding
-write answers, then follows the
-Folder again. A failed save retains that text and its error beside the
-control for retry or discard. Each typed value enters the queue immediately;
-teardown sends nothing more. The Folder has no working document or aggregate
-save status; its `saving()` value reports queued and active writes. `close()`
-refuses new writes, drains admitted work, then releases storage. In-memory
-edits do not survive a crash. See [the folder package](../packages/folder/README.md) and
-[the Svelte adapter](../packages/svelte/README.md).
+A Svelte page binds a text input to `fieldEdit`, which shows typed text until
+its save answers, then follows the client again. A failed save keeps that
+text and its error beside the control for retry or discard. In-memory edits
+do not survive a crash. See [the folder package](../packages/folder/README.md)
+and [the Svelte adapter](../packages/svelte/README.md).
 
 During `epicenter sync`, stock `git merge` runs `epicenter merge-driver` on
 each note both sides changed. `base` is the common ancestor, `current` the
@@ -183,7 +169,7 @@ Git's `ours` and `theirs` names. The server's write translator applies the same
 The planned app-facing synchronization states are `local`, `synced`, `pending`,
 `disconnected`, and `stuck`. Local means no destination is configured. The
 remaining states describe a configured synchronization connection, independently
-of local saving. The Folder exposes only local `saving()`; it does not expose those network states.
+of local saving.
 
 ## Clients, services, and access
 
@@ -191,7 +177,7 @@ of local saving. The Folder exposes only local `saving()`; it does not expose th
 | --- | --- |
 | App | A program using its own read schemas. Qualify a web app or desktop app when runtime or native capabilities matter. |
 | CLI | The `epicenter` executable. Its package entry points and commands are documented by the CLI package. |
-| Agent or person | A direct file writer. Its changes reach editors through the Folder copy; later writes to the same unit win locally. |
+| Agent or person | A direct file writer. Its changes reach editors through a client's listeners; a client writing over them meets a `Conflict`. |
 | Epicenter desktop app | The app in `apps/epicenter`: the folder manager and Settings. It hosts no app and opens no folder's files (ADR-0701). It is optional to standalone apps and the CLI. |
 | Web origin | The web app's storage and OAuth client boundary. It is distinct from Git's remote named `origin`. |
 | Runtime or shell | The environment executing an app or providing native mechanisms. Qualify a Git host or inference host separately. |
@@ -234,9 +220,7 @@ additional current APIs.
 
 | Source | Names and current behavior |
 | --- | --- |
-| `@epicenter/folder` | Public `openFolder` from `/tauri` and `/bun`, with `Folder` and `Row.id` from every entry. Apps supply TypeBox row schemas and neither read nor publish a declaration when opening. |
 | `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser`, `openDevice(contract, { path })` from `/node`, `openDevice(contract, { path? })` from `/tauri`, and `openRemote(contract, { account })` from `/remote`, over a contract from `@epicenter/definition/contract`. |
-| `@epicenter/folder/declaration` | `SavedView`, `readSavedViews`, and the portable schema types. The pure `changeSavedView` transform composes into the same declaration file editor used for raw text. |
 | CLI | Implemented commands include `auth`, `check`, `format`, `init`, `sync`, `clone`, `forget`, `status`, `repos`, `share`, and `unshare`. External-schema flags and CLI `open` remain deferred. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 

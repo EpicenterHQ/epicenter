@@ -109,18 +109,6 @@ test('the store is opened once, by each variant’s startup; nothing opens a rep
 	).toEqual([]);
 });
 
-test('nothing in the app uses the retired folder and table API', () => {
-	const retired =
-		/\b(openFolder|svelteFolder|defineTable|prepareDefinition)\b|@epicenter\/svelte\/(folder|open-folder|row-issues)['"]|from ['"]@epicenter\/(folder|definition)['"]/;
-	expect(
-		[...everything(src)]
-			// This file names the retired API to look for it.
-			.filter((path) => path !== fileURLToPath(import.meta.url))
-			.filter((path) => retired.test(readFileSync(path, 'utf8')))
-			.map((path) => relative(src, path)),
-	).toEqual([]);
-});
-
 test('a microphone is reached only through its build’s recorder entry', () => {
 	// The WebView microphone reaches the browser's recorder, the shell's
 	// microphone the desktop's. Shared code names the bare specifier, which

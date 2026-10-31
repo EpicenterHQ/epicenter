@@ -195,8 +195,9 @@ so a folder is one setting however it was picked.
 
 The page registers one private close channel with `subscribe_close`; it
 releases that registration with `unsubscribe_close`. On window close, Rust
-sends the request to the page. `<OpenFolder>` waits for `folder.idle()`, then
-calls `destroy_bound_window` with its subscription token; Rust destroys only
+sends the request to the page. The page's leave guard (`holdWindowClose` in
+`@epicenter/svelte/leave-guard`) waits for its writes, then calls
+`destroy_bound_window` with its subscription token; Rust destroys only
 that window. A second close while the page waits asks natively whether to
 close anyway. Keeping the window open lets the first wait finish and close it.
 A page reload clears

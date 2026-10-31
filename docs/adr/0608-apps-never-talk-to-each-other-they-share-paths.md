@@ -16,7 +16,7 @@ inspect one with `git show commit:path`.
 Apps keep their data in folders under `~/Epicenter` (ADR-0590), and after
 ADR-0607 any app opens any folder by its id. Nothing says how one app's data
 points at another's, or how an app finds a table it did not make.
-`field.reference('pages')` (`packages/definition/src/field/builders.ts:9`)
+`field.reference('pages')` (`4467140355:packages/definition/src/field/builders.ts:9`)
 stores a bare file stem, which names a row only inside the folder that holds
 it.
 

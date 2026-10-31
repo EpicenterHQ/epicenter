@@ -11,7 +11,6 @@ import { DeviceError, opfsStore } from './device/opfs-store.js';
 import type { DeviceStore } from './device/store.js';
 import { OpenDeviceError } from './errors.js';
 
-export * from './contract.js';
 export { DeviceError } from './device/opfs-store.js';
 
 /**

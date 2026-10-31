@@ -69,7 +69,7 @@ can check a row against its table without knowing Epicenter.
   every setting may be unset.
 
 `formatDeclaration` and `parseDeclaration` in
-`packages/folder/src/declaration.ts` are the only code that writes or reads
+`4467140355:packages/folder/src/declaration.ts` are the only code that writes or reads
 this shape. `parseDeclaration` refuses an unknown key at the top level or in
 a table or `kv` object, a `required` entry that names no property, and a
 visible `~` key in a field. `prepareSchema` then refuses what ADR-0525

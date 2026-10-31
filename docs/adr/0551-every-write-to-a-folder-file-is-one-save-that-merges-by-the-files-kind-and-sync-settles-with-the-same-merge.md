@@ -2,12 +2,12 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
-- **Amended by:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md). Local writes are unconditional; Git sync still merges and uses conditional storage.
+- **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at local writes: a write is conditional on the version its writer read, and another writer's change since is a `Conflict` (a different field is carried over); Git sync still merges. The unconditional local writes of the rejected [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) never governed.
 - **Amends:** ADR-0514, since deleted: [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) replaced Sync's choices with a merge the device syncing wins. This amended it so that taking a side of a text unit no longer took the captured version exactly.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at "sync settles with the same merge": sync settles with `settle` and `epicenter merge-driver`.
 - **Built:** `mergeFile` and `fileKindOf` (`merge-file.ts`), the one-pass line merge (`git/merge-lines.ts`), `saveFile`, `Replaced`, and `restoreTheirs` (`save-file.ts`); content-carrying captures (`files.read`, `files.create`, `files.save`, and `StoredRow.text`); `files.save` with `files.replace` and `files.overwrite` deleted; `table.save` and `kv.set` over `saveFile`; Sync's held paths and binary paths over `mergeFile`; `publishDefinition` over create and `{ merge: false }`; drafts that carry changes made during a merged save onto the version it wrote, for rows and, in `createTextDraft`, for text; `ReplacedNotice` in `@epicenter/svelte`; and every caller listed below. The storage boundary keeps its `overwrite` change kind, which no folder verb sends.
 
-- **Current edit implementation:** [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md) records the retained-source model implemented in `bd78bfb52b`. Editors and direct file/table commands share each path's publication lane; local writes are unconditional whole-file last-write-wins. Git synchronization keeps its merge rules. Earlier draft-merge and guarded-save descriptions below are historical.
+- **Current edit implementation:** a contract client (`openDevice`, `openRemote`) writes conditionally on the version it read (ADR-0700). The retained-source model of [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md) (`bd78bfb52b`) and the Folder engine after it are deleted. Git synchronization keeps its merge rules. Earlier draft-merge and guarded-save descriptions below are historical.
 
 ## Context
 

@@ -21,9 +21,9 @@
 import { Compile } from 'typebox/compile';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { ConformanceIssue } from '../declaration.js';
 import { isJsonSafe } from '../json.js';
-import { schemaProblem } from '../prepare.js';
+import type { ConformanceIssue } from './issues.js';
+import { schemaProblem } from './schema-problem.js';
 import { isNotePath } from './storage.js';
 import {
 	compileTemplate,

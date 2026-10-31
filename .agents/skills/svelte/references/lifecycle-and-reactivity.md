@@ -113,11 +113,11 @@ Svelte's deep proxy can break handles whose methods rely on `this` being the ori
 
 ## Project-specific application
 
-For Folder-backed apps, `<OpenFolder open={...}>{#snippet children(folder)}...{/snippet}</OpenFolder>`
-owns asynchronous opening and close, including a folder whose opening finishes
-after unmount. The mounted product root receives the `SvelteFolder` value and
-installs it in its app-owned context. Key editors by file identity so each
-mounted editor owns one draft. See [Folder reads and editing](#folder-reads-and-editing).
+For contract apps, the root startup component awaits `openDevice` (or
+`openDataFolder` on the desktop) and hands `fromClient(client)` to the product
+root, which installs it in its app-owned context. Key editors by note identity
+so each mounted editor owns one edit. See
+[Contract reads and editing](#contract-reads-and-editing).
 
 ## Imperative Widgets: Own The Whole Runtime Boundary
 
@@ -169,24 +169,24 @@ access alone does not justify another alias.
 
 ```svelte
 {#each ids as id (id)}
-	{@const row = folder.tables.todos.row(id)}
-	{#if row?.issues === null}
-		<button onclick={() => void folder.tables.todos.update(id, { fields: { done: !row.fields.done } })}>
-			{row.fields.done ? 'Done' : 'Open'}
+	{@const todo = files.todos.get({ id })}
+	{#if todo}
+		<button onclick={() => void files.todos.update({ id }, { done: !todo.done })}>
+			{todo.done ? 'Done' : 'Open'}
 		</button>
 	{/if}
 {/each}
 ```
 
-In this case, read the row once, then check presence and validity. Use the actual contract:
-Folder rows are absent as `undefined`, and valid when `issues === null`.
+In this case, read the note once, then check presence. Use the actual contract:
+a collection's `get(args)` is `undefined` for a missing note.
 The [function binding guidance](component-ui-patterns.md#function-bindings-for-transformed-values)
 explains event-time composition through the current owner.
 
-Use `const row = $derived(folder.tables.todos.row(id))` if script code also needs it or no
+Use `const todo = $derived(files.todos.get({ id }))` if script code also needs it or no
 existing template scope supports `{@const}` before the guard. Do not add a
 block solely to host the local. Do not replace either reactive form with a
-component-level `const row = folder.tables.todos.row(id)`:
+component-level `const todo = files.todos.get({ id })`:
 that captures only the initial value. A simple display that needs no shared
 narrowing may read `session.current` directly; do not add an alias just to
 rename it, and do not remove a useful local merely because its initializer
@@ -308,8 +308,8 @@ value with `set(id, next)`.
 
 | Data Shape | Use | Example |
 |---|---|---|
-| Folder listings | `folder.files`, `table.rows` | landed notes and files |
-| Editable text | `draft(source, save)` | typed text and inline save feedback |
+| Contract listings | `files.notes.items`, `files.notes.invalid` | notes and notes that do not read |
+| Editable text | `fieldEdit(files.notes, args, field)` | typed text and inline save feedback |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
 | Replace-only sequential data without IDs | `$state.raw<T[]>([])` | terminal history, command history |
@@ -321,35 +321,28 @@ sorting inside a getter returns a fresh array on every access, which sends
 TanStack Table into an infinite loop. See
 `docs/articles/sveltemap-over-state-for-keyed-collections.md`.
 
-# Folder reads and editing
+# Contract reads and editing
 
-`<OpenFolder>` passes a reactive `SvelteFolder` to the product root. The root
-installs it in an app-owned `createContext` pair. The Folder mirror shows only
-what storage last returned or accepted. A text editor owns typed input until
-its save answers.
+`fromClient(client)` gives each collection tracked `items`, `invalid`,
+`loading`, and `error`. The root installs it in an app-owned `createContext`
+pair. A text editor owns typed input until its save answers.
 
 ```svelte
 <script lang="ts">
-  import { getFolder } from '$lib/folder.js';
+  import { getFiles } from '$lib/files.js';
 
-  const folder = getFolder();
-  const validNotes = $derived(
-    folder.tables.notes.rows.filter((row) => row.issues === null),
-  );
+  const files = getFiles();
+  const open = $derived(files.todos.items.filter((todo) => !todo.done));
 </script>
 ```
 
-`folder.files` and table `rows` are tracked getters; `file(path)` and
-`row(id)` track when called in reactive code. Keep derived filters in
-`$derived`. Each text input bound to folder data uses its own
-`draft(source, save)` from `@epicenter/svelte/folder`, including titles. Show
-failed saves beside that editor with `<UnsavedEdit>`. A checkbox, select, or
-button writes directly, and its returned result belongs to that action.
-
-Writes answer after storage and the mirror agree. `folder.refresh()` reconciles
-outside changes and retries a failed read. Mounted drafts flush on teardown
-and page departure. `<OpenFolder>` closes the Folder after drafts flush and
-queued writes drain. Keep product cleanup idempotent.
+Keep derived filters in `$derived`. Each text input bound to a note uses its
+own `fieldEdit(files.todos, args, field)` from `@epicenter/svelte/client`,
+including titles. Show failed saves beside that editor with `<UnsavedEdit>`.
+A checkbox, select, or button writes directly, and its returned result belongs
+to that action. A write is conditional on the version shown; another writer's
+change to the same field is a `Conflict`, after which the collection shows
+theirs and a second save applies over it.
 
 ### Template Props
 

@@ -1,16 +1,12 @@
 /**
- * Operation failures: opening a `Folder` (`OpenFolderError`), and the
- * directory storage and row reading the CLI's readers use.
+ * Operation failures: opening a contract's client (`OpenDeviceError`), and
+ * the directory storage the device stores and the CLI's tools use
+ * (`FileError`).
  *
  * Library messages state the failure precisely; the application decides what
- * a person is told. Public Folder saves use `SaveError`.
- *
- * A row file whose text was read but is not a valid row is `InvalidRow`: it
- * carries the exact text, the hash of the bytes read, and every issue, so the
- * row can be repaired as text and saved guarded by those bytes.
+ * a person is told.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import type { Issues } from './row-text.js';
 
 export const FileError = defineErrors({
 	InvalidPath: ({ path, reason }: { path: string; reason: string }) => ({
@@ -63,103 +59,6 @@ export const FileError = defineErrors({
 });
 export type FileError = InferErrors<typeof FileError>;
 
-/** Why a row file's text, read whole, is not a row. Nothing was written. */
-const RowTextError = defineErrors({
-	/**
-	 * The file was read as text, but it is not a valid row: its frontmatter
-	 * has no canonical form, or a declared field does not conform or is
-	 * missing. `text` is exactly what was read and `sha256` the hash of its
-	 * bytes, so a repair can show the text and save guarded by them.
-	 */
-	InvalidRow: ({
-		path,
-		sha256,
-		text,
-		issues,
-	}: {
-		path: string;
-		sha256: string;
-		text: string;
-		issues: Issues;
-	}) => ({
-		message: `'${path}' is not a valid row: ${issues
-			.map((issue) =>
-				issue.line === undefined
-					? issue.message
-					: `line ${issue.line}: ${issue.message}`,
-			)
-			.join('; ')}`,
-		path,
-		sha256,
-		text,
-		issues,
-	}),
-	/**
-	 * The file was read, but its bytes are not UTF-8. `sha256` is the hash of
-	 * the bytes read, so a repair can be guarded by them.
-	 */
-	InvalidUtf8: ({ path, sha256 }: { path: string; sha256: string }) => ({
-		message: `'${path}' is not valid UTF-8 text`,
-		path,
-		sha256,
-	}),
-});
-
-/**
- * Why a read row file is not a row: storage could not read it, its bytes are
- * not UTF-8, or its text is not a valid row.
- */
-export type RowReadError = FileError | InferErrors<typeof RowTextError>;
-
-/** The constructors of `RowReadError`. */
-export const RowReadError = { ...FileError, ...RowTextError };
-
-/**
- * Why a folder could not be opened. Every opener returns these; none throws
- * for a refusal, and none opens another storage instead.
- */
-export const OpenFolderError = defineErrors({
-	/** A desktop folder was asked for outside the desktop shell. */
-	NotTauri: () => ({
-		message:
-			'This folder lives in the desktop app; it cannot be opened from a browser tab',
-	}),
-	/** The directory a native opener was given cannot hold a folder. */
-	InvalidRoot: ({ root, cause }: { root: string; cause: unknown }) => ({
-		message: `The directory '${root}' cannot be opened as a folder: ${describe(cause)}`,
-		root,
-		cause,
-	}),
-	/**
-	 * The desktop window's folder is not there anymore, perhaps moved or
-	 * removed since the window opened. Opening never makes it again: only
-	 * the shell's launch makes a fixed default.
-	 */
-	Missing: () => ({
-		message:
-			"This window's folder is not there anymore; it may have been moved or removed.",
-	}),
-	/**
-	 * `tables` named a table that cannot be one top-level directory: empty,
-	 * `.`, `..`, containing a slash or NUL, or `.git`.
-	 */
-	InvalidTable: ({ table }: { table: string }) => ({
-		message: `'${table}' cannot name a table: a table is one top-level directory`,
-		table,
-	}),
-	/** The desktop shell bound no folder to this window. */
-	NotBound: () => ({
-		message: 'The desktop app did not open this window on a folder',
-	}),
-	/** The folder's storage could not be reached or made ready. */
-	Unavailable: ({ cause }: { cause: unknown }) => ({
-		message: `The folder could not be opened: ${describe(cause)}`,
-		cause,
-	}),
-	ShuttingDown: () => ({ message: 'The desktop app is shutting down' }),
-});
-export type OpenFolderError = InferErrors<typeof OpenFolderError>;
-
 /**
  * Why `openDevice` opened no client, on every platform. A desktop data
  * folder can be missing, not granted, refused or unreadable; storage itself
@@ -197,25 +96,6 @@ export const OpenDeviceError = defineErrors({
 	}),
 });
 export type OpenDeviceError = InferErrors<typeof OpenDeviceError>;
-
-/**
- * Internal: a write whose outcome is unknown, such as a stream that failed
- * to close, or a file it created whose absence could not be shown after it
- * failed. Git work that meets one reports `unconfirmed`, never `failed`, and
- * does not treat the private file's current bytes as proof of what landed;
- * file storage reports `Unconfirmed`.
- */
-export class UnconfirmedWrite extends Error {
-	constructor(
-		readonly path: string,
-		cause: unknown,
-	) {
-		super(`Whether '${path}' was written is unknown: ${describe(cause)}`, {
-			cause,
-		});
-		this.name = 'UnconfirmedWrite';
-	}
-}
 
 /**
  * Internal: the Bun directory host checked what a staged file's rename or a

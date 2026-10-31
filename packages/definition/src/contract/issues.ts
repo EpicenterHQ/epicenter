@@ -11,9 +11,13 @@
  * describeIssues([{ field: 'done', message: 'is required' }]); // 'done: is required'
  * ```
  */
-import type { ConformanceIssue } from '../declaration.js';
-
-export type { ConformanceIssue };
+/** A field diagnostic. Messages and diagnostic counts are not machine contracts. */
+export type ConformanceIssue = {
+	field: string;
+	/** JSON pointer within the field value, when the validator identifies it. */
+	path?: string;
+	message: string;
+};
 
 export const describeIssues = (
 	issues: readonly Pick<ConformanceIssue, 'field' | 'message'>[],

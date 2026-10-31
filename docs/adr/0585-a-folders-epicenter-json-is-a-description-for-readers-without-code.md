@@ -21,7 +21,7 @@ may write the file and which apps may open the folder.
 - **Publication.** An app publishes its Definition into the folder named
   after it (ADR-0583): `opening` sets `own` when the folder id equals the
   app id (`9d13dd25854e:packages/folder/src/opening.ts`), and `handleStorage`
-  (`packages/folder/src/folder.ts:292`) runs `publishDefinition` and
+  (`4467140355:packages/folder/src/folder.ts:292`) runs `publishDefinition` and
   `publishLocalPatterns` before the first put (`:314-333`).
 - **Containment.** Every other app reads through its definition: `mismatches`
   (`2c2cd06e3125:packages/definition/src/shape.ts`) refuses a folder whose declaration

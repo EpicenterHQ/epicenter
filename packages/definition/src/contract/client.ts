@@ -35,8 +35,8 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import type { ConformanceIssue } from '../declaration.js';
 import type { Collection, Contract } from './contract.js';
+import type { ConformanceIssue } from './issues.js';
 import type { Params } from './templates.js';
 
 /**

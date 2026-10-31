@@ -104,8 +104,6 @@ field to an immediate editor. See [Todos](todos/README.md),
 [Capture](capture/README.md) and the
 [Svelte package](../packages/svelte/README.md).
 
-No app opens folders with the older `openFolder` and `<OpenFolder>`.
-
 ## Running an app
 
 The root `bun dev:<app>` scripts start each app's required development
@@ -127,7 +125,7 @@ folder once the person presses Sync with Epicenter.
 
 | App | Surfaces | Desktop folder | Contract |
 | --- | --- | --- | --- |
-| Epicenter | Folders, editor, Settings | `~/Epicenter/so.epicenter` (its records) | none: `openFolder` tables, `connections` |
+| Epicenter | Folders, Settings | none | none |
 | [Todos](todos/README.md) | online web; desktop | `~/Epicenter/Todos` | `todos`: `todos` |
 | [Capture](capture/README.md) | online web; desktop | `~/Epicenter/Capture` | `capture`: `captures` |
 | [Honeycrisp](honeycrisp/README.md) | online web; desktop | `~/Epicenter/Honeycrisp` | `honeycrisp`: `notes`, `folders` |

@@ -16,7 +16,7 @@ inspect one with `git show commit:path`.
 
 ## Context
 
-`local` in the Definition (`packages/definition/src/declaration.ts:99`)
+`local` in the Definition (`4467140355:packages/definition/src/declaration.ts:99`)
 lists `.gitignore` patterns, and the engine leaves every match out of every
 commit whatever `.gitignore` says (`localMatcher` and `sourceFiles`,
 `69d33c135926:packages/folder/src/git/scope.ts`), including a file committed before the

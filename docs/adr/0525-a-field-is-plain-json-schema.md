@@ -24,7 +24,7 @@ custom format. `Format.Set` appeared only in `export.test.ts`.
 ## Decision
 
 **A field is a schema that JSON can hold, and `prepareSchema` refuses any
-other.** `schemaProblem` in `packages/definition/src/prepare.ts` walks each
+other.** `schemaProblem` in `4467140355:packages/definition/src/prepare.ts` walks each
 declared field and refuses:
 
 - a function anywhere, and the keys `~guard`, `~refine`, and `~codec`;
@@ -57,7 +57,7 @@ not inside one. App binds it to its Yjs store; Folder refuses one.
 
 **`exportSchema` is deleted.** Nothing needs an exporter that can refuse,
 because every prepared field is already JSON. `formatDeclaration` in
-`packages/folder/src/declaration.ts` writes `epicenter.json` (ADR-0517), and
+`4467140355:packages/folder/src/declaration.ts` writes `epicenter.json` (ADR-0517), and
 `hasSchemaCallbacks` and `isPreparedSchema` are gone with it.
 
 ## Consequences

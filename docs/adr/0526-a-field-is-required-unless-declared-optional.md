@@ -34,7 +34,7 @@ any KV field                          kv has no "required"      Partial<...>
 - `field.optional(inner)` is `Type.Optional(inner)`. The prepared field keeps
   TypeBox's hidden `~optional`, and `isOptional(schema)` reads it.
 - `required` is the only optionality marker in a file. `parseDeclaration` and
-  `formatDeclaration` in `packages/folder/src/declaration.ts` convert between
+  `formatDeclaration` in `4467140355:packages/folder/src/declaration.ts` convert between
   it and `field.optional`, and nothing else does. A table with no `required`
   has only optional fields. `kv` may not carry `required`.
 - `RowOf` and `CreateRowOf` read optional fields as `name?:`. `KvOf` is

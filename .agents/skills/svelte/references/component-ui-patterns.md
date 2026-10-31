@@ -232,19 +232,15 @@ shows its reason and opens as text, as below; repairing text does not switch a
 mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
 mode, or automatic Source fallback.
 
-`<OpenFolder>` passes the reactive folder mirror to the product root. Read
-`folder.files` and table `rows` for landed listings, and use `row(id)` or
-`file(path)` for one item. A row with issues retains its path and source for
-repair. Use `{@const row = folder.tables.notes.row(id)}` near controls that
-need a narrowed valid row.
+`fromClient` passes a contract's collections to the product root. Read
+`files.notes.items` for listings, `files.notes.invalid` for notes that do not
+read (with their text, for repair), and `get(args)` for one note.
 
-Each text editor creates its own `draft(source, save)` from
-`@epicenter/svelte/folder`. Bind text inputs to `draft.value` and render
-`<UnsavedEdit draft={draft} />` for inline failure, retry, discard, and Copy.
+Each text editor creates its own `fieldEdit(files.notes, args, field)` from
+`@epicenter/svelte/client`. Bind text inputs to `title.value` and render
+`<UnsavedEdit edit={title} />` for inline failure, retry, discard, and Copy.
 A checkbox, select, or button writes directly, computing toggles from the
-value shown. `update({ fields?, body? })` patches the file as it stands when
-its queued write runs; `write(path, text)` replaces its whole content. Keep
-unsubmitted Add, Send, or Save form input with the form.
+value shown. Keep unsubmitted Add, Send, or Save form input with the form.
 
 Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel
 mounting, so do not repeat `tab === value` inside each panel. A disabled trigger

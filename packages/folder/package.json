@@ -2,7 +2,7 @@
 	"name": "@epicenter/folder",
 	"version": "0.0.1",
 	"private": true,
-	"description": "One local Folder: Markdown tables and ordinary files, opened as a browser origin's default folder, a directory bound to a Tauri window, or a directory in Bun.",
+	"description": "Open an app's files as its contract's typed client: in a browser origin, a directory in Bun or Tauri, or a hosted repository.",
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
@@ -10,25 +10,19 @@
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",
 		"./node": "./src/node.ts",
-		"./remote": "./src/remote.ts",
-		"./testing": "./src/testing.ts",
-		"./file-browser": "./src/file-browser.ts",
-		"./documents": "./src/documents.ts",
-		"./declaration": "./src/declaration/index.ts"
+		"./remote": "./src/remote.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server-tests.json",
 		"test": "bun test --isolate",
-		"smoke:device": "bun smoke/device.ts",
-		"schema:generate": "bun src/declaration/generate-schema.ts"
+		"smoke:device": "bun smoke/device.ts"
 	},
 	"dependencies": {
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@tauri-apps/api": "catalog:",
 		"typebox": "catalog:",
-		"wellcrafted": "catalog:",
-		"yaml": "catalog:"
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@epicenter/auth": "workspace:*",

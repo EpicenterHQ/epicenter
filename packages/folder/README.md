@@ -1,128 +1,25 @@
 # @epicenter/folder
 
-Two surfaces open an app's files. The contract openers, `openDevice` and
-`openRemote`, return the typed client an app's file contract derives
-([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md));
-see [Contract openers](#contract-openers). The legacy `openFolder` below has no app caller
-left; every app is on a contract.
-
-A Folder mirrors the files that storage last returned or accepted. It owns a
-root, a serial write queue, and table views over Markdown files at
-`<table>/<id>.md`. A table schema interprets rows; it does not limit what a
-file may contain. Each typed value enters the write queue immediately. A Svelte
-editor shows that value until its save answers, while the mirror shows only
-landed storage.
+The contract openers, `openDevice` and `openRemote`, open an app's files as
+the typed client its file contract derives
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
+Each write is conditional on the version its writer read, so another
+writer's change since is a `Conflict` rather than overwritten. A Svelte app
+makes the client reactive with `fromClient` from
+[`@epicenter/svelte/client`](../svelte/README.md).
 
 ## Entries
 
 | Import | Purpose |
 | --- | --- |
-| `@epicenter/folder` | The shared types and errors (`contract.ts`); it opens nothing. |
+| `@epicenter/folder` | `OpenDeviceError`, why `openDevice` opened no client; it opens nothing. |
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
-| `@epicenter/folder/tauri` | `openDevice(contract, { path?, create? })` over a root the shell lets this window reach: the directory it bound to the window (no `path`, or a relative one inside it), or a folder by absolute path that Tauri's file-system scope allows; and `openFolder` over the bound directory. A standalone app opens its two roots with `openAppData(settingsContract)` (its AppData root, through the app's own settings contract, whose `settings.md` has `folder`) and `openDataFolder(contract, { appData })` (the `folder` that names, or `~/Epicenter/<productName>`, which alone is made when missing; `defaultDataFolder()` answers that path). `rootOf(device)` answers the root a client opened by absolute path, as the shell answered it, for the window's other native commands (the recorder's and local transcription's `root`). `pickDataFolder(appData, { title, at? })` opens the native picker, which allows the folder it answers and answers its canonical path (the shell's `resolve_folder`), so `/tmp/x` and `/private/tmp/x` are one folder, and remembers that path, or forgets `folder` when the default is picked, for both "Choose folder…" and "Allow access"; `rememberFolder(appData, folder \| undefined)` records or forgets a choice. `syncWithEpicenter({ path, contract })` asks the shell to open `epicenter://init?path=<path>&contract=<contract>` (decisions 81 and 82), and `syncedWithEpicenter({ path })` says whether `epicenter init` set that folder up (its `.git/config` names it as `epicenter.root`). |
-| `@epicenter/folder/bun` | Open an existing directory with `{ directory, tables }`; also exports the document readers (`readDirectoryDocuments`, `queryDocuments`) and the CLI's system `git` runner (`runGit`). |
-| `@epicenter/folder/testing` | Construct a folder over `memoryHost` and control its storage in tests. |
-| `@epicenter/folder/file-browser` | Text classification and newline helpers for a file editor. |
-| `@epicenter/folder/documents` | Interpret saved Markdown files for the generic editor and SQL reader. |
-| `@epicenter/folder/declaration` | Saved views: reading, changing, and their schema types. |
+| `@epicenter/folder/tauri` | `openDevice(contract, { path?, create? })` over a root the shell lets this window reach: the directory it bound to the window (no `path`, or a relative one inside it), or a folder by absolute path that Tauri's file-system scope allows. A standalone app opens its two roots with `openAppData(settingsContract)` (its AppData root, through the app's own settings contract, whose `settings.md` has `folder`) and `openDataFolder(contract, { appData })` (the `folder` that names, or `~/Epicenter/<productName>`, which alone is made when missing; `defaultDataFolder()` answers that path). `rootOf(device)` answers the root a client opened by absolute path, as the shell answered it, for the window's other native commands (the recorder's and local transcription's `root`). `pickDataFolder(appData, { title, at? })` opens the native picker, which allows the folder it answers and answers its canonical path (the shell's `resolve_folder`), so `/tmp/x` and `/private/tmp/x` are one folder, and remembers that path, or forgets `folder` when the default is picked, for both "Choose folder…" and "Allow access"; `rememberFolder(appData, folder \| undefined)` records or forgets a choice. `syncWithEpicenter({ path, contract })` asks the shell to open `epicenter://init?path=<path>&contract=<contract>` (decisions 81 and 82), and `syncedWithEpicenter({ path })` says whether `epicenter init` set that folder up (its `.git/config` names it as `epicenter.root`). |
+| `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 
-The opening entries export the types and `readRow` from `contract.ts`. Importing
-an entry does not open a folder.
-
-## Opening
-
-```ts
-import { openFolder } from '@epicenter/folder/bun';
-import { Type } from 'typebox';
-
-const tables = { notes: Type.Object({ title: Type.String() }) };
-const opened = await openFolder({ directory: '/path/to/folder', tables });
-if (opened.error !== null) throw opened.error;
-const folder = opened.data;
-
-const saved = await folder.tables.notes.create('milk', {
-  fields: { title: 'Milk' },
-  body: 'Two litres\n',
-});
-if (saved.error !== null) throw saved.error;
-console.log(folder.tables.notes.row('milk')?.fields.title); // Milk
-await folder.close();
-```
-
-A desktop page opens (`@epicenter/folder/tauri`) only the directory its shell
-assigned before creating the window; the page names no path. A Bun caller supplies an existing directory. Opening needs no
-account, network, Git repository, or `epicenter.json`, and creates no authored
-file. `openFolder` returns a refusal when storage is unavailable or the root or
-table names are invalid. It never falls back to another store.
-
-## Reads
-
-`files()` lists every path the mirror knows, and `file(path)` reads its current
-`FolderFile`. Text files are kept as strings. Other files have
-`data: undefined`; use `read(path)` to fetch their bytes. A failed read leaves
-`readError` on the file and retains any earlier data. The mirror reads listed
-text files when opening and reconciles outside changes through `refresh()`.
-Its `subscribe(listener)` method reports changes to mirrored values. Native
-directory watchers provide change hints; focus and explicit
-refresh reconcile missed hints. A hint naming a file the mirror already holds
-rereads that file without a full relist. New paths, directory hints, and
-unnamed hints relist the folder.
-
-`tables.notes.rows()` returns rows sorted by ID, and `row(id)` returns one row
-or `undefined`. A row with `issues === null` has schema-typed fields and a
-body. An invalid or unreadable row keeps its path and diagnostics so an editor
-can offer repair. `readRow(text, schema)` interprets typed text with the same row
-rules without writing it. A row's exact saved source is
-`folder.file(row.path)?.data`.
-`describeIssue` and `describeIssues` turn row diagnostics into sentences for a
-repair view.
-
-## Writes
-
-`write(path, data)` creates or replaces a whole file at its queue turn.
-`replace(path, data)` replaces only an existing file; if the file is absent at
-its turn, it returns `NothingToUpdate`. A checked put prevents `replace` from
-recreating a file deleted between its read and save. Whole-file editors use
-`replace`. `update(path, patch, { schema? })` reads the file from storage at
-its turn and sets only the named fields or body. Its put is checked against
-the bytes read. If another writer changes the file before the put, the update
-rereads and reapplies the patch for up to three checked attempts. If those
-attempts all lose, it returns `KeptChanging` for the editor to show inline;
-it never makes an unconditional final put.
-
-A table has `create(id, { fields, body? })`, `update(id, patch)`, and
-`delete(id)`; the folder also has `delete(path)` and `move(from, to)`.
-`create` expects an absent path, including files the mirror has not heard
-about. A stale reply that reads back the bytes it tried to create counts as
-landed; identical existing content is indistinguishable from that case.
-`move` reads the source when its turn runs, creates the destination only if
-absent, then removes the source. A failed removal leaves both files and
-returns `MoveIncomplete` with both paths. Setting a field to `undefined`
-removes it. A patch that changes no value writes nothing. Updated
-frontmatter is canonical: declared keys first, then other keys in sorted
-order. Comments and original key order are not preserved by a patch.
-
-Writes take turns in one serial queue. Waiting whole-file writes of the same
-kind keep the newest data, and waiting updates through the same schema combine
-their fields and newest body. A coalesced update reads storage at its one turn,
-preserving outside changes to fields it does not name. Each coalesced caller
-receives the same `Saved` answer after the mirror shows what landed, or a
-`WriteError`. A failed put leaves the last read value in the mirror. The later
-write wins on the same unit: an `update({ fields })` sets its named fields, an
-`update({ body })` sets the body while keeping storage's frontmatter, and a
-whole-file `write` or `replace` replaces the file. A whole-file write queued
-after a field update can overwrite that field. A Folder runs no Git merge:
-`epicenter sync` merges with `settle` from `@epicenter/definition/merge`.
-
-**Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through Folder instructions like any editor. Fields are never collaborative; they stay last-write-wins per field. No layer writes files except through the Folder. Agents may write files directly or issue the same Folder instructions through Epicenter; either way their changes reach editors through the Folder copy.
-
-`idle()` waits for every queued turn, including immediately queued typing.
-`close()` refuses new writes, drains admitted work, then releases storage and
-watchers. Await a write's result when subsequent work requires durable bytes.
-A UI edit and its retry or discard controls belong to
-[`@epicenter/svelte`](../svelte/README.md), outside the Folder.
+Importing an entry does not open anything.
 
 ## Contract openers
 
@@ -248,47 +145,25 @@ version the writer read. No lock spans that check and the rename: a save
 another program lands in that instant can be replaced, and Git history is
 the backstop (ADR-0568). No listing shows `.epicenter`, no watcher reports
 it, and nothing is made beside the directory. Paths and links are checked
-before writes. A
-native watcher reports outside changes as hints, and `refresh()` rereads the
-mirror. Watching is best effort, so an application also refreshes on return
-to a visible window.
+before writes. A native watcher reports outside changes, and a client's
+listeners hear them. Watching is best effort.
 Native listings compare opaque stamps made from file size, modification time,
-and file identity where available. A same-size replacement is found by a
-refresh even when no watcher hint arrives. Reads and saves return the stamp
-of the file they observed or published; checked writes still compare content
-hashes.
+and file identity where available. Reads and saves return the stamp of the
+file they observed or published; checked writes compare content hashes.
 
-History is not a Folder's: a folder gains Git only when `epicenter init`
+History is not the client's: a folder gains Git only when `epicenter init`
 registers it, and `epicenter sync` (in `@epicenter/cli`) is its only
 committer, over the system `git` this package's `runGit` runs.
-
-## Helpers
-
-`openedFile(bytes, maxBytes)` from `@epicenter/folder/file-browser` classifies
-exact bytes as editable UTF-8 text, binary content, or too large. It preserves
-a byte order mark and CRLF in text. `withFileNewlines` applies the file's
-line-ending style.
-
-`documentsOf(folder.files())` from `@epicenter/folder/documents` interprets
-saved Markdown at any path for the generic editor and SQL reader. It includes
-schema diagnostics and unreadable paths. The declaration entry owns the
-saved-view reader and writer; the declaration's JSON Schema is generated from
-the TypeBox source. `@epicenter/folder/bun` exports
-`readDirectoryDocuments`, `queryDocuments`, and the CLI's `runGit` runner. These
-tools can read or change a directory independently of an opened Folder.
 
 ## Layout
 
 | Path | Responsibility |
 | --- | --- |
-| `src/folder.ts`, `storage.ts`, `patch.ts`, `write-refusal.ts` | Mirror, host contract, canonical patches, and write refusals. |
-| `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts`, `node.ts`, `testing.ts` | Public and test entries. |
+| `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts`, `node.ts`, `remote.ts` | Public entries. |
 | `src/device/` | `openDevice`: the contract client, its Bun, OPFS and Tauri stores, and `check`/`format`. |
 | `src/remote/` | `openRemote` and its wire to the server. |
 | `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, and bindings. |
-| `src/shared/` | Markdown reading and rows. |
 | `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
-| `src/declaration/`, `declaration.ts`, `directory-documents.ts` | Portable schemas and generic document reads. |
 | `evidence/`, `smoke/` | Recorded experiments, the closure check, and browser smoke runs. |
 
 ## Commands

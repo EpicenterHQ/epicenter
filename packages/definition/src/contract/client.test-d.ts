@@ -9,7 +9,6 @@
  */
 import { Type } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type { ConformanceIssue } from '../declaration.js';
 import {
 	type Client,
 	defineContract,
@@ -20,6 +19,7 @@ import {
 	type PlaceholdersOf,
 	type Version,
 } from './index.js';
+import type { ConformanceIssue } from './issues.js';
 
 type Equal<X, Y> =
 	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
