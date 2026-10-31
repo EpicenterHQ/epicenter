@@ -1,0 +1,17 @@
+{
+	"name": "@epicenter/transcription-native",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./guest-js/bindings.gen.ts",
+		"./local-models": "./guest-js/local-models.svelte.ts",
+		"./local-model-administration": "./guest-js/LocalModelAdministration.svelte"
+	},
+	"dependencies": {
+		"@tauri-apps/api": "catalog:",
+		"@epicenter/ui": "workspace:*",
+		"svelte": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

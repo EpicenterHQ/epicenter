@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-open-model-settings"
+description = "Enables the open_model_settings command without any pre-configured scope."
+commands.allow = ["open_model_settings"]
+
+[[permission]]
+identifier = "deny-open-model-settings"
+description = "Denies the open_model_settings command without any pre-configured scope."
+commands.deny = ["open_model_settings"]
