@@ -48,7 +48,8 @@ file with a sync access handle.
 | Format | WAV, 16 kHz mono PCM | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | The header is rewritten about once a second | Each piece is appended as it arrives; the store's listeners hear the file made and finished, not every piece |
 | Quit, crash, closed window or tab | Audio kept up to the cut | Every piece already written is kept |
-| `recoverRecordings` | Rewrites the header of a WAV a quit cut short and moves it from `.epicenter/recording` to its path, never over a file there | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for its file) |
+| `recoverRecordings` | Rewrites the header of a WAV a quit cut short and moves it from `.epicenter/recording` to its path, never over a file there (beside it, as `<name>-recovered.wav`, when the path is taken) | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for its file) |
+| `silentRecordings` | None: the desktop keeps a recording outside its path until it stops | Of the paths asked about, those with no audio file whose Web Lock no tab holds: what a tab closed before its first piece left |
 | Refused before the microphone opens | The folder or path may not be written, or a file is there | This browser keeps no files here (a private window), or a file is there |
 | Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
 | `signal` aborted after the microphone opened | Stopped: the WAV is finalized and kept | Released; nothing was written |

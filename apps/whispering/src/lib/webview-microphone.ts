@@ -22,6 +22,7 @@ import {
 	browserEnvironment,
 	createBrowserRecorder,
 	recoverRecordings,
+	silentRecordings,
 	startRecording,
 	toneMicrophone,
 } from '@epicenter/recorder/browser';
@@ -74,7 +75,7 @@ function webViewEnvironment(): MicrophoneEnvironment {
 			typeof AudioContext === 'undefined'
 				? undefined
 				: () => new AudioContext(),
-		recorder: { startRecording, recoverRecordings },
+		recorder: { startRecording, recoverRecordings, silentRecordings },
 	};
 }
 

@@ -2,7 +2,8 @@
  * The desktop's recordings over a real folder (`/node`'s device, the same
  * client the desktop window opens through the shell): the note made at
  * Start, its length at Stop, and a cut-off recording completed on the next
- * launch.
+ * launch: audio placed beside a taken path given a note of its own, and a
+ * recording that holds nothing settled once.
  */
 import { afterEach, expect, test } from 'bun:test';
 import {
@@ -119,9 +120,9 @@ test('the next launch completes a recording a crash cut off, from its audio, rep
 	await writeFile(join(path, 'recordings/done.wav'), toneWav({ seconds: 1 }));
 	expectOk(await completeRecording(device, 'done', 1000));
 
-	expect(expectOk(await finishCutOffRecordings(device, repair))).toEqual([
-		'cut',
-	]);
+	expect(
+		expectOk(await finishCutOffRecordings(device, { recover: repair })),
+	).toEqual(['cut']);
 	expect(expectOk(await device.recordings.get({ id: 'cut' })).durationMs).toBe(
 		2000,
 	);
@@ -130,10 +131,14 @@ test('the next launch completes a recording a crash cut off, from its audio, rep
 	).toBeUndefined();
 	expect(repairs).toBe(1);
 	// A note without audio still asks for a repair; with none, nothing runs.
-	expect(expectOk(await finishCutOffRecordings(device, repair))).toEqual([]);
+	expect(
+		expectOk(await finishCutOffRecordings(device, { recover: repair })),
+	).toEqual([]);
 	expect(repairs).toBe(2);
 	await abandonRecording(device, 'silent');
-	expect(expectOk(await finishCutOffRecordings(device, repair))).toEqual([]);
+	expect(
+		expectOk(await finishCutOffRecordings(device, { recover: repair })),
+	).toEqual([]);
 	expect(repairs).toBe(2);
 });
 
@@ -148,4 +153,63 @@ test('a recording that did not start leaves no note, unless audio was written', 
 	await writeFile(join(path, 'recordings/late.wav'), toneWav());
 	await abandonRecording(device, 'late');
 	expectOk(await device.recordings.get({ id: 'late' }));
+});
+
+test('audio recovery placed beside a taken path is given a note and its length', async () => {
+	const { path, device } = await folder();
+	const id = '2026-10-31T09-30-00-000Z-cutoffaa';
+	expectOk(await beginRecording(device, started(id)));
+	// Something else is at the recording's path, so the desktop's recover
+	// places the leftover beside it (`wav::recover`).
+	await writeFile(join(path, `recordings/${id}.wav`), toneWav({ seconds: 1 }));
+	const recover = async () => {
+		await writeFile(
+			join(path, `recordings/${id}-recovered.wav`),
+			toneWav({ seconds: 2 }),
+		);
+		return Ok([`${id}-recovered`]);
+	};
+
+	expect(
+		expectOk(await finishCutOffRecordings(device, { recover })).sort(),
+	).toEqual([id, `${id}-recovered`]);
+	expect(
+		expectOk(await device.recordings.get({ id: `${id}-recovered` })),
+	).toMatchObject({
+		title: 'Recovered recording',
+		recordedAt: '2026-10-31T09:30:00.000Z',
+		capture: 'microphone',
+		durationMs: 2000,
+	});
+});
+
+test('a recording the device calls silent is settled at length 0 once, and starts no recovery again', async () => {
+	const { device } = await folder();
+	expectOk(await beginRecording(device, started('closed-early')));
+	expectOk(await beginRecording(device, started('still-starting')));
+	let recovers = 0;
+	const capture = {
+		recover: async () => {
+			recovers++;
+			return Ok([]);
+		},
+		// Another tab is still waiting on the first piece of `still-starting`.
+		silent: async (ids: readonly string[]) =>
+			Ok(ids.filter((id) => id !== 'still-starting')),
+	};
+
+	expect(expectOk(await finishCutOffRecordings(device, capture))).toEqual([
+		'closed-early',
+	]);
+	expect(
+		expectOk(await device.recordings.get({ id: 'closed-early' })).durationMs,
+	).toBe(0);
+	expect(
+		expectOk(await device.recordings.get({ id: 'still-starting' })).durationMs,
+	).toBeUndefined();
+
+	// Once the other tab has completed its note, nothing is unfinished.
+	expectOk(await completeRecording(device, 'still-starting', 1500));
+	expect(expectOk(await finishCutOffRecordings(device, capture))).toEqual([]);
+	expect(recovers).toBe(1);
 });

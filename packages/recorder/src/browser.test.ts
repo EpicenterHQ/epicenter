@@ -12,6 +12,7 @@
  *   keeping what landed
  * - Recovery cuts a file a closed tab left half-written back to its last
  *   whole piece, and leaves a recording another tab is writing alone
+ * - A recording with no audio that no tab holds is silent
  * - A recording held in the page answers its audio at stop, named by the
  *   type the browser produced: AAC in MP4 (`m4a`), else Opus in WebM (`webm`)
  * - A chosen microphone that cannot be opened exactly is refused, never
@@ -647,4 +648,32 @@ test('an ending reaches every listener when the first listener stops the browser
 	expect(endings).toEqual(['deviceDisconnected']);
 	expect(stopping).toBeDefined();
 	expectOk(await stopping!);
+});
+
+test('a recording with no audio is silent, unless a tab still holds its lock', async () => {
+	const memory = memoryFiles({ 'recordings/kept.m4a': new Uint8Array([1]) });
+	const locks = memoryLocks();
+	const { startRecording, silentRecordings } = createBrowserRecorder(
+		environment({ filesOf: () => memory.files, locks }),
+	);
+	// Another tab started `starting` and is waiting on its first piece.
+	const starting = expectOk(
+		await startRecording({ device: store, path: 'recordings/starting' }),
+	);
+	expect(memory.held.has('recordings/starting.webm')).toBe(false);
+
+	expect(
+		expectOk(
+			await silentRecordings({
+				device: store,
+				paths: ['recordings/kept', 'recordings/starting', 'recordings/gone'],
+			}),
+		),
+	).toEqual(['recordings/gone']);
+	// Asking released every lock it took.
+	await settle();
+	expect([...locks.held]).toEqual([
+		'epicenter-recording:recordings/starting.webm',
+	]);
+	await starting.stop();
 });

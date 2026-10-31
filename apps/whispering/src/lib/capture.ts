@@ -163,6 +163,13 @@ export type CaptureDevice = {
 	 * off, so each reads to its last whole piece. Answers the ids repaired.
 	 */
 	recover(): Promise<Result<string[], CaptureError>>;
+	/**
+	 * Of `ids`, the recordings that hold no audio and that nothing is
+	 * recording: what a tab closed before its first piece left. Absent where
+	 * that cannot be known: the desktop keeps a recording outside its path
+	 * until it stops.
+	 */
+	silent?(ids: readonly string[]): Promise<Result<string[], CaptureError>>;
 };
 
 export type FixtureAudio = {

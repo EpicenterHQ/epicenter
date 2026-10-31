@@ -79,7 +79,7 @@ read once when the command arrives.
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
 | `start(root, path, device, signals)` | Records `<path>.wav` in `root`, from the microphone with id `device` or the system default, writing it in `.epicenter/recording` until it stops. Answers the recording's `id`, its path, and the microphone's name. |
 | `stop(id)` | Finalizes the WAV, moves it to its path, and answers that path and its length. Only the window that started it may stop it. |
-| `recover(root, under)` | Repairs every `.wav` a cut left under `under` in `root`'s `.epicenter/recording` and moves it to its path, never over a file there, leaving the recording still being written alone. Answers the paths it moved; a second run moves none. |
+| `recover(root, under)` | Repairs every `.wav` a cut left under `under` in `root`'s `.epicenter/recording` and moves it to its path, never over a file there, leaving the recording still being written alone. Where the path is taken, a leftover with the same bytes is removed and any other goes to the first free `<name>-recovered.wav` (`-recovered-2`, ...), so none stays stranded in `.epicenter`. Answers the paths it moved; a second run moves none. |
 
 `start` refuses before it opens anything:
 
@@ -125,8 +125,8 @@ The recording is finalized and moved, never deleted, when:
 A process that ends before any of those leaves the WAV in
 `.epicenter/recording` with a header that undercounts the last second.
 `recover`, which a page calls when it opens its folder, rewrites it from the
-file's length, rounded down to a whole frame, and moves it to its path.
-Nothing else in the file changes.
+file's length, rounded down to a whole frame, and moves it to its path, or
+beside it when the path is taken. Nothing else in the file changes.
 
 ## Tests
 

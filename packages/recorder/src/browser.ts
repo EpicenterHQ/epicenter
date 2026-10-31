@@ -40,6 +40,7 @@ import {
 	type RecordingHandle,
 	type RecordingStart,
 	type RecoverRecordings,
+	type SilentRecordings,
 	type StartRecording,
 } from './recording.js';
 
@@ -546,6 +547,38 @@ export function createBrowserRecorder(
 		return Ok(repaired);
 	};
 
+	/**
+	 * Of `paths`, those with no audio file under any extension a browser
+	 * records, and whose Web Lock no tab holds. A recording's tab takes its
+	 * lock before the microphone opens and keeps it until it stops, so one
+	 * waiting on its first piece is never called silent.
+	 */
+	const silentRecordings: SilentRecordings = async ({ device, paths }) => {
+		const files = environment.filesOf(device);
+		const listed = await files.list();
+		if (listed.error !== null)
+			return RecorderError.Failed({ cause: listed.error });
+		const present = new Set(listed.data.map(({ path }) => path));
+		const extensions = [
+			...new Set(Object.values(EXTENSIONS).map(({ extension }) => extension)),
+		];
+		const silent: string[] = [];
+		for (const path of paths) {
+			const candidates = extensions.map((extension) => `${path}.${extension}`);
+			if (candidates.some((candidate) => present.has(candidate))) continue;
+			const released: (() => void)[] = [];
+			let writing = false;
+			for (const candidate of candidates) {
+				const release = await hold(environment.locks, lockOf(candidate));
+				if (release === null) writing = true;
+				else released.push(release);
+			}
+			for (const release of released) release();
+			if (!writing) silent.push(path);
+		}
+		return Ok(silent);
+	};
+
 	/** Record in the page; `stop` answers the audio, and nothing is written. */
 	const startPageRecording: StartPageRecording = async (options = {}) => {
 		const pieces: Blob[] = [];
@@ -582,7 +615,12 @@ export function createBrowserRecorder(
 		});
 	};
 
-	return { startRecording, recoverRecordings, startPageRecording };
+	return {
+		startRecording,
+		recoverRecordings,
+		silentRecordings,
+		startPageRecording,
+	};
 }
 
 /**
@@ -595,6 +633,10 @@ export const startRecording: StartRecording = (options) =>
 /** Repair the recordings under `under` in `device` that a closed tab cut off. */
 export const recoverRecordings: RecoverRecordings = (options) =>
 	createBrowserRecorder().recoverRecordings(options);
+
+/** Of the recordings at `paths` in `device`, those with no audio that no tab is recording. */
+export const silentRecordings: SilentRecordings = (options) =>
+	createBrowserRecorder().silentRecordings(options);
 
 /** Record from `input` (or the system default) in this tab; `stop` answers the audio. */
 export const startPageRecording: StartPageRecording = (options) =>

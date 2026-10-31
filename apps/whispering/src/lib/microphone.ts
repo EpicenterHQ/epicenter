@@ -16,6 +16,7 @@ import type { Client } from '@epicenter/definition/contract';
 import type {
 	RecorderError,
 	RecoverRecordings,
+	SilentRecordings,
 	StartRecording,
 } from '@epicenter/recorder';
 import { Err, Ok } from 'wellcrafted/result';
@@ -58,6 +59,8 @@ export function captureErrorOf(error: RecorderError): CaptureError {
 export type Recorder = {
 	readonly startRecording: StartRecording;
 	readonly recoverRecordings: RecoverRecordings;
+	/** A browser's: which recordings hold no audio and are not being recorded. */
+	readonly silentRecordings?: SilentRecordings;
 };
 
 export function createMicrophoneDevice({
@@ -78,10 +81,21 @@ export function createMicrophoneDevice({
 	/** What the person is told this session records from. */
 	label?: string;
 }): CaptureDevice {
+	const { silentRecordings } = recorder;
 	return {
 		source,
 		label,
 		inputs,
+		...(silentRecordings && {
+			async silent(ids: readonly string[]) {
+				const { data, error } = await silentRecordings({
+					device,
+					paths: ids.map((id) => `${DIRECTORY}/${id}`),
+				});
+				if (error !== null) return Err(captureErrorOf(error));
+				return Ok(data.map((path) => path.slice(DIRECTORY.length + 1)));
+			},
+		}),
 		async start({ id, input, signal }) {
 			const { data: recording, error } = await recorder.startRecording({
 				device,

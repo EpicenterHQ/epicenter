@@ -143,6 +143,16 @@ export type RecoverRecordings = (
 	options: RecoverRecordingsOptions,
 ) => Promise<Result<string[], RecorderError>>;
 
+/**
+ * Of the recordings at `paths` (store-relative, no extension), those that
+ * hold no audio and that nothing is recording: what a tab closed before its
+ * first piece left. Only a browser can say so; the desktop keeps a recording
+ * outside its path until it stops.
+ */
+export type SilentRecordings = (
+	options: RecordingDevice & { readonly paths: readonly string[] },
+) => Promise<Result<string[], RecorderError>>;
+
 export const RecorderError = defineErrors({
 	/** This window cannot record: no microphone access, or no encoder. */
 	Unavailable: ({ reason }: { reason: string }) => ({

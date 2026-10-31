@@ -194,10 +194,16 @@ export function createWhispering({
 		// What was written stays either way, and a length not written now is
 		// written from the audio on the next start. A recording that wrote no
 		// audio at all (the store refused it, or nothing was captured) takes
-		// its note with it.
+		// its note with it. Any other failure keeps the note: on the desktop
+		// the audio may be waiting in `.epicenter/recording`, which the next
+		// start moves to its path.
 		if (error !== null) {
 			recorderError = error.message;
-			await holdLeave(abandonRecording(client, take.id));
+			if (
+				'name' in error &&
+				(error.name === 'Empty' || error.name === 'Refused')
+			)
+				await holdLeave(abandonRecording(client, take.id));
 			return;
 		}
 		const completed = await holdLeave(
@@ -217,7 +223,7 @@ export function createWhispering({
 	 */
 	async function completeCutOffRecordings() {
 		const { error } = await holdLeave(
-			finishCutOffRecordings(client, services.capture.recover),
+			finishCutOffRecordings(client, services.capture),
 		);
 		if (error === null || error.name === 'Unavailable' || disposed) return;
 		recorderError = `Recordings a quit or a crash cut off could not be completed: ${error.message}`;

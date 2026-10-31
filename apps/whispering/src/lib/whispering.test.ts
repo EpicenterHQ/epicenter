@@ -8,6 +8,8 @@
  *   the files as it records; Stop completes the note with its length
  * - While it records, a recording's audio is not played, sent, or deleted
  * - A recording the files cannot take does not start, or leaves no note
+ * - A Stop that fails to put its audio in place keeps the note, which the
+ *   next start completes
  * - A start completes the length of a recording a closed tab cut off
  * - A result is kept when its answer arrives, even if the pages have since
  *   closed
@@ -25,7 +27,7 @@ import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { toneWav } from './capture.js';
+import { type CaptureDevice, CaptureError, toneWav } from './capture.js';
 import {
 	deferred,
 	eventually,
@@ -178,6 +180,54 @@ test('a recording whose audio the files do not take leaves no note behind', asyn
 	);
 	await eventually(() => library.entries.length === 0);
 	expect(await readdir(join(test.root, 'device', 'recordings'))).toEqual([]);
+});
+
+test('a Stop that fails to put its audio in place keeps the note, and the next start completes it', async () => {
+	const test = await openTestServices();
+	cleanups.push(test.remove);
+	let staged: Uint8Array | undefined;
+	// The desktop's shape: the audio waits outside its path, Stop fails to
+	// move it there, and the next start's recover does.
+	const capture: CaptureDevice = {
+		...test.services.capture,
+		async start({ id }) {
+			return Ok({
+				startedAt: 0,
+				onEnded: () => () => {},
+				async stop() {
+					staged = toneWav({ seconds: 1 });
+					return CaptureError.Failed({
+						cause: new Error(
+							`recordings/${id}.wav could not be moved into place`,
+						),
+					});
+				},
+			});
+		},
+		async recover() {
+			const id = (await readdir(join(test.root, 'device', 'recordings')))
+				.find((name) => name.endsWith('.md'))!
+				.slice(0, -3);
+			await put(join(test.root, 'device'), `recordings/${id}.wav`, staged!);
+			return Ok([id]);
+		},
+	};
+	const services = { ...test.services, capture };
+	const first = await openTestWhispering({ services, client: test.device });
+	await first.whispering.startRecording();
+	await first.whispering.stopRecording();
+	expect(first.whispering.recorderError).toContain(
+		'could not be moved into place',
+	);
+	await eventually(() => first.library.entries.length === 1);
+	expect(first.library.entries[0]!.durationMs).toBeUndefined();
+	first.close();
+
+	const next = await openTestWhispering({ services, client: test.device });
+	cleanups.push(next.close);
+	await eventually(() => next.library.entries[0]?.durationMs !== undefined);
+	expect(next.library.entries[0]!.durationMs).toBe(1000);
+	expect(next.whispering.recorderError).toBeUndefined();
 });
 
 test('a start completes the length of a recording a closed tab cut off, from its audio', async () => {

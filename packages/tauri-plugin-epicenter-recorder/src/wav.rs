@@ -12,7 +12,10 @@
 //! folder's `.epicenter/recording` (`staging`) under one directory, and moves
 //! each to its path. A folder's pages call it when they open it, which is when
 //! a recording a quit cut off is found (ADR-0542). It walks only what the
-//! folder's path rule accepts and never follows a link.
+//! folder's path rule accepts and never follows a link. A leftover whose path
+//! is taken is never left behind and never replaces what is there: a copy of
+//! what is there is removed, and other audio is placed beside it under a
+//! name nothing has (`<name>-recovered.wav`).
 
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -113,8 +116,9 @@ pub fn repair(path: &Path) -> io::Result<Option<Repaired>> {
 /// Repair every `.wav` a recording left under `under` in the folder at
 /// `root`'s `.epicenter/recording`, skipping `held`, the file a live
 /// recording is still writing, and move each to its path under `under`
-/// without replacing anything there (`staging::place`). Returns the
-/// folder-relative paths placed. A missing directory has nothing to recover.
+/// without replacing anything there (`staging::place`), or beside it when
+/// the path is taken (`sweep`). Returns the folder-relative paths placed. A
+/// missing directory has nothing to recover.
 ///
 /// `under` is checked as a data path is (`page_files::data_path`). Each entry
 /// beneath it is visited only when its path is one the shared path rule
@@ -161,11 +165,12 @@ pub fn recover(root: &Path, under: &str, held: Option<&Path>) -> Result<Vec<Stri
                 log::warn!("Could not repair {child}: {error}");
                 continue;
             }
-            match place_at(root, &path, &child) {
-                Ok(()) => {
-                    log::info!("Recovered the recording {child}");
-                    placed.push(child);
+            match sweep(root, &path, &child) {
+                Ok(Some(at)) => {
+                    log::info!("Recovered the recording {child} at {at}");
+                    placed.push(at);
                 }
+                Ok(None) => log::info!("Removed {child}, a copy of what is already there"),
                 Err(error) => log::warn!("Could not move {child} into place: {error}"),
             }
         }
@@ -174,14 +179,56 @@ pub fn recover(root: &Path, under: &str, held: Option<&Path>) -> Result<Vec<Stri
     Ok(placed)
 }
 
+/// How many `-recovered` names `sweep` tries beside a taken path.
+const RECOVERED_NAMES: usize = 100;
+
 /// Move the staged file at `staged` to the folder-relative `relative` in
-/// `root`, making its missing directories, each checked as a data path.
-fn place_at(root: &Path, staged: &Path, relative: &str) -> Result<(), String> {
-    let target = page_files::data_path(root, relative)?;
-    if let Some((parent, _)) = relative.rsplit_once('/') {
+/// `root`, making its missing directories, each checked as a data path, and
+/// answer where it went. When something is at `relative` already, it is
+/// never replaced: a staged file with the same bytes is a copy of it and is
+/// removed (`None`); other audio goes to the first free
+/// `<stem>-recovered.<ext>`, `<stem>-recovered-2.<ext>`, and so on, so no
+/// recording is stranded in `.epicenter`, which nothing lists or syncs.
+fn sweep(root: &Path, staged: &Path, relative: &str) -> Result<Option<String>, String> {
+    let (parent, name) = relative.rsplit_once('/').unwrap_or(("", relative));
+    if !parent.is_empty() {
         page_files::mkdir(root, &root.join(parent))?;
     }
-    crate::staging::place(staged, &target).map_err(|error| error.to_string())
+    let (stem, extension) = name.rsplit_once('.').unwrap_or((name, ""));
+    for attempt in 0..=RECOVERED_NAMES {
+        let candidate = match attempt {
+            0 => name.to_string(),
+            1 => format!("{stem}-recovered.{extension}"),
+            n => format!("{stem}-recovered-{n}.{extension}"),
+        };
+        let candidate = if parent.is_empty() {
+            candidate
+        } else {
+            format!("{parent}/{candidate}")
+        };
+        let target = page_files::data_path(root, &candidate)?;
+        match crate::staging::place(staged, &target) {
+            Ok(()) => return Ok(Some(candidate)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                if same_bytes(staged, &target).map_err(|error| error.to_string())? {
+                    fs::remove_file(staged).map_err(|error| error.to_string())?;
+                    return Ok(None);
+                }
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Err(format!(
+        "{relative} and the next {RECOVERED_NAMES} names beside it are taken"
+    ))
+}
+
+/// Whether the files at `a` and `b` hold the same bytes.
+fn same_bytes(a: &Path, b: &Path) -> io::Result<bool> {
+    if fs::metadata(a)?.len() != fs::metadata(b)?.len() {
+        return Ok(false);
+    }
+    Ok(fs::read(a)? == fs::read(b)?)
 }
 
 #[cfg(test)]
@@ -301,7 +348,14 @@ mod tests {
 
         let live = staged.join("live.wav");
         let placed = recover(&root, "recordings", Some(&live)).unwrap();
-        assert_eq!(placed, ["recordings/2026/b.WAV", "recordings/a.wav"]);
+        assert_eq!(
+            placed,
+            [
+                "recordings/2026/b.WAV",
+                "recordings/a.wav",
+                "recordings/taken-recovered.wav"
+            ]
+        );
         for path in ["recordings/a.wav", "recordings/2026/b.WAV"] {
             assert_eq!(
                 WavReader::open(root.join(path)).unwrap().len(),
@@ -320,7 +374,14 @@ mod tests {
             b"theirs",
             "nothing at a recording's path is replaced"
         );
-        assert!(staged.join("taken.wav").exists());
+        assert_eq!(
+            WavReader::open(root.join("recordings/taken-recovered.wav"))
+                .unwrap()
+                .len(),
+            100,
+            "a recording whose path is taken is placed beside it, not left in .epicenter"
+        );
+        assert!(!staged.join("taken.wav").exists());
         assert_eq!(
             WavReader::open(root.join("recordings/placed.wav"))
                 .unwrap()
@@ -333,6 +394,43 @@ mod tests {
             .unwrap()
             .is_empty());
         assert!(recover(&root, "nothing-here", None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_leftover_that_is_a_copy_of_what_is_at_its_path_is_removed() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(directory.path()).unwrap();
+        let staged = root.join(".epicenter/recording/recordings");
+        fs::create_dir_all(&staged).unwrap();
+        fs::create_dir_all(root.join("recordings")).unwrap();
+        cut_off(&staged.join("a.wav"), 100);
+        repair(&staged.join("a.wav")).unwrap();
+        // Placed before, then brought back as a separate file (a sync, a copy).
+        fs::copy(staged.join("a.wav"), root.join("recordings/a.wav")).unwrap();
+        // And a second leftover whose `-recovered` name is taken too.
+        cut_off(&staged.join("b.wav"), 200);
+        fs::write(root.join("recordings/b.wav"), b"theirs").unwrap();
+        fs::write(root.join("recordings/b-recovered.wav"), b"also theirs").unwrap();
+
+        let placed = recover(&root, "recordings", None).unwrap();
+        assert_eq!(placed, ["recordings/b-recovered-2.wav"]);
+        assert!(!staged.join("a.wav").exists(), "the copy is removed");
+        assert_eq!(
+            WavReader::open(root.join("recordings/a.wav"))
+                .unwrap()
+                .len(),
+            100
+        );
+        assert_eq!(
+            fs::read(root.join("recordings/b-recovered.wav")).unwrap(),
+            b"also theirs"
+        );
+        assert_eq!(
+            WavReader::open(root.join("recordings/b-recovered-2.wav"))
+                .unwrap()
+                .len(),
+            200
+        );
     }
 
     #[test]
