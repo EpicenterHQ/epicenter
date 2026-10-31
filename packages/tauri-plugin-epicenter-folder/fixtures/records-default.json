@@ -54,14 +54,14 @@
 			"allowed": false
 		},
 		{
-			"name": "records staging containing application data is refused",
-			"data": "root/.so.epicenter.epicenter-scratch/machine",
+			"name": "application data in the records' .epicenter is refused",
+			"data": "root/so.epicenter/.epicenter/machine",
 			"root": "root",
 			"allowed": false
 		},
 		{
-			"name": "a root inside a save staging directory is refused",
-			"root": ".Notes.epicenter-scratch/root",
+			"name": "a root inside a folder's .epicenter is refused",
+			"root": "Notes/.epicenter/scratch/root",
 			"allowed": false
 		},
 		{

@@ -11,9 +11,9 @@ pub(crate) const EDITOR_PREFIX: &str = "files";
 
 /// Whether `directory` overlaps Epicenter's own files, so that no app or
 /// editor window may bind it: Settings' folder, the fixed
-/// `<folder_dir>/so.epicenter`, its sibling save staging directory, or the
-/// app data, anything inside them, or a directory holding them, such as the
-/// folder root. No configuration is read.
+/// `<folder_dir>/so.epicenter`, any folder's `.epicenter` (its save lock and
+/// staged saves), or the app data, anything inside them, or a directory
+/// holding them, such as the folder root. No configuration is read.
 pub(crate) fn overlaps_epicenter_files(paths: &DesktopPaths, directory: &Directory) -> bool {
     library::check_app_directory(&paths.data_dir, &paths.folder_dir, directory.root()).is_err()
 }
@@ -64,8 +64,8 @@ mod tests {
     fn admission_protects_settings_staged_bytes_and_a_missing_parent_in_app_data() {
         let temp = tempfile::tempdir().unwrap();
         let folder_dir = dunce::canonicalize(temp.path()).unwrap();
-        let scratch = folder_dir.join(".so.epicenter.epicenter-scratch");
-        fs::create_dir(&scratch).unwrap();
+        let scratch = folder_dir.join("elsewhere/.epicenter/scratch");
+        fs::create_dir_all(&scratch).unwrap();
         let private = folder_dir.join("private");
         fs::create_dir(&private).unwrap();
         let paths = DesktopPaths {
@@ -75,7 +75,7 @@ mod tests {
         let settings = paths.open_default(library::RECORDS).unwrap();
         assert!(overlaps_epicenter_files(&paths, &settings));
 
-        // Records need not exist for their staging sibling to be protected.
+        // Any folder's own `.epicenter` is protected, records or not.
         fs::remove_dir_all(folder_dir.join(library::RECORDS.id)).unwrap();
         for protected in [&scratch, &private] {
             let directory = Directory::existing(protected).unwrap();

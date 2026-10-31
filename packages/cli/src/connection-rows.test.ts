@@ -186,8 +186,11 @@ test('a save makes the row with the assigned fields and no endpoint or key, and 
 		},
 	});
 	expect((await run(['read', 'transcription'])).reply).toEqual(saved.reply);
-	// Only the one row lives inside the records directory.
-	expect(await readdir(join(epicenter, 'so.epicenter'))).toEqual([
+	// Only the one row lives inside the records directory, beside its own
+	// `.epicenter` (the save lock), and nothing is made beside it.
+	expect(await readdir(epicenter)).toEqual(['so.epicenter']);
+	expect((await readdir(join(epicenter, 'so.epicenter'))).sort()).toEqual([
+		'.epicenter',
 		'connections',
 	]);
 	expect(await readdir(join(epicenter, 'so.epicenter', 'connections'))).toEqual(

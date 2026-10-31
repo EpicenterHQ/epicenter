@@ -26,8 +26,9 @@
  * a path whose stored name differs reads as absent, and a write refuses to
  * land on the other file.
  *
- * `.git` at the root is private Git state, which only `git` changes; the
- * scratch files are this storage's own, wherever they are staged.
+ * `.git` at the root is private Git state, which only `git` changes, and
+ * `.epicenter` at the root is this storage's own (its save lock and scratch
+ * files); no listing shows either.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -41,11 +42,19 @@ import {
 	lockingStorage,
 	PRIVATE_DIRECTORY,
 	type PutOutcome,
+	STATE_DIRECTORY,
 	scratchName,
 } from './boundary.js';
 import type { DirectoryPrimitives, EntryKind } from './directory-primitives.js';
 import { FileError, NothingChanged, UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
+
+/** Whether a name at the root is Git's or this storage's own, which no listing shows. */
+const isOwnDirectory = (name: string) =>
+	name === PRIVATE_DIRECTORY || name === STATE_DIRECTORY;
+
+/** The directory holding the absolute `path`, which uses `/` (`scratchDirectory`). */
+const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
 
 /** What a literal folder path names on disk. */
 type Found =
@@ -81,10 +90,11 @@ type Hold = {
  * `held`, the same calls without it.
  *
  * `scratch` is the absolute directory a put stages its bytes in, made
- * private (`mkdir` with `private`) at each put: the native hosts' is
- * `.<name>.epicenter-scratch` beside `root` (`scratchDirectory` in
- * `native/directory.ts`). It must be on `root`'s file system, so the rename
- * over the path is one step, and outside `root`, so listings never show it.
+ * private (`mkdir` with `private`) with its parent at each put: the native
+ * hosts' is `.epicenter/scratch` inside `root` (`scratchDirectory` in
+ * `native/directory.ts`), written with `/`. It must be on `root`'s file
+ * system, so the rename over the path is one step; inside `root` it is in
+ * `.epicenter`, which listings never show.
  */
 export function createDirectoryStorage(options: {
 	root: string;
@@ -238,6 +248,7 @@ export function createDirectoryStorage({
 						made.push(at);
 					}
 				}
+				await files.mkdir(parentOf(scratchDirectory), { private: true });
 				await files.mkdir(scratchDirectory, { private: true });
 				await files.writeFile(scratch, bytes, {
 					createNew: true,
@@ -266,7 +277,7 @@ export function createDirectoryStorage({
 				const directories: string[] = [];
 				async function visit(directory: string, prefix: string) {
 					for (const entry of await files.readDir(directory)) {
-						if (prefix === '' && entry.name === PRIVATE_DIRECTORY) continue;
+						if (prefix === '' && isOwnDirectory(entry.name)) continue;
 						const path = prefix + entry.name;
 						const at = `${directory}/${entry.name}`;
 						if (entry.kind === 'directory') {
@@ -297,7 +308,7 @@ export function createDirectoryStorage({
 					const listed: string[] = [];
 					const nested: string[] = [];
 					for (const entry of await files.readDir(absolute(directory))) {
-						if (directory === '' && entry.name === PRIVATE_DIRECTORY) continue;
+						if (directory === '' && isOwnDirectory(entry.name)) continue;
 						(entry.kind === 'directory' ? nested : listed).push(entry.name);
 					}
 					return Ok({ files: listed, directories: nested });
@@ -368,6 +379,7 @@ export async function sweepStaleScratch(
 	files: DirectoryPrimitives,
 ): Promise<void> {
 	try {
+		if ((await files.lstat(parentOf(scratch)))?.kind !== 'directory') return;
 		if ((await files.lstat(scratch))?.kind !== 'directory') return;
 		const now = Date.now();
 		for (const entry of await files.readDir(scratch))

@@ -102,7 +102,7 @@ test.each(vectors.cases.map((vector) => [vector.name, vector] as const))(
 			for (const [path, target] of Object.entries(vector.tree.links ?? {}))
 				await symlink(target, join(root, path));
 
-			// Staged beside the root, as the desktop shell stages.
+			// Staged in the root's `.epicenter`, as the desktop shell stages.
 			const storage = createDirectoryStorage({
 				root,
 				primitives: nodeDirectoryPrimitives,
@@ -151,11 +151,14 @@ test.each(vectors.cases.map((vector) => [vector.name, vector] as const))(
 						const listed = await storage.list();
 						return listed.error === null
 							? {
-								data: {
-									files: listed.data.files.map(({ path, size }) => ({ path, size })),
-									directories: listed.data.directories,
-								},
-							}
+									data: {
+										files: listed.data.files.map(({ path, size }) => ({
+											path,
+											size,
+										})),
+										directories: listed.data.directories,
+									},
+								}
 							: listed;
 					}
 				}

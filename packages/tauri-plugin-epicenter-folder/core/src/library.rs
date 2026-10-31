@@ -47,7 +47,8 @@ impl LibraryDefault {
 /// Admit `<library_root>/<id>`, then create it when missing or reuse the
 /// directory already there with its files. A file or a link at the path is
 /// refused and kept. A root override that would put the default in
-/// application data or in save staging is refused before anything is made.
+/// application data or in a folder's `.epicenter` is refused before anything
+/// is made.
 pub fn open_default(
     data_dir: &Path,
     library_root: &Path,
@@ -67,14 +68,13 @@ pub fn open_default(
     })
 }
 
-/// Whether Epicenter's records may open at `path`: never a save staging directory
-/// or anything in one, and never overlapping application data, through the
-/// directory or its own staging sibling. Epicenter's records may be edited.
+/// Whether Epicenter's records may open at `path`: never a folder's
+/// `.epicenter` or anything in one, and never overlapping application data.
+/// Epicenter's records may be edited.
 pub fn check_editable_directory(data_dir: &Path, path: &Path) -> Result<(), String> {
-    let candidate = directory_paths(path)?;
-    check_namespace(&candidate[0])?;
-    let data = resolved(data_dir);
-    if candidate.iter().any(|path| overlaps(path, &data)) {
+    let candidate = resolved(path);
+    check_namespace(&candidate)?;
+    if overlaps(&candidate, &resolved(data_dir)) {
         return Err(
             "This folder holds Epicenter's machine-local application data, so it cannot be opened."
                 .into(),
@@ -85,20 +85,15 @@ pub fn check_editable_directory(data_dir: &Path, path: &Path) -> Result<(), Stri
 
 /// Whether an app or a folder editor window may open `path`:
 /// everything `check_editable_directory` refuses, and also Epicenter's records
-/// at `<library_root>/so.epicenter` or its staging sibling, anything in them,
-/// or a directory holding them, such as the library root.
+/// at `<library_root>/so.epicenter`, anything in them (its `.epicenter`
+/// included), or a directory holding them, such as the library root.
 pub fn check_app_directory(
     data_dir: &Path,
     library_root: &Path,
     path: &Path,
 ) -> Result<(), String> {
     check_editable_directory(data_dir, path)?;
-    let candidate = directory_paths(path)?;
-    let records = directory_paths(&RECORDS.path(library_root))?;
-    if candidate
-        .iter()
-        .any(|candidate| records.iter().any(|path| overlaps(candidate, path)))
-    {
+    if overlaps(&resolved(path), &resolved(&RECORDS.path(library_root))) {
         return Err(
             "This folder holds Epicenter's own records, so it cannot be opened in an app.".into(),
         );
@@ -106,19 +101,16 @@ pub fn check_app_directory(
     Ok(())
 }
 
-/// Saving also writes to a sibling staging directory. Admit both locations.
-fn directory_paths(path: &Path) -> Result<[PathBuf; 2], String> {
-    let root = resolved(path);
-    let scratch = resolved(&crate::storage::scratch_directory(&root)?);
-    Ok([root, scratch])
-}
-
+/// A folder's own `.epicenter` (its save lock and staged saves), or
+/// anything in one, is never a folder of its own.
 fn check_namespace(root: &Path) -> Result<(), String> {
     if root.components().any(|component| {
-        let name = component.as_os_str().to_string_lossy().to_ascii_lowercase();
-        name.starts_with('.') && name.ends_with(".epicenter-scratch")
+        component
+            .as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case(crate::storage::STATE_DIRECTORY)
     }) {
-        return Err("Save staging directories cannot be opened as authored folders.".into());
+        return Err("A folder's .epicenter directory cannot be opened as a folder.".into());
     }
     Ok(())
 }
@@ -298,17 +290,17 @@ mod tests {
         assert_eq!(entries(&library.root), [TODOS.id]);
     }
 
-    /// A root override that reaches application data or staging is refused
-    /// before the root or the default is made.
+    /// A root override that reaches application data or a folder's
+    /// `.epicenter` is refused before the root or the default is made.
     #[test]
-    fn root_overrides_into_application_data_or_staging_are_refused_before_creation() {
+    fn root_overrides_into_application_data_or_state_are_refused_before_creation() {
         let library = library();
         fs::create_dir_all(&library.data).unwrap();
         for root in [
             library.data.join("library"),
             library.data.clone(),
-            library.base.join(".Notes.epicenter-scratch/library"),
-            library.base.join(".NOTES.EPICENTER-SCRATCH"),
+            library.base.join("Notes/.epicenter/scratch/library"),
+            library.base.join("Notes/.EPICENTER"),
         ] {
             for default in ALL {
                 assert!(
@@ -319,21 +311,14 @@ mod tests {
             assert!(!root.join(TODOS.id).exists(), "{root:?}");
         }
         assert!(!library.data.join("library").exists());
-        assert!(!library.base.join(".Notes.epicenter-scratch").exists());
-        // Application data inside the default's staging sibling.
-        let staged = library
-            .root
-            .join(".so.epicenter.todos.epicenter-scratch/machine");
-        fs::create_dir_all(&staged).unwrap();
-        assert!(open_default(&staged, &library.root, TODOS).is_err());
-        assert!(!TODOS.path(&library.root).exists());
+        assert!(!library.base.join("Notes").exists());
     }
 
     #[test]
     fn ordinary_apps_refuse_records_its_staging_and_holders_while_editors_may_edit_records() {
         let library = library();
         let records = open_default(&library.data, &library.root, RECORDS).unwrap();
-        let staging = crate::storage::scratch_directory(records.root()).unwrap();
+        let staging = crate::storage::scratch_directory(records.root());
         fs::create_dir_all(records.root().join("connections")).unwrap();
         fs::create_dir_all(&staging).unwrap();
         fs::create_dir_all(&library.data).unwrap();

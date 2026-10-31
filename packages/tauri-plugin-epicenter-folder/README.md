@@ -87,11 +87,11 @@ and two apps may open one directory. A file or a link at the path is refused
 and kept; no alternative name is allocated. Picker-chosen directories and synced
 folders opened in an editor bypass the defaults and must exist.
 
-Admission is `library::check_editable_directory` for records: never a save
-staging directory or anything in one, and never overlapping application data
-through the directory or its staging sibling. `library::check_app_directory`,
-for ordinary apps, one-time launches, and folder editor windows, also refuses records, its staging sibling, anything in them, and
-any directory holding them, such as the root. Overlap compares canonical
+Admission is `library::check_editable_directory` for records: never a
+folder's `.epicenter` or anything in one, and never overlapping application
+data. `library::check_app_directory`, for ordinary apps, one-time launches,
+and folder editor windows, also refuses records, anything in them, and any
+directory holding them, such as the root. Overlap compares canonical
 paths and directory identity, so a linked parent or another spelling of a
 protected directory is no route around it. A root override is admitted before
 anything is made. Native and CLI records admission run the same cases from
@@ -198,8 +198,8 @@ close anyway. Keeping the window open lets the first wait finish and close it.
 A page reload clears
 the old channel and token, so an old page cannot close its successor.
 
-Every open also removes the staged files in `.<directory>.epicenter-scratch`
-beside the root that a stopped save left more than an hour ago
+Every open also removes the staged files in the root's `.epicenter/scratch`
+that a stopped save left more than an hour ago
 (`storage::sweep_scratch`), by the creation time in the name the stager gave
 it, the same rule as `isStaleScratch` in `@epicenter/folder`. Younger ones
 may belong to a save still running in another process. Only regular files
@@ -285,11 +285,13 @@ pair old bytes with the new file's stamp. A landed put returns the stamp of
 the published file, or `null` for a removal. Stamps detect changes;
 expectations remain byte hashes.
 
-A put of bytes writes the bytes to a new file in
-`.<directory>.epicenter-scratch` beside the root, the directory the Bun host
-stages in (opened with `create_new`, so nothing already there is written
-through). A scratch path that is a link or not a directory refuses the put as
-`Io`, and nothing changes. On Unix the scratch directory is `0700` before
+A put of bytes writes the bytes to a new file in the root's
+`.epicenter/scratch`, the directory the Bun host stages in (opened with
+`create_new`, so nothing already there is written through). `.epicenter` at
+the root is Epicenter's own: no listing or directory's children show it, the
+watcher reports no change in it, and `epicenter init`'s `.gitignore` keeps
+it out of history. A scratch path, or an `.epicenter`, that is a link or not
+a directory refuses the put as `Io`, and nothing changes. On Unix the scratch directory is `0700` before
 anything is staged in it: made so, or tightened through the opened directory
 when it is open to others, and a put that cannot make it so is `Io`.
 Each staged file is `0600` before its first byte, so no other account reads
@@ -300,11 +302,10 @@ every entry removed through the open descriptor before anything is staged or
 written; a put that cannot remove them is `Io`. Replacing a file keeps its
 permission bits; a new file is `0600`. Windows has no such bits: there the
 scratch directory has the access its parent passes on. The scratch
-directory is on the parent's file
-system, so a root that is itself a mount point cannot be saved to: its
-rename fails as `Io` and the file at the path stays. Then the put takes the
-folder's save lock, an exclusive SQLite transaction on
-`.<directory>.epicenter-save-lock` beside it (`lock.rs`). Holding the turn,
+directory is on the root's own file system, so the rename is one step. Then
+the put takes the folder's save lock, an exclusive SQLite transaction on
+`.epicenter/save-lock` (`lock.rs`), making `.epicenter` (`0700`) when it is
+missing. Holding the turn,
 it walks the path again (no link, every name stored as asked), checks what
 the path holds, and only then makes the path's missing parent directories
 and renames the staged file over it. A removal takes the turn, walks and
@@ -327,9 +328,9 @@ something in it.
 
 A folder has no repository until its first commit, Sync or Save version
 ([ADR-0535](../../docs/adr/0535-an-existing-folder-opens-with-its-own-declaration.md)),
-and saving never makes one: a put stages beside the root, so it makes
-nothing in the root but the files saved and their directories, and nothing in
-`.git` is reachable, with or without `HEAD` (`page_files.rs`).
+and saving never makes one: a put stages in `.epicenter`, so it makes
+nothing in the root but the files saved, their directories, and
+`.epicenter`, nothing beside the root, and nothing in `.git` is reachable, with or without `HEAD` (`page_files.rs`).
 
 A data file is never written in place: the rename replaces a hard link
 rather than writing through it. The one data file written in place is a
@@ -393,7 +394,7 @@ file or the new one. A late change is refused as `ShuttingDown` and writes nothi
   that follows is not defended against; a page cannot make one. A put
   checks the path for links again under the save lock.
 - The save lock is an exclusive SQLite transaction on
-  `.<directory>.epicenter-save-lock` beside the directory. The system
+  `.epicenter/save-lock` inside the directory. The system
   releases it when the process ends, however it ends (`fcntl`, through
   SQLite). It is unreliable on some network filesystems.
 - The expectation is checked under the folder's save lock. A program that

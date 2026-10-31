@@ -12,12 +12,12 @@
  * answers each storage command. A command answers as the plugin does: its
  * value, or a rejection with the plugin's `StorageError`, where a failure the
  * shell reports changed nothing and so is `Io`, never `Unconfirmed`. An open
- * sweeps staged files an hour old from the scratch directory beside the
+ * sweeps staged files an hour old from the scratch directory inside the
  * root, as the shell's does. A test installs `invoke` with `mock.module`,
  * then opens the folder the way its app does.
  *
  * A data file is published as the shell publishes one: its bytes are staged
- * in `.<name>.epicenter-scratch` beside the root, never inside it, and
+ * in the root's `.epicenter/scratch`, which no listing shows, and
  * renamed over the path once the path is checked, or the path is checked and
  * removed. A test decides when such a
  * change is made, before the check (`beforeChange`), whether it fails
@@ -195,8 +195,8 @@ export function createGrantedShell(
 			);
 		},
 	};
-	// Staged beside the root, as `storage.rs` stages: the authored folder
-	// gets nothing but the files saved, and no `.git`.
+	// Staged in `.epicenter`, as `storage.rs` stages: the authored folder
+	// gets nothing but the files saved and `.epicenter`, and no `.git`.
 	const scratch = scratchDirectory(root);
 	const storage = createDirectoryStorage({ root, primitives: files, scratch });
 	const granted = new Map(
@@ -328,7 +328,7 @@ export function createGrantedShell(
 	return {
 		root,
 		opened,
-		/** Where saves are staged: `.<name>.epicenter-scratch` beside the root. */
+		/** Where saves are staged: `.epicenter/scratch` inside the root. */
 		scratch,
 		calls,
 		changes,

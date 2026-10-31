@@ -1,27 +1,28 @@
 /**
- * What the native Bun folder keeps beside its directory, never in it: the
+ * What the native Bun folder keeps in its directory's own `.epicenter`
+ * (`STATE_DIRECTORY`), which no listing shows and no watcher reports: the
  * save lock, and the scratch directory where a new file's bytes are staged.
  * Neither needs Git, so a directory without `.git`, or with a `.git` file or
- * link, opens and saves alike, and saving creates nothing inside it but the
- * files saved.
+ * link, opens and saves alike, and saving creates nothing beside it and
+ * nothing in it but the files saved and `.epicenter`.
  *
  * The save lock is the one the desktop shell's `lock.rs` takes too: an
- * exclusive SQLite transaction on `.<name>.epicenter-save-lock` beside the
- * directory (ADR-0562). The scratch directory is
- * `.<name>.epicenter-scratch` beside it, on the parent's file system, so a
- * directory that is itself a mount point cannot be saved to.
+ * exclusive SQLite transaction on `.epicenter/save-lock` (ADR-0562). The
+ * scratch directory is `.epicenter/scratch`, on the directory's own file
+ * system, so the rename over a path is one step. A link at `.epicenter` is
+ * never followed.
  */
 import { Database } from 'bun:sqlite';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import { STATE_DIRECTORY } from '../boundary.js';
 import { NothingChanged } from '../errors.js';
 import { createMutex } from '../git/mutex.js';
 
 /**
  * `directory` with its links resolved, or why it cannot hold a folder: it is
- * not a directory, or it has no parent to keep its save lock and scratch
- * directory in. What `.git` is, if anything, does not matter.
+ * not a directory. What `.git` is, if anything, does not matter.
  */
 export async function localRoot(
 	directory: string,
@@ -30,19 +31,19 @@ export async function localRoot(
 		const resolved = await realpath(directory);
 		if (!(await lstat(resolved)).isDirectory())
 			throw new Error(`${directory} is not a directory`);
-		if (dirname(resolved) === resolved)
-			throw new Error(
-				`${directory} has no parent directory to hold its save lock`,
-			);
 		return Ok(resolved);
 	} catch (cause) {
 		return Err({ root: directory, cause });
 	}
 }
 
-/** `.<name>.epicenter-scratch` beside the directory at `resolved`. */
+/**
+ * `.epicenter/scratch` inside the directory at `resolved`, written with `/`
+ * as the directory storage writes its own paths, so its parent is the
+ * directory's `.epicenter`.
+ */
 export const scratchDirectory = (resolved: string) =>
-	join(dirname(resolved), `.${basename(resolved)}.epicenter-scratch`);
+	`${resolved}/${STATE_DIRECTORY}/scratch`;
 
 /** How long a save waits for another process's save to the same directory. */
 const SAVE_LOCK_WAIT_MS = 10_000;
@@ -64,22 +65,35 @@ const LOCKED = {
 	save: (resolved: string) => `Nothing was saved to the folder at ${resolved}`,
 } as const;
 
-/** `.<name>.epicenter-<kind>-lock` beside the directory at `resolved`. */
-function holdingFolderLock<T>(
+/**
+ * `.epicenter/<kind>-lock` inside the directory at `resolved`, after making
+ * `.epicenter` (`0700`) when it is missing. A link or anything but a
+ * directory there refuses the lock as `NothingChanged`, so it is never
+ * taken through a link.
+ */
+async function holdingFolderLock<T>(
 	resolved: string,
 	kind: keyof typeof LOCKED,
 	waitMs: number,
 	work: () => Promise<T>,
 ): Promise<T> {
 	const refused = LOCKED[kind](resolved);
-	const parent = dirname(resolved);
-	if (parent === resolved)
-		return Promise.reject(
-			new Error(
-				`${refused}: it has no parent directory to hold its ${kind} lock.`,
-			),
+	const state = join(resolved, STATE_DIRECTORY);
+	try {
+		await mkdir(state, { mode: 0o700 }).catch((cause: { code?: string }) => {
+			if (cause.code !== 'EEXIST') throw cause;
+		});
+		const found = await lstat(state);
+		if (!found.isDirectory())
+			throw new Error(
+				`${state} is ${found.isSymbolicLink() ? 'a symbolic link' : 'not a directory'}. Remove it, then save again.`,
+			);
+	} catch (cause) {
+		throw new NothingChanged(
+			new Error(`${refused}: ${(cause as Error).message}`),
 		);
-	const path = join(parent, `.${basename(resolved)}.epicenter-${kind}-lock`);
+	}
+	const path = join(state, `${kind}-lock`);
 	return holdingFileLock(
 		path,
 		{

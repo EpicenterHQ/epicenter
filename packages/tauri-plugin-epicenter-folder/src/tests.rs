@@ -25,7 +25,7 @@
 //!   `stale`.
 //! - Storage reaches the data paths of the bound root and nothing else:
 //!   never `.git`, never another window's root, never through a link. A save
-//!   stages beside the root and makes no `.git`; a `.git` file or link opens
+//!   stages in the root's `.epicenter` and makes no `.git`; a `.git` file or link opens
 //!   and saves and is left as it is. Opening sweeps staged files a stopped
 //!   save left.
 //! - A put takes its bytes as a raw body and its arguments as
@@ -920,12 +920,12 @@ fn two_windows_on_one_root_saving_one_file_over_the_same_version_publish_once() 
     assert_eq!(staged(&fixture), Vec::<String>::new());
 }
 
-/// The scratch directory beside the folder, where a put stages its bytes.
+/// The scratch directory inside the folder, where a put stages its bytes.
 fn scratch(fixture: &Fixture) -> PathBuf {
-    epicenter_folder_core::storage::scratch_directory(&fixture.root).unwrap()
+    epicenter_folder_core::storage::scratch_directory(&fixture.root)
 }
 
-/// The staged files left beside the folder.
+/// The staged files left in the folder's scratch directory.
 fn staged(fixture: &Fixture) -> Vec<String> {
     std::fs::read_dir(scratch(fixture))
         .map(|entries| {
@@ -1200,7 +1200,7 @@ fn a_path_through_a_link_or_naming_one_is_refused() {
     );
 }
 
-/// A save that stopped before its rename leaves its staged file beside the
+/// A save that stopped before its rename leaves its staged file in the
 /// folder. Opening removes the ones an hour old, and none younger, which
 /// another process's save may still be about to rename.
 #[test]

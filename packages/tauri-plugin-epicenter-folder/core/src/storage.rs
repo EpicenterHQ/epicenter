@@ -13,13 +13,17 @@
 //!   reach `Plan.md`. A name stored under another spelling is another entry:
 //!   a read finds nothing there, and a change refuses to land on it;
 //! - `.git` at the root is Git's, never listed and never named.
+//! - `.epicenter` at the root is Epicenter's own state (`STATE_DIRECTORY`):
+//!   the save lock and the scratch directory saves stage in. No listing
+//!   shows it, no watcher reports it, and `epicenter init`'s `.gitignore`
+//!   keeps it out of history.
 //!
 //! `put` is the one change of a file. Its bytes are staged in a new file in
-//! `.<name>.epicenter-scratch` beside the root, where the Bun host stages
-//! too, and renamed over the path, so a reader and a crash see the old file
-//! or the new one, and a new file never appears empty. Saving needs no Git:
-//! it makes nothing in the root but the files saved, and never touches
-//! `.git`, whatever is there. Only the check of what the path holds and the
+//! `.epicenter/scratch` inside the root, where the Bun host stages too, and
+//! renamed over the path, so a reader and a crash see the old file or the
+//! new one, and a new file never appears empty. Saving needs no Git: it
+//! makes nothing beside the root, nothing in it but the files saved and
+//! `.epicenter`, and never touches `.git`, whatever is there. Only the check of what the path holds and the
 //! rename (or the removal) hold the folder's publishing turn
 //! (`directory::Directory::publishing`), so no other save through the shell, and no save
 //! by the Bun host, lands between them. On Unix no other account can read
@@ -52,34 +56,29 @@ use crate::paths::{path_problem, readable_path_problem};
 /// The folder's private Git directory, which no listing shows.
 const PRIVATE_DIRECTORY: &str = ".git";
 
-/// Where `put` stages a file's bytes: `.<name>.epicenter-scratch` beside the
+/// Epicenter's own state at the top of a folder: the save lock
+/// (`lock::save_lock_path`) and the scratch directory (`scratch_directory`).
+/// No listing shows it and no watcher reports it.
+pub const STATE_DIRECTORY: &str = ".epicenter";
+
+/// Where `put` stages a file's bytes: `.epicenter/scratch` inside the
 /// canonical `root`, the directory the Bun host stages in
 /// (`scratchDirectory` in `@epicenter/folder`'s `native/directory.ts`). It
-/// is on the parent's file system, so a root that is itself a mount point
-/// cannot be saved to; its rename fails and changes nothing.
-pub fn scratch_directory(root: &Path) -> Result<PathBuf, String> {
-    let (Some(parent), Some(name)) = (root.parent(), root.file_name()) else {
-        return Err(format!(
-            "The folder at {} has no parent directory to stage its saves in.",
-            root.display()
-        ));
-    };
-    let mut directory = std::ffi::OsString::from(".");
-    directory.push(name);
-    directory.push(".epicenter-scratch");
-    Ok(parent.join(directory))
+/// is on the root's own file system, so the rename over a path is one step.
+pub fn scratch_directory(root: &Path) -> PathBuf {
+    root.join(STATE_DIRECTORY).join("scratch")
 }
 
-/// Why the scratch directory at `scratch` cannot hold staged bytes, if it
-/// cannot: something is there that is a link or not a directory. A link is
-/// never followed, so staged bytes never land somewhere else.
-fn scratch_problem(scratch: &Path) -> Option<String> {
-    let kind = match fs::symlink_metadata(scratch) {
+/// Why the directory at `directory` cannot be used, if it cannot: something
+/// is there that is a link or not a directory. A link is never followed, so
+/// nothing lands somewhere else.
+fn directory_problem(directory: &Path) -> Option<String> {
+    let kind = match fs::symlink_metadata(directory) {
         Ok(metadata) => metadata.file_type(),
         Err(cause) => {
             return Some(format!(
                 "'{}' could not be inspected: {cause}",
-                scratch.display()
+                directory.display()
             ))
         }
     };
@@ -87,8 +86,8 @@ fn scratch_problem(scratch: &Path) -> Option<String> {
         return None;
     }
     Some(format!(
-        "'{}' is {}, so nothing was staged there. Remove it, then save again.",
-        scratch.display(),
+        "'{}' is {}, so nothing was saved through it. Remove it, then save again.",
+        directory.display(),
         if kind.is_symlink() {
             "a symbolic link"
         } else {
@@ -97,29 +96,54 @@ fn scratch_problem(scratch: &Path) -> Option<String> {
     ))
 }
 
-/// The scratch directory beside `root`, private to this account: made
-/// `0700` when missing, refused when it is a link or not a directory, and
-/// tightened (`make_private`) when it is open to others, before
-/// anything is staged in it.
-fn prepare_scratch(root: &Path) -> Result<PathBuf, String> {
-    let scratch = scratch_directory(root)?;
+/// Why the scratch directory inside `root` cannot hold staged bytes, if it
+/// cannot: `.epicenter` or `scratch` is a link or not a directory.
+fn scratch_problem(root: &Path) -> Option<String> {
+    directory_problem(&root.join(STATE_DIRECTORY))
+        .or_else(|| directory_problem(&scratch_directory(root)))
+}
+
+/// Make the directory at `directory` `0700` when missing; its parent must be
+/// there. Refused when it is a link or not a directory.
+fn make_directory(directory: &Path) -> Result<(), String> {
     #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    match builder.create(&scratch) {
+    match builder.create(directory) {
         Ok(()) => {}
         Err(cause) if cause.kind() == ErrorKind::AlreadyExists => {}
         Err(cause) => {
             return Err(format!(
                 "'{}' could not be made: {cause}",
-                scratch.display()
+                directory.display()
             ))
         }
     }
-    if let Some(problem) = scratch_problem(&scratch) {
-        return Err(problem);
+    match directory_problem(directory) {
+        Some(problem) => Err(problem),
+        None => Ok(()),
     }
+}
+
+/// `.epicenter` inside `root`, made `0700` when missing, and refused when it
+/// is a link or not a directory, so the save lock and staged bytes are
+/// never reached through a link.
+pub fn prepare_state_directory(root: &Path) -> Result<PathBuf, String> {
+    let state = root.join(STATE_DIRECTORY);
+    make_directory(&state)?;
+    Ok(state)
+}
+
+/// The scratch directory inside `root`, private to this account with the
+/// `.epicenter` holding it, as the Bun host makes both: each made `0700`
+/// when missing, refused when it is a link or not a directory, and
+/// tightened (`make_private`) when it is open to others, before anything is
+/// staged.
+fn prepare_scratch(root: &Path) -> Result<PathBuf, String> {
+    make_private(&prepare_state_directory(root)?)?;
+    let scratch = scratch_directory(root);
+    make_directory(&scratch)?;
     make_private(&scratch)?;
     Ok(scratch)
 }
@@ -544,8 +568,8 @@ fn spelled_by_listing(root: &Path, names: &[&str]) -> io::Result<bool> {
     Ok(true)
 }
 
-/// Every entry below `root`, `.git` at the root aside, without following a
-/// link. A name that is not text is left out.
+/// Every entry below `root`, `.git` and `.epicenter` at the root aside,
+/// without following a link. A name that is not text is left out.
 pub fn list(root: &Path) -> Result<FileListing, StorageError> {
     fn visit(directory: &Path, prefix: &str, listing: &mut FileListing) -> io::Result<()> {
         let entries = match fs::read_dir(directory) {
@@ -559,7 +583,7 @@ pub fn list(root: &Path) -> Result<FileListing, StorageError> {
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
-            if prefix.is_empty() && name == PRIVATE_DIRECTORY {
+            if prefix.is_empty() && (name == PRIVATE_DIRECTORY || name == STATE_DIRECTORY) {
                 continue;
             }
             let path = format!("{prefix}{name}");
@@ -617,7 +641,7 @@ pub fn children(root: &Path, directory: &str) -> Result<Children, StorageError> 
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
-            if directory.is_empty() && name == PRIVATE_DIRECTORY {
+            if directory.is_empty() && (name == PRIVATE_DIRECTORY || name == STATE_DIRECTORY) {
                 continue;
             }
             if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
@@ -1119,20 +1143,18 @@ pub fn is_stale_scratch(name: &str, now_ms: u64) -> bool {
     }
 }
 
-/// Remove the staged files in the scratch directory beside `root` that a
+/// Remove the staged files in the scratch directory inside `root` that a
 /// stopped save left more than an hour before `now_ms`: regular files whose
 /// names a stager made (`is_stale_scratch`). Younger ones may belong to a
 /// save still running in another process; any other file, a directory, or a
-/// link stays. A scratch directory that is a link or not a directory is left
-/// alone, and what cannot be removed stays: it is inert. Nothing in the
-/// root, `.git` included, is touched.
+/// link stays. A scratch directory, or `.epicenter`, that is a link or not a
+/// directory is left alone, and what cannot be removed stays: it is inert.
+/// Nothing else in the root, `.git` included, is touched.
 pub fn sweep_scratch(root: &Path, now_ms: u64) {
-    let Ok(scratch) = scratch_directory(root) else {
-        return;
-    };
-    if scratch_problem(&scratch).is_some() {
+    if scratch_problem(root).is_some() {
         return;
     }
+    let scratch = scratch_directory(root);
     let Ok(entries) = fs::read_dir(&scratch) else {
         return;
     };

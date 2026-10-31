@@ -466,10 +466,11 @@ Application Quit always asks one separate native question, without asking any
 folder page for save status. Cancel preserves every window. There is no
 cross-window status protocol or global gate over individual window closes.
 
-The save lock, `.<directory name>.epicenter-save-lock`, sits beside the folder
-in the folder root; WebView data and the page builds live in the application
-data and resource directories. The Folder engine stages a save's bytes in
-`.<directory name>.epicenter-scratch` beside the folder.
+The save lock, `.epicenter/save-lock`, sits inside the folder, and the
+Folder engine stages a save's bytes in `.epicenter/scratch` there; no
+listing shows `.epicenter`, and nothing is made beside the folder. WebView
+data and the page builds live in the application data and resource
+directories.
 
 ### Capabilities
 

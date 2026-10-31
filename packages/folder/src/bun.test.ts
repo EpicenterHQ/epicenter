@@ -2,11 +2,13 @@
  * Bun Save Lock Tests
  *
  * `@epicenter/folder/bun` takes the directory's save lock, an exclusive SQLite
- * transaction on `.<name>.epicenter-save-lock` beside it, around each check
- * and rename, as the desktop shell does (ADR-0562). Saves from separate
+ * transaction on `.epicenter/save-lock` inside it, around each check and
+ * rename, as the desktop shell does (ADR-0562). Saves from separate
  * processes take turns, so none is lost.
  *
  * Key behaviors:
+ * - The save lock and staged saves live in the directory's `.epicenter`,
+ *   which no listing shows; nothing is made beside the directory
  * - A save waits while another process holds the save lock, then replaces
  *   what that process saved
  * - Two processes writing one file through `write` each land whole,
@@ -20,8 +22,16 @@
  *   save waits for a Bun process holding the same lock
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import {
+	lstat,
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
+import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { holdingFileLock, openFolder } from './bun.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
@@ -29,6 +39,7 @@ import { createDirectoryStorage } from './directory-store.js';
 import { NothingChanged } from './errors.js';
 import { GIT_ENV, scratch } from './git-http.test-support.js';
 import { hashBytes } from './hash.js';
+import { scratchDirectory } from './native/directory.js';
 
 const originalEnv = { ...process.env };
 beforeAll(() => {
@@ -43,9 +54,8 @@ afterAll(() => {
 		else process.env[key] = originalEnv[key];
 });
 
-/** `.<name>.epicenter-<kind>` beside the directory at `root`. */
-const besideRoot = (root: string, kind: string) =>
-	join(dirname(root), `.${basename(root)}.epicenter-${kind}`);
+/** The save lock inside the directory at `root`. */
+const saveLock = (root: string) => join(root, '.epicenter', 'save-lock');
 
 /** Each line a child process prints, in order. */
 function lines(stream: ReadableStream<Uint8Array>) {
@@ -69,7 +79,7 @@ function lines(stream: ReadableStream<Uint8Array>) {
 
 test('a save waits for another process holding the save lock, then replaces its save', async () => {
 	const root = await scratch('bun-save-lock-');
-	const lock = join(dirname(root), `.${basename(root)}.epicenter-save-lock`);
+	const lock = saveLock(root);
 	const target = join(root, 'note.txt');
 	try {
 		await writeFile(target, 'old');
@@ -83,8 +93,10 @@ test('a save waits for another process holding the save lock, then replaces its 
 				'-e',
 				`
 				import { Database } from 'bun:sqlite';
-				import { writeFileSync } from 'node:fs';
+				import { mkdirSync, writeFileSync } from 'node:fs';
+				import { dirname } from 'node:path';
 				const [lock, target] = process.argv.slice(-2);
+				mkdirSync(dirname(lock), { recursive: true });
 				const database = new Database(lock, { create: true });
 				database.run('PRAGMA busy_timeout = 0');
 				database.run('BEGIN EXCLUSIVE');
@@ -125,8 +137,6 @@ test('a save waits for another process holding the save lock, then replaces its 
 		await folder.close();
 	} finally {
 		await rm(root, { recursive: true, force: true });
-		await rm(lock, { force: true });
-		await rm(besideRoot(root, 'scratch'), { recursive: true, force: true });
 	}
 });
 
@@ -176,14 +186,12 @@ test('two processes writing one file through write each land whole, the last one
 		expect([`p0-${ROUNDS - 1}`, `p1-${ROUNDS - 1}`]).toContain([...lines][0]!);
 	} finally {
 		await rm(root, { recursive: true, force: true });
-		await rm(besideRoot(root, 'save-lock'), { force: true });
-		await rm(besideRoot(root, 'scratch'), { recursive: true, force: true });
 	}
 }, 60_000);
 
 test('a save lock not taken in time changes nothing, so the put it guarded is Io', async () => {
 	const root = await scratch('bun-lock-refused-');
-	const lock = join(dirname(root), `.${basename(root)}.epicenter-save-lock`);
+	const lock = saveLock(root);
 	try {
 		const held = Promise.withResolvers<void>();
 		const holding = holdingFileLock(
@@ -217,7 +225,7 @@ test('a save lock not taken in time changes nothing, so the put it guarded is Io
 		await holding;
 
 		// A put whose guarded rename was refused that way reports `Io`.
-		const staging = besideRoot(root, 'scratch');
+		const staging = scratchDirectory(root);
 		const storage = createDirectoryStorage({
 			root,
 			primitives: {
@@ -254,7 +262,51 @@ test('a save lock not taken in time changes nothing, so the put it guarded is Io
 		expect(await readdir(root)).not.toContain('new');
 	} finally {
 		await rm(root, { recursive: true, force: true });
-		await rm(lock, { force: true });
-		await rm(besideRoot(root, 'scratch'), { recursive: true, force: true });
+	}
+});
+
+test('a save keeps its lock and staging inside the folder, unlisted, and makes nothing beside it', async () => {
+	const parent = await scratch('bun-state-');
+	const root = join(parent, 'notes');
+	try {
+		await mkdir(root);
+		const folder = expectOk(await openFolder({ directory: root, tables: {} }));
+		expectOk(await folder.write('todos/a.md', 'milk'));
+		expect(await readdir(parent)).toEqual(['notes']);
+		expect((await readdir(root)).sort()).toEqual(['.epicenter', 'todos']);
+		expect((await lstat(saveLock(root))).isFile()).toBe(true);
+		expect(await readdir(scratchDirectory(root))).toEqual([]);
+		await folder.close();
+
+		const storage = createDirectoryStorage({
+			root,
+			primitives: nodeDirectoryPrimitives,
+			scratch: scratchDirectory(root),
+		});
+		const listed = expectOk(await storage.list());
+		expect(listed.directories).toEqual(['todos']);
+		expect(listed.files.map(({ path }) => path)).toEqual(['todos/a.md']);
+		expect(expectOk(await storage.children('')).directories).toEqual(['todos']);
+	} finally {
+		await rm(parent, { recursive: true, force: true });
+	}
+});
+
+test('a link at .epicenter is never followed: a save is refused and nothing lands through it', async () => {
+	const parent = await scratch('bun-state-link-');
+	const root = join(parent, 'notes');
+	const elsewhere = join(parent, 'elsewhere');
+	try {
+		await mkdir(root);
+		await mkdir(elsewhere);
+		await symlink(elsewhere, join(root, '.epicenter'));
+		const folder = expectOk(await openFolder({ directory: root, tables: {} }));
+		const { error } = await folder.write('a.md', 'mine');
+		expect(error).not.toBeNull();
+		expect(await readdir(elsewhere)).toEqual([]);
+		expect(await readdir(root)).toEqual(['.epicenter']);
+		await folder.close();
+	} finally {
+		await rm(parent, { recursive: true, force: true });
 	}
 });

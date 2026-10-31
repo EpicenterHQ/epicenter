@@ -251,8 +251,10 @@ Git: the web never syncs, and new apps use `openDevice` instead.
 ## Native directories
 
 Bun and Tauri open ordinary directory files, with no required Git repository.
-They stage a replacement beside the directory and rename one whole file under
-a shared save lock. Bun takes this lock through an exclusive SQLite
+They stage a replacement in the directory's own `.epicenter/scratch` and
+rename one whole file under a shared save lock, `.epicenter/save-lock`;
+no listing shows `.epicenter`, no watcher reports it, and nothing is made
+beside the directory. Bun takes this lock through an exclusive SQLite
 transaction; the Tauri plugin uses the same boundary. Paths and links are
 checked before writes. A native watcher reports outside changes as hints, and
 `refresh()` rereads the mirror. Watching is best effort, so an application

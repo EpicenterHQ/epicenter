@@ -1,6 +1,7 @@
 /** Storage observations are path hints, never saved bytes or publication receipts. */
 import { watch } from 'node:fs';
 import { isAbsolute, relative, sep } from 'node:path';
+import { STATE_DIRECTORY } from '../boundary.js';
 import { callObserver } from '../observer.js';
 import { readablePath } from '../paths.js';
 
@@ -35,6 +36,9 @@ export function watchDirectory(root: string): FolderWatch {
 				)
 					.split(sep)
 					.join('/');
+				// Epicenter's own state (the save lock and staged saves) is not
+				// the folder's files, so a save does not echo as a change.
+				if (path.split('/')[0] === STATE_DIRECTORY) return;
 				if (readablePath(path)) return report([path]);
 				// Git state does not belong to the folder's readable data. Other
 				// uninterpretable names leave the scope of the change unknown.

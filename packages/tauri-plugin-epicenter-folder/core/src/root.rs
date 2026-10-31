@@ -6,7 +6,7 @@
 //! it does not to the Bun host (`localRoot` in `@epicenter/folder`'s
 //! `native/directory.ts`): no `.git`, a `.git` file or link (a linked
 //! worktree or submodule), and a repository all open and save alike, since
-//! a save stages beside the root and the shell runs no Git. Git state that
+//! a save stages in the root's `.epicenter` and the shell runs no Git. Git state that
 //! would send history writes elsewhere is the `epicenter` CLI's to refuse,
 //! before each history operation (`gitLayoutProblem` in `@epicenter/folder`),
 //! as is whether a data folder may get a repository of its own

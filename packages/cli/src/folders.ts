@@ -6,19 +6,14 @@
  * selects, saves, or locks the location, and no configuration is read.
  */
 import { lstat, mkdir, realpath, stat } from 'node:fs/promises';
-import {
-	basename,
-	dirname,
-	isAbsolute,
-	join,
-	parse,
-	relative,
-	sep,
-} from 'node:path';
+import { dirname, isAbsolute, join, parse, relative, sep } from 'node:path';
 import type { AppPaths } from './app-paths.js';
 
 /** The records default's permanent name under the folder root. */
 const RECORDS = 'so.epicenter';
+
+/** A folder's own state directory (`STATE_DIRECTORY` in `@epicenter/folder`). */
+const STATE_DIRECTORY = '.epicenter';
 
 /**
  * The records folder's canonical path, or `undefined` when it is not there
@@ -51,41 +46,23 @@ export async function epicenterDirectory(
 
 /**
  * The same admission as native `library::check_editable_directory` for the
- * records default. The shared `records-default.json` cases exercise both
- * implementations before anything is created.
+ * records default: never a folder's `.epicenter` (its save lock and staged
+ * saves) or anything in one, and never overlapping application data. The
+ * shared `records-default.json` cases exercise both implementations before
+ * anything is created.
  */
 async function checkRecordsDirectory(dataDir: string, path: string) {
-	const candidate = await directoryPaths(path);
+	const candidate = await resolvedPath(path);
 	if (
-		candidate[0]
-			.split(sep)
-			.some(
-				(name) =>
-					name.startsWith('.') &&
-					name.toLowerCase().endsWith('.epicenter-scratch'),
-			)
+		candidate.split(sep).some((name) => name.toLowerCase() === STATE_DIRECTORY)
 	)
 		throw new Error(
-			'Save staging directories cannot be opened as authored folders.',
+			"A folder's .epicenter directory cannot be opened as a folder.",
 		);
-	const data = await resolvedPath(dataDir);
-	for (const path of candidate) {
-		if (await overlaps(path, data))
-			throw new Error(
-				"This folder holds Epicenter's machine-local application data, so it cannot be opened.",
-			);
-	}
-}
-
-/** Saving also writes to a sibling staging directory. Admit both locations. */
-async function directoryPaths(path: string) {
-	const root = await resolvedPath(path);
-	return [
-		root,
-		await resolvedPath(
-			join(dirname(root), `.${basename(root)}.epicenter-scratch`),
-		),
-	] as const;
+	if (await overlaps(candidate, await resolvedPath(dataDir)))
+		throw new Error(
+			"This folder holds Epicenter's machine-local application data, so it cannot be opened.",
+		);
 }
 
 /** Resolve existing ancestors, retaining missing components and their parent steps. */

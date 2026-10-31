@@ -64,7 +64,11 @@ export type FileListing = {
 	 * scope, symbolic links, and special entries, none of them followed. A
 	 * read refuses what is not a regular file.
 	 */
-	readonly files: readonly { readonly path: string; readonly size: number; readonly stamp: string }[];
+	readonly files: readonly {
+		readonly path: string;
+		readonly size: number;
+		readonly stamp: string;
+	}[];
 	/** Every directory, including empty ones kept for the shell. */
 	readonly directories: readonly string[];
 };
@@ -135,10 +139,18 @@ export type HostFiles = Pick<
 /** Whether a put changed its file, or may have: it landed, or its reply was lost. */
 export const mayHaveChanged = (
 	result: Result<PutOutcome, FileError>,
-): boolean => result.data?.kind === 'landed' || result.error?.name === 'Unconfirmed';
+): boolean =>
+	result.data?.kind === 'landed' || result.error?.name === 'Unconfirmed';
 
 /** The folder's private Git directory, which no portable path names and no listing shows. */
 export const PRIVATE_DIRECTORY = '.git';
+
+/**
+ * Epicenter's own state at the top of a folder: the save lock and the
+ * scratch directory saves stage in. No listing shows it and no watcher
+ * reports it; `epicenter init`'s `.gitignore` keeps it out of history.
+ */
+export const STATE_DIRECTORY = '.epicenter';
 
 /**
  * This process's id in the names it stages under, so two never pick one

@@ -1,5 +1,5 @@
-//! The folder's save lock, `SaveLock`, a file beside the folder's directory,
-//! `.<name>.epicenter-save-lock`: one save at a time, across processes, held
+//! The folder's save lock, `SaveLock`, a file inside the folder's own state
+//! directory, `.epicenter/save-lock`: one save at a time, across processes, held
 //! only across one save's check and rename (or removal), by every Epicenter
 //! shell and by Bun (`@epicenter/folder/bun`) alike, so two saves never
 //! interleave between the check and the change (ADR-0562, ADR-0568). It
@@ -23,29 +23,17 @@ use std::time::Duration;
 
 use rusqlite::{Connection, ErrorCode};
 
+use crate::storage::{prepare_state_directory, STATE_DIRECTORY};
+
 /// How long a save waits for another writer's save to the same folder
 /// before it gives up. A holder keeps the lock only across one check, which
 /// hashes the file, and one rename. The Bun host waits as long.
 pub const SAVE_LOCK_WAIT: Duration = Duration::from_secs(10);
 
-/// The file beside `root` named `.<name><suffix>`.
-fn sibling(root: &Path, suffix: &str) -> Result<PathBuf, String> {
-    let (Some(parent), Some(name)) = (root.parent(), root.file_name()) else {
-        return Err(format!(
-            "The folder at {} has no parent directory to hold its lock.",
-            root.display()
-        ));
-    };
-    let mut file = std::ffi::OsString::from(".");
-    file.push(name);
-    file.push(suffix);
-    Ok(parent.join(file))
-}
-
-/// Where the save lock for a canonical root lives: a sibling, outside the
-/// folder's files.
-pub fn save_lock_path(root: &Path) -> Result<PathBuf, String> {
-    sibling(root, ".epicenter-save-lock")
+/// Where the save lock for a canonical root lives: `.epicenter/save-lock`
+/// inside it, which no listing shows (`storage::STATE_DIRECTORY`).
+pub fn save_lock_path(root: &Path) -> PathBuf {
+    root.join(STATE_DIRECTORY).join("save-lock")
 }
 
 /// Refuse a lock path that is a symbolic link or anything other than a
@@ -107,10 +95,17 @@ pub struct SaveLock {
 
 impl SaveLock {
     /// Take the save lock for a canonical root, waiting up to `wait` for a
-    /// save from any participating writer to finish. A save that still finds it held
+    /// save from any participating writer to finish, after making
+    /// `.epicenter` when it is missing. A save that still finds it held
     /// changes nothing and says so.
     pub fn acquire(root: &Path, wait: Duration) -> Result<Self, String> {
-        let path = verify(root, save_lock_path(root)?, "saved to", "save again")?;
+        prepare_state_directory(root).map_err(|problem| {
+            format!(
+                "Nothing was saved to the folder at {}: {problem}",
+                root.display()
+            )
+        })?;
+        let path = verify(root, save_lock_path(root), "saved to", "save again")?;
         match begin_exclusive(&path, wait) {
             Ok(connection) => Ok(Self {
                 connection: Some(connection),
@@ -143,16 +138,29 @@ mod tests {
     use super::*;
     use crate::testing::TempDir;
 
+    /// The names directly in `directory`, sorted.
+    fn names(directory: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
     #[test]
     fn the_save_lock_is_its_own_file_and_a_second_save_waits_for_the_first() {
         let temp = TempDir::new("save-lock");
         let root = temp.folder("notes");
         let held = SaveLock::acquire(&root, Duration::ZERO).expect("first save");
-        assert!(temp.path().join(".notes.epicenter-save-lock").is_file());
+        let lock = root.join(".epicenter/save-lock");
+        assert!(lock.is_file());
+        // The lock lives inside the folder; nothing is made beside it.
+        assert_eq!(names(temp.path()), ["notes"]);
 
         let refused = SaveLock::acquire(&root, Duration::from_millis(50)).unwrap_err();
         assert!(refused.contains("Nothing was saved"), "{refused}");
-        assert!(refused.contains(".notes.epicenter-save-lock"), "{refused}");
+        assert!(refused.contains(&lock.display().to_string()), "{refused}");
 
         // A waiting save takes the lock as soon as the holder lets go.
         let waiter = {
@@ -168,10 +176,21 @@ mod tests {
         assert!(waited >= Duration::from_millis(50), "{waited:?}");
         assert!(waited < SAVE_LOCK_WAIT, "{waited:?}");
         // The transaction wrote nothing, so SQLite left no journal beside it.
-        assert!(!temp
-            .path()
-            .join(".notes.epicenter-save-lock-journal")
-            .exists());
+        assert_eq!(names(&root.join(".epicenter")), ["save-lock"]);
+        assert_eq!(names(temp.path()), ["notes"]);
+    }
+
+    /// A missing `.epicenter` is made private to this account.
+    #[cfg(unix)]
+    #[test]
+    fn a_missing_state_directory_is_made_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new("save-lock-state");
+        let root = temp.folder("notes");
+        drop(SaveLock::acquire(&root, Duration::ZERO).unwrap());
+        let made = fs::symlink_metadata(root.join(".epicenter")).unwrap();
+        assert!(made.is_dir());
+        assert_eq!(made.permissions().mode() & 0o777, 0o700);
     }
 
     #[cfg(unix)]
@@ -179,19 +198,33 @@ mod tests {
     fn a_symbolic_link_at_the_save_lock_path_is_refused_before_it_is_opened() {
         let temp = TempDir::new("save-lock-link");
         let root = temp.folder("notes");
+        fs::create_dir(root.join(".epicenter")).unwrap();
         let elsewhere = temp.path().join("elsewhere.sqlite");
-        std::os::unix::fs::symlink(&elsewhere, temp.path().join(".notes.epicenter-save-lock"))
-            .unwrap();
+        std::os::unix::fs::symlink(&elsewhere, root.join(".epicenter/save-lock")).unwrap();
         let message = SaveLock::acquire(&root, Duration::ZERO).unwrap_err();
         assert!(message.contains("is a symbolic link"), "{message}");
         assert!(!elsewhere.exists(), "the link target was never created");
+    }
+
+    /// A link at `.epicenter` is never followed: the lock is not taken
+    /// through it and nothing is made where it points.
+    #[cfg(unix)]
+    #[test]
+    fn a_symbolic_link_at_the_state_directory_is_refused() {
+        let temp = TempDir::new("save-lock-state-link");
+        let root = temp.folder("notes");
+        let elsewhere = temp.folder("elsewhere");
+        std::os::unix::fs::symlink(&elsewhere, root.join(".epicenter")).unwrap();
+        let message = SaveLock::acquire(&root, Duration::ZERO).unwrap_err();
+        assert!(message.contains("is a symbolic link"), "{message}");
+        assert!(names(&elsewhere).is_empty());
     }
 
     #[test]
     fn a_directory_at_the_save_lock_path_is_refused() {
         let temp = TempDir::new("save-lock-dir");
         let root = temp.folder("notes");
-        std::fs::create_dir(temp.path().join(".notes.epicenter-save-lock")).unwrap();
+        fs::create_dir_all(root.join(".epicenter/save-lock")).unwrap();
         let message = SaveLock::acquire(&root, Duration::ZERO).unwrap_err();
         assert!(message.contains("not a regular file"), "{message}");
     }

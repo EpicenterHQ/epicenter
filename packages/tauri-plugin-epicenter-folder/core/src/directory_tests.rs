@@ -92,15 +92,18 @@ fn names(directory: &Path) -> Vec<String> {
 }
 
 /// A plain directory with no `.git` is opened and saved to, and the save
-/// makes nothing in it but the file: no `.git`, no scratch.
+/// makes nothing in it but the file and `.epicenter` (its save lock and an
+/// empty scratch directory), no `.git`, and nothing beside it.
 #[test]
 fn a_directory_with_no_git_is_opened_and_saved_to() {
     let temp = TempDir::new("bind-no-git");
     let root = temp.folder("notes");
     assert_eq!(save(&root), Ok(PutOutcome::Landed { stamp: None }));
     assert_eq!(std::fs::read(root.join("todos/a.md")).unwrap(), b"milk");
-    assert_eq!(names(&root), ["todos"]);
-    assert!(names(&storage::scratch_directory(&root).unwrap()).is_empty());
+    assert_eq!(names(&root), [".epicenter", "todos"]);
+    assert_eq!(names(&root.join(".epicenter")), ["save-lock", "scratch"]);
+    assert_eq!(names(temp.path()), ["notes"]);
+    assert!(names(&storage::scratch_directory(&root)).is_empty());
 }
 
 /// A linked worktree's or submodule's `.git` file, and a `.git` link, open
@@ -116,7 +119,7 @@ fn a_git_file_or_link_is_opened_and_saved_to() {
         std::fs::read_to_string(worktree.join(".git")).unwrap(),
         gitdir
     );
-    assert_eq!(names(&worktree), [".git", "todos"]);
+    assert_eq!(names(&worktree), [".epicenter", ".git", "todos"]);
     #[cfg(unix)]
     {
         let linked = temp.folder("linked");
@@ -217,7 +220,7 @@ fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
             .all(|(_, landed)| *landed == Ok(PutOutcome::Stale)),
         "{outcomes:?}"
     );
-    assert!(names(&storage::scratch_directory(&root).unwrap()).is_empty());
+    assert!(names(&storage::scratch_directory(&root)).is_empty());
     assert!(!root.join(".git").exists());
 }
 
@@ -228,10 +231,11 @@ fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
 fn bun_saver(root: &Path, target: &Path, theirs: &str) -> Child {
     let script = r#"
         import { Database } from 'bun:sqlite';
-        import { writeFileSync } from 'node:fs';
-        import { basename, dirname, join } from 'node:path';
+        import { mkdirSync, writeFileSync } from 'node:fs';
+        import { join } from 'node:path';
         const [root, target, theirs] = process.argv.slice(-3);
-        const database = new Database(join(dirname(root), `.${basename(root)}.epicenter-save-lock`), { create: true });
+        mkdirSync(join(root, '.epicenter'), { recursive: true });
+        const database = new Database(join(root, '.epicenter', 'save-lock'), { create: true });
         database.run('PRAGMA busy_timeout = 0');
         database.run('BEGIN EXCLUSIVE');
         console.log('locked');
@@ -300,5 +304,5 @@ fn a_shell_save_waits_for_another_process_save_and_then_is_stale() {
 
     assert_eq!(ours.join().unwrap(), Ok(PutOutcome::Stale));
     assert_eq!(std::fs::read(&target).unwrap(), b"theirs");
-    assert!(names(&storage::scratch_directory(&root).unwrap()).is_empty());
+    assert!(names(&storage::scratch_directory(&root)).is_empty());
 }

@@ -5,6 +5,7 @@ use std::path::{Component, Path};
 use std::sync::{Arc, Mutex};
 
 use epicenter_folder_core::paths::readable_path_problem;
+use epicenter_folder_core::storage::STATE_DIRECTORY;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -100,7 +101,12 @@ fn observation(root: &Path, event: notify::Result<Event>) -> Option<FolderChange
             };
             parts.push(name);
         }
-        if parts.iter().any(|name| name.eq_ignore_ascii_case(".git")) {
+        // Git's state, and Epicenter's own at the top of the folder (the save
+        // lock and staged saves), are not the folder's files: a save does not
+        // echo as a change.
+        if parts.iter().any(|name| name.eq_ignore_ascii_case(".git"))
+            || parts.first() == Some(&STATE_DIRECTORY)
+        {
             continue;
         }
         let path = parts.join("/");
@@ -182,5 +188,45 @@ mod tests {
             Ok(Event::new(EventKind::Any).add_path(root.join(".git/index")))
         )
         .is_none());
+    }
+
+    /// Epicenter's own state, the save lock and staged saves in
+    /// `.epicenter`, never reports a change, so a save does not echo.
+    #[test]
+    fn writes_in_the_state_directory_are_not_folder_changes() {
+        let root = Path::new("/folder");
+        for path in [
+            ".epicenter",
+            ".epicenter/save-lock",
+            ".epicenter/scratch",
+            ".epicenter/scratch/lz0-0123456789abcdef0123456789abcdef-1",
+        ] {
+            assert!(
+                observation(
+                    root,
+                    Ok(Event::new(EventKind::Any).add_path(root.join(path)))
+                )
+                .is_none(),
+                "{path}"
+            );
+        }
+        // A rename from staging onto a note reports only the note.
+        let landed = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+            .add_path(root.join(".epicenter/scratch/staged"))
+            .add_path(root.join("notes/a.md"));
+        assert_eq!(
+            observation(root, Ok(landed)).unwrap().paths,
+            Some(vec!["notes/a.md".into()])
+        );
+        // Below the root, `.epicenter` is an ordinary hidden name.
+        assert_eq!(
+            observation(
+                root,
+                Ok(Event::new(EventKind::Any).add_path(root.join("notes/.epicenter")))
+            )
+            .unwrap()
+            .paths,
+            Some(vec!["notes/.epicenter".into()])
+        );
     }
 }
