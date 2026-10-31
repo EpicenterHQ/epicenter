@@ -11,19 +11,43 @@ export type Backend = {
 	request(request: BeeperRequest): Promise<BeeperAnswer>;
 };
 
+/** What the page says when no local program answers for Beeper. */
+export const NOT_SERVED_HERE =
+	'Live Beeper needs Messages running on this computer: run `bun run --cwd apps/messages start` and open http://127.0.0.1:5188.';
+
 /**
- * The live Beeper connection. Only a native build can reach Beeper Desktop,
- * through `epicenter messages --json`; this browser build has no such build
- * and no HTTP fallback, so it answers with demo conversations only.
+ * The live Beeper connection: Messages' local program (`scripts/serve.ts`)
+ * answers each operation through the Epicenter CLI, which keeps the Beeper
+ * token in the device keychain; the page never sees it. Served any other
+ * way (`vite dev`, a static host), nothing answers, and only the fictional
+ * demo works.
  */
 export async function requestBeeper(
-	_request: BeeperRequest,
+	request: BeeperRequest,
 ): Promise<BeeperAnswer> {
-	return {
-		kind: 'error',
-		message:
-			'Live Beeper needs a desktop build of Messages. This browser build uses demo conversations only.',
-	};
+	let response: Response;
+	try {
+		response = await fetch('/beeper', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(request),
+		});
+	} catch {
+		return {
+			kind: 'error',
+			message:
+				request.action === 'send'
+					? 'The Beeper connection did not respond. Check Beeper before sending again.'
+					: 'Could not reach Messages on this computer. Is `bun run --cwd apps/messages start` still running?',
+		};
+	}
+	if (
+		!response.ok ||
+		!response.headers.get('content-type')?.startsWith('application/json')
+	)
+		return { kind: 'error', message: NOT_SERVED_HERE };
+	// SAFETY: the local program answers only with a `BeeperAnswer`.
+	return (await response.json()) as BeeperAnswer;
 }
 
 /** Entirely fictional conversations. Sending here cannot reach a network. */

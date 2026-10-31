@@ -266,11 +266,11 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/cli": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@tanstack/svelte-query": "catalog:",
-        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {

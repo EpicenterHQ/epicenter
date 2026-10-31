@@ -1,16 +1,20 @@
-import type { WriteError } from '@epicenter/folder';
-import type { SvelteFolder } from '@epicenter/svelte/folder';
+/**
+ * A reply's way from the composer to Beeper, over this device's drafts and
+ * attempts (`contract.ts`): a send records its attempt before Beeper is
+ * asked, and an attempt Beeper never confirmed blocks the next send until
+ * the person has checked it. Nothing is ever resent on its own.
+ */
+import type { ClientError } from '@epicenter/definition/contract';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Backend } from './backend.js';
-import type { messagesTables } from './definition.js';
+import type { Device } from './context.js';
 
 export const DraftError = defineErrors({
 	Refused: ({ message }: { message: string }) => ({ message }),
 });
 type DraftError = InferErrors<typeof DraftError>;
-export type MessagesFolder = SvelteFolder<typeof messagesTables>;
-type Failure = WriteError | DraftError;
+type Failure = ClientError | DraftError;
 
 export async function draftId(
 	backend: Pick<Backend, 'mode' | 'profile'>,
@@ -32,16 +36,16 @@ const fieldsFor = (backend: Backend, chatId: string) => ({
 });
 
 /** Only send and recovery workflows write attempts. */
-const turns = new WeakMap<MessagesFolder, Map<string, Promise<void>>>();
+const turns = new WeakMap<Device, Map<string, Promise<void>>>();
 async function withDraft<T>(
-	folder: MessagesFolder,
+	device: Device,
 	id: string,
 	action: () => Promise<T>,
 ) {
-	let queue = turns.get(folder);
+	let queue = turns.get(device);
 	if (!queue) {
 		queue = new Map();
-		turns.set(folder, queue);
+		turns.set(device, queue);
 	}
 	const previous = queue.get(id) ?? Promise.resolve();
 	const turn = Promise.withResolvers<void>();
@@ -78,32 +82,24 @@ function matches(
 	);
 }
 
-/** A second tab may have written an attempt before its hint reached this mirror. */
-async function storageAgrees(folder: MessagesFolder, path: string) {
-	const fresh = await folder.read(path);
-	if (fresh.error !== null) {
-		void folder.refresh();
+/**
+ * Whether storage holds the attempt this page shows: another tab may have
+ * written one before this page heard of it. Read straight from storage, by
+ * version, valid or not.
+ */
+async function storageAgrees(device: Device, id: string) {
+	const listed = await device.client.attempts.list();
+	if (listed.error !== null)
 		return DraftError.Refused({
 			message: 'Could not check storage; try again.',
 		});
-	}
-	let text: string | undefined;
-	try {
-		text =
-			fresh.data === null
-				? undefined
-				: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
-						fresh.data,
-					);
-	} catch {
-		void folder.refresh();
-		return changedAttempt();
-	}
-	if (text !== folder.file(path)?.data) {
-		void folder.refresh();
-		return changedAttempt();
-	}
-	return null;
+	const named = (note: { id: string }) => note.id === id;
+	const stored =
+		listed.data.items.find(named) ?? listed.data.invalid.find(named);
+	const shown =
+		device.files.attempts.get({ id }) ??
+		device.files.attempts.invalid.find(named);
+	return stored?.version === shown?.version ? null : changedAttempt();
 }
 
 type SendInput = {
@@ -117,34 +113,30 @@ type SendInput = {
 
 /** Persist an isolated attempt before contacting Beeper. An uncertain attempt is never replayed automatically. */
 export async function sendDraft(
-	folder: MessagesFolder,
+	device: Device,
 	{ id, chatId, backend, text, previousAttemptId, unchanged }: SendInput,
 ): Promise<Result<string, Failure>> {
-	return withDraft(folder, id, async (): Promise<Result<string, Failure>> => {
-		const path = `attempts/${id}.md`;
-		const mismatch = await storageAgrees(folder, path);
+	return withDraft(device, id, async (): Promise<Result<string, Failure>> => {
+		const { files } = device;
+		const mismatch = await storageAgrees(device, id);
 		if (mismatch) return mismatch;
-		const attempt = folder.tables.attempts.row(id);
-		if (attempt !== undefined) {
-			if (attempt.issues !== null || !matches(attempt.fields, backend, chatId))
-				return DraftError.Refused({
-					message:
-						'The send attempt needs Markdown repair before sending again.',
-				});
-			if (attempt.fields.state === 'sending') return unresolved();
-		}
-		if (attempt?.fields?.attemptId !== previousAttemptId)
-			return changedAttempt();
-		const draft = folder.tables.drafts.row(id);
-		if (draft !== undefined && draft.issues !== null)
+		const named = (note: { id: string }) => note.id === id;
+		const attempt = files.attempts.get({ id });
+		if (
+			files.attempts.invalid.some(named) ||
+			(attempt !== undefined && !matches(attempt, backend, chatId))
+		)
+			return DraftError.Refused({
+				message: 'The send attempt needs Markdown repair before sending again.',
+			});
+		if (attempt?.state === 'sending') return unresolved();
+		if (attempt?.attemptId !== previousAttemptId) return changedAttempt();
+		if (files.drafts.invalid.some(named))
 			return DraftError.Refused({
 				message: 'This draft needs Markdown repair before sending.',
 			});
-		if (
-			draft !== undefined &&
-			draft.issues === null &&
-			!matches(draft.fields, backend, chatId)
-		)
+		const draft = files.drafts.get({ id });
+		if (draft !== undefined && !matches(draft, backend, chatId))
 			return DraftError.Refused({
 				message:
 					'This draft does not match the conversation or connection. Check its Markdown file.',
@@ -162,18 +154,19 @@ export async function sendDraft(
 			pendingId: '',
 		};
 		const recorded = await (attempt
-			? folder.tables.attempts.update(id, { fields, body: text })
-			: folder.tables.attempts.create(id, { fields, body: text }));
+			? files.attempts.update({ id }, { ...fields, body: text })
+			: files.attempts.create({ id, ...fields, body: text }));
 		if (recorded.error !== null)
 			return DraftError.Refused({
 				message: 'Nothing was sent: the attempt could not be saved.',
 			});
-		if (unchanged()) {
-			const cleared = await folder.tables.drafts.update(id, { body: '' });
+		if (draft !== undefined && unchanged()) {
+			const cleared = await files.drafts.update({ id }, { body: '' });
 			if (cleared.error !== null) {
-				const acknowledged = await folder.tables.attempts.update(id, {
-					fields: { state: 'acknowledged' },
-				});
+				const acknowledged = await files.attempts.update(
+					{ id },
+					{ state: 'acknowledged' },
+				);
 				return DraftError.Refused({
 					message:
 						acknowledged.error === null
@@ -195,9 +188,10 @@ export async function sendDraft(
 						? answer.message
 						: 'Beeper did not confirm the send. Check Beeper before trying again.',
 			});
-		const receipt = await folder.tables.attempts.update(id, {
-			fields: { state: 'accepted', pendingId: answer.pendingId },
-		});
+		const receipt = await files.attempts.update(
+			{ id },
+			{ state: 'accepted', pendingId: answer.pendingId },
+		);
 		if (receipt.error !== null)
 			return DraftError.Refused({
 				message:
@@ -218,36 +212,42 @@ type RecoverInput = {
 
 /** A checked outcome is serialized with sends and bound to the displayed attempt ID. */
 export async function recoverDraft(
-	folder: MessagesFolder,
+	device: Device,
 	{ id, chatId, backend, checkedAttemptId, keep, composerEmpty }: RecoverInput,
 ): Promise<Result<void, Failure>> {
-	return withDraft(folder, id, async (): Promise<Result<void, Failure>> => {
-		const mismatch = await storageAgrees(folder, `attempts/${id}.md`);
+	return withDraft(device, id, async (): Promise<Result<void, Failure>> => {
+		const { files } = device;
+		const mismatch = await storageAgrees(device, id);
 		if (mismatch) return mismatch;
-		const attempt = folder.tables.attempts.row(id);
-		if (attempt === undefined) return Ok(undefined);
-		if (attempt.issues !== null || !matches(attempt.fields, backend, chatId))
+		const named = (note: { id: string }) => note.id === id;
+		const attempt = files.attempts.get({ id });
+		if (
+			files.attempts.invalid.some(named) ||
+			(attempt !== undefined && !matches(attempt, backend, chatId))
+		)
 			return DraftError.Refused({
 				message: 'The send attempt needs Markdown repair before checking it.',
 			});
-		if (attempt.fields.state !== 'sending') return Ok(undefined);
-		if (attempt.fields.attemptId !== checkedAttemptId)
+		if (attempt?.state !== 'sending') return Ok(undefined);
+		if (attempt.attemptId !== checkedAttemptId)
 			return DraftError.Refused({
 				message:
 					'The send attempt changed. Check the latest attempt before continuing.',
 			});
-		const checked = await folder.tables.attempts.update(id, {
-			fields: { state: 'acknowledged' },
-		});
+		const checked = await files.attempts.update(
+			{ id },
+			{ state: 'acknowledged' },
+		);
 		if (checked.error !== null) return checked;
-		if (!keep || !composerEmpty()) return Ok(undefined);
-		const draft = folder.tables.drafts.row(id);
-		if (draft !== undefined && draft.issues !== null) return Ok(undefined);
-		return draft
-			? folder.tables.drafts.update(id, { body: attempt.body })
-			: folder.tables.drafts.create(id, {
-					fields: fieldsFor(backend, chatId),
+		if (!keep || !composerEmpty() || files.drafts.invalid.some(named))
+			return Ok(undefined);
+		const restored = files.drafts.get({ id })
+			? await files.drafts.update({ id }, { body: attempt.body })
+			: await files.drafts.create({
+					id,
+					...fieldsFor(backend, chatId),
 					body: attempt.body,
 				});
+		return restored.error === null ? Ok(undefined) : restored;
 	});
 }
