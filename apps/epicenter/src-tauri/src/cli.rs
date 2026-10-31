@@ -1185,7 +1185,10 @@ process.exitCode = 1;
     async fn a_recorded_child_stops_at_once_with_its_group() {
         let dir = scratch("recorded");
         let script = dir.join("child.sh");
-        fs::write(&script, "#!/bin/sh\necho started\nsleep 30 &\nwait\n").unwrap();
+        // `started` prints after the background `sleep` forks, so the signal
+        // finds it in the group; signalled earlier, it would outlive the
+        // shell holding stdout open.
+        fs::write(&script, "#!/bin/sh\nsleep 30 &\necho started\nwait\n").unwrap();
         let program = Program {
             program: PathBuf::from("/bin/sh"),
             prefix: vec![script.into_os_string()],
