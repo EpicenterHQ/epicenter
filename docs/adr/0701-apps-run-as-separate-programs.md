@@ -6,7 +6,7 @@
 - **Amends:** [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) at the Apps list; [ADR-0644](0644-the-shell-assigns-a-native-windows-default-folder.md) and [ADR-0652](0652-the-folder-plugin-opens-one-window-per-app-and-directory.md) at the Epicenter host's bundled app windows; [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) at apps bundled with Epicenter; [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) at bundled and installed app roots; [ADR-0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) at the desktop window's account command.
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (apps share data through a file contract, so no app needs Epicenter to reach its data).
 - **Archive:** the annotated tag `archive/app-hosting` at `728e820cc0`, the last commit with app hosting.
-- **Removed by:** the commits listed under [Restoring app hosting](#restoring-app-hosting).
+- **Removed by:** `0320d9980b`, `e06a42c039`, and `ed2068ded8` (see [Restoring app hosting](#restoring-app-hosting)).
 
 ## Context
 
@@ -157,7 +157,15 @@ that range for the earlier source installer.
 
 ### Commits that removed it
 
-Listed when the removal lands.
+| Commit | Subject |
+| --- | --- |
+| `ff24d47a26` | docs(adr): propose that apps run as separate programs |
+| `0320d9980b` | refactor(epicenter)!: remove app hosting from the desktop shell |
+| `e06a42c039` | refactor(apps)!: drop the Epicenter host builds and their shell clients |
+| `ed2068ded8` | docs: record that Epicenter manages folders and apps run separately |
+
+To restore, revert `ed2068ded8`, `e06a42c039`, and `0320d9980b`, newest
+first.
 
 ### Steps
 
