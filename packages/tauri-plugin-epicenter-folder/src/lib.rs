@@ -75,9 +75,6 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::unsubscribe_close::<tauri::Wry>,
             commands::destroy_bound_window::<tauri::Wry>,
             commands::list_folder::<tauri::Wry>,
-            commands::read_folder_children::<tauri::Wry>,
-            commands::make_folder_directory::<tauri::Wry>,
-            commands::remove_folder_directory::<tauri::Wry>,
             epicenter::sync_with_epicenter::<tauri::Wry>,
             epicenter::synced_with_epicenter::<tauri::Wry>,
         ])

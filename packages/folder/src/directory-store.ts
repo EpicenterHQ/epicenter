@@ -240,21 +240,18 @@ export function createDirectoryStorage({
 
 	return hostStorage({
 		async list() {
-			const entries: { path: string; size: number; stamp: string }[] = [];
-			const directories: string[] = [];
+			const entries: { path: string; stamp: string }[] = [];
 			async function visit(directory: string, prefix: string) {
 				for (const entry of await files.readDir(directory)) {
 					if (prefix === '' && isOwnDirectory(entry.name)) continue;
 					const path = prefix + entry.name;
 					const at = `${directory}/${entry.name}`;
 					if (entry.kind === 'directory') {
-						directories.push(path);
 						await visit(at, `${path}/`);
 						continue;
 					}
 					const found = await files.lstat(at);
-					if (found !== undefined)
-						entries.push({ path, size: found.size, stamp: found.stamp });
+					if (found !== undefined) entries.push({ path, stamp: found.stamp });
 				}
 			}
 			try {
@@ -262,68 +259,10 @@ export function createDirectoryStorage({
 			} catch (cause) {
 				return FileError.Io({ path: '', operation: 'list', cause });
 			}
-			return Ok({ files: entries, directories });
-		},
-		async children(directory) {
-			try {
-				const found = await find(directory);
-				if (found.kind === 'link') return linkRefusal(directory);
-				if (found.kind === 'file' || found.kind === 'other')
-					return FileError.NotADirectory({ path: directory });
-				if (found.kind !== 'directory')
-					return FileError.NotFound({ path: directory });
-				const listed: string[] = [];
-				const nested: string[] = [];
-				for (const entry of await files.readDir(absolute(directory))) {
-					if (directory === '' && isOwnDirectory(entry.name)) continue;
-					(entry.kind === 'directory' ? nested : listed).push(entry.name);
-				}
-				return Ok({ files: listed, directories: nested });
-			} catch (cause) {
-				return FileError.Io({ path: directory, operation: 'list', cause });
-			}
+			return Ok(entries);
 		},
 		read: readOne,
 		change,
-		async mkdir(path) {
-			try {
-				const found = await find(path);
-				if (found.kind === 'link') return linkRefusal(path);
-				if (found.kind === 'underFile')
-					return FileError.NotADirectory({ path: found.ancestor });
-				if (found.kind === 'file' || found.kind === 'other')
-					return FileError.NotADirectory({ path });
-				if (found.kind === 'occupied')
-					return FileError.InvalidPath({
-						path,
-						reason: 'another entry occupies this name',
-					});
-				if (found.kind === 'absent') await files.mkdir(absolute(path));
-			} catch (cause) {
-				return FileError.Io({ path, operation: 'create directory', cause });
-			}
-			return Ok(undefined);
-		},
-		async rmdir(path) {
-			try {
-				const found = await find(path);
-				if (found.kind === 'link') return linkRefusal(path);
-				if (found.kind === 'file' || found.kind === 'other')
-					return FileError.NotADirectory({ path });
-				if (found.kind !== 'directory') return FileError.NotFound({ path });
-				if ((await files.readDir(absolute(path))).length > 0)
-					return FileError.DirectoryNotEmpty({ path });
-				await files.remove(absolute(path));
-			} catch (cause) {
-				if (
-					(await files.lstat(absolute(path)).catch(() => undefined)) ===
-					undefined
-				)
-					return FileError.NotFound({ path });
-				return FileError.Io({ path, operation: 'remove directory', cause });
-			}
-			return Ok(undefined);
-		},
 	});
 }
 

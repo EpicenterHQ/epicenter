@@ -74,7 +74,7 @@ export function nodeStore(
 			const listed = await files.list();
 			if (listed.error !== null)
 				return ClientError.Unavailable({ cause: listed.error });
-			return Ok(listed.data.files.map(({ path, stamp }) => ({ path, stamp })));
+			return Ok(listed.data.map(({ path, stamp }) => ({ path, stamp })));
 		},
 		async read(path) {
 			const { data: files, error } = await storage();

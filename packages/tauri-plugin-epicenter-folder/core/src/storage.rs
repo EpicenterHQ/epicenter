@@ -53,7 +53,6 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use specta::Type;
 
-use crate::page_files;
 use crate::paths::{path_problem, readable_path_problem};
 
 /// The folder's private Git directory, which no listing shows.
@@ -287,8 +286,6 @@ pub enum StorageError {
     /// A file is at the path (or at an ancestor of it), where a directory
     /// was asked for.
     NotADirectory { path: String },
-    /// The directory to remove holds something.
-    DirectoryNotEmpty { path: String },
     /// The operation failed, and changed nothing.
     Io {
         path: String,
@@ -367,32 +364,13 @@ impl Expectation {
     }
 }
 
-/// One file in a listing.
+/// One file in a listing: `ListedFile` in `boundary.ts`. Anything that is
+/// not a directory is a file here, a link or a special entry included, none
+/// of them followed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 pub struct ListedFile {
     pub path: String,
-    /// The size in bytes. Typed for the page as a plain `number`, which
-    /// holds every size below 2^53 exactly; specta refuses a `u64` as such.
-    #[specta(type = u32)]
-    pub size: u64,
     pub stamp: String,
-}
-
-/// Every entry below a folder's root, `.git` aside: `FileListing` in
-/// `boundary.ts`. Anything that is not a directory is a file here, a link
-/// or a special entry included, none of them followed.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Type)]
-pub struct FileListing {
-    pub files: Vec<ListedFile>,
-    pub directories: Vec<String>,
-}
-
-/// A directory's immediate children by name: real subdirectories in
-/// `directories`, every other entry in `files`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Type)]
-pub struct Children {
-    pub files: Vec<String>,
-    pub directories: Vec<String>,
 }
 
 fn io_error(path: &str, operation: &str, message: impl std::fmt::Display) -> StorageError {
@@ -570,10 +548,10 @@ fn spelled_by_listing(root: &Path, names: &[&str]) -> io::Result<bool> {
     Ok(true)
 }
 
-/// Every entry below `root`, `.git` and `.epicenter` at the root aside,
+/// Every file below `root`, `.git` and `.epicenter` at the root aside,
 /// without following a link. A name that is not text is left out.
-pub fn list(root: &Path) -> Result<FileListing, StorageError> {
-    fn visit(directory: &Path, prefix: &str, listing: &mut FileListing) -> io::Result<()> {
+pub fn list(root: &Path) -> Result<Vec<ListedFile>, StorageError> {
+    fn visit(directory: &Path, prefix: &str, listing: &mut Vec<ListedFile>) -> io::Result<()> {
         let entries = match fs::read_dir(directory) {
             Err(cause) if !prefix.is_empty() && cause.kind() == ErrorKind::NotFound => {
                 return Ok(())
@@ -591,14 +569,12 @@ pub fn list(root: &Path) -> Result<FileListing, StorageError> {
             let path = format!("{prefix}{name}");
             let at = entry.path();
             if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                listing.directories.push(path.clone());
                 visit(&at, &format!("{path}/"), listing)?;
                 continue;
             }
             match fs::symlink_metadata(&at) {
-                Ok(metadata) => listing.files.push(ListedFile {
+                Ok(metadata) => listing.push(ListedFile {
                     path,
-                    size: metadata.len(),
                     stamp: stamp_of(&metadata)?,
                 }),
                 Err(cause) if cause.kind() == ErrorKind::NotFound => {}
@@ -607,54 +583,9 @@ pub fn list(root: &Path) -> Result<FileListing, StorageError> {
         }
         Ok(())
     }
-    let mut listing = FileListing::default();
+    let mut listing = Vec::new();
     visit(root, "", &mut listing).map_err(|cause| io_error("", "list", cause))?;
     Ok(listing)
-}
-
-/// The immediate children of `directory`, the root for `""`.
-pub fn children(root: &Path, directory: &str) -> Result<Children, StorageError> {
-    if !directory.is_empty() {
-        admit(directory)?;
-    }
-    let listed = || -> io::Result<Result<Children, StorageError>> {
-        match find(root, directory)? {
-            Found::Link => return Ok(Err(link_refusal(directory))),
-            Found::File { .. } | Found::Other => {
-                return Ok(Err(StorageError::NotADirectory {
-                    path: directory.to_string(),
-                }))
-            }
-            Found::Directory => {}
-            _ => {
-                return Ok(Err(StorageError::NotFound {
-                    path: directory.to_string(),
-                }))
-            }
-        }
-        let at = if directory.is_empty() {
-            root.to_path_buf()
-        } else {
-            full(root, directory)
-        };
-        let mut children = Children::default();
-        for entry in fs::read_dir(at)? {
-            let entry = entry?;
-            let Ok(name) = entry.file_name().into_string() else {
-                continue;
-            };
-            if directory.is_empty() && (name == PRIVATE_DIRECTORY || name == STATE_DIRECTORY) {
-                continue;
-            }
-            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                children.directories.push(name);
-            } else {
-                children.files.push(name);
-            }
-        }
-        Ok(Ok(children))
-    };
-    listed().unwrap_or_else(|cause| Err(io_error(directory, "list", cause)))
 }
 
 /// The bytes of the regular file at `path`.
@@ -701,67 +632,6 @@ pub fn read(root: &Path, path: &str) -> Result<FileRead, StorageError> {
             }
         } else {
             io_error(path, "read", cause)
-        })
-    })
-}
-
-/// Make the directory at `path` and any missing ancestors.
-pub fn mkdir(root: &Path, path: &str) -> Result<(), StorageError> {
-    admit(path)?;
-    let made = || -> io::Result<Result<(), StorageError>> {
-        Ok(match find(root, path)? {
-            Found::Link => Err(link_refusal(path)),
-            Found::UnderFile { ancestor } => Err(StorageError::NotADirectory { path: ancestor }),
-            Found::File { .. } | Found::Other => Err(StorageError::NotADirectory {
-                path: path.to_string(),
-            }),
-            Found::Occupied => Err(occupied(path)),
-            Found::Absent => page_files::mkdir(root, &full(root, path))
-                .map_err(|message| io_error(path, "create directory", message)),
-            Found::Directory => Ok(()),
-        })
-    };
-    made().unwrap_or_else(|cause| Err(io_error(path, "create directory", cause)))
-}
-
-/// Remove the empty directory at `path`. An entry that appeared in it since
-/// the check is `DirectoryNotEmpty`.
-pub fn rmdir(root: &Path, path: &str) -> Result<(), StorageError> {
-    admit(path)?;
-    let target = full(root, path);
-    let removed = || -> io::Result<Result<(), StorageError>> {
-        match find(root, path)? {
-            Found::Link => return Ok(Err(link_refusal(path))),
-            Found::File { .. } | Found::Other => {
-                return Ok(Err(StorageError::NotADirectory {
-                    path: path.to_string(),
-                }))
-            }
-            Found::Directory => {}
-            _ => {
-                return Ok(Err(StorageError::NotFound {
-                    path: path.to_string(),
-                }))
-            }
-        }
-        // `remove_dir` removes only an empty directory, whatever appeared
-        // in it since the check.
-        match fs::remove_dir(&target) {
-            Err(cause) if cause.kind() == ErrorKind::DirectoryNotEmpty => {
-                Ok(Err(StorageError::DirectoryNotEmpty {
-                    path: path.to_string(),
-                }))
-            }
-            removed => removed.map(Ok),
-        }
-    };
-    removed().unwrap_or_else(|cause| {
-        Err(if absent(&target) {
-            StorageError::NotFound {
-                path: path.to_string(),
-            }
-        } else {
-            io_error(path, "remove directory", cause)
         })
     })
 }

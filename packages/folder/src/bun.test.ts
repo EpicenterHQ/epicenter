@@ -111,9 +111,7 @@ test('a save keeps its staging inside the folder, unlisted, and makes nothing be
 			scratch: scratchDirectory(root),
 		});
 		const listed = expectOk(await storage.list());
-		expect(listed.directories).toEqual(['todos']);
-		expect(listed.files.map(({ path }) => path)).toEqual(['todos/a.md']);
-		expect(expectOk(await storage.children('')).directories).toEqual(['todos']);
+		expect(listed.map(({ path }) => path)).toEqual(['todos/a.md']);
 	} finally {
 		await rm(parent, { recursive: true, force: true });
 	}

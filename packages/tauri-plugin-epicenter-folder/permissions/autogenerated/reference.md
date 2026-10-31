@@ -10,11 +10,8 @@ Open the folder the shell bound to this window, and other folders (and resolve t
 - `allow-unsubscribe-close`
 - `allow-destroy-bound-window`
 - `allow-list-folder`
-- `allow-read-folder-children`
 - `allow-read-folder-file`
 - `allow-put-folder-file`
-- `allow-make-folder-directory`
-- `allow-remove-folder-directory`
 - `allow-sync-with-epicenter`
 - `allow-synced-with-epicenter`
 
@@ -82,32 +79,6 @@ Denies the list_folder command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-make-folder-directory`
-
-</td>
-<td>
-
-Enables the make_folder_directory command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-make-folder-directory`
-
-</td>
-<td>
-
-Denies the make_folder_directory command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `epicenter-folder:allow-open-folder`
 
 </td>
@@ -160,32 +131,6 @@ Denies the put_folder_file command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-read-folder-children`
-
-</td>
-<td>
-
-Enables the read_folder_children command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-read-folder-children`
-
-</td>
-<td>
-
-Denies the read_folder_children command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `epicenter-folder:allow-read-folder-file`
 
 </td>
@@ -205,32 +150,6 @@ Enables the read_folder_file command without any pre-configured scope.
 <td>
 
 Denies the read_folder_file command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:allow-remove-folder-directory`
-
-</td>
-<td>
-
-Enables the remove_folder_directory command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-remove-folder-directory`
-
-</td>
-<td>
-
-Denies the remove_folder_directory command without any pre-configured scope.
 
 </td>
 </tr>

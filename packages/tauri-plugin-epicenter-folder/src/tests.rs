@@ -500,14 +500,6 @@ fn read_file(window: &WebviewWindow<MockRuntime>, path: &str) -> Result<Vec<u8>,
     }
 }
 
-fn children(window: &WebviewWindow<MockRuntime>, directory: &str) -> Result<Value, Value> {
-    invoke(
-        window,
-        "read_folder_children",
-        json!({ "directory": directory }),
-    )
-}
-
 /// `put_folder_file` as `tauri-files.ts` sends it: the bytes as the raw
 /// body, the rest in percent-encoded headers. `None` removes the file.
 fn put(
@@ -675,7 +667,7 @@ fn a_root_the_scope_allows_opens_and_is_reached_by_its_path() {
     let data_path = data.to_str().unwrap();
     let list = |root: Option<&str>| {
         invoke(&main, "list_folder", json!({ "root": root }))
-            .map(|listing| listing["files"][0]["path"].clone())
+            .map(|listing| listing[0]["path"].clone())
     };
     assert_eq!(
         open_root(&main, &data, false).unwrap_err(),
@@ -769,11 +761,7 @@ fn a_window_with_no_binding_is_refused_and_nothing_is_made() {
     let fixture = fixture("unbound");
     let stray = window(&fixture.app, "stray");
     assert_eq!(open(&stray).unwrap_err(), json!({ "name": "NotBound" }));
-    for (command, args) in [
-        ("list_folder", json!({})),
-        ("read_folder_children", json!({ "directory": "" })),
-        ("make_folder_directory", json!({ "path": "todos" })),
-    ] {
+    for (command, args) in [("list_folder", json!({}))] {
         let refused = invoke(&stray, command, args).unwrap_err();
         assert_eq!(refused["name"], "Io", "{command}: {refused}");
         assert!(text(&refused["message"]).contains("NotBound"), "{refused}");
@@ -886,17 +874,6 @@ fn staged(fixture: &Fixture) -> Vec<String> {
 fn changes_land_under_the_root_and_never_in_git_state() {
     let (fixture, main) = opened("changes");
 
-    invoke(
-        &main,
-        "make_folder_directory",
-        json!({ "path": "notes/sub" }),
-    )
-    .unwrap();
-    assert!(fixture.root.join("notes/sub").is_dir());
-    assert_eq!(
-        invoke(&main, "remove_folder_directory", json!({ "path": "notes" })).unwrap_err(),
-        json!({ "name": "DirectoryNotEmpty", "path": "notes" })
-    );
     put(&main, "notes/a.md", Some(b"first\n"), None).unwrap();
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("notes/a.md")).unwrap(),
@@ -906,10 +883,7 @@ fn changes_land_under_the_root_and_never_in_git_state() {
         put(&main, "notes/a.md", None, Some(&sha256(b"first\n"))).unwrap(),
         "landed"
     );
-    for path in ["notes/sub", "notes"] {
-        invoke(&main, "remove_folder_directory", json!({ "path": path })).unwrap();
-    }
-    assert!(!fixture.root.join("notes").exists());
+    assert!(!fixture.root.join("notes/a.md").exists());
     assert_eq!(staged(&fixture), Vec::<String>::new());
 
     // Git's private state and anything outside the root are refused.
@@ -1040,33 +1014,9 @@ fn storage_reaches_the_data_paths_of_the_bound_root_and_nothing_else() {
     std::fs::create_dir(fixture.root.join("empty")).unwrap();
 
     let mut listed = invoke(&main, "list_folder", json!({})).unwrap();
-    listed["directories"]
-        .as_array_mut()
-        .unwrap()
-        .sort_by_key(text);
-    assert!(listed["files"][0]["stamp"]
-        .as_str()
-        .unwrap()
-        .starts_with("v1:"));
-    listed["files"][0].as_object_mut().unwrap().remove("stamp");
-    assert_eq!(
-        listed,
-        json!({ "files": [{ "path": "todos/a.md", "size": 6 }], "directories": ["empty", "todos"] })
-    );
-    let mut top = children(&main, "").unwrap();
-    top["directories"].as_array_mut().unwrap().sort_by_key(text);
-    assert_eq!(
-        top,
-        json!({ "files": [], "directories": ["empty", "todos"] })
-    );
-    assert_eq!(
-        children(&main, "todos").unwrap(),
-        json!({ "files": ["a.md"], "directories": [] })
-    );
-    assert_eq!(
-        children(&main, "todos/a.md").unwrap_err(),
-        json!({ "name": "NotADirectory", "path": "todos/a.md" })
-    );
+    assert!(listed[0]["stamp"].as_str().unwrap().starts_with("v1:"));
+    listed[0].as_object_mut().unwrap().remove("stamp");
+    assert_eq!(listed, json!([{ "path": "todos/a.md" }]));
     // Every byte value arrives as it is, raw.
     let bytes: Vec<u8> = (0..=255).collect();
     std::fs::write(fixture.root.join("todos/all.bin"), &bytes).unwrap();
@@ -1098,7 +1048,7 @@ fn storage_reaches_the_data_paths_of_the_bound_root_and_nothing_else() {
             "{path}"
         );
         assert_eq!(
-            children(&main, &path).unwrap_err()["name"],
+            put(&main, &path, Some(b"x"), None).unwrap_err()["name"],
             "InvalidPath",
             "{path}"
         );
@@ -1129,14 +1079,13 @@ fn a_path_through_a_link_or_naming_one_is_refused() {
             link(path)
         );
     }
-    assert_eq!(children(&main, "todos").unwrap_err(), link("todos"));
     // A link is listed as a file, never followed.
-    let listed = children(&main, "").unwrap();
-    let mut files: Vec<String> = listed["files"]
+    let listed = invoke(&main, "list_folder", json!({})).unwrap();
+    let mut files: Vec<String> = listed
         .as_array()
         .unwrap()
         .iter()
-        .map(text)
+        .map(|file| text(&file["path"]))
         .collect();
     files.sort();
     assert_eq!(files, ["a.md", "todos"]);
@@ -1199,10 +1148,9 @@ fn a_folder_with_a_git_file_or_link_opens_and_saves() {
         std::fs::read_to_string(worktree.root.join(".git")).unwrap(),
         gitdir
     );
-    assert_eq!(
-        children(&main, "").unwrap(),
-        json!({ "files": [], "directories": ["todos"] })
-    );
+    let listed = invoke(&main, "list_folder", json!({})).unwrap();
+    assert_eq!(listed[0]["path"], "todos/a.md");
+    assert_eq!(listed.as_array().unwrap().len(), 1);
     assert_eq!(staged(&worktree), Vec::<String>::new());
     worktree.app.folders().shutdown();
 
@@ -1269,7 +1217,10 @@ fn opening_in_an_app_that_already_scopes_a_permission_still_reads() {
     open(&main).unwrap();
     std::fs::write(fixture.root.join("a.md"), b"read").unwrap();
     assert_eq!(read_file(&main, "a.md").unwrap(), b"read");
-    assert_eq!(children(&main, "").unwrap()["files"], json!(["a.md"]));
+    assert_eq!(
+        invoke(&main, "list_folder", json!({})).unwrap()[0]["path"],
+        "a.md"
+    );
 }
 
 #[test]

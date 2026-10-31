@@ -24,9 +24,7 @@
  * before it lands (`refuseNext`), what happens once it landed
  * (`afterChange`), and whether its reply is lost after it landed
  * (`loseReplies`, or a throw in `afterChange`): the command then rejects
- * with something other than a `StorageError`, as a lost reply does. A
- * directory removal is no data change: it can lose its reply after it
- * landed (`loseDirectoryReplies`), and nothing else. Reads of a path can
+ * with something other than a `StorageError`, as a lost reply does. Reads of a path can
  * fail (`failReads`). `packages/tauri-plugin-epicenter-folder` tests the
  * plugin's own checks.
  */
@@ -73,7 +71,6 @@ function storageError(error: FileError): StorageError {
 		case 'NotFound':
 		case 'NotAFile':
 		case 'NotADirectory':
-		case 'DirectoryNotEmpty':
 			return { name: error.name, path: error.path };
 		case 'Io':
 		case 'Unconfirmed':
@@ -133,12 +130,6 @@ export function createGrantedShell(
 		refuseNext: 0,
 		/** How many upcoming data changes land and then lose their reply. */
 		loseReplies: 0,
-		/**
-		 * How many upcoming directory removals land and then lose their reply.
-		 * A directory removal is no data change: the controls above never
-		 * reach it.
-		 */
-		loseDirectoryReplies: 0,
 		/** Folder-relative paths whose reads fail, as a disk that cannot be read. */
 		failReads: new Set<string>(),
 	};
@@ -187,7 +178,7 @@ export function createGrantedShell(
 		},
 		async remove(path, options) {
 			// A removal with no expectation is the storage's own: a staged
-			// file, a directory a put made, or `rmdir`'s directory.
+			// file, or a directory a put made.
 			if (options?.expected === undefined)
 				return nodeDirectoryPrimitives.remove(path, options);
 			await change({ kind: 'remove', path: relative(path) }, () =>
@@ -264,8 +255,6 @@ export function createGrantedShell(
 			return real;
 		},
 		list_folder: (args) => answered(storageFor(args).list()),
-		read_folder_children: (args) =>
-			answered(storageFor(args).children(args.directory as string)),
 		async read_folder_file(args) {
 			const path = args.path as string;
 			if (control.failReads.has(path))
@@ -319,18 +308,6 @@ export function createGrantedShell(
 				throw lost;
 			}
 			return outcome;
-		},
-		async make_folder_directory(args) {
-			await answered(storageFor(args).mkdir(args.path as string));
-			return null;
-		},
-		async remove_folder_directory(args) {
-			await answered(storageFor(args).rmdir(args.path as string));
-			if (control.loseDirectoryReplies > 0) {
-				control.loseDirectoryReplies -= 1;
-				throw new Error('the reply never reached the window');
-			}
-			return null;
 		},
 	};
 

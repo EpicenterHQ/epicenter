@@ -35,12 +35,7 @@ mock.module('@tauri-apps/api/core', () => ({
 			return open();
 		}
 		if (command === 'plugin:epicenter-folder|list_folder')
-			return {
-				files: [
-					{ path: 'note.txt', size: listedText.length, stamp: listedStamp },
-				],
-				directories: [],
-			};
+			return [{ path: 'note.txt', stamp: listedStamp }];
 		if (command === 'plugin:epicenter-folder|read_folder_file') {
 			const stamp = new TextEncoder().encode(listedStamp);
 			return Uint8Array.from([
@@ -72,7 +67,7 @@ afterEach(() => {
 
 test('Tauri list, read and put retain the shell stamps', async () => {
 	const files = tauriHostFiles();
-	expect(expectOk(await files.list()).files[0]?.stamp).toBe('v1:3:1:3:4');
+	expect(expectOk(await files.list())[0]?.stamp).toBe('v1:3:1:3:4');
 	const read = expectOk(await files.read('note.txt'));
 	expect(new TextDecoder().decode(read.bytes)).toBe('old');
 	expect(read.stamp).toBe('v1:3:1:3:4');

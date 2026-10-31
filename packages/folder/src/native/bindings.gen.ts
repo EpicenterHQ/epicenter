@@ -32,22 +32,10 @@ export const commands = {
 	/**  The caller can destroy only its own bound window after its writes drain. */
 	destroyBoundWindow: (token: number) => typedError<boolean, string>(__TAURI_INVOKE("plugin:epicenter-folder|destroy_bound_window", { token })),
 	/**
-	 *  Every entry below the window's root, `.git` aside, none of them followed
-	 *  (`storage::list`).
+	 *  Every file below the window's root, `.git` and `.epicenter` aside, none
+	 *  of them followed (`storage::list`).
 	 */
-	listFolder: (root: string | null) => typedError<FileListing, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root })),
-	/**
-	 *  The immediate children of a directory in the window's folder, the root
-	 *  for `""` (`storage::children`).
-	 */
-	readFolderChildren: (directory: string, root: string | null) => typedError<Children, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|read_folder_children", { directory, root })),
-	/**
-	 *  Make a directory and its missing ancestors in the window's folder
-	 *  (`storage::mkdir`).
-	 */
-	makeFolderDirectory: (path: string, root: string | null) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { path, root })),
-	/**  Remove an empty directory in the window's folder (`storage::rmdir`). */
-	removeFolderDirectory: (path: string, root: string | null) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_directory", { path, root })),
+	listFolder: (root: string | null) => typedError<ListedFile[], StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root })),
 	/**
 	 *  Ask the operating system to open Epicenter with a request to sync the
 	 *  folder at `path` under `contract`, the URL its contract is published at.
@@ -60,38 +48,18 @@ export const commands = {
 };
 
 /* Types */
-/**
- *  A directory's immediate children by name: real subdirectories in
- *  `directories`, every other entry in `files`.
- */
-export type Children = {
-	files: string[],
-	directories: string[],
-};
-
-/**
- *  Every entry below a folder's root, `.git` aside: `FileListing` in
- *  `boundary.ts`. Anything that is not a directory is a file here, a link
- *  or a special entry included, none of them followed.
- */
-export type FileListing = {
-	files: ListedFile[],
-	directories: string[],
-};
-
 /**  Paths whose stored content may differ, or any path when scope is unknown. */
 export type FolderChanged = {
 	paths: string[] | null,
 };
 
-/**  One file in a listing. */
+/**
+ *  One file in a listing: `ListedFile` in `boundary.ts`. Anything that is
+ *  not a directory is a file here, a link or a special entry included, none
+ *  of them followed.
+ */
 export type ListedFile = {
 	path: string,
-	/**
-	 *  The size in bytes. Typed for the page as a plain `number`, which
-	 *  holds every size below 2^53 exactly; specta refuses a `u64` as such.
-	 */
-	size: number,
 	stamp: string,
 };
 
@@ -122,8 +90,6 @@ export type StorageError =
  *  was asked for.
  */
 { name: "NotADirectory"; path: string } |
-/**  The directory to remove holds something. */
-{ name: "DirectoryNotEmpty"; path: string } |
 /**  The operation failed, and changed nothing. */
 { name: "Io"; path: string; operation: string; message: string };
 

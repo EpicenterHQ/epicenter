@@ -224,12 +224,9 @@ A page's folder storage (`FolderStorage` in `@epicenter/folder`'s
 
 | Method | Command | Answers |
 | --- | --- | --- |
-| `list()` | `list_folder()` | `{ files: { path, size, stamp }[], directories: string[] }` |
-| `children(directory)` | `read_folder_children(directory)` | `{ files: string[], directories: string[] }`; `""` is the root |
+| `list()` | `list_folder()` | `{ path, stamp }[]`, every file, `.git` and `.epicenter` aside |
 | `read(path)` | `read_folder_file(path)` | the stamp, a zero byte, then the file bytes, raw |
 | `put(path, bytes, expected)` | `put_folder_file`, raw body and headers | `{ kind: "landed", stamp: string \| null }` or `{ kind: "stale" }` |
-| `mkdir(path)` | `make_folder_directory(path)` | `null` |
-| `rmdir(path)` | `remove_folder_directory(path)` | `null` |
 
 A command from a window with no binding, or after shutdown, is `Io` naming
 `NotBound` or `ShuttingDown`, and changes nothing.
@@ -252,16 +249,16 @@ directory storage (`directory-store.ts`), held to one vector file both run
   `InvalidPath`; a listing reports a link as a file.
 - A name stored under another spelling, which a disk that ignores case or
   Unicode normalization would reach (`plan.md` for `Plan.md`), is another
-  entry: a read or `read_folder_children` finds nothing there (`NotFound`),
-  and a put or `make_folder_directory` is `InvalidPath`. On macOS and
+  entry: a read finds nothing there (`NotFound`), and a put is
+  `InvalidPath`. On macOS and
   Windows the stored spelling comes from resolving the path; elsewhere from
   listing each parent.
 - A file where a directory should be is `NotADirectory` naming it, and a
   directory where a file should be is `NotAFile`.
 
 A refusal or a failure is a `StorageError`, named and shaped as the page's
-`FileError`: `InvalidPath`, `NotFound`, `NotAFile`, `NotADirectory`,
-`DirectoryNotEmpty`, or `Io` with the operation and the system's message. A
+`FileError`: `InvalidPath`, `NotFound`, `NotAFile`, `NotADirectory`, or
+`Io` with the operation and the system's message. A
 failure the shell reports changed nothing. Only the page can tell that a
 reply was lost, which it reports as `Unconfirmed`.
 
@@ -294,7 +291,7 @@ expectations remain byte hashes.
 A put of bytes writes the bytes to a new file in the root's
 `.epicenter/scratch`, the directory the Bun host stages in (opened with
 `create_new`, so nothing already there is written through). `.epicenter` at
-the root is Epicenter's own: no listing or directory's children show it, the
+the root is Epicenter's own: no listing shows it, the
 watcher reports no change in it, and `epicenter init`'s `.gitignore` keeps
 it out of history. A scratch path, or an `.epicenter`, that is a link or not
 a directory refuses the put as `Io`, and nothing changes. On Unix the scratch directory is `0700` before

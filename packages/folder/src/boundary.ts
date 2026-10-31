@@ -57,33 +57,20 @@ export type PutOutcome =
 	| { readonly kind: 'landed'; readonly stamp: string | null }
 	| { readonly kind: 'stale' };
 
-export type FileListing = {
-	/**
-	 * Every entry that is not a directory, including files outside portable
-	 * scope, symbolic links, and special entries, none of them followed. A
-	 * read refuses what is not a regular file.
-	 */
-	readonly files: readonly {
-		readonly path: string;
-		readonly size: number;
-		readonly stamp: string;
-	}[];
-	/** Every directory, including empty ones kept for the shell. */
-	readonly directories: readonly string[];
+/**
+ * One entry of a listing: anything that is not a directory, including files
+ * outside portable scope, symbolic links, and special entries, none of them
+ * followed. A read refuses what is not a regular file.
+ */
+export type ListedFile = {
+	readonly path: string;
+	readonly stamp: string;
 };
 
 /** A folder's files, as each host stores them. */
 export type FolderStorage = {
-	/** Every entry below the folder, `.git` aside. */
-	list(): Promise<Result<FileListing, FileError>>;
-	/**
-	 * Immediate children of a directory by name: real subdirectories in
-	 * `directories`, every other entry in `files`, including a symbolic link or
-	 * special entry that a read refuses. Nothing present is left out.
-	 */
-	children(
-		directory: string,
-	): Promise<Result<{ files: string[]; directories: string[] }, FileError>>;
+	/** Every file below the folder, `.git` and `.epicenter` aside. */
+	list(): Promise<Result<readonly ListedFile[], FileError>>;
 	read(path: string): Promise<Result<FileRead, FileError>>;
 	/**
 	 * Publish `bytes` at `path`, or remove its file for `null`, only while
@@ -98,9 +85,6 @@ export type FolderStorage = {
 		bytes: Uint8Array | null,
 		expected: Expectation,
 	): Promise<Result<PutOutcome, FileError>>;
-	mkdir(path: string): Promise<Result<undefined, FileError>>;
-	/** Remove the empty directory at `path`. */
-	rmdir(path: string): Promise<Result<undefined, FileError>>;
 };
 
 /**
@@ -108,15 +92,12 @@ export type FolderStorage = {
  * (`hostStorage`) calls writes with a path `pathProblem` accepts, or with an
  * existing nonportable name that `writableExistingPath` admits and an
  * expectation that a file is there (never `'absent'` or, for bytes, `'any'`),
- * and reads with a structurally safe path. `children` also accepts the root
- * (`''`). Calls carry bytes no caller still holds. `change` is `put`'s
+ * and reads with a structurally safe path. Calls carry bytes no caller
+ * still holds. `change` is `put`'s
  * change; a listing may come in any order. A host still checks its own path
  * rule: the desktop shell does not trust the page's.
  */
-export type HostFiles = Pick<
-	FolderStorage,
-	'list' | 'children' | 'read' | 'mkdir' | 'rmdir'
-> & {
+export type HostFiles = Pick<FolderStorage, 'list' | 'read'> & {
 	change: FolderStorage['put'];
 };
 
@@ -199,20 +180,7 @@ export function hostStorage(
 		async list() {
 			const { data: listed, error } = await files.list();
 			if (error !== null) return Err(error);
-			return Ok({
-				files: [...listed.files].sort(byPath),
-				directories: [...listed.directories].sort(),
-			});
-		},
-		async children(directory) {
-			const refused = directory === '' ? undefined : refusal(directory);
-			if (refused) return refused;
-			const { data: found, error } = await files.children(directory);
-			if (error !== null) return Err(error);
-			return Ok({
-				files: [...found.files].sort(),
-				directories: [...found.directories].sort(),
-			});
+			return Ok([...listed].sort(byPath));
 		},
 		async read(path) {
 			return readablePath(path)
@@ -245,20 +213,6 @@ export function hostStorage(
 				return refused;
 			if (mayHaveChanged(result)) relay([path]);
 			return result;
-		},
-		async mkdir(path) {
-			const refused = refusal(path);
-			if (refused) return refused;
-			const made = await files.mkdir(path);
-			if (made.error === null) relay([path]);
-			return made;
-		},
-		async rmdir(path) {
-			const refused = refusal(path);
-			if (refused) return refused;
-			const removed = await files.rmdir(path);
-			if (removed.error === null) relay([path]);
-			return removed;
 		},
 	};
 }

@@ -61,7 +61,7 @@ export function tauriStore({
 			if (listed.error !== null)
 				return ClientError.Unavailable({ cause: listed.error });
 			return Ok(
-				listed.data.files
+				listed.data
 					.filter(({ path }) => path.startsWith(prefix))
 					.map(({ path, stamp }) => ({
 						path: path.slice(prefix.length),

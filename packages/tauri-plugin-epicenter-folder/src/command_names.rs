@@ -7,11 +7,8 @@ pub const COMMANDS: &[&str] = &[
     "unsubscribe_close",
     "destroy_bound_window",
     "list_folder",
-    "read_folder_children",
     "read_folder_file",
     "put_folder_file",
-    "make_folder_directory",
-    "remove_folder_directory",
     "sync_with_epicenter",
     "synced_with_epicenter",
 ];

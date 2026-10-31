@@ -23,7 +23,7 @@ export async function readDirectoryDocuments(directory: string) {
 	const files: SavedFile[] = [];
 	for (const path of new Set([
 		'epicenter.json',
-		...listed.data.files.map(({ path }) => path),
+		...listed.data.map(({ path }) => path),
 	])) {
 		if (!readablePath(path)) continue;
 		if (path !== 'epicenter.json' && !path.endsWith('.md')) continue;

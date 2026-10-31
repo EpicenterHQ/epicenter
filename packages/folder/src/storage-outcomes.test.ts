@@ -35,7 +35,7 @@ type Case = {
 		readonly links?: Record<string, string>;
 	};
 	readonly call: {
-		readonly method: 'read' | 'put' | 'mkdir' | 'rmdir' | 'children' | 'list';
+		readonly method: 'read' | 'put' | 'list';
 		readonly path?: string;
 		readonly bytes?: string | null;
 		readonly expected?:
@@ -131,34 +131,10 @@ test.each(vectors.cases.map((vector) => [vector.name, vector] as const))(
 						);
 						return put.error === null ? { data: put.data.kind } : put;
 					}
-					case 'mkdir':
-						return storage
-							.mkdir(path)
-							.then((made) =>
-								made.error === null ? { data: null } : { error: made.error },
-							);
-					case 'rmdir':
-						return storage
-							.rmdir(path)
-							.then((removed) =>
-								removed.error === null
-									? { data: null }
-									: { error: removed.error },
-							);
-					case 'children':
-						return storage.children(path);
 					case 'list': {
 						const listed = await storage.list();
 						return listed.error === null
-							? {
-									data: {
-										files: listed.data.files.map(({ path, size }) => ({
-											path,
-											size,
-										})),
-										directories: listed.data.directories,
-									},
-								}
+							? { data: listed.data.map(({ path }) => ({ path })) }
 							: listed;
 					}
 				}

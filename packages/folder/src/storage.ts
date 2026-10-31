@@ -48,11 +48,7 @@ export function storageHost(
 		async list() {
 			const { data, error } = await storage.list();
 			if (error !== null) return ReadError.StorageFailed({ cause: error });
-			return Ok(
-				new Map(
-					data.files.map(({ path, stamp }) => [path, { stamp }]),
-				),
-			);
+			return Ok(new Map(data.map(({ path, stamp }) => [path, { stamp }])));
 		},
 		async read(paths) {
 			const results = new Map<string, Result<Fetched, ReadError>>();

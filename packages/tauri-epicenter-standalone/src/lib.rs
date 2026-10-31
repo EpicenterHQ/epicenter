@@ -343,7 +343,7 @@ mod tests {
     /// The files a page lists at `root`, or the plugin's refusal.
     fn list(window: &WebviewWindow<MockRuntime>, root: &Path) -> Result<Vec<String>, Value> {
         call(window, "list_folder", json!({ "root": root })).map(|listing| {
-            listing["files"]
+            listing
                 .as_array()
                 .unwrap()
                 .iter()

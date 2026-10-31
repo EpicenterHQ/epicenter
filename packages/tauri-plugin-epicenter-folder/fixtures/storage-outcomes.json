@@ -97,19 +97,6 @@
 			"after": { "files": { "Todos/A.md": "theirs" } }
 		},
 		{
-			"name": "a directory under a case-variant name is InvalidPath",
-			"requires": "caseInsensitive",
-			"tree": { "directories": ["Todos"] },
-			"call": { "method": "mkdir", "path": "todos" },
-			"expect": {
-				"error": {
-					"name": "InvalidPath",
-					"path": "todos",
-					"reason": "another entry occupies this name"
-				}
-			}
-		},
-		{
 			"name": "a read through a link is InvalidPath",
 			"requires": "links",
 			"tree": { "links": { "todos": "../outside" } },
@@ -172,19 +159,6 @@
 				}
 			},
 			"after": { "files": { "../outside/secret.md": "secret" } }
-		},
-		{
-			"name": "the children of a link are InvalidPath",
-			"requires": "links",
-			"tree": { "links": { "todos": "../outside" } },
-			"call": { "method": "children", "path": "todos" },
-			"expect": {
-				"error": {
-					"name": "InvalidPath",
-					"path": "todos",
-					"reason": "the path passes through a symbolic link"
-				}
-			}
 		},
 		{
 			"name": "a put onto a directory is NotAFile",
@@ -591,83 +565,13 @@
 			"after": { "files": { "todos/HEAD": "ref" } }
 		},
 		{
-			"name": "a directory is made with its ancestors",
-			"tree": {},
-			"call": { "method": "mkdir", "path": "a/b/c" },
-			"expect": { "value": null }
-		},
-		{
-			"name": "a directory below a file is NotADirectory, naming the file",
-			"tree": { "files": { "a.md": "a" } },
-			"call": { "method": "mkdir", "path": "a.md/b" },
-			"expect": { "error": { "name": "NotADirectory", "path": "a.md" } }
-		},
-		{
-			"name": "a directory where a file is is NotADirectory",
-			"tree": { "files": { "a.md": "a" } },
-			"call": { "method": "mkdir", "path": "a.md" },
-			"expect": { "error": { "name": "NotADirectory", "path": "a.md" } }
-		},
-		{
-			"name": "an empty directory is removed",
-			"tree": { "directories": ["empty"] },
-			"call": { "method": "rmdir", "path": "empty" },
-			"expect": { "value": null },
-			"after": { "absent": ["empty"] }
-		},
-		{
-			"name": "a directory that holds something is DirectoryNotEmpty",
-			"tree": { "files": { "todos/a.md": "a" } },
-			"call": { "method": "rmdir", "path": "todos" },
-			"expect": { "error": { "name": "DirectoryNotEmpty", "path": "todos" } },
-			"after": { "files": { "todos/a.md": "a" } }
-		},
-		{
-			"name": "removing a file as a directory is NotADirectory",
-			"tree": { "files": { "a.md": "a" } },
-			"call": { "method": "rmdir", "path": "a.md" },
-			"expect": { "error": { "name": "NotADirectory", "path": "a.md" } }
-		},
-		{
-			"name": "removing a missing directory is NotFound",
-			"tree": {},
-			"call": { "method": "rmdir", "path": "gone" },
-			"expect": { "error": { "name": "NotFound", "path": "gone" } }
-		},
-		{
-			"name": "the root's children leave out .git",
-			"tree": {
-				"files": { ".git/HEAD": "ref", "a.md": "a" },
-				"directories": ["todos"]
-			},
-			"call": { "method": "children", "path": "" },
-			"expect": { "value": { "files": ["a.md"], "directories": ["todos"] } }
-		},
-		{
-			"name": "the children of a file are NotADirectory",
-			"tree": { "files": { "a.md": "a" } },
-			"call": { "method": "children", "path": "a.md" },
-			"expect": { "error": { "name": "NotADirectory", "path": "a.md" } }
-		},
-		{
-			"name": "the children of nothing are NotFound",
-			"tree": {},
-			"call": { "method": "children", "path": "todos" },
-			"expect": { "error": { "name": "NotFound", "path": "todos" } }
-		},
-		{
-			"name": "a listing leaves out .git and sizes each file",
+			"name": "a listing leaves out .git and lists each file",
 			"tree": {
 				"files": { ".git/HEAD": "ref", "todos/a.md": "first" },
 				"directories": ["empty"]
 			},
 			"call": { "method": "list" },
-			"expect": {
-				"value": {
-					"files": [{ "path": "todos/a.md", "size": 5 }],
-					"directories": ["empty", "todos"]
-				}
-			}
+			"expect": { "value": [{ "path": "todos/a.md" }] }
 		}
 	]
 }

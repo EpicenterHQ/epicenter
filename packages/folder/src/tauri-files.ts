@@ -16,8 +16,8 @@
  * request fails, so a rejection is almost always one the command never ran
  * for: a permission it lacks, an unknown command, arguments it could not
  * read. That cannot be shown from here, and the path's state now is no
- * receipt for the call, so a rejected change (a put, a removal, `mkdir`,
- * `rmdir`) is `Unconfirmed`. A rejected read or listing is `Io`.
+ * receipt for the call, so a rejected change (a put or a removal) is
+ * `Unconfirmed`. A rejected read or listing is `Io`.
  *
  * A call sent again after it landed answers what the second run found: a
  * put whose first run landed answers `stale`, since the path no longer holds
@@ -28,7 +28,7 @@
  * `present`, or the SHA-256 the file there must have.
  */
 import { invoke } from '@tauri-apps/api/core';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import type { HostFiles } from './boundary.js';
 import { FileError } from './errors.js';
 import { hashBytes } from './hash.js';
@@ -43,7 +43,6 @@ const ANSWERS = new Set<string>([
 	'NotFound',
 	'NotAFile',
 	'NotADirectory',
-	'DirectoryNotEmpty',
 	'Io',
 ] satisfies StorageError['name'][]);
 
@@ -69,8 +68,6 @@ function fileError(error: StorageError) {
 			return FileError.NotAFile({ path: error.path });
 		case 'NotADirectory':
 			return FileError.NotADirectory({ path: error.path });
-		case 'DirectoryNotEmpty':
-			return FileError.DirectoryNotEmpty({ path: error.path });
 		case 'Io':
 			return FileError.Io({
 				path: error.path,
@@ -81,46 +78,24 @@ function fileError(error: StorageError) {
 }
 
 /**
- * A generated command's value, or its refusal: the shell's answer, or text
- * Tauri sends when the command could not run. Any rejection but the shell's
- * answer is `Io` for a read, and `Unconfirmed` for a change.
- */
-async function answered<T>(
-	call: () => Promise<
-		{ data: T; error: null } | { data: null; error: StorageError }
-	>,
-	path: string,
-	operation: string,
-	changes = false,
-): Promise<Result<T, FileError>> {
-	const unanswered = (cause: unknown) =>
-		changes
-			? FileError.Unconfirmed({ path, operation, cause })
-			: FileError.Io({ path, operation, cause });
-	try {
-		const { data, error } = await call();
-		if (error === null) return Ok(data);
-		if (isAnswer(error)) return fileError(error);
-		return unanswered(error);
-	} catch (cause) {
-		return unanswered(cause);
-	}
-}
-
-/**
  * The folder plugin's storage commands for this window's folder, or for the
  * root at the absolute path `root` that the shell granted the window.
  */
 export function tauriHostFiles(root?: string): HostFiles {
 	const named = root ?? null;
 	return {
-		list: () => answered(() => commands.listFolder(named), '', 'list'),
-		children: (directory) =>
-			answered(
-				() => commands.readFolderChildren(directory, named),
-				directory,
-				'list',
-			),
+		async list() {
+			let listed: Awaited<ReturnType<typeof commands.listFolder>>;
+			try {
+				listed = await commands.listFolder(named);
+			} catch (cause) {
+				return FileError.Io({ path: '', operation: 'list', cause });
+			}
+			if (listed.error === null) return Ok(listed.data);
+			// Tauri rejects with text when the command could not run at all.
+			if (isAnswer(listed.error)) return fileError(listed.error);
+			return FileError.Io({ path: '', operation: 'list', cause: listed.error });
+		},
 		async read(path) {
 			let bytes: Uint8Array;
 			let stamp: string;
@@ -171,19 +146,5 @@ export function tauriHostFiles(root?: string): HostFiles {
 				});
 			}
 		},
-		mkdir: (path) =>
-			answered(
-				() => commands.makeFolderDirectory(path, named),
-				path,
-				'create directory',
-				true,
-			).then((made) => (made.error === null ? Ok(undefined) : made)),
-		rmdir: (path) =>
-			answered(
-				() => commands.removeFolderDirectory(path, named),
-				path,
-				'remove directory',
-				true,
-			).then((removed) => (removed.error === null ? Ok(undefined) : removed)),
 	};
 }

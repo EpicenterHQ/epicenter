@@ -13,11 +13,8 @@ permissions = [
   "allow-unsubscribe-close",
   "allow-destroy-bound-window",
   "allow-list-folder",
-  "allow-read-folder-children",
   "allow-read-folder-file",
   "allow-put-folder-file",
-  "allow-make-folder-directory",
-  "allow-remove-folder-directory",
   "allow-sync-with-epicenter",
   "allow-synced-with-epicenter",
 ]

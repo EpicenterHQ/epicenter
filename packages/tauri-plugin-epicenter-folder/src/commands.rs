@@ -15,7 +15,7 @@
 
 use epicenter_folder_core::library::resolved;
 use epicenter_folder_core::root::{prepare_directory, PrepareError};
-use epicenter_folder_core::storage::{self, Children, FileListing, PutOutcome, StorageError};
+use epicenter_folder_core::storage::{self, ListedFile, PutOutcome, StorageError};
 use tauri::ipc::Channel;
 use tauri::{Manager, Runtime, Webview, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -234,36 +234,18 @@ fn bound<R: Runtime>(
         .map_err(|refusal| failed(path, operation, format!("{refusal:?}")))
 }
 
-/// Every entry below the window's root, `.git` aside, none of them followed
-/// (`storage::list`).
+/// Every file below the window's root, `.git` and `.epicenter` aside, none
+/// of them followed (`storage::list`).
 #[tauri::command]
 #[specta::specta]
 pub async fn list_folder<R: Runtime>(
     webview: Webview<R>,
     root: Option<String>,
-) -> Result<FileListing, StorageError> {
+) -> Result<Vec<ListedFile>, StorageError> {
     let directory = bound(&webview, root.as_deref(), "", "list")?;
     blocking(
         move || storage::list(directory.root()),
         |message| Err(failed("", "list", message)),
-    )
-    .await
-}
-
-/// The immediate children of a directory in the window's folder, the root
-/// for `""` (`storage::children`).
-#[tauri::command]
-#[specta::specta]
-pub async fn read_folder_children<R: Runtime>(
-    webview: Webview<R>,
-    directory: String,
-    root: Option<String>,
-) -> Result<Children, StorageError> {
-    let folder = bound(&webview, root.as_deref(), &directory, "list")?;
-    let at = directory.clone();
-    blocking(
-        move || storage::children(folder.root(), &directory),
-        |message| Err(failed(&at, "list", message)),
     )
     .await
 }
@@ -355,41 +337,6 @@ pub async fn put_folder_file<R: Runtime>(
     blocking(
         move || storage::put(directory.root(), &path, bytes.as_deref(), &expected),
         |message| Err(failed(&at, operation, message)),
-    )
-    .await
-}
-
-/// Make a directory and its missing ancestors in the window's folder
-/// (`storage::mkdir`).
-#[tauri::command]
-#[specta::specta]
-pub async fn make_folder_directory<R: Runtime>(
-    webview: Webview<R>,
-    path: String,
-    root: Option<String>,
-) -> Result<(), StorageError> {
-    let directory = bound(&webview, root.as_deref(), &path, "create directory")?;
-    let at = path.clone();
-    blocking(
-        move || storage::mkdir(directory.root(), &path),
-        |message| Err(failed(&at, "create directory", message)),
-    )
-    .await
-}
-
-/// Remove an empty directory in the window's folder (`storage::rmdir`).
-#[tauri::command]
-#[specta::specta]
-pub async fn remove_folder_directory<R: Runtime>(
-    webview: Webview<R>,
-    path: String,
-    root: Option<String>,
-) -> Result<(), StorageError> {
-    let directory = bound(&webview, root.as_deref(), &path, "remove directory")?;
-    let at = path.clone();
-    blocking(
-        move || storage::rmdir(directory.root(), &path),
-        |message| Err(failed(&at, "remove directory", message)),
     )
     .await
 }

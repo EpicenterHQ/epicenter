@@ -1,8 +1,8 @@
 //! A page's storage over a real directory.
 //!
 //! Key behaviors:
-//! - A listing and a directory's children leave out `.git` and `.epicenter`
-//!   at the root and follow no link; a link is a file to them.
+//! - A listing leaves out `.git` and `.epicenter` at the root and follows no
+//!   link; a link is a file to it.
 //! - A path through a link, or naming one, is refused as `InvalidPath`; a
 //!   name stored under another spelling is absent to a read and refused to
 //!   a change, on a disk that ignores case or normalization.
@@ -53,7 +53,7 @@ fn b(bytes: &[u8]) -> Option<&[u8]> {
 #[test]
 fn list_read_and_put_report_the_observed_file_stamp() {
     let (_temp, root) = folder("storage-stamp", &[("note.txt", b"old")]);
-    let initial = list(&root).unwrap().files[0].stamp.clone();
+    let initial = list(&root).unwrap()[0].stamp.clone();
     assert_eq!(read(&root, "note.txt").unwrap().stamp, initial);
 
     let landed = super::put(&root, "note.txt", Some(b"new"), &Expectation::Any).unwrap();
@@ -64,7 +64,7 @@ fn list_read_and_put_report_the_observed_file_stamp() {
         panic!("the put did not report its published file");
     };
     assert_ne!(published, initial);
-    assert_eq!(list(&root).unwrap().files[0].stamp, published);
+    assert_eq!(list(&root).unwrap()[0].stamp, published);
     assert_eq!(read(&root, "note.txt").unwrap().stamp, published);
 
     let removed = super::put(&root, "note.txt", None, &Expectation::Any).unwrap();
@@ -135,62 +135,17 @@ fn a_listing_leaves_out_git_and_epicenter_at_the_root_and_follows_no_link() {
     #[cfg(unix)]
     std::os::unix::fs::symlink(root.join("todos"), root.join("linked")).unwrap();
     let mut listing = list(&root).unwrap();
-    listing.files.sort_by(|a, b| a.path.cmp(&b.path));
-    listing.directories.sort();
-    let mut files: Vec<(&str, u64)> = vec![("kv.json", 2), ("todos/a.md", 6)];
+    listing.sort_by(|a, b| a.path.cmp(&b.path));
+    let mut files = vec!["kv.json", "todos/a.md"];
     #[cfg(unix)]
-    {
-        let size = fs::symlink_metadata(root.join("linked")).unwrap().len();
-        files.insert(1, ("linked", size));
-    }
+    files.insert(1, "linked");
     assert_eq!(
         listing
-            .files
             .iter()
-            .map(|file| (file.path.as_str(), file.size))
+            .map(|file| file.path.as_str())
             .collect::<Vec<_>>(),
         files
     );
-    assert_eq!(listing.directories, ["empty", "todos"]);
-    let mut children = children(&root, "").unwrap();
-    children.directories.sort();
-    assert_eq!(children.directories, ["empty", "todos"]);
-    assert!(!children
-        .files
-        .iter()
-        .any(|name| name.starts_with(".epicenter")));
-}
-
-#[test]
-fn children_are_named_by_kind_and_refused_where_no_directory_is() {
-    let (_temp, root) = folder(
-        "storage-children",
-        &[
-            ("todos/a.md", b"a"),
-            ("todos/sub/b.md", b"b"),
-            (".git/HEAD", b"x"),
-        ],
-    );
-    let top = children(&root, "").unwrap();
-    assert_eq!(top.directories, ["todos"]);
-    assert!(top.files.is_empty());
-    let mut todos = children(&root, "todos").unwrap();
-    todos.files.sort();
-    assert_eq!(todos.files, ["a.md"]);
-    assert_eq!(todos.directories, ["sub"]);
-    assert_eq!(
-        children(&root, "todos/a.md"),
-        Err(StorageError::NotADirectory {
-            path: "todos/a.md".into()
-        })
-    );
-    assert_eq!(
-        children(&root, "notes"),
-        Err(StorageError::NotFound {
-            path: "notes".into()
-        })
-    );
-    assert!(children(&root, ".git").is_err_and(|error| invalid(".git")(&error)));
 }
 
 #[test]
@@ -290,9 +245,6 @@ fn a_link_is_never_followed_and_a_path_through_one_is_refused() {
             "{path}"
         );
     }
-    assert!(children(&root, "todos").is_err_and(|error| invalid("todos")(&error)));
-    assert!(mkdir(&root, "todos/sub").is_err_and(|error| invalid("todos/sub")(&error)));
-    assert!(rmdir(&root, "todos").is_err_and(|error| invalid("todos")(&error)));
     assert_eq!(fs::read(elsewhere.join("secret.md")).unwrap(), b"theirs");
     assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 1);
 }
@@ -314,19 +266,6 @@ fn a_name_stored_under_another_spelling_is_another_entry() {
         assert!(put(&root, path, None, Some(&sha256(b"theirs")))
             .is_err_and(|error| invalid(path)(&error)));
     }
-    assert_eq!(
-        children(&root, "todos"),
-        Err(StorageError::NotFound {
-            path: "todos".into()
-        })
-    );
-    assert!(mkdir(&root, "todos").is_err_and(|error| invalid("todos")(&error)));
-    assert_eq!(
-        rmdir(&root, "todos"),
-        Err(StorageError::NotFound {
-            path: "todos".into()
-        })
-    );
     assert_eq!(read(&root, "Todos/A.md").unwrap().bytes, b"theirs");
     assert!(staged(&root).is_empty());
     // Both ways of finding the stored spelling agree.
@@ -482,7 +421,6 @@ fn a_folder_with_no_git_saves_and_stages_inside_the_root() {
     assert_eq!(names(temp.path()), ["notes"]);
     assert!(scratch(&root).is_dir());
     assert!(staged(&root).is_empty());
-    assert_eq!(list(&root).unwrap().directories, ["todos"]);
 }
 
 /// A `.git` file (a linked worktree or submodule) and a `.git` link are left
@@ -739,48 +677,6 @@ fn the_hash_is_the_one_the_page_computes() {
 }
 
 #[test]
-fn a_directory_is_made_with_its_ancestors_and_removed_only_when_empty() {
-    let (_temp, root) = folder("storage-directories", &[("a.md", b"a")]);
-    mkdir(&root, "todos/sub").unwrap();
-    assert!(root.join("todos/sub").is_dir());
-    mkdir(&root, "todos").unwrap();
-    assert_eq!(
-        mkdir(&root, "a.md"),
-        Err(StorageError::NotADirectory {
-            path: "a.md".into()
-        })
-    );
-    assert_eq!(
-        mkdir(&root, "a.md/sub"),
-        Err(StorageError::NotADirectory {
-            path: "a.md".into()
-        })
-    );
-    assert!(mkdir(&root, ".git/hooks").is_err_and(|error| invalid(".git/hooks")(&error)));
-    assert_eq!(
-        rmdir(&root, "todos"),
-        Err(StorageError::DirectoryNotEmpty {
-            path: "todos".into()
-        })
-    );
-    assert_eq!(
-        rmdir(&root, "a.md"),
-        Err(StorageError::NotADirectory {
-            path: "a.md".into()
-        })
-    );
-    assert_eq!(
-        rmdir(&root, "gone"),
-        Err(StorageError::NotFound {
-            path: "gone".into()
-        })
-    );
-    rmdir(&root, "todos/sub").unwrap();
-    rmdir(&root, "todos").unwrap();
-    assert!(!root.join("todos").exists());
-}
-
-#[test]
 fn staged_names_age_as_the_page_reads_them() {
     let engine = "0123456789abcdef0123456789abcdef";
     let hour = 60 * 60 * 1000;
@@ -1009,23 +905,12 @@ fn storage_follows_the_shared_outcomes() {
                     },
                 )
             }
-            "mkdir" => mkdir(&root, path).map(|()| Value::Null),
-            "rmdir" => rmdir(&root, path).map(|()| Value::Null),
-            "children" => children(&root, path).map(|mut found| {
-                found.files.sort();
-                found.directories.sort();
-                json!(found)
-            }),
             "list" => list(&root).map(|mut listing| {
-                listing.files.sort_by(|a, b| a.path.cmp(&b.path));
-                listing.directories.sort();
-                json!({
-                    "files": listing.files.iter().map(|file| json!({
-                        "path": file.path,
-                        "size": file.size,
-                    })).collect::<Vec<_>>(),
-                    "directories": listing.directories,
-                })
+                listing.sort_by(|a, b| a.path.cmp(&b.path));
+                json!(listing
+                    .iter()
+                    .map(|file| json!({ "path": file.path }))
+                    .collect::<Vec<_>>())
             }),
             other => panic!("{name}: no method {other}"),
         };
@@ -1088,11 +973,7 @@ fn listing_tolerates_subdirectories_removed_during_its_walk_but_not_a_missing_ro
     stopped.store(true, Ordering::Relaxed);
     worker.join().unwrap();
     for result in results {
-        assert!(result
-            .unwrap()
-            .files
-            .iter()
-            .any(|file| file.path == "keep.md"));
+        assert!(result.unwrap().iter().any(|file| file.path == "keep.md"));
     }
     fs::remove_dir_all(&root).unwrap();
     assert!(list(&root).is_err());

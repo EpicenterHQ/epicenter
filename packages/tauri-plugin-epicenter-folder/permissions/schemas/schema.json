@@ -319,18 +319,6 @@
           "markdownDescription": "Denies the list_folder command without any pre-configured scope."
         },
         {
-          "description": "Enables the make_folder_directory command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-make-folder-directory",
-          "markdownDescription": "Enables the make_folder_directory command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the make_folder_directory command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-make-folder-directory",
-          "markdownDescription": "Denies the make_folder_directory command without any pre-configured scope."
-        },
-        {
           "description": "Enables the open_folder command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-folder",
@@ -355,18 +343,6 @@
           "markdownDescription": "Denies the put_folder_file command without any pre-configured scope."
         },
         {
-          "description": "Enables the read_folder_children command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-read-folder-children",
-          "markdownDescription": "Enables the read_folder_children command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the read_folder_children command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-read-folder-children",
-          "markdownDescription": "Denies the read_folder_children command without any pre-configured scope."
-        },
-        {
           "description": "Enables the read_folder_file command without any pre-configured scope.",
           "type": "string",
           "const": "allow-read-folder-file",
@@ -377,18 +353,6 @@
           "type": "string",
           "const": "deny-read-folder-file",
           "markdownDescription": "Denies the read_folder_file command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the remove_folder_directory command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-remove-folder-directory",
-          "markdownDescription": "Enables the remove_folder_directory command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the remove_folder_directory command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-remove-folder-directory",
-          "markdownDescription": "Denies the remove_folder_directory command without any pre-configured scope."
         },
         {
           "description": "Enables the resolve_folder command without any pre-configured scope.",
@@ -451,10 +415,10 @@
           "markdownDescription": "Denies the unsubscribe_close command without any pre-configured scope."
         },
         {
-          "description": "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-resolve-folder`\n- `allow-subscribe-close`\n- `allow-unsubscribe-close`\n- `allow-destroy-bound-window`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`",
+          "description": "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-resolve-folder`\n- `allow-subscribe-close`\n- `allow-unsubscribe-close`\n- `allow-destroy-bound-window`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-resolve-folder`\n- `allow-subscribe-close`\n- `allow-unsubscribe-close`\n- `allow-destroy-bound-window`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`"
+          "markdownDescription": "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-resolve-folder`\n- `allow-subscribe-close`\n- `allow-unsubscribe-close`\n- `allow-destroy-bound-window`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`"
         }
       ]
     }

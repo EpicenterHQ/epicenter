@@ -31,10 +31,6 @@ export const FileError = defineErrors({
 		message: `'${path}' is a file, not a directory`,
 		path,
 	}),
-	DirectoryNotEmpty: ({ path }: { path: string }) => ({
-		message: `The directory '${path}' is not empty`,
-		path,
-	}),
 	Io: ({
 		path,
 		operation,
