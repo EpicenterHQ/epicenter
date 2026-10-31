@@ -282,10 +282,11 @@ impl SyncedFolders {
         if state.generation != generation {
             return false;
         }
+        // A run that lasted was no failure to start: the count begins again.
         state.service.quick_exits = if ran < QUICK_EXIT {
             state.service.quick_exits + 1
         } else {
-            1
+            0
         };
         if state.service.quick_exits >= QUICK_EXITS {
             state.service.state = SyncService::Stopped { reason };
@@ -1058,6 +1059,7 @@ mod tests {
         assert!(folders.service_exited(run, quick, "no".into()));
         // A long run in between starts the count again.
         assert!(folders.service_exited(run, Duration::from_secs(600), "no".into()));
+        assert!(folders.service_exited(run, quick, "no".into()));
         assert!(folders.service_exited(run, quick, "no".into()));
         assert!(!folders.service_exited(run, quick, "bun: not found".into()));
         assert_eq!(

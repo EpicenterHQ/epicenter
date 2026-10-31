@@ -11,7 +11,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { SyncedFolder, SyncRound } from '../ui/bindings.gen';
-import { ago, describeSync, remoteName } from './synced-folders.ts';
+import { ago, describeSync, folderName, remoteName } from './synced-folders.ts';
 
 const NOW = Date.UTC(2026, 9, 31, 12, 0, 0);
 
@@ -137,5 +137,12 @@ describe('remoteName', () => {
 	test('a local remote reads as its folder name, and none as this computer', () => {
 		expect(remoteName('/tmp/remote.git')).toBe('remote');
 		expect(remoteName(null)).toBe('This computer only');
+	});
+});
+
+describe('folderName', () => {
+	test('is the last segment of a path', () => {
+		expect(folderName('/Users/me/Recorder')).toBe('Recorder');
+		expect(folderName('/')).toBe('/');
 	});
 });

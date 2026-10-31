@@ -59,7 +59,10 @@
 		</Item.Description>
 		{#if busy === undefined && line.detail !== null}
 			<p
-				class="text-xs {line.tone === 'synced' ? 'text-muted-foreground' : 'text-destructive'}"
+				class="line-clamp-3 text-xs wrap-anywhere {line.tone === 'stopped' || line.tone === 'problem'
+					? 'text-destructive'
+					: 'text-muted-foreground'}"
+				title={line.detail}
 			>
 				{line.detail}
 			</p>

@@ -27,7 +27,7 @@
 	import { bundledOpeners } from './openers.ts';
 	import SharingDialog from './SharingDialog.svelte';
 	import SyncedFolderRow from './SyncedFolderRow.svelte';
-	import { SYNCED_FOLDERS_CHANGED } from './synced-folders.ts';
+	import { folderName, SYNCED_FOLDERS_CHANGED } from './synced-folders.ts';
 
 	let listing = $state.raw<SyncedFolderListing | undefined>(undefined);
 	let listProblem = $state<string | undefined>(undefined);
@@ -223,7 +223,7 @@
 					{#each listing.setups as setup (setup.path)}
 						<Item.Root variant="outline" size="sm">
 							<Item.Content class="min-w-0">
-								<Item.Title>Sync this folder?</Item.Title>
+								<Item.Title>Sync {folderName(setup.path)}?</Item.Title>
 								<Item.Description class="truncate" title={setup.path}>
 									{setup.path}
 								</Item.Description>

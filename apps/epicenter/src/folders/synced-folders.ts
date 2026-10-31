@@ -86,3 +86,13 @@ export function remoteName(remote: string | null): string {
 		return segments.at(-1) ?? remote;
 	return segments.slice(-2).join('/');
 }
+
+/** The last segment of an absolute path: the name a folder goes by. */
+export function folderName(path: string): string {
+	return (
+		path
+			.split('/')
+			.filter((segment) => segment !== '')
+			.at(-1) ?? path
+	);
+}

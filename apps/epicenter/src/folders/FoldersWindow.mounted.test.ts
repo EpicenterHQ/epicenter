@@ -219,6 +219,7 @@ describe.skipIf(!browser)('folders window', async () => {
 			const card = window.target.querySelector(
 				'[aria-label="Requests to sync folders"]',
 			) as HTMLElement;
+			expect(card.textContent).toContain('Sync Recorder?');
 			expect(card.textContent).toContain(request.path);
 			expect(card.textContent).toContain(request.contract);
 			window.button(card, 'Set up').click();

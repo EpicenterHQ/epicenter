@@ -1612,6 +1612,51 @@ process.exitCode = 1;
         let _ = fs::remove_dir_all(dir);
     }
 
+    /// Work no page owns, such as the sync service, records its child while
+    /// it runs, so the app's exit can stop it, and every process it started,
+    /// without awaiting anything; the record is cleared once it ends.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_recorded_child_stops_at_once_with_its_group() {
+        let dir = scratch("recorded");
+        let script = dir.join("child.sh");
+        fs::write(&script, "#!/bin/sh\necho started\nsleep 30 &\nwait\n").unwrap();
+        let program = Program {
+            program: PathBuf::from("/bin/sh"),
+            prefix: vec![script.into_os_string()],
+        };
+        let slot = StartedChild::default();
+        let invocation = plain(program).recording_child(&slot);
+        let (sender, started) = tokio::sync::oneshot::channel::<()>();
+        let running = tokio::spawn(async move {
+            let mut sender = Some(sender);
+            invocation
+                .run(&[], None, move |_| {
+                    if let Some(sender) = sender.take() {
+                        let _ = sender.send(());
+                    }
+                    Ok(())
+                })
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), started)
+            .await
+            .expect("the child started")
+            .unwrap();
+        assert!(slot.lock().unwrap().is_some());
+        stop_started(&slot);
+        let ended = tokio::time::timeout(Duration::from_secs(2), running)
+            .await
+            .expect("the child stopped at once")
+            .unwrap();
+        let Err(CliError::Failed { message }) = ended else {
+            panic!("not stopped: {ended:?}");
+        };
+        assert!(message.contains("SIGTERM"), "{message}");
+        assert!(slot.lock().unwrap().is_none());
+        let _ = fs::remove_dir_all(dir);
+    }
+
     /// The CLI's source under the `bun` on `PATH`, as a development build
     /// runs it, with the keychain replaced by the in-memory store
     /// `EPICENTER_TEST_SECRETS` seeds, so no test touches the real keychain.
