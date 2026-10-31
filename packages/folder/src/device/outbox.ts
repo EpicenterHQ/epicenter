@@ -490,6 +490,14 @@ export function deviceParts(device: object): DeviceParts {
 }
 
 /**
+ * The compiled contract of a client `openDevice` returned: each
+ * collection's template, for code that names its notes by placeholders.
+ */
+export function compiledContractOf(device: object): CompiledContract {
+	return deviceParts(device).compiled;
+}
+
+/**
  * The outbox of a client `openDevice` returned. It is not a member of the
  * client, whose members are the contract's collections, any name of which
  * a contract may choose.

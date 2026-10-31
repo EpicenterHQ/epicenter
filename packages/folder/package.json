@@ -11,6 +11,7 @@
 		"./bun": "./src/bun.ts",
 		"./node": "./src/node.ts",
 		"./remote": "./src/remote.ts",
+		"./outbox": "./src/outbox.ts",
 		"./testing": "./src/testing.ts",
 		"./file-browser": "./src/file-browser.ts",
 		"./documents": "./src/documents.ts",
