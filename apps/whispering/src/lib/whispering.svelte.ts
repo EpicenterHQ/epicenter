@@ -18,7 +18,7 @@
  * Closing waits for nothing here: `dispose` refuses new work and late
  * answers and returns. A recording under way ends with the page.
  */
-import type { Client } from '@epicenter/definition/contract';
+import type { Client, Version } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
 import { createContext } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
@@ -749,17 +749,15 @@ export function createWhispering({
 		readConnections,
 
 		/**
-		 * Replace note `ref` with `text`, as a repair: it must read as one, and
-		 * it is written in house style. Answers why it was not replaced.
+		 * Replace note `ref` with `text`, as a repair, over `over` (by default
+		 * the version shown): it must read as one, and it is written in house
+		 * style.
 		 */
-		async replace(ref: NoteRef, text: string): Promise<string | undefined> {
+		replace(ref: NoteRef, text: string, options?: { over?: Version }) {
 			const why = refused();
-			if (why !== undefined) return why;
-			const { error } = await files[ref.collection].replace(
-				{ id: ref.id },
-				text,
-			);
-			return error?.message;
+			if (why !== undefined)
+				return Promise.resolve(Err({ name: 'Closing', message: why }));
+			return files[ref.collection].replace({ id: ref.id }, text, options);
 		},
 
 		/**

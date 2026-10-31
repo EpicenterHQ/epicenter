@@ -405,17 +405,21 @@ test('a note that does not read is listed for repair, and replaced as text', asy
 	expect(whispering.whereOf('recordings', id)).toBe('device');
 
 	expect(
-		await whispering.replace(
-			{ collection: 'recordings', id },
-			'not a recording',
-		),
-	).toBeDefined();
+		(
+			await whispering.replace(
+				{ collection: 'recordings', id },
+				'not a recording',
+			)
+		).error?.name,
+	).toBe('Invalid');
 	expect(
-		await whispering.replace(
-			{ collection: 'recordings', id },
-			'---\ntitle: Fixed\nrecordedAt: 2026-10-31T09:30:00.000Z\ncapture: microphone\n---\nnotes\n',
-		),
-	).toBeUndefined();
+		(
+			await whispering.replace(
+				{ collection: 'recordings', id },
+				'---\ntitle: Fixed\nrecordedAt: 2026-10-31T09:30:00.000Z\ncapture: microphone\n---\nnotes\n',
+			)
+		).error,
+	).toBeNull();
 
 	await eventually(() => whispering.entries.length === 1);
 	expect(whispering.entries[0]).toMatchObject({

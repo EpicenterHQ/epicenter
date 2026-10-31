@@ -75,13 +75,13 @@
 	{:else if brokenAttempt}
 		<section class="space-y-2" aria-label="Send attempt to repair">
 			<p role="alert" class="text-sm text-destructive">The latest send attempt needs Markdown repair before sending again.</p>
-			<NoteRepair {contract} note={brokenAttempt} replace={(text) => attempts.replace({ id: draftId }, text)} />
+			<NoteRepair {contract} note={brokenAttempt} replace={(text, options) => attempts.replace({ id: draftId }, text, options)} />
 		</section>
 	{/if}
 	{#if brokenDraft}
 		<section class="space-y-2" aria-label="Draft to repair">
 			<p role="alert" class="text-sm text-destructive">This draft needs Markdown repair before composing.</p>
-			<NoteRepair {contract} note={brokenDraft} replace={(text) => drafts.replace({ id: draftId }, text)} />
+			<NoteRepair {contract} note={brokenDraft} replace={(text, options) => drafts.replace({ id: draftId }, text, options)} />
 		</section>
 	{:else}
 		<label for="reply" class="sr-only">Message</label>

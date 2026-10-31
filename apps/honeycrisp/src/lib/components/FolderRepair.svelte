@@ -39,7 +39,7 @@
 		<RepairDetail
 			file={invalid}
 			kind="folder"
-			save={(text) => folders.replace({ id }, text)}
+			replace={(text, options) => folders.replace({ id }, text, options)}
 			onDelete={confirmDelete}
 		/>
 	{:else if repaired}

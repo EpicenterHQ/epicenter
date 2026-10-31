@@ -16,7 +16,7 @@
 <section class="flex flex-col gap-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair entries/{id}.md">
 	{#if note}
 		<p><code>{note.path}</code> is not a valid word, so its note and stage cannot be shown. Fix its text and save it.</p>
-		<NoteRepair contract={vocab} {note} replace={(text) => entries.list.replace({ id }, text)} onRepaired={() => entries.repair.close()} />
+		<NoteRepair contract={vocab} {note} replace={(text, options) => entries.list.replace({ id }, text, options)} onRepaired={() => entries.repair.close()} />
 	{:else}
 		<p>
 			<code>entries/{id}.md</code>

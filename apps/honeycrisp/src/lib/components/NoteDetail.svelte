@@ -100,7 +100,7 @@
 		<RepairDetail
 			file={invalid}
 			kind="note"
-			save={(text) => notes.replace({ id }, text)}
+			replace={(text, options) => notes.replace({ id }, text, options)}
 			onDelete={() => confirmDeleteNote(app, { id, label: `${id}.md` })}
 		/>
 	{:else}

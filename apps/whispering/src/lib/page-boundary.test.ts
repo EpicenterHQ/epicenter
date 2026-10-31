@@ -141,6 +141,7 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 					![
 						'@epicenter/svelte/client',
 						'@epicenter/svelte/leave-guard',
+						'@epicenter/svelte/note-repair',
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',

@@ -1,11 +1,12 @@
 <!--
 	The open todo: its title and notes as immediate editors (`fieldEdit`),
 	whether it is done, and Delete. A note at its path that does not read as
-	a todo shows its text and why, and is repaired by saving new text
-	(`replace`) or deleted.
+	a todo shows its text and why, and is repaired as text (`NoteRepair`,
+	saved with `replace` over the version the repair began from) or deleted.
 -->
 <script lang="ts">
 	import { fieldEdit } from '@epicenter/svelte/client';
+	import NoteRepair from '@epicenter/svelte/note-repair';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -17,7 +18,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { getTodos } from '$lib/context.js';
-	import { describeIssues } from '@epicenter/definition/contract';
+	import { todos as contract } from '$lib/contract.js';
 	import { labelOf, todoPath } from '$lib/todos.js';
 
 	const todos = getTodos();
@@ -45,24 +46,6 @@
 		const { error } = await todos.update({ id }, { done: !todo.done });
 		if (error !== null)
 			toast.error('Could not update todo', { description: error.message });
-	}
-
-	/** The repair's text, once the person has changed it; until then the note's. */
-	let repair = $state<string | null>(null);
-	let repairing = $state(false);
-	let repairProblem = $state<string | null>(null);
-
-	async function saveRepair(text: string) {
-		repairing = true;
-		repairProblem = null;
-		const { error } = await todos.replace({ id }, text);
-		repairing = false;
-		if (error !== null) {
-			repairProblem =
-				error.name === 'Invalid' ? describeIssues(error.issues) : error.message;
-			return;
-		}
-		repair = null;
 	}
 
 	function confirmDelete(label: string) {
@@ -135,40 +118,22 @@
 			{@render back()}
 			<h2 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h2>
 		</div>
-		<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
-			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
+		<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status">
+			<p class="flex flex-wrap items-center gap-2 font-medium">
 				<Badge variant="destructive">Needs repair</Badge>
 				{invalid.text === null
 					? 'This file is not text, so Todos cannot show it.'
 					: 'This file does not read as a todo. Fix its text and save it.'}
 			</p>
-			<p class="text-muted-foreground">{describeIssues(invalid.issues)}</p>
 		</div>
 		{#if invalid.text !== null}
-			{@const text = repair ?? invalid.text}
-			<form
-				class="flex min-h-48 flex-1 flex-col gap-2 px-3 py-3 sm:px-4"
-				onsubmit={(event) => {
-					event.preventDefault();
-					void saveRepair(text);
-				}}
-			>
-				<Textarea
-					class="min-h-0 flex-1 field-sizing-fixed resize-none font-mono text-xs"
-					aria-label="Text of {path}"
-					value={text}
-					oninput={(event) => (repair = event.currentTarget.value)}
+			<div class="flex min-h-48 flex-1 flex-col px-3 py-3 sm:px-4">
+				<NoteRepair
+					{contract}
+					note={invalid}
+					replace={(text, options) => todos.replace({ id }, text, options)}
 				/>
-				{#if repairProblem}
-					<p class="text-xs text-destructive" role="alert">Not saved: {repairProblem}</p>
-				{/if}
-				<div class="flex gap-2">
-					<Button type="submit" size="sm" disabled={repairing}>Save repair</Button>
-					{#if repair !== null}
-						<Button size="sm" variant="ghost" onclick={() => ((repair = null), (repairProblem = null))}>Discard</Button>
-					{/if}
-				</div>
-			</form>
+			</div>
 		{/if}
 		{@render fileBar(`${id}.md`)}
 	{:else}

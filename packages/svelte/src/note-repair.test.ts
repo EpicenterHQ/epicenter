@@ -5,15 +5,19 @@
  * - The note's own issues show until the person types; then what is wrong
  *   with the typed text, checked against the contract, with its line
  * - Save repair hands the typed text to `replace`; a refusal keeps the text
- *   and says why, and a repair that lands calls `onRepaired`
+ *   and says why (an `Invalid` one by its issues), and a repair that lands
+ *   calls `onRepaired`
+ * - The repair is saved over the version the typing began from, so a change
+ *   made elsewhere since is refused once; saving again replaces it
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import { defineContract } from '@epicenter/definition/contract';
+import { defineContract, type Version } from '@epicenter/definition/contract';
 import { Err, Ok } from 'wellcrafted/result';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: NoteRepair } = await import('./note-repair.svelte');
+const { cell } = await import('./reactive.test-support.svelte.js');
 
 const todos = defineContract({
 	name: 'todos',
@@ -40,6 +44,7 @@ test('problems follow the typed text, and Save repair hands it to replace', asyn
 			contract: todos,
 			note: {
 				path: 'todos/a.md',
+				version: 'v1' as Version,
 				issues: [
 					{ field: '', message: 'The frontmatter is not supported YAML' },
 				],
@@ -48,7 +53,11 @@ test('problems follow the typed text, and Save repair hands it to replace', asyn
 			async replace(text: string) {
 				sent.push(text);
 				return answer === 'refuse'
-					? Err({ message: 'todos/a.md does not fit the contract' })
+					? Err({
+							name: 'Invalid',
+							message: 'todos/a.md does not fit the contract',
+							issues: [{ field: 'done', message: 'is required' }],
+						})
 					: Ok(undefined);
 			},
 			onRepaired: () => repaired++,
@@ -80,7 +89,7 @@ test('problems follow the typed text, and Save repair hands it to replace', asyn
 	await save();
 	expect(sent).toEqual(['---\ntitle: Milk\n---\n']);
 	expect(target.querySelector('[role="alert"]')?.textContent).toContain(
-		'does not fit the contract',
+		'done: is required',
 	);
 	expect(textarea.value).toBe('---\ntitle: Milk\n---\n');
 	expect(repaired).toBe(0);
@@ -94,6 +103,66 @@ test('problems follow the typed text, and Save repair hands it to replace', asyn
 	expect(sent.at(-1)).toBe('---\ntitle: Milk\ndone: false\n---\n');
 	expect(repaired).toBe(1);
 	expect(target.querySelector('[role="alert"]')).toBeNull();
+
+	await unmount(view);
+	target.remove();
+});
+
+test('a repair is saved over the version its typing began from: a change elsewhere since is refused once, then replaced', async () => {
+	const target = document.createElement('div');
+	document.body.append(target);
+	const broken = (version: string, title: string) => ({
+		path: 'todos/a.md',
+		version: version as Version,
+		issues: [{ field: 'done', message: 'done is missing' }],
+		text: `---\ntitle: ${title}\n---\n`,
+	});
+	const shown = cell(broken('v1', 'Milk'));
+	const sent: { text: string; over: string }[] = [];
+	let repaired = 0;
+	const view = mount(NoteRepair, {
+		target,
+		props: {
+			contract: todos,
+			get note() {
+				return shown.value;
+			},
+			async replace(text: string, { over }: { over: Version }) {
+				sent.push({ text, over });
+				return over === shown.value.version
+					? Ok(undefined)
+					: Err({ name: 'Conflict', message: 'todos/a.md changed' });
+			},
+			onRepaired: () => repaired++,
+		},
+	});
+	flushSync();
+	const textarea = target.querySelector('textarea') as HTMLTextAreaElement;
+	const save = async () => {
+		(target.querySelector('form') as HTMLFormElement).requestSubmit();
+		await settle();
+		flushSync();
+	};
+	const typed = '---\ntitle: Milk\ndone: false\n---\n';
+	textarea.value = typed;
+	textarea.dispatchEvent(new Event('input', { bubbles: true }));
+	flushSync();
+
+	// Another program rewrites the note while the repair is typed.
+	shown.value = broken('v2', 'Oat milk');
+	flushSync();
+	expect(textarea.value).toBe(typed);
+	await save();
+	expect(sent).toEqual([{ text: typed, over: 'v1' }]);
+	expect(target.querySelector('[role="alert"]')?.textContent).toContain(
+		'changed elsewhere',
+	);
+	expect(textarea.value).toBe(typed);
+	expect(repaired).toBe(0);
+
+	await save();
+	expect(sent.at(-1)).toEqual({ text: typed, over: 'v2' });
+	expect(repaired).toBe(1);
 
 	await unmount(view);
 	target.remove();

@@ -1,30 +1,21 @@
 <!--
-	A note that does not read: why, its text as it is, and a repair. Saving
-	replaces the whole note with the text, which must read and fit (else it
-	says why and keeps the draft); it is written in house style, wherever the
-	note is: in this browser, or in the repository.
+	A note that does not read: why, and the repair (`NoteRepair` from
+	`@epicenter/svelte/note-repair`: its text, what is wrong as typed, saved
+	over the version the repair began from, a refusal kept beside the text).
+	The repair is written in house style wherever the note is: in this
+	browser, or in the repository. Delete removes it.
 -->
 <script lang="ts">
+	import SharedNoteRepair from '@epicenter/svelte/note-repair';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
-	import { Textarea } from '@epicenter/ui/textarea';
+	import { whispering as contract } from '$lib/contract.js';
 	import { notePath } from '$lib/deletion.js';
 	import { getWhispering, type Repair } from '$lib/whispering.svelte.js';
 	import { confirmDelete } from './file-actions.js';
 
 	let { repair }: { repair: Repair } = $props();
 	const whispering = getWhispering();
-
-	// svelte-ignore state_referenced_locally
-	let draft = $state(repair.text ?? '');
-	let problem = $state<string>();
-	let saving = $state(false);
-
-	async function save() {
-		saving = true;
-		problem = await whispering.replace({ collection: repair.collection, id: repair.id }, draft);
-		saving = false;
-	}
 </script>
 
 <section class="flex flex-col gap-2 text-sm" data-testid="note-repair" data-path={notePath(repair)}>
@@ -32,25 +23,17 @@
 		<Badge variant="destructive">Needs repair</Badge>
 		<code class="font-mono text-xs">{notePath(repair)}</code>
 	</p>
-	<p class="text-xs text-muted-foreground" data-testid="repair-reason">{repair.reason}</p>
 	{#if repair.text === null}
+		<p class="text-xs text-muted-foreground" data-testid="repair-reason">{repair.reason}</p>
 		<p class="text-xs text-muted-foreground" role="status">It is not UTF-8 text, so it is not opened here. Delete it, or fix it where it is.</p>
 	{:else}
-		<Textarea
-			class="min-h-40 resize-y font-mono text-xs"
-			bind:value={draft}
-			aria-label="Text of {notePath(repair)}"
-			spellcheck={false}
-			data-testid="repair-text"
+		<SharedNoteRepair
+			{contract}
+			note={repair}
+			replace={(text, options) => whispering.replace({ collection: repair.collection, id: repair.id }, text, options)}
 		/>
-		{#if problem}
-			<p class="text-xs text-destructive" role="alert" data-testid="repair-problem">Not saved: {problem}</p>
-		{/if}
 	{/if}
 	<div class="flex items-center gap-1">
-		{#if repair.text !== null}
-			<Button size="sm" disabled={saving} onclick={() => void save()} data-testid="repair-save">Save</Button>
-		{/if}
 		<Button
 			size="sm"
 			variant="ghost-destructive"

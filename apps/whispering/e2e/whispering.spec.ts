@@ -356,13 +356,13 @@ test('5. a transcript the desktop wrote that does not read shows with its text, 
 
 	// Text that still does not fit is refused, and stays to fix.
 	await text.fill(`---\nrecordingId: ${kept}\n---\nsome text\n`);
-	await repairs.getByTestId('repair-save').click();
-	await expect(repairs.getByTestId('repair-problem')).toBeVisible();
+	await repairs.getByRole('button', { name: 'Save repair' }).click();
+	await expect(repairs.getByRole('alert')).toContainText('createdAt');
 
 	await text.fill(
 		`---\nrecordingId: ${kept}\ncreatedAt: '2026-10-31T09:30:00.000Z'\nmodel: whisper-1\nendpoint: https://api.openai.com/v1\n---\nsome text\n`,
 	);
-	await repairs.getByTestId('repair-save').click();
+	await repairs.getByRole('button', { name: 'Save repair' }).click();
 	await expect(repairs).toHaveCount(0);
 
 	await sync(stack, person, clone);
