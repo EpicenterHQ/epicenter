@@ -246,7 +246,7 @@ mod tests {
             let channel = tauri::ipc::Channel::<tauri_plugin_epicenter_folder::FolderChanged>::new(
                 |_: tauri::ipc::InvokeResponseBody| Ok(()),
             );
-            json!({ "onChange": channel })
+            json!({ "create": false, "onChange": channel })
         } else {
             args
         };
