@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';
 	import { openRemote, startUploading } from '@epicenter/folder/remote';
+	import { fromClient } from '@epicenter/svelte/client';
 	import { onDestroy } from 'svelte';
 	import Library from './Library.svelte';
 	import { recorder } from './contract.ts';
@@ -17,11 +18,14 @@
 		| `${string}/${string}`
 		| null;
 	// svelte-ignore state_referenced_locally
-	const remote = setRemote(
-		openRemote(recorder, shared ? { account, repository: shared } : { account }),
+	const client = openRemote(
+		recorder,
+		shared ? { account, repository: shared } : { account },
 	);
-	const uploader = shared ? null : startUploading(device, remote);
+	const remote = setRemote({ client, files: fromClient(client) });
+	// The uploader's writes reach both sides' listeners, so the list follows it.
+	const uploader = shared ? null : startUploading(device.client, client);
 	onDestroy(() => uploader?.[Symbol.dispose]());
 </script>
 
-<Library {remote} {uploader} />
+<Library {remote} />

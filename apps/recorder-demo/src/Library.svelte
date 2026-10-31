@@ -1,26 +1,18 @@
 <script lang="ts">
-	import type { Client } from '@epicenter/definition/contract';
 	import { timeId } from '@epicenter/definition/ids';
 	import { cacheOf } from '@epicenter/folder/browser';
-	import type { Uploader } from '@epicenter/folder/remote';
 	import RecordingRow from './RecordingRow.svelte';
-	import type { Recorder } from './contract.ts';
-	import { getDevice } from './lib/context.ts';
+	import { getDevice, type Side } from './lib/context.ts';
 	import { startRecording } from './lib/record.ts';
-	import { mergeRecordings, type RecordingRow as Row } from './lib/recordings.ts';
+	import { type Cached, mergeRecordings } from './lib/recordings.ts';
 	import { saveRecording } from './lib/save.ts';
 	import { openMicrophone } from './lib/microphone.ts';
 
-	const {
-		remote,
-		uploader = null,
-	}: { remote: Client<Recorder> | null; uploader?: Uploader | null } =
-		$props();
+	const { remote }: { remote: Side | null } = $props();
 
 	const device = getDevice();
-	const cache = cacheOf(device);
+	const cache = cacheOf(device.client);
 
-	let rows = $state.raw<Row[]>([]);
 	let problem = $state<string | null>(null);
 	let recording = $state<ReturnType<typeof startRecording> | null>(null);
 	let busy = $state(false);
@@ -35,58 +27,59 @@
 		(Finished & { reason: string; download: string })[]
 	>([]);
 
-	/** Read both sides again; only the latest read is shown. */
-	let reads = 0;
-	async function refresh() {
-		const read = ++reads;
-		const [notes, audio] = await Promise.all([
-			device.recordings.list(),
-			device.audio.list(),
-		]);
-		// Signed in, what this account's uploads cached on the device.
-		const [repository, cached] = remote
-			? await Promise.all([
-					Promise.all([remote.recordings.list(), remote.audio.list()]),
-					cache.list(),
-				])
-			: [null, null];
-		if (read !== reads) return;
-		const failed = [notes, audio, ...(repository ?? []), cached].find(
-			(listed) => listed !== null && listed.error !== null,
-		);
-		problem = failed?.error?.message ?? null;
-		const [repositoryNotes, repositoryAudio] = repository ?? [];
-		rows = mergeRecordings(
-			{ notes: notes.data?.items ?? [], audio: audio.data?.items ?? [] },
-			// Unreachable (offline): the cached audio shows on its own.
-			repositoryNotes?.data && repositoryAudio?.data
-				? { notes: repositoryNotes.data.items, audio: repositoryAudio.data.items }
-				: null,
-			(cached?.data?.items ?? []).flatMap((file) =>
-				file.collection === 'audio' ? [{ id: file.id, ext: file.ext }] : [],
-			),
-		);
-	}
-
+	/**
+	 * Signed in, the audio this account's uploads cached on the device. The
+	 * cache is outside the contract, so it is read again whenever either
+	 * side's audio changes: an upload caches its audio, then lets go of the
+	 * device's copy.
+	 */
+	let cached = $state.raw<{ items: Cached[]; problem: string | null }>({
+		items: [],
+		problem: null,
+	});
 	$effect(() => {
-		void refresh();
-		void uploader?.drain().then(refresh);
-		// The uploader runs on its own (on a capture, on `online`, on retry)
-		// and tells no one: look again while anything waits on this device.
-		const timer = setInterval(() => {
-			if (uploader && rows.some((row) => row.where === 'device'))
-				void refresh();
-		}, 1000);
-		// Going offline or back changes what the repository side can show.
-		const relist = () => void refresh();
-		addEventListener('online', relist);
-		addEventListener('offline', relist);
+		if (remote === null) return;
+		void [device.files.audio.items, remote.files.audio.items];
+		let current = true;
+		void cache.list().then((listed) => {
+			if (!current) return;
+			cached = {
+				items: (listed.data?.items ?? []).flatMap((file) =>
+					file.collection === 'audio' ? [{ id: file.id, ext: file.ext }] : [],
+				),
+				problem: listed.error?.message ?? null,
+			};
+		});
 		return () => {
-			clearInterval(timer);
-			removeEventListener('online', relist);
-			removeEventListener('offline', relist);
+			current = false;
 		};
 	});
+
+	/** The repository's listing, or null when it cannot be listed (offline). */
+	const repository = $derived(
+		remote === null ||
+			remote.files.recordings.error !== null ||
+			remote.files.audio.error !== null
+			? null
+			: { notes: remote.files.recordings.items, audio: remote.files.audio.items },
+	);
+	const rows = $derived(
+		mergeRecordings(
+			{ notes: device.files.recordings.items, audio: device.files.audio.items },
+			repository,
+			remote === null ? [] : cached.items,
+		),
+	);
+	/** Why a side could not be read; the rows still show what was. */
+	const unreadable = $derived(
+		[
+			device.files.recordings.error,
+			device.files.audio.error,
+			remote?.files.recordings.error,
+			remote?.files.audio.error,
+		].find((error) => error)?.message ??
+			(remote === null ? null : cached.problem),
+	);
 
 	async function record() {
 		problem = null;
@@ -102,7 +95,7 @@
 
 	/** Keep `finished` on the device, or hold it in this page when that fails. */
 	async function keep(finished: Finished) {
-		const saved = await saveRecording(device, finished);
+		const saved = await saveRecording(device.client, finished);
 		const held = unsaved.find(({ id }) => id === finished.id);
 		if (saved.error === null) {
 			if (held) URL.revokeObjectURL(held.download);
@@ -126,7 +119,6 @@
 			await keep(finished);
 		} finally {
 			busy = false;
-			await refresh();
 		}
 	}
 
@@ -149,7 +141,6 @@
 		} finally {
 			recording = null;
 			busy = false;
-			await refresh();
 		}
 	}
 </script>
@@ -163,8 +154,8 @@
 			<button onclick={record} disabled={busy}>Record</button>
 		{/if}
 	</p>
-	{#if problem}
-		<p class="problem" role="alert">{problem}</p>
+	{#if problem ?? unreadable}
+		<p class="problem" role="alert">{problem ?? unreadable}</p>
 	{/if}
 	{#each unsaved as held (held.id)}
 		<p class="problem row" data-testid="unsaved">
@@ -178,7 +169,7 @@
 	{:else}
 		<ul aria-label="Recordings">
 			{#each rows as row (`${row.where}:${row.id}`)}
-				<RecordingRow {row} onchange={refresh} />
+				<RecordingRow {row} />
 			{/each}
 		</ul>
 	{/if}

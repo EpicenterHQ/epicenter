@@ -338,7 +338,7 @@ test('4. a desktop clone holds the bytes the browser recorded, and the folder fi
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('5. a title edited on the desktop shows on the web', async ({
+test('5. a title edited on the desktop shows on the web, with no reload', async ({
 	stack,
 	person,
 }) => {
@@ -350,13 +350,13 @@ test('5. a title edited on the desktop shows on the web', async ({
 	);
 	await sync(stack, person, clone);
 
-	await page.reload();
+	// The remote hears main move (a poll until the notify Durable Object).
 	await expect(row('repository').getByLabel('Title')).toHaveValue(
 		'Desktop title',
 	);
 });
 
-test('6. a web rename over a desktop edit is refused, keeps its draft, and both land on a second save', async ({
+test('6. a web rename over a desktop edit of other fields lands at once, and both stay', async ({
 	stack,
 	person,
 }) => {
@@ -370,19 +370,17 @@ test('6. a web rename over a desktop edit is refused, keeps its draft, and both 
 	const title = row('repository').getByLabel('Title');
 	await title.fill('Web title');
 
-	// The desktop's edit lands first, so the title the web shows is stale.
+	// The desktop's edit lands after the typing began, so the rename is
+	// made over a note that has moved.
 	await sync(stack, person, clone);
 	const status = row('repository').getByTestId('status');
 	const save = row('repository').getByRole('button', { name: 'Save title' });
 	await save.click();
-	// The client refuses a write over a note that moved since it was read
-	// (`Conflict`); the row says so, shows the note as it is now, and keeps
-	// the draft, so saving again writes the title over that version.
-	await expect(status).toHaveText(/^Changed elsewhere/);
+	// The write meets a `Conflict`; the desktop changed other fields, not
+	// the title, so the rename is applied again over what is there now.
+	await expect(status).toHaveText('Saved');
 	await expect(title).toHaveValue('Web title');
 	await expect(row('repository').getByTestId('duration')).toHaveText('4.2 s');
-	await save.click();
-	await expect(status).toHaveText('Saved');
 
 	// The desktop brings in whatever landed after its own push.
 	await sync(stack, person, clone);
@@ -406,7 +404,41 @@ test('6. a web rename over a desktop edit is refused, keeps its draft, and both 
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('7. shared with a second person, the recording shows and plays in their browser', async ({
+test('7. a web rename over a desktop rename is refused, keeps its draft, and lands on a second save', async ({
+	stack,
+	person,
+}) => {
+	const notePath = join(clone, `recordings/${id}.md`);
+	const text = await readFile(notePath, 'utf8');
+	expect(text).toMatch(/^title: Web title$/m);
+	const title = row('repository').getByLabel('Title');
+	await title.fill('Web again');
+	await writeFile(
+		notePath,
+		text.replace(/^title: .*$/m, 'title: Desktop again'),
+	);
+	await sync(stack, person, clone);
+
+	const status = row('repository').getByTestId('status');
+	const save = row('repository').getByRole('button', { name: 'Save title' });
+	await save.click();
+	// Both renamed: the web's rename is not written over the desktop's.
+	await expect(status).toHaveText(/^Changed elsewhere to “Desktop again”/);
+	await expect(title).toHaveValue('Web again');
+	await sync(stack, person, clone);
+	expect(await readFile(notePath, 'utf8')).toMatch(/^title: Desktop again$/m);
+
+	// Having been told, saving again applies the web's title over it.
+	await save.click();
+	await expect(status).toHaveText('Saved');
+	await sync(stack, person, clone);
+	const landed = await readFile(notePath, 'utf8');
+	expect(landed).toMatch(/^title: Web again$/m);
+	expect(landed).toMatch(/^durationMs: 4242$/m);
+	expect(landed).not.toContain('<<<<<<<');
+});
+
+test('8. shared with a second person, the recording shows and plays in their browser', async ({
 	stack,
 	person,
 	playwright,
@@ -446,7 +478,7 @@ test('7. shared with a second person, the recording shows and plays in their bro
 		const theirs = guestPage.locator(
 			`li[data-id="${id}"][data-where="repository"]`,
 		);
-		await expect(theirs.getByLabel('Title')).toHaveValue('Web title');
+		await expect(theirs.getByLabel('Title')).toHaveValue('Web again');
 		await theirs.getByRole('button', { name: 'Play' }).click();
 		await expect(theirs.locator('audio')).toHaveAttribute('src', /^blob:/);
 	} finally {
@@ -455,7 +487,7 @@ test('7. shared with a second person, the recording shows and plays in their bro
 	}
 });
 
-test('8. signing out drops the cached audio from the browser', async () => {
+test('9. signing out drops the cached audio from the browser', async () => {
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 	// The walk may meet a file as it is dropped; look again.
@@ -463,7 +495,7 @@ test('8. signing out drops the cached audio from the browser', async () => {
 	await expect(row()).toHaveCount(0);
 });
 
-test('9. where the browser keeps no files, a recording is not lost: it stays in memory to save again or download', async ({
+test('10. where the browser keeps no files, a recording is not lost: it stays in memory to save again or download', async ({
 	stack,
 	browserName,
 	playwright,

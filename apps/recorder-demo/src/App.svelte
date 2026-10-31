@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { closeDevice, openDevice } from '@epicenter/folder/browser';
+	import { fromClient } from '@epicenter/svelte/client';
 	import { onDestroy } from 'svelte';
 	import Library from './Library.svelte';
 	import SignedIn from './SignedIn.svelte';
@@ -8,8 +9,9 @@
 	import { setDevice } from './lib/context.ts';
 
 	// The device is there whether or not anyone is signed in (decision 10).
-	const device = setDevice(openDevice(recorder));
-	onDestroy(() => closeDevice(device));
+	const client = openDevice(recorder);
+	setDevice({ client, files: fromClient(client) });
+	onDestroy(() => closeDevice(client));
 </script>
 
 <main>

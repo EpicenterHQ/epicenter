@@ -21,7 +21,7 @@ type Note = NoteOf<Recorder['collections']['recordings']>;
 type Audio = FileEntryOf<Recorder['collections']['audio']>;
 
 /** What one side holds: its notes and its audio files. */
-export type Listing = { notes: Note[]; audio: Audio[] };
+export type Listing = { notes: readonly Note[]; audio: readonly Audio[] };
 
 /** An audio file the device cached after uploading it. */
 export type Cached = { id: string; ext: string };
@@ -82,7 +82,7 @@ function rowsOf(listing: Listing, where: RecordingRow['where']) {
 export function mergeRecordings(
 	device: Listing,
 	repository: Listing | null,
-	cached: Cached[] = [],
+	cached: readonly Cached[] = [],
 ): RecordingRow[] {
 	const merged = repository ? rowsOf(repository, 'repository') : new Map();
 	for (const { id, ext } of cached) {
