@@ -21,8 +21,11 @@ import type { Whispering } from './contract.js';
 
 type Collections = Whispering['collections'];
 
-/** The note collections, by name. */
-export type NoteName = Exclude<keyof Collections, 'audio'>;
+/**
+ * The library's note collections, by name: a note per id. `shortcuts.md` is
+ * a setting, which only the desktop root reads.
+ */
+export type NoteName = Exclude<keyof Collections, 'audio' | 'shortcuts'>;
 
 /** A note of `name` as the lists show it: its fields, body and version. */
 export type Listed<TName extends NoteName> = NoteOf<Collections[TName]>;

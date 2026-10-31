@@ -7,8 +7,9 @@
 //! (`tauri-plugin-epicenter-transcription`), through the signed-in Epicenter
 //! account (`epicenter-account`, whose token the page never holds), or at a
 //! custom endpoint (`send_request`), and starts and stops a recording from a
-//! global shortcut. It asks Epicenter to sync the folder and never syncs it
-//! itself.
+//! global shortcut, the one the page resolves from `shortcuts.md` and asks
+//! for (`set_shortcut`). It asks Epicenter to sync the folder and never
+//! syncs it itself.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -41,7 +42,6 @@ fn main() {
         .plugin(tauri_plugin_epicenter_recorder::init())
         .plugin(tauri_plugin_epicenter_transcription::init())
         .plugin(shortcut::listener())
-        .plugin(shortcut::register())
         .manage(http::Sender::default());
     let app = epicenter_account::manage(builder, ACCOUNT, &context.config().identifier)
         .invoke_handler(tauri::generate_handler![
@@ -53,6 +53,7 @@ fn main() {
             epicenter_account::keychain::keychain_get,
             epicenter_account::keychain::keychain_set,
             http::send_request,
+            shortcut::set_shortcut,
         ])
         .build(context)
         .expect("Whispering could not start");
@@ -81,12 +82,12 @@ mod tests {
         assert_eq!(ACCOUNT.scope, AccountApp::HOSTED_MODELS);
     }
 
-    /// The build script declares every account command and `send_request`,
-    /// and nothing else.
+    /// The build script declares every account command, `send_request` and
+    /// `set_shortcut`, and nothing else.
     #[test]
-    fn the_declared_commands_are_the_accounts_and_send_request() {
+    fn the_declared_commands_are_the_accounts_send_request_and_set_shortcut() {
         let mut expected = epicenter_account::COMMANDS.to_vec();
-        expected.push("send_request");
+        expected.extend(["send_request", "set_shortcut"]);
         assert_eq!(COMMANDS, expected.as_slice());
     }
 

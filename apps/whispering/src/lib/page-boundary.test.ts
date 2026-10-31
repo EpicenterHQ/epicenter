@@ -3,13 +3,13 @@
  *
  * The page runs in a browser tab or in the desktop window, so nothing under
  * `src/` may reach Node or Bun, and only the desktop leaves (`*.tauri.ts`,
- * `components/Desktop*.svelte`) reach Tauri. Its files are Whispering's
- * contract's client (decision 10), opened in one place per variant, the
- * variant's `Startup` (`#platform/root`), which hands it to the app; nothing
- * opens or reads a repository, and nothing uploads (ADR-0700). Nothing in
- * the app, its tests included, uses the retired folder and table API. The
- * build chooses every variant's piece through `#platform/*`, so no shared
- * code asks where it is running. This reads the sources, so a violation
+ * `*.tauri.svelte.ts`, `components/Desktop*.svelte`) reach Tauri. Its files
+ * are Whispering's contract's client (decision 10), opened in one place per
+ * variant, the variant's `Startup` (`#platform/root`), which hands it to the
+ * app; nothing opens or reads a repository, and nothing uploads (ADR-0700).
+ * Nothing in the app, its tests included, uses the retired folder and table
+ * API. The build chooses every variant's piece through `#platform/*`, so no
+ * shared code asks where it is running. This reads the sources, so a violation
  * names its file.
  */
 import { expect, test } from 'bun:test';
@@ -50,7 +50,7 @@ function* everything(directory: string): Generator<string> {
 
 /** A module only the desktop build reaches: a `tauri` leaf, or what only those leaves import. */
 const desktopOnly = (path: string) =>
-	/\.tauri\.ts$/.test(path) ||
+	/\.tauri(\.svelte)?\.ts$/.test(path) ||
 	/^lib\/components\/Desktop\w*\.svelte$/.test(path);
 
 function importers(matches: (specifier: string) => boolean) {
@@ -83,7 +83,7 @@ test('the page imports no Node, Bun, or Tauri module', () => {
 	// A desktop module is reached only from another, or through a seam.
 	expect(
 		importers((specifier) =>
-			/\.tauri(\.js)?$|\/Desktop\w*\.svelte$/.test(specifier),
+			/\.tauri(\.svelte)?(\.js)?$|\/Desktop\w*\.svelte$/.test(specifier),
 		).filter((source) => !desktopOnly(source.split(' imports ')[0]!)),
 	).toEqual([]);
 });
@@ -221,7 +221,11 @@ test('WhisperingApp composes Whispering over the client it is given', () => {
 	])
 		expect(callers(name)).toEqual(['routes/components/WhisperingApp.svelte']);
 	expect(callers('createServices')).toEqual(['lib/whispering.svelte.ts']);
-	expect(callers('fromClient')).toEqual(['lib/files.svelte.ts']);
+	// The desktop root also wraps its two roots once, for the shortcut's notes.
+	expect(callers('fromClient')).toEqual([
+		'lib/components/DesktopRoot.svelte',
+		'lib/files.svelte.ts',
+	]);
 	expect(
 		files.find((file) => file.path === 'routes/components/WhisperingApp.svelte')
 			?.text,

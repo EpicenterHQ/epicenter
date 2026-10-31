@@ -30,5 +30,5 @@
 {:else if device?.error}
 	<Recovery app="Whispering" error={device.error} appData={appData.data} {retry} />
 {:else if device !== null}
-	<DesktopRoot appData={appData.data}>{@render children(device.data)}</DesktopRoot>
+	<DesktopRoot appData={appData.data} device={device.data}>{@render children(device.data)}</DesktopRoot>
 {/if}

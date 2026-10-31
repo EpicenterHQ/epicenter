@@ -19,12 +19,13 @@ against. Any program that writes the layout is a valid writer.
 | `transformations/<id>.md` | A transformation: a `title` and an optional `model` (`null` uses the text connection's); its instructions are the body. |
 | `transformation_runs/<id>.md` | A transformation applied to a transcript: what it came from, when, the model and endpoint, and the exact `prompt` and `input` sent; the answer is the body. |
 | `text_runs/<id>.md` | The same, applied to pasted text; it names no recording. |
+| `shortcuts.md` | The desktop app's global shortcut, `toggleRecording` (absent: `CommandOrControl+Shift+;`). The web app has none and leaves it. |
 
 An id is when the file was made plus a random suffix (`timeId()`). A file's
 id is its identity: renaming a recording changes its `title`, never its path,
-so a transcript's `recordingId` never breaks. Whispering keeps no settings in
-its files: its connections and the chosen microphone belong to one device and
-stay on it.
+so a transcript's `recordingId` never breaks. The one setting in its files
+is the desktop shortcut; its connections and the chosen microphone belong to
+one device and stay on it.
 
 Whispering's web build runs in a browser tab and keeps its files in that
 browser. Its desktop app keeps them in a folder on the computer (see
@@ -249,7 +250,7 @@ build-time seams:
 
 | Seam | Web leaf | Desktop leaf |
 | --- | --- | --- |
-| `#platform/root` | `root.ts`: this browser's storage, "On this browser", the end of a web sign-in | `root.tauri.ts`: the two roots or the recovery screen, the folder's status and sync, the global shortcut, Settings for the folder and local models |
+| `#platform/root` | `root.ts`: this browser's storage, "On this browser", the end of a web sign-in | `root.tauri.ts`: the two roots or the recovery screen, the folder's status and sync, the global shortcut, Settings for the folder, local models and the shortcut |
 | `#platform/services` | `browser.ts`: the WebView microphone, `fetch`, `localStorage` | `services.tauri.ts`: the shell's microphone, `send_request`, the keychain, local models |
 | `#platform/auth` | `auth.ts`: browser OAuth | `auth.tauri.ts`: `createTauriAuth` over `epicenter-account` |
 | `#platform/variant` | `'local'` | `'desktop'`, where only a sentence differs |
@@ -277,12 +278,21 @@ whose desktop leaf went missing.
 - **Sign-in** is `so.epicenter.whispering.native` through the shared
   [`epicenter-account`](../../packages/tauri-epicenter-account/README.md)
   crate, in the system browser.
-- **The global shortcut**, `CommandOrControl+Shift+;`, starts and stops a
-  recording from any app (hardcoded for now).
+- **The global shortcut** starts and stops a recording from any app:
+  `toggleRecording` in `shortcuts.md`, `CommandOrControl+Shift+;` by
+  default. It resolves with a shallow spread, `{ ...defaults, ...data,
+  ...appData }`: the data folder's note travels with the files, and the
+  AppData root's (Settings' **Only on this computer**) overrides it here.
+  Settings writes the data folder's note by default, and removes this
+  computer's override when it does. The shell never reads the note: the
+  page asks it to hold the resolved key (`set_shortcut`) at startup and
+  whenever the key changes, and a key that does not parse or that another
+  app holds is refused before anything is written, the reason shown in
+  Settings.
 
-`cargo test -p whispering` checks the identity, the native client id, and
-that the capability grants exactly the plugins' permissions and the commands
-the build script declares.
+`cargo test -p whispering` checks the identity, the native client id, that
+the capability grants exactly the plugins' permissions and the commands the
+build script declares, and how an accelerator parses.
 
 ## What is not supported
 

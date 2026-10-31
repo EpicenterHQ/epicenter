@@ -14,7 +14,7 @@
 	import StatusRow from '@epicenter/svelte/status-row';
 	import { Button } from '@epicenter/ui/button';
 	import { onMount } from 'svelte';
-	import { onShortcut } from '../platform/shortcut.tauri.js';
+	import { onShortcut } from '../platform/shortcut.tauri.svelte.js';
 	import type { ChromeProps } from '../platform/types.js';
 	import { headerStatus } from '../status.js';
 	import { getWhispering } from '../whispering.svelte.js';

@@ -1,6 +1,6 @@
 {
 	"name": "whispering",
-	"description": "Voice notes: a note per recording beside its audio, its transcripts, reusable recipes, and the results of applying them.",
+	"description": "Voice notes: a note per recording beside its audio, its transcripts, reusable recipes, the results of applying them, and the desktop shortcut.",
 	"collections": {
 		"recordings": {
 			"path": "recordings/{id}.md",
@@ -146,6 +146,14 @@
 				"prompt",
 				"input"
 			]
+		},
+		"shortcuts": {
+			"path": "shortcuts.md",
+			"fields": {
+				"toggleRecording": {
+					"type": "string"
+				}
+			}
 		}
 	}
 }

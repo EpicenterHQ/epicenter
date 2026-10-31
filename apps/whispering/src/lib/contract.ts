@@ -17,9 +17,14 @@
  * A file's id is its identity: renaming a recording changes its title, never
  * its path, so a result's `recordingId` never breaks.
  *
- * Whispering keeps no settings in its files: its connections (where requests
- * go, and their keys) and the chosen microphone belong to a device, so they
- * stay in the browser.
+ * - `shortcuts.md` is the one settings note: `toggleRecording`, the desktop
+ *   app's global shortcut in the global-shortcut plugin's spelling
+ *   (`CommandOrControl+Shift+;`). It travels with the files, and a
+ *   computer may override it in its own AppData `shortcuts.md`
+ *   (`settings.tauri.ts`); the web app has no global shortcut and leaves it.
+ *
+ * Its connections (where requests go, and their keys) and the chosen
+ * microphone belong to a device, so they stay out of its files.
  *
  * Its name makes the repository `<account>/whispering` (decision 46) for a
  * folder Epicenter syncs, such as the desktop app's, built later; the web
@@ -38,7 +43,7 @@ const instant = {
 export const whispering = defineContract({
 	name: 'whispering',
 	description:
-		'Voice notes: a note per recording beside its audio, its transcripts, reusable recipes, and the results of applying them.',
+		'Voice notes: a note per recording beside its audio, its transcripts, reusable recipes, the results of applying them, and the desktop shortcut.',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',
@@ -114,6 +119,10 @@ export const whispering = defineContract({
 				'prompt',
 				'input',
 			],
+		},
+		shortcuts: {
+			path: 'shortcuts.md',
+			fields: { toggleRecording: { type: 'string' } },
 		},
 	},
 });
