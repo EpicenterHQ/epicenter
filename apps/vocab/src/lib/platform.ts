@@ -55,6 +55,6 @@ export type VocabAuth = ReactiveAuthClient<AuthClient> & {
  * `#platform/connections`: open this device's connected endpoints. The web
  * app keeps them in this browser's storage for the site, keys included; the
  * desktop window keeps the list in its AppData root's `connections.md` and
- * each key in the keychain.
+ * each key in the keychain, and its shell sends their requests with the key.
  */
 export type OpenConnections = () => Promise<ConnectionCatalog>;

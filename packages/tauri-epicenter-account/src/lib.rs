@@ -9,6 +9,10 @@
 //!   holds.
 //! - `keychain`: the one way an app reaches the keychain, for the refresh
 //!   token and for the API keys a page saves (`keychain_get`, `keychain_set`).
+//! - `connection`: `connection_fetch`, which sends the page's requests to an
+//!   endpoint the person connected, with the key the keychain keeps for it,
+//!   to that key's endpoint only. An app that connects endpoints also
+//!   registers `CONNECTION_COMMANDS`.
 //!
 //! ```ignore
 //! const ACCOUNT: AccountApp = AccountApp {
@@ -29,11 +33,14 @@
 //! capability grants `allow-<command>` for each.
 
 pub mod account;
+pub mod connection;
 pub mod keychain;
+mod relay;
 
 use std::sync::Arc;
 
 pub use account::{deployment_origin, Account, AccountApp};
+pub use connection::Connections;
 
 /// Every command this crate gives a window, as its `build.rs` declares them.
 pub const COMMANDS: &[&str] = &[
@@ -46,8 +53,12 @@ pub const COMMANDS: &[&str] = &[
     "keychain_set",
 ];
 
+/// The commands an app that connects endpoints adds to `COMMANDS`.
+pub const CONNECTION_COMMANDS: &[&str] = &["connection_fetch", "connection_fetch_cancel"];
+
 /// Manage `app`'s account, against Epicenter's deployment
-/// (`deployment_origin`), and its keychain under the bundle `identifier`.
+/// (`deployment_origin`), its keychain under the bundle `identifier`, and
+/// its connections' requests.
 pub fn manage<R: tauri::Runtime>(
     builder: tauri::Builder<R>,
     app: AccountApp,
@@ -56,5 +67,6 @@ pub fn manage<R: tauri::Runtime>(
     let secrets = keychain::for_app(identifier);
     builder
         .manage(keychain::AppSecrets(secrets.clone()))
+        .manage(Arc::new(Connections::new(secrets.clone())))
         .manage(Arc::new(Account::new(app, deployment_origin(), secrets)))
 }

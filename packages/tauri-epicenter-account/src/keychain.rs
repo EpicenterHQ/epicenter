@@ -151,7 +151,7 @@ pub struct AppSecrets(pub Arc<dyn Secrets>);
 /// The entry a page's key `name` is kept under. A name is what a page mints
 /// for a key (a provider such as `openai`, or a connection's nanoid): letters,
 /// digits, `_` and `-`, at most 64 of them, so it can never name the account.
-fn key_entry(name: &str) -> Result<String, String> {
+pub(crate) fn key_entry(name: &str) -> Result<String, String> {
     let valid = !name.is_empty()
         && name.len() <= 64
         && name
@@ -164,7 +164,7 @@ fn key_entry(name: &str) -> Result<String, String> {
 }
 
 /// Run keychain work off the window thread: a keychain may ask the person.
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(work)

@@ -125,7 +125,10 @@ commands, which sign in as the app's native client
 (`so.epicenter.<app>.native`) in the system browser, keep the refresh token
 in the keychain, and relay each of the account's requests (`account_fetch`),
 so the page never holds a token. `keychain` from the same entry reads and
-writes the API keys the app saves there.
+writes the API keys the app saves there, and `connectionFetch(id)` is the
+`fetch` of one endpoint the person connected: the shell (`connection_fetch`)
+adds the key it keeps for that connection and sends only to the endpoint the
+key was saved for, so no endpoint needs to allow the window's origin.
 
 ```ts
 import { fromAuth } from '@epicenter/auth/svelte';

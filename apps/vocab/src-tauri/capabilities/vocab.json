@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "vocab",
-	"description": "The one Vocab window. Rust opens it on Vocab's AppData root, whose settings.md the page reads (openAppData from @epicenter/folder/tauri, which finds it with Tauri's path API) and whose connections.md lists the endpoints the learner connected; the page then opens its data folder by path (openDataFolder): the folder settings.md names, or ~/Epicenter/<productName> (the app's name, core:app:allow-name), which Rust allows in Tauri's runtime file-system scope at startup. Any other folder opens only once the native picker (dialog:allow-open) allowed it; persisted-scope keeps that across launches. No capability names a folder. Through the folder plugin it may ask Epicenter to sync the data folder (epicenter://init) and whether Epicenter already does. It signs in with Epicenter for hosted tutor models and dictation and sends the account's requests with a token it never holds, and keeps its connected endpoints' keys in the keychain.",
+	"description": "The one Vocab window. Rust opens it on Vocab's AppData root, whose settings.md the page reads (openAppData from @epicenter/folder/tauri, which finds it with Tauri's path API) and whose connections.md lists the endpoints the learner connected; the page then opens its data folder by path (openDataFolder): the folder settings.md names, or ~/Epicenter/<productName> (the app's name, core:app:allow-name), which Rust allows in Tauri's runtime file-system scope at startup. Any other folder opens only once the native picker (dialog:allow-open) allowed it; persisted-scope keeps that across launches. No capability names a folder. Through the folder plugin it may ask Epicenter to sync the data folder (epicenter://init) and whether Epicenter already does. It signs in with Epicenter for hosted tutor models and dictation and sends the account's requests with a token it never holds, and keeps its connected endpoints' keys in the keychain, and sends its requests to them through the shell, which adds the key and sends only to the endpoint the key was saved for (connection_fetch).",
 	"local": true,
 	"windows": ["vocab:*"],
 	"permissions": [
@@ -16,6 +16,8 @@
 		"allow-account-fetch",
 		"allow-account-fetch-cancel",
 		"allow-keychain-get",
-		"allow-keychain-set"
+		"allow-keychain-set",
+		"allow-connection-fetch",
+		"allow-connection-fetch-cancel"
 	]
 }

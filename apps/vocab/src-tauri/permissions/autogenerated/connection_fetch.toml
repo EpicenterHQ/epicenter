@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connection-fetch"
+description = "Enables the connection_fetch command without any pre-configured scope."
+commands.allow = ["connection_fetch"]
+
+[[permission]]
+identifier = "deny-connection-fetch"
+description = "Denies the connection_fetch command without any pre-configured scope."
+commands.deny = ["connection_fetch"]

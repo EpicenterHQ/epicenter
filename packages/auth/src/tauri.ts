@@ -9,12 +9,16 @@
  * (`account_fetch`). So the account's `fetch` here is a relay, and every
  * component reads `auth` the same way as in a browser build.
  *
+ * The same relay sends a connected endpoint's requests (`connectionFetch`,
+ * over `connection_fetch`), with the key the shell keeps for it.
+ *
  * ```ts
  * const { client, ready } = createTauriAuth();
  * export const auth = fromAuth(client); // from '@epicenter/auth/svelte'
  * ```
  */
 import { Channel, invoke } from '@tauri-apps/api/core';
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok } from 'wellcrafted/result';
 import type {
 	Account,
@@ -47,15 +51,14 @@ type ShellState = {
 };
 type SignedIn = { origin: string; principalId: string };
 
-/** What the shell sends on a request's channel besides the body's raw chunks. */
+/**
+ * What the shell sends on a request's channel besides the body's raw chunks
+ * (`relay.rs`). An error event carries its relay's own failure beside `kind`.
+ */
 type RelayEvent =
 	| { kind: 'head'; status: number; headers: [string, string][] }
 	| { kind: 'end' }
-	| {
-			kind: 'error';
-			message: string;
-			refusal: 'reauth-required' | 'auth-unavailable' | null;
-	  };
+	| ({ kind: 'error' } & Record<string, unknown>);
 
 /** Statuses whose response has no body. */
 const NO_BODY = new Set([101, 103, 204, 205, 304]);
@@ -84,6 +87,119 @@ function toBase64(bytes: Uint8Array): string {
 	return btoa(binary);
 }
 
+/** One of the shell's relays: its two commands, and what its failures become. */
+type Relay = {
+	fetch: 'account_fetch' | 'connection_fetch';
+	cancel: 'account_fetch_cancel' | 'connection_fetch_cancel';
+	/** Fields the shell reads beside the request's own. */
+	fields: Record<string, unknown>;
+	/**
+	 * What a request rejects with when the command refuses it (`cause`
+	 * is the command's error) or an error event ends it (the event).
+	 */
+	failure(cause: unknown): unknown;
+};
+
+/** The id of a request in flight, unique among every relay of this page. */
+let lastRequest = 0;
+
+/**
+ * Send `request` through `relay` and read the answer as it streams back:
+ * the head resolves the `Response`, the body's chunks fill it, and the end
+ * closes it. Aborting `lifetime` or the request's signal stops it in the
+ * shell.
+ */
+async function sendThrough(
+	shell: AccountShell,
+	relay: Relay,
+	request: Request,
+	lifetime?: AbortSignal,
+): Promise<Response> {
+	const body =
+		request.body === null
+			? null
+			: toBase64(new Uint8Array(await request.arrayBuffer()));
+	const signal = lifetime
+		? AbortSignal.any([lifetime, request.signal])
+		: request.signal;
+	signal.throwIfAborted();
+	const id = ++lastRequest;
+	const cancel = () => void shell.invoke(relay.cancel, { id }).catch(() => {});
+
+	return new Promise<Response>((resolve, reject) => {
+		let headed = false;
+		let finished = false;
+		let sink!: ReadableStreamDefaultController<Uint8Array>;
+		const stream = new ReadableStream<Uint8Array>({
+			start: (controller) => {
+				sink = controller;
+			},
+			cancel: () => {
+				if (!finished) cancel();
+			},
+		});
+		const fail = (error: unknown) => {
+			if (finished) return;
+			finished = true;
+			signal.removeEventListener('abort', abort);
+			if (!headed) reject(error);
+			else sink.error(error);
+		};
+		const abort = () => {
+			cancel();
+			fail(signal.reason);
+		};
+		signal.addEventListener('abort', abort, { once: true });
+		const channel = shell.channel((message) => {
+			if (finished) return;
+			if (isChunk(message)) {
+				sink.enqueue(toBytes(message));
+				return;
+			}
+			const event = message as RelayEvent;
+			if (event.kind === 'head') {
+				headed = true;
+				const empty = NO_BODY.has(event.status);
+				resolve(
+					new Response(empty ? null : stream, {
+						status: event.status,
+						headers: event.headers,
+					}),
+				);
+				return;
+			}
+			if (event.kind === 'end') {
+				finished = true;
+				signal.removeEventListener('abort', abort);
+				sink.close();
+				return;
+			}
+			fail(relay.failure(event));
+		});
+		shell
+			.invoke(relay.fetch, {
+				request: {
+					...relay.fields,
+					id,
+					url: request.url,
+					method: request.method,
+					headers: [...request.headers],
+					body,
+				},
+				onEvent: channel,
+			})
+			.catch((cause: unknown) => fail(relay.failure(cause)));
+	});
+}
+
+/** A failure's message, whether the shell sent a string or an object. */
+function messageOf(cause: unknown): string {
+	if (typeof cause === 'string') return cause;
+	if (cause && typeof cause === 'object' && 'message' in cause)
+		return String(cause.message);
+	return String(cause);
+}
+
 /**
  * The account's `fetch`: each request goes to the shell, which sends it to
  * `origin` with the account's token and streams the answer back. A request
@@ -97,7 +213,20 @@ export function relayFetch(
 	lifetime: AbortSignal,
 	onRefusal: (code: 'reauth-required' | 'auth-unavailable') => void,
 ): AuthFetch {
-	let nextId = 0;
+	const relay: Relay = {
+		fetch: 'account_fetch',
+		cancel: 'account_fetch_cancel',
+		fields: {},
+		failure(cause) {
+			const refusal =
+				cause && typeof cause === 'object' && 'refusal' in cause
+					? (cause.refusal as 'reauth-required' | 'auth-unavailable' | null)
+					: null;
+			if (!refusal) return new TypeError(messageOf(cause));
+			onRefusal(refusal);
+			return AccountUnavailable({ code: refusal }).error;
+		},
+	};
 	return async (input, init) => {
 		const target =
 			input instanceof Request
@@ -110,85 +239,60 @@ export function relayFetch(
 			);
 		lifetime.throwIfAborted();
 		const request = new Request(input instanceof Request ? input : url, init);
-		const body =
-			request.body === null
-				? null
-				: toBase64(new Uint8Array(await request.arrayBuffer()));
-		const signal = AbortSignal.any([lifetime, request.signal]);
-		signal.throwIfAborted();
-		const id = ++nextId;
-		const cancel = () =>
-			void shell.invoke('account_fetch_cancel', { id }).catch(() => {});
-
-		return new Promise<Response>((resolve, reject) => {
-			let headed = false;
-			let finished = false;
-			let sink!: ReadableStreamDefaultController<Uint8Array>;
-			const stream = new ReadableStream<Uint8Array>({
-				start: (controller) => {
-					sink = controller;
-				},
-				cancel: () => {
-					if (!finished) cancel();
-				},
-			});
-			const fail = (error: unknown) => {
-				if (finished) return;
-				finished = true;
-				signal.removeEventListener('abort', abort);
-				if (!headed) reject(error);
-				else sink.error(error);
-			};
-			const abort = () => {
-				cancel();
-				fail(signal.reason);
-			};
-			signal.addEventListener('abort', abort, { once: true });
-			const channel = shell.channel((message) => {
-				if (finished) return;
-				if (isChunk(message)) {
-					sink.enqueue(toBytes(message));
-					return;
-				}
-				const event = message as RelayEvent;
-				if (event.kind === 'head') {
-					headed = true;
-					const empty = NO_BODY.has(event.status);
-					resolve(
-						new Response(empty ? null : stream, {
-							status: event.status,
-							headers: event.headers,
-						}),
-					);
-					return;
-				}
-				if (event.kind === 'end') {
-					finished = true;
-					signal.removeEventListener('abort', abort);
-					sink.close();
-					return;
-				}
-				if (event.refusal) {
-					onRefusal(event.refusal);
-					fail(AccountUnavailable({ code: event.refusal }).error);
-					return;
-				}
-				fail(new TypeError(event.message));
-			});
-			shell
-				.invoke('account_fetch', {
-					request: {
-						id,
-						url: request.url,
-						method: request.method,
-						headers: [...request.headers],
-						body,
-					},
-					onEvent: channel,
-				})
-				.catch(fail);
-		});
+		return sendThrough(shell, relay, request, lifetime);
 	};
+}
+
+/**
+ * Why the shell did not send a connection's request, or why its answer
+ * ended early (`ConnectionFetchError` in `connection.rs`).
+ */
+export const ConnectionFetchError = defineErrors({
+	/** The request does not read, or carried a credential of the page's. */
+	InvalidRequest: ({ message }: { message: string }) => ({ message }),
+	/** Neither `https`, nor `http` to `localhost` or `127.0.0.1`. */
+	SchemeRefused: ({ message }: { message: string }) => ({ message }),
+	/** Not on the origin of the endpoint the connection's key was saved for. */
+	OriginRefused: ({ message }: { message: string }) => ({ message }),
+	/** The keychain could not be read. */
+	KeychainFailed: ({ message }: { message: string }) => ({ message }),
+	/** The endpoint could not be reached, or its answer broke off. */
+	SendFailed: ({ message }: { message: string }) => ({ message }),
+});
+export type ConnectionFetchError = InferErrors<typeof ConnectionFetchError>;
+
+/** The shell's `ConnectionFetchError` as this page's, or a `TypeError` for anything else. */
+function connectionFailure(cause: unknown) {
+	const name =
+		cause && typeof cause === 'object' && 'name' in cause
+			? String(cause.name)
+			: '';
+	if (Object.hasOwn(ConnectionFetchError, name))
+		return ConnectionFetchError[name as ConnectionFetchError['name']]({
+			message: messageOf(cause),
+		}).error;
+	return new TypeError(messageOf(cause));
+}
+
+/**
+ * The `fetch` of one connected endpoint (`connection` is its id): each
+ * request goes to the shell, which reads the key the keychain keeps for the
+ * connection, sends the request only to the endpoint that key was saved for
+ * and with the key, and streams the answer back. The page sends no
+ * credential, and no endpoint needs to allow this window's origin (CORS). A
+ * refusal rejects with a {@link ConnectionFetchError}, as `fetch` rejects.
+ */
+export function connectionFetch(
+	connection: string,
+	shell: AccountShell = tauriShell,
+): AuthFetch {
+	const relay: Relay = {
+		fetch: 'connection_fetch',
+		cancel: 'connection_fetch_cancel',
+		fields: { connection },
+		failure: connectionFailure,
+	};
+	return (input, init) => sendThrough(shell, relay, new Request(input, init));
 }
 
 /**

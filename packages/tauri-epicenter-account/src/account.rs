@@ -22,7 +22,6 @@ use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
-use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -30,6 +29,7 @@ use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::keychain::Secrets;
+use crate::relay::{self, send_event, RelayEvent, Requests};
 
 /// Who signs in: one constant per app, in its `main.rs`.
 #[derive(Clone, Copy, Debug)]
@@ -105,7 +105,7 @@ pub struct Account {
     grant: tokio::sync::Mutex<Option<Option<Grant>>>,
     /// The sign-in waiting for its browser tab, which a newer one stops.
     signing_in: Mutex<Option<tokio::task::AbortHandle>>,
-    requests: Mutex<HashMap<u32, tauri::async_runtime::JoinHandle<()>>>,
+    requests: Requests,
 }
 
 impl Account {
@@ -120,7 +120,7 @@ impl Account {
             secrets,
             grant: tokio::sync::Mutex::new(None),
             signing_in: Mutex::new(None),
-            requests: Mutex::new(HashMap::new()),
+            requests: Requests::default(),
         }
     }
 
@@ -621,21 +621,13 @@ pub struct RelayRequest {
     pub body: Option<String>,
 }
 
-/// What the relay sends the page, before and after the body's raw chunks.
+/// Why an account request ended without an answer, after the `kind` of its
+/// error event. `refusal` is `reauth-required` or `auth-unavailable` when no
+/// request was sent for want of a token, else absent.
 #[derive(Debug, Serialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-enum RelayEvent {
-    Head {
-        status: u16,
-        headers: Vec<(String, String)>,
-    },
-    End,
-    /// `refusal` is `reauth-required` or `auth-unavailable` when no
-    /// request was sent for want of a token, else absent.
-    Error {
-        message: String,
-        refusal: Option<&'static str>,
-    },
+struct AccountFailure {
+    message: String,
+    refusal: Option<&'static str>,
 }
 
 /// Whether `url` is on the deployment's origin, the only place the
@@ -654,15 +646,10 @@ fn forwarded(name: &str) -> bool {
     )
 }
 
-fn send_event(channel: &Channel<InvokeResponseBody>, event: &RelayEvent) {
-    let _ = channel.send(InvokeResponseBody::Json(
-        serde_json::to_string(event).expect("an event serializes"),
-    ));
-}
-
 async fn relay(account: Arc<Account>, request: RelayRequest, channel: Channel<InvokeResponseBody>) {
-    let error =
-        |message: String, refusal: Option<&'static str>| RelayEvent::Error { message, refusal };
+    let error = |message: String, refusal: Option<&'static str>| {
+        RelayEvent::Error(AccountFailure { message, refusal })
+    };
     let body = match request.body.as_deref().map(|body| STANDARD.decode(body)) {
         None => None,
         Some(Ok(bytes)) => Some(bytes),
@@ -716,33 +703,11 @@ async fn relay(account: Arc<Account>, request: RelayRequest, channel: Channel<In
             Err(cause) => return send_event(&channel, &error(cause.to_string(), None)),
         }
     };
-    let headers = response
-        .headers()
-        .iter()
-        .filter_map(|(name, value)| Some((name.to_string(), value.to_str().ok()?.to_string())))
-        .collect();
-    send_event(
-        &channel,
-        &RelayEvent::Head {
-            status: response.status().as_u16(),
-            headers,
-        },
-    );
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        match chunk {
-            Ok(bytes) => {
-                if channel
-                    .send(InvokeResponseBody::Raw(bytes.to_vec()))
-                    .is_err()
-                {
-                    return;
-                }
-            }
-            Err(cause) => return send_event(&channel, &error(cause.to_string(), None)),
-        }
-    }
-    send_event(&channel, &RelayEvent::End);
+    relay::answer(response, &channel, |message| AccountFailure {
+        message,
+        refusal: None,
+    })
+    .await;
 }
 
 /// Send one request on the account, to the deployment's origin only. The
@@ -757,27 +722,17 @@ pub async fn account_fetch(
     if !on_origin(&request.url, &account.origin) {
         return Err(format!("{} is not on {}", request.url, account.origin));
     }
-    let id = request.id;
     let account = account.inner().clone();
-    // Held while spawning, so the task's own removal comes after this insert.
-    let mut requests = account.requests.lock().unwrap();
-    let finished = account.clone();
-    let task = tauri::async_runtime::spawn(async move {
-        relay(finished.clone(), request, on_event).await;
-        finished.requests.lock().unwrap().remove(&id);
-    });
-    if let Some(previous) = requests.insert(id, task) {
-        previous.abort();
-    }
+    account
+        .requests
+        .start(request.id, relay(account.clone(), request, on_event));
     Ok(())
 }
 
 /// Stop a request the page no longer wants.
 #[tauri::command]
 pub fn account_fetch_cancel(account: State<'_, Arc<Account>>, id: u32) {
-    if let Some(task) = account.requests.lock().unwrap().remove(&id) {
-        task.abort();
-    }
+    account.requests.cancel(id);
 }
 
 #[cfg(test)]
@@ -933,7 +888,7 @@ mod tests {
     #[test]
     fn the_relay_events_are_what_the_page_reads() {
         assert_eq!(
-            serde_json::to_value(RelayEvent::Head {
+            serde_json::to_value(RelayEvent::<AccountFailure>::Head {
                 status: 200,
                 headers: vec![("a".into(), "b".into())]
             })
@@ -941,14 +896,14 @@ mod tests {
             serde_json::json!({ "kind": "head", "status": 200, "headers": [["a", "b"]] })
         );
         assert_eq!(
-            serde_json::to_value(RelayEvent::End).unwrap(),
+            serde_json::to_value(RelayEvent::<AccountFailure>::End).unwrap(),
             serde_json::json!({ "kind": "end" })
         );
         assert_eq!(
-            serde_json::to_value(RelayEvent::Error {
+            serde_json::to_value(RelayEvent::Error(AccountFailure {
                 message: "m".into(),
                 refusal: Some("reauth-required")
-            })
+            }))
             .unwrap(),
             serde_json::json!({ "kind": "error", "message": "m", "refusal": "reauth-required" })
         );

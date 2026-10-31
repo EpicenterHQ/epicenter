@@ -3,8 +3,10 @@
 //! `~/Epicenter/Vocab` unless `settings.md` names another, by path
 //! (`openDataFolder` from `@epicenter/folder/tauri`), when Tauri's
 //! file-system scope allows it. The AppData root also holds `connections.md`,
-//! the endpoints the learner connected, whose keys are in the keychain. It
-//! signs in only for Epicenter's hosted tutor models and dictation, through
+//! the endpoints the learner connected, whose keys are in the keychain; the
+//! page's requests to them are sent from here, with the key, through
+//! `epicenter-account`'s `connection_fetch`. It signs in only for
+//! Epicenter's hosted tutor models and dictation, through
 //! `epicenter-account`, whose token the page never holds. It asks Epicenter
 //! to sync the folder and never syncs it itself.
 
@@ -42,6 +44,8 @@ fn main() {
             epicenter_account::account::account_fetch_cancel,
             epicenter_account::keychain::keychain_get,
             epicenter_account::keychain::keychain_set,
+            epicenter_account::connection::connection_fetch,
+            epicenter_account::connection::connection_fetch_cancel,
         ])
         .run(context)
         .expect("Vocab could not start");
@@ -67,10 +71,18 @@ mod tests {
         assert_eq!(ACCOUNT.scope, AccountApp::HOSTED_MODELS);
     }
 
-    /// The build script declares every account command, and nothing else.
+    /// The build script declares every account and connection command, and
+    /// nothing else.
     #[test]
-    fn the_declared_commands_are_the_accounts() {
-        assert_eq!(COMMANDS, epicenter_account::COMMANDS);
+    fn the_declared_commands_are_the_accounts_and_connections() {
+        assert_eq!(
+            COMMANDS,
+            [
+                epicenter_account::COMMANDS,
+                epicenter_account::CONNECTION_COMMANDS
+            ]
+            .concat()
+        );
     }
 
     /// The bundle is `so.epicenter.vocab`, its folder is named for the app

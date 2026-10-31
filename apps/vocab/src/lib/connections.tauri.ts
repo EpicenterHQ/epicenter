@@ -5,11 +5,16 @@
  * `settings.md`: machine-local, never synced, read and written through
  * Vocab's settings contract (`vocabSettings`). Each API key is in the
  * keychain under the connection's id (`keychain` from
- * `@epicenter/auth/tauri`), saved with the endpoint it was entered for and
- * applied only while the connection still names that endpoint (ADR-0564: an
- * endpoint is stored with its key), so a `connections.md` changed behind the
- * app's back cannot send a key somewhere else. Nothing about connections is in the data folder, which
- * Epicenter syncs, or in `settings.md`.
+ * `@epicenter/auth/tauri`), saved with the endpoint it was entered for
+ * (ADR-0564: an endpoint is stored with its key). Nothing about connections
+ * is in the data folder, which Epicenter syncs, or in `settings.md`.
+ *
+ * A connection's requests are sent by the shell (`connectionFetch`), not by
+ * this page: no endpoint needs to allow the window's origin (CORS), and the
+ * shell adds the key itself and sends only to the origin of the endpoint
+ * the key was saved for. So a `connections.md` changed behind the app's back
+ * cannot send a key somewhere else, and no record here carries a key; a
+ * record says only whether its key applies (`hasApiKey`).
  */
 import {
 	type AiConnectionRecord,
@@ -18,7 +23,8 @@ import {
 	type CustomConnectionInput,
 	openConnectionCatalog,
 } from '@epicenter/ai/connections';
-import { keychain } from '@epicenter/auth/tauri';
+import type { AuthFetch } from '@epicenter/auth';
+import { connectionFetch, keychain } from '@epicenter/auth/tauri';
 import type { Client, Version } from '@epicenter/definition/contract';
 import { nanoid } from '@epicenter/definition/ids';
 import { openAppData } from '@epicenter/folder/tauri';
@@ -56,38 +62,39 @@ type Listed = { list: AiConnectionRecord[]; version: Version | null };
 
 /**
  * Connections whose list is `file` (which never holds a key) and whose keys
- * are in `keys`. Every change reads the note again and writes over the
- * version it read, one change at a time, so a write never lands on a list
- * it did not see.
+ * are in `keys`; `send` is the `fetch` of one connection by its id. Every
+ * change reads the note again and writes over the version it read, one
+ * change at a time, so a write never lands on a list it did not see.
  */
 export function createKeychainConnections({
 	file,
 	keys,
-	fetch = globalThis.fetch.bind(globalThis),
+	send = (id) => connectionFetch(id),
 }: {
 	file: ConnectionsFile;
 	keys: ConnectionKeys;
-	fetch?: typeof globalThis.fetch;
+	send?: (id: string) => AuthFetch;
 }): AiConnections {
 	const lifetime = new AbortController();
 	let records: AiConnectionRecord[] = [];
-	const saved = new Map<string, SavedKey>();
+	/** The endpoint each saved key was entered for, by connection id. */
+	const keyed = new Map<string, string>();
 	const listeners = new Set<
 		(records: readonly AiConnectionSnapshot[]) => void
 	>();
 	let queue: Promise<unknown> = Promise.resolve();
 	let closed = false;
 
-	function withKeys(): AiConnectionSnapshot[] {
-		return records.map((record) => {
-			const entry = saved.get(record.id);
-			return entry?.endpoint === record.baseUrl
-				? { ...record, models: [...record.models], apiKey: entry.key }
-				: { ...record, models: [...record.models] };
-		});
+	/** The records, each saying whether its saved key applies to it. */
+	function snapshots(): AiConnectionSnapshot[] {
+		return records.map((record) => ({
+			...record,
+			models: [...record.models],
+			hasApiKey: keyed.get(record.id) === record.baseUrl,
+		}));
 	}
 	function emit() {
-		const current = withKeys();
+		const current = snapshots();
 		for (const listener of listeners) listener(current);
 	}
 
@@ -129,26 +136,32 @@ export function createKeychainConnections({
 		records = list;
 	}
 
-	/** Read the keys of the connections not read yet. */
-	async function readKeys(ids: string[]) {
-		const unread = ids.filter((id) => !saved.has(id));
-		if (unread.length === 0) return;
-		const found = await keys.get(unread);
-		for (const [id, text] of Object.entries(found)) {
+	/** The saved key of each of `ids` that has one. */
+	async function readSaved(ids: string[]): Promise<Map<string, SavedKey>> {
+		const found = new Map<string, SavedKey>();
+		if (ids.length === 0) return found;
+		for (const [id, text] of Object.entries(await keys.get(ids))) {
 			const entry = parseSaved(text);
-			if (entry) saved.set(id, entry);
+			if (entry) found.set(id, entry);
 		}
+		return found;
+	}
+
+	/** Learn which endpoint the keys of the connections not read yet were saved for. */
+	async function readKeyed(ids: string[]) {
+		const unread = ids.filter((id) => !keyed.has(id));
+		for (const [id, { endpoint }] of await readSaved(unread))
+			keyed.set(id, endpoint);
 	}
 
 	/** Save `key` for `id` at `endpoint`, or remove it when there is none. */
 	async function saveKey(id: string, endpoint: string, key?: string) {
 		if (key?.trim()) {
-			const entry = { endpoint, key };
-			await keys.set(id, JSON.stringify(entry));
-			saved.set(id, entry);
+			await keys.set(id, JSON.stringify({ endpoint, key } satisfies SavedKey));
+			keyed.set(id, endpoint);
 		} else {
 			await keys.set(id, null);
-			saved.delete(id);
+			keyed.delete(id);
 		}
 	}
 
@@ -173,7 +186,7 @@ export function createKeychainConnections({
 	const refresh = () =>
 		serially(async () => {
 			const { list } = await read();
-			await readKeys(list.map(({ id }) => id));
+			await readKeyed(list.map(({ id }) => id));
 			records = list;
 			emit();
 		});
@@ -188,10 +201,10 @@ export function createKeychainConnections({
 	return {
 		signal: lifetime.signal,
 		ready,
-		getAll: withKeys,
+		getAll: snapshots,
 		subscribe(listener) {
 			listeners.add(listener);
-			listener(withKeys());
+			listener(snapshots());
 			return () => {
 				listeners.delete(listener);
 			};
@@ -235,13 +248,15 @@ export function createKeychainConnections({
 				};
 				// A new key is saved for the endpoint it was entered with; an
 				// endpoint changed here keeps the key that applied to it.
-				const entry = saved.get(id);
 				if (apiKey !== undefined) await saveKey(id, next.baseUrl, apiKey);
 				else if (
 					next.baseUrl !== record.baseUrl &&
-					entry?.endpoint === record.baseUrl
-				)
-					await saveKey(id, next.baseUrl, entry.key);
+					keyed.get(id) === record.baseUrl
+				) {
+					const entry = (await readSaved([id])).get(id);
+					if (entry?.endpoint === record.baseUrl)
+						await saveKey(id, next.baseUrl, entry.key);
+				}
 				await write(
 					list.map((other) => (other.id === id ? next : other)),
 					version,
@@ -275,7 +290,10 @@ export function createKeychainConnections({
 				);
 			});
 		},
-		transport: (record) => ({ baseURL: record.baseUrl, fetch }),
+		transport: (record) => ({
+			baseURL: record.baseUrl,
+			fetch: send(record.id),
+		}),
 		async close() {
 			closed = true;
 			unsubscribe();

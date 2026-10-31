@@ -9,7 +9,7 @@ import { openConnections } from '#platform/connections';
  * this device, not for an account, so the same ones are there signed out and
  * signed in (`#platform/connections`: this browser's storage on the web; on
  * the desktop the AppData root's `connections.md`, with each key in the
- * keychain). Signing in only adds Epicenter's hosted models beside them,
+ * keychain and every request sent by the shell). Signing in only adds Epicenter's hosted models beside them,
  * whose requests the desktop's shell sends for the page (`account.fetch`).
  * Neither decides where the words and chats are: a failure here leaves words and
  * chats usable and is reported in the model picker.

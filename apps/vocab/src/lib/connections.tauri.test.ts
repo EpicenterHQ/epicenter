@@ -9,7 +9,9 @@
  * Key behaviors:
  * - The list is `connections.md` at the top of the root, with no key in it;
  *   each key is in the keychain under the connection's id, with its endpoint
- * - Reopened, the list has its keys again
+ * - No record carries a key, only whether its key applies; a connection's
+ *   requests go through the shell by its id, which adds the key
+ * - Reopened, the list knows its keys again
  * - A key applies only while the connection names the endpoint it was
  *   saved for, so editing the note by hand cannot redirect it
  * - Removing a connection, or clearing its key, removes the keychain entry
@@ -67,12 +69,17 @@ async function open({
 	const path = root ?? (await mkdtemp(join(tmpdir(), 'vocab-appdata-')));
 	if (root === undefined) roots.push(path);
 	const device = unwrap(await openDevice(vocabSettings, { path }));
+	const sent: string[] = [];
 	const connections = createKeychainConnections({
 		file: device.connections,
 		keys: keys.keys,
+		send: (id) => {
+			sent.push(id);
+			return async () => new Response('sent by the shell');
+		},
 	});
 	await connections.ready;
-	return { connections, root: path, keys };
+	return { connections, root: path, keys, sent };
 }
 
 const note = (root: string) => readFile(join(root, 'connections.md'), 'utf8');
@@ -91,7 +98,7 @@ test('the list is connections.md at the top of the root, and the key is in the k
 			name: 'OpenAI',
 			baseUrl: ENDPOINT,
 			models: ['gpt-5'],
-			apiKey: 'sk-1',
+			hasApiKey: true,
 		},
 	]);
 	// The note, beside the engine's own `.epicenter` (its save lock).
@@ -109,7 +116,20 @@ test('the list is connections.md at the top of the root, and the key is in the k
 	});
 });
 
-test('reopened, the connections have their keys again', async () => {
+test('a connection’s requests go through the shell by its id, with no key from the page', async () => {
+	const { connections, sent } = await open();
+	const id = await connections.add({ baseUrl: ENDPOINT, apiKey: 'sk-1' });
+	const [record] = connections.getAll();
+	expect(record).not.toHaveProperty('apiKey');
+	const transport = connections.transport(record!);
+	expect(transport.baseURL).toBe(ENDPOINT);
+	expect(await (await transport.fetch(`${ENDPOINT}/models`)).text()).toBe(
+		'sent by the shell',
+	);
+	expect(sent).toEqual([id]);
+});
+
+test('reopened, the connections know their keys again', async () => {
 	const first = await open();
 	const id = await first.connections.add({ baseUrl: ENDPOINT, apiKey: 'sk-1' });
 	await first.connections.close();
@@ -120,7 +140,7 @@ test('reopened, the connections have their keys again', async () => {
 			name: 'api.openai.com',
 			baseUrl: ENDPOINT,
 			models: [],
-			apiKey: 'sk-1',
+			hasApiKey: true,
 		},
 	]);
 });
@@ -139,7 +159,7 @@ test('a key is not sent to an endpoint it was not saved for', async () => {
 	const [record] = connections.getAll();
 	expect(record?.id).toBe(id);
 	expect(record?.baseUrl).toBe('https://evil.example/v1');
-	expect(record?.apiKey).toBeUndefined();
+	expect(record?.hasApiKey).toBe(false);
 });
 
 test('an endpoint changed in the app keeps its key; a cleared key is removed', async () => {
@@ -147,10 +167,14 @@ test('an endpoint changed in the app keeps its key; a cleared key is removed', a
 	const id = await connections.add({ baseUrl: ENDPOINT, apiKey: 'sk-1' });
 	await connections.update(id, { baseUrl: 'http://localhost:11434/v1' });
 	expect(connections.getAll()).toMatchObject([
-		{ baseUrl: 'http://localhost:11434/v1', apiKey: 'sk-1' },
+		{ baseUrl: 'http://localhost:11434/v1', hasApiKey: true },
 	]);
+	expect(JSON.parse(keys.entries.get(id) ?? 'null')).toEqual({
+		endpoint: 'http://localhost:11434/v1',
+		key: 'sk-1',
+	});
 	await connections.update(id, { apiKey: '' });
-	expect(connections.getAll()[0]?.apiKey).toBeUndefined();
+	expect(connections.getAll()[0]?.hasApiKey).toBe(false);
 	expect(keys.entries.has(id)).toBe(false);
 });
 
@@ -187,14 +211,14 @@ test('reordering keeps every connection, in the new order', async () => {
 	);
 });
 
-test('subscribers hear the keys with the list; a change made to the note behind the app is kept by the next', async () => {
+test('subscribers hear whether each key applies with the list; a change made to the note behind the app is kept by the next', async () => {
 	const { connections, root } = await open();
 	const heard: unknown[] = [];
 	connections.subscribe((records) =>
-		heard.push(records.map((record) => record.apiKey ?? record.name)),
+		heard.push(records.map((record) => record.hasApiKey)),
 	);
 	const id = await connections.add({ baseUrl: ENDPOINT, apiKey: 'sk-1' });
-	expect(heard.at(-1)).toEqual(['sk-1']);
+	expect(heard.at(-1)).toEqual([true]);
 	await connections.update(id, { apiKey: '' });
 	const path = join(root, 'connections.md');
 	const other = unwrap(await openDevice(vocabSettings, { path: root }));

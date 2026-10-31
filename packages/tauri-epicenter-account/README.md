@@ -48,6 +48,25 @@ head, the body's raw chunks, then its end or an error). `account_fetch_cancel`
 stops one. A request with no token to send ends with `reauth-required` or
 `auth-unavailable`, which the page's client turns into its auth state.
 
+## A connected endpoint's requests
+
+An app whose person connects their own OpenAI-compatible endpoints (Vocab)
+saves each one's key with `keychain_set(<connection id>, '{"endpoint": …,
+"key": …}')`, and sends the endpoint's requests through `connection_fetch`
+rather than the page's `fetch`, which CORS holds to endpoints that answer a
+`tauri://` page. The page names the connection and describes the request
+(URL, method, headers, base64 body); the shell reads `key:<id>`, refuses a
+URL whose origin is not the saved endpoint's (so a hand-edited connection
+list cannot move the key), refuses a credential header from the page, adds
+`Authorization: Bearer <key>` itself, and sends only `https`, or `http` to
+`localhost` or `127.0.0.1`. A connection with no saved key is sent with none.
+A redirect is not followed. The answer streams back on a channel exactly as
+`account_fetch`'s does (`relay.rs`), so a token stream reads as it arrives;
+`connection_fetch_cancel` stops one. A refusal is a `ConnectionFetchError`
+(`InvalidRequest`, `SchemeRefused`, `OriginRefused`, `KeychainFailed`,
+`SendFailed`), named in `name`; the page's side is `connectionFetch(id)` from
+`@epicenter/auth/tauri`.
+
 ## The keychain
 
 `keychain` is the one way an app reaches the keychain: the refresh token
@@ -72,10 +91,14 @@ epicenter_account::manage(builder, ACCOUNT, &context.config().identifier)
         epicenter_account::account::account_fetch_cancel,
         epicenter_account::keychain::keychain_get,
         epicenter_account::keychain::keychain_set,
+        // An app that connects endpoints adds `CONNECTION_COMMANDS`:
+        epicenter_account::connection::connection_fetch,
+        epicenter_account::connection::connection_fetch_cancel,
     ])
 ```
 
-The app's `build.rs` declares those commands (`COMMANDS`) with
+The app's `build.rs` declares those commands (`COMMANDS`, and
+`CONNECTION_COMMANDS` when it registers them) with
 `tauri_build::AppManifest::new().commands(…)`, and its capability grants
 `allow-<command>` for each. The page:
 
@@ -87,5 +110,5 @@ const { client, ready } = createTauriAuth();
 export const auth = fromAuth(client);
 ```
 
-`cargo test -p epicenter-account`; the page's client is tested in
-`packages/auth/src/tauri.test.ts`.
+`cargo test -p epicenter-account`, which runs a streamed answer from a local
+server; the page's client is tested in `packages/auth/src/tauri.test.ts`.
