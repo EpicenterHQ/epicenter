@@ -5,8 +5,7 @@
 	with the reason it was refused. Delete removes the file.
 -->
 <script lang="ts">
-	import { describeIssues } from '@epicenter/definition/contract';
-	import type { ListedInvalid } from '@epicenter/svelte/client';
+	import { describeIssues, type InvalidNoteOf } from '@epicenter/definition/contract';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -18,7 +17,7 @@
 		save,
 		onDelete,
 	}: {
-		file: Pick<ListedInvalid<NoteCollection>, 'path' | 'text' | 'issues'>;
+		file: Pick<InvalidNoteOf<NoteCollection>, 'path' | 'text' | 'issues'>;
 		/** What the file should read as, in a person's words. */
 		kind: 'note' | 'folder';
 		/** Replace the file with `text`. */

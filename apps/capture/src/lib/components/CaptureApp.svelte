@@ -27,7 +27,7 @@
 	/** One page: the timeline or the one open capture. */
 	const item = $derived(captures.opened);
 	/** Signed in, the captures made here that have not reached the repository yet. */
-	const waiting = $derived(list.items.filter(({ where }) => where === 'device').length);
+	const waiting = $derived(list.items.filter(({ id }) => list.where({ id }) === 'device').length);
 	const status = $derived.by((): StatusLine => {
 		if (list.error !== null)
 			return { label: 'Not readable here', detail: list.error.message, tone: 'error' };

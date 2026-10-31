@@ -1,6 +1,7 @@
 <!-- One capture as its text and thoughts. One body edit holds both until each save answers, wherever the capture's copy is. -->
 <script lang="ts">
 	import { captureBody } from '@epicenter/capture';
+	import { describeIssues } from '@epicenter/definition/contract';
 	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
@@ -15,7 +16,7 @@
 
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { createCaptureActions, locateThought } from '$lib/capture-actions.svelte.js';
-	import { type Captures, captureText, describeIssues, instantOf } from '$lib/captures.svelte.js';
+	import { type Captures, captureText, instantOf } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 
@@ -182,7 +183,7 @@
 			{:else}
 				Capture with no date
 			{/if}
-			{#if captures.uploads && note?.where === 'device'}
+			{#if captures.uploads && note && captures.list.where({ id: note.id }) === 'device'}
 				<Badge variant="outline" class="ml-2 align-middle font-normal text-muted-foreground">Not uploaded yet</Badge>
 			{/if}
 		</h1>

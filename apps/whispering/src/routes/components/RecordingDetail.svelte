@@ -84,7 +84,7 @@
 		{:else}
 			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="recording-title-text">{own}</h2>
 		{/if}
-		{#if note?.where === 'device' && whispering.signedIn}<Badge variant="outline" data-testid="not-uploaded">Not uploaded yet</Badge>{/if}
+		{#if note && whispering.notUploaded('recordings', note.id)}<Badge variant="outline" data-testid="not-uploaded">Not uploaded yet</Badge>{/if}
 		{#if onClose}
 			<Button variant="ghost" size="icon-sm" tooltip="Close details" aria-label="Close details" onclick={onClose} data-testid="close-detail">
 				<XIcon />
@@ -171,7 +171,7 @@
 						</dd>
 						<dt class="text-muted-foreground">Kept in</dt>
 						<dd data-testid="kept-in">
-							{note.where === 'device' ? 'This browser (not uploaded yet)' : 'Your repository'}{#if audio.kind === 'here' && audio.file.cached}; its audio is also cached in this browser{/if}
+							{whispering.whereOf('recordings', note.id) === 'device' ? 'This browser (not uploaded yet)' : 'Your repository'}{#if audio.kind === 'here' && audio.file.cached}; its audio is also cached in this browser{/if}
 						</dd>
 						<dt class="text-muted-foreground">Transcribes with</dt>
 						<dd class="min-w-0 break-words">

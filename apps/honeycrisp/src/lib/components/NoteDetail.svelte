@@ -91,7 +91,7 @@
 				class="ml-auto"
 				size="sm"
 				variant="ghost-destructive"
-				onclick={() => confirmDeleteNote(app, { id, label: noteLabel(note), where: note.where })}
+				onclick={() => confirmDeleteNote(app, { id, label: noteLabel(note) })}
 			>
 				Delete
 			</Button>
@@ -101,7 +101,7 @@
 			file={invalid}
 			kind="note"
 			save={(text) => notes.replace({ id }, text)}
-			onDelete={() => confirmDeleteNote(app, { id, label: `${id}.md`, where: invalid.where })}
+			onDelete={() => confirmDeleteNote(app, { id, label: `${id}.md` })}
 		/>
 	{:else}
 		<Empty.Root class="flex-1">

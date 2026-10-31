@@ -16,7 +16,6 @@ import type { Client, NoteOf } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
 import {
 	type CaptureQueue,
-	type ListedNote,
 	type OneList,
 	oneList,
 	type ReactiveClient,
@@ -31,10 +30,8 @@ export type { Side };
 export type NoteCollection = Honeycrisp['collections']['notes'];
 export type FolderCollection = Honeycrisp['collections']['folders'];
 
-/** A note as the list shows it, with where its copy is. */
-export type Note = ListedNote<NoteCollection>;
-/** A folder as the list shows it, with where its copy is. */
-export type Folder = ListedNote<FolderCollection>;
+export type Note = NoteOf<NoteCollection>;
+export type Folder = NoteOf<FolderCollection>;
 export type NoteList = OneList<NoteCollection>;
 export type FolderList = OneList<FolderCollection>;
 

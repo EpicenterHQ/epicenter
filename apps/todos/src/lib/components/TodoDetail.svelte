@@ -66,7 +66,7 @@
 	}
 
 	function confirmDelete(label: string) {
-		const where = (todo ?? invalid)?.where === 'repository' ? 'your repository' : 'this device';
+		const where = todos.where({ id }) === 'repository' ? 'your repository' : 'this device';
 		confirmationDialog.open({
 			title: `Delete “${label}”?`,
 			description: `This deletes ${path} from ${where}.`,

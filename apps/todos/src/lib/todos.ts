@@ -9,7 +9,6 @@
 import type { NoteOf } from '@epicenter/definition/contract';
 import {
 	type CaptureQueue,
-	type ListedNote,
 	type OneList,
 	oneList,
 	type ReactiveNotes,
@@ -21,9 +20,6 @@ import { todos } from './contract.js';
 export type TodoNotes = Todos['collections']['todos'];
 
 export type Todo = NoteOf<TodoNotes>;
-
-/** A todo as the list shows it, with where its copy is. */
-export type TodoRow = ListedNote<TodoNotes>;
 
 /** The file of the todo `id`. */
 export const todoPath = (id: string) =>

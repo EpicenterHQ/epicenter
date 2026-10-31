@@ -8,7 +8,7 @@
 -->
 <script lang="ts">
 	import { capture, capturePath } from '@epicenter/capture';
-	import { type ClientError, readNoteText, type Version } from '@epicenter/definition/contract';
+	import { type ClientError, describeIssues, readNoteText, type Version } from '@epicenter/definition/contract';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -16,7 +16,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { onDestroy, untrack } from 'svelte';
-	import { type Captures, captureText, describeIssues, readCaptureBody } from '$lib/captures.svelte.js';
+	import { type Captures, captureText, readCaptureBody } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 

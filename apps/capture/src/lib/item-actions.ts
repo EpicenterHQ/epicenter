@@ -12,10 +12,7 @@ import type { Captures } from './captures.svelte.js';
 export function confirmDelete(captures: Captures, id: string) {
 	const deletion = captures.deletionFor(id);
 	const named = deletion.title ? `“${deletion.title}” ` : 'This capture ';
-	const inRepository =
-		captures.list.get({ id })?.where === 'repository' ||
-		captures.list.invalid.find((file) => file.id === id)?.where ===
-			'repository';
+	const inRepository = captures.list.where({ id }) === 'repository';
 	confirmationDialog.open({
 		title: 'Delete this capture?',
 		description: inRepository

@@ -20,7 +20,8 @@
 	const invalid = $derived(folders.invalid.find((file) => file.id === id));
 	const repaired = $derived(folders.get({ id }));
 
-	function confirmDelete(where: 'device' | 'repository') {
+	function confirmDelete() {
+		const where = folders.where({ id });
 		confirmationDialog.open({
 			title: `Delete ${id}.md?`,
 			description: `This deletes ${folderPath(id)} from ${where === 'repository' ? 'your repository' : 'this device'}. Notes that name it are kept, in All Notes.`,
@@ -39,7 +40,7 @@
 			file={invalid}
 			kind="folder"
 			save={(text) => folders.replace({ id }, text)}
-			onDelete={() => confirmDelete(invalid.where)}
+			onDelete={confirmDelete}
 		/>
 	{:else if repaired}
 		<Empty.Root class="flex-1">

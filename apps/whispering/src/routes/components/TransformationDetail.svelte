@@ -205,7 +205,7 @@
 		{:else}
 			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="transformation-title-text">{own}</h2>
 		{/if}
-		{#if note?.where === 'device' && whispering.signedIn}<Badge variant="outline">Not uploaded yet</Badge>{/if}
+		{#if note && whispering.notUploaded('transformations', note.id)}<Badge variant="outline">Not uploaded yet</Badge>{/if}
 	</div>
 	{#if title.error}
 		<div class="px-4 pt-2"><UnsavedEdit edit={title} /></div>

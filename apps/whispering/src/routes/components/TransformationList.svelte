@@ -84,7 +84,7 @@
 				>
 					<span class="flex items-center gap-2">
 						<span class="truncate font-medium">{titleOf(entry)}</span>
-						{#if entry.where === 'device' && whispering.signedIn}<Badge variant="outline">Not uploaded yet</Badge>{/if}
+						{#if whispering.notUploaded('transformations', entry.id)}<Badge variant="outline">Not uploaded yet</Badge>{/if}
 					</span>
 					<span class="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
 						<span>{model ?? 'The text connection’s model'}</span>

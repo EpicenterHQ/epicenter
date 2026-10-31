@@ -57,7 +57,7 @@
 	function confirmDelete(folder: Folder) {
 		confirmationDialog.open({
 			title: `Delete the folder “${folderLabel(folder)}”?`,
-			description: `This deletes ${folderPath(folder.id)} from ${folder.where === 'repository' ? 'your repository' : 'this device'}. Its notes are kept, in All Notes.`,
+			description: `This deletes ${folderPath(folder.id)} from ${folders.where({ id: folder.id }) === 'repository' ? 'your repository' : 'this device'}. Its notes are kept, in All Notes.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				const { error } = await app.deleteFolder(folder.id);
@@ -124,7 +124,7 @@
 		{#if naming?.id === folder.id}
 			{@render nameInput()}
 		{:else}
-			<div class="group flex items-center" data-folder={folder.id} data-where={folder.where}>
+			<div class="group flex items-center" data-folder={folder.id} data-where={folders.where({ id: folder.id })}>
 				<button
 					class={row}
 					class:bg-accent={app.view.folderId === folder.id}

@@ -59,8 +59,10 @@ const todos = oneList(contract, 'todos', {
 });
 ```
 
-- A note on both sides is mid-upload, and shows the device copy; each row
-  says where its copy is (`where`).
+- A note on both sides is mid-upload, and shows the device copy.
+  `todos.where({ id })` says which side the copy shown is on (`'device'`
+  while it waits to upload). Rows are the notes as read, with nothing added,
+  so a row can be written back as front matter as it is.
 - Writes go to the copy shown. One that finds the device copy gone (the
   upload let go of it meanwhile) follows the note to the repository over the
   same base.
@@ -70,8 +72,6 @@ const todos = oneList(contract, 'todos', {
   the note stays on the device, recorded in the outbox to upload. With
   `createOn: 'device'` every new note goes to the device and the outbox, so
   creating never waits on the server (Capture's Add); the uploader moves it.
-- A row carries `where` beside the note's own keys. Drop it before treating
-  a row as front matter (writing its text, comparing fields).
 - `error` is the device's; `repositoryError` says the repository could not
   be listed, while new notes still save to the device.
 

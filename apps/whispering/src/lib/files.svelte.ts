@@ -23,12 +23,12 @@
 import type {
 	Client,
 	InvalidNoteOf,
+	NoteOf,
 	Version,
 } from '@epicenter/definition/contract';
 import { cacheOf, outboxOf, saveCapture } from '@epicenter/folder/browser';
 import {
 	fromClient,
-	type ListedNote,
 	type OneList,
 	oneList,
 	type Side,
@@ -42,18 +42,18 @@ type Collections = Whispering['collections'];
 /** The note collections, by name. */
 export type NoteName = Exclude<keyof Collections, 'audio'>;
 
-/** A note of `name` as the lists show it: its fields, body, version, and side. */
-export type Listed<TName extends NoteName> = ListedNote<Collections[TName]>;
+/** A note of `name` as the lists show it: its fields, body and version. */
+export type Listed<TName extends NoteName> = NoteOf<Collections[TName]>;
 export type RecordingNote = Listed<'recordings'>;
 export type TranscriptionNote = Listed<'transcriptions'>;
 export type TransformationNote = Listed<'transformations'>;
 export type TransformationRunNote = Listed<'transformation_runs'>;
 export type TextRunNote = Listed<'text_runs'>;
 
-/** A note at one of `name`'s paths that does not read, with its text and side. */
+/** A note at one of `name`'s paths that does not read, with its text. */
 export type InvalidNote<TName extends NoteName> = InvalidNoteOf<
 	Collections[TName]
-> & { where: Side };
+>;
 
 /** One audio file a recording has, and where the copy that would be read is. */
 export type AudioFile = {

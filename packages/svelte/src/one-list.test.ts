@@ -103,8 +103,10 @@ function listOver(
 /** Read `list` in an effect, as a view does, until both sides have listed. */
 async function shown(list: ReturnType<typeof listOver>) {
 	const rows = follow(() => ({
-		items: list.items.map(({ id, where, title }) => `${where}:${id}:${title}`),
-		invalid: list.invalid.map(({ id, where }) => `${where}:${id}`),
+		items: list.items.map(
+			({ id, title }) => `${list.where({ id })}:${id}:${title}`,
+		),
+		invalid: list.invalid.map(({ id }) => `${list.where({ id })}:${id}`),
 	}));
 	await until(() => !list.loading);
 	return {
@@ -152,6 +154,30 @@ test('a note on both sides shows the device copy, in the order the app gives', a
 		'repository:a:A',
 	]);
 	openFirst.stop();
+});
+
+test('the side a note shows from is kept outside its fields: its own `where` key stays its own', async () => {
+	const device = await side({
+		'todos/a.md': '---\ntitle: A\ndone: false\nwhere: home\n---\n',
+		'todos/d.md': '---\ntitle: D\n---\n',
+	});
+	const repository = await side({ 'todos/b.md': note('B') });
+	const list = listOver(device.client, repository.client);
+	const view = await shown(list);
+
+	expect(view.latest()).toEqual({
+		items: ['device:a:A', 'repository:b:B'],
+		invalid: ['device:d'],
+	});
+	expect((list.get({ id: 'a' }) as Record<string, unknown>).where).toBe('home');
+	expect(Object.keys(list.get({ id: 'b' }) ?? {})).not.toContain('where');
+	expect(list.where({ id: 'gone' })).toBeUndefined();
+
+	expectOk(await list.update({ id: 'a' }, { done: true }));
+	expect(await device.text('todos/a.md')).toBe(
+		'---\ntitle: A\ndone: true\nwhere: home\n---\n',
+	);
+	view.stop();
 });
 
 test('signed out, a new note stays on this device, recorded in the outbox', async () => {

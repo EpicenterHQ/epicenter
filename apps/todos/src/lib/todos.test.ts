@@ -57,7 +57,7 @@ test('open todos come first, then done ones, each oldest first, from either side
 		outbox: outboxOf(device),
 	});
 	const rows = follow(() =>
-		list.items.map(({ id, where }) => `${where}:${id}`),
+		list.items.map(({ id }) => `${list.where({ id })}:${id}`),
 	);
 	for (let turn = 0; turn < 400 && list.loading; turn++) {
 		await Bun.sleep(5);

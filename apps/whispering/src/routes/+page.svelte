@@ -80,7 +80,7 @@
 				<div class="flex items-center gap-2 text-sm">
 					<h2 class="min-w-0 flex-1 truncate font-medium">{titleOf(latest)}</h2>
 					{#if latest.capture === 'fixture'}<Badge variant="outline">Fixture</Badge>{/if}
-					{#if latest.where === 'device' && whispering.signedIn}<Badge variant="outline" data-testid="not-uploaded">Not uploaded yet</Badge>{/if}
+					{#if whispering.notUploaded('recordings', latest.id)}<Badge variant="outline" data-testid="not-uploaded">Not uploaded yet</Badge>{/if}
 					<span class="shrink-0 text-xs text-muted-foreground max-sm:hidden">{formatTime(latest.recordedAt, 'short')}</span>
 				</div>
 

@@ -217,7 +217,7 @@ export function createWhispering({
 			(count, list) =>
 				count +
 				[...list.items, ...list.invalid].filter(
-					(note) => note.where === 'device',
+					({ id }) => list.where({ id }) === 'device',
 				).length,
 			0,
 		),
@@ -452,6 +452,14 @@ export function createWhispering({
 		/** Notes still on this device, not uploaded yet. */
 		get waiting() {
 			return waiting;
+		},
+		/** Which side the copy shown of the note `id` of `collection` is on. */
+		whereOf(collection: NoteName, id: string) {
+			return files[collection].where({ id });
+		},
+		/** Whether the note `id` of `collection` is still on this device while signed in: not uploaded yet. */
+		notUploaded(collection: NoteName, id: string) {
+			return files.signedIn && files[collection].where({ id }) === 'device';
 		},
 		/** The selected transformation, resolved against the lists and the connection. */
 		get postProcessing(): PostProcessingChoice {

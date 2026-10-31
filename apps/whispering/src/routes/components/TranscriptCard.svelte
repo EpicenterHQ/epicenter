@@ -52,7 +52,7 @@
 	}
 </script>
 
-<article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result" data-where={result.where}>
+<article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result" data-where={whispering.whereOf('transcriptions', result.id)}>
 	<Textarea
 		class="min-h-32 resize-y font-sans"
 		bind:value={() => text, (value) => (body.value = value)}
@@ -63,7 +63,7 @@
 	<UnsavedEdit edit={body} />
 	<footer class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 		<span>{formatTime(result.createdAt) || 'Unknown time'} · {result.model}</span>
-		{#if result.where === 'device' && whispering.signedIn}<Badge variant="outline">Not uploaded yet</Badge>{/if}
+		{#if whispering.notUploaded('transcriptions', result.id)}<Badge variant="outline">Not uploaded yet</Badge>{/if}
 		<span class="ml-auto flex items-center gap-1">
 			<Button size="xs" variant="outline" disabled={!text?.trim()} onclick={() => void copyText(text ?? '', 'the transcript')} data-testid="copy-transcript">
 				Copy

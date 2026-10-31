@@ -19,12 +19,14 @@ import {
 	excerpt,
 	type InvalidCapture,
 } from '@epicenter/capture';
-import { type ClientError, noteText } from '@epicenter/definition/contract';
+import {
+	type ClientError,
+	describeIssues,
+	noteText,
+} from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
 import {
 	type CaptureQueue,
-	type ListedInvalid,
-	type ListedNote,
 	type OneList,
 	oneList,
 	type ReactiveNotes,
@@ -35,7 +37,6 @@ import { Ok, type Result } from 'wellcrafted/result';
 import type { TextRange } from './capture-actions.svelte.js';
 
 export type CaptureList = OneList<CaptureNotes>;
-export type ListedCapture = ListedNote<CaptureNotes>;
 export type Captures = ReturnType<typeof createCaptures>;
 export type Mode = 'capture' | 'text';
 export type Focus = 'new-thought' | TextRange;
@@ -88,29 +89,22 @@ export function newestFirst(
 	return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
 
-/** Why a note does not read as a capture, in a line. */
-export const describeIssues = (
-	issues: readonly { field: string; message: string }[],
-) => issues.map(({ message }) => message).join('; ');
-
-/**
- * The house-style text of a capture as shown: its file's text when Capture
- * or Epicenter wrote it. The list's `where` (which copy shows) is not front
- * matter, so it is left out.
- */
-export function captureText(note: ListedCapture | CaptureNote) {
-	const { where: _where, ...shown } = note as ListedCapture;
-	return noteText(capture.collections.captures, shown as CaptureNote);
-}
+/** The house-style text of a capture as shown: its file's text when Capture or Epicenter wrote it. */
+export const captureText = (note: CaptureNote) =>
+	noteText(capture.collections.captures, note);
 
 /** The text and thoughts of a capture's body, or why its Thoughts are ambiguous. */
 export const readCaptureBody = (note: Pick<CaptureNote, 'body'>) =>
 	captureBody.decode(note.body);
 
-/** What the timeline shows: captures, files that open as text to repair, and files that are not text. */
+/**
+ * What the timeline shows: captures, files that open as text to repair, and
+ * files that are not text. `whereOf` says which side a capture's copy is on.
+ */
 export function timelineOf(
-	items: readonly ListedCapture[],
-	invalid: readonly (InvalidCapture | ListedInvalid<CaptureNotes>)[],
+	items: readonly CaptureNote[],
+	invalid: readonly InvalidCapture[],
+	whereOf: (id: string) => Side,
 ) {
 	const rows: TimelineRow[] = [];
 	const repairs: Repair[] = [];
@@ -130,7 +124,7 @@ export function timelineOf(
 			capturedAt: instantOf(note.capturedAt),
 			preview: excerpt(reading.data.text),
 			thoughtCount: reading.data.thoughts.length,
-			where: note.where,
+			where: whereOf(note.id),
 		});
 	}
 	for (const file of invalid) {
@@ -179,7 +173,13 @@ export function createCaptures(
 ) {
 	let opened = $state.raw<Opened | undefined>();
 	let navigation = 0;
-	const timeline = $derived(timelineOf(list.items, list.invalid));
+	const timeline = $derived(
+		timelineOf(
+			list.items,
+			list.invalid,
+			(id) => list.where({ id }) ?? 'device',
+		),
+	);
 
 	/** Open `id` as asked, unless a later navigation came first; a capture that does not read opens as text. */
 	function go(requested: number, id: string, mode: Mode, focus?: Focus) {

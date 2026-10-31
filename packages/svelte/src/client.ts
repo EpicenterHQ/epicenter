@@ -60,8 +60,6 @@ import { edit } from './edit.svelte.js';
 
 export {
 	type CaptureQueue,
-	type ListedInvalid,
-	type ListedNote,
 	type OneList,
 	oneList,
 	type Side,

@@ -80,7 +80,9 @@ test('notes come newest first and folders by name, from either side', async () =
 		outbox: outboxOf(device.client),
 	});
 	const shown = follow(() => ({
-		notes: lists.notes.items.map(({ id, where }) => `${where}:${id}`),
+		notes: lists.notes.items.map(
+			({ id }) => `${lists.notes.where({ id })}:${id}`,
+		),
 		folders: lists.folders.items.map(({ name }) => name),
 	}));
 	await until(() => !lists.notes.loading && !lists.folders.loading);
@@ -141,7 +143,6 @@ test('deleting a folder deletes its file alone; its notes keep naming it and sho
 
 test('search matches a note’s title or text, within the folder shown', () => {
 	const at = {
-		where: 'device',
 		version: '',
 		createdAt: '2026-10-31T00:00:00.000Z',
 	} as const;

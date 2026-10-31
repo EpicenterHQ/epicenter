@@ -20,7 +20,8 @@
 	const signedIn = $derived(auth.state.status !== 'signed-out');
 	/** Signed in, the notes and folders made here that have not reached the repository yet. */
 	const waiting = $derived(
-		[...notes.items, ...folders.items].filter(({ where }) => where === 'device').length,
+		notes.items.filter(({ id }) => notes.where({ id }) === 'device').length +
+			folders.items.filter(({ id }) => folders.where({ id }) === 'device').length,
 	);
 	const status = $derived.by((): StatusLine => {
 		const unreadable = notes.error ?? folders.error;

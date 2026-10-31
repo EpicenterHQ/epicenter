@@ -7,7 +7,9 @@
  *
  * - A note on both sides is mid-upload: the device's copy shows until the
  *   device lets go of it, which it does only once the server's reply shows
- *   the copy landed. Each row says where its copy is (`where`).
+ *   the copy landed. `where(args)` says which side a note's copy is on; the
+ *   rows themselves are the notes as read, so a front matter key of the
+ *   same name stays the note's own.
  * - Edits, repairs and deletes go to the copy shown. One that meets the
  *   device copy already gone (the upload let go of it meanwhile) follows
  *   the note to the repository, over the same base: `updateNote` judges
@@ -53,35 +55,28 @@ type Unavailable = InferError<typeof ClientError.Unavailable>;
 /** Where the copy a row shows lives: still on this device, or in the repository. */
 export type Side = 'device' | 'repository';
 
-/** A note as the list shows it, with where its copy is. */
-export type ListedNote<TCollection extends Collection> = NoteOf<TCollection> & {
-	where: Side;
-};
-
-/** A note at one of the collection's paths that does not read, with where it is. */
-export type ListedInvalid<TCollection extends Collection> =
-	InvalidNoteOf<TCollection> & { where: Side };
-
 /** One note collection over both sides, as Svelte state. */
-export type OneList<TCollection extends Collection> = Omit<
-	ReactiveNotes<TCollection>,
-	'items' | 'invalid' | 'get'
-> & {
-	/** Every note that reads, in `order`. */
-	readonly items: readonly ListedNote<TCollection>[];
-	/** The notes that do not read, with their text, by placeholders. */
-	readonly invalid: readonly ListedInvalid<TCollection>[];
-	/** True until both sides have listed once. */
-	readonly loading: boolean;
-	/** Why the device could not be listed; what it showed before stays. */
-	readonly error: Unavailable | null;
-	/**
-	 * Why the repository could not be listed (offline, or the server
-	 * refused); its last listing stays, and new notes wait on the device.
-	 */
-	readonly repositoryError: Unavailable | null;
-	get(args: PlaceholdersOf<TCollection>): ListedNote<TCollection> | undefined;
-};
+export type OneList<TCollection extends Collection> =
+	ReactiveNotes<TCollection> & {
+		/** Every note that reads, in `order`. */
+		readonly items: readonly NoteOf<TCollection>[];
+		/** The notes that do not read, with their text, by placeholders. */
+		readonly invalid: readonly InvalidNoteOf<TCollection>[];
+		/** True until both sides have listed once. */
+		readonly loading: boolean;
+		/** Why the device could not be listed; what it showed before stays. */
+		readonly error: Unavailable | null;
+		/**
+		 * Why the repository could not be listed (offline, or the server
+		 * refused); its last listing stays, and new notes wait on the device.
+		 */
+		readonly repositoryError: Unavailable | null;
+		/**
+		 * Where the copy shown for the note `args` names is (read or not): still
+		 * on this device, or in the repository; undefined when none is shown.
+		 */
+		where(args: PlaceholdersOf<TCollection>): Side | undefined;
+	};
 
 /** What `oneList` needs of the device's outbox (`outboxOf(device)`): recording a capture. */
 export type CaptureQueue = {
@@ -113,7 +108,6 @@ const OneListDiagnostic = defineErrors({
 });
 
 type Entry = Record<string, unknown> & { version: Version };
-type Row = Entry & { where: Side };
 type Written = Result<unknown, { name: string; current?: unknown }>;
 
 /** The device copy is gone: the note moved to the repository (or was deleted) meanwhile. */
@@ -147,8 +141,8 @@ export function oneList<
 		repository: ReactiveNotes<TContract['collections'][TName]> | null;
 		outbox?: CaptureQueue | null;
 		order?: (
-			a: ListedNote<TContract['collections'][TName]>,
-			b: ListedNote<TContract['collections'][TName]>,
+			a: NoteOf<TContract['collections'][TName]>,
+			b: NoteOf<TContract['collections'][TName]>,
 		) => number;
 		createOn?: Side;
 	},
@@ -166,7 +160,7 @@ export function oneList<
 		const [x, y] = [keyOf(a), keyOf(b)];
 		return x < y ? -1 : x > y ? 1 : 0;
 	};
-	const sort = (order as ((a: Row, b: Row) => number) | undefined) ?? byKey;
+	const sort = (order as ((a: Entry, b: Entry) => number) | undefined) ?? byKey;
 	const sides = { device, repository } as {
 		device: Notes;
 		repository: Notes | null;
@@ -185,7 +179,30 @@ export function oneList<
 	/** Notes deleted here from the device: gone for good, not held. */
 	const deleted = new Set<string>();
 
+	/** What `merged` last answered, and the side listings it answered for. */
+	let last:
+		| {
+				over: readonly unknown[];
+				items: Entry[];
+				invalid: Entry[];
+				sides: Map<string, Side>;
+		  }
+		| undefined;
+
+	/**
+	 * Both sides as one list, and which side each note's copy is on. Reading
+	 * it tracks both sides; it is worked out again only when a side's listing
+	 * changed, so a view may ask `where` per row.
+	 */
 	function merged() {
+		const over = [
+			sides.device.items,
+			sides.device.invalid,
+			sides.repository?.items,
+			sides.repository?.invalid,
+			sides.repository?.error,
+		];
+		if (last?.over.every((input, at) => input === over[at])) return last;
 		const onDevice = [
 			...sides.device.items.map((row) => ({ row, invalid: false })),
 			...sides.device.invalid.map((row) => ({ row, invalid: true })),
@@ -220,14 +237,19 @@ export function oneList<
 		lastOnDevice = new Map(onDevice.map((shown) => [keyOf(shown.row), shown]));
 		for (const key of deleted) if (!deviceKeys.has(key)) deleted.delete(key);
 
-		const there = (side: Side) => (row: Entry) => ({ ...row, where: side });
+		const where = new Map<string, Side>();
+		const there = (side: Side) => (row: Entry) => {
+			where.set(keyOf(row), side);
+			return row;
+		};
 		const repositoryOnly = (rows: readonly Entry[]) =>
 			rows.filter((row) => !deviceKeys.has(keyOf(row)));
 		const stillHeld = (invalid: boolean) =>
 			[...held.values()]
 				.filter((shown) => shown.invalid === invalid)
 				.map(({ row }) => row);
-		return {
+		last = {
+			over,
 			items: [
 				...(sides.device.items as readonly Entry[]).map(there('device')),
 				...repositoryOnly(repositoryItems).map(there('repository')),
@@ -238,7 +260,9 @@ export function oneList<
 				...repositoryOnly(repositoryInvalid).map(there('repository')),
 				...stillHeld(true).map(there('repository')),
 			].sort(byKey),
+			sides: where,
 		};
+		return last;
 	}
 
 	/** The side whose copy shows: the device while it holds one, read or not. */
@@ -285,6 +309,7 @@ export function oneList<
 			return sides.repository?.error ?? null;
 		},
 		get,
+		where: (args: Record<string, unknown>) => merged().sides.get(keyOf(args)),
 		async create(value: Record<string, unknown>) {
 			if (sides.repository !== null && createOn === 'repository') {
 				const created = await sides.repository.create(value as never);

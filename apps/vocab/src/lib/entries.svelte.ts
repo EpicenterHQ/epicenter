@@ -3,7 +3,7 @@
  * words that read, newest first; the notes that do not, to repair as text;
  * and adding, editing, and deleting a word.
  */
-import type { OneList, Side } from '@epicenter/svelte/client';
+import type { OneList } from '@epicenter/svelte/client';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -56,19 +56,13 @@ async function wordId(text: string): Promise<string> {
 		.join('');
 }
 
-/**
- * The words that read, newest first. With `uploads`, a word whose copy is
- * still on this device is `waiting`: not uploaded yet.
- */
+/** The words that read, newest first, each `waiting` (not uploaded yet) as `waiting` says. */
 export function wordsOf(
-	notes: readonly (EntryNote & { where?: Side })[],
-	uploads = false,
+	notes: readonly EntryNote[],
+	waiting: (id: string) => boolean = () => false,
 ): Entry[] {
 	return notes
-		.map((note) => ({
-			...readEntry(note),
-			waiting: uploads && note.where === 'device',
-		}))
+		.map((note) => ({ ...readEntry(note), waiting: waiting(note.id) }))
 		.sort(
 			(a, b) =>
 				b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
@@ -83,7 +77,11 @@ export function createEntries(
 		/** The one list itself, for editors (`fieldEdit`) and repair (`NoteRepair`). */
 		list,
 		get words() {
-			return wordsOf(list.items, uploads);
+			// Signed in, a word whose copy is still on this device has not uploaded yet.
+			return wordsOf(
+				list.items,
+				(id) => uploads && list.where({ id }) === 'device',
+			);
 		},
 		get repairs(): EntryRepair[] {
 			return list.invalid

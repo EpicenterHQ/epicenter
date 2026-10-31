@@ -94,7 +94,8 @@ test('a recording is kept at Stop as one capture on this device, queued to uploa
 	const { test, whispering } = await fixture();
 	const recording = await record(whispering);
 
-	expect(recording).toMatchObject({ capture: 'fixture', where: 'device' });
+	expect(recording).toMatchObject({ capture: 'fixture' });
+	expect(whispering.whereOf('recordings', recording.id)).toBe('device');
 	expect(recording.durationMs).toBe(1000);
 	await eventually(() => whispering.audioOf(recording.id).kind === 'here');
 	expect(whispering.audioOf(recording.id)).toMatchObject({
@@ -122,8 +123,13 @@ test('signed out, a transcription sends the device’s audio and keeps its trans
 		recordingId: recording.id,
 		model: 'verification-model',
 		body: 'um so a steady tone\n',
-		where: 'device',
 	});
+	expect(
+		whispering.whereOf(
+			'transcriptions',
+			whispering.resultsFor(recording.id)[0]!.id,
+		),
+	).toBe('device');
 	expect(whispering.transcriptionRun(recording.id)).toBeUndefined();
 });
 
@@ -187,7 +193,9 @@ test('signed in, audio is read from this device’s cache before the repository 
 	expect(downloads).toBe(0);
 	// The transcript goes to the repository, where the recording is.
 	await eventually(() => whispering.resultsFor(id).length === 1);
-	expect(whispering.resultsFor(id)[0]!.where).toBe('repository');
+	expect(
+		whispering.whereOf('transcriptions', whispering.resultsFor(id)[0]!.id),
+	).toBe('repository');
 	expect(
 		await readdir(join(test.root, 'repository', 'transcriptions')),
 	).toHaveLength(1);
@@ -243,8 +251,13 @@ test('a transformation of a transcript, and of pasted text, keeps its result onc
 		prompt: 'Fix it.',
 		input: 'um so a steady tone\n',
 		body: 'Transformed: um so a steady tone\n',
-		where: 'repository',
 	});
+	expect(
+		whispering.whereOf(
+			'transformation_runs',
+			whispering.outputsFor(transcript.id)[0]!.id,
+		),
+	).toBe('repository');
 	await eventually(() => whispering.textOutputsOf(recipe.id).length === 1);
 	expect(whispering.textOutputsOf(recipe.id)[0]!.body).toBe(
 		'Transformed: pasted words\n',
@@ -388,8 +401,8 @@ test('a note that does not read is listed for repair, and replaced as text', asy
 	expect(whispering.repairs[0]).toMatchObject({
 		collection: 'recordings',
 		id,
-		where: 'device',
 	});
+	expect(whispering.whereOf('recordings', id)).toBe('device');
 
 	expect(
 		await whispering.replace(

@@ -41,7 +41,7 @@
 		{#if output.source === 'text' && naming === 'source' && note.input}
 			<span class="min-w-0 flex-1 truncate text-muted-foreground" title={note.input}>{note.input.trim()}</span>
 		{/if}
-		{#if note.where === 'device' && whispering.signedIn}<Badge variant="outline">Not uploaded yet</Badge>{/if}
+		{#if whispering.notUploaded(output.source === 'text' ? 'text_runs' : 'transformation_runs', note.id)}<Badge variant="outline">Not uploaded yet</Badge>{/if}
 	</header>
 	<p class="whitespace-pre-wrap" data-testid="result-text">{note.body.trim() || '(empty result)'}</p>
 	<footer class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">

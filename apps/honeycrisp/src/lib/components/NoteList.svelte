@@ -99,7 +99,7 @@
 					<h3 class="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground">{group.label}</h3>
 					<ul>
 						{#each group.notes as note (note.id)}
-							<li data-id={note.id} data-where={note.where}>
+							<li data-id={note.id} data-where={notes.where({ id: note.id })}>
 								<ContextMenu.Root>
 									<ContextMenu.Trigger>
 										<button
@@ -119,7 +119,7 @@
 												</span>
 											</span>
 											<span class="line-clamp-2 text-xs text-muted-foreground">{previewText(note.body) || 'No text'}</span>
-											{#if signedIn && note.where === 'device'}
+											{#if signedIn && notes.where({ id: note.id }) === 'device'}
 												<Badge variant="outline" class="mt-1 w-fit">not uploaded yet</Badge>
 											{/if}
 										</button>
@@ -149,7 +149,7 @@
 											</ContextMenu.SubContent>
 										</ContextMenu.Sub>
 										<ContextMenu.Separator />
-										<ContextMenu.Item variant="destructive" onSelect={() => confirmDeleteNote(app, { id: note.id, label: noteLabel(note), where: note.where })}>
+										<ContextMenu.Item variant="destructive" onSelect={() => confirmDeleteNote(app, { id: note.id, label: noteLabel(note) })}>
 											Delete…
 										</ContextMenu.Item>
 									</ContextMenu.Content>

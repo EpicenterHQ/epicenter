@@ -332,7 +332,7 @@
 							onclick={() => void openRow(row.id)}
 							data-testid="recording-row"
 							data-id={row.id}
-							data-where={row.note.where}
+							data-where={whispering.whereOf('recordings', row.note.id)}
 						>
 							<Table.Cell class="ps-3 sm:ps-4" onclick={(event) => event.stopPropagation()}>
 								<Checkbox
@@ -357,7 +357,7 @@
 											{row.title}
 										</button>
 										{#if row.note.capture === 'fixture'}<Badge variant="outline" class="shrink-0">Fixture</Badge>{/if}
-										{#if row.note.where === 'device' && whispering.signedIn}<Badge variant="outline" class="shrink-0" data-testid="row-not-uploaded">Not uploaded yet</Badge>{/if}
+										{#if whispering.notUploaded('recordings', row.note.id)}<Badge variant="outline" class="shrink-0" data-testid="row-not-uploaded">Not uploaded yet</Badge>{/if}
 										{#if row.audio.kind === 'absent'}<Badge variant="outline" class="shrink-0" data-testid="row-audio-absent">No audio</Badge>{/if}
 										{#if row.audio.kind === 'ambiguous'}<Badge variant="outline" class="shrink-0">Multiple audio files</Badge>{/if}
 									</span>

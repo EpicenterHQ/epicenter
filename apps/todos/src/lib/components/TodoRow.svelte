@@ -9,7 +9,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { webAuth } from '$lib/auth.js';
 	import { getTodos } from '$lib/context.js';
-	import { labelOf, type TodoRow } from '$lib/todos.js';
+	import { labelOf, type Todo } from '$lib/todos.js';
 
 	const todos = getTodos();
 	const auth = webAuth();
@@ -19,7 +19,7 @@
 		selected = false,
 		onOpen,
 	}: {
-		todo: TodoRow;
+		todo: Todo;
 		/** Whether the detail shows this todo. */
 		selected?: boolean;
 		onOpen?: (id: string) => void;
@@ -31,6 +31,7 @@
 			toast.error('Could not update todo', { description: error.message });
 	}
 	const label = $derived(labelOf(todo));
+	const where = $derived(todos.where({ id: todo.id }));
 </script>
 
 <li
@@ -38,7 +39,7 @@
 		? 'bg-accent text-accent-foreground'
 		: ''}"
 	data-id={todo.id}
-	data-where={todo.where}
+	data-where={where}
 >
 	<div class="flex items-center gap-2">
 		<Checkbox
@@ -54,7 +55,7 @@
 		>
 			<span class="line-clamp-2 break-anywhere {todo.done ? 'text-muted-foreground line-through' : ''}">{label}</span>
 		</Button>
-		{#if todo.where === 'device' && auth !== null && auth.state.status !== 'signed-out'}
+		{#if where === 'device' && auth !== null && auth.state.status !== 'signed-out'}
 			<Badge variant="outline" class="shrink-0">not uploaded yet</Badge>
 		{/if}
 	</div>

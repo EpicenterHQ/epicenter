@@ -28,7 +28,7 @@
 	const signedIn = $derived(auth !== null && auth.state.status !== 'signed-out');
 	/** Signed in, the todos made here that have not reached the repository yet. */
 	const waiting = $derived(
-		todos.items.filter(({ where }) => where === 'device').length,
+		todos.items.filter(({ id }) => todos.where({ id }) === 'device').length,
 	);
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
