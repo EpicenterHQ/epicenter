@@ -572,12 +572,22 @@ fn stop_reaches_only_a_recording_this_window_started() {
 
     std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
     let path = fixture.root.join("recordings/a.wav");
+    let staged = crate::staging::prepare(&fixture.root, "recordings/a.wav").unwrap();
+    assert_eq!(
+        staged,
+        fixture.root.join(".epicenter/recording/recordings/a.wav")
+    );
     crate::recorder::tests::hold_recording(
         &mut fixture.app.state::<Recorders<MockRuntime>>().lock(),
+        &staged,
         &path,
         "recordings/a.wav",
         "7",
         "main",
+    );
+    assert!(
+        !path.exists(),
+        "a recording is not at its path while it records"
     );
     let refused = invoke(&other, "stop", json!({ "id": "7" })).unwrap_err();
     assert_eq!(name(&refused), "NotRecording", "{refused}");
@@ -590,6 +600,7 @@ fn stop_reaches_only_a_recording_this_window_started() {
         hound::WavReader::open(&path).unwrap().duration(),
         crate::recorder::RECORDING_RATE
     );
+    assert!(!staged.exists());
 }
 
 /// What the plugin does when a window is destroyed: its page can no longer
@@ -598,8 +609,10 @@ fn stop_reaches_only_a_recording_this_window_started() {
 fn a_destroyed_window_finalizes_its_recording() {
     let fixture = fixture();
     let path = fixture.root.join("a.wav");
+    let staged = crate::staging::prepare(&fixture.root, "a.wav").unwrap();
     crate::recorder::tests::hold_recording(
         &mut fixture.app.state::<Recorders<MockRuntime>>().lock(),
+        &staged,
         &path,
         "a.wav",
         "7",
@@ -631,7 +644,7 @@ fn a_destroyed_window_finalizes_its_recording() {
 }
 
 #[test]
-fn recover_repairs_cut_off_recordings_in_the_bound_folder() {
+fn recover_places_cut_off_recordings_in_the_bound_folder() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
     assert_eq!(
@@ -640,7 +653,7 @@ fn recover_repairs_cut_off_recordings_in_the_bound_folder() {
         "a folder without recordings has nothing to repair"
     );
 
-    std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
+    let staged = crate::staging::prepare(&fixture.root, "recordings/a.wav").unwrap();
     let path = fixture.root.join("recordings/a.wav");
     let spec = hound::WavSpec {
         channels: 1,
@@ -648,13 +661,13 @@ fn recover_repairs_cut_off_recordings_in_the_bound_folder() {
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
-    hound::WavWriter::create(&path, spec)
+    hound::WavWriter::create(&staged, spec)
         .unwrap()
         .finalize()
         .unwrap();
     {
         use std::io::Write;
-        let mut file = std::fs::File::options().append(true).open(&path).unwrap();
+        let mut file = std::fs::File::options().append(true).open(&staged).unwrap();
         file.write_all(&[1u8; 3_200]).unwrap();
     }
     assert_eq!(
@@ -662,6 +675,7 @@ fn recover_repairs_cut_off_recordings_in_the_bound_folder() {
         json!(["recordings/a.wav"])
     );
     assert_eq!(hound::WavReader::open(&path).unwrap().duration(), 1_600);
+    assert!(!staged.exists());
     assert_eq!(
         invoke(&main, "recover", json!({ "under": "recordings" })).unwrap(),
         json!([])

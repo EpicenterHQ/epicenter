@@ -19,23 +19,30 @@ export const commands = {
 	/**  Close the meter `id` this window opened, releasing its microphone. */
 	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
 	/**
-	 *  Start recording into `<path>.wav` in `root` (the window's own folder for
+	 *  Start recording `<path>.wav` in `root` (the window's own folder for
 	 *  `None`, or a root its page opened), from the microphone whose id is
 	 *  `device` or the system default. Levels, and an ending nobody asked for,
 	 *  arrive on `signals`.
 	 *
 	 *  The path must be a data path the shared path rule accepts, with nothing at
-	 *  it yet; missing directories on the way are made. Microphone access is
-	 *  asked for before the device is resolved. A refusal opens nothing.
+	 *  it yet. While it records, the file is written in the folder's
+	 *  `.epicenter/recording` (`staging`), with nothing there yet either; `stop`
+	 *  moves it to its path. Missing directories on the way are made.
+	 *  Microphone access is asked for before the device is resolved. A refusal
+	 *  opens nothing.
 	 */
 	start: (root: string | null, path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<StartedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { root, path, device, signals })),
-	/**  Stop the recording `id` this window started and finalize its file. */
+	/**
+	 *  Stop the recording `id` this window started, finalize its file, and move
+	 *  it to its path.
+	 */
 	stop: (id: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop", { id })),
 	/**
-	 *  Rewrite the header of every WAV under `under` in `root` (the window's own
-	 *  folder for `None`, or a root its page opened) whose sizes disagree with
-	 *  its length, and return their folder-relative paths. The recording still
-	 *  being written is left alone. Running it again changes nothing.
+	 *  Repair every recording under `under` in `root` (the window's own folder
+	 *  for `None`, or a root its page opened) that a quit or a crash left in the
+	 *  folder's `.epicenter/recording`, move each to its path, and return those
+	 *  folder-relative paths. The recording still being written is left alone.
+	 *  Running it again changes nothing.
 	 */
 	recover: (root: string | null, under: string) => typedError<string[], RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { root, under })),
 };

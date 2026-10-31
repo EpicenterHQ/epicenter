@@ -266,8 +266,9 @@ export async function syncCommand(
 /**
  * Run a round now, then again whenever a watched folder changes (half a
  * second after the first change) or `interval` seconds pass, until a stop
- * signal ends the process. Changes under `.git`, and those made while a
- * round runs, do not start one.
+ * signal ends the process. Changes under `.git` or the folder's own
+ * `.epicenter` (staged saves, a recording in progress: never committed), and
+ * those made while a round runs, do not start one.
  */
 async function watch(
 	folders: () => Promise<string[]>,
@@ -285,7 +286,8 @@ async function watch(
 					watchDirectory(folder, { recursive: true }, (_event, name) => {
 						if (busy) return;
 						const path = String(name ?? '');
-						if (path === '.git' || path.startsWith('.git/')) return;
+						const top = path.split('/')[0];
+						if (top === '.git' || top === '.epicenter') return;
 						wake();
 					}),
 				);

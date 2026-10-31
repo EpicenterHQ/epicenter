@@ -1,12 +1,14 @@
 /**
  * Recordings written into Whispering's files as they record (ADR-0543,
- * decision 84): on the desktop the shell's WAV from the first sample, in a
- * browser each piece appended as it arrives. The note is made when
- * recording starts, so the files always name what they hold, and completed
- * with the length when it stops. A recording a quit, a crash, or a closed
- * tab cut off has a note without a length beside audio the capture device
- * repairs (`CaptureDevice.recover`); the next start completes its note from
- * the audio's own bytes.
+ * decision 84): on the desktop the shell's WAV from the first sample, kept in
+ * the folder's `.epicenter/recording` until it stops and then moved to
+ * `recordings/<id>.wav`; in a browser each piece appended to its file as it
+ * arrives. The note is made when recording starts, so the files always name
+ * what they hold, and completed with the length when it stops. A recording
+ * a quit, a crash, or a closed tab cut off has a note without a length; the
+ * capture device repairs its audio and, on the desktop, moves it to its path
+ * (`CaptureDevice.recover`); the next start completes its note from the
+ * audio's own bytes.
  */
 import type { Client } from '@epicenter/definition/contract';
 import { audioDurationMs } from '@epicenter/recorder';
@@ -68,13 +70,15 @@ export async function completeRecording(
 const RECORDED = ['wav', 'm4a', 'webm'] as const;
 
 /**
- * Complete every recording whose note has no length while its audio
+ * Complete every recording whose note has no length once its audio
  * (`<id>.<ext>`) is there: what a quit, a crash, or a closed tab cut off.
- * `repair` (the capture device's `recover`) runs first, and only when such a
- * recording exists: in a browser it reads every recording's audio, which no
- * start should pay for when nothing was cut off. Run it before anything
- * records. Answers the ids completed; a note with no audio, or whose audio
- * does not read, is left as it is.
+ * `repair` (the capture device's `recover`) runs first, and only when some
+ * note has no length: on the desktop it is what moves a cut-off recording
+ * from `.epicenter/recording` to its path, so its audio is not there before
+ * it runs; in a browser it reads every recording's audio, which no start
+ * should pay for when nothing was cut off. Run it before anything records.
+ * Answers the ids completed; a note with no audio, or whose audio does not
+ * read, is left as it is.
  */
 export async function finishCutOffRecordings(
 	device: Client<Whispering>,
@@ -82,27 +86,23 @@ export async function finishCutOffRecordings(
 ): Promise<Result<string[], string>> {
 	const listed = await device.recordings.list();
 	if (listed.error !== null) return Err(listed.error.message);
-	const cutOff: { id: string; ext: string }[] = [];
-	for (const note of listed.data.items) {
-		if (note.durationMs !== undefined) continue;
-		for (const ext of RECORDED)
-			if ((await device.audio.get({ id: note.id, ext })).error === null) {
-				cutOff.push({ id: note.id, ext });
-				break;
-			}
-	}
-	if (cutOff.length === 0) return Ok([]);
+	const unfinished = listed.data.items
+		.filter((note) => note.durationMs === undefined)
+		.map((note) => note.id);
+	if (unfinished.length === 0) return Ok([]);
 	const repaired = await repair();
 	if (repaired.error !== null) return Err(repaired.error.message);
 	const finished: string[] = [];
-	for (const { id, ext } of cutOff) {
-		const audio = await device.audio.get({ id, ext });
-		if (audio.error !== null) continue;
-		const durationMs = audioDurationMs(audio.data.bytes, ext);
-		if (durationMs === undefined) continue;
-		const completed = await completeRecording(device, id, durationMs);
-		if (completed.error === null) finished.push(id);
-	}
+	for (const id of unfinished)
+		for (const ext of RECORDED) {
+			const audio = await device.audio.get({ id, ext });
+			if (audio.error !== null) continue;
+			const durationMs = audioDurationMs(audio.data.bytes, ext);
+			if (durationMs === undefined) break;
+			const completed = await completeRecording(device, id, durationMs);
+			if (completed.error === null) finished.push(id);
+			break;
+		}
 	return Ok(finished);
 }
 

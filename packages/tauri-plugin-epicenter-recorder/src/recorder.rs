@@ -519,9 +519,12 @@ struct HeldRecording {
     id: String,
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
-    /// The recording's file, absolute, which `recover` leaves alone.
+    /// The recording's file while it records, absolute, in the folder's
+    /// `.epicenter/recording`, which `recover` leaves alone.
     path: PathBuf,
-    /// The same file, folder-relative, as the page named it.
+    /// Where finishing moves it: its absolute path in the folder.
+    target: PathBuf,
+    /// That path, folder-relative, as the page named it.
     relative: String,
     /// `None` while capture is running. `Some` once capture ended on its own,
     /// which is a fact about this recording and not a separate state machine:
@@ -658,10 +661,12 @@ impl Recorder {
     /// person did not choose is not what they asked for. `None` is the system
     /// default.
     ///
-    /// `target` is the checked absolute path of the WAV in its folder and
-    /// `relative` the same path as the page named it. The file is created only
-    /// after the device and its configuration resolve, and never over anything
-    /// already there.
+    /// `staged` is the checked absolute path the WAV is written to while it
+    /// records, in the folder's `.epicenter/recording`; `target` is its
+    /// checked path in the folder, where finishing moves it, and `relative`
+    /// that path as the page named it. The file is created only after the
+    /// device and its configuration resolve, and never over anything already
+    /// there.
     ///
     /// The cpal stream is built inside the worker (macOS requires the stream and
     /// the run loop driving it to share a thread) and its outcome is reported
@@ -670,6 +675,7 @@ impl Recorder {
     pub fn start(
         &mut self,
         requested_device: Option<&str>,
+        staged: PathBuf,
         target: PathBuf,
         relative: String,
         owner_label: String,
@@ -698,14 +704,14 @@ impl Recorder {
         let file = File::options()
             .write(true)
             .create_new(true)
-            .open(&target)
+            .open(&staged)
             .map_err(|error| match error.kind() {
                 std::io::ErrorKind::AlreadyExists => {
                     RecorderError::refused(format!("a file is already at {relative}"))
                 }
                 _ => RecorderError::failed(format!("create {relative}: {error}")),
             })?;
-        let capture = CaptureFile::open(target.clone(), file, device_rate)?;
+        let capture = CaptureFile::open(staged.clone(), file, device_rate)?;
 
         let id = next_id();
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
@@ -796,7 +802,8 @@ impl Recorder {
         self.active = Some(HeldRecording {
             id: id.clone(),
             owner_label,
-            path: target,
+            path: staged,
+            target,
             relative: relative.clone(),
             ended_reason: None,
             signals,
@@ -972,8 +979,11 @@ impl Recorder {
     }
 }
 
-/// End a recording and keep it: tell the worker to finalize the file, then
-/// join it so the cpal stream is released before returning.
+/// End a recording and keep it: tell the worker to finalize the file, join
+/// it so the cpal stream is released, then move the file to its path
+/// (`staging::place`), even when finalizing failed, since what was written
+/// stays. A file that cannot be moved stays in `.epicenter/recording`, where
+/// the next `recover` repairs and places it.
 ///
 /// The slot is unavailable for the whole round trip, because the caller's
 /// `&mut Recorder` comes from the one recorder mutex and nothing else can
@@ -982,6 +992,11 @@ impl Recorder {
 /// beforehand would open a second microphone against a recorder that is
 /// supposed to have exactly one.
 fn finish(active: HeldRecording) -> Result<FinishedRecording> {
+    let (staged, target, relative) = (
+        active.path.clone(),
+        active.target.clone(),
+        active.relative.clone(),
+    );
     let (reply_tx, reply_rx) = mpsc::channel();
     let finished = match active.cmd_tx.send(RecorderCmd::Stop(reply_tx)) {
         Ok(()) => reply_rx
@@ -1001,7 +1016,18 @@ fn finish(active: HeldRecording) -> Result<FinishedRecording> {
     // answers, and joining is what makes "the microphone is released" true
     // by the time the slot is observably free.
     let _ = active.worker.join();
-    finished
+    let placed = crate::staging::place(&staged, &target);
+    let finished = finished?;
+    placed.map_err(|error| {
+        RecorderError::failed(format!(
+            "{relative} could not be moved into place ({error}); it is kept in {} until the folder is opened again",
+            staged.display()
+        ))
+    })?;
+    Ok(FinishedRecording {
+        path: target,
+        duration_ms: finished.duration_ms,
+    })
 }
 
 /// A recorder going away keeps what it holds: the file is finalized, never
@@ -1621,8 +1647,10 @@ pub(crate) mod tests {
     /// `await_resolution` returns on `Stop` and on a dropped channel.
     fn recording_owned_by(recorder: &mut Recorder, root: &TempDir, id: &str, owner_label: &str) {
         let name = format!("{id}.wav");
+        std::fs::create_dir_all(root.path().join("staging")).unwrap();
         hold_recording(
             recorder,
+            &staged_in(root, &name),
             &root.path().join(&name),
             &format!("recordings/{name}"),
             id,
@@ -1630,11 +1658,18 @@ pub(crate) mod tests {
         );
     }
 
-    /// Hold a one-second recording at `path` for `owner_label`, as `start`
-    /// would have, without a microphone. The plugin's own tests use it too.
+    /// Where `recording_owned_by` writes the recording `name` while it is held.
+    fn staged_in(root: &TempDir, name: &str) -> PathBuf {
+        root.path().join("staging").join(name)
+    }
+
+    /// Hold a one-second recording written at `staged` for `owner_label`, to
+    /// be moved to `target` when it finishes, as `start` would have, without a
+    /// microphone. The plugin's own tests use it too.
     pub(crate) fn hold_recording(
         recorder: &mut Recorder,
-        path: &Path,
+        staged: &Path,
+        target: &Path,
         relative: &str,
         id: &str,
         owner_label: &str,
@@ -1642,10 +1677,10 @@ pub(crate) mod tests {
         let file = File::options()
             .write(true)
             .create_new(true)
-            .open(path)
+            .open(staged)
             .expect("create the recording");
         let mut capture =
-            CaptureFile::open(path.to_path_buf(), file, TEST_RATE).expect("open the capture");
+            CaptureFile::open(staged.to_path_buf(), file, TEST_RATE).expect("open the capture");
         capture
             .write(&tone(TEST_RATE, 1))
             .expect("write the capture");
@@ -1654,7 +1689,8 @@ pub(crate) mod tests {
         recorder.active = Some(HeldRecording {
             id: id.to_string(),
             owner_label: owner_label.to_string(),
-            path: path.to_path_buf(),
+            path: staged.to_path_buf(),
+            target: target.to_path_buf(),
             relative: relative.to_string(),
             ended_reason: None,
             signals: no_page(),
@@ -1765,7 +1801,8 @@ pub(crate) mod tests {
 
         // The refusal left the owner's recording completely untouched.
         assert!(recorder.is_capturing());
-        assert!(root.path().join("1.wav").exists());
+        assert!(staged_in(&root, "1.wav").exists());
+        assert!(!root.path().join("1.wav").exists());
     }
 
     #[test]
@@ -1787,15 +1824,38 @@ pub(crate) mod tests {
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
 
+        assert!(
+            !root.path().join("1.wav").exists(),
+            "not there while it records"
+        );
         let stopped = recorder.stop("1", "app-notes").unwrap();
         assert_eq!(stopped.path, "recordings/1.wav");
         assert_eq!(stopped.duration_ms, 1_000);
         assert_eq!(samples_in(&root.path().join("1.wav")), TEST_RATE);
+        assert!(!staged_in(&root, "1.wav").exists(), "moved, not copied");
 
         let again = recorder
             .stop("1", "app-notes")
             .expect_err("there is nothing left to stop");
         assert_eq!(error_name(&again), "NotRecording");
+    }
+
+    /// A file something made at the recording's path meanwhile is never
+    /// replaced: the stop says so, and the recording stays where it was
+    /// written, for `recover` to place once the path is free.
+    #[test]
+    fn a_stop_never_moves_a_recording_over_a_file_at_its_path() {
+        let root = folder_root();
+        let mut recorder = Recorder::new();
+        recording_owned_by(&mut recorder, &root, "1", "app-notes");
+        std::fs::write(root.path().join("1.wav"), b"theirs").unwrap();
+        let refused = recorder.stop("1", "app-notes").unwrap_err();
+        assert_eq!(error_name(&refused), "Failed");
+        assert_eq!(std::fs::read(root.path().join("1.wav")).unwrap(), b"theirs");
+        assert_eq!(samples_in(&staged_in(&root, "1.wav")), TEST_RATE);
+        recorder
+            .require_free_slot()
+            .expect("the slot is free once the recording is finalized");
     }
 
     /// A destroyed window can never claim its recording, so the host finalizes
@@ -1961,7 +2021,7 @@ pub(crate) mod tests {
         let root = folder_root();
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
-        assert_eq!(recorder.held_path(), Some(root.path().join("1.wav")));
+        assert_eq!(recorder.held_path(), Some(staged_in(&root, "1.wav")));
     }
 
     /// A write that fails keeps the prefix that reached the file. The header

@@ -2,15 +2,18 @@
  * Recording in the desktop app, through `tauri-plugin-epicenter-recorder`
  * (ADR-0543, decision 84).
  *
- * The shell's recorder writes `<path>.wav` into the `device`'s folder from
- * the first sample, so the file exists and grows while the recording runs,
- * its header updated about once a second. The folder is named to the shell
- * by the root it answered when the page opened the device (`rootOf` from
- * `@epicenter/folder/tauri`), or, for the window's own folder, by none.
- * `stop` finalizes its header. When the page reloads or its window closes,
- * the shell finalizes the recording itself: the file is kept. A process that
- * ends before then leaves a header that undercounts the last second, which
- * `recoverRecordings` rewrites from the file's length.
+ * The shell's recorder writes the WAV from the first sample into the
+ * `device`'s folder's own `.epicenter/recording`, which no listing shows and
+ * sync never commits, its header updated about once a second. The folder is
+ * named to the shell by the root it answered when the page opened the device
+ * (`rootOf` from `@epicenter/folder/tauri`), or, for the window's own folder,
+ * by none. `stop` finalizes its header and moves it to `<path>.wav`, never
+ * over a file there: the recording appears at its path whole. When the page
+ * reloads or its window closes, the shell finalizes and moves the recording
+ * itself: the file is kept. A process that ends before then leaves it in
+ * `.epicenter/recording` with a header that undercounts the last second;
+ * `recoverRecordings` rewrites it from the file's length and moves it to its
+ * path.
  *
  * Levels and an ending nobody asked for arrive on a channel this page alone
  * hears.
@@ -103,7 +106,7 @@ function createRecordingSignals() {
 	};
 }
 
-/** Record into `device`'s folder at `<path>.wav`, from the first sample. */
+/** Record into `device`'s folder from the first sample, landing at `<path>.wav` when it stops. */
 export const startRecording: StartRecording = async ({
 	device,
 	path,

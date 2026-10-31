@@ -9,9 +9,10 @@
  * (`@epicenter/recorder/tauri` or `@epicenter/recorder/browser`), chosen by
  * the app's `#platform` seam, never at run time:
  *
- * - On the desktop the shell's recorder creates `<path>.wav` in the data
- *   folder and appends PCM from the first sample, updating the header about
- *   once a second; recovery rewrites a header a cut left short.
+ * - On the desktop the shell's recorder appends PCM from the first sample
+ *   to a WAV in the data folder's `.epicenter/recording`, updating the header
+ *   about once a second, and moves it to `<path>.wav` when it stops; recovery
+ *   rewrites a header a cut left short and moves the file to its path.
  * - In a browser the page appends each piece `MediaRecorder` hands over,
  *   about once a second, to `<path>.m4a` (or `.webm`) in this browser's
  *   private files; recovery cuts a file back to its last whole piece.
@@ -108,9 +109,13 @@ export type RecordingHandle<TStopped> = {
 	stop(): Promise<Result<TStopped, RecorderError>>;
 };
 
-/** A recording written into the store as it records: `<path>.<ext>`. */
+/**
+ * A recording written into the store as it records: in a browser at
+ * `<path>.<ext>`, on the desktop in the folder's `.epicenter/recording` until
+ * `stop` moves it to `<path>.wav`.
+ */
 export type Recording = RecordingHandle<StoppedRecording> & {
-	/** The audio file this recording is, store-relative: `<path>.wav`, `<path>.m4a`, or `<path>.webm`. */
+	/** The audio file this recording is, or becomes at `stop`, store-relative: `<path>.wav`, `<path>.m4a`, or `<path>.webm`. */
 	readonly path: string;
 };
 
@@ -126,7 +131,8 @@ export type StartRecording = (
 /**
  * Repair the recordings under a directory that a quit, a crash, or a closed
  * tab cut off, leaving any recording still being written alone. Answers the
- * store-relative paths it rewrote; a second run rewrites none.
+ * store-relative paths it repaired (in a browser) or repaired and moved to
+ * their paths (on the desktop); a second run answers none.
  */
 export type RecoverRecordings = (
 	options: RecoverRecordingsOptions,

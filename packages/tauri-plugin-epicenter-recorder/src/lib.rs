@@ -18,14 +18,17 @@
 //!
 //! To record, a page names a folder-relative path, in its window's own folder
 //! or in a root its page opened (`root`, by the exact path the folder plugin
-//! answered); any other root is refused. `start` creates `<path>.wav` there and appends mono
-//! PCM16 to it as the microphone captures; `stop` finalizes its header. Nothing
-//! deletes a recording once capture has begun. When the page that started a
-//! recording reloads, or its window is destroyed, the recording is finalized
+//! answered); any other root is refused. `start` creates the WAV in the
+//! folder's `.epicenter/recording` and appends mono PCM16 to it as the
+//! microphone captures; `stop` finalizes its header and moves it to
+//! `<path>.wav`, never over a file there (`staging`). A half-written WAV is
+//! never at a data path, so sync never commits one. Nothing deletes a
+//! recording once capture has begun. When the page that started a recording
+//! reloads, or its window is destroyed, the recording is finalized and moved
 //! for it. Epicenter reads `is_recording` for its application Quit warning;
-//! a recording alone adds no window Close warning. `recover` rewrites the
-//! header of any WAV a quit or crash cut off, which a page calls when it opens
-//! its folder.
+//! a recording alone adds no window Close warning. `recover` repairs the
+//! header of any WAV a quit or crash left in `.epicenter/recording` and moves
+//! it to its path, which a page calls when it opens its folder.
 //!
 //! There is one recorder per host and at most one recording at a time; a
 //! second `start` from any window is refused `Busy`.
@@ -45,6 +48,7 @@ mod meter;
 pub mod permission;
 mod rate;
 pub mod recorder;
+mod staging;
 pub mod wav;
 
 pub use command_names::COMMANDS;

@@ -8,10 +8,11 @@
 //! changes nothing else. A header that already states them is left alone, so a
 //! repair run twice writes once.
 //!
-//! `recover` repairs every WAV under one directory of a window's folder. A
-//! folder's pages call it when they open it, which is when a recording a quit
-//! cut off is found (ADR-0542). It walks only what the folder's path rule
-//! accepts and never follows a link.
+//! `recover` repairs every recording a quit or a crash left in a window's
+//! folder's `.epicenter/recording` (`staging`) under one directory, and moves
+//! each to its path. A folder's pages call it when they open it, which is when
+//! a recording a quit cut off is found (ADR-0542). It walks only what the
+//! folder's path rule accepts and never follows a link.
 
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -109,18 +110,21 @@ pub fn repair(path: &Path) -> io::Result<Option<Repaired>> {
     }))
 }
 
-/// Repair every `.wav` under `under` in the folder at `root`, skipping
-/// `held`, the file a live recording is still writing. Returns the
-/// folder-relative paths whose headers were rewritten. A missing `under` has
-/// nothing to repair.
+/// Repair every `.wav` a recording left under `under` in the folder at
+/// `root`'s `.epicenter/recording`, skipping `held`, the file a live
+/// recording is still writing, and move each to its path under `under`
+/// without replacing anything there (`staging::place`). Returns the
+/// folder-relative paths placed. A missing directory has nothing to recover.
 ///
-/// `under` is checked as a change is (`page_files::data_path`). Each entry
+/// `under` is checked as a data path is (`page_files::data_path`). Each entry
 /// beneath it is visited only when its path is one the shared path rule
-/// accepts, and a link is never followed. A file that cannot be read or
-/// written is reported and skipped, so one bad file does not hide the rest.
+/// accepts, and a link is never followed. A file that cannot be repaired or
+/// placed is reported and left where it is, so one bad file does not hide the
+/// rest.
 pub fn recover(root: &Path, under: &str, held: Option<&Path>) -> Result<Vec<String>, String> {
-    let directory = page_files::data_path(root, under)?;
-    let mut repaired = Vec::new();
+    page_files::data_path(root, under)?;
+    let directory = page_files::data_path(root, &crate::staging::staged(under))?;
+    let mut placed = Vec::new();
     let mut pending: Vec<(PathBuf, String)> = vec![(directory, under.to_string())];
     while let Some((directory, relative)) = pending.pop() {
         let entries = match fs::read_dir(&directory) {
@@ -153,20 +157,31 @@ pub fn recover(root: &Path, under: &str, held: Option<&Path>) -> Result<Vec<Stri
             if !metadata.is_file() || !is_wav || held == Some(path.as_path()) {
                 continue;
             }
-            match repair(&path) {
-                Ok(Some(Repaired {
-                    rewritten: true, ..
-                })) => {
-                    log::info!("Rewrote the header of {child} from its length");
-                    repaired.push(child);
+            if let Err(error) = repair(&path) {
+                log::warn!("Could not repair {child}: {error}");
+                continue;
+            }
+            match place_at(root, &path, &child) {
+                Ok(()) => {
+                    log::info!("Recovered the recording {child}");
+                    placed.push(child);
                 }
-                Ok(_) => {}
-                Err(error) => log::warn!("Could not repair {child}: {error}"),
+                Err(error) => log::warn!("Could not move {child} into place: {error}"),
             }
         }
     }
-    repaired.sort();
-    Ok(repaired)
+    placed.sort();
+    Ok(placed)
+}
+
+/// Move the staged file at `staged` to the folder-relative `relative` in
+/// `root`, making its missing directories, each checked as a data path.
+fn place_at(root: &Path, staged: &Path, relative: &str) -> Result<(), String> {
+    let target = page_files::data_path(root, relative)?;
+    if let Some((parent, _)) = relative.rsplit_once('/') {
+        page_files::mkdir(root, &root.join(parent))?;
+    }
+    crate::staging::place(staged, &target).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -271,31 +286,47 @@ mod tests {
     }
 
     #[test]
-    fn recover_repairs_wavs_beneath_the_directory_and_nothing_else() {
+    fn recover_repairs_and_places_what_a_cut_left_staged_and_nothing_else() {
         let directory = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(directory.path()).unwrap();
-        fs::create_dir_all(root.join("recordings/2026")).unwrap();
-        cut_off(&root.join("recordings/a.wav"), 100);
-        cut_off(&root.join("recordings/2026/b.WAV"), 100);
-        cut_off(&root.join("recordings/live.wav"), 100);
-        cut_off(&root.join("elsewhere.wav"), 100);
-        fs::write(root.join("recordings/a.md"), "---\ntitle: a\n---\n").unwrap();
+        let staged = root.join(".epicenter/recording/recordings");
+        fs::create_dir_all(staged.join("2026")).unwrap();
+        fs::create_dir_all(root.join("recordings")).unwrap();
+        cut_off(&staged.join("a.wav"), 100);
+        cut_off(&staged.join("2026/b.WAV"), 100);
+        cut_off(&staged.join("live.wav"), 100);
+        cut_off(&staged.join("taken.wav"), 100);
+        fs::write(root.join("recordings/taken.wav"), b"theirs").unwrap();
+        cut_off(&root.join("recordings/placed.wav"), 100);
 
-        let live = root.join("recordings/live.wav");
-        let repaired = recover(&root, "recordings", Some(&live)).unwrap();
-        assert_eq!(repaired, ["recordings/2026/b.WAV", "recordings/a.wav"]);
+        let live = staged.join("live.wav");
+        let placed = recover(&root, "recordings", Some(&live)).unwrap();
+        assert_eq!(placed, ["recordings/2026/b.WAV", "recordings/a.wav"]);
+        for path in ["recordings/a.wav", "recordings/2026/b.WAV"] {
+            assert_eq!(
+                WavReader::open(root.join(path)).unwrap().len(),
+                100,
+                "{path}"
+            );
+        }
+        assert!(!staged.join("a.wav").exists(), "moved, not copied");
         assert_eq!(
             WavReader::open(&live).unwrap().len(),
             0,
             "a live recording is its writer's"
         );
         assert_eq!(
-            WavReader::open(root.join("elsewhere.wav")).unwrap().len(),
-            0
+            fs::read(root.join("recordings/taken.wav")).unwrap(),
+            b"theirs",
+            "nothing at a recording's path is replaced"
         );
+        assert!(staged.join("taken.wav").exists());
         assert_eq!(
-            fs::read_to_string(root.join("recordings/a.md")).unwrap(),
-            "---\ntitle: a\n---\n"
+            WavReader::open(root.join("recordings/placed.wav"))
+                .unwrap()
+                .len(),
+            0,
+            "a file already at its path is not the recorder's to change"
         );
 
         assert!(recover(&root, "recordings", Some(&live))
@@ -319,13 +350,15 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(directory.path()).unwrap().join("folder");
         let outside = fs::canonicalize(directory.path()).unwrap().join("outside");
-        fs::create_dir_all(root.join("recordings")).unwrap();
+        let staged = root.join(".epicenter/recording/recordings");
+        fs::create_dir_all(&staged).unwrap();
         fs::create_dir_all(&outside).unwrap();
         cut_off(&outside.join("x.wav"), 100);
-        std::os::unix::fs::symlink(outside.join("x.wav"), root.join("recordings/x.wav")).unwrap();
-        std::os::unix::fs::symlink(&outside, root.join("recordings/linked")).unwrap();
+        std::os::unix::fs::symlink(outside.join("x.wav"), staged.join("x.wav")).unwrap();
+        std::os::unix::fs::symlink(&outside, staged.join("linked")).unwrap();
         assert!(recover(&root, "recordings", None).unwrap().is_empty());
         assert_eq!(WavReader::open(outside.join("x.wav")).unwrap().len(), 0);
+        assert!(!root.join("recordings").exists());
 
         std::os::unix::fs::symlink(&outside, root.join("linked-recordings")).unwrap();
         assert!(recover(&root, "linked-recordings", None).is_err());

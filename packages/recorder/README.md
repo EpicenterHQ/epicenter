@@ -14,7 +14,7 @@ tests, and every bundler resolve each specifier to the same file:
 
 ```txt
 @epicenter/recorder           the shared vocabulary: types, RecorderError, audioDurationMs; no implementation
-  /tauri    → tauri-plugin-epicenter-recorder: the shell writes <path>.wav into the data folder from the first sample
+  /tauri    → tauri-plugin-epicenter-recorder: the shell writes the WAV under .epicenter/recording from the first sample, then moves it to <path>.wav
   /browser  → MediaRecorder: each piece appended to <path>.m4a (or .webm) in this browser's files; streams and VAD
   /vad-assets → the VAD runtime files, for a build's static copy
 ```
@@ -44,11 +44,11 @@ file with a sync access handle.
 
 | | Desktop | Browser |
 | --- | --- | --- |
-| The file | `<path>.wav`, from the first sample | `<path>.m4a`, else `<path>.webm`, from the first piece (about a second) |
+| The file | `<path>.wav`, written from the first sample in the folder's `.epicenter/recording` (unlisted, never synced) and moved to its path at `stop` | `<path>.m4a`, else `<path>.webm`, from the first piece (about a second) |
 | Format | WAV, 16 kHz mono PCM | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | The header is rewritten about once a second | Each piece is appended as it arrives; the store's listeners hear the file made and finished, not every piece |
 | Quit, crash, closed window or tab | Audio kept up to the cut | Every piece already written is kept |
-| `recoverRecordings` | Rewrites the header of a WAV a quit cut short | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for its file) |
+| `recoverRecordings` | Rewrites the header of a WAV a quit cut short and moves it from `.epicenter/recording` to its path, never over a file there | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for its file) |
 | Refused before the microphone opens | The folder or path may not be written, or a file is there | This browser keeps no files here (a private window), or a file is there |
 | Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
 | `signal` aborted after the microphone opened | Stopped: the WAV is finalized and kept | Released; nothing was written |

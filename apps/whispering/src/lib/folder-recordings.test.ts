@@ -5,7 +5,14 @@
  * launch.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDevice } from '@epicenter/folder/node';
@@ -90,15 +97,22 @@ test('a second Start with the same id is refused, never overwritten', async () =
 	);
 });
 
-test('the next launch completes a recording a crash cut off, from its audio, repairing only then', async () => {
+test('the next launch completes a recording a crash cut off, from its audio, repairing only while a note has no length', async () => {
 	const { path, device } = await folder();
+	const staged = join(path, '.epicenter/recording/recordings');
 	let repairs = 0;
+	// What the desktop's recover does: the cut-off WAV moves to its path.
 	const repair = async () => {
 		repairs++;
-		return Ok([]);
+		await rename(
+			join(staged, 'cut.wav'),
+			join(path, 'recordings/cut.wav'),
+		).catch(() => {});
+		return Ok(['cut']);
 	};
 	expectOk(await beginRecording(device, started('cut')));
-	await writeFile(join(path, 'recordings/cut.wav'), toneWav({ seconds: 2 }));
+	await mkdir(staged, { recursive: true });
+	await writeFile(join(staged, 'cut.wav'), toneWav({ seconds: 2 }));
 	// One whose audio never started, and one finished normally.
 	expectOk(await beginRecording(device, started('silent')));
 	expectOk(await beginRecording(device, started('done')));
@@ -115,9 +129,12 @@ test('the next launch completes a recording a crash cut off, from its audio, rep
 		expectOk(await device.recordings.get({ id: 'silent' })).durationMs,
 	).toBeUndefined();
 	expect(repairs).toBe(1);
-	// A second launch has nothing left to do, and repairs nothing.
+	// A note without audio still asks for a repair; with none, nothing runs.
 	expect(expectOk(await finishCutOffRecordings(device, repair))).toEqual([]);
-	expect(repairs).toBe(1);
+	expect(repairs).toBe(2);
+	await abandonRecording(device, 'silent');
+	expect(expectOk(await finishCutOffRecordings(device, repair))).toEqual([]);
+	expect(repairs).toBe(2);
 });
 
 test('a recording that did not start leaves no note, unless audio was written', async () => {

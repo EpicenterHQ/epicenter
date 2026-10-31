@@ -71,3 +71,16 @@ running is the live handle; whether it has audio is whether `audioPath` exists.
 - **A `status` field (`recording`, `done`, `interrupted`, `lost`).** Each value
   goes stale when the process ends, which is why it would need repair.
 - **One native recorder for every host.** The browser has no native side.
+
+## Amendment, 2026-11-01: a desktop recording is written in `.epicenter` until it stops
+
+The desktop recorder still writes from the first sample, but into the
+folder's own `.epicenter/recording/<path>.wav`, which no listing shows, no
+watcher reports, and `epicenter init`'s `.gitignore` keeps out of history.
+`stop` (and the shell finishing a recording whose page left) finalizes the
+header and moves the WAV to `<path>.wav` without replacing anything there: a
+hard link, then the staged name removed. `recoverRecordings` repairs what a
+quit or a crash left there and moves it the same way. So `epicenter sync`
+never commits a half-written WAV, and readers never see a growing file at a
+data path. The browser recorder is unchanged: it appends to its file at its
+path in this browser's private storage, which nothing syncs.
