@@ -1,8 +1,5 @@
 <script lang="ts">
-	import type { SvelteFolder } from '@epicenter/svelte/folder';
-	import { saveLine } from '@epicenter/svelte/status-line';
-	import { setFolder } from './folder.js';
-
+	import { getDevice } from './context.js';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -11,10 +8,7 @@
 	import { QueryClient, createInfiniteQuery, createMutation, setQueryClientContext } from '@tanstack/svelte-query';
 	import { type Backend, createDemoBackend, requestBeeper } from './backend.js';
 	import ConversationView from './Conversation.svelte';
-	import type { messagesTables } from './definition.js';
-	let { folder }: { folder: SvelteFolder<typeof messagesTables> } = $props();
-	// svelte-ignore state_referenced_locally
-	setFolder(folder);
+	const { files } = getDevice();
 	const queryClient = new QueryClient();
 	setQueryClientContext(queryClient);
 	const demo = createDemoBackend();
@@ -42,14 +36,14 @@
 	const current = $derived(all.find((chat) => chat.id === selected));
 	const draftPreviews = $derived.by(() => {
 		const previews = new Map<string, { label: string; text: string }>();
-		for (const row of folder.tables.drafts.rows) {
-			if (row.issues !== null || row.fields.mode !== backend.mode || row.fields.profile !== backend.profile) continue;
-			const text = row.body.trim().replace(/\s+/g, ' ');
-			if (text) previews.set(row.fields.chatId, { label: 'Draft', text });
+		for (const draft of files.drafts.items) {
+			if (draft.mode !== backend.mode || draft.profile !== backend.profile) continue;
+			const text = draft.body.trim().replace(/\s+/g, ' ');
+			if (text) previews.set(draft.chatId, { label: 'Draft', text });
 		}
-		for (const row of folder.tables.attempts.rows) {
-			if (row.issues !== null || row.fields.state !== 'sending' || row.fields.mode !== backend.mode || row.fields.profile !== backend.profile) continue;
-			previews.set(row.fields.chatId, { label: 'Check send', text: row.body.trim().replace(/\s+/g, ' ') });
+		for (const attempt of files.attempts.items) {
+			if (attempt.state !== 'sending' || attempt.mode !== backend.mode || attempt.profile !== backend.profile) continue;
+			previews.set(attempt.chatId, { label: 'Check send', text: attempt.body.trim().replace(/\s+/g, ' ') });
 		}
 		return previews;
 	});
@@ -81,7 +75,6 @@
 <main class="flex h-dvh min-h-0 flex-col overflow-hidden">
 	<header class="flex flex-wrap items-center gap-3 border-b px-4 py-3">
 		<h1 class="font-semibold">Messages</h1>
-		<span class="text-xs text-muted-foreground">{saveLine(folder.saving).label}</span>
 		<Badge variant={backend.mode === 'demo' ? 'secondary' : 'default'}>{backend.mode === 'demo' ? 'Demo · fictional conversations' : 'Live Beeper'}</Badge>
 		<div class="ml-auto flex gap-2">
 			<Button variant="ghost" size="sm" disabled={chats.isFetching} onclick={() => void queryClient.invalidateQueries({ queryKey: ['beeper'] })}>Refresh</Button>
@@ -94,7 +87,7 @@
 			<p class="text-sm">Connect to your real conversations on this device. Create a token in Beeper Settings → Integrations → Approved connections. It is stored in the device keychain.</p>
 			<label for="beeper-token" class="text-sm">Beeper access token</label>
 			<div class="flex gap-2"><Input id="beeper-token" type="password" autocomplete="off" placeholder="Paste a new token, or use your saved connection" bind:value={token} /><Button type="submit" disabled={connect.isPending}>{connect.isPending ? 'Connecting…' : 'Connect to live Beeper'}</Button></div>
-			<p class="text-xs text-muted-foreground">Live connections need a desktop build of Messages.</p>
+			<p class="text-xs text-muted-foreground">Live Beeper works when Messages runs on this computer (<code>bun run --cwd apps/messages start</code>), which keeps the token in the device keychain.</p>
 		</form>
 	{/if}
 	{#if notice}<p role="alert" class="border-b p-3 text-sm text-destructive">{notice}</p>{/if}
