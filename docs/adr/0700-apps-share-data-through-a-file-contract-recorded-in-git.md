@@ -4,7 +4,9 @@
 - **Date:** 2026-10-31
 - **Supersedes:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (one merge where the change wins and no conflict marker is written), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (a Git clone per web origin), [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) (browser sync), and [ADR-0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) (the hosts' incoming-update engine).
 - **Amends:** the 24 records in [Records this changes](#records-this-changes), each at the scope named there.
-- **Unbuilt:** per-repository grants and the consent page choosing a repository (`openRemote` reaches `<account>/<contract name>` until then); `@epicenter/secrets`; the notify Durable Object that broadcasts "main moved" per repository; Whispering's desktop app on the contract; `epicenter init --contract`; an R2 bucket bound to the production `api` Worker.
+- **Unbuilt:** per-repository grants and the consent page choosing a repository (`openRemote` reaches `<account>/<contract name>` until then); `@epicenter/secrets`; the notify Durable Object that broadcasts "main moved" per repository; `epicenter init --contract`.
+- **Not yet live:** R2 LFS in production. `apps/api/wrangler.jsonc` binds the `epicenter-lfs` bucket, but the presigning key pair has not reached a deployed `api` version, and no LFS upload and download has run against production. Both wait for this branch to merge and for authorization to deploy (see [Revisions](#revisions)).
+- **Revised:** 2026-10-31 for decisions 77 to 98 (see [Revisions](#revisions)).
 
 ## Context
 
@@ -66,18 +68,46 @@ nothing moves between stores.** An app builds only the variants it needs:
   each create and edit is a commit.
 
 A page opens one store and keeps it; a link to another variant loads a new
-page. Sign-in grants capabilities, never storage. Today Whispering and
-Messages are local web only (Messages because Beeper Desktop listens only on
-the person's computer), Todos is online web and desktop, Capture, Honeycrisp
-and Vocab are online web only, and the recorder demo shows both web variants.
-UI components take the client they show, so adding a variant is a new root.
+page. Sign-in grants capabilities, never storage.
+
+| App | Variants |
+| --- | --- |
+| Whispering | local web, desktop |
+| Capture, Honeycrisp, Todos, Vocab | online web, desktop |
+| Messages | local (Beeper Desktop listens only on the person's computer) |
+| Recorder demo | local web, online web |
+
+UI components take the client they show, and only a variant's root chooses
+the store (the `#platform/root` seam), so adding a variant is one root and a
+build, not a change to data code. Each desktop variant is a program of its
+own ([ADR-0701](0701-apps-run-as-separate-programs.md)).
+
+Every device opener is async and returns a `Result` whose error is an
+`OpenDeviceError` (`Missing`, `NotGranted`, `Refused`, `Unreadable`, or
+`StorageUnavailable`), on every platform:
 
 | Opener | Entry | Where | A version is |
 | --- | --- | --- | --- |
 | `openDevice(contract)` | `@epicenter/folder/browser` | the origin's OPFS, through one Worker, a Web Lock per path | sha256 of the bytes |
 | `openDevice(contract, { path })` | `@epicenter/folder/node` (Bun) | a directory, under the save lock | sha256 of the bytes |
-| `openDevice(contract, { path? })` | `@epicenter/folder/tauri` | the directory the shell bound to the window (`path`: a folder inside it), under the save lock | sha256 of the bytes |
+| `openDevice(contract, { path?, create? })` | `@epicenter/folder/tauri` | the directory the shell bound to the window, or an absolute path Tauri's file-system scope allows, under the save lock | sha256 of the bytes |
 | `openRemote(contract, { account })` | `@epicenter/folder/remote` | `<git audience>/~/<contract name>.git`, every request through `account.fetch` | the Git blob id on `main` |
+
+**A recording is written into the variant's store as it records.**
+`startRecording({ device, path })` and `recoverRecordings({ device, under })`
+are the same calls from `@epicenter/recorder/tauri`, where the shell writes
+`<path>.wav` into the data folder from the first sample, and from
+`@epicenter/recorder/browser`, which appends each MediaRecorder piece (about
+a second) to `<path>.m4a` or `.webm` in this browser's files. The app's
+`#platform` seam imports one. A quit, a crash, or a closed tab keeps the
+audio up to the cut, and `recoverRecordings` repairs a file the cut left
+short. An online variant holds the audio in the page until Stop.
+
+**A local web variant reopens offline.** Whispering and Messages register
+the shared `cacheSite` service worker (`@epicenter/vite-config/offline`),
+which caches the built page and its static files and passes data and other
+origins through, and link a web manifest so the page can be installed.
+Whispering's desktop build registers no service worker.
 
 This supersedes, in the file-contract design, decision 11 (the web keeps
 files in the browser or works online, as one app), decision 12 (files made
@@ -127,6 +157,19 @@ repository's first commit; `REPOSITORY_IGNORE` keeps `.DS_Store` and
 `content-length`, `if-none-match: *` and `x-amz-checksum-sha256`, and an object
 is admitted after one `head()` matches its size and sha256. On Bun, both stores
 are on disk.
+
+The production `api` Worker binds the `epicenter-lfs` bucket as `LFS_BUCKET`,
+with `LFS_BUCKET_NAME`, in `apps/api/wrangler.jsonc`. The key pair that
+presigns transfers, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, is an
+optional Worker secret pair (`LFS_SECRETS` in `apps/api/worker/lfs-store.ts`):
+a version deployed without it answers hosted Git with 503 rather than
+accepting a push it cannot store. The deployment order, in
+`apps/api/README.md` (Deploying R2 LFS), is: merge to `main` and let CI
+deploy the version with the binding; put the key pair from Infisical
+(`prod`, `/api`) on that deployed version; never roll back to or redeploy a
+saved version that carries the revoked credentials; then, only once
+deployment is authorized, push a file through Git LFS to a production
+repository and fetch it back.
 
 **Notes merge by one set of rules, wherever a merge runs.** `settle` in
 `@epicenter/definition/merge` runs in the translator and in
@@ -200,11 +243,16 @@ files; and `bookmarks.json` cleanup.
   them; nothing backs them up. A person who wants a repository uses the
   online or desktop variant.
 - A repository grant exposes every data folder in that repository.
-- The production `api` Worker answers hosted Git with 503 until an R2 bucket
-  is bound (`apps/api/README.md`); then every push goes through the receiver.
-- The IndexedDB `openFolder` engine remains for the apps that have not moved to
-  a contract, and the desktop editor still reads a root `epicenter.json` for
-  table views; both go when the apps move.
+- The production `api` Worker answers hosted Git with 503 until the R2 key
+  pair reaches its deployed version (`apps/api/README.md`); then every push
+  goes through the receiver.
+- A recording a closed tab cut off is kept in the browser up to the cut, so
+  a local web variant needs storage the site may write: a private window
+  cannot record.
+- Every app is on a contract. `openFolder` and its IndexedDB engine remain
+  only for the Epicenter app's own folder editor and AI connections, and the
+  editor still reads a root `epicenter.json` for table views; both go when
+  those move.
 
 ## Considered alternatives
 
@@ -250,3 +298,38 @@ files; and `bookmarks.json` cleanup.
 | [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | principles 1, 2, 5, 6, 7 and 9: the contract, the web never syncs, the merge rules above, and LFS. |
 | [ADR-0632](0632-a-lens-belongs-to-its-reader.md) | "CLI check and query require the root epicenter.json": `check` takes a contract. |
 | [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) | browser synchronization: the web never syncs; a local variant's files stay in the browser. |
+
+## Revisions
+
+### 2026-10-31: decisions 77 to 98
+
+- **Three variants, one store each (decisions 77 to 79).** An app builds
+  only the variants it needs, each with one store for its life, and
+  nothing moves between stores; this replaces one web app that kept files
+  in the browser and uploaded them once signed in (decisions 11, 12, 66, 67
+  and 76). The uploader, the outbox, the cache of uploaded audio, the quiet
+  period and capture adoption were deleted. Every app except Messages and the recorder demo now has a
+  desktop variant: Whispering's replaced the build Epicenter used to host,
+  and Capture, Honeycrisp and Vocab gained one.
+- **Openers return a `Result` (decisions 90 and 94).** `openDevice` became
+  async with `OpenDeviceError` on every platform, so a startup screen can
+  say what failed and offer what fixes it instead of catching a throw.
+- **A recording is written as it records, on every build (decision 84).**
+  The browser had held a recording in the page until Stop, so a closed tab
+  lost it; it now appends pieces into the store the way the desktop writes
+  its WAV, which is what superseded ADR-0543 designed for the desktop.
+- **A local web variant reopens offline (decision 85).** Its data never
+  needs the network, so neither should its page. A service worker and a
+  manifest are all it takes; this is not ADR-0691's hosted-site reopening,
+  which ADR-0701 superseded.
+- **R2 LFS (decisions 73, 85 and 98).** A new bucket, `epicenter-lfs`, never
+  the existing `epicenter-blobs`; the binding lives in `wrangler.jsonc`
+  because a dashboard binding is overwritten on the next deploy. A binding
+  in configuration is not completion: undeployed `api` versions still carry
+  revoked credentials, so the key pair goes onto the version CI deploys
+  after the merge, and the feature is done only when an LFS upload and
+  download pass against production. Nothing deploys before this branch
+  merges to `main`.
+- **The desktop programs** (two roots, Tauri's grants, startup and recovery,
+  settings notes, the sign-in crate) are recorded in
+  [ADR-0701](0701-apps-run-as-separate-programs.md).

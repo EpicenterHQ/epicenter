@@ -3,6 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-22
 - **Relates:** [Portable capability packages](0681-portable-capability-packages-follow-the-resource-they-own.md) assigns app-owned secret values to `@epicenter/secrets`; [Native authored defaults](0660-native-apps-default-authored-work-to-the-epicenter-root.md) separates authored Folders from app-managed private state.
+- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at `tauri-plugin-epicenter-secrets`: a standalone desktop app reaches the keychain through the `epicenter-account` crate (`keychain` from `@epicenter/auth/tauri`).
 - **Unbuilt:** `@epicenter/secrets`, `tauri-plugin-epicenter-secrets`, their generated bindings, native credential-store integration, and browser/desktop contract checks. The existing CLI credential flows remain separate.
 
 ## Context
