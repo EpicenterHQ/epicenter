@@ -84,7 +84,7 @@ stores it in the keychain; Connect again with the field empty uses the saved
 one. Disconnect removes the saved token; it does not revoke the token Beeper
 issued or delete drafts. Beeper must keep running on this computer.
 
-The local program (`scripts/serve.ts`) listens on `127.0.0.1` only and
+The local program (`apps/messages/scripts/serve.ts`) listens on `127.0.0.1` only and
 answers `POST /beeper` only when the request names its own host (so a
 DNS-rebound name cannot reach it), comes from its own origin (so another site
 open in the browser cannot), and is JSON. It runs each operation as
