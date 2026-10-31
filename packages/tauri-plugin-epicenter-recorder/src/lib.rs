@@ -44,11 +44,13 @@ mod commands;
 pub mod ended;
 pub mod error;
 mod meter;
+mod opus;
 pub mod permission;
 mod rate;
 pub mod recorder;
 mod staging;
 pub mod wav;
+mod webm;
 
 pub use command_names::COMMANDS;
 pub use ended::{EndedReason, RecordingSignal};

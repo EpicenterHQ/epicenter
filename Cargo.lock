@@ -5213,6 +5213,7 @@ dependencies = [
 name = "tauri-plugin-epicenter-recorder"
 version = "0.0.1"
 dependencies = [
+ "audiopus",
  "block2",
  "cpal",
  "epicenter-folder-core",
@@ -5228,6 +5229,7 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "tauri-plugin-epicenter-folder",
+ "tauri-plugin-epicenter-transcription",
  "tauri-specta",
  "tempfile",
  "thiserror 2.0.21",

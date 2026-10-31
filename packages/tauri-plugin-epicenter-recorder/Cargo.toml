@@ -19,6 +19,9 @@ epicenter-folder-core = { path = "../tauri-plugin-epicenter-folder/core" }
 tauri-plugin-epicenter-folder = { path = "../tauri-plugin-epicenter-folder" }
 cpal = "0.18.1"
 hound = "3.5"
+# Encodes a stopped recording to Opus (`opus.rs`); the same libopus the
+# transcription plugin decodes with, built from source (`.cargo/config.toml`).
+audiopus = "0.3.0-rc.0"
 # Converts the microphone's own rate to the recording's 16 kHz; the shell's decoder uses the same crate.
 rubato = "0.15"
 log = "0.4"
@@ -38,5 +41,7 @@ objc2-av-foundation = { version = "0.3.2", default-features = false, features = 
 
 [dev-dependencies]
 tempfile = "3.8"
+# The decoder a recording is transcribed with, to check what the encoder wrote.
+tauri-plugin-epicenter-transcription = { path = "../tauri-plugin-epicenter-transcription" }
 # The mock runtime drives the real invoke handler in tests. Test builds only.
 tauri = { version = "2.12", features = ["test"] }
