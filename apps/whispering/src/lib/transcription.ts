@@ -13,6 +13,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { connectionTargets, type StoredConnection } from './connections.js';
 import { refusedBeforeSend } from './request-refusal.js';
+import { sentences } from './sentences.js';
 
 export const TranscriptionError = defineErrors({
 	NotConfigured: ({ missing }: { missing: string }) => ({
@@ -46,7 +47,10 @@ export const TranscriptionError = defineErrors({
 	 * unknown, and nothing is sent again without the person asking.
 	 */
 	HostUnavailable: ({ reason }: { reason: string }) => ({
-		message: `Epicenter did not answer, so it is not known whether the request was sent or what came back: ${reason}. Nothing is sent again unless you try again.`,
+		message: sentences(
+			`Epicenter did not answer, so it is not known whether the request was sent or what came back: ${reason}`,
+			'Nothing is sent again unless you try again.',
+		),
 		reason,
 	}),
 	/** The audio was not read, so no request was made. This one is certain. */

@@ -22,6 +22,9 @@
  * 5. Signing out keeps every recording.
  * 6. The page, loaded once, reopens offline from its service worker's
  *    cache (decision 85), with this browser's recordings.
+ * 7. Where the browser keeps no files (WebKit's ephemeral context, as a
+ *    Safari private window), one banner says why and that recording is
+ *    off: no hint invites a click and no recovery failure repeats it.
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -528,5 +531,33 @@ test('6. the page, loaded once, reopens offline from its service worker', async 
 		await expect(row(kept)).toContainText('Standup notes');
 	} finally {
 		await context.setOffline(false);
+	}
+});
+
+test('7. where the browser keeps no files, one banner says recording is off', async ({
+	playwright,
+	browserName,
+	stack,
+	microphone,
+}) => {
+	// Chromium gives every context private files; WebKit refuses an
+	// ephemeral one, as Safari refuses a private window.
+	test.skip(browserName !== 'webkit', 'only WebKit refuses private files');
+	const browser = await playwright.webkit.launch();
+	try {
+		const ephemeral = await (await browser.newContext()).newPage();
+		await ephemeral.goto(
+			`${stack.app}/${microphone === 'tone' ? '?fixture=tone' : ''}`,
+		);
+		const banner = ephemeral.getByTestId('device-unavailable');
+		await expect(banner).toContainText(
+			'(e.g. out of memory). Recording is off, since there is nowhere to keep it.',
+		);
+		await expect(banner).not.toContainText('..');
+		await expect(ephemeral.getByTestId('start-recording')).toBeVisible();
+		await expect(ephemeral.getByText('Click to record')).toHaveCount(0);
+		await expect(ephemeral.getByTestId('recorder-error')).toHaveCount(0);
+	} finally {
+		await browser.close();
 	}
 });

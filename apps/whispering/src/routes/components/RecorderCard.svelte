@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -13,9 +14,12 @@
 	 * The home page's recorder: the microphone is the control that starts and
 	 * stops, with one line under it for what is happening. Three small controls
 	 * sit at its lower right on wide windows and below the hint on narrow ones.
-	 * Fixture mode adds its warning under them.
+	 * Fixture mode adds its warning under them. Where the files cannot be
+	 * read (a private window keeps none) the banner above says recording is
+	 * off, so no hint invites a click.
 	 */
 	const whispering = getWhispering();
+	const library = getLibrary();
 
 	const active = $derived(whispering.recorder.phase === 'recording');
 	const pending = $derived(whispering.recorder.phase === 'starting' || whispering.recorder.phase === 'stopping');
@@ -95,7 +99,7 @@
 			Starting…
 		{:else if whispering.recorder.phase === 'stopping'}
 			Saving the audio…
-		{:else}
+		{:else if !library.error}
 			Click to record. Click again to save.
 		{/if}
 	</p>

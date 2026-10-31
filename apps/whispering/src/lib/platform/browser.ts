@@ -19,6 +19,7 @@ import {
 	type StoredConnection,
 } from '../connections.js';
 import { localPreferences } from '../microphone-preference.js';
+import { sentences } from '../sentences.js';
 import { transcribeOverConnection } from '../transcription.js';
 import {
 	TransformationError,
@@ -197,7 +198,11 @@ export const createServices: CreateServices = (client) => ({
 		if (transformError?.name === 'Unreachable' && selected?.source === 'custom')
 			return TransformationError.Unreachable({
 				url: transformError.url,
-				reason: `${transformError.reason}. In a browser tab the endpoint must allow requests from ${location.origin} (CORS). The Epicenter account route sends through Epicenter’s API and has no such limit`,
+				reason: sentences(
+					transformError.reason,
+					`In a browser tab the endpoint must allow requests from ${location.origin} (CORS).`,
+					'The Epicenter account route sends through Epicenter’s API and has no such limit.',
+				),
 			});
 		return answered;
 	},

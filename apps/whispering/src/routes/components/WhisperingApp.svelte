@@ -20,6 +20,7 @@
 	import type { Whispering as WhisperingContract } from '$lib/contract.js';
 	import { filesOf } from '$lib/files.svelte.js';
 	import { createLibrary, setLibrary } from '$lib/library.svelte.js';
+	import { sentences } from '$lib/sentences.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import BottomNav from './BottomNav.svelte';
@@ -66,11 +67,15 @@
 		<Alert.Root variant="warning" class="rounded-none" data-testid="device-unavailable">
 			{#if variant === 'desktop'}
 				<Alert.Title>Whispering cannot read its data folder</Alert.Title>
-				<Alert.Description>{library.error.message}. Check that the folder is still there and readable, or choose another in Settings.</Alert.Description>
+				<Alert.Description>{sentences(library.error.message, 'Check that the folder is still there and readable, or choose another in Settings.')}</Alert.Description>
 			{:else}
 				<Alert.Title>This browser is not keeping files for Whispering</Alert.Title>
 				<Alert.Description>
-					{library.error.message}. Recording is off, since there is nowhere to keep it. A private window never keeps files: open Whispering in a regular window to record.
+					{sentences(
+						library.error.message,
+						'Recording is off, since there is nowhere to keep it.',
+						'A private window never keeps files: open Whispering in a regular window to record.',
+					)}
 				</Alert.Description>
 			{/if}
 		</Alert.Root>

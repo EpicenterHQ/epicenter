@@ -211,14 +211,16 @@ export function createWhispering({
 	 * each such recording's length into its note. Nothing records here yet,
 	 * and a recording another tab is still writing is left alone. What cannot
 	 * be completed is said and left for the next start; it never stops
-	 * Whispering from starting.
+	 * Whispering from starting. Files that cannot be listed at all (a
+	 * private window keeps none) are not said here: the banner over every
+	 * page says it, from the library's own listing.
 	 */
 	async function completeCutOffRecordings() {
-		const finished = await holdLeave(
+		const { error } = await holdLeave(
 			finishCutOffRecordings(client, services.capture.recover),
 		);
-		if (finished.error !== null && !disposed)
-			recorderError = `Recordings a quit or a crash cut off could not be completed: ${finished.error}`;
+		if (error === null || error.name === 'Unavailable' || disposed) return;
+		recorderError = `Recordings a quit or a crash cut off could not be completed: ${error.message}`;
 	}
 
 	async function saveConnection(

@@ -181,6 +181,52 @@ test('a start completes the length of a recording a closed tab cut off, from its
 	expect(opened.whispering.recorderError).toBeUndefined();
 });
 
+test('files that cannot be listed at all are said by the banner alone, not again as a recovery failure', async () => {
+	const test = await openTestServices();
+	cleanups.push(test.remove);
+	// A private window: every call is refused, the listing included.
+	test.device.recordings.list = async () =>
+		Err({
+			name: 'Unavailable',
+			message:
+				'UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).',
+			cause: null,
+		}) as never;
+	const opened = await openTestWhispering({
+		services: test.services,
+		client: test.device,
+	});
+	cleanups.push(opened.close);
+
+	await eventually(() => opened.library.error !== null);
+	expect(opened.whispering.recorderError).toBeUndefined();
+});
+
+test('a cut-off recording whose repair fails is said, and left for the next start', async () => {
+	const test = await openTestServices();
+	cleanups.push(test.remove);
+	await put(
+		join(test.root, 'device'),
+		'recordings/2026-10-31T09-30-00-000Z-cutoffaa.md',
+		'---\ntitle: Cut off\nrecordedAt: 2026-10-31T09:30:00.000Z\ncapture: microphone\n---\n',
+	);
+	test.services.capture.recover = async () =>
+		Err({
+			name: 'Failed',
+			message: 'The recording could not be captured: the disk is full',
+			cause: null,
+		}) as never;
+	const opened = await openTestWhispering({
+		services: test.services,
+		client: test.device,
+	});
+	cleanups.push(opened.close);
+
+	expect(opened.whispering.recorderError).toBe(
+		'Recordings a quit or a crash cut off could not be completed: The recording could not be captured: the disk is full',
+	);
+});
+
 test('a transcription sends the recording’s audio and keeps its transcript beside it', async () => {
 	const opened = await fixture();
 	const { test, library } = opened;

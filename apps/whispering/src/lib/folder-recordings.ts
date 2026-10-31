@@ -78,20 +78,24 @@ const RECORDED = ['wav', 'm4a', 'webm'] as const;
  * it runs; in a browser it reads every recording's audio, which no start
  * should pay for when nothing was cut off. Run it before anything records.
  * Answers the ids completed; a note with no audio, or whose audio does not
- * read, is left as it is.
+ * read, is left as it is. `Unavailable` is the files refusing to be listed
+ * at all, which the library's own listing reports too.
  */
 export async function finishCutOffRecordings(
 	device: Client<Whispering>,
 	repair: () => Promise<Result<unknown, { message: string }>>,
-): Promise<Result<string[], string>> {
+): Promise<
+	Result<string[], { name: 'Unavailable' | 'RepairFailed'; message: string }>
+> {
 	const listed = await device.recordings.list();
-	if (listed.error !== null) return Err(listed.error.message);
+	if (listed.error !== null) return Err(listed.error);
 	const unfinished = listed.data.items
 		.filter((note) => note.durationMs === undefined)
 		.map((note) => note.id);
 	if (unfinished.length === 0) return Ok([]);
 	const repaired = await repair();
-	if (repaired.error !== null) return Err(repaired.error.message);
+	if (repaired.error !== null)
+		return Err({ name: 'RepairFailed', message: repaired.error.message });
 	const finished: string[] = [];
 	for (const id of unfinished)
 		for (const ext of RECORDED) {
