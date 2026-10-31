@@ -135,11 +135,12 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
 				// Notes are read and edited through the contract's client as
-				// Svelte state; the other shared views are the header status and
-				// an edit's unsaved notice.
+				// Svelte state; the other shared pieces are the leave guard, the
+				// header status and an edit's unsaved notice.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
 						'@epicenter/svelte/client',
+						'@epicenter/svelte/leave-guard',
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',

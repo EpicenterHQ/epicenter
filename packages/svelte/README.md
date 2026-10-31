@@ -75,6 +75,27 @@ const todos = oneList(contract, 'todos', {
 - `error` is the device's; `repositoryError` says the repository could not
   be listed, while new notes still save to the device.
 
+### Leaving while a save is out
+
+Every write through `fromClient`, `oneList` and `fieldEdit` is held for the
+page's leave guard from the moment it is asked for (a `fieldEdit` keystroke
+counts before its save starts; `title.saving` says so for one editor). Each
+app root installs the guard once:
+
+```svelte
+<script lang="ts">
+  import { guardLeave } from '@epicenter/svelte/leave-guard';
+  import { onMount } from 'svelte';
+
+  onMount(guardLeave);
+</script>
+```
+
+While a write is out, leaving the page asks "Leave site?", and a desktop
+window waits for the writes before it closes (closing again while it waits
+asks natively). A write made on a client directly, such as a capture of
+several files, is held with `holdLeave(write)`.
+
 ## Open a folder in an app
 
 ```svelte

@@ -17,6 +17,7 @@
 		"./client": "./src/client.ts",
 		"./folder": "./src/folder.ts",
 		"./open-folder": "./src/open-folder.svelte",
+		"./leave-guard": "./src/leave-guard.ts",
 		"./note-repair": "./src/note-repair.svelte",
 		"./unsaved-edit": "./src/unsaved-edit.svelte",
 		"./row-issues": "./src/row-issues.svelte",

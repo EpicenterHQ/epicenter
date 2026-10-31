@@ -19,6 +19,9 @@
  *
  * `fieldEdit(notes, args, field)` binds one field to an immediate editor.
  *
+ * Every write is held for the page's leave guard (`@epicenter/svelte/leave-guard`)
+ * from the call until it answers.
+ *
  * `oneList(contract, name, { device, repository, outbox })` (`one-list.ts`)
  * shows one note collection over this device and the person's repository
  * as one `ReactiveNotes`, for an app whose notes upload (decision 12).
@@ -57,6 +60,7 @@ import { createSubscriber } from 'svelte/reactivity';
 import type { InferError } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { edit } from './edit.svelte.js';
+import { holdLeave } from './leave-guard.js';
 
 export {
 	type CaptureQueue,
@@ -270,27 +274,7 @@ function fromCollection(collection: Raw) {
 		return written;
 	}
 
-	return {
-		get items() {
-			track();
-			return items;
-		},
-		get invalid() {
-			track();
-			return invalid;
-		},
-		get loading() {
-			track();
-			return loading;
-		},
-		get error() {
-			track();
-			return error;
-		},
-		get(args: Args) {
-			track();
-			return shown(args);
-		},
+	const writes = {
 		async create(value: Args) {
 			const created = await collection.create(value as never);
 			if (created.error === null) put(created.data as Entry, value);
@@ -329,6 +313,35 @@ function fromCollection(collection: Raw) {
 				await collection.delete(args as never, { over: base.data.version }),
 			);
 		},
+	};
+
+	return {
+		get items() {
+			track();
+			return items;
+		},
+		get invalid() {
+			track();
+			return invalid;
+		},
+		get loading() {
+			track();
+			return loading;
+		},
+		get error() {
+			track();
+			return error;
+		},
+		get(args: Args) {
+			track();
+			return shown(args);
+		},
+		create: (value: Args) => holdLeave(writes.create(value)),
+		update: (args: Args, patch: Args, options?: { base?: Entry }) =>
+			holdLeave(writes.update(args, patch, options)),
+		replace: (args: Args, text: string, options?: { over?: Version }) =>
+			holdLeave(writes.replace(args, text, options)),
+		delete: (args: Args) => holdLeave(writes.delete(args)),
 	};
 }
 
@@ -415,6 +428,10 @@ export function fieldEdit<
 		},
 		get error() {
 			return editor.error;
+		},
+		/** Whether a save is out: from the keystroke until it answers. */
+		get saving() {
+			return editor.saving;
 		},
 		set: editor.set,
 		landed: editor.landed,

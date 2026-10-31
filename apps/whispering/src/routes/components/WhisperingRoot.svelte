@@ -6,7 +6,8 @@
 -->
 <script lang="ts">
 	import { closeDevice } from '@epicenter/folder/browser';
-	import { onDestroy, type Snippet } from 'svelte';
+	import { guardLeave } from '@epicenter/svelte/leave-guard';
+	import { onDestroy, onMount, type Snippet } from 'svelte';
 	import { getAuth } from '#platform/auth';
 	import { openWhisperingDevice } from '$lib/device.js';
 	import SignedIn from './SignedIn.svelte';
@@ -17,6 +18,8 @@
 	const auth = getAuth();
 	const device = openWhisperingDevice();
 	onDestroy(() => closeDevice(device));
+	// Leaving while a save is out asks first; a desktop window waits for it.
+	onMount(guardLeave);
 </script>
 
 {#if auth.state.status === 'signed-out'}

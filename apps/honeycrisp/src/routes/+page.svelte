@@ -6,7 +6,8 @@
 <script lang="ts">
 	import { closeDevice, openDevice, outboxOf } from '@epicenter/folder/browser';
 	import { fromClient } from '@epicenter/svelte/client';
-	import { onDestroy } from 'svelte';
+	import { guardLeave } from '@epicenter/svelte/leave-guard';
+	import { onDestroy, onMount } from 'svelte';
 	import { webAuth } from '$lib/auth.js';
 	import HoneycrispApp from '$lib/components/HoneycrispApp.svelte';
 	import SignedIn from '$lib/components/SignedIn.svelte';
@@ -17,6 +18,8 @@
 	const client = openDevice(honeycrisp);
 	const device = setDevice({ client, files: fromClient(client) });
 	onDestroy(() => closeDevice(client));
+	// Leaving while a save is out asks first; a desktop window waits for it.
+	onMount(guardLeave);
 
 	const lists = createLists({ device: device.files, repository: null, outbox: outboxOf(client) });
 </script>

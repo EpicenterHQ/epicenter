@@ -1,6 +1,11 @@
-/** An edit shows typed text until its latest immediate save answers. */
+/**
+ * An edit shows typed text until its latest immediate save answers. Each
+ * save is `saving` from the keystroke until it answers, and held for the
+ * page's leave guard (`holdLeave`) as long.
+ */
 import { onDestroy } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import { holdLeave } from './leave-guard.js';
 
 export function edit<T, E>(
 	source: () => T,
@@ -8,6 +13,8 @@ export function edit<T, E>(
 ) {
 	let typed = $state<{ value: T } | null>(null);
 	let error = $state<E | null>(null);
+	/** Saves sent and not yet answered. */
+	let sending = $state(0);
 	let lastSave: Promise<Result<unknown, E>> | undefined;
 	let active = true;
 
@@ -27,7 +34,10 @@ export function edit<T, E>(
 			},
 		);
 		lastSave = settled;
+		sending++;
+		void holdLeave(settled);
 		void settled.then((result) => {
+			sending--;
 			if (!active || lastSave !== settled) return;
 			if (result.error === null) {
 				typed = null;
@@ -66,6 +76,10 @@ export function edit<T, E>(
 		},
 		get error() {
 			return error;
+		},
+		/** Whether a save is out: from the keystroke until it answers. */
+		get saving() {
+			return sending > 0;
 		},
 		set,
 		landed,

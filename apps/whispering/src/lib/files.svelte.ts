@@ -33,6 +33,7 @@ import {
 	oneList,
 	type Side,
 } from '@epicenter/svelte/client';
+import { holdLeave } from '@epicenter/svelte/leave-guard';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
 import { type Whispering, whispering } from './contract.js';
@@ -331,13 +332,15 @@ export function createWhisperingFiles({
 			recording: NewRecording,
 		): Promise<Result<void, string>> {
 			const { id, ext, bytes, ...note } = recording;
-			const saved = await saveCapture(device, {
-				id,
-				files: [
-					{ collection: 'audio', value: { id, ext, bytes } },
-					{ collection: 'recordings', value: { id, ...note } },
-				],
-			});
+			const saved = await holdLeave(
+				saveCapture(device, {
+					id,
+					files: [
+						{ collection: 'audio', value: { id, ext, bytes } },
+						{ collection: 'recordings', value: { id, ...note } },
+					],
+				}),
+			);
 			return saved.error === null ? Ok(undefined) : Err(saved.error.message);
 		},
 

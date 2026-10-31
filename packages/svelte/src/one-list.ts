@@ -49,6 +49,7 @@ import { defineErrors, type InferError } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import type { Result } from 'wellcrafted/result';
 import type { ReactiveNotes } from './client.js';
+import { holdLeave } from './leave-guard.js';
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
@@ -275,16 +276,49 @@ export function oneList<
 		return onDevice ? sides.device : sides.repository;
 	};
 
-	/** Write to the copy shown, following the note to the repository when the device let go of it meanwhile. */
-	async function write<T extends Written>(
+	/**
+	 * Write to the copy shown, following the note to the repository when the
+	 * device let go of it meanwhile; held for the leave guard throughout.
+	 */
+	function write<T extends Written>(
 		args: Record<string, unknown>,
 		to: (notes: Notes) => Promise<T>,
 	): Promise<T> {
 		const side = sideOf(args);
-		const written = await to(side);
-		if (side === sides.repository || sides.repository === null) return written;
-		if (!goneFromDevice(written)) return written;
-		return to(sides.repository);
+		return holdLeave(
+			to(side).then((written) => {
+				if (side === sides.repository || sides.repository === null)
+					return written;
+				if (!goneFromDevice(written)) return written;
+				return to(sides.repository);
+			}),
+		);
+	}
+
+	/** Create on the side `createOn` says, else keep it on the device and queue it to upload. */
+	async function create(value: Record<string, unknown>) {
+		if (sides.repository !== null && createOn === 'repository') {
+			const created = await sides.repository.create(value as never);
+			if (created.error?.name !== 'Unavailable') return created;
+		}
+		const kept = await sides.device.create(value as never);
+		if (kept.error !== null || outbox === null) return kept;
+		const created = kept.data as Entry;
+		const queued = await outbox.add({
+			id: timeId(),
+			files: [
+				{
+					collection: name,
+					...Object.fromEntries(
+						params.map((param) => [param, String(created[param])]),
+					),
+					version: created.version,
+				},
+			],
+		});
+		if (queued.error !== null)
+			log.warn(OneListDiagnostic.NotQueued({ cause: queued.error }));
+		return kept;
 	}
 
 	const get = (args: Record<string, unknown>) => {
@@ -310,30 +344,7 @@ export function oneList<
 		},
 		get,
 		where: (args: Record<string, unknown>) => merged().sides.get(keyOf(args)),
-		async create(value: Record<string, unknown>) {
-			if (sides.repository !== null && createOn === 'repository') {
-				const created = await sides.repository.create(value as never);
-				if (created.error?.name !== 'Unavailable') return created;
-			}
-			const kept = await sides.device.create(value as never);
-			if (kept.error !== null || outbox === null) return kept;
-			const created = kept.data as Entry;
-			const queued = await outbox.add({
-				id: timeId(),
-				files: [
-					{
-						collection: name,
-						...Object.fromEntries(
-							params.map((param) => [param, String(created[param])]),
-						),
-						version: created.version,
-					},
-				],
-			});
-			if (queued.error !== null)
-				log.warn(OneListDiagnostic.NotQueued({ cause: queued.error }));
-			return kept;
-		},
+		create: (value: Record<string, unknown>) => holdLeave(create(value)),
 		update(
 			args: Record<string, unknown>,
 			patch: Record<string, unknown>,

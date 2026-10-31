@@ -14,6 +14,8 @@
  *   a draft's `replace` over the version it began from refuses a change since
  * - `fieldEdit` sends one save at a time, so fast typing never clashes with
  *   itself, and another writer's change to the same field surfaces
+ * - A write through the adapter, or a keystroke in `fieldEdit`, is out for
+ *   the leave guard at once, until it answers
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -29,6 +31,7 @@ import { openDevice } from '@epicenter/folder/node';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
 const { fromClient, fieldEdit } = await import('./client.js');
+const { isSaving, whenSaved } = await import('./leave-guard.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: InitHost } = await import('./fixtures/InitHost.svelte');
@@ -337,6 +340,37 @@ test('fieldEdit sends one save at a time, the newest value waiting, so fast typi
 	expect(updates).toBeLessThan(7);
 	flushSync();
 	expect(title.value).toBe('Oat milk');
+
+	await host.unmount();
+	shown.stop();
+});
+
+test('a write through the adapter, or a keystroke in fieldEdit, is saving at once until it answers', async () => {
+	const { open, text } = await folder();
+	const device = open();
+	expectOk(await device.todos.create({ id: 'a', title: '', done: false }));
+	const files = fromClient(device);
+	const shown = follow(() => files.todos.get({ id: 'a' }));
+	await until(() => shown.values.at(-1) !== undefined);
+
+	const updating = files.todos.update({ id: 'a' }, { done: true });
+	expect(isSaving()).toBe(true);
+	expectOk(await updating);
+	await whenSaved();
+	expect(isSaving()).toBe(false);
+
+	const host = setup(() => fieldEdit(files.todos, { id: 'a' }, 'title'));
+	const title = host.made;
+	expect(title.saving).toBe(false);
+	title.value = 'Oat milk';
+	expect(title.saving).toBe(true);
+	expect(isSaving()).toBe(true);
+	expectOk(await title.landed());
+	await whenSaved();
+	expect(title.saving).toBe(false);
+	expect(await text('todos/a.md')).toBe(
+		'---\ntitle: Oat milk\ndone: true\n---\n',
+	);
 
 	await host.unmount();
 	shown.stop();

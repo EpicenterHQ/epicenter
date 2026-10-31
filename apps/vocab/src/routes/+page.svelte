@@ -7,7 +7,8 @@
 <script lang="ts">
 	import { closeDevice, openDevice, outboxOf } from '@epicenter/folder/browser';
 	import { fromClient } from '@epicenter/svelte/client';
-	import { onDestroy } from 'svelte';
+	import { guardLeave } from '@epicenter/svelte/leave-guard';
+	import { onDestroy, onMount } from 'svelte';
 	import { auth } from '$lib/auth.svelte.js';
 	import { setDevice } from '$lib/context.js';
 	import { vocab } from '$lib/contract.js';
@@ -18,6 +19,8 @@
 	const client = openDevice(vocab);
 	const device = setDevice({ client, files: fromClient(client) });
 	onDestroy(() => closeDevice(client));
+	// Leaving while a save is out asks first; a desktop window waits for it.
+	onMount(guardLeave);
 
 	const lists = createVocabLists({
 		device: device.files,
