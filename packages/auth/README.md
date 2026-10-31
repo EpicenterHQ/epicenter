@@ -111,12 +111,29 @@ page and uses its session cookie.
 
 ## Desktop
 
-The desktop app's sign-in is the `epicenter` CLI's desktop grant
+The Epicenter desktop app's sign-in is the `epicenter` CLI's desktop grant
 (ADR-0556, ADR-0558). Settings signs in with `epicenter auth login --desktop`
 and signs out with `epicenter auth logout`; the CLI keeps the refresh token in
 the keychain and mints access tokens per resource. No WebView holds a token
 (ADR-0549's desktop row). Compile the shell with `EPICENTER_SERVER_ORIGIN` for
 a self-hosted build; the default is Cloud.
+
+A standalone desktop app (Whispering, Vocab) signs in through its own shell
+instead: `createTauriAuth()` from `@epicenter/auth/tauri` is an `AuthClient`
+over the [`epicenter-account`](../tauri-epicenter-account/README.md) crate's
+commands, which sign in as the app's native client
+(`so.epicenter.<app>.native`) in the system browser, keep the refresh token
+in the keychain, and relay each of the account's requests (`account_fetch`),
+so the page never holds a token. `keychain` from the same entry reads and
+writes the API keys the app saves there.
+
+```ts
+import { fromAuth } from '@epicenter/auth/svelte';
+import { createTauriAuth } from '@epicenter/auth/tauri';
+
+const { client, ready } = createTauriAuth();
+export const auth = fromAuth(client);
+```
 
 ## Lifetime and policy
 

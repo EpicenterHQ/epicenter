@@ -72,11 +72,12 @@ and a display title that never names storage.
 <library>/
   so.epicenter/              RECORDS     Epicenter
   so.epicenter.todos/        TODOS       Todos
-  so.epicenter.capture/      CAPTURE     Capture
-  so.epicenter.honeycrisp/   HONEYCRISP  Honeycrisp
-  so.epicenter.whispering/   WHISPERING  Whispering
-  so.epicenter.messages/     MESSAGES    Messages
 ```
+
+The apps on [`epicenter-standalone`](../tauri-epicenter-standalone/README.md)
+(Capture, Honeycrisp, Vocab, Whispering) use neither the library nor
+`DesktopPaths`: each keeps its data folder at `~/Epicenter/<productName>`,
+allowed in Tauri's file-system scope at startup (see Other roots).
 
 `DesktopPaths::open_default(definition)` computes `<root>/<id>`, admits it,
 then creates it when missing or reuses the directory already there with its

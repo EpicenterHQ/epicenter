@@ -1,16 +1,18 @@
 # Epicenter API (Hosted Personal Cloud)
 
 > [!CAUTION]
-> **Hosted Git answers 503 until R2 LFS is bound.** `resolveArtifactsGitHost`
-> returns no host until Artifacts and all four R2 LFS bindings are there
-> (`LFS_BUCKET`, `LFS_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`;
-> `worker/lfs-store.ts`), and `wrangler.jsonc` binds none yet. Then every push
-> and web write goes through the receiver, which refuses any file other than a
-> `.md` note or a hidden path unless it is a stored Git LFS pointer. Before
-> binding: give the bucket a CORS rule
+> **Hosted Git answers 503 until the R2 key pair reaches the deployed
+> version.** `resolveArtifactsGitHost` returns no host until Artifacts and all
+> four R2 LFS bindings are there (`LFS_BUCKET`, `LFS_BUCKET_NAME`,
+> `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`; `worker/lfs-store.ts`).
+> `wrangler.jsonc` binds the `epicenter-lfs` bucket and its name; the key pair
+> are optional secrets put on the deployed version (see
+> [Deploying R2 LFS](#deploying-r2-lfs)). Then every push and web write goes
+> through the receiver, which refuses any file other than a `.md` note or a
+> hidden path unless it is a stored Git LFS pointer. The bucket's CORS rule
 > for the registered app origins (PUT and GET; headers
-> `x-amz-checksum-sha256`, `if-none-match`, `content-type`), or browser
-> uploads and downloads fail. See [Hosted Git](#hosted-git).
+> `x-amz-checksum-sha256`, `if-none-match`, `content-type`) is what lets
+> browser uploads and downloads work. See [Hosted Git](#hosted-git).
 
 Epicenter Cloud Worker. Handles authentication, hosted Git, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
 
@@ -217,7 +219,7 @@ There are three layers, each with a different URL source:
 
 ```bash
 bun dev              # Local dev server (uses local Postgres)
-bun deploy           # Deploy to Cloudflare Workers (the receiver stays off until LFS is bound; see the caution at the top)
+bun deploy           # Deploy to Cloudflare Workers (hosted Git stays off until the R2 key pair is on the deployed version; see the caution at the top)
 bun run typecheck    # Type check
 bun run test         # Run tests, each file isolated
 ```
@@ -244,7 +246,11 @@ names what is deployment-specific:
   sign-in, keeps no refresh token, and its grant stays bound to the session
   (`offlineDetach` skips web clients). The
   desktop app is `so.epicenter`, with a loopback redirect on any port and
-  `offline_access`. The CLI is `so.epicenter.cli`, with the device grant only
+  `offline_access`. Each standalone desktop app that signs in is its own
+  native client, `so.epicenter.<app>.native` (`NATIVE_APPS`: Whispering and
+  Vocab), with a loopback redirect on any port, PKCE, `offline_access`, and
+  the API audience only; its refresh token stays in that computer's
+  keychain. The CLI is `so.epicenter.cli`, with the device grant only
   and `openid`, so `epicenter auth login` can read who approved it from
   userinfo.
 

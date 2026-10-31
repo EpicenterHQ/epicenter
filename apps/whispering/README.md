@@ -41,9 +41,9 @@ without an account and works offline. Nothing syncs, uploads, or moves to a
 repository, and there is no other view
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
-- A recording is kept when you press Stop, as two writes: its audio, then
-  its note, so a note never names audio that is not there. Recording never
-  waits on the network.
+- A recording is kept as it records: its note at Start, its audio written
+  beside it a piece at a time, its length at Stop (see
+  [Recording](#recording)). Recording never waits on the network.
 - Transcripts, transformations, and their results are kept beside it when
   they are made.
 - Changes another tab makes show without a reload.
@@ -327,8 +327,6 @@ build script declares, and how an accelerator parses.
   it is listed.
 - Reading files an earlier build kept (its IndexedDB folder, or a Yjs store).
   There is no migration.
-- A recording surviving a refresh or a closed tab before Stop, in the web
-  app.
 - System-wide dictation beyond the desktop's one start-and-stop shortcut:
   push-to-talk, voice-activated recording, and delivering text to the
   cursor. Copy buttons are the only way text leaves the app.
