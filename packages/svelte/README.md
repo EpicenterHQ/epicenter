@@ -35,6 +35,36 @@ at a time, made over what the person saw when the typing began.
 <Checkbox checked={todo?.done} onCheckedChange={(done) => files.todos.update({ id }, { done })} />
 ```
 
+### This device and the repository as one list
+
+An app whose notes are kept on the device and upload to the person's
+repository (decision 12) shows each note collection through `oneList`, a
+`ReactiveNotes` over both sides, so views and `fieldEdit` never know which
+side they write:
+
+```ts
+import { fromClient, oneList } from '@epicenter/svelte/client';
+
+const todos = oneList(contract, 'todos', {
+  device: fromClient(device).todos,
+  repository: remote ? fromClient(remote).todos : null, // null signed out
+  outbox: outboxOf(device), // null where nothing uploads
+  order: (a, b) => Number(a.done) - Number(b.done), // default: by placeholders
+});
+```
+
+- A note on both sides is mid-upload, and shows the device copy; each row
+  says where its copy is (`where`).
+- Writes go to the copy shown. One that finds the device copy gone (the
+  upload let go of it meanwhile) follows the note to the repository over the
+  same base.
+- A note the device lets go of stays shown until the repository answers a
+  listing, so an editor open on it is never unmounted while it uploads.
+- `create` goes to the repository; when it cannot be reached, or signed out,
+  the note stays on the device, recorded in the outbox to upload.
+- `error` is the device's; `repositoryError` says the repository could not
+  be listed, while new notes still save to the device.
+
 ## Open a folder in an app
 
 ```svelte

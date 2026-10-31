@@ -19,6 +19,10 @@
  *
  * `fieldEdit(notes, args, field)` binds one field to an immediate editor.
  *
+ * `oneList(contract, name, { device, repository, outbox })` (`one-list.ts`)
+ * shows one note collection over this device and the person's repository
+ * as one `ReactiveNotes`, for an app whose notes upload (decision 12).
+ *
  * @example
  * ```svelte
  * <script lang="ts">
@@ -52,6 +56,15 @@ import { createSubscriber } from 'svelte/reactivity';
 import type { InferError } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { edit } from './edit.svelte.js';
+
+export {
+	type CaptureQueue,
+	type ListedInvalid,
+	type ListedNote,
+	type OneList,
+	oneList,
+	type Side,
+} from './one-list.js';
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
