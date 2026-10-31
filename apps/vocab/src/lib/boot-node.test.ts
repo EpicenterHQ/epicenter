@@ -73,18 +73,6 @@ describe('the working page needs no account', () => {
 		expect(declaration).not.toMatch(/accountKey|@epicenter\/auth/);
 	});
 
-	test('no shipped source opens the declared folder of the older shape', async () => {
-		const files = await shippedSources();
-		const legacy = files
-			.filter(({ text }) =>
-				/\bdefineFolder\b|\bLegacyFolder\b|openFolder\(\{\s*(app|id)\b/.test(
-					text,
-				),
-			)
-			.map(({ path }) => path);
-		expect(legacy).toEqual([]);
-	});
-
 	test('no shipped source opens a store: the folder is the only saved data', async () => {
 		const files = await shippedSources();
 		const openers = files

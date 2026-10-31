@@ -48,9 +48,9 @@ import {
 	deferred,
 	eventually,
 	openTestServices,
-	waitForSaves,
 	TEST_BASE_URL,
 	type TestServicesOptions,
+	waitForSaves,
 } from './services.test-support.js';
 import { TransformationError } from './transformation.js';
 import type { Whispering } from './whispering.svelte.js';
@@ -98,7 +98,10 @@ async function recipeFile(
 ) {
 	const path = `transformations/${stem}.md`;
 	expectOk(
-		await folder.write(path, `---\ntitle: Earlier\nmodel: ${model}\n---\n${body}`),
+		await folder.write(
+			path,
+			`---\ntitle: Earlier\nmodel: ${model}\n---\n${body}`,
+		),
 	);
 	return path;
 }
@@ -237,7 +240,7 @@ test('the Run check, the post-processing choice, the menu, and the run agree abo
 	]);
 });
 
-test('a result file and a recipe written by an earlier build still read and list', async () => {
+test('a result file and a recipe written outside the app read and list', async () => {
 	const { whispering, folder } = await open();
 	const path = await recipeFile(folder, 'old', { model: 'old-model' });
 	const old =

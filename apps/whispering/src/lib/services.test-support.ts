@@ -118,7 +118,7 @@ function refusedConnection(
 }
 
 /**
- * A new directory named as Whispering's own folder in an earlier layout,
+ * A new directory named as Whispering's own folder,
  * `so.epicenter.whispering`, in a temporary directory of its own. Remove
  * `dirname` of it when done.
  */
@@ -147,9 +147,7 @@ function wrap(opened: Folder<WhisperingTables>): TestFolder {
 }
 
 /** A real directory opened with Whispering's tables, by this test process. */
-export async function openTestFolder(
-	root: string,
-): Promise<TestFolder> {
+export async function openTestFolder(root: string): Promise<TestFolder> {
 	return wrap(
 		expectOk(
 			await openFolder({

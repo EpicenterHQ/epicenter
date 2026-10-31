@@ -179,10 +179,3 @@ Carry forward `src/browser-oauth.test.ts` and
 sign-in/callback/dashboard routes and a virtual WebAuthn authenticator while a
 different principal owns the ambient browser cookie.
 
-## Historical instance identity
-
-Earlier installations saved a static bearer under the `instance` principal.
-Current apps do not restore those credentials or old server preferences. They
-leave historical local data untouched and do not assign it to a named person.
-Self-hosted builds use the existing origin-derived authority bytes, so an
-existing named user's local data keeps its address.

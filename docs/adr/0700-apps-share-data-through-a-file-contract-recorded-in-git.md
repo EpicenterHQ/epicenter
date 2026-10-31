@@ -157,6 +157,14 @@ while online, with `Conflict` answered in the app.
 storage's object reader); browser sync
 (`browser/sync.ts`, `browser/git/transfer*`, `browser/git/publication.ts`) and
 the `isomorphic-git` dependency of `@epicenter/folder`; `publishFile`.
+Because no data is at rest (decision 72), so is every reader of an older
+shape: `epicenter query` and `schema import|export` over a root
+`epicenter.json`; the hosted Git host without `objects` that answered as
+before the receiver; the browser engine's sync checkpoints
+(`remoteBase`, `pendingCommit`, `acknowledge`); the old content-only `merge`
+and its `diff` dependency; replayed receipts and missing `bases` in outbox
+sidecars; grants and tokens without a `generation`; Capture's `draft`
+files; and `bookmarks.json` cleanup.
 
 ## Consequences
 
@@ -176,11 +184,11 @@ the `isomorphic-git` dependency of `@epicenter/folder`; `publishFile`.
   the resend gives one conflict block (or a conflict copy) instead of a clean
   update. Nothing is lost.
 - A repository grant exposes every data folder in that repository.
-- The production `api` Worker routes every push through the receiver, so it
-  must not deploy until an R2 bucket is bound (`apps/api/README.md`).
+- The production `api` Worker answers hosted Git with 503 until an R2 bucket
+  is bound (`apps/api/README.md`); then every push goes through the receiver.
 - The IndexedDB `openFolder` engine remains for the apps that have not moved to
-  a contract. `epicenter query` and `schema import|export` still use a legacy
-  root `epicenter.json`.
+  a contract, and the desktop editor still reads a root `epicenter.json` for
+  table views; both go when the apps move.
 
 ## Considered alternatives
 
@@ -212,7 +220,7 @@ the `isomorphic-git` dependency of `@epicenter/folder`; `publishFile`.
 | [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) | `epicenter generate` writing the declaration: generation is deleted. |
 | [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) | refusing every non-fast-forward and a browser's token in isomorphic-git: the owner may force-push, and the browser runs no Git. |
 | [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | "sync settles with the same merge": sync settles with `settle` and the merge driver. |
-| [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | root `epicenter.json` for CLI `check`: `check` takes a contract; `query` still reads it. |
+| [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | root `epicenter.json` for CLI `check` and `query`: `check` takes a contract, and `query` is deleted. |
 | [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | "Epicenter registers no plain-Git merge driver": `merge=epicenter` runs `epicenter merge-driver`. |
 | [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | browser synchronization and "purging committed bytes requires a new repository": the owner may rewrite `main`. |
 | [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | web origins exchanging commits, the browser's Git transport, and `check` with `epicenter.json`: the web never syncs, and `check` takes a contract. |

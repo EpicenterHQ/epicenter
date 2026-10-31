@@ -192,9 +192,8 @@ src/table-name    the table name grammar
 src/json          JsonValue and its guards
 ```
 
-There is no store, schema migration, or query code here. The package retains
-its existing name and exports during migration; its name does not introduce
-another data-domain concept alongside schema.
+There is no store, schema migration, or query code here. Its name does not
+introduce another data-domain concept alongside schema.
 
 ## A field is one native schema
 
