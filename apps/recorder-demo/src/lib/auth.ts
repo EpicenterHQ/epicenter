@@ -24,7 +24,7 @@ const server = selfHostedServer(
 const client = createBrowserOAuth({
 	server,
 	clientId: LOCAL_APPS.RECORDER_DEMO.id,
-	resource: resolveOAuthAudiences(server.baseURL).git,
+	resources: [resolveOAuthAudiences(server.baseURL).git],
 	scope: 'openid folders:read folders:write',
 	accountManagement: false,
 });

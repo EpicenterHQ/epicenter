@@ -17,11 +17,14 @@ let auth: PlatformAuth | undefined;
 
 export function getAuth(): PlatformAuth {
 	if (auth) return auth;
+	const audiences = resolveOAuthAudiences(server.baseURL);
+	// One sign-in covers transcription (the API) and the recordings folder's
+	// Git remote: one redirect, one access token per audience.
 	const client = createBrowserOAuth({
 		server,
 		clientId: APPS.WHISPERING.id,
-		resource: resolveOAuthAudiences(server.baseURL).api,
-		scope: 'openid profile email ai',
+		resources: [audiences.api, audiences.git],
+		scope: 'openid profile email ai folders:read folders:write',
 		accountManagement: !SELF_HOST_ORIGIN,
 		// A timer must not navigate away in the middle of a recording.
 		automaticRenewal: false,

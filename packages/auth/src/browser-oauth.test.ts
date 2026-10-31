@@ -3,7 +3,7 @@
  * the shared token cell, silent renewal by top-level navigation, the Account's
  * bearer, and sign-out.
  */
-import { expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
 import { createLogger, memorySink } from 'wellcrafted/logger';
 import { expectOk } from 'wellcrafted/testing';
@@ -47,24 +47,38 @@ async function sha256(value: string) {
 		.replaceAll('=', '');
 }
 
+type Grant = { sub: string; resources: string[] };
+
 /** One origin's shared storage, clock, and authorization server. */
 function createWorld({
 	principal = 'alice',
 	revoke = async () => new Response(null, { status: 200 }),
+	resources = [RESOURCE],
 }: {
 	principal?: string;
 	revoke?: () => Promise<Response>;
+	resources?: CreateBrowserOAuthOptions['resources'];
 } = {}) {
 	const storage = createMemoryStorage();
 	let clock = 1_000_000;
-	const codes = new Map<string, { challenge: string; sub: string }>();
+	const codes = new Map<
+		string,
+		Grant & { challenge: string; offline: boolean }
+	>();
+	const refreshTokens = new Map<string, Grant>();
 	const issued = new Map<string, string>();
 	const requests: { url: string; init?: RequestInit }[] = [];
+	const tokenForms: URLSearchParams[] = [];
 	const revoked: URLSearchParams[] = [];
 	let tokenCount = 0;
+	let refreshCount = 0;
 	const server = {
 		principal,
 		resourceStatus: 200,
+		/** Access tokens a resource answers 401 for. */
+		refusedTokens: new Set<string>(),
+		/** Answer the token request with this number (from 1) with a 500. */
+		failTokenRequest: 0,
 		/** Answer the authorize URL the client navigated to, as a logged-in server would. */
 		authorize(
 			authorizeUrl: string,
@@ -82,35 +96,64 @@ function createWorld({
 			codes.set(code, {
 				challenge: params.get('code_challenge')!,
 				sub: server.principal,
+				resources: params.getAll('resource'),
+				offline: params.get('scope')!.split(' ').includes('offline_access'),
 			});
 			callback.searchParams.set('code', code);
 			return callback.href;
 		},
 	};
+	/** Issue an access token, and a rotated refresh token for an offline grant. */
+	function issue(grant: Grant, offline: boolean) {
+		const token = `token-${++tokenCount}`;
+		issued.set(token, grant.sub);
+		const refresh = offline ? `ep_rt_${++refreshCount}` : undefined;
+		if (refresh) refreshTokens.set(refresh, grant);
+		return Response.json({
+			access_token: token,
+			token_type: 'Bearer',
+			expires_in: 8 * 60 * 60,
+			...(refresh && { refresh_token: refresh }),
+		});
+	}
 	const fetch = async (input: Request | string | URL, init?: RequestInit) => {
 		const url = new URL(input instanceof Request ? input.url : input);
 		requests.push({ url: url.href, init });
+		const bearer = new Headers(
+			input instanceof Request ? input.headers : init?.headers,
+		)
+			.get('authorization')
+			?.replace('Bearer ', '');
+		if (bearer && server.refusedTokens.has(bearer))
+			return new Response(null, { status: 401 });
 		if (url.origin !== SERVER) return new Response('elsewhere');
 		if (url.pathname === '/auth/oauth2/token') {
 			const form = new URLSearchParams(String(init?.body));
+			tokenForms.push(form);
+			if (tokenForms.length === server.failTokenRequest)
+				return Response.json({ error: 'server_error' }, { status: 500 });
+			const invalid = () =>
+				Response.json({ error: 'invalid_grant' }, { status: 400 });
+			if (form.get('client_id') !== CLIENT_ID || form.has('scope'))
+				return invalid();
+			const resource = form.get('resource') ?? '';
+			if (form.get('grant_type') === 'refresh_token') {
+				const grant = refreshTokens.get(form.get('refresh_token') ?? '');
+				refreshTokens.delete(form.get('refresh_token') ?? '');
+				if (!grant?.resources.includes(resource)) return invalid();
+				return issue(grant, true);
+			}
 			const grant = codes.get(form.get('code') ?? '');
 			codes.delete(form.get('code') ?? '');
 			if (
 				!grant ||
 				form.get('grant_type') !== 'authorization_code' ||
-				form.get('client_id') !== CLIENT_ID ||
 				form.get('redirect_uri') !== REDIRECT_URI ||
-				form.get('resource') !== RESOURCE ||
+				!grant.resources.includes(resource) ||
 				(await sha256(form.get('code_verifier') ?? '')) !== grant.challenge
 			)
-				return Response.json({ error: 'invalid_grant' }, { status: 400 });
-			const token = `token-${++tokenCount}`;
-			issued.set(token, grant.sub);
-			return Response.json({
-				access_token: token,
-				token_type: 'Bearer',
-				expires_in: 8 * 60 * 60,
-			});
+				return invalid();
+			return issue(grant, grant.offline);
 		}
 		if (url.pathname === '/auth/oauth2/userinfo') {
 			const token = new Headers(init?.headers)
@@ -144,7 +187,7 @@ function createWorld({
 		const options: CreateBrowserOAuthOptions = {
 			server: epicenterCloud(SERVER),
 			clientId: CLIENT_ID,
-			resource: RESOURCE,
+			resources,
 			scope: SCOPE,
 			accountManagement: false,
 			storage,
@@ -178,6 +221,7 @@ function createWorld({
 		server,
 		logs: logs.events,
 		requests,
+		tokenForms,
 		revoked,
 		fetch,
 		openTab,
@@ -235,7 +279,7 @@ test('sign-in navigates to the authorize endpoint with PKCE as the app client', 
 	expect(params.get('client_id')).toBe(CLIENT_ID);
 	expect(params.get('redirect_uri')).toBe(REDIRECT_URI);
 	expect(params.get('scope')).toBe(SCOPE);
-	expect(params.get('resource')).toBe(RESOURCE);
+	expect(params.getAll('resource')).toEqual([RESOURCE]);
 	expect(params.get('code_challenge_method')).toBe('S256');
 	expect(params.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/);
 	expect(params.get('state')).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -263,11 +307,24 @@ test('completing sign-in exchanges the code, stores the token, and returns where
 	expect(state.account?.authorityId).toBe('epicenter-api');
 	const stored = JSON.parse(world.storage.getItem(TOKEN_KEY)!);
 	expect(stored).toEqual({
-		accessToken: 'token-1',
-		expiresAt: expect.any(Number),
+		tokens: {
+			[RESOURCE]: { accessToken: 'token-1', expiresAt: 1_000_000 + 8 * HOUR },
+		},
 		principalId: 'alice',
 		generation: expect.any(String),
 	});
+	// One resource: one code exchange, and no refresh token is asked for.
+	expect(world.tokenForms.map((form) => [...form.keys()])).toEqual([
+		[
+			'grant_type',
+			'client_id',
+			'code',
+			'code_verifier',
+			'redirect_uri',
+			'resource',
+		],
+	]);
+	expect(world.tokenForms[0]!.get('resource')).toBe(RESOURCE);
 	const tokenRequest = world.requests.find((r) =>
 		r.url.endsWith('/auth/oauth2/token'),
 	)!;
@@ -437,9 +494,9 @@ test('a token within ten minutes of expiry renews at construction with prompt=no
 	expect(expectOk(await callback.completeSignIn())).toEqual({
 		returnTo: '/notes',
 	});
-	expect(JSON.parse(world.storage.getItem(TOKEN_KEY)!).accessToken).toBe(
-		'token-2',
-	);
+	expect(
+		JSON.parse(world.storage.getItem(TOKEN_KEY)!).tokens[RESOURCE].accessToken,
+	).toBe('token-2');
 	callback[Symbol.dispose]();
 });
 
@@ -711,7 +768,7 @@ test('sign-out clears locally even when revocation fails', async () => {
 	expect(auth.getState().status).toBe('signed-out');
 	expect(world.storage.getItem(TOKEN_KEY)).toBeNull();
 	expect(world.logs.map((event) => event.message)).toEqual([
-		'Access token revocation failed.',
+		'Token revocation failed.',
 	]);
 	auth[Symbol.dispose]();
 });
@@ -722,4 +779,169 @@ test('dispose clears the renewal timer and the storage listener', async () => {
 	expect(world.pendingTimers().length).toBeGreaterThan(0);
 	auth[Symbol.dispose]();
 	expect(world.pendingTimers()).toEqual([]);
+});
+
+describe('one sign-in for several resources', () => {
+	// Local and self-hosted deployments serve Git under the API's origin.
+	const API = SERVER;
+	const LOCAL_GIT = `${SERVER}/git`;
+	const BOTH = [API, LOCAL_GIT] as const;
+
+	test('one navigation names every resource and asks for offline_access', async () => {
+		const world = createWorld({ resources: BOTH });
+		const tab = world.openTab();
+		using auth = tab.create();
+		expectOk(await auth.startSignIn());
+		expect(tab.assigned).toHaveLength(1);
+		const params = new URL(tab.assigned[0]!).searchParams;
+		expect(params.getAll('resource')).toEqual([API, LOCAL_GIT]);
+		expect(params.get('scope')).toBe(`${SCOPE} offline_access`);
+	});
+
+	test('the callback exchanges the code for the first resource and refreshes once for each other, keeping no refresh token', async () => {
+		const world = createWorld({ resources: BOTH });
+		const { tab, auth } = await signIn(world);
+
+		expect(
+			world.tokenForms.map((form) => ({
+				grant: form.get('grant_type'),
+				resource: form.get('resource'),
+				refreshToken: form.get('refresh_token'),
+			})),
+		).toEqual([
+			{ grant: 'authorization_code', resource: API, refreshToken: null },
+			{ grant: 'refresh_token', resource: LOCAL_GIT, refreshToken: 'ep_rt_1' },
+		]);
+		expect(JSON.parse(world.storage.getItem(TOKEN_KEY)!)).toEqual({
+			tokens: {
+				[API]: { accessToken: 'token-1', expiresAt: expect.any(Number) },
+				[LOCAL_GIT]: { accessToken: 'token-2', expiresAt: expect.any(Number) },
+			},
+			principalId: 'alice',
+			generation: expect.any(String),
+		});
+		const attempts = tab.options.attemptStorage as ReturnType<
+			typeof createMemoryStorage
+		>;
+		for (const value of [
+			...world.storage.cells.values(),
+			...attempts.cells.values(),
+		])
+			expect(value).not.toContain('ep_rt_');
+		expect(auth.getState().status).toBe('signed-in');
+		auth[Symbol.dispose]();
+	});
+
+	test.each([
+		['under the API origin', LOCAL_GIT],
+		['on an origin of its own', RESOURCE],
+	])(
+		'Account.fetch sends each resource its own token, with Git %s',
+		async (_, git) => {
+			const world = createWorld({ resources: [API, git] });
+			const { auth } = await signIn(world);
+			const account = auth.getState().account!;
+			const sentWith = async (url: string) => {
+				await account.fetch(url);
+				return new Headers(world.requests.at(-1)!.init?.headers).get(
+					'authorization',
+				);
+			};
+			expect(await sentWith(`${git}/alice/notes.git/info/refs`)).toBe(
+				'Bearer token-2',
+			);
+			expect(await sentWith(git)).toBe('Bearer token-2');
+			expect(await sentWith(`${API}/ai/chat`)).toBe('Bearer token-1');
+			// A path that only starts with the Git path is the API's.
+			expect(await sentWith(`${API}/github`)).toBe('Bearer token-1');
+			expect(await sentWith('/auth/oauth2/userinfo')).toBe('Bearer token-1');
+			await expect(account.fetch('https://elsewhere.test/x')).rejects.toThrow(
+				TypeError,
+			);
+			auth[Symbol.dispose]();
+		},
+	);
+
+	test('a failed refresh fails the sign-in, stores nothing, and revokes what was issued', async () => {
+		const world = createWorld({ resources: BOTH });
+		world.server.failTokenRequest = 2;
+		const tab = world.openTab();
+		expectOk(await tab.create().startSignIn());
+		tab.location.href = world.server.authorize(tab.assigned[0]!);
+		using auth = tab.create();
+
+		const { error } = await auth.completeSignIn();
+		expect(error?.name).toBe('CompleteSignInFailed');
+		expect(world.storage.getItem(TOKEN_KEY)).toBeNull();
+		expect(auth.getState().status).toBe('signed-out');
+		await Bun.sleep(0);
+		expect(
+			world.revoked.map((form) => [
+				form.get('token'),
+				form.get('token_type_hint'),
+			]),
+		).toEqual([
+			['token-1', 'access_token'],
+			['ep_rt_1', 'refresh_token'],
+		]);
+	});
+
+	test('a 401 on either token asks for reauthentication; sign-out retires and revokes both', async () => {
+		const world = createWorld({ resources: BOTH });
+		const { auth } = await signIn(world);
+		const account = auth.getState().account!;
+
+		world.server.refusedTokens.add('token-2');
+		expect((await account.fetch(`${LOCAL_GIT}/x`)).status).toBe(401);
+		expect(auth.getState()).toEqual({ status: 'reauth-required', account });
+		await expect(account.fetch(`${LOCAL_GIT}/x`)).rejects.toMatchObject({
+			code: 'reauth-required',
+		});
+		// The API token was not refused, so its requests still go out.
+		expect((await account.fetch(`${API}/ai`)).status).toBe(200);
+
+		expectOk(await auth.signOut());
+		expect(account.signal.aborted).toBe(true);
+		await expect(account.fetch(`${API}/ai`)).rejects.toBeDefined();
+		await expect(account.fetch(`${LOCAL_GIT}/x`)).rejects.toBeDefined();
+		expect(world.revoked.map((form) => form.get('token')).sort()).toEqual([
+			'token-1',
+			'token-2',
+		]);
+		auth[Symbol.dispose]();
+	});
+
+	test('silent renewal is due at the earliest expiry and repeats the exchange and refresh', async () => {
+		const world = createWorld({ resources: BOTH });
+		const { auth: first } = await signIn(world);
+		first[Symbol.dispose]();
+		const cell = JSON.parse(world.storage.getItem(TOKEN_KEY)!);
+		cell.tokens[LOCAL_GIT].expiresAt -= HOUR;
+		world.storage.setItem(TOKEN_KEY, JSON.stringify(cell));
+		world.advance(7 * HOUR - 9 * MINUTE);
+
+		const tab = world.openTab('/notes');
+		using leaving = tab.create();
+		await Bun.sleep(0);
+		expect(tab.assigned).toHaveLength(1);
+		expect(leaving.getState().status).toBe('signed-in');
+		const params = new URL(tab.assigned[0]!).searchParams;
+		expect(params.get('prompt')).toBe('none');
+		expect(params.getAll('resource')).toEqual([API, LOCAL_GIT]);
+
+		tab.location.href = world.server.authorize(tab.assigned[0]!);
+		using callback = tab.create();
+		expectOk(await callback.completeSignIn());
+		const renewed = JSON.parse(world.storage.getItem(TOKEN_KEY)!);
+		expect(renewed.tokens[API].accessToken).toBe('token-3');
+		expect(renewed.tokens[LOCAL_GIT].accessToken).toBe('token-4');
+		expect(renewed.generation).toBe(cell.generation);
+	});
+
+	test('a resource named twice is refused', () => {
+		const tab = createWorld().openTab();
+		expect(() =>
+			createBrowserOAuth({ ...tab.options, resources: [API, API] }),
+		).toThrow(TypeError);
+	});
 });

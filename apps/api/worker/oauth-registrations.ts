@@ -40,9 +40,12 @@ const BROWSER_APPS = [
 ] as const;
 
 /**
- * A browser build's client: one access token per origin, no refresh token,
- * consent skipped, target `*`, signing in back to `/auth/callback` on each of
- * `appOrigins`.
+ * A browser build's client: consent skipped, target `*`, signing in back to
+ * `/auth/callback` on each of `appOrigins`. It may ask for `offline_access`
+ * only so one sign-in can mint an access token per audience: the callback
+ * exchanges the code for one audience and refreshes once for each other, then
+ * keeps the access tokens and no refresh token. The grant stays bound to the
+ * authorization server's session (`offlineDetach` skips web clients).
  */
 function browserClient(
 	{
@@ -56,9 +59,10 @@ function browserClient(
 		clientId,
 		name,
 		redirectUris: appOrigins.map((appOrigin) => `${appOrigin}/auth/callback`),
-		grantTypes: ['authorization_code'],
+		grantTypes: ['authorization_code', 'refresh_token'],
 		scopes: [
 			'openid',
+			'offline_access',
 			'profile',
 			'email',
 			'ai',

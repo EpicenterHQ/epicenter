@@ -127,10 +127,17 @@ type AccessRow = {
  * namespace reaches no repository shared from another.
  *
  * - 401 `invalid_token` for a missing, unknown, expired, or revoked token, a
- *   token whose approving browser session ended, or another audience's token;
+ *   token whose approving browser session ended, or a token whose audience is
+ *   not exactly this resource;
  * - 403 `insufficient_scope` when the token lacks `scope`;
  * - 403 `forbidden` when the namespace is outside the grant's target, or the
  *   account is neither a member of it nor granted the repository.
+ *
+ * A token naming several audiences is refused at each. Every scope rides on
+ * every token (`oauthResourceInputs`), so the audience alone keeps a Git
+ * token out of inference, and the library issues a token for every bound
+ * audience when a token request omits `resource`. Refusing those makes one
+ * audience per token a server invariant rather than each client's discipline.
  */
 export async function authorizeResourceRequest(
 	db: Db,
@@ -178,7 +185,7 @@ export async function authorizeResourceRequest(
 		)
 		select t.user_id as account_id,
 		       t.client_id,
-		       ${audience} = any(t.resources) as has_audience,
+		       t.resources = array[${audience}]::text[] as has_audience,
 		       ${scope} = any(t.scopes) as has_scope,
 		       coalesce(t.reference_id in ('*', 'ns:' || coalesce(n.namespace_id, ${namespaceId})), false) as in_target,
 		       coalesce(
@@ -277,7 +284,8 @@ type AccountRow = {
  * statement as {@link authorizeResourceRequest} without the namespace check:
  *
  * - 401 `invalid_token` for a missing, unknown, expired, or revoked token, a
- *   token whose approving browser session ended, or another audience's token;
+ *   token whose approving browser session ended, or a token whose audience is
+ *   not exactly this resource (see {@link authorizeResourceRequest});
  * - 403 `insufficient_scope` when the token lacks `scope`.
  */
 export async function authorizeAccountRequest(
@@ -310,7 +318,7 @@ export async function authorizeAccountRequest(
 		       t.client_id,
 		       u.email,
 		       t.reference_id as target,
-		       ${audience} = any(t.resources) as has_audience,
+		       t.resources = array[${audience}]::text[] as has_audience,
 		       ${scope} = any(t.scopes) as has_scope
 		from oauth_access_token t
 		join "user" u on u.id = t.user_id

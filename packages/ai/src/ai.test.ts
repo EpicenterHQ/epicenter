@@ -186,8 +186,12 @@ test('same-owner refresh preserves an account client and sign-out retires its st
 		storage.setItem(
 			'test.app.oauth:https://account.example',
 			JSON.stringify({
-				accessToken,
-				expiresAt: Date.now() + 8 * 60 * 60_000,
+				tokens: {
+					'https://account.example': {
+						accessToken,
+						expiresAt: Date.now() + 8 * 60 * 60_000,
+					},
+				},
 				principalId: 'alice',
 				generation: 'alice-sign-in',
 			}),
@@ -197,7 +201,7 @@ test('same-owner refresh preserves an account client and sign-out retires its st
 	const auth = createBrowserOAuth({
 		server: epicenterCloud('https://account.example'),
 		clientId: 'test.app',
-		resource: 'https://account.example',
+		resources: ['https://account.example'],
 		scope: 'openid ai',
 		accountManagement: false,
 		storage,

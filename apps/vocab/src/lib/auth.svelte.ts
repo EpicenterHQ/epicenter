@@ -16,7 +16,7 @@ const server = SELF_HOST_ORIGIN
 const client = createBrowserOAuth({
 	server,
 	clientId: APPS.VOCAB.id,
-	resource: resolveOAuthAudiences(server.baseURL).api,
+	resources: [resolveOAuthAudiences(server.baseURL).api],
 	scope: 'openid profile email ai',
 	accountManagement: !SELF_HOST_ORIGIN,
 });

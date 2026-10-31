@@ -6,7 +6,7 @@ Auth selects an account; every application session keeps the Account it opened w
 const auth = createBrowserOAuth({
 	server: epicenterCloud('https://api.epicenter.so'),
 	clientId: 'so.epicenter.vocab',
-	resource: 'https://api.epicenter.so',
+	resources: ['https://api.epicenter.so'],
 	scope: 'openid profile email ai',
 	accountManagement: true,
 });
@@ -49,27 +49,37 @@ A first-party browser app signs in with `createBrowserOAuth` as an OAuth 2.1
 public client of the deployment's authorization server (ADR-0549). Its
 `clientId` is the app id, its redirect URI is exactly
 `<app origin>/auth/callback`, and both must match the app's registration in
-`apps/api/worker/oauth-registrations.ts`. It asks for one `resource` (the token
-audience, from `resolveOAuthAudiences` in `@epicenter/constants/apps`) and the
-scopes that audience allows. It never asks for `offline_access`.
+`apps/api/worker/oauth-registrations.ts`. It names its `resources` (token
+audiences, from `resolveOAuthAudiences` in `@epicenter/constants/apps`) and
+the scopes it needs. Each resource gets an access token of its own. The caller
+never asks for `offline_access`.
 
 `startSignIn` saves one PKCE attempt (verifier, state, and the current path) in
 `sessionStorage` and navigates top level to `/auth/oauth2/authorize` with an
-S256 challenge. The callback page calls `completeSignIn`, which checks the
-state against the attempt (single use, ten minutes at most), exchanges the code
-at `/auth/oauth2/token`, reads the principal from `/auth/oauth2/userinfo`, and
-stores the token. It returns `returnTo`, the path the attempt started from,
-and the page leaves with `location.replace(returnTo)`.
+S256 challenge and every resource. The callback page calls `completeSignIn`,
+which checks the state against the attempt (single use, ten minutes at most),
+exchanges the code at `/auth/oauth2/token` for the first resource, reads the
+principal from `/auth/oauth2/userinfo`, and stores the tokens. It returns
+`returnTo`, the path the attempt started from, and the page leaves with
+`location.replace(returnTo)`.
 
-The access token lives in `localStorage` with its expiry, principal ID, and a
-nonsecret attachment generation, one cell per app and server, shared by the
-origin's tabs. Every
-request reads the cell, so a tab uses another tab's renewal, and the `storage`
-event publishes another tab's sign-in or sign-out. A missing or unreadable cell
-is signed out. The generation also retires an old Account when a tab misses a
-sign-out event and the same person signs in again. There is no refresh token.
+With more than one resource, the client adds `offline_access` to the one
+redirect, then spends the refresh token once per further resource
+(`grant_type=refresh_token` with that `resource`, RFC 8707), carrying the
+rotated one forward, and drops the last. Whispering signs in this way for
+transcription and its folder's Git remote. If any token request fails, the
+sign-in fails, nothing is stored, and what was issued is revoked. The server
+keeps a browser grant bound to its session and refuses a token that names more
+than one audience (ADR-0549).
 
-By default, when the stored token is within ten minutes of expiry, the client navigates top
+The access tokens live in `localStorage` with their expiries, the principal
+ID, and a nonsecret attachment generation, one cell per app and server, shared
+by the origin's tabs. Every request reads the cell, so a tab uses another
+tab's renewal, and the `storage` event publishes another tab's sign-in or
+sign-out. A missing or unreadable cell is signed out. The generation also retires an old Account when a tab misses a
+sign-out event and the same person signs in again. No refresh token is stored.
+
+By default, when the earliest stored token is within ten minutes of expiry, the client navigates top
 level to the authorize endpoint with `prompt=none`: at construction, and from a
 timer while the page is open. The timer rereads storage first and waits again
 if another tab already renewed. An app with work that must survive a page
@@ -80,15 +90,19 @@ lasts, the renewal returns a code without a page; otherwise it answers
 page signed out. There is no hidden iframe. A person who never signed in is
 never redirected.
 
-`Account.fetch` sends only to the server's origin, with
+`Account.fetch` picks the token of the most specific resource the target
+matches: the same origin, and a path equal to the resource's path or under it
+(so `/github` is not under `/git`). Other requests to the server's origin use
+the first resource's token, and any other origin is refused. It sends
 `Authorization: Bearer <token>`, no cookies, `credentials: 'omit'`, and
 `redirect: 'manual'`. A 401 publishes `reauth-required` on the same Account,
-which refuses requests until a new token for the same person arrives.
+which refuses requests with the refused token until a new one for the same
+person arrives.
 `getProfile` reads the authorization server's `/auth/oauth2/userinfo`, which
 answers `sub` for a token with `openid` and the email only for one with
 `email`, so an app that shows the email asks for both.
 
-`signOut` clears the token at once, then revokes it at `/auth/oauth2/revoke`,
+`signOut` clears the tokens at once, then revokes each at `/auth/oauth2/revoke`,
 waiting at most five seconds. A failed revocation is logged; the person is
 signed out locally either way.
 
