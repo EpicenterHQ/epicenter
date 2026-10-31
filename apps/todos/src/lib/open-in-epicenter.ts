@@ -1,29 +1,21 @@
 /**
- * Open in Epicenter, offered by standalone Todos alone (ADR-0646).
+ * Open in Epicenter, offered by Todos' desktop app.
  *
  * The Todos shell names the directory its window was granted and asks the
- * operating system to open `epicenter://open?path=…` (`open_in_epicenter` in
- * `src-tauri/src/lib.rs`); the page names no path. The browser build has no
- * shell, and Todos inside Epicenter runs under Epicenter's identifier, so
- * neither offers the action.
+ * operating system to open `epicenter://init?path=…&contract=…`
+ * (`open_in_epicenter` in `src-tauri/src/lib.rs`): a request that Epicenter
+ * sync that folder, read under Todos' published contract. The page names no
+ * path. The browser build has no shell, so it does not offer the action.
  *
  * The shell's answer says only that the system took the request. Epicenter
- * asks the person before it reads the folder, so the page never says the
- * folder opened there.
+ * asks the person before it sets the folder up, so the page never says the
+ * folder is syncing.
  */
-import { getIdentifier } from '@tauri-apps/api/app';
 import { invoke, isTauri } from '@tauri-apps/api/core';
-
-/** Standalone Todos's identifiers: the release app and the development one. */
-const STANDALONE_TODOS = new Set([
-	'so.epicenter.todos',
-	'so.epicenter.todos.dev',
-]);
 
 /** What the page needs of the native shell, or `undefined` without one. */
 export type TodosShell =
 	| {
-			identifier(): Promise<string>;
 			openInEpicenter(): Promise<void>;
 	  }
 	| undefined;
@@ -32,26 +24,10 @@ export type HandoffStatus =
 	| { tone: 'requested'; message: string }
 	| { tone: 'failed'; message: string };
 
-/** This page's shell: the Tauri one, or none in a browser. */
+/** This page's shell: Todos' Tauri one, or none in a browser. */
 export function currentShell(): TodosShell {
 	if (!isTauri()) return undefined;
-	return {
-		identifier: getIdentifier,
-		openInEpicenter: () => invoke<void>('open_in_epicenter'),
-	};
-}
-
-/**
- * Whether `shell` is standalone Todos's. A shell that refuses to say, as
- * Epicenter's refuses its bundled apps, is not.
- */
-export async function offersOpenInEpicenter(shell: TodosShell) {
-	if (shell === undefined) return false;
-	try {
-		return STANDALONE_TODOS.has(await shell.identifier());
-	} catch {
-		return false;
-	}
+	return { openInEpicenter: () => invoke<void>('open_in_epicenter') };
 }
 
 /** Ask `shell` to hand its folder to Epicenter, and say what is known. */
@@ -63,7 +39,7 @@ export async function openInEpicenter(
 		return {
 			tone: 'requested',
 			message:
-				'Asked your computer to open Epicenter. If it is installed, choose Open in its Folders window.',
+				'Asked your computer to open Epicenter. If it is installed, choose Set up in its Folders window.',
 		};
 	} catch (cause) {
 		return {

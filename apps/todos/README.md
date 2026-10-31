@@ -77,9 +77,12 @@ development identifier `so.epicenter.todos.dev`, or under
 the web app; in the window it opens that folder as the contract's client
 (`openDevice` from `@epicenter/folder/tauri`, chosen in `src/lib/device.ts`)
 and never names a path. It signs in to nothing and uploads nothing: Epicenter
-syncs a folder added to it (`epicenter sync`). Standalone Todos also offers
-**Open in Epicenter**, which asks the operating system to open the bound
-folder in Epicenter ([ADR-0646](../../docs/adr/0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md)).
+syncs a folder added to it (`epicenter sync`). The window also offers
+**Open in Epicenter**, which asks the operating system to open
+`epicenter://init?path=<the bound folder>&contract=https://todos.epicenter.so/contract.json`:
+a request that Epicenter sync the folder, which it shows for the person to set
+up or dismiss ([Requests to sync a folder](../epicenter/README.md#requests-to-sync-a-folder),
+[ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 Closing the window does not wait for a save in flight.
 
 ## The native CLI

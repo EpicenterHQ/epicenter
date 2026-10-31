@@ -3,8 +3,8 @@
 	Signed out, they are this browser's; signed in, they are the person's
 	`todos` repository, and the ones made here signed out or offline count as
 	"not uploaded yet" until they upload. The desktop window's folder is
-	Epicenter's to sync, so it signs in to nothing; standalone Todos there
-	offers Open in Epicenter (`open-in-epicenter.ts`).
+	Epicenter's to sync, so it signs in to nothing and offers Open in
+	Epicenter (`open-in-epicenter.ts`).
 -->
 <script lang="ts">
 	import StatusPopover from '@epicenter/svelte/status-popover';
@@ -12,14 +12,12 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
-	import { onMount } from 'svelte';
 	import { webAuth } from '$lib/auth.js';
 	import { getTodos } from '$lib/context.js';
 	import { isDesktop } from '$lib/device.js';
 	import {
 		currentShell,
 		type HandoffStatus,
-		offersOpenInEpicenter,
 		openInEpicenter,
 	} from '$lib/open-in-epicenter.js';
 
@@ -75,13 +73,8 @@
 	}
 
 	const shell = currentShell();
-	let offered = $state(false);
 	let sending = $state(false);
 	let handoff = $state<HandoffStatus>();
-
-	onMount(() => {
-		void offersOpenInEpicenter(shell).then((offers) => (offered = offers));
-	});
 
 	async function send() {
 		if (shell === undefined) return;
@@ -124,7 +117,7 @@
 				{handoff.message}
 			</p>
 		{/if}
-		{#if offered}
+		{#if shell !== undefined}
 			<Button variant="outline" size="sm" disabled={sending} onclick={() => void send()}>
 				Open in Epicenter
 			</Button>

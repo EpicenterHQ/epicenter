@@ -1,6 +1,6 @@
 //! Standalone Todos opens one directory in one window.
 //!
-//! The native wrapper opens the same fixed default as Epicenter's Todos,
+//! The native wrapper opens Todos' fixed default,
 //! `~/Epicenter/so.epicenter.todos` (`library::TODOS`), creating it when
 //! missing, and binds it before loading the page. The page opens it as
 //! Todos' contract client (`openDevice` from `@epicenter/folder/tauri`) and
@@ -110,9 +110,14 @@ fn report_open_error(app: &AppHandle, message: String) {
         .show(move |_| handle.exit(1));
 }
 
-/// Ask the operating system to open Epicenter on the directory the calling
-/// window is bound to. Answers once the system took the request; whether
-/// Epicenter opens the folder is the person's choice there.
+/// Where Todos' web app publishes its contract (`static/contract.json` at
+/// `APPS.TODOS.url` in `@epicenter/constants/apps`).
+const CONTRACT_URL: &str = "https://todos.epicenter.so/contract.json";
+
+/// Ask the operating system to open Epicenter with a request to sync the
+/// directory the calling window is bound to. Answers once the system took
+/// the request; whether Epicenter sets the folder up is the person's choice
+/// there.
 #[tauri::command]
 fn open_in_epicenter(app: tauri::AppHandle, window: tauri::Window) -> Result<(), String> {
     let link = epicenter_link(app.folders(), window.label())?;
@@ -121,22 +126,27 @@ fn open_in_epicenter(app: tauri::AppHandle, window: tauri::Window) -> Result<(),
         .map_err(|error| format!("The system did not open Epicenter: {error}"))
 }
 
-/// `epicenter://open?path=<directory>` for the root `label` is bound to, as
-/// the folder plugin resolved it.
+/// `epicenter://init?path=<directory>&contract=<CONTRACT_URL>` for the root
+/// `label` is bound to, as the folder plugin resolved it: Epicenter's request
+/// to sync a folder, which Epicenter queues for the person to accept.
 fn epicenter_link(folders: &Folders, label: &str) -> Result<String, String> {
     let directory = folders.bound(label).map_err(|error| error.to_string())?;
     let root = directory.root();
     let root = root
         .to_str()
         .ok_or_else(|| "This folder's path cannot be sent to Epicenter.".to_string())?;
-    Ok(format!("epicenter://open?path={}", encode_path(root)))
+    Ok(format!(
+        "epicenter://init?path={}&contract={}",
+        encode_value(root),
+        encode_value(CONTRACT_URL)
+    ))
 }
 
-/// `path` with every byte but unreserved characters and `/` percent-encoded,
-/// so `+`, `&`, `%`, and spaces have one reading.
-fn encode_path(path: &str) -> String {
-    let mut encoded = String::with_capacity(path.len());
-    for byte in path.bytes() {
+/// `value` with every byte but unreserved characters and `/` percent-encoded,
+/// so `+`, `&`, `%`, `:`, and spaces have one reading.
+fn encode_value(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'/') {
             encoded.push(char::from(byte));
         } else {
@@ -278,11 +288,11 @@ mod tests {
     #[test]
     fn a_path_is_encoded_with_one_reading() {
         assert_eq!(
-            encode_path("/Users/me/Epicenter Dev/Todos"),
+            encode_value("/Users/me/Epicenter Dev/Todos"),
             "/Users/me/Epicenter%20Dev/Todos"
         );
         assert_eq!(
-            encode_path("/tmp/a+b&c=d%e;f#g?h/notés"),
+            encode_value("/tmp/a+b&c=d%e;f#g?h/notés"),
             "/tmp/a%2Bb%26c%3Dd%25e%3Bf%23g%3Fh/not%C3%A9s"
         );
     }
@@ -294,8 +304,8 @@ mod tests {
         assert_eq!(
             epicenter_link(fixture.app.folders(), &fixture.launch()).unwrap(),
             format!(
-                "epicenter://open?path={}",
-                encode_path(fixture.root.to_str().unwrap())
+                "epicenter://init?path={}&contract=https%3A//todos.epicenter.so/contract.json",
+                encode_value(fixture.root.to_str().unwrap())
             )
         );
         assert!(epicenter_link(fixture.app.folders(), "unbound").is_err());
@@ -363,7 +373,7 @@ mod tests {
         assert!(entries(&paths.data_dir).is_empty());
     }
 
-    /// Standalone and hosted Todos name the same row of the shared table.
+    /// Standalone Todos names its row of the shared table.
     #[test]
     fn standalone_opens_the_shared_todos_default() {
         assert_eq!(TODOS.id, "so.epicenter.todos");
@@ -393,11 +403,7 @@ mod tests {
         assert_eq!(capability["local"], true);
         assert_eq!(
             capability["permissions"],
-            json!([
-                "epicenter-folder:default",
-                "core:app:allow-identifier",
-                "allow-open-in-epicenter"
-            ])
+            json!(["epicenter-folder:default", "allow-open-in-epicenter"])
         );
     }
 }
