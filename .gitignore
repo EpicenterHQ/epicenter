@@ -83,3 +83,6 @@ dist-epicenter
 
 # Temporary UI browser regression fixtures
 packages/ui/.browser-migration-*/
+
+# The root Cargo workspace (Cargo.toml).
+/target/
