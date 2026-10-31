@@ -84,3 +84,21 @@ quit or a crash left there and moves it the same way. So `epicenter sync`
 never commits a half-written WAV, and readers never see a growing file at a
 data path. The browser recorder is unchanged: it appends to its file at its
 path in this browser's private storage, which nothing syncs.
+
+## Amendment, 2026-11-01: a desktop recording is a hidden sibling of its path until it stops
+
+`.epicenter` is deleted
+([ADR-0562's amendment](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md#amendment-2026-11-01-epicenter-is-deleted-unfinished-files-are-hidden-siblings)).
+The desktop recorder now writes from the first sample to
+`.<name>.wav.epicenter-pending` beside `<path>.wav` (`staging::pending`),
+created exclusively and `0600`, with any access control entry its directory
+passes on removed before the first sample. A hidden path is not the folder's
+data: no contract claims it, no watcher reports it, and `epicenter sync`
+never commits an unfinished file. `stop` moves it to its path as before,
+never over a file there, within one directory. `recoverRecordings` walks
+`under` for `.*.wav.epicenter-pending`, skips the file a live recording
+holds, repairs each header, and places it as `stop` does; a path that is
+taken still gets the copy removed when its bytes are identical and other
+audio placed beside it as `<name>-recovered.wav`. The sweep at open never
+removes a recording: its name is never a staged save's. On Windows Explorer
+shows the unfinished file while it records.

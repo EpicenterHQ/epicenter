@@ -115,3 +115,46 @@ tree. `.epicenter/` remains the one place for unfinished files (staged saves,
 and recordings in progress). The CLI keeps its own file lock
 (`packages/cli/src/file-lock.ts`) for sign-in refreshes and for
 serializing sync rounds of one repository.
+
+## Amendment, 2026-11-01: `.epicenter` is deleted; unfinished files are hidden siblings
+
+The 2026-11-01 amendment above kept `.epicenter/` as the one place for
+unfinished files. It is deleted in every host (the folder plugin's
+`storage.rs` and `admission.rs`, Bun's `directory-store.ts` and
+`native/directory.ts`, and the browser's `device/opfs-worker.ts`). A folder
+now has one rule for what is not its data: a path with a hidden segment
+(`isHiddenPath` in `@epicenter/definition`, `paths::is_hidden_path` in the
+folder plugin's core). An unfinished file is a hidden sibling of where it
+lands, `.<name>.epicenter-pending` (`pendingName`, `pending_name`): a staged
+save is `.<scratch name>.epicenter-pending` in the destination's own
+directory, and a desktop recording in progress is
+`.<name>.wav.epicenter-pending` beside its path. The namespaced suffix keeps
+a person's own hidden files out of every rule below.
+
+- A save makes a new file's missing directories before it stages, stages
+  beside the path, and renames within one directory, so the rename is one
+  step even where another file system is mounted inside the folder. A new
+  file (expecting nothing at its path) is placed by a hard link, which
+  refuses a name already there, so of two writers creating one path exactly
+  one lands. A save that does not land removes its staged file, then each
+  directory it made that is still empty.
+- All three watchers (the plugin's `watch.rs`, Bun's `native/watch.ts`, and
+  `epicenter sync --watch`) drop every event on a hidden path, so a
+  recording's header rewrite, about once a second, wakes no sync round.
+- `epicenter sync` leaves unfinished files out itself
+  (`git add -A -- . ':(exclude,glob)**/.*.epicenter-pending'`), whatever
+  `.gitignore` says; `REPOSITORY_IGNORE` carries `.*.epicenter-pending` in
+  place of `.epicenter/`.
+- Opening a folder sweeps, in one walk that follows no link and never enters
+  `.git`, only staged files whose scratch name is an hour old
+  (`is_stale_scratch`). A recording's name never has that shape.
+- Listings still show hidden files; their readers already leave them out.
+
+What is given up: the `0700` scratch directory. A staged file is still
+`0600` from its creation, and on macOS an access control entry its directory
+passes on is removed before the first byte, but between the creation and
+that removal, a few microseconds, an account the person granted an
+inheritable entry on a data directory could open the still-empty file and
+keep reading it. Finished files carry no entry either way. On Windows a
+leading dot does not hide a name, so Explorer shows unfinished files while
+they exist.

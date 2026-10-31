@@ -152,7 +152,8 @@ own.** Both live in `mountGitHost` (`packages/server/src/routes/git.ts`):
 its bytes in R2.** `REPOSITORY_ATTRIBUTES` (`@epicenter/definition/contract`) is
 the `.gitattributes` block `epicenter init` commits and the server writes in a
 repository's first commit; `REPOSITORY_IGNORE` keeps `.DS_Store` and
-`.epicenter/` out. On Cloudflare, Git lives in Artifacts and LFS objects in R2
+unfinished files (`.*.epicenter-pending`) out, and `epicenter sync` leaves
+unfinished files out itself. On Cloudflare, Git lives in Artifacts and LFS objects in R2
 (`createR2LfsStore`): clients upload through presigned URLs that sign
 `content-length`, `if-none-match: *` and `x-amz-checksum-sha256`, and an object
 is admitted after one `head()` matches its size and sha256. On Bun, both stores

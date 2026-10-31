@@ -94,3 +94,13 @@ is refused as `stale`. Two saves racing in the instant between one's check and i
 rename can both land, the later replacing the earlier; external editors never
 took the lock, and Git history keeps what sync committed. `epicenter sync`
 merges without taking any folder's lock.
+
+## Amendment, 2026-11-01: there is no `.epicenter`
+
+`.epicenter` is deleted
+([ADR-0562's amendment](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md#amendment-2026-11-01-epicenter-is-deleted-unfinished-files-are-hidden-siblings)).
+A save stages its bytes beside its path as the hidden
+`.<scratch name>.epicenter-pending` and renames them over it; nothing is
+made in the folder but its files, their directories, and for the moment of a
+save its staged sibling. No watcher reports a hidden path, and
+`epicenter sync` never commits an unfinished file.
