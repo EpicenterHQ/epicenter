@@ -28,21 +28,23 @@ import { ReadError } from './shared/errors.js';
 import type { Fetched, FolderHost } from './storage.js';
 
 export * from './contract.js';
-export { DeviceError } from './device/opfs-store.js';
 export {
 	CACHE_DIRECTORY,
 	CACHE_LIMIT,
 	type Cache,
 	type CachedFile,
 } from './device/cache.js';
+export { DeviceError } from './device/opfs-store.js';
 export {
-	cacheOf,
 	type Capture,
+	cacheOf,
+	type NewFile,
 	type Outbox,
 	OutboxError,
 	type OutboxFile,
 	outboxOf,
 	type Receipt,
+	saveCapture,
 } from './device/outbox.js';
 
 /**

@@ -13,6 +13,8 @@
  * - `finish` refuses a capture the server has not acknowledged while its files remain
  * - `finish` deletes each file only at the version the upload sent, and queues one edited since as an update
  * - A capture id is one short path segment: at most 64 characters
+ * - `saveCapture` creates a capture's files and records them, and run again
+ *   after a partial attempt it finishes rather than refusing
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
@@ -21,7 +23,13 @@ import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
 import { gitBlobHash } from '@epicenter/definition/merge';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { type Capture, openDevice, outboxOf } from '../node.js';
+import {
+	type Capture,
+	type NewFile,
+	openDevice,
+	outboxOf,
+	saveCapture,
+} from '../node.js';
 
 const recorder = defineContract({
 	name: 'recorder',
@@ -319,4 +327,63 @@ test('finish turns a file deleted on the device after it was sent into a delete 
 		state: 'pending',
 	});
 	expect(await exists(join(root, 'recordings/r1.md'))).toBe(false);
+});
+
+test('saveCapture keeps new files on the device as one capture', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'epicenter-outbox-'));
+	folders.push(root);
+	const device = openDevice(recorder, { path: root });
+	const capture = expectOk(
+		await saveCapture(device, {
+			id: 'c1',
+			files: [
+				{
+					collection: 'audio',
+					value: { id: 'r1', ext: 'm4a', bytes: new Uint8Array([7, 8]) },
+				},
+				{ collection: 'recordings', value: { id: 'r1', title: 'Standup' } },
+			],
+		}),
+	);
+	expect(Object.keys(capture.paths).sort()).toEqual([
+		'recordings/r1.m4a',
+		'recordings/r1.md',
+	]);
+	expect(expectOk(await device.recordings.get({ id: 'r1' })).title).toBe(
+		'Standup',
+	);
+	expect(expectOk(await outboxOf(device).list()).items).toEqual([capture]);
+});
+
+test('saveCapture run again after a partial attempt finishes it', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'epicenter-outbox-'));
+	folders.push(root);
+	const device = openDevice(recorder, { path: root });
+	const audio = { id: 'r1', ext: 'm4a', bytes: new Uint8Array([7, 8]) };
+	const files: NewFile<typeof recorder>[] = [
+		{ collection: 'audio', value: audio },
+		{ collection: 'recordings', value: { id: 'r1', title: 'Standup' } },
+	];
+	// The first attempt kept the audio and stopped.
+	expectOk(await device.audio.create(audio));
+	const capture = expectOk(await saveCapture(device, { id: 'c1', files }));
+	expect(Object.keys(capture.paths)).toHaveLength(2);
+	// And once the capture is recorded, saving again answers it.
+	expect(expectOk(await saveCapture(device, { id: 'c1', files }))).toEqual(
+		capture,
+	);
+	expect(expectOk(await outboxOf(device).list()).items).toHaveLength(1);
+});
+
+test('saveCapture refuses a collection the contract does not have', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'epicenter-outbox-'));
+	folders.push(root);
+	const device = openDevice(recorder, { path: root });
+	const refused = expectErr(
+		await saveCapture(device, {
+			id: 'c1',
+			files: [{ collection: 'nope', value: { id: 'x' } } as never],
+		}),
+	);
+	expect(refused.name).toBe('Invalid');
 });

@@ -27,13 +27,15 @@ export {
 	type CachedFile,
 } from './device/cache.js';
 export {
-	cacheOf,
 	type Capture,
+	cacheOf,
+	type NewFile,
 	type Outbox,
 	OutboxError,
 	type OutboxFile,
 	outboxOf,
 	type Receipt,
+	saveCapture,
 } from './device/outbox.js';
 
 /**
