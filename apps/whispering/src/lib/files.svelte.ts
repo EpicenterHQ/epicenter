@@ -55,6 +55,12 @@ export type RecordingAudio =
 	/** More than one audio file shares the recording's id. */
 	| { readonly kind: 'ambiguous'; readonly exts: readonly string[] };
 
+/** The folder path of a recording's one audio file, when it has one here. */
+export const audioPathOf = (audio: RecordingAudio): string | undefined =>
+	audio.kind === 'here'
+		? `recordings/${audio.file.id}.${audio.file.ext}`
+		: undefined;
+
 /** A recording's audio, read. */
 export type AudioBytes = {
 	readonly bytes: Uint8Array;

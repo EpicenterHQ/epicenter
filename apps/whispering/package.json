@@ -2,11 +2,25 @@
 	"name": "@epicenter/whispering",
 	"private": true,
 	"version": "7.11.1",
-	"description": "Voice notes in a browser tab: recordings, transcripts, and transformations are files kept in this browser for good; signing in only adds hosted transcription and AI",
+	"description": "Voice notes: recordings, transcripts, and transformations are files, kept in this browser for good or, in the desktop app, in a folder on this computer; signing in only adds hosted transcription and AI",
 	"type": "module",
 	"imports": {
-		"#platform/auth": "./src/lib/platform/auth.ts",
-		"#platform/services": "./src/lib/platform/browser.ts"
+		"#platform/auth": {
+			"tauri": "./src/lib/platform/auth.tauri.ts",
+			"default": "./src/lib/platform/auth.ts"
+		},
+		"#platform/root": {
+			"tauri": "./src/lib/platform/root.tauri.ts",
+			"default": "./src/lib/platform/root.ts"
+		},
+		"#platform/services": {
+			"tauri": "./src/lib/platform/services.tauri.ts",
+			"default": "./src/lib/platform/browser.ts"
+		},
+		"#platform/variant": {
+			"tauri": "./src/lib/platform/variant.tauri.ts",
+			"default": "./src/lib/platform/variant.ts"
+		}
 	},
 	"scripts": {
 		"dev": "vite dev",
@@ -15,11 +29,14 @@
 		"test:postgres": "bun test --isolate ./src/lib/platform/web-sign-in.postgres.test.ts",
 		"test:e2e": "playwright test -c playwright.config.ts",
 		"build": "NODE_ENV=production vite build",
+		"build:native": "EPICENTER_DESKTOP=1 WHISPERING_BUILD_DIR=build-desktop NODE_ENV=production vite build",
+		"dev:desktop": "bun run build:native && tauri dev --config src-tauri/tauri.dev.conf.json",
+		"build:desktop": "bun run build:native && tauri build --bundles app",
 		"check": "bun run typecheck",
 		"contract": "bun scripts/write-contract.ts",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json"
 	},
 	"license": "AGPL-3.0-or-later",
 	"devDependencies": {
@@ -30,6 +47,7 @@
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
+		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"mode-watcher": "catalog:",
 		"playwright": "^1.61.1",
@@ -49,6 +67,8 @@
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
+		"@epicenter/transcription-native": "workspace:*",
+		"@tauri-apps/api": "catalog:",
 		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	}

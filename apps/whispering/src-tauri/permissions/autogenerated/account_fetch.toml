@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-account-fetch"
+description = "Enables the account_fetch command without any pre-configured scope."
+commands.allow = ["account_fetch"]
+
+[[permission]]
+identifier = "deny-account-fetch"
+description = "Denies the account_fetch command without any pre-configured scope."
+commands.deny = ["account_fetch"]

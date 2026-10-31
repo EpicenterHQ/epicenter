@@ -16,6 +16,7 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
+	import { variant } from '#platform/variant';
 	import { getLibrary, type RecordingNote, type Repair } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioMissing from './AudioMissing.svelte';
@@ -172,12 +173,12 @@
 						</dd>
 						<dt class="text-muted-foreground">Kept in</dt>
 						<dd data-testid="kept-in">
-							This browser
+							{variant === 'desktop' ? 'Your data folder' : 'This browser'}
 						</dd>
 						<dt class="text-muted-foreground">Transcribes with</dt>
 						<dd class="min-w-0 break-words">
 							{#if whispering.connections?.transcription}
-								{whispering.connections.transcription.model} at {whispering.connections.transcription.baseUrl}
+								{whispering.connections.transcription.model} at {whispering.connections.transcription.source === 'local' ? 'this computer' : whispering.connections.transcription.baseUrl}
 							{:else}
 								Not set up
 							{/if}

@@ -4,11 +4,11 @@ import type { Whispering as WhisperingContract } from './contract.js';
 import type { Library } from './library.svelte.js';
 import type { WhisperingServices } from './platform/types.js';
 import { provideServices } from './services.test-support.js';
-import { headerStatus } from './status.js';
+import { headerStatus, ON_THIS_BROWSER } from './status.js';
 
-/** The header's status line over `library`, as AppHeader words it. */
+/** The header's status line over `library`, as the web app's Chrome words it. */
 export const headerLine = (library: Library) =>
-	headerStatus({ unwrittenAnswers: library.unwrittenAnswers });
+	headerStatus({ unwrittenAnswers: library.unwrittenAnswers }, ON_THIS_BROWSER);
 
 /**
  * Same construction as the app's root (`WhisperingApp`): Whispering and its

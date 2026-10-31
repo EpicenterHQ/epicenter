@@ -1,0 +1,4 @@
+/target/
+/gen/schemas/
+# Staged by epicenter-transcription-build on platforms that link transcribe-cpp dynamically.
+/transcribe-libs/

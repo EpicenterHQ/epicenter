@@ -1,15 +1,16 @@
 /**
  * What the page may import, and who opens what.
  *
- * The page runs in a browser tab, so nothing under `src/` may reach Node,
- * Bun or Tauri. Its files are Whispering's contract's client (decision 10).
- * The web build is the local variant: this browser's device is opened in
- * one module and chosen in one place, the variant's root layout, which
- * hands it to the app as a prop; nothing opens or reads a repository, and
- * nothing uploads (ADR-0700). Nothing in the app, its tests included, uses
- * the retired folder and table API. The services come through
- * `#platform/services`, so no page code asks where it is running. This
- * reads the sources, so a violation names its file.
+ * The page runs in a browser tab or in the desktop window, so nothing under
+ * `src/` may reach Node or Bun, and only the desktop leaves (`*.tauri.ts`,
+ * `components/Desktop*.svelte`) reach Tauri. Its files are Whispering's
+ * contract's client (decision 10), opened in one place per variant, the
+ * variant's `Startup` (`#platform/root`), which hands it to the app; nothing
+ * opens or reads a repository, and nothing uploads (ADR-0700). Nothing in
+ * the app, its tests included, uses the retired folder and table API. The
+ * build chooses every variant's piece through `#platform/*`, so no shared
+ * code asks where it is running. This reads the sources, so a violation
+ * names its file.
  */
 import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -47,6 +48,11 @@ function* everything(directory: string): Generator<string> {
 	}
 }
 
+/** A module only the desktop build reaches: a `tauri` leaf, or what only those leaves import. */
+const desktopOnly = (path: string) =>
+	/\.tauri\.ts$/.test(path) ||
+	/^lib\/components\/Desktop\w*\.svelte$/.test(path);
+
 function importers(matches: (specifier: string) => boolean) {
 	const found: string[] = [];
 	for (const file of files)
@@ -67,16 +73,30 @@ test('the page imports no Node, Bun, or Tauri module', () => {
 		),
 	).toEqual([]);
 	expect(
-		importers((specifier) => specifier.startsWith('@tauri-apps/')),
+		importers(
+			(specifier) =>
+				specifier.startsWith('@tauri-apps/') ||
+				specifier.endsWith('/tauri') ||
+				specifier.startsWith('@epicenter/transcription-native'),
+		).filter((source) => !desktopOnly(source.split(' imports ')[0]!)),
+	).toEqual([]);
+	// A desktop module is reached only from another, or through a seam.
+	expect(
+		importers((specifier) =>
+			/\.tauri(\.js)?$|\/Desktop\w*\.svelte$/.test(specifier),
+		).filter((source) => !desktopOnly(source.split(' imports ')[0]!)),
 	).toEqual([]);
 });
 
-test('the device is opened once, by the local variant’s startup; nothing opens a repository', () => {
-	expect(callers('openDevice')).toEqual(['routes/components/Startup.svelte']);
+test('the store is opened once, by each variant’s startup; nothing opens a repository', () => {
+	expect(callers('openDevice')).toEqual(['lib/components/LocalStartup.svelte']);
+	expect(callers('openDataFolder')).toEqual([
+		'lib/components/DesktopStartup.svelte',
+	]);
 	expect(
 		importers((specifier) => specifier === '@epicenter/folder/browser'),
 	).toEqual([
-		'routes/components/Startup.svelte imports @epicenter/folder/browser',
+		'lib/components/LocalStartup.svelte imports @epicenter/folder/browser',
 	]);
 	for (const name of ['openRemote', 'setRepo', 'getRepo'])
 		expect(callers(name)).toEqual([]);
@@ -101,12 +121,18 @@ test('nothing in the app uses the retired folder and table API', () => {
 	).toEqual([]);
 });
 
-test('a microphone is reached only through the browser recorder entry', () => {
-	// Only the WebView microphone reaches the browser's recorder. Shared code
-	// names the bare specifier, which is the recording contract alone.
+test('a microphone is reached only through its build’s recorder entry', () => {
+	// The WebView microphone reaches the browser's recorder, the shell's
+	// microphone the desktop's. Shared code names the bare specifier, which
+	// is the recording contract alone.
 	expect(
 		importers((specifier) => specifier === '@epicenter/recorder/tauri'),
-	).toEqual([]);
+	).toEqual([
+		'lib/platform/microphone.tauri.ts imports @epicenter/recorder/tauri',
+	]);
+	expect(callers('createShellMicrophone')).toEqual([
+		'lib/platform/services.tauri.ts',
+	]);
 	expect(
 		importers((specifier) => specifier === '@epicenter/recorder/browser'),
 	).toEqual([
@@ -130,6 +156,13 @@ test('the services are reached through the seam alone', () => {
 		'lib/whispering.svelte.ts imports #platform/services',
 	]);
 });
+
+/** What only the desktop's leaves use of `@epicenter/svelte`: the data folder's sync and recovery screen. */
+const DESKTOP_SVELTE = [
+	'@epicenter/svelte/folder-sync',
+	'@epicenter/svelte/folder-sync-actions',
+	'@epicenter/svelte/recovery',
+];
 
 test('the page imports no Yjs store, sync, history, or store module', () => {
 	expect(
@@ -155,16 +188,19 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 				// contract's client.
 				specifier === '@epicenter/app' ||
 				specifier.startsWith('@epicenter/app/'),
-		),
+		).filter((source) => {
+			const [file, specifier] = source.split(' imports ');
+			return !(desktopOnly(file!) && DESKTOP_SVELTE.includes(specifier!));
+		}),
 	).toEqual([]);
 });
 
-test('the platform leaf owns auth composition; nothing else names the account', () => {
+test('the platform leaves own auth composition; nothing else names the account', () => {
 	expect(
 		importers((specifier) => specifier.startsWith('@epicenter/auth')).filter(
 			(source) =>
 				!source.startsWith('lib/platform/') &&
-				!source.startsWith('routes/auth/callback/'),
+				!source.startsWith('lib/components/SignInCallback.svelte '),
 		),
 	).toEqual([]);
 });
@@ -192,16 +228,16 @@ test('WhisperingApp composes Whispering over the client it is given', () => {
 	).toContain('client: Client<WhisperingContract>');
 });
 
-test('the local variant has every page, and every page reads its library from context', () => {
+test('the app group has every page, and every page reads its library from context', () => {
 	const pages = files.filter(
 		(file) =>
 			/\+page\.svelte$/.test(file.path) &&
 			file.path !== 'routes/auth/callback/+page.svelte',
 	);
 	expect(pages.map((file) => file.path).sort()).toEqual([
-		'routes/(local)/+page.svelte',
-		'routes/(local)/recordings/+page.svelte',
-		'routes/(local)/transformations/+page.svelte',
+		'routes/(app)/+page.svelte',
+		'routes/(app)/recordings/+page.svelte',
+		'routes/(app)/transformations/+page.svelte',
 	]);
 	const bodies = {
 		'+page.svelte': 'HomePage',
@@ -210,22 +246,30 @@ test('the local variant has every page, and every page reads its library from co
 	} as const;
 	for (const [page, body] of Object.entries(bodies)) {
 		expect(
-			files.find((file) => file.path === `routes/(local)/${page}`)?.text,
+			files.find((file) => file.path === `routes/(app)/${page}`)?.text,
 		).toContain(`<${body} />`);
 		expect(
 			files.find((file) => file.path === `routes/components/${body}.svelte`)
 				?.text,
 		).toContain('getLibrary()');
 	}
-	expect(
-		files.find((file) => file.path === 'routes/(local)/+layout.svelte')?.text,
-	).toContain('<Startup>');
-	expect(
-		files.find((file) => file.path === 'routes/components/Startup.svelte')
-			?.text,
-	).toContain('<WhisperingApp client={device.data}>');
-	expect(
-		files.find((file) => file.path === 'routes/auth/callback/+page.svelte')
-			?.text,
-	).not.toMatch(/getWhispering\(\)|getLibrary\(\)|device/);
+	// The variant's Startup opens the store and hands its client to the app.
+	const layout = files.find(
+		(file) => file.path === 'routes/(app)/+layout.svelte',
+	)?.text;
+	expect(layout).toContain("import { Startup } from '#platform/root';");
+	expect(layout).toContain('<WhisperingApp {client}>');
+	for (const startup of ['LocalStartup', 'DesktopStartup'])
+		expect(
+			files.find((file) => file.path === `lib/components/${startup}.svelte`)
+				?.text,
+		).toMatch(/\{@render children\(device\.data\)\}/);
+	for (const callback of [
+		'routes/auth/callback/+page.svelte',
+		'lib/components/SignInCallback.svelte',
+		'lib/components/DesktopCallback.svelte',
+	])
+		expect(files.find((file) => file.path === callback)?.text).not.toMatch(
+			/getWhispering\(\)|getLibrary\(\)|device/,
+		);
 });

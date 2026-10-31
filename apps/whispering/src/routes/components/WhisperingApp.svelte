@@ -1,5 +1,5 @@
 <!--
-	Whispering over one contract client, which the variant's root passes in:
+	Whispering over one contract client, which the variant's `Startup` passes in:
 	the services, the connections, the microphone and the recorder
 	(`createWhispering`), the library the pages read (`createLibrary` over
 	`filesOf(client)`), and the frame around the pages. Made once for the
@@ -13,6 +13,7 @@
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
+	import { variant } from '#platform/variant';
 	import type { Whispering as WhisperingContract } from '$lib/contract.js';
 	import { filesOf } from '$lib/files.svelte.js';
 	import { createLibrary, setLibrary } from '$lib/library.svelte.js';
@@ -57,10 +58,15 @@
 	<AppHeader />
 	{#if library.error}
 		<Alert.Root variant="warning" class="rounded-none" data-testid="device-unavailable">
-			<Alert.Title>This browser is not keeping files for Whispering</Alert.Title>
-			<Alert.Description>
-				{library.error.message}. A private window keeps none. A recording stays in this page, to save again or download, until it closes.
-			</Alert.Description>
+			{#if variant === 'desktop'}
+				<Alert.Title>Whispering cannot read its data folder</Alert.Title>
+				<Alert.Description>{library.error.message}. Check that the folder is still there and readable, or choose another in Settings.</Alert.Description>
+			{:else}
+				<Alert.Title>This browser is not keeping files for Whispering</Alert.Title>
+				<Alert.Description>
+					{library.error.message}. A private window keeps none. A recording stays in this page, to save again or download, until it closes.
+				</Alert.Description>
+			{/if}
 		</Alert.Root>
 	{/if}
 {/snippet}

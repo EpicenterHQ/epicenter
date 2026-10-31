@@ -1,0 +1,10 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Whispering Dev",
+	"identifier": "so.epicenter.whispering.dev",
+	"app": {
+		"security": {
+			"capabilities": ["whispering"]
+		}
+	}
+}

@@ -1,15 +1,18 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Separator } from '@epicenter/ui/separator';
+	import { Settings } from '#platform/root';
 	import type { Operation } from '$lib/connections.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import ConnectionForm from './ConnectionForm.svelte';
 	import AccountStatus from './AccountStatus.svelte';
 
 	/**
-	 * Settings: this device's two connections. Everything here stays on this
-	 * device. `only` shows one connection, as the control beside the recorder
-	 * does.
+	 * Settings: what only this build has (`Settings` from `#platform/root`:
+	 * on the desktop, the data folder and the models on this computer), the
+	 * optional sign-in, and this device's two connections. Everything here
+	 * stays on this device. `only` shows one connection, as the control
+	 * beside the recorder does.
 	 */
 	let { only }: { only?: Operation } = $props();
 
@@ -18,6 +21,10 @@
 </script>
 
 <div class="flex flex-col gap-4 text-sm">
+	{#if Settings && !only}
+		<Settings />
+		<Separator />
+	{/if}
 	<AccountStatus />
 	{#if whispering.connectionsProblem}
 		<div class="flex flex-col gap-2 text-xs text-destructive" role="alert" data-testid="connections-problem">

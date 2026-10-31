@@ -1,9 +1,16 @@
 /**
- * Audio capture for one recording at a time.
+ * Audio capture for one recording at a time, in one of two ways:
  *
- * A capture holds its audio until Stop, which answers it: the bytes, the
- * extension they are saved under, and how long it ran. The app then keeps it
- * as the recording's files. The microphone device (`microphone.ts`) records
+ * - In a browser (`CaptureDevice`), a capture holds its audio until Stop,
+ *   which answers it: the bytes, the extension they are saved under, and how
+ *   long it ran. The app then keeps it as the recording's files.
+ * - On the desktop (`FolderCaptureDevice`), the shell writes the recording's
+ *   audio into the folder from its first sample (ADR-0543), at the path the
+ *   recording's id names, so a quit or a crash keeps everything up to the
+ *   cut. Stop answers only how long it ran, and `recover` repairs the audio
+ *   a quit or a crash cut off.
+ *
+ * The browser's microphone device (`microphone.ts`) records
  * with `@epicenter/recorder`'s browser recorder. A fixture device stands in
  * for a microphone in automation and marks the recording `fixture`, so a
  * fixture take is never stored as a microphone take. The platform adapter
@@ -60,16 +67,30 @@ export type CapturedAudio = {
 	readonly durationMs: number;
 };
 
-export type ActiveCapture = {
+/** A capture under way, however its audio is kept. */
+export type CaptureUnderWay = {
 	/** `performance.now()` when capture began, for the elapsed-time display. */
 	readonly startedAt: number;
-	/** Hear capture end unexpectedly; stop still answers its audio. Retired by stop. */
+	/** Hear capture end unexpectedly; stop still answers what was captured. Retired by stop. */
 	onEnded: RecordingHandle<unknown>['onEnded'];
+};
+
+/** A capture the page holds until Stop (a browser). */
+export type ActiveCapture = CaptureUnderWay & {
 	/**
 	 * Release the microphone and answer the audio. Nothing is kept by this:
 	 * a capture the page leaves without stopping ends with the page.
 	 */
 	stop(): Promise<Result<CapturedAudio, CaptureError>>;
+};
+
+/** A recording the shell is writing into the folder (the desktop). */
+export type FolderCapture = CaptureUnderWay & {
+	/**
+	 * Finish the file and release the microphone. Answers how long it ran;
+	 * the audio is already in the folder.
+	 */
+	stop(): Promise<Result<{ readonly durationMs: number }, CaptureError>>;
 };
 
 /** A microphone the person chose by name. Kept on this device, never in Whispering's files. */
@@ -144,14 +165,49 @@ export type CaptureStart = {
 	readonly signal?: AbortSignal;
 };
 
-export type CaptureDevice = {
+/** What every capture device says about itself. */
+type CaptureDeviceInfo = {
 	readonly source: CaptureSource;
 	/** What the person is told this session records from. */
 	readonly label: string;
 	/** Undefined when this device has no real input to choose or test. */
 	readonly inputs: MicrophoneInputs | undefined;
+};
+
+/** A capture device that answers the audio at Stop (a browser). */
+export type CaptureDevice = CaptureDeviceInfo & {
+	/** Where the audio is while it records: in the page, until Stop. */
+	readonly keeps?: 'page';
 	start(options?: CaptureStart): Promise<Result<ActiveCapture, CaptureError>>;
 };
+
+/** A desktop start: the recording's id names its audio's path in the folder. */
+export type FolderCaptureStart = CaptureStart & {
+	/** The recording's id: the audio is written to `recordings/<id>.<ext>`. */
+	readonly id: string;
+};
+
+/**
+ * A capture device that writes each recording into the folder from its
+ * first sample (the desktop shell's).
+ */
+export type FolderCaptureDevice = CaptureDeviceInfo & {
+	/** Where the audio is while it records: in the folder, from the start. */
+	readonly keeps: 'folder';
+	/** The extension each recording's audio is written under: `wav`. */
+	readonly ext: string;
+	start(
+		options: FolderCaptureStart,
+	): Promise<Result<FolderCapture, CaptureError>>;
+	/**
+	 * Repair the audio of recordings a quit or a crash cut off, so each reads
+	 * to its last sample. Answers the ids repaired.
+	 */
+	recover(): Promise<Result<string[], CaptureError>>;
+};
+
+/** Either way of capturing: the build's services choose one. */
+export type AnyCaptureDevice = CaptureDevice | FolderCaptureDevice;
 
 export type FixtureAudio = {
 	readonly name: string;

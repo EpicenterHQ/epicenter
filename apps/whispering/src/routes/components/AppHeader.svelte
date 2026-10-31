@@ -1,21 +1,19 @@
 <!--
-	The header: a live recording, where the recordings are kept (this
-	browser), and Settings, where the connections and the optional sign-in
-	are.
+	The header: a live recording, where the recordings are kept (the build's
+	`Chrome`: this browser, or the desktop's data folder and its sync), and
+	Settings, where the connections and the optional sign-in are.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Popover from '@epicenter/ui/popover';
 	import { Spinner } from '@epicenter/ui/spinner';
-	import StatusPopover from '@epicenter/svelte/status-popover';
-	import StatusRow from '@epicenter/svelte/status-row';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import { page } from '$app/state';
+	import { Chrome } from '#platform/root';
 	import { getLibrary } from '$lib/library.svelte.js';
-	import { headerStatus } from '$lib/status.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { pageAt } from './nav-items.js';
 	import RecorderClock from './RecorderClock.svelte';
@@ -24,8 +22,6 @@
 	const whispering = getWhispering();
 	const library = getLibrary();
 
-	/** Where the recordings are kept, unless an answer could not be. */
-	const status = $derived(headerStatus({ unwrittenAnswers: library.unwrittenAnswers }));
 	/** The home page has the large recorder; every other page gets this compact one. */
 	const onHome = $derived(pageAt(page.url.pathname) === 'home');
 </script>
@@ -56,11 +52,7 @@
 		<span class="min-w-0 truncate text-xs text-destructive" role="alert" title={whispering.recorderError}>{whispering.recorderError}</span>
 	{/if}
 
-	<StatusPopover summary={status} details={[{ name: 'Files', testid: 'status-files', line: status }]}>
-		<StatusRow name="Kept in" class="text-xs break-all" data-testid="status-folder">
-			This browser’s storage for this site
-		</StatusRow>
-	</StatusPopover>
+	<Chrome unwrittenAnswers={library.unwrittenAnswers} />
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">
 		<Popover.Root>

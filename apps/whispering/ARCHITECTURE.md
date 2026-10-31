@@ -2,23 +2,22 @@
 
 Whispering's web build is a page that runs in a browser tab, and it is the
 local variant: one store, this browser's private files (OPFS), for the
-page's whole life. Its data is the `whispering` contract's files
+page's whole life. Its desktop app is the same pages over a data folder on
+the computer (see the README's "The desktop app"). Its data is the `whispering` contract's files
 (`src/lib/contract.ts`): five note collections and the audio beside each
 recording. It reads and writes them only through the contract's typed
 client. Nothing syncs, uploads, or moves between stores, and signing in
 grants capabilities, never storage
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
-Whispering's desktop app is built separately later, with its own store; see
-the README.
-
 ```text
 src/lib/contract.ts          the contract (published as static/contract.json)
-src/lib/device.ts            the web build's store: openDevice(whispering), OPFS
 src/lib/files.svelte.ts      one client's note lists, and its recordings' audio
 src/lib/whispering.svelte.ts services, connections, microphone, recorder
 src/lib/library.svelte.ts    the pages' state over the files: lists, selection, runs, deletion
-src/lib/platform/            capture, inference, connections, sign-in (#platform/*)
-src/routes/                  the chrome, the local variant's root and pages, the sign-in callback
+src/lib/platform/            what each build decides: root, services, auth, variant (#platform/*)
+src/lib/components/          the variants' startups, header chrome, settings, callbacks
+src/routes/                  the chrome, the app's root and pages, the sign-in callback
+src-tauri/                   the desktop app's shell
 ```
 
 ## The roots
@@ -26,14 +25,15 @@ src/routes/                  the chrome, the local variant's root and pages, the
 - `routes/+layout.svelte` is the chrome every route shares: tooltips, the
   confirmation dialog, toasts, the theme, and the leave guard
   (`guardLeave`), which asks before leaving while a save is out.
-- `routes/(local)/+layout.svelte` is the local variant's root, the only
-  place the web build chooses its store: it imports the device
-  (`lib/device.ts`, a module singleton,
-  `export const device = openDevice(whispering)`) and renders
-  `<WhisperingApp client={device}>`. Its pages are `/`, `/recordings` and
-  `/transformations`.
+- `routes/(app)/+layout.svelte` is the app's root: under a
+  `<svelte:boundary>` it renders the build's `Startup` (`#platform/root`),
+  which opens the store and hands its client to `<WhisperingApp {client}>`:
+  `LocalStartup` awaits this browser's device; `DesktopStartup` awaits the
+  AppData root and the data folder, or renders the recovery screen. Its
+  pages are `/`, `/recordings` and `/transformations`.
 - `routes/auth/callback/` is outside the group, so it opens no files: it
-  finishes sign-in and loads the page it started from.
+  renders the build's `Callback`, which finishes a web sign-in and loads the
+  page it started from.
 - `WhisperingApp.svelte` takes the client as a prop. It makes
   `createWhispering({ client })` (the services, the connections, the
   microphone and the recorder) and
@@ -42,9 +42,8 @@ src/routes/                  the chrome, the local variant's root and pages, the
   and the saved microphone), renders the frame (sidebar or bottom bar, and
   the header with its status line), and disposes both when it leaves.
 
-A later variant (the desktop app, or an online one) adds its own root that
-passes its own client; nothing below `WhisperingApp` knows which store it
-is.
+Nothing below `WhisperingApp` knows which store it is; where only a
+sentence differs, a component reads `variant` from `#platform/variant`.
 
 Each page route renders a page component (`HomePage`, `RecordingsPage`,
 `TransformationsPage`) that reads the library from context. Changing pages
@@ -52,12 +51,13 @@ keeps everything in progress, and a run under way still keeps its answer in
 the files unless Whispering itself is closing.
 
 `src/lib/page-boundary.test.ts` pins this: `openDevice` only in
-`device.ts`, and the device imported only by the `(local)` layout; nothing
+`LocalStartup`, `openDataFolder` only in `DesktopStartup`; nothing
 calls `openRemote`, `setRepo` or `getRepo`, or imports
 `@epicenter/folder/remote` or `@epicenter/svelte/repo`; `createWhispering`,
 `filesOf` and `createLibrary` only in `WhisperingApp`; `fromClient` only in
 `files.svelte.ts`; auth only through `#platform/auth`; services only through
-`#platform/services`; nothing from Node, Bun or Tauri; and no use of the
+`#platform/services`; nothing from Node or Bun, Tauri only in the desktop
+leaves; and no use of the
 retired folder and table API (`openFolder`, `svelteFolder`, `defineTable`,
 `@epicenter/svelte/folder`) anywhere, tests included.
 

@@ -24,10 +24,12 @@ An id is when the file was made plus a random suffix (`timeId()`). A file's
 id is its identity: renaming a recording changes its `title`, never its path,
 so a transcript's `recordingId` never breaks. Whispering keeps no settings in
 its files: its connections and the chosen microphone belong to one device and
-stay in the browser.
+stay on it.
 
-Whispering's web build runs in a browser tab. Its desktop app is built
-separately later (see [The desktop app](#the-desktop-app)).
+Whispering's web build runs in a browser tab and keeps its files in that
+browser. Its desktop app keeps them in a folder on the computer (see
+[The desktop app](#the-desktop-app)). Both are the same pages over the same
+contract; nothing moves files between them (decision 77).
 
 ## Where the files are
 
@@ -159,8 +161,9 @@ Three controls sit beside the microphone on Home:
 
 Settings has two connections, **Transcription** and **Text**: each a base URL
 (a local endpoint or a provider), the model used when a request names none,
-and an optional key, kept in this site's `localStorage`, never in
-Whispering's files. Or choose **Use Epicenter account**: once you sign in,
+and an optional key, kept in this site's `localStorage` (the keychain on
+the desktop), never in Whispering's files. Or choose **Use Epicenter
+account**: once you sign in,
 the account supplies the address and authorization (`account.fetch`);
 signed out, it sends nothing and says to sign in.
 
@@ -170,8 +173,8 @@ signed out, it sends nothing and says to sign in.
   key, and is refused, with nothing sent, if the connection changed after it
   was prepared. A key is kept only for the endpoint it was saved for, never
   carried by a redirect, and removed from any error that echoes it.
-- The tab sends requests itself, so a custom endpoint must allow the page's
-  origin (CORS). Most hosted providers refuse that; a local endpoint or the
+- The web app's tab sends requests itself, so a custom endpoint must allow
+  the page's origin (CORS). Most hosted providers refuse that; a local endpoint or the
   Epicenter account works. A key saved here can be read by code running on
   the site, and the form says so.
 - If an answer stops partway, the request may have been answered with the
@@ -219,14 +222,67 @@ nothing about the microphone.
 
 ## The desktop app
 
-Not yet; it is built separately later, as its own variant with its own
-store. It will open its folder with `openDevice` from
-`@epicenter/folder/tauri`, record WAV into it from the first sample through
-`tauri-plugin-epicenter-recorder` (`@epicenter/recorder/tauri`), and leave
-syncing to Epicenter, which syncs a folder added to it (`epicenter sync`).
-Epicenter no longer hosts apps
-([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)). The web
-build's recordings stay in the browser; nothing moves them to that folder.
+```sh
+bun run --cwd apps/whispering dev:desktop     # needs a Rust toolchain
+bun run --cwd apps/whispering build:desktop   # a local, unsigned macOS app bundle
+```
+
+Its Tauri shell (`src-tauri/`, on the shared
+[`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
+crate) starts the window on Whispering's AppData root, whose `settings.md`
+(machine-local, never synced) names a data folder only when the person chose
+one. There is no first-run question: the page opens `~/Epicenter/Whispering`
+(`~/Epicenter/Whispering Dev` under `tauri.dev.conf.json`), made when
+missing, or the chosen folder (`openAppData`, then `openDataFolder`). Tauri
+decides which folders the window may open: the shell allows the default at
+startup, the native picker allows a folder the person picks, and
+persisted-scope keeps it. A folder that is missing, not allowed, or refused
+shows the recovery screen (`@epicenter/svelte/recovery`), never another
+folder silently. **Choose data folder…**, in the status details and in
+Settings, opens another folder with its files where they are and remembers
+it. Epicenter syncs the folder once the person presses **Sync with
+Epicenter**; Whispering never syncs it.
+
+The pages are the web app's, built as the desktop variant
+(`bun run build:native`, into `build-desktop/`), with what differs behind
+build-time seams:
+
+| Seam | Web leaf | Desktop leaf |
+| --- | --- | --- |
+| `#platform/root` | `root.ts`: this browser's storage, "On this browser", the end of a web sign-in | `root.tauri.ts`: the two roots or the recovery screen, the folder's status and sync, the global shortcut, Settings for the folder and local models |
+| `#platform/services` | `browser.ts`: the WebView microphone, `fetch`, `localStorage` | `services.tauri.ts`: the shell's microphone, `send_request`, the keychain, local models |
+| `#platform/auth` | `auth.ts`: browser OAuth | `auth.tauri.ts`: `createTauriAuth` over `epicenter-account` |
+| `#platform/variant` | `'local'` | `'desktop'`, where only a sentence differs |
+
+`src/lib/platform/platform.test.ts` bundles both builds and names a seam
+whose desktop leaf went missing.
+
+- **Recording** goes through the shell's microphone
+  (`tauri-plugin-epicenter-recorder`), which writes `recordings/<id>.wav`
+  into the data folder from the first sample. The note is made at Start and
+  gets its length at Stop (`folder-recordings.ts`); a recording a quit or a
+  crash cut off is repaired on the next launch and its length written from
+  the audio. The page passes the data folder's root as the shell answered it
+  (`rootOf` from `@epicenter/folder/tauri`); the shell refuses any root the
+  window did not open.
+- **Transcription** goes to a custom endpoint, sent from Rust
+  (`send_request`, `src-tauri/src/http.rs`, so no endpoint needs CORS), to
+  Epicenter's hosted API through the account's relay (`account_fetch`, whose
+  token the page never holds), or to a local model with **Use this
+  computer** (`tauri-plugin-epicenter-transcription`, models administered in
+  Settings), which reads the recording's file in place.
+- **Connections and keys** are one keychain entry, `connections`
+  (`keychain` from `@epicenter/auth/tauri`). A debug build started with
+  `EPICENTER_SECRETS_FILE=<path>` keeps them in that file instead.
+- **Sign-in** is `so.epicenter.whispering.native` through the shared
+  [`epicenter-account`](../../packages/tauri-epicenter-account/README.md)
+  crate, in the system browser.
+- **The global shortcut**, `CommandOrControl+Shift+;`, starts and stops a
+  recording from any app (hardcoded for now).
+
+`cargo test -p whispering` checks the identity, the native client id, and
+that the capability grants exactly the plugins' permissions and the commands
+the build script declares.
 
 ## What is not supported
 
@@ -237,13 +293,14 @@ build's recordings stay in the browser; nothing moves them to that folder.
   it is listed.
 - Reading files an earlier build kept (its IndexedDB folder, or a Yjs store).
   There is no migration.
-- A recording surviving a refresh or a closed tab before Stop.
-- System-wide dictation: global shortcuts, push-to-talk, voice-activated
-  recording, and delivering text to the cursor. Copy buttons are the only way
-  text leaves the app.
+- A recording surviving a refresh or a closed tab before Stop, in the web
+  app.
+- System-wide dictation beyond the desktop's one start-and-stop shortcut:
+  push-to-talk, voice-activated recording, and delivering text to the
+  cursor. Copy buttons are the only way text leaves the app.
 - Automatic transcription or transformation. Each is a button you press, so
   nothing is sent to a paid endpoint on its own.
-- Transcription on this computer, and importing audio files.
+- Transcription on this computer in the web app, and importing audio files.
 - Transformations beyond one prompt and one request, a provider or model
   catalog, and a connection or key per transformation.
 - Windows and Linux are untested.

@@ -1,0 +1,38 @@
+[package]
+name = "whispering"
+version = "7.11.1"
+description = "Whispering as a desktop window over the folder it keeps its recordings in, recorded into from the first sample"
+authors = ["Epicenter"]
+repository = "https://github.com/EpicenterHQ/epicenter"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[build-dependencies]
+epicenter-transcription-build = { path = "../../../packages/epicenter-transcription-build" }
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+base64 = "0.22"
+epicenter-account = { path = "../../../packages/tauri-epicenter-account" }
+epicenter-standalone = { path = "../../../packages/tauri-epicenter-standalone" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
+serde = { version = "1", features = ["derive"] }
+# `generate_context!` writes the configuration's `plugins` block (the fs
+# scope's `scopeDroppedPaths`) as `serde_json` values in the app's own crate.
+serde_json = "1"
+tauri = { version = "2.12", features = [] }
+# tauri-build finds plugin permissions only through direct dependencies.
+tauri-plugin-dialog = "2.7"
+tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
+tauri-plugin-epicenter-transcription = { path = "../../../packages/tauri-plugin-epicenter-transcription" }
+tauri-plugin-global-shortcut = "2.3"
+# A direct dependency gives this final app's build script the
+# DEP_TRANSCRIBE_CPP_* metadata `epicenter_transcription_build` reads.
+transcribe-cpp = { version = "0.1.0", default-features = false }
+
+[dev-dependencies]
+# The mock runtime drives the real commands in tests.
+tauri = { version = "2.12", features = ["test"] }
+tokio = { version = "1", features = ["macros", "rt"] }

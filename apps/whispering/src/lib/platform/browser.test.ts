@@ -4,8 +4,10 @@
  * than overwritten.
  */
 import { afterEach, expect, test } from 'bun:test';
+import type { Client } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import type { Whispering } from '../contract.js';
 
 // Compile the Vite build flag for this adapter test; no microphone is opened.
 Bun.plugin({
@@ -22,6 +24,8 @@ Bun.plugin({
 });
 
 const { createServices } = await import('./browser.js');
+/** The browser's services need nothing of the client they are made over. */
+const client = {} as Client<Whispering>;
 
 const originalStorage = Object.getOwnPropertyDescriptor(
 	globalThis,
@@ -52,7 +56,7 @@ async function preferences(getItem: (key: string) => string | null) {
 		configurable: true,
 		value: new URL('http://localhost:5199'),
 	});
-	return createServices().preferences;
+	return createServices(client).preferences;
 }
 
 test('missing and valid microphone preferences retain their meaning', async () => {
@@ -128,7 +132,7 @@ async function browserWithStorage(stored: Map<string, string>) {
 	cleanups.push(async () => {
 		globalThis.fetch = originalFetch;
 	});
-	return { browser: createServices(), sent };
+	return { browser: createServices(client), sent };
 }
 
 test('a browser keeps connections and keys in its own storage, tells the page no key, and sends only to the connection it was prepared for', async () => {

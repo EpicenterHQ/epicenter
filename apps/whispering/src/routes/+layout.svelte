@@ -1,8 +1,8 @@
 <!--
-	Every page of Whispering: the chrome and the leave guard. The web build
-	is the local variant, the `(local)` group at `/`, which opens this
-	browser's files; the sign-in callback is outside it and opens nothing: it
-	finishes sign-in and loads the page it started from.
+	Every page of Whispering: the chrome and the leave guard. The app is the
+	`(app)` group at `/`, whose layout opens the build's store (this browser's
+	files on the web, the data folder on the desktop); the sign-in callback is
+	outside it and opens nothing.
 -->
 <script lang="ts">
 	import { guardLeave } from '@epicenter/svelte/leave-guard';

@@ -3,7 +3,9 @@ import { afterEach, expect, test } from 'bun:test';
 import { epicenterCloud, selfHostedServer } from '@epicenter/auth';
 import { APPS, resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
+import type { Client } from '@epicenter/definition/contract';
 import { expectOk } from 'wellcrafted/testing';
+import type { Whispering } from '../contract.js';
 
 Bun.plugin({
 	name: 'browser-account-build-flag',
@@ -75,13 +77,15 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 }) as typeof fetch;
 
 const { createServices } = await import('./browser.js');
+/** The browser's services need nothing of the client they are made over. */
+const client = {} as Client<Whispering>;
 const { getAuth } = await import('./auth.js');
 afterEach(() => {
 	sent.length = 0;
 });
 
 test('a selected account captures its bearer, and switching back restores the custom endpoint', async () => {
-	const browser = createServices();
+	const browser = createServices(client);
 	expectOk(
 		await browser.connections.set('text', {
 			baseUrl: 'https://custom.test/v1',

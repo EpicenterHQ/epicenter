@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-keychain-get"
+description = "Enables the keychain_get command without any pre-configured scope."
+commands.allow = ["keychain_get"]
+
+[[permission]]
+identifier = "deny-keychain-get"
+description = "Denies the keychain_get command without any pre-configured scope."
+commands.deny = ["keychain_get"]

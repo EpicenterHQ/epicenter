@@ -109,6 +109,11 @@ export type PreparedTranscription = {
 	readonly audio: () => Promise<Result<TranscriptionRequest['audio'], string>>;
 	readonly expectedBaseUrl: string;
 	readonly model: string;
+	/**
+	 * The audio's path in the folder (`recordings/<id>.<ext>`), for a platform
+	 * that transcribes the file where it is (the desktop's local models).
+	 */
+	readonly audioPath?: string;
 };
 
 /**

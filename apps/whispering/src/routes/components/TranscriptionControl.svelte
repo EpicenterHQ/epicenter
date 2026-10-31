@@ -21,7 +21,7 @@
 	const connection = $derived(whispering.connections?.transcription);
 	const summary = $derived(
 		connection
-			? `Transcription model: ${connection.model}, at ${connection.baseUrl}`
+			? `Transcription model: ${connection.model}, ${connection.source === 'local' ? 'on this computer' : `at ${connection.baseUrl}`}`
 			: 'Transcription is not set up. Set up its connection to transcribe.',
 	);
 	let hinting = $state(false);
