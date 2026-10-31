@@ -56,17 +56,19 @@ folder so the person can remove it with Hugging Face's tools.
 
 ## Transcribing a file
 
-`transcribe_file(model_id, path, hints)` transcribes an audio file in the folder
-the folder plugin bound to the calling window. `path` is folder-relative, such
-as `recordings/20261031T101500123.wav`; the page never names a root. Rust reads
-the file, so audio never crosses IPC.
+`transcribe_file(model_id, root, path, hints)` transcribes an audio file in a
+folder the folder plugin opened for the calling window: `root` is a root its
+page opened (`openDevice` with a path, such as a standalone app's data folder),
+by the exact path the shell answered, or `null` for the window's own folder.
+`path` is folder-relative, such as `recordings/20261031T101500123.wav`. Rust
+reads the file, so audio never crosses IPC.
 
 Each call is checked in this order, and every refusal is a typed
 `TranscriptionError`:
 
 | Check | Refusal |
 | --- | --- |
-| The calling window has a bound folder that is still there | `FolderUnavailable` |
+| `root` is the calling window's own folder or a root its page opened, and is still there | `FolderUnavailable` |
 | `path` is a data path under the folder's shared path rule: not empty or absolute, no `.` or `..`, no `.git` or `HEAD`, no link on the way | `PathRefused` |
 | A regular file is at `path` | `FileMissing` |
 | `model_id` is a catalog model installed on this machine | `LocalRouteUnavailable` |

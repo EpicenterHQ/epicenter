@@ -3,8 +3,8 @@
  *
  * Key behaviors:
  * - `start` names the path and the chosen microphone by the ID the shell
- *   listed it under, and no folder, and passes the channel levels and
- *   endings arrive on
+ *   listed it under, the window's folder (`null`) or the root the page
+ *   names, and passes the channel levels and endings arrive on
  * - `listInputs` answers the shell's inputs; `openMeter` opens one by ID,
  *   hears its levels, and closes it, and a meter withdrawn while opening is
  *   closed
@@ -13,7 +13,7 @@
  * - The shell's refusals arrive as this package's errors, by name
  * - A start withdrawn while the shell opened the microphone is stopped:
  *   released, with what the shell wrote kept
- * - `recover` names the directory, and no folder
+ * - `recover` names the directory, in the window's folder or the root named
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -67,6 +67,7 @@ test('a recording starts in the window folder and stops by the id the shell mint
 	const [start] = calls;
 	expect(start?.cmd).toBe('plugin:epicenter-recorder|start');
 	expect(start?.args).toMatchObject({
+		root: null,
 		path: 'recordings/a',
 		device: 'coreaudio:desk-uid',
 	});
@@ -157,15 +158,39 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 	expect(calls[1]?.args).toEqual({ id: '7' });
 });
 
-test('recover names the directory and no folder, and answers what it repaired', async () => {
+test('a recording in a root the page opened names that root', async () => {
+	expectOk(
+		await startRecording({
+			root: '/Users/me/Epicenter/App',
+			path: 'recordings/a',
+		}),
+	);
+	expect(calls[0]?.args).toMatchObject({
+		root: '/Users/me/Epicenter/App',
+		path: 'recordings/a',
+		device: null,
+	});
+});
+
+test('recover names the directory in the window folder, and answers what it repaired', async () => {
 	answer = () => ['recordings/a.wav'];
 	expect(expectOk(await recoverRecordings({ under: 'recordings' }))).toEqual([
 		'recordings/a.wav',
 	]);
+	expectOk(
+		await recoverRecordings({
+			root: '/Users/me/Epicenter/App',
+			under: 'recordings',
+		}),
+	);
 	expect(calls).toEqual([
 		{
 			cmd: 'plugin:epicenter-recorder|recover',
-			args: { under: 'recordings' },
+			args: { root: null, under: 'recordings' },
+		},
+		{
+			cmd: 'plugin:epicenter-recorder|recover',
+			args: { root: '/Users/me/Epicenter/App', under: 'recordings' },
 		},
 	]);
 });

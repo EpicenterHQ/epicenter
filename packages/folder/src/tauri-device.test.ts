@@ -10,7 +10,8 @@
  * - The default is the bound directory itself; a relative `path` names a
  *   folder inside it, and the client sees only that folder
  * - An absolute `path` opens a root the shell allows; any other is
- *   `NotGranted`, a missing one `Missing` unless `create`
+ *   `NotGranted`, a missing one `Missing` unless `create`. `rootOf` answers
+ *   the root as the shell answered it
  * - Versions are sha256, so a stale `over` is a `Conflict` and lands nothing
  * - A storage refusal is `Unavailable`; a page outside Tauri opens nothing
  * - The shell's watcher reaches a collection's listeners, inside `path`
@@ -20,7 +21,7 @@
  * - The folder picker answers the folder picked, or null when cancelled
  */
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
-import { readFile, rm } from 'node:fs/promises';
+import { readFile, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
 import { unwrap } from 'wellcrafted/result';
@@ -73,6 +74,7 @@ const {
 	openDataFolder,
 	openDevice,
 	rememberFolder,
+	rootOf,
 } = await import('./tauri.js');
 
 const notes = defineContract({
@@ -188,12 +190,10 @@ test('an absolute path opens a root the shell allows; any other is NotGranted, a
 	const other = await allowed('tauri-device-other-');
 	shell = createGrantedShell(shell.root, { grants: [other, `${other}-new`] });
 	removed.push(`${other}-new`);
-	expectOk(
-		await unwrap(await openDevice(notes, { path: other })).notes.create({
-			id: 'a',
-			title: 'There',
-		}),
-	);
+	const there = unwrap(await openDevice(notes, { path: other }));
+	expectOk(await there.notes.create({ id: 'a', title: 'There' }));
+	expect(rootOf(there)).toBe(await realpath(other));
+	expect(rootOf(unwrap(await openDevice(notes)))).toBeUndefined();
 	expect(await readFile(join(other, 'notes/a.md'), 'utf8')).toContain(
 		'title: There',
 	);

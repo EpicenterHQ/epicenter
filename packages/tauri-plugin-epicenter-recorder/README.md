@@ -3,8 +3,8 @@
 The desktop shell's microphone. It lists the inputs, reads one's level, and
 records: a page in the shell opens no microphone of its own
 ([ADR-0571](../../docs/adr/0571-on-desktop-rust-owns-the-microphone-and-the-page-never-opens-one.md)).
-A recording is a WAV in the folder
-the shell bound to the recording window, written from the first sample
+A recording is a WAV in a folder
+the recording window opened, written from the first sample
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
 `start` creates `<path>.wav` and appends 16 kHz mono PCM16 as the microphone
 captures, and `stop` finalizes its header. Nothing deletes it. A quit, a
@@ -60,22 +60,26 @@ the channel the page passes to `start`.
 
 A page names a microphone by the id `inputs` answers, cpal's `DeviceId` as
 text (`coreaudio:<device UID>` on macOS), which stays the same across
-launches and reconnections. To record, it names a folder-relative path,
-never a root or a folder: the folder is the one the shell bound to the
-calling window, read once when the command arrives.
+launches and reconnections. To record, it names a folder-relative path and
+the root it is in: `null` for the folder the shell bound to the calling
+window, or a root the page opened through the folder plugin (`open_folder`,
+as `openDevice` does with a path, such as a standalone app's data folder), by
+the exact path the plugin answered. Any other root is refused. The root is
+read once when the command arrives.
 
 | Command | What it does |
 | --- | --- |
 | `inputs()` | Lists the input devices connected now as `{ id, name, isDefault }`. Opens nothing, so it needs no microphone permission. |
 | `open_meter(device, levels)` | Opens the microphone with id `device`, or the system default, and sends its level on `levels` until `close_meter(id)`, or until the window's page reloads or the window is destroyed. Nothing is recorded. Answers the meter's `id` and the microphone's name. |
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
-| `start(path, device, signals)` | Records into `<path>.wav` in the folder bound to this window, from the microphone with id `device` or the system default. Answers the recording's `id`, its path, and the microphone's name. |
+| `start(root, path, device, signals)` | Records into `<path>.wav` in `root`, from the microphone with id `device` or the system default. Answers the recording's `id`, its path, and the microphone's name. |
 | `stop(id)` | Finalizes the WAV and answers its path and length. Only the window that started it may stop it. |
-| `recover(under)` | Rewrites the header of every `.wav` under `under` whose sizes disagree with its length, leaving the recording still being written alone. Answers the paths it rewrote; a second run rewrites none. |
+| `recover(root, under)` | Rewrites the header of every `.wav` under `under` in `root` whose sizes disagree with its length, leaving the recording still being written alone. Answers the paths it rewrote; a second run rewrites none. |
 
 `start` refuses before it opens anything:
 
-- `Refused`: the shell bound no folder to the window, the path is not a data path
+- `Refused`: the shell bound no folder to the window, the page did not open
+  `root`, the path is not a data path
   the shared path rule accepts (`page_files::data_path` in the folder
   plugin's core, no link on the way), or a file is already at `<path>.wav`.
 - `PermissionDenied`: macOS does not allow Epicenter the microphone.

@@ -73,17 +73,19 @@ export const commands = {
 	listInferenceModels: () => __TAURI_INVOKE<InferenceModel[]>("plugin:epicenter-transcription|list_inference_models"),
 	/**
 	 *  Transcribe the audio file at the folder-relative data path `path` (such as
-	 *  `recordings/20261031T101500123.wav`) in the folder bound to the calling
-	 *  window, with the exact catalog model `model_id`.
+	 *  `recordings/20261031T101500123.wav`) in `root`, with the exact catalog
+	 *  model `model_id`. `root` is a folder the calling window's page opened, by
+	 *  the exact path the shell answered it with, or `None` for the window's own
+	 *  folder; any other root is refused, whatever it holds.
 	 *
-	 *  The page names no root: a window without a bound folder, a path the folder
-	 *  rule refuses, and a missing file are refused before any model is
-	 *  resolved. An unknown or uninstalled model is refused before the file is
-	 *  read or decoded. The active-model setting is neither read nor changed. The
-	 *  blocking job owns its input until inference finishes, including after the
-	 *  caller abandons the call.
+	 *  A root the window did not open, a path the folder rule refuses, and a
+	 *  missing file are refused before any model is resolved. An unknown or
+	 *  uninstalled model is refused before the file is read or decoded. The
+	 *  active-model setting is neither read nor changed. The blocking job owns its
+	 *  input until inference finishes, including after the caller abandons the
+	 *  call.
 	 */
-	transcribeFile: (modelId: string, path: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|transcribe_file", { modelId, path, hints })),
+	transcribeFile: (modelId: string, root: string | null, path: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|transcribe_file", { modelId, root, path, hints })),
 	/**
 	 *  Open this app's model settings through the callback given to
 	 *  `Builder::open_settings`. Refused when the app gave none.
@@ -199,8 +201,9 @@ export type SettingsError = { name: "UnknownModel"; message: string } | { name: 
 
 export type TranscriptionError = { name: "AudioReadError"; message: string } |
 /**
- *  The calling window has no usable folder: the app bound none to it, the
- *  bound directory is gone or unreachable, or the app is shutting down.
+ *  The calling window has no usable folder there: the app bound none to
+ *  it, its page did not open the root it named, the directory is gone or
+ *  unreachable, or the app is shutting down.
  */
 { name: "FolderUnavailable"; message: string } |
 /**

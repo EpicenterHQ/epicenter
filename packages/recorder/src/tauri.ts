@@ -2,7 +2,7 @@
  * Recording in the desktop app, through `tauri-plugin-epicenter-recorder`.
  *
  * The shell's recorder writes `<path>.wav` into the folder the shell bound
- * to this window, from the first sample, so the file exists and grows while the
+ * to this window, or into a `root` the page opened, from the first sample, so the file exists and grows while the
  * recording runs. `stop` finalizes its header. When the page reloads or its
  * window closes, the shell finalizes the recording itself: the file is kept.
  *
@@ -97,6 +97,7 @@ function createRecordingSignals() {
 }
 
 export const startRecording: StartRecording = async ({
+	root,
 	path,
 	input,
 	signal,
@@ -106,6 +107,7 @@ export const startRecording: StartRecording = async ({
 	let answer: Awaited<ReturnType<typeof commands.start>>;
 	try {
 		answer = await commands.start(
+			root ?? null,
 			path,
 			input?.deviceId ?? null,
 			signals.channel,
@@ -143,9 +145,9 @@ export const startRecording: StartRecording = async ({
 	});
 };
 
-export const recoverRecordings: RecoverRecordings = async ({ under }) => {
+export const recoverRecordings: RecoverRecordings = async ({ root, under }) => {
 	try {
-		const { data, error } = await commands.recover(under);
+		const { data, error } = await commands.recover(root ?? null, under);
 		if (error !== null) return fromNative(error);
 		return Ok(data);
 	} catch (cause) {

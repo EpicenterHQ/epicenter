@@ -8,8 +8,9 @@ pub enum TranscriptionError {
     #[error("Audio read error: {message}")]
     AudioReadError { message: String },
 
-    /// The calling window has no usable folder: the app bound none to it, the
-    /// bound directory is gone or unreachable, or the app is shutting down.
+    /// The calling window has no usable folder there: the app bound none to
+    /// it, its page did not open the root it named, the directory is gone or
+    /// unreachable, or the app is shutting down.
     #[error("No folder for this window: {message}")]
     FolderUnavailable { message: String },
 

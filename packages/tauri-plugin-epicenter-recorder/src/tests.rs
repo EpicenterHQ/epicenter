@@ -14,12 +14,13 @@
 //! - Without microphone access no meter or recording resolves a device;
 //!   listing asks for nothing.
 //! - Permission granted after page departure resolves no device for that page.
-//! - `start` records only into the folder bound to the calling window, at a
-//!   data path the shared path rule accepts, with nothing at it yet. A page
-//!   names no folder; a window with no binding, or a page whose folders have shut down, is refused.
+//! - `start` records only into the calling window's own folder or a root its
+//!   page opened, at a data path the shared path rule accepts, with nothing
+//!   at it yet. A root the page did not open, a window with no binding, or a
+//!   page whose folders have shut down, is refused.
 //! - `stop` reaches only a recording the window started; no command deletes
 //!   one.
-//! - `recover` repairs cut-off WAVs in the bound folder and is idempotent.
+//! - `recover` repairs cut-off WAVs in such a folder and is idempotent.
 //! - A destroyed window's recording is finalized, never deleted.
 //! - A window without the plugin's permission cannot call it.
 
@@ -446,7 +447,7 @@ fn permission_granted_after_exit_finalization_resolves_no_device() {
 }
 
 #[test]
-fn start_and_recover_reach_only_the_folder_bound_to_the_calling_window() {
+fn start_and_recover_reach_only_a_folder_the_calling_window_opened() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
     let other = window(&fixture.app, "other");
@@ -467,6 +468,39 @@ fn start_and_recover_reach_only_the_folder_bound_to_the_calling_window() {
     }
     let refused = invoke(&other, "recover", json!({ "under": "recordings" })).unwrap_err();
     assert_eq!(name(&refused), "Refused", "{refused}");
+
+    // A root the page names is reached only when the window opened it: its
+    // own folder by its path, never a folder it did not open.
+    assert_eq!(
+        invoke(
+            &main,
+            "recover",
+            json!({ "root": elsewhere, "under": "recordings" })
+        )
+        .unwrap(),
+        json!([])
+    );
+    let unopened = fixture.root.parent().unwrap().join("unopened");
+    std::fs::create_dir_all(&unopened).unwrap();
+    let unopened = unopened.to_str().unwrap();
+    for (command, args) in [
+        (
+            "start",
+            json!({ "root": unopened, "path": "recordings/a", "device": null, "signals": "__CHANNEL__:1" }),
+        ),
+        (
+            "recover",
+            json!({ "root": unopened, "under": "recordings" }),
+        ),
+    ] {
+        let refused = invoke(&main, command, args).unwrap_err();
+        assert_eq!(name(&refused), "Refused", "{command}: {refused}");
+        assert!(
+            refused["message"].as_str().unwrap().contains("NotGranted"),
+            "{command}: {refused}"
+        );
+    }
+    assert!(!std::path::Path::new(unopened).join("recordings").exists());
 
     // Folder shutdown also refuses recorder calls from a previously bound page.
     assert_eq!(

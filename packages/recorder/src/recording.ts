@@ -40,11 +40,22 @@ export type RecordingStart = {
 	readonly signal?: AbortSignal;
 };
 
-/** A desktop start: where in the shell's folder the recording is written. */
-export type StartRecordingOptions = RecordingStart & {
-	/** Folder-relative, without an extension, such as `recordings/2026-10-15-0930`. */
-	readonly path: string;
+/**
+ * Which folder a desktop recording is in: the window's own when absent, or
+ * a root the page opened with the folder plugin, by the exact path the
+ * shell answered (a standalone app's data folder). The shell refuses any
+ * root the page did not open.
+ */
+export type RecordingRoot = {
+	readonly root?: string;
 };
+
+/** A desktop start: where in the shell's folder the recording is written. */
+export type StartRecordingOptions = RecordingStart &
+	RecordingRoot & {
+		/** Folder-relative, without an extension, such as `recordings/2026-10-15-0930`. */
+		readonly path: string;
+	};
 
 /** Why the host ended a capture nobody asked to end. What was captured is still the recording's. */
 export type RecordingEndedReason =
@@ -87,7 +98,7 @@ export type Recording = RecordingHandle<StoppedRecording> & {
 	readonly path: string;
 };
 
-export type RecoverRecordingsOptions = {
+export type RecoverRecordingsOptions = RecordingRoot & {
 	/** The folder-relative directory recordings are kept in, such as `recordings`. */
 	readonly under: string;
 };

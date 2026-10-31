@@ -1,5 +1,5 @@
 //! The desktop shell's microphone recorder, which writes each recording into
-//! the folder bound to the recording window from the moment it starts
+//! a folder the recording window opened from the moment it starts
 //! (ADR-0543).
 //!
 //! A shell installs it beside `tauri-plugin-epicenter-folder`:
@@ -16,8 +16,9 @@
 //! its own. `open_meter` and `start` ask macOS for microphone access first
 //! (`permission.rs`), for every caller.
 //!
-//! To record, a page names a folder-relative path in the folder the shell
-//! bound to its window, and no folder. `start` creates `<path>.wav` there and appends mono
+//! To record, a page names a folder-relative path, in its window's own folder
+//! or in a root its page opened (`root`, by the exact path the folder plugin
+//! answered); any other root is refused. `start` creates `<path>.wav` there and appends mono
 //! PCM16 to it as the microphone captures; `stop` finalizes its header. Nothing
 //! deletes a recording once capture has begun. When the page that started a
 //! recording reloads, or its window is destroyed, the recording is finalized

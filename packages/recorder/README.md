@@ -37,13 +37,16 @@ encoder, audio graph and clock; `createBrowserRecorder(environment)` records
 over another, such as a generated tone in place of the microphone.
 
 On the desktop the shell records into the folder it bound to the recording
-window ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
+window, or into a `root` the page opened through the folder plugin (a
+standalone app's data folder, by the path the shell answered;
+`rootOf(device)` from `@epicenter/folder/tauri`)
+([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
 
 ```ts
 import { recoverRecordings, startRecording } from '@epicenter/recorder/tauri';
 
-await recoverRecordings({ under: 'recordings' });
-const { data: recording } = await startRecording({ path: 'recordings/2026-10-15-0930' });
+await recoverRecordings({ root, under: 'recordings' });
+const { data: recording } = await startRecording({ root, path: 'recordings/2026-10-15-0930' });
 const { data: stopped } = await recording.stop(); // { path, durationMs }
 ```
 

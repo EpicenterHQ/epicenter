@@ -23,13 +23,14 @@ use crate::meter::OpenedMeter;
 use crate::recorder::{Input, Result, StartedRecording, StoppedRecording};
 use crate::{refresh_capturing, Recorders};
 
-/// The root of the directory the shell bound to this window, read once for
-/// this operation: a window closed and replaced under the same label
-/// meanwhile does not redirect it.
-fn bound_root<R: Runtime>(webview: &Webview<R>) -> Result<std::path::PathBuf> {
+/// The directory `root` names, read once for this operation: the window's
+/// own folder for `None`, or a root its page opened (`open_folder`), by the
+/// exact path the shell answered. Any other root is refused, and a window
+/// closed and replaced under the same label meanwhile does not redirect it.
+fn bound_root<R: Runtime>(webview: &Webview<R>, root: Option<&str>) -> Result<std::path::PathBuf> {
     webview
         .folders()
-        .bound(webview.label())
+        .bound_root(webview.label(), root)
         .map(|directory| directory.root().to_path_buf())
         .map_err(|refusal| RecorderError::refused(format!("{refusal:?}")))
 }
@@ -107,9 +108,10 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
     result
 }
 
-/// Start recording into `<path>.wav` in the folder bound to this window, from
-/// the microphone whose id is `device` or the system default. Levels, and an
-/// ending nobody asked for, arrive on `signals`.
+/// Start recording into `<path>.wav` in `root` (the window's own folder for
+/// `None`, or a root its page opened), from the microphone whose id is
+/// `device` or the system default. Levels, and an ending nobody asked for,
+/// arrive on `signals`.
 ///
 /// The path must be a data path the shared path rule accepts, with nothing at
 /// it yet; missing directories on the way are made. Microphone access is
@@ -118,6 +120,7 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
 #[specta::specta]
 pub async fn start<R: Runtime>(
     webview: Webview<R>,
+    root: Option<String>,
     path: String,
     device: Option<String>,
     signals: Channel<RecordingSignal>,
@@ -129,7 +132,7 @@ pub async fn start<R: Runtime>(
     // time it would record, and nobody could stop what it started.
     let page = recorders.lock().page(&owner);
 
-    let root = bound_root(&webview)?;
+    let root = bound_root(&webview, root.as_deref())?;
     // The path the page named is checked too, so an empty one is not `.wav`.
     if let Some(problem) = path_problem(&path) {
         return Err(RecorderError::refused(format!("{path:?}: {problem}")));
@@ -186,14 +189,18 @@ pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<Stopped
     result
 }
 
-/// Rewrite the header of every WAV under `under` in the folder bound to this
-/// window whose sizes disagree with its length, and return their
-/// folder-relative paths. The recording still being written is left alone.
-/// Running it again changes nothing.
+/// Rewrite the header of every WAV under `under` in `root` (the window's own
+/// folder for `None`, or a root its page opened) whose sizes disagree with
+/// its length, and return their folder-relative paths. The recording still
+/// being written is left alone. Running it again changes nothing.
 #[tauri::command]
 #[specta::specta]
-pub async fn recover<R: Runtime>(webview: Webview<R>, under: String) -> Result<Vec<String>> {
-    let root = bound_root(&webview)?;
+pub async fn recover<R: Runtime>(
+    webview: Webview<R>,
+    root: Option<String>,
+    under: String,
+) -> Result<Vec<String>> {
+    let root = bound_root(&webview, root.as_deref())?;
     let held = webview.state::<Recorders<R>>().lock().held_path();
     tauri::async_runtime::spawn_blocking(move || {
         crate::wav::recover(&root, &under, held.as_deref()).map_err(RecorderError::refused)

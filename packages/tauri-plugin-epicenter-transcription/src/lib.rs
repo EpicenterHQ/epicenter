@@ -1,7 +1,8 @@
 //! Native local transcription for a standalone desktop app.
 //!
 //! Install after `tauri_plugin_epicenter_folder::init()`: `transcribe_file`
-//! reads audio from the folder that plugin bound to the calling window.
+//! reads audio from a folder that plugin opened for the calling window (its
+//! own folder, or a root its page opened).
 //! Model settings belong to the installing app and live at its own
 //! `app_local_data_dir()/local-transcription.json`; model files stay in the
 //! shared Hugging Face cache.

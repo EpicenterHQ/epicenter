@@ -81,16 +81,30 @@ export async function openDevice<TContract extends Contract>(
 	if (opened.error !== null)
 		return deviceRefusal(opened.error.cause, root ?? "this window's folder");
 	const { root: openedRoot, watch } = opened.data;
-	return Ok(
-		createDeviceClient(
-			contract,
-			tauriStore({
-				root: openedRoot,
-				inside: root === undefined ? path : undefined,
-				watch,
-			}),
-		),
+	const device = createDeviceClient(
+		contract,
+		tauriStore({
+			root: openedRoot,
+			inside: root === undefined ? path : undefined,
+			watch,
+		}),
 	);
+	if (root !== undefined) roots.set(device, openedRoot);
+	return Ok(device);
+}
+
+/** The root each client opened by an absolute path, as the shell answered it. */
+const roots = new WeakMap<object, string>();
+
+/**
+ * The root `device` was opened at by an absolute path, exactly as the shell
+ * answered it (its canonical path): what the window's other native commands
+ * take to reach the same folder, such as the recorder's `root`. Undefined
+ * for a client of the window's own folder, which those commands reach by
+ * naming no root.
+ */
+export function rootOf(device: Client<Contract>): string | undefined {
+	return roots.get(device);
 }
 
 /** An absolute path on macOS, Linux, or Windows (a drive or a UNC path). */

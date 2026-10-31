@@ -218,14 +218,18 @@ pub fn list_inference_models<R: Runtime>(
         .collect()
 }
 
-/// The audio file at the data path `path` in the folder bound to the calling
-/// window, checked on arrival: the window's binding is read once, the path
-/// must pass the folder's path rule with no link on the way, and a regular
-/// file must be there.
-fn audio_file<R: Runtime>(webview: &Webview<R>, path: &str) -> Result<PathBuf, TranscriptionError> {
+/// The audio file at the data path `path` in `root`, checked on arrival:
+/// `root` must be the calling window's own folder (`None`) or a root its page
+/// opened (`open_folder`), read once; the path must pass the folder's path
+/// rule with no link on the way, and a regular file must be there.
+fn audio_file<R: Runtime>(
+    webview: &Webview<R>,
+    root: Option<&str>,
+    path: &str,
+) -> Result<PathBuf, TranscriptionError> {
     let directory = webview
         .folders()
-        .bound(webview.label())
+        .bound_root(webview.label(), root)
         .map_err(|refusal| TranscriptionError::FolderUnavailable {
             message: refusal.to_string(),
         })?;
@@ -251,25 +255,28 @@ fn audio_file<R: Runtime>(webview: &Webview<R>, path: &str) -> Result<PathBuf, T
 }
 
 /// Transcribe the audio file at the folder-relative data path `path` (such as
-/// `recordings/20261031T101500123.wav`) in the folder bound to the calling
-/// window, with the exact catalog model `model_id`.
+/// `recordings/20261031T101500123.wav`) in `root`, with the exact catalog
+/// model `model_id`. `root` is a folder the calling window's page opened, by
+/// the exact path the shell answered it with, or `None` for the window's own
+/// folder; any other root is refused, whatever it holds.
 ///
-/// The page names no root: a window without a bound folder, a path the folder
-/// rule refuses, and a missing file are refused before any model is
-/// resolved. An unknown or uninstalled model is refused before the file is
-/// read or decoded. The active-model setting is neither read nor changed. The
-/// blocking job owns its input until inference finishes, including after the
-/// caller abandons the call.
+/// A root the window did not open, a path the folder rule refuses, and a
+/// missing file are refused before any model is resolved. An unknown or
+/// uninstalled model is refused before the file is read or decoded. The
+/// active-model setting is neither read nor changed. The blocking job owns its
+/// input until inference finishes, including after the caller abandons the
+/// call.
 #[tauri::command]
 #[specta::specta]
 pub async fn transcribe_file<R: Runtime>(
     model_id: String,
+    root: Option<String>,
     path: String,
     hints: TranscriptionHints,
     webview: Webview<R>,
     state: State<'_, PluginState<R>>,
 ) -> Result<TranscriptionOutcome, TranscriptionError> {
-    let audio = audio_file(&webview, &path)?;
+    let audio = audio_file(&webview, root.as_deref(), &path)?;
     let cache = state.cache();
     tauri::async_runtime::spawn_blocking(move || cache.transcribe_explicit(model_id, &audio, hints))
         .await

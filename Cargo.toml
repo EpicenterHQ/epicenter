@@ -9,10 +9,13 @@ resolver = "2"
 members = [
     "apps/capture/src-tauri",
     "apps/honeycrisp/src-tauri",
+    "packages/epicenter-transcription-build",
     "packages/tauri-epicenter-account",
     "packages/tauri-epicenter-standalone",
     "packages/tauri-plugin-epicenter-folder",
     "packages/tauri-plugin-epicenter-folder/core",
+    "packages/tauri-plugin-epicenter-recorder",
+    "packages/tauri-plugin-epicenter-transcription",
 ]
 # Shells with their own lockfile and profile, not yet moved here, and
 # independent tools.

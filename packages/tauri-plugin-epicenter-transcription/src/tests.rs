@@ -99,7 +99,19 @@ fn transcribe(
     invoke(
         window,
         "transcribe_file",
-        json!({ "modelId": model_id, "path": path, "hints": {} }),
+        json!({ "modelId": model_id, "root": null, "path": path, "hints": {} }),
+    )
+}
+
+fn transcribe_in(
+    window: &WebviewWindow<MockRuntime>,
+    root: &str,
+    path: &str,
+) -> Result<Value, Value> {
+    invoke(
+        window,
+        "transcribe_file",
+        json!({ "modelId": "unknown-model", "root": root, "path": path, "hints": {} }),
     )
 }
 
@@ -172,6 +184,27 @@ fn transcribe_file_reaches_only_the_folder_bound_to_the_calling_window() {
     let main = window(&fixture.app, "main");
     fixture.app.folders().shutdown();
     let refused = transcribe(&main, "unknown-model", "recordings/a.wav").unwrap_err();
+    assert_eq!(name(&refused), "FolderUnavailable", "{refused}");
+}
+
+#[test]
+fn transcribe_file_reaches_a_named_root_only_when_the_window_opened_it() {
+    let fixture = fixture();
+    let main = window(&fixture.app, "main");
+    std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
+    std::fs::write(fixture.root.join("recordings/a.wav"), b"not audio").unwrap();
+
+    // The window's own folder, named by its path, is reached: the unknown
+    // model is what refuses.
+    let refused =
+        transcribe_in(&main, fixture.root.to_str().unwrap(), "recordings/a.wav").unwrap_err();
+    assert_eq!(name(&refused), "LocalRouteUnavailable", "{refused}");
+
+    // A folder the page never opened is refused before its file is looked at.
+    let other = fixture.root.parent().unwrap().join("other");
+    std::fs::create_dir_all(other.join("recordings")).unwrap();
+    std::fs::write(other.join("recordings/a.wav"), b"not audio").unwrap();
+    let refused = transcribe_in(&main, other.to_str().unwrap(), "recordings/a.wav").unwrap_err();
     assert_eq!(name(&refused), "FolderUnavailable", "{refused}");
 }
 
