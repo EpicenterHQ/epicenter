@@ -96,14 +96,11 @@ several apps can use the same files through their own schemas.
 | View | A presentation of data. Selecting another schema changes interpretation, not saved files or edit ownership. |
 | Query projection | Derived query data, such as an in-memory SQLite table built from files and selected schemas. It is not another durable data owner. |
 
-Apps supply their own read schemas and need no schema file. CLI `query`
-requires `<folder>/epicenter.json`, which supplies its table interpretation;
-`check` and `format` take an app's contract instead. A person explicitly imports an app's exported
-schemas or authors them in the file. Apps never publish it by
-opening or saving. A committed copy restores the CLI interpretation on clone.
+Apps supply their own read schemas and need no schema file. `epicenter check`
+and `epicenter format` take an app's contract; no CLI command reads a folder's
+`epicenter.json`.
 
-Missing metadata blocks schema-aware table commands, not Git history, app
-opening, or ordinary file access. Row schemas grant no access and choose no merge policy. They
+Row schemas grant no access and choose no merge policy. They
 execute no code and fetch no external references. Git operations interpret no
 declaration sections. Tracked files remain tracked; untracked files enter
 commits unless Git ignores them. The folder's `.gitignore` files travel as
@@ -117,8 +114,8 @@ desktop editor that showed grids, boards, saved views, and SQL over a folder
 as ordinary text.
 
 A schema-distribution service remains unbuilt. Every app is on a contract;
-migration of older stored browser data is separate. The CLI retains its
-required-schema `query`; `epicenter generate` is deleted.
+migration of older stored browser data is separate. `epicenter generate` is
+deleted too.
 
 Use schema for row expectations and declaration for the whole portable
 `epicenter.json` document. Retire lens, description, and shape as competing
