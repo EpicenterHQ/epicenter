@@ -1,6 +1,8 @@
 /**
- * Sign-in with Epicenter for the demo: a browser OAuth client whose token is
- * for the server's Git audience, which is where the repository lives.
+ * Sign-in with Epicenter for the demo's online variant: a browser OAuth
+ * client whose token is for the server's Git audience, which is where the
+ * repository lives. Only `/online` and `/auth/callback` load this module;
+ * the local variant needs no account, so it never makes the client.
  *
  * The server is `VITE_EPICENTER_SERVER` when the build sets it, otherwise
  * the local Bun API (`apps/api`, port 8788): the hosted API does not serve

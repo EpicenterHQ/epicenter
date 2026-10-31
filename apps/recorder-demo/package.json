@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/recorder-demo",
-	"description": "A small recorder over the file contract: recordings land in the browser first and upload to the signed-in person's repository",
+	"description": "A small recorder over the file contract, in two variants: one keeps recordings in this browser, the other records straight into the signed-in person's repository",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",

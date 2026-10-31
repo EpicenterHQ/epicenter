@@ -30,7 +30,6 @@ test("a client's notes and audio make one row per recording, newest first", () =
 				version: v('b-note'),
 			},
 			ext: 'm4a',
-			audioVersion: v('b-audio'),
 		},
 		{
 			id: 'a',
@@ -41,7 +40,6 @@ test("a client's notes and audio make one row per recording, newest first", () =
 				version: v('a-note'),
 			},
 			ext: 'webm',
-			audioVersion: v('a-audio'),
 		},
 	]);
 });

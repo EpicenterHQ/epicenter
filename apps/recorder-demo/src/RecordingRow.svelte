@@ -1,27 +1,21 @@
 <!--
-	One recording in a view, read and edited through that view's client:
+	One recording, read and edited through its list's client:
 	its title to rename, its audio to play, and Delete.
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
-	import { cacheOf } from '@epicenter/folder/browser';
 	import { fromClient } from '@epicenter/svelte/client';
 	import { onDestroy } from 'svelte';
-	import { Ok } from 'wellcrafted/result';
 	import type { Recorder } from './contract.ts';
-	import { device } from './lib/device.ts';
 	import type { RecordingRow } from './lib/recordings.ts';
 
 	const {
 		row,
 		client,
-		cached,
 	}: {
 		row: RecordingRow;
-		/** The view's client, which this row reads and writes; fixed for the row's life. */
+		/** The list's client, which this row reads and writes; fixed for the row's life. */
 		client: Client<Recorder>;
-		/** Whether this device's cache may hold the audio, at the version `row` shows. */
-		cached: boolean;
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
@@ -41,22 +35,10 @@
 		if (audioUrl) URL.revokeObjectURL(audioUrl);
 	});
 
-	/** The audio's bytes: from this device's cache when it holds this version, else from the client. */
-	async function audioBytes(ext: string) {
-		if (cached && row.audioVersion !== null) {
-			const hit = await cacheOf(device).read(
-				{ collection: 'audio', id: row.id, ext },
-				{ version: row.audioVersion },
-			);
-			if (hit.data) return Ok(hit.data);
-		}
-		return client.audio.get({ id: row.id, ext });
-	}
-
 	async function play() {
 		if (row.ext === null) return;
 		status = 'Loading…';
-		const audio = await audioBytes(row.ext);
+		const audio = await client.audio.get({ id: row.id, ext: row.ext });
 		if (audio.error !== null) {
 			status = audio.error.message;
 			return;

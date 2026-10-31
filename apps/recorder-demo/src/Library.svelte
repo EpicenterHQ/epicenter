@@ -1,6 +1,7 @@
 <!--
-	One view's recordings: the notes and audio of one client, this device's
-	or the repository's, each row read and edited through that client alone.
+	One client's recordings, this browser's files or the repository: its
+	notes and audio joined by id, each row read and edited through that
+	client alone.
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
@@ -11,12 +12,9 @@
 
 	const {
 		client,
-		cached = false,
 	}: {
-		/** The client this view reads and writes; fixed for the view's life. */
+		/** The client this list reads and writes; fixed for the list's life. */
 		client: Client<Recorder>;
-		/** Whether this device's cache may hold the audio: the repository's view, whose audio this device may have uploaded. */
-		cached?: boolean;
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
@@ -38,7 +36,7 @@
 {:else}
 	<ul aria-label="Recordings">
 		{#each rows as row (row.id)}
-			<RecordingRow {row} {client} {cached} />
+			<RecordingRow {row} {client} />
 		{/each}
 	</ul>
 {/if}

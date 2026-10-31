@@ -44,9 +44,10 @@ await runAppStack({
 	}),
 	ready: '/contract.json',
 	demo: ({ stack, person, signIn, script }) => `
-Recorder demo     ${stack.app}
+On this browser   ${stack.app}/
+Online            ${stack.app}/online
 API               ${stack.origin}
-Sign in           open ${signIn} (sets the demo person's session), then press Sign in
+Sign in           open ${signIn} (sets the demo person's session), then on Online press Sign in
 Desktop sandbox   source '${script}'
                   epicenter clone ${person.namespace}/recorder-demo
                   epicenter check ${stack.app}/contract.json recorder-demo
