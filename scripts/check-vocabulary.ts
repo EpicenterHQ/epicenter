@@ -1,8 +1,9 @@
 /**
  * Fail when a retired word reappears. Each rule names the ADR that retired its
- * word, and a failure cites it. The first two rules guard the store's
- * vocabulary (ADR-0309); a rename under ADR-0584 adds its retired identifier
- * here once the code stops using it.
+ * word, and a failure cites it. The two rules guard the store's vocabulary
+ * (ADR-0309). A rename adds its retired identifier here once the code stops
+ * using it, and the rule goes when the identifier's replacement does: a
+ * suggestion must name something a reader can find.
  *
  * A field holds a **value**, replaced whole, or a **node**, edited in place.
  * `scalar` and `prose` were the old names and both were wrong: `tags` is an
@@ -116,35 +117,6 @@ const RULES: readonly Rule[] = [
 			'README.md',
 		],
 	},
-	// ADR-0584 P1: one noun for what `epicenter.json` holds.
-	...(
-		[
-			['DataSchema', 'Definition'],
-			['FolderDefinition', 'Definition'],
-			['PreparedFolderDefinition', 'PreparedDefinition'],
-			['prepareSchema', 'prepareDefinition'],
-			['DataDefinitionParseError', 'DefinitionError'],
-			['formatDeclaration', 'formatDefinition'],
-			['parseDeclaration', 'parseDefinition'],
-			['readDeclaration', 'readDefinition'],
-			['DECLARATION_PATH', 'DEFINITION_PATH'],
-			['DECLARATION_SOURCE_PATH', 'DEFINITION_SOURCE_PATH'],
-			['hasDeclarationSource', 'hasDefinitionSource'],
-			['generateDeclaration', 'generateDefinition'],
-			['GenerateDeclarationError', 'GenerateDefinitionError'],
-			['InvalidDeclaration', "InvalidDefinition with path 'epicenter.json'"],
-			['ShapeMismatch', 'DefinitionMismatch'],
-			['ShapeProblem', 'Mismatch'],
-			['shapeProblems', 'mismatches'],
-			['schemaContainment', 'containment'],
-			['requiredOutsideShape', 'requiredOutside'],
-		] as const
-	).map(([word, instead]) => ({
-		word,
-		instead,
-		adr: 'ADR-0584',
-		excludes: [],
-	})),
 ];
 
 const IGNORE_FILE = /vocab-check:\s*ignore-file\b/;

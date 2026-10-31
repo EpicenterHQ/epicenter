@@ -82,19 +82,18 @@ test('a retired word fails, with its file, line, replacement, and the ADR that r
 	});
 });
 
-test('a retired identifier fails as a whole word, citing ADR-0584', () => {
+test('a retired word fails only as a whole word', () => {
 	withRepo((dir) => {
 		write(
 			dir,
-			'packages/folder/src/open.ts',
-			'// a FolderDefinition\n// prepareFolderDefinition is another word\n',
+			'packages/app/src/data/row.ts',
+			'// a scalar\n// scalarize is another word\n',
 		);
 		commitAll(dir);
 		const { code, out } = run(dir);
 		expect(code).toBe(1);
-		expect(out).toContain('packages/folder/src/open.ts:1');
-		expect(out).not.toContain('packages/folder/src/open.ts:2');
-		expect(out).toContain('use Definition (ADR-0584)');
+		expect(out).toContain('packages/app/src/data/row.ts:1');
+		expect(out).not.toContain('packages/app/src/data/row.ts:2');
 	});
 });
 
