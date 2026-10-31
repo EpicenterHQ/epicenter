@@ -6,7 +6,8 @@
 	"description": "Framework-agnostic auth core for Epicenter.",
 	"exports": {
 		".": "./src/index.ts",
-		"./svelte": "./src/svelte/auth.svelte.ts"
+		"./svelte": "./src/svelte/auth.svelte.ts",
+		"./tauri": "./src/tauri.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
@@ -15,6 +16,7 @@
 	"dependencies": {
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/principal": "workspace:*",
+		"@tauri-apps/api": "catalog:",
 		"arktype": "catalog:",
 		"wellcrafted": "catalog:"
 	},

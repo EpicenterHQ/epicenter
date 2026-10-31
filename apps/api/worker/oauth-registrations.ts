@@ -72,6 +72,47 @@ function browserClient(
 }
 
 /**
+ * The standalone desktop apps that sign in, each as its own native client,
+ * `so.epicenter.<app>.native` (decision 84), the same id its `src-tauri`
+ * names in `epicenter-account`'s `AccountApp`. A native client covers the
+ * desktop app and a mobile one to come; each redirect kind the app uses is
+ * one entry of `redirectUris`.
+ */
+const NATIVE_APPS = [
+	{ clientId: 'so.epicenter.whispering.native', name: 'Whispering' },
+	{ clientId: 'so.epicenter.vocab.native', name: 'Vocab' },
+] as const;
+
+/**
+ * A desktop app's client (`epicenter-account`): the system browser returns to
+ * a loopback listener on any port (RFC 8252; the registered port is ignored),
+ * with PKCE. It signs in only for hosted models: its data are files in a
+ * folder Epicenter syncs, so it asks for the API audience alone and no Git
+ * scope. Its refresh token stays in that computer's keychain.
+ */
+function nativeClient(
+	{
+		clientId,
+		name,
+	}: {
+		clientId: string;
+		name: string;
+	},
+	apiAudience: string,
+): FirstPartyClient {
+	return {
+		clientId,
+		name,
+		redirectUris: ['http://127.0.0.1/callback'],
+		grantTypes: ['authorization_code', 'refresh_token'],
+		scopes: ['openid', 'offline_access', 'profile', 'email', 'ai'],
+		resources: [apiAudience],
+		skipConsent: true,
+		applicationType: 'native',
+	};
+}
+
+/**
  * Every first-party client this deployment registers. The dashboard is not
  * one: it is the authorization server's own page and uses its session cookie.
  */
@@ -100,6 +141,7 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 					),
 				)
 			: []),
+		...NATIVE_APPS.map((app) => nativeClient(app, audiences.api)),
 		// The desktop app signs in through a loopback redirect on any port
 		// (RFC 8252), and holds the only refresh token a first-party app keeps.
 		{

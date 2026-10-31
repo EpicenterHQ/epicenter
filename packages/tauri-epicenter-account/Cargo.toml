@@ -1,0 +1,27 @@
+[package]
+name = "epicenter-account"
+version = "0.0.1"
+description = "Sign-in with Epicenter and the OS keychain for Epicenter's standalone desktop apps"
+authors = ["Epicenter"]
+repository = "https://github.com/EpicenterHQ/epicenter"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[dependencies]
+tauri = "2.12"
+# Opens the sign-in page in the system browser, from Rust only (no plugin).
+tauri-plugin-opener = "2.5"
+# The OS keychain: macOS Keychain, Windows Credential Manager, Secret Service.
+keyring = "4"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.3"
+tokio = { version = "1", features = ["rt", "sync", "net", "io-util", "time", "macros"] }
+
+[dev-dependencies]
+tempfile = "3.8"

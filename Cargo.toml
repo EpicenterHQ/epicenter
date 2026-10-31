@@ -9,6 +9,7 @@ resolver = "2"
 members = [
     "apps/capture/src-tauri",
     "apps/honeycrisp/src-tauri",
+    "packages/tauri-epicenter-account",
     "packages/tauri-epicenter-standalone",
     "packages/tauri-plugin-epicenter-folder",
     "packages/tauri-plugin-epicenter-folder/core",

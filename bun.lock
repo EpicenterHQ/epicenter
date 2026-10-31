@@ -473,6 +473,7 @@
       "dependencies": {
         "@epicenter/constants": "workspace:*",
         "@epicenter/principal": "workspace:*",
+        "@tauri-apps/api": "catalog:",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",
       },
