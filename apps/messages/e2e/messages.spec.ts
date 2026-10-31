@@ -1,15 +1,20 @@
 /**
  * Messages end to end, per engine, in one persistent browser profile, served
- * by its local program with a fake Beeper behind it (see `serve.ts`):
+ * by its local program with a fake Beeper behind it (see `serve.ts`).
+ * Messages is local only (ADR-0700): its drafts are kept in this browser's
+ * files (OPFS), with no account.
  *
- * 1. A draft is a note on this device: the first keystroke makes it, edits
- *    follow, a reload keeps it, and emptying it leaves the list's preview.
- * 2. A demo send records its attempt before Beeper is asked; one with no
+ * 1. A draft is a note in this browser: the first keystroke creates it,
+ *    edits follow, a reload keeps it, and emptying it clears it (its note
+ *    stays, with an empty body) and the list's preview.
+ * 2. Offline, demo mode still creates and edits a draft, and it is there
+ *    after a reload.
+ * 3. A demo send records its attempt before Beeper is asked; one with no
  *    confirmation shows Check send, and checking it keeps the text as a draft.
- * 3. A draft another program broke shows its text, with what is wrong as
+ * 4. A draft another program broke shows its text, with what is wrong as
  *    typed, and saving fixed text repairs it.
- * 4. The device's files fit the published contract (`epicenter check`).
- * 5. Live Beeper goes through the local program: connect, read, send.
+ * 5. This browser's files fit the published contract (`epicenter check`).
+ * 6. Live Beeper goes through the local program: connect, read, send.
  */
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -18,6 +23,7 @@ import { dirname, join, resolve } from 'node:path';
 import { type BrowserContext, expect, type Page, test } from 'playwright/test';
 import {
 	emptyOpfs,
+	goOffline,
 	opfsFiles,
 	opfsText,
 	run,
@@ -53,8 +59,9 @@ const draftId = (mode: string, profile: string, chatId: string) =>
 		.update(JSON.stringify([mode, profile, chatId]))
 		.digest('hex')}`;
 const maya = draftId('demo', 'fictional-v1', 'demo-maya');
-const draftNote = (body: string) =>
-	`---\nchatId: demo-maya\nprofile: fictional-v1\nmode: demo\n---\n${body}`;
+const noah = draftId('demo', 'fictional-v1', 'demo-noah');
+const draftNote = (body: string, chatId = 'demo-maya') =>
+	`---\nchatId: ${chatId}\nprofile: fictional-v1\nmode: demo\n---\n${body}`;
 
 const conversation = (title: string) =>
 	page
@@ -62,7 +69,7 @@ const conversation = (title: string) =>
 		.getByRole('button', { name: title });
 const composer = () => page.getByLabel('Message', { exact: true });
 
-test('1. a draft is a note on this device, made by the first keystroke', async () => {
+test('1. a draft is a note in this browser: created by the first keystroke, edited, kept across a reload, and cleared when emptied', async () => {
 	// WebKit keeps OPFS outside the profile directory: start from an empty origin.
 	await page.goto(`${app}/`);
 	await emptyOpfs(page);
@@ -94,6 +101,7 @@ test('1. a draft is a note on this device, made by the first keystroke', async (
 	await conversation('Maya Chen').click();
 	await expect(composer()).toHaveValue('See you Saturday at ten');
 
+	// Emptying the composer clears the draft: its note stays, with no body.
 	await composer().fill('');
 	await expect
 		.poll(() => opfsText(page, `drafts/${maya}.md`))
@@ -101,7 +109,34 @@ test('1. a draft is a note on this device, made by the first keystroke', async (
 	await expect(conversation('Maya Chen')).not.toContainText('Draft:');
 });
 
-test('2. a demo send records its attempt first, and an unconfirmed one waits for a check', async () => {
+test('2. offline, demo mode still creates and edits a draft', async () => {
+	const online = await goOffline(context);
+	try {
+		await conversation('Noah Patel').click();
+		await expect(composer()).toHaveValue('');
+		await composer().fill('Route looks good');
+		await expect
+			.poll(() => opfsText(page, `drafts/${noah}.md`))
+			.toBe(draftNote('Route looks good', 'demo-noah'));
+		await composer().fill('Route looks good, see you there');
+		await expect
+			.poll(() => opfsText(page, `drafts/${noah}.md`))
+			.toBe(draftNote('Route looks good, see you there', 'demo-noah'));
+		await expect(conversation('Noah Patel')).toContainText(
+			'Draft: Route looks good, see you there',
+		);
+	} finally {
+		await online();
+	}
+	await page.reload();
+	await expect(conversation('Noah Patel')).toContainText(
+		'Draft: Route looks good, see you there',
+	);
+	await conversation('Maya Chen').click();
+	await expect(composer()).toHaveValue('');
+});
+
+test('3. a demo send records its attempt first, and an unconfirmed one waits for a check', async () => {
 	await composer().fill('Ten works');
 	await page.getByRole('button', { name: 'Send demo reply' }).click();
 	await expect(
@@ -142,7 +177,7 @@ test('2. a demo send records its attempt first, and an unconfirmed one waits for
 	await expect(conversation('Maya Chen')).toContainText('Draft: Maybe eleven?');
 });
 
-test('3. a draft another program broke shows its text, and is repaired', async () => {
+test('4. a draft another program broke shows its text, and is repaired', async () => {
 	const broken = '---\nchatId: [demo-maya\n---\nMaybe eleven?';
 	await page.evaluate(
 		async ([name, text]) => {
@@ -186,7 +221,7 @@ test('3. a draft another program broke shows its text, and is repaired', async (
 	);
 });
 
-test('4. the files on this device fit the published contract', async () => {
+test('5. the files in this browser fit the published contract', async () => {
 	const folder = await mkdtemp(join(tmpdir(), 'messages-device-'));
 	try {
 		const paths = Object.keys(await opfsFiles(page));
@@ -211,7 +246,7 @@ test('4. the files on this device fit the published contract', async () => {
 	}
 });
 
-test('5. live Beeper goes through the local program', async () => {
+test('6. live Beeper goes through the local program', async () => {
 	await page.getByRole('button', { name: 'Connect Beeper' }).click();
 	await page.getByLabel('Beeper access token').fill('test-token');
 	await page.getByRole('button', { name: 'Connect to live Beeper' }).click();

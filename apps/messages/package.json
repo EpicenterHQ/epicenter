@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/messages-app",
-	"description": "Beeper conversations with drafts kept as Markdown notes on this device, served on this computer",
+	"description": "Beeper conversations with drafts kept as Markdown notes in this browser, served on this computer",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",

@@ -28,7 +28,10 @@ bun test packages/cli/src/messages.test.ts
 
 The end-to-end suite builds Messages and serves it with its own local
 program on port 5189 (which must be free), with a fake Beeper in place of the
-CLI's connection, in Chromium and WebKit. No check reads the keychain, needs
+CLI's connection, in Chromium and WebKit. It covers drafts in this browser
+(created, edited, cleared, kept across a reload, and made and edited offline
+in demo mode), demo sends and their check, repair, `epicenter check` of the
+browser's files, and live Beeper through the local program. No check reads the keychain, needs
 a real Beeper account, or reaches a real recipient. Demo replies and incoming
 messages stay in memory and reset on reload.
 
@@ -51,22 +54,27 @@ attempts/<id>.md    the latest send from that composer: chatId, profile, mode,
 
 `<id>` is `<mode>-<sha256 of mode, profile and chat>`, so demo and live
 drafts never share a file. The files are this browser's for the origin
-Messages is served on (OPFS, `openDevice` from `@epicenter/folder/browser`).
-Messages never signs in, and nothing uploads: a draft and its send attempt
-belong to the Beeper installation on this computer, and the send protocol
-below needs its writes to land at once, offline or not. So where other apps
-have two views (decision 76), "On this device" and "Synced", Messages has
-only the first, and its interface does not name it.
+Messages is served on (OPFS, `openDevice` from `@epicenter/folder/browser`),
+for good.
+
+Messages is local only: of the variants an app may have
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)),
+it keeps just the local one, with no online variant, because Beeper Desktop
+only listens on this computer. A draft and its send attempt belong to that
+Beeper installation, and the send protocol below needs its writes to land
+at once, offline or not. Messages never signs in, and nothing uploads.
 
 | Data | Where |
 | --- | --- |
 | Conversations, messages, accounts, delivery | Beeper; read into an in-memory query cache, never kept here |
-| The current reply, the latest send | `drafts/`, `attempts/` on this device |
+| The current reply, the latest send | `drafts/`, `attempts/` in this browser |
 | Beeper access token | The device keychain, through the Epicenter CLI (`openBeeper` in `@epicenter/cli/messages`) |
 | Selection, filter, loaded pages, connection mode | Memory; every launch begins in demo mode |
 
 Selecting a conversation creates no file; the first keystroke creates its
-draft (`fieldEdit` with `create`), and each keystroke after updates it. The
+draft (`fieldEdit` with `create`), and each keystroke after updates it.
+Emptying the composer clears the draft (its note stays, with an empty
+body); no action deletes a draft's note. The
 composer keeps typed text until its save answers; a failed save keeps it with
 Save again, Discard, and Copy. The conversation list shows a **Draft**
 preview of a non-empty draft, and **Check send** for an unconfirmed attempt,
