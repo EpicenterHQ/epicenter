@@ -13,6 +13,9 @@
  *   it resolves, so an edit's answer and the next listing never disagree.
  * - A listing that a change interrupted is thrown away and read again, so a
  *   stale listing never replaces a newer one.
+ * - A listing that fails keeps what was shown, says why (`error`), and is
+ *   tried again after a while (half a second, doubling to 30 seconds) for as
+ *   long as someone reads, so a passing storage failure does not freeze it.
  * - A note `update` follows `updateNote`: carried over another writer's
  *   change to other fields; a `Conflict` when they changed the same one, and
  *   then the adapter shows theirs, so saving again applies over it.
@@ -162,6 +165,10 @@ type Raw = NoteClient<Collection> | FileClient<Collection>;
 type Entry = { [key: string]: unknown; version: Version };
 type Args = Record<string, unknown>;
 
+/** How long after a failed listing it is tried again, doubling per failure up to the most. */
+const RETRY_FIRST_MS = 500;
+const RETRY_MOST_MS = 30_000;
+
 /** Whether `entry` is the one `args` (placeholders, or a created value) names. */
 const names = (entry: Entry, args: Args) =>
 	Object.entries(args).every(
@@ -177,9 +184,16 @@ function fromCollection(collection: Raw) {
 	let changed = () => {};
 	let listing = false;
 	let again = false;
+	/** Whether someone reads, so a failed listing is worth trying again. */
+	let reading = false;
+	/** Listings that failed in a row, and the try after the last one. */
+	let failures = 0;
+	let retry: ReturnType<typeof setTimeout> | undefined;
 
 	/** List again, as long as changes keep arriving while a listing runs. */
 	async function reload() {
+		clearTimeout(retry);
+		retry = undefined;
 		if (listing) {
 			again = true;
 			return;
@@ -190,13 +204,16 @@ function fromCollection(collection: Raw) {
 				again = false;
 				const listed = await collection.list();
 				if (again) continue;
-				if (listed.error !== null) error = listed.error;
-				else {
+				if (listed.error !== null) {
+					error = listed.error;
+					failures++;
+				} else {
 					items = listed.data.items as Entry[];
 					invalid = (
 						'invalid' in listed.data ? listed.data.invalid : []
 					) as Entry[];
 					error = null;
+					failures = 0;
 				}
 				loading = false;
 				changed();
@@ -204,14 +221,24 @@ function fromCollection(collection: Raw) {
 		} finally {
 			listing = false;
 		}
+		if (failures > 0 && reading)
+			retry = setTimeout(
+				() => void reload(),
+				Math.min(RETRY_FIRST_MS * 2 ** (failures - 1), RETRY_MOST_MS),
+			);
 	}
 
 	const track = createSubscriber((update) => {
 		changed = update;
+		reading = true;
 		const stop = collection.subscribe(() => void reload());
 		void reload();
 		return () => {
 			stop();
+			reading = false;
+			clearTimeout(retry);
+			retry = undefined;
+			failures = 0;
 			changed = () => {};
 		};
 	});

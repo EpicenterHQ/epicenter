@@ -7,6 +7,8 @@
  * - A collection lists and subscribes only while an effect reads it
  * - Changes heard through `subscribe` reach readers; a listing a change
  *   interrupted never replaces a newer one
+ * - A listing that fails is tried again while someone reads, so a passing
+ *   storage failure does not leave the list frozen
  * - A write through the adapter shows at once, without waiting for a listing
  * - `update` carries an edit over another writer's other fields, and after a
  *   clash shows theirs, so saving again applies over it
@@ -24,6 +26,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	type Client,
+	ClientError,
 	defineContract,
 	type NoteClient,
 } from '@epicenter/definition/contract';
@@ -153,6 +156,51 @@ test('a collection lists and subscribes only while an effect reads it, and follo
 	// The subscription is released in a microtask after the last reader goes.
 	await Bun.sleep(0);
 	expect(counts.subscribed).toBe(0);
+});
+
+test('a listing that fails is tried again while someone reads, with no change to prompt it', async () => {
+	const { open } = await folder();
+	const device = open();
+	expectOk(await device.todos.create({ id: 'a', title: 'Milk', done: false }));
+	let failing = 1;
+	let lists = 0;
+	const files = fromClient({
+		...device,
+		todos: {
+			...device.todos,
+			async list() {
+				lists++;
+				if (failing <= 0) return device.todos.list();
+				failing--;
+				return ClientError.Unavailable({ cause: 'storage is busy' });
+			},
+			// No change is ever heard: only a retry can list again.
+			subscribe: () => () => {},
+		},
+	} as Client<Todos>);
+	const read = () => ({
+		titles: files.todos.items.map(({ title }) => title),
+		error: files.todos.error?.name ?? null,
+	});
+
+	const shown = follow(read);
+	await until(() => shown.values.at(-1)?.error === 'Unavailable');
+	expect(shown.values.at(-1)?.titles).toEqual([]);
+	await until(() => shown.values.at(-1)?.titles[0] === 'Milk');
+	expect(shown.values.at(-1)?.error).toBeNull();
+	expect(lists).toBe(2);
+	shown.stop();
+	await Bun.sleep(0);
+
+	// Nobody reads: a failing listing is not tried again.
+	failing = Number.POSITIVE_INFINITY;
+	const again = follow(read);
+	await until(() => again.values.at(-1)?.error === 'Unavailable');
+	again.stop();
+	await Bun.sleep(0);
+	const after = lists;
+	await Bun.sleep(1200);
+	expect(lists).toBe(after);
 });
 
 test('a write through the adapter shows at once, before any listing', async () => {

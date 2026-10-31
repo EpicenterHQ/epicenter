@@ -12,8 +12,9 @@ Folder, refresh on return, and close.
 gives each collection tracked `items`, `invalid` (notes), `loading`, `error`
 and `get(args)`, plus its writes, which pass the version shown. A collection
 lists and subscribes only while an effect reads it, and follows every change
-the client hears. A write puts what landed into what shows before it
-resolves. A note `update` follows `updateNote`: carried over another
+the client hears. A listing that fails keeps what showed, sets `error`, and
+is tried again after half a second, doubling to 30 seconds, while anyone
+reads. A write puts what landed into what shows before it resolves. A note `update` follows `updateNote`: carried over another
 writer's change to other fields, a `Conflict` when they changed the same
 one, after which the adapter shows theirs and a second save applies over it.
 `fieldEdit(notes, args, field)` is one field as an immediate editor, one save
