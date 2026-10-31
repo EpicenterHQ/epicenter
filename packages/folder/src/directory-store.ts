@@ -12,8 +12,11 @@
  * lock spans the check and the rename, so a save another program lands in
  * that instant can be replaced; Git history keeps what sync committed
  * (ADR-0568). A removal carries its expectation too. A host that refuses one
- * changed nothing, and the change is `stale`; any other failure of a rename
- * or a removal may have landed, and is `Unconfirmed`. A put that does not
+ * changed nothing, and the change is `stale`. A path on another file system
+ * than `saves` (a mount point inside the folder) is one no rename reaches,
+ * and nothing is copied instead: that save is `Io`, saying it cannot cross
+ * a mount point. Any other failure of a rename or a removal may have
+ * landed, and is `Unconfirmed`. A put that does not
  * land removes its staged file and the parent directories it made, unless
  * another writer put something in one. A parent another writer prunes
  * between this put's making it and its rename fails the rename. The
@@ -44,6 +47,14 @@ import type { DirectoryPrimitives, EntryKind } from './directory-primitives.js';
 import { FileError, UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
 import { pathProblem, readablePath, writableExistingPath } from './paths.js';
+import { STATE_DIRECTORY } from './state.js';
+
+/**
+ * Whether a rename failed because its target is on another file system
+ * (`EXDEV`): it changed nothing, and copying instead would not be one step.
+ */
+const crossesMountPoint = (cause: unknown) =>
+	(cause as { code?: unknown } | null)?.code === 'EXDEV';
 
 /** The directory holding the absolute `path`, which uses `/` (`savesDirectory`). */
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
@@ -223,6 +234,12 @@ export function createDirectoryStorage({
 		} catch (cause) {
 			await abandon();
 			if (cause instanceof UnexpectedTarget) return Ok({ kind: 'stale' });
+			if (crossesMountPoint(cause))
+				return FileError.Io({
+					path,
+					operation: 'write',
+					cause: `cannot save across a mount point: '${path}' is on another file system than the folder's ${STATE_DIRECTORY}, so nothing was written there`,
+				});
 			return FileError.Unconfirmed({ path, operation: 'write', cause });
 		}
 		return Ok({ kind: 'landed', stamp });

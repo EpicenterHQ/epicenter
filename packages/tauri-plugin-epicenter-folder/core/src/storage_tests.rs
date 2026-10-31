@@ -793,6 +793,28 @@ fn a_sweep_never_touches_recordings() {
     assert_eq!(fs::read(&old).unwrap(), b"audio");
 }
 
+/// A save across a mount point inside the folder fails saying so: the
+/// system's `EXDEV`, which a rename answers for a path on another file
+/// system, is that error and no other.
+#[test]
+fn a_rename_across_a_mount_point_says_so() {
+    let crossed = io::Error::from(ErrorKind::CrossesDevices);
+    let message = rename_failure("mnt/a.md", &crossed);
+    assert!(
+        message.starts_with("cannot save across a mount point: 'mnt/a.md'"),
+        "{message}"
+    );
+    assert!(message.contains("nothing was written"), "{message}");
+    // `EXDEV` is 18 on macOS and Linux.
+    #[cfg(unix)]
+    assert_eq!(
+        io::Error::from_raw_os_error(18).kind(),
+        ErrorKind::CrossesDevices
+    );
+    let other = io::Error::from(ErrorKind::PermissionDenied);
+    assert_eq!(rename_failure("a.md", &other), other.to_string());
+}
+
 /// A `saves` directory that is a link is never followed: nothing is staged
 /// through it or swept through it, the directory it names keeps its mode, a
 /// put is `Io`, and the file at the path stays as it was.

@@ -41,6 +41,11 @@
 //! `0600`. A staged file a stopped save left behind is removed once it is an
 //! hour old (`sweep_scratch`).
 //!
+//! A save whose path is on another file system than `.epicenter` (a mount
+//! point inside the folder) fails saying it cannot cross a mount point
+//! (`rename_failure`): a rename cannot reach it, and nothing is copied
+//! instead, so no half-written file appears there.
+//!
 //! A link another program swaps in between the check and the change is not
 //! defended against; a page cannot make one.
 
@@ -738,6 +743,20 @@ pub fn create_scratch(root: &Path) -> Result<(PathBuf, fs::File), String> {
     Ok((scratch, file))
 }
 
+/// What a move from `.epicenter` to the folder-relative `path` that failed
+/// with `cause` says. A path on another file system (a mount point inside
+/// the folder) is one no rename reaches; nothing is copied instead, so
+/// nothing was written there, and the message says so.
+pub fn rename_failure(path: &str, cause: &io::Error) -> String {
+    if cause.kind() == ErrorKind::CrossesDevices {
+        return format!(
+            "cannot save across a mount point: '{path}' is on another file system than the folder's {}, so nothing was written there",
+            state::DIRECTORY
+        );
+    }
+    cause.to_string()
+}
+
 /// Why a put cannot land on what `find` found at `path`, if it cannot.
 fn put_refusal(path: &str, found: &Found) -> Option<StorageError> {
     match found {
@@ -930,7 +949,7 @@ pub fn put(
         let made = make_parents(root, &names[..names.len() - 1]).map_err(|cause| failed(&cause))?;
         if let Err(cause) = fs::rename(&scratch, &target) {
             remove_made(&made);
-            return Err(failed(&cause));
+            return Err(failed(&rename_failure(path, &cause)));
         }
         let after_rename = file
             .metadata()

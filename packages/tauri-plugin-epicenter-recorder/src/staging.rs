@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 use epicenter_folder_core::page_files;
 use epicenter_folder_core::paths::path_problem;
 use epicenter_folder_core::state;
-use epicenter_folder_core::storage::{create_scratch, prepare_state_directory};
+use epicenter_folder_core::storage::{create_scratch, prepare_state_directory, rename_failure};
 
 /// The checked full path the recording of the folder-relative `stem` (its
 /// path without an extension) is written to while it records, in `root`
@@ -218,7 +218,8 @@ const RECOVERED_NAMES: usize = 100;
 /// copy of it and is removed (not placed); anything else is refused, or for
 /// `PlaceBeside` goes to the first free `<stem>-recovered.<ext>`,
 /// `<stem>-recovered-2.<ext>`, and so on, so no recording is stranded in
-/// `.epicenter`, which sync never commits.
+/// `.epicenter`, which sync never commits. A path across a mount point
+/// inside the folder is refused (`rename_failure`), and the file stays.
 fn sweep(
     root: &Path,
     staged: &Path,
@@ -254,7 +255,7 @@ fn sweep(
                     return Ok((candidate, false));
                 }
             }
-            Err(error) => return Err(error.to_string()),
+            Err(error) => return Err(rename_failure(&candidate, &error)),
         }
     }
     Err(match when_taken {

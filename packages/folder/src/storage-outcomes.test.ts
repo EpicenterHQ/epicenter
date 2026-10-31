@@ -4,7 +4,8 @@
  * `fixtures/storage-outcomes.json` in `tauri-plugin-epicenter-folder` lists
  * storage calls and what each answers. `storage_tests.rs` runs the same
  * vectors over the desktop shell's storage, so a desktop page and a Bun
- * process answer each call alike.
+ * process answer each call alike. A save across a mount point, which no
+ * vector can make, is checked by its error here and in `storage_tests.rs`.
  */
 import { expect, test } from 'bun:test';
 import {
@@ -20,6 +21,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { expectErr } from 'wellcrafted/testing';
 import type { Expectation } from './boundary.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
@@ -161,3 +163,35 @@ test.each(vectors.cases.map((vector) => [vector.name, vector] as const))(
 		}
 	},
 );
+
+test('a save across a mount point fails as Io, saying so, and leaves nothing behind', async () => {
+	const temp = await realpath(await mkdtemp(join(tmpdir(), 'storage-exdev-')));
+	try {
+		// What a rename answers when its target is on another file system.
+		const crossed = Object.assign(
+			new Error('EXDEV: cross-device link not permitted, rename'),
+			{ code: 'EXDEV' },
+		);
+		const storage = createDirectoryStorage({
+			root: temp,
+			saves: savesDirectory(temp),
+			primitives: {
+				...nodeDirectoryPrimitives,
+				rename: async () => {
+					throw crossed;
+				},
+			},
+		});
+		const error = expectErr(
+			await storage.put('mounted/a.md', new TextEncoder().encode('x'), 'any'),
+		);
+		expect(error.name).toBe('Io');
+		expect(error.message).toContain(
+			"cannot save across a mount point: 'mounted/a.md'",
+		);
+		expect(await readdir(temp)).toEqual(['.epicenter']);
+		expect(await readdir(savesDirectory(temp))).toEqual([]);
+	} finally {
+		await rm(temp, { recursive: true, force: true });
+	}
+});
