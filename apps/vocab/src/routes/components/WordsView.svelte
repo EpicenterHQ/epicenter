@@ -9,12 +9,9 @@
 	import { type Entry, type FocusItem, STAGE_LABELS, STAGES, type Stage } from '$lib/data.js';
 	import type { Entries } from '$lib/entries.svelte.js';
 	import { reviewImport, STARTER_LIST } from '$lib/import.js';
-	import type { View } from '$lib/vocab.svelte.js';
 	import EntryCard from './EntryCard.svelte';
 	import RepairCard from './RepairCard.svelte';
-	let { view, entries, starting, onStart }: {
-		/** Which view's words these are: this browser's, or the learner's repository's. */
-		view: View;
+	let { entries, starting, onStart }: {
 		entries: Entries;
 		/** A chat is being saved; another cannot be started yet. */
 		starting: boolean;
@@ -84,9 +81,7 @@
 	<div class="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-6 overflow-y-auto px-4 py-6 md:px-8">
 		<div>
 			<h2 class="text-2xl font-semibold">Words</h2>
-			<p class="text-sm text-muted-foreground">Save expressions, write your own notes, and choose up to three for a tutor-led chat.
-				{#if view === 'device'}These are saved in this browser, with no sign-in. Signed in, they upload to your Epicenter repository and show under Synced.{:else}These are in your Epicenter repository, on every device you sign in on.{/if}
-			</p>
+			<p class="text-sm text-muted-foreground">Save expressions, write your own notes, and choose up to three for a tutor-led chat. These are in your Epicenter repository, on every device you sign in on.</p>
 		</div>
 		<div class="flex flex-wrap items-end gap-2">
 			<form class="flex min-w-0 basis-full gap-2 sm:flex-1 sm:basis-auto" onsubmit={(event) => { event.preventDefault(); void addSingle(); }}>

@@ -3,4 +3,4 @@
 	import WordsView from '../WordsView.svelte';
 	let { entries }: { entries: Entries } = $props();
 </script>
-<WordsView view="device" {entries} starting={false} onStart={async () => false} />
+<WordsView {entries} starting={false} onStart={async () => false} />

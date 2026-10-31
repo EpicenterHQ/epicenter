@@ -14,7 +14,7 @@ const TEXT = 3;
 
 /**
  * Marks the element holding one phrase source: a completed tutor message that
- * this device has saved. Its value is the message's ID. The conversation view
+ * Vocab has saved. Its value is the message's ID. The conversation view
  * is the only writer of this attribute, so an unsaved or arriving message
  * never carries it.
  */

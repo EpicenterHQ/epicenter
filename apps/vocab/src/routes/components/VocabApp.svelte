@@ -1,8 +1,8 @@
 <!--
-	One of Vocab's two views (decision 76): Words and Chat over one client's
-	words, chats and messages, this browser's ("On this device") or the
-	learner's repository's ("Synced"). The header links the two views and says
-	which is open; Words and Chat are this view's sections.
+	Vocab over the client it is given: a header with the connection and the
+	account, then Words and Chat over that client's words, chats and
+	messages. Every component under it reads and writes only through that
+	client, so the root that passes it alone decides the store.
 -->
 <script lang="ts">
 	import { createBrowserInferenceSelections } from '@epicenter/ai/selections';
@@ -15,48 +15,48 @@
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 	import { onDestroy } from 'svelte';
 	import type { ReactiveClient } from '@epicenter/svelte/client';
-	import { resolve } from '$app/paths';
 	import { auth } from '$lib/auth.svelte.js';
 	import type { Vocab } from '$lib/contract.js';
 	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
 	import { openVocabInference } from '$lib/inference.js';
-	import { createVocab, type View } from '$lib/vocab.svelte.js';
+	import { createVocab } from '$lib/vocab.svelte.js';
 	import AccountMenu from './AccountMenu.svelte';
 	import ConversationView from './ConversationView.svelte';
 	import FocusWords from './FocusWords.svelte';
 	import WordsView from './WordsView.svelte';
 
 	let {
-		view,
 		vocab,
 	}: {
-		/** Which view this is: this browser's files, or the learner's repository. */
-		view: View;
-		/** That view's client, whose collections every section reads and edits. */
+		/** The learner's repository's client, whose collections every section reads and edits. */
 		vocab: ReactiveClient<Vocab>;
 	} = $props();
-	// A page shows one client for its life.
+	// A page shows one store's client for its life.
 	// svelte-ignore state_referenced_locally
 	const { entries, chats, messages } = createVocab(vocab);
 
-	// One account for this component's life (undefined signed out): the group
-	// layout mounts every page anew for a new account. The account adds hosted
-	// models in either view; the endpoints connected on this device and the
-	// chosen model are the same either way.
+	// One account for this component's life: the signed-in layout mounts every
+	// page anew for a new account, and signing out unmounts it. The account
+	// adds the hosted models and dictation; the endpoints connected in this
+	// browser and the chosen model are its settings, not the learner's data.
 	const account = auth.state.status === 'signed-out' ? undefined : auth.state.account;
 	const departure = new AbortController();
 	const sources = openVocabInference(account);
 	const catalog = createInferenceCatalog({ ai: sources, signal: departure.signal, hostedModels: toHostedCatalog([VOCAB_MODEL]) });
 	const selections = createBrowserInferenceSelections('vocab');
-	/** What the open view shows, in a line; `problem` says why it is a warning. */
+	/** Whether the repository answers, in a line; `problem` says why it is a warning. */
 	const status = $derived.by((): { label: string; problem?: string } => {
-		const error = vocab.entries.error ?? vocab.chats.error;
-		if (view === 'device')
-			return error === null ? { label: 'On this device' } : { label: 'Not readable here', problem: error.message };
 		if (auth.state.status === 'reauth-required')
 			return { label: 'Sign in again', problem: 'Sign in again to see and edit your repository.' };
-		return error === null ? { label: 'Synced' } : { label: 'Offline', problem: error.message };
+		const error = vocab.entries.error ?? vocab.chats.error;
+		return error === null ? { label: 'Online' } : { label: 'Offline', problem: error.message };
 	});
+
+	async function signInAgain() {
+		// A successful start leaves this page for the sign-in page.
+		const { error } = await auth.startSignIn();
+		if (error !== null) toast.error('Could not sign in', { description: error.message });
+	}
 
 	const SECTIONS = [
 		{ id: 'words', label: 'Words', icon: BookOpenIcon },
@@ -116,19 +116,16 @@
 		is `contents`, so the brand row and the sections nav are rows of this
 		column and the sections nav is ordered last: a bottom bar in the page
 		flow. From md up the brand row is `contents` instead, so the header is
-		one row: brand, views, status, sections, then the theme and account
-		controls.
+		one row: brand, status, sections, then the theme and account controls.
 	-->
 	<header class="contents md:flex md:items-center md:gap-2 md:border-b md:px-4 md:py-2">
 		<div class="flex items-center justify-between gap-2 border-b px-4 py-2 md:contents">
-			<!-- On narrow screens the views say what this is; the width goes to them. -->
-			<h1 class="text-lg font-semibold max-sm:sr-only">Vocab</h1>
-			<nav class="flex items-center gap-1" aria-label="Views">
-				<Button size="sm" variant={view === 'device' ? 'secondary' : 'ghost'} href={resolve('/')} aria-current={view === 'device' ? 'page' : undefined}>On this device</Button>
-				<Button size="sm" variant={view === 'synced' ? 'secondary' : 'ghost'} href={resolve('/synced')} aria-current={view === 'synced' ? 'page' : undefined}>Synced</Button>
-			</nav>
-			<span class="text-xs {status.problem === undefined ? 'text-muted-foreground' : 'text-destructive'}" role="status" title={status.problem} data-testid="where">{status.label}</span>
-			<div class="flex items-center gap-1 md:order-last md:ml-auto"><LightSwitch variant="ghost" /><AccountMenu /></div>
+			<h1 class="text-lg font-semibold">Vocab</h1>
+			<span class="text-xs max-md:mr-auto {status.problem === undefined ? 'text-muted-foreground' : 'text-destructive'}" role="status" title={status.problem} data-testid="status">{status.label}</span>
+			<div class="flex items-center gap-1 md:order-last md:ml-auto">
+				{#if auth.state.status === 'reauth-required'}<Button size="sm" onclick={() => void signInAgain()}>Sign in again</Button>{/if}
+				<LightSwitch variant="ghost" /><AccountMenu />
+			</div>
 		</div>
 		<!--
 			Chat resumes the open chat; with none open, the chat section shows the
@@ -156,7 +153,7 @@
 			</ul>
 		</details>
 	{/if}
-	<div class="min-h-0 flex-1" class:hidden={section !== 'words'}><WordsView {view} {entries} {starting} onStart={begin} /></div>
+	<div class="min-h-0 flex-1" class:hidden={section !== 'words'}><WordsView {entries} {starting} onStart={begin} /></div>
 	<div class="flex min-h-0 flex-1" class:hidden={section !== 'chat'}>
 		<aside class="hidden w-56 shrink-0 overflow-y-auto border-r p-3 md:block" aria-label="Chat history">
 			<h2 class="mb-2 text-sm font-semibold">Chats</h2>

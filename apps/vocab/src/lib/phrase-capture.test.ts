@@ -24,7 +24,7 @@ import {
 
 /**
  * A conversation as Vocab renders it: two saved tutor messages, a learner
- * message, a tutor answer this device has not saved, and a partial reply.
+ * message, a tutor answer not yet saved, and a partial reply.
  * Only the saved tutor messages are phrase sources.
  */
 function exchange() {

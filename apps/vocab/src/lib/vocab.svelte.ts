@@ -1,18 +1,15 @@
 /**
- * Vocab's state for one of its two views (decision 76): one client's three
- * collections, and the word and chat stores over them. "On this device"
- * reads this browser's files (`fromClient(device)`); "Synced" reads the
- * learner's `vocab` repository (`fromClient(getRepo<Vocab>())`). A view's
- * collections all come from its one client, so a chat's focus words and its
- * messages are always that client's.
+ * Vocab's state over the client it is given: its three collections, and the
+ * word and chat stores over them. The root that passes the client decides
+ * the store; in the browser it is the learner's `vocab` repository
+ * (`fromClient(getRepo<Vocab>())`, ADR-0700). All three collections come
+ * from that one client, so a chat's focus words and its messages are always
+ * that client's.
  */
 import type { ReactiveClient } from '@epicenter/svelte/client';
 import { createChats } from './chat/chats.js';
 import type { Vocab } from './contract.js';
 import { createEntries } from './entries.svelte.js';
-
-/** Which of Vocab's two views a page is: this device's files, or the repository's. */
-export type View = 'device' | 'synced';
 
 export function createVocab(client: ReactiveClient<Vocab>) {
 	return {

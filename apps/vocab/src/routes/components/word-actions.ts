@@ -12,7 +12,8 @@ export async function changeStage(entries: Entries, id: string, stage: Stage) {
 export function confirmDelete(entries: Entries, entry: Entry) {
 	confirmationDialog.open({
 		title: `Delete “${entry.text}”?`,
-		description: 'Its note and stage are deleted with it.',
+		description:
+			'It is deleted from your repository with its note and stage. Its Git history keeps them.',
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
 			const { error } = await entries.delete(entry.id);

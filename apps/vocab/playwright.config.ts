@@ -7,7 +7,8 @@
  * `globalSetup` starts `e2e/stack.ts`: a disposable Postgres, the local API
  * with temporary Git and LFS stores, and the built app on its registered
  * port (8888, which must be free). Both engines run in a persistent
- * profile, the only kind in which WebKit opens OPFS.
+ * profile, the only kind in which WebKit opens OPFS, so the steps can show
+ * the browser keeps nothing there.
  */
 import { defineConfig } from 'playwright/test';
 

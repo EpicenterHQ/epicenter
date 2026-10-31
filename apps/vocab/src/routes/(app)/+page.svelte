@@ -1,13 +1,13 @@
 <!--
-	"On this device": the words and chats in this browser's files (OPFS,
-	`$lib/device.ts`), with no sign-in in front of them, online or not
-	(decisions 10 and 76). Signed in, the uploader moves each one to the
-	repository, where the "Synced" page shows it.
+	Vocab over its one store: the words, chats and messages in the learner's
+	`vocab` repository, which the signed-in layout set. Every edit is a commit
+	there; nothing is kept in the browser.
 -->
 <script lang="ts">
 	import { fromClient } from '@epicenter/svelte/client';
-	import { device } from '$lib/device.js';
+	import { getRepo } from '@epicenter/svelte/repo';
+	import type { Vocab } from '$lib/contract.js';
 	import VocabApp from '../components/VocabApp.svelte';
 </script>
 
-<VocabApp view="device" vocab={fromClient(device)} />
+<VocabApp vocab={fromClient(getRepo<Vocab>())} />

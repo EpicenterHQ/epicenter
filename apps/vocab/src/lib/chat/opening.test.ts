@@ -1,6 +1,6 @@
 /**
  * Tutor opening tests.
- * Real conversations over Vocab's notes on a real device folder add a
+ * Real conversations over Vocab's notes in a stand-in client's folder add a
  * transient opening prompt without saving a learner turn, do not repeat on
  * remount, and discard a stopped partial opening before retry.
  */

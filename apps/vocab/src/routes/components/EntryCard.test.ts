@@ -1,5 +1,5 @@
 /**
- * EntryCard over a word note on a real device folder: the note is the
+ * EntryCard over a word note in a stand-in client's folder: the note is the
  * note's body, edited as typed (`fieldEdit`), and the stage and delete
  * write through the same notes.
  */

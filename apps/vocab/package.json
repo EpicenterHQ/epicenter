@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/vocab",
-	"description": "English vocabulary tutor whose words and chats are Markdown notes, kept in the browser and uploaded to the learner's repository when signed in",
+	"description": "English vocabulary tutor whose words and chats are Markdown notes in the signed-in learner's Epicenter repository, online only",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",

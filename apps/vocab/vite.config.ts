@@ -37,7 +37,5 @@ export default defineConfig(
 		// at `http://localhost:8888`.
 		server: { host: 'localhost' },
 		preview: { port: APPS.VOCAB.port, strictPort: true, host: 'localhost' },
-		// The device's OPFS Worker is a module Worker.
-		worker: { format: 'es' },
 	}),
 );

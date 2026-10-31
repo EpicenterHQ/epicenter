@@ -1,9 +1,10 @@
 /**
- * Vocab over a real device folder, for tests: a node device in a temporary
- * directory (`openDevice` from `@epicenter/folder/node`, the same contract
- * client and paths as the browser's), its collections as a view reads them
- * (`fromClient`), kept listing as an open page keeps them, and a way to hold
- * or refuse writes.
+ * Vocab over a stand-in client, for tests: a real device client in a
+ * temporary directory (`openDevice` from `@epicenter/folder/node`), the same
+ * contract's client at the same paths, in place of the repository the page
+ * is given. Its collections as the page reads them (`fromClient`), kept
+ * listing as an open page keeps them, and a way to hold or refuse writes,
+ * the way a lost connection or a slow write would.
  *
  * Import after `svelte-modules.test-support.js`, which compiles the runes.
  */
@@ -27,7 +28,7 @@ const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 );
 
-/** What a test does to the device's writes. */
+/** What a test does to the client's writes. */
 export type WriteControl = {
 	/** Every write waits for this, when set. */
 	gate?: Promise<void>;
@@ -68,7 +69,7 @@ function controlled(client: Client<Vocab>, control: WriteControl) {
 	) as Client<Vocab>;
 }
 
-/** Vocab's device over a fresh directory; `await using` removes it. */
+/** Vocab's stand-in client over a fresh directory; `await using` removes it. */
 export async function openVocabFolder(initial: Record<string, string> = {}) {
 	const root = await mkdtemp(join(tmpdir(), 'vocab-'));
 	for (const [path, text] of Object.entries(initial)) {
@@ -77,7 +78,7 @@ export async function openVocabFolder(initial: Record<string, string> = {}) {
 	}
 	const control: WriteControl = {};
 	const client = openDevice(vocab, { path: root });
-	// As the "On this device" view reads them: the device's own collections.
+	// As the page reads them: the client's own collections.
 	const lists = fromClient(controlled(client, control));
 	const followed = follow(() => [
 		lists.entries.items,

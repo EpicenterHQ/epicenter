@@ -1,8 +1,9 @@
 /**
  * Vocab acquisition boundary tests.
- * The "On this device" page opens this browser's files with no sign-in in
- * front of them; callback pages and ancestor layouts open nothing; and no
- * shipped source opens an account-based or device store from `@epicenter/app`.
+ * The signed-in layout is the one root that decides the store, the learner's
+ * repository; the page passes that client to the app; callback pages and
+ * ancestor layouts open nothing; and no shipped source opens a store in the
+ * browser.
  */
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -49,29 +50,30 @@ describe('the callback opens nothing', () => {
 		expect(ancestorLayouts(callback).length).toBeGreaterThan(0);
 	});
 
-	test('callback and ancestor layouts never open the device or mount the app', async () => {
+	test('callback and ancestor layouts never open a store or mount the app', async () => {
 		for (const file of [callback, ...ancestorLayouts(callback)]) {
 			const text = await Bun.file(file).text();
 			expect(text).not.toMatch(/openDevice\s*\(|openRemote\s*\(/);
 			expect(text).not.toMatch(/@epicenter\/folder/);
-			expect(text).not.toMatch(/VocabApp\.svelte|SignedIn\.svelte/);
+			expect(text).not.toMatch(/VocabApp\.svelte|Online\.svelte/);
 		}
 	});
 });
 
-describe('the working page needs no account', () => {
-	test('"On this device" mounts the app over this browser’s files, with no sign-in gate', async () => {
-		const device = await Bun.file(join(source, 'lib/device.ts')).text();
-		expect(device).toMatch(/openDevice\(vocab\)/);
-		const page = await Bun.file(join(routes, '(app)/+page.svelte')).text();
-		expect(page).toMatch(
-			/<VocabApp view="device" vocab=\{fromClient\(device\)\}/,
-		);
-		expect(page).not.toMatch(/AppBoot|SignInScreen|openRemote|auth/);
-		// Signed out, the views' layout renders its pages as they are.
+describe('the repository is the one store', () => {
+	test('signed in, the layout sets the repository for the account; signed out, it asks for a sign-in', async () => {
 		const layout = await Bun.file(join(routes, '(app)/+layout.svelte')).text();
 		expect(layout).toMatch(
-			/\{#if auth\.state\.status === 'signed-out'\}\s*\{@render children\(\)\}/,
+			/\{#if auth\.state\.status !== 'signed-out'\}\s*\{#key auth\.state\.account\}\s*<Online account=\{auth\.state\.account\}>/,
+		);
+		expect(layout).toMatch(/Sign in to use the words and chats/);
+		const online = await Bun.file(
+			join(routes, 'components/Online.svelte'),
+		).text();
+		expect(online).toMatch(/setRepo\(openRemote\(vocab, \{ account \}\)\)/);
+		const page = await Bun.file(join(routes, '(app)/+page.svelte')).text();
+		expect(page).toMatch(
+			/<VocabApp vocab=\{fromClient\(getRepo<Vocab>\(\)\)\}/,
 		);
 	});
 
@@ -80,11 +82,11 @@ describe('the working page needs no account', () => {
 		expect(contract).not.toMatch(/accountKey|@epicenter\/auth/);
 	});
 
-	test('no shipped source opens a store: the contract’s notes are the only saved data', async () => {
+	test('no shipped source opens a store in the browser: the repository is the only one', async () => {
 		const files = await shippedSources();
 		const openers = files
 			.filter(({ text }) =>
-				/@epicenter\/app\/(open|store|memory)|\bopenLocal\b|\bopenPersonal\b|PersistenceNotice|fromData\b/.test(
+				/@epicenter\/app\/(open|store|memory)|@epicenter\/folder\/browser|\bopenDevice\b|\bopenLocal\b|\bopenPersonal\b|PersistenceNotice|fromData\b/.test(
 					text,
 				),
 			)
