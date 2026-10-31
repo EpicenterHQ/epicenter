@@ -29,7 +29,7 @@ in one shell: the Folders window lists a folder before its app is installed,
 under `data:<name>`, and grants that scope; the app then opens the same
 directory under its own scope, and the second scope's grant took `RootLock`
 again and answered `Busy` until Epicenter restarted
-(`apps/epicenter/src-tauri/src/data_folders.rs`, `own_folder_in`).
+(`a3b5be346e96:apps/epicenter/src-tauri/src/data_folders.rs`, `own_folder_in`).
 
 ## Decision
 

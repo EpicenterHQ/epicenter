@@ -73,7 +73,7 @@ not declare what this definition reads: ...".
 
 **In Bun a directory is named by its directory's name, and the name is the
 whole test.** The CLI's `isApplicationFolder`
-(`packages/cli/src/history-commands.ts`) is stricter: it also requires the
+(`f8bc8f5384df:packages/cli/src/history-commands.ts`) is stricter: it also requires the
 directory to sit directly under the Epicenter folder root and its app to be
 installed, which a directory opener is not told. An own directory may get a
 repository inside another repository's working tree; any other may not

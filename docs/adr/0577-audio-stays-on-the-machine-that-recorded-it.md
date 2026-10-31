@@ -38,7 +38,7 @@ so.epicenter.whispering/
   .gitignore               names audio/
 ```
 
-`recordingAudioStem` (`apps/whispering/src/lib/definition.ts`) answers
+`recordingAudioStem` (`606cbceebb64:apps/whispering/src/lib/definition.ts`) answers
 `audio/<id>`; the desktop recorder and the browser capture write there, and
 `recoverRecordings` runs with `under: 'audio'`.
 
@@ -64,7 +64,7 @@ those files; status and the log still read. A browser data folder with such a
 file does not open (`InvalidDeclaration`).
 
 The rule is the engine's, on both backends, whatever `.gitignore` says
-(`localMatcher` and `sourceFiles` in `packages/folder/src/git/scope.ts`):
+(`localMatcher` and `sourceFiles` in `69d33c135926:packages/folder/src/git/scope.ts`):
 
 | Path `local` matches | What the engine does |
 | --- | --- |
@@ -84,7 +84,7 @@ refuses the write it precedes; the engine's rule holds without it.
 Epicenter honors it, and it does nothing for a file already committed.
 
 **A row whose `audioPath` the folder listing lacks says its audio isn't on
-this device.** `recordingAudio` (`apps/whispering/src/lib/recording-audio.ts`)
+this device.** `recordingAudio` (`606cbceebb64:apps/whispering/src/lib/recording-audio.ts`)
 answers `none`, `here`, or `absent`. The listing cannot say why a file is
 missing (made on another device, a failed capture, a file deleted here), so
 the state names only the fact. Before a listing is read, while this window is

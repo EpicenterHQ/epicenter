@@ -26,7 +26,7 @@ refusing every non-fast-forward, that repair cannot reach the remote, and
 the next Sync on any device brings the file back.
 
 Epicenter's own sync never forces. The desktop pushes `<oid>:refs/heads/<branch>`
-with no `+` (`packages/folder/src/git/native-backend.ts:418-421`), and the
+with no `+` (`c87a47f8783f:packages/folder/src/git/native-backend.ts:418-421`), and the
 browser passes `force: false` to isomorphic-git, which refuses a
 non-fast-forward before it sends the update
 (`9d13dd25854e:packages/folder/src/git/browser-backend.ts`).

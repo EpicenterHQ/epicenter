@@ -5,7 +5,7 @@
 - **Superseded by:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at all of it: `epicenter.json` names the app that opens the folder in `app`, and an app opens any folder it is handed with its own definition, with no containment check.
 - **Amended by:** [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at the consequence that the Folders window derives "Open in" from the shapes of installed apps: it offers every installed app on every folder, and the app's lens refuses one that does not fit; and at "the Folders window shows it as able to edit only": the Folders window reads no shape, and the app's own window shows it.
 - **Amended by:** [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) at the opener table and the `lens` option of `openDataFolder`: an app reads any folder but its own through its `definition`, with the same containment check, through the one `openFolder`.
-- **Built:** the `lens` option of `openDataFolder` in every entry, refused with `ShapeMismatch` and its problems when the folder's declaration does not contain it; the containment check (`shapeProblems` and `schemaContainment` in `@epicenter/definition`); a lens table's `canCreate` and `CannotCreate`; installed apps ([ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)) offered on every folder (`apps/epicenter/src/folders/openers.ts`), each handed that folder at launch as `?folder=<scope>`, Todos, Capture, Honeycrisp, and Whispering refusing through their lens a folder that does not contain their shape, naming the folder and what is missing ([ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md)).
+- **Built:** the `lens` option of `openDataFolder` in every entry, refused with `ShapeMismatch` and its problems when the folder's declaration does not contain it; the containment check (`shapeProblems` and `schemaContainment` in `@epicenter/definition`); a lens table's `canCreate` and `CannotCreate`; installed apps ([ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)) offered on every folder (`ff24d47a2636:apps/epicenter/src/folders/openers.ts`), each handed that folder at launch as `?folder=<scope>`, Todos, Capture, Honeycrisp, and Whispering refusing through their lens a folder that does not contain their shape, naming the folder and what is missing ([ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md)).
 - **Unbuilt:** showing an app that cannot add rows as able to edit only.
 
 ## Context
@@ -15,7 +15,7 @@ A folder's `epicenter.json` declares its tables and settings
 only link between an app and a folder is a name: the folder
 `so.epicenter.todos` belongs to the app whose id is `so.epicenter.todos`, and
 Epicenter hard-codes that pairing for Todos and Capture in `APPLICATION_FOLDERS`
-(`apps/epicenter/src-tauri/src/data_folders.rs`). An app that opens a folder
+(`a3b5be346e96:apps/epicenter/src-tauri/src/data_folders.rs`). An app that opens a folder
 with `openFolder({ id, definition })` publishes its definition to that folder's
 `epicenter.json`, so a second app opening the same folder that way would replace
 the first app's schema with its own.

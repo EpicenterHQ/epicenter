@@ -33,7 +33,7 @@ again. Holding the row required a folder no person chose:
   app (`installed_apps.rs:228-229`).
 - The shell registers it with `FolderConfig::new`, so its first grant
   creates it empty (`register_epicenter_folder`,
-  `apps/epicenter/src-tauri/src/data_folders.rs:73-90`), and permits every
+  `a3b5be346e96:apps/epicenter/src-tauri/src/data_folders.rs:73-90`), and permits every
   installed app's window into it (ADR-0570).
 - Settings opens it (`openFolder({ app: EPICENTER_FOLDER_ID, ... })` in
   `apps/epicenter/src/ui/connections/AiConnections.svelte:29-30`) and lists
@@ -43,7 +43,7 @@ again. Holding the row required a folder no person chose:
   writes the fixed rows `whispering-transcription` and `whispering-text`
   (`desktop-connections.ts:51-54`).
 - The CLI special-cases its name: `isApplicationFolder`
-  (`packages/cli/src/history-commands.ts:57`) and the installer's refusal of
+  (`f8bc8f5384df:packages/cli/src/history-commands.ts:57`) and the installer's refusal of
   the id (`f16c69134b49:packages/cli/src/installed-apps.ts`).
 
 ## Decision

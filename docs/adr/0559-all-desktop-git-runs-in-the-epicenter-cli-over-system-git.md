@@ -19,10 +19,10 @@ inspect one with `git show commit:path`.
 ## Context
 
 The engine has two Git backends behind one interface
-(`packages/folder/src/git/backend.ts`). The browser's
+(`c87a47f8783f:packages/folder/src/git/backend.ts`). The browser's
 (`9d13dd25854e:packages/folder/src/git/browser-backend.ts`) is isomorphic-git over the
 folder's private `.git` in OPFS, including fetch and push. The native one
-(`packages/folder/src/git/native-backend.ts`) is a hybrid:
+(`c87a47f8783f:packages/folder/src/git/native-backend.ts`) is a hybrid:
 
 ```txt
 isomorphic-git   reads objects from .git; builds trees, commits, and the merge in memory
@@ -33,7 +33,7 @@ system git       writes every object (hash-object -w), the index (add, reset), a
 Sync's merge is TypeScript on every host: each path both sides changed is
 offered first to ADR-0551's rules, root `kv.json` merges by key (`mergeKv`),
 and isomorphic-git's merge assembles the tree and merges any unclaimed path by
-Git's ordinary rules (`packages/folder/src/git/merge.ts:1-24`). There is no
+Git's ordinary rules (`c87a47f8783f:packages/folder/src/git/merge.ts:1-24`). There is no
 `git merge` and no `git commit`.
 
 <!-- doc-path-check: ignore-next-line (deleted by this record) -->

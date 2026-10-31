@@ -10,7 +10,7 @@
 - **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at the `~/Epicenter/Apps/<app-id>/` tree: the clone is in `<data_dir>/apps/`.
 - **Amended by:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "installed from a folder in any Git repository", `epicenter.folder`, and `bun install` at the root: an app is a whole repository of built files at an address, built before it is published.
 - **Relates:** updates [ADR-0493](0493-whisperings-only-desktop-shell-is-epicenter.md) (Whispering is an installed app), [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) (the Folders window offers installed apps only), [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) (no built-in app to offer on other folders), [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) (every app is a row, and the row gains `folder`), and [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (an app is a folder in a repository) in place, since all five are Proposed.
-- **Built:** installing from a folder in a repository, recorded as `epicenter.folder` in the clone, with `bun install` at the root and the build in the folder, and listing the apps in a repository (`f16c69134b49:apps/epicenter/src-tauri/src/installed_apps.rs`); `epicenter.app.json` ([ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md)) and an installed build (`build:installed`) that writes `dist` with relative asset paths, in `apps/todos`, `apps/capture`, `apps/whispering`, and `apps/honeycrisp`, Honeycrisp opening the folder it is handed or its own (`apps/honeycrisp/src/routes/+page.svelte`, through `<FolderApp>`); "Install from a repository…" and "Install Todos" while no app is installed (`f16c69134b49:apps/epicenter/src/folders/InstallApps.svelte`); only `so.epicenter` refused; an installed app opened without a folder handed its own folder, `<folder_dir>/<app-id>` (`own_folder` in `apps/epicenter/src-tauri/src/data_folders.rs`); the Folders window opening Settings with `open_home`; native commands granted to an installed app by its app id (`installed-whispering-*` in `apps/epicenter/src-tauri/capabilities`, the rule in `apps/epicenter/README.md`); and the deletions below: Honeycrisp's standalone Tauri shell with its terminal, reveal, and per-file history commands, `build:honeycrisp`, and `test:native`; the built-in Whispering, Todos, Capture, Honeycrisp, Mail, and Books, `launch_application` and its capability files, `APPLICATION_FOLDERS` and its capability files, `FOLDER_OPENERS`, the placeholder pages, `build:whispering`, `build:todos`, and `build:capture`, `@epicenter/whispering` as a dependency of Epicenter, and `capture-application.test.ts`.
+- **Built:** installing from a folder in a repository, recorded as `epicenter.folder` in the clone, with `bun install` at the root and the build in the folder, and listing the apps in a repository (`f16c69134b49:apps/epicenter/src-tauri/src/installed_apps.rs`); `epicenter.app.json` ([ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md)) and an installed build (`build:installed`) that writes `dist` with relative asset paths, in `apps/todos`, `apps/capture`, `apps/whispering`, and `apps/honeycrisp`, Honeycrisp opening the folder it is handed or its own (`apps/honeycrisp/src/routes/+page.svelte`, through `<FolderApp>`); "Install from a repository…" and "Install Todos" while no app is installed (`f16c69134b49:apps/epicenter/src/folders/InstallApps.svelte`); only `so.epicenter` refused; an installed app opened without a folder handed its own folder, `<folder_dir>/<app-id>` (`own_folder` in `a3b5be346e96:apps/epicenter/src-tauri/src/data_folders.rs`); the Folders window opening Settings with `open_home`; native commands granted to an installed app by its app id (`installed-whispering-*` in `apps/epicenter/src-tauri/capabilities`, the rule in `apps/epicenter/README.md`); and the deletions below: Honeycrisp's standalone Tauri shell with its terminal, reveal, and per-file history commands, `build:honeycrisp`, and `test:native`; the built-in Whispering, Todos, Capture, Honeycrisp, Mail, and Books, `launch_application` and its capability files, `APPLICATION_FOLDERS` and its capability files, `FOLDER_OPENERS`, the placeholder pages, `build:whispering`, `build:todos`, and `build:capture`, `@epicenter/whispering` as a dependency of Epicenter, and `capture-application.test.ts`.
 - **Unbuilt:** every other first-party app as an installed app; Honeycrisp's "reveal folder", a folder action under ADR-0555 (Honeycrisp's unreachable terminal and per-note history UI is deleted); deleting `test-apps-dist.ts`, which the server tests still use for the Folders window.
 
 Retired source files below use their last tracked Git snapshot (`commit:path`);
@@ -28,7 +28,7 @@ Honeycrisp, Capture, Mail, Todos, Books, Folders. Bun mirrors it as
 Folders window and Settings open them with `launch_application`
 (`apps/epicenter/src-tauri/src/lib.rs:568`), which resolves an id against that
 enum. Todos and Capture get their folders from `APPLICATION_FOLDERS`
-(`apps/epicenter/src-tauri/src/data_folders.rs:62-74`). Mail and Books are
+(`a3b5be346e96:apps/epicenter/src-tauri/src/data_folders.rs:62-74`). Mail and Books are
 <!-- doc-path-check: ignore-next-line -->
 placeholder pages (`apps/epicenter/src/placeholder-pages.ts`). Building
 Epicenter builds Whispering, Capture, and Todos (`build:apps` in
@@ -126,7 +126,7 @@ Deleted:
   (`apps/epicenter/src-tauri/src/lib.rs:540-622`, 83 lines), its handler
   wiring (`apps/epicenter/src-tauri/src/lib.rs:634`,
   `apps/epicenter/src-tauri/src/lib.rs:681`), `launchApplication`
-  (`apps/epicenter/src/ui/runtime.ts:31`), and its capability files
+  (`8f09a5d0d464:apps/epicenter/src/ui/runtime.ts:31`), and its capability files
   <!-- doc-path-check: ignore-next-line -->
   (`apps/epicenter/src-tauri/capabilities/launch-application-production.json`
   and its development twin, 22 lines). The Folders window opens Settings with
@@ -137,9 +137,9 @@ Deleted:
   <!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
   entries in `apps/epicenter/src/applications.ts` and `LAUNCHABLE_APPLICATIONS`,
   leaving `COMPILED_APPLICATIONS` as the Folders window alone;
-  `FOLDER_OPENERS` (`apps/epicenter/src/folders/openers.ts:52-64`).
+  `FOLDER_OPENERS` (`ff24d47a2636:apps/epicenter/src/folders/openers.ts:52-64`).
 - `APPLICATION_FOLDERS`, its registration, and its listing branch
-  (`apps/epicenter/src-tauri/src/data_folders.rs:52-74`, `95-108`, `208-222`),
+  (`a3b5be346e96:apps/epicenter/src-tauri/src/data_folders.rs:52-74`, `95-108`, `208-222`),
   with `capture-folder-*.json` and `todos-folder-*.json` (60 lines). An
   installed app's window is granted the folder it opens, as any installed app's
   is (`open_installed_window`, `apps/epicenter/src-tauri/src/lib.rs:1702`).

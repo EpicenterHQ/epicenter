@@ -96,7 +96,7 @@ OAuth client, lives in the CLI's own modules (`packages/cli/src`).
 | --- | --- | --- | --- |
 | Files | `@epicenter/folder` | the shell's read and checked change commands (`999012befb:packages/folder/src/tauri-directory.ts`) | OPFS (`999012befb:packages/folder/src/browser-adapter.ts`) |
 | Watching | `@epicenter/folder` | the shell's watcher (`999012befb:packages/folder/src/changes-tauri.ts`) | `999012befb:packages/folder/src/changes-browser.ts` |
-| Git and sync | `@epicenter/folder` | the CLI over system `git` (`packages/folder/src/git/native-backend.ts`, ADR-0559) | isomorphic-git over OPFS (`999012befb:packages/folder/src/git/browser-backend.ts`) |
+| Git and sync | `@epicenter/folder` | the CLI over system `git` (`c87a47f8783f:packages/folder/src/git/native-backend.ts`, ADR-0559) | isomorphic-git over OPFS (`999012befb:packages/folder/src/git/browser-backend.ts`) |
 | Inference and account calls | `@epicenter/ai`, `@epicenter/auth` | `epicenter send` | the page's own `fetch` (ADR-0557) |
 | Sign-in | `@epicenter/auth` | `epicenter auth login --loopback` | redirect (`packages/auth/src/browser-oauth.ts`) |
 

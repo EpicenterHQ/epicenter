@@ -55,7 +55,7 @@ at the natural moments ADR-0530 names; sync then exchanges commits with a Git
 remote: Epicenter's hosted Git at
 `git.epicenter.so/<namespace>/<name>.git` (`mountGitHost` in
 `apps/api/worker/index.ts`, stored by `apps/api/worker/git-repositories.ts`) or a
-server the person chooses. `merge` in `packages/folder/src/shared/merge.ts`
+server the person chooses. `merge` in `f9febe01f14a:packages/folder/src/shared/merge.ts`
 merges frontmatter by field and the body by line; where both sides changed the
 same field or line, the edit that reaches `main` last wins and the losing edit
 stays a parent of the merge commit (ADR-0622). History keeps

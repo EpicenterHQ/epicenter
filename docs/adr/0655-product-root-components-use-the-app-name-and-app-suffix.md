@@ -19,9 +19,9 @@ and composes product state and UI.
 
 | Product | Component |
 | --- | --- |
-| Todos | `apps/todos/src/routes/local/TodosApp.svelte` |
+| Todos | `apps/todos/src/lib/components/TodosApp.svelte` |
 | Capture | `apps/capture/src/lib/components/CaptureApp.svelte` |
-| Honeycrisp | `apps/honeycrisp/src/routes/components/HoneycrispApp.svelte` |
+| Honeycrisp | `apps/honeycrisp/src/lib/components/HoneycrispApp.svelte` |
 | Vocab | `apps/vocab/src/routes/components/VocabApp.svelte` |
 | Whispering | `apps/whispering/src/routes/components/WhisperingApp.svelte` |
 

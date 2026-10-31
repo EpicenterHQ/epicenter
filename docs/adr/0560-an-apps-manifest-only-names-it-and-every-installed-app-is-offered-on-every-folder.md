@@ -35,7 +35,7 @@ made `epicenter.app.json` five fields:
 `opens` named a committed `shape.json`, `formatDeclaration` of the app's
 definition. `inspect` in `f16c69134b49:apps/epicenter/src-tauri/src/installed_apps.rs` read
 it from the clone and returned it as `InstalledApp.opens`; `installedOpeners`
-and `openersOf` in `apps/epicenter/src/folders/openers.ts` offered an app
+and `openersOf` in `ff24d47a2636:apps/epicenter/src/folders/openers.ts` offered an app
 under "Open in" only on a folder whose `epicenter.json` contained that shape,
 by `shapeProblems` from `@epicenter/definition`. Each of Todos, Capture,
 <!-- doc-path-check: ignore-next-line -->

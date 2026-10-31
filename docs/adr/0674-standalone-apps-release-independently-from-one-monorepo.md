@@ -15,7 +15,7 @@ coordinating their upgrades before the apps could build together again.
 
 Source ownership does not determine release cadence. Epicenter bundles
 Todos, Capture, Honeycrisp, Whispering, and Messages through
-`apps/epicenter/scripts/build-bundled-apps.ts`. Todos also has a standalone
+`ff24d47a2636:apps/epicenter/scripts/build-bundled-apps.ts`. Todos also has a standalone
 Tauri shell. Whispering's desktop page runs inside Epicenter; an independent
 Whispering installer is not implemented. There are no desktop release
 workflows or configured update feeds in this checkout on 2026-10-22.

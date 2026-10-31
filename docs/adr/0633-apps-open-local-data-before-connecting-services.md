@@ -17,7 +17,7 @@ consent, but prevents a first launch from opening data without sign-in.
 
 The internal `openRepository` in `packages/folder/src/browser/repository.ts` already
 opens IndexedDB without authentication. `createSync` in
-`packages/folder/src/browser/sync.ts` separately receives that repository, a URL, and
+`3a8b9db598d5:packages/folder/src/browser/sync.ts` separately receives that repository, a URL, and
 an HTTP transport. Local saving and network exchange have separate owners.
 Neither constructor is a public app API yet.
 

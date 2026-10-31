@@ -23,7 +23,7 @@ Only the second one works. The page opens its folder only when
 `window.__WHISPERING_BRIDGE__` exists (`caf928c446fc:apps/whispering/src/lib/workspace/index.ts`),
 <!-- doc-path-check: ignore-next-line -->
 and only the standalone shell injects it (`apps/whispering/src-tauri/src/lib.rs`).
-Epicenter's `APPLICATION_FOLDERS` (`apps/epicenter/src-tauri/src/data_folders.rs`)
+Epicenter's `APPLICATION_FOLDERS` (`a3b5be346e96:apps/epicenter/src-tauri/src/data_folders.rs`)
 registers Todos and Capture and no Whispering folder. Inside Epicenter the
 window answers `HostMissing`. The services the bridge reaches are `createHost`
 <!-- doc-path-check: ignore-next-line -->

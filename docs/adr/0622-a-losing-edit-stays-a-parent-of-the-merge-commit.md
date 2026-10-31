@@ -25,7 +25,7 @@ place
 [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md)).
 A delete beats an edit it never saw. A file against a directory keeps both,
 the file renamed `<path>~<side>`. `mergeMessage` in
-`packages/folder/src/git/merge.ts` names each losing unit in an `Overrode:`
+`c87a47f8783f:packages/folder/src/git/merge.ts` names each losing unit in an `Overrode:`
 trailer. ADR-0591 deleted the merge driver that ran this merge inside plain
 Git, so `git pull` on disk merges by Git's own rules
 ([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)).

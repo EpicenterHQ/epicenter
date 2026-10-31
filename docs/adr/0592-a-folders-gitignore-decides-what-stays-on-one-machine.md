@@ -19,9 +19,9 @@ inspect one with `git show commit:path`.
 `local` in the Definition (`packages/definition/src/declaration.ts:99`)
 lists `.gitignore` patterns, and the engine leaves every match out of every
 commit whatever `.gitignore` says (`localMatcher` and `sourceFiles`,
-`packages/folder/src/git/scope.ts`), including a file committed before the
+`69d33c135926:packages/folder/src/git/scope.ts`), including a file committed before the
 rule and one a `!` line in `.gitignore` re-includes (ADR-0577). `localNow`
-(`packages/folder/src/git/history.ts:322`) joins the Definition's patterns
+(`c87a47f8783f:packages/folder/src/git/history.ts:322`) joins the Definition's patterns
 with the file's and refuses a save version or a sync when `epicenter.json`
 does not read. A read-through handle also passes the reading app's patterns
 as `appLocal`, which the desktop sends to the CLI as `--app-local`

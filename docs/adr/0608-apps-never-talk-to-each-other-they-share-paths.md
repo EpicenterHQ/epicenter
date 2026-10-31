@@ -24,7 +24,7 @@ The folder id is not yet one name on both hosts. In a tab it is the
 directory name at the OPFS root (`9d13dd25854e:packages/folder/src/browser-adapter.ts`,
 header). On the desktop it is a scope, `data:<name>` or an app id, mapped
 from directory names only in `DataFolderScopes`
-(`apps/epicenter/src-tauri/src/data_folders.rs:124`), which is filled
+(`a3b5be346e96:apps/epicenter/src-tauri/src/data_folders.rs:124`), which is filled
 only when the Folders window lists folders. ADR-0586 already makes the id
 the directory name, unbuilt.
 

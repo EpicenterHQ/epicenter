@@ -98,7 +98,7 @@ Deleted, about 700 lines removed or rewritten:
   `EPICENTER_HOST` define in `installedAppViteConfig`;
   `isInstalledAppBuild`, and `installedAppAdapterOptions`' switch;
 - `6e6551b3bc03:apps/todos/tsconfig.epicenter-host.json`,
-  `apps/whispering/tsconfig.epicenter-host.json`, and their `svelte-check`;
+  `0320d9980b89:apps/whispering/tsconfig.epicenter-host.json`, and their `svelte-check`;
 - `build:installed` in Capture, Honeycrisp, Todos, and Whispering;
 - the `prerender` conditionals in those four `+layout.ts` files;
 - both `platform-selection.test.ts` files, their

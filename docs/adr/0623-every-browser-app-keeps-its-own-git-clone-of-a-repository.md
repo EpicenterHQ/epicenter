@@ -18,12 +18,12 @@ tree in the origin private file system (OPFS), keeps a Git index, and holds
 a Web Lock for index and branch work
 (`9d13dd25854e:packages/folder/src/git/browser-backend.ts`,
 `9d13dd25854e:packages/folder/src/git/opfs-git.ts`,
-`packages/folder/src/git/index-file.ts`,
+`c87a47f8783f:packages/folder/src/git/index-file.ts`,
 `9d13dd25854e:packages/folder/src/opfs-store.ts`). A commit happens at sync or when a
 person saves a version
 ([ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md)),
 and it captures the whole folder, reading every file
-(`packages/folder/src/git/history.ts`). A benchmark at 10,000 rows on
+(`c87a47f8783f:packages/folder/src/git/history.ts`). A benchmark at 10,000 rows on
 commit `7a05d60556` measured a browser clone at 110 s and a native sync at
 47 s; one shared Git object cache brought them to 43 s and 3.1 s.
 

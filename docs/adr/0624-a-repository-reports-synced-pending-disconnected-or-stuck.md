@@ -11,7 +11,7 @@
 ## Context
 
 Sync stops with typed errors: `SyncError.Unrepresentable`
-(`packages/folder/src/git/errors.ts`) for a tree holding a link, an
+(`c87a47f8783f:packages/folder/src/git/errors.ts`) for a tree holding a link, an
 executable, a submodule, a Git attribute filter, an invalid path, or two
 paths only their case tells apart
 ([ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md)),

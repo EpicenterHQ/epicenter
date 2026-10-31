@@ -18,7 +18,7 @@ A data folder is a directory whose root `epicenter.json` describes its
 tables
 ([ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md)).
 Its author may keep `epicenter.ts` and run `epicenter generate`
-(`packages/folder/src/generate-declaration.ts`) to write the JSON
+(`a705179adf5d:packages/folder/src/generate-declaration.ts`) to write the JSON
 ([ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md)).
 An app named after a folder takes its own definition as the truth and
 `publishDefinition` (`9d13dd25854e:packages/folder/src/publish-definition.ts`) writes it

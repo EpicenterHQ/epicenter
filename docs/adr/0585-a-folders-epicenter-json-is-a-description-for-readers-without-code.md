@@ -31,7 +31,7 @@ may write the file and which apps may open the folder.
   fill is `canCreate: false` (`9d13dd25854e:packages/folder/src/table.ts`).
 - **Listing.** The desktop shell lists a directory in the Epicenter folder
   only when it holds `epicenter.json`
-  (`apps/epicenter/src-tauri/src/data_folders.rs:219-220`), and at every
+  (`a3b5be346e96:apps/epicenter/src-tauri/src/data_folders.rs:219-220`), and at every
   launch runs `epicenter declare-epicenter-folder`
   (`spawn_epicenter_folder_declaration`, `apps/epicenter/src-tauri/src/cli.rs:597`).
 

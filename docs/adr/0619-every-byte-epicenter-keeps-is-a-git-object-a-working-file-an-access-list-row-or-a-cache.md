@@ -18,13 +18,13 @@ Epicenter keeps state Git cannot read. Sync points
 has begun, and the next commit finishes that publish before recording
 anything
 ([ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md);
-`packages/folder/src/git/backend.ts`,
+`c87a47f8783f:packages/folder/src/git/backend.ts`,
 `9d13dd25854e:packages/folder/src/git/browser-backend.ts`). The installed-app layout
 names each build's tree `refs/epicenter/builds/<commit>`
 (`f16c69134b49:packages/cli/src/installed-apps.ts`). Every repository Epicenter creates
 or clones gets a line in `info/attributes` that unsets each attribute that
 changes bytes (`neutralizeAttributes`,
-`packages/folder/src/git/neutral-attributes.ts`;
+`c87a47f8783f:packages/folder/src/git/neutral-attributes.ts`;
 [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md)).
 Plain `git` either ignores each of these or behaves differently because of
 it, so a repository Epicenter touched is not the repository a person sees

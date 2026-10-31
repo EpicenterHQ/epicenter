@@ -32,7 +32,7 @@ merge itself needs no table: `mergeRows`
 orders keys base, then ours, then theirs (`:106-110`).
 
 Sync takes its classifier from the opened handle (`kindOf`,
-`packages/folder/src/git/history.ts:687`). A plain-Git merge driver walks
+`c87a47f8783f:packages/folder/src/git/history.ts:687`). A plain-Git merge driver walks
 up from the path to the nearest `epicenter.json` and prepares it
 <!-- doc-path-check: ignore-next-line -->
 (`gitMergeKind`, `packages/folder/src/merge-driver.ts:52-76`), and the CLI

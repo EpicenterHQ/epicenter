@@ -19,7 +19,7 @@ An app opens first, and a folder follows from it. Opening an installed app
 with no folder hands its window `<folder_dir>/<app-id>`
 (`data_folders::own_folder`, called from
 `f16c69134b49:apps/epicenter/src-tauri/src/installed_apps.rs`), which the first grant
-creates (`register_own_folder`, `apps/epicenter/src-tauri/src/data_folders.rs:183`).
+creates (`register_own_folder`, `a3b5be346e96:apps/epicenter/src-tauri/src/data_folders.rs:183`).
 The page opens it with `openFolder({ app, definition })`; `handedFolder`
 (`9d13dd25854e:packages/folder/src/tauri-adapter.ts`) refuses a window that runs
 another app as `AppMismatch` (`packages/folder/src/errors.ts:257`). The
@@ -28,7 +28,7 @@ shell's reply is `WindowFolder { app, folder }`
 <!-- doc-path-check: ignore-next-line -->
 (`packages/svelte/src/folder-app.svelte`) takes `app={manifest}` and passes
 `manifest.id` on. App ids are folder ids: `TODOS_FOLDER_ID`
-(`apps/todos/src/lib/definition.ts:14`) and `WHISPERING_FOLDER_ID`
+(`7f0c17041606:apps/todos/src/lib/definition.ts:14`) and `WHISPERING_FOLDER_ID`
 (`caf928c446fc:apps/whispering/src/lib/workspace/types.ts`) read `manifest.id` from
 each app's `epicenter.app.json`, and Capture and Honeycrisp pass
 `manifest.id` through `<FolderApp>`.
