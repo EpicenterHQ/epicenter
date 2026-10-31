@@ -119,6 +119,20 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 			skipConsent: true,
 			applicationType: 'native',
 		},
+		// Vocab's desktop program signs in only for hosted models and
+		// dictation: its words are files in a folder Epicenter syncs, so it
+		// asks for the API alone. A loopback redirect on any port (RFC 8252),
+		// and the refresh token in that computer's keychain.
+		{
+			clientId: 'so.epicenter.vocab.desktop',
+			name: 'Vocab',
+			redirectUris: ['http://127.0.0.1/callback'],
+			grantTypes: ['authorization_code', 'refresh_token'],
+			scopes: ['openid', 'offline_access', 'profile', 'email', 'ai'],
+			resources: [audiences.api],
+			skipConsent: true,
+			applicationType: 'native',
+		},
 		// The CLI and the agents on the person's machine: the device grant
 		// only, approved on the device approval page every time.
 		{
