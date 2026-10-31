@@ -110,11 +110,8 @@ Production's library, the authored folder root, is `~/Epicenter`; development's
 is `~/Epicenter Dev`. `EPICENTER_FOLDER_DIR` overrides the library at startup
 and must be absolute; changing it opens another library and moves no files.
 Native locations live in `tauri_plugin_epicenter_folder::defaults::DesktopPaths`.
-Epicenter's records are a fixed reverse-DNS child from the `library` table
-(ADR-0672), `library::RECORDS`. Nothing writes them any more (Settings kept
-AI connections there); no window or `epicenter init` may claim them, so files
-already there stay as they are. The standalone apps keep their data at
-`~/Epicenter/<productName>`, outside that table.
+Epicenter writes nothing into the library itself; the standalone apps keep
+their data at `~/Epicenter/<productName>`.
 The shell resolves both directories once and sets `EPICENTER_DATA_DIR` and
 `EPICENTER_FOLDER_DIR` on every `epicenter` command it runs, so the CLI
 writes where the shell reads. A terminal's `epicenter` uses the same
@@ -125,17 +122,14 @@ Files split by what they cost to lose (ADR-0539):
 
 ```txt
 ~/Epicenter/                                  read, edited, and versioned as files
-  so.epicenter/                               Epicenter’s records, no longer written
   <name>/                                     a folder `epicenter clone` made
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   auth/<grant>.lock                           the lock a sign-in refreshes under (the CLI writes it)
   local-transcription.json                    the active local model and when to unload it
 ```
 
-Defaults are derived, never saved: an ordinary launch creates its missing
-default and reuses an existing one with its files, without an ownership
-claim. No configuration selects or remembers them. Release and development
-data remain separate.
+The library and application data are derived, never saved: no configuration
+selects or remembers them. Release and development data remain separate.
 
 The folders Epicenter syncs may sit anywhere on disk. Their list is the
 global Git configuration's multi-valued `epicenter.folder`, which `epicenter

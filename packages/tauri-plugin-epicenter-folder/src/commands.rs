@@ -13,7 +13,7 @@
 //! blocking pool, never on the thread that drives the windows. The folder's
 //! Git is not here: the `epicenter` CLI runs it (ADR-0559).
 
-use epicenter_folder_core::library::resolved;
+use epicenter_folder_core::admission::resolved;
 use epicenter_folder_core::root::{prepare_directory, PrepareError};
 use epicenter_folder_core::storage::{self, ListedFile, PutOutcome, StorageError};
 use tauri::ipc::Channel;

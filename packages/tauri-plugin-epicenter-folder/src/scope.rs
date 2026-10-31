@@ -11,12 +11,12 @@
 //!
 //! Even an allowed root is refused when it is a place no app keeps its files
 //! in (`Refusals`): the top of a disk, the home folder, a `.git` folder,
-//! Epicenter's own records and settings, or a folder holding the app's own
-//! data directory.
+//! Epicenter's own settings, or a folder holding the app's own data
+//! directory.
 
 use std::path::{Path, PathBuf};
 
-use epicenter_folder_core::library::{resolved, RECORDS};
+use epicenter_folder_core::admission::resolved;
 use tauri::{Manager, Runtime, Webview};
 use tauri_plugin_fs::FsExt;
 
@@ -63,9 +63,8 @@ pub(crate) fn admit<R: Runtime>(
 pub struct Refusals {
     /// The person's home directory, never a folder itself.
     pub home: PathBuf,
-    /// Epicenter's own records (`~/Epicenter/so.epicenter`, and the same in
-    /// `~/Epicenter Dev`) and its application data and configuration
-    /// directories: never a folder, never inside or around one.
+    /// Epicenter's application data and configuration directories: never a
+    /// folder, never inside or around one.
     pub epicenter_own: Vec<PathBuf>,
     /// This app's own data directory, never inside a folder.
     pub app_data: PathBuf,
@@ -78,10 +77,7 @@ impl Refusals {
             message: error.to_string(),
         };
         let home = path.home_dir().map_err(failed)?;
-        let mut epicenter_own = vec![
-            home.join("Epicenter").join(RECORDS.id),
-            home.join("Epicenter Dev").join(RECORDS.id),
-        ];
+        let mut epicenter_own = Vec::new();
         for base in [path.data_dir(), path.config_dir(), path.local_data_dir()] {
             let base = base.map_err(failed)?;
             epicenter_own.push(base.join("so.epicenter"));
@@ -122,9 +118,7 @@ impl Refusals {
         for own in &self.epicenter_own {
             let own = resolved(own);
             if candidate.starts_with(&own) || own.starts_with(&candidate) {
-                return Some(format!(
-                    "{shown} holds Epicenter's own records or settings."
-                ));
+                return Some(format!("{shown} holds Epicenter's own settings."));
             }
         }
         if resolved(&self.app_data).starts_with(&candidate) {
@@ -147,7 +141,6 @@ mod tests {
         let refusals = Refusals {
             home: home.clone(),
             epicenter_own: vec![
-                home.join("Epicenter/so.epicenter"),
                 support.join("so.epicenter"),
                 support.join("so.epicenter.dev"),
             ],
@@ -158,17 +151,12 @@ mod tests {
         for (refused, why) in [
             (PathBuf::from("/"), "is the top of a disk"),
             (home.clone(), "is your home folder"),
+            (support.join("so.epicenter.dev"), "Epicenter's own settings"),
             (
-                home.join("Epicenter/so.epicenter"),
-                "Epicenter's own records",
+                support.join("so.epicenter/logs"),
+                "Epicenter's own settings",
             ),
-            (
-                home.join("Epicenter/so.epicenter/connections"),
-                "Epicenter's own records",
-            ),
-            (home.join("Epicenter"), "Epicenter's own records"),
-            (support.join("so.epicenter.dev"), "Epicenter's own records"),
-            (support.clone(), "Epicenter's own records"),
+            (support.clone(), "Epicenter's own settings"),
             (
                 support.join("so.epicenter.notes"),
                 "this app's own settings",

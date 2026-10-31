@@ -60,9 +60,8 @@ a recovery screen, never another folder, and there is no first-run question
 awaits `openDevice(contract)` over the origin's private file system; an
 online web variant opens the repository with `openRemote`.
 
-Epicenter's records keep the library's fixed reverse-DNS default, `so.epicenter` under `~/Epicenter`
-(`~/Epicenter Dev` in development)
-([ADR-0672](adr/0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md)).
+Epicenter keeps no records of its own in the library, `~/Epicenter` (`~/Epicenter Dev`
+in development); the standalone apps keep their folders there.
 
 The folders Epicenter syncs are the global Git configuration's multi-valued
 `epicenter.folder`, which `epicenter init`, `clone`, and `forget` change; the

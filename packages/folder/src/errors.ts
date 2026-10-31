@@ -77,7 +77,7 @@ export const OpenDeviceError = defineErrors({
 		message: `This app has not been allowed to open ${folder}. Choose it in the folder picker to allow it.`,
 		folder,
 	}),
-	/** A place no app keeps its files in (the home folder, a .git folder, Epicenter's own records), why in one line. */
+	/** A place no app keeps its files in (the home folder, a .git folder, Epicenter's own settings), why in one line. */
 	Refused: ({ folder, reason }: { folder: string; reason: string }) => ({
 		message: reason,
 		folder,

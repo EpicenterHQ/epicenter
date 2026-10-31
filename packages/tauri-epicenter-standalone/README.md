@@ -45,7 +45,7 @@ folders, so switching back is free. Folders dropped onto the window are not
 allowed (`plugins.fs.scopeDroppedPaths: false`). Even an allowed folder is
 refused when no app should keep its files there (the folder plugin's
 `scope::Refusals`): the top of a disk, the home folder itself, anything
-inside or around Epicenter's own records or settings, anything around the
+inside or around Epicenter's own settings, anything around the
 app's own settings, anything inside a repository's `.git` folder, and a
 relative path.
 

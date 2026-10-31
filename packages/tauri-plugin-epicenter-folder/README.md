@@ -20,11 +20,10 @@ file-system scope must allow (see Other roots).
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the shared path rule, the page's storage (`storage.rs`), and the fixed native defaults (`library.rs`). No Tauri. |
+| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the shared path rule, the page's storage (`storage.rs`), and which directories may be set up for sync (`admission.rs`). No Tauri. |
 | `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), which roots a page may open (`scope.rs`), and storage commands. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
-| `fixtures/records-default.json` | Where the records default is admitted and refused. `core/src/library.rs` runs it. |
 | `fixtures/storage-outcomes.json` | Storage calls and what each answers. `core/src/storage_tests.rs` runs them over the shell's storage and `storage-outcomes.test.ts` in `@epicenter/folder` over the Bun directory storage, so both give the same outcomes. |
 
 This crate has no JavaScript package of its own. A page reaches it through
@@ -68,34 +67,14 @@ uses `so.epicenter` and `~/Epicenter`; development uses `so.epicenter.dev`
 and `~/Epicenter Dev`. A nonempty absolute `EPICENTER_DATA_DIR` or
 `EPICENTER_FOLDER_DIR` overrides either.
 
-`library` (ADR-0672) is the table of fixed native defaults: each
-`LibraryDefault` is a permanent reverse-DNS child of the root and a display
-title that never names storage. Epicenter's records are its one row.
+`admission::check_sync_directory`, which Epicenter runs before
+`epicenter init`, refuses a folder's `.epicenter` or anything in one, a
+directory inside, equal to, or holding application data, and the library root
+or a directory holding it, so the folders in it never become one repository.
+Containment compares canonical paths and directory identity, so a linked
+parent or another spelling of a protected directory is no route around it.
 
-```txt
-<library>/
-  so.epicenter/              RECORDS     Epicenter
-```
-
-`DesktopPaths::open_default(definition)` computes `<root>/<id>`, admits it,
-then creates it when missing or reuses the directory already there with its
-files. It reads and writes no configuration and claims no ownership: a
-default that was moved or deleted is made again by the next ordinary launch,
-and two apps may open one directory. A file or a link at the path is refused
-and kept; no alternative name is allocated. Picker-chosen directories bypass
-the defaults and must exist.
-
-Admission is `library::check_editable_directory` for records: never a
-folder's `.epicenter` or anything in one, and never overlapping application
-data. `library::check_app_directory`, for ordinary apps, one-time launches,
-and Epicenter's `epicenter init`, also refuses records, anything in them, and any
-directory holding them, such as the root. Overlap compares canonical
-paths and directory identity, so a linked parent or another spelling of a
-protected directory is no route around it. A root override is admitted before
-anything is made. Records admission runs the cases in
-`fixtures/records-default.json`.
-
-`Directory::create(path)` prepares a fixed default computed by the shell,
+`Directory::create(path)` prepares a directory the shell computed,
 creating it and its parents when missing and retaining its canonical root.
 `Directory::existing(path)` resolves a directory a person selected without
 creating anything: a missing one is `Missing`, a file or a link is
@@ -170,8 +149,8 @@ AppData root. The plugin keeps no grant list of its own: Tauri decides.
 
 1. `Refused { root, reason }` for a place no app keeps its files in
    (`scope::Refusals`): the top of a disk, the home folder, anything inside a
-   `.git` folder, anything inside or around Epicenter's own records or
-   settings, and anything holding the app's own data directory.
+   `.git` folder, anything inside or around Epicenter's own settings, and
+   anything holding the app's own data directory.
 2. `NotGranted { root }` unless Tauri's runtime file-system scope allows
    the path (`tauri-plugin-fs`'s `FsExt::fs_scope`, which a deny wins
    over): a shell allows its app's default folder there at startup, the

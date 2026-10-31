@@ -135,9 +135,9 @@ folder once the person presses Sync with Epicenter.
 | [Recorder demo](recorder-demo/README.md) | local web; online web | none | `recorder-demo`: `recordings`, `audio` |
 
 A local web app keeps its files in the origin's OPFS; an online web app
-keeps none in the browser. The Epicenter app keeps its records in the folder
-plugin's library root, `~/Epicenter` (`~/Epicenter Dev` in development, or
-`EPICENTER_FOLDER_DIR`).
+keeps none in the browser. The Epicenter app keeps no data of its own; its
+library root, `~/Epicenter` (`~/Epicenter Dev` in development, or
+`EPICENTER_FOLDER_DIR`), holds the standalone apps' folders.
 
 Local Books keeps its QuickBooks replica in SQLite under
 `<AppData>/apps/so.epicenter.local-books`, outside the library. `api`,

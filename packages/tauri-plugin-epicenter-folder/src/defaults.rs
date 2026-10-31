@@ -1,17 +1,15 @@
-//! Epicenter's authored-folder launch defaults: its records in the library
-//! root. The shell resolves the library root once at startup; window binding
-//! and explicitly chosen directories do not depend on this policy. The apps
-//! on `epicenter-standalone` use neither: each keeps its data folder at
-//! `~/Epicenter/<productName>`.
+//! Epicenter's machine-local application data and its library root, which
+//! the shell resolves once at startup and passes to every `epicenter`
+//! command it runs. Window binding and explicitly chosen directories do not
+//! depend on them. The apps on `epicenter-standalone` use neither: each
+//! keeps its data folder at `~/Epicenter/<productName>`.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use epicenter_folder_core::library::{self, LibraryDefault};
 use tauri::{AppHandle, Manager, Runtime};
 
-/// Epicenter's machine-local application data and the library root whose
-/// fixed children are its defaults.
+/// Epicenter's machine-local application data and the library root.
 #[derive(Debug, Clone)]
 pub struct DesktopPaths {
     pub data_dir: PathBuf,
@@ -44,12 +42,6 @@ impl DesktopPaths {
             data_dir,
             folder_dir,
         })
-    }
-
-    /// Create or reuse `<folder_dir>/<id>` after admitting it. Writes no
-    /// configuration.
-    pub fn open_default(&self, definition: LibraryDefault) -> Result<crate::Directory, String> {
-        library::open_default(&self.data_dir, &self.folder_dir, definition)
     }
 }
 
@@ -94,8 +86,7 @@ fn resolve_directory(
 /// Resolve the authored root before opening any app windows. A nonempty,
 /// absolute `EPICENTER_FOLDER_DIR` wins without looking up the home directory.
 /// Otherwise the bundle's storage environment selects `~/Epicenter` or
-/// `~/Epicenter Dev`. This computes a path; `open_default` admits and creates
-/// the fixed child an ordinary launch opens.
+/// `~/Epicenter Dev`. This computes a path and makes nothing.
 fn resolve_folder_root(
     identifier: &str,
     override_value: Option<&OsStr>,
@@ -163,17 +154,14 @@ mod tests {
             let identifier = config["identifier"].as_str().unwrap();
             for value in [None, Some(OsStr::new(""))] {
                 let root = resolve_folder_root(identifier, value, || Ok(home.clone())).unwrap();
-                assert_eq!(
-                    library::RECORDS.path(&root),
-                    home.join(name).join("so.epicenter")
-                );
+                assert_eq!(root, home.join(name));
             }
             let elsewhere = home.join("elsewhere");
             let root = resolve_folder_root(identifier, Some(elsewhere.as_os_str()), || {
                 panic!("an explicit root does not need the home directory")
             })
             .unwrap();
-            assert_eq!(library::RECORDS.path(&root), elsewhere.join("so.epicenter"));
+            assert_eq!(root, elsewhere);
         }
     }
 

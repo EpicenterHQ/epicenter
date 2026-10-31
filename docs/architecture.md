@@ -57,8 +57,7 @@ source from a repository.
 
 The Folders window lists the folders the `epicenter` CLI syncs, and each of
 its actions is one CLI call. Epicenter opens no folder's files and binds no
-window to a directory. Epicenter's own records are always
-`~/Epicenter/so.epicenter`.
+window to a directory, and keeps no records of its own.
 
 Each standalone app (Capture, Honeycrisp, Todos, Vocab, Whispering) is its
 own Tauri program on the shared `epicenter-standalone` crate: its window
