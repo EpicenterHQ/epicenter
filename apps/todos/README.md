@@ -105,11 +105,11 @@ name, and never commits or contacts a server.
   or the desktop window's folder.
 - `src/lib/todos.ts`: a todo's file, label and order (open first, then
   done, each oldest first), and the list's context.
-- `src/routes/+layout.svelte`: signed in, wraps every page in the
+- `src/routes/(app)/+layout.svelte`: signed in, wraps both views in the
   signed-in boundary, `src/lib/components/SignedIn.svelte`: the repository
   (`setRepo`) and the uploader, per account.
-- `src/routes/+page.svelte`: "On this device", `fromClient(device).todos`.
-- `src/routes/synced/`: "Synced", `fromClient(getRepo<Todos>()).todos`,
+- `src/routes/(app)/+page.svelte`: "On this device", `fromClient(device).todos`.
+- `src/routes/(app)/synced/`: "Synced", `fromClient(getRepo<Todos>()).todos`,
   behind a layout that asks for a sign-in when there is none.
 - `src/lib/components/TodosApp.svelte`: one view over the todos it is
   given; the components under it read and write only through them.
