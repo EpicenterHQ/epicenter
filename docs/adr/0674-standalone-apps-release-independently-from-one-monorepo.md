@@ -4,6 +4,7 @@
 - **Date:** 2026-10-22
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (independent apps over shared data) and [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) (optional desktop clients).
 - **Unbuilt:** Epicenter's persistent updater key provisioning, CI verification of distribution signing and notarization, and first live feed promotion. Epicenter's draft release workflows, native updater, and packaged local update rehearsal are implemented. Standalone apps still need their own release flows; standalone Whispering also needs its own native shell.
+- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at apps bundled with Epicenter: Epicenter's release carries no app pages.
 
 ## Context
 

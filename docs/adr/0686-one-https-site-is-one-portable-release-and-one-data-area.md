@@ -1,6 +1,7 @@
 # 0686. One HTTPS site is one portable release and one data area
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0701](0701-apps-run-as-separate-programs.md): Epicenter opens no site; the archived design is at the tag `archive/app-hosting`.
 - **Date:** 2026-10-23
 - **Supersedes as a direction:** The proposed source-install runner in [ADR-0680](0680-rust-serves-each-installed-app-from-a-pinned-build-on-its-own-origin.md). The legacy bundled-app path remains during migration.
 - **Unbuilt:** Published first-party URLs, migration of every bundled app, and Windows/Linux origin and activation probes.

@@ -2,7 +2,9 @@
 
 Read conversations and send text replies through Beeper Desktop, using
 Epicenter's own interface. The app always starts with fictional demo chats.
-It makes no Beeper request until you explicitly connect from the desktop app.
+This browser build runs demo conversations only: live Beeper needs a desktop
+build of Messages, which does not exist yet. Epicenter no longer hosts it
+([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)).
 
 ## Run and check safely
 
@@ -12,7 +14,6 @@ bun run --cwd apps/messages typecheck
 bun run --cwd apps/messages test
 bun run --cwd apps/messages smoke:browser
 bun test packages/cli/src/messages.test.ts
-bun run --cwd apps/messages build:host
 ```
 
 The browser development app runs on port 5188. Demo replies and incoming
@@ -26,12 +27,6 @@ The Community garden conversation includes a generated photo you can enlarge.
 Noah's conversation has a downloadable fictional route file. Both assets are
 bundled with the app; viewing them never fetches from Beeper or another website.
 These previews demonstrate media in demo mode. Live media still opens in Beeper.
-
-Epicenter bundles the host build at `/messages/`, offers Messages from its
-Folders window, and binds its window to the chosen folder. Its default native
-folder is `Messages` under Epicenter's authored folder root. Build only this
-bundle with `bun run --cwd apps/epicenter build:bundled messages`; the native
-shell and its compiled CLI must also be rebuilt for the new command.
 
 ## What persists
 
@@ -79,18 +74,16 @@ database is needed yet.
 
 ## Connect Beeper
 
-In the desktop app, choose **Connect Beeper**. Create an access token under
+A desktop build would offer **Connect Beeper**. Create an access token under
 Beeper Settings → Integrations → Approved connections, paste it, and connect.
 An existing token is used only after pressing Connect again. Disconnect removes
 Epicenter's saved token; it does not revoke the Beeper-issued token or delete
 drafts. Beeper must remain running on this device.
 
-The page calls only `messages_beeper`, a fixed native command granted only to
-Messages windows. It runs `epicenter messages --json` with a validated operation
-on stdin. The CLI owns credentials and the TypeScript Beeper SDK, fixes its
+Live Beeper runs through `epicenter messages --json`, which takes a validated
+operation on stdin. The CLI owns credentials and the TypeScript Beeper SDK, fixes its
 endpoint to `http://127.0.0.1:23373`, and disables SDK retries. Tokens never
 appear in command arguments, folder files, browser storage, or error output.
-The desktop page's existing connection policy is unchanged.
 
 Manual token setup is the first connection flow; OAuth onboarding is not
 implemented. Do not connect production accounts while developing or testing.

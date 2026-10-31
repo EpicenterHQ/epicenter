@@ -1,6 +1,7 @@
 # 0687. Opening a site URL opens its derived folder
 
-- **Status:** Proposed
+- **Status:** Superseded
+- **Superseded by:** [ADR-0701](0701-apps-run-as-separate-programs.md): Epicenter opens no site URL.
 - **Date:** 2026-10-24
 - **Revisits:** [ADR-0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md), which chose a host-downloaded release and a saved folder association.
 - **Unbuilt:** Production host-owned offline reopening as proposed in [ADR-0691](0691-offline-reopening-keeps-the-sites-https-origin.md); Windows and Linux origin checks; migration of remaining bundled apps. A [macOS Tauri fixture](../../apps/epicenter/evidence/offline-proxy/RESULTS.md) has proved native Folder IPC at the site's HTTPS origin.

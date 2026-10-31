@@ -2,7 +2,7 @@
 
 Capture keeps dated captures, newest first. Each capture is one Markdown file in `captures/<stem>.md`: its text, then its thoughts as a bullet list under `## Thoughts`. The files are the saved data. There is no account, history, or sync. The file format and its rules are in [`packages/capture`](../../packages/capture/README.md).
 
-Capture opens one folder with `openFolder({ tables: captureTables })` from `@epicenter/folder`. The browser build uses this origin's IndexedDB folder. Inside Epicenter, the desktop build uses the directory granted to its window.
+Capture opens one folder with `openFolder({ tables: captureTables })` from `@epicenter/folder`. The browser build uses this origin's IndexedDB folder.
 
 Run the browser app with `bun dev:capture` from the repository root.
 
@@ -66,11 +66,10 @@ The package exports the file model and body codec; it opens no folder.
 | `bun run --cwd apps/capture typecheck` | App and script types. |
 | `bun run --cwd apps/capture test` | Mirror store, bundle graph, and mounted components. |
 | `bun run --cwd apps/capture build` | Portable website and offline service worker. |
-| `bun run --cwd apps/capture build:host` | Host build. |
 | `bun run --cwd apps/capture smoke:browser` | Chromium flow over a shared browser profile. |
 | `bun scripts/check-ui-boundary.ts` | UI import boundary. |
 
-The portable build writes `build/`; the host build writes `dist/`. They share SvelteKit's output directory, so run them in sequence. The browser smoke needs a free local port and Chromium installed through `bun x playwright install chromium`.
+The portable build writes `build/`. The browser smoke needs a free local port and Chromium installed through `bun x playwright install chromium`.
 
 ## Changed promises
 

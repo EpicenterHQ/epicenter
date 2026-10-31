@@ -1,6 +1,7 @@
 # 0680. Rust serves each installed app from a pinned build on its own origin
 
-- **Status:** Proposed
+- **Status:** Superseded
+- **Superseded by:** [ADR-0701](0701-apps-run-as-separate-programs.md): Epicenter serves no app build; installed-app origins are the likely shape if hosting returns.
 - **Date:** 2026-10-22
 - **Amends:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) and [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) at the optional runner's exclusion of installed source-built pages and native app admission, if this proposal is accepted.
 - **Relates:** Historical [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) and [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md); [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) keeps standalone releases and fixed bundled pages separate; [ADR-0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) defines fixed first-party folders; [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) proposes an installation-bound private database opener; the proposed launcher grouping concerns data folders.

@@ -1,8 +1,11 @@
 # Recording overlay
 
-> Historical. This describes the recording overlay of the earlier Whispering that
-> ran inside the Epicenter desktop host. The standalone app in this directory has
-> no overlay window; see [README.md](../README.md) for what it supports.
+> Historical. This describes the recording overlay of an earlier Whispering
+> desktop build. Whispering now runs only as a browser build with no overlay
+> window, and Epicenter no longer hosts it
+> ([ADR-0701](../../../docs/adr/0701-apps-run-as-separate-programs.md); archived
+> at the tag `archive/app-hosting`). See [README.md](../README.md) for what it
+> supports.
 
 A small floating pill that appears while Whispering is capturing audio, inspired
 by Handy's recording overlay. It shows that Whispering is listening and lets the

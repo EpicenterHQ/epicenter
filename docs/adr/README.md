@@ -729,7 +729,7 @@ When you add an ADR, add its row here.
 | [0488](0488-cloud-folders-use-independent-git-histories.md) | Each synced folder is an independent Git repository | Proposed (audio history measurement unbuilt) |
 | [0489](0489-folder-transfers-happen-only-when-a-person-syncs.md) | Folder transfers happen only when a person syncs | Proposed (selective refresh unbuilt) |
 | [0491](0491-field-helpers-build-native-typebox-schemas-with-ui-metadata.md) | Field helpers build native TypeBox schemas with UI metadata | Accepted |
-| [0493](0493-whisperings-only-desktop-shell-is-epicenter.md) | Whispering's only desktop shell is Epicenter | Proposed |
+| [0493](0493-whisperings-only-desktop-shell-is-epicenter.md) | Whispering's only desktop shell is Epicenter | Superseded by 0701 (apps run as separate programs) |
 | [0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) | File-folder queries use transient captured projections | Proposed (query sessions, capture contract, managed ignore initialization, and file-first resource composition unbuilt; persistence and SQL export deferred) |
 | [0495](0495-the-ark-community-profiles-use-at-handle-paths.md) | The Ark community profiles use at-handle paths | Proposed (community routing and stable profile identity unbuilt; custom domains open) |
 | [0497](0497-browser-folders-use-scoped-opfs-directories.md) | Browser folders use scoped OPFS directories | Accepted (app selection of development and account scopes and private SQL channel ownership unbuilt) |
@@ -759,7 +759,7 @@ When you add an ADR, add its row here.
 | [0534](0534-data-folders-are-the-only-data-model.md) | Data folders are the only data model | Accepted (superseding the store records, retired Durable Object data) |
 | [0535](0535-an-existing-folder-opens-with-its-own-declaration.md) | An existing folder opens with its own declaration | Accepted (amends 0531 and 0533; amended by 0568, 0585, 0586, and 0591; amended by 0700) |
 | [0536](0536-a-folder-table-may-close-with-additionalproperties-false.md) | A folder table may close with additionalProperties false | Accepted |
-| [0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) | Epicenter opens to your folders, and Home becomes Settings | Accepted (amends 0209) |
+| [0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) | Epicenter opens to your folders, and Home becomes Settings | Accepted (amends 0209); amended by 0701 |
 | [0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) | An app opens any folder whose declaration contains its shape | Superseded by 0585 |
 | [0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) | Epicenter's own folder is so.epicenter, and machine state splits by what it costs to lose | Accepted (amended by 0587, 0586, 0605, and 0636; native default restored by 0660) |
 | [0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) | An app is installed by building its source, and approving a commit trusts it fully | Superseded by 0589 |
@@ -855,7 +855,7 @@ When you add an ADR, add its row here.
 | [0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) | Epicenter remembers folders as machine-local paths | Accepted (amends 0558) |
 | [0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) | Each desktop app selects its CLI independently of the terminal | Accepted (amends 0558) |
 | [0643](0643-the-folder-package-owns-its-local-engine.md) | The Folder package owns its local engine | Accepted (amends 0626 and 0636) |
-| [0644](0644-the-shell-assigns-a-native-windows-default-folder.md) | The shell assigns a native window's default folder | Accepted (amends 0636; amended by 0647 and 0660) |
+| [0644](0644-the-shell-assigns-a-native-windows-default-folder.md) | The shell assigns a native window's default folder | Accepted (amends 0636; amended by 0647 and 0660); amended by 0701 |
 | [0646](0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md) | A native app hands Epicenter a directory path, and the person accepts it | Accepted (amended by 0647) |
 | [0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) | A native window edits one directory bound before it exists | Accepted (amends 0531 and 0644; amended by 0660 at the standalone default) |
 | [0648](0648-a-folders-saved-views-live-in-its-optional-epicenter-json.md) | A folder's saved views live in its optional epicenter.json | Proposed (amends 0632) |
@@ -878,22 +878,22 @@ When you add an ADR, add its row here.
 | [0671](0671-the-launcher-lists-directories-from-all-current-references.md) | The launcher lists directories from all current references | Accepted (amends 0537, 0641, and 0670) |
 | [0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) | Native app defaults are fixed reverse-DNS children of one library | Proposed (amends 0670 and 0671) |
 | [0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) | A SQLite handle owns one connection until asynchronous disposal | Proposed (named SQLite open/delete; would amend 0201; production lifecycle and disposal unbuilt) |
-| [0674](0674-standalone-apps-release-independently-from-one-monorepo.md) | Standalone apps release independently from one monorepo | Accepted |
+| [0674](0674-standalone-apps-release-independently-from-one-monorepo.md) | Standalone apps release independently from one monorepo | Accepted; amended by 0701 |
 | [0676](0676-structured-edits-share-the-acquired-working-document.md) | Structured edits share the acquired working document | Superseded by 0688 |
-| [0677](0677-one-source-repository-can-provide-many-desktop-apps.md) | One source repository can provide many desktop apps | Proposed (source installation and host builds unbuilt) |
-| [0678](0678-app-storage-openers-use-runtime-bound-scopes.md) | App databases open within runtime-bound scopes | Proposed (separate installation roots; flat dotted database names; would amend 0314; production unbuilt) |
+| [0677](0677-one-source-repository-can-provide-many-desktop-apps.md) | One source repository can provide many desktop apps | Superseded by 0701 (apps run as separate programs) |
+| [0678](0678-app-storage-openers-use-runtime-bound-scopes.md) | App databases open within runtime-bound scopes | Proposed (separate installation roots; flat dotted database names; would amend 0314; production unbuilt); amended by 0701 |
 | [0679](0679-the-launcher-groups-folders-by-pin-library-membership-then-recency.md) | The launcher groups folders by pin, library membership, then recency | Proposed (implemented; amends 0641 and 0671) |
-| [0680](0680-rust-serves-each-installed-app-from-a-pinned-build-on-its-own-origin.md) | Rust serves each installed app from a pinned build on its own origin | Proposed (installed-page runtime and platform probes unbuilt) |
+| [0680](0680-rust-serves-each-installed-app-from-a-pinned-build-on-its-own-origin.md) | Rust serves each installed app from a pinned build on its own origin | Superseded by 0701 (apps run as separate programs) |
 | [0681](0681-portable-capability-packages-follow-the-resource-they-own.md) | Portable capability packages follow the resource they own | Proposed (`@epicenter/sqlite` and `@epicenter/secrets` as separate homes; no umbrella runtime package) |
 | [0682](0682-secrets-use-one-persistent-api-and-a-shared-tauri-plugin.md) | Secrets use one persistent API and a shared Tauri plugin | Proposed (localStorage browser adapter; reusable native plugin and Specta bindings unbuilt) |
-| [0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) | Hosted requests use a resource-bound Account fetch | Accepted (Whispering desktop caller implemented) |
+| [0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) | Hosted requests use a resource-bound Account fetch | Accepted (desktop caller removed by 0701) |
 | [0684](0684-browser-folders-submit-frozen-file-changes-instead-of-running-git.md) | Browser folders submit frozen file changes instead of running Git | Rejected 2026-10-30 (the web never syncs; ADR-0700) |
 | [0685](0685-hosted-git-records-browser-publication-receipts-in-a-protected-ref.md) | Hosted Git records browser publication receipts in a protected ref | Rejected 2026-10-30 (the web never syncs; ADR-0700) |
-| [0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md) | One HTTPS site is one portable release and one data area | Accepted |
-| [0687](0687-opening-a-site-url-opens-its-derived-folder.md) | Opening a site URL opens its derived folder | Proposed |
+| [0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md) | One HTTPS site is one portable release and one data area | Superseded by 0701 (apps run as separate programs) |
+| [0687](0687-opening-a-site-url-opens-its-derived-folder.md) | Opening a site URL opens its derived folder | Superseded by 0701 (apps run as separate programs) |
 | [0688](0688-one-folder-owned-text-document-per-path.md) | One Folder-owned text document per path | Superseded by 0689 |
 | [0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) | An edit shows what you typed; the queue carries it; the folder shows what landed | Proposed (implemented; supersedes the working-document model) |
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
-| [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Proposed (renumbered from 0689) |
+| [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Superseded by 0701 (apps run as separate programs) |
 | [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Proposed (would supersede 0545, 0622, 0623, and 0628; amends 23 records; grants, secrets, the Tauri opener, notify, the deep link, and Whispering unbuilt) |
 | [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Proposed (would supersede 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0652, 0674, 0678, and 0683; archive tag `archive/app-hosting`) |

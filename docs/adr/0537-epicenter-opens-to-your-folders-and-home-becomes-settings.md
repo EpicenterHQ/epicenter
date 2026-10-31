@@ -5,6 +5,7 @@
 - **Amends:** [ADR-0209](0209-epicenter-is-the-raw-view-beside-its-applications-not-a-shell-above-them.md): its raw view, deleted when the host stopped owning application data ([ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md)), returns as the Folders window, and Epicenter opens to it instead of to Home's Apps pane.
 - **Built:** opening to the Folders window from launch, the Dock, the tray, and a bare `epicenter://`; "Open in" offering installed apps on any folder their shape fits, and the Apps list of installed apps, Todos and Capture among them, since Epicenter compiles in no app but Whispering, which it does not offer ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md), `apps/epicenter/src/folders/openers.ts`); the Folders window opening Settings with `open_home`; Settings as the person-facing name of the `home` window, without its Apps pane; `/api/apps` and `Applications.svelte` deleted.
 - **Unbuilt:** none.
+- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at the Apps list: the Folders window opens no app.
 
 ## Context
 

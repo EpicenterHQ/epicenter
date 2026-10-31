@@ -68,34 +68,27 @@ inference have their own lifetimes.
 
 ## Desktop launch and directory assignment
 
-Epicenter ships Settings, Folders, Todos, Capture, Honeycrisp, and
-Whispering in one Tauri bundle. The host has a closed table of bundled
-pages and serves them from one `epicenter-app://localhost` origin. It does
-not install or run app source from a repository. Old installer clones and
-build caches remain on disk, unused.
+Epicenter ships Settings and the Folders window in one Tauri bundle and serves
+them from one `epicenter-app://localhost` origin. It manages folders and opens
+no app: apps are separate programs (ADR-0701). It does not install or run app
+source from a repository.
 
-The Folders window lists direct child directories of the Epicenter library
-root (`~/Epicenter`) and bookmarked directories elsewhere. Opening a bundled
-app normally opens its fixed reverse-DNS default there, such as
-`~/Epicenter/so.epicenter.todos`, creating it when missing and reusing it
-otherwise; nothing saves or selects that location (ADR-0672). Choosing
-**Open with** assigns an existing listed directory to that app's new window.
-The shell binds the directory and grants that window the folder plugin's
-scoped file commands before the window loads. A listed or chosen directory
-that disappeared is refused and never created. Epicenter's own records are
-always `~/Epicenter/so.epicenter`. The Folders window can open the same files
-as a text editor.
+The Folders window lists the folders the `epicenter` CLI syncs. **Open files**
+binds a listed directory to an editor window of its own and grants that window
+the folder plugin's scoped file commands before the window loads. A listed
+directory that disappeared is refused and never created. Epicenter's own
+records are always `~/Epicenter/so.epicenter`.
 
-Standalone Todos opens the same `so.epicenter.todos` default through the same
-shared table. Its shell computes and binds that location at launch, so the
-page still calls `openFolder({ tables })`. Its rows land directly under
-`todos/` there. The path choice belongs to the launch context, not to a path
-supplied by the WebView.
+Standalone Todos opens its fixed reverse-DNS default,
+`~/Epicenter/so.epicenter.todos`, from the shared library table, creating it
+when missing and reusing it otherwise; nothing saves or selects that location
+(ADR-0672). Its shell computes and binds that location at launch, so the page
+still calls `openFolder({ tables })`. Its rows land directly under `todos/`
+there. The path choice belongs to the launch context, not to a path supplied
+by the WebView.
 
 Each window owns one Folder mirror and the edits of its mounted editors.
-The shell owns directory permission and atomic file publication. Whispering's
-recorder is a separate shell service that writes into the directory granted
-to its window. Settings and connection credentials are separate from the
+The shell owns directory permission and atomic file publication. Settings and connection credentials are separate from the
 folder's local opening path.
 
 `<OpenFolder>` closes on unmount and closes an asynchronous open that finishes

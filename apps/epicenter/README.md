@@ -1,37 +1,33 @@
 # Epicenter desktop app
 
-Epicenter hosts Settings, a Folders window, and the apps it bundles in one
-Tauri runtime. The Folders editor opens native
-directories through `@epicenter/folder`. Apps supply their own
-table schemas; local opening and saving require no account or Git repository.
-History and sync belong to the `epicenter` CLI: the
-[Folders window](#the-folders-window) is a front end over it, listing the
-folders it syncs and running its commands. App and editor pages offer no Save
-version or Sync action.
+Epicenter manages folders: it registers, syncs, shares, and shows the status
+of the folders the `epicenter` CLI syncs, and opens a folder's files in an
+editor window. Apps are separate programs that read and write those folders
+through the file contract
+([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md),
+[ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md));
+Epicenter does not open, install, or serve them. History and sync belong to
+the `epicenter` CLI: the [Folders window](#the-folders-window) is a front end
+over it, listing the folders it syncs and running its commands. The editor
+offers no Save version or Sync action.
 
-The existing app owns one Tauri runtime, one native command API, and the short
-list of what it compiles in. It bundles [Todos, Capture, Honeycrisp, Whispering, and
-Messages](#bundled-apps), each built from its own folder under `apps/` with
-Epicenter's own pages. Epicenter also opens published HTTPS sites in their own
-windows. It has no source installer, app manifest, or app build on this
-machine.
+The app owns one Tauri runtime, one native command API, and the short list of
+what it compiles in. Its pages are Settings, the Folders window, and the
+folder editor:
 
 ```text
 page source                         build output        served at
 
 apps/epicenter/src/ui ------------> dist/home --------> epicenter-app://localhost/home/
 apps/epicenter/src/folders -------> dist/folders -----> epicenter-app://localhost/folders/
-apps/<page> (build:host) ---------> dist/<page> ------> epicenter-app://localhost/<page>/
-  for todos, capture, honeycrisp, whispering, messages
+                                                        epicenter-app://localhost/folders/editor/
 ```
 
-Rust serves built-in and bundled pages from one legacy origin,
-`epicenter-app://localhost`, through a scheme the shell registers
-(`src-tauri/src/scheme.rs`, ADR-0561): Settings (the `home` window) at
-`/home/`, the Folders window at `/folders/`, and each bundled app at
-`/<page>/`. No server listens on a port and no Bun process outlives a
-command. The `epicenter-host` build condition selects each product's host
-integrations.
+Rust serves these pages from one origin, `epicenter-app://localhost`, through
+a scheme the shell registers (`src-tauri/src/scheme.rs`, ADR-0561): Settings
+(the `home` window) at `/home/`, the Folders window at `/folders/`, and each
+editor window at `/folders/editor/`. No server listens on a port and no Bun
+process outlives a command.
 
 The scheme answers GET only. It serves a regular file inside the page's
 directory, refusing a symbolic link and any path that leaves it, and answers
@@ -40,57 +36,15 @@ so client-side routes load. Every response carries one
 Content-Security-Policy: a page reaches its own origin and Tauri's IPC
 (`connect-src 'self' ipc: http://ipc.localhost`) and nothing else, and a
 document's policy admits each of its inline scripts by hash. Each window
-navigates only below the path it opened at, a built-in page's or a bundled
-app's `/<page>/`, so a bundled app window never loads another app's page; a
-new-window link opens in the system browser only when it is the hosted
-account website.
+navigates only below the path it opened at; a new-window link opens in the
+system browser only when it is the hosted account website.
 
-App pages reach native file folders through the shared Folder plugin. Each
-page opens a directory the shell grants (ADR-0531). The editor, Settings, and bundled pages use `@epicenter/folder`. A bundled app's window is granted the native commands its page
-calls by its window label ([Bundled apps](#bundled-apps)).
+The editor and Settings reach native folders through the shared Folder
+plugin. Each opens the directory the shell binds to its window (ADR-0531).
 
-## Hosted sites
-
-The Folders window accepts an HTTPS root URL such as
-`https://todos.acme.dev`. The hostname is the site identity and determines
-its authored area: `~/Epicenter/dev.acme.todos`. Paths within that origin
-remain app routes. `https://epicenter.so` is reserved because its derived
-area is Epicenter's own `so.epicenter`; subdomains such as
-`https://todos.epicenter.so` have separate areas.
-
-The window loads the site's real HTTPS URL. There is no installation, archive,
-Update action, or saved folder association. Opening creates a missing derived
-folder and reuses an existing one. The publisher controls the code that loads
-next time, including code that reads this folder. A missing folder is created
-again; Epicenter does not infer that it was moved.
-
-On macOS the host binds the window to its derived directory before loading
-the page, then grants the Folder plugin to that exact window and HTTPS origin.
-The page cannot choose a different directory. Top-level navigation cannot
-leave the origin, and new windows and device permission requests are denied.
-The host grants no general event, dialog, process, recorder, account, or native
-network API. Site scripts use `@epicenter/folder` at runtime: browser pages
-use browser storage, while hosted WebViews use the native folder. These are
-separate stores even at the same URL.
-
-The publisher serves a normal website at the HTTPS URL. Today, cold offline
-reopening depends on the website's own offline support and retained WebView
-data. A running page can keep editing its local folder after its code has
-loaded. [ADR-0691](../../docs/adr/0691-offline-reopening-keeps-the-sites-https-origin.md)
-proposes host-owned response capture and replay without a publisher-specific
-protocol; [macOS native and Tauri integration probes](evidence/offline-proxy/RESULTS.md)
-pass for a fixed-host fixture, while the production proxy and trust hook remain
-unbuilt. Online services
-and media have their own requirements. Site opening on Windows and Linux
-remains disabled pending native origin checks.
-
-Bundled pages and their `build:host` path remain during migration. A
-published site's browser build is already portable through
-`@epicenter/folder`'s runtime choice; the old host build is not its release.
-
-The shell serves product bundles and holds no credential: the `epicenter`
-CLI holds the account and every key (ADR-0556). Settings opens its records
-folder through `<OpenFolder>`, creates connection rows with
+The shell holds no credential: the `epicenter` CLI holds the account and
+every key (ADR-0556). Settings opens its records folder through
+`<OpenFolder>`, creates connection rows with
 `folder.tables.connections.create`, and updates title and model through row
 patches. Each text field keeps its own edit until its write answers. Failed
 writes keep the typed value and show Save again, Discard, and Copy beside the
@@ -109,8 +63,8 @@ The one binary has these uses:
 
 - The shell's narrow CLI runner (`src-tauri/src/cli.rs`) runs it for a page's
   fixed commands. A page has no generic exec: each command maps to one
-  `epicenter` invocation, writes stdin on its own task, and streams each
-  stdout line to the page's `Channel`. Development runs the CLI's source
+  `epicenter` invocation, writes stdin on its own task, and reads each stdout
+  line. Development runs the CLI's source
   under `bun` instead of the binary.
 - The Folders window's actions each run one `epicenter` command, and the
   shell runs `epicenter sync --watch --json --desktop` in the background for
@@ -124,18 +78,8 @@ The one binary has these uses:
   `/auth/oauth2/authorize`, then `{"signedIn"}` or `{"error"}`; every line
   goes to `onEvent`. `auth_status()` runs `epicenter auth status --desktop
   --json` and `auth_logout()` runs `epicenter auth logout --desktop --json`.
-  `ai_send` runs `epicenter send --json --desktop` for user-supplied provider
-  connections.
-- `account_send(audience, generation, request, requestId, onEvent)` sends a
-  page's resource-bound Account request (ADR-0683). Whispering alone has this
-  command permission, and Rust admits only its API-resource hosted
-  transcription, completion, and profile paths. The target sent to the CLI
-  includes the Account's captured grant generation. The CLI checks that
-  generation before selecting a cached or refreshed token, then streams the
-  response through the same event protocol as `ai_send`. A replaced sign-in
-  answers `GrantChanged`; a missing grant answers `NoAccountToken`.
-  `send_cancel(requestId)` stops that window's one request and response stream.
-  No page or Rust command receives an access token (ADR-0549).
+  Settings saves, removes, and reads each AI connection's key through
+  `ai_key_set`, `ai_key_remove`, and `ai_key_state` (`epicenter auth key`).
   Each of these passes the shell's configured server as `EPICENTER_API_URL`,
   so the CLI and the shell name one deployment. The grant's refresh token and
   cached access tokens are in the CLI's keychain entry; no token reaches a
@@ -180,9 +124,9 @@ Production's library, the authored folder root, is `~/Epicenter`; development's
 is `~/Epicenter Dev`. `EPICENTER_FOLDER_DIR` overrides the library at startup
 and must be absolute; changing it opens another library and moves no files.
 Native locations live in `tauri_plugin_epicenter_folder::defaults::DesktopPaths`,
-shared with standalone Todos. Each app's default is a fixed reverse-DNS child
-from the shared `library` table (ADR-0672), the same `library::TODOS` row for
-both Todos shells; changing an app's display name does not redirect its
+shared with standalone Todos. A native app's default is a fixed reverse-DNS
+child from the shared `library` table (ADR-0672), such as `library::TODOS`
+for standalone Todos; changing an app's display name does not redirect its
 authored work.
 The shell resolves both directories once and sets `EPICENTER_DATA_DIR` and
 `EPICENTER_FOLDER_DIR` on every `epicenter` command it runs, so the CLI
@@ -196,12 +140,7 @@ Files split by what they cost to lose (ADR-0539):
 ~/Epicenter/                                  read, edited, and versioned as files
   so.epicenter/                               Epicenter’s portable records (Settings)
     connections/<id>.md                       one row per AI connection
-  so.epicenter.todos/                         Todos's default
-  so.epicenter.capture/                       Capture's default
-  so.epicenter.honeycrisp/                    Honeycrisp's default
-  so.epicenter.whispering/                    Whispering's default
-  so.epicenter.messages/                      Messages's default
-  dev.acme.todos/                             a hosted site's derived area
+  so.epicenter.todos/                         standalone Todos' default
   <name>/                                     a folder `epicenter clone` made
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   auth/<grant>.lock                           the lock a sign-in refreshes under (the CLI writes it)
@@ -225,9 +164,7 @@ from production.
 
 Rust resolves both directories once at startup and stores them for the
 desktop lifetime, and every `epicenter` command the shell runs receives
-both. The recorder
-writes into a folder a window was granted, not into application data
-(`tauri-plugin-epicenter-recorder`, ADR-0543). Local model files are not here:
+both. Local model files are not here:
 they are in the shared Hugging Face cache (`~/.cache/huggingface/hub`, or
 `$HF_HOME/hub`), which Epicenter downloads into and never deletes from (ADR-0579).
 Settings shows a model's folder there; deleting that folder removes the model.
@@ -245,7 +182,7 @@ bun dev:epicenter
 
 This starts the local API on `http://localhost:8787` and the desktop app.
 Before the app starts, Tauri runs `bun run build:desktop`, which builds
-Settings, the Folders window, and the five bundled apps into `dist/` and compiles the
+Settings and the Folders window into `dist/` and compiles the
 `epicenter` binary. A development build's scheme serves the pages from that `dist/`
 directly, so after changing a page, run `bun run --cwd apps/epicenter build`
 and reload its window (Cmd-R). There is no dev server and no hot reload: the
@@ -257,25 +194,17 @@ shows who the app is signed in as. Nothing restarts. It is a separate grant
 from a terminal's `epicenter auth login`, and signing one out leaves the
 other signed in.
 
-An app opens the local directory bound to its window before any account flow. Each
-bundled app uses the same `Folder` table schemas on desktop and in the
-browser.
-
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
 it. It lists the folders the `epicenter` CLI syncs and runs the CLI's
 commands on them, opens a synced folder's files in an editor window of its
-own, lists the bundled apps under Apps with Open and Choose folder…, opens
-hosted sites under Sites, and opens Settings from its Settings button with
-`open_home`. Opening an app opens its own window; the OS is the switcher from
-there, and closing the Folders window leaves everything it opened running.
+own, and opens Settings from its Settings button with `open_home`. Closing
+the Folders window leaves every editor window it opened running.
 
 Settings is the window labelled `home`. It signs the app in and out and alone
-administers the local transcription model (ADR-0180). An app that needs
-a local model opens it with `open_home('transcription')`, and Settings scrolls
-to the model (`src/ui/home-section.ts`). The tray (Show Folders,
-Show Settings) and deep links are shortcuts into the same windows; bundled
-apps have no deep link. An `epicenter://init` link
+administers the local transcription model (ADR-0180). The tray (Show Folders,
+Show Settings) and deep links are shortcuts into the same windows; no link
+opens an app. An `epicenter://init` link
 ([Requests to sync a folder](#requests-to-sync-a-folder)) only asks:
 
 ```bash
@@ -320,8 +249,7 @@ This is an interactive desktop walkthrough. The mounted editor tests run with
 The Folders window (`folders`, served at `/folders/`) is a front end over the
 `epicenter` CLI ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
 it lists the folders the CLI syncs, and each of its actions is one CLI call a
-person or an agent could type. Below the folders it opens the apps Epicenter
-bundles and hosted sites. Its page source is `src/folders`, built by
+person or an agent could type. Its page source is `src/folders`, built by
 `build:folders` into `dist/folders`; its native side is
 `src-tauri/src/synced_folders.rs`. It is the window Epicenter opens to, and
 `epicenter://app/folders` opens it. The shell binds no folder to it, and its
@@ -504,156 +432,56 @@ It refreshes on focus, visibility, and connectivity; **Reload
 settings** also refreshes. Files, Tables, and saved views then read the same
 current file values without query invalidation or manual refresh.
 
-### Opening apps
+### Editor windows, tabs, and close
 
-The Apps list offers every bundled app (`src/folders/openers.ts`) with Open,
-on the app's fixed default, and Choose folder…, which asks the shell to show
-the native folder picker ([Bundled apps](#bundled-apps)). The app interprets
-its files through its own schemas. The Folders window does not use
-`epicenter.json` to authorize any of them.
+The native Folder reads ordinary files as they stand. File writes, table
+assignments, and editor saves publish without a source precondition. The last
+publication wins. Opening writes nothing and does not start Git. The separate
+`epicenter` CLI retains Git commands; the editor exposes none as a Folder
+action.
 
-## Bundled apps
-
-Epicenter bundles Todos, Capture, Honeycrisp, Whispering, and Messages
-(`src-tauri/src/bundled_apps.rs`). One closed table, `BundledApp`, names for
-each its page, its shared `library` default, its window label and capability,
-and its build path:
-
-| Page | Default folder | Window label | Capability |
-| --- | --- | --- | --- |
-| `todos` | `<folderDir>/so.epicenter.todos` | `todos:<digest>` | `bundled-app.json` |
-| `capture` | `<folderDir>/so.epicenter.capture` | `capture:<digest>` | `bundled-app.json` |
-| `honeycrisp` | `<folderDir>/so.epicenter.honeycrisp` | `honeycrisp:<digest>` | `bundled-app.json` |
-| `whispering` | `<folderDir>/so.epicenter.whispering` | `whispering:<digest>` | `whispering.json` |
-| `messages` | `<folderDir>/so.epicenter.messages` | `messages:<digest>` | `messages.json` |
-
-`build:bundled` (`apps/epicenter/scripts/build-bundled-apps.ts`) runs each app's own
-`build:host` (`EPICENTER_HOST=1`) in `apps/<page>` and copies its `dist/` to
-`dist/<page>/`, which the scheme serves at `/<page>/`; each build loads its
-assets by relative path. Standalone Todos builds the same `dist/` for its own
-Tauri shell (`bun run --cwd apps/todos build:desktop`). Opening an app clones,
-builds, and fetches nothing, and asks for no approval, account, network, or
-Git action.
-
-The Folders window opens one in two ways, each deciding the folder in Rust:
-
-- **Open**, under Apps, calls `open_bundled_app(app)`. The shell opens
-  the app's fixed default, such as `~/Epicenter/so.epicenter.todos` in
-  production, creating it when missing and reusing it with its files
-  otherwise; nothing is saved, so a removed default is made again. Its
-  permanent directory name is independent of the displayed app title. The
-  app's rows land directly in it, such as `todos/<id>.md`. A disk that stores
-  the default under another casing opens that directory. A file or a link at
-  the path is refused; no other folder is opened instead.
-- **Choose folder…**, under Apps, calls `choose_folder_for_app(app)`. The
-  shell shows the native folder picker and opens the app on what the person
-  chose, answering whether a folder was chosen; cancelling opens nothing. The chosen directory must exist and be a
-  real directory, never a link, though its parent may be one; it is never
-  created. Epicenter's own folder is refused however it is reached. No page
-  passes a path. Bundled app pages can show close confirmation, but no page has
-  the dialog plugin's file picker.
-
-The shell passes the app key, admitted directory, page URL, and builder
-configuration to the folder plugin's `open_folder_window`
-(`folder_windows.rs`). The plugin binds before the WebView exists and owns
-identity, reuse, construction, and cleanup. Its label combines the app key
-and a digest of the canonical root: the same app on the same directory reveals its window, and
-two directories with one name in different places are two windows. The page
-calls `openFolder({ tables })`, which opens the folder bound to its window;
-Whispering's recorder writes into the same folder, and no call names it. Two
-apps opened on one folder are two windows with separate bindings to one root, sharing its save lock. A folder removed after its window opened is refused `Missing` when
-the page opens it again; a later Open of a removed default makes it again,
-empty, and reveals that window on the same path.
-
-The native Folder reads ordinary files as they stand. File writes, table assignments,
-and editor saves publish without a source precondition. The last publication wins. Opening writes
-nothing and does not start Git. The separate `epicenter` CLI retains Git
-commands; no current product page exposes them as a Folder action. See Todos'
-[README](../todos/README.md) and Capture's [README](../capture/README.md) for
-app-specific files.
-
-Closing a bundled app's window destroys it; only Epicenter's own windows
-hide. The recorder finalizes a Whispering recording
-when its window is destroyed, and the CLI runner ends the `epicenter`
-children that page started.
+Closing an editor window destroys it; only Epicenter's own windows hide. The
+CLI runner ends the `epicenter` children that page started.
 
 On macOS, folder windows can share the system tab bar. Automatic grouping
 follows the macOS tab preference. The **Window** menu offers **Merge Folder
 Windows**, **Move Tab to New Window**, and **Close Tab Group** (Shift-Command-W).
 Settings and the Folders window stay separate because closing them hides
-them. Windows and Linux keep separate app-and-folder windows.
+them. Windows and Linux keep separate folder windows.
 
 Each native tab keeps its own window, page, directory binding, and save
 guard. Detaching or merging changes presentation without reopening the
 folder or transferring edits. Tab membership lives in AppKit, never in
 application data.
 
-Bundled app pages, hosted sites, and the Folders editor answer window Close over
-the Folder plugin's private channel: editor writes are already queued, and `<OpenFolder>` waits
-for queued mirror writes, then destroys the window without a question. Closing
-again while it waits asks whether to close anyway. A recording alone does not delay close: native destruction ends
-capture and keeps the audio captured so far. Repeated requests for one window
-share its current close; other windows answer independently, including native
+The editor answers window Close over the Folder plugin's private channel:
+editor writes are already queued, and `<OpenFolder>` waits for queued mirror
+writes, then destroys the window without a question. Closing again while it
+waits asks whether to close anyway. Repeated requests for one window share
+its current close; other windows answer independently, including native
 tab-group members. A dispatched destruction keeps the page inert until it is
 gone; a failed destroy restores it for retry.
 
-Application Quit always asks one separate native question. The recorder adds
-an active-recording warning, without asking any folder page for save status.
-Cancel preserves every window. There is no cross-window status protocol or
-global gate over individual window closes.
-
-### Native commands for a bundled app
-
-`capabilities/bundled-app.json` selects `todos:*`, `capture:*`, and
-`honeycrisp:*` and grants the folder plugin's private observation and close
-channels. The plugin destroys only the calling bound window.
-
-`capabilities/whispering.json` selects `whispering:*` and grants what
-Whispering's page calls:
-
-- the folder plugin and its private channels, for the one folder the shell binds
-  to its window;
-- the recorder plugin, and the opener's `allow-open-url` scoped to
-  `x-apple.systempreferences:`, to open System Settings' microphone pane;
-- `list_inference_models`, `transcribe_audio_bytes`,
-  `get_local_transcription_readiness`, and `open_home`, for optional local
-  transcription with the active model (ADR-0180);
-- `ai_send`, `ai_key_set`, and `ai_key_state`, for user-supplied AI
-  connections (ADR-0557);
-- `auth_status`, `account_send`, and `send_cancel`, for its API-bound
-  Epicenter Account (ADR-0683);
-- `whispering_connection_read` and `whispering_connection_set`, for its two
-  connection rows in Epicenter's records folder. The page names
-  `transcription` or `text`; the shell runs
-  `epicenter whispering-connection read|set`, which computes the same fixed
-  `<folderDir>/so.epicenter` from `EPICENTER_FOLDER_DIR`, opens that
-  directory, reads or saves the row under its save lock, and closes it. A read
-  creates nothing; a save creates the folder when missing. A save assigns only
-  `kind` (`openai-compatible`), `title`, and `model` to the current row.
-  Settings opens the same records folder.
-
-No bundled app's window is granted folder history (`status`, `history`,
-`save_version`, `sync`), `ai_key_remove`, or model
-administration. Whispering's page opens its folder and recovers interrupted
-recordings before any connection or account is read, so local recording and
-editing never wait for sign-in.
+Application Quit always asks one separate native question, without asking any
+folder page for save status. Cancel preserves every window. There is no
+cross-window status protocol or global gate over individual window closes.
 
 The save lock, `.<directory name>.epicenter-save-lock`, sits beside the folder
 in the folder root; WebView data and the page builds live in the application
 data and resource directories. The Folder engine stages a save's bytes in
 `.<directory name>.epicenter-scratch` beside the folder.
 
+### Capabilities
+
 Each kind of window has one capability file, and every file is `"local": true`
 because its page is served on the scheme: `folders.json`, which alone grants
 the Folders window's CLI commands (`src-tauri/src/command_names.rs` lists every
-app command), `home.json`, `bundled-app.json`, `whispering.json`,
-`messages.json`, and `folder-editor.json`, which selects `files:*` and grants
+app command); `home.json`, which alone grants sign-in, AI keys, and model
+administration; and `folder-editor.json`, which selects `files:*` and grants
 the folder plugin, its private observation and close channels, and
-`folder_query`. A development build selects the same six. Hosted sites receive an
-exact-origin runtime grant instead. This is wiring, not a sandbox (ADR-0179, ADR-0334).
+`folder_query`. A development build selects the same three. This is wiring,
+not a sandbox (ADR-0179, ADR-0334).
 
-Whispering's page has no recording overlay and
-registers no global shortcuts, so neither is created or granted.
 Native dictation, which no page reaches, compiles only with the `dictation`
 Cargo feature, off by default: paste at the cursor and the keyboard supervisor
 that watches its Accessibility grant, pausing other apps' media,
@@ -663,51 +491,45 @@ plugin awaiting a grant; nothing uses it, so it is parked with the feature. A
 default build neither registers nor starts any of it and its generated
 bindings name none of it, because the page API only grows after the first
 release; it joins that API when a native API decision grants it (ADR-0555).
-There is no shell command for permissions: the recorder plugin asks for
-microphone access itself, and a page opens System Settings through the opener.
 Autostart is not registered; enabling it once on first run (ADR-0328) is
 unbuilt. Of the official plugins ADR-0555 lists, a default build registers the
-opener and grants a page only its System Settings URLs; the notification
-plugin is a dependency but stays unregistered until a capability grants it.
+opener and grants no page its URLs.
 
 ## Quitting Epicenter
 
 Application Quit always shows a native confirmation, even when every folder is
-saved. Its message warns that unsaved changes may be lost. If the native
-recorder is capturing, it also explains that Quit ends the recording and keeps
-its captured audio. Cancel keeps every window and its input; Quit Anyway exits
+saved. Its message warns that unsaved changes may be lost. Cancel keeps every window and its input; Quit Anyway exits
 without waiting for pending saves. Repeated requests share the current alert.
 
 Quit queries no page and waits for no status reply or timeout. Its standalone
 native alert has no window parent, so closing a window leaves the Quit question
-in place. Window close remains independent; bundled pages and the Folders editor
-wait for queued Folder writes; closing again while they wait asks. Quit owns only ready, prompting, and approved
+in place. Window close remains independent; the editor waits for queued
+Folder writes; closing again while they wait asks. Quit owns only ready, prompting, and approved
 state; it needs no attempt ID or window-destruction hook. On macOS, the
 unparented dialog uses the system's standalone alert presentation rather than
 an attached window sheet.
 
 The app menu's Quit, Cmd-Q, and tray Quit use this path. macOS Dock Quit,
 logout, and abrupt process termination are outside it. Standalone Todos' Cmd-Q
-still uses its one window's conditional close. Atomic file replacement and
-native recording finalization keep their existing guarantees.
+still uses its one window's conditional close. Atomic file replacement keeps
+its existing guarantees.
 
 - **An account change restarts nothing.** The account is the CLI's desktop
   grant (ADR-0556); a page that uses it reads it again when its window
   regains focus.
 - **Closing a window hides it.** The built-in windows are hidden, not
-  destroyed, so their pages and folders stay open until Epicenter quits. A
-  bundled app's window is destroyed when it closes, which
-  finalizes a Whispering recording.
+  destroyed, so their pages and folders stay open until Epicenter quits. An
+  editor window is destroyed when it closes.
 
 ## Build and verify
 
 Signed distribution builds, the native update action, the draft release and
 publication workflows, and an isolated packaged Epicenter-to-Epicenter update
-rehearsal are documented in [Releasing](RELEASING.md). Bundled pages ship with
-Epicenter; standalone products have no release workflow here.
+rehearsal are documented in [Releasing](RELEASING.md). Epicenter ships no app
+pages; standalone products have no release workflow here.
 
 ```bash
-# Build Settings, the Folders window, the bundled apps, and the epicenter binary
+# Build Settings, the Folders window, and the epicenter binary
 bun run --cwd apps/epicenter build:desktop
 
 # Package the complete native application
@@ -722,27 +544,21 @@ bun test apps/epicenter/scripts apps/epicenter/src
 # Native command, scheme, capability, and fixture tests
 cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
 
-# macOS runtime regression with real Todos pages and temporary native folders
-bun run --cwd apps/todos build:host
-cargo run --offline --manifest-path apps/epicenter/src-tauri/Cargo.toml --example native_tabs --features native-tabs-smoke
-
 # The same tests with the parked native dictation code compiled in
 cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml --features dictation
 ```
 
-The root `bun typecheck` runs each workspace's checks. The bundled apps, such
-as Whispering and Honeycrisp, are checked in their own folders.
+The root `bun typecheck` runs each workspace's checks. Apps are checked in
+their own folders.
 
 ## Ownership rules
 
-- `src-tauri` owns native commands, permissions, windows, deep links, the `epicenter-app` scheme for built-in and bundled pages, and packaging.
+- `src-tauri` owns native commands, permissions, windows, deep links, the `epicenter-app` scheme for Epicenter's own pages, and packaging.
 - `src` owns the Settings page and the Folders window's page. The CLI's commands live in `packages/cli`.
 - `dist` is generated. Never edit it or commit product source beneath it.
-- A product SPA owns its UI and browser deployment from its own app folder.
-- A published SPA bundles both browser and desktop implementations of portable `@epicenter/*` capabilities and selects them at runtime. Legacy bundled pages still use build-time `#platform/*` conditions until migration.
-- Do not create `apps/epicenter/<app>` source copies. The build must consume the canonical app source directly.
+- An app is a separate program: it owns its UI, builds, and releases from its own app folder (ADR-0701). Epicenter serves no app page.
 
-The legacy shared origin is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md) and [ADR-0561](../../docs/adr/0561-rust-serves-every-app-from-one-epicenter-app-origin.md). Hosted-site behavior is described above and under review in [ADR-0687](../../docs/adr/0687-opening-a-site-url-opens-its-derived-folder.md).
+The shared origin is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md) and [ADR-0561](../../docs/adr/0561-rust-serves-every-app-from-one-epicenter-app-origin.md). App hosting, removed by [ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md), is archived at the tag `archive/app-hosting`; that record says how to restore it.
 
 ## Shared AI connections
 
@@ -754,13 +570,3 @@ sends every AI request through `epicenter send`. Check that record's Unbuilt
 line for what has landed.
 [ADR-0672](../../docs/adr/0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md)
 fixes that folder at `<folderDir>/so.epicenter`; no configuration selects it.
-
-### Messages and Beeper
-
-Messages starts with fictional demo conversations. Its `<OpenFolder>` opens the
-bound folder for drafts and send recovery records, never for a message mirror.
-Only `messages:*` windows receive `messages_beeper`; the fixed command passes a
-validated operation to `epicenter messages --json` over stdin. The CLI owns the
-Beeper token in the device keychain and uses the local Desktop API. The page's
-connection policy remains unchanged. See [Messages](../messages/README.md) for
-persistence, manual connection setup and checks that use no live data.

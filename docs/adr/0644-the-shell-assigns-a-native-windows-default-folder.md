@@ -6,6 +6,7 @@
 - **Amends:** [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) at native default selection and missing-location behavior.
 - **Built:** Standalone Todos assigns its Epicenter-root default. The Epicenter host assigns a fixed default or a listed folder to each bundled app window.
 - **Unbuilt:** Reveal folder in standalone Todos and portable watcher rearming after a fixed default is deleted and recreated.
+- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at the Epicenter host's bundled app windows: Epicenter assigns no app window a folder; standalone shells keep this rule.
 
 ## Context
 

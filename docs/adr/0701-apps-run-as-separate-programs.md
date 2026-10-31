@@ -48,8 +48,9 @@ a Settings section.
   administration.
 - `epicenter-app://localhost` serves only Settings (`/home/`), the Folders
   window (`/folders/`), and the editor (`/folders/editor/`).
-- Whispering has no desktop build until it ships its own shell. Messages' web
-  build runs its demo conversations only.
+- Whispering has no desktop build until its own Tauri app exists (milestone
+  A), because its desktop ran inside the shell.
+- Messages' web build runs its demo conversations only.
 - Epicenter's releases carry no app pages; an app's release is its own
   (ADR-0674).
 
@@ -76,7 +77,7 @@ At `archive/app-hosting` (`728e820cc0`), in `apps/epicenter`:
   - `src-tauri/src/hosted_sites.rs`: `open_hosted_site`, which parsed an HTTPS
     root URL and derived its folder (`todos.acme.dev` to
     `~/Epicenter/dev.acme.todos`), plus the macOS offline-proxy gate
-    experiment (`evidence/offline-proxy/`, `examples/hosted_site_offline.rs`).
+    experiment (`evidence/offline-proxy/`, `src-tauri/examples/hosted_site_offline.rs`).
   - `src-tauri/src/scheme.rs`: the `epicenter-app://localhost` scheme, which
     also served each bundled page at `/<page>/` from `dist/<page>/`.
   - `src-tauri/src/folder_windows.rs` and the folder plugin's
@@ -87,7 +88,7 @@ At `archive/app-hosting` (`728e820cc0`), in `apps/epicenter`:
     `whispering.json`, and `messages.json`.
   - `src/folders/App.svelte` (Apps and Sites sections),
     `src/folders/openers.ts`, and `src/ui/launch.svelte.ts`.
-  - `scripts/build-bundled-apps.ts`, run by `build:bundled` inside
+  - `build-bundled-apps.ts` in `apps/epicenter/scripts`, run by `build:bundled` inside
     `build:apps`.
 - **Build.** Each app's `build:host` ran `EPICENTER_HOST=1 bun run build`.
   `hostAppViteConfig` (`packages/vite-config/src/index.ts`) turned on the
@@ -125,8 +126,8 @@ At `archive/app-hosting` (`728e820cc0`), in `apps/epicenter`:
   (`tauri-plugin-epicenter-recorder`). Messages: `messages_beeper` (the CLI's
   `messages` command over the Beeper Desktop API). Clients:
   `apps/whispering/src/lib/platform/desktop/`,
-  `packages/auth/src/desktop-account-auth.ts`, `sendThroughShell` in
-  `packages/ai/src/send.ts`, and `packages/ai/src/runtime-transcriber.ts`.
+  `desktop-account-auth.ts` in `@epicenter/auth`, `sendThroughShell` in
+  `packages/ai/src/send.ts`, and `runtime-transcriber.ts` in `@epicenter/ai`.
 
 ### Commits that built it
 

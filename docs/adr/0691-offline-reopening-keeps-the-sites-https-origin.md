@@ -1,6 +1,7 @@
 # 0691. Offline reopening keeps the site's HTTPS origin
 
-- **Status:** Proposed
+- **Status:** Superseded
+- **Superseded by:** [ADR-0701](0701-apps-run-as-separate-programs.md): Epicenter opens no site, so there is no offline reopening to keep.
 - **Date:** 2026-10-24
 - **Renumbered from:** ADR-0689 after the trunk's local-write ADR took that number.
 - **Revisits:** [ADR-0687](0687-opening-a-site-url-opens-its-derived-folder.md)'s publisher service-worker requirement.

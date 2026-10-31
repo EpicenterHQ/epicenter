@@ -1,6 +1,6 @@
 # Todos
 
-Todos keeps Markdown files in one local [Folder](../../packages/folder/README.md). It opens without an account, a remote, or Git. The ordinary build is one portable SPA: a browser uses this origin's IndexedDB folder, while Epicenter's hosted WebView uses the directory bound to its window. `bun run build` writes the website and a service worker for best-effort offline reopening. The temporary `build:host` path still serves Epicenter's bundled page and Todos's standalone shell. The native CLI opens an existing directory supplied on its command line. The same table schema interprets `todos/<id>.md` in each runtime.
+Todos keeps Markdown files in one local [Folder](../../packages/folder/README.md). It opens without an account, a remote, or Git. The ordinary build is one portable SPA over this origin's IndexedDB folder; Todos' own desktop shell uses the directory bound to its window. `bun run build` writes the website and a service worker for best-effort offline reopening. `build:webview` builds the prerendered page Todos' own desktop shell loads. The native CLI opens an existing directory supplied on its command line. The same table schema interprets `todos/<id>.md` in each runtime.
 
 The current UI can add, edit, complete, and delete todos. A todo's title and `done` flag live in frontmatter; its notes live in the Markdown body. Fields the schema does not name remain in the source when a row is edited. A file that does not read as a todo remains visible with its source for repair.
 Deleting a todo removes its Markdown row; adjacent files stay in the Folder.
@@ -49,12 +49,12 @@ From the repository root:
 bun dev:todos:desktop
 ```
 
-This builds the host page into `apps/todos/dist` (`build:host`) and runs the Tauri shell in `src-tauri/`, which needs a Rust toolchain. The development identifier `so.epicenter.todos.dev` opens `~/Epicenter Dev/so.epicenter.todos`; release builds open `~/Epicenter/so.epicenter.todos`. The window opens without an account or network.
+This builds the desktop page into `apps/todos/dist` (`build:webview`, `EPICENTER_DESKTOP=1`) and runs the Tauri shell in `src-tauri/`, which needs a Rust toolchain. The development identifier `so.epicenter.todos.dev` opens `~/Epicenter Dev/so.epicenter.todos`; release builds open `~/Epicenter/so.epicenter.todos`. The window opens without an account or network.
 
 <!-- doc-path-check: ignore-next-line (generated Tauri bundle output, not a tracked source file) -->
 To build a local macOS app that you can quit and reopen from Finder, run `bun build:todos:desktop` from the repository root. The result is `apps/todos/src-tauri/target/release/bundle/macos/Todos.app`. This local build is not a signed distribution.
 
-Standalone and hosted Todos open one fixed default, `<library>/so.epicenter.todos`, where the library is `~/Epicenter`, `~/Epicenter Dev` in development, or `EPICENTER_FOLDER_DIR`. An ordinary launch creates it when missing and otherwise reuses it as it is; nothing is saved, so a default that was moved or deleted is made again empty by the next launch, and no other folder is searched for. Todos rows land at `todos/<id>.md` inside the bound folder. The save lock and scratch directory sit beside it.
+Standalone Todos opens one fixed default, `<library>/so.epicenter.todos`, where the library is `~/Epicenter`, `~/Epicenter Dev` in development, or `EPICENTER_FOLDER_DIR`. An ordinary launch creates it when missing and otherwise reuses it as it is; nothing is saved, so a default that was moved or deleted is made again empty by the next launch, and no other folder is searched for. Todos rows land at `todos/<id>.md` inside the bound folder. The save lock and scratch directory sit beside it.
 
 Startup reads no configuration.
 
@@ -109,7 +109,7 @@ From the repository root:
 bun run --cwd apps/todos test
 bun run --cwd apps/todos typecheck
 bun run --cwd apps/todos build
-bun run --cwd apps/todos build:host
+bun run --cwd apps/todos build:webview
 cargo test --manifest-path apps/todos/src-tauri/Cargo.toml
 bun build:todos:desktop
 ```

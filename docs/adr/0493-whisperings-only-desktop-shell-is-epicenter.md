@@ -1,6 +1,7 @@
 # 0493. Whispering's only desktop shell is Epicenter
 
-- **Status:** Proposed
+- **Status:** Superseded
+- **Superseded by:** [ADR-0701](0701-apps-run-as-separate-programs.md): Whispering ships no desktop build until it has its own shell; Epicenter hosts no app.
 - **Date:** 2026-10-15
 - **Relates:** [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md), whose exclusion of a separately shipped Whispering desktop runtime this keeps; [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md), whose Settings opens Whispering once local transcription is ready.
 - **Built:** Whispering installed as an app opening `so.epicenter.whispering` (`f16c69134b49:apps/whispering/epicenter.app.json`, [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)); its native commands granted to its windows by app id (`apps/epicenter/src-tauri/capabilities/installed-whispering-*.json`): the recorder, local transcription with the active model, and opening Settings; its two connections kept in Epicenter's AI connections, with keys in the keychain and requests sent through Epicenter's host, so the page needs no `__WHISPERING_BRIDGE__`; local transcription in the desktop workspace (`caf928c446fc:apps/whispering/src/lib/workspace/local-transcription.ts`); and the deletion of `apps/whispering/src-tauri/`, the Bun host in `apps/whispering/native/`, the bridge, `BuiltInApp::Whispering`, and `build:whispering`.

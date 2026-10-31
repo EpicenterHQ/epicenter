@@ -87,8 +87,7 @@ folders opened in an editor bypass the defaults and must exist.
 Admission is `library::check_editable_directory` for records: never a save
 staging directory or anything in one, and never overlapping application data
 through the directory or its staging sibling. `library::check_app_directory`,
-for ordinary apps, one-time launches, hosted sites, and folder editor
-windows, also refuses records, its staging sibling, anything in them, and
+for ordinary apps, one-time launches, and folder editor windows, also refuses records, its staging sibling, anything in them, and
 any directory holding them, such as the root. Overlap compares canonical
 paths and directory identity, so a linked parent or another spelling of a
 protected directory is no route around it. A root override is admitted before
@@ -109,11 +108,12 @@ writes elsewhere is the `epicenter` CLI's to refuse, before each history
 operation.
 
 `FolderExt::open_folder_window(application, directory, url, configure)` opens
-one window per application key and canonical root. Both standalone Todos and
-Epicenter supply `"todos"`; the plugin computes `todos:<digest>` internally.
+one window per application key and canonical root. Standalone Todos supplies
+`"todos"` and Epicenter's editor supplies `"files"`; the plugin computes
+`<key>:<digest>` internally.
 Opening the same pair reveals its existing window without configuring it
 again. Different apps can open the same root in separate windows. Labels are
-local to a Tauri runtime, so standalone and hosted windows do not collide.
+local to a Tauri runtime, so two apps' windows do not collide.
 A digest match alone never grants access: reuse also requires the existing
 window's complete directory binding to match.
 
@@ -310,14 +310,6 @@ as a put), and creates the file with `create_new`. A directory is removed
 only when empty; nothing removes a tree whole. The page writes no Git
 object: the `epicenter` CLI stores each with `git hash-object -w`, which
 names and checks it.
-
-### Hosted-page compatibility
-
-Hosted pages are published independently of the shell. Their Folder command
-names and payloads therefore cross release versions. An incompatible change
-needs a versioned command path or a transition that keeps published pages
-working. Bundled pages still ship with the shell. There is no negotiated
-protocol version yet.
 
 ## Git
 

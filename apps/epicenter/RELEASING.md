@@ -1,8 +1,7 @@
 # Epicenter desktop releases
 
-Epicenter releases as one macOS application containing its CLI and bundled
-app pages. Those pages can remain development builds while the distribution
-path is exercised internally. No standalone product is released by these
+Epicenter releases as one macOS application containing its CLI and its own
+pages. No standalone product is released by these
 workflows. A Git tag builds a draft; publishing the draft and advancing the
 update feed is a separate operator action.
 
@@ -92,7 +91,7 @@ Rerunning an individual build cannot replace assets under a completed manifest.
 Each draft contains a DMG, signed updater archive, and signature for each
 architecture, both build receipts, and the assembled `stable.json`. URLs in that manifest name
 the exact release tag. The build publishes no feed and sends no update to
-existing installations. Review the bundled apps' readiness before publication.
+existing installations.
 
 ## Publish and promote the feed
 

@@ -4,6 +4,7 @@
 - **Date:** 2026-10-22
 - **Relates:** [OAuth resource tokens](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) keeps desktop tokens out of WebViews; [Hosted inference](0634-hosted-inference-is-independent-of-repository-sync.md) makes inference independent of repository access.
 - **Implemented:** Whispering's hosted transcription and text requests use an API-bound `Account.fetch` in both builds. The browser has an explicit account connection and OAuth callback; Settings reads the `fromAuth` Svelte facade. Its client does not navigate on a renewal timer because a recording must survive while the page is open. The desktop window has a narrow account command permission and opens Epicenter Settings at Account for sign-in. The CLI checks the grant generation; the host cancels retired native sends. The desktop grant still belongs to the CLI.
+- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at the desktop window's account command: no Epicenter window sends account requests; the browser build's Account stands.
 
 ## Context
 
