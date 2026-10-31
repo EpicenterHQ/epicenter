@@ -158,7 +158,9 @@ type Sent = { method: string; url: string; body: unknown };
  * request to the server carries the token, and none leaves once retired.
  * `lose` makes the next request matching `pattern` fail: `'request'` before
  * it is sent, `'reply'` after the server answered; `then` runs as it fails,
- * which is where a test closes the page.
+ * which is where a test closes the page. `meanwhile` runs `then` once the
+ * server has answered the next such request, before its reply arrives:
+ * what a person does while a write is in flight.
  */
 async function signIn(label: string) {
 	const person = await oauth.person(label);
@@ -172,8 +174,8 @@ async function signIn(label: string) {
 	const sent: Sent[] = [];
 	const faults: {
 		pattern: RegExp;
-		lose: 'request' | 'reply';
-		then?: () => void;
+		lose: 'request' | 'reply' | null;
+		then?: () => void | Promise<void>;
 	}[] = [];
 	const account: Account = {
 		authorityId: 'test-authority',
@@ -205,6 +207,7 @@ async function signIn(label: string) {
 				? await response.clone().json()
 				: null;
 			sent.push({ method, url, body });
+			if (fault?.lose === null) await fault.then?.();
 			if (fault?.lose === 'reply') {
 				fault.then?.();
 				throw new TypeError('Failed to fetch');
@@ -226,6 +229,9 @@ async function signIn(label: string) {
 			sent.filter(({ method, url }) => pattern.test(`${method} ${url}`)),
 		lose(pattern: RegExp, lose: 'request' | 'reply', then?: () => void) {
 			faults.push({ pattern, lose, then });
+		},
+		meanwhile(pattern: RegExp, then: () => Promise<void>) {
+			faults.push({ pattern, lose: null, then });
 		},
 		retire: () => lifetime.abort(new Error('signed out')),
 	};
@@ -476,6 +482,35 @@ describe('upload', () => {
 		expect(await uploader.drain()).toMatchObject({ uploaded: [id] });
 		expect(person.requests(WRITES)).toHaveLength(1);
 		expect(await filesIn(root)).toEqual([cachedAudio(id)]);
+	}, 30_000);
+
+	test('a note deleted on the device while its write is in flight is deleted on the server too', async () => {
+		const person = await signIn('deleted-in-flight');
+		const { root, device } = await deviceAt();
+		const remote = openRemote(recorder, { account: person.account });
+		const id = timeId();
+		const note = expectOk(
+			await device.recordings.create({ id, title: 'Gone' }),
+		);
+		expectOk(
+			await outboxOf(device).add({
+				id,
+				files: [{ collection: 'recordings', ...note }],
+			}),
+		);
+		person.meanwhile(WRITES, async () => {
+			expectOk(await device.recordings.delete({ id }, { over: note.version }));
+		});
+
+		using uploader = startUploading(device, remote);
+		const report = await uploader.drain();
+
+		expect(report.interrupted).toBeNull();
+		expect(person.requests(WRITES)).toHaveLength(2);
+		expect(expectErr(await remote.recordings.get({ id })).name).toBe(
+			'NotFound',
+		);
+		expect(await filesIn(root)).toEqual([]);
 	}, 30_000);
 
 	test('files no capture names are adopted and uploaded', async () => {

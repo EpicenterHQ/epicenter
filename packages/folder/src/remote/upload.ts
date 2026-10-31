@@ -12,8 +12,9 @@
  * 3. the server's reply is recorded in the capture's sidecar
  *    (`acknowledge`), with the version of each file sent;
  * 4. the device deletes each file only at the version it sent (`finish`),
- *    so an edit made since stays, and goes up as a new capture; a file
- *    other than a note moves to the device's cache (`cacheOf`) as it goes.
+ *    so an edit made since stays, and goes up as a new capture (a delete
+ *    made since goes up as one too); a file other than a note moves to the
+ *    device's cache (`cacheOf`) as it goes.
  *
  * Each step is safe to repeat, so a crash anywhere resumes: after the PUT
  * the batch skips the stored object; after a write whose reply was lost the
@@ -231,10 +232,14 @@ export function startUploading<TContract extends Contract>(
 				});
 			const read = await store.read(path);
 			if (read.error !== null) return read;
-			// Deleted on the device before it went up: nothing to send.
-			if (read.data === null) continue;
-			sent[path] = read.data.version;
 			const base = capture.bases[path] as Version | undefined;
+			if (read.data === null) {
+				// Deleted on the device: nothing to send for a file new to the
+				// server, and a delete of what it holds for one it has.
+				if (base !== undefined) files.push({ path, delete: true, base });
+				continue;
+			}
+			sent[path] = read.data.version;
 			if (storedWithLfs(path)) {
 				files.push({ path, bytes: read.data.bytes, base });
 				continue;

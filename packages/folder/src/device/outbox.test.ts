@@ -286,3 +286,37 @@ test('a pending capture whose files are all gone finishes, with nothing to send'
 	});
 	expect(expectOk(await outbox.list()).items).toEqual([]);
 });
+
+test('finish turns a file deleted on the device after it was sent into a delete over what landed', async () => {
+	const { root, device, outbox, note } = await setup();
+	expectOk(
+		await outbox.add({
+			id: 'r1',
+			files: [{ collection: 'recordings', ...note }],
+		}),
+	);
+	const landed = 'b'.repeat(40);
+	expectOk(
+		await outbox.acknowledge(
+			'r1',
+			{
+				commit: 'c0ffee',
+				paths: ['recordings/r1.md'],
+				blobs: { 'recordings/r1.md': landed },
+			},
+			{ 'recordings/r1.md': note.version },
+		),
+	);
+	// The person deletes it while the write is in flight: the server has it anyway.
+	expectOk(
+		await device.recordings.delete({ id: 'r1' }, { over: note.version }),
+	);
+	const finished = expectOk(await outbox.finish('r1'));
+	expect(finished.kept).toEqual(['recordings/r1.md']);
+	expect(finished.queued).toMatchObject({
+		paths: { 'recordings/r1.md': note.version },
+		bases: { 'recordings/r1.md': landed },
+		state: 'pending',
+	});
+	expect(await exists(join(root, 'recordings/r1.md'))).toBe(false);
+});

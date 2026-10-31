@@ -22,7 +22,8 @@
  * capture id names the sidecar; the server never sees it.
  * A write whose reply was lost goes again as the same write, which the
  * server judges like any other (decision 68). A file edited after it was
- * sent goes back in the outbox as an update over what landed.
+ * sent goes back in the outbox as an update over what landed, and a file
+ * deleted after it was sent as a delete of what landed.
  *
  * The sidecars are the device's own: hidden, so no collection claims them
  * and `epicenter check` skips them.
@@ -62,8 +63,9 @@ export type Capture = {
 	paths: Record<string, Version>;
 	/**
 	 * For a file the server already holds, the Git blob id there that this
-	 * capture's version replaces: an edit kept after an earlier capture of
-	 * it landed. A path without a base is new to the server.
+	 * capture replaces: an edit kept after an earlier capture of it landed,
+	 * or, when the file is gone from the device, deletes. A path without a
+	 * base is new to the server, and gone from the device it is nothing.
 	 */
 	bases: Record<string, string>;
 	/** `pending` until the server's receipt is recorded, then `acknowledged`. */
@@ -338,11 +340,14 @@ export function createOutbox<TContract extends Contract>(
 		 * it goes back in the outbox as a new pending capture (`queued`),
 		 * with the blob that landed at its path as its base, so it uploads as
 		 * an update over that version. An edit made while a write was in
-		 * flight therefore never loses work.
+		 * flight therefore never loses work. A file sent and then deleted on
+		 * the device is `kept` the same way: the server holds what landed,
+		 * so it goes back as a delete over that blob, and a todo deleted
+		 * mid-upload does not come back.
 		 *
 		 * A pending capture is refused while any of its files is still on the
-		 * device; once all are gone there is nothing left to send, and its
-		 * sidecar goes.
+		 * device, or is gone with a base (a delete still to send); once there
+		 * is nothing left to send, its sidecar goes.
 		 */
 		async finish(
 			id: string,
@@ -360,7 +365,8 @@ export function createOutbox<TContract extends Contract>(
 				for (const path of Object.keys(capture.paths)) {
 					const held = await store.read(path);
 					if (held.error !== null) return held;
-					if (held.data !== null) return OutboxError.NotAcknowledged({ id });
+					if (held.data !== null || capture.bases[path] !== undefined)
+						return OutboxError.NotAcknowledged({ id });
 				}
 				return removeSidecar(id, version, { kept: [], queued: null });
 			}
@@ -368,8 +374,13 @@ export function createOutbox<TContract extends Contract>(
 			for (const path of Object.keys(capture.paths)) {
 				const held = await store.read(path);
 				if (held.error !== null) return held;
-				if (held.data === null) continue;
 				const sent = capture.sent?.[path];
+				if (held.data === null) {
+					// Deleted while its bytes were in flight: the server holds them.
+					if (sent !== undefined && receipt.blobs[path] !== undefined)
+						kept[path] = sent;
+					continue;
+				}
 				if (held.data.version !== sent) {
 					kept[path] = held.data.version;
 					continue;
