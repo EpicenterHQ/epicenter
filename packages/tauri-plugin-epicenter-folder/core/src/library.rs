@@ -1,5 +1,7 @@
-//! The fixed native app defaults: permanent reverse-DNS children of one
-//! library root (ADR-0672).
+//! The fixed native defaults: permanent reverse-DNS children of one library
+//! root (ADR-0672). Epicenter's records are the one default a shell opens;
+//! the apps on `epicenter-standalone` keep their data at
+//! `~/Epicenter/<productName>` instead, outside this table.
 //!
 //! The root is `~/Epicenter` in release and `~/Epicenter Dev` in
 //! development unless `EPICENTER_FOLDER_DIR` names another one at startup.
@@ -29,13 +31,6 @@ pub const RECORDS: LibraryDefault = LibraryDefault {
     id: "so.epicenter",
     title: "Epicenter",
 };
-pub const TODOS: LibraryDefault = LibraryDefault {
-    id: "so.epicenter.todos",
-    title: "Todos",
-};
-
-/// Every fixed default, records first.
-pub const ALL: [LibraryDefault; 2] = [RECORDS, TODOS];
 
 impl LibraryDefault {
     /// `<library_root>/<id>`, computed without touching the disk.
@@ -155,6 +150,13 @@ mod tests {
 
     use serde::Deserialize;
 
+    /// An ordinary app's default, as a shell would declare one: admitted as
+    /// an app, so never over Epicenter's records.
+    const APP: LibraryDefault = LibraryDefault {
+        id: "so.epicenter.example",
+        title: "Example",
+    };
+
     struct Library {
         _temp: tempfile::TempDir,
         base: PathBuf,
@@ -182,71 +184,53 @@ mod tests {
         names
     }
 
-    #[test]
-    fn the_table_has_unique_permanent_reverse_dns_identifiers() {
-        let ids: std::collections::BTreeSet<_> = ALL
-            .iter()
-            .map(|default| default.id.to_lowercase())
-            .collect();
-        assert_eq!(ids.len(), ALL.len());
-        assert_eq!(ALL[0], RECORDS);
-        assert_eq!(
-            ALL.map(|default| default.id),
-            ["so.epicenter", "so.epicenter.todos"]
-        );
-        for default in ALL {
-            assert!(default.id == "so.epicenter" || default.id.starts_with("so.epicenter."));
-            assert!(!default.id.ends_with(".dev"));
-        }
-    }
-
     /// A missing root and default are made; nothing is written to AppData,
     /// which is not even created.
     #[test]
     fn a_missing_default_is_created_under_a_new_root_without_writing_configuration() {
         let library = library();
         let root = library.base.join("new/root");
-        for default in ALL {
+        for default in [RECORDS, APP] {
             let directory = open_default(&library.data, &root, default).unwrap();
             assert_eq!(directory.root(), root.join(default.id));
             assert!(entries(directory.root()).is_empty());
         }
-        assert_eq!(entries(&root).len(), ALL.len());
+        assert_eq!(entries(&root), [RECORDS.id, APP.id]);
         assert!(!library.data.exists());
     }
 
     #[test]
     fn an_existing_default_is_reused_with_its_files_and_a_removed_one_is_made_again() {
         let library = library();
-        let todos = TODOS.path(&library.root);
-        fs::create_dir_all(todos.join("todos")).unwrap();
-        fs::write(todos.join("todos/milk.md"), "keep").unwrap();
-        fs::write(todos.join("unrelated.txt"), "keep").unwrap();
-        let opened = open_default(&library.data, &library.root, TODOS).unwrap();
-        assert_eq!(opened.root(), todos);
-        assert_eq!(entries(&todos), ["todos", "unrelated.txt"]);
+        let app = APP.path(&library.root);
+        fs::create_dir_all(app.join("notes")).unwrap();
+        fs::write(app.join("notes/milk.md"), "keep").unwrap();
+        fs::write(app.join("unrelated.txt"), "keep").unwrap();
+        let opened = open_default(&library.data, &library.root, APP).unwrap();
+        assert_eq!(opened.root(), app);
+        assert_eq!(entries(&app), ["notes", "unrelated.txt"]);
         assert_eq!(
-            fs::read_to_string(todos.join("todos/milk.md")).unwrap(),
+            fs::read_to_string(app.join("notes/milk.md")).unwrap(),
             "keep"
         );
 
-        fs::remove_dir_all(&todos).unwrap();
+        fs::remove_dir_all(&app).unwrap();
         assert_eq!(
-            open_default(&library.data, &library.root, TODOS).unwrap(),
+            open_default(&library.data, &library.root, APP).unwrap(),
             opened
         );
-        assert!(entries(&todos).is_empty());
+        assert!(entries(&app).is_empty());
     }
 
     #[test]
     fn a_file_at_the_default_is_refused_and_kept() {
         let library = library();
         fs::create_dir_all(&library.root).unwrap();
-        let occupied = TODOS.path(&library.root);
+        let occupied = APP.path(&library.root);
         fs::write(&occupied, "keep").unwrap();
-        assert!(open_default(&library.data, &library.root, TODOS).is_err());
+        assert!(open_default(&library.data, &library.root, APP).is_err());
         assert_eq!(fs::read_to_string(&occupied).unwrap(), "keep");
-        assert_eq!(entries(&library.root), ["so.epicenter.todos"]);
+        assert_eq!(entries(&library.root), [APP.id]);
     }
 
     #[cfg(unix)]
@@ -257,16 +241,16 @@ mod tests {
         let elsewhere = library.base.join("elsewhere");
         fs::create_dir_all(&elsewhere).unwrap();
         fs::create_dir_all(&library.root).unwrap();
-        symlink(&elsewhere, TODOS.path(&library.root)).unwrap();
-        assert!(open_default(&library.data, &library.root, TODOS).is_err());
+        symlink(&elsewhere, APP.path(&library.root)).unwrap();
+        assert!(open_default(&library.data, &library.root, APP).is_err());
         assert!(entries(&elsewhere).is_empty());
 
         let real = library.base.join("real");
         fs::create_dir(&real).unwrap();
         let alias = library.base.join("alias");
         symlink(&real, &alias).unwrap();
-        let opened = open_default(&library.data, &alias, TODOS).unwrap();
-        assert_eq!(opened.root(), real.join(TODOS.id));
+        let opened = open_default(&library.data, &alias, APP).unwrap();
+        assert_eq!(opened.root(), real.join(APP.id));
     }
 
     #[test]
@@ -278,7 +262,7 @@ mod tests {
                 let (data, root, gate) = (library.data.clone(), library.root.clone(), gate.clone());
                 std::thread::spawn(move || {
                     gate.wait();
-                    open_default(&data, &root, TODOS).unwrap()
+                    open_default(&data, &root, APP).unwrap()
                 })
             })
             .collect();
@@ -287,7 +271,7 @@ mod tests {
             .map(|thread| thread.join().unwrap())
             .collect();
         assert!(opened.windows(2).all(|pair| pair[0] == pair[1]));
-        assert_eq!(entries(&library.root), [TODOS.id]);
+        assert_eq!(entries(&library.root), [APP.id]);
     }
 
     /// A root override that reaches application data or a folder's
@@ -302,13 +286,13 @@ mod tests {
             library.base.join("Notes/.epicenter/scratch/library"),
             library.base.join("Notes/.EPICENTER"),
         ] {
-            for default in ALL {
+            for default in [RECORDS, APP] {
                 assert!(
                     open_default(&library.data, &root, default).is_err(),
                     "{root:?}"
                 );
             }
-            assert!(!root.join(TODOS.id).exists(), "{root:?}");
+            assert!(!root.join(APP.id).exists(), "{root:?}");
         }
         assert!(!library.data.join("library").exists());
         assert!(!library.base.join("Notes").exists());
@@ -345,10 +329,8 @@ mod tests {
                 "{refused:?}"
             );
         }
-        for default in &ALL[1..] {
-            let directory = open_default(&library.data, &library.root, *default).unwrap();
-            assert!(check_app_directory(&library.data, &library.root, directory.root()).is_ok());
-        }
+        let app = open_default(&library.data, &library.root, APP).unwrap();
+        assert!(check_app_directory(&library.data, &library.root, app.root()).is_ok());
         // A similar sibling name is not the records folder.
         let similar = library.root.join("so.epicenter-other");
         fs::create_dir(&similar).unwrap();

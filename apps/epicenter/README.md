@@ -123,11 +123,10 @@ Development uses `so.epicenter.dev` for data and settings.
 Production's library, the authored folder root, is `~/Epicenter`; development's
 is `~/Epicenter Dev`. `EPICENTER_FOLDER_DIR` overrides the library at startup
 and must be absolute; changing it opens another library and moves no files.
-Native locations live in `tauri_plugin_epicenter_folder::defaults::DesktopPaths`,
-shared with standalone Todos. A native app's default is a fixed reverse-DNS
-child from the shared `library` table (ADR-0672), such as `library::TODOS`
-for standalone Todos; changing an app's display name does not redirect its
-authored work.
+Native locations live in `tauri_plugin_epicenter_folder::defaults::DesktopPaths`.
+Epicenter's records are a fixed reverse-DNS child from the `library` table
+(ADR-0672), `library::RECORDS`; the standalone apps keep their data at
+`~/Epicenter/<productName>` instead, outside that table.
 The shell resolves both directories once and sets `EPICENTER_DATA_DIR` and
 `EPICENTER_FOLDER_DIR` on every `epicenter` command it runs, so the CLI
 writes where the shell reads. A terminal's `epicenter` uses the same
@@ -140,7 +139,6 @@ Files split by what they cost to lose (ADR-0539):
 ~/Epicenter/                                  read, edited, and versioned as files
   so.epicenter/                               Epicenter’s portable records (Settings)
     connections/<id>.md                       one row per AI connection
-  so.epicenter.todos/                         standalone Todos' default
   <name>/                                     a folder `epicenter clone` made
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   auth/<grant>.lock                           the lock a sign-in refreshes under (the CLI writes it)

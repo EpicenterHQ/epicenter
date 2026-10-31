@@ -20,7 +20,7 @@ file-system scope must allow (see Other roots).
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, the page's storage (`storage.rs`), and the fixed app defaults (`library.rs`). No Tauri; its tests need only `git` and `bun`. |
+| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, the page's storage (`storage.rs`), and the fixed native defaults (`library.rs`). No Tauri; its tests need only `git` and `bun`. |
 | `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), which roots a page may open (`scope.rs`), and storage commands. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
@@ -41,43 +41,41 @@ the directory before building the WebView:
 
 ```rust
 use tauri::{Manager, WebviewUrl};
-use tauri_plugin_epicenter_folder::{defaults::DesktopPaths, library::TODOS, FolderExt};
+use tauri_plugin_epicenter_folder::{Directory, FolderExt};
 
 tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_epicenter_folder::init())
     .setup(|app| {
-        let paths = DesktopPaths::resolve(app.handle())?;
-        let directory = paths.open_default(TODOS)?;
-        app.manage(paths);
-        app.open_folder_window("todos", directory, WebviewUrl::default(), |builder| {
-            Ok(builder.title("Todos"))
+        let directory = Directory::create(&app.path().app_data_dir()?)?;
+        app.open_folder_window("notes", directory, WebviewUrl::default(), |builder| {
+            Ok(builder.title("Notes"))
         })?;
         Ok(())
     })
 ```
 
+The apps on [`epicenter-standalone`](../tauri-epicenter-standalone/README.md)
+(Capture, Honeycrisp, Todos, Vocab, Whispering) bind their window to their
+AppData root this way, and keep their data folder at
+`~/Epicenter/<productName>`, allowed in Tauri's file-system scope at startup
+(see Other roots). They use neither the library nor `DesktopPaths`, which
+are Epicenter's own.
+
 `defaults::DesktopPaths::resolve(app)` resolves Epicenter's machine-local
-application data directory and the library root once at startup. Both shells
-use Epicenter's scope, including when Epicenter is not installed: release uses
-`so.epicenter` and `~/Epicenter`; development uses `so.epicenter.dev` and
-`~/Epicenter Dev`. A nonempty absolute `EPICENTER_DATA_DIR` or
+application data directory and the library root once at startup: release
+uses `so.epicenter` and `~/Epicenter`; development uses `so.epicenter.dev`
+and `~/Epicenter Dev`. A nonempty absolute `EPICENTER_DATA_DIR` or
 `EPICENTER_FOLDER_DIR` overrides either.
 
-`library` (ADR-0672) is the one table of native app defaults, shared by both
-shells: each `LibraryDefault` is a permanent reverse-DNS child of the root
-and a display title that never names storage.
+`library` (ADR-0672) is the table of fixed native defaults: each
+`LibraryDefault` is a permanent reverse-DNS child of the root and a display
+title that never names storage. Epicenter's records are its one row.
 
 ```txt
 <library>/
   so.epicenter/              RECORDS     Epicenter
-  so.epicenter.todos/        TODOS       Todos
 ```
-
-The apps on [`epicenter-standalone`](../tauri-epicenter-standalone/README.md)
-(Capture, Honeycrisp, Vocab, Whispering) use neither the library nor
-`DesktopPaths`: each keeps its data folder at `~/Epicenter/<productName>`,
-allowed in Tauri's file-system scope at startup (see Other roots).
 
 `DesktopPaths::open_default(definition)` computes `<root>/<id>`, admits it,
 then creates it when missing or reuses the directory already there with its
@@ -111,8 +109,8 @@ writes elsewhere is the `epicenter` CLI's to refuse, before each history
 operation.
 
 `FolderExt::open_folder_window(application, directory, url, configure)` opens
-one window per application key and canonical root. Standalone Todos supplies
-`"todos"` and Epicenter's editor supplies `"files"`; the plugin computes
+one window per application key and canonical root. A standalone app supplies
+its page name (`"todos"`) and Epicenter's editor supplies `"files"`; the plugin computes
 `<key>:<digest>` internally.
 Opening the same pair reveals its existing window without configuring it
 again. Different apps can open the same root in separate windows. Labels are

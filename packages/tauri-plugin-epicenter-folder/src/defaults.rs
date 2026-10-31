@@ -1,6 +1,8 @@
-//! Authored-folder launch defaults shared by Epicenter and standalone app shells.
-//! The shell resolves the library root once at startup; window binding and
-//! explicitly chosen directories do not depend on this policy.
+//! Epicenter's authored-folder launch defaults: its records in the library
+//! root. The shell resolves the library root once at startup; window binding
+//! and explicitly chosen directories do not depend on this policy. The apps
+//! on `epicenter-standalone` use neither: each keeps its data folder at
+//! `~/Epicenter/<productName>`.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -8,9 +10,8 @@ use std::path::{Path, PathBuf};
 use epicenter_folder_core::library::{self, LibraryDefault};
 use tauri::{AppHandle, Manager, Runtime};
 
-/// Shared machine-local application data and the library root whose fixed
-/// children are the app defaults. A standalone shell deliberately uses
-/// Epicenter's scope, not its own bundle's.
+/// Epicenter's machine-local application data and the library root whose
+/// fixed children are its defaults.
 #[derive(Debug, Clone)]
 pub struct DesktopPaths {
     pub data_dir: PathBuf,
@@ -59,8 +60,8 @@ fn resolve_data_dir(
 ) -> Result<PathBuf, String> {
     resolve_directory("EPICENTER_DATA_DIR", value, || {
         let scope = match identifier {
-            "so.epicenter" | "so.epicenter.todos" => "so.epicenter",
-            "so.epicenter.dev" | "so.epicenter.todos.dev" => "so.epicenter.dev",
+            "so.epicenter" => "so.epicenter",
+            "so.epicenter.dev" => "so.epicenter.dev",
             identifier => {
                 return Err(format!(
                 "No shared configuration scope for {identifier}; set EPICENTER_DATA_DIR explicitly"
@@ -102,8 +103,8 @@ fn resolve_folder_root(
 ) -> Result<PathBuf, String> {
     resolve_directory("EPICENTER_FOLDER_DIR", override_value, || {
         let name = match identifier {
-            "so.epicenter" | "so.epicenter.todos" => "Epicenter",
-            "so.epicenter.dev" | "so.epicenter.todos.dev" => "Epicenter Dev",
+            "so.epicenter" => "Epicenter",
+            "so.epicenter.dev" => "Epicenter Dev",
             _ => {
                 return Err(format!(
                     "No authored root for {identifier}; set EPICENTER_FOLDER_DIR explicitly"
@@ -119,73 +120,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn standalone_and_host_share_machine_configuration_but_development_is_separate() {
+    fn release_and_development_keep_separate_machine_configuration() {
         let base = std::env::temp_dir().join("application-support");
-        for (host, standalone, scope) in [
-            ("so.epicenter", "so.epicenter.todos", "so.epicenter"),
-            (
-                "so.epicenter.dev",
-                "so.epicenter.todos.dev",
-                "so.epicenter.dev",
-            ),
+        for (identifier, scope) in [
+            ("so.epicenter", "so.epicenter"),
+            ("so.epicenter.dev", "so.epicenter.dev"),
         ] {
-            for identifier in [host, standalone] {
-                assert_eq!(
-                    resolve_data_dir(identifier, None, || Ok(base.clone())).unwrap(),
-                    base.join(scope)
-                );
-                assert_eq!(
-                    resolve_data_dir(identifier, Some(base.as_os_str()), || panic!(
-                        "override wins"
-                    ))
-                    .unwrap(),
-                    base
-                );
-                assert!(
-                    resolve_data_dir(identifier, Some(OsStr::new("relative")), || panic!(
-                        "reject before lookup"
-                    ))
-                    .is_err()
-                );
-            }
+            assert_eq!(
+                resolve_data_dir(identifier, None, || Ok(base.clone())).unwrap(),
+                base.join(scope)
+            );
+            assert_eq!(
+                resolve_data_dir(identifier, Some(base.as_os_str()), || panic!(
+                    "override wins"
+                ))
+                .unwrap(),
+                base
+            );
+            assert!(
+                resolve_data_dir(identifier, Some(OsStr::new("relative")), || panic!(
+                    "reject before lookup"
+                ))
+                .is_err()
+            );
         }
     }
 
     #[test]
-    fn shipped_epicenter_and_todos_configs_select_the_same_library_root() {
+    fn shipped_epicenter_configs_select_their_library_root() {
         let home = std::env::temp_dir().join("epicenter-home");
-        for (epicenter, standalone, name) in [
+        for (config, name) in [
             (
                 include_str!("../../../apps/epicenter/src-tauri/tauri.conf.json"),
-                include_str!("../../../apps/todos/src-tauri/tauri.conf.json"),
                 "Epicenter",
             ),
             (
                 include_str!("../../../apps/epicenter/src-tauri/tauri.dev.conf.json"),
-                include_str!("../../../apps/todos/src-tauri/tauri.dev.conf.json"),
                 "Epicenter Dev",
             ),
         ] {
-            for config in [epicenter, standalone] {
-                let config: serde_json::Value = serde_json::from_str(config).unwrap();
-                let identifier = config["identifier"].as_str().unwrap();
-                for value in [None, Some(OsStr::new(""))] {
-                    let root = resolve_folder_root(identifier, value, || Ok(home.clone())).unwrap();
-                    assert_eq!(
-                        library::TODOS.path(&root),
-                        home.join(name).join("so.epicenter.todos")
-                    );
-                }
-                let elsewhere = home.join("elsewhere");
-                let root = resolve_folder_root(identifier, Some(elsewhere.as_os_str()), || {
-                    panic!("an explicit root does not need the home directory")
-                })
-                .unwrap();
+            let config: serde_json::Value = serde_json::from_str(config).unwrap();
+            let identifier = config["identifier"].as_str().unwrap();
+            for value in [None, Some(OsStr::new(""))] {
+                let root = resolve_folder_root(identifier, value, || Ok(home.clone())).unwrap();
                 assert_eq!(
-                    library::TODOS.path(&root),
-                    elsewhere.join("so.epicenter.todos")
+                    library::RECORDS.path(&root),
+                    home.join(name).join("so.epicenter")
                 );
             }
+            let elsewhere = home.join("elsewhere");
+            let root = resolve_folder_root(identifier, Some(elsewhere.as_os_str()), || {
+                panic!("an explicit root does not need the home directory")
+            })
+            .unwrap();
+            assert_eq!(library::RECORDS.path(&root), elsewhere.join("so.epicenter"));
         }
     }
 

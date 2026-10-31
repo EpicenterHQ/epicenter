@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-22
 - **Related proposal:** [Launcher grouping by pin, library membership, and recency](0679-the-launcher-groups-folders-by-pin-library-membership-then-recency.md) changes navigation preferences, leaving this allocation policy unchanged. Its pins and recents are unbuilt; the bookmark-based listing described here is the current implementation.
-- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at standalone app defaults: an app on `epicenter-standalone` keeps its data in `~/Epicenter/<productName>`; the library's reverse-DNS defaults remain for Epicenter's records and standalone Todos.
+- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at standalone app defaults: an app on `epicenter-standalone` keeps its data in `~/Epicenter/<productName>`; the library's reverse-DNS defaults remain for Epicenter's records only, since Todos moved onto `epicenter-standalone` too.
 - **Amends:** [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md) by replacing saved app-home selection with fixed defaults, and [ADR-0671](0671-the-launcher-lists-directories-from-all-current-references.md) by removing selected homes as a listing source.
 
 ## Context

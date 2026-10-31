@@ -9,11 +9,9 @@
 //! tauri::Builder::default()
 //!     .plugin(tauri_plugin_epicenter_folder::init())
 //!     .setup(|app| {
-//!         let paths = defaults::DesktopPaths::resolve(app.handle())?;
-//!         let directory = paths.open_default(library::TODOS)?;
-//!         app.manage(paths);
-//!         app.open_folder_window("todos", directory, url, |builder| {
-//!             Ok(builder.title("Todos"))
+//!         let directory = Directory::create(&app.path().app_data_dir()?)?;
+//!         app.open_folder_window("notes", directory, url, |builder| {
+//!             Ok(builder.title("Notes"))
 //!         })?;
 //!         Ok(())
 //!     })
