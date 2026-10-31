@@ -85,7 +85,7 @@ test('notes sort newest first and folders by name', async () => {
 
 test('a new note is made in the folder shown, and opens ready to write in, once', async () => {
 	const device = await deviceWith({ 'folders/w.md': folder('Work') });
-	// As the "On this device" page composes it: the device's own collections.
+	// As the local variant composes it: the device's own collections.
 	const app = createHoneycrisp(fromClient(device.client));
 	app.showFolder('w');
 	const created = await app.createNote();

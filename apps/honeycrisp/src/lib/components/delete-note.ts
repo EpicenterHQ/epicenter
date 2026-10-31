@@ -6,7 +6,7 @@ import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { type HoneycrispState, notePath } from '$lib/honeycrisp.svelte.js';
 
-/** Ask, then delete the note `id`, whose name is `label`, from the view's client. */
+/** Ask, then delete the note `id`, whose name is `label`, from the page's store. */
 export function confirmDeleteNote(
 	app: HoneycrispState,
 	{ id, label }: { id: string; label: string },

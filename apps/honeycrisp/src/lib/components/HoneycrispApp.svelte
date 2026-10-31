@@ -1,8 +1,8 @@
 <!--
-	One of Honeycrisp's two views (decision 76): the header, the folders, the
-	notes, and what is open, over one client's notes and folders, this
-	device's or the repository's. Views read and write only through the state
-	in context.
+	Honeycrisp itself, in either variant: the header, the folders, the notes,
+	and what is open, over one store's notes and folders, this browser's or
+	the repository's. Components read and write only through the state in
+	context.
 -->
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
@@ -10,7 +10,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import type { ReactiveClient } from '@epicenter/svelte/client';
 	import type { Honeycrisp } from '$lib/contract.js';
-	import { createHoneycrisp, setHoneycrisp, type View } from '$lib/honeycrisp.svelte.js';
+	import { createHoneycrisp, setHoneycrisp, type Variant } from '$lib/honeycrisp.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FolderNav from './FolderNav.svelte';
 	import FolderRepair from './FolderRepair.svelte';
@@ -18,12 +18,12 @@
 	import NoteList from './NoteList.svelte';
 
 	let {
-		view,
+		variant,
 		client,
 	}: {
-		/** Which view this is: this device's notes and folders, or the repository's. */
-		view: View;
-		/** That view's client, which every component under it reads and edits. */
+		/** Which variant this page is: this browser's notes and folders, or the repository's. */
+		variant: Variant;
+		/** Its store's client, which every component under it reads and edits. */
 		client: ReactiveClient<Honeycrisp>;
 	} = $props();
 
@@ -48,7 +48,7 @@
 />
 
 <div class="flex h-dvh flex-col overflow-hidden">
-	<AppHeader {view} />
+	<AppHeader {variant} />
 
 	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
 		<Resizable.Pane id="folders" order={1} defaultSize={18} minSize={10} maxSize={30}>

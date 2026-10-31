@@ -1,8 +1,8 @@
 /**
- * Sign-in with Epicenter for Honeycrisp: a browser OAuth client whose one
- * token is for the server's Git audience, where the person's `honeycrisp`
- * repository lives. Honeycrisp makes no inference calls, so it asks for no
- * API token.
+ * Sign-in with Epicenter for Honeycrisp's online variant: a browser OAuth
+ * client whose one token is for the server's Git audience, where the
+ * person's `honeycrisp` repository lives. Honeycrisp makes no inference
+ * calls, so it asks for no API token, and its local variant never signs in.
  *
  * The server is `VITE_EPICENTER_SERVER` when the build sets it (a local or
  * self-hosted API), otherwise Epicenter's.
