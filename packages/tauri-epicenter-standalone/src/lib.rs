@@ -6,7 +6,7 @@
 //! installation, never synced and never chosen. Its settings notes sit at its
 //! top (`settings.md`, `shortcuts.md`), as the same notes sit at the top of
 //! the data root. Its **data root** is the person's files: `~/Epicenter/<App>`
-//! by default (`~/Epicenter Dev/<App>` for a development build of the page),
+//! by default (`~/Epicenter/<App> Dev` for the development configuration),
 //! or the folder the person picked with "Choose data folder…", which the page remembers as
 //! `folder` in the AppData root's `settings.md`. Only the data root is ever
 //! synced (by Epicenter).
