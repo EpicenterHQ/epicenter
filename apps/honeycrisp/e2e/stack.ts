@@ -1,0 +1,43 @@
+/**
+ * Honeycrisp's end-to-end environment (`runAppStack` in
+ * `packages/cli/src/app-stack.test-support.ts`): a disposable Postgres, the
+ * local API with temporary Git and LFS stores, a person per browser project
+ * with a desktop sandbox, and Honeycrisp built against that API and served by
+ * `vite preview` on its registered origin, `http://localhost:5175`.
+ *
+ *   bun apps/honeycrisp/e2e/stack.ts /tmp/state.json
+ *   bun apps/honeycrisp/e2e/stack.ts --demo   # `bun run demo`
+ */
+import { join, resolve } from 'node:path';
+import { APPS, localUrl } from '@epicenter/constants/apps';
+import { runAppStack } from '../../../packages/cli/src/app-stack.test-support.ts';
+
+const appDir = resolve(import.meta.dir, '..');
+
+await runAppStack({
+	name: 'honeycrisp',
+	app: localUrl(APPS.HONEYCRISP),
+	// The static app goes to the scratch directory (`HONEYCRISP_BUILD_DIR`, read
+	// by `svelte.config.js`), never `build/`, which `wrangler deploy` publishes;
+	// `vite preview` serves `.svelte-kit/output`.
+	build: (scratch) => ({
+		command: [process.execPath, 'x', 'vite', 'build', '--logLevel', 'warn'],
+		cwd: appDir,
+		env: { HONEYCRISP_BUILD_DIR: join(scratch, 'build') },
+	}),
+	serve: () => ({
+		command: [process.execPath, 'x', 'vite', 'preview'],
+		cwd: appDir,
+	}),
+	ready: '/contract.json',
+	demo: ({ stack, person, signIn, script }) => `
+Honeycrisp        ${stack.app}
+API               ${stack.origin}
+Sign in           open ${signIn} (sets the demo person's session), then press Sign in
+Desktop sandbox   source '${script}'
+                  epicenter clone ${person.namespace}/honeycrisp
+                  epicenter check ${stack.app}/contract.json honeycrisp
+                  epicenter sync honeycrisp
+Stop              Ctrl-C (everything above is deleted)
+`,
+});

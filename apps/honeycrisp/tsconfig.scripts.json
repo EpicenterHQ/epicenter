@@ -1,0 +1,9 @@
+{
+	// Bun and Playwright entrypoints: the native CLI, the contract writer, and the end-to-end suite.
+	"extends": "../../tsconfig.dom.json",
+	"compilerOptions": {
+		"types": ["bun"],
+		"noEmit": true
+	},
+	"include": ["scripts/**/*.ts", "e2e/**/*.ts", "playwright.config.ts"]
+}
