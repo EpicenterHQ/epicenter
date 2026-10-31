@@ -123,24 +123,21 @@ function parseCapture(bytes: Uint8Array): Capture | null {
 		return null;
 	}
 	if (!isRecord(value) || !isRecord(value.paths)) return null;
-	const { id, paths, state, receipt, bases = {}, sent = {} } = value;
+	const { id, paths, state, receipt, bases, sent } = value;
 	if (typeof id !== 'string' || !CAPTURE_ID.test(id)) return null;
-	const strings = (record: Record<string, unknown>) =>
+	const strings = (record: unknown): record is Record<string, string> =>
+		isRecord(record) &&
 		Object.values(record).every((version) => typeof version === 'string');
-	if (!strings(paths) || !isRecord(bases) || !strings(bases)) return null;
-	if (!isRecord(sent) || !strings(sent)) return null;
-	const capture = {
-		id,
-		paths: paths as Capture['paths'],
-		bases: bases as Capture['bases'],
-	};
+	if (!strings(paths) || !strings(bases)) return null;
+	const capture = { id, paths: paths as Capture['paths'], bases };
 	if (state === 'pending' && receipt === null)
 		return { ...capture, state, receipt };
 	if (
 		state === 'acknowledged' &&
 		isRecord(receipt) &&
 		typeof receipt.commit === 'string' &&
-		isRecord(receipt.blobs)
+		isRecord(receipt.blobs) &&
+		strings(sent)
 	)
 		return {
 			...capture,
@@ -150,10 +147,7 @@ function parseCapture(bytes: Uint8Array): Capture | null {
 				paths: receipt.paths as string[],
 				blobs: receipt.blobs as Record<string, string>,
 			},
-			// A sidecar written before decision 68 may hold a server's replayed
-			// receipt for other bytes than were sent: none of them is known to
-			// have landed, so `finish` keeps every file and requeues it.
-			sent: receipt.replayed === true ? {} : (sent as Record<string, Version>),
+			sent: sent as Record<string, Version>,
 		};
 	return null;
 }

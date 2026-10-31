@@ -7,7 +7,7 @@ import {
 	type TreeEntry,
 	writeTree,
 } from '../../git/raw-objects.js';
-import type { FileContent } from '../../shared/merge.js';
+import type { FileContent } from '../../shared/file-content.js';
 
 /** Git's canonical empty tree, also used for an uncommitted empty folder. */
 export const emptyTree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -238,51 +238,4 @@ export async function changeSnapshot({
 	const result = await build(root, patch);
 	for (const oid of known) objects.delete(oid);
 	return { tree: result.oid, objects };
-}
-
-/**
- * Remove entries that disappeared between a checkpoint and the working tree.
- * Keep checkpoint bytes for surviving leaves: a rejected send is rebased before
- * newer replacements are applied. Raw names are compared as bytes.
- */
-export async function withoutDeletedEntries({
-	root,
-	workingTree,
-	read,
-}: {
-	root: string;
-	workingTree: string;
-	read: (oid: string) => Promise<GitObject>;
-}) {
-	const objects = new Map<string, GitObject>();
-	const key = (name: Uint8Array) =>
-		Array.from(name, (byte) => byte.toString(16).padStart(2, '0')).join('');
-	async function prune(before: string, after: string): Promise<string | null> {
-		if (before === after) return before;
-		const entries = entriesOf(before, await objectOf(before, 'tree', read));
-		const current = new Map(
-			entriesOf(after, await objectOf(after, 'tree', read)).map((entry) => [
-				key(entry.name),
-				entry,
-			]),
-		);
-		const kept: TreeEntry[] = [];
-		for (const entry of entries) {
-			const next = current.get(key(entry.name));
-			if (next === undefined || isTree(entry.mode) !== isTree(next.mode))
-				continue;
-			if (!isTree(entry.mode)) {
-				kept.push(entry);
-				continue;
-			}
-			const oid = await prune(entry.oid, next.oid);
-			if (oid !== null) kept.push({ ...entry, oid });
-		}
-		if (kept.length === 0 && entries.length > 0) return null;
-		const object: GitObject = { type: 'tree', bytes: writeTree(kept) };
-		const oid = await hashObject(object);
-		if (oid !== before) objects.set(oid, object);
-		return oid;
-	}
-	return { tree: await prune(root, workingTree), objects };
 }

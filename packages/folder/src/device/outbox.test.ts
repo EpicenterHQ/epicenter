@@ -269,50 +269,6 @@ test('an unreadable sidecar is listed as invalid, not dropped or thrown', async 
 	});
 });
 
-test('a sidecar acknowledged with a replayed receipt (before decision 68) deletes nothing', async () => {
-	const { root, outbox, note, audio } = await setup();
-	expectOk(
-		await outbox.add({
-			id: 'r1',
-			files: [
-				{ collection: 'recordings', ...note },
-				{ collection: 'audio', ...audio },
-			],
-		}),
-	);
-	const older = 'c'.repeat(40);
-	await Bun.write(
-		join(root, '.epicenter/outbox/r1.json'),
-		JSON.stringify({
-			id: 'r1',
-			paths: {
-				'recordings/r1.md': note.version,
-				'recordings/r1.webm': audio.version,
-			},
-			bases: {},
-			state: 'acknowledged',
-			receipt: {
-				commit: 'c0ffee',
-				paths: ['recordings/r1.md', 'recordings/r1.webm'],
-				blobs: { 'recordings/r1.md': older },
-				replayed: true,
-			},
-			sent: {
-				'recordings/r1.md': note.version,
-				'recordings/r1.webm': audio.version,
-			},
-		}),
-	);
-	const finished = expectOk(await outbox.finish('r1'));
-	expect(finished.kept.sort()).toEqual([
-		'recordings/r1.md',
-		'recordings/r1.webm',
-	]);
-	expect(finished.queued?.bases).toEqual({ 'recordings/r1.md': older });
-	expect(await exists(join(root, 'recordings/r1.md'))).toBe(true);
-	expect(await exists(join(root, 'recordings/r1.webm'))).toBe(true);
-});
-
 test('a pending capture whose files are all gone finishes, with nothing to send', async () => {
 	const { device, outbox, note } = await setup();
 	expectOk(

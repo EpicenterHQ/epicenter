@@ -2,8 +2,7 @@
  * Scoped capture regressions
  *
  * Point reads, row lists and prefix lists avoid unrelated trees without losing
- * directory occupancy. Deleting the last child prunes its directory immediately;
- * current files do not require decoding either sync checkpoint.
+ * directory occupancy. Deleting the last child prunes its directory immediately.
  */
 import {
 	captureFile,
@@ -13,11 +12,8 @@ import {
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { type GitObject, hashObject, writeCommit } from '../git/raw-objects.js';
 import { changeSnapshot } from './git/snapshot.js';
 import { type LocalRepository, openRepository } from './repository.js';
-
-const author = { name: 'Capture', email: 'capture@example.com', timestamp: 1 };
 
 async function seed(repository: LocalRepository, files: [string, string][]) {
 	const candidate = await changeSnapshot({
@@ -27,26 +23,13 @@ async function seed(repository: LocalRepository, files: [string, string][]) {
 			throw new Error('Fresh fixture has no prior tree');
 		},
 	});
-	const commit: GitObject = {
-		type: 'commit',
-		bytes: writeCommit({
-			tree: candidate.tree,
-			parents: [],
-			author,
-			message: 'Fixture\n',
-		}),
-	};
-	const head = await hashObject(commit);
-	candidate.objects.set(head, commit);
 	expect(
 		await repository.storage.publish({
-			expected: (await repository.storage.capture([])).state,
+			expected: (await repository.storage.capture([])).state.workingTree,
 			workingTree: candidate.tree,
 			objects: candidate.objects,
-			refs: { remoteBase: head, pendingCommit: null },
 		}),
 	).toBe(true);
-	return { head };
 }
 
 const trees = (
@@ -130,33 +113,6 @@ test('deleting the final child removes directory occupancy and its case twin bef
 		expectOk(await repository.put('notes', 'replacement'));
 
 		expect(expectOk(await capturePaths(repository))).toEqual(['notes']);
-	} finally {
-		repository.close();
-	}
-});
-
-test('working files remain readable and editable without decoding the received checkpoint', async () => {
-	const repository = await openRepository(crypto.randomUUID());
-	try {
-		const fixture = await seed(repository, [['keep/file.txt', 'content']]);
-		const { state } = await repository.storage.capture([]);
-		// B's bytes are intentionally absent. File operations need only W;
-		// synchronization must explicitly capture its checkpoints.
-		expect(
-			await repository.storage.publish({
-				expected: state,
-				refs: {
-					remoteBase: 'a'.repeat(40),
-					pendingCommit: fixture.head,
-				},
-			}),
-		).toBe(true);
-		expect(
-			await expectOk(
-				await captureFile(repository, 'keep/file.txt'),
-			)!.content.text(),
-		).toBe('content');
-		expectOk(await repository.put('keep/file.txt', 'newer'));
 	} finally {
 		repository.close();
 	}

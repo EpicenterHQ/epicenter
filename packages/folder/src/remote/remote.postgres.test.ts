@@ -503,6 +503,7 @@ describe('upload', () => {
 			JSON.stringify({
 				id: 'outside',
 				paths: { 'notes/evil.md': 'a'.repeat(64) },
+				bases: {},
 				state: 'pending',
 				receipt: null,
 			}),
@@ -572,7 +573,9 @@ describe('upload', () => {
 		// The capture waits on the device for the next person to sign in, and
 		// what the retired account's uploads cached is gone.
 		const cachedNow = async () =>
-			(await filesIn(root)).some((path) => path.startsWith('.epicenter/cache/'));
+			(await filesIn(root)).some((path) =>
+				path.startsWith('.epicenter/cache/'),
+			);
 		for (let i = 0; i < 40 && (await cachedNow()); i++) await Bun.sleep(25);
 		const left = await filesIn(root);
 		expect(left).toHaveLength(3);

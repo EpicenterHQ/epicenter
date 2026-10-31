@@ -1,22 +1,10 @@
 import { createLogger } from 'wellcrafted/logger';
-import { type GitObject, readCommit, readTree } from '../git/raw-objects.js';
-import { snapshotObjects } from './git/closure.js';
+import { type GitObject, readTree } from '../git/raw-objects.js';
 import { emptyTree, readSnapshot } from './git/snapshot.js';
 
-/** Rule files are regular files; Git does not follow a symlinked .gitignore. */
-function isIgnoreFile(path: string, mode: string) {
-	return (
-		(path === '.gitignore' || path.endsWith('/.gitignore')) &&
-		(mode === '100644' || mode === '100755')
-	);
-}
-
-/** One saved folder and the two checkpoints needed to settle Git exchange. */
+/** One saved folder: its working tree and what collection may reclaim. */
 export type RepositoryState = {
 	workingTree: string;
-	/** undefined means no successful remote observation; null means observed empty. */
-	remoteBase: string | null | undefined;
-	pendingCommit: string | null;
 	/** Conservative upper bound on retired bytes since the last collection. */
 	retiredBytes: number;
 };
@@ -52,8 +40,6 @@ export class StorageFailure extends Error {
 
 const initialState = (): RepositoryState => ({
 	workingTree: emptyTree,
-	remoteBase: undefined,
-	pendingCommit: null,
 	retiredBytes: 0,
 });
 
@@ -184,18 +170,11 @@ export async function openStorage(id: string) {
 
 	const storage = {
 		/**
-		 * Capture working-tree inputs in one transaction. A sync capture also
-		 * includes complete checkpoint and working closures. Other scopes only
-		 * expand the trees they need; unexpanded entries retain occupancy.
-		 * Only IndexedDB requests are awaited while the transaction is live.
+		 * Capture working-tree inputs in one transaction. A scope only expands
+		 * the trees it needs; unexpanded entries retain occupancy. Only
+		 * IndexedDB requests are awaited while the transaction is live.
 		 */
-		capture(
-			scope?:
-				| readonly string[]
-				| { prefix: string }
-				| { rows: string }
-				| 'sync',
-		) {
+		capture(scope?: readonly string[] | { prefix: string } | { rows: string }) {
 			return transact('readonly', async (transaction) => {
 				const state = (await requested(
 					transaction.objectStore('meta').get('state'),
@@ -209,18 +188,7 @@ export async function openStorage(id: string) {
 						throw new StorageFailure(`Repository object ${oid} is missing`);
 					return object;
 				}
-				// The complete closure map owns sync capture; do not populate a
-				// second cache alongside its traversal.
-				const objects =
-					scope === 'sync'
-						? await snapshotObjects(
-								[state.remoteBase, state.pendingCommit].filter(
-									(oid): oid is string => typeof oid === 'string',
-								),
-								load,
-								[state.workingTree],
-							)
-						: new Map<string, GitObject>();
+				const objects = new Map<string, GitObject>();
 				async function read(oid: string): Promise<GitObject> {
 					const cached = objects.get(oid);
 					if (cached !== undefined) return cached;
@@ -229,7 +197,7 @@ export async function openStorage(id: string) {
 					return object;
 				}
 				function descend(path: string): boolean {
-					if (scope === undefined || scope === 'sync') return true;
+					if (scope === undefined) return true;
 					if ('prefix' in scope)
 						return (
 							path.startsWith(scope.prefix) ||
@@ -239,9 +207,7 @@ export async function openStorage(id: string) {
 					return scope.some((selected) => selected.startsWith(`${path}/`));
 				}
 				const full =
-					scope === undefined ||
-					scope === 'sync' ||
-					(Array.isArray(scope) && scope.length === 0);
+					scope === undefined || (Array.isArray(scope) && scope.length === 0);
 				const tree = await readSnapshot(
 					state.workingTree,
 					read,
@@ -267,95 +233,31 @@ export async function openStorage(id: string) {
 			});
 		},
 
-		/** Capture preparation's trees and ignore bytes, without loading other blobs. */
-		checkpoint() {
-			return transact('readonly', async (transaction) => {
-				const state = (await requested(
-					transaction.objectStore('meta').get('state'),
-				)) as RepositoryState;
-				const objects = new Map<string, GitObject>();
-				const read = async (oid: string): Promise<GitObject> => {
-					const cached = objects.get(oid);
-					if (cached !== undefined) return cached;
-					const object = (await requested(
-						transaction.objectStore('objects').get(oid),
-					)) as GitObject | undefined;
-					if (object === undefined)
-						throw new StorageFailure(`Repository object ${oid} is missing`);
-					objects.set(oid, object);
-					return object;
-				};
-				let baseTree: string | null = null;
-				if (state.remoteBase != null && state.pendingCommit === null) {
-					const object = await read(state.remoteBase);
-					if (object.type !== 'commit')
-						throw new StorageFailure(
-							`Confirmed commit ${state.remoteBase} has the wrong type`,
-						);
-					baseTree = readCommit(object.bytes).tree;
-				}
-				if (
-					state.remoteBase !== undefined &&
-					state.pendingCommit === null &&
-					state.workingTree !== (baseTree ?? emptyTree)
-				) {
-					const current = await readSnapshot(state.workingTree, read);
-					await readSnapshot(baseTree, read);
-					for (const [path, entry] of current.files)
-						if (isIgnoreFile(path, entry.mode)) await read(entry.oid);
-				}
-				return { state, baseTree, objects };
-			});
-		},
-
-		/** Hash outside this transaction. Local saves guard W; sync guards W/B/P. */
-		async publish(
-			input: {
-				workingTree?: string;
-				objects?: ReadonlyMap<string, GitObject>;
-				retiredBytes?: number;
-				paths?: readonly string[];
-			} & (
-				| { expected: string; refs?: never }
-				| {
-						expected: RepositoryState;
-						refs?: { remoteBase: string | null; pendingCommit: string | null };
-				  }
-			),
-		): Promise<boolean> {
+		/** Hash outside this transaction. A save lands only over the working tree it read. */
+		async publish(input: {
+			expected: string;
+			workingTree?: string;
+			objects?: ReadonlyMap<string, GitObject>;
+			retiredBytes?: number;
+			paths?: readonly string[];
+		}): Promise<boolean> {
 			async function publish() {
 				return transact('readwrite', async (transaction) => {
 					const meta = transaction.objectStore('meta');
 					const state = (await requested(meta.get('state'))) as RepositoryState;
-					const expected = input.expected;
-					if (
-						state.workingTree !==
-						(typeof expected === 'string' ? expected : expected.workingTree)
-					)
-						return null;
-					if (
-						typeof expected !== 'string' &&
-						(state.remoteBase !== expected.remoteBase ||
-							state.pendingCommit !== expected.pendingCommit)
-					)
-						return null;
+					if (state.workingTree !== input.expected) return null;
 					const objects = transaction.objectStore('objects');
 					for (const [oid, object] of input.objects ?? [])
 						objects.put(object, oid);
 					const next = {
 						...state,
-						...input.refs,
 						workingTree: input.workingTree ?? state.workingTree,
 						retiredBytes: state.retiredBytes + (input.retiredBytes ?? 0),
 					};
 					meta.put(next, 'state');
 					return {
 						changed: next.workingTree !== state.workingTree,
-						collect:
-							next.retiredBytes >= 8 * 1024 * 1024 ||
-							next.remoteBase !== state.remoteBase ||
-							(state.pendingCommit !== null &&
-								next.pendingCommit !== state.pendingCommit),
+						collect: next.retiredBytes >= 8 * 1024 * 1024,
 					};
 				});
 			}
@@ -382,21 +284,7 @@ export async function openStorage(id: string) {
 			return true;
 		},
 
-		/** Settle the exact send while retaining the latest working tree. */
-		async acknowledge(base: string | null, head: string): Promise<boolean> {
-			const accepted = await transact('readwrite', async (transaction) => {
-				const meta = transaction.objectStore('meta');
-				const state = (await requested(meta.get('state'))) as RepositoryState;
-				if (state.remoteBase !== base || state.pendingCommit !== head)
-					return false;
-				meta.put({ ...state, remoteBase: head, pendingCommit: null }, 'state');
-				return true;
-			});
-			if (accepted) await maintain();
-			return accepted;
-		},
-
-		/** Keep W and both checkpoint snapshots, without traversing commit parents. */
+		/** Keep the working tree's objects and remove every other one. */
 		collect(): Promise<number> {
 			return transact('readwrite', async (transaction) => {
 				const meta = transaction.objectStore('meta');
@@ -408,11 +296,8 @@ export async function openStorage(id: string) {
 					),
 				);
 				const live = new Set<string>();
-				const pending = [
-					{ oid: state.workingTree, type: 'tree' as GitObject['type'] },
-					...[state.remoteBase, state.pendingCommit]
-						.filter((oid): oid is string => typeof oid === 'string')
-						.map((oid) => ({ oid, type: 'commit' as GitObject['type'] })),
+				const pending: { oid: string; type: GitObject['type'] }[] = [
+					{ oid: state.workingTree, type: 'tree' },
 				];
 				for (
 					let next = pending.pop();
@@ -440,8 +325,6 @@ export async function openStorage(id: string) {
 						);
 					if (live.has(oid)) continue;
 					live.add(oid);
-					if (type === 'commit')
-						pending.push({ oid: readCommit(object.bytes).tree, type: 'tree' });
 					if (type === 'tree')
 						for (const entry of readTree(object.bytes)) {
 							if (entry.mode === '160000') continue;

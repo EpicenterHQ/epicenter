@@ -2,7 +2,7 @@ import { Ok, type Result } from 'wellcrafted/result';
 import { hashObject } from '../git/raw-objects.js';
 import { pathProblem, readablePath, writableExistingPath } from '../paths.js';
 import { SaveError } from '../shared/errors.js';
-import { type FileContent, sameContent } from '../shared/merge.js';
+import { type FileContent, sameContent } from '../shared/file-content.js';
 import { changeSnapshot } from './git/snapshot.js';
 import {
 	openStorage,

@@ -143,7 +143,7 @@ export type Receipt = {
 };
 
 type Refusal = {
-	status: 400 | 409;
+	status: 400;
 	error: string;
 	path?: string;
 	message: string;

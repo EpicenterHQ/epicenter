@@ -6,7 +6,7 @@
  */
 import type { Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import type { FileContent } from './shared/merge.js';
+import type { FileContent } from './shared/file-content.js';
 import type { WriteError } from './write-refusal.js';
 
 export function put(

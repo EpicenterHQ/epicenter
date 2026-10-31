@@ -17,17 +17,11 @@ import {
 	hashObject,
 	readTree,
 	type TreeEntry,
-	writeCommit,
 	writeTree,
 } from '../git/raw-objects.js';
 import { type LocalRepository, openRepository } from './repository.js';
 
 const encoder = new TextEncoder();
-const author = {
-	name: 'Native fixture',
-	email: 'native@example.com',
-	timestamp: 1,
-};
 
 async function nativeFixture(repository: LocalRepository) {
 	const objects = new Map<string, GitObject>();
@@ -81,24 +75,14 @@ async function nativeFixture(repository: LocalRepository) {
 			entry('notes', notes, '40000'),
 		]),
 	);
-	const commit = await add(
-		'commit',
-		writeCommit({
-			tree: root,
-			parents: [],
-			author,
-			message: 'Native snapshot\n',
-		}),
-	);
 	expect(
 		await repository.storage.publish({
-			expected: (await repository.storage.capture([])).state,
+			expected: (await repository.storage.capture([])).state.workingTree,
 			workingTree: root,
 			objects,
-			refs: { remoteBase: commit, pendingCommit: null },
 		}),
 	).toBe(true);
-	return { objects, binary, root, folder, commit };
+	return { objects, binary, root, folder };
 }
 
 test('BOM and binary files and rows delete whole, and caller bytes cannot change a queued write', async () => {

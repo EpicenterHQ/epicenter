@@ -25,26 +25,22 @@ records the working-tree decision.
 ## Stored data
 
 Each origin's default folder opens `epicenter.folder.default`, version 1.
-Internal tests can select another key. This is a clean break: there is no
-migration, legacy reader, or fallback to the earlier IndexedDB or OPFS storage.
-Existing older databases and OPFS files are not opened or changed.
+Internal tests can select another key.
 
 | Store | Key | Stored value |
 | --- | --- | --- |
-| `meta` | `state` | `workingTree`, `remoteBase`, `pendingCommit`, `retiredBytes` |
-| `objects` | Git object hash | Immutable `{ type, bytes }` with inflated commit, tree, or blob contents |
+| `meta` | `state` | `workingTree`, `retiredBytes` |
+| `objects` | Git object hash | Immutable `{ type, bytes }` with inflated tree or blob contents |
 
 `workingTree` always names a valid tree, including Git's canonical empty tree.
-`remoteBase` and `pendingCommit` were sync's checkpoints. Nothing writes them
-now; a database that holds them from before keeps their closures alive until
-this engine retires. `retiredBytes` conservatively schedules
+`retiredBytes` conservatively schedules
 collection; it is neither an exact garbage count nor a physical storage limit.
 An IndexedDB index on object `type` is database-maintained, not another ledger.
 
 There is no saved edit overlay, deletion marker, dirty-path map, revision,
 per-file merge base, or local save history. Diffs are temporary comparisons of
-trees. Retention keeps current snapshot closures and stops at commit parents.
-Git history needed for ancestry proofs can be fetched into temporary memory.
+trees. Retention keeps the working tree's closure and removes every other
+object.
 
 ## Saving
 
@@ -56,14 +52,12 @@ The Folder shows the put result only after it lands.
 The engine hashes the submitted file and
 rewrites its ancestor directories. A write transaction compares captured W,
 then publishes the new objects and root together. A changed root retries the
-operation. Other tabs' B/P changes do not invalidate a local file save, and the
-save preserves the stored checkpoints and collection accounting.
+operation. The save preserves collection accounting.
 
 A point capture reads only the path's ancestor trees and blob. Prefix lists
 walk matching directories without loading file bytes. Row lists load immediate
 Markdown rows. `capture([])` walks all trees without blobs; an omitted scope
-captures all current files; `capture('sync')` includes W and both checkpoint
-closures, which retention still honors. Captured objects stay in an operation-local map so a later save or
+captures all current files. Captured objects stay in an operation-local map so a later save or
 collection cannot change the inputs of an in-progress computation.
 
 Public saves compare no prior file content and perform no content merge.
@@ -83,9 +77,8 @@ nobody; the public Folder still announces a successful explicit publication.
 
 ## Collection and costs
 
-Storage collects after checkpoint retirement and when conservative retired
-bytes reach 8 MiB. It marks W's tree and B/P's commits plus file snapshots, then
-sweeps other objects in the same write transaction. A missing or wrongly typed
+Storage collects when conservative retired bytes reach 8 MiB. It marks W's
+tree and its files, then sweeps other objects in the same write transaction. A missing or wrongly typed
 live object aborts the sweep. Blob keys from the type index establish liveness
 without loading blob payloads. No reference counts or incremental collector
 state are maintained.

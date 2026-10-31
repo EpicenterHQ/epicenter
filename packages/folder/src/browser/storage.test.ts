@@ -1,16 +1,16 @@
 /**
  * Atomic working-tree publication across IndexedDB connections.
- * Root guards reject stale candidates, exact acknowledgement retains newer
- * saves, and failed batches or maintenance cannot misreport durable work.
+ * Root guards reject stale candidates, and failed batches or maintenance
+ * cannot misreport durable work.
  */
 import { captureFile } from './repository.test-support.js';
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { type GitObject, hashObject, writeCommit } from '../git/raw-objects.js';
+import type { GitObject } from '../git/raw-objects.js';
 import { changeSnapshot, emptyTree } from './git/snapshot.js';
 import { openRepository } from './repository.js';
-import { openStorage, snapshotContent, snapshotObject } from './storage.js';
+import { openStorage, snapshotObject } from './storage.js';
 
 async function fixture() {
 	const id = crypto.randomUUID();
@@ -37,14 +37,13 @@ async function candidate(
 		read: async (oid) => snapshotObject(snapshot, oid),
 	});
 	return {
-		expected: snapshot.state,
+		expected: snapshot.state.workingTree,
 		workingTree: next.tree,
 		objects: next.objects,
 	};
 }
-const author = { name: 'Test', email: 'test@example.com', timestamp: 1 };
 
-test('a stale publication installs neither candidate objects nor checkpoint refs', async () => {
+test('a stale publication installs no candidate objects', async () => {
 	const f = await fixture();
 	try {
 		const stale = await candidate(f.first, [['stale.md', 'stale']]);
@@ -53,45 +52,10 @@ test('a stale publication installs neither candidate objects nor checkpoint refs
 				await candidate(f.second, [['new.md', 'other tab']]),
 			),
 		).toBe(true);
-		expect(
-			await f.first.publish({
-				...stale,
-				refs: { remoteBase: null, pendingCommit: 'unpublished' },
-			}),
-		).toBe(false);
+		expect(await f.first.publish(stale)).toBe(false);
 		const after = await f.first.capture();
 		expect([...after.files.keys()]).toEqual(['new.md']);
-		expect(after.state.remoteBase).toBeUndefined();
-		expect(after.state.pendingCommit).toBeNull();
 		expect(await f.first.collect()).toBe(1); // Only the former empty root, no stale candidate.
-	} finally {
-		f.close();
-	}
-});
-
-test('a local root guard preserves changed sync metadata while a captured ref guard rejects it', async () => {
-	const f = await fixture();
-	try {
-		const next = await candidate(f.first, [['local.md', 'local']]);
-		expect(
-			await f.second.publish({
-				expected: next.expected,
-				refs: { remoteBase: null, pendingCommit: null },
-			}),
-		).toBe(true);
-		expect(await f.first.publish(next)).toBe(false);
-		expect(
-			await f.first.publish({ ...next, expected: next.expected.workingTree }),
-		).toBe(true);
-		const after = await f.second.capture();
-		expect(after.state.remoteBase).toBeNull();
-		expect(after.state.workingTree).toBe(next.workingTree);
-		expect(Object.keys(after.state).sort()).toEqual([
-			'pendingCommit',
-			'remoteBase',
-			'retiredBytes',
-			'workingTree',
-		]);
 	} finally {
 		f.close();
 	}
@@ -109,7 +73,7 @@ test('returning to the same root makes an earlier content candidate valid again'
 		).toBe(true);
 		expect(
 			await f.second.publish({
-				expected: (await f.second.capture()).state,
+				expected: (await f.second.capture()).state.workingTree,
 				workingTree: initial.workingTree,
 			}),
 		).toBe(true);
@@ -145,41 +109,7 @@ test('a failed object batch rolls back earlier puts and leaves the working root 
 	}
 });
 
-test('acknowledgement settles the exact pair and preserves work saved after the request', async () => {
-	const f = await fixture();
-	try {
-		const snapshot = await f.first.capture();
-		const commit: GitObject = {
-			type: 'commit',
-			bytes: writeCommit({ tree: emptyTree, parents: [], author, message: '' }),
-		};
-		const head = await hashObject(commit);
-		expect(
-			await f.first.publish({
-				expected: snapshot.state,
-				objects: new Map([[head, commit]]),
-				refs: { remoteBase: null, pendingCommit: head },
-			}),
-		).toBe(true);
-		const newer = await candidate(f.second, [['late.md', 'newer input']]);
-		expect(await f.second.publish(newer)).toBe(true);
-		expect(await f.first.acknowledge(null, head)).toBe(true);
-		const after = await f.second.capture();
-		expect(after.state).toMatchObject({
-			workingTree: newer.workingTree,
-			remoteBase: head,
-			pendingCommit: null,
-		});
-		expect(new TextDecoder().decode(snapshotContent(after, 'late.md')!)).toBe(
-			'newer input',
-		);
-		expect(await f.first.acknowledge(null, head)).toBe(false);
-	} finally {
-		f.close();
-	}
-});
-
-test('checkpoint-only publication and collection do not notify file subscribers', async () => {
+test('a publication that changes no file, and collection, do not notify file subscribers', async () => {
 	const repository = await openRepository(crypto.randomUUID());
 	try {
 		let changes = 0;
@@ -187,8 +117,7 @@ test('checkpoint-only publication and collection do not notify file subscribers'
 		expectOk(await repository.put('one.md', 'one'));
 		const snapshot = await repository.storage.capture();
 		await repository.storage.publish({
-			expected: snapshot.state,
-			refs: { remoteBase: null, pendingCommit: null },
+			expected: snapshot.state.workingTree,
 		});
 		await repository.storage.collect();
 		expect(changes).toBe(1);
@@ -261,7 +190,7 @@ test('collection reads no blob payloads', async () => {
 		expectOk(await repository.put('notes/one.md', 'base'));
 		expectOk(await repository.put('audio/take.wav', Uint8Array.of(0, 255)));
 		expectOk(await repository.put('notes/one.md', 'newer'));
-		const saved = await repository.storage.capture('sync');
+		const saved = await repository.storage.capture();
 		const blobs = new Set(
 			[...saved.objects]
 				.filter(([, object]) => object.type === 'blob')

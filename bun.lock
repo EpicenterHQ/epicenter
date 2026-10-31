@@ -589,7 +589,6 @@
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@tauri-apps/api": "catalog:",
-        "diff": "^8.0.4",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
         "yaml": "catalog:",
