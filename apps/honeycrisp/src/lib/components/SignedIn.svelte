@@ -1,7 +1,8 @@
 <!--
 	The signed-in boundary: the person's `honeycrisp` repository for
-	everything under it (`getRepo`), and the uploader that moves the notes
-	and folders made here signed out or offline into it (decision 12).
+	everything under it (`getRepo`, read by the "Synced" page), and the
+	uploader that moves every note and folder on this device into it
+	(decisions 12 and 76).
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';
@@ -18,7 +19,8 @@
 
 	// svelte-ignore state_referenced_locally
 	const repo = setRepo(openRemote(honeycrisp, { account }));
-	// The uploader's writes reach both sides' listeners, so the lists follow it.
+	// Each view follows its own client: an uploaded note leaves this device's
+	// and appears in the repository's.
 	const uploader = startUploading(device, repo);
 	onDestroy(() => uploader[Symbol.dispose]());
 </script>

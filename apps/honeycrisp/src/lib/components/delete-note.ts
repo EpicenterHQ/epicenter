@@ -6,15 +6,14 @@ import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { type HoneycrispState, notePath } from '$lib/honeycrisp.svelte.js';
 
-/** Ask, then delete the note `id`, whose name is `label`, from where its copy is. */
+/** Ask, then delete the note `id`, whose name is `label`, from the view's client. */
 export function confirmDeleteNote(
 	app: HoneycrispState,
 	{ id, label }: { id: string; label: string },
 ) {
-	const where = app.notes.where?.({ id });
 	confirmationDialog.open({
 		title: `Delete “${label}”?`,
-		description: `This deletes ${notePath(id)} from ${where === 'repository' ? 'your repository' : 'this device'}.`,
+		description: `This deletes ${notePath(id)}.`,
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
 			const { error } = await app.deleteNote(id);

@@ -1,36 +1,35 @@
 <!--
-	Honeycrisp: the header, the folders, the notes, and what is open, over
-	this browser's notes and folders and, signed in (under the signed-in
-	boundary), the repository's as one list each. Views read and write only
-	through the state in context, so none knows which side a note is on.
+	One of Honeycrisp's two views (decision 76): the header, the folders, the
+	notes, and what is open, over one client's notes and folders, this
+	device's or the repository's. Views read and write only through the state
+	in context.
 -->
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
-	import { fromClient, oneList } from '@epicenter/svelte/client';
-	import { getRepo } from '@epicenter/svelte/repo';
+	import type { ReactiveClient } from '@epicenter/svelte/client';
 	import type { Honeycrisp } from '$lib/contract.js';
-	import { device } from '$lib/device.js';
-	import { createHoneycrisp, type Lists, setHoneycrisp } from '$lib/honeycrisp.svelte.js';
+	import { createHoneycrisp, setHoneycrisp, type View } from '$lib/honeycrisp.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FolderNav from './FolderNav.svelte';
 	import FolderRepair from './FolderRepair.svelte';
 	import NoteDetail from './NoteDetail.svelte';
 	import NoteList from './NoteList.svelte';
 
-	/** Whether this renders under the signed-in boundary, which has the repository. */
-	let { signedIn }: { signedIn: boolean } = $props();
+	let {
+		view,
+		client,
+	}: {
+		/** Which view this is: this device's notes and folders, or the repository's. */
+		view: View;
+		/** That view's client, which every component under it reads and edits. */
+		client: ReactiveClient<Honeycrisp>;
+	} = $props();
 
-	// The lists stay fixed until this app root unmounts.
-	const files = fromClient(device);
+	// A page shows one client's notes and folders for its life.
 	// svelte-ignore state_referenced_locally
-	const repo = signedIn ? fromClient(getRepo<Honeycrisp>()) : null;
-	const lists: Lists =
-		repo === null
-			? files
-			: { notes: oneList(files.notes, repo.notes), folders: oneList(files.folders, repo.folders) };
-	const app = setHoneycrisp(createHoneycrisp(lists));
+	const app = setHoneycrisp(createHoneycrisp(client));
 
 	async function createNote() {
 		const { error } = await app.createNote();
@@ -49,7 +48,7 @@
 />
 
 <div class="flex h-dvh flex-col overflow-hidden">
-	<AppHeader />
+	<AppHeader {view} />
 
 	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
 		<Resizable.Pane id="folders" order={1} defaultSize={18} minSize={10} maxSize={30}>

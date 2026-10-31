@@ -1,11 +1,9 @@
 /**
- * Honeycrisp's state: its orders over `oneList` (tested in
- * `@epicenter/svelte`) per collection, and the actions over both
- * collections, on real device clients in temporary directories (a second
- * one stands in for the repository).
+ * Honeycrisp's state: its orders, and the actions over both collections, on
+ * a real device client in a temporary directory.
  *
  * Key behaviors:
- * - Notes sort newest first and folders by name, from either side
+ * - Notes sort newest first and folders by name
  * - A new note is made in the folder shown, and opens ready to write in, once
  * - Deleting a folder deletes its file alone: its notes keep naming it and
  *   show in All Notes
@@ -22,7 +20,7 @@ import { join } from 'node:path';
 import { openDevice } from '@epicenter/folder/node';
 import { honeycrisp } from './contract.js';
 
-const { fromClient, oneList } = await import('@epicenter/svelte/client');
+const { fromClient } = await import('@epicenter/svelte/client');
 const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 );
@@ -39,7 +37,7 @@ afterEach(async () => {
 });
 
 /** A device client over a directory holding `files`. */
-async function side(files: Record<string, string>) {
+async function deviceWith(files: Record<string, string>) {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-honeycrisp-'));
 	folders.push(root);
 	for (const [path, text] of Object.entries(files)) {
@@ -64,41 +62,30 @@ async function until(done: () => boolean) {
 	throw new Error('timed out');
 }
 
-test('notes sort newest first and folders by name, from either side', async () => {
-	const device = await side({
-		'notes/b.md': note('2026-10-30T00:00:00.000Z'),
-		'folders/w.md': folder('Work'),
-	});
-	const repository = await side({
+test('notes sort newest first and folders by name', async () => {
+	const device = await deviceWith({
 		'notes/a.md': note('2026-10-31T00:00:00.000Z'),
+		'notes/b.md': note('2026-10-30T00:00:00.000Z'),
 		'notes/c.md': note('2026-10-29T00:00:00.000Z'),
+		'folders/w.md': folder('Work'),
 		'folders/h.md': folder('Home'),
 	});
-	const [here, there] = [
-		fromClient(device.client),
-		fromClient(repository.client),
-	];
-	const lists = {
-		notes: oneList(here.notes, there.notes),
-		folders: oneList(here.folders, there.folders),
-	};
+	const client = fromClient(device.client);
 	const shown = follow(() => ({
-		notes: lists.notes.items
-			.toSorted(newestFirst)
-			.map(({ id }) => `${lists.notes.where({ id })}:${id}`),
-		folders: lists.folders.items.toSorted(byName).map(({ name }) => name),
+		notes: client.notes.items.toSorted(newestFirst).map(({ id }) => id),
+		folders: client.folders.items.toSorted(byName).map(({ name }) => name),
 	}));
-	await until(() => !lists.notes.loading && !lists.folders.loading);
+	await until(() => !client.notes.loading && !client.folders.loading);
 	expect(shown.values.at(-1)).toEqual({
-		notes: ['repository:a', 'device:b', 'repository:c'],
+		notes: ['a', 'b', 'c'],
 		folders: ['Home', 'Work'],
 	});
 	shown.stop();
 });
 
 test('a new note is made in the folder shown, and opens ready to write in, once', async () => {
-	const device = await side({ 'folders/w.md': folder('Work') });
-	// Signed out, as the page composes it: the device's own collections.
+	const device = await deviceWith({ 'folders/w.md': folder('Work') });
+	// As the "On this device" page composes it: the device's own collections.
 	const app = createHoneycrisp(fromClient(device.client));
 	app.showFolder('w');
 	const created = await app.createNote();
@@ -114,21 +101,23 @@ test('a new note is made in the folder shown, and opens ready to write in, once'
 });
 
 test('deleting a folder deletes its file alone; its notes keep naming it and show in All Notes', async () => {
-	const device = await side({
+	const device = await deviceWith({
 		'folders/w.md': folder('Work'),
 		'notes/a.md': note('2026-10-31T00:00:00.000Z', 'folderId: w\n'),
 	});
-	const lists = fromClient(device.client);
-	const app = createHoneycrisp(lists);
-	const shown = follow(() => [lists.notes.items, lists.folders.items] as const);
-	await until(() => lists.folders.items.length === 1);
+	const client = fromClient(device.client);
+	const app = createHoneycrisp(client);
+	const shown = follow(
+		() => [client.notes.items, client.folders.items] as const,
+	);
+	await until(() => client.folders.items.length === 1);
 	app.showFolder('w');
 	expect((await app.deleteFolder('w')).error).toBeNull();
-	await until(() => lists.folders.items.length === 0);
-	expect(app.view.folderId).toBeNull();
-	const [kept] = lists.notes.items;
+	await until(() => client.folders.items.length === 0);
+	expect(app.filter.folderId).toBeNull();
+	const [kept] = client.notes.items;
 	expect(kept?.folderId).toBe('w');
-	expect(kept && shownIn(app.view, kept)).toBe(true);
+	expect(kept && shownIn(app.filter, kept)).toBe(true);
 	expect(await readFile(join(device.root, 'notes/a.md'), 'utf8')).toBe(
 		note('2026-10-31T00:00:00.000Z', 'folderId: w\n'),
 	);
@@ -142,10 +131,10 @@ test('search matches a note’s title or text, within the folder shown', () => {
 	} as const;
 	const groceries = { ...at, id: 'a', title: 'Groceries', body: 'oat milk\n' };
 	const plans = { ...at, id: 'b', folderId: 'w', body: 'Ship the port\n' };
-	const shown = (view: { folderId: string | null; query: string }) =>
+	const shown = (filter: { folderId: string | null; query: string }) =>
 		[groceries, plans]
 			// SAFETY: the version is opaque and never compared here.
-			.filter((n) => shownIn(view, n as never))
+			.filter((n) => shownIn(filter, n as never))
 			.map((n) => n.id);
 	expect(shown({ folderId: null, query: 'MILK' })).toEqual(['a']);
 	expect(shown({ folderId: null, query: 'grocer' })).toEqual(['a']);

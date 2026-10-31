@@ -1,10 +1,8 @@
 /**
- * Honeycrisp's state over its two collections: this browser's notes and
- * folders and, signed in, the ones in the person's repository, each as one
- * list (`oneList`, decision 12), which merges and routes writes (writes go
- * to the copy shown and follow one that moves; new ones go to the
- * repository, or wait on the device). Honeycrisp adds its orders, what the
- * lists and the detail show, and the actions that span both collections.
+ * Honeycrisp's state over one client's two collections, notes and folders:
+ * this device's on the "On this device" page, the repository's on the
+ * "Synced" page (decision 76). Honeycrisp adds its orders, what the lists
+ * and the detail show, and the actions that span both collections.
  *
  * A note names its folder by id. Deleting a folder deletes its file only:
  * its notes keep their `folderId`, show in All Notes, and say their folder
@@ -13,12 +11,10 @@
  */
 import type { NoteOf } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import type { NoteList, Side } from '@epicenter/svelte/client';
+import type { ReactiveClient } from '@epicenter/svelte/client';
 import { createContext } from 'svelte';
 import { type Honeycrisp, honeycrisp } from './contract.js';
 import { displayTitle } from './note-source.js';
-
-export type { Side };
 
 export type NoteCollection = Honeycrisp['collections']['notes'];
 export type FolderCollection = Honeycrisp['collections']['folders'];
@@ -54,15 +50,8 @@ export const newestFirst = (a: Note, b: Note) =>
 export const byName = (a: Folder, b: Folder) =>
 	folderLabel(a).localeCompare(folderLabel(b)) || (a.id < b.id ? -1 : 1);
 
-/**
- * The two lists the views read and write: this browser's notes and folders
- * signed out and, signed in, each `oneList` over them and the repository's.
- * `HoneycrispApp` makes them.
- */
-export type Lists = {
-	notes: NoteList<NoteCollection>;
-	folders: NoteList<FolderCollection>;
-};
+/** Which of Honeycrisp's two views a page is: this device's files, or the repository's. */
+export type View = 'device' | 'synced';
 
 /** What the detail shows: a note (read or not), or a folder that needs repair. */
 export type Selection = {
@@ -71,24 +60,26 @@ export type Selection = {
 };
 
 /** Which notes the list shows: a folder's (null: all of them), matching what is searched. */
-export type View = { folderId: string | null; query: string };
+export type Filter = { folderId: string | null; query: string };
 
-/** Whether `note` is shown under `view`. */
-export function shownIn(view: View, note: Note) {
-	if (view.folderId !== null && note.folderId !== view.folderId) return false;
-	const needle = view.query.trim().toLowerCase();
+/** Whether `note` is shown under `filter`. */
+export function shownIn(filter: Filter, note: Note) {
+	if (filter.folderId !== null && note.folderId !== filter.folderId)
+		return false;
+	const needle = filter.query.trim().toLowerCase();
 	if (needle === '') return true;
 	return `${note.title ?? ''}\n${note.body}`.toLowerCase().includes(needle);
 }
 
 /**
- * Honeycrisp's state over `lists`: what the list and detail show, and the
- * actions that are more than one collection's write. Every other read and
- * write goes to `lists.notes` or `lists.folders` directly.
+ * Honeycrisp's state over `client` (one view's: `fromClient(device)` or
+ * `fromClient(getRepo())`): what the list and detail show, and the actions
+ * that are more than one collection's write. Every other read and write goes
+ * to `client.notes` or `client.folders` directly.
  */
-export function createHoneycrisp(lists: Lists) {
-	const { notes, folders } = lists;
-	let view = $state<View>({ folderId: null, query: '' });
+export function createHoneycrisp(client: ReactiveClient<Honeycrisp>) {
+	const { notes, folders } = client;
+	let filter = $state<Filter>({ folderId: null, query: '' });
 	let selected = $state.raw<Selection | undefined>();
 	/** A note just made, whose editor takes focus once it opens. */
 	let newNote: string | undefined;
@@ -96,14 +87,14 @@ export function createHoneycrisp(lists: Lists) {
 	return {
 		notes,
 		folders,
-		get view() {
-			return view;
+		get filter() {
+			return filter;
 		},
 		showFolder(folderId: string | null) {
-			view = { ...view, folderId };
+			filter = { ...filter, folderId };
 		},
 		setQuery(query: string) {
-			view = { ...view, query };
+			filter = { ...filter, query };
 		},
 		get selected() {
 			return selected;
@@ -129,7 +120,7 @@ export function createHoneycrisp(lists: Lists) {
 			const created = await notes.create({
 				id: timeId(),
 				createdAt: new Date().toISOString(),
-				...(view.folderId !== null && { folderId: view.folderId }),
+				...(filter.folderId !== null && { folderId: filter.folderId }),
 			});
 			if (created.error !== null) return created;
 			newNote = created.data.id;
@@ -151,7 +142,7 @@ export function createHoneycrisp(lists: Lists) {
 		async deleteFolder(id: string) {
 			const deleted = await folders.delete({ id });
 			if (deleted.error !== null) return deleted;
-			if (view.folderId === id) view = { ...view, folderId: null };
+			if (filter.folderId === id) filter = { ...filter, folderId: null };
 			if (selected?.collection === 'folders' && selected.id === id)
 				selected = undefined;
 			return deleted;

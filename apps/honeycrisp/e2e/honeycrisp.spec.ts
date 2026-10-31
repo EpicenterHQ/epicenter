@@ -1,20 +1,26 @@
 /**
  * Honeycrisp end to end, per engine, as one person in one persistent
- * browser profile with a desktop sandbox beside it (see `stack.ts`):
+ * browser profile with a desktop sandbox beside it (see `stack.ts`).
+ *
+ * Honeycrisp has two views (decision 76): "On this device" (`/`), this
+ * browser's files, and "Synced" (`/synced`), the person's repository.
  *
  * 1. Signed out, notes and folders are created, edited, moved, pinned and
- *    deleted in the browser (OPFS), as Markdown notes at `notes/<id>.md`
+ *    deleted on this device (OPFS), as Markdown notes at `notes/<id>.md`
  *    and `folders/<id>.md`; the body is typed into the CodeMirror editor.
- * 2. Signed in, they upload on their own and the browser lets go of its
- *    copies; a note made signed in goes straight to the repository.
+ *    "Synced" asks for a sign-in.
+ * 2. Signed in, they upload on their own: each leaves "On this device" and
+ *    the browser's files, and appears in "Synced". One made on this device
+ *    while signed in follows; one made in "Synced" goes to the repository.
  * 3. `epicenter clone` holds them as the browser wrote them, and
  *    `epicenter check` passes against the published contract.
- * 4. A body edited on the desktop and synced shows in the note open on the
- *    web, with no reload; text typed on the web reaches the desktop.
- * 5. A note the desktop wrote that does not read as a note shows on the
- *    web with its text; text that still does not fit is refused, and fixed
- *    text repairs it.
- * 6. Signing out leaves this browser with no notes.
+ * 4. A body edited on the desktop and synced shows in the note open in
+ *    "Synced", with no reload; text typed there reaches the desktop.
+ * 5. A note the desktop wrote that does not read as a note shows in
+ *    "Synced" with its text; text that still does not fit is refused, and
+ *    fixed text repairs it.
+ * 6. Signing out leaves this browser with no notes, and "Synced" asks for a
+ *    sign-in again.
  */
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -62,6 +68,8 @@ test.afterAll(async () => {
 });
 
 const list = () => page.getByRole('list', { name: 'Note list' });
+const views = () => page.getByRole('navigation', { name: 'Views' });
+const status = () => page.getByTestId('status-summary');
 const row = (id: string) => list().locator(`li[data-id="${id}"]`);
 const folderRow = (id: string) => page.locator(`[data-folder="${id}"]`);
 const detail = () => page.getByRole('region', { name: 'Note', exact: true });
@@ -110,6 +118,13 @@ test('1. signed out, notes and folders are created, edited, moved, pinned and de
 	await emptyOpfs(page);
 	await page.goto(`${stack.app}/`);
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+	await expect(
+		views().getByRole('link', { name: 'On this device' }),
+	).toHaveAttribute('aria-current', 'page');
+	await expect(status()).toHaveAttribute(
+		'aria-label',
+		/^Status: On this device\./,
+	);
 	await expect(page.getByText('No notes here yet')).toBeVisible();
 
 	// A folder, named as it is made.
@@ -189,9 +204,17 @@ test('1. signed out, notes and folders are created, edited, moved, pinned and de
 	await page.reload();
 	await expect(row(groceries)).toContainText('Groceries');
 	await expect(folderRow(work)).toContainText('Work');
+
+	// "Synced" is the repository's, which needs a sign-in.
+	await views().getByRole('link', { name: 'Synced' }).click();
+	await expect(
+		page.getByText('Sign in to see the notes in your Epicenter repository.'),
+	).toBeVisible();
+	await page.getByRole('link', { name: 'On this device' }).click();
+	await expect(row(groceries)).toContainText('Groceries');
 });
 
-test('2. signed in, the notes upload and leave the browser, and a new one goes straight to the repository', async ({
+test('2. signed in, the notes upload: each leaves this device and appears in Synced', async ({
 	stack,
 	person,
 }) => {
@@ -200,16 +223,35 @@ test('2. signed in, the notes upload and leave the browser, and a new one goes s
 	await page.getByRole('button', { name: 'Sign in' }).click();
 	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 
-	await expect(row(groceries)).toHaveAttribute('data-where', 'repository');
-	await expect(folderRow(work)).toHaveAttribute('data-where', 'repository');
-	await expect(page.getByText('not uploaded yet')).toHaveCount(0);
-	// The browser let go of every note and folder and of the outbox: the repository has them.
+	// The uploader moves them: this device's view and files empty.
+	await expect(row(groceries)).toHaveCount(0);
+	await expect(folderRow(work)).toHaveCount(0);
+	await expect(page.getByText('No notes here yet')).toBeVisible();
 	await expect.poll(() => opfsFiles(page)).toEqual({});
 
+	// One made on this device while signed in follows on its own. Its detail
+	// opens once it is written; it then leaves with the rest.
+	await page.getByRole('button', { name: 'New note' }).click();
+	await expect(detail()).toBeVisible();
+	await expect(list().locator('li[data-id]')).toHaveCount(0);
+	await expect(detail().getByText('This note is no longer here')).toBeVisible();
+	await expect.poll(() => opfsFiles(page)).toEqual({});
+
+	await views().getByRole('link', { name: 'Synced' }).click();
+	await expect(views().getByRole('link', { name: 'Synced' })).toHaveAttribute(
+		'aria-current',
+		'page',
+	);
+	await expect(status()).toHaveAttribute('aria-label', /^Status: Synced\./);
+	await expect(row(groceries)).toContainText('Groceries');
+	await expect(folderRow(work)).toContainText('Work');
+	// Groceries and the one made on this device since.
+	await expect(list().locator('li[data-id]')).toHaveCount(2);
+
+	// One made in "Synced" goes to the repository, never this device.
 	const later = await newNote();
-	await typeAtEnd('Made signed in');
-	await expect(row(later)).toHaveAttribute('data-where', 'repository');
-	await expect(row(later)).toContainText('Made signed in');
+	await typeAtEnd('Made in Synced');
+	await expect(row(later)).toContainText('Made in Synced');
 	expect(await opfsFiles(page)).toEqual({});
 });
 
@@ -244,7 +286,7 @@ test('3. a desktop clone holds the notes as the browser wrote them, and the fold
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('4. a body edited on the desktop shows in the open note with no reload, and text typed on the web reaches the desktop', async ({
+test('4. a body edited on the desktop shows in the note open in Synced with no reload, and text typed there reaches the desktop', async ({
 	stack,
 	person,
 }) => {
@@ -276,7 +318,7 @@ test('4. a body edited on the desktop shows in the open note with no reload, and
 		);
 });
 
-test('5. a note that does not read as a note shows with its text, and is repaired on the web', async ({
+test('5. a note that does not read as a note shows in Synced with its text, and is repaired there', async ({
 	stack,
 	person,
 }) => {
@@ -302,7 +344,7 @@ test('5. a note that does not read as a note shows with its text, and is repaire
 	await detail().getByRole('button', { name: 'Save repair' }).click();
 	await expect(title()).toHaveValue('Call mom');
 	await expect(repair).toHaveCount(0);
-	await expect(row('call')).toHaveAttribute('data-where', 'repository');
+	await expect(row('call')).toContainText('Call mom');
 
 	await sync(stack, person, clone);
 	// Written in house style: the time quoted.
@@ -311,8 +353,12 @@ test('5. a note that does not read as a note shows with its text, and is repaire
 	);
 });
 
-test('6. signed out, the browser holds no notes', async () => {
+test('6. signed out, the browser holds no notes, and Synced asks for a sign-in', async () => {
 	await page.getByRole('button', { name: 'Sign out' }).click();
+	await expect(
+		page.getByText('Sign in to see the notes in your Epicenter repository.'),
+	).toBeVisible();
+	await page.getByRole('link', { name: 'On this device' }).click();
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 	await expect(page.getByText('No notes here yet')).toBeVisible();
 	expect(await opfsFiles(page)).toEqual({});

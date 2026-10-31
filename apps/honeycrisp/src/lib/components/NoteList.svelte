@@ -5,14 +5,12 @@
 -->
 <script lang="ts">
 	import { describeIssues } from '@epicenter/definition/contract';
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as ContextMenu from '@epicenter/ui/context-menu';
 	import { toast } from '@epicenter/ui/sonner';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { format } from 'date-fns';
-	import { webAuth } from '$lib/auth.js';
 	import { getDateLabel } from '$lib/date-label.js';
 	import { byName, folderLabel, getHoneycrisp, newestFirst, type Note, noteLabel, shownIn } from '$lib/honeycrisp.svelte.js';
 	import { previewText } from '$lib/note-source.js';
@@ -22,14 +20,12 @@
 
 	const app = getHoneycrisp();
 	const { notes, folders } = app;
-	const auth = webAuth();
-	const signedIn = $derived(auth.state.status !== 'signed-out');
 
-	const visible = $derived(notes.items.filter((note) => shownIn(app.view, note)).toSorted(newestFirst));
+	const visible = $derived(notes.items.filter((note) => shownIn(app.filter, note)).toSorted(newestFirst));
 	const selectedId = $derived(app.selected?.collection === 'notes' ? app.selected.id : undefined);
 
 	const heading = $derived.by(() => {
-		const id = app.view.folderId;
+		const id = app.filter.folderId;
 		if (id === null) return 'All Notes';
 		const folder = folders.get({ id });
 		return folder === undefined ? 'Notes' : folderLabel(folder);
@@ -89,7 +85,7 @@
 
 		{#if visible.length === 0 && !notes.loading}
 			<p class="p-6 text-center text-sm text-muted-foreground">
-				{app.view.query.trim() === '' ? 'No notes here yet. Press + to create one.' : 'No notes match.'}
+				{app.filter.query.trim() === '' ? 'No notes here yet. Press + to create one.' : 'No notes match.'}
 			</p>
 		{/if}
 
@@ -99,7 +95,7 @@
 					<h3 class="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground">{group.label}</h3>
 					<ul>
 						{#each group.notes as note (note.id)}
-							<li data-id={note.id} data-where={notes.where?.({ id: note.id }) ?? 'device'}>
+							<li data-id={note.id}>
 								<ContextMenu.Root>
 									<ContextMenu.Trigger>
 										<button
@@ -119,9 +115,6 @@
 												</span>
 											</span>
 											<span class="line-clamp-2 text-xs text-muted-foreground">{previewText(note.body) || 'No text'}</span>
-											{#if signedIn && notes.where?.({ id: note.id }) === 'device'}
-												<Badge variant="outline" class="mt-1 w-fit">not uploaded yet</Badge>
-											{/if}
 										</button>
 									</ContextMenu.Trigger>
 									<ContextMenu.Content class="w-52">

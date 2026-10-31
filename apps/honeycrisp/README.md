@@ -37,22 +37,22 @@ files.
 
 ## The web app
 
-Honeycrisp opens without an account. Signed out, notes and folders live in
-this browser's private files (OPFS), at the same paths a folder holds.
-Signing in with Epicenter opens the person's own repository,
-`<handle>/honeycrisp`, beside them, one list per collection
-(`oneList` from `@epicenter/svelte/client`):
+Honeycrisp opens without an account and has two views (decision 76):
 
-- A note or folder made signed out or offline stays in the browser and
-  uploads on its own once someone is signed in and online; the browser then
-  lets go of its copy. Until then, signed in, a note is marked "not uploaded
-  yet".
-- One made while signed in and online goes straight to the repository.
-- Edits, moves, pins and deletes go to the copy shown: the browser's while it
-  holds one, else the repository's, which is online only. An open note stays
-  open while it uploads.
-- Signed in with the server unreachable, the header says "Offline: new notes
-  wait to upload", and new notes do.
+- **On this device** (`/`): the notes and folders in this browser's private
+  files (OPFS), at the same paths a folder holds. It works signed out and
+  offline.
+- **Synced** (`/synced`): signed in with Epicenter, the notes and folders in
+  the person's own repository, `<handle>/honeycrisp`. Signed out, it asks
+  for a sign-in.
+
+Each view creates, edits, moves, pins, deletes and repairs its own notes and
+folders. Signed in, the uploader moves every note and folder on this device
+into the repository in the background: it leaves "On this device" and
+appears in "Synced", whichever view made it and whenever it was made.
+Nothing keeps it on screen across the move. The two views are not merged;
+one merged list may come back later.
+
 - Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show
   without a reload, in the open note too.
 - A file at a note's or folder's path that does not read as one is listed
@@ -125,9 +125,11 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 | --- | --- |
 | `src/lib/contract.ts` | The contract. |
 | `src/lib/device.ts` | The device, a module singleton: this browser's files. |
-| `src/lib/honeycrisp.svelte.ts` | The orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections. |
+| `src/lib/honeycrisp.svelte.ts` | The orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections, over one view's client. |
 | `src/lib/editor/` | The CodeMirror note editor: the binding that writes local edits and follows changes from elsewhere, live preview, conflict cards. It knows nothing of the app's UI or storage. |
-| `src/routes/+page.svelte` | Signed out, or the signed-in boundary (`src/lib/components/SignedIn.svelte`: the repository, `setRepo`, and the uploader, per account). `HoneycrispApp.svelte` composes the two lists. |
+| `src/routes/+layout.svelte` | Every page: the leave guard and, signed in, the signed-in boundary (`src/lib/components/SignedIn.svelte`: the repository, `setRepo`, and the uploader, per account). |
+| `src/routes/+page.svelte` | "On this device": `HoneycrispApp` over `fromClient(device)`. |
+| `src/routes/synced/` | "Synced": `HoneycrispApp` over `fromClient(getRepo())`, behind a layout that asks for a sign-in. |
 | `src/lib/components/` | The views, which read and write only through the state in context. |
 
 ## Tests
@@ -142,10 +144,12 @@ bun x playwright test -c apps/honeycrisp/playwright.config.ts --project=webkit  
 The Playwright suite (`e2e/honeycrisp.spec.ts`) starts the same environment
 as `demo`, built into a scratch directory (never `build/`), and walks one
 person through six steps per engine: create, edit, move, pin and delete
-notes and a folder signed out, typing the body into the editor; sign in, and
-they upload and leave the browser, while a new note goes straight to the
-repository; `epicenter clone` holds them as the browser wrote them and
-`epicenter check` passes; a body edited on the desktop shows in the note open
-on the web with no reload, and text typed on the web reaches the desktop; a
-note the desktop wrote that does not read shows on the web with its text and
-is repaired there; and signing out leaves the browser empty.
+notes and a folder on "On this device" signed out, typing the body into the
+editor, while "Synced" asks for a sign-in; sign in, and they upload, leaving
+"On this device" and the browser's files and appearing in "Synced", with a
+note made on this device signed in following them and one made in "Synced"
+going to the repository; `epicenter clone` holds them as the browser wrote
+them and `epicenter check` passes; a body edited on the desktop shows in the
+note open in "Synced" with no reload, and text typed there reaches the
+desktop; a note the desktop wrote that does not read shows in "Synced" with
+its text and is repaired there; and signing out leaves the browser empty.

@@ -21,10 +21,9 @@
 	const repaired = $derived(folders.get({ id }));
 
 	function confirmDelete() {
-		const where = folders.where?.({ id });
 		confirmationDialog.open({
 			title: `Delete ${id}.md?`,
-			description: `This deletes ${folderPath(id)} from ${where === 'repository' ? 'your repository' : 'this device'}. Notes that name it are kept, in All Notes.`,
+			description: `This deletes ${folderPath(id)}. Notes that name it are kept, in All Notes.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				const { error } = await app.deleteFolder(id);

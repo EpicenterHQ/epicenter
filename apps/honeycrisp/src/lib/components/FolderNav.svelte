@@ -57,7 +57,7 @@
 	function confirmDelete(folder: Folder) {
 		confirmationDialog.open({
 			title: `Delete the folder “${folderLabel(folder)}”?`,
-			description: `This deletes ${folderPath(folder.id)} from ${folders.where?.({ id: folder.id }) === 'repository' ? 'your repository' : 'this device'}. Its notes are kept, in All Notes.`,
+			description: `This deletes ${folderPath(folder.id)}. Its notes are kept, in All Notes.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				const { error } = await app.deleteFolder(folder.id);
@@ -93,13 +93,13 @@
 		class="mb-1 h-8"
 		placeholder="Search notes…"
 		aria-label="Search notes"
-		value={app.view.query}
+		value={app.filter.query}
 		oninput={(event) => app.setQuery(event.currentTarget.value)}
 	/>
 	<button
 		class={row}
-		class:bg-accent={app.view.folderId === null}
-		aria-current={app.view.folderId === null ? 'true' : undefined}
+		class:bg-accent={app.filter.folderId === null}
+		aria-current={app.filter.folderId === null ? 'true' : undefined}
 		onclick={() => app.showFolder(null)}
 	>
 		<FileTextIcon class="size-4" />
@@ -124,11 +124,11 @@
 		{#if naming?.id === folder.id}
 			{@render nameInput()}
 		{:else}
-			<div class="group flex items-center" data-folder={folder.id} data-where={folders.where?.({ id: folder.id }) ?? 'device'}>
+			<div class="group flex items-center" data-folder={folder.id}>
 				<button
 					class={row}
-					class:bg-accent={app.view.folderId === folder.id}
-					aria-current={app.view.folderId === folder.id ? 'true' : undefined}
+					class:bg-accent={app.filter.folderId === folder.id}
+					aria-current={app.filter.folderId === folder.id ? 'true' : undefined}
 					onclick={() => app.showFolder(folder.id)}
 				>
 					{#if folder.icon}

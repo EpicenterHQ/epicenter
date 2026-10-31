@@ -6,11 +6,12 @@ for the layout and page flow, and verify it against the code.
 ## The files are the data
 
 - Every read and write goes through the contract's client: `openDevice` from
-  `@epicenter/folder/browser` at the root, `openRemote` from
-  `@epicenter/folder/remote` under the signed-in subtree, both as Svelte
-  state through `fromClient`, and one `oneList` per collection
-  (`createLists`). Views take the state from context and never import a
-  client. Do not add another store, cache, or save queue.
+  `@epicenter/folder/browser` for "On this device" (`/`), `openRemote` from
+  `@epicenter/folder/remote` under the signed-in boundary for "Synced"
+  (`/synced`), each as Svelte state through `fromClient` at the route. The
+  two views are separate, never merged (decision 76). Components take the
+  state from context and never import a client. Do not add another store,
+  cache, or save queue.
 - A change to the layout is a change to `src/lib/contract.ts`, then
   `bun run contract`; the fit test fails until the two agree. No migration or
   compatibility code: there is no earlier data to read (decision 72).
