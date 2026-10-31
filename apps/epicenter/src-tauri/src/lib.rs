@@ -19,16 +19,14 @@ mod command_names;
 
 mod bundled_apps;
 mod cli;
-mod data_folders;
-mod folder_listing;
-mod folder_opening;
 mod folder_query;
 mod folder_windows;
 mod hosted_sites;
+mod synced_folders;
 // Experiment only: the offline-proxy Tauri gate (`evidence/offline-proxy`).
+use epicenter_folder_core::library;
 #[cfg(all(target_os = "macos", feature = "hosted-site-offline-gate"))]
 pub use hosted_sites::offline_gate;
-use epicenter_folder_core::library;
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 #[cfg(target_os = "macos")]
 mod macos_tabs;
@@ -72,9 +70,9 @@ const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 
 /// Epicenter's own windows. Todos, Capture, Honeycrisp, and Whispering, which
 /// Epicenter bundles, open one window per folder through `open_bundled_app`
-/// and `choose_folder_for_app` (`bundled_apps.rs`), and each listed folder's
-/// editor opens in a window of its own through `open_folder_editor`
-/// (`folder_listing.rs`).
+/// and `choose_folder_for_app` (`bundled_apps.rs`), and each synced folder's
+/// files open in a window of their own through `open_synced_folder`
+/// (`synced_folders.rs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BuiltInApp {
     Home,
@@ -143,14 +141,18 @@ macro_rules! shell_commands {
             get_local_transcription_readiness,
             open_home,
             take_pending_home_section,
-            folder_listing::list_data_folders,
-            folder_opening::pending_folder_openings,
-            folder_opening::accept_folder_opening,
-            folder_opening::dismiss_folder_opening,
-            folder_listing::pin_folder,
-            folder_listing::unpin_folder,
-            folder_listing::remove_recent_folder,
-            folder_listing::open_folder_editor,
+            synced_folders::synced_folders,
+            synced_folders::add_synced_folder,
+            synced_folders::accept_folder_setup,
+            synced_folders::dismiss_folder_setup,
+            synced_folders::clone_synced_folder,
+            synced_folders::sync_folder_now,
+            synced_folders::forget_synced_folder,
+            synced_folders::open_synced_folder,
+            synced_folders::folder_sharing,
+            synced_folders::share_folder,
+            synced_folders::unshare_folder,
+            synced_folders::restart_sync_service,
             folder_query::folder_query,
             cli::ai_send,
             cli::account_send,
@@ -356,7 +358,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PendingHomeSection::default())
-        .manage(folder_opening::FolderOpenings::default())
+        .manage(synced_folders::SyncedFolders::default())
         .manage(cli::CliChildren::default())
         .manage(shell::QuitRequest::default())
         .manage(updates::Updates::default())
@@ -395,16 +397,6 @@ pub fn run() {
             macos_tabs::install(app.handle()).context("install native window menu")?;
 
             let desktop_paths = DesktopPaths::resolve(app.handle()).map_err(anyhow::Error::msg)?;
-            match data_folders::watch_data_folders(
-                app.handle(),
-                &desktop_paths.folder_dir,
-                &desktop_paths.data_dir,
-            ) {
-                Ok(watch) => {
-                    app.manage(watch);
-                }
-                Err(message) => log::warn!("the data folder listing is not watched: {message}"),
-            }
             // Git's configuration runs `~/.local/bin/epicenter`; point it
             // at this launch's binary, wherever the app now is (ADR-0566).
             // A packaged release rehearsal must not replace the person's PATH link.
@@ -423,6 +415,8 @@ pub fn run() {
                 desktop_paths.data_dir.join("local-transcription.json"),
             );
             app.manage(desktop_paths);
+            // `epicenter sync --watch` runs for as long as the app does.
+            synced_folders::start_service(app.handle());
 
             let cache = ModelCache::new(settings);
             cache.start_idle_watcher();
@@ -465,6 +459,8 @@ pub fn run() {
             RunEvent::ExitRequested { api, code, .. } => {
                 shell::request_quit(app, &api, code.unwrap_or(0));
             }
+            // No task is left to stop the service's child, so signal it now.
+            RunEvent::Exit => synced_folders::stop_service(app),
             _ => {}
         });
 }
@@ -509,15 +505,15 @@ fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
 enum DeepLink {
     /// Show a built-in window (`parse_app_deep_link`).
     Window(BuiltInApp),
-    /// Ask the person to open a directory another app named
-    /// (`folder_opening::parse_open_link`).
-    OpenDirectory(String),
+    /// Ask the person to sync a folder another app named
+    /// (`synced_folders::parse_init_link`).
+    SetUpFolder(synced_folders::FolderSetup),
 }
 
 fn parse_deep_link(url: &tauri::Url) -> Option<DeepLink> {
     parse_app_deep_link(url)
         .map(DeepLink::Window)
-        .or_else(|| folder_opening::parse_open_link(url).map(DeepLink::OpenDirectory))
+        .or_else(|| synced_folders::parse_init_link(url).map(DeepLink::SetUpFolder))
 }
 
 /// Show the window `link` names. A directory is only queued for the person
@@ -525,8 +521,8 @@ fn parse_deep_link(url: &tauri::Url) -> Option<DeepLink> {
 fn follow_deep_link(app: &DesktopAppHandle, link: DeepLink) {
     match link {
         DeepLink::Window(built_in) => request_window(app, built_in),
-        DeepLink::OpenDirectory(directory) => {
-            folder_opening::receive(app, directory);
+        DeepLink::SetUpFolder(setup) => {
+            synced_folders::receive(app, setup);
             request_window(app, BuiltInApp::Folders);
         }
     }
@@ -925,7 +921,7 @@ mod tests {
         }
     }
 
-    /// A folder editor window, one per listed folder (`data_folders.rs`), is
+    /// A folder editor window, one per synced folder (`synced_folders.rs`), is
     /// selected by `folder-editor.json` alone and holds the folder plugin, its
     /// visible query refresh, read-only SQL, and close confirmation for pending saves: no
     /// listing, launch, account, AI, recorder, or model command.
@@ -1282,41 +1278,38 @@ mod tests {
         assert_ne!(production["identifier"], development["identifier"]);
     }
 
-    /// The Folders window is a launcher: its own listing, opening a listed
-    /// folder's editor window, opening a bundled app on its default, a listed
-    /// folder, or one chosen in the native picker (`bundled_apps.rs`), and
-    /// opening Settings (ADR-0537). It is bound to no folder, holds no
-    /// folder command, and administers no model or connection.
+    /// The Folders window manages the synced folders (`synced_folders.rs`),
+    /// each action one CLI call, and opens bundled apps on their default or a
+    /// folder chosen in the native picker (`bundled_apps.rs`), hosted sites,
+    /// and Settings. It is bound to no folder, holds no folder command, and
+    /// administers no model or connection. No other window may do any of it.
     #[test]
-    fn the_folders_window_is_a_launcher_without_folder_commands() {
-        const OPENING: [&str; 6] = [
-            "allow-pending-folder-openings",
-            "allow-accept-folder-opening",
-            "allow-dismiss-folder-opening",
-            "allow-pin-folder",
-            "allow-unpin-folder",
-            "allow-remove-recent-folder",
+    fn the_folders_window_manages_synced_folders_without_folder_commands() {
+        const FOLDERS_ONLY: [&str; 15] = [
+            "allow-synced-folders",
+            "allow-add-synced-folder",
+            "allow-accept-folder-setup",
+            "allow-dismiss-folder-setup",
+            "allow-clone-synced-folder",
+            "allow-sync-folder-now",
+            "allow-forget-synced-folder",
+            "allow-open-synced-folder",
+            "allow-folder-sharing",
+            "allow-share-folder",
+            "allow-unshare-folder",
+            "allow-restart-sync-service",
+            "allow-open-bundled-app",
+            "allow-open-hosted-site",
+            "allow-choose-folder-for-app",
         ];
         let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
         assert_eq!(capability["windows"], serde_json::json!(["folders"]));
+        let mut expected = vec!["core:event:allow-listen", "core:event:allow-unlisten"];
+        expected.extend(FOLDERS_ONLY);
+        expected.push("allow-open-home");
         assert_eq!(
             capability["permissions"],
-            serde_json::json!([
-                "core:event:allow-listen",
-                "core:event:allow-unlisten",
-                "allow-list-data-folders",
-                "allow-open-folder-editor",
-                "allow-open-bundled-app",
-                "allow-open-hosted-site",
-                "allow-choose-folder-for-app",
-                "allow-open-home",
-                OPENING[0],
-                OPENING[1],
-                OPENING[2],
-                OPENING[3],
-                OPENING[4],
-                OPENING[5]
-            ]),
+            serde_json::json!(expected),
             "folders"
         );
         for encoded in ALL_CAPABILITIES
@@ -1330,27 +1323,13 @@ mod tests {
                     .as_str()
                     .or_else(|| permission["identifier"].as_str())
                     .unwrap();
-                assert_ne!(
-                    permission, "allow-list-data-folders",
-                    "the listing belongs to the Folders window alone"
+                assert!(
+                    !FOLDERS_ONLY.contains(&permission),
+                    "{permission} belongs to the Folders window alone"
                 );
-                for launch in [
-                    "allow-open-bundled-app",
-                    "allow-choose-folder-for-app",
-                    "allow-open-folder-editor",
-                ] {
-                    assert_ne!(
-                        permission, launch,
-                        "opening a folder's window belongs to the Folders window alone"
-                    );
-                }
                 assert!(
                     !permission.starts_with("dialog:") || permission == "dialog:allow-message",
                     "only message dialogs are allowed; the folder picker belongs to Rust"
-                );
-                assert!(
-                    !OPENING.contains(&permission),
-                    "accepting an opening belongs to the Folders window alone: {permission}"
                 );
             }
         }
@@ -1433,9 +1412,9 @@ mod tests {
             "epicenter://app/todos",
             "epicenter://app/home",
             "epicenter://app/whispering",
-            "epicenter://open?path=%2FUsers%2Fme%2FNotes",
-            "epicenter://open?path=relative",
-            "epicenter://open?path=%2FUsers%2Fme%2FNotes",
+            "epicenter://init?path=%2FUsers%2Fme%2FNotes",
+            "epicenter://init?path=relative",
+            "epicenter://init?path=%2FUsers%2Fme%2FNotes",
             "epicenter://",
         ]
         .map(String::from);
@@ -1443,23 +1422,29 @@ mod tests {
             links_from_arguments(&arguments),
             vec![
                 DeepLink::Window(BuiltInApp::Home),
-                DeepLink::OpenDirectory("/Users/me/Notes".into()),
+                DeepLink::SetUpFolder(synced_folders::FolderSetup {
+                    path: "/Users/me/Notes".into(),
+                    contract: None,
+                }),
                 DeepLink::Window(BuiltInApp::Folders),
             ]
         );
     }
 
-    /// An opening link is its own form: it never names a built-in or bundled
+    /// A setup link is its own form: it never names a built-in or bundled
     /// window, and the built-in table takes no query.
     #[test]
-    fn an_opening_link_and_a_window_link_are_read_apart() {
+    fn a_setup_link_and_a_window_link_are_read_apart() {
         assert_eq!(
             parse_deep_link(
-                &"epicenter://open?path=%2FUsers%2Fme%2FNotes"
+                &"epicenter://init?path=%2FUsers%2Fme%2FNotes"
                     .parse()
                     .unwrap()
             ),
-            Some(DeepLink::OpenDirectory("/Users/me/Notes".into()))
+            Some(DeepLink::SetUpFolder(synced_folders::FolderSetup {
+                path: "/Users/me/Notes".into(),
+                contract: None,
+            }))
         );
         assert_eq!(
             parse_deep_link(&"epicenter://app/folders".parse().unwrap()),
@@ -1469,7 +1454,8 @@ mod tests {
             "epicenter://app/folders?path=%2FUsers%2Fme%2FNotes",
             "epicenter://app/todos?path=%2FUsers%2Fme%2FNotes",
             "epicenter://?path=%2FUsers%2Fme%2FNotes",
-            "epicenter://open/todos?path=%2FUsers%2Fme%2FNotes",
+            "epicenter://init/todos?path=%2FUsers%2Fme%2FNotes",
+            "epicenter://open?path=%2FUsers%2Fme%2FNotes",
         ] {
             assert_eq!(parse_deep_link(&denied.parse().unwrap()), None, "{denied}");
         }

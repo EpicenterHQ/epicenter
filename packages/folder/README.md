@@ -21,7 +21,7 @@ landed storage.
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, `closeDevice`, and `outboxOf`; and `openFolder`, the fixed IndexedDB folder in a web page, which refuses inside Tauri. |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), `outboxOf`, and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository, and `startUploading(device, remote)`. |
-| `@epicenter/folder/tauri` | Open the directory that the shell bound to this window. Refuses outside Tauri. |
+| `@epicenter/folder/tauri` | `openDevice(contract, { path? })` over the directory the shell bound to this window (its local data folder), and `openFolder` over the same directory. Both refuse outside Tauri. |
 | `@epicenter/folder/bun` | Open an existing directory with `{ directory, tables }`; also exports the CLI's declaration tools, `holdingFileLock`, and the system `git` runner. |
 | `@epicenter/folder/testing` | Construct a folder over `memoryHost` and control its storage in tests. |
 | `@epicenter/folder/file-browser` | Pure path, tree, text classification, and newline helpers. |
@@ -134,6 +134,7 @@ the contract's paths:
 ```ts
 import { openDevice, outboxOf } from '@epicenter/folder/browser'; // OPFS
 // import { openDevice } from '@epicenter/folder/node';           // a directory: openDevice(c, { path })
+// import { openDevice } from '@epicenter/folder/tauri';          // the window's bound directory
 
 const device = openDevice(recorder);
 const id = timeId();
@@ -158,7 +159,11 @@ the page no private storage answers `Unavailable` with a
 `DeviceError.StorageRefused` cause. The outbox records captures for upload
 as sidecars under `.epicenter/outbox/`, and `cacheOf(device)` reads the
 files it uploaded, kept under `.epicenter/cache/` (below). `/node` also exports `checkFiles`
-and `formatNotes`, which `epicenter check` and `epicenter format` run. See
+and `formatNotes`, which `epicenter check` and `epicenter format` run. In a
+Tauri window the client works over the directory the shell bound to the
+window, through the folder plugin's commands, and the shell holds the save
+lock. A page names no directory, so `path` there is a relative folder
+inside the bound one. See
 `src/device/`; `bun run --cwd packages/folder smoke:device` drives the
 browser opener in Playwright Chromium and WebKit.
 

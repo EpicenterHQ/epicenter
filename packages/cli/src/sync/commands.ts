@@ -26,6 +26,7 @@ import { EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
 import type { RemoteCredential } from './git.ts';
 import { mergeDriver } from './merge-driver.ts';
 import { type InitOptions, Refused, registeredFolders } from './setup.ts';
+import type { FolderStatus } from './status.ts';
 import type { SyncResult } from './sync.ts';
 
 type Options = Record<string, string | true>;
@@ -150,19 +151,37 @@ export async function cloneCommand(
 	}
 }
 
-/** `epicenter status [<dir>]`. */
+/**
+ * `epicenter status [<dir>]`: one folder, or without `<dir>` every
+ * registered one, like `sync`. A registered folder that cannot be read
+ * reports `{ folder, problem }` instead of failing the rest.
+ */
 export async function statusCommand(dir: string | undefined, json: boolean) {
-	const { folderStatus } = await import('./status.ts');
-	const status = await folderStatus(dir ?? '.');
-	if (status === null)
-		return fail(
-			`${resolve(dir ?? '.')} is not in a Git repository; run epicenter init`,
-			json,
-		);
-	if (json) {
-		writeJson({ status });
+	const { folderStatus, registeredStatus } = await import('./status.ts');
+	if (dir === undefined) {
+		const folders = await registeredFolders();
+		if (folders.length === 0 && !json)
+			writeErr('No folder is registered for sync; run epicenter init <dir>.');
+		for (const folder of folders) {
+			const status = await registeredStatus(folder);
+			if (json) writeJson({ status });
+			else if ('problem' in status) writeOut(`${folder}: ${status.problem}`);
+			else writeStatus(status);
+		}
 		return EXIT.ok;
 	}
+	const status = await folderStatus(dir);
+	if (status === null)
+		return fail(
+			`${resolve(dir)} is not in a Git repository; run epicenter init`,
+			json,
+		);
+	if (json) writeJson({ status });
+	else writeStatus(status);
+	return EXIT.ok;
+}
+
+function writeStatus(status: FolderStatus) {
 	writeOut(
 		[
 			`${status.folder} on ${status.branch ?? 'a detached HEAD'} at ${status.head?.slice(0, 7) ?? 'no commit yet'}`,
@@ -177,7 +196,6 @@ export async function statusCommand(dir: string | undefined, json: boolean) {
 				: `Remote ${status.remote}${status.ahead === null ? ': not fetched yet' : `: ${status.ahead} ahead, ${status.behind} behind as of the last sync`}.`,
 		].join('\n'),
 	);
-	return EXIT.ok;
 }
 
 const EXIT_OF = {

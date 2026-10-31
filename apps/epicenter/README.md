@@ -4,17 +4,17 @@ Epicenter hosts Settings, a Folders window, and the apps it bundles in one
 Tauri runtime. The Folders editor opens native
 directories through `@epicenter/folder`. Apps supply their own
 table schemas; local opening and saving require no account or Git repository.
-Git commands still exist outside a Folder handle, but the current folder and
-product pages offer no Save version, Connect, or Sync action.
+History and sync belong to the `epicenter` CLI: the
+[Folders window](#the-folders-window) is a front end over it, listing the
+folders it syncs and running its commands. App and editor pages offer no Save
+version or Sync action.
 
 The existing app owns one Tauri runtime, one native command API, and the short
 list of what it compiles in. It bundles [Todos, Capture, Honeycrisp, Whispering, and
 Messages](#bundled-apps), each built from its own folder under `apps/` with
 Epicenter's own pages. Epicenter also opens published HTTPS sites in their own
 windows. It has no source installer, app manifest, or app build on this
-machine. Clones and
-builds an earlier version installed are left on disk, never read and never
-removed ([Application data](#application-data)).
+machine.
 
 ```text
 page source                         build output        served at
@@ -112,6 +112,9 @@ The one binary has these uses:
   `epicenter` invocation, writes stdin on its own task, and streams each
   stdout line to the page's `Channel`. Development runs the CLI's source
   under `bun` instead of the binary.
+- The Folders window's actions each run one `epicenter` command, and the
+  shell runs `epicenter sync --watch --json --desktop` in the background for
+  as long as the app runs ([The Folders window](#the-folders-window)).
 - Settings' Account section runs the CLI's desktop sign-in through three
   fixed commands, granted to the `home` window by `home.json`
   (ADR-0558). `auth_login(onEvent)` runs `epicenter auth login --desktop
@@ -192,7 +195,6 @@ Files split by what they cost to lose (ADR-0539):
 ```txt
 ~/Epicenter/                                  read, edited, and versioned as files
   so.epicenter/                               Epicenter’s portable records (Settings)
-    epicenter.json                            optional older declaration, retained if present
     connections/<id>.md                       one row per AI connection
   so.epicenter.todos/                         Todos's default
   so.epicenter.capture/                       Capture's default
@@ -200,10 +202,9 @@ Files split by what they cost to lose (ADR-0539):
   so.epicenter.whispering/                    Whispering's default
   so.epicenter.messages/                      Messages's default
   dev.acme.todos/                             a hosted site's derived area
-  Notes/, ...                                 other data folders, each listed and opened as files
+  <name>/                                     a folder `epicenter clone` made
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   auth/<grant>.lock                           the lock a sign-in refreshes under (the CLI writes it)
-  navigation.sqlite                           machine-local pins and recent openings
   local-transcription.json                    the active local model and when to unload it
 ```
 
@@ -212,9 +213,15 @@ default and reuses an existing one with its files, without an ownership
 claim. No configuration selects or remembers them. Release and development
 data remain separate.
 
+The folders Epicenter syncs may sit anywhere on disk. Their list is the
+global Git configuration's multi-valued `epicenter.folder`, which `epicenter
+init`, `clone`, and `forget` change; neither application-data directory
+holds a list of folders. The shell sets no Git configuration of its own, so
+release, development, and a terminal's `epicenter` share that one list.
+
 Overrides select an explicit location, so pointing both builds at the same
-location deliberately shares those files. Development starts signed out after
-credential isolation; production credentials are unchanged.
+location deliberately shares those files. Development signs in separately
+from production.
 
 Rust resolves both directories once at startup and stores them for the
 desktop lifetime, and every `epicenter` command the shell runs receives
@@ -225,8 +232,7 @@ they are in the shared Hugging Face cache (`~/.cache/huggingface/hub`, or
 `$HF_HOME/hub`), which Epicenter downloads into and never deletes from (ADR-0579).
 Settings shows a model's folder there; deleting that folder removes the model.
 Local transcription settings, `local-transcription.json`, are in the data
-directory.
-Standalone Local Books still defaults to production data; use
+directory. Standalone Local Books defaults to production data; use
 `EPICENTER_DATA_DIR` when directing its CLI to development storage.
 
 ### Start the app
@@ -257,24 +263,26 @@ browser.
 
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
-it. It lists your data folders, opens each in an editor window of its own,
-offers "Open with…" on every folder for each bundled app, lists the bundled
-apps under Apps with Open and Choose folder…, and opens Settings from its
-Settings button with `open_home`. Opening an app opens its own window; the OS
-is the switcher from there, and closing the Folders window leaves everything
-it opened running.
+it. It lists the folders the `epicenter` CLI syncs and runs the CLI's
+commands on them, opens a synced folder's files in an editor window of its
+own, lists the bundled apps under Apps with Open and Choose folder…, opens
+hosted sites under Sites, and opens Settings from its Settings button with
+`open_home`. Opening an app opens its own window; the OS is the switcher from
+there, and closing the Folders window leaves everything it opened running.
 
 Settings is the window labelled `home`. It signs the app in and out and alone
 administers the local transcription model (ADR-0180). An app that needs
 a local model opens it with `open_home('transcription')`, and Settings scrolls
 to the model (`src/ui/home-section.ts`). The tray (Show Folders,
-Show Settings) and deep links remain shortcuts into the same windows; bundled
-apps have no deep link:
+Show Settings) and deep links are shortcuts into the same windows; bundled
+apps have no deep link. An `epicenter://init` link
+([Requests to sync a folder](#requests-to-sync-a-folder)) only asks:
 
 ```bash
 open 'epicenter://'
 open 'epicenter://app/folders'
 open 'epicenter://app/home'
+open 'epicenter://init?path=%2FUsers%2Fme%2FNotes'
 ```
 
 ### Try saved views with sample data (macOS)
@@ -309,80 +317,97 @@ This is an interactive desktop walkthrough. The mounted editor tests run with
 
 ## The Folders window
 
-The Folders window (`folders`, served at `/folders/`) is a launcher over the
-data folders under the authored folder root and the apps Epicenter bundles.
-Its page source is `src/folders`, built by `build:folders` into
-`dist/folders`. It is the window Epicenter opens to, and
+The Folders window (`folders`, served at `/folders/`) is a front end over the
+`epicenter` CLI ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
+it lists the folders the CLI syncs, and each of its actions is one CLI call a
+person or an agent could type. Below the folders it opens the apps Epicenter
+bundles and hosted sites. Its page source is `src/folders`, built by
+`build:folders` into `dist/folders`; its native side is
+`src-tauri/src/synced_folders.rs`. It is the window Epicenter opens to, and
 `epicenter://app/folders` opens it. The shell binds no folder to it, and its
-capability grants no folder command.
+capability, `folders.json`, grants no folder plugin command.
 
-The page asks the shell for one derived listing, grouped in order as
-**Pinned**, the library root's name (such as **Epicenter Dev**), and
-**Recent**. Pins are explicit folder preferences. The middle group contains
-visible real direct children of the library root. Recent records successful
-app and editor openings, newest first, up to 20. A directory appears once:
-pin takes precedence over library membership, which takes precedence over
-recency. References resolving to the same physical directory share one row.
-The launcher remains a compact single column; app launch and Choose Folder
-controls stay under Apps, and Settings opens in its own window.
+### The folder list
 
-Each row shows its path. An existing fixed app default takes that app's title
-and says **Default for Todos**; a directory elsewhere with the same name is
-ordinary. An optional `epicenter.json` can supply another folder's display
-title. Missing pinned and recent references stay visible with an availability
-problem and can be removed. Listing creates no folders or missing defaults.
-It retries removal of obsolete bookmark metadata; a cleanup failure appears
-among listing problems.
+`synced_folders` runs `epicenter status --json`, which reads every folder in
+the global Git configuration's `epicenter.folder`, and joins each line with
+that folder's last round of `epicenter sync --json`. A row shows the folder's
+name, where it syncs to (the `origin`'s `<owner>/<name>`, or "This computer
+only" when it has none), and its last round in the CLI's own words: synced, with any changes
+not yet synced; will try again; or stopped, with the CLI's message. A
+registered folder the CLI cannot read shows why: missing from disk, not a Git
+repository, or a repository `epicenter init` has not adopted. The shell keeps
+rounds and requests in memory for this run and saves nothing.
 
-Rows have native IDs derived from resolved paths. Opening an editor or choosing
-an app in **Actions** passes that ID. Rust rebuilds current membership and
-checks the directory before binding a window. A stale row cannot select
-another directory. Pin is available for an admitted row; Unpin and Remove
-from Recent remain available when a referenced directory has gone missing.
-Epicenter's records directory can open in the generic editor, while bundled
-apps keep their protected-directory checks. Application data and save staging
-cannot open as ordinary folders.
+The window lists again when the shell emits
+`epicenter://synced-folders-changed` (a round ended, the service changed, or a
+request arrived) and when it gains focus. A page names a folder by the path
+the last listing held; every command that takes a folder refuses any other
+path, so a page acts only on folders the CLI registered.
 
-The shell watches the root and `navigation.sqlite` from setup until exit. Root
-children, their `epicenter.json` declarations, and navigation writes invalidate
-the listing. Focus refreshes it too, so outside paths are checked again.
+### Background sync
 
-### Incoming folders and navigation
+At startup the shell runs `epicenter sync --watch --json --desktop` and keeps
+it running for as long as the app runs. Each `{"sync": ...}` line it prints
+becomes that folder's last round. Adding, cloning, or forgetting a folder
+restarts it, so `--watch` watches the new set. When it exits, the shell starts
+it again after 5 seconds; after three exits in a row within 20 seconds of
+starting, it stops, and the window shows **Syncing is paused** with the CLI's
+last line of stderr and **Start syncing again** (`restart_sync_service`). No
+window owns the service, so reloading or closing a page does not end it. At
+application exit the shell sends `SIGTERM` to its process group on macOS and
+Linux.
 
-A standalone app can ask Epicenter to open
-`epicenter://open?path=<percent-encoded absolute directory>`. Receiving the
-link only queues it and shows the launcher. **Open** resolves the existing
-directory and opens its own bound editor; **Dismiss** reads none of its files.
-Handoffs refuse folders overlapping Epicenter's Settings or app data. The
-editor receives the same canonical directory that passed admission.
+### Folder actions
 
-After any successful app or editor opening, including default, listed, chosen,
-and accepted handoff openings, the shell records its canonical directory in
-Recent. A cancelled picker, failed opening, queued handoff, listing, and edits
-within an existing window record nothing. If persistence fails, the opened
-window remains open, a warning appears, and the directory remains in a
-temporary Recent row for this run. Temporary rows appear first in Recent,
-newest first, until saved again or removed. Pins change only when requested. Pin,
-Unpin, and Remove from Recent move no files and leave windows and edits open.
-Opening another directory changes no app default: each remains its fixed
-`<root>/<id>` (ADR-0672).
+Every action but **Open files** runs one CLI command with `--json --desktop`,
+then the window lists again:
 
-The CLI's `epicenter folders pin|unpin|list|remove-recent` shares
-`<app data>/navigation.sqlite` with the native shell. Independently keyed
-`pins(path)` and `recent(path, sequence)` tables keep pin intent separate from
-opening history. SQLite immediate write transactions serialize both writers;
-a deferred read transaction returns one consistent listing. The database uses
-the DELETE rollback journal and a 10-second busy timeout. Foreign, future,
-corrupt, or non-DELETE-journal databases are refused without replacement.
-Navigation is machine-local.
+| Action | Command | CLI call |
+| --- | --- | --- |
+| **Add folder** | `add_synced_folder` | The native folder picker, shown and answered in Rust, then `epicenter init <dir>` |
+| **Clone** | `clone_synced_folder(source)` | `epicenter clone <owner>/<name>` or `epicenter clone <url>`, into the Epicenter folder |
+| **Sync now** | `sync_folder_now(path)` | `epicenter sync <dir>`, kept as the folder's last round |
+| **Stop syncing…** | `forget_synced_folder(path)` | `epicenter forget <dir>`, after a confirmation; files and history stay |
+| **Sharing…** | `folder_sharing(path)` | `epicenter share <dir>`, listing who the repository is shared with |
+| | `share_folder(path, person, level)` | `epicenter share <dir> <handle> --read` or `--write` |
+| | `unshare_folder(path, person)` | `epicenter unshare <dir> <handle>` |
+| **Open files** | `open_synced_folder(path)` | No CLI call: opens the folder's [editor window](#folder-editor-windows) |
+
+The shell passes a clone source or handle as one argument and refuses an
+empty one, one with a control character, or one that starts with `-`.
+Before `epicenter init`, a folder that already exists must be one the shell
+would open in any window: a real directory holding none of Epicenter's own
+files, so neither the records nor the library root becomes a repository.
+`init` and `clone` report warnings, such as a missing command link, beside the
+list. **Sharing…** is offered for a folder with a remote, and **Open files**
+for a folder that is on disk.
+
+### Requests to sync a folder
+
+Another app or a web page can ask Epicenter to sync a folder with
+`epicenter://init?path=<absolute path>[&contract=<URL or absolute path>]`.
+Both values are percent-encoded, in that order, with nothing else in the link;
+the path must be spelled plainly, with no `.`, `..`, or doubled or trailing
+separator, and the contract must be an `https:` or `http:` URL or an absolute
+path (`parse_init_link`). Any other link is ignored.
+
+Receiving the link only queues the request, once per path, and shows the
+Folders window. The window shows the path and, when given, the contract.
+**Set up** (`accept_folder_setup`) runs `epicenter init <dir>`; a failure keeps
+the request so the person can read why and dismiss it. **Dismiss**
+(`dismiss_folder_setup`) drops it without reading the folder. The contract is
+shown but not passed, because `epicenter init` takes no contract yet.
 
 ### Folder editor windows
 
-Choosing a listed folder calls `open_folder_editor(id)`. The shell rebuilds
-the combined list and requires a current, available row with that ID. It
-binds that exact directory to a window labelled `files:<digest of the
-canonical root>` and opens `/folders/editor/`. Choosing it again reveals
-the existing window. This works for listed folders outside the root
+**Open files** on a synced folder calls `open_synced_folder(path)`. The shell
+requires a path the last listing held and an existing real directory that
+overlaps none of Epicenter's own files: Settings' records, save staging, or
+application data, anything in them, or a directory holding them, such as the
+Epicenter folder itself. It binds that exact directory to a window labelled
+`files:<digest of the canonical root>` and opens `/folders/editor/`. Opening
+it again reveals the existing window. Folders anywhere on disk open this way,
 without copying or creating a directory.
 
 The editor mounts `<OpenFolder>` with no table schemas, so Files, grid, board,
@@ -479,12 +504,11 @@ current file values without query invalidation or manual refresh.
 
 ### Opening apps
 
-Beside each listed directory except protected ones such as Epicenter's records
-directory, "Open with…" offers every bundled app (`src/folders/openers.ts`).
-The Apps list offers Open, on the app's fixed default, and Choose folder…,
-which asks the shell to show the
-native folder picker. The app interprets its files through its own schemas.
-The Folders view does not use `epicenter.json` to authorize any of them.
+The Apps list offers every bundled app (`src/folders/openers.ts`) with Open,
+on the app's fixed default, and Choose folder…, which asks the shell to show
+the native folder picker ([Bundled apps](#bundled-apps)). The app interprets
+its files through its own schemas. The Folders window does not use
+`epicenter.json` to authorize any of them.
 
 ## Bundled apps
 
@@ -509,9 +533,9 @@ Tauri shell (`bun run --cwd apps/todos build:desktop`). Opening an app clones,
 builds, and fetches nothing, and asks for no approval, account, network, or
 Git action.
 
-The Folders window opens one in three ways, each deciding the folder in Rust:
+The Folders window opens one in two ways, each deciding the folder in Rust:
 
-- **Open**, under Apps, calls `open_bundled_app(app, null)`. The shell opens
+- **Open**, under Apps, calls `open_bundled_app(app)`. The shell opens
   the app's fixed default, such as `~/Epicenter/so.epicenter.todos` in
   production, creating it when missing and reusing it with its files
   otherwise; nothing is saved, so a removed default is made again. Its
@@ -519,13 +543,9 @@ The Folders window opens one in three ways, each deciding the folder in Rust:
   app's rows land directly in it, such as `todos/<id>.md`. A disk that stores
   the default under another casing opens that directory. A file or a link at
   the path is refused; no other folder is opened instead.
-- **Open in an app**, under a listed folder’s Actions menu, calls `open_bundled_app(app, id)`.
-  Rust rechecks current listing membership, including outside pinned and recent folders.
-  A missing, stale, or protected directory is refused. Nothing is created and
-  the app's default is never opened as a replacement.
 - **Choose folder…**, under Apps, calls `choose_folder_for_app(app)`. The
   shell shows the native folder picker and opens the app on what the person
-  chose; cancelling opens nothing. The chosen directory must exist and be a
+  chose, answering whether a folder was chosen; cancelling opens nothing. The chosen directory must exist and be a
   real directory, never a link, though its parent may be one; it is never
   created. Epicenter's own folder is refused however it is reached. No page
   passes a path. Bundled app pages can show close confirmation, but no page has
@@ -558,7 +578,7 @@ children that page started.
 On macOS, folder windows can share the system tab bar. Automatic grouping
 follows the macOS tab preference. The **Window** menu offers **Merge Folder
 Windows**, **Move Tab to New Window**, and **Close Tab Group** (Shift-Command-W).
-Settings and the Folders launcher stay separate because closing them hides
+Settings and the Folders window stay separate because closing them hides
 them. Windows and Linux keep separate app-and-folder windows.
 
 Each native tab keeps its own window, page, directory binding, and save
@@ -619,15 +639,15 @@ editing never wait for sign-in.
 The save lock, `.<directory name>.epicenter-save-lock`, sits beside the folder
 in the folder root; WebView data and the page builds live in the application
 data and resource directories. The Folder engine stages a save's bytes in
-`.<directory name>.epicenter-scratch` beside the folder. Whispering's own
-folder was `so.epicenter.whispering` when it was installed; under that same
-name it is now Whispering's default and opens with its files.
+`.<directory name>.epicenter-scratch` beside the folder.
 
 Each kind of window has one capability file, and every file is `"local": true`
-because its page is served on the scheme: `folders.json`, `home.json`,
-`bundled-app.json`, `whispering.json`, and `folder-editor.json`, which selects
-`files:*` and grants the folder plugin's private observation and close
-channels. A development build selects the same five. Hosted sites receive an
+because its page is served on the scheme: `folders.json`, which alone grants
+the Folders window's CLI commands (`src-tauri/src/command_names.rs` lists every
+app command), `home.json`, `bundled-app.json`, `whispering.json`,
+`messages.json`, and `folder-editor.json`, which selects `files:*` and grants
+the folder plugin, its private observation and close channels, and
+`folder_query`. A development build selects the same six. Hosted sites receive an
 exact-origin runtime grant instead. This is wiring, not a sandbox (ADR-0179, ADR-0334).
 
 Whispering's page has no recording overlay and

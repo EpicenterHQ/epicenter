@@ -2,9 +2,11 @@
  * `epicenter status [<dir>]`: a thin read of the folder's Git state. It runs
  * `git status --porcelain` limited to the folder, compares `HEAD` with the
  * last fetched `origin/main`, and names whether the folder is registered.
+ * Without `<dir>` it reads every registered folder (`registeredStatus`).
  * It fetches nothing and writes nothing.
  */
 
+import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import { config, git } from './git.ts';
@@ -27,6 +29,25 @@ export type FolderStatus = {
 	readonly ahead: number | null;
 	readonly behind: number | null;
 };
+
+/** A registered folder whose status cannot be read, and why. */
+export type FolderProblem = {
+	readonly folder: string;
+	readonly problem: 'not on disk' | 'not in a Git repository';
+};
+
+/** The status of a folder as registered, or the reason it has none. */
+export async function registeredStatus(
+	folder: string,
+): Promise<FolderStatus | FolderProblem> {
+	if (!existsSync(folder)) return { folder, problem: 'not on disk' };
+	return (
+		(await folderStatus(folder)) ?? {
+			folder,
+			problem: 'not in a Git repository',
+		}
+	);
+}
 
 /** The status of the folder at `input`, or null when it is not in a repository. */
 export async function folderStatus(

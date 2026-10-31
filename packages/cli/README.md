@@ -27,15 +27,14 @@ epicenter sync ~/Epicenter/recorder-demo   # 0 synced, 1 run again, 2 stopped
 The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 --cwd apps/epicenter build:sidecar`); see
 [the epicenter binary](../../apps/epicenter/README.md#the-epicenter-binary).
+Its [Folders window](../../apps/epicenter/README.md#the-folders-window) is a
+front end over `status`, `init`, `clone`, `sync`, `forget`, `share`, and
+`unshare`, and the app runs `sync --watch` for as long as it runs.
 
 ## Commands
 
 | Command | Status | Wraps |
 | --- | --- | --- |
-| `epicenter folders pin <directory>` | built | Pin an existing directory in machine-local navigation |
-| `epicenter folders unpin <directory>` | built | Remove a pin without changing files |
-| `epicenter folders list` | built | Pinned and recent paths and their availability |
-| `epicenter folders remove-recent <directory>` | built | Remove a recent entry without changing files |
 | `epicenter documents-query <dir>` | built, hidden | Desktop saved-document SQL; statement on stdin |
 | `epicenter check <contract> [<dir>]` | built | `checkFiles` in `@epicenter/folder/node` |
 | `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
@@ -77,30 +76,6 @@ and reuses one that is there. Before either, the location is admitted: it
 may not be or sit inside a save staging directory, overlap application data,
 or be a file or a link. The CLI and native admissions run the same cases
 from `records-default.json` in the folder plugin's fixtures.
-
-The desktop and CLI share machine-local navigation in `<AppData>/navigation.sqlite`.
-`EPICENTER_DATA_DIR` selects the same AppData directory for both; a terminal
-uses release storage by default, so set that override for development storage.
-
-The database has independently keyed `pins(path)` and `recent(path, sequence)`
-tables. It uses SQLite's DELETE rollback journal, a 10-second busy timeout,
-and immediate write transactions.
-
-`folders pin` admits an existing directory, resolves its path, and records it
-once. Relative arguments resolve against the current working directory.
-`folders list --json` returns `{"pins": [{"path", "problem"}], "recent":
-[{"path", "problem"}]}`; missing entries remain visible. `folders unpin`
-and `folders remove-recent` also remove aliases of the supplied path, including
-missing paths by their saved spelling. Neither action deletes authored files,
-changes an app's fixed default, or changes Git configuration. Successful
-native app and editor openings automatically update Recent, newest first, up
-to 20 entries.
-
-An absent database means empty lists and a read creates nothing. Native and
-CLI writes serialize through SQLite transactions; a read sees one consistent
-snapshot. Foreign, future, corrupt, or non-DELETE-journal databases are
-refused without replacement. The launcher observes committed CLI writes.
-Navigation stays local to this machine.
 
 ## Hosted repositories
 
@@ -183,7 +158,14 @@ with real `git add`, so Git LFS's filters run.
   `--watch` runs a round after each change under the folders and every 30
   seconds (`--interval`) until a stop signal.
 - `status [<dir>]` reads `git status --porcelain` for the folder and the
-  ahead and behind counts against the last fetched `origin/main`.
+  ahead and behind counts against the last fetched `origin/main`, and fetches
+  and writes nothing. Without `<dir>` it reads every registered folder, like
+  `sync`; with `--json` it prints one `{"status": {...}}` line per folder, in
+  registration order. A registered folder it cannot read is
+  `{"status": {"folder", "problem"}}`, where `problem` is `not on disk` or
+  `not in a Git repository`, and the rest are still read. With no folder
+  registered it prints nothing (and says so on stderr without `--json`) and
+  exits 0. The desktop app's Folders window lists its folders from this.
 - `forget [<dir>]` unregisters the folder and unsets `epicenter.root` unless
   another registered folder shares the repository.
 - `merge-driver` runs `settle` on a note: the later arrival at the server

@@ -794,6 +794,42 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
+		'status without a path reads every registered folder, and names one gone from disk',
+		async () => {
+			const M = join(BOX, 'M');
+			mkdirSync(M);
+			expect((await init(M)).code).toBe(0);
+			rmSync(M, { recursive: true, force: true });
+
+			const all = await cli('status', '--json');
+			expect(all.code).toBe(0);
+			const lines = all.stdout
+				.trim()
+				.split('\n')
+				.map((line) => JSON.parse(line).status);
+			expect(lines.map((line) => line.folder).sort()).toEqual(
+				[A, B, join(BOX, 'D'), M].sort(),
+			);
+			expect(lines.find((line) => line.folder === M)).toEqual({
+				folder: M,
+				problem: 'not on disk',
+			});
+			expect(lines.find((line) => line.folder === A)).toMatchObject({
+				registered: true,
+				adopted: true,
+				remote: REMOTE,
+			});
+			const text = await cli('status');
+			expect(text.out).toContain(`${M}: not on disk`);
+
+			expect((await cli('forget', M)).code).toBe(0);
+			const after = await cli('status', '--json');
+			expect(after.stdout).not.toContain(M);
+		},
+		LONG,
+	);
+
+	test(
 		"init keeps a person's own attributes and manages only its block",
 		async () => {
 			const E = join(BOX, 'E');

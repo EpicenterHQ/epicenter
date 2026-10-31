@@ -1,23 +1,27 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "folders",
-	"description": "Epicenter’s Folders launcher groups pinned, library, and recent directories. Existing fixed app defaults are labelled by their app titles. It opens editors or bundled apps through current native row IDs, or uses the Rust-owned picker. Pins and recent history change navigation only. Incoming handoffs still require acceptance. The launcher is bound to no folder and is served on the local epicenter-app scheme.",
+	"description": "Epicenter’s Folders window manages the folders the epicenter CLI syncs: it lists them, sets one up through the Rust-owned picker, a clone, or an accepted epicenter://init request, syncs, forgets, and shares one, and opens a synced folder's files, each as one CLI call. It also opens bundled apps on their defaults or a picked folder, hosted sites, and Settings. It is bound to no folder and is served on the local epicenter-app scheme.",
 	"local": true,
 	"windows": ["folders"],
 	"permissions": [
 		"core:event:allow-listen",
 		"core:event:allow-unlisten",
-		"allow-list-data-folders",
-		"allow-open-folder-editor",
+		"allow-synced-folders",
+		"allow-add-synced-folder",
+		"allow-accept-folder-setup",
+		"allow-dismiss-folder-setup",
+		"allow-clone-synced-folder",
+		"allow-sync-folder-now",
+		"allow-forget-synced-folder",
+		"allow-open-synced-folder",
+		"allow-folder-sharing",
+		"allow-share-folder",
+		"allow-unshare-folder",
+		"allow-restart-sync-service",
 		"allow-open-bundled-app",
 		"allow-open-hosted-site",
 		"allow-choose-folder-for-app",
-		"allow-open-home",
-		"allow-pending-folder-openings",
-		"allow-accept-folder-opening",
-		"allow-dismiss-folder-opening",
-		"allow-pin-folder",
-		"allow-unpin-folder",
-		"allow-remove-recent-folder"
+		"allow-open-home"
 	]
 }

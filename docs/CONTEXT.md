@@ -55,11 +55,10 @@ and hosted Todos share `so.epicenter.todos`; Epicenter's records use
 or explicitly chosen directory is refused. There is no first-use path selection
 or independently configurable app home (ADR-0672).
 
-AppData's machine-local `navigation.sqlite` stores pinned and recently opened
-folder paths. `epicenter folders pin|unpin|list|remove-recent` edits it in the
-same SQLite transactions as desktop. Scanned library children need no pin.
-Unpinning removes no data and changes no Git remote or live editor.
-A CLI `open <directory>` command remains unbuilt. A data folder's
+The folders Epicenter syncs are the global Git configuration's multi-valued
+`epicenter.folder`, which `epicenter init`, `clone`, and `forget` change; the
+desktop's Folders window runs those commands, and no AppData file lists
+folders. A CLI `open <directory>` command remains unbuilt. A data folder's
 `epicenter.json` has the separate portable declaration role described next.
 
 Local dataset is a countable way to describe the local data an app selected,
@@ -241,7 +240,7 @@ additional current APIs.
 | `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser` and `openDevice(contract, { path })` from `/node`, `openRemote(contract, { account })` and `startUploading` from `/remote`, over a contract from `@epicenter/definition/contract`. |
 | `@epicenter/folder` browser engine (`src/browser/`) | Internal `openRepository`, `LocalRepository`, caller-supplied `schemas`, and `Row.id`. It has no package entry point; only `openFolder({ tables })` reaches it. |
 | `@epicenter/folder/declaration` | Canonical portable schema, `SavedView`, and `readSavedViews`. The pure `changeSavedView` transform composes into the same declaration file editor used for raw text. |
-| CLI | Implemented commands include `auth`, `folders list|pin|unpin|remove-recent`, `check`, `format`, `init`, `sync`, `clone`, `forget`, `status`, and `repos`. External-schema flags and CLI `open` remain deferred. |
+| CLI | Implemented commands include `auth`, `check`, `format`, `init`, `sync`, `clone`, `forget`, `status`, `repos`, `share`, and `unshare`. External-schema flags and CLI `open` remain deferred. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 
 For the full dated inventory and the review's accepted and rejected collapses,

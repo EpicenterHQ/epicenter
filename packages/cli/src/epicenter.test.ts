@@ -87,10 +87,6 @@ test('--help lists every command but send and install-command, and --json descri
 	expect(help.stdout).not.toContain('--desktop');
 	const described = JSON.parse(run('--help', '--json').stdout).commands;
 	expect(described.map((c: { command: string }) => c.command)).toEqual([
-		'folders pin',
-		'folders unpin',
-		'folders list',
-		'folders remove-recent',
 		'check',
 		'format',
 		'init',

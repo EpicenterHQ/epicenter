@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-restart-sync-service"
+description = "Enables the restart_sync_service command without any pre-configured scope."
+commands.allow = ["restart_sync_service"]
+
+[[permission]]
+identifier = "deny-restart-sync-service"
+description = "Denies the restart_sync_service command without any pre-configured scope."
+commands.deny = ["restart_sync_service"]

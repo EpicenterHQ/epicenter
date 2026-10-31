@@ -83,7 +83,7 @@ pub fn open_default(
     })
 }
 
-/// Whether a folder editor may open `path`: never a save staging directory
+/// Whether Epicenter's records may open at `path`: never a save staging directory
 /// or anything in one, and never overlapping application data, through the
 /// directory or its own staging sibling. Epicenter's records may be edited.
 pub fn check_editable_directory(data_dir: &Path, path: &Path) -> Result<(), String> {
@@ -99,7 +99,7 @@ pub fn check_editable_directory(data_dir: &Path, path: &Path) -> Result<(), Stri
     Ok(())
 }
 
-/// Whether an ordinary app, or a handoff from another app, may open `path`:
+/// Whether an app, a hosted site, or a folder editor window may open `path`:
 /// everything `check_editable_directory` refuses, and also Epicenter's records
 /// at `<library_root>/so.epicenter` or its staging sibling, anything in them,
 /// or a directory holding them, such as the library root.

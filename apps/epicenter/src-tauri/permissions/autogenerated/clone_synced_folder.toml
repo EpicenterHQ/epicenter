@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clone-synced-folder"
+description = "Enables the clone_synced_folder command without any pre-configured scope."
+commands.allow = ["clone_synced_folder"]
+
+[[permission]]
+identifier = "deny-clone-synced-folder"
+description = "Denies the clone_synced_folder command without any pre-configured scope."
+commands.deny = ["clone_synced_folder"]

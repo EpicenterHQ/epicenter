@@ -18,7 +18,7 @@ bound to the calling WebView's label
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, the page's storage (`storage.rs`), the fixed app defaults (`library.rs`), and pinned and recent folders (`navigation.rs`). No Tauri; its tests need only `git` and `bun`. |
+| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, the page's storage (`storage.rs`), and the fixed app defaults (`library.rs`). No Tauri; its tests need only `git` and `bun`. |
 | `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), and storage commands. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
@@ -81,24 +81,19 @@ then creates it when missing or reuses the directory already there with its
 files. It reads and writes no configuration and claims no ownership: a
 default that was moved or deleted is made again by the next ordinary launch,
 and two apps may open one directory. A file or a link at the path is refused
-and kept; no alternative name is allocated. Picker-chosen and listed
-directories bypass the defaults and must exist.
+and kept; no alternative name is allocated. Picker-chosen directories and synced
+folders opened in an editor bypass the defaults and must exist.
 
-Admission is `library::check_editable_directory` for a folder editor and for
-records: never a save staging directory or anything in one, and never
-overlapping application data through the directory or its staging sibling.
-`library::check_app_directory`, for ordinary apps, one-time launches, and
-handoffs, also refuses records, its staging sibling, anything in them, and
+Admission is `library::check_editable_directory` for records: never a save
+staging directory or anything in one, and never overlapping application data
+through the directory or its staging sibling. `library::check_app_directory`,
+for ordinary apps, one-time launches, hosted sites, and folder editor
+windows, also refuses records, its staging sibling, anything in them, and
 any directory holding them, such as the root. Overlap compares canonical
 paths and directory identity, so a linked parent or another spelling of a
 protected directory is no route around it. A root override is admitted before
 anything is made. Native and CLI records admission run the same cases from
 `fixtures/records-default.json`.
-
-`navigation` is the machine's pinned and recently opened folders in
-`<AppData>/navigation.sqlite`, written in SQLite transactions by native shells
-and the CLI alike. A pin is a shortcut, never a permission or a default. A
-foreign or corrupt database is refused and left as it is.
 
 `Directory::create(path)` prepares a fixed default computed by the shell,
 creating it and its parents when missing and retaining its canonical root.

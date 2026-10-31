@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-dismiss-folder-setup"
+description = "Enables the dismiss_folder_setup command without any pre-configured scope."
+commands.allow = ["dismiss_folder_setup"]
+
+[[permission]]
+identifier = "deny-dismiss-folder-setup"
+description = "Denies the dismiss_folder_setup command without any pre-configured scope."
+commands.deny = ["dismiss_folder_setup"]

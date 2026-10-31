@@ -1,23 +1,48 @@
 /**
  * `@epicenter/folder/tauri`: open the directory the desktop shell bound
- * to this window. The shell answers each storage command, and its watcher
- * sends the paths that changed.
+ * to this window, as a contract's typed client (`openDevice`) or as a
+ * folder of tables (`openFolder`). The shell answers each storage command,
+ * and its watcher sends the paths that changed.
  */
+import type { Client, Contract } from '@epicenter/definition/contract';
 import { Channel, isTauri } from '@tauri-apps/api/core';
 import { hostStorage } from './boundary.js';
+import { createDeviceClient } from './device/client.js';
+import { tauriStore } from './device/tauri-store.js';
 import { OpenFolderError } from './errors.js';
-import { commands, type FolderChanged } from './native/bindings.gen.js';
-import { openRefusal } from './native/open-refusal.js';
-import { tauriHostFiles } from './tauri-files.js';
 import {
 	createFolder,
 	type Opened,
 	type OpenOptions,
 	type Tables,
 } from './folder.js';
+import { commands, type FolderChanged } from './native/bindings.gen.js';
+import { openRefusal } from './native/open-refusal.js';
 import { storageHost } from './storage.js';
+import { tauriHostFiles } from './tauri-files.js';
 
 export * from './contract.js';
+
+/**
+ * The typed client of `contract` over the directory the desktop shell bound
+ * to this window: for a bundled or standalone app, its local data folder.
+ * A page names no directory; `path`, when given, is a relative folder
+ * inside the bound one (a data folder may sit at any depth). Outside Tauri,
+ * or when the shell refuses, each call is `Unavailable`, never a throw; a
+ * contract that is not well formed, or a `path` that leaves the bound
+ * directory, throws here, at once.
+ *
+ * ```ts
+ * const device = openDevice(recorder);
+ * const note = await device.recordings.create({ id: timeId(), title: 'Standup' });
+ * ```
+ */
+export function openDevice<TContract extends Contract>(
+	contract: TContract,
+	{ path }: { path?: string } = {},
+): Client<TContract> {
+	return createDeviceClient(contract, tauriStore({ inside: path }));
+}
 
 const observers = new Set<(change: FolderChanged) => void>();
 let opening: ReturnType<typeof commands.openFolder> | undefined;
