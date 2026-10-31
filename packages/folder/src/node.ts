@@ -20,7 +20,7 @@ import { createDeviceClient } from './device/client.js';
 import { checkStore, formatStore } from './device/folder-tools.js';
 import { nodeStore } from './device/node-store.js';
 
-export { type AppConfig, appConfig } from './app-config.js';
+export { type AppConfig, appConfig, defineAppConfig } from './app-config.js';
 
 /**
  * The typed client of `contract` over the directory at `path`, made at the

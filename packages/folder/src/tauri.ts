@@ -26,9 +26,17 @@ export {
 	type AppFolders,
 	appConfig,
 	appFolders,
+	defineAppConfig,
 	rememberFolder,
 } from './app-config.js';
 export * from './contract.js';
+export {
+	type DesktopFolder,
+	desktopFolder,
+	type FolderPlace,
+	type FolderRequest,
+	type FolderSync,
+} from './desktop-folder.js';
 export {
 	EpicenterSyncError,
 	syncedWithEpicenter,

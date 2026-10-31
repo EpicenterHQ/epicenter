@@ -29,6 +29,8 @@ let inTauri = true;
 /** The channel each `open_folder` handed the shell, as its watcher would send on. */
 const watchers: { onmessage?: (change: { paths: string[] | null }) => void }[] =
 	[];
+/** Each place the page asked the standalone shell's `choose_folder` for. */
+const chosen: string[] = [];
 
 mock.module('@tauri-apps/api/core', () => ({
 	Channel: class {},
@@ -41,11 +43,17 @@ mock.module('@tauri-apps/api/core', () => ({
 	) => {
 		if (cmd === 'plugin:epicenter-folder|open_folder')
 			watchers.push((body as { onChange: (typeof watchers)[number] }).onChange);
+		if (cmd === 'choose_folder') {
+			chosen.push((body as { place: string }).place);
+			return Promise.resolve(true);
+		}
 		return shell.invoke(cmd, body, options);
 	},
 }));
 
-const { openDevice } = await import('./tauri.js');
+const { defineAppConfig, desktopFolder, openDevice } = await import(
+	'./tauri.js'
+);
 
 const notes = defineContract({
 	name: 'notes',
@@ -246,4 +254,48 @@ test("a device opened at the window's own folder by path hears its watcher, and 
 	} finally {
 		await rm(config, { recursive: true, force: true });
 	}
+});
+
+test('desktopFolder opens the settings beside the folder, records the folder, and asks the shell to move', async () => {
+	const config = await grantedDirectory('tauri-device-config-');
+	try {
+		shell = createGrantedShell(shell.root, { grants: [config] });
+		(globalThis as { window?: unknown }).window = {
+			__EPICENTER_APP_FOLDERS__: {
+				config,
+				folder: shell.root,
+				problem: null,
+				places: { epicenter: '/e', appData: '/a' },
+			},
+		};
+		const settings = defineAppConfig({ theme: { type: 'string' } });
+		const folder = desktopFolder({
+			contract: 'https://notes.example/contract.json',
+			config: settings,
+		});
+		if (folder === null) throw new Error("expected the window's folder");
+		expect(await folder.remembered).toEqual({ ok: true });
+		const { version } = expectOk(await folder.config.settings.get({}));
+		expectOk(
+			await folder.config.settings.update(
+				{},
+				{ theme: 'dark' },
+				{ over: version },
+			),
+		);
+		const note = await readFile(join(config, 'settings.md'), 'utf8');
+		expect(note).toContain(`folder: ${JSON.stringify(shell.root)}`);
+		expect(note).toContain('theme: dark');
+		expect(await folder.choose('pick')).toEqual({ ok: true });
+		expect(chosen).toEqual(['pick']);
+	} finally {
+		delete (globalThis as { window?: unknown }).window;
+		await rm(config, { recursive: true, force: true });
+	}
+});
+
+test('desktopFolder is null outside a standalone window', () => {
+	expect(
+		desktopFolder({ contract: 'https://notes.example/contract.json' }),
+	).toBeNull();
 });

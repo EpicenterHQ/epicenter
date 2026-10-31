@@ -3,8 +3,13 @@
 A standalone Epicenter app is its own small Tauri program over a folder it
 owns (decisions 79 to 82). This crate is the Rust every such app shares, so
 each app's `src-tauri/src/main.rs` stays a few dozen lines. Its TypeScript
-counterparts are in `@epicenter/folder/tauri`: `appConfig`, `appFolders`,
-`rememberFolder`, `syncWithEpicenter` and `syncedWithEpicenter`.
+counterparts are in `@epicenter/folder/tauri`: `desktopFolder({ contract })`,
+the window's folder and settings in one object, built on `appFolders`,
+`appConfig` (or the app's own `defineAppConfig({ … })`), `rememberFolder`,
+`syncWithEpicenter` and `syncedWithEpicenter`. The page's UI for them is in
+`@epicenter/svelte`: `choose-folder` (the first-run question), and
+`folder-sync` with `folder-sync-actions` (sync state, Sync with Epicenter,
+Choose folder…).
 
 ## Two roots per window
 
@@ -27,20 +32,21 @@ runs, Rust sets `window.__EPICENTER_APP_FOLDERS__`, which the page reads with
 `appFolders()`:
 
 ```ts
-const folders = appFolders(); // { config, folder | null, problem, places }
-const config = openDevice(appConfig, { path: folders.config });
-const device = folders.folder === null ? null : openDevice(contract, { path: folders.folder });
+const folder = desktopFolder({ contract: CONTRACT_URL }); // null outside the window
+// folder.config is settings.md's client; folder.path is null until chosen
+const device = folder?.path ? openDevice(contract, { path: folder.path }) : null;
 ```
 
 ## Choosing the folder
 
-With no folder, the page asks "Where should <App> keep its files?": the
+With no folder, the page asks "Where should <App> keep its files?"
+(`<ChooseFolder app="<App>" {folder} />`): the
 Epicenter folder `~/Epicenter/<App>` (recommended; `~/Epicenter Dev/<App>` for
 a `.dev` build, or under `EPICENTER_FOLDER_DIR`), the app data folder, or
 "Choose folder…". It calls `commands::choose_folder` with `"epicenter"`,
 `"app-data"`, or `"pick"` (a native picker). Rust admits the answer, creates
 the folder or reuses it with its files, and replaces the window with one bound
-to it; that page records the folder with `rememberFolder(config, folder)`.
+to it; that page records the folder in `settings.md` (`folder.remembered`).
 "Choose folder…" later is the same command.
 
 These are refused, each with one line saying why (`Places::refusal`): the top
@@ -85,15 +91,22 @@ The build chooses them, never a runtime check, and the routes stay the same
 example.
 
 1. **Seams.** In the app's `package.json`, map each thing the variants differ
-   in to two leaves, the desktop one under `tauri`:
+   in to two leaves, the desktop one under `tauri`. The one thing every
+   variant differs in is its root, which chooses the store (decision 78):
 
    ```json
    "imports": {
-     "#platform/device": { "tauri": "./src/lib/device.tauri.ts", "default": "./src/lib/device.ts" }
+     "#platform/root": { "tauri": "./src/lib/root.tauri.ts", "default": "./src/lib/root.ts" }
    }
    ```
 
-   Components import `#platform/device`, never a leaf. A shared
+   A leaf is TypeScript, exporting components where the variants render
+   differently (`export const Root: Platform['Root'] = DesktopRoot;`), so
+   neither build carries the other's root. The desktop root renders
+   `ChooseFolder` until there is a folder, then sets the folder's client for
+   the app (the same client type as the web's). Components import
+   `#platform/root`, never a leaf, and leaves import with relative paths
+   (no `$lib`), so the bundle test can resolve them. A shared
    `src/lib/platform.ts` holds the types both leaves annotate against.
 2. **Build.** Merge `desktopVariant()` from `@epicenter/vite-config` into
    `vite.config.ts`, and add `"build:native": "EPICENTER_DESKTOP=1

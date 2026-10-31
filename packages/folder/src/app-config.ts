@@ -16,17 +16,36 @@ import {
 } from '@epicenter/definition/contract';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
-export const appConfig = defineContract({
-	name: 'app-config',
-	description:
-		"A desktop app's machine-local settings, never synced: `folder` is where it keeps the person's files.",
-	collections: {
-		settings: {
-			path: 'settings.md',
-			fields: { folder: { type: 'string' } },
+/**
+ * A desktop app's `settings.md` contract with its own machine settings beside
+ * `folder` (decision 82): whatever belongs to this computer and never to the
+ * person's synced files, such as Vocab's connected endpoints. Every field is
+ * optional; `folder` is always there.
+ *
+ * ```ts
+ * const vocabConfig = defineAppConfig({
+ * 	endpoints: { type: 'array', items: { type: 'object' } },
+ * });
+ * ```
+ */
+export function defineAppConfig<
+	const TFields extends { readonly [field: string]: object } = Record<never, never>,
+>(fields: TFields = {} as TFields) {
+	return defineContract({
+		name: 'app-config',
+		description:
+			"A desktop app's machine-local settings, never synced: `folder` is where it keeps the person's files.",
+		collections: {
+			settings: {
+				path: 'settings.md',
+				fields: { ...fields, folder: { type: 'string' } as const },
+			},
 		},
-	},
-});
+	});
+}
+
+/** The settings every desktop app has: only `folder`. */
+export const appConfig = defineAppConfig();
 
 export type AppConfig = typeof appConfig;
 
@@ -63,7 +82,7 @@ export function appFolders(): AppFolders | null {
  * folder the person chose, so the next launch opens it again.
  */
 export async function rememberFolder(
-	config: Client<AppConfig>,
+	config: Pick<Client<AppConfig>, 'settings'>,
 	folder: string,
 ): Promise<Result<undefined, ClientError>> {
 	const read = await config.settings.get({});

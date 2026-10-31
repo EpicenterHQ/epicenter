@@ -63,6 +63,29 @@ const shown = $derived(local.items.toSorted(openFirst)); // the app's order
 
 A page uses one or the other, never both.
 
+### A desktop app's folder
+
+A standalone desktop app (`epicenter-standalone`) keeps the person's files
+in a folder it owns, asked for on first run (decisions 81 and 82). Its root
+renders `ChooseFolder` until there is one, then sets the folder's client for
+the app; its header uses `folderSync`, which rechecks on focus whether
+Epicenter syncs the folder:
+
+```svelte
+<script lang="ts">
+  import ChooseFolder from '@epicenter/svelte/choose-folder';
+  import { folderSync } from '@epicenter/svelte/folder-sync';
+  import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
+
+  const folder = desktopFolder({ contract: CONTRACT_URL }); // @epicenter/folder/tauri
+  const sync = folderSync(folder); // in the header, once there is a folder
+</script>
+
+<ChooseFolder app="Capture" {folder} />
+<FolderSyncActions {sync} /> <!-- Sync with Epicenter until it does -->
+<Button onclick={() => sync.chooseFolder()}>Choose folder…</Button>
+```
+
 ### Leaving while a save is out
 
 Every write through `fromClient` and `fieldEdit` is held for the
