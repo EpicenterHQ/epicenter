@@ -14,7 +14,6 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createMemorySecrets, type SecretStore } from '@epicenter/ai/send';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import {
 	authorizeResourceRequest,
@@ -47,6 +46,7 @@ import {
 	resolveDeployment,
 	type StoredGrant,
 } from './auth.ts';
+import { createMemorySecrets, type SecretStore } from './secrets.ts';
 
 const origin = 'http://127.0.0.1:47913';
 const secret = 'cli-auth-postgres-secret-0123456789abc';

@@ -1,6 +1,5 @@
 /** Beeper's device connection. No message history or token is written to a folder. */
 import BeeperDesktop from '@beeper/desktop-api';
-import type { SecretStore } from '@epicenter/ai/send';
 import { Check } from 'typebox/value';
 import {
 	type BeeperAnswer,
@@ -8,7 +7,7 @@ import {
 	beeperRequest,
 } from './messages-protocol.js';
 import { writeJson } from './output.js';
-import { keychain } from './secrets.js';
+import { keychain, type SecretStore } from './secrets.js';
 
 export function createBeeperConnection(
 	secrets: SecretStore,

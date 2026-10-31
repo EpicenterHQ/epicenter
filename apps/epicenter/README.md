@@ -355,7 +355,8 @@ The shared origin is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one
 ## AI connections
 
 The shell keeps no AI connections and serves no `/_epicenter/ai` routes, and
-Settings no longer lists or edits them. The `epicenter` CLI keeps
+Settings no longer lists or edits them. The `epicenter` CLI's `auth key` and
+`send`, which kept
 [ADR-0557](../../docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)'s
-keychain half: `epicenter auth key` saves an endpoint and key under a
-connection id, and `epicenter send` sends a request with it.
+keychain half, are deleted too: each standalone app keeps its own
+connections.

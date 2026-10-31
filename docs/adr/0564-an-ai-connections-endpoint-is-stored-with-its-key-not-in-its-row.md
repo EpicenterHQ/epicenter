@@ -45,7 +45,7 @@ Keychain service so.epicenter.connections         this machine only; read and wr
 
 The row is `connectionsTable` in `b66ad7fbdf:packages/ai/src/connection-table.ts`. The
 entry is written by `saveKey` and read by `readKeyEntry` in
-`packages/ai/src/send.ts`, which stores the endpoint as `canonicalEndpoint`
+`4f5d445ba0:packages/ai/src/send.ts`, which stores the endpoint as `canonicalEndpoint`
 spells it: an `http` or `https` URL with a lowercase host, no default port, no
 trailing slash, and no user name, password, query, or fragment.
 `packages/cli/src/secrets.ts` binds the entry to `Bun.secrets` under
@@ -100,7 +100,7 @@ endpoint and key together on each machine, in one form with two fields.
 - `keychain()` in `packages/cli/src/secrets.ts` returns an in-memory store when
   `EPICENTER_TEST_SECRETS` is set, seeded from its JSON
   (`{ "<id>": { "endpoint", "key" } }`), and the system keychain is not
-  touched. `packages/cli/src/ai-commands.test.ts` and the tests in
+  touched. `4f5d445ba0:packages/cli/src/ai-commands.test.ts` and the tests in
   `apps/epicenter/src-tauri/src/cli.rs` use it. A release binary honors the
   variable too, so any process that sets it for `epicenter` chooses the
   entries `send` reads.

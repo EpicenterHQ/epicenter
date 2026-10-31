@@ -1,13 +1,8 @@
 import { expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createMemorySecrets } from '@epicenter/ai/send';
-import {
-	accessToken,
-	accountAccess,
-	resolveDeployment,
-	type StoredGrant,
-} from './auth.ts';
+import { accessToken, resolveDeployment, type StoredGrant } from './auth.ts';
+import { createMemorySecrets } from './secrets.ts';
 
 const origin = 'https://api.example.test';
 const deployment = resolveDeployment(origin);
@@ -50,32 +45,4 @@ test('a replaced sign-in cannot lend its cached token to an old Account', async 
 	);
 	expect(result.error?.name).toBe('GrantChanged');
 	expect(networkCalls).toBe(0);
-});
-
-test('the desktop sender refuses a target without a generation', async () => {
-	let reads = 0;
-	const access = accountAccess(
-		{
-			deployment,
-			secrets: {
-				async get() {
-					reads++;
-					return null;
-				},
-				async set() {},
-				async delete() {
-					return false;
-				},
-			},
-			lockDir: join(tmpdir(), 'epicenter-auth-generation-unused'),
-			fetch: async () => {
-				throw new Error('unexpected request');
-			},
-			now: Date.now,
-		},
-		'desktop',
-	);
-	const result = await access('api');
-	expect(result.error?.name).toBe('GrantChanged');
-	expect(reads).toBe(0);
 });

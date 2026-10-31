@@ -1,7 +1,7 @@
 /** Beeper operations use only the injected network and memory secrets; sends never retry. */
 import { expect, test } from 'bun:test';
-import { createMemorySecrets } from '@epicenter/ai/send';
 import { createBeeperConnection } from './messages.js';
+import { createMemorySecrets } from './secrets.ts';
 
 test('connection tokens stay in secrets and sends are attempted once after an ambiguous failure', async () => {
 	const secrets = createMemorySecrets();

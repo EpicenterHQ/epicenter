@@ -26,7 +26,6 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createMemorySecrets } from '@epicenter/ai/send';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import type { RepositoryListing } from '@epicenter/constants/repositories';
 import {
@@ -53,6 +52,7 @@ import {
 	loginWithDevice,
 	resolveDeployment,
 } from './auth.ts';
+import { createMemorySecrets } from './secrets.ts';
 
 const secret = 'cli-hosted-git-secret-0123456789abcdefgh';
 const bin = resolve(import.meta.dir, 'bin.ts');

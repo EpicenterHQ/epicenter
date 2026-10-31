@@ -141,24 +141,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary: "Git's credential helper for the deployment's Git origin",
 	},
 	{
-		path: ['auth', 'key'],
-		args: 'set | remove | state <id>',
-		minArgs: 2,
-		maxArgs: 2,
-		summary:
-			"an AI connection's endpoint and key in this computer's keychain; set reads them on stdin",
-	},
-	{
-		path: ['send'],
-		args: '',
-		minArgs: 0,
-		maxArgs: 0,
-		summary:
-			'send one request over an AI connection for the desktop app, request on stdin',
-		long: true,
-		hidden: true,
-	},
-	{
 		path: ['install-command'],
 		args: '',
 		minArgs: 0,

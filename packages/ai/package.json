@@ -10,7 +10,6 @@
 		"./connections": "./src/ai-connections.ts",
 		"./picker": "./src/picker/index.ts",
 		"./selections": "./src/selections.ts",
-		"./send": "./src/send.ts",
 		"./target": "./src/target.ts"
 	},
 	"dependencies": {

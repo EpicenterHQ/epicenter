@@ -30,11 +30,6 @@
  */
 
 import { join } from 'node:path';
-import type {
-	AccountAccess,
-	EpicenterAccess,
-	SecretStore,
-} from '@epicenter/ai/send';
 import {
 	EPICENTER_API_URL,
 	resolveOAuthAudiences,
@@ -43,7 +38,11 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { resolveAppPaths } from './app-paths.ts';
 import { holdingFileLock } from './file-lock.ts';
-import { AUTH_KEYCHAIN_SERVICE, keychain } from './secrets.ts';
+import {
+	AUTH_KEYCHAIN_SERVICE,
+	keychain,
+	type SecretStore,
+} from './secrets.ts';
 import { finishBeforeExit } from './stop.ts';
 
 /** Which of the CLI's two sign-ins a command uses. */
@@ -476,54 +475,6 @@ export async function accessToken(
 					reason: 'the refresh answered no access token',
 				});
 	});
-}
-
-/**
- * What an Epicenter connection's `send` sends with: the deployment's `/v1`
- * and an API access token from `grant`, or why there is none.
- */
-export function epicenterAccess(
-	ctx: AuthContext,
-	grant: GrantKind,
-): EpicenterAccess {
-	return async () => {
-		const { data, error } = await accessToken(
-			ctx,
-			grant,
-			ctx.deployment.audiences.api,
-		);
-		return error === null
-			? Ok({ endpoint: `${ctx.deployment.origin}/v1`, key: data.token })
-			: Err(error.message);
-	};
-}
-
-/**
- * What an account request's `send` sends with: the deployment's origin and
- * an access token from `grant` for the resource the request names, or why
- * there is none. The resource is one of the deployment's by role, never an
- * audience the request spells out (ADR-0549).
- */
-export function accountAccess(
-	ctx: AuthContext,
-	grant: GrantKind,
-): AccountAccess {
-	return async (audience, generation) => {
-		if (grant === 'desktop' && generation === undefined)
-			return Err({
-				name: 'GrantChanged',
-				message: 'A desktop account request must name its sign-in generation.',
-			});
-		const { data, error } = await accessToken(
-			ctx,
-			grant,
-			ctx.deployment.audiences[audience],
-			generation,
-		);
-		return error === null
-			? Ok({ endpoint: ctx.deployment.origin, key: data.token })
-			: Err({ name: error.name, message: error.message });
-	};
 }
 
 // ---------------------------------------------------------------------------

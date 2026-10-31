@@ -73,7 +73,7 @@ test('a command line the grammar refuses exits 2 and says why', async () => {
 	);
 });
 
-test('--help lists every command but send and install-command, and --json describes them', async () => {
+test('--help lists every command but the hidden ones, and --json describes them', async () => {
 	const { run } = await setup();
 	const help = run('--help');
 	expect(help.exitCode).toBe(0);
@@ -82,7 +82,6 @@ test('--help lists every command but send and install-command, and --json descri
 		'epicenter auth git-credential get | store | erase',
 	])
 		expect(help.stdout).toContain(usage);
-	expect(help.stdout).not.toContain('epicenter send');
 	expect(help.stdout).not.toContain('install-command');
 	expect(help.stdout).not.toContain('--desktop');
 	const described = JSON.parse(run('--help', '--json').stdout).commands;
@@ -102,9 +101,7 @@ test('--help lists every command but send and install-command, and --json descri
 		'auth status',
 		'auth token',
 		'auth git-credential',
-		'auth key',
 	]);
-	expect(help.stdout).toContain('epicenter auth key set | remove | state <id>');
 	expect(
 		described.find((c: { command: string }) => c.command === 'sync').output,
 	).toBe('ndjson');

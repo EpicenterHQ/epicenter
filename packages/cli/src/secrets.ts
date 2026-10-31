@@ -1,23 +1,51 @@
 /**
  * This computer's keychain, as the `epicenter` CLI reaches it (ADR-0556):
- * `Bun.secrets`, one entry per AI connection named by its id under
- * {@link KEYCHAIN_SERVICE} (ADR-0557), and one entry per sign-in under
- * {@link AUTH_KEYCHAIN_SERVICE} (ADR-0558). The CLI is the only program that
- * reads or writes these entries; the desktop shell and its pages ask it
- * through fixed commands.
+ * `Bun.secrets`, one entry per sign-in under {@link AUTH_KEYCHAIN_SERVICE}
+ * (ADR-0558), and Messages' Beeper token under its own service. The CLI is
+ * the only program that reads or writes these entries; the desktop shell asks
+ * it through fixed commands.
  *
  * `EPICENTER_TEST_SECRETS` replaces the keychain with stores held in memory
- * for one process, the AI connections' seeded from its JSON (`{ "<id>": {
- * "endpoint", "key" } }`) and the sign-ins' seeded from its `$auth` member
- * (`{ "$auth": { "<entry name>": <stored grant> } }`, empty by default), so
- * tests and a compiled binary's smoke run never touch the real keychain.
- * Nothing in them is ever written anywhere.
+ * for one process, the sign-ins' seeded from its `$auth` member
+ * (`{ "$auth": { "<entry name>": <stored grant> } }`, empty by default) and
+ * every other service's empty, so tests and a compiled binary's smoke run
+ * never touch the real keychain. Nothing in them is ever written anywhere.
  */
 
-import { createMemorySecrets, type SecretStore } from '@epicenter/ai/send';
+/**
+ * Where keychain entries are kept, by entry name. The CLI binds
+ * `Bun.secrets` per service; tests bind {@link createMemorySecrets}. A
+ * method may throw.
+ */
+export type SecretStore = {
+	get(name: string): Promise<string | null>;
+	set(name: string, value: string): Promise<void>;
+	delete(name: string): Promise<boolean>;
+};
 
-/** The keychain service every AI connection's entry is filed under. */
-export const KEYCHAIN_SERVICE = 'so.epicenter.connections';
+/** A store that forgets everything with its process, seeded with `entries`, each kept as its JSON. */
+export function createMemorySecrets(
+	entries: Readonly<Record<string, unknown>> = {},
+): SecretStore {
+	const values = new Map(
+		Object.entries(entries).map(([name, entry]) => [
+			name,
+			JSON.stringify(entry),
+		]),
+	);
+	return {
+		async get(name) {
+			return values.get(name) ?? null;
+		},
+		async set(name, value) {
+			values.set(name, value);
+		},
+		async delete(name) {
+			return values.delete(name);
+		},
+	};
+}
+
 /** The keychain service each grant's refresh token and cached access tokens are filed under. */
 export const AUTH_KEYCHAIN_SERVICE = 'so.epicenter.auth';
 
@@ -42,15 +70,15 @@ const testStores = new Map<string, SecretStore>();
  * The store this run uses for `service`: the keychain, or the test store
  * `EPICENTER_TEST_SECRETS` stands up.
  */
-export function keychain(service: string = KEYCHAIN_SERVICE): SecretStore {
+export function keychain(service: string): SecretStore {
 	const seed = process.env.EPICENTER_TEST_SECRETS;
 	if (seed !== undefined) {
 		let store = testStores.get(service);
 		if (store === undefined) {
 			try {
-				const { $auth, ...connections } = JSON.parse(seed);
+				const { $auth } = JSON.parse(seed);
 				store = createMemorySecrets(
-					service === KEYCHAIN_SERVICE ? connections : ($auth ?? {}),
+					service === AUTH_KEYCHAIN_SERVICE ? ($auth ?? {}) : {},
 				);
 			} catch {
 				return unavailable('EPICENTER_TEST_SECRETS is not JSON');

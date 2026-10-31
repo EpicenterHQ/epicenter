@@ -23,7 +23,7 @@ On the desktop, an AI connection was a row whose key stays in the keychain
 ([ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md),
 [ADR-0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md)),
 reached through the CLI's `auth key` and `send`
-(`packages/cli/src/ai-commands.ts`), and the host managed local models
+(`4f5d445ba0:packages/cli/src/ai-commands.ts`), and the host managed local models
 ([ADR-0579](0579-epicenter-never-deletes-a-model-from-the-shared-hugging-face-cache.md),
 [ADR-0580](0580-a-local-model-is-pinned-by-commit-and-content-hash-under-a-frozen-id.md)).
 
@@ -51,7 +51,7 @@ connection or a key.
 **The CLI keeps its bring-your-own-key commands and drops its hosted
 path.** They are a client feature like any app's connection: the CLI talks
 to a provider the person chose, and Epicenter hosts no AI.
-`packages/cli/src/ai-commands.ts` keeps
+`4f5d445ba0:packages/cli/src/ai-commands.ts` keeps
 `epicenter auth key set|remove|state <id>`, which keeps an endpoint and its
 key in this machine's keychain, and `epicenter send`, which sends one
 request to that endpoint with that key. Deleted: the `epicenter` connection

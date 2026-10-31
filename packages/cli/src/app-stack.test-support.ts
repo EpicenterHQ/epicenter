@@ -40,7 +40,6 @@ import { join, resolve } from 'node:path';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { createMemorySecrets } from '../../ai/src/send.ts';
 import { startDisposablePostgres } from '../../server/src/test-helpers/disposable-postgres.ts';
 import { OAuthTestClient } from '../../server/src/test-helpers/oauth-client.ts';
 import {
@@ -50,6 +49,7 @@ import {
 	loginWithDevice,
 	resolveDeployment,
 } from './auth.ts';
+import { createMemorySecrets } from './secrets.ts';
 
 /** What the tests read from the state file. */
 export type Stack = {

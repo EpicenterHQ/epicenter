@@ -20,7 +20,7 @@ connection live in this machine's keychain, in one entry per connection id
 under the service `so.epicenter.connections` (ADR-0564;
 `KEYCHAIN_SERVICE`, `packages/cli/src/secrets.ts:20`). `epicenter auth key
 set <id>` reads `{"endpoint", "key"}` on stdin
-(`packages/cli/src/ai-commands.ts`).
+(`4f5d445ba0:packages/cli/src/ai-commands.ts`).
 
 The row syncs and the entry does not, so on another machine an
 `openai-compatible` row is unusable until its endpoint and key are entered
@@ -63,7 +63,7 @@ keychain so.epicenter.connections <id> -> { "endpoint", "key" }   today's entry,
 - The endpoint stays with the key, so editing `connections.json` cannot
   send a key to a new server: `send` sends an `openai-compatible` request
   only while the keychain entry still holds the endpoint it was prepared
-  for, and always to the entry's own (`packages/ai/src/send.ts:106-112`).
+  for, and always to the entry's own (`4f5d445ba0:packages/ai/src/send.ts:106-112`).
 - `auth key set <id>` writes the file's entry first, then the key.
   `auth key remove <id>` deletes the key first, then the entry. A crash
   between the two leaves an entry with no key, never a key with no entry.

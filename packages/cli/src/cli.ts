@@ -74,30 +74,6 @@ const HANDLERS: Record<string, Run> = {
 			json,
 			grant,
 		),
-	'auth key': async ({ positionals: [action, connection], json }) => {
-		const [{ authKey }, { keychain }] = await Promise.all([
-			import('./ai-commands.ts'),
-			import('./secrets.ts'),
-		]);
-		return authKey(action as string, connection as string, json, keychain());
-	},
-	send: async ({ grant }) => {
-		const [
-			{ send },
-			{ keychain },
-			{ accountAccess, authContext, epicenterAccess },
-		] = await Promise.all([
-			import('./ai-commands.ts'),
-			import('./secrets.ts'),
-			import('./auth.ts'),
-		]);
-		const ctx = authContext();
-		return send(
-			keychain(),
-			epicenterAccess(ctx, grant),
-			accountAccess(ctx, grant),
-		);
-	},
 	'auth login': async ({ json, grant }) =>
 		(await import('./auth-commands.ts')).authLogin(json, grant),
 	'auth logout': async ({ json, grant }) =>
@@ -131,12 +107,6 @@ block YAML, the body untouched. A note whose front matter does not parse is
 left as it is and named. Each note is replaced only while it still holds the
 bytes read. Exits 0 when every note is in house style, 1 when one was left as
 it is, and 2 when the contract or the folder cannot be used.`,
-	'auth key': `Keeps an AI connection's endpoint and key in this computer's keychain,
-under the connection's id (ADR-0557). set reads {"endpoint": "<url>", "key": "<key>"} as JSON on
-stdin, never from the command line; an empty or missing key saves a keyless
-endpoint. state prints the endpoint and whether a key is saved, never the
-key. remove deletes the entry. Exits 0, or 2 when the id, the input, or the
-keychain cannot be used.`,
 	'auth login': `Signs this computer in with a device code: open the link it prints, check
 the code, and choose which folders it may reach. The sign-in is kept in this
 computer's keychain, and Git's global configuration gets this command as its

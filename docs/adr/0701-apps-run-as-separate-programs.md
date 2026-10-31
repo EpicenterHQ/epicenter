@@ -231,7 +231,7 @@ At `archive/app-hosting` (`728e820cc0`), in `apps/epicenter`:
   `messages` command over the Beeper Desktop API). Clients:
   `apps/whispering/src/lib/platform/desktop/`,
   `desktop-account-auth.ts` in `@epicenter/auth`, `sendThroughShell` in
-  `packages/ai/src/send.ts`, and `runtime-transcriber.ts` in `@epicenter/ai`.
+  `728e820cc0:packages/ai/src/send.ts`, and `runtime-transcriber.ts` in `@epicenter/ai`.
 
 ### Commits that built it
 
