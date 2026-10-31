@@ -896,3 +896,4 @@ When you add an ADR, add its row here.
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Proposed (renumbered from 0689) |
 | [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Proposed (would supersede 0545, 0622, 0623, and 0628; amends 23 records; grants, secrets, the Tauri opener, notify, the deep link, and Whispering unbuilt) |
+| [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Proposed (would supersede 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0652, 0674, 0678, and 0683; archive tag `archive/app-hosting`) |
