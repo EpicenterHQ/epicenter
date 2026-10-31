@@ -9,7 +9,7 @@
  * <git>/<ns>/<name>.git/git-upload-pack            POST  folders:read, read
  * <git>/<ns>/<name>.git/git-receive-pack           POST  folders:write, push (rewrite: owner); the receiver, receive.ts
  * <git>/<ns>/<name>.git/info/lfs/…                 Git LFS, lfs.ts
- * <git>/<ns>/<name>.git/epicenter/{files,file,writes}   the write translator, files.ts
+ * <git>/<ns>/<name>.git/epicenter/{head,files,file,writes}   the write translator, files.ts
  * <api>/api/repos                                  GET   folders:read on the Git audience: the caller's repositories by namespace
  * <api>/api/repos/<ns|~>/<name>/grants             GET   folders:read, manage: the repository's grants
  * <api>/api/repos/<ns|~>/<name>/grants/<person>    PUT { level } grants, DELETE revokes; folders:write, manage
@@ -114,6 +114,7 @@ import {
 	listRepositoryFiles,
 	MAX_WRITE_BYTES,
 	readRepositoryFile,
+	readRepositoryHead,
 	readWriteRequest,
 } from './files.js';
 import {
@@ -308,6 +309,7 @@ export type GitEndpoint =
 	| { kind: 'lfs-object'; oid: string; upload: boolean }
 	| { kind: 'lfs-verify' }
 	| { kind: 'lfs-locks' }
+	| { kind: 'head' }
 	| { kind: 'files' }
 	| { kind: 'file' }
 	| { kind: 'writes' };
@@ -354,6 +356,7 @@ function readEndpoint(
 		return method === 'PUT' || method === 'GET'
 			? { kind: 'lfs-object', oid: object, upload: method === 'PUT' }
 			: undefined;
+	if (rest === 'epicenter/head' && method === 'GET') return { kind: 'head' };
 	if (rest === 'epicenter/files' && method === 'GET') return { kind: 'files' };
 	if (rest === 'epicenter/file' && method === 'GET') return { kind: 'file' };
 	if (rest === 'epicenter/writes' && method === 'POST')
@@ -610,6 +613,7 @@ export function mountGitHost(
 						? receiveAdvertisement(null)
 						: emptyAdvertisement();
 				}
+				if (endpoint.kind === 'head') return c.json({ commit: null });
 				if (endpoint.kind === 'files')
 					return c.json({ commit: null, files: [] });
 				if (endpoint.kind === 'lfs-batch' && lfs && batch)
@@ -765,6 +769,8 @@ export function mountGitHost(
 						limits,
 					});
 				}
+				case 'head':
+					return await readRepositoryHead(objects);
 				case 'files':
 					return await listRepositoryFiles(objects, c.req.query('root'));
 				case 'file':

@@ -24,6 +24,7 @@ import {
 	listRepositoryFiles,
 	type Receipt,
 	readRepositoryFile,
+	readRepositoryHead,
 	readWriteRequest,
 	type WriteRequest,
 } from './files.js';
@@ -548,6 +549,24 @@ describe('POST writes', () => {
 		expect(relanded.body.outcomes[0]?.outcome).toBe('written');
 		expect(await repo.main()).toBe(relanded.body.commit);
 		expect(await repo.show('c/r.md')).toBe('kept\n');
+	});
+});
+
+describe('GET head', () => {
+	test('answers the commit main is at, null before the first write, moving with each write', async () => {
+		const repo = await repository();
+		const head = async () =>
+			(await (await readRepositoryHead(repo.objects)).json()) as {
+				commit: string | null;
+			};
+		expect(await head()).toEqual({ commit: null });
+		const first = await repo.write({ files: [{ path: 'a.md', text: 'a\n' }] });
+		const { commit } = await head();
+		expect(commit).toBe(first.body.commit);
+		expect(commit).toBe(await repo.main());
+		await repo.write({ files: [{ path: 'b.md', text: 'b\n' }] });
+		expect((await head()).commit).toBe(await repo.main());
+		expect((await head()).commit).not.toBe(commit);
 	});
 });
 

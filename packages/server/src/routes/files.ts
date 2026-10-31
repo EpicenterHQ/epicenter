@@ -3,6 +3,7 @@
  * a repository's files through these, and never holds a copy of it.
  *
  * ```txt
+ * GET  <git>/<ns>/<name>.git/epicenter/head              folders:read   the commit main is at
  * GET  <git>/<ns>/<name>.git/epicenter/files?root=<dir>   folders:read   every file under <dir>
  * GET  <git>/<ns>/<name>.git/epicenter/file?path=<path>   folders:read   one file
  * POST <git>/<ns>/<name>.git/epicenter/writes             folders:write  one commit
@@ -461,6 +462,16 @@ export async function applyWrite({
 		await sleep(10 + Math.random() * 40 * attempt);
 	}
 	return json({ error: 'busy', message: 'main kept moving; try again' }, 503);
+}
+
+/**
+ * The commit `main` is at (`{ commit }`, null before the first write): one
+ * ref read, cheap enough for a client to poll to learn that `main` moved.
+ */
+export async function readRepositoryHead(
+	objects: GitObjects,
+): Promise<Response> {
+	return json({ commit: (await objects.refs()).get(MAIN) ?? null });
 }
 
 /** Every file under `root`, with each pointer's LFS object. */
