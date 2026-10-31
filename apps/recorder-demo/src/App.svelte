@@ -1,12 +1,19 @@
+<!--
+	The recorder's two views (decision 76), each over its own files: "On
+	this device", always there (decision 10), and "Synced", the repository,
+	under the signed-in boundary (`SignedIn`), which also runs the uploader
+	that moves this device's recordings into it. They are not merged; a
+	recording that uploads leaves the one and appears in the other.
+-->
 <script lang="ts">
 	import { guardLeave } from '@epicenter/svelte/leave-guard';
 	import { onMount } from 'svelte';
-	import Library from './Library.svelte';
+	import DeviceView from './DeviceView.svelte';
 	import SignedIn from './SignedIn.svelte';
+	import SyncedView from './SyncedView.svelte';
 	import { auth } from './lib/auth.ts';
 
-	// The device (`lib/device.ts`) is there whether or not anyone is signed
-	// in (decision 10). Leaving while a save is out asks first; a desktop window waits for it.
+	// Leaving while a save is out asks first.
 	onMount(guardLeave);
 </script>
 
@@ -24,11 +31,22 @@
 		{/if}
 	</header>
 
-	{#if auth.state.status !== 'signed-out'}
-		{#key auth.state.account}
-			<SignedIn account={auth.state.account}><Library signedIn /></SignedIn>
-		{/key}
-	{:else}
-		<Library signedIn={false} />
-	{/if}
+	<section aria-labelledby="device-heading">
+		<h2 id="device-heading">On this device</h2>
+		<DeviceView />
+	</section>
+
+	<section aria-labelledby="synced-heading">
+		<h2 id="synced-heading">Synced</h2>
+		{#if auth.state.status === 'signed-out'}
+			<p class="meta">
+				Sign in to see the recordings in your Epicenter repository. The ones
+				on this device upload then.
+			</p>
+		{:else}
+			{#key auth.state.account}
+				<SignedIn account={auth.state.account}><SyncedView /></SignedIn>
+			{/key}
+		{/if}
+	</section>
 </main>

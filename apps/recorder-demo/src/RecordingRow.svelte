@@ -1,21 +1,30 @@
+<!--
+	One recording in a view, read and edited through that view's client:
+	its title to rename, its audio to play, and Delete.
+-->
 <script lang="ts">
+	import type { Client } from '@epicenter/definition/contract';
 	import { cacheOf } from '@epicenter/folder/browser';
 	import { fromClient } from '@epicenter/svelte/client';
-	import { getRepo } from '@epicenter/svelte/repo';
 	import { onDestroy } from 'svelte';
 	import { Ok } from 'wellcrafted/result';
 	import type { Recorder } from './contract.ts';
 	import { device } from './lib/device.ts';
 	import type { RecordingRow } from './lib/recordings.ts';
 
-	const { row }: { row: RecordingRow } = $props();
+	const {
+		row,
+		client,
+		cached,
+	}: {
+		row: RecordingRow;
+		/** The view's client, which this row reads and writes; fixed for the row's life. */
+		client: Client<Recorder>;
+		/** Whether this device's cache may hold the audio, at the version `row` shows. */
+		cached: boolean;
+	} = $props();
 
-	// A repository or cache row exists only while signed in, under the
-	// signed-in boundary. A row keeps its id and side for its life: rows are
-	// keyed by both, so an upload replaces the device row with a new
-	// repository one.
 	// svelte-ignore state_referenced_locally
-	const client = row.where === 'device' ? device : getRepo<Recorder>();
 	const files = fromClient(client);
 
 	type Note = NonNullable<RecordingRow['note']>;
@@ -32,15 +41,14 @@
 		if (audioUrl) URL.revokeObjectURL(audioUrl);
 	});
 
-	/** The audio's bytes: from the device's cache when it holds them, else from where the row lives. */
+	/** The audio's bytes: from this device's cache when it holds this version, else from the client. */
 	async function audioBytes(ext: string) {
-		if (row.cached) {
-			// Online, only the repository's version answers; offline, the cache is all there is.
-			const cached = await cacheOf(device).read(
+		if (cached && row.audioVersion !== null) {
+			const hit = await cacheOf(device).read(
 				{ collection: 'audio', id: row.id, ext },
-				row.audioVersion ? { version: row.audioVersion } : {},
+				{ version: row.audioVersion },
 			);
-			if (cached.data) return Ok(cached.data);
+			if (hit.data) return Ok(hit.data);
 		}
 		return client.audio.get({ id: row.id, ext });
 	}
@@ -88,11 +96,31 @@
 		status = 'Saved';
 	}
 
+	/** Delete the note, then the audio; a failure says why and leaves the rest to delete again. */
+	async function remove() {
+		status = 'Deleting…';
+		if (row.note) {
+			const deleted = await files.recordings.delete({ id: row.id });
+			if (deleted.error !== null) {
+				status = deleted.error.message;
+				return;
+			}
+		}
+		if (row.ext !== null) {
+			const deleted = await files.audio.delete({ id: row.id, ext: row.ext });
+			if (deleted.error !== null) {
+				status = deleted.error.message;
+				return;
+			}
+		}
+		status = null;
+	}
+
 	const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 </script>
 
-<li data-id={row.id} data-where={row.where}>
-	{#if row.where === 'repository' && row.note}
+<li data-id={row.id}>
+	{#if row.note}
 		<form class="row" onsubmit={save}>
 			<input
 				aria-label="Title"
@@ -106,19 +134,9 @@
 			<button type="submit">Save title</button>
 		</form>
 	{:else}
-		<div class="row">
-			<strong data-testid="title">
-				{row.note?.title ??
-					(row.where === 'cache' ? 'Cached recording' : 'Untitled recording')}
-			</strong>
-		</div>
+		<div class="row"><strong>Untitled recording</strong></div>
 	{/if}
 	<div class="row meta">
-		{#if row.where === 'device'}
-			<span class="pending">not uploaded yet</span>
-		{:else if row.cached}
-			<span class="cached">cached</span>
-		{/if}
 		{#if row.note}
 			<span>{new Date(row.note.recordedAt).toLocaleString()}</span>
 			<span data-testid="duration">{seconds(row.note.durationMs)}</span>
@@ -126,6 +144,7 @@
 		{#if row.ext}
 			<button onclick={play}>Play</button>
 		{/if}
+		<button onclick={remove}>Delete</button>
 		{#if status}
 			<span data-testid="status">{status}</span>
 		{/if}

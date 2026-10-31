@@ -17,6 +17,13 @@ header h1 {
 	font-size: 1.25rem;
 	margin: 0;
 }
+section {
+	margin-top: 1.5rem;
+}
+section h2 {
+	font-size: 1rem;
+	margin: 0 0 0.5rem;
+}
 ul {
 	list-style: none;
 	padding: 0;
@@ -38,16 +45,6 @@ li {
 .meta {
 	font-size: 0.85rem;
 	opacity: 0.7;
-}
-.pending,
-.cached {
-	font-size: 0.75rem;
-	padding: 0.1rem 0.4rem;
-	border-radius: 0.25rem;
-	background: color-mix(in srgb, orange 25%, transparent);
-}
-.cached {
-	background: color-mix(in srgb, steelblue 20%, transparent);
 }
 .problem {
 	color: crimson;
