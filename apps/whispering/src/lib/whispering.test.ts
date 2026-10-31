@@ -178,10 +178,15 @@ test('signed in, audio is read from this device’s cache before the repository 
 		bytes,
 	);
 
-	// The cache is read again after each listing of the audio, so its mark follows.
+	// The cache is read again after each listing of the audio, so its mark
+	// follows. The note lists on its own, in its own time.
 	await eventually(() => {
 		const audio = whispering.audioOf(id);
-		return audio.kind === 'here' && audio.file.cached;
+		return (
+			audio.kind === 'here' &&
+			audio.file.cached &&
+			whispering.entries.some((entry) => entry.id === id)
+		);
 	});
 	expect(whispering.audioOf(id)).toMatchObject({
 		kind: 'here',
