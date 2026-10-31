@@ -109,7 +109,11 @@ export async function sync(stack: Stack, person: Person, folder: string) {
 	}
 }
 
-/** Every file in the page origin's OPFS but the device's staging area, by path, as sha256. */
+/**
+ * Every file in the page origin's OPFS but the device's staging area, by
+ * path, as sha256. A file the page moves or removes during the walk is not
+ * listed.
+ */
 export function opfsFiles(page: Page): Promise<Record<string, string>> {
 	return page.evaluate(async () => {
 		type Directory = {
@@ -118,21 +122,37 @@ export function opfsFiles(page: Page): Promise<Record<string, string>> {
 			>;
 		};
 		const files: Record<string, string> = {};
+		/**
+		 * Whether `cause` says an entry went while it was being read: the
+		 * page's own writes move and remove files. WebKit names a file
+		 * removed during its read `NotReadableError`.
+		 */
+		const went = (cause: unknown) =>
+			cause instanceof DOMException &&
+			(cause.name === 'NotFoundError' || cause.name === 'NotReadableError');
 		async function walk(directory: Directory, prefix: string) {
-			for await (const [name, handle] of directory.entries()) {
-				const path = `${prefix}${name}`;
-				if (handle.kind === 'directory') {
-					await walk(handle as unknown as Directory, `${path}/`);
-					continue;
+			try {
+				for await (const [name, handle] of directory.entries()) {
+					const path = `${prefix}${name}`;
+					if (handle.kind === 'directory') {
+						await walk(handle as unknown as Directory, `${path}/`);
+						continue;
+					}
+					try {
+						const file = await (handle as FileSystemFileHandle).getFile();
+						const digest = await crypto.subtle.digest(
+							'SHA-256',
+							await file.arrayBuffer(),
+						);
+						files[path] = [...new Uint8Array(digest)]
+							.map((byte) => byte.toString(16).padStart(2, '0'))
+							.join('');
+					} catch (cause) {
+						if (!went(cause)) throw cause;
+					}
 				}
-				const file = await (handle as FileSystemFileHandle).getFile();
-				const digest = await crypto.subtle.digest(
-					'SHA-256',
-					await file.arrayBuffer(),
-				);
-				files[path] = [...new Uint8Array(digest)]
-					.map((byte) => byte.toString(16).padStart(2, '0'))
-					.join('');
+			} catch (cause) {
+				if (!went(cause)) throw cause;
 			}
 		}
 		await walk(
