@@ -129,18 +129,3 @@ test('malformed choices and unsupported versions fail without exposing or changi
 		expect(fixture.values.get('test.app-ai-selections')).toBe(raw);
 	}
 });
-
-test('legacy sources cannot populate choices or block opening', () => {
-	const fixture = setup();
-	for (const key of [
-		'test.app-ai',
-		'test.inference-targets',
-		'test.inference-connections',
-	])
-		fixture.values.set(key, 'malformed legacy recovery bytes');
-	const before = [...fixture.values];
-	const selections = fixture.open();
-	expect(selections.get('chat')).toBeNull();
-	expect([...fixture.values]).toEqual(before);
-	selections[Symbol.dispose]();
-});

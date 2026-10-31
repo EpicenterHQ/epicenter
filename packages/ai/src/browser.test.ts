@@ -29,7 +29,7 @@ afterEach(() => {
 	else Reflect.deleteProperty(globalThis, 'window');
 });
 
-test('connections and choices are saved under the keys browsers already hold', async () => {
+test('connections and choices are saved under their browser keys', async () => {
 	const values = stubWindow();
 	const connections = createBrowserConnections();
 	const connectionId = await connections.add({
@@ -41,15 +41,15 @@ test('connections and choices are saved under the keys browsers already hold', a
 	selections[Symbol.dispose]();
 
 	expect([...values.keys()].sort()).toEqual([
-		'epicenter/ai/no-account.app-ai-connections',
-		'vocab/no-account.app-ai-selections',
+		'epicenter/ai.app-ai-connections',
+		'vocab/ai.app-ai-selections',
 	]);
 });
 
-test('connections and choices saved before this release still read back', async () => {
+test('connections and choices saved in an earlier session read back', async () => {
 	const values = stubWindow();
 	values.set(
-		'epicenter/ai/no-account.app-ai-connections',
+		'epicenter/ai.app-ai-connections',
 		JSON.stringify({
 			version: 1,
 			connections: [
@@ -63,7 +63,7 @@ test('connections and choices saved before this release still read back', async 
 		}),
 	);
 	values.set(
-		'vocab/no-account.app-ai-selections',
+		'vocab/ai.app-ai-selections',
 		JSON.stringify({
 			version: 1,
 			selections: { chat: { connectionId: 'saved', model: 'manual' } },

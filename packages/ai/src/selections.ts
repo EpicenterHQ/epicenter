@@ -118,11 +118,7 @@ export function createInferenceSelections({
 export type InferenceSelections = ReturnType<typeof createInferenceSelections>;
 
 export function createBrowserInferenceSelections(appId: string) {
-	/**
-	 * `no-account` is left from when keys were split by account; browsers
-	 * already hold data under it, so the literal stays as written.
-	 */
-	const storageKey = `${appId}/no-account`;
+	const storageKey = `${appId}/ai`;
 	return createInferenceSelections({
 		storage: window.localStorage,
 		storageKey,

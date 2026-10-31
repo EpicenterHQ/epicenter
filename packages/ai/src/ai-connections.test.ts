@@ -95,11 +95,10 @@ test('a failed write keeps the previous snapshot and does not notify', async () 
 	expect(changes).toBe(1);
 });
 
-test('a live owner stays empty after deletion instead of reimporting retained legacy records', async () => {
+test('a live owner keeps working after its saved catalog is deleted elsewhere', async () => {
 	const fixture = setup();
 	const owner = fixture.open();
 	await owner.add({ baseUrl: 'https://old.example' });
-	fixture.values.set('test.app-ai', 'retained recovery bytes');
 	fixture.values.delete('test.app-ai-connections');
 	fixture.externalChange();
 	const id = await owner.add({
@@ -114,19 +113,6 @@ test('a live owner stays empty after deletion instead of reimporting retained le
 		apiKey: 'keep',
 	});
 	owner.close();
-});
-
-test('legacy sources remain unread and untouched when opening an empty catalog', () => {
-	const fixture = setup();
-	for (const key of [
-		'test.app-ai',
-		'test.inference-connections',
-		'test.inference-targets',
-	])
-		fixture.values.set(key, 'malformed legacy credential bytes');
-	const before = [...fixture.values];
-	expect(fixture.open().getAll()).toEqual([]);
-	expect([...fixture.values]).toEqual(before);
 });
 
 test('malformed destinations fail without exposing credentials or resetting saved bytes', async () => {

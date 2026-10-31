@@ -1,11 +1,7 @@
 import { createAiConnections } from './ai-connections.js';
 
-/**
- * This browser's connections live under this key. `no-account` is left from
- * when keys were split by account; browsers already hold data under it, so the
- * literal stays as written.
- */
-const storageKey = 'epicenter/ai/no-account';
+/** This browser's connections live under this key. */
+const storageKey = 'epicenter/ai';
 
 export function createBrowserConnections() {
 	return createAiConnections({
