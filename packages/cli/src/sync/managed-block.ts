@@ -16,7 +16,8 @@ import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 /**
  * Init's block of `.gitignore`: hidden paths stay outside the LFS rule, but
  * operating system clutter (`.DS_Store`) and a folder's unfinished writes
- * (`STATE_DIRECTORY`) are never committed.
+ * (`STATE_DIRECTORY`) are never committed. Sync leaves the unfinished
+ * writes out itself too, whatever `.gitignore` says.
  */
 export const REPOSITORY_IGNORE = `${EPICENTER_BLOCK_BEGIN} (managed by Epicenter; edit outside this block)
 # Operating system clutter and each device's own Epicenter state never travel.

@@ -2,7 +2,7 @@
  * One round of `epicenter sync` for one registered data folder, over the
  * system `git` (decisions 21, 31, 33, 41, 44, 52):
  *
- *   guards -> git add -A -- <folder> -> commit the folder's paths
+ *   guards -> git add -A -- <folder> but its .epicenter -> commit those paths
  *   -> fetch -> checks (rewrite, index lock) -> git lfs fetch
  *   -> merge origin/main -> edit beats delete, binary conflict copies
  *   -> merge commit -> git lfs push -> push
@@ -41,6 +41,7 @@ import {
 	lfsOid,
 	parsePointer,
 } from '@epicenter/definition/merge';
+import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import { resolveAppPaths } from '../app-paths.ts';
 import { holdingFileLock, NothingChanged } from '../file-lock.ts';
 import {
@@ -256,6 +257,19 @@ async function step(
 /** Paths are literal: a file named `*.md` names only itself. */
 const LITERAL = { GIT_LITERAL_PATHSPECS: '1' };
 
+/**
+ * What a round commits: the data folder's own paths (the working directory
+ * every `git` here runs in), never its unfinished writes in
+ * `STATE_DIRECTORY`, whatever the folder's `.gitignore` says. The exclusion
+ * matches that directory at any depth, as init's `.gitignore` line does. It
+ * starts with a wildcard on purpose: `git add` fails on an exclusion that
+ * names an ignored path literally (`:(exclude).epicenter` while `.gitignore`
+ * lists it). It is pathspec magic, so these are never given with `LITERAL`,
+ * and `GIT_LITERAL_PATHSPECS` from the environment is turned off for them.
+ */
+const COMMITTED = ['--', '.', `:(exclude,glob)**/${STATE_DIRECTORY}/**`];
+const MAGIC = { env: { GIT_LITERAL_PATHSPECS: '0' } };
+
 /** The round itself, holding the repository's sync lock. Returns the head it ends at. */
 async function round(
 	folder: string,
@@ -310,11 +324,13 @@ async function round(
 		);
 	await refuseIfLocked(root);
 
-	// Commit what the apps wrote in this folder, through the filters, and nothing else.
+	// Commit what the apps wrote in this folder, through the filters, and
+	// nothing else: never an unfinished write.
 	const who = await identity(root);
-	await step(folder, ['add', '-A', '--', '.'], 'git add');
+	await step(folder, ['add', '-A', ...COMMITTED], 'git add', MAGIC);
 	if (
-		(await git(folder, ['diff', '--cached', '--quiet', '--', '.'])).code !== 0
+		(await git(folder, ['diff', '--cached', '--quiet', ...COMMITTED], MAGIC))
+			.code !== 0
 	) {
 		await step(
 			folder,
@@ -323,11 +339,10 @@ async function round(
 				'-q',
 				'-m',
 				`epicenter sync ${new Date().toISOString()}`,
-				'--',
-				'.',
+				...COMMITTED,
 			],
 			'git commit',
-			{ env: who },
+			{ env: { ...who, ...MAGIC.env } },
 		);
 		notes.push('committed local changes');
 	}

@@ -848,6 +848,41 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
+		"sync never commits .epicenter, even when the folder's .gitignore does not name it",
+		async () => {
+			const F = join(BOX, 'F');
+			write(F, 'notes/a.md', '---\ntitle: A\n---\n');
+			expect((await init(F)).code).toBe(0);
+			// A person's edit takes the line out of Epicenter's block.
+			write(
+				F,
+				'.gitignore',
+				read(F, '.gitignore').replace('.epicenter/\n', ''),
+			);
+			write(F, '.epicenter/saves/staged', 'half a save');
+			write(F, '.epicenter/recordings/notes/b.wav', 'half a recording');
+			write(F, 'notes/b.md', '---\ntitle: B\n---\n');
+			expect(
+				(await git(F, 'check-ignore', '-q', '.epicenter/saves/staged')).code,
+			).toBe(1);
+
+			const synced = await syncJson(F);
+			expect(synced.status.status).toBe('synced');
+			expect(synced.status.notes).toContain('committed local changes');
+			expect(await quiet(F, 'ls-files', '--', '.epicenter')).toBe('');
+			expect(
+				(await quiet(F, 'ls-files', '--', 'notes', '.gitignore')).split('\n'),
+			).toEqual(['.gitignore', 'notes/a.md', 'notes/b.md']);
+			// What sync left out is still there, for the app to finish.
+			expect(read(F, '.epicenter/recordings/notes/b.wav')).toBe(
+				'half a recording',
+			);
+			await cli('forget', F);
+		},
+		LONG,
+	);
+
+	test(
 		'sync --watch commits and pushes what an app saves, until stopped',
 		async () => {
 			const watching = Bun.spawn(
