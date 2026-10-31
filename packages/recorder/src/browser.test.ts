@@ -11,7 +11,8 @@
  * - A store that stops taking pieces ends the recording (`storageFailed`),
  *   keeping what landed
  * - Recovery cuts a file a closed tab left half-written back to its last
- *   whole piece, and leaves a recording another tab is writing alone
+ *   whole piece, answers how long it plays, and leaves a recording another
+ *   tab is writing alone
  * - A recording with no audio that no tab holds is silent
  * - A recording held in the page answers its audio at stop, named by the
  *   type the browser produced: AAC in MP4 (`m4a`), else Opus in WebM (`webm`)
@@ -32,6 +33,7 @@ import {
 	containerOf,
 	createBrowserRecorder,
 } from './browser.js';
+import { audioDurationMs } from './container.js';
 
 /** What every microphone request turns off: Safari's voice processing. */
 const UNPROCESSED = {
@@ -407,7 +409,7 @@ test('a recording that captured nothing writes nothing and is Empty', async () =
 	expect(memory.held.size).toBe(0);
 });
 
-test('recovery cuts a file a closed tab left half-written, and leaves one a tab is writing', async () => {
+test('recovery cuts a file a closed tab left half-written, answers its length, and leaves one a tab is writing', async () => {
 	const whole = new Uint8Array(
 		await Bun.file(
 			new URL('./fixtures/chromium.m4a', import.meta.url),
@@ -428,10 +430,18 @@ test('recovery cuts a file a closed tab left half-written, and leaves one a tab 
 	);
 	locks.held.add('epicenter-recording:recordings/writing.m4a');
 
-	expect(
-		expectOk(await recoverRecordings({ device: store, under: 'recordings' })),
-	).toEqual(['recordings/cut.m4a']);
+	const recovered = expectOk(
+		await recoverRecordings({ device: store, under: 'recordings' }),
+	);
 	const repaired = memory.held.get('recordings/cut.m4a')!;
+	// Each answers how long its repaired file plays, read from that file.
+	expect(recovered).toEqual([
+		{
+			path: 'recordings/cut.m4a',
+			durationMs: audioDurationMs(repaired, 'm4a') ?? null,
+		},
+	]);
+	expect(recovered[0]?.durationMs).toBeGreaterThan(0);
 	expect(repaired.length).toBeLessThan(cut.length);
 	expect(repaired).toEqual(whole.slice(0, repaired.length));
 	expect(memory.held.get('recordings/writing.m4a')).toEqual(cut);

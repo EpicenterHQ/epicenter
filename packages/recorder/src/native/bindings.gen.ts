@@ -43,11 +43,12 @@ export const commands = {
 	 *  Repair every recording under `under` in `root` (the window's own folder
 	 *  or a root its page opened) that a quit or a crash left in the folder's
 	 *  `.epicenter/recordings`, encode each and place it at its path, and return
-	 *  those folder-relative paths. The recording still being written, and
-	 *  those a stop is still settling, are left alone. Running it again changes
-	 *  nothing.
+	 *  each one's folder-relative path and how long it plays (`durationMs`, so a
+	 *  page never reads the audio back to measure it). The recording still being
+	 *  written, and those a stop is still settling, are left alone. Running it
+	 *  again changes nothing.
 	 */
-	recover: (root: string, under: string) => typedError<string[], RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { root, under })),
+	recover: (root: string, under: string) => typedError<RecoveredRecording[], RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { root, under })),
 };
 
 /* Types */
@@ -171,6 +172,22 @@ export type RecordingSignal =
 { kind: "level"; level: number | null } |
 /**  The host ended the capture on its own, and why. */
 { kind: "ended"; reason: EndedReason };
+
+/**  A recording `recover` placed: where its audio is, and how long it plays. */
+export type RecoveredRecording = {
+	/**
+	 *  Its folder-relative path: `<path>.webm`, `<path>.wav` when it could
+	 *  not be encoded, or a `-recovered` name beside a taken one.
+	 */
+	path: string,
+	/**
+	 *  Its samples over their rate in milliseconds, read from the WAV's
+	 *  repaired header, which the WebM encoded from it plays exactly. Absent
+	 *  (`null`) when the leftover was not a WAV this can size, which is
+	 *  placed as it is.
+	 */
+	durationMs: number | null,
+};
 
 /**
  *  What `start` answers: the id to stop the recording by, the file

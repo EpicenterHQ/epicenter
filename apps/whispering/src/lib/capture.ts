@@ -160,9 +160,16 @@ export type CaptureDevice = {
 	start(options: CaptureStart): Promise<Result<Capture, CaptureError>>;
 	/**
 	 * Repair the audio of recordings a quit, a crash, or a closed tab cut
-	 * off, so each reads to its last whole piece. Answers the ids repaired.
+	 * off, so each reads to its last whole piece. Answers each recording
+	 * repaired, by id, with how long its audio plays (null when it does not
+	 * read), so nothing reads the audio back to measure it.
 	 */
-	recover(): Promise<Result<string[], CaptureError>>;
+	recover(): Promise<
+		Result<
+			{ readonly id: string; readonly durationMs: number | null }[],
+			CaptureError
+		>
+	>;
 	/**
 	 * Of `ids`, the recordings that hold no audio and that nothing is
 	 * recording: what a tab closed before its first piece left. Absent where

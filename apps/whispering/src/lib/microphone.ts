@@ -122,9 +122,10 @@ export function createMicrophoneDevice({
 			});
 			if (error !== null) return Err(captureErrorOf(error));
 			return Ok(
-				data.map((path) =>
-					path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
-				),
+				data.map(({ path, durationMs }) => ({
+					id: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
+					durationMs,
+				})),
 			);
 		},
 	};

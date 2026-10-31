@@ -2,8 +2,10 @@
  * The desktop's recordings over a real folder (`/node`'s device, the same
  * client the desktop window opens through the shell): the note made at
  * Start, its length at Stop, and a cut-off recording completed on the next
- * launch: audio placed beside a taken path given a note of its own, and a
- * recording that holds nothing settled once.
+ * launch with the length recovery answered, never read back from its audio:
+ * audio placed beside a taken path given a note of its own, audio already
+ * at its path measured from its bytes, and a recording that holds nothing
+ * settled once.
  */
 import { afterEach, expect, test } from 'bun:test';
 import {
@@ -98,35 +100,42 @@ test('a second Start with the same id is refused, never overwritten', async () =
 	);
 });
 
-test('the next launch completes a recording a crash cut off, from its audio, repairing only while a note has no length', async () => {
+test('the next launch completes a recording a crash cut off with the length recovery answered, repairing only while a note has no length', async () => {
 	const { path, device } = await folder();
 	const staged = join(path, '.epicenter/recordings/recordings');
 	let repairs = 0;
 	// What the desktop's recover does: the cut-off recording lands at its
-	// path. The desktop encodes it to `.webm`; a WAV, as it places one its
-	// encoder refused, stands in, since the length is read the same way.
+	// path, and recover answers how long it plays. Bytes that read as no
+	// audio at all show the length is recover's, never read back.
 	const repair = async () => {
 		repairs++;
 		await rename(
-			join(staged, 'cut.wav'),
-			join(path, 'recordings/cut.wav'),
+			join(staged, 'cut.webm'),
+			join(path, 'recordings/cut.webm'),
 		).catch(() => {});
-		return Ok(['cut']);
+		return Ok([{ id: 'cut', durationMs: 2000 }]);
 	};
 	expectOk(await beginRecording(device, started('cut')));
 	await mkdir(staged, { recursive: true });
-	await writeFile(join(staged, 'cut.wav'), toneWav({ seconds: 2 }));
-	// One whose audio never started, and one finished normally.
+	await writeFile(join(staged, 'cut.webm'), 'not audio the page can read');
+	// One whose audio never started, one the shell placed when its page
+	// left (read to measure: recover did not place it), and one finished
+	// normally.
 	expectOk(await beginRecording(device, started('silent')));
+	expectOk(await beginRecording(device, started('left')));
+	await writeFile(join(path, 'recordings/left.wav'), toneWav({ seconds: 3 }));
 	expectOk(await beginRecording(device, started('done')));
 	await writeFile(join(path, 'recordings/done.wav'), toneWav({ seconds: 1 }));
 	expectOk(await completeRecording(device, 'done', 1000));
 
 	expect(
-		expectOk(await finishCutOffRecordings(device, { recover: repair })),
-	).toEqual(['cut']);
+		expectOk(await finishCutOffRecordings(device, { recover: repair })).sort(),
+	).toEqual(['cut', 'left']);
 	expect(expectOk(await device.recordings.get({ id: 'cut' })).durationMs).toBe(
 		2000,
+	);
+	expect(expectOk(await device.recordings.get({ id: 'left' })).durationMs).toBe(
+		3000,
 	);
 	expect(
 		expectOk(await device.recordings.get({ id: 'silent' })).durationMs,
@@ -166,10 +175,10 @@ test('audio recovery placed beside a taken path is given a note and its length',
 	await writeFile(join(path, `recordings/${id}.wav`), toneWav({ seconds: 1 }));
 	const recover = async () => {
 		await writeFile(
-			join(path, `recordings/${id}-recovered.wav`),
-			toneWav({ seconds: 2 }),
+			join(path, `recordings/${id}-recovered.webm`),
+			'encoded audio',
 		);
-		return Ok([`${id}-recovered`]);
+		return Ok([{ id: `${id}-recovered`, durationMs: 2000 }]);
 	};
 
 	expect(

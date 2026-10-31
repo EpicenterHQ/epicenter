@@ -209,7 +209,7 @@ test('a Stop that fails to put its audio in place keeps the note, and the next s
 				.find((name) => name.endsWith('.md'))!
 				.slice(0, -3);
 			await put(join(test.root, 'device'), `recordings/${id}.wav`, staged!);
-			return Ok([id]);
+			return Ok([{ id, durationMs: 1000 }]);
 		},
 	};
 	const services = { ...test.services, capture };

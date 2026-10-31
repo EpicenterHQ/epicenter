@@ -15,7 +15,7 @@
  * - Local transcription runs the recording's file in the data folder with
  *   the active model; a request prepared for one route never goes to another
  * - The shell's microphone records `recordings/<id>` in the data folder and
- *   repairs by ids
+ *   repairs by ids, with each repaired recording's length
  */
 import { afterEach, expect, mock, test } from 'bun:test';
 import type { Client } from '@epicenter/definition/contract';
@@ -152,7 +152,10 @@ mock.module('@epicenter/recorder/tauri', () => ({
 	},
 	recoverRecordings: async (options: { device: unknown; under: string }) => {
 		started.push(options);
-		return Ok([`${options.under}/a.wav`, `${options.under}/b.wav`]);
+		return Ok([
+			{ path: `${options.under}/a.webm`, durationMs: 1500 },
+			{ path: `${options.under}/b-recovered.wav`, durationMs: null },
+		]);
 	},
 }));
 
@@ -329,6 +332,9 @@ test('the shell’s microphone records recordings/<id> into the data folder’s 
 		},
 	]);
 	expect(expectOk(await recording.stop())).toEqual({ durationMs: 1500 });
-	expect(expectOk(await capture.recover())).toEqual(['a', 'b']);
+	expect(expectOk(await capture.recover())).toEqual([
+		{ id: 'a', durationMs: 1500 },
+		{ id: 'b-recovered', durationMs: null },
+	]);
 	expect(started.at(-1)).toEqual({ device: dataFolder, under: 'recordings' });
 });

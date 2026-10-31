@@ -749,7 +749,7 @@ fn recover_places_cut_off_recordings_in_the_bound_folder() {
             json!({ "root": fixture.root, "under": "recordings" })
         )
         .unwrap(),
-        json!(["recordings/a.webm"])
+        json!([{ "path": "recordings/a.webm", "durationMs": 100 }])
     );
     assert_eq!(decoded_samples(&path), 1_600);
     assert!(!staged.exists());

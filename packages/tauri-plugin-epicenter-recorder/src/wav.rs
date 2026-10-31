@@ -10,7 +10,9 @@
 //!
 //! `recover` repairs every recording a quit or a crash left pending in a
 //! window's folder (`staging`) under one directory, and settles each into
-//! its file as a stop does: encoded to `<path>.webm`. A folder's pages call
+//! its file as a stop does: encoded to `<path>.webm`. It answers how long
+//! each plays, from the repaired header, so a page never reads the audio
+//! back to measure it. A folder's pages call
 //! it when they open it, which is when a recording a quit cut off is found
 //! (ADR-0542). It walks only what the folder's path rule accepts and never
 //! follows a link. A recording whose path is taken is never left behind and
@@ -23,6 +25,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use epicenter_folder_core::page_files;
+use serde::Serialize;
 
 use crate::staging::WhenTaken;
 
@@ -31,8 +34,23 @@ use crate::staging::WhenTaken;
 pub struct Repaired {
     /// Whether the header was rewritten, or already stated the file's length.
     pub rewritten: bool,
-    /// How long the audio the header now describes is.
+    /// How long the audio the header now describes is, to the nearest
+    /// millisecond, as `stop` reports a recording's length.
     pub duration_ms: u32,
+}
+
+/// A recording `recover` placed: where its audio is, and how long it plays.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveredRecording {
+    /// Its folder-relative path: `<path>.webm`, `<path>.wav` when it could
+    /// not be encoded, or a `-recovered` name beside a taken one.
+    pub path: String,
+    /// Its samples over their rate in milliseconds, read from the WAV's
+    /// repaired header, which the WebM encoded from it plays exactly. Absent
+    /// (`null`) when the leftover was not a WAV this can size, which is
+    /// placed as it is.
+    pub duration_ms: Option<u32>,
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
@@ -104,10 +122,11 @@ pub fn repair(path: &Path) -> io::Result<Option<Repaired>> {
         file.write_all(&(data_size as u32).to_le_bytes())?;
         file.flush()?;
     }
+    let byte_rate = u64::from(byte_rate);
     let duration_ms = if byte_rate == 0 {
         0
     } else {
-        (data_size * 1000 / u64::from(byte_rate)) as u32
+        ((data_size * 1000 + byte_rate / 2) / byte_rate) as u32
     };
     Ok(Some(Repaired {
         rewritten,
@@ -120,10 +139,10 @@ pub fn repair(path: &Path) -> io::Result<Option<Repaired>> {
 /// `held` names: a file a live recording is still writing or a stop is still
 /// settling. `held` is asked about each file once it is listed, right before
 /// it is touched, so a recording that started after this began is never
-/// taken for a leftover. The rest are
-/// settle each into its file under `under` (`staging::settle`): encoded at
-/// `<path>.webm`, or beside it when that is taken. Returns the
-/// folder-relative paths placed. A missing directory has nothing to recover.
+/// taken for a leftover. The rest are settled each into its file under
+/// `under` (`staging::settle`): encoded at `<path>.webm`, or beside it when
+/// that is taken. Returns each recording placed, by path, with how long it
+/// plays. A missing directory has nothing to recover.
 ///
 /// `under` is checked as a data path is (`page_files::data_path`). A file
 /// that cannot be repaired or settled is reported and left where it is, so
@@ -132,24 +151,30 @@ pub fn recover(
     root: &Path,
     under: &str,
     held: impl Fn(&Path) -> bool,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<RecoveredRecording>, String> {
     page_files::data_path(root, under)?;
     let mut placed = Vec::new();
     for (pending, stem) in crate::staging::pending_under(root, under)? {
         if held(&pending) {
             continue;
         }
-        if let Err(error) = repair(&pending) {
-            log::warn!("Could not repair the recording of {stem}: {error}");
-            continue;
-        }
+        let duration_ms = match repair(&pending) {
+            Ok(repaired) => repaired.map(|repaired| repaired.duration_ms),
+            Err(error) => {
+                log::warn!("Could not repair the recording of {stem}: {error}");
+                continue;
+            }
+        };
         match crate::staging::settle(root, &pending, &stem, WhenTaken::PlaceBeside) {
             Ok(settled) if settled.placed => {
                 if let Some(reason) = &settled.unencoded {
                     log::warn!("Kept the recording of {stem} as a WAV: {reason}");
                 }
                 log::info!("Recovered the recording of {stem} at {}", settled.path);
-                placed.push(settled.path);
+                placed.push(RecoveredRecording {
+                    path: settled.path,
+                    duration_ms,
+                });
             }
             Ok(settled) => log::info!(
                 "Removed the recording of {stem}, a copy of {}",
@@ -158,7 +183,7 @@ pub fn recover(
             Err(error) => log::warn!("Could not settle the recording of {stem}: {error}"),
         }
     }
-    placed.sort();
+    placed.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(placed)
 }
 
@@ -264,6 +289,13 @@ mod tests {
         }
     }
 
+    fn recovered(path: &str, duration_ms: Option<u32>) -> RecoveredRecording {
+        RecoveredRecording {
+            path: path.to_string(),
+            duration_ms,
+        }
+    }
+
     /// Whether the file at `path` is a WebM file: its EBML header and
     /// `webm` document type.
     fn is_webm(path: &Path) -> bool {
@@ -289,15 +321,16 @@ mod tests {
 
         let live = pending.join("live.wav");
         let placed = recover(&root, "recordings", |path| path == live).unwrap();
+        // 100 samples at 16 kHz play 6.25 ms.
         assert_eq!(
             placed,
             [
-                "recordings/2026/b.webm",
-                "recordings/a.webm",
-                "recordings/taken-recovered.webm"
+                recovered("recordings/2026/b.webm", Some(6)),
+                recovered("recordings/a.webm", Some(6)),
+                recovered("recordings/taken-recovered.webm", Some(6)),
             ]
         );
-        for path in placed {
+        for RecoveredRecording { path, .. } in placed {
             assert!(is_webm(&root.join(&path)), "{path}");
         }
         assert!(!pending.join("a.wav").exists(), "settled, not copied");
@@ -356,7 +389,10 @@ mod tests {
         fs::write(root.join("recordings/b-recovered.webm"), b"also theirs").unwrap();
 
         let placed = recover(&root, "recordings", |_| false).unwrap();
-        assert_eq!(placed, ["recordings/b-recovered-2.webm"]);
+        assert_eq!(
+            placed,
+            [recovered("recordings/b-recovered-2.webm", Some(13))]
+        );
         assert!(!pending.join("a.wav").exists(), "the copy is removed");
         assert!(!pending.join("c.wav").exists(), "the copy is removed");
         assert!(!root.join("recordings/a.webm").exists());
@@ -377,7 +413,8 @@ mod tests {
         fs::write(&wav, b"not a WAV at all").unwrap();
         assert_eq!(
             recover(&root, "recordings", |_| false).unwrap(),
-            ["recordings/a.wav"]
+            [recovered("recordings/a.wav", None)],
+            "a file that is not a WAV has no length to answer"
         );
         assert_eq!(
             fs::read(root.join("recordings/a.wav")).unwrap(),
@@ -403,7 +440,7 @@ mod tests {
 
         assert_eq!(
             recover(&root, "recordings", |_| false).unwrap(),
-            ["recordings/a.webm"]
+            [recovered("recordings/a.webm", Some(1_000))]
         );
         assert!(is_webm(&root.join("recordings/a.webm")));
         assert!(!wav.exists());

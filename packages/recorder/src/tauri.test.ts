@@ -13,7 +13,8 @@
  * - The shell's refusals arrive as this package's errors, by name
  * - A start withdrawn while the shell opened the microphone is stopped:
  *   released, with what the shell wrote kept
- * - `recover` names the directory, in the device's root
+ * - `recover` names the directory, in the device's root, and answers each
+ *   recording placed with its length
  * - A device the page did not open from `@epicenter/folder/tauri` has no
  *   root, and the shell is never asked to record or recover in it
  */
@@ -181,11 +182,15 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 	expect(calls[1]?.args).toEqual({ id: '7' });
 });
 
-test('recover names the directory in the device’s root, and answers what it repaired', async () => {
-	answer = () => ['recordings/a.wav'];
+test('recover names the directory in the device’s root, and answers what it repaired with its length', async () => {
+	const recovered = [
+		{ path: 'recordings/a.webm', durationMs: 1250 },
+		{ path: 'recordings/b.wav', durationMs: null },
+	];
+	answer = () => recovered;
 	expect(
 		expectOk(await recoverRecordings({ device, under: 'recordings' })),
-	).toEqual(['recordings/a.wav']);
+	).toEqual(recovered);
 	expect(calls).toEqual([
 		{
 			cmd: 'plugin:epicenter-recorder|recover',

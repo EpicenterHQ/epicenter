@@ -39,6 +39,7 @@ import {
 	type RecordingEndedReason,
 	type RecordingHandle,
 	type RecordingStart,
+	type RecoveredRecording,
 	type RecoverRecordings,
 	type SilentRecordings,
 	type StartRecording,
@@ -511,14 +512,15 @@ export function createBrowserRecorder(
 
 	/**
 	 * Cut each `m4a` and `webm` recording directly under `under` back to its
-	 * last whole piece, skipping any a tab is still writing.
+	 * last whole piece, skipping any a tab is still writing, and answer how
+	 * long each repaired one plays.
 	 */
 	const recoverRecordings: RecoverRecordings = async ({ device, under }) => {
 		const files = environment.filesOf(device);
 		const listed = await files.list();
 		if (listed.error !== null)
 			return RecorderError.Failed({ cause: listed.error });
-		const repaired: string[] = [];
+		const repaired: RecoveredRecording[] = [];
 		for (const { path } of listed.data) {
 			const name = path.slice(under.length + 1);
 			if (!path.startsWith(`${under}/`) || name.includes('/')) continue;
@@ -539,7 +541,11 @@ export function createBrowserRecorder(
 				});
 				if (written.error !== null)
 					return RecorderError.Failed({ cause: written.error });
-				if (written.data === 'landed') repaired.push(path);
+				if (written.data === 'landed')
+					repaired.push({
+						path,
+						durationMs: audioDurationMs(whole, ext) ?? null,
+					});
 			} finally {
 				releaseLock();
 			}

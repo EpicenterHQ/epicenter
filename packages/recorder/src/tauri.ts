@@ -161,7 +161,7 @@ export const startRecording: StartRecording = async ({
  * Repair every WAV a quit or a crash left in the folder's
  * `.epicenter/recordings` under `under`, encode each, and place it at its
  * path (or beside it, `<name>-recovered.webm`, when the path is taken).
- * Answers the paths placed.
+ * Answers each one placed, with how long it plays from its WAV's samples.
  */
 export const recoverRecordings: RecoverRecordings = async ({
 	device,

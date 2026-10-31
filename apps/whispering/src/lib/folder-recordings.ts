@@ -7,8 +7,8 @@
  * what they hold, and completed with the length when it stops. A recording
  * a quit, a crash, or a closed tab cut off has a note without a length; the
  * capture device repairs its audio and, on the desktop, encodes it and
- * places it at its path (`CaptureDevice.recover`); the next start completes
- * its note from the audio's own bytes. A Stop that fails keeps the note
+ * places it at its path (`CaptureDevice.recover`), answering how long it
+ * plays; the next start completes its note with that length. A Stop that fails keeps the note
  * unless nothing was written, so audio the desktop could not place, or
  * placed as a WAV its encoder refused, is named by the next start.
  */
@@ -85,6 +85,9 @@ function recordedAtOf(id: string): string {
 /**
  * Complete every recording whose note has no length once its audio
  * (`<id>.<ext>`) is there: what a quit, a crash, or a closed tab cut off.
+ * A recording `recover` repaired is completed with the length it answered;
+ * only audio already at its path (a recording the shell placed when its
+ * page left, or a Stop whose length was never written) is read to measure.
  * The capture device's `recover` runs first, and only when some note has
  * no length: on the desktop it is what encodes a cut-off recording from
  * `.epicenter/recordings` and places it at its path (or beside it,
@@ -122,7 +125,10 @@ export async function finishCutOffRecordings(
 		...listed.data.items.map((note) => note.id),
 		...listed.data.invalid.map((note) => note.id),
 	]);
-	for (const id of repaired.data) {
+	/** How long each recording `recover` repaired plays, when its audio read. */
+	const measured = new Map<string, number>();
+	for (const { id, durationMs } of repaired.data) {
+		if (durationMs !== null) measured.set(id, durationMs);
 		if (named.has(id)) continue;
 		const made = await beginRecording(device, {
 			id,
@@ -135,6 +141,12 @@ export async function finishCutOffRecordings(
 	const finished: string[] = [];
 	const silent: string[] = [];
 	for (const id of unfinished) {
+		const known = measured.get(id);
+		if (known !== undefined) {
+			const completed = await completeRecording(device, id, known);
+			if (completed.error === null) finished.push(id);
+			continue;
+		}
 		let heard = false;
 		for (const ext of RECORDED) {
 			const audio = await device.audio.get({ id, ext });

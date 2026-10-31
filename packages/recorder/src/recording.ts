@@ -126,6 +126,18 @@ export type Recording = RecordingHandle<StoppedRecording> & {
 	readonly path: string;
 };
 
+/** A recording `recoverRecordings` repaired. */
+export type RecoveredRecording = {
+	/** The store-relative path of its audio file. */
+	readonly path: string;
+	/**
+	 * How long it plays, as `stop` would have answered: on the desktop its
+	 * samples over their rate, in a browser read from the file repaired. Null
+	 * when its audio does not read as the format it is named for.
+	 */
+	readonly durationMs: number | null;
+};
+
 export type RecoverRecordingsOptions = RecordingDevice & {
 	/** The store-relative directory recordings are kept in, such as `recordings`. */
 	readonly under: string;
@@ -137,13 +149,14 @@ export type StartRecording = (
 
 /**
  * Repair the recordings under a directory that a quit, a crash, or a closed
- * tab cut off, leaving any recording still being written alone. Answers the
- * store-relative paths it repaired (in a browser) or repaired and moved to
- * their paths (on the desktop); a second run answers none.
+ * tab cut off, leaving any recording still being written alone. Answers each
+ * recording it repaired (in a browser) or repaired and moved to its path (on
+ * the desktop), with how long it plays, so nobody reads the audio back to
+ * measure it; a second run answers none.
  */
 export type RecoverRecordings = (
 	options: RecoverRecordingsOptions,
-) => Promise<Result<string[], RecorderError>>;
+) => Promise<Result<RecoveredRecording[], RecorderError>>;
 
 /**
  * Of the recordings at `paths` (store-relative, no extension), those that

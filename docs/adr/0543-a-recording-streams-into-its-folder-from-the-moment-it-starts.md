@@ -136,3 +136,14 @@ recording can no longer land there because a page named no root.
 `openDevice` from `@epicenter/folder/tauri` takes the root's absolute path
 too: the window's own folder, a folder inside it, and a client with no root
 are gone.
+
+## Amendment, 2026-11-01: recovery answers each recording's length
+
+`recoverRecordings` answers each recording it repaired as `{ path,
+durationMs }`, as `stop` answers one. On the desktop the length is the
+repaired WAV's samples over their rate, which the WebM encoded from it plays
+exactly, or `null` for a leftover that is not a WAV; in a browser it is read
+from the file just repaired. An app completes a cut-off recording's note with
+it, and reads audio back to measure it only when the audio was already at its
+path: a recording the shell placed when its page left, or a stop whose
+answer was lost.
