@@ -1,4 +1,4 @@
-/** This browser tab's OAuth client. Created on first use so the callback can use it without opening a folder. */
+/** This browser tab's OAuth client. Created on first use so the callback can use it without opening any files. */
 import {
 	createBrowserOAuth,
 	epicenterCloud,
@@ -18,8 +18,9 @@ let auth: PlatformAuth | undefined;
 export function getAuth(): PlatformAuth {
 	if (auth) return auth;
 	const audiences = resolveOAuthAudiences(server.baseURL);
-	// One sign-in covers transcription (the API) and the recordings folder's
-	// Git remote: one redirect, one access token per audience.
+	// One sign-in covers transcription (the API) and the person's whispering
+	// repository (Git), decision 65: one redirect, one access token per
+	// audience.
 	const client = createBrowserOAuth({
 		server,
 		clientId: APPS.WHISPERING.id,

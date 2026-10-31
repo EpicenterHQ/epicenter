@@ -1,22 +1,22 @@
 /**
- * Audio capture for one recording at a time, into the folder.
+ * Audio capture for one recording at a time.
  *
- * A capture names its audio file when it starts, so the recording's row can
- * name it from the start too (ADR-0543). The microphone device
- * (`microphone.ts`) records with `@epicenter/recorder`: inside the desktop app
- * the shell owns the microphone and writes the WAV into the folder from the
- * first sample (ADR-0571), and in a browser the page records and writes it on
- * stop. The fixture device exists for
- * repeatable automation: it writes the same bytes every time on stop and
- * marks the recording `fixture`, so a fixture take is never stored as a
- * microphone take. The platform adapter chooses which device a session uses;
- * nothing here falls back from one to the other.
+ * A capture holds its audio until Stop, which answers it: the bytes, the
+ * extension they are saved under, and how long it ran. The app then keeps it
+ * as the recording's files. The microphone device (`microphone.ts`) records
+ * with `@epicenter/recorder`'s browser recorder. A fixture device stands in
+ * for a microphone in automation and marks the recording `fixture`, so a
+ * fixture take is never stored as a microphone take. The platform adapter
+ * chooses which device a session uses; nothing here falls back from one to
+ * the other.
  */
-import type { Recording, RecordingFolder } from '@epicenter/recorder';
+import type { RecordingHandle } from '@epicenter/recorder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { extensionOf, wavDurationMs } from './audio-format.js';
-import type { CaptureSource } from './definition.js';
+
+/** Where a recording's audio came from: a microphone, or a fixture standing in for one. */
+export type CaptureSource = 'microphone' | 'fixture';
 
 export const CaptureError = defineErrors({
 	Unavailable: ({ reason }: { reason: string }) => ({
@@ -49,33 +49,30 @@ export const CaptureError = defineErrors({
 	Empty: () => ({
 		message: 'The recording contained no audio.',
 	}),
-	/** The audio could not be written into the folder. */
-	NotSaved: ({ reason }: { reason: string }) => ({
-		message: `The recording could not be saved to the folder: ${reason}`,
-		reason,
-	}),
 });
 export type CaptureError = InferErrors<typeof CaptureError>;
 
-export type ActiveCapture = {
-	/**
-	 * The audio file this recording is, folder-relative, such as
-	 * `recordings/20260102-030405-k3f9.wav`. Named before anything is
-	 * captured, so playback can find it before the next folder listing.
-	 */
-	readonly audioPath: string;
-	/** `performance.now()` when capture began, for the elapsed-time display. */
-	readonly startedAt: number;
-	/** Hear capture end unexpectedly; stop still keeps its audio. Retired by stop. */
-	onEnded: Recording['onEnded'];
-	/**
-	 * Finish the audio file and release the microphone. Nothing here deletes
-	 * a capture: one the page leaves without stopping ends with the page.
-	 */
-	stop(): Promise<Result<{ readonly durationMs: number }, CaptureError>>;
+/** A finished capture's audio. */
+export type CapturedAudio = {
+	readonly bytes: Uint8Array;
+	/** The extension its bytes are saved under: `m4a` or `webm` from a browser. */
+	readonly ext: string;
+	readonly durationMs: number;
 };
 
-/** A microphone the person chose by name. Kept on this device, never in the folder. */
+export type ActiveCapture = {
+	/** `performance.now()` when capture began, for the elapsed-time display. */
+	readonly startedAt: number;
+	/** Hear capture end unexpectedly; stop still answers its audio. Retired by stop. */
+	onEnded: RecordingHandle<unknown>['onEnded'];
+	/**
+	 * Release the microphone and answer the audio. Nothing is kept by this:
+	 * a capture the page leaves without stopping ends with the page.
+	 */
+	stop(): Promise<Result<CapturedAudio, CaptureError>>;
+};
+
+/** A microphone the person chose by name. Kept on this device, never in Whispering's files. */
 export type MicrophonePreference = {
 	/** The ID its platform lists it under: the shell's in Epicenter, the WebView's in a browser. Capture asks for exactly this one. */
 	readonly deviceId: string;
@@ -141,16 +138,9 @@ export type MicrophoneInputs = {
 };
 
 export type CaptureStart = {
-	/** The folder the audio is written into. */
-	readonly folder: RecordingFolder;
-	/** The audio's folder-relative path without an extension; the device adds one. */
-	readonly path: string;
 	/** The microphone to record from. Undefined is the system default. */
 	readonly input?: MicrophonePreference;
-	/**
-	 * Withdraws the start. A microphone that opens afterward is released; on
-	 * the desktop what the shell already wrote is kept, never deleted.
-	 */
+	/** Withdraws the start. A microphone that opens afterward is released. */
 	readonly signal?: AbortSignal;
 };
 
@@ -160,7 +150,7 @@ export type CaptureDevice = {
 	readonly label: string;
 	/** Undefined when this device has no real input to choose or test. */
 	readonly inputs: MicrophoneInputs | undefined;
-	start(options: CaptureStart): Promise<Result<ActiveCapture, CaptureError>>;
+	start(options?: CaptureStart): Promise<Result<ActiveCapture, CaptureError>>;
 };
 
 export type FixtureAudio = {
@@ -169,10 +159,9 @@ export type FixtureAudio = {
 };
 
 /**
- * A device that answers every recording with the same fixture bytes, written
- * into the folder on stop under the fixture's own extension. `load` runs at
- * stop, so a missing or unreadable fixture fails that recording instead of
- * the session.
+ * A device that answers every recording with the same fixture bytes, under
+ * the fixture's own extension. `load` runs at stop, so a missing or
+ * unreadable fixture fails that recording instead of the session.
  */
 export function createFixtureDevice({
 	name,
@@ -181,18 +170,16 @@ export function createFixtureDevice({
 	name: string;
 	load: () => Promise<FixtureAudio>;
 }): CaptureDevice {
-	const extension = extensionOf(name) || 'wav';
+	const ext = extensionOf(name) || 'wav';
 	return {
 		source: 'fixture',
 		label: `Fixture audio (${name})`,
 		// No microphone is behind this device, so none is listed, asked for, or opened.
 		inputs: undefined,
-		async start({ folder, path }) {
+		async start() {
 			const startedAt = performance.now();
-			const audioPath = `${path}.${extension}`;
 			let stopped = false;
 			return Ok({
-				audioPath,
 				startedAt,
 				onEnded: () => () => {},
 				async stop() {
@@ -205,10 +192,9 @@ export function createFixtureDevice({
 						return CaptureError.Failed({ cause });
 					}
 					if (fixture.bytes.byteLength === 0) return CaptureError.Empty();
-					const { error } = await folder.write(audioPath, fixture.bytes);
-					if (error !== null)
-						return CaptureError.NotSaved({ reason: error.message });
 					return Ok({
+						bytes: fixture.bytes,
+						ext,
 						// The fixture's own length when it can be read, not the wait before Stop.
 						durationMs:
 							wavDurationMs(fixture.bytes) ??

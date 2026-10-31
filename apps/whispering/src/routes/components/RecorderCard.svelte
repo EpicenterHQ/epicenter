@@ -124,9 +124,6 @@
 	</p>
 {/if}
 
-{#if whispering.captureNotice}
-	<p class="text-center text-sm text-warning" role="status" data-testid="capture-notice">{whispering.captureNotice}</p>
-{/if}
 {#if whispering.recorderError}
 	<p class="text-center text-sm text-destructive" role="alert" data-testid="recorder-error">{whispering.recorderError}</p>
 {/if}

@@ -1,5 +1,5 @@
 /**
- * Facts about audio files in the folder, read from their paths and bytes.
+ * Facts about audio files, read from their names and bytes.
  *
  * A file's extension decides the MIME type the app plays or uploads it as, and
  * a WAV's own header gives its play length.
@@ -27,7 +27,7 @@ export function extensionOf(path: string): string {
 	return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
-/** The playback MIME type for a file in the folder, by its extension. */
+/** The playback MIME type for an audio file, by its extension. */
 export function audioMimeTypeOf(path: string): string | undefined {
 	return BY_EXTENSION.get(extensionOf(path));
 }

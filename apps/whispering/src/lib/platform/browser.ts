@@ -1,30 +1,30 @@
-/** Browser capture, requests and device preferences over the folder the app opened. */
+/** Browser capture, requests and device preferences: `#platform/services`. */
 
 import {
 	AI_MODELS,
 	HOSTED_TRANSCRIPTION_MODEL,
 } from '@epicenter/constants/ai-providers';
 import { Err, Ok } from 'wellcrafted/result';
-import { audioMimeTypeOf } from '../audio-format.js';
-import { createFixtureDevice, toneWav } from '../capture.js';
 import {
 	applyConnectionChange,
 	type ConnectionsInfo,
 	connectionInfo,
+	DEFAULT_TRANSCRIPTION_CONNECTION,
 	OPERATION_NAMES,
 	type Operation,
 	readStoredConnection,
 	type StoredConnection,
 } from '../connections.js';
-import { DEFAULT_TRANSCRIPTION_CONNECTION } from '../definition.js';
-import { readBytes } from '../files.js';
 import { localPreferences } from '../microphone-preference.js';
 import { transcribeOverConnection } from '../transcription.js';
 import {
 	TransformationError,
 	transformOverConnection,
 } from '../transformation.js';
-import { createWebViewMicrophone } from '../webview-microphone.js';
+import {
+	createToneMicrophone,
+	createWebViewMicrophone,
+} from '../webview-microphone.js';
 import { getAuth } from './auth.js';
 import type { CreateServices } from './types.js';
 
@@ -150,27 +150,23 @@ const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
 
 /**
- * A development build opened with `?fixture=tone` records a generated tone
- * instead of the microphone. A production build never does.
+ * A page opened with `?fixture=tone` records a generated tone instead of the
+ * microphone, for browsers under test that have none. Only a development
+ * build, or one built with `VITE_WHISPERING_FIXTURES=1` (the end-to-end
+ * suite's), offers it.
  */
 function wantsToneFixture(): boolean {
 	return (
-		import.meta.env.DEV &&
+		(import.meta.env.DEV || import.meta.env.VITE_WHISPERING_FIXTURES === '1') &&
 		new URLSearchParams(location.search).get('fixture') === 'tone'
 	);
 }
 
 /** Whispering's services in a browser tab: `#platform/services`. */
-export const createServices: CreateServices = (folder) => ({
-	kind: 'browser',
-	location: 'This browser’s storage for this site',
+export const createServices: CreateServices = () => ({
 	capture: wantsToneFixture()
-		? createFixtureDevice({
-				name: 'generated tone',
-				load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
-			})
+		? createToneMicrophone()
 		: createWebViewMicrophone(),
-	recoverRecordings: async () => undefined,
 	transcribe: (request) => {
 		let selected: ReturnType<typeof route>;
 		return transcribeOverConnection(
@@ -179,19 +175,6 @@ export const createServices: CreateServices = (folder) => ({
 				return selected?.stored;
 			},
 			request,
-			async () => {
-				const { audioPath } = request;
-				const { data: bytes, error: readError } = await readBytes(
-					folder,
-					audioPath,
-				);
-				if (readError !== null) return Err(readError);
-				return Ok({
-					bytes,
-					filename: audioPath.slice(audioPath.lastIndexOf('/') + 1),
-					mimeType: audioMimeTypeOf(audioPath) ?? 'application/octet-stream',
-				});
-			},
 			(url, init) => selected!.send(url, init),
 		);
 	},
@@ -216,7 +199,6 @@ export const createServices: CreateServices = (folder) => ({
 		return answered;
 	},
 	transformNote: `Custom endpoint requests leave this browser tab, so that endpoint must allow requests from ${location.origin} (CORS). The Epicenter account route uses Epicenter’s API.`,
-	localTranscription: undefined,
 	// One synchronous read and write per change, so a key never sits beside
 	// a base URL it was not saved for.
 	connections: {

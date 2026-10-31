@@ -50,9 +50,8 @@ export const TranscriptionError = defineErrors({
 		reason,
 	}),
 	/** The audio was not read, so no request was made. This one is certain. */
-	AudioUnreadable: ({ path, reason }: { path: string; reason: string }) => ({
-		message: `The audio at '${path}' could not be read: ${reason}`,
-		path,
+	AudioUnreadable: ({ reason }: { reason: string }) => ({
+		message: `The recording’s audio could not be read: ${reason}`,
 		reason,
 	}),
 	Unreachable: ({ url, reason }: { url: string; reason: string }) => ({
@@ -106,7 +105,8 @@ const describe = (cause: unknown) =>
  * `expectedBaseUrl`.
  */
 export type PreparedTranscription = {
-	readonly audioPath: string;
+	/** The recording's audio, read only once the connection is known to be the one prepared for. */
+	readonly audio: () => Promise<Result<TranscriptionRequest['audio'], string>>;
 	readonly expectedBaseUrl: string;
 	readonly model: string;
 };
@@ -121,7 +121,6 @@ export type PreparedTranscription = {
 export async function transcribeOverConnection(
 	connection: () => Promise<StoredConnection | undefined>,
 	request: PreparedTranscription,
-	audio: () => Promise<Result<TranscriptionRequest['audio'], string>>,
 	send: NonNullable<TranscriptionRequest['fetch']> = (input, init) =>
 		fetch(input, init),
 ): Promise<Result<{ text: string }, TranscriptionError>> {
@@ -144,12 +143,9 @@ export async function transcribeOverConnection(
 			expected: request.expectedBaseUrl,
 			configured: stored.baseUrl,
 		});
-	const { data: upload, error: readError } = await audio();
+	const { data: upload, error: readError } = await request.audio();
 	if (readError !== null)
-		return TranscriptionError.AudioUnreadable({
-			path: request.audioPath,
-			reason: readError,
-		});
+		return TranscriptionError.AudioUnreadable({ reason: readError });
 	const model = request.model.trim();
 	if (model === '')
 		return TranscriptionError.NotConfigured({ missing: 'the model' });
@@ -212,21 +208,3 @@ export async function transcribeOverConnection(
 	}
 	return TranscriptionError.Malformed({ url });
 }
-
-export type LocalTranscriptionReadiness =
-	| { readonly ready: true }
-	| { readonly ready: false; readonly message: string };
-
-export type LocalTranscription = {
-	/** Whether the active model can run now. Advisory: transcribing checks again. */
-	readiness(): Promise<LocalTranscriptionReadiness>;
-	/**
-	 * Transcribe the audio at `audioPath` with the active model. The answer
-	 * names the model that produced it. Nothing is written by this.
-	 */
-	transcribe(
-		audioPath: string,
-	): Promise<Result<{ text: string; model: string }, TranscriptionError>>;
-	/** Open Epicenter's Settings where the local model is chosen. */
-	openSettings(): Promise<void>;
-};

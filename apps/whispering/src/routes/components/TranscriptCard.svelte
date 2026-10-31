@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { edit } from '@epicenter/svelte/folder';
+	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
+	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { toast } from '@epicenter/ui/sonner';
@@ -8,95 +9,61 @@
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { getFolder } from '$lib/folder.js';
-	import { getWhispering, type TranscriptionEntry } from '$lib/whispering.svelte.js';
+	import { getWhispering, type TranscriptionNote } from '$lib/whispering.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
 	import { confirmDelete, copyText, formatTime } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import ResultStatus from './ResultStatus.svelte';
+	import RunStatus from './RunStatus.svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
 
 	/**
 	 * One transcript of the recording that is open, edited where it is read,
-	 * beside the player. Its text is the body of the transcript's own file,
-	 * saved as it is typed.
-	 * A transcript whose answer has not reached its file says why instead, and
-	 * is not edited while its answer is on its way. Nothing here selects the
-	 * transcript's file, so the recording stays open.
+	 * beside the player. Its text is the body of the transcript's own note,
+	 * saved as it is typed, wherever the note is: still in this browser, or in
+	 * the repository.
 	 */
-	let {
-		result,
-		audioAbsent = false,
-	}: { result: TranscriptionEntry; audioAbsent?: boolean } = $props();
+	let { result }: { result: TranscriptionNote } = $props();
 	const whispering = getWhispering();
-	const folder = getFolder();
-	// The list keys each card by its file; what is typed is sent to that one.
+	// The list keys each card by its note; what is typed is sent to that one.
 	// svelte-ignore state_referenced_locally
-	const stem = result.stem;
+	const id = result.id;
 
-	/** Edited here unless the person opened its file as text in Files. */
-	const asText = $derived(whispering.showsText(result.path));
-	/** The text now: as typed until its save answers, else as the file holds it. */
-	const body = edit(
-		() => result.row.body,
-		(body) => folder.tables.transcriptions.update(stem, { body }),
-	);
-	const text = $derived(body.value);
-	const progress = $derived(whispering.resultState(result.path, text));
+	/** The text now: as typed until its save answers, else as the note holds it. */
+	const body = fieldEdit(whispering.files.transcriptions, { id }, 'body');
+	const text = $derived(body.value ?? result.body);
 
-	const outputs = $derived(whispering.outputsFor(result.stem));
-	const transforming = $derived(whispering.recipeRuns.some((item) => item.transcriptionId === result.stem));
+	const outputs = $derived(whispering.outputsFor(id));
+	const runs = $derived(whispering.runsOn(id));
+	const transforming = $derived(runs.some((run) => run.state.kind === 'running'));
 	/**
 	 * Every transformation, with whether it can run now by the one decision
 	 * the run itself makes. One that cannot is shown with why, and fixed on its
 	 * own page or in Settings first.
 	 */
-	const choices = $derived(whispering.transformations.map((item) => ({ item, resolved: whispering.resolve(item.row) })));
+	const choices = $derived(whispering.transformations.map((item) => ({ item, resolved: whispering.resolve(item) })));
 
 	/**
 	 * Apply a transformation to this transcript as it is shown. The result is
-	 * a new file; the transcript is not changed by it.
+	 * a new note; the transcript is not changed by it.
 	 */
-	async function transform(path: string) {
-		const problem = await whispering.transform(
-			result.path,
-			path,
-			asText ? {} : { input: text },
-		);
+	async function transform(recipeId: string) {
+		const problem = await whispering.transform(id, recipeId, { input: text });
 		if (problem) toast.error('The transformation did not run', { description: problem });
 	}
 </script>
 
-<article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result">
-	{#if progress.kind !== 'answered'}
-		<ResultStatus
-			path={result.path}
-			result={progress}
-			{audioAbsent}
-			onDelete={() => void confirmDelete(whispering, result.path)}
-		/>
-	{/if}
-	{#if progress.kind === 'running' || progress.kind === 'writing'}
-		<!-- The answer is on its way into this file; editing resumes when its publication settles. -->
-	{:else if !asText}
-		<Textarea
-			class="min-h-32 resize-y font-sans"
-			bind:value={body.value}
-			placeholder="This transcript has no text."
-			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"
-			data-testid="transcript-text"
-		/>
-	{:else}
-		<p class="max-h-64 overflow-y-auto rounded border p-2 whitespace-pre-wrap" data-testid="transcript-text-readonly">{text}</p>
-	{/if}
+<article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result" data-where={result.where}>
+	<Textarea
+		class="min-h-32 resize-y font-sans"
+		bind:value={() => text, (value) => (body.value = value)}
+		placeholder="This transcript has no text."
+		aria-label="Transcript of {formatTime(result.createdAt) || result.id}"
+		data-testid="transcript-text"
+	/>
 	<UnsavedEdit edit={body} />
-	{#if asText}
-		<p class="text-xs text-muted-foreground" role="status">
-			This transcript’s file is open as text in Files, so its text is edited there.
-		</p>
-	{/if}
 	<footer class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-		<span>{formatTime(result.row.fields.createdAt) || 'Unknown time'} · {result.row.fields.model}</span>
+		<span>{formatTime(result.createdAt) || 'Unknown time'} · {result.model}</span>
+		{#if result.where === 'device' && whispering.signedIn}<Badge variant="outline">Not uploaded yet</Badge>{/if}
 		<span class="ml-auto flex items-center gap-1">
 			<Button size="xs" variant="outline" disabled={!text?.trim()} onclick={() => void copyText(text ?? '', 'the transcript')} data-testid="copy-transcript">
 				Copy
@@ -112,11 +79,11 @@
 				</DropdownMenu.Trigger>
 				<DropdownMenu.Content align="end" class="min-w-52">
 					<DropdownMenu.Label>Make a new text from this transcript</DropdownMenu.Label>
-					{#each choices as { item, resolved } (item.path)}
+					{#each choices as { item, resolved } (item.id)}
 						<DropdownMenu.Item
 							disabled={resolved.kind !== 'ready'}
 							title={resolved.kind === 'blocked' ? resolved.reason : undefined}
-							onSelect={() => void transform(item.path)}
+							onSelect={() => void transform(item.id)}
 						>
 							<span class="flex min-w-0 flex-col">
 								<span class="truncate">{transformationName(item)}</span>
@@ -134,13 +101,20 @@
 					</DropdownMenu.Item>
 				</DropdownMenu.Content>
 			</DropdownMenu.Root>
+			<Button
+				size="xs"
+				variant="ghost-destructive"
+				onclick={() => confirmDelete(whispering, { collection: 'transcriptions', id })}
+				data-testid="delete-transcript"
+			>
+				Delete
+			</Button>
 		</span>
 	</footer>
-	{#each outputs as output (output.path)}
-		<TransformationOutput
-			output={{ source: 'transcript', entry: output }}
-			naming="transformation"
-			onOpenFile={(path) => whispering.open(path)}
-		/>
+	{#each runs as run (run.key)}
+		{#if run.state.kind !== 'running'}<RunStatus {run} />{/if}
+	{/each}
+	{#each outputs as output (output.id)}
+		<TransformationOutput output={{ source: 'transcript', note: output }} naming="transformation" />
 	{/each}
 </article>

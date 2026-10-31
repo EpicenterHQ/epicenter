@@ -16,7 +16,7 @@
 	/**
 	 * Which saved transformation post-processing uses, or None. Choosing only
 	 * chooses: nothing is sent until Run is pressed on a transcript. The list is
-	 * the folder's transformations as last read, and a choice that was deleted
+	 * the transformations as last listed, and a choice that was deleted
 	 * or can no longer run is shown as that, not replaced. The recorder owns
 	 * which option popover is open.
 	 */
@@ -29,7 +29,7 @@
 
 	const choice = $derived(whispering.postProcessing);
 	const name = $derived(
-		choice.kind === 'none' ? 'None' : choice.kind === 'missing' ? 'Not in the folder' : transformationName(choice.entry),
+		choice.kind === 'none' ? 'None' : choice.kind === 'missing' ? 'No longer listed' : transformationName(choice.entry),
 	);
 
 	/** The trigger is an icon, so this is its whole name: what it is, what is chosen, and what is wrong. */
@@ -101,13 +101,13 @@
 				<RadioGroup.Item value={NONE} id="post-processing-none" />
 				<Label for="post-processing-none" class="font-normal">None</Label>
 			</div>
-			{#each whispering.transformations as item, index (item.path)}
-				{@const resolved = whispering.resolve(item.row)}
+			{#each whispering.transformations as item, index (item.id)}
+				{@const resolved = whispering.resolve(item)}
 				{@const runnable = resolved.kind === 'ready'}
 				<!-- The group is a grid, so a row shrinks to the popover only with min-w-0; the label then takes what the radio leaves and the title truncates in it. -->
 				<div class="flex min-w-0 items-center gap-2">
 					<!-- One that cannot run is not offered, but stays shown as chosen if it already is. -->
-					<RadioGroup.Item value={item.path} id="post-processing-{index}" disabled={!runnable && view.postProcessing !== item.path} />
+					<RadioGroup.Item value={item.id} id="post-processing-{index}" disabled={!runnable && view.postProcessing !== item.id} />
 					<Label for="post-processing-{index}" class="min-w-0 flex-1 font-normal">
 						<span class="min-w-0 truncate" title={transformationName(item)}>{transformationName(item)}</span>
 						{#if resolved.kind === 'blocked'}
@@ -120,10 +120,10 @@
 			{/each}
 			{#if choice.kind === 'missing'}
 				<div class="flex min-w-0 items-center gap-2" data-testid="post-processing-missing">
-					<RadioGroup.Item value={choice.path} id="post-processing-missing" />
+					<RadioGroup.Item value={choice.id} id="post-processing-missing" />
 					<Label for="post-processing-missing" class="min-w-0 flex-1 font-normal">
-						<code class="min-w-0 truncate font-mono text-xs" title={choice.path}>{choice.path}</code>
-						<span class="shrink-0 text-xs text-warning">no longer in the folder</span>
+						<code class="min-w-0 truncate font-mono text-xs" title={choice.id}>transformations/{choice.id}.md</code>
+						<span class="shrink-0 text-xs text-warning">no longer listed</span>
 					</Label>
 				</div>
 			{/if}
@@ -131,14 +131,14 @@
 
 		{#if whispering.transformations.length === 0}
 			<p class="text-xs text-muted-foreground" data-testid="post-processing-empty">
-				This folder has no transformations yet. Create one to choose it here.
+				There are no transformations yet. Create one to choose it here.
 			</p>
 		{/if}
 		{#if whispering.transformationRepairs.length > 0}
 			<p class="text-xs text-warning" role="status">
 				{whispering.transformationRepairs.length === 1
 					? '1 file in transformations/ needs repair and is not listed.'
-					: `${whispering.transformationRepairs.length} files in transformations/ need repair and are not listed.`}
+					: `${whispering.transformationRepairs.length} notes in transformations/ need repair and are not listed.`}
 			</p>
 		{/if}
 		{#if choice.kind === 'repair'}

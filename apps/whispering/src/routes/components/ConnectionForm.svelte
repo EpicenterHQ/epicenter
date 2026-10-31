@@ -45,13 +45,13 @@
 	}
 
 	async function chooseAccount() {
-		const { error } = await whispering.services.connections.useAccount!(operation);
+		const { error } = await whispering.services.connections.useAccount(operation);
 		if (error !== null) toast.error(error);
 		else await whispering.readConnections();
 	}
 
 	async function chooseCustom() {
-		const { error } = await whispering.services.connections.useCustom!(operation);
+		const { error } = await whispering.services.connections.useCustom(operation);
 		if (error !== null) toast.error(error);
 		else await whispering.readConnections();
 	}
@@ -70,13 +70,11 @@
 	{#if draft.readOnlyReason}
 		<p class="text-xs text-muted-foreground">{draft.readOnlyReason}</p>
 	{/if}
-	{#if whispering.services.kind === 'browser'}
-		{#if draft.saved?.source === 'account'}
-			<Button type="button" size="xs" variant="outline" class="self-start" onclick={() => void chooseCustom()}>Use a custom endpoint</Button>
-		{:else}
-			<Button type="button" size="xs" variant="outline" class="self-start" disabled={draft.unsent} onclick={() => void chooseAccount()}>Use Epicenter account</Button>
-			{#if draft.unsent}<p class="text-xs text-muted-foreground">Save or clear your edits before switching connections.</p>{/if}
-		{/if}
+	{#if draft.saved?.source === 'account'}
+		<Button type="button" size="xs" variant="outline" class="self-start" onclick={() => void chooseCustom()}>Use a custom endpoint</Button>
+	{:else}
+		<Button type="button" size="xs" variant="outline" class="self-start" disabled={draft.unsent} onclick={() => void chooseAccount()}>Use Epicenter account</Button>
+		{#if draft.unsent}<p class="text-xs text-muted-foreground">Save or clear your edits before switching connections.</p>{/if}
 	{/if}
 	{#if draft.saved?.source !== 'account'}
 	<label class="flex flex-col gap-1">
@@ -119,11 +117,9 @@
 			<span class="text-xs text-muted-foreground">
 				Kept in {whispering.services.connections.storedIn}. It is sent only to this endpoint; a new endpoint needs its key entered again.
 			</span>
-			{#if whispering.services.kind === 'browser'}
-				<span class="text-xs text-warning" data-testid="{id}-key-warning">
-					This key is saved in this browser. Code running on this site can read it.
-				</span>
-			{/if}
+			<span class="text-xs text-warning" data-testid="{id}-key-warning">
+				This key is saved in this browser. Code running on this site can read it.
+			</span>
 		</div>
 	{/if}
 	{/if}

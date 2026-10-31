@@ -66,25 +66,19 @@
 <div class="flex flex-col gap-2 text-xs" data-testid="account-status">
 	{#if checking}
 		<p>Checking Epicenter sign-in…</p>
-	{:else if auth.problem}
-		<p>Epicenter could not use this sign-in.</p>
 	{:else if authState.status === 'signed-in'}
-		<p>Signed in to {new URL(authState.account.baseURL).host}.</p>
+		<p>Signed in to {new URL(authState.account.baseURL).host}. Your recordings are kept in your whispering repository there.</p>
 	{:else if authState.status === 'reauth-required'}
-		<p>Your Epicenter sign-in needs to be renewed.</p>
+		<p>Your Epicenter sign-in needs to be renewed. Uploads wait until it is.</p>
 	{:else}
-		<p>Sign in to use Epicenter hosted inference.</p>
+		<p>Sign in to keep your recordings in your Epicenter repository and use hosted inference. What this browser holds uploads then.</p>
 	{/if}
-	{#if problem || auth.problem}
-		<p class="text-destructive" role="alert">{problem ?? auth.problem}</p>
+	{#if problem}
+		<p class="text-destructive" role="alert">{problem}</p>
 		<Button size="xs" variant="outline" class="self-start" onclick={() => void check()}>Check again</Button>
 	{/if}
 	{#if !checking}
-		{#if whispering.services.kind === 'native'}
-			<Button size="xs" variant="outline" class="self-start" disabled={busy} onclick={() => void signIn()}>
-				{authState.status === 'signed-in' ? 'Manage in Epicenter Settings' : 'Sign in in Epicenter Settings'}
-			</Button>
-		{:else if authState.status === 'signed-in'}
+		{#if authState.status === 'signed-in'}
 			<Button size="xs" variant="outline" class="self-start" disabled={busy} onclick={() => void signOut()}>Sign out</Button>
 		{:else}
 			<Button size="xs" variant="outline" class="self-start" disabled={busy || whispering.recorder.phase !== 'idle'} onclick={() => void signIn()}>Sign in</Button>

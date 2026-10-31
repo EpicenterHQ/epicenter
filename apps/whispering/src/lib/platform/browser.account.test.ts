@@ -4,7 +4,6 @@ import { epicenterCloud, selfHostedServer } from '@epicenter/auth';
 import { APPS, resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
 import { expectOk } from 'wellcrafted/testing';
-import type { WhisperingFolder } from '../folder.js';
 
 Bun.plugin({
 	name: 'browser-account-build-flag',
@@ -82,7 +81,7 @@ afterEach(() => {
 });
 
 test('a selected account captures its bearer, and switching back restores the custom endpoint', async () => {
-	const browser = createServices({} as WhisperingFolder);
+	const browser = createServices();
 	expectOk(
 		await browser.connections.set('text', {
 			baseUrl: 'https://custom.test/v1',

@@ -1,17 +1,13 @@
 /**
- * What the page may import.
+ * What the page may import, and who opens what.
  *
- * The page runs in a WebView and in a browser tab, so nothing under `src/` may
- * reach Node or Bun, or the directory opener that runs there. It names the
- * folder contract through `@epicenter/folder`. A folder is opened in
- * exactly one place: the layout gives OpenFolder its opener. The services
- * come through `#platform/services`, so no page code asks where it is
- * running. The recording workflow is
- * file-backed, so it may not reach the Yjs store either. This reads the
- * sources, so a violation names its file.
- *
- * The same reading establishes who owns the folder: the app layout opens one
- * folder, and pages only receive it.
+ * The page runs in a browser tab, so nothing under `src/` may reach Node,
+ * Bun or Tauri. Its files are Whispering's contract's client (decision 10):
+ * this browser's device is opened in one place, at the root, and the
+ * repository and its uploader in one place, the signed-in subtree. Nothing
+ * in the app, its tests included, uses the retired folder and table API.
+ * The services come through `#platform/services`, so no page code asks where
+ * it is running. This reads the sources, so a violation names its file.
  */
 import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -40,6 +36,15 @@ const files = [...sources(src)].map((path) => ({
 	text: readFileSync(path, 'utf8'),
 }));
 
+/** Every source under `src/`, tests and their support included. */
+function* everything(directory: string): Generator<string> {
+	for (const name of readdirSync(directory).sort()) {
+		const path = join(directory, name);
+		if (statSync(path).isDirectory()) yield* everything(path);
+		else if (/\.(ts|svelte)$/.test(name)) yield path;
+	}
+}
+
 function importers(matches: (specifier: string) => boolean) {
 	const found: string[] = [];
 	for (const file of files)
@@ -64,14 +69,32 @@ test('the page imports no Node, Bun, or Tauri module', () => {
 	).toEqual([]);
 });
 
-test('only the layout opens a folder through the build-selected entry', () => {
-	// A platform entry, old or the mirror's, named directly instead of through the build.
+test('the device is opened at the root, and the repository under the signed-in subtree', () => {
+	expect(callers('openDevice')).toEqual(['lib/device.ts']);
+	expect(callers('openWhisperingDevice')).toEqual([
+		'routes/components/WhisperingRoot.svelte',
+	]);
+	expect(callers('openRemote')).toEqual(['routes/components/SignedIn.svelte']);
+	expect(callers('startUploading')).toEqual([
+		'routes/components/SignedIn.svelte',
+	]);
 	expect(
-		importers((specifier) =>
-			/^@epicenter\/folder(\/next)?\/(browser|tauri)$/.test(specifier),
-		),
+		importers((specifier) => specifier === '@epicenter/folder/remote'),
+	).toEqual([
+		'routes/components/SignedIn.svelte imports @epicenter/folder/remote',
+	]);
+});
+
+test('nothing in the app uses the retired folder and table API', () => {
+	const retired =
+		/\b(openFolder|svelteFolder|defineTable|prepareDefinition)\b|@epicenter\/svelte\/(folder|open-folder|row-issues)['"]|from ['"]@epicenter\/(folder|definition)['"]/;
+	expect(
+		[...everything(src)]
+			// This file names the retired API to look for it.
+			.filter((path) => path !== fileURLToPath(import.meta.url))
+			.filter((path) => retired.test(readFileSync(path, 'utf8')))
+			.map((path) => relative(src, path)),
 	).toEqual([]);
-	expect(callers('openFolder')).toEqual(['routes/+layout.svelte']);
 });
 
 test('a microphone is reached only through the browser recorder entry', () => {
@@ -82,7 +105,10 @@ test('a microphone is reached only through the browser recorder entry', () => {
 	).toEqual([]);
 	expect(
 		importers((specifier) => specifier === '@epicenter/recorder/browser'),
-	).toEqual(['lib/webview-microphone.ts imports @epicenter/recorder/browser']);
+	).toEqual([
+		'lib/microphone.ts imports @epicenter/recorder/browser',
+		'lib/webview-microphone.ts imports @epicenter/recorder/browser',
+	]);
 	expect(callers('createWebViewMicrophone')).toEqual([
 		'lib/platform/browser.ts',
 	]);
@@ -108,35 +134,37 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 				specifier === 'yjs' ||
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
-				// Rows are read from the folder mirror and edited through drafts:
-				// no edit owner, open-item slot, admission, or save bar. The other
-				// shared views are the folder's owner and the header status.
+				// Notes are read and edited through the contract's client as
+				// Svelte state; the other shared views are the header status and
+				// an edit's unsaved notice.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
-						'@epicenter/svelte/folder',
-						'@epicenter/svelte/open-folder',
-						'@epicenter/svelte/row-issues',
+						'@epicenter/svelte/client',
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',
 						'@epicenter/svelte/unsaved-edit',
 					].includes(specifier)) ||
-				// The store package, by any entry. Folders and their declarations
-				// come from `@epicenter/folder` and `@epicenter/definition`.
+				// The store package, by any entry. Files come through the
+				// contract's client.
 				specifier === '@epicenter/app' ||
 				specifier.startsWith('@epicenter/app/'),
 		),
 	).toEqual([]);
 });
 
-test('platform leaves own auth composition; the callback only checks its capability', () => {
+test('the platform leaf owns auth composition; the subtree only names the account', () => {
 	expect(
 		importers((specifier) => specifier.startsWith('@epicenter/auth')).filter(
 			(source) =>
 				!source.startsWith('lib/platform/') &&
 				!source.startsWith('routes/auth/callback/'),
 		),
-	).toEqual([]);
+	).toEqual(['routes/components/SignedIn.svelte imports @epicenter/auth']);
+	expect(
+		files.find((file) => file.path === 'routes/components/SignedIn.svelte')
+			?.text,
+	).toContain("import type { Account } from '@epicenter/auth'");
 });
 
 /** Files whose source calls `name(`, ignoring its own declaration. */
@@ -145,20 +173,13 @@ function callers(name: string) {
 	return files.filter((file) => call.test(file.text)).map((file) => file.path);
 }
 
-test('OpenFolder owns the folder and WhisperingApp owns product state', () => {
+test('WhisperingApp owns product state', () => {
 	expect(callers('createWhispering')).toEqual([
 		'routes/components/WhisperingApp.svelte',
 	]);
-
 	expect(callers('createServices')).toEqual(['lib/whispering.svelte.ts']);
-	expect(importers((s) => s === '@epicenter/svelte/open-folder')).toEqual([
-		'routes/+layout.svelte imports @epicenter/svelte/open-folder',
-		'routes/components/test-fixtures/WhisperingRoot.svelte imports @epicenter/svelte/open-folder',
-	]);
-	expect(callers('setFolder')).toEqual([
-		'routes/components/WhisperingApp.svelte',
-		'routes/components/test-fixtures/AudioPlaybackHost.svelte',
-		'routes/components/test-fixtures/SelectionHost.svelte',
+	expect(callers('createWhisperingFiles')).toEqual([
+		'lib/whispering.svelte.ts',
 	]);
 });
 
@@ -180,7 +201,5 @@ test('every page takes product state from context, installed by the app root', (
 	).not.toContain('getWhispering()');
 	expect(callers('setWhispering')).toEqual([
 		'routes/components/WhisperingApp.svelte',
-		'routes/components/test-fixtures/AudioPlaybackHost.svelte',
-		'routes/components/test-fixtures/SelectionHost.svelte',
 	]);
 });

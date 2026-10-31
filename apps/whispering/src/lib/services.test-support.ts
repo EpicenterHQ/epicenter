@@ -1,27 +1,25 @@
 /**
- * A services for tests: a folder, a fixture capture device, and stubbed
- * endpoints. Nothing here reaches a network, a microphone, or a provider.
+ * Services for tests: this browser's files and a stand-in repository, a
+ * fixture capture device, and stubbed endpoints. Nothing here reaches a
+ * network, a microphone, or a provider.
  *
- * The folder is the folder mirror over a real directory, opened by this test
- * process (`@epicenter/folder/bun`): the same mirror the desktop page
- * runs over a granted directory, and what a test can open without a shell.
- * A test that makes storage slow or refuse a save opens it over memory
- * instead (`@epicenter/folder/testing`), whose control does that below
- * the folder. Nothing here establishes how the Rust shell behaves.
+ * Both sides are the contract's client over a real directory
+ * (`@epicenter/folder/node`): the device as the browser's OPFS holds it, at
+ * the same paths, with its outbox and cache; the repository stand-in is a
+ * second directory, which is all the lists need of a repository (a
+ * `Client<Whispering>`). What the server does is tested in
+ * `@epicenter/folder`'s remote tests and the end-to-end suite.
  *
  * The endpoint stubs are plain functions, so a test decides each answer and
  * counts each request.
  */
 import { mock } from 'bun:test';
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import type { Folder } from '@epicenter/folder';
-import { openFolder } from '@epicenter/folder/bun';
-import { createFolder, memoryHost, until } from '@epicenter/folder/testing';
-import { svelteFolder } from '@epicenter/svelte/folder';
+import { join } from 'node:path';
+import type { Client } from '@epicenter/definition/contract';
+import { openDevice } from '@epicenter/folder/node';
 import { Err, Ok } from 'wellcrafted/result';
-import { expectOk } from 'wellcrafted/testing';
 import { createFixtureDevice, toneWav } from './capture.js';
 import {
 	applyConnectionChange,
@@ -31,8 +29,7 @@ import {
 	type Operation,
 	type StoredConnection,
 } from './connections.js';
-import { type WhisperingTables, whisperingTables } from './definition.js';
-import type { WhisperingFolder } from './folder.js';
+import { type Whispering, whispering } from './contract.js';
 import type { WhisperingServices } from './platform/types.js';
 import { TranscriptionError } from './transcription.js';
 import { TransformationError } from './transformation.js';
@@ -96,6 +93,8 @@ export function testConnections({
 			stored[operation] = next;
 			return Ok(info());
 		},
+		useAccount: async () => Err('Not in tests'),
+		useCustom: async () => Ok(info()),
 	};
 	return { stored, member };
 }
@@ -117,107 +116,42 @@ function refusedConnection(
 	return undefined;
 }
 
-/**
- * A new directory named as Whispering's own folder,
- * `so.epicenter.whispering`, in a temporary directory of its own. Remove
- * `dirname` of it when done.
- */
-export async function whisperingDirectory(prefix: string) {
-	const root = join(
-		await realpath(await mkdtemp(join(tmpdir(), prefix))),
-		'so.epicenter.whispering',
-	);
-	await mkdir(root);
-	return root;
-}
-
-/** An opened test folder: what the app is given, and the folder under it. */
-export type TestFolder = {
-	/** The folder read reactively, as `<OpenFolder>` hands it to the app. */
-	readonly folder: WhisperingFolder;
-	/** The folder under it: what `<OpenFolder>` opens and closes. */
-	readonly opened: Folder<WhisperingTables>;
-};
-
-function wrap(opened: Folder<WhisperingTables>): TestFolder {
-	return {
-		folder: svelteFolder(opened),
-		opened,
-	};
-}
-
-/** A real directory opened with Whispering's tables, by this test process. */
-export async function openTestFolder(root: string): Promise<TestFolder> {
-	return wrap(
-		expectOk(
-			await openFolder({
-				directory: root,
-				tables: whisperingTables,
-			}),
-		),
-	);
-}
-
-/**
- * A folder over memory, with what it starts with. `host.control` makes
- * storage slow or refuse a save below the folder (`putGate`, `failPut`,
- * `beforePut`), and `host.text(path)` reads what landed.
- */
-export async function openMemoryTestFolder(
-	initial: Record<string, string | Uint8Array> = {},
-) {
-	const host = memoryHost(initial);
-	const opened = expectOk(
-		await createFolder(host.storage, { tables: whisperingTables }),
-	);
-	return { ...wrap(opened), host };
-}
-
 export type TestServicesOptions = {
-	/** Replace the stubbed transcription answer. */
 	transcribe?: WhisperingServices['transcribe'];
-	/** Replace the stubbed transformation answer. */
 	transform?: WhisperingServices['transform'];
-	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Partial<Record<Operation, StoredConnection>>;
-	/** Use this folder instead of opening the test's directory. */
-	folder?: TestFolder;
 };
 
+/**
+ * This browser's files and a stand-in repository in a temporary directory,
+ * and services whose endpoints are stubs.
+ */
 export async function openTestServices({
 	transcribe,
 	transform,
 	connections,
-	folder: given,
 }: TestServicesOptions = {}) {
-	const root = await whisperingDirectory('whispering-services-');
-	const { folder, opened } = given ?? (await openTestFolder(root));
-	const device = testConnections({ connections });
+	const root = await mkdtemp(join(tmpdir(), 'whispering-'));
+	const device = openDevice(whispering, { path: join(root, 'device') });
+	const repository = openDevice(whispering, {
+		path: join(root, 'repository'),
+	});
+	const stored = testConnections({ connections });
 
 	const transformed: TransformRequest[] = [];
-	const transcribed: TranscribeRequest[] = [];
-	let opens = 0;
-	let closes = 0;
+	const transcribed: { request: TranscribeRequest; bytes: Uint8Array }[] = [];
 
-	const close = opened.close.bind(opened);
-	opened.close = async () => {
-		closes++;
-		return await close();
-	};
 	const services: WhisperingServices = {
-		kind: 'native',
-
-		location: root,
 		capture: createFixtureDevice({
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 		}),
-		recoverRecordings: async () => undefined,
-		// Each stub decides the connection as the host does, at entry, and only a
-		// request that would go out is counted as sent.
+		// Each stub decides the connection as the browser does, at entry, and
+		// reads the audio as it would; only a request that would go out is
+		// counted as sent.
 		async transcribe(request) {
 			const refused = refusedConnection(
-				device.stored.transcription,
+				stored.stored.transcription,
 				request.expectedBaseUrl,
 			);
 			if (refused?.kind === 'missing')
@@ -229,13 +163,16 @@ export async function openTestServices({
 					expected: request.expectedBaseUrl,
 					configured: refused.configured,
 				});
-			transcribed.push(request);
+			const audio = await request.audio();
+			if (audio.error !== null)
+				return TranscriptionError.AudioUnreadable({ reason: audio.error });
+			transcribed.push({ request, bytes: audio.data.bytes });
 			if (transcribe !== undefined) return transcribe(request);
 			return Ok({ text: 'um so a steady tone' });
 		},
 		async transform(request) {
 			const refused = refusedConnection(
-				device.stored.text,
+				stored.stored.text,
 				request.expectedBaseUrl,
 			);
 			if (refused?.kind === 'missing')
@@ -252,8 +189,7 @@ export async function openTestServices({
 			return Ok({ text: `Transformed: ${request.input.trim()}` });
 		},
 		transformNote: 'test',
-		localTranscription: undefined,
-		connections: device.member,
+		connections: stored.member,
 		preferences: {
 			microphone: async () => undefined,
 			setMicrophone: async () => undefined,
@@ -262,42 +198,22 @@ export async function openTestServices({
 
 	return {
 		root,
-		/** The folder the app is given. */
-		folder,
-		/** The folder under it, which `<OpenFolder>` opens and closes. */
-		opened,
-		/** Every write that did not land, in order. */
+		/** This browser's files, as the contract's client. */
+		device,
+		/** The repository's stand-in, as the contract's client. */
+		repository,
 		services,
-		/** What `<OpenFolder>` is given: it counts how many times a folder was opened. */
-		open: async () => {
-			opens += 1;
-			return Ok(opened);
-		},
 		/** Every transformation request the endpoint stub received, in order. */
 		transformed,
-		/** Every transcription request the endpoint stub received, in order. */
+		/** Every transcription request the endpoint stub received, with the audio it read. */
 		transcribed,
 		/** The device's stored connections, keys included. */
-		device,
-		get opens() {
-			return opens;
-		},
-		get closes() {
-			return closes;
-		},
-		/** Close the folder, sending what waits, and remove the directory. */
+		connections: stored,
+		/** Remove both directories. */
 		async remove() {
-			await close();
-			await rm(dirname(root), { recursive: true, force: true });
+			await rm(root, { recursive: true, force: true });
 		},
 	};
-}
-
-/** Wait until the folder sends nothing more: every write landed or answered. */
-export async function waitForSaves(folder: WhisperingFolder) {
-	await eventually(() => !folder.saving);
-	// The answers resolve right after the last save leaves the queue.
-	await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /** A promise a test settles by hand, to hold a request open. */
@@ -311,29 +227,36 @@ export function deferred<T>() {
 
 /** Wait until `check` holds, as work the test does not await lands. */
 export async function eventually(check: () => boolean, timeoutMs = 4000) {
-	await until(check, { timeout: timeoutMs });
+	const deadline = Date.now() + timeoutMs;
+	while (!check()) {
+		if (Date.now() > deadline)
+			throw new Error(`Not true within ${timeoutMs} ms`);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
 }
 
-/** Per-folder device doubles used by the actual product constructor. */
-const providedServices = new WeakMap<WhisperingFolder, WhisperingServices>();
-/** The doubles for a folder the test never sees, as `<OpenFolder>` wraps its own. */
-let anyFolderServices: WhisperingServices | undefined;
-let installedServices = false;
-/** Give the product these doubles for `folder`, or for whatever folder it opens (`'any'`). */
-export function provideServices(
-	folder: WhisperingFolder | 'any',
-	services: WhisperingServices,
-) {
-	if (folder === 'any') anyFolderServices = services;
-	else providedServices.set(folder, services);
-	if (installedServices) return;
-	installedServices = true;
+/** The services the product's `createServices` answers in this test process. */
+let provided: WhisperingServices | undefined;
+let installed = false;
+/** Give the product these doubles when it makes its services. */
+export function provideServices(services: WhisperingServices) {
+	provided = services;
+	if (installed) return;
+	installed = true;
 	mock.module('#platform/services', () => ({
-		createServices(folder: WhisperingFolder): WhisperingServices {
-			const services = providedServices.get(folder) ?? anyFolderServices;
-			if (services === undefined)
-				throw new Error('No test services were provided for this folder');
-			return services;
+		createServices(): WhisperingServices {
+			if (provided === undefined)
+				throw new Error('No test services were provided');
+			return provided;
 		},
 	}));
+}
+
+/** A client whose `name` collection answers some calls differently; the rest read through. */
+export function replacing<TName extends keyof Whispering['collections']>(
+	client: Client<Whispering>,
+	name: TName,
+	calls: Partial<Client<Whispering>[TName]>,
+): Client<Whispering> {
+	return { ...client, [name]: { ...client[name], ...calls } };
 }

@@ -5,7 +5,6 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
-	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import SquareIcon from '@lucide/svelte/icons/square';
@@ -15,20 +14,15 @@
 	import SettingsForm from './SettingsForm.svelte';
 	import { headerStatus } from '$lib/status.js';
 
-	let {
-		filesOpen,
-		onToggleFiles,
-	}: {
-		filesOpen: boolean;
-		onToggleFiles: () => void;
-	} = $props();
 	const whispering = getWhispering();
 
-	/** Whether what the person did is in the folder on this device. The folder keeps no versions and does not sync here. */
+	/** Where the person's files are: this browser, waiting to upload, or the repository. */
 	const files = $derived(
 		headerStatus({
-			saving: whispering.saving,
 			unwrittenAnswers: whispering.unwrittenAnswers,
+			signedIn: whispering.signedIn,
+			waiting: whispering.waiting,
+			repositoryProblem: whispering.files.repositoryError?.message,
 		}),
 	);
 	/** The home page has the large recorder; every other page gets this compact one. */
@@ -62,7 +56,9 @@
 	{/if}
 
 	<StatusPopover summary={files} details={[{ name: 'Files', testid: 'status-files', line: files }]}>
-		<StatusRow name="Folder" class="text-xs break-all" data-testid="status-folder">{whispering.services.location}</StatusRow>
+		<StatusRow name="Kept in" class="text-xs break-all" data-testid="status-folder">
+			{whispering.signedIn ? 'Your whispering repository, and this browser until uploaded' : 'This browser’s storage for this site'}
+		</StatusRow>
 	</StatusPopover>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">
@@ -82,17 +78,5 @@
 				<SettingsForm />
 			</Popover.Content>
 		</Popover.Root>
-
-		<Button
-			variant={filesOpen ? 'secondary' : 'ghost'}
-			size="sm"
-			tooltip={filesOpen ? 'Hide files (Ctrl+Shift+E)' : 'Show files (Ctrl+Shift+E)'}
-			aria-pressed={filesOpen}
-			onclick={onToggleFiles}
-			data-testid="toggle-files"
-		>
-			<FolderTreeIcon />
-			<span class="max-md:sr-only">Files</span>
-		</Button>
 	</div>
 </header>

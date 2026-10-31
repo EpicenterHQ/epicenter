@@ -1,32 +1,31 @@
 /**
- * Deleting from the folder: capture what a deletion removes from the mirror,
- * tell the person exactly that, and delete those files.
+ * Deleting: capture what a deletion removes from what the lists show, tell
+ * the person exactly that, and delete those files.
  *
- * The mirror shows what is on disk, so a capture reads it synchronously and
- * a deletion checks it again before deleting. Each delete removes the file
- * as it is when its save runs.
- *
- * Deleting a recording removes its row, its transcripts, and the results made
- * from them. The audio its row names is an ordinary file the table does not
- * own: it stays, and Files can delete it. It is refused while a request for
- * it runs or a result row of it is being written, and while a result file
- * cannot say which recording it belongs to. A result on pasted text names no
- * recording and is never part of one.
+ * Deleting a recording removes its note, its audio, its transcripts, and the
+ * results made from them, wherever each is: on this device, or in the
+ * repository (online only). It is refused while a request for it runs or a
+ * result of it is being kept, and while a result does not read, since it
+ * might be this recording's. A result on pasted text names no recording and
+ * is never part of one. Deleting a transformation keeps the results it made,
+ * each of which carries the prompt it used.
  */
-import { describeIssues } from '@epicenter/folder';
-import { basename } from '@epicenter/folder/file-browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import {
-	RECORDINGS,
-	rowIdOf,
-	rowPath,
-	TRANSCRIPTIONS,
-	TRANSFORMATION_RUNS,
-	TRANSFORMATIONS,
-} from './definition.js';
-import { describeError } from './files.js';
-import type { WhisperingFolder } from './folder.js';
-import type { RecordingAudio } from './recording-audio.js';
+import type {
+	NoteName,
+	RecordingAudio,
+	WhisperingFiles,
+} from './files.svelte.js';
+
+/** One note a deletion removes: its collection and id. */
+export type NoteRef = {
+	readonly collection: NoteName;
+	readonly id: string;
+};
+
+/** A note's file, `<collection>/<id>.md`. */
+export const notePath = ({ collection, id }: NoteRef) =>
+	`${collection}/${id}.md`;
 
 /** What a confirmed deletion removes, captured when the person was asked. */
 export type Deletion =
@@ -34,204 +33,210 @@ export type Deletion =
 			readonly kind: 'recording';
 			readonly id: string;
 			readonly title: string;
-			/** The recording's row file. */
-			readonly path: string;
-			/** The audio the row names. It is not deleted: it stays as an ordinary file. */
-			readonly audioPath: string | undefined;
-			/** Its transcripts, then the results made from them, by path. */
-			readonly results: readonly string[];
+			/** Its audio file, when one is listed. */
+			readonly audio: string | undefined;
+			/** Its transcripts, then the results made from them. */
+			readonly results: readonly NoteRef[];
 	  }
 	| {
 			readonly kind: 'transformation';
+			readonly id: string;
 			readonly title: string;
-			readonly path: string;
 			/** How many saved results name it. They are kept. */
 			readonly results: number;
 	  }
 	| {
-			readonly kind: 'file';
-			readonly path: string;
-			/** Why a recording or transformation file does not read as one; only it goes. */
-			readonly problem?: string;
-			/** The recording a recording file's name makes it; nothing runs for it meanwhile. */
-			readonly recordingId?: string;
-			/** The recording that names this file as its audio, by title. */
-			readonly audioOf?: string;
+			/** One result: a transcript, or a transformation's result. */
+			readonly kind: 'result';
+			readonly note: NoteRef;
+	  }
+	| {
+			/** A note that does not read; only it goes. */
+			readonly kind: 'invalid';
+			readonly note: NoteRef;
+			readonly problem: string;
 	  };
 
 export type DeletionContext = {
-	readonly folder: WhisperingFolder;
+	readonly files: WhisperingFiles;
 	/** Why a recording cannot be deleted now, while work for it is under way. */
 	busy(recordingId: string): string | undefined;
-	/** Where the recording `id`'s audio is. */
-	audioOf(id: string): RecordingAudio;
-	/** The title of the recording that names `path` as its audio, if one does. */
-	namingAudio(path: string): string | undefined;
 };
 
-/** A recording's title, or its ID when the title is empty. */
-export function recordingTitle(entry: {
-	readonly stem: string;
-	readonly path: string;
-	readonly row: { readonly fields: { readonly title: string } };
-}): string {
-	const { title } = entry.row.fields;
-	if (title.trim() !== '') return title;
-	return entry.stem === '' ? entry.path : entry.stem;
+/** A title, or the id when the title is empty. */
+export function titleOf(note: { readonly id: string; readonly title: string }) {
+	return note.title.trim() === '' ? note.id : note.title;
+}
+
+/** Why a note does not read, in a line. */
+export const describeIssues = (
+	issues: readonly { field: string; message: string }[],
+) =>
+	issues
+		.map(({ field, message }) => (field ? `${field}: ${message}` : message))
+		.join('; ');
+
+/** Where a recording's audio file is, as the person is told it. */
+function audioPath(id: string, audio: RecordingAudio) {
+	return audio.kind === 'here'
+		? `recordings/${id}.${audio.file.ext}`
+		: audio.kind === 'ambiguous'
+			? audio.exts.map((ext) => `recordings/${id}.${ext}`).join(', ')
+			: undefined;
 }
 
 /**
- * Every result row naming `id`, as the mirror shows them: transcripts, then
- * transformation results. Refused while any result does not read, since it
- * might be this recording's.
+ * Every result naming recording `id`: transcripts, then transformation
+ * results. Refused while any result does not read, since it might be this
+ * recording's.
  */
 function resultsOf(
-	folder: WhisperingFolder,
+	files: WhisperingFiles,
 	id: string,
-): Result<string[], string> {
-	const found: string[] = [];
-	const unknown: string[] = [];
-	for (const [table, rows] of [
-		[TRANSCRIPTIONS, folder.tables.transcriptions.rows],
-		[TRANSFORMATION_RUNS, folder.tables.transformation_runs.rows],
-	] as const)
-		for (const row of rows) {
-			const path = rowPath(table, row.id);
-			if (row.issues !== null) unknown.push(path);
-			else if (row.fields.recordingId === id) found.push(path);
-		}
+): Result<NoteRef[], string> {
+	const unknown = [
+		...files.transcriptions.invalid,
+		...files.transformation_runs.invalid,
+	].map((note) => note.path);
 	if (unknown.length > 0)
 		return Err(
-			`Some results cannot be told apart from this recording’s, because they do not read: ${unknown.join(', ')}. Repair or remove them from Files first, so none is left naming a recording that is gone.`,
+			`Some results cannot be told apart from this recording’s, because they do not read: ${unknown.join(', ')}. Repair or delete them first, so none is left naming a recording that is gone.`,
 		);
-	return Ok(found);
+	return Ok([
+		...files.transcriptions.items
+			.filter((note) => note.recordingId === id)
+			.map((note) => ({ collection: 'transcriptions' as const, id: note.id })),
+		...files.transformation_runs.items
+			.filter((note) => note.recordingId === id)
+			.map((note) => ({
+				collection: 'transformation_runs' as const,
+				id: note.id,
+			})),
+	]);
 }
 
 /**
- * Capture what deleting `path` would remove, for the person to confirm.
+ * Capture what deleting `note` would remove, for the person to confirm.
  * Capturing changes nothing.
  */
 export function captureDeletion(
-	context: DeletionContext,
-	path: string,
+	{ files, busy }: DeletionContext,
+	note: NoteRef,
 ): Result<Deletion, string> {
-	const { folder } = context;
-	const recordingId = rowIdOf(RECORDINGS, path);
-	const transformationId = rowIdOf(TRANSFORMATIONS, path);
-	if (recordingId !== undefined) {
-		const busy = context.busy(recordingId);
-		if (busy !== undefined) return Err(busy);
-		const stored = folder.tables.recordings.row(recordingId);
-		if (stored === undefined)
-			return Err('This recording is no longer in the folder.');
-		if (stored.issues !== null)
+	const invalid = files[note.collection].invalid.find(
+		(item) => item.id === note.id,
+	);
+	if (invalid !== undefined) {
+		if (note.collection === 'recordings') {
+			const why = busy(note.id);
+			if (why !== undefined) return Err(why);
+		}
+		return Ok({
+			kind: 'invalid',
+			note,
+			problem: describeIssues(invalid.issues),
+		});
+	}
+	switch (note.collection) {
+		case 'recordings': {
+			const why = busy(note.id);
+			if (why !== undefined) return Err(why);
+			const recording = files.recordings.get({ id: note.id });
+			if (recording === undefined)
+				return Err('This recording is no longer listed.');
+			const { data: results, error } = resultsOf(files, note.id);
+			if (error !== null) return Err(error);
 			return Ok({
-				kind: 'file',
-				path,
-				recordingId,
-				problem: describeIssues(stored.issues),
+				kind: 'recording',
+				id: note.id,
+				title: titleOf(recording),
+				audio: audioPath(note.id, files.audioOf(note.id)),
+				results,
 			});
-		const { data: results, error: resultsError } = resultsOf(
-			folder,
-			recordingId,
-		);
-		if (resultsError !== null) return Err(resultsError);
-		const audio = context.audioOf(recordingId);
-		return Ok({
-			kind: 'recording',
-			id: recordingId,
-			title: recordingTitle({
-				stem: recordingId,
-				path,
-				row: { fields: stored.fields },
-			}),
-			path,
-			audioPath:
-				audio.kind === 'here' || audio.kind === 'absent'
-					? audio.path
-					: undefined,
-			results,
-		});
+		}
+		case 'transformations': {
+			const recipe = files.transformations.get({ id: note.id });
+			if (recipe === undefined)
+				return Err('This transformation is no longer listed.');
+			const results = [
+				...files.transformation_runs.items,
+				...files.text_runs.items,
+			].filter((run) => run.transformationId === note.id).length;
+			return Ok({
+				kind: 'transformation',
+				id: note.id,
+				title: titleOf(recipe),
+				results,
+			});
+		}
+		default: {
+			if (files[note.collection].get({ id: note.id }) === undefined)
+				return Err(`${notePath(note)} is no longer listed.`);
+			return Ok({ kind: 'result', note });
+		}
 	}
-
-	if (transformationId !== undefined) {
-		const stored = folder.tables.transformations.row(transformationId);
-		if (stored === undefined)
-			return Err('This transformation is no longer in the folder.');
-		if (stored.issues !== null)
-			return Ok({ kind: 'file', path, problem: describeIssues(stored.issues) });
-		const results = [
-			...folder.tables.transformation_runs.rows,
-			...folder.tables.text_runs.rows,
-		].filter(
-			(row) =>
-				row.issues === null && row.fields.transformationId === transformationId,
-		).length;
-		const { title } = stored.fields;
-		return Ok({
-			kind: 'transformation',
-			title: title.trim() === '' ? basename(path) : title,
-			path,
-			results,
-		});
-	}
-
-	if (folder.file(path) === undefined)
-		return Err(`${basename(path)} is no longer in the folder.`);
-	return Ok({ kind: 'file', path, audioOf: context.namingAudio(path) });
-}
-
-/** Delete one confirmed path. */
-async function deleteFile(
-	context: RunContext,
-	path: string,
-): Promise<string | undefined> {
-	const { error } = await context.folder.delete(path);
-	if (error !== null) {
-		return describeError(error);
-	}
-	context.deleted(path);
-	return undefined;
 }
 
 type RunContext = {
-	readonly folder: WhisperingFolder;
+	readonly files: WhisperingFiles;
+	/** Forget what failed for a recording that is gone. */
 	dropFailed(recordingId: string): void;
-	/** The view state lets a deleted file go. */
-	deleted(path: string): void;
+	/** The view state lets a deleted note go. */
+	deleted(note: NoteRef): void;
 };
 
+async function deleteNote(
+	{ files, deleted }: RunContext,
+	note: NoteRef,
+): Promise<string | undefined> {
+	const { error } = await files[note.collection].delete({ id: note.id });
+	if (error !== null && error.name !== 'NotFound') return error.message;
+	deleted(note);
+	return undefined;
+}
+
 /**
- * Delete the confirmed paths, checking the recording's results against the
- * mirror again first.
+ * Delete what was confirmed, checking a recording's results against the
+ * lists again first: one saved since the person was asked keeps it.
  */
 export async function runDeletion(
 	context: RunContext,
 	deletion: Deletion,
 ): Promise<string | undefined> {
-	if (deletion.kind !== 'recording') return deleteFile(context, deletion.path);
+	if (deletion.kind === 'transformation')
+		return deleteNote(context, {
+			collection: 'transformations',
+			id: deletion.id,
+		});
+	if (deletion.kind !== 'recording') return deleteNote(context, deletion.note);
 	const { id } = deletion;
-	const { data: now, error } = resultsOf(context.folder, id);
+	const { data: now, error } = resultsOf(context.files, id);
 	if (error !== null) return error;
-	const confirmed = new Set(deletion.results);
-	if (now.some((result) => !confirmed.has(result)))
+	const confirmed = new Set(deletion.results.map(notePath));
+	if (now.some((result) => !confirmed.has(notePath(result))))
 		return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
-	const refused = await deleteFile(context, deletion.path);
-	if (refused !== undefined) return refused;
-	context.dropFailed(id);
-	// A partial failure reports the paths left and why each write failed.
+	// Results first, so none is ever left naming a recording that is gone.
 	const leftovers: string[] = [];
 	for (const result of deletion.results) {
-		const problem = await deleteFile(context, result);
-		if (problem !== undefined) leftovers.push(`${result}: ${problem}`);
+		const problem = await deleteNote(context, result);
+		if (problem !== undefined)
+			leftovers.push(`${notePath(result)}: ${problem}`);
 	}
-	return leftovers.length > 0 ? `Could not delete ${leftovers.join(', ')}.` : undefined;
+	if (leftovers.length > 0)
+		return `The recording was kept, because some of its results could not be deleted: ${leftovers.join(', ')}.`;
+	const refused = await deleteNote(context, { collection: 'recordings', id });
+	if (refused !== undefined) return refused;
+	context.dropFailed(id);
+	const audio = await context.files.deleteAudio(id);
+	return audio.error === null
+		? undefined
+		: `The recording was deleted, but its audio was not: ${audio.error}`;
 }
 
 const count = (n: number, one: string, many: string) =>
 	`${n} ${n === 1 ? one : many}`;
 
-/** What a person is told before a deletion: which files go and which stay. */
+/** What a person is told before a deletion: what goes and what stays. */
 export function describeDeletion(deletion: Deletion): {
 	title: string;
 	description: string;
@@ -239,52 +244,44 @@ export function describeDeletion(deletion: Deletion): {
 	switch (deletion.kind) {
 		case 'recording': {
 			const removed = [
-				deletion.path,
+				'its note',
+				...(deletion.audio ? [`its audio (${deletion.audio})`] : []),
 				...(deletion.results.length > 0
 					? [count(deletion.results.length, 'result', 'results')]
 					: []),
 			];
-			// The row is deleted. Its audio is a separate file that no row owns.
 			return {
 				title: `Delete “${deletion.title}”?`,
-				description: `This deletes ${removed.join(', ')} from the folder.${
-					deletion.audioPath
-						? ` Its audio ${deletion.audioPath} is not deleted: it stays in the folder as an ordinary file, and you can delete it from Files.`
-						: ''
-				}`,
+				description: `This deletes ${removed.join(', ')}.`,
 			};
 		}
 		case 'transformation':
 			return {
 				title: `Delete the transformation “${deletion.title}”?`,
-				description: `This deletes ${deletion.path} from the folder. ${
+				description: `This deletes transformations/${deletion.id}.md. ${
 					deletion.results > 0
-						? `Its ${count(deletion.results, 'saved result stays', 'saved results stay')} in transformation_runs or text_runs, each with the prompt it used.`
+						? `Its ${count(deletion.results, 'saved result stays', 'saved results stay')}, each with the prompt it used.`
 						: 'It has no saved results.'
 				}`,
 			};
-		case 'file': {
-			const { path } = deletion;
-			const what = deletion.problem
-				? `${path} does not read as a ${
-						deletion.recordingId === undefined ? 'transformation' : 'recording'
-					} (${deletion.problem}), so this deletes only that file. ${
-						deletion.recordingId === undefined
-							? 'Saved results made with it are kept.'
-							: 'Transcripts, results, and audio that go with it are kept.'
-					}`
-				: `This deletes ${path} from the folder.${
-						deletion.audioOf
-							? ` The recording “${deletion.audioOf}” names it as its audio and is kept, with no audio to play or transcribe.`
-							: ''
-					}`;
+		case 'result':
 			return {
-				title: `Delete ${basename(path)}?`,
-				description:
-					rowIdOf(TRANSFORMATION_RUNS, path) !== undefined
-						? `${what} The transcript it was made from is not changed.`
-						: what,
+				title:
+					deletion.note.collection === 'transcriptions'
+						? 'Delete this transcript?'
+						: 'Delete this result?',
+				description: `This deletes ${notePath(deletion.note)}.${
+					deletion.note.collection === 'transformation_runs'
+						? ' The transcript it was made from is not changed.'
+						: deletion.note.collection === 'transcriptions'
+							? ' Results made from it are kept.'
+							: ''
+				}`,
 			};
-		}
+		case 'invalid':
+			return {
+				title: `Delete ${notePath(deletion.note)}?`,
+				description: `It does not read (${deletion.problem}), so this deletes only that file.`,
+			};
 	}
 }

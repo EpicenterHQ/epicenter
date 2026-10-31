@@ -1,41 +1,38 @@
 <script lang="ts">
-	import { audioMimeTypeOf } from '$lib/audio-format.js';
-	import { getFolder } from '$lib/folder.js';
+	import type { AudioFile } from '$lib/whispering.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 
-	/** Play a finished file; live capture owns its bytes until Stop finalizes them. */
-	let { path, label }: {
-		path: string;
+	/**
+	 * Play recording `id`'s audio, read from its nearest copy: this device,
+	 * its cache, then the repository (a download). A copy that changes, or
+	 * moves to another side, is read again.
+	 */
+	let { id, file, label }: {
+		id: string;
+		/** The audio file the recording has, as listed. */
+		file: AudioFile;
 		label: string;
 	} = $props();
 	const whispering = getWhispering();
-	const folder = getFolder();
-	const capture = $derived(whispering.capturePhase(path));
-	/** The listed file: audio is not kept, so a new value means its bytes changed. */
-	const file = $derived(folder.file(path));
 
 	let current = $state<string | undefined>();
 	let problem = $state<string | undefined>();
 
 	// Each read owns its URL until the file changes or this view leaves.
 	$effect(() => {
-		void file;
+		void [file.where, file.ext, file.version, file.cached];
 		current = undefined;
 		problem = undefined;
-		if (capture !== undefined) return;
 		let url: string | undefined;
 		let live = true;
-		void folder.read(path).then(({ data, error }) => {
+		void whispering.readAudio(id).then(({ data, error }) => {
 			if (!live) return;
-			if (error) problem = error.message;
-			else if (data)
+			if (error !== null) problem = error;
+			else
 				url = current = URL.createObjectURL(
 					// SAFETY: storage reads answer bytes over a plain ArrayBuffer.
-					new Blob([data as Uint8Array<ArrayBuffer>], {
-						type: audioMimeTypeOf(path) ?? '',
-					}),
+					new Blob([data.bytes as Uint8Array<ArrayBuffer>], { type: data.mimeType }),
 				);
-			else problem = `No file exists at '${path}'.`;
 		});
 		return () => {
 			live = false;
@@ -44,15 +41,11 @@
 	});
 </script>
 
-{#if capture !== undefined}
-	<p class="text-xs text-muted-foreground" role="status">{capture === 'recording' ? 'Recording…' : 'Stopping…'}</p>
-{:else}
-	{#if problem}
-		<p class="text-xs text-destructive" role="alert">The audio could not be loaded: {problem}</p>
-	{/if}
-	{#if current}
-		<audio class="h-10 w-full" controls preload="metadata" src={current} aria-label={label} data-testid="audio-player"></audio>
-	{:else if !problem}
-		<p class="text-xs text-muted-foreground">Loading audio…</p>
-	{/if}
+{#if problem}
+	<p class="text-xs text-destructive" role="alert">The audio could not be loaded: {problem}</p>
+{/if}
+{#if current}
+	<audio class="h-10 w-full" controls preload="metadata" src={current} aria-label={label} data-testid="audio-player" data-audio-where={file.where} data-audio-cached={file.cached}></audio>
+{:else if !problem}
+	<p class="text-xs text-muted-foreground">Loading audio…</p>
 {/if}

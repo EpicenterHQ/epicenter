@@ -3,12 +3,9 @@
  * transcription and one for text.
  *
  * A connection is a base URL, the model used when a request names none, and
- * an optional API key. Its base URL and key are kept on this device, never in
- * Whispering's folder: inside Epicenter the connection is a row of
- * `so.epicenter` holding the model, with the base URL and key in this
- * computer's keychain, and a browser tab keeps all three in `localStorage`.
- * The folder's files never choose where a
- * request goes or which key it carries. A request names the
+ * an optional API key. All three are kept on this device, never in
+ * Whispering's files: a browser tab keeps them in `localStorage`. Whispering's
+ * files never choose where a request goes or which key it carries. A request names the
  * connection's base URL it was prepared for, and is sent only while the
  * connection still targets exactly that URL, so a change of connection never
  * retargets a request already prepared.
@@ -17,8 +14,8 @@
  * is kept only for the destination it was saved for: changing the base URL
  * needs the key replaced or removed in the same change.
  *
- * These rules are pure, so both platform adapters apply the same ones to their own
- * storage. Nothing here reads or writes anything.
+ * These rules are pure, so every platform adapter applies the same ones to
+ * its own storage. Nothing here reads or writes anything.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
@@ -192,3 +189,9 @@ export function connectionTargets(
 	const { data: canonical, error: urlError } = canonicalBaseUrl(expected);
 	return urlError === null && canonical === stored.baseUrl;
 }
+
+/** Where the transcription connection's form starts. Nothing is sent there until it is saved. */
+export const DEFAULT_TRANSCRIPTION_CONNECTION = {
+	baseUrl: 'https://api.openai.com/v1',
+	model: 'whisper-1',
+} as const;
