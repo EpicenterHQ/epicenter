@@ -35,6 +35,12 @@ at a time, made over what the person saw when the typing began.
 <Checkbox checked={todo?.done} onCheckedChange={(done) => files.todos.update({ id }, { done })} />
 ```
 
+An editor that holds a whole-note draft saves it with
+`files.todos.replace({ id }, draft, { over })`, where `over` is the version
+the draft began from, so another writer's change since is a `Conflict`
+instead of being overwritten; without `over`, `replace` writes over the
+version shown.
+
 ### This device and the repository as one list
 
 An app whose notes are kept on the device and upload to the person's
@@ -61,7 +67,11 @@ const todos = oneList(contract, 'todos', {
 - A note the device lets go of stays shown until the repository answers a
   listing, so an editor open on it is never unmounted while it uploads.
 - `create` goes to the repository; when it cannot be reached, or signed out,
-  the note stays on the device, recorded in the outbox to upload.
+  the note stays on the device, recorded in the outbox to upload. With
+  `createOn: 'device'` every new note goes to the device and the outbox, so
+  creating never waits on the server (Capture's Add); the uploader moves it.
+- A row carries `where` beside the note's own keys. Drop it before treating
+  a row as front matter (writing its text, comparing fields).
 - `error` is the device's; `repositoryError` says the repository could not
   be listed, while new notes still save to the device.
 

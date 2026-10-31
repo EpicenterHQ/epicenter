@@ -96,10 +96,16 @@ export type ReactiveNotes<TCollection extends Collection> = {
 		patch: NotePatch<TCollection>,
 		options?: { base?: Base<TCollection> },
 	): ReturnType<NoteClient<TCollection>['update']>;
-	/** Replace the whole note with `text`, over the version shown (valid or not). */
+	/**
+	 * Replace the whole note with `text`, over `over`, by default the version
+	 * shown (valid or not). An editor that shows a draft passes the version
+	 * its draft began from, so another writer's change since is a `Conflict`
+	 * (the adapter then shows theirs), not overwritten.
+	 */
 	replace(
 		args: PlaceholdersOf<TCollection>,
 		text: string,
+		options?: { over?: Version },
 	): ReturnType<NoteClient<TCollection>['replace']>;
 	delete(
 		args: PlaceholdersOf<TCollection>,
@@ -305,15 +311,16 @@ function fromCollection(collection: Raw) {
 						}),
 			);
 		},
-		async replace(args: Args, text: string) {
-			const base = await baseOf(args);
-			if (base.error !== null) return base;
+		async replace(args: Args, text: string, options: { over?: Version } = {}) {
 			if (notes === null)
 				throw new Error('replace is a note collection’s alone');
-			return settle(
-				args,
-				await notes.replace(args as never, text, { over: base.data.version }),
-			);
+			let over = options.over;
+			if (over === undefined) {
+				const base = await baseOf(args);
+				if (base.error !== null) return base;
+				over = base.data.version;
+			}
+			return settle(args, await notes.replace(args as never, text, { over }));
 		},
 		async delete(args: Args) {
 			const base = await baseOf(args);

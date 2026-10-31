@@ -10,7 +10,8 @@
  * - A write through the adapter shows at once, without waiting for a listing
  * - `update` carries an edit over another writer's other fields, and after a
  *   clash shows theirs, so saving again applies over it
- * - Invalid notes are shown with their text, and `replace` repairs one
+ * - Invalid notes are shown with their text, and `replace` repairs one;
+ *   a draft's `replace` over the version it began from refuses a change since
  * - `fieldEdit` sends one save at a time, so fast typing never clashes with
  *   itself, and another writer's change to the same field surfaces
  */
@@ -271,6 +272,38 @@ test('an invalid note shows with its text, and replace repairs it at once', asyn
 	expect(invalid.values.at(-1)).toEqual([]);
 	expect(files.todos.get({ id: 'a' })).toEqual(repaired);
 	invalid.stop();
+});
+
+test('replace over the version a draft began from refuses another writer’s change since, then shows theirs', async () => {
+	const { open, root, text } = await folder();
+	const files = fromClient(open());
+	await Bun.write(
+		join(root, 'todos/a.md'),
+		'---\ntitle: Milk\ndone: false\n---\n',
+	);
+	const shown = follow(() => files.todos.get({ id: 'a' })?.title);
+	await until(() => shown.values.at(-1) === 'Milk');
+	const began = files.todos.get({ id: 'a' })?.version;
+
+	// Another writer changes it while the draft is open, and the adapter hears it.
+	await Bun.write(
+		join(root, 'todos/a.md'),
+		'---\ntitle: Oat milk\ndone: false\n---\n',
+	);
+	await until(() => shown.values.at(-1) === 'Oat milk');
+
+	const draft = '---\ntitle: Soy milk\ndone: false\n---\n';
+	const refused = expectErr(
+		await files.todos.replace({ id: 'a' }, draft, { over: began }),
+	);
+	expect(refused.name).toBe('Conflict');
+	expect(await text('todos/a.md')).toBe(
+		'---\ntitle: Oat milk\ndone: false\n---\n',
+	);
+	// Saving again over what is shown now replaces theirs, on purpose.
+	expectOk(await files.todos.replace({ id: 'a' }, draft));
+	expect(await text('todos/a.md')).toBe(draft);
+	shown.stop();
 });
 
 test('fieldEdit sends one save at a time, the newest value waiting, so fast typing never clashes with itself', async () => {
