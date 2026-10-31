@@ -17,6 +17,7 @@ import {
 	test as base,
 	expect,
 	type Page,
+	type Route,
 } from 'playwright/test';
 import type { Person, Stack } from './app-stack.test-support.ts';
 
@@ -238,4 +239,23 @@ export function uploaderStarts(page: Page): Promise<string[]> {
 	return page.evaluate(
 		() => JSON.parse(sessionStorage.getItem('uploaders') ?? '[]') as string[],
 	);
+}
+
+/**
+ * Take the network away from every page of `context`: each http(s) request
+ * fails as a disconnected one would. Answers the function that gives it
+ * back.
+ *
+ * Not `context.setOffline(true)`: under Playwright, WebKit loads `blob:`
+ * URLs, which is how a Worker reads an OPFS file's bytes, through the same
+ * interception, and offline emulation (or a catch-all route) blocks them
+ * ("Blocked by Web Inspector"), so local reads fail where a real offline
+ * browser reads them. Only http(s) goes.
+ */
+export async function goOffline(context: BrowserContext) {
+	const offline = (url: URL) =>
+		url.protocol === 'http:' || url.protocol === 'https:';
+	const disconnect = (route: Route) => route.abort('internetdisconnected');
+	await context.route(offline, disconnect);
+	return () => context.unroute(offline, disconnect);
 }

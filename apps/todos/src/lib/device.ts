@@ -1,11 +1,12 @@
 /**
- * This page's device: where it keeps todos, opened once for the page.
+ * The local variant's store: where it keeps todos, opened once for the page
+ * and only by the local variant's page (the online variant never imports it).
  *
- * - In a browser, this origin's private files (OPFS, `@epicenter/folder/browser`).
- *   A todo made there signed out or offline uploads once someone signs in.
+ * - In a browser, this origin's private files (OPFS, `@epicenter/folder/browser`),
+ *   for good: they never sync and never upload (ADR-0700).
  * - In Todos' desktop window, the folder its shell bound to the window
  *   (`@epicenter/folder/tauri`). The page never signs in: Epicenter syncs
- *   that folder (`epicenter sync`), so nothing here uploads.
+ *   that folder (`epicenter sync`).
  *
  * Both are the same contract's client at the same paths.
  */

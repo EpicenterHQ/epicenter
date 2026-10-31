@@ -1,6 +1,6 @@
 /**
- * Todos' order: the views sort whichever list they read, the device's
- * signed out or the one list signed in, with `openFirst`.
+ * Todos' order: both variants sort the list they read, this browser's or
+ * the repository's, with `openFirst`.
  *
  * Key behaviors:
  * - Open todos come first, then done ones, each oldest first

@@ -1,38 +1,39 @@
 /**
  * Todos end to end, per engine, as one person in one persistent browser
- * profile with a desktop sandbox beside it (see `stack.ts`):
+ * profile with a desktop sandbox beside it (see `stack.ts`).
  *
- * Todos has two views (decision 76): "On this device" (`/`), this
- * browser's files, and "Synced" (`/synced`), the person's repository.
+ * Todos has two web variants, each over one store for the page's life, and
+ * nothing moves between them (ADR-0700): "On this browser" (`/`), this
+ * browser's files, with no account; and "Online" (`/online`), the person's
+ * repository, signed in.
  *
- * 1. Signed out, todos are created, edited, completed and deleted on this
- *    device (OPFS), as Markdown notes at `todos/<id>.md`; "Synced" asks for
- *    a sign-in.
- * 2. Signed in, they upload on their own: each leaves "On this device" and
- *    the browser's files, and appears in "Synced". One added on this device
- *    while signed in follows; one added in "Synced" goes to the repository.
- * 3. `epicenter clone` holds them as written, and `epicenter check` passes
+ * 1. On this browser, todos are created, edited, completed and deleted as
+ *    Markdown notes at `todos/<id>.md` in OPFS, and survive a reload.
+ * 2. Offline, the local variant still creates and edits.
+ * 3. Online asks for a sign-in; signed in, it shows the repository, which
+ *    holds none of this browser's todos, and a todo created and edited
+ *    there lands in the repository and never in this browser.
+ * 4. `epicenter clone` holds it as written, and `epicenter check` passes
  *    against the published contract.
- * 4. A title edited on the desktop and synced shows in "Synced", with no
- *    reload; notes edited there reach the desktop's next sync.
- * 5. A note the desktop wrote that does not read as a todo shows in
- *    "Synced" with its text, and saving fixed text there repairs it.
- * 6. Signing out leaves this browser with no todos, and "Synced" asks for a
- *    sign-in again.
+ * 5. A title edited on the desktop and synced shows online with no reload;
+ *    notes edited online reach the desktop's next sync.
+ * 6. A note the desktop wrote that does not read as a todo shows online
+ *    with its text, and saving fixed text there repairs it.
+ * 7. Signing in moved nothing: this browser's todos are where they were,
+ *    and the repository has none of them. Signing out leaves them too.
  */
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type BrowserContext, expect, type Page } from 'playwright/test';
 import {
 	emptyOpfs,
 	epicenter,
+	goOffline,
 	opfsFiles,
 	opfsText,
-	recordUploaderStarts,
 	stackTest,
 	sync,
-	uploaderStarts,
 } from '../../../packages/cli/src/app-e2e.test-support.ts';
 
 const test = stackTest('TODOS_E2E_STATE');
@@ -46,7 +47,13 @@ let page: Page;
 /** What the first steps learn, for the later ones. */
 let milk: string;
 let bread: string;
+let flour: string;
+/** The todos made online, in the repository. */
+let eggs: string;
+let loaf: string;
 let clone: string;
+/** This browser's files once the local steps are done. */
+let localFiles: Record<string, string>;
 
 test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 	profile = await mkdtemp(join(tmpdir(), `todos-${browserName}-`));
@@ -54,8 +61,8 @@ test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 	context = await playwright[browserName].launchPersistentContext(profile, {
 		...launchOptions,
 		viewport: { width: 1280, height: 800 },
-		// Routing (step 3) does not see the requests of a page a service
-		// worker controls; no step opens the app offline.
+		// No step opens the app offline from a reload, so no service worker:
+		// one would answer the page's requests out of sight of the test.
 		serviceWorkers: 'block',
 	});
 	page = context.pages()[0] ?? (await context.newPage());
@@ -67,7 +74,7 @@ test.afterAll(async () => {
 });
 
 const list = () => page.getByRole('list', { name: 'Todos' });
-const views = () => page.getByRole('navigation', { name: 'Views' });
+const ways = () => page.getByRole('navigation', { name: 'Ways to use Todos' });
 const status = () => page.getByTestId('status-summary');
 const row = (id: string) => page.locator(`li[data-id="${id}"]`);
 const detail = () => page.getByRole('region', { name: 'Todo', exact: true });
@@ -97,21 +104,22 @@ async function todoFiles() {
 		.sort();
 }
 
-test('1. signed out, todos are created, edited, completed and deleted in the browser', async ({
+test('1. on this browser, todos are created, edited, completed and deleted, and survive a reload', async ({
 	stack,
 }) => {
 	// WebKit keeps OPFS outside the profile directory: start from an empty origin.
 	await page.goto(`${stack.app}/`);
 	await emptyOpfs(page);
 	await page.goto(`${stack.app}/`);
-	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 	await expect(
-		views().getByRole('link', { name: 'On this device' }),
+		ways().getByRole('link', { name: 'On this browser' }),
 	).toHaveAttribute('aria-current', 'page');
 	await expect(status()).toHaveAttribute(
 		'aria-label',
-		/^Status: On this device\./,
+		/^Status: On this browser\./,
 	);
+	// The local variant needs no account, and offers none.
+	await expect(page.getByRole('button', { name: 'Sign in' })).toHaveCount(0);
 	await expect(page.getByText('No todos yet')).toBeVisible();
 
 	milk = await add('Buy milk');
@@ -161,66 +169,73 @@ test('1. signed out, todos are created, edited, completed and deleted in the bro
 		/Buy bread/,
 		/Buy oat milk/,
 	]);
-
-	// "Synced" is the repository's, which needs a sign-in.
-	await views().getByRole('link', { name: 'Synced' }).click();
-	await expect(
-		page.getByText('Sign in to see the todos in your Epicenter repository.'),
-	).toBeVisible();
-	await page.getByRole('link', { name: 'On this device' }).click();
-	await expect(list().locator('li[data-id]')).toHaveCount(2);
 });
 
-test('2. signed in, the todos upload: each leaves this device and appears in Synced', async ({
-	stack,
-	person,
-}) => {
-	await recordUploaderStarts(context);
-	// A signed-in session on the API; the real authorization redirect does the rest.
-	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
-	// The callback page only finishes sign-in: no repository, no uploader.
-	const uploaders = await uploaderStarts(page);
-	expect(uploaders.length).toBeGreaterThan(0);
-	expect(uploaders.filter((path) => path.includes('/auth/callback'))).toEqual(
-		[],
-	);
-
-	// The uploader moves them: this device's view and files empty.
-	await expect(row(milk)).toHaveCount(0);
-	await expect(row(bread)).toHaveCount(0);
-	await expect(page.getByText('No todos yet')).toBeVisible();
-	await expect.poll(() => opfsFiles(page)).toEqual({});
-
-	// One added on this device while signed in follows on its own.
-	await page.getByLabel('New todo title').fill('Buy flour');
-	await page.getByRole('button', { name: 'Add', exact: true }).click();
-	await expect(page.getByLabel('New todo title')).toHaveValue('');
-	await expect(list().locator('li[data-id]')).toHaveCount(0);
-	await expect.poll(() => opfsFiles(page)).toEqual({});
-
-	await views().getByRole('link', { name: 'Synced' }).click();
-	await expect(views().getByRole('link', { name: 'Synced' })).toHaveAttribute(
-		'aria-current',
-		'page',
-	);
-	await expect(status()).toHaveAttribute('aria-label', /^Status: Synced\./);
+test('2. offline, the local variant still creates and edits', async () => {
+	const online = await goOffline(context);
+	try {
+		flour = await add('Buy flour');
+		await detail().getByLabel('Notes').fill('Rye.\n');
+		await expect
+			.poll(() => opfsText(page, `todos/${flour}.md`))
+			.toBe('---\ntitle: Buy flour\ndone: false\n---\nRye.\n');
+		await expect(status()).toHaveAttribute(
+			'aria-label',
+			/^Status: On this browser\./,
+		);
+	} finally {
+		await online();
+	}
 	await expect(list().locator('li[data-id]')).toHaveText([
 		/Buy bread/,
 		/Buy flour/,
 		/Buy oat milk/,
 	]);
-	await expect(
-		row(milk).getByRole('checkbox', { name: 'Reopen Buy oat milk' }),
-	).toBeVisible();
-
-	// One added in "Synced" goes to the repository, never this device.
-	await add('Buy eggs');
-	expect(await opfsFiles(page)).toEqual({});
+	localFiles = await opfsFiles(page);
+	expect(Object.keys(localFiles).sort()).toEqual(
+		[`todos/${bread}.md`, `todos/${flour}.md`, `todos/${milk}.md`].sort(),
+	);
 });
 
-test('3. a desktop clone holds the todos as written, and the folder fits the contract', async ({
+test('3. online, signed in, shows the repository; a todo made and edited there lands in it, never in this browser', async ({
+	stack,
+	person,
+}) => {
+	await ways().getByRole('link', { name: 'Online' }).click();
+	await expect(page).toHaveURL(`${stack.app}/online`);
+	await expect(
+		page.getByText('Sign in to use the todos in your Epicenter repository.'),
+	).toBeVisible();
+
+	// A signed-in session on the API; the real authorization redirect does the rest.
+	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
+	await page.getByRole('button', { name: 'Sign in' }).click();
+	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+	await expect(page).toHaveURL(`${stack.app}/online`);
+	await expect(ways().getByRole('link', { name: 'Online' })).toHaveAttribute(
+		'aria-current',
+		'page',
+	);
+	await expect(status()).toHaveAttribute('aria-label', /^Status: Online\./);
+	// The repository is its own list: none of this browser's todos are in it.
+	await expect(page.getByText('No todos yet')).toBeVisible();
+
+	eggs = await add('Buy eggs');
+	await detail().getByLabel('Notes').fill('A dozen.\n');
+	await row(eggs).getByRole('checkbox', { name: 'Complete Buy eggs' }).click();
+	await expect(
+		row(eggs).getByRole('checkbox', { name: 'Reopen Buy eggs' }),
+	).toBeVisible();
+	loaf = await add('Buy bread');
+	await expect(list().locator('li[data-id]')).toHaveText([
+		/Buy bread/,
+		/Buy eggs/,
+	]);
+	// Nothing online is kept in this browser.
+	expect(await opfsFiles(page)).toEqual(localFiles);
+});
+
+test('4. a desktop clone holds the todos as written, and the folder fits the contract', async ({
 	stack,
 	person,
 }) => {
@@ -234,11 +249,14 @@ test('3. a desktop clone holds the todos as written, and the folder fits the con
 	);
 	expect(cloned.code, `${cloned.stdout}\n${cloned.stderr}`).toBe(0);
 
-	expect(await readFile(join(clone, `todos/${milk}.md`), 'utf8')).toBe(
-		'---\ntitle: Buy oat milk\ndone: true\n---\nNot dairy.\n',
-	);
-	expect(await readFile(join(clone, `todos/${bread}.md`), 'utf8')).toBe(
+	await expect
+		.poll(() => readFile(join(clone, `todos/${eggs}.md`), 'utf8'))
+		.toBe('---\ntitle: Buy eggs\ndone: true\n---\nA dozen.\n');
+	expect(await readFile(join(clone, `todos/${loaf}.md`), 'utf8')).toBe(
 		'---\ntitle: Buy bread\ndone: false\n---\n',
+	);
+	expect((await readdir(join(clone, 'todos'))).sort()).toEqual(
+		[`${loaf}.md`, `${eggs}.md`].sort(),
 	);
 
 	const checked = await epicenter(
@@ -251,11 +269,11 @@ test('3. a desktop clone holds the todos as written, and the folder fits the con
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('4. a title edited on the desktop shows in Synced with no reload, and notes edited there reach the desktop', async ({
+test('5. a title edited on the desktop shows online with no reload, and notes edited there reach the desktop', async ({
 	stack,
 	person,
 }) => {
-	const path = join(clone, `todos/${bread}.md`);
+	const path = join(clone, `todos/${loaf}.md`);
 	await writeFile(
 		path,
 		(await readFile(path, 'utf8')).replace(
@@ -266,9 +284,9 @@ test('4. a title edited on the desktop shows in Synced with no reload, and notes
 	await sync(stack, person, clone);
 
 	// The remote hears main move (a poll until the notify Durable Object).
-	await expect(row(bread)).toContainText('Buy rye bread');
+	await expect(row(loaf)).toContainText('Buy rye bread');
 
-	await row(bread).getByRole('button', { name: 'Buy rye bread' }).click();
+	await row(loaf).getByRole('button', { name: 'Buy rye bread' }).click();
 	await expect(detail().getByLabel('Title', { exact: true })).toHaveValue(
 		'Buy rye bread',
 	);
@@ -281,7 +299,7 @@ test('4. a title edited on the desktop shows in Synced with no reload, and notes
 		.toBe('---\ntitle: Buy rye bread\ndone: false\n---\nFrom the bakery.\n');
 });
 
-test('5. a note that does not read as a todo shows in Synced with its text, and is repaired there', async ({
+test('6. a note that does not read as a todo shows online with its text, and is repaired there', async ({
 	stack,
 	person,
 }) => {
@@ -315,13 +333,30 @@ test('5. a note that does not read as a todo shows in Synced with its text, and 
 	);
 });
 
-test('6. signed out, the browser holds no todos, and Synced asks for a sign-in', async () => {
+test('7. signing in moved nothing: this browser keeps its todos, the repository has none of them, and signing out keeps them too', async ({
+	stack,
+	person,
+}) => {
+	await ways().getByRole('link', { name: 'On this browser' }).click();
+	await expect(page).toHaveURL(`${stack.app}/`);
+	await expect(list().locator('li[data-id]')).toHaveText([
+		/Buy bread/,
+		/Buy flour/,
+		/Buy oat milk/,
+	]);
+	expect(await opfsFiles(page)).toEqual(localFiles);
+
+	await sync(stack, person, clone);
+	expect((await readdir(join(clone, 'todos'))).sort()).toEqual(
+		['call.md', `${loaf}.md`, `${eggs}.md`].sort(),
+	);
+
+	await ways().getByRole('link', { name: 'Online' }).click();
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await expect(
-		page.getByText('Sign in to see the todos in your Epicenter repository.'),
+		page.getByText('Sign in to use the todos in your Epicenter repository.'),
 	).toBeVisible();
-	await page.getByRole('link', { name: 'On this device' }).click();
-	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-	await expect(page.getByText('No todos yet')).toBeVisible();
-	expect(await opfsFiles(page)).toEqual({});
+	await page.getByRole('link', { name: 'On this browser' }).click();
+	await expect(list().locator('li[data-id]')).toHaveCount(3);
+	expect(await opfsFiles(page)).toEqual(localFiles);
 });

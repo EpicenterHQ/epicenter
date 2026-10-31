@@ -1,12 +1,14 @@
 <!--
-	Every page of Todos: the chrome only. The views and their signed-in
-	boundary are the `(app)` group's; the sign-in callback is outside it.
+	Every page of Todos: the chrome and the leave guard. The local variant is
+	`/`, the online variant `/online` behind its signed-in layout; the
+	sign-in callback opens neither.
 -->
 <script lang="ts">
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { isTauri } from '@tauri-apps/api/core';
+	import { guardLeave } from '@epicenter/svelte/leave-guard';
 	import { ModeWatcher } from 'mode-watcher';
 	import { onMount } from 'svelte';
 	import { dev } from '$app/environment';
@@ -14,6 +16,9 @@
 	import '@epicenter/ui/app.css';
 
 	let props = $props();
+
+	// Leaving while a save is out asks first; a desktop window waits for it.
+	onMount(guardLeave);
 
 	// The browser build opens offline through its service worker
 	// (`src/service-worker.js`). The desktop window loads the same build from

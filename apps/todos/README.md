@@ -9,21 +9,21 @@ program that writes the layout is a valid writer.
 
 ## The web app
 
-Todos opens without an account and has two views (decision 76), each over
-its own files:
+Todos in a browser is two ways to use the app, each over one store for the
+page's whole life. They are separate lists; nothing ever moves from one to
+the other ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
 
-- **On this device** (`/`): the todos in this browser's private files
-  (OPFS), at the same paths a folder holds. It works signed out and
-  offline.
-- **Synced** (`/synced`, signed in): the person's own repository,
-  `<handle>/todos`, through Epicenter. Signed out it asks for a sign-in.
+- **On this browser** (`/`, the local variant): the todos in this browser's
+  private files (OPFS), at the same paths a folder holds, for good. It needs
+  no account, works offline, and never uploads. Todos has no hosted
+  capabilities, so this variant never signs in.
+- **Online** (`/online`, the online variant): the person's own repository,
+  `<handle>/todos`, through Epicenter, behind a signed-in layout. Every
+  create and edit is a commit there; nothing is kept in the browser. Signed
+  out it asks for a sign-in.
 
-Each view creates, edits, completes, deletes and repairs its own todos.
-Signed in, the uploader moves every todo on this device into the
-repository in the background: it leaves "On this device" and appears in
-"Synced", whichever view made it and whenever it was made. Nothing keeps it
-on screen across the move. The two views are not merged; one merged list
-may come back later.
+The header links the two; each link loads a new page. Both create, edit,
+complete, delete and repair their own todos:
 
 - Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show
   without a reload.
@@ -31,13 +31,12 @@ may come back later.
   "Needs repair" with its text. Saving fixed text there replaces the note,
   written in house style; text that still does not fit is refused.
 
-Signing out leaves the browser with only the todos it never uploaded. The
-title and notes save as you type; a save that fails stays in its editor with
-Save again, Discard and Copy.
+The title and notes save as you type; a save that fails stays in its editor
+with Save again, Discard and Copy.
 
-The app signs in as `so.epicenter.todos` for the server's Git audience only
-(`src/lib/auth.ts`, made on first use, and never in the desktop window). The
-server is `VITE_EPICENTER_SERVER` at build time, else
+The online variant signs in as `so.epicenter.todos` for the server's Git
+audience only (`src/lib/auth.ts`, made on first use there, and never in the
+desktop window). The server is `VITE_EPICENTER_SERVER` at build time, else
 Epicenter's. The hosted API does not serve web writes yet, so signing in
 works against a local or self-hosted API.
 
@@ -77,8 +76,8 @@ development identifier `so.epicenter.todos.dev`, or under
 `EPICENTER_FOLDER_DIR`), created when missing. The page is the same build as
 the web app; in the window it opens that folder as the contract's client
 (`openDevice` from `@epicenter/folder/tauri`, chosen in `src/lib/device.ts`)
-and never names a path. It signs in to nothing and uploads nothing: Epicenter
-syncs a folder added to it (`epicenter sync`). The window also offers
+and never names a path. This is the desktop variant: it signs in to nothing,
+and only Epicenter syncs the folder once it is added (`epicenter sync`). The window also offers
 **Open in Epicenter**, which asks the operating system to open
 `epicenter://init?path=<the bound folder>&contract=https://todos.epicenter.so/contract.json`:
 a request that Epicenter sync the folder, which it shows for the person to set
@@ -101,18 +100,17 @@ name, and never commits or contacts a server.
 ## Layout
 
 - `src/lib/contract.ts`: the contract.
-- `src/lib/device.ts`: the device, a module singleton: this browser's files,
-  or the desktop window's folder.
+- `src/lib/device.ts`: the local and desktop variants' store, a module
+  singleton: this browser's files, or the desktop window's folder.
 - `src/lib/todos.ts`: a todo's file, label and order (open first, then
   done, each oldest first), and the list's context.
-- `src/routes/(app)/+layout.svelte`: signed in, wraps both views in the
-  signed-in boundary, `src/lib/components/SignedIn.svelte`: the repository
-  (`setRepo`) and the uploader, per account.
-- `src/routes/(app)/+page.svelte`: "On this device", `fromClient(device).todos`.
-- `src/routes/(app)/synced/`: "Synced", `fromClient(getRepo<Todos>()).todos`,
-  behind a layout that asks for a sign-in when there is none.
-- `src/lib/components/TodosApp.svelte`: one view over the todos it is
-  given; the components under it read and write only through them.
+- `src/routes/+page.svelte`: the local variant, `fromClient(device).todos`.
+- `src/routes/online/`: the online variant. Its layout is the signed-in
+  layout: per account, `src/lib/components/Online.svelte` opens the
+  repository and sets it (`setRepo`); signed out, it asks for a sign-in. Its
+  page is `fromClient(getRepo<Todos>()).todos`.
+- `src/lib/components/TodosApp.svelte`: Todos over the todos it is given;
+  the components under it read and write only through them.
 
 ## Tests
 
@@ -129,12 +127,12 @@ need a build first.
 
 The Playwright suite (`e2e/todos.spec.ts`) starts the same environment as
 `demo`, built into a scratch directory (never `build/`), and walks one person
-through six steps per engine: create, edit, complete and delete todos on
-this device signed out, while "Synced" asks for a sign-in; sign in, and
-they upload, leaving "On this device" and the browser's files and appearing
-in "Synced", as does one added on this device signed in, while one added in
-"Synced" goes to the repository; `epicenter clone` holds them as written
-and `epicenter check` passes; a desktop title edit shows in "Synced" with
-no reload, and notes edited there reach the desktop; a note the desktop
-wrote that does not read as a todo shows in "Synced" with its text and is
-repaired there; and signing out leaves the browser empty.
+through seven steps per engine: on this browser, create, edit, complete and
+delete todos, which survive a reload; offline, create and edit still work;
+online asks for a sign-in, and signed in shows the repository without any of
+this browser's todos, where a todo made and edited lands and never reaches
+the browser; `epicenter clone` holds it as written and `epicenter check`
+passes; a desktop title edit shows online with no reload, and notes edited
+there reach the desktop; a note the desktop wrote that does not read as a
+todo shows online with its text and is repaired there; and back on this
+browser, signing in and out moved nothing.

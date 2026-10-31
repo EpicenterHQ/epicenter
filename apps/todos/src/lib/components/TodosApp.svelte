@@ -1,6 +1,6 @@
 <!--
-	One of Todos' two views (decision 76): the header, the list, and the open
-	todo, over one client's todos, this device's or the repository's. Which
+	Todos itself, in either variant: the header, the list, and the open todo,
+	over one store's todos, this browser's or the repository's. Which
 	todo is open is the URL's `?todo=<id>`, so it survives a reload and the
 	breakpoint.
 -->
@@ -12,18 +12,18 @@
 	import type { ReactiveNotes } from '@epicenter/svelte/client';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { setTodos, type TodoNotes, type View } from '$lib/todos.js';
+	import { setTodos, type TodoNotes, type Variant } from '$lib/todos.js';
 	import AppHeader from './AppHeader.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 
 	let {
-		view,
+		variant,
 		todos,
 	}: {
-		/** Which view this is: this device's todos, or the repository's. */
-		view: View;
-		/** That view's client's todos, which every component under it reads and edits. */
+		/** Which variant this page is: this browser's todos, or the repository's. */
+		variant: Variant;
+		/** Its store's todos, which every component under it reads and edits. */
 		todos: ReactiveNotes<TodoNotes>;
 	} = $props();
 
@@ -74,7 +74,7 @@
 {/snippet}
 
 <div class="flex h-dvh flex-col overflow-hidden">
-	<AppHeader {view} pendingNewTodo={newTitle.trim() !== ''} />
+	<AppHeader {variant} pendingNewTodo={newTitle.trim() !== ''} />
 
 	{#if wide.current}
 		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
