@@ -29,8 +29,10 @@ import {
 	epicenter,
 	opfsFiles,
 	opfsText,
+	recordUploaderStarts,
 	stackTest,
 	sync,
+	uploaderStarts,
 } from '../../../packages/cli/src/app-e2e.test-support.ts';
 
 const test = stackTest('TODOS_E2E_STATE');
@@ -173,26 +175,13 @@ test('2. signed in, the todos upload: each leaves this device and appears in Syn
 	stack,
 	person,
 }) => {
-	// Where an uploader starts: it takes the upload Web Lock at once.
-	await context.addInitScript(() => {
-		const request = navigator.locks.request.bind(navigator.locks);
-		navigator.locks.request = ((name: string, ...rest: unknown[]) => {
-			if (name === 'epicenter-upload') {
-				const seen = JSON.parse(sessionStorage.getItem('uploaders') ?? '[]');
-				seen.push(location.pathname);
-				sessionStorage.setItem('uploaders', JSON.stringify(seen));
-			}
-			return (request as (...args: unknown[]) => unknown)(name, ...rest);
-		}) as typeof navigator.locks.request;
-	});
+	await recordUploaderStarts(context);
 	// A signed-in session on the API; the real authorization redirect does the rest.
 	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
 	await page.getByRole('button', { name: 'Sign in' }).click();
 	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 	// The callback page only finishes sign-in: no repository, no uploader.
-	const uploaders = await page.evaluate(
-		() => JSON.parse(sessionStorage.getItem('uploaders') ?? '[]') as string[],
-	);
+	const uploaders = await uploaderStarts(page);
 	expect(uploaders.length).toBeGreaterThan(0);
 	expect(uploaders.filter((path) => path.includes('/auth/callback'))).toEqual(
 		[],

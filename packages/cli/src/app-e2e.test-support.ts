@@ -12,7 +12,12 @@ import { mkdtempSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test as base, expect, type Page } from 'playwright/test';
+import {
+	type BrowserContext,
+	test as base,
+	expect,
+	type Page,
+} from 'playwright/test';
 import type { Person, Stack } from './app-stack.test-support.ts';
 
 export type { Person, Stack };
@@ -195,4 +200,31 @@ export function emptyOpfs(page: Page) {
 		).keys())
 			await root.removeEntry(name, { recursive: true });
 	});
+}
+
+/**
+ * Record, in each page's session storage, the path of every page that
+ * starts an uploader: the uploader takes the upload Web Lock
+ * (`epicenter-upload`) the moment it starts. Call before the navigations to
+ * watch; read the record with `uploaderStarts`.
+ */
+export function recordUploaderStarts(context: BrowserContext) {
+	return context.addInitScript(() => {
+		const request = navigator.locks.request.bind(navigator.locks);
+		navigator.locks.request = ((name: string, ...rest: unknown[]) => {
+			if (name === 'epicenter-upload') {
+				const seen = JSON.parse(sessionStorage.getItem('uploaders') ?? '[]');
+				seen.push(location.pathname);
+				sessionStorage.setItem('uploaders', JSON.stringify(seen));
+			}
+			return (request as (...args: unknown[]) => unknown)(name, ...rest);
+		}) as typeof navigator.locks.request;
+	});
+}
+
+/** The paths of the pages in this tab that started an uploader, as `recordUploaderStarts` saw. */
+export function uploaderStarts(page: Page): Promise<string[]> {
+	return page.evaluate(
+		() => JSON.parse(sessionStorage.getItem('uploaders') ?? '[]') as string[],
+	);
 }
