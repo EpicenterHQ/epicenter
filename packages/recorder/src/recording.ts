@@ -83,6 +83,11 @@ export type RecordingEndedReason =
 export type StoppedRecording = {
 	/** The store-relative path of the audio file. */
 	readonly path: string;
+	/**
+	 * How long the file plays: on the desktop its samples over their rate, in
+	 * a browser read from the file written (an engine drops the first moments
+	 * of a recording, so the time between Start and Stop is longer).
+	 */
 	readonly durationMs: number;
 };
 

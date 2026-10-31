@@ -32,7 +32,7 @@
 import type { Client, Contract } from '@epicenter/definition/contract';
 import { type DeviceFiles, deviceFiles } from '@epicenter/folder/browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { repairAudio } from './container.js';
+import { audioDurationMs, repairAudio } from './container.js';
 import { openMicrophone, release } from './microphone.js';
 import {
 	RecorderError,
@@ -162,7 +162,7 @@ export function containerOf(type: string): {
 	return EXTENSIONS[base] ?? EXTENSIONS['audio/webm']!;
 }
 
-/** A recording held in the page, finished: its audio, and how long it ran. */
+/** A recording held in the page, finished: its audio, and how long it plays. */
 export type RecordedAudio = {
 	readonly bytes: Uint8Array;
 	/** `m4a` or `webm` (or `ogg`), from the type the browser produced. */
@@ -424,6 +424,17 @@ export function createBrowserRecorder(
 				reason: `another tab is recording into ${expected}`,
 			});
 
+		/**
+		 * How long the audio written at `path` plays, read from its bytes, or
+		 * undefined when they do not read. Not the time between Start and Stop:
+		 * an engine drops the first moments of a recording (Safari 0.7 to 1.6 s).
+		 */
+		const heldMs = async (path: string) => {
+			const { data } = await files.read(path);
+			return data
+				? audioDurationMs(data.bytes, path.slice(path.lastIndexOf('.') + 1))
+				: undefined;
+		};
 		let file = expected;
 		let capture: Capture | undefined;
 		let created = false;
@@ -489,7 +500,10 @@ export function createBrowserRecorder(
 					return storageFailure === undefined
 						? RecorderError.Empty()
 						: RecorderError.Refused({ reason: storageFailure });
-				return Ok({ path: file, durationMs: finished.data.durationMs });
+				return Ok({
+					path: file,
+					durationMs: (await heldMs(file)) ?? finished.data.durationMs,
+				});
 			},
 		});
 	};
@@ -556,10 +570,13 @@ export function createBrowserRecorder(
 				const type = pieces[0]?.type || capture.type;
 				const bytes = new Uint8Array(await new Blob(pieces).arrayBuffer());
 				if (bytes.byteLength === 0) return RecorderError.Empty();
+				const container = containerOf(type);
 				return Ok({
 					bytes,
-					...containerOf(type),
-					durationMs: finished.data.durationMs,
+					...container,
+					durationMs:
+						audioDurationMs(bytes, container.extension) ??
+						finished.data.durationMs,
 				});
 			},
 		});

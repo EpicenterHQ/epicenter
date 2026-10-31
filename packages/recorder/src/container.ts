@@ -7,7 +7,8 @@
  * - AAC in fragmented MP4 (`m4a`, a browser's first choice): `ftyp` and
  *   `moov`, then one `moof` and `mdat` per piece the browser handed over. A
  *   file cut off ends inside a box, or with a `moof` whose `mdat` never
- *   came; it is whole up to the last `mdat` that is.
+ *   came; it is whole up to the last `mdat` that is. Its length is what
+ *   plays: the encoder priming an edit list skips is not counted.
  * - Opus in WebM (`webm`): a segment and clusters of unknown size, so blocks
  *   can be added forever. A file cut off ends inside an element; it is whole
  *   up to the last element that is.
@@ -166,6 +167,26 @@ const fullBox = (bytes: Uint8Array, box: Box) => ({
 	fields: box.body + 4,
 });
 
+/**
+ * Where play starts in a track, in its media timescale: the first edit's
+ * media time, which is the encoder priming a player skips (WebKit names
+ * 2112 samples of AAC's), or 0 with no edit list.
+ */
+function mp4PlayStart(bytes: Uint8Array, trak: Box | undefined): number {
+	const elst = childOf(bytes, childOf(bytes, trak, 'edts'), 'elst');
+	if (elst === undefined) return 0;
+	const view = viewOf(bytes);
+	const { version, fields } = fullBox(bytes, elst);
+	// entry_count, then the first entry's segment_duration and media_time.
+	const at = fields + 4 + (version === 1 ? 8 : 4);
+	if (at + (version === 1 ? 8 : 4) > elst.end || view.getUint32(fields) === 0)
+		return 0;
+	const mediaTime =
+		version === 1 ? Number(view.getBigInt64(at)) : view.getInt32(at);
+	// -1 is an empty edit: a pause before play, not media skipped.
+	return Math.max(0, mediaTime);
+}
+
 function mp4DurationMs(bytes: Uint8Array): number | undefined {
 	const whole = mp4WholeEnd(bytes);
 	if (whole === undefined) return undefined;
@@ -178,6 +199,9 @@ function mp4DurationMs(bytes: Uint8Array): number | undefined {
 	const { version, fields } = fullBox(bytes, mdhd);
 	const timescale = view.getUint32(fields + (version === 1 ? 16 : 8));
 	if (timescale === 0) return undefined;
+	const start = mp4PlayStart(bytes, trak);
+	const ms = (end: number) =>
+		Math.round((Math.max(0, end - start) / timescale) * 1000);
 	const trex = childOf(bytes, childOf(bytes, moov, 'mvex'), 'trex');
 	const trexDuration =
 		trex === undefined ? 0 : view.getUint32(fullBox(bytes, trex).fields + 8);
@@ -189,7 +213,7 @@ function mp4DurationMs(bytes: Uint8Array): number | undefined {
 			version === 1
 				? Number(view.getBigUint64(fields + 20))
 				: view.getUint32(fields + 12);
-		return Math.round((length / timescale) * 1000);
+		return ms(length);
 	}
 	let end = 0;
 	for (const moof of fragments)
@@ -226,7 +250,7 @@ function mp4DurationMs(bytes: Uint8Array): number | undefined {
 			}
 			end = Math.max(end, (base ?? end) + total);
 		}
-	return Math.round((end / timescale) * 1000);
+	return ms(end);
 }
 
 // --- WebM -------------------------------------------------------------------

@@ -23,10 +23,14 @@ const fixture = async (name: string) =>
 		).arrayBuffer(),
 	);
 
-/** Each fixture, its length (by ffprobe), and the sizes of the pieces it was handed over in. */
+/**
+ * Each fixture, its play length, and the sizes of the pieces it was handed
+ * over in. The length is ffprobe's, less the 2112 samples of AAC priming
+ * WebKit's edit list skips (`afinfo`: 1.001 s); Chromium's MP4 has no edit list.
+ */
 const RECORDINGS = [
 	{ name: 'chromium.m4a', ms: 960, pieces: [667, 2395, 1200, 830] },
-	{ name: 'webkit.m4a', ms: 1047, pieces: [1829, 1255, 1330, 1750] },
+	{ name: 'webkit.m4a', ms: 1001, pieces: [1829, 1255, 1330, 1750] },
 	{ name: 'chromium.webm', ms: 957, pieces: [3060, 4846, 4846, 2913] },
 	{ name: 'webkit.webm', ms: 948, pieces: [5652, 6398, 6466, 6286] },
 ] as const;

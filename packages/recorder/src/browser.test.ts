@@ -16,6 +16,8 @@
  *   type the browser produced: AAC in MP4 (`m4a`), else Opus in WebM (`webm`)
  * - A chosen microphone that cannot be opened exactly is refused, never
  *   replaced, and anything opened is released
+ * - Stop answers how long the written audio plays, read from its bytes,
+ *   not the time between start and stop
  * - Stop releases the microphone; a second stop is `NotRecording`
  * - A start withdrawn while the browser answers releases what arrives late
  * - Levels are heard while recording
@@ -272,6 +274,41 @@ test('a recording is written into the store as it records, and heard made and fi
 		'finished recordings/a.webm',
 	]);
 	expect(expectErr(await recording.stop()).name).toBe('NotRecording');
+});
+
+test('stop answers how long the written audio plays, not how long the clock ran', async () => {
+	// WebKit's second of tone, in the pieces it handed over: the clock says
+	// 1.5 s, the file holds a second (Safari drops a recording's first moments).
+	const audio = new Uint8Array(
+		await Bun.file(
+			new URL('./fixtures/webkit.m4a', import.meta.url),
+		).arrayBuffer(),
+	);
+	const cuts = [0, 1829, 1829 + 1255, 1829 + 1255 + 1330, audio.length];
+	const memory = memoryFiles();
+	const { startRecording, startPageRecording } = createBrowserRecorder(
+		environment({
+			filesOf: () => memory.files,
+			Recorder: fakeRecorderClass(
+				() => audio.slice(cuts[3], cuts[4]),
+				['audio/mp4;codecs=mp4a.40.2'],
+			),
+		}),
+	);
+	const recording = expectOk(
+		await startRecording({ device: store, path: 'recordings/a' }),
+	);
+	for (let piece = 0; piece < 3; piece++)
+		recorders.at(-1)!.piece(audio.slice(cuts[piece], cuts[piece + 1]));
+	expect(expectOk(await recording.stop())).toEqual({
+		path: 'recordings/a.m4a',
+		durationMs: 1003,
+	});
+	expect(memory.held.get('recordings/a.m4a')).toEqual(audio);
+
+	const held = expectOk(await startPageRecording());
+	recorders.at(-1)!.piece(audio.slice(0, cuts[3]));
+	expect(expectOk(await held.stop()).durationMs).toBe(1003);
 });
 
 test('AAC in MP4 is recorded into <path>.m4a where the browser records it', async () => {

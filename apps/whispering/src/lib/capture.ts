@@ -4,8 +4,8 @@
  * recording's id names (`recordings/<id>.<ext>`), so a quit, a crash, or a
  * closed tab keeps everything up to the cut (decision 84): on the desktop
  * the shell writes a WAV from the first sample, in a browser each piece is
- * appended to this browser's files as it arrives. Stop answers how long it
- * ran, and `recover` repairs the audio a cut left half-written.
+ * appended to this browser's files as it arrives. Stop answers how long its
+ * audio plays, and `recover` repairs the audio a cut left half-written.
  *
  * The microphone device (`microphone.ts`) records with `@epicenter/recorder`,
  * whose entry the build's platform leaf imports. A fixture device stands in
@@ -70,8 +70,8 @@ export type Capture = {
 	/** Hear capture end unexpectedly; stop still keeps what was captured. Retired by stop. */
 	onEnded: RecordingHandle<unknown>['onEnded'];
 	/**
-	 * Finish the file and release the microphone. Answers how long it ran;
-	 * the audio is already in the files.
+	 * Finish the file and release the microphone. Answers how long its audio
+	 * plays; the audio is already in the files.
 	 */
 	stop(): Promise<Result<{ readonly durationMs: number }, CaptureError>>;
 };
