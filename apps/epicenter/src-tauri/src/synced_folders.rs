@@ -1087,11 +1087,7 @@ mod tests {
         let notes = paths.folder_dir.join("notes");
         fs::create_dir_all(&notes).unwrap();
         fs::create_dir_all(&paths.data_dir).unwrap();
-        // Any folder's own `.epicenter`.
-        let scratch = root.join("elsewhere/.epicenter/scratch");
-        fs::create_dir_all(&scratch).unwrap();
         for refused in [
-            scratch,
             paths.folder_dir.clone(),
             paths.data_dir.clone(),
             root.clone(),

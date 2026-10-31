@@ -10,10 +10,12 @@
  *
  * - A replacement writes through `createWritable()`, which keeps the old
  *   bytes visible until `close()` and keeps them on `abort()`.
- * - A new file is written whole under `.epicenter/staging/` and moved to its
+ * - A new file is written whole beside its path, as the hidden
+ *   `.<scratch name>.epicenter-pending` (`pendingName`), and moved to its
  *   path with `move(parentDirectory, name)`, the one form both engines take,
  *   so it never appears empty first, and a crash leaves no empty file at the
- *   path.
+ *   path. Opening sweeps such files a stopped write left an hour or more
+ *   ago, anywhere, as the native hosts do (`isStaleScratch`).
  * - An append (a recording, as it records) makes its file the same way, then
  *   adds each later piece at the end through a sync access handle, opened
  *   and closed for that piece alone, so the file is never held between
@@ -23,9 +25,16 @@
  * channel (`{ paths, from }`), so the stores of other tabs hear it; `from`
  * names the store that asked, which skips its own.
  *
- * This file imports only types, which compile away, so any bundler can ship
- * it as a Worker.
+ * Besides types, which compile away, this file imports only `boundary.ts`,
+ * which has no runtime imports of its own, so any bundler can ship it as a
+ * Worker.
  */
+import {
+	isStaleScratch,
+	pendingName,
+	scratchName,
+	unfinishedName,
+} from '../boundary.js';
 import type { DeviceExpectation } from './store.js';
 
 type Request =
@@ -80,10 +89,6 @@ type AccessibleFile = FileSystemFileHandle & {
 	}>;
 };
 
-const STAGING = ['.epicenter', 'staging'];
-/** How old a staged file must be before it is swept: its writer stopped. */
-const STALE_STAGING_MS = 60 * 60 * 1000;
-
 /** `getDirectory()` refused: this browser gives the page no private storage. */
 class Refused extends Error {}
 
@@ -92,7 +97,7 @@ let rootPromise: Promise<FileSystemDirectoryHandle> | undefined;
 function root() {
 	rootPromise ??= navigator.storage.getDirectory().then(
 		async (directory) => {
-			await sweepStaging(directory).catch(() => {});
+			await sweepStaleScratch(directory).catch(() => {});
 			return directory;
 		},
 		(cause: unknown) => {
@@ -186,10 +191,11 @@ async function went(
 }
 
 /**
- * Every file, with its stamp. Writes run beside a listing, so an entry can
- * go between being named and being read (another tab deletes it while this
- * one lists): it is skipped, as a listing a moment later would
- * skip it, rather than failing the whole listing.
+ * Every file, with its stamp, hidden and unfinished ones included. Writes
+ * run beside a listing, so an entry can go between being named and being
+ * read (another tab deletes it while this one lists): it is skipped, as a
+ * listing a moment later would skip it, rather than failing the whole
+ * listing.
  */
 async function list() {
 	const files: { path: string; stamp: string }[] = [];
@@ -216,7 +222,7 @@ async function list() {
 		}
 	}
 	await walk(await root(), '');
-	return files.filter(({ path }) => !path.startsWith(`${STAGING.join('/')}/`));
+	return files;
 }
 
 /** The file at `path`, or null when it is not there, deleted mid-read included. */
@@ -290,20 +296,21 @@ async function write(
 	});
 }
 
-/** Make the file at `path` with `bytes`, staged and moved so it never appears empty. */
+/**
+ * Make the file at `path` with `bytes`, staged beside it and moved so it
+ * never appears empty.
+ */
 async function createWhole(path: string, bytes: Uint8Array) {
 	const segments = segmentsOf(path);
 	const name = segments.pop()!;
-	const directory = await root();
-	const parent = (await directoryAt(directory, segments, true))!;
-	const staging = (await directoryAt(directory, STAGING, true))!;
-	const stagedName = `${Date.now().toString(36)}-${crypto.randomUUID()}`;
-	const staged = await staging.getFileHandle(stagedName, { create: true });
+	const parent = (await directoryAt(await root(), segments, true))!;
+	const stagedName = pendingName(scratchName());
+	const staged = await parent.getFileHandle(stagedName, { create: true });
 	try {
 		await writeWhole(staged, bytes);
 		await (staged as MovableFile).move(parent, name);
 	} catch (cause) {
-		await staging.removeEntry(stagedName).catch(() => {});
+		await parent.removeEntry(stagedName).catch(() => {});
 		throw cause;
 	}
 }
@@ -348,16 +355,24 @@ async function writeWhole(handle: FileSystemFileHandle, bytes: Uint8Array) {
 	await writable.close();
 }
 
-/** Remove staged files a stopped write left an hour or more ago. */
-async function sweepStaging(directory: FileSystemDirectoryHandle) {
-	const staging = await directoryAt(directory, STAGING, false);
-	if (staging === null) return;
+/**
+ * Remove the files a stopped write staged anywhere an hour or more ago
+ * (`.<scratch name>.epicenter-pending`, `isStaleScratch`); younger ones may
+ * be another tab's write still running. A browser recording appends to its
+ * own path, so it is never one of them.
+ */
+async function sweepStaleScratch(directory: FileSystemDirectoryHandle) {
 	const now = Date.now();
-	for await (const [name, handle] of (staging as Directory).entries()) {
-		const created = Number.parseInt(name.split('-')[0] ?? '', 36);
-		if (handle.kind === 'file' && now - created > STALE_STAGING_MS)
-			await staging.removeEntry(name).catch(() => {});
+	const stale: string[] = [];
+	for await (const [name, handle] of (directory as Directory).entries()) {
+		if (handle.kind === 'directory') {
+			await sweepStaleScratch(handle as FileSystemDirectoryHandle);
+			continue;
+		}
+		const scratch = unfinishedName(name);
+		if (scratch !== undefined && isStaleScratch(scratch, now)) stale.push(name);
 	}
+	for (const name of stale) await directory.removeEntry(name).catch(() => {});
 }
 
 let changes: BroadcastChannel | undefined;

@@ -134,6 +134,14 @@ pub fn path_problem(path: &str) -> Option<&'static str> {
     None
 }
 
+/// Whether `path` has a hidden segment (one starting with `.`), and so is
+/// not the folder's data: `isHiddenPath` in `@epicenter/definition`. Git's
+/// state, a person's `.DS_Store`, and an unfinished file
+/// (`storage::pending_name`) are all hidden.
+pub fn is_hidden_path(path: &str) -> bool {
+    path.split('/').any(|segment| segment.starts_with('.'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

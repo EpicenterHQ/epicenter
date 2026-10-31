@@ -23,15 +23,16 @@
 //! whole reason this path exists, and it is why there is no separate long-form
 //! mode for an application to select.
 //!
-//! # A recording is its file in the folder from the first sample
+//! # A recording is a file in its folder from the first sample
 //!
-//! The WAV is created at its final path in the folder when the recording
-//! starts and appended to in place: the one data file not staged and renamed
-//! (ADR-0543). Its header is brought up to date about once a second and
-//! exactly when `stop` finalizes it, so a process that ends mid-recording
-//! leaves every sample that reached the file behind a header that undercounts
-//! at most the last second; `wav::recover` rewrites such a header from the
-//! file's length the next time the folder opens. Once capture has begun,
+//! The WAV is created beside its path when the recording starts, as the
+//! hidden `.<name>.wav.epicenter-pending` (`staging`), and appended to in
+//! place (ADR-0543); finishing moves it to its path. Its header is brought
+//! up to date about once a second and exactly when `stop` finalizes it, so a
+//! process that ends mid-recording leaves every sample that reached the
+//! file behind a header that undercounts at most the last second;
+//! `wav::recover` rewrites such a header from the file's length the next
+//! time the folder opens, and moves it to its path. Once capture has begun,
 //! nothing here deletes the file.
 //!
 //! # The microphone keeps its rate; the file is 16 kHz
@@ -82,6 +83,7 @@
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, Stream};
+use epicenter_folder_core::storage::create_private;
 use hound::{SampleFormat as WavSampleFormat, WavSpec, WavWriter};
 use log::{debug, error, info, warn};
 use serde::Serialize;
@@ -519,8 +521,8 @@ struct HeldRecording {
     id: String,
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
-    /// The recording's file while it records, absolute, in the folder's
-    /// `.epicenter/recording`, which `recover` leaves alone.
+    /// The recording's file while it records, absolute: its path's hidden
+    /// sibling (`staging::pending`), which `recover` leaves alone.
     path: PathBuf,
     /// Where finishing moves it: its absolute path in the folder.
     target: PathBuf,
@@ -662,9 +664,9 @@ impl Recorder {
     /// default.
     ///
     /// `staged` is the checked absolute path the WAV is written to while it
-    /// records, in the folder's `.epicenter/recording`; `target` is its
-    /// checked path in the folder, where finishing moves it, and `relative`
-    /// that path as the page named it. The file is created only after the
+    /// records, its path's hidden sibling (`staging::pending`); `target` is
+    /// its checked path in the folder, where finishing moves it, and
+    /// `relative` that path as the page named it. The file is created only after the
     /// device and its configuration resolve, and never over anything already
     /// there.
     ///
@@ -699,18 +701,15 @@ impl Recorder {
 
         // The file is created before the microphone opens, so a recording that
         // cannot be written fails now rather than after an hour of captured
-        // speech. `create_new` refuses whatever is at the path, a link
-        // included, so nothing already there is written through.
-        let file = File::options()
-            .write(true)
-            .create_new(true)
-            .open(&staged)
-            .map_err(|error| match error.kind() {
-                std::io::ErrorKind::AlreadyExists => {
-                    RecorderError::refused(format!("a file is already at {relative}"))
-                }
-                _ => RecorderError::failed(format!("create {relative}: {error}")),
-            })?;
+        // speech. It is this account's alone before its first sample
+        // (`create_private`), and nothing already at the name, a link
+        // included, is written through.
+        let file = create_private(&staged).map_err(|error| match error.kind() {
+            std::io::ErrorKind::AlreadyExists => RecorderError::refused(format!(
+                "an unfinished recording of {relative} is already there"
+            )),
+            _ => RecorderError::failed(format!("create {relative}: {error}")),
+        })?;
         let capture = CaptureFile::open(staged.clone(), file, device_rate)?;
 
         let id = next_id();
@@ -981,9 +980,9 @@ impl Recorder {
 
 /// End a recording and keep it: tell the worker to finalize the file, join
 /// it so the cpal stream is released, then move the file to its path
-/// (`staging::place`), even when finalizing failed, since what was written
-/// stays. A file that cannot be moved stays in `.epicenter/recording`, where
-/// the next `recover` repairs and places it.
+/// (`storage::place`), even when finalizing failed, since what was written
+/// stays. A file that cannot be moved stays unfinished beside its path,
+/// where the next `recover` repairs and places it.
 ///
 /// The slot is unavailable for the whole round trip, because the caller's
 /// `&mut Recorder` comes from the one recorder mutex and nothing else can
@@ -1016,7 +1015,7 @@ fn finish(active: HeldRecording) -> Result<FinishedRecording> {
     // answers, and joining is what makes "the microphone is released" true
     // by the time the slot is observably free.
     let _ = active.worker.join();
-    let placed = crate::staging::place(&staged, &target);
+    let placed = epicenter_folder_core::storage::place(&staged, &target);
     let finished = finished?;
     placed.map_err(|error| {
         RecorderError::failed(format!(

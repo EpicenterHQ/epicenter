@@ -5,7 +5,7 @@
  *
  * Key behaviors:
  * - check prints one compiler-style line per problem and exits 0, 1, or 2
- * - hidden paths (.git, .epicenter) are skipped
+ * - hidden paths (.git, .DS_Store) are skipped
  * - format rewrites claimed notes in house style, leaves an unparseable one, and is idempotent
  * - a contract that cannot be read or is not well formed exits 2 and writes nothing
  */

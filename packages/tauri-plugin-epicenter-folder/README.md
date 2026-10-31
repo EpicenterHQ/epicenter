@@ -68,9 +68,8 @@ and `~/Epicenter Dev`. A nonempty absolute `EPICENTER_DATA_DIR` or
 `EPICENTER_FOLDER_DIR` overrides either.
 
 `admission::check_sync_directory`, which Epicenter runs before
-`epicenter init`, refuses a folder's `.epicenter` or anything in one, a
-directory inside, equal to, or holding application data, and the library root
-or a directory holding it, so the folders in it never become one repository.
+`epicenter init`, refuses a directory inside, equal to, or holding
+application data, and the library root or a directory holding it, so the folders in it never become one repository.
 Containment compares canonical paths and directory identity, so a linked
 parent or another spelling of a protected directory is no route around it.
 
@@ -182,13 +181,14 @@ close anyway. Keeping the window open lets the first wait finish and close it.
 A page reload clears
 the old channel and token, so an old page cannot close its successor.
 
-Every open also removes the staged files in the root's `.epicenter/scratch`
-that a stopped save left more than an hour ago
-(`storage::sweep_scratch`), by the creation time in the name the stager gave
-it, the same rule as `isStaleScratch` in `@epicenter/folder`. Younger ones
-may belong to a save still running in another process. Only regular files
-with a name a stager made are removed: any other file, a directory, or a link
-stays, and a scratch path that is a link or not a directory is not read.
+Every open also removes the staged files a stopped save left anywhere in
+the root more than an hour ago (`storage::sweep_scratch`), by the creation
+time in the name the stager gave it, the same rule as `isStaleScratch` in
+`@epicenter/folder`. Younger ones may belong to a save still running in
+another process. Only regular files named `.<scratch name>.epicenter-pending`
+are removed, in one walk that follows no link and never enters `.git`: any
+other file, a recording in progress (`.<name>.wav.epicenter-pending`, whose
+name is never a scratch name) among them, a directory, or a link stays.
 
 Each command clones the window's `Directory` when it arrives and works in
 that root until it ends. A window closed and replaced under the same label
@@ -202,7 +202,7 @@ A page's folder storage (`FolderStorage` in `@epicenter/folder`'s
 
 | Method | Command | Answers |
 | --- | --- | --- |
-| `list()` | `list_folder()` | `{ path, stamp }[]`, every file, `.git` and `.epicenter` aside |
+| `list()` | `list_folder()` | `{ path, stamp }[]`, every file, `.git` aside and hidden ones included |
 | `read(path)` | `read_folder_file(path)` | the stamp, a zero byte, then the file bytes, raw |
 | `put(path, bytes, expected)` | `put_folder_file`, raw body and headers | `{ kind: "landed", stamp: string \| null }` or `{ kind: "stale" }` |
 
@@ -267,52 +267,58 @@ pair old bytes with the new file's stamp. A landed put returns the stamp of
 the published file, or `null` for a removal. Stamps detect changes;
 expectations remain byte hashes.
 
-A put of bytes writes the bytes to a new file in the root's
-`.epicenter/scratch`, the directory the Bun host stages in (opened with
-`create_new`, so nothing already there is written through). `.epicenter` at
-the root is Epicenter's own: no listing shows it, the
-watcher reports no change in it, and `epicenter init`'s `.gitignore` keeps
-it out of history. A scratch path, or an `.epicenter`, that is a link or not
-a directory refuses the put as `Io`, and nothing changes. On Unix the scratch directory is `0700` before
-anything is staged in it: made so, or tightened through the opened directory
-when it is open to others, and a put that cannot make it so is `Io`.
-Each staged file is `0600` before its first byte, so no other account reads
-a save that has not landed or one that stopped. On macOS an access control
-entry lets other accounts past those bits, and a parent can pass one on
-(`everyone allow read`), so the scratch directory and each staged file have
-every entry removed through the open descriptor before anything is staged or
-written; a put that cannot remove them is `Io`. Replacing a file keeps its
-permission bits; a new file is `0600`. Windows has no such bits: there the
-scratch directory has the access its parent passes on. The scratch
-directory is on the root's own file system, so the rename is one step. Then
-the put walks the path again (no link, every name stored as asked), checks
-what the path holds, and only then makes the path's missing parent
-directories and renames the staged file over it. A removal walks, checks,
-and removes. Nothing holds the path between the check and the change, in
-the shell or in a Bun process opening the same directory: a save another
-writer lands in that instant can be replaced
+A put of bytes first makes the path's missing parent directories, then
+writes the bytes to a new file beside the path,
+`.<scratch name>.epicenter-pending` (`storage::scratch_sibling`), as the Bun
+host stages (opened with `create_new`, so nothing already there is written
+through). A path with a hidden segment is not the folder's data: the
+watcher reports no change in it, and `epicenter sync` never commits an
+unfinished file, whatever `.gitignore` says. Each staged file is `0600`
+before its first byte (`storage::create_private`), so no other account
+reads a save that has not landed or one that stopped. On macOS an access
+control entry lets other accounts past those bits, and a directory can pass
+one on (`everyone allow read`), so each staged file has every entry removed
+through the open descriptor before its first byte; a put that cannot remove
+them is `Io`. The file carries such an entry from its creation until that
+removal, a few microseconds, so an account the person granted an
+inheritable entry on a data directory could open it then and keep reading
+it as the bytes arrive. Replacing a file keeps its permission bits; a new
+file is `0600`. Windows has no such bits: there a staged file has the
+access its directory passes on, and Explorer shows it, since a leading dot
+does not hide a name there. The staged file is in the path's own directory,
+so the rename is one step, on one file system even where another is
+mounted inside the folder. Then the put walks the path again (no link,
+every name stored as asked), checks what the path holds, and renames the
+staged file over it. A new file (`expected` is `absent`) is instead placed
+by a hard link, which refuses a name already there (`storage::place`), so
+of two writers creating one path exactly one lands. A removal walks,
+checks, and removes. Otherwise nothing holds the path between the check and
+the change, in the shell or in a Bun process opening the same directory: a
+save another writer lands in that instant can be replaced
 ([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
-A directory another writer pruned while the put staged is made again; the
-root itself never is. The cost is a read and hash of the destination when
+The staged file keeps a directory the put made from being pruned while it
+runs. The cost is a read and hash of the destination when
 `expected` names a hash. A path that holds something else changes nothing and answers
 `{ kind: "stale" }`. On every answer but `{ kind: "landed", stamp }` the put
-leaves nothing behind: not
-its staged file, and not a directory it made, unless another writer put
-something in it.
+leaves nothing behind: it removes its staged file, then each directory it
+made, unless another writer put something in it.
 
 A folder has no repository until its first commit, Sync or Save version
 ([ADR-0535](../../docs/adr/0535-an-existing-folder-opens-with-its-own-declaration.md)),
-and saving never makes one: a put stages in `.epicenter`, so it makes
-nothing in the root but the files saved, their directories, and
-`.epicenter`, nothing beside the root, and nothing in `.git` is reachable, with or without `HEAD` (`page_files.rs`).
+and saving never makes one: a put stages beside its path, so it makes
+nothing in the root but the files saved and their directories, nothing
+beside the root, and nothing in `.git` is reachable, with or without `HEAD`
+(`page_files.rs`).
 
 A data file is never written in place: the rename replaces a hard link
-rather than writing through it. The one data file written in place is a
-recording, by `tauri-plugin-epicenter-recorder`
-([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
+rather than writing through it. The one file written in place is a
+recording in progress, by `tauri-plugin-epicenter-recorder`
+([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)),
+as the hidden sibling of its path, `.<name>.wav.epicenter-pending`
+(`storage::pending_name`), moved to its path when it stops.
 It asks `app.folders().bound(window)` for the calling window's directory,
 checks the path with `page_files::data_path` (the same rule and link check
-as a put), and creates the file with `create_new`. A directory is removed
+as a put), and creates the file with `storage::create_private`. A directory is removed
 only when empty; nothing removes a tree whole. The page writes no Git
 object: the `epicenter` CLI stores each with `git hash-object -w`, which
 names and checks it.

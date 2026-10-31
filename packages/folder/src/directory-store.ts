@@ -1,34 +1,39 @@
 /**
  * A directory folder's storage, over its host's file system calls
- * (`directory-primitives.ts`): `node:fs` in Bun, and the folder plugin's
- * commands on the desktop.
+ * (`directory-primitives.ts`): `node:fs` in Bun. The desktop shell's
+ * `storage.rs` matches it.
  *
  * Every change lands whole and checked where it lands. A file's bytes are
- * written to a scratch file in the scratch directory the host names, and
- * renamed over the path, carrying what the change expects there
- * (`Expectation`), which the host checks right before the rename, and
- * keeping the mode of a file it replaces: another program sees the old file
- * or the new one, never part of either, and never an empty file first. No
- * lock spans the check and the rename, so a save another program lands in
- * that instant can be replaced; Git history keeps what sync committed
- * (ADR-0568). A removal carries its expectation too. A host that refuses one
- * changed nothing, and the change is `stale`; any other failure of a rename
- * or a removal may have landed, and is `Unconfirmed`. A put that does not
- * land removes its staged file and the parent directories it made, unless
- * another writer put something in one. A parent another writer prunes
- * between this put's making it and its rename fails the rename. The
- * scratch directory and each staged file are private to this account before
- * any byte is staged, so no other account reads a save that has not landed,
- * or one a crash stopped.
+ * written to a staged file beside the path,
+ * `.<scratch name>.epicenter-pending` (`pendingName`), and renamed over the
+ * path, carrying what the change expects there (`Expectation`), which the
+ * host checks right before the rename, and keeping the mode of a file it
+ * replaces: another program sees the old file or the new one, never part
+ * of either, and never an empty file first. The rename stays in one
+ * directory, so it is one step even where another file system is mounted
+ * inside the folder. A new file is placed by a hard link where the disk has
+ * them (`directory-node.ts`), so of two writers creating one path exactly
+ * one lands. Otherwise no lock spans the check and the rename, so a save
+ * another program lands in that instant can be replaced; Git history keeps
+ * what sync committed (ADR-0568). A removal carries its expectation too. A
+ * host that refuses one changed nothing, and the change is `stale`; any
+ * other failure of a rename or a removal may have landed, and is
+ * `Unconfirmed`. A put makes a new file's missing parent directories before
+ * it stages, and one that does not land removes its staged file, then the
+ * parent directories it made, unless another writer put something in one.
+ * Each staged file is private to this account before its first byte, so no
+ * other account reads a save that has not landed, or one a crash stopped,
+ * but for the moment on macOS before an access control entry its directory
+ * passed on is removed (`directory-node.ts`).
  *
  * Paths are literal. A symbolic link is never followed: a path through one
  * is unusable. On a case-insensitive disk `plan.md` can reach `Plan.md`;
  * a path whose stored name differs reads as absent, and a write refuses to
  * land on the other file.
  *
- * `.git` at the root is private Git state, which only `git` changes, and
- * `.epicenter` at the root is Epicenter's own (staged saves and unfinished
- * files); no listing shows either.
+ * `.git` at the root is private Git state, which only `git` changes, and no
+ * listing shows it. Every other file is listed, hidden and unfinished ones
+ * included; a reader leaves out what is not the folder's data.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -38,19 +43,16 @@ import {
 	isStaleScratch,
 	PRIVATE_DIRECTORY,
 	type PutOutcome,
-	STATE_DIRECTORY,
+	pendingName,
 	scratchName,
+	unfinishedName,
 } from './boundary.js';
 import type { DirectoryPrimitives, EntryKind } from './directory-primitives.js';
 import { FileError, UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
 import { pathProblem, readablePath, writableExistingPath } from './paths.js';
 
-/** Whether a name at the root is Git's or this storage's own, which no listing shows. */
-const isOwnDirectory = (name: string) =>
-	name === PRIVATE_DIRECTORY || name === STATE_DIRECTORY;
-
-/** The directory holding the absolute `path`, which uses `/` (`scratchDirectory`). */
+/** The directory holding the absolute `path`, which uses `/`. */
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
 
 /** What a literal folder path names on disk. */
@@ -71,24 +73,15 @@ const linkRefusal = (path: string) =>
 	});
 
 /**
- * The storage of the directory at absolute path `root`, changing files
- * through `primitives`.
- *
- * `scratch` is the absolute directory a put stages its bytes in, made
- * private (`mkdir` with `private`) with its parent at each put: the native
- * hosts' is `.epicenter/scratch` inside `root` (`scratchDirectory` in
- * `native/directory.ts`), written with `/`. It must be on `root`'s file
- * system, so the rename over the path is one step; inside `root` it is in
- * `.epicenter`, which listings never show.
+ * The storage of the directory at absolute path `root`, written with `/`,
+ * changing files through `primitives`.
  */
 export function createDirectoryStorage({
 	root,
 	primitives: files,
-	scratch: scratchDirectory,
 }: {
 	root: string;
 	primitives: DirectoryPrimitives;
-	scratch: string;
 }): FolderStorage {
 	const absolute = (path: string) => (path === '' ? root : `${root}/${path}`);
 
@@ -188,7 +181,7 @@ export function createDirectoryStorage({
 		}
 		if (found.kind === 'underFile')
 			return FileError.NotADirectory({ path: found.ancestor });
-		const scratch = `${scratchDirectory}/${scratchName()}`;
+		const scratch = `${parentOf(absolute(path))}/${pendingName(scratchName())}`;
 		/** The parent directories this put made, shallowest first. */
 		const made: string[] = [];
 		/** Remove what this put left: its staged file and the directories it made. */
@@ -213,8 +206,6 @@ export function createDirectoryStorage({
 					made.push(at);
 				}
 			}
-			await files.mkdir(parentOf(scratchDirectory), { private: true });
-			await files.mkdir(scratchDirectory, { private: true });
 			await files.writeFile(scratch, bytes, {
 				createNew: true,
 				private: true,
@@ -239,7 +230,7 @@ export function createDirectoryStorage({
 			const entries: { path: string; stamp: string }[] = [];
 			async function visit(directory: string, prefix: string) {
 				for (const entry of await files.readDir(directory)) {
-					if (prefix === '' && isOwnDirectory(entry.name)) continue;
+					if (prefix === '' && entry.name === PRIVATE_DIRECTORY) continue;
 					const path = prefix + entry.name;
 					const at = `${directory}/${entry.name}`;
 					if (entry.kind === 'directory') {
@@ -296,25 +287,37 @@ export function createDirectoryStorage({
 }
 
 /**
- * Remove the files staged in `scratch`, the scratch directory a directory's
- * storage names, that a stopped write (a crash, a quit) left an hour or more
- * ago. Another handle or process may be writing the directory now, so
- * younger ones stay. What cannot be removed stays; it is inert, and an open
- * that cannot clear it still opens. The desktop shell sweeps its own at
- * each grant.
+ * Remove the files a stopped write (a crash, a quit) staged anywhere below
+ * the directory at `root` an hour or more ago: regular files named
+ * `.<scratch name>.epicenter-pending` (`pendingName`, `isStaleScratch`), in
+ * one walk that follows no link and never enters `.git`. Another handle or
+ * process may be writing the directory now, so younger ones stay, and so
+ * does every other file: a recording in progress never has a scratch name.
+ * What cannot be read or removed stays; it is inert, and an open that
+ * cannot clear it still opens. The desktop shell sweeps its own at each
+ * grant (`sweep_scratch`).
  */
 export async function sweepStaleScratch(
-	scratch: string,
+	root: string,
 	files: DirectoryPrimitives,
 ): Promise<void> {
-	try {
-		if ((await files.lstat(parentOf(scratch)))?.kind !== 'directory') return;
-		if ((await files.lstat(scratch))?.kind !== 'directory') return;
-		const now = Date.now();
-		for (const entry of await files.readDir(scratch))
-			if (entry.kind === 'file' && isStaleScratch(entry.name, now))
-				await files.remove(`${scratch}/${entry.name}`).catch(() => {});
-	} catch {
-		// Leftovers are inert.
+	const now = Date.now();
+	async function visit(directory: string) {
+		const entries = await files.readDir(directory).catch(() => []);
+		for (const entry of entries) {
+			const at = `${directory}/${entry.name}`;
+			if (entry.kind === 'directory') {
+				if (entry.name.toLowerCase() !== PRIVATE_DIRECTORY) await visit(at);
+				continue;
+			}
+			const scratch = unfinishedName(entry.name);
+			if (
+				entry.kind === 'file' &&
+				scratch !== undefined &&
+				isStaleScratch(scratch, now)
+			)
+				await files.remove(at).catch(() => {});
+		}
 	}
+	await visit(root);
 }

@@ -8,14 +8,15 @@
 //! changes nothing else. A header that already states them is left alone, so a
 //! repair run twice writes once.
 //!
-//! `recover` repairs every recording a quit or a crash left in a window's
-//! folder's `.epicenter/recording` (`staging`) under one directory, and moves
-//! each to its path. A folder's pages call it when they open it, which is when
-//! a recording a quit cut off is found (ADR-0542). It walks only what the
-//! folder's path rule accepts and never follows a link. A leftover whose path
-//! is taken is never left behind and never replaces what is there: a copy of
-//! what is there is removed, and other audio is placed beside it under a
-//! name nothing has (`<name>-recovered.wav`).
+//! `recover` repairs every recording a quit or a crash left unfinished under
+//! one directory of a window's folder, each the hidden sibling of its path
+//! (`.<name>.wav.epicenter-pending`, `staging`), and moves each to its path.
+//! A folder's pages call it when they open it, which is when a recording a
+//! quit cut off is found (ADR-0542). It walks only what the folder's path
+//! rule accepts and never follows a link. A leftover whose path is taken is
+//! never left behind and never replaces what is there: a copy of what is
+//! there is removed, and other audio is placed beside it under a name
+//! nothing has (`<name>-recovered.wav`).
 
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -23,6 +24,7 @@ use std::path::{Path, PathBuf};
 
 use epicenter_folder_core::page_files;
 use epicenter_folder_core::paths::path_problem;
+use epicenter_folder_core::storage::{place, unfinished_name};
 
 /// What `repair` found in a WAV it could read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,12 +115,12 @@ pub fn repair(path: &Path) -> io::Result<Option<Repaired>> {
     }))
 }
 
-/// Repair every `.wav` a recording left under `under` in the folder at
-/// `root`'s `.epicenter/recording`, skipping `held`, the file a live
-/// recording is still writing, and move each to its path under `under`
-/// without replacing anything there (`staging::place`), or beside it when
-/// the path is taken (`sweep`). Returns the folder-relative paths placed. A
-/// missing directory has nothing to recover.
+/// Repair every unfinished recording under `under` in the folder at
+/// `root`, each a `.<name>.wav.epicenter-pending` beside its path, skipping
+/// `held`, the file a live recording is still writing, and move each to its
+/// path without replacing anything there (`storage::place`), or beside it
+/// when the path is taken (`sweep`). Returns the folder-relative paths
+/// placed. A missing directory has nothing to recover.
 ///
 /// `under` is checked as a data path is (`page_files::data_path`). Each entry
 /// beneath it is visited only when its path is one the shared path rule
@@ -126,11 +128,10 @@ pub fn repair(path: &Path) -> io::Result<Option<Repaired>> {
 /// placed is reported and left where it is, so one bad file does not hide the
 /// rest.
 pub fn recover(root: &Path, under: &str, held: Option<&Path>) -> Result<Vec<String>, String> {
-    page_files::data_path(root, under)?;
-    let directory = page_files::data_path(root, &crate::staging::staged(under))?;
+    let directory = page_files::data_path(root, under)?;
     let mut placed = Vec::new();
-    let mut pending: Vec<(PathBuf, String)> = vec![(directory, under.to_string())];
-    while let Some((directory, relative)) = pending.pop() {
+    let mut directories: Vec<(PathBuf, String)> = vec![(directory, under.to_string())];
+    while let Some((directory, relative)) = directories.pop() {
         let entries = match fs::read_dir(&directory) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
@@ -151,21 +152,25 @@ pub fn recover(root: &Path, under: &str, held: Option<&Path>) -> Result<Vec<Stri
                 continue;
             };
             if metadata.is_dir() {
-                pending.push((path, child));
+                directories.push((path, child));
                 continue;
             }
-            let is_wav = Path::new(&name)
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("wav"));
-            if !metadata.is_file() || !is_wav || held == Some(path.as_path()) {
+            let Some(recording) = unfinished_name(&name).filter(|recording| {
+                Path::new(recording)
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("wav"))
+            }) else {
+                continue;
+            };
+            if !metadata.is_file() || held == Some(path.as_path()) {
                 continue;
             }
             if let Err(error) = repair(&path) {
                 log::warn!("Could not repair {child}: {error}");
                 continue;
             }
-            match sweep(root, &path, &child) {
+            match sweep(root, &path, &format!("{relative}/{recording}")) {
                 Ok(Some(at)) => {
                     log::info!("Recovered the recording {child} at {at}");
                     placed.push(at);
@@ -182,18 +187,14 @@ pub fn recover(root: &Path, under: &str, held: Option<&Path>) -> Result<Vec<Stri
 /// How many `-recovered` names `sweep` tries beside a taken path.
 const RECOVERED_NAMES: usize = 100;
 
-/// Move the staged file at `staged` to the folder-relative `relative` in
-/// `root`, making its missing directories, each checked as a data path, and
-/// answer where it went. When something is at `relative` already, it is
-/// never replaced: a staged file with the same bytes is a copy of it and is
-/// removed (`None`); other audio goes to the first free
-/// `<stem>-recovered.<ext>`, `<stem>-recovered-2.<ext>`, and so on, so no
-/// recording is stranded in `.epicenter`, which nothing lists or syncs.
+/// Move the staged file at `staged`, beside the folder-relative `relative`
+/// in `root`, to it, and answer where it went. When something is at
+/// `relative` already, it is never replaced: a staged file with the same
+/// bytes is a copy of it and is removed (`None`); other audio goes to the
+/// first free `<stem>-recovered.<ext>`, `<stem>-recovered-2.<ext>`, and so
+/// on, so no recording stays unfinished, which sync never commits.
 fn sweep(root: &Path, staged: &Path, relative: &str) -> Result<Option<String>, String> {
     let (parent, name) = relative.rsplit_once('/').unwrap_or(("", relative));
-    if !parent.is_empty() {
-        page_files::mkdir(root, &root.join(parent))?;
-    }
     let (stem, extension) = name.rsplit_once('.').unwrap_or((name, ""));
     for attempt in 0..=RECOVERED_NAMES {
         let candidate = match attempt {
@@ -207,7 +208,7 @@ fn sweep(root: &Path, staged: &Path, relative: &str) -> Result<Option<String>, S
             format!("{parent}/{candidate}")
         };
         let target = page_files::data_path(root, &candidate)?;
-        match crate::staging::place(staged, &target) {
+        match place(staged, &target) {
             Ok(()) => return Ok(Some(candidate)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 if same_bytes(staged, &target).map_err(|error| error.to_string())? {
@@ -332,21 +333,36 @@ mod tests {
         }
     }
 
+    /// The unfinished recording of the folder-relative `relative` in `root`.
+    fn pending(root: &Path, relative: &str) -> PathBuf {
+        root.join(crate::staging::pending(relative))
+    }
+
     #[test]
-    fn recover_repairs_and_places_what_a_cut_left_staged_and_nothing_else() {
+    fn recover_repairs_and_places_what_a_cut_left_unfinished_and_nothing_else() {
         let directory = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(directory.path()).unwrap();
-        let staged = root.join(".epicenter/recording/recordings");
-        fs::create_dir_all(staged.join("2026")).unwrap();
-        fs::create_dir_all(root.join("recordings")).unwrap();
-        cut_off(&staged.join("a.wav"), 100);
-        cut_off(&staged.join("2026/b.WAV"), 100);
-        cut_off(&staged.join("live.wav"), 100);
-        cut_off(&staged.join("taken.wav"), 100);
+        fs::create_dir_all(root.join("recordings/2026")).unwrap();
+        for relative in [
+            "recordings/a.wav",
+            "recordings/2026/b.WAV",
+            "recordings/live.wav",
+            "recordings/taken.wav",
+        ] {
+            cut_off(&pending(&root, relative), 100);
+        }
         fs::write(root.join("recordings/taken.wav"), b"theirs").unwrap();
         cut_off(&root.join("recordings/placed.wav"), 100);
+        // Unfinished, but not a recording: a staged save, and a person's own.
+        let other = [
+            "recordings/.notes.md.epicenter-pending",
+            "recordings/.c.wav",
+        ];
+        for path in other {
+            cut_off(&root.join(path), 100);
+        }
 
-        let live = staged.join("live.wav");
+        let live = pending(&root, "recordings/live.wav");
         let placed = recover(&root, "recordings", Some(&live)).unwrap();
         assert_eq!(
             placed,
@@ -363,7 +379,10 @@ mod tests {
                 "{path}"
             );
         }
-        assert!(!staged.join("a.wav").exists(), "moved, not copied");
+        assert!(
+            !pending(&root, "recordings/a.wav").exists(),
+            "moved, not copied"
+        );
         assert_eq!(
             WavReader::open(&live).unwrap().len(),
             0,
@@ -379,9 +398,9 @@ mod tests {
                 .unwrap()
                 .len(),
             100,
-            "a recording whose path is taken is placed beside it, not left in .epicenter"
+            "a recording whose path is taken is placed beside it, not left unfinished"
         );
-        assert!(!staged.join("taken.wav").exists());
+        assert!(!pending(&root, "recordings/taken.wav").exists());
         assert_eq!(
             WavReader::open(root.join("recordings/placed.wav"))
                 .unwrap()
@@ -389,6 +408,9 @@ mod tests {
             0,
             "a file already at its path is not the recorder's to change"
         );
+        for path in other {
+            assert_eq!(WavReader::open(root.join(path)).unwrap().len(), 0, "{path}");
+        }
 
         assert!(recover(&root, "recordings", Some(&live))
             .unwrap()
@@ -400,21 +422,20 @@ mod tests {
     fn a_leftover_that_is_a_copy_of_what_is_at_its_path_is_removed() {
         let directory = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(directory.path()).unwrap();
-        let staged = root.join(".epicenter/recording/recordings");
-        fs::create_dir_all(&staged).unwrap();
         fs::create_dir_all(root.join("recordings")).unwrap();
-        cut_off(&staged.join("a.wav"), 100);
-        repair(&staged.join("a.wav")).unwrap();
+        let a = pending(&root, "recordings/a.wav");
+        cut_off(&a, 100);
+        repair(&a).unwrap();
         // Placed before, then brought back as a separate file (a sync, a copy).
-        fs::copy(staged.join("a.wav"), root.join("recordings/a.wav")).unwrap();
+        fs::copy(&a, root.join("recordings/a.wav")).unwrap();
         // And a second leftover whose `-recovered` name is taken too.
-        cut_off(&staged.join("b.wav"), 200);
+        cut_off(&pending(&root, "recordings/b.wav"), 200);
         fs::write(root.join("recordings/b.wav"), b"theirs").unwrap();
         fs::write(root.join("recordings/b-recovered.wav"), b"also theirs").unwrap();
 
         let placed = recover(&root, "recordings", None).unwrap();
         assert_eq!(placed, ["recordings/b-recovered-2.wav"]);
-        assert!(!staged.join("a.wav").exists(), "the copy is removed");
+        assert!(!a.exists(), "the copy is removed");
         assert_eq!(
             WavReader::open(root.join("recordings/a.wav"))
                 .unwrap()
@@ -448,15 +469,16 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(directory.path()).unwrap().join("folder");
         let outside = fs::canonicalize(directory.path()).unwrap().join("outside");
-        let staged = root.join(".epicenter/recording/recordings");
-        fs::create_dir_all(&staged).unwrap();
+        fs::create_dir_all(root.join("recordings")).unwrap();
         fs::create_dir_all(&outside).unwrap();
-        cut_off(&outside.join("x.wav"), 100);
-        std::os::unix::fs::symlink(outside.join("x.wav"), staged.join("x.wav")).unwrap();
-        std::os::unix::fs::symlink(&outside, staged.join("linked")).unwrap();
+        let x = crate::staging::pending("x.wav");
+        cut_off(&outside.join(&x), 100);
+        std::os::unix::fs::symlink(outside.join(&x), pending(&root, "recordings/x.wav")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("recordings/linked")).unwrap();
         assert!(recover(&root, "recordings", None).unwrap().is_empty());
-        assert_eq!(WavReader::open(outside.join("x.wav")).unwrap().len(), 0);
-        assert!(!root.join("recordings").exists());
+        assert_eq!(WavReader::open(outside.join(&x)).unwrap().len(), 0);
+        assert!(!root.join("recordings/x.wav").exists());
+        assert!(!root.join("recordings/linked/x.wav").exists());
 
         std::os::unix::fs::symlink(&outside, root.join("linked-recordings")).unwrap();
         assert!(recover(&root, "linked-recordings", None).is_err());

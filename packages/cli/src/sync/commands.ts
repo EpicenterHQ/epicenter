@@ -14,12 +14,13 @@
  */
 
 import { existsSync, type FSWatcher, watch as watchDirectory } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import {
 	parseRepositoryPath,
 	parseRepositoryUrl,
 	repositoryUrl,
 } from '@epicenter/constants/repositories';
+import { isHiddenPath } from '@epicenter/definition/contract';
 import { resolveAppPaths } from '../app-paths.ts';
 import type { GrantKind } from '../auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
@@ -266,9 +267,10 @@ export async function syncCommand(
 /**
  * Run a round now, then again whenever a watched folder changes (half a
  * second after the first change) or `interval` seconds pass, until a stop
- * signal ends the process. Changes under `.git` or the folder's own
- * `.epicenter` (staged saves, a recording in progress: never committed), and
- * those made while a round runs, do not start one.
+ * signal ends the process. A change to a hidden path (`isHiddenPath`: `.git`,
+ * and unfinished files such as a staged save or a recording in progress,
+ * which a round never commits), and one made while a round runs, does not
+ * start one.
  */
 async function watch(
 	folders: () => Promise<string[]>,
@@ -284,10 +286,10 @@ async function watch(
 				watchers.set(
 					folder,
 					watchDirectory(folder, { recursive: true }, (_event, name) => {
-						if (busy) return;
-						const path = String(name ?? '');
-						const top = path.split('/')[0];
-						if (top === '.git' || top === '.epicenter') return;
+						const path = String(name ?? '')
+							.split(sep)
+							.join('/');
+						if (busy || isHiddenPath(path)) return;
 						wake();
 					}),
 				);

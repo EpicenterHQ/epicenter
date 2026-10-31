@@ -1,28 +1,24 @@
 /**
  * Native Directory Storage Tests
  *
- * `openNativeStorage` stages each put in the directory's own `.epicenter`
- * and renames it over its path.
+ * `openNativeStorage` stages each put beside its path, as the hidden
+ * `.<scratch name>.epicenter-pending`, and renames it over the path.
  *
  * Key behaviors:
- * - Staged puts live in the directory's `.epicenter`, which no listing
- *   shows; nothing is made beside the directory
+ * - A landed put leaves only its file and directories; nothing is made
+ *   beside the directory
  * - Two processes putting one file each land whole, and the last one wins
- * - A link at `.epicenter` is never followed
+ * - Of puts creating one path at once, exactly one lands
+ * - Opening sweeps staged files an hour old anywhere in the folder, and
+ *   nothing younger or foreign: no recording in progress, nothing in `.git`
  */
 import { expect, test } from 'bun:test';
-import {
-	mkdir,
-	readdir,
-	readFile,
-	rm,
-	symlink,
-	writeFile,
-} from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
+import { pendingName } from '../boundary.js';
 import { scratch } from '../git-http.test-support.js';
-import { openNativeStorage, scratchDirectory } from './directory.js';
+import { openNativeStorage } from './directory.js';
 
 const text = (value: string) => new TextEncoder().encode(value);
 
@@ -74,7 +70,7 @@ test('two processes putting one file each land whole, the last one winning', asy
 	}
 }, 60_000);
 
-test('a put keeps its staging inside the folder, unlisted, and makes nothing beside it', async () => {
+test('a put stages beside its path and leaves only its file and directories', async () => {
 	const parent = await scratch('native-state-');
 	const root = join(parent, 'notes');
 	try {
@@ -84,8 +80,8 @@ test('a put keeps its staging inside the folder, unlisted, and makes nothing bes
 			expectOk(await storage.put('todos/a.md', text('milk'), 'any')).kind,
 		).toBe('landed');
 		expect(await readdir(parent)).toEqual(['notes']);
-		expect((await readdir(root)).sort()).toEqual(['.epicenter', 'todos']);
-		expect(await readdir(scratchDirectory(root))).toEqual([]);
+		expect(await readdir(root)).toEqual(['todos']);
+		expect(await readdir(join(root, 'todos'))).toEqual(['a.md']);
 		const listed = expectOk(await storage.list());
 		expect(listed.map(({ path }) => path)).toEqual(['todos/a.md']);
 	} finally {
@@ -93,20 +89,56 @@ test('a put keeps its staging inside the folder, unlisted, and makes nothing bes
 	}
 });
 
-test('a link at .epicenter is never followed: a put is refused and nothing lands through it', async () => {
-	const parent = await scratch('native-state-link-');
-	const root = join(parent, 'notes');
-	const elsewhere = join(parent, 'elsewhere');
+test('of puts creating one path at once, exactly one lands', async () => {
+	const root = await scratch('native-create-race-');
 	try {
-		await mkdir(root);
-		await mkdir(elsewhere);
-		await symlink(elsewhere, join(root, '.epicenter'));
 		const storage = await openNativeStorage(root);
-		const { error } = await storage.put('a.md', text('mine'), 'any');
-		expect(error).not.toBeNull();
-		expect(await readdir(elsewhere)).toEqual([]);
-		expect(await readdir(root)).toEqual(['.epicenter']);
+		for (let round = 0; round < 10; round++) {
+			const outcomes = await Promise.all(
+				[0, 1, 2, 3].map(async (writer) =>
+					expectOk(
+						await storage.put(
+							`words/${round}.md`,
+							text(`writer ${writer}`),
+							'absent',
+						),
+					),
+				),
+			);
+			expect(
+				outcomes.filter((outcome) => outcome.kind === 'landed'),
+			).toHaveLength(1);
+		}
+		expect(await readdir(join(root, 'words'))).toHaveLength(10);
 	} finally {
-		await rm(parent, { recursive: true, force: true });
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('opening sweeps staged files an hour old anywhere, and nothing younger or foreign', async () => {
+	const root = await scratch('native-sweep-');
+	const engine = '0123456789abcdef0123456789abcdef';
+	const staged = (age: number) =>
+		pendingName(`${(Date.now() - age).toString(36)}-${engine}-0`);
+	const hour = 60 * 60 * 1000;
+	const swept = [staged(2 * hour), `todos/deep/${staged(2 * hour)}`];
+	const kept = [
+		`todos/${staged(60_000)}`,
+		'recordings/.1.wav.epicenter-pending',
+		'todos/.notes.pending',
+		`.git/${staged(2 * hour)}`,
+	];
+	try {
+		for (const path of [...swept, ...kept]) {
+			await mkdir(join(root, path, '..'), { recursive: true });
+			await writeFile(join(root, path), 'x');
+		}
+		await openNativeStorage(root);
+		for (const path of swept)
+			expect(await readFile(join(root, path)).catch(() => 'gone')).toBe('gone');
+		for (const path of kept)
+			expect(await readFile(join(root, path), 'utf8')).toBe('x');
+	} finally {
+		await rm(root, { recursive: true, force: true });
 	}
 });

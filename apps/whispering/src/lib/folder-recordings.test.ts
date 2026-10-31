@@ -100,20 +100,17 @@ test('a second Start with the same id is refused, never overwritten', async () =
 
 test('the next launch completes a recording a crash cut off, from its audio, repairing only while a note has no length', async () => {
 	const { path, device } = await folder();
-	const staged = join(path, '.epicenter/recording/recordings');
+	const staged = join(path, 'recordings/.cut.wav.epicenter-pending');
 	let repairs = 0;
 	// What the desktop's recover does: the cut-off WAV moves to its path.
 	const repair = async () => {
 		repairs++;
-		await rename(
-			join(staged, 'cut.wav'),
-			join(path, 'recordings/cut.wav'),
-		).catch(() => {});
+		await rename(staged, join(path, 'recordings/cut.wav')).catch(() => {});
 		return Ok(['cut']);
 	};
 	expectOk(await beginRecording(device, started('cut')));
-	await mkdir(staged, { recursive: true });
-	await writeFile(join(staged, 'cut.wav'), toneWav({ seconds: 2 }));
+	await mkdir(join(path, 'recordings'), { recursive: true });
+	await writeFile(staged, toneWav({ seconds: 2 }));
 	// One whose audio never started, and one finished normally.
 	expectOk(await beginRecording(device, started('silent')));
 	expectOk(await beginRecording(device, started('done')));

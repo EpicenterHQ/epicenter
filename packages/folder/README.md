@@ -139,12 +139,16 @@ keychain.
 ## Native directories
 
 Bun and Tauri open ordinary directory files, with no required Git repository.
-They stage a replacement in the directory's own `.epicenter/scratch` and
-rename one whole file over its path, after checking it still holds the
-version the writer read. No lock spans that check and the rename: a save
-another program lands in that instant can be replaced, and Git history is
-the backstop (ADR-0568). No listing shows `.epicenter`, no watcher reports
-it, and nothing is made beside the directory. Paths and links are checked
+They stage a replacement beside its path, as the hidden
+`.<scratch name>.epicenter-pending` (`pendingName`), and rename one whole
+file over its path, after checking it still holds the version the writer
+read. No lock spans that check and the rename: a save another program lands
+in that instant can be replaced, and Git history is the backstop
+(ADR-0568). A path with a hidden segment is not the folder's data: listings
+show it, but no contract claims it, no watcher reports it, and
+`epicenter sync` never commits an unfinished file. Opening a folder removes
+staged files a stopped save left an hour or more ago, and nothing is made
+beside the directory. Paths and links are checked
 before writes. A native watcher reports outside changes, and a client's
 listeners hear them. Watching is best effort.
 Native listings compare opaque stamps made from file size, modification time,

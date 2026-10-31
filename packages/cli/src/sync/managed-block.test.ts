@@ -7,7 +7,7 @@
  * - A block already present is replaced in place, and lines after it stay
  * - Writing the block twice changes nothing
  * - The file the server writes in a repository's first commit is already the block
- * - The same markers hold the `.gitignore` block, which ignores `.DS_Store` and `.epicenter/`
+ * - The same markers hold the `.gitignore` block, which ignores `.DS_Store` and unfinished files
  */
 import { expect, test } from 'bun:test';
 import {
@@ -47,9 +47,9 @@ test("the server's first-commit .gitattributes is recognized as the block", () =
 	expect(withAttributes(REPOSITORY_ATTRIBUTES)).toBe(REPOSITORY_ATTRIBUTES);
 });
 
-test("the .gitignore block ignores .DS_Store and .epicenter/, beside a person's own lines", () => {
+test("the .gitignore block ignores .DS_Store and unfinished files, beside a person's own lines", () => {
 	expect(REPOSITORY_IGNORE).toContain('\n.DS_Store\n');
-	expect(REPOSITORY_IGNORE).toContain('\n.epicenter/\n');
+	expect(REPOSITORY_IGNORE).toContain('\n.*.epicenter-pending\n');
 	const ignore = withEpicenterBlock('node_modules/\n', REPOSITORY_IGNORE);
 	expect(ignore).toBe(`node_modules/\n${REPOSITORY_IGNORE}`);
 	expect(withEpicenterBlock(ignore, REPOSITORY_IGNORE)).toBe(ignore);

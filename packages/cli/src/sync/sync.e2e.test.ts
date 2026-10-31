@@ -24,6 +24,9 @@
  * - T7: a rewritten remote main stops sync before it merges
  * - T8: a binary both sides replaced lands as a conflict copy (decision 44)
  * - clone, status, forget, sync of every registered folder, and --watch
+ * - sync never commits an unfinished file (`.<name>.epicenter-pending`),
+ *   whatever `.gitignore` says, and a change to a hidden path wakes no
+ *   --watch round
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash, randomBytes } from 'node:crypto';
@@ -245,10 +248,14 @@ describe('epicenter sync over stock git', () => {
 				`${NOTE}: merge: epicenter`,
 			]);
 
-			// Operating system clutter and Epicenter's own .epicenter/ never travel (decision 58 keeps hidden paths raw, not ignored).
+			// Operating system clutter and unfinished files never travel (decision 58 keeps hidden paths raw, not ignored).
+			const unfinished = [
+				'recordings/.1.wav.epicenter-pending',
+				'notes/.lz0-0123456789abcdef0123456789abcdef-1.epicenter-pending',
+			];
 			write(A, '.DS_Store', new Uint8Array([0, 0, 0, 1, 66, 117, 100, 49]));
 			write(A, 'notes/.DS_Store', new Uint8Array([0, 1, 2]));
-			write(A, '.epicenter/c1.json', '{"state":"pending"}\n');
+			for (const path of unfinished) write(A, path, 'RIFF');
 			expect(
 				(
 					await quiet(
@@ -256,11 +263,11 @@ describe('epicenter sync over stock git', () => {
 						'check-ignore',
 						'.DS_Store',
 						'notes/.DS_Store',
-						'.epicenter/c1.json',
+						...unfinished,
 						'.obsidian/workspace.json',
 					)
 				).split('\n'),
-			).toEqual(['.DS_Store', 'notes/.DS_Store', '.epicenter/c1.json']);
+			).toEqual(['.DS_Store', 'notes/.DS_Store', ...unfinished]);
 
 			const pushed = await syncJson(A);
 			expect(pushed.code).toBe(0);
@@ -270,7 +277,7 @@ describe('epicenter sync over stock git', () => {
 					'ls-files',
 					'.DS_Store',
 					'notes/.DS_Store',
-					'.epicenter',
+					...unfinished,
 				),
 			).toBe('');
 			expect(pushed.status.status).toBe('synced');
@@ -305,6 +312,39 @@ describe('epicenter sync over stock git', () => {
 			expect((await syncJson(A)).status.status).toBe('synced');
 			expect(read(A, LOUD)).toBe('ONE\nTWO\n');
 			expect(read(B, LOUD)).toBe('ONE\nTWO\n');
+		},
+		LONG,
+	);
+
+	test(
+		"sync never commits an unfinished file, even when .gitignore lost Epicenter's block",
+		async () => {
+			const DIR = join(BOX, 'unfinished');
+			write(DIR, 'notes/a.md', '---\ntitle: A\n---\nbody\n');
+			expect((await init(DIR)).code).toBe(0);
+			write(DIR, '.gitignore', '');
+			const unfinished = [
+				'.lz0-0123456789abcdef0123456789abcdef-1.epicenter-pending',
+				'recordings/.1.wav.epicenter-pending',
+				'notes/deep/.lz0-0123456789abcdef0123456789abcdef-2.epicenter-pending',
+			];
+			for (const path of unfinished) write(DIR, path, 'RIFF');
+			// A person's own hidden files are theirs, and travel.
+			write(DIR, 'notes/.notes.pending', 'mine\n');
+			const synced = await syncJson(DIR);
+			expect(synced.code).toBe(0);
+			expect((await quiet(DIR, 'ls-files')).split('\n').sort()).toEqual([
+				'.gitattributes',
+				'.gitignore',
+				'notes/.notes.pending',
+				'notes/a.md',
+			]);
+			expect(
+				(await quiet(DIR, 'status', '--porcelain', '--untracked-files=all'))
+					.split('\n')
+					.sort(),
+			).toEqual(unfinished.map((path) => `?? ${path}`).sort());
+			await cli('forget', DIR);
 		},
 		LONG,
 	);
@@ -882,6 +922,55 @@ describe('epicenter sync over stock git', () => {
 			expect(lines.every((line) => JSON.parse(line).sync.folder === A)).toBe(
 				true,
 			);
+		},
+		LONG,
+	);
+
+	test(
+		'sync --watch: a change to a hidden path, such as a recording in progress, wakes no round',
+		async () => {
+			const watching = Bun.spawn(
+				[EPICENTER, 'sync', A, '--watch', '--interval', '60', '--json'],
+				{ cwd: BOX, env: ENV, stdout: 'pipe', stderr: 'pipe' },
+			);
+			let output = '';
+			const reading = (async () => {
+				const reader = watching.stdout.getReader();
+				const decoder = new TextDecoder();
+				for (;;) {
+					const { done, value } = await reader.read();
+					if (done) return;
+					output += decoder.decode(value, { stream: true });
+				}
+			})();
+			const rounds = () => output.split('\n').filter(Boolean).length;
+			const until = async (done: () => boolean, what: string) => {
+				const deadline = Date.now() + 20_000;
+				while (!done()) {
+					if (Date.now() > deadline) throw new Error(`never ${what}`);
+					await Bun.sleep(100);
+				}
+			};
+			await until(() => rounds() >= 1, 'ran its first round');
+			const before = rounds();
+			const unfinished = [
+				'recordings/.2.wav.epicenter-pending',
+				'notes/.lz0-0123456789abcdef0123456789abcdef-3.epicenter-pending',
+			];
+			// As a recording rewrites its header about once a second.
+			for (let second = 0; second < 4; second++) {
+				for (const path of unfinished) write(A, path, `RIFF${second}`);
+				await Bun.sleep(400);
+			}
+			await Bun.sleep(1500);
+			expect(rounds()).toBe(before);
+
+			write(A, 'notes/woken.md', '---\ntitle: Woken\n---\nbody\n');
+			await until(() => rounds() > before, 'woke for a data change');
+			watching.kill('SIGTERM');
+			await watching.exited;
+			await reading;
+			for (const path of unfinished) rmSync(join(A, path));
 		},
 		LONG,
 	);

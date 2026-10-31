@@ -2,16 +2,17 @@
  * Recording in the desktop app, through `tauri-plugin-epicenter-recorder`
  * (ADR-0543, decision 84).
  *
- * The shell's recorder writes the WAV from the first sample into the
- * `device`'s folder's own `.epicenter/recording`, which no listing shows and
- * sync never commits, its header updated about once a second. The folder is
+ * The shell's recorder writes the WAV from the first sample beside its path
+ * in the `device`'s folder, as the hidden `.<name>.wav.epicenter-pending`,
+ * which nothing reads as the folder's audio and sync never commits, its
+ * header updated about once a second. The folder is
  * named to the shell by the root it answered when the page opened the device
  * (`rootOf` from `@epicenter/folder/tauri`), or, for the window's own folder,
  * by none. `stop` finalizes its header and moves it to `<path>.wav`, never
  * over a file there: the recording appears at its path whole. When the page
  * reloads or its window closes, the shell finalizes and moves the recording
- * itself: the file is kept. A process that ends before then leaves it in
- * `.epicenter/recording` with a header that undercounts the last second;
+ * itself: the file is kept. A process that ends before then leaves it
+ * unfinished with a header that undercounts the last second;
  * `recoverRecordings` rewrites it from the file's length and moves it to its
  * path.
  *
@@ -157,10 +158,9 @@ export const startRecording: StartRecording = async ({
 };
 
 /**
- * Repair every WAV a quit or a crash left in the folder's
- * `.epicenter/recording` under `under`, and move each to its path (or beside
- * it, `<name>-recovered.wav`, when the path is taken). Answers the paths
- * placed.
+ * Repair every WAV a quit or a crash left unfinished under `under`, beside
+ * its path, and move each to its path (or beside it,
+ * `<name>-recovered.wav`, when the path is taken). Answers the paths placed.
  */
 export const recoverRecordings: RecoverRecordings = async ({
 	device,

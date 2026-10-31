@@ -195,8 +195,8 @@ export function createWhispering({
 		// written from the audio on the next start. A recording that wrote no
 		// audio at all (the store refused it, or nothing was captured) takes
 		// its note with it. Any other failure keeps the note: on the desktop
-		// the audio may be waiting in `.epicenter/recording`, which the next
-		// start moves to its path.
+		// the audio may be waiting unfinished beside its path, which the next
+		// start moves there.
 		if (error !== null) {
 			recorderError = error.message;
 			if (

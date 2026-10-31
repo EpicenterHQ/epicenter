@@ -5,6 +5,7 @@
  */
 import { defineContract, type Version } from '@epicenter/definition/contract';
 import { unwrap } from 'wellcrafted/result';
+import { unfinishedName } from '../src/boundary.js';
 import { deviceFiles, openDevice } from '../src/browser.js';
 
 const recorder = defineContract({
@@ -236,24 +237,20 @@ const smoke = {
 			cause: listed.error.name === 'Unavailable' ? (cause?.name ?? null) : null,
 		};
 	},
-	/** Files left in the device's staging directory: none after writes land. */
+	/** Staged files left anywhere in the device's storage: none after writes land. */
 	async staged() {
-		try {
-			const root = await navigator.storage.getDirectory();
-			const staging = await (
-				await root.getDirectoryHandle('.epicenter')
-			).getDirectoryHandle('staging');
-			let count = 0;
-			for await (const _ of (
-				staging as FileSystemDirectoryHandle & {
-					keys(): AsyncIterable<string>;
-				}
-			).keys())
-				count++;
-			return count;
-		} catch {
-			return 0;
+		type Directory = FileSystemDirectoryHandle & {
+			entries(): AsyncIterable<[string, FileSystemHandle]>;
+		};
+		async function count(directory: Directory): Promise<number> {
+			let found = 0;
+			for await (const [name, handle] of directory.entries())
+				if (handle.kind === 'directory')
+					found += await count(handle as Directory);
+				else if (unfinishedName(name) !== undefined) found++;
+			return found;
 		}
+		return count((await navigator.storage.getDirectory()) as Directory);
 	},
 };
 

@@ -112,7 +112,9 @@ with real `git add`, so Git LFS's filters run.
   repository's first commit: `.md` notes (in any case) merge with
   `merge=epicenter`, every other file is LFS, and dotfiles and dot
   directories are exempt. The ignore block is `REPOSITORY_IGNORE`:
-  `.DS_Store` and `.epicenter/` (a device's outbox) are never committed.
+  `.DS_Store` and unfinished files (`.*.epicenter-pending`: a staged save,
+  a recording in progress) are never committed, and sync leaves unfinished
+  files out itself even when the block is gone.
   Then `merge.epicenter.driver`, the command link (`~/.local/bin/
   epicenter merge-driver %O %A %B %P`, the link `install-command` keeps);
   `git lfs install --local`;

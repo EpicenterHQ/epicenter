@@ -10,9 +10,10 @@
  * the app's `#platform` seam, never at run time:
  *
  * - On the desktop the shell's recorder appends PCM from the first sample
- *   to a WAV in the data folder's `.epicenter/recording`, updating the header
- *   about once a second, and moves it to `<path>.wav` when it stops; recovery
- *   rewrites a header a cut left short and moves the file to its path.
+ *   to a WAV beside its path, the hidden `.<name>.wav.epicenter-pending`,
+ *   updating the header about once a second, and moves it to `<path>.wav`
+ *   when it stops; recovery rewrites a header a cut left short and moves the
+ *   file to its path.
  * - In a browser the page appends each piece `MediaRecorder` hands over,
  *   about once a second, to `<path>.m4a` (or `.webm`) in this browser's
  *   private files; recovery cuts a file back to its last whole piece.
@@ -116,8 +117,8 @@ export type RecordingHandle<TStopped> = {
 
 /**
  * A recording written into the store as it records: in a browser at
- * `<path>.<ext>`, on the desktop in the folder's `.epicenter/recording` until
- * `stop` moves it to `<path>.wav`.
+ * `<path>.<ext>`, on the desktop beside it as the hidden
+ * `.<name>.wav.epicenter-pending` until `stop` moves it to `<path>.wav`.
  */
 export type Recording = RecordingHandle<StoppedRecording> & {
 	/** The audio file this recording is, or becomes at `stop`, store-relative: `<path>.wav`, `<path>.m4a`, or `<path>.webm`. */

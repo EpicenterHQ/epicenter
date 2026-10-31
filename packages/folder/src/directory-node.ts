@@ -7,17 +7,20 @@
  * desktop shell. Another program can change the path in that instant; Git
  * history is the backstop (ADR-0568).
  *
- * On Unix a private directory is `0700` and a private file `0600`, so no
- * other account reads what is staged in one. On macOS each also has no
- * access control entry, which could let another account past those bits;
- * one that cannot be removed refuses the stage. Windows has no such bits: a
- * directory or file made there has the access its parent passes on.
+ * On Unix a private file is `0600` from its creation, so no other account
+ * reads what is staged in it. On macOS it also has no access control entry,
+ * which could let another account past those bits: one its directory
+ * passes on is removed before the first byte, and one that cannot be
+ * removed refuses the stage. Between the creation and that removal, an
+ * account the entry names could open the still-empty file. Windows has no
+ * such bits: a file made there has the access its directory passes on.
  */
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import {
 	chmod,
 	type FileHandle,
+	link,
 	lstat,
 	mkdir,
 	open,
@@ -93,6 +96,28 @@ async function check(path: string, expected: Expectation): Promise<void> {
 		throw new UnexpectedTarget(path, { name: 'Conflict', actualSha256 });
 }
 
+/**
+ * Move `from` to `to` only while nothing is at `to`: a hard link, which the
+ * file system refuses when a name is there, so of two writers creating one
+ * path exactly one lands, then `from` removed. A `from` that cannot be
+ * removed is a second name of the file that landed. Where the disk has no
+ * hard links, nothing there is checked first, then renamed, with nothing
+ * holding the path between the two. The desktop shell's `place` is the
+ * same move.
+ */
+async function placeNew(from: string, to: string): Promise<void> {
+	try {
+		await link(from, to);
+	} catch (cause) {
+		if ((cause as { code?: string }).code === 'EEXIST')
+			throw new UnexpectedTarget(to, { name: 'Exists' });
+		await check(to, 'absent');
+		await rename(from, to);
+		return;
+	}
+	await rm(from).catch(() => {});
+}
+
 /** Whether this platform has Unix permission bits. */
 const unix = process.platform !== 'win32';
 
@@ -153,56 +178,6 @@ async function keepMode(target: string, staged: string): Promise<void> {
 	if (existing?.isFile()) await chmod(staged, existing.mode & 0o777);
 }
 
-/**
- * Make the directory at `path`, whose parent is there, readable only by
- * this account: made `0700`, or tightened to it when it is open to others
- * (`0755`), with no access control entry, such as one its parent
- * passes on (`withoutAcl`). Its mode is read and changed through the
- * directory opened without following a link, so a link swapped in is
- * refused, never followed and never changed. One another account owns
- * cannot be changed, and is refused.
- */
-async function privateDirectory(path: string): Promise<void> {
-	await mkdir(path, { mode: 0o700 }).catch((cause: { code?: string }) => {
-		if (cause.code !== 'EEXIST') throw cause;
-	});
-	const seen = await lstat(path);
-	if (!seen.isDirectory())
-		throw new Error(
-			`'${path}' is ${seen.isSymbolicLink() ? 'a symbolic link' : 'not a directory'}, so nothing was staged there. Remove it, then save again.`,
-		);
-	if (!unix) return;
-	const tightened = async () => {
-		const directory = await open(
-			path,
-			constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-		);
-		try {
-			const opened = await directory.stat();
-			if (
-				!opened.isDirectory() ||
-				opened.dev !== seen.dev ||
-				opened.ino !== seen.ino
-			)
-				throw new Error('it changed while it was checked');
-			if ((opened.mode & 0o077) !== 0) {
-				await directory.chmod(0o700);
-				if (((await directory.stat()).mode & 0o077) !== 0)
-					throw new Error('other accounts can still open it');
-			}
-			await withoutAcl(path, directory);
-		} finally {
-			await directory.close();
-		}
-	};
-	await tightened().catch((cause: unknown) => {
-		throw new Error(
-			`'${path}' could not be made private to this account, so nothing was staged there: ${cause instanceof Error ? cause.message : String(cause)}`,
-			{ cause },
-		);
-	});
-}
-
 export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 	async readDir(path) {
 		const entries = await readdir(path, { withFileTypes: true });
@@ -254,8 +229,8 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 		if (!options?.private) return writeFile(path, bytes, { flag });
 		if (!options.createNew)
 			throw new Error('A private staged write must create a new file.');
-		// `0600` from the start, and no access control entry the scratch
-		// directory passed on, before the first byte.
+		// `0600` from the start, and no access control entry its directory
+		// passed on, before the first byte.
 		const file = await open(path, flag, 0o600);
 		try {
 			await withoutAcl(path, file).catch((cause: unknown) => {
@@ -270,12 +245,13 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 		}
 	},
 	async rename(from, to, expected) {
-		await check(to, expected);
+		if (expected !== 'absent') await check(to, expected);
 		const staged = await open(from, constants.O_RDONLY);
 		try {
 			await keepMode(to, from);
 			const published = stampOf(await staged.stat({ bigint: true }));
-			await rename(from, to);
+			if (expected === 'absent') await placeNew(from, to);
+			else await rename(from, to);
 			const afterRename = await staged
 				.stat({ bigint: true })
 				.then(stampOf, () => undefined);
@@ -290,8 +266,7 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 		else if ((await lstat(path)).isDirectory()) await rmdir(path);
 		else await rm(path);
 	},
-	async mkdir(path, options) {
-		if (options?.private) await privateDirectory(path);
-		else await mkdir(path, { recursive: true });
+	async mkdir(path) {
+		await mkdir(path, { recursive: true });
 	},
 };
