@@ -16,7 +16,7 @@
  * - A crash after the PUT, after the write, or before the delete resumes without loss
  * - The remote client refuses a stale version (`Conflict`) and an occupied path (`Occupied`)
  * - A capture naming a path outside the contract stays on the device and is never sent
- * - Files no capture names are adopted and uploaded
+ * - Files no capture names are adopted and uploaded, whenever they are made
  * - Retiring the account stops uploading for good
  * - A note that does not read on main is listed with its text, and `replace` repairs it
  * - Listeners hear this client's writes at once and other writers' within a poll of `main`
@@ -48,7 +48,7 @@ import { createLogger, memorySink } from 'wellcrafted/logger';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { startDisposablePostgres } from '../../../server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../server/src/test-helpers/oauth-client.js';
-import { cacheOf, openDevice, outboxOf } from '../node.js';
+import { cacheOf, openDevice, outboxOf, saveCapture } from '../node.js';
 import { openRemote, startUploading } from '../remote.js';
 
 const recorder = defineContract({
@@ -252,14 +252,12 @@ async function capture(
 	bytes = crypto.getRandomValues(new Uint8Array(200_000)),
 ) {
 	const id = timeId();
-	const note = expectOk(await device.recordings.create({ id, title }));
-	const audio = expectOk(await device.audio.create({ id, ext: 'm4a', bytes }));
 	expectOk(
-		await outboxOf(device).add({
+		await saveCapture(device, {
 			id,
 			files: [
-				{ collection: 'recordings', ...note },
-				{ collection: 'audio', ...audio },
+				{ collection: 'recordings', value: { id, title } },
+				{ collection: 'audio', value: { id, ext: 'm4a', bytes } },
 			],
 		}),
 	);
@@ -527,6 +525,39 @@ describe('upload', () => {
 		expect(report.uploaded).toHaveLength(1);
 		expect(await filesIn(root)).toEqual([]);
 		expect(expectOk(await remote.recordings.get({ id })).title).toBe('Orphan');
+	}, 30_000);
+
+	test('a file made on the device while uploading runs goes up on its own, and a capture saved meanwhile goes up whole', async () => {
+		const person = await signIn('adopt-later');
+		const { root, device } = await deviceAt();
+		const remote = openRemote(recorder, { account: person.account });
+		using uploader = startUploading(device, remote);
+		await uploader.drain();
+
+		// Made directly on the device (an app's view of it), no capture asked.
+		const id = timeId();
+		expectOk(await device.recordings.create({ id, title: 'Made here' }));
+		const whole = await capture(device, 'Saved meanwhile');
+		for (
+			let i = 0;
+			i < 100 && (await filesIn(root)).some((path) => !path.startsWith('.'));
+			i++
+		)
+			await Bun.sleep(50);
+		await uploader.drain();
+
+		expect(await filesIn(root)).toEqual([cachedAudio(whole.id)]);
+		expect(expectOk(await remote.recordings.get({ id })).title).toBe(
+			'Made here',
+		);
+		expect(expectOk(await remote.recordings.get({ id: whole.id })).title).toBe(
+			'Saved meanwhile',
+		);
+		// The capture's note and audio landed in one write, not adopted apart.
+		const commits = person
+			.requests(WRITES)
+			.filter(({ body }) => JSON.stringify(body).includes(whole.id));
+		expect(commits).toHaveLength(1);
 	}, 30_000);
 
 	test('a capture naming a path outside the contract stays on the device and is never sent', async () => {

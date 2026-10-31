@@ -23,16 +23,20 @@
  * as two creates, at most one conflict block, nothing lost; after the
  * acknowledgement only the delete remains.
  *
- * The first run also adopts the device's files that no capture names (a
- * crash between `create` and the outbox's `add`), one capture per file.
+ * Every run also adopts the device's files that no capture names, one
+ * capture per file: a file made on the device directly (signed out,
+ * offline, or in an app's view of this device while signed in), or left by
+ * a crash between `create` and the outbox's `add`. A file a `saveCapture`
+ * in this page is still saving is that capture's, and is left to it.
  * A capture that names a path the contract does not claim, or that the
  * server refuses, stays on the device and is reported, never sent again
  * until something changes.
  *
  * Runs are single flight: one at a time in a page, and across a browser's
  * tabs one at a time through a Web Lock. A run starts when uploading starts,
- * when the browser comes back online, after each new capture, and again
- * after a failure, waiting longer each time. Uploading stops for good when
+ * when the browser comes back online, after each new capture or change to a
+ * file the contract claims, and again after a failure, waiting longer each
+ * time. Uploading stops for good when
  * the account is retired (sign-out or another person signing in), so one
  * person's credential never uploads after another's arrives; the files that
  * account's uploads cached on the device go with it, once a run in flight
@@ -157,7 +161,8 @@ export function startUploading<TContract extends Contract>(
 	remote: Client<TContract>,
 	{ log = createLogger('folder/upload') }: { log?: Logger } = {},
 ): Uploader {
-	const { compiled, store, outbox, cache, onCapture } = deviceParts(device);
+	const { compiled, store, outbox, cache, onCapture, capturing } =
+		deviceParts(device);
 	const { account, wire, compiled: remoteContract } = remoteParts(remote);
 	if (compiled.name !== remoteContract.name)
 		throw new Error(
@@ -165,7 +170,6 @@ export function startUploading<TContract extends Contract>(
 		);
 
 	let stopped = false;
-	let adopted = false;
 	let failures = 0;
 	let retry: ReturnType<typeof setTimeout> | undefined;
 	let running: Promise<UploadReport> | null = null;
@@ -187,7 +191,7 @@ export function startUploading<TContract extends Contract>(
 		);
 		const paths = listed.data.map(({ path }) => path).sort();
 		for (const path of paths) {
-			if (named.has(path)) continue;
+			if (named.has(path) || capturing.has(path)) continue;
 			const claim = compiled.claim(path);
 			if (claim === null) continue;
 			const read = await store.read(path);
@@ -315,11 +319,8 @@ export function startUploading<TContract extends Contract>(
 	async function pass(
 		report: UploadReport,
 	): Promise<Result<void, Unavailable>> {
-		if (!adopted) {
-			const orphans = await adopt();
-			if (orphans.error !== null) return orphans;
-			adopted = true;
-		}
+		const orphans = await adopt();
+		if (orphans.error !== null) return orphans;
 		// Again until a listing holds nothing new: finishing a capture can
 		// queue its kept edits as another.
 		const seen = new Set<string>();
@@ -399,6 +400,12 @@ export function startUploading<TContract extends Contract>(
 
 	const wake = () => void drain();
 	const unsubscribe = onCapture(wake);
+	// A file made or changed on the device directly: adopt it. The outbox's
+	// own sidecars are hidden, so no claim covers them.
+	const unwatch = store.watch((paths) => {
+		if (paths === null || paths.some((path) => compiled.claim(path) !== null))
+			wake();
+	});
 	globalThis.addEventListener?.('online', wake);
 
 	function stop() {
@@ -406,6 +413,7 @@ export function startUploading<TContract extends Contract>(
 		stopped = true;
 		clearTimeout(retry);
 		unsubscribe();
+		unwatch();
 		globalThis.removeEventListener?.('online', wake);
 		account.signal.removeEventListener('abort', retire);
 	}

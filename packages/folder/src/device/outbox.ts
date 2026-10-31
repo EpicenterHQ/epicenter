@@ -452,6 +452,11 @@ export type DeviceParts = {
 	cache: ReturnType<typeof createCache>;
 	/** Call `listener` after each new capture; returns the unsubscribe. */
 	onCapture(listener: () => void): () => void;
+	/**
+	 * The paths a `saveCapture` in this page is saving: the uploader does
+	 * not adopt them, so a capture's files go up together.
+	 */
+	capturing: Set<string>;
 };
 
 const devices = new WeakMap<object, DeviceParts>();
@@ -478,6 +483,7 @@ export function registerDevice(
 			listeners.add(listener);
 			return () => listeners.delete(listener);
 		},
+		capturing: new Set(),
 	});
 }
 
@@ -585,50 +591,65 @@ export async function saveCapture<TContract extends Contract>(
 		)
 	>
 > {
-	const { compiled, outbox } = deviceParts(device);
-	const kept: OutboxFile<Contract>[] = [];
-	for (const { collection: name, value } of files) {
-		const collection = compiled.collections.find(
-			(compiled) => compiled.name === name,
-		);
-		const client = (device as Record<string, unknown>)[name] as
-			| Creates
-			| undefined;
-		if (collection === undefined || client === undefined)
-			return ClientError.Invalid({
-				path: null,
-				issues: [
-					{
-						field: 'files',
-						message: `The contract has no collection '${name}'`,
-					},
-				],
-			});
-		const placeholders = Object.fromEntries(
-			collection.template.params.map((param) => [
-				param,
-				String((value as Record<string, unknown>)[param]),
-			]),
-		);
-		const created = await client.create(value);
-		const file =
-			created.error?.name === 'Occupied'
-				? await client.get(placeholders)
-				: created;
-		// SAFETY: every collection client answers its own errors, which are
-		// among the client errors this function answers.
-		if (file.error !== null) return file as never;
-		kept.push({
-			collection: name,
-			...placeholders,
-			version: file.data.version,
-		} as OutboxFile<Contract>);
+	const { compiled, outbox, capturing } = deviceParts(device);
+	/** The paths this call holds back from the uploader's adoption. */
+	const saving: string[] = [];
+	try {
+		return await save();
+	} finally {
+		for (const path of saving) capturing.delete(path);
 	}
-	const added = await outbox.add({ id, files: kept });
-	if (added.error?.name !== 'Occupied') return added;
-	// An earlier attempt recorded the capture and failed after.
-	const listed = await outbox.list();
-	if (listed.error !== null) return listed;
-	const capture = listed.data.items.find((item) => item.id === id);
-	return capture ? Ok(capture) : added;
+
+	async function save() {
+		const kept: OutboxFile<Contract>[] = [];
+		for (const { collection: name, value } of files) {
+			const collection = compiled.collections.find(
+				(compiled) => compiled.name === name,
+			);
+			const client = (device as Record<string, unknown>)[name] as
+				| Creates
+				| undefined;
+			if (collection === undefined || client === undefined)
+				return ClientError.Invalid({
+					path: null,
+					issues: [
+						{
+							field: 'files',
+							message: `The contract has no collection '${name}'`,
+						},
+					],
+				});
+			const placeholders = Object.fromEntries(
+				collection.template.params.map((param) => [
+					param,
+					String((value as Record<string, unknown>)[param]),
+				]),
+			);
+			const path = collection.pathOf(placeholders);
+			if (path.error === null && !capturing.has(path.data)) {
+				capturing.add(path.data);
+				saving.push(path.data);
+			}
+			const created = await client.create(value);
+			const file =
+				created.error?.name === 'Occupied'
+					? await client.get(placeholders)
+					: created;
+			// SAFETY: every collection client answers its own errors, which are
+			// among the client errors this function answers.
+			if (file.error !== null) return file as never;
+			kept.push({
+				collection: name,
+				...placeholders,
+				version: file.data.version,
+			} as OutboxFile<Contract>);
+		}
+		const added = await outbox.add({ id, files: kept });
+		if (added.error?.name !== 'Occupied') return added;
+		// An earlier attempt recorded the capture and failed after.
+		const listed = await outbox.list();
+		if (listed.error !== null) return listed;
+		const capture = listed.data.items.find((item) => item.id === id);
+		return capture ? Ok(capture) : added;
+	}
 }
