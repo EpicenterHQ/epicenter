@@ -23,16 +23,24 @@
 //! whole reason this path exists, and it is why there is no separate long-form
 //! mode for an application to select.
 //!
-//! # A recording is its file in the folder from the first sample
+//! # A recording is a file from the first sample
 //!
-//! The WAV is created at its final path in the folder when the recording
-//! starts and appended to in place: the one data file not staged and renamed
-//! (ADR-0543). Its header is brought up to date about once a second and
-//! exactly when `stop` finalizes it, so a process that ends mid-recording
-//! leaves every sample that reached the file behind a header that undercounts
-//! at most the last second; `wav::recover` rewrites such a header from the
-//! file's length the next time the folder opens. Once capture has begun,
-//! nothing here deletes the file.
+//! The WAV is created in the folder's `.epicenter/recording` when the
+//! recording starts and appended to in place (ADR-0543). Its header is
+//! brought up to date about once a second and exactly when `stop` finalizes
+//! it, so a process that ends mid-recording leaves every sample that reached
+//! the file behind a header that undercounts at most the last second;
+//! `wav::recover` rewrites such a header from the file's length the next time
+//! the folder opens. Once capture has begun, nothing here deletes the file.
+//!
+//! A finalized recording is [`Finalized`]: its WAV, still pending. Settling
+//! it encodes it to Opus in WebM and places that at its path
+//! (`staging::settle`), which takes about 0.4 s a minute of speech in a
+//! release build on an Apple-silicon Mac (24 s for an hour), so it runs
+//! after the recorder lock is released, off the main thread and the IPC
+//! handler. Until it is done its WAV is named by [`Recorder::held_paths`],
+//! so `recover` does not settle it a second time. Exit finalizes and does not
+//! encode: the WAV is settled when the folder next opens.
 //!
 //! # The microphone keeps its rate; the file is 16 kHz
 //!
@@ -473,14 +481,61 @@ fn remove_recording(path: &Path) -> Result<()> {
     }
 }
 
-/// A finalized recording: its file and how long it is.
+/// A capture's WAV, finalized: its file and how long it is.
 ///
 /// The capture behind it is closed: its microphone is released, its worker has
 /// exited, and its bytes are complete on disk behind a header that states them.
 #[derive(Debug)]
-pub struct FinishedRecording {
+pub(crate) struct FinishedRecording {
     pub path: PathBuf,
     pub duration_ms: u32,
+}
+
+/// A stopped recording whose WAV is finalized and not yet in its place:
+/// `settle` encodes it and places it.
+#[derive(Debug)]
+pub struct Finalized {
+    /// The WAV, in the folder's `.epicenter/recording`.
+    pub pending: PathBuf,
+    root: PathBuf,
+    /// Its folder-relative path without an extension, as the page named it.
+    stem: String,
+    pub duration_ms: u32,
+}
+
+impl Finalized {
+    /// Encode the recording, place it at `<stem>.webm`, and answer where it
+    /// is. A WAV that cannot be encoded is placed itself, and the answer is a
+    /// failure that says where and why. A recording that cannot be placed,
+    /// because another file took its path meanwhile or the disk refused it,
+    /// stays pending, for the next `recover` to place beside it.
+    pub fn settle(&self) -> Result<StoppedRecording> {
+        let settled = crate::staging::settle(
+            &self.root,
+            &self.pending,
+            &self.stem,
+            crate::staging::WhenTaken::Refuse,
+        )
+        .map_err(
+            |error| {
+                RecorderError::failed(format!(
+                    "{} could not be moved into place ({error}); it is kept in {} until the folder is opened again",
+                    self.stem,
+                    self.pending.display()
+                ))
+            },
+        )?;
+        if let Some(reason) = settled.unencoded {
+            return Err(RecorderError::failed(format!(
+                "the recording could not be encoded ({reason}), so it was kept as {}",
+                settled.path
+            )));
+        }
+        Ok(StoppedRecording {
+            path: settled.path,
+            duration_ms: self.duration_ms,
+        })
+    }
 }
 
 /// What `start` answers: the id to stop the recording by, the file
@@ -489,7 +544,9 @@ pub struct FinishedRecording {
 #[serde(rename_all = "camelCase")]
 pub struct StartedRecording {
     pub id: String,
-    /// The folder-relative path of the WAV, the path the page named plus `.wav`.
+    /// The folder-relative path the recording is placed at when it stops:
+    /// the path the page named plus `.webm` (`.wav` if it cannot be
+    /// encoded).
     pub path: String,
     /// The name of the microphone that is recording.
     pub device: String,
@@ -499,7 +556,8 @@ pub struct StartedRecording {
 #[derive(Debug, Clone, Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StoppedRecording {
-    /// The folder-relative path of the WAV.
+    /// The folder-relative path of the recording, the path the page named
+    /// plus `.webm`.
     pub path: String,
     pub duration_ms: u32,
 }
@@ -519,13 +577,14 @@ struct HeldRecording {
     id: String,
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
-    /// The recording's file while it records, absolute, in the folder's
+    /// The recording's WAV while it records, absolute, in the folder's
     /// `.epicenter/recording`, which `recover` leaves alone.
     path: PathBuf,
-    /// Where finishing moves it: its absolute path in the folder.
-    target: PathBuf,
-    /// That path, folder-relative, as the page named it.
-    relative: String,
+    /// The folder it is settled into once it stops.
+    root: PathBuf,
+    /// Its folder-relative path there without an extension, as the page
+    /// named it.
+    stem: String,
     /// `None` while capture is running. `Some` once capture ended on its own,
     /// which is a fact about this recording and not a separate state machine:
     /// everything else about it is unchanged.
@@ -557,6 +616,8 @@ pub struct Recorder {
     /// Any number may be open, beside a recording or not: a meter holds no
     /// slot and writes nothing.
     meters: HashMap<String, (String, Meter)>,
+    /// The WAVs of recordings stopped and still settling (`settled`).
+    settling: Vec<PathBuf>,
 }
 
 /// Ids are unique for the life of the process, so a stale `stop` never names
@@ -584,7 +645,7 @@ impl Recorder {
     /// count the next page.
     /// Also answers whether it closed any meter, which changes whether a
     /// microphone is open.
-    pub fn page_ended(&mut self, owner: &str) -> (Option<FinishedRecording>, bool) {
+    pub fn page_ended(&mut self, owner: &str) -> (Option<Finalized>, bool) {
         *self.pages.entry(owner.to_string()).or_default() += 1;
         let meters = self.meters.len();
         self.meters
@@ -661,12 +722,12 @@ impl Recorder {
     /// person did not choose is not what they asked for. `None` is the system
     /// default.
     ///
-    /// `staged` is the checked absolute path the WAV is written to while it
-    /// records, in the folder's `.epicenter/recording`; `target` is its
-    /// checked path in the folder, where finishing moves it, and `relative`
-    /// that path as the page named it. The file is created only after the
-    /// device and its configuration resolve, and never over anything already
-    /// there.
+    /// `pending` is the checked absolute path the WAV is written to while it
+    /// records, in the folder's `.epicenter/recording`; `root` is the folder
+    /// it is settled into when it stops, and `stem` its folder-relative path
+    /// there without an extension, as the page named it. The file is created
+    /// only after the device and its configuration resolve, and never over
+    /// anything already there.
     ///
     /// The cpal stream is built inside the worker (macOS requires the stream and
     /// the run loop driving it to share a thread) and its outcome is reported
@@ -675,9 +736,9 @@ impl Recorder {
     pub fn start(
         &mut self,
         requested_device: Option<&str>,
-        staged: PathBuf,
-        target: PathBuf,
-        relative: String,
+        pending: PathBuf,
+        root: PathBuf,
+        stem: String,
         owner_label: String,
         signals: Channel<RecordingSignal>,
         on_ended: OnEnded,
@@ -704,14 +765,15 @@ impl Recorder {
         let file = File::options()
             .write(true)
             .create_new(true)
-            .open(&staged)
+            .open(&pending)
             .map_err(|error| match error.kind() {
-                std::io::ErrorKind::AlreadyExists => {
-                    RecorderError::refused(format!("a file is already at {relative}"))
-                }
-                _ => RecorderError::failed(format!("create {relative}: {error}")),
+                std::io::ErrorKind::AlreadyExists => RecorderError::refused(format!(
+                    "a recording of {stem} is already waiting at {}",
+                    pending.display()
+                )),
+                _ => RecorderError::failed(format!("create {}: {error}", pending.display())),
             })?;
-        let capture = CaptureFile::open(staged.clone(), file, device_rate)?;
+        let capture = CaptureFile::open(pending.clone(), file, device_rate)?;
 
         let id = next_id();
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
@@ -797,14 +859,15 @@ impl Recorder {
         }
 
         info!(
-            "Recording started: id={id}, owner={owner_label}, path={relative}, device={device_name}, {device_rate} Hz, {device_channels} channels",
+            "Recording started: id={id}, owner={owner_label}, path={stem}, device={device_name}, {device_rate} Hz, {device_channels} channels",
         );
+        let path = format!("{stem}.webm");
         self.active = Some(HeldRecording {
             id: id.clone(),
             owner_label,
-            path: staged,
-            target,
-            relative: relative.clone(),
+            path: pending,
+            root,
+            stem,
             ended_reason: None,
             signals,
             cmd_tx,
@@ -812,7 +875,7 @@ impl Recorder {
         });
         Ok(StartedRecording {
             id,
-            path: relative,
+            path,
             device: device_name,
         })
     }
@@ -848,36 +911,42 @@ impl Recorder {
         Some(active.signals.clone())
     }
 
-    /// Stop the recording named by `id` and finalize its file. Restricted to
-    /// the window that started it.
+    /// Stop the recording named by `id` and finalize its WAV, for the caller
+    /// to settle (`Finalized::settle`) and then report `settled`. Restricted
+    /// to the window that started it.
     ///
     /// Works the same whether capture is still running or already ended. That is
     /// the point of holding an ended recording: `stop` is the one finalizing
     /// path, so the audio captured before a microphone died is reached by the
     /// same call as the audio captured before the person let go of the button.
-    pub fn stop(&mut self, id: &str, caller_label: &str) -> Result<StoppedRecording> {
+    pub fn stop(&mut self, id: &str, caller_label: &str) -> Result<Finalized> {
         self.require_owned(id, caller_label)?;
         let active = self.active.take().expect("ownership was just verified");
-        let relative = active.relative.clone();
-        finish(active).map(|finished| StoppedRecording {
-            path: relative,
-            duration_ms: finished.duration_ms,
-        })
+        let finalized = finish(active)?;
+        self.settling.push(finalized.pending.clone());
+        Ok(finalized)
+    }
+
+    /// The stopped recording whose WAV is at `pending` is settled, or failed
+    /// to be: `recover` may take it from here.
+    pub fn settled(&mut self, pending: &Path) {
+        self.settling.retain(|settling| settling != pending);
     }
 
     /// Finalize the held recording if `owner_label` owns it. The host's own
     /// path, used when the owner's page is gone: nobody can stop the recording
     /// now, so holding the single recorder slot for it would wedge every other
     /// window, and deleting it would lose what the person said.
-    pub fn finish_owned_by(&mut self, owner_label: &str) -> Option<FinishedRecording> {
+    pub fn finish_owned_by(&mut self, owner_label: &str) -> Option<Finalized> {
         let active = self
             .active
             .take_if(|active| active.owner_label == owner_label)?;
         let id = active.id.clone();
         match finish(active) {
-            Ok(finished) => {
+            Ok(finalized) => {
                 info!("Recording {id} finalized because its page is gone");
-                Some(finished)
+                self.settling.push(finalized.pending.clone());
+                Some(finalized)
             }
             Err(error) => {
                 warn!("Recording {id} could not be finalized after its page left: {error}");
@@ -886,8 +955,9 @@ impl Recorder {
         }
     }
 
-    /// Refuse further capture and finalize held audio for the app's exit.
-    /// Calling this again is harmless; cancelling Quit never calls it.
+    /// Refuse further capture and finalize held audio for the app's exit. It
+    /// is not settled: the next `recover` encodes and places it. Calling this
+    /// again is harmless; cancelling Quit never calls it.
     pub fn shutdown(&mut self) {
         self.stopped = true;
         self.meters.clear();
@@ -921,9 +991,14 @@ impl Recorder {
             .is_some_and(|active| active.ended_reason.is_none())
     }
 
-    /// The file of the held recording, which `recover` must not rewrite.
-    pub fn held_path(&self) -> Option<PathBuf> {
-        self.active.as_ref().map(|active| active.path.clone())
+    /// The WAVs `recover` must leave alone: the held recording's, which its
+    /// worker still writes, and those of stopped recordings still settling.
+    pub fn held_paths(&self) -> Vec<PathBuf> {
+        self.active
+            .iter()
+            .map(|active| active.path.clone())
+            .chain(self.settling.iter().cloned())
+            .collect()
     }
 
     /// The one admission rule, in one place: the slot must be empty.
@@ -979,11 +1054,10 @@ impl Recorder {
     }
 }
 
-/// End a recording and keep it: tell the worker to finalize the file, join
-/// it so the cpal stream is released, then move the file to its path
-/// (`staging::place`), even when finalizing failed, since what was written
-/// stays. A file that cannot be moved stays in `.epicenter/recording`, where
-/// the next `recover` repairs and places it.
+/// End a recording and keep it: tell the worker to finalize the WAV, and
+/// join it so the cpal stream is released. A WAV that could not be
+/// finalized stays in `.epicenter/recording`, where the next `recover`
+/// repairs and settles it.
 ///
 /// The slot is unavailable for the whole round trip, because the caller's
 /// `&mut Recorder` comes from the one recorder mutex and nothing else can
@@ -991,12 +1065,7 @@ impl Recorder {
 /// holding an open cpal stream until it answers, and a `start` that slipped in
 /// beforehand would open a second microphone against a recorder that is
 /// supposed to have exactly one.
-fn finish(active: HeldRecording) -> Result<FinishedRecording> {
-    let (staged, target, relative) = (
-        active.path.clone(),
-        active.target.clone(),
-        active.relative.clone(),
-    );
+fn finish(active: HeldRecording) -> Result<Finalized> {
     let (reply_tx, reply_rx) = mpsc::channel();
     let finished = match active.cmd_tx.send(RecorderCmd::Stop(reply_tx)) {
         Ok(()) => reply_rx
@@ -1016,16 +1085,16 @@ fn finish(active: HeldRecording) -> Result<FinishedRecording> {
     // answers, and joining is what makes "the microphone is released" true
     // by the time the slot is observably free.
     let _ = active.worker.join();
-    let placed = crate::staging::place(&staged, &target);
-    let finished = finished?;
-    placed.map_err(|error| {
+    let finished = finished.map_err(|error| {
         RecorderError::failed(format!(
-            "{relative} could not be moved into place ({error}); it is kept in {} until the folder is opened again",
-            staged.display()
+            "{error}; the recording is kept in {} until the folder is opened again",
+            active.path.display()
         ))
     })?;
-    Ok(FinishedRecording {
-        path: target,
+    Ok(Finalized {
+        pending: finished.path,
+        root: active.root,
+        stem: active.stem,
         duration_ms: finished.duration_ms,
     })
 }
@@ -1646,13 +1715,12 @@ pub(crate) mod tests {
     /// rather than a mock of one, and a dropped recorder cannot hang its join:
     /// `await_resolution` returns on `Stop` and on a dropped channel.
     fn recording_owned_by(recorder: &mut Recorder, root: &TempDir, id: &str, owner_label: &str) {
-        let name = format!("{id}.wav");
         std::fs::create_dir_all(root.path().join("staging")).unwrap();
         hold_recording(
             recorder,
-            &staged_in(root, &name),
-            &root.path().join(&name),
-            &format!("recordings/{name}"),
+            &staged_in(root, &format!("{id}.wav")),
+            root.path(),
+            id,
             id,
             owner_label,
         );
@@ -1664,13 +1732,13 @@ pub(crate) mod tests {
     }
 
     /// Hold a one-second recording written at `staged` for `owner_label`, to
-    /// be moved to `target` when it finishes, as `start` would have, without a
-    /// microphone. The plugin's own tests use it too.
+    /// be settled at `stem` in `root` when it stops, as `start` would have,
+    /// without a microphone. The plugin's own tests use it too.
     pub(crate) fn hold_recording(
         recorder: &mut Recorder,
         staged: &Path,
-        target: &Path,
-        relative: &str,
+        root: &Path,
+        stem: &str,
         id: &str,
         owner_label: &str,
     ) {
@@ -1690,8 +1758,8 @@ pub(crate) mod tests {
             id: id.to_string(),
             owner_label: owner_label.to_string(),
             path: staged.to_path_buf(),
-            target: target.to_path_buf(),
-            relative: relative.to_string(),
+            root: root.to_path_buf(),
+            stem: stem.to_string(),
             ended_reason: None,
             signals: no_page(),
             cmd_tx,
@@ -1720,7 +1788,7 @@ pub(crate) mod tests {
     fn a_fresh_recorder_is_idle_and_owns_nothing() {
         let recorder = Recorder::new();
         assert!(!recorder.is_capturing());
-        assert!(recorder.held_path().is_none());
+        assert!(recorder.held_paths().is_empty());
         recorder
             .require_free_slot()
             .expect("an idle recorder admits a start");
@@ -1767,12 +1835,17 @@ pub(crate) mod tests {
         );
         assert_eq!(recorder.page("app-notes"), page);
 
-        let finished = recorder
+        let finalized = recorder
             .page_ended("app-notes")
             .0
             .expect("the departed page's recording is finalized");
-        assert_eq!(finished.duration_ms, 1_000);
-        assert_eq!(samples_in(&root.path().join("1.wav")), TEST_RATE);
+        assert_eq!(finalized.duration_ms, 1_000);
+        assert_eq!(samples_in(&staged_in(&root, "1.wav")), TEST_RATE);
+        assert_eq!(
+            recorder.held_paths(),
+            [staged_in(&root, "1.wav")],
+            "settling, so recovery leaves it alone"
+        );
         assert_ne!(recorder.page("app-notes"), page);
         recorder
             .require_free_slot()
@@ -1785,7 +1858,7 @@ pub(crate) mod tests {
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
         drop(recorder);
-        assert_eq!(samples_in(&root.path().join("1.wav")), TEST_RATE);
+        assert_eq!(samples_in(&staged_in(&root, "1.wav")), TEST_RATE);
     }
 
     #[test]
@@ -1802,7 +1875,7 @@ pub(crate) mod tests {
         // The refusal left the owner's recording completely untouched.
         assert!(recorder.is_capturing());
         assert!(staged_in(&root, "1.wav").exists());
-        assert!(!root.path().join("1.wav").exists());
+        assert!(!root.path().join("1.webm").exists());
     }
 
     #[test]
@@ -1819,20 +1892,29 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn stop_answers_the_folder_relative_path_and_keeps_the_file() {
+    fn a_stopped_recording_is_settled_at_its_path_as_webm() {
         let root = folder_root();
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
 
-        assert!(
-            !root.path().join("1.wav").exists(),
-            "not there while it records"
+        let finalized = recorder.stop("1", "app-notes").unwrap();
+        assert_eq!(samples_in(&finalized.pending), TEST_RATE);
+        assert_eq!(
+            recorder.held_paths(),
+            std::slice::from_ref(&finalized.pending)
         );
-        let stopped = recorder.stop("1", "app-notes").unwrap();
-        assert_eq!(stopped.path, "recordings/1.wav");
+        recorder
+            .require_free_slot()
+            .expect("the slot is free before the recording is encoded");
+        let stopped = finalized.settle().unwrap();
+        recorder.settled(&finalized.pending);
+        assert_eq!(stopped.path, "1.webm");
         assert_eq!(stopped.duration_ms, 1_000);
-        assert_eq!(samples_in(&root.path().join("1.wav")), TEST_RATE);
-        assert!(!staged_in(&root, "1.wav").exists(), "moved, not copied");
+        assert!(std::fs::read(root.path().join("1.webm"))
+            .unwrap()
+            .starts_with(&[0x1A, 0x45, 0xDF, 0xA3]));
+        assert!(!finalized.pending.exists(), "moved, not copied");
+        assert!(recorder.held_paths().is_empty());
 
         let again = recorder
             .stop("1", "app-notes")
@@ -1841,21 +1923,60 @@ pub(crate) mod tests {
     }
 
     /// A file something made at the recording's path meanwhile is never
-    /// replaced: the stop says so, and the recording stays where it was
-    /// written, for `recover` to place once the path is free.
+    /// replaced: the stop says so, and the recording stays pending, for
+    /// `recover` to place beside it. Nothing of the encode is left.
     #[test]
-    fn a_stop_never_moves_a_recording_over_a_file_at_its_path() {
+    fn a_stop_never_replaces_a_file_at_its_path() {
         let root = folder_root();
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
-        std::fs::write(root.path().join("1.wav"), b"theirs").unwrap();
-        let refused = recorder.stop("1", "app-notes").unwrap_err();
+        std::fs::write(root.path().join("1.webm"), b"theirs").unwrap();
+        let finalized = recorder.stop("1", "app-notes").unwrap();
+        let refused = finalized.settle().unwrap_err();
         assert_eq!(error_name(&refused), "Failed");
-        assert_eq!(std::fs::read(root.path().join("1.wav")).unwrap(), b"theirs");
-        assert_eq!(samples_in(&staged_in(&root, "1.wav")), TEST_RATE);
-        recorder
-            .require_free_slot()
-            .expect("the slot is free once the recording is finalized");
+        assert_eq!(
+            std::fs::read(root.path().join("1.webm")).unwrap(),
+            b"theirs"
+        );
+        assert_eq!(samples_in(&finalized.pending), TEST_RATE);
+        let scratch = root.path().join(".epicenter/scratch");
+        assert_eq!(std::fs::read_dir(scratch).unwrap().count(), 0);
+    }
+
+    /// No audio is lost to the encoder: a recording it refuses is placed as
+    /// the WAV it is, and the stop says so.
+    #[test]
+    fn a_recording_that_cannot_be_encoded_is_placed_as_its_wav() {
+        let root = folder_root();
+        let mut recorder = Recorder::new();
+        recording_owned_by(&mut recorder, &root, "1", "app-notes");
+        let finalized = recorder.stop("1", "app-notes").unwrap();
+        // A WAV at a rate no recording is written at stands in for any
+        // reason the encoder refuses.
+        let mut writer = WavWriter::create(
+            &finalized.pending,
+            WavSpec {
+                channels: 2,
+                sample_rate: 44_100,
+                bits_per_sample: 16,
+                sample_format: WavSampleFormat::Int,
+            },
+        )
+        .unwrap();
+        writer.write_sample(1i16).unwrap();
+        writer.write_sample(1i16).unwrap();
+        writer.finalize().unwrap();
+        let bytes = std::fs::read(&finalized.pending).unwrap();
+
+        let refused = finalized.settle().unwrap_err();
+        assert_eq!(error_name(&refused), "Failed");
+        let RecorderError::Failed { message } = refused else {
+            panic!("expected Failed");
+        };
+        assert!(message.contains("kept as 1.wav"), "{message}");
+        assert_eq!(std::fs::read(root.path().join("1.wav")).unwrap(), bytes);
+        assert!(!root.path().join("1.webm").exists());
+        assert!(!finalized.pending.exists());
     }
 
     /// A destroyed window can never claim its recording, so the host finalizes
@@ -1869,7 +1990,7 @@ pub(crate) mod tests {
         recorder.end_capture("1", EndedReason::StreamFailed);
 
         assert!(recorder.finish_owned_by("app-notes").is_some());
-        assert_eq!(samples_in(&root.path().join("1.wav")), TEST_RATE);
+        assert_eq!(samples_in(&staged_in(&root, "1.wav")), TEST_RATE);
         recorder
             .require_free_slot()
             .expect("the slot is free once the owner is gone");
@@ -1952,7 +2073,7 @@ pub(crate) mod tests {
             .stop("1", "app-notes")
             .expect("an ended recording is still the owner's to stop");
         assert_eq!(stopped.duration_ms, 1_000, "the captured second survived");
-        assert_eq!(samples_in(&root.path().join("1.wav")), TEST_RATE);
+        assert_eq!(samples_in(&stopped.pending), TEST_RATE);
 
         // And stopping resolved it, so the slot is free again.
         recorder
@@ -2021,7 +2142,7 @@ pub(crate) mod tests {
         let root = folder_root();
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
-        assert_eq!(recorder.held_path(), Some(staged_in(&root, "1.wav")));
+        assert_eq!(recorder.held_paths(), [staged_in(&root, "1.wav")]);
     }
 
     /// A write that fails keeps the prefix that reached the file. The header
@@ -2367,6 +2488,6 @@ pub(crate) mod tests {
             .require_free_slot()
             .expect("a stopped recording releases the slot");
         assert_eq!(stopped.duration_ms, 1_000);
-        assert!(std::fs::metadata(root.path().join("1.wav")).unwrap().len() > 44);
+        assert!(std::fs::metadata(&stopped.pending).unwrap().len() > 44);
     }
 }

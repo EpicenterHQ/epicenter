@@ -20,14 +20,16 @@
 //! or in a root its page opened (`root`, by the exact path the folder plugin
 //! answered); any other root is refused. `start` creates the WAV in the
 //! folder's `.epicenter/recording` and appends mono PCM16 to it as the
-//! microphone captures; `stop` finalizes its header and moves it to
-//! `<path>.wav`, never over a file there (`staging`). A half-written WAV is
-//! never at a data path, so sync never commits one. Nothing deletes a
-//! recording once capture has begun. When the page that started a recording
-//! reloads, or its window is destroyed, the recording is finalized and moved
-//! for it. A recording adds no Close or Quit warning. `recover` repairs the
-//! header of any WAV a quit or crash left in `.epicenter/recording` and moves
-//! it to its path, which a page calls when it opens its folder.
+//! microphone captures; `stop` finalizes its header, encodes it to Opus in
+//! WebM (`opus`, `webm`), and places that at `<path>.webm`, never over a file
+//! there (`staging`), then removes the WAV. A WAV that cannot be encoded is
+//! placed itself, at `<path>.wav`. A half-written recording is never at a
+//! data path, so sync never commits one. Nothing deletes a recording's audio
+//! once capture has begun. When the page that started a recording reloads,
+//! or its window is destroyed, the recording is finalized and placed for it.
+//! A recording adds no Close or Quit warning. `recover` repairs the header of
+//! any WAV a quit or crash left in `.epicenter/recording` and settles it as a
+//! stop does, which a page calls when it opens its folder.
 //!
 //! There is one recorder per host and at most one recording at a time; a
 //! second `start` from any window is refused `Busy`.
@@ -197,9 +199,24 @@ fn page_ended<R: Runtime>(app: &AppHandle<R>, window: &str) {
     let Some(recorders) = app.try_state::<Recorders<R>>() else {
         return;
     };
-    let (finished, meters_closed) = recorders.lock().page_ended(window);
-    if finished.is_some() || meters_closed {
+    let (finalized, meters_closed) = recorders.lock().page_ended(window);
+    if finalized.is_some() || meters_closed {
         refresh_capturing(app);
+    }
+    // Encoded off the main thread; nobody waits for the answer.
+    if let Some(finalized) = finalized {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            // Released for `recover` even if settling panics.
+            let settled =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| finalized.settle()));
+            if !matches!(settled, Ok(Ok(_))) {
+                warn!("A recording finalized after its page left was not settled: {settled:?}");
+            }
+            if let Some(recorders) = app.try_state::<Recorders<R>>() {
+                recorders.lock().settled(&finalized.pending);
+            }
+        });
     }
 }
 

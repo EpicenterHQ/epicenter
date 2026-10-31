@@ -19,30 +19,33 @@ export const commands = {
 	/**  Close the meter `id` this window opened, releasing its microphone. */
 	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
 	/**
-	 *  Start recording `<path>.wav` in `root` (the window's own folder for
+	 *  Start recording `<path>.webm` in `root` (the window's own folder for
 	 *  `None`, or a root its page opened), from the microphone whose id is
 	 *  `device` or the system default. Levels, and an ending nobody asked for,
 	 *  arrive on `signals`.
 	 *
 	 *  The path must be a data path the shared path rule accepts, with nothing at
-	 *  it yet. While it records, the file is written in the folder's
-	 *  `.epicenter/recording` (`staging`), with nothing there yet either; `stop`
-	 *  moves it to its path. Missing directories on the way are made.
+	 *  `<path>.webm` or `<path>.wav` yet. While it records, it is a WAV in the
+	 *  folder's `.epicenter/recording` (`staging`), with nothing there yet
+	 *  either; `stop` encodes it and places it at its path. Missing directories
+	 *  on the way are made.
 	 *  Microphone access is asked for before the device is resolved. A refusal
 	 *  opens nothing.
 	 */
 	start: (root: string | null, path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<StartedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { root, path, device, signals })),
 	/**
-	 *  Stop the recording `id` this window started, finalize its file, and move
-	 *  it to its path.
+	 *  Stop the recording `id` this window started, finalize it, encode it, and
+	 *  place it at its path (`Finalized::settle`). Encoding runs after the
+	 *  microphone is released and the recorder is free, off the IPC handler.
 	 */
 	stop: (id: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop", { id })),
 	/**
 	 *  Repair every recording under `under` in `root` (the window's own folder
 	 *  for `None`, or a root its page opened) that a quit or a crash left in the
-	 *  folder's `.epicenter/recording`, move each to its path, and return those
-	 *  folder-relative paths. The recording still being written is left alone.
-	 *  Running it again changes nothing.
+	 *  folder's `.epicenter/recording`, encode each and place it at its path, and
+	 *  return those folder-relative paths. The recording still being written, and
+	 *  those a stop is still settling, are left alone. Running it again changes
+	 *  nothing.
 	 */
 	recover: (root: string | null, under: string) => typedError<string[], RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { root, under })),
 };
@@ -175,7 +178,11 @@ export type RecordingSignal =
  */
 export type StartedRecording = {
 	id: string,
-	/**  The folder-relative path of the WAV, the path the page named plus `.wav`. */
+	/**
+	 *  The folder-relative path the recording is placed at when it stops:
+	 *  the path the page named plus `.webm` (`.wav` if it cannot be
+	 *  encoded).
+	 */
 	path: string,
 	/**  The name of the microphone that is recording. */
 	device: string,
@@ -183,7 +190,10 @@ export type StartedRecording = {
 
 /**  What `stop` answers: the finalized file and its length. */
 export type StoppedRecording = {
-	/**  The folder-relative path of the WAV. */
+	/**
+	 *  The folder-relative path of the recording, the path the page named
+	 *  plus `.webm`.
+	 */
 	path: string,
 	durationMs: number,
 };
