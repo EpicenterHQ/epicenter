@@ -144,7 +144,9 @@ async function conflict(store: DeviceStore, path: string) {
 
 /** Remove the file at `path` while it holds `over`. */
 async function remove(store: DeviceStore, path: string, over: Version) {
-	const { data: outcome, error } = await store.write(path, null, over);
+	const { data: outcome, error } = await store.write(path, null, {
+		sha256: over,
+	});
 	if (error !== null) return { data: null, error };
 	if (outcome === 'stale') return conflict(store, path);
 	return Ok(undefined);
@@ -257,7 +259,9 @@ function noteClient(
 			const params = paramsOf(collection, args);
 			if (version === over)
 				return Ok(noteValue(params, encoded.data.document, version));
-			const written = await store.write(path.data, encoded.data.bytes, over);
+			const written = await store.write(path.data, encoded.data.bytes, {
+				sha256: over,
+			});
 			if (written.error !== null) return written;
 			if (written.data === 'stale') return conflict(store, path.data);
 			return Ok(noteValue(params, encoded.data.document, version));
@@ -273,7 +277,9 @@ function noteClient(
 			if (encoded.error !== null) return encoded;
 			const version = await versionOf(encoded.data.bytes);
 			const params = paramsOf(collection, args);
-			const written = await store.write(path.data, encoded.data.bytes, over);
+			const written = await store.write(path.data, encoded.data.bytes, {
+				sha256: over,
+			});
 			if (written.error !== null) return written;
 			if (written.data === 'stale') return conflict(store, path.data);
 			return Ok(noteValue(params, encoded.data.document, version));
@@ -349,7 +355,7 @@ function fileClient(
 			const path = collection.pathOf(args);
 			if (path.error !== null) return nowhere();
 			const version = await versionOf(bytes);
-			const written = await store.write(path.data, bytes, over);
+			const written = await store.write(path.data, bytes, { sha256: over });
 			if (written.error !== null) return written;
 			if (written.data === 'stale') return conflict(store, path.data);
 			return Ok({ ...paramsOf(collection, args), version });

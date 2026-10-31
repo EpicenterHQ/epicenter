@@ -519,7 +519,9 @@ export function createBrowserRecorder(
 				if (read.data === null) continue;
 				const whole = repairAudio(read.data.bytes, ext);
 				if (whole === undefined) continue;
-				const written = await files.write(path, whole, read.data.version);
+				const written = await files.write(path, whole, {
+					sha256: read.data.version,
+				});
 				if (written.error !== null)
 					return RecorderError.Failed({ cause: written.error });
 				if (written.data === 'landed') repaired.push(path);

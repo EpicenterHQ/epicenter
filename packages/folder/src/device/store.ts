@@ -15,6 +15,14 @@ import type { ChangeListener } from '../changes.js';
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
+/**
+ * What a device write expects at its path: nothing (`'absent'`), the bytes
+ * whose sha256 is `sha256`, the version its writer read, or anything
+ * (`'any'`, for a cache: never stale, and nothing is read first). Each case
+ * is its own shape, so a version can never be read as a keyword.
+ */
+export type DeviceExpectation = 'absent' | 'any' | { readonly sha256: Version };
+
 export type DeviceStore = {
 	/**
 	 * Every file below the root, at any depth, hidden ones included, each
@@ -33,16 +41,14 @@ export type DeviceStore = {
 	>;
 	/**
 	 * Write `bytes` at `path`, or remove the file for null, only while the
-	 * path holds what `expected` says: nothing (`'absent'`), bytes whose
-	 * sha256 is the version, or anything (`'any'`, for a cache: never stale,
-	 * and nothing is read first). `'stale'` when it does not, and nothing
-	 * changed. A new file appears whole, never empty first; missing parent
-	 * directories are made.
+	 * path holds what `expected` says. `'stale'` when it does not, and
+	 * nothing changed. A new file appears whole, never empty first; missing
+	 * parent directories are made.
 	 */
 	write(
 		path: string,
 		bytes: Uint8Array | null,
-		expected: 'absent' | 'any' | Version,
+		expected: DeviceExpectation,
 	): Promise<Result<'landed' | 'stale', Unavailable>>;
 	/**
 	 * Add `bytes` to the end of the file at `path`, for a file written while

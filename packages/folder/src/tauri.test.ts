@@ -86,12 +86,14 @@ test('Tauri list, read and put retain the shell stamps', async () => {
 	});
 });
 
-test('a Tauri put sends absent and content expectations to the shell', async () => {
+test('a Tauri put sends each expectation in its own spelling: absent, any, or a tagged hash', async () => {
 	const files = tauriHostFiles();
 	expectOk(await files.change('notes/a.md', new Uint8Array([1]), 'absent'));
 	expect(putExpectation).toBe('absent');
 	expectOk(await files.change('notes/a.md', null, { sha256: 'exact-hash' }));
-	expect(putExpectation).toBe('exact-hash');
+	expect(putExpectation).toBe('sha256:exact-hash');
+	expectOk(await files.change('notes/a.md', new Uint8Array([1]), 'any'));
+	expect(putExpectation).toBe('any');
 });
 
 test('opens with a private folder change channel', async () => {

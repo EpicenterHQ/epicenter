@@ -343,23 +343,28 @@ pub enum Expectation {
 }
 
 impl Expectation {
-    /// The page's `expected` header: `any`, `absent`, `present`, or a
-    /// lowercase hexadecimal SHA-256.
+    /// The page's `expected` header: `any`, `absent`, `present`, or
+    /// `sha256:` and a lowercase hexadecimal SHA-256. Each case has its own
+    /// spelling, so a hash is never read as a keyword, nor a keyword as a
+    /// hash.
     pub fn parse(value: &str) -> Result<Self, String> {
         match value {
             "any" => Ok(Self::Any),
             "absent" => Ok(Self::Absent),
             "present" => Ok(Self::Present),
-            hash if hash.len() == 64
-                && hash
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
-            {
-                Ok(Self::Sha256(hash.to_string()))
-            }
-            other => Err(format!(
-                "expected is {other:?}, not any, absent, present, or a SHA-256"
-            )),
+            _ => match value.strip_prefix("sha256:") {
+                Some(hash)
+                    if hash.len() == 64
+                        && hash
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
+                {
+                    Ok(Self::Sha256(hash.to_string()))
+                }
+                _ => Err(format!(
+                    "expected is {value:?}, not any, absent, present, or sha256: and a SHA-256"
+                )),
+            },
         }
     }
 }

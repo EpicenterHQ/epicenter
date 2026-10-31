@@ -270,8 +270,9 @@ request's raw body, so content crosses IPC as it is rather than as a JSON
 array of numbers. Its arguments are headers, each percent-encoded: `path`,
 `remove` (`true` to remove the file, when the body is ignored), and
 `expected`, what the page expects there: `any`, `absent`, `present` (a
-regular file, whatever its bytes), or the lowercase SHA-256 of the file
-(`storage::Expectation`). `any` is never stale, and removing nothing that may
+regular file, whatever its bytes), or `sha256:` and the lowercase SHA-256
+of the file (`storage::Expectation`). Each case has its own spelling, so a
+hash is never read as a keyword; anything else is refused as `Io`. `any` is never stale, and removing nothing that may
 be absent has landed. A new file must pass the shared path rule; an existing
 name only some disks hold may be replaced or removed, never made, so a put of
 bytes expecting `any` there lands only while a file is there, checked

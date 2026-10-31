@@ -25,7 +25,8 @@
  * bytes. An unconditional put sent again lands again with the same bytes.
  *
  * A put's expectation travels in its `expected` header: `any`, `absent`,
- * `present`, or the SHA-256 the file there must have.
+ * `present`, or `sha256:` and the SHA-256 the file there must have, so a
+ * hash and a keyword never share one spelling.
  */
 import { invoke } from '@tauri-apps/api/core';
 import { Ok } from 'wellcrafted/result';
@@ -123,7 +124,8 @@ export function tauriHostFiles(root?: string): HostFiles {
 			const headers: Record<string, string> = {
 				path: encodeURIComponent(path),
 				remove: String(bytes === null),
-				expected: typeof expected === 'string' ? expected : expected.sha256,
+				expected:
+					typeof expected === 'string' ? expected : `sha256:${expected.sha256}`,
 			};
 			if (root !== undefined) headers.root = encodeURIComponent(root);
 			try {

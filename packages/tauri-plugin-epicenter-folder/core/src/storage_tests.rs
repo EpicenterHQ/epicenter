@@ -51,6 +51,27 @@ fn b(bytes: &[u8]) -> Option<&[u8]> {
 }
 
 #[test]
+fn an_expectation_is_parsed_by_its_own_spelling() {
+    let hash = sha256(b"x");
+    assert_eq!(Expectation::parse("any"), Ok(Expectation::Any));
+    assert_eq!(Expectation::parse("absent"), Ok(Expectation::Absent));
+    assert_eq!(Expectation::parse("present"), Ok(Expectation::Present));
+    assert_eq!(
+        Expectation::parse(&format!("sha256:{hash}")),
+        Ok(Expectation::Sha256(hash.clone()))
+    );
+    for refused in [
+        hash.clone(),
+        "sha256:any".to_string(),
+        format!("sha256:{}", hash.to_uppercase()),
+        "ANY".to_string(),
+        String::new(),
+    ] {
+        assert!(Expectation::parse(&refused).is_err(), "{refused:?}");
+    }
+}
+
+#[test]
 fn list_read_and_put_report_the_observed_file_stamp() {
     let (_temp, root) = folder("storage-stamp", &[("note.txt", b"old")]);
     let initial = list(&root).unwrap()[0].stamp.clone();

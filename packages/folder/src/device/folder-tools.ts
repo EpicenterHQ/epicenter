@@ -95,11 +95,9 @@ export async function formatStore(contract: unknown, store: DeviceStore) {
 			unchanged++;
 			continue;
 		}
-		const written = await store.write(
-			path,
-			encoder.encode(styled.data),
-			read.data.version,
-		);
+		const written = await store.write(path, encoder.encode(styled.data), {
+			sha256: read.data.version,
+		});
 		if (written.error !== null) return written;
 		if (written.data === 'stale')
 			refused.push({ path, reason: 'It changed while it was being formatted' });

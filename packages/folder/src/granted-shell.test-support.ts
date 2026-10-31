@@ -293,13 +293,26 @@ export function createGrantedShell(
 					operation: 'write',
 					message: 'put_folder_file needs the expected header',
 				} satisfies StorageError;
+			// As `storage::Expectation::parse` reads it: a keyword, or a tagged hash.
+			const hash = /^sha256:([0-9a-f]{64})$/.exec(expected)?.[1];
+			const parsed =
+				expected === 'any' || expected === 'absent' || expected === 'present'
+					? expected
+					: hash !== undefined
+						? { sha256: hash }
+						: undefined;
+			if (parsed === undefined)
+				throw {
+					name: 'Io',
+					path,
+					operation: 'write',
+					message: `expected is ${JSON.stringify(expected)}, not any, absent, present, or sha256: and a SHA-256`,
+				} satisfies StorageError;
 			const outcome = await answered(
 				storageFor(args).put(
 					path,
 					args.remove === 'true' ? null : bytes,
-					expected === 'any' || expected === 'absent' || expected === 'present'
-						? expected
-						: { sha256: expected },
+					parsed,
 				),
 			);
 			if (lostReplies.has(path)) {

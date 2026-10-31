@@ -24,7 +24,7 @@ import {
 import { Ok } from 'wellcrafted/result';
 import { createChanges } from '../changes.js';
 import type { Changed, Reply } from './opfs-worker.js';
-import type { DeviceStore } from './store.js';
+import type { DeviceExpectation, DeviceStore } from './store.js';
 
 /**
  * The broadcast channel every device store and worker of this origin shares.
@@ -53,7 +53,7 @@ type Request =
 			op: 'write';
 			path: string;
 			bytes: Uint8Array | null;
-			expected: string;
+			expected: DeviceExpectation;
 			from: string;
 	  }
 	| {

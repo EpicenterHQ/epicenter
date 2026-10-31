@@ -523,7 +523,8 @@ fn put_headers(path: &str, remove: bool, if_match: Option<&str>) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("path", encoded(path));
     headers.insert("remove", encoded(&remove.to_string()));
-    headers.insert("expected", encoded(if_match.unwrap_or("absent")));
+    let expected = if_match.map_or("absent".to_string(), |hash| format!("sha256:{hash}"));
+    headers.insert("expected", encoded(&expected));
     headers
 }
 
@@ -950,6 +951,47 @@ fn a_save_lands_only_on_what_the_page_expected() {
         json!({ "name": "NotADirectory", "path": "a.md" })
     );
     assert_eq!(staged(&fixture), Vec::<String>::new());
+}
+
+/// "Whatever is there" is its own word on the wire, never a hash: a put
+/// expecting `any` replaces a file and makes a new one, and a bare hash, or
+/// `any` dressed as one, is refused before anything changes.
+#[test]
+fn a_save_expecting_anything_says_so_and_a_hash_is_tagged() {
+    let (fixture, main) = opened("expected-any");
+    let any = |path: &str, bytes: &[u8]| {
+        let mut headers = put_headers(path, false, None);
+        headers.insert("expected", encoded("any"));
+        request(
+            &main,
+            "put_folder_file",
+            InvokeBody::Raw(bytes.to_vec()),
+            headers,
+        )
+    };
+    assert_eq!(any("a.md", b"new\n").unwrap()["kind"], "landed");
+    assert_eq!(any("a.md", b"again\n").unwrap()["kind"], "landed");
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
+        "again\n"
+    );
+    for refused in [sha256(b"again\n"), "sha256:any".to_string()] {
+        let mut headers = put_headers("a.md", false, None);
+        headers.insert("expected", encoded(&refused));
+        let answer = request(
+            &main,
+            "put_folder_file",
+            InvokeBody::Raw(b"x".to_vec()),
+            headers,
+        )
+        .unwrap_err();
+        assert_eq!(answer["name"], "Io", "{refused}: {answer}");
+        assert!(text(&answer["message"]).contains("sha256:"), "{answer}");
+    }
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
+        "again\n"
+    );
 }
 
 #[test]

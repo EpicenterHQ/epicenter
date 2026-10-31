@@ -176,7 +176,12 @@ function memoryFiles(initial: Record<string, Uint8Array> = {}) {
 		async write(path, bytes, expected) {
 			if (unavailable) return refuse();
 			const there = held.get(path);
-			if (there === undefined || versionOf(there) !== expected)
+			// Recovery writes only over the version it read.
+			if (
+				typeof expected === 'string' ||
+				there === undefined ||
+				versionOf(there) !== expected.sha256
+			)
 				return Ok('stale');
 			if (bytes === null) held.delete(path);
 			else held.set(path, bytes);

@@ -23,8 +23,10 @@
  * channel (`{ paths, from }`), so the stores of other tabs hear it; `from`
  * names the store that asked, which skips its own.
  *
- * This file imports nothing, so any bundler can ship it as a Worker.
+ * This file imports only types, which compile away, so any bundler can ship
+ * it as a Worker.
  */
+import type { DeviceExpectation } from './store.js';
 
 type Request =
 	| { id: number; op: 'list' }
@@ -34,7 +36,7 @@ type Request =
 			op: 'write';
 			path: string;
 			bytes: Uint8Array | null;
-			expected: string;
+			expected: DeviceExpectation;
 			from: string;
 	  }
 	| {
@@ -255,7 +257,11 @@ async function changedMidRead(
 	}
 }
 
-async function write(path: string, bytes: Uint8Array | null, expected: string) {
+async function write(
+	path: string,
+	bytes: Uint8Array | null,
+	expected: DeviceExpectation,
+) {
 	segmentsOf(path);
 	return navigator.locks.request(`epicenter-device:${path}`, async () => {
 		// `'any'` (a cache) holds whatever is there, so nothing is read.
@@ -264,7 +270,7 @@ async function write(path: string, bytes: Uint8Array | null, expected: string) {
 			expected === 'any' ||
 			(expected === 'absent'
 				? current === null
-				: current?.version === expected);
+				: current?.version === expected.sha256);
 		if (!holds) return 'stale';
 		if (bytes === null) {
 			const found = await fileAt(path);

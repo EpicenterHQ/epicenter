@@ -79,6 +79,7 @@ const {
 	rootOf,
 } = await import('./tauri.js');
 const { chooseFolder } = await import('./desktop-folder.js');
+const { storeOf } = await import('./device/client.js');
 
 const notes = defineContract({
 	name: 'notes',
@@ -163,6 +164,35 @@ test('a stale write is a Conflict and lands nothing; a current one lands', async
 	expect(await shell.text('notes/a.md')).toBe('---\ntitle: Two\n---\n');
 	expectOk(await device.notes.delete({ id: 'a' }, { over: second.version }));
 	expect(await shell.text('notes/a.md')).toBeUndefined();
+});
+
+test('a write expecting anything lands over whatever is there, and a version is checked as one', async () => {
+	const device = unwrap(await openDevice(notes));
+	const store = storeOf(device);
+	const bytes = (text: string) => new TextEncoder().encode(text);
+	expect(expectOk(await store.write('cache.bin', bytes('one'), 'any'))).toBe(
+		'landed',
+	);
+	expect(expectOk(await store.write('cache.bin', bytes('two'), 'any'))).toBe(
+		'landed',
+	);
+	expect(await shell.text('cache.bin')).toBe('two');
+	const read = expectOk(await store.read('cache.bin'));
+	expect(
+		expectOk(
+			await store.write('cache.bin', bytes('three'), {
+				sha256: read!.version,
+			}),
+		),
+	).toBe('landed');
+	expect(
+		expectOk(
+			await store.write('cache.bin', bytes('four'), {
+				sha256: read!.version,
+			}),
+		),
+	).toBe('stale');
+	expect(await shell.text('cache.bin')).toBe('three');
 });
 
 test('another program’s edit is read with its own version', async () => {

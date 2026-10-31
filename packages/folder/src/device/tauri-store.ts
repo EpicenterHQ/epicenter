@@ -80,11 +80,7 @@ export function tauriStore({
 		},
 		async write(path, bytes, expected) {
 			if (!isTauri()) return notTauri();
-			const put = await files.put(
-				prefix + path,
-				bytes,
-				expected === 'absent' ? 'absent' : { sha256: expected },
-			);
+			const put = await files.put(prefix + path, bytes, expected);
 			if (put.error !== null)
 				return ClientError.Unavailable({ cause: put.error });
 			return Ok(put.data.kind);

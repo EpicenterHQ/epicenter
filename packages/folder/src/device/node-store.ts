@@ -89,13 +89,7 @@ export function nodeStore(
 		async write(path, bytes, expected) {
 			const { data: files, error } = await storage();
 			if (error !== null) return { data: null, error };
-			const put = await files.put(
-				path,
-				bytes,
-				expected === 'absent' || expected === 'any'
-					? (expected as 'absent' | 'any')
-					: { sha256: expected },
-			);
+			const put = await files.put(path, bytes, expected);
 			if (put.error !== null)
 				return ClientError.Unavailable({ cause: put.error });
 			return Ok(put.data.kind);
