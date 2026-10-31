@@ -66,24 +66,26 @@ A page uses one or the other, never both.
 ### A desktop app's folder
 
 A standalone desktop app (`epicenter-standalone`) keeps the person's files
-in a folder it owns, asked for on first run (decisions 81 and 82). Its root
-renders `ChooseFolder` until there is one, then sets the folder's client for
-the app; its header uses `folderSync`, which rechecks on focus whether
-Epicenter syncs the folder:
+in its data folder, `~/Epicenter/<App>` unless the person chose another
+(decisions 88 and 89). Its root is `DataFolder`, which opens the folder as
+the window starts and sets the app's client over it (`setRepo`), or shows
+the recovery screen (Retry, Choose folder…, Use the default folder); its
+header reads `getFolderSync()`, which rechecks on focus whether Epicenter
+syncs the folder:
 
 ```svelte
 <script lang="ts">
-  import ChooseFolder from '@epicenter/svelte/choose-folder';
-  import { folderSync } from '@epicenter/svelte/folder-sync';
+  import DataFolder from '@epicenter/svelte/data-folder';
+  import { getFolderSync } from '@epicenter/svelte/folder-sync';
   import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
 
-  const folder = desktopFolder({ contract: CONTRACT_URL }); // @epicenter/folder/tauri
-  const sync = folderSync(folder); // in the header, once there is a folder
+  const desktop = desktopFolder({ contract: CONTRACT_URL }); // @epicenter/folder/tauri
+  const sync = getFolderSync(); // in the header, under DataFolder
 </script>
 
-<ChooseFolder app="Capture" {folder} />
+<DataFolder app="Capture" contract={capture} {desktop}>…</DataFolder>
 <FolderSyncActions {sync} /> <!-- Sync with Epicenter until it does -->
-<Button onclick={() => sync.chooseFolder()}>Choose folder…</Button>
+<Button onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
 ```
 
 ### Leaving while a save is out

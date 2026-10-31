@@ -616,6 +616,45 @@ fn each_window_reaches_its_own_bound_folder_and_no_other() {
     );
 }
 
+/// A rebound window reaches its new primary and grants, and no longer its
+/// old primary; `open_folder` answers and watches the new primary.
+#[test]
+fn a_rebound_window_reaches_its_new_roots_and_not_its_old_one() {
+    let fixture = fixture("rebound");
+    let data = fixture.root.with_file_name("data");
+    std::fs::create_dir(&data).unwrap();
+    std::fs::write(data.join("note.md"), b"note").unwrap();
+    std::fs::write(fixture.root.join("settings.md"), b"settings").unwrap();
+    let home = Directory::create(&fixture.root).unwrap();
+    fixture
+        .app
+        .folders()
+        .bind_granting("main", home.clone(), Vec::new())
+        .unwrap();
+    let main = window(&fixture.app, "main");
+    open(&main).unwrap();
+    fixture
+        .app
+        .folders()
+        .rebind("main", Directory::create(&data).unwrap(), vec![home])
+        .unwrap();
+    open(&main).unwrap();
+    let list = |root: Option<&str>| {
+        invoke(&main, "list_folder", json!({ "root": root }))
+            .map(|listing| listing["files"][0]["path"].clone())
+    };
+    assert_eq!(list(None).unwrap(), "note.md");
+    assert_eq!(
+        list(Some(fixture.root.to_str().unwrap())).unwrap(),
+        "settings.md"
+    );
+    assert!(fixture
+        .app
+        .folders()
+        .rebind("missing", Directory::create(&data).unwrap(), Vec::new())
+        .is_err());
+}
+
 /// A window granted a second root reaches it by its exact path, and the
 /// primary by its path or by naming none; any other path is refused, even
 /// one inside a granted root or reached through `..`. A granted root opens

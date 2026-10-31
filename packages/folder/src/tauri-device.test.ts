@@ -29,8 +29,12 @@ let inTauri = true;
 /** The channel each `open_folder` handed the shell, as its watcher would send on. */
 const watchers: { onmessage?: (change: { paths: string[] | null }) => void }[] =
 	[];
-/** Each place the page asked the standalone shell's `choose_folder` for. */
-const chosen: string[] = [];
+/** Each folder the page asked the standalone shell's `open_data_folder` for. */
+const opened: (string | null)[] = [];
+/** What the shell's picker answers next (`choose_data_folder`). */
+let picked: string | null = null;
+/** Folders the shell answers as missing. */
+const gone = new Set<string>();
 
 mock.module('@tauri-apps/api/core', () => ({
 	Channel: class {},
@@ -43,10 +47,17 @@ mock.module('@tauri-apps/api/core', () => ({
 	) => {
 		if (cmd === 'plugin:epicenter-folder|open_folder')
 			watchers.push((body as { onChange: (typeof watchers)[number] }).onChange);
-		if (cmd === 'choose_folder') {
-			chosen.push((body as { place: string }).place);
-			return Promise.resolve(true);
+		if (cmd === 'open_data_folder') {
+			const { folder } = body as { folder: string | null };
+			opened.push(folder);
+			if (folder !== null && gone.has(folder))
+				return Promise.reject({
+					kind: 'missing',
+					message: `${folder} is missing.`,
+				});
+			return Promise.resolve(folder ?? '/default');
 		}
+		if (cmd === 'choose_data_folder') return Promise.resolve(picked);
 		return shell.invoke(cmd, body, options);
 	},
 }));
@@ -256,41 +267,60 @@ test("a device opened at the window's own folder by path hears its watcher, and 
 	}
 });
 
-test('desktopFolder opens the settings beside the folder, records the folder, and asks the shell to move', async () => {
-	const config = await grantedDirectory('tauri-device-config-');
+test('desktopFolder opens the folder settings.md names, or the default, and remembers a choice', async () => {
+	const config = shell.root;
+	(globalThis as { window?: unknown }).window = {
+		__EPICENTER_APP_FOLDERS__: { config, default: '/default' },
+	};
+	opened.length = 0;
 	try {
-		shell = createGrantedShell(shell.root, { grants: [config] });
-		(globalThis as { window?: unknown }).window = {
-			__EPICENTER_APP_FOLDERS__: {
-				config,
-				folder: shell.root,
-				problem: null,
-				places: { epicenter: '/e', appData: '/a' },
-			},
-		};
 		const settings = defineAppConfig({ theme: { type: 'string' } });
-		const folder = desktopFolder({
+		const desktop = desktopFolder({
 			contract: 'https://notes.example/contract.json',
 			config: settings,
 		});
-		if (folder === null) throw new Error("expected the window's folder");
-		expect(await folder.remembered).toEqual({ ok: true });
-		const { version } = expectOk(await folder.config.settings.get({}));
+		if (desktop === null) throw new Error("expected the window's roots");
+		const note = () => readFile(join(config, 'settings.md'), 'utf8');
+
+		// No settings.md: the default, and nothing written.
+		const first = await desktop.open();
+		expect(first.ok && first.folder.path).toBe('/default');
+		expect(await note().catch(() => null)).toBeNull();
+
+		// "Choose data folder…": the picked folder opens and is remembered.
+		picked = '/Users/me/Notes';
+		const chosen = await desktop.choose();
+		expect(chosen?.ok && chosen.folder.path).toBe('/Users/me/Notes');
+		expect(await note()).toContain('folder: "/Users/me/Notes"');
+		const { version } = expectOk(await desktop.config.settings.get({}));
 		expectOk(
-			await folder.config.settings.update(
+			await desktop.config.settings.update(
 				{},
 				{ theme: 'dark' },
 				{ over: version },
 			),
 		);
-		const note = await readFile(join(config, 'settings.md'), 'utf8');
-		expect(note).toContain(`folder: ${JSON.stringify(shell.root)}`);
-		expect(note).toContain('theme: dark');
-		expect(await folder.choose('pick')).toEqual({ ok: true });
-		expect(chosen).toEqual(['pick']);
+
+		// Next launch: the remembered folder; gone, it is refused, never replaced.
+		gone.add('/Users/me/Notes');
+		const missing = await desktop.open();
+		expect(missing).toEqual({
+			ok: false,
+			refusal: { kind: 'missing', message: '/Users/me/Notes is missing.' },
+		});
+
+		// "Use the default folder" forgets the choice and keeps other settings.
+		const fallback = await desktop.openDefault();
+		expect(fallback.ok && fallback.folder.path).toBe('/default');
+		expect(await note()).toBe('---\ntheme: dark\n---\n');
+
+		// A cancelled picker opens nothing.
+		picked = null;
+		expect(await desktop.choose()).toBeNull();
+		expect(opened).toEqual([null, '/Users/me/Notes', '/Users/me/Notes', null]);
 	} finally {
 		delete (globalThis as { window?: unknown }).window;
-		await rm(config, { recursive: true, force: true });
+		gone.clear();
 	}
 });
 

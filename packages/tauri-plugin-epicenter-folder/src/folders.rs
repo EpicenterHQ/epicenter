@@ -3,8 +3,10 @@
 //! A binding has one primary directory, the one its watch observes, and may
 //! carry more roots the shell granted when it built the window (an app's own
 //! configuration directory beside the folder it keeps its files in). A page
-//! names a root by its exact path; it reaches no other. Both are fixed for
-//! the window's lifetime.
+//! names a root by its exact path; it reaches no other. The shell may
+//! replace both once the window exists (`rebind`): a standalone app's window
+//! starts on its own data directory and is given the data folder its page
+//! chose.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -139,6 +141,36 @@ impl Folders {
     ) -> Result<T, E> {
         self.bind_granting(label, directory, grants)?;
         build().inspect_err(|_| self.unbind(label))
+    }
+
+    /// Make `directory` the window's primary root, the one its watch
+    /// observes, with `grants` beside it, replacing both. The old watch stops;
+    /// the page's next `open_folder` watches the new primary, and an
+    /// observation reserved before this is refused.
+    pub fn rebind(
+        &self,
+        label: &str,
+        directory: Directory,
+        grants: Vec<Directory>,
+    ) -> Result<(), WindowError> {
+        let watch = {
+            let mut state = self.state();
+            if state.stopped {
+                return Err(WindowError::ShuttingDown);
+            }
+            let binding = state
+                .bindings
+                .get_mut(label)
+                .filter(|binding| !binding.retiring)
+                .ok_or(WindowError::NotBound)?;
+            binding.directory = directory;
+            binding.grants = grants;
+            binding.observation = binding.observation.wrapping_add(1);
+            binding.watch.take()
+        };
+        // Stop the old watch outside the global lock, as `unbind` does.
+        drop(watch);
+        Ok(())
     }
 
     /// Remove a destroyed or failed window's binding.

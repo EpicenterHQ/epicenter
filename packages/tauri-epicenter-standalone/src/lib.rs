@@ -1,35 +1,36 @@
-//! Standalone startup: one app, one folder it owns, one primary window
-//! (decisions 81 and 82).
+//! Standalone startup: one app, two roots, one primary window (decisions 88
+//! and 89).
 //!
-//! The app keeps two roots. Its configuration directory (the operating
-//! system's, for the app) holds `settings.md`, the machine-local `appConfig`
-//! note the page reads and writes; its `folder` is where the app keeps the
-//! person's files. Startup makes the configuration directory, reads `folder`
-//! from `settings.md` (it never writes the note), and opens the window bound
-//! to that folder with the configuration directory granted beside it, or to
-//! the configuration directory alone when there is no folder yet, or the one
-//! named is missing or refused. The page opens each root by its path,
-//! `openDevice(appConfig, { path: config })` and
-//! `openDevice(contract, { path: folder })` from `@epicenter/folder/tauri`;
-//! the folder plugin refuses any other path.
+//! An installed app keeps two roots. Its **AppData root** is fixed: the
+//! operating system's application data directory for the app, one per
+//! installation, never synced and never chosen. Its settings notes sit at its
+//! top (`settings.md`, `shortcuts.md`), as the same notes sit at the top of
+//! the data root. Its **data root** is the person's files: `~/Epicenter/<App>`
+//! by default (`~/Epicenter Dev/<App>` for a `.dev` build, or under
+//! `EPICENTER_FOLDER_DIR`), or the folder the person chose with "Choose data
+//! folder…", which the page remembers as `folder` in the AppData root's
+//! `settings.md`. Only the data root is ever synced (by Epicenter).
 //!
-//! The page learns the roots before any of its code runs:
-//! `window.__EPICENTER_APP_FOLDERS__` (`appFolders()` in
-//! `@epicenter/folder/tauri`) names the configuration directory, the folder
-//! or `null`, why a remembered folder was not opened, and the two places
-//! offered on first run. With no folder the page asks where to keep the
-//! files and calls `commands::choose_folder`, which resolves the answer,
-//! refuses an unsafe folder with one line saying why (`Places::refusal`),
-//! creates the folder or reuses it with its files, and replaces the window
-//! with one bound to it; that page records it as `folder` in `settings.md`.
-//! "Choose folder…" later is the same command.
+//! Rust never reads or writes a settings note. Startup makes the AppData root
+//! and opens the window bound to it alone; before any of the page's code
+//! runs, `window.__EPICENTER_APP_FOLDERS__` (`appFolders()` in
+//! `@epicenter/folder/tauri`) names it and the default data folder. The page
+//! reads `folder` from `settings.md` through its contract client and calls
+//! `commands::open_data_folder` with it, or with `null` for the default:
+//! Rust admits the folder (`Places::data_root`: the default is created when
+//! missing; a chosen folder is opened as it is, never created and never
+//! moved), makes it the window's watched root with the AppData root granted
+//! beside it, and answers its path, or a typed refusal the page shows on its
+//! recovery screen (Retry, Choose folder…, Use the default folder). It never
+//! falls back to another folder. "Choose data folder…" is
+//! `commands::choose_data_folder` (the native picker) followed by the same
+//! command; the page writes `folder` through its client.
 //!
 //! On macOS, the menu's Quit and Cmd-Q request the primary window's ordinary
 //! close, so the page's leave guard answers. This crate installs no close,
 //! destroy, or exit handler that waits. Auxiliary windows an app makes are
 //! destroyed with the primary, never another primary.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WindowEvent};
@@ -41,23 +42,22 @@ use tauri_plugin_epicenter_folder::{Directory, FolderExt};
 pub struct StandaloneApp {
     /// The window-label prefix its capability selects (`<page>:*`).
     pub page: &'static str,
-    /// The app's name: its windows and messages, and its folder's name in
-    /// the Epicenter folder (`~/Epicenter/<title>`).
+    /// The app's name: its windows and messages, and its default folder's
+    /// name in the Epicenter folder (`~/Epicenter/<title>`).
     pub title: &'static str,
     /// The primary window's logical width and height.
     pub size: (f64, f64),
 }
 
-/// Where this app keeps its configuration, the places it offers for its
-/// folder, and the folders it never accepts as one.
+/// Where this app keeps its AppData root, its default data folder, and the
+/// folders it never accepts as a data folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Places {
-    /// The app's configuration directory, which holds `settings.md`.
+    /// The AppData root: the app's application data directory, whose top
+    /// holds its settings notes.
     pub config: PathBuf,
-    /// The recommended folder: `<Epicenter folder>/<title>`.
-    pub epicenter: PathBuf,
-    /// The hidden one, in the app's data directory.
-    pub app_data: PathBuf,
+    /// The default data root: `<Epicenter folder>/<title>`.
+    pub default: PathBuf,
     /// The person's home directory, never a folder itself.
     pub home: PathBuf,
     /// Epicenter's own records (`<Epicenter folder>/so.epicenter`) and its
@@ -86,18 +86,11 @@ impl Places {
             epicenter_own.push(base.join("so.epicenter.dev"));
         }
         Ok(Self {
-            config: path.app_config_dir().map_err(failed)?,
-            epicenter: library.join(app.title),
-            app_data: path.app_data_dir().map_err(failed)?.join(app.title),
+            config: path.app_data_dir().map_err(failed)?,
+            default: library.join(app.title),
             home,
             epicenter_own,
         })
-    }
-
-    /// The folder remembered in `settings.md`, if any.
-    pub fn remembered(&self) -> Option<PathBuf> {
-        let text = fs::read_to_string(self.config.join("settings.md")).ok()?;
-        settings_folder(&text).map(PathBuf::from)
     }
 
     /// Why `folder` cannot be the app's folder, in one line, or `None`.
@@ -140,41 +133,38 @@ impl Places {
         None
     }
 
-    /// `folder`, created when missing or reused with its files, unless it is
-    /// refused. A file or a link at the path is refused too.
-    pub fn admit(&self, folder: &Path) -> Result<Directory, String> {
-        if let Some(refusal) = self.refusal(folder) {
-            return Err(refusal);
+    /// The data root for `folder`, or the default for `None`. The default is
+    /// created when missing; a chosen folder is opened as it is, never
+    /// created again (an unplugged drive stays unplugged) and never moved.
+    pub fn data_root(&self, folder: Option<&Path>) -> Result<Directory, DataFolderRefusal> {
+        let (folder, create) = match folder {
+            Some(folder) => (folder, false),
+            None => (self.default.as_path(), true),
+        };
+        if let Some(message) = self.refusal(folder) {
+            return Err(DataFolderRefusal::Refused { message });
         }
-        Directory::create(folder)
-            .map_err(|error| format!("{} could not be used: {error}", folder.display()))
-    }
-
-    /// The remembered `folder` as it is now, never created again: why not
-    /// when it is missing or refused.
-    fn reopen(&self, folder: &Path) -> Result<Directory, String> {
-        if let Some(refusal) = self.refusal(folder) {
-            return Err(refusal);
+        if create {
+            return Directory::create(folder).map_err(|error| DataFolderRefusal::Unavailable {
+                message: format!("{} could not be made: {error}", folder.display()),
+            });
         }
-        Directory::existing(folder)
-            .map_err(|_| format!("Its folder, {}, is missing.", folder.display()))
+        Directory::existing(folder).map_err(|_| DataFolderRefusal::Missing {
+            message: format!("{} is missing.", folder.display()),
+        })
     }
 }
 
-/// `folder` in the front matter of the settings note `text`: a JSON-quoted
-/// string, as `appConfig`'s writer puts it, or a plain one.
-fn settings_folder(text: &str) -> Option<String> {
-    let front = text.strip_prefix("---\n")?;
-    let front = &front[..front.find("\n---")?];
-    let value = front
-        .lines()
-        .find_map(|line| line.strip_prefix("folder:"))?
-        .trim();
-    if value.starts_with('"') {
-        serde_json::from_str(value).ok()
-    } else {
-        (!value.is_empty()).then(|| value.to_owned())
-    }
+/// Why a data folder was not opened, as the page's recovery screen says it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum DataFolderRefusal {
+    /// Never a data folder (`Places::refusal`), in one line.
+    Refused { message: String },
+    /// The chosen folder is not there (deleted, or on a drive not plugged in).
+    Missing { message: String },
+    /// It could not be made or given to the window.
+    Unavailable { message: String },
 }
 
 /// Builder with the folder plugin, the dialog plugin, setup that opens the
@@ -223,32 +213,12 @@ pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
     builder
 }
 
-/// Open the window on the remembered folder, or on the configuration
-/// directory alone when there is none or it cannot be opened.
+/// Open the window bound to the AppData root alone; the page asks for its
+/// data root (`commands::open_data_folder`).
 fn start<R: Runtime>(
     handle: &AppHandle<R>,
     app: StandaloneApp,
     places: &Places,
-) -> Result<WebviewWindow<R>, String> {
-    let (folder, problem) = match places.remembered() {
-        None => (None, None),
-        Some(remembered) => match places.reopen(&remembered) {
-            Ok(folder) => (Some(folder), None),
-            Err(problem) => (None, Some(problem)),
-        },
-    };
-    open_window(handle, app, places, folder, problem)
-}
-
-/// The primary window: bound to `folder` with the configuration directory
-/// granted beside it, or to the configuration directory alone, and told its
-/// roots before its page runs.
-fn open_window<R: Runtime>(
-    handle: &AppHandle<R>,
-    app: StandaloneApp,
-    places: &Places,
-    folder: Option<Directory>,
-    problem: Option<String>,
 ) -> Result<WebviewWindow<R>, String> {
     let config = Directory::create(&places.config).map_err(|error| {
         format!(
@@ -257,11 +227,7 @@ fn open_window<R: Runtime>(
             places.config.display()
         )
     })?;
-    let script = folders_script(places, &config, folder.as_ref(), problem.as_deref());
-    let (primary, grants) = match folder {
-        Some(folder) => (folder, vec![config]),
-        None => (config, Vec::new()),
-    };
+    let script = folders_script(places, &config);
     // Keep WebView runtime files outside both roots.
     let webview_data = handle
         .path()
@@ -272,8 +238,8 @@ fn open_window<R: Runtime>(
     handle
         .open_folder_window_granting(
             app.page,
-            primary,
-            grants,
+            config,
+            Vec::new(),
             WebviewUrl::default(),
             move |builder| {
                 Ok(builder
@@ -288,19 +254,32 @@ fn open_window<R: Runtime>(
 }
 
 /// What the page reads as `appFolders()` before any of its code runs.
-fn folders_script(
-    places: &Places,
-    config: &Directory,
-    folder: Option<&Directory>,
-    problem: Option<&str>,
-) -> String {
+fn folders_script(places: &Places, config: &Directory) -> String {
     let folders = serde_json::json!({
         "config": config.root(),
-        "folder": folder.map(Directory::root),
-        "problem": problem,
-        "places": { "epicenter": places.epicenter, "appData": places.app_data },
+        "default": places.default,
     });
     format!("window.__EPICENTER_APP_FOLDERS__ = Object.freeze({folders});")
+}
+
+/// Make `folder` (or the default, for `None`) the window's watched data root,
+/// the AppData root granted beside it, and answer the root's path.
+pub(crate) fn open_data<R: Runtime>(
+    handle: &AppHandle<R>,
+    places: &Places,
+    label: &str,
+    folder: Option<&Path>,
+) -> Result<PathBuf, DataFolderRefusal> {
+    let data = places.data_root(folder)?;
+    let unavailable = |message: String| DataFolderRefusal::Unavailable { message };
+    let config = Directory::existing(&places.config)
+        .map_err(|error| unavailable(format!("{}: {error}", places.config.display())))?;
+    let root = data.root().to_path_buf();
+    handle
+        .folders()
+        .rebind(label, data, vec![config])
+        .map_err(|error| unavailable(error.to_string()))?;
+    Ok(root)
 }
 
 /// Name the failure and offer only Quit: no other folder is opened instead.
@@ -316,8 +295,10 @@ fn quit_with<R: Runtime>(handle: &AppHandle<R>, app: StandaloneApp, message: Str
 }
 
 /// Commands an app registers itself, since `invoke_handler` takes one list:
-/// `tauri::generate_handler![epicenter_standalone::commands::choose_folder]`,
-/// granted by `allow-choose-folder`, which the app's `build.rs` declares.
+/// `tauri::generate_handler![epicenter_standalone::commands::open_data_folder,
+/// epicenter_standalone::commands::choose_data_folder]`, granted by
+/// `allow-open-data-folder` and `allow-choose-data-folder`, which the app's
+/// `build.rs` declares (`COMMANDS`).
 pub mod commands {
     use std::path::{Path, PathBuf};
 
@@ -325,72 +306,68 @@ pub mod commands {
     use tauri_plugin_dialog::DialogExt;
     use tauri_plugin_epicenter_folder::FolderExt;
 
-    use super::{open_window, Places, StandaloneApp};
+    use super::{open_data, DataFolderRefusal, Places, StandaloneApp};
 
-    /// Where the app keeps its files, as the person answered: the Epicenter
-    /// folder (`"epicenter"`), the app data folder (`"app-data"`), or a
-    /// folder picked natively (`"pick"`). The answer is admitted (or refused
-    /// with one line saying why), created or reused, and a window bound to
-    /// it replaces the calling one; that page records it in `settings.md`.
-    /// `false` when the person cancels the picker. The page waits for its
-    /// saves first.
+    /// Open the data root: `folder` as the page read it from `settings.md`,
+    /// or the default folder for `null` (created when missing). Answers the
+    /// root's path, which the page opens its data device at, or why not. The
+    /// page waits for its saves before moving an open window.
     #[tauri::command]
-    pub async fn choose_folder<R: Runtime>(
+    pub async fn open_data_folder<R: Runtime>(
         app: AppHandle<R>,
         window: tauri::WebviewWindow<R>,
-        place: String,
-    ) -> Result<bool, String> {
+        folder: Option<String>,
+    ) -> Result<String, DataFolderRefusal> {
+        tauri::async_runtime::spawn_blocking(move || {
+            let places = app.state::<Places>().inner().clone();
+            open_data(
+                &app,
+                &places,
+                window.label(),
+                folder.as_deref().map(Path::new),
+            )
+            .map(|root| root.to_string_lossy().into_owned())
+        })
+        .await
+        .map_err(|error| DataFolderRefusal::Unavailable {
+            message: error.to_string(),
+        })?
+    }
+
+    /// "Choose data folder…": the native picker, starting at the window's
+    /// data root. Answers the folder picked, or `null` when the person
+    /// cancels; it opens nothing (`open_data_folder` does).
+    #[tauri::command]
+    pub async fn choose_data_folder<R: Runtime>(
+        app: AppHandle<R>,
+        window: tauri::WebviewWindow<R>,
+    ) -> Result<Option<String>, String> {
         tauri::async_runtime::spawn_blocking(move || {
             let standalone = *app.state::<StandaloneApp>();
-            let places = app.state::<Places>().inner().clone();
-            let folder = match place.as_str() {
-                "epicenter" => places.epicenter.clone(),
-                "app-data" => places.app_data.clone(),
-                "pick" => {
-                    let start = app
-                        .folders()
-                        .bound(window.label())
-                        .map(|directory| directory.root().to_path_buf())
-                        .unwrap_or_else(|_| places.home.clone());
-                    let picked = app
-                        .dialog()
-                        .file()
-                        .set_title(format!("Choose where {} keeps its files", standalone.title))
-                        .set_directory(start)
-                        .set_can_create_directories(true)
-                        .blocking_pick_folder();
-                    match picked.and_then(|path| path.into_path().ok()) {
-                        Some(folder) => folder,
-                        None => return Ok(false),
-                    }
-                }
-                other => return Err(format!("{other} is not a place to keep files.")),
-            };
-            move_to(&app, standalone, &places, &window, &folder).map(|_| true)
+            let places = app.state::<Places>();
+            let start: PathBuf = app
+                .folders()
+                .bound(window.label())
+                .map(|directory| directory.root().to_path_buf())
+                .unwrap_or_else(|_| places.home.clone());
+            let picked = app
+                .dialog()
+                .file()
+                .set_title(format!("Choose {}'s data folder", standalone.title))
+                .set_directory(start)
+                .set_can_create_directories(true)
+                .blocking_pick_folder();
+            Ok(picked
+                .and_then(|path| path.into_path().ok())
+                .map(|path| path.to_string_lossy().into_owned()))
         })
         .await
         .map_err(|error| error.to_string())?
     }
-
-    /// Admit `folder` and replace `window` with one bound to it, the
-    /// configuration directory granted beside it. The same folder keeps the
-    /// window as it is.
-    pub(crate) fn move_to<R: Runtime>(
-        app: &AppHandle<R>,
-        standalone: StandaloneApp,
-        places: &Places,
-        window: &tauri::WebviewWindow<R>,
-        folder: &Path,
-    ) -> Result<PathBuf, String> {
-        let directory = places.admit(folder)?;
-        let root = directory.root().to_path_buf();
-        let next = open_window(app, standalone, places, Some(directory), None)?;
-        if next.label() != window.label() {
-            window.destroy().map_err(|error| error.to_string())?;
-        }
-        Ok(root)
-    }
 }
+
+/// Every command `commands` gives a window, as its `build.rs` declares them.
+pub const COMMANDS: &[&str] = &["open_data_folder", "choose_data_folder"];
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn request_quit<R: Runtime>(handle: &AppHandle<R>, app: StandaloneApp) {
@@ -463,9 +440,11 @@ fn quit_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<
 #[cfg(test)]
 mod tests {
     //! The folder plugin's real commands on the mock runtime, as a page calls
-    //! them over the roots startup and "Choose folder…" give its window, with
+    //! them over the roots startup and `open_data_folder` give its window, with
     //! a mock window standing in for the WebView. The native picker and the
     //! page are not driven here; what they lead to is.
+
+    use std::fs;
 
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody};
@@ -500,13 +479,12 @@ mod tests {
             start(self.app.handle(), NOTES, &self.places).unwrap()
         }
 
-        fn remember(&self, folder: &str) {
-            fs::create_dir_all(&self.places.config).unwrap();
-            fs::write(
-                self.places.config.join("settings.md"),
-                format!("---\nfolder: {}\ntheme: dark\n---\n", Value::from(folder)),
-            )
-            .unwrap();
+        fn open(
+            &self,
+            window: &WebviewWindow<MockRuntime>,
+            folder: Option<&Path>,
+        ) -> Result<PathBuf, DataFolderRefusal> {
+            open_data(self.app.handle(), &self.places, window.label(), folder)
         }
 
         fn root(&self, window: &WebviewWindow<MockRuntime>) -> PathBuf {
@@ -525,8 +503,7 @@ mod tests {
         let support = base.join("home/Library/Application Support");
         let places = Places {
             config: support.join("so.epicenter.notes"),
-            epicenter: base.join("home/Epicenter/Notes"),
-            app_data: support.join("so.epicenter.notes/Notes"),
+            default: base.join("home/Epicenter/Notes"),
             home: base.join("home"),
             epicenter_own: vec![
                 base.join("home/Epicenter/so.epicenter"),
@@ -579,8 +556,10 @@ mod tests {
         })
     }
 
+    /// The window starts on its AppData root alone: no data folder is made
+    /// or reached until the page asks, and no settings note is written.
     #[test]
-    fn a_first_run_window_reaches_only_its_configuration() {
+    fn a_window_starts_on_its_app_data_root_alone() {
         let fixture = fixture();
         let window = fixture.start();
         assert!(window.label().starts_with("notes:"));
@@ -589,59 +568,73 @@ mod tests {
             list(&window, &fixture.places.config).unwrap(),
             Vec::<String>::new()
         );
-        // No folder is made before the person answers.
-        assert!(!fixture.places.epicenter.exists());
+        assert!(!fixture.places.default.exists());
         assert!(list(&window, &fixture.places.home).is_err());
     }
 
-    /// The remembered folder opens with the configuration granted beside it;
-    /// the page reaches both by path and nothing else.
+    /// `null` opens the default folder, made when missing, as the window's
+    /// watched root with the AppData root granted beside it; a second open
+    /// finds what it holds.
     #[test]
-    fn a_remembered_folder_opens_with_its_configuration_beside_it() {
+    fn the_default_data_folder_is_made_and_opened() {
         let fixture = fixture();
-        let folder = fixture.base.join("home/Documents/Notes");
-        fs::create_dir_all(folder.join("notes")).unwrap();
-        fs::write(folder.join("notes/a.md"), "---\n---\n").unwrap();
-        fixture.remember(folder.to_str().unwrap());
         let window = fixture.start();
-        assert_eq!(fixture.root(&window), folder);
-        assert_eq!(list(&window, &folder).unwrap(), ["notes/a.md"]);
+        assert_eq!(fixture.open(&window, None).unwrap(), fixture.places.default);
+        assert!(fixture.places.default.is_dir());
+        assert_eq!(fixture.root(&window), fixture.places.default);
         assert_eq!(
             list(&window, &fixture.places.config).unwrap(),
-            ["settings.md"]
+            Vec::<String>::new()
         );
+        fs::write(fixture.places.default.join("a.md"), "---\n---\n").unwrap();
+        fixture.open(&window, None).unwrap();
+        assert_eq!(list(&window, &fixture.places.default).unwrap(), ["a.md"]);
         assert!(list(&window, &fixture.base).is_err());
-        // Startup read the note and wrote nothing.
-        assert!(
-            fs::read_to_string(fixture.places.config.join("settings.md"))
-                .unwrap()
-                .contains("theme: dark")
-        );
     }
 
-    /// A remembered folder that is gone is not made again, and one that is
-    /// refused is not opened: the page is told why and asks again.
+    /// A chosen folder opens with its files where they are; the previous data
+    /// root is no longer reached, the AppData root still is.
     #[test]
-    fn a_missing_or_refused_remembered_folder_is_not_opened() {
+    fn a_chosen_folder_opens_with_its_files_and_replaces_the_last() {
         let fixture = fixture();
-        let gone = fixture.base.join("unplugged/Notes");
-        fixture.remember(gone.to_str().unwrap());
-        assert_eq!(
-            fixture.places.reopen(&gone).unwrap_err(),
-            format!("Its folder, {}, is missing.", gone.display())
-        );
         let window = fixture.start();
-        assert_eq!(fixture.root(&window), fixture.places.config);
-        assert!(!gone.exists());
+        fixture.open(&window, None).unwrap();
+        let chosen = fixture.base.join("home/Documents/Notes");
+        fs::create_dir_all(chosen.join("notes")).unwrap();
+        fs::write(chosen.join("notes/b.md"), "---\n---\n").unwrap();
+        assert_eq!(fixture.open(&window, Some(&chosen)).unwrap(), chosen);
+        assert_eq!(fixture.root(&window), chosen);
+        assert_eq!(list(&window, &chosen).unwrap(), ["notes/b.md"]);
+        assert!(list(&window, &fixture.places.default).is_err());
+        assert!(list(&window, &fixture.places.config).is_ok());
+    }
 
-        let refusing = self::fixture();
-        refusing.remember(refusing.places.home.to_str().unwrap());
-        assert!(refusing
-            .places
-            .reopen(&refusing.places.home)
-            .unwrap_err()
-            .contains("is your home folder"));
-        assert_eq!(refusing.root(&refusing.start()), refusing.places.config);
+    /// A chosen folder that is gone is not made again and nothing falls back
+    /// to the default: the window keeps its roots and the page hears why.
+    /// Once the folder is back, the same request (Retry) opens it.
+    #[test]
+    fn a_missing_or_refused_folder_is_not_opened_and_retry_finds_it_back() {
+        let fixture = fixture();
+        let window = fixture.start();
+        let unplugged = fixture.base.join("unplugged/Notes");
+        assert_eq!(
+            fixture.open(&window, Some(&unplugged)).unwrap_err(),
+            DataFolderRefusal::Missing {
+                message: format!("{} is missing.", unplugged.display())
+            }
+        );
+        assert!(!unplugged.exists());
+        assert!(!fixture.places.default.exists());
+        assert_eq!(fixture.root(&window), fixture.places.config);
+        let refused = fixture
+            .open(&window, Some(&fixture.places.home))
+            .unwrap_err();
+        assert!(
+            matches!(refused, DataFolderRefusal::Refused { ref message } if message.contains("is your home folder"))
+        );
+        assert_eq!(serde_json::to_value(&refused).unwrap()["kind"], "refused");
+        fs::create_dir_all(&unplugged).unwrap();
+        assert_eq!(fixture.open(&window, Some(&unplugged)).unwrap(), unplugged);
     }
 
     #[test]
@@ -681,13 +674,15 @@ mod tests {
                 .unwrap_or_else(|| panic!("{} should be refused", refused.display()));
             assert!(refusal.contains(why), "{refusal}");
             assert!(!refusal.contains('\n'), "{refusal}");
-            assert!(places.admit(&refused).is_err());
+            assert!(matches!(
+                places.data_root(Some(&refused)),
+                Err(DataFolderRefusal::Refused { .. })
+            ));
         }
         // The offered places, and an ordinary folder, a repository's working
         // tree included, are accepted.
         for accepted in [
-            places.epicenter.clone(),
-            places.app_data.clone(),
+            places.default.clone(),
             home.join("Documents/Notes"),
             repository.clone(),
         ] {
@@ -695,65 +690,11 @@ mod tests {
         }
     }
 
-    /// The person's answer becomes a new window bound to it, the
-    /// configuration granted beside it, and the first-run window closes. A
-    /// refused answer changes nothing.
-    #[test]
-    fn choosing_a_folder_moves_the_app_there() {
-        let fixture = fixture();
-        let first = fixture.start();
-        let refused = commands::move_to(
-            fixture.app.handle(),
-            NOTES,
-            &fixture.places,
-            &first,
-            &fixture.places.home,
-        );
-        assert!(refused.unwrap_err().contains("is your home folder"));
-        assert_eq!(fixture.app.webview_windows().len(), 1);
-
-        let chosen = commands::move_to(
-            fixture.app.handle(),
-            NOTES,
-            &fixture.places,
-            &first,
-            &fixture.places.epicenter,
-        )
-        .unwrap();
-        assert_eq!(chosen, fixture.places.epicenter);
-        assert!(fixture.places.epicenter.is_dir());
-        let windows = fixture.app.webview_windows();
-        let moved = windows
-            .values()
-            .find(|window| window.label() != first.label())
-            .expect("a window bound to the chosen folder");
-        assert_eq!(fixture.root(moved), fixture.places.epicenter);
-        assert_eq!(
-            list(moved, &fixture.places.config).unwrap(),
-            Vec::<String>::new()
-        );
-        // The same folder again keeps the window.
-        commands::move_to(
-            fixture.app.handle(),
-            NOTES,
-            &fixture.places,
-            moved,
-            &fixture.places.epicenter,
-        )
-        .unwrap();
-        assert!(fixture.app.get_webview_window(moved.label()).is_some());
-    }
-
     #[test]
     fn the_page_is_told_its_roots_before_it_runs() {
         let fixture = fixture();
         let config = Directory::create(&fixture.places.config).unwrap();
-        let script = folders_script(
-            &fixture.places,
-            &config,
-            None,
-            Some("Its folder is missing."),
-        );
+        let script = folders_script(&fixture.places, &config);
         let json = script
             .strip_prefix("window.__EPICENTER_APP_FOLDERS__ = Object.freeze(")
             .and_then(|rest| rest.strip_suffix(");"))
@@ -762,28 +703,9 @@ mod tests {
             serde_json::from_str::<Value>(json).unwrap(),
             json!({
                 "config": fixture.places.config,
-                "folder": null,
-                "problem": "Its folder is missing.",
-                "places": {
-                    "epicenter": fixture.places.epicenter,
-                    "appData": fixture.places.app_data,
-                },
+                "default": fixture.places.default,
             })
         );
-    }
-
-    #[test]
-    fn the_settings_note_is_read_as_its_writer_writes_it() {
-        assert_eq!(
-            settings_folder("---\nfolder: \"/a \\\"b\\\"\"\ntheme: dark\n---\n").as_deref(),
-            Some("/a \"b\"")
-        );
-        assert_eq!(
-            settings_folder("---\nfolder: /plain/path\n---\n").as_deref(),
-            Some("/plain/path")
-        );
-        assert_eq!(settings_folder("---\ntheme: dark\n---\n"), None);
-        assert_eq!(settings_folder("no front matter"), None);
     }
 
     #[test]

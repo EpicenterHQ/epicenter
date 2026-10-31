@@ -1,6 +1,6 @@
 /**
  * `#platform/root` in Capture's desktop window: the folder Capture keeps its
- * files in (decisions 81 and 82), or the question of where, first. The
+ * files in (decisions 88 and 89), or the recovery screen when it cannot be opened. The
  * window never signs in: Epicenter syncs the folder once the person asks.
  */
 import DesktopChrome from './components/DesktopChrome.svelte';

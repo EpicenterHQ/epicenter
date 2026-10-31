@@ -1,13 +1,12 @@
 /**
- * A desktop app's own configuration (decision 82): one Markdown note,
- * `settings.md`, in the operating system's configuration directory for the
- * app. It is machine-local and never synced. `folder` is where the app keeps
- * the person's files, chosen on first run and with "Choose folder…"; other
- * machine settings go beside it as more fields. API keys never go here: they
- * stay in the keychain.
+ * A desktop app's own configuration (decisions 88 and 89): `settings.md` at
+ * the top of the app's AppData root, machine-local and never synced. `folder`
+ * is the data folder the person chose with "Choose data folder…", absent for
+ * the default `~/Epicenter/<App>`; other machine settings go beside it as
+ * more fields. API keys never go here: they stay in the keychain.
  *
- * The desktop shell reads and writes the same note in Rust
- * (`epicenter-standalone`'s `Places`), before the page exists.
+ * Only the page reads and writes the note, through this contract's client;
+ * the desktop shell never parses it.
  */
 import {
 	type Client,
@@ -29,7 +28,10 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
  * ```
  */
 export function defineAppConfig<
-	const TFields extends { readonly [field: string]: object } = Record<never, never>,
+	const TFields extends { readonly [field: string]: object } = Record<
+		never,
+		never
+	>,
 >(fields: TFields = {} as TFields) {
 	return defineContract({
 		name: 'app-config',
@@ -50,18 +52,14 @@ export const appConfig = defineAppConfig();
 export type AppConfig = typeof appConfig;
 
 /**
- * The roots the standalone shell gave this window (`epicenter-standalone`),
- * set before any of the page's code runs. `config` is the app's
- * configuration directory; `folder` is where it keeps the person's files, or
- * `null` until the person chooses one, in which case `problem` may say why
- * the folder remembered in `settings.md` was not opened. `places` are the
- * two folders offered on first run, beside "Choose folder…".
+ * What the standalone shell told this window (`epicenter-standalone`) before
+ * any of the page's code ran: `config`, the app's AppData root, the one root
+ * the window starts with; and `default`, the data folder opened when
+ * `settings.md` names none (`~/Epicenter/<App>`).
  */
 export type AppFolders = {
 	readonly config: string;
-	readonly folder: string | null;
-	readonly problem: string | null;
-	readonly places: { readonly epicenter: string; readonly appData: string };
+	readonly default: string;
 };
 
 declare global {
@@ -77,16 +75,18 @@ export function appFolders(): AppFolders | null {
 }
 
 /**
- * Record `folder` as the app's folder in its `settings.md`, keeping every
- * other setting: the page calls this once the shell opened its window on a
- * folder the person chose, so the next launch opens it again.
+ * Record `folder` as the app's data folder in its `settings.md`, keeping
+ * every other setting, or forget it for `undefined` (the default folder):
+ * the page calls this once the shell opened a folder the person chose, so
+ * the next launch opens it again.
  */
 export async function rememberFolder(
 	config: Pick<Client<AppConfig>, 'settings'>,
-	folder: string,
+	folder: string | undefined,
 ): Promise<Result<undefined, ClientError>> {
 	const read = await config.settings.get({});
 	if (read.error?.name === 'NotFound') {
+		if (folder === undefined) return Ok(undefined);
 		const made = await config.settings.create({ folder });
 		return made.error === null ? Ok(undefined) : Err(made.error);
 	}

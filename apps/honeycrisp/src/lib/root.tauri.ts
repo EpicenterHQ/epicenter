@@ -1,6 +1,6 @@
 /**
  * `#platform/root` in Honeycrisp's desktop window: the folder Honeycrisp
- * keeps its notes in (decisions 81 and 82), or the question of where, first.
+ * keeps its notes in (decisions 88 and 89), or the recovery screen when it cannot be opened.
  * The window never signs in: Epicenter syncs the folder once the person asks.
  */
 import DesktopCallback from './components/DesktopCallback.svelte';

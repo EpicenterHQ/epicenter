@@ -1,9 +1,8 @@
-//! Honeycrisp's desktop app (`epicenter-standalone`): one window over the
-//! folder Honeycrisp keeps its notes in, with its configuration directory
-//! granted beside it (decision 82). The page opens both by path
-//! (`openDevice` from `@epicenter/folder/tauri`), asks where to keep the
-//! notes on first run and records the answer in `settings.md`, asks Epicenter
-//! to sync the folder (`syncWithEpicenter`), and never signs in.
+//! Honeycrisp's desktop app (`epicenter-standalone`, decisions 88 and 89): one
+//! window that starts on Honeycrisp's AppData root and opens its data folder,
+//! `~/Epicenter/Honeycrisp` unless `settings.md` names another, by path
+//! (`openDevice` from `@epicenter/folder/tauri`). It asks Epicenter to sync
+//! the folder (`syncWithEpicenter`) and never signs in.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -20,7 +19,8 @@ const HONEYCRISP: StandaloneApp = StandaloneApp {
 fn main() {
     epicenter_standalone::builder(HONEYCRISP)
         .invoke_handler(tauri::generate_handler![
-            epicenter_standalone::commands::choose_folder
+            epicenter_standalone::commands::open_data_folder,
+            epicenter_standalone::commands::choose_data_folder,
         ])
         .run(tauri::generate_context!())
         .expect("Honeycrisp could not start");
@@ -46,8 +46,8 @@ mod tests {
     }
 
     /// The window reaches its roots, and Epicenter's sync request and status,
-    /// through the folder plugin, and may ask to choose its folder; nothing
-    /// else.
+    /// through the folder plugin, and may open its data folder and pick
+    /// another; nothing else.
     #[test]
     fn the_capability_selects_the_one_window_and_grants_only_its_folder() {
         let capability: Value =
@@ -56,7 +56,11 @@ mod tests {
         assert_eq!(capability["local"], true);
         assert_eq!(
             capability["permissions"],
-            json!(["epicenter-folder:default", "allow-choose-folder"])
+            json!([
+                "epicenter-folder:default",
+                "allow-open-data-folder",
+                "allow-choose-data-folder"
+            ])
         );
     }
 }

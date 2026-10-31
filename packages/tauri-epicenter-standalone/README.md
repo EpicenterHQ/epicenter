@@ -4,50 +4,44 @@ A standalone Epicenter app is its own small Tauri program over a folder it
 owns (decisions 79 to 82). This crate is the Rust every such app shares, so
 each app's `src-tauri/src/main.rs` stays a few dozen lines. Its TypeScript
 counterparts are in `@epicenter/folder/tauri`: `desktopFolder({ contract })`,
-the window's folder and settings in one object, built on `appFolders`,
-`appConfig` (or the app's own `defineAppConfig({ … })`), `rememberFolder`,
-`syncWithEpicenter` and `syncedWithEpicenter`. The page's UI for them is in
-`@epicenter/svelte`: `choose-folder` (the first-run question), and
-`folder-sync` with `folder-sync-actions` (sync state, Sync with Epicenter,
-Choose folder…).
+the window's roots and the requests that open its data folder, built on
+`appFolders`, `appConfig` (or the app's own `defineAppConfig({ … })`),
+`rememberFolder`, `syncWithEpicenter` and `syncedWithEpicenter`. The page's
+UI for them is in `@epicenter/svelte`: `data-folder` (opens the data folder
+as the window starts, or the recovery screen) and `folder-sync` with
+`folder-sync-actions` (sync state, Sync with Epicenter, Choose data
+folder…).
 
-## Two roots per window
+## Two roots per window (decisions 88 and 89)
 
-An app keeps two roots, and its window reaches exactly those:
+- **The AppData root** is fixed: the operating system's application data
+  directory for the app, never synced and never chosen. Its settings notes
+  sit at its top (`settings.md`, `shortcuts.md`). `settings.md` holds
+  `folder` only when the person chose a data folder.
+- **The data root** is the person's files: `~/Epicenter/<App>` by default
+  (`~/Epicenter Dev/<App>` for a `.dev` build, or under
+  `EPICENTER_FOLDER_DIR`), or the folder `settings.md` names. Only it is
+  synced, by Epicenter, once asked.
 
-- **Its configuration directory** (the operating system's, for the app) holds
-  `settings.md`, the machine-local `appConfig` note: `folder`, where the app
-  keeps the person's files, and any other machine settings. It is never
-  synced. API keys stay in the keychain.
-- **Its folder**, the person's data, which Epicenter syncs once asked.
-
-Startup makes the configuration directory and reads `folder` from
-`settings.md`; Rust never writes the note. The window is bound to the folder
-with the configuration directory granted beside it, or to the configuration
-directory alone when there is no folder yet, or the remembered one is
-missing or refused. The folder plugin lets a page name a root only by its
-exact path, and only a root Rust granted that window; grants are fixed for
-the window's life, and only the folder is watched. Before the page's code
-runs, Rust sets `window.__EPICENTER_APP_FOLDERS__`, which the page reads with
-`appFolders()`:
+Rust never reads or writes a settings note. Startup makes the AppData root
+and opens the window bound to it alone, telling the page its path and the
+default folder (`window.__EPICENTER_APP_FOLDERS__`, `appFolders()`). The
+page reads `folder` through its client and calls
+`commands::open_data_folder(folder | null)`: Rust admits it
+(`Places::data_root`: the default is created when missing; a chosen folder
+is opened as it is, never created or moved), makes it the window's watched
+root with the AppData root granted beside it (`Folders::rebind`), and
+answers its path, or a typed refusal (`refused`, `missing`,
+`unavailable`). There is no first-run question and no silent fallback: a
+refusal shows the recovery screen (Retry, Choose folder…, Use the default
+folder). "Choose data folder…" is `commands::choose_data_folder` (the native
+picker) followed by the same command; the page writes `folder`.
 
 ```ts
-const folder = desktopFolder({ contract: CONTRACT_URL }); // null outside the window
-// folder.config is settings.md's client; folder.path is null until chosen
-const device = folder?.path ? openDevice(contract, { path: folder.path }) : null;
+const desktop = desktopFolder({ contract: CONTRACT_URL }); // null outside the window
+const answer = await desktop.open();
+if (answer.ok) setRepo(openDevice(contract, { path: answer.folder.path }));
 ```
-
-## Choosing the folder
-
-With no folder, the page asks "Where should <App> keep its files?"
-(`<ChooseFolder app="<App>" {folder} />`): the
-Epicenter folder `~/Epicenter/<App>` (recommended; `~/Epicenter Dev/<App>` for
-a `.dev` build, or under `EPICENTER_FOLDER_DIR`), the app data folder, or
-"Choose folder…". It calls `commands::choose_folder` with `"epicenter"`,
-`"app-data"`, or `"pick"` (a native picker). Rust admits the answer, creates
-the folder or reuses it with its files, and replaces the window with one bound
-to it; that page records the folder in `settings.md` (`folder.remembered`).
-"Choose folder…" later is the same command.
 
 These are refused, each with one line saying why (`Places::refusal`): the top
 of a disk, the home folder itself, anything inside or around Epicenter's own
@@ -71,14 +65,15 @@ const CAPTURE: StandaloneApp = StandaloneApp {
 
 epicenter_standalone::builder(CAPTURE)
     .invoke_handler(tauri::generate_handler![
-        epicenter_standalone::commands::choose_folder
+        epicenter_standalone::commands::open_data_folder,
+        epicenter_standalone::commands::choose_data_folder,
     ])
     .run(tauri::generate_context!())
 ```
 
 The app's capability grants `epicenter-folder:default` and
-`allow-choose-folder`, which its `build.rs` declares with
-`tauri_build::AppManifest::new().commands(&["choose_folder"])`. The folder and
+`allow-open-data-folder` and `allow-choose-data-folder`, which its `build.rs`
+declares with `tauri_build::AppManifest::new().commands(COMMANDS)`. The folder and
 dialog plugins must also be direct dependencies, so `tauri-build` finds their
 permissions. The crate is a member of the root Cargo workspace
 (`cargo test -p epicenter-standalone`).
@@ -102,9 +97,10 @@ example.
 
    A leaf is TypeScript, exporting components where the variants render
    differently (`export const Root: Platform['Root'] = DesktopRoot;`), so
-   neither build carries the other's root. The desktop root renders
-   `ChooseFolder` until there is a folder, then sets the folder's client for
-   the app (the same client type as the web's). Components import
+   neither build carries the other's root. The desktop root is
+   `<DataFolder app contract desktop>` from `@epicenter/svelte/data-folder`,
+   which opens the data folder and sets its client for the app (the same
+   client type as the web's), or shows the recovery screen. Components import
    `#platform/root`, never a leaf, and leaves import with relative paths
    (no `$lib`), so the bundle test can resolve them. A shared
    `src/lib/platform.ts` holds the types both leaves annotate against.

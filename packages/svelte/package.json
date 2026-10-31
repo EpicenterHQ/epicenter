@@ -25,7 +25,7 @@
 		"./status-line": "./src/status-line.ts",
 		"./status-popover": "./src/status-popover.svelte",
 		"./status-row": "./src/status-row.svelte",
-		"./choose-folder": "./src/choose-folder.svelte",
+		"./data-folder": "./src/data-folder.svelte",
 		"./folder-sync": "./src/folder-sync.svelte.ts",
 		"./folder-sync-actions": "./src/folder-sync-actions.svelte"
 	},

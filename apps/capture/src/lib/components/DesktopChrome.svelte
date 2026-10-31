@@ -1,23 +1,21 @@
 <!--
 	The desktop window's header account of its store: Capture's folder on
 	this computer, whether Epicenter syncs it, Sync with Epicenter until it
-	does, and Choose folder… (decision 81). It never signs in.
+	does, and Choose data folder… (decisions 81 and 88). It never signs in.
 -->
 <script lang="ts">
-	import { folderSync } from '@epicenter/svelte/folder-sync';
+	import { getFolderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import type { CaptureList } from '../captures.svelte.js';
-	import { folder } from '../folder.tauri.js';
 
 	let { list }: { list: CaptureList } = $props();
 
-	// DesktopRoot renders the app, and so this, only over a chosen folder.
-	if (folder === null) throw new Error("Capture's header needs the window's folder.");
-	const sync = folderSync(folder);
+	// DesktopRoot renders the app, and so this, only over its open data folder.
+	const sync = getFolderSync();
 
 	const status = $derived.by((): StatusLine => {
 		if (list.error !== null)
@@ -40,7 +38,7 @@
 		</span>
 	</StatusRow>
 	{#snippet footer()}
-		<Button variant="outline" size="sm" disabled={sync.asking} onclick={() => sync.chooseFolder()}>Choose folder…</Button>
+		<Button variant="outline" size="sm" disabled={sync.asking} onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
 	{/snippet}
 </StatusPopover>
 <div class="ml-auto flex min-w-0 items-center gap-2">

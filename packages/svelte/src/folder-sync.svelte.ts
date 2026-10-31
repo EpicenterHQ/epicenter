@@ -1,29 +1,34 @@
 /**
- * A standalone desktop app's folder in its page (decisions 81 and 82):
- * whether Epicenter syncs it, asked again whenever the window comes back
- * (Epicenter may set it up meanwhile), "Sync with Epicenter", and "Choose
- * folder…", which waits for saves before the window moves. Say so if
- * recording a chosen folder for the next launch failed.
+ * A standalone desktop app's data folder in its page (decisions 81, 88 and
+ * 89): whether Epicenter syncs it, asked again whenever the window comes
+ * back (Epicenter may set it up meanwhile), "Sync with Epicenter", and
+ * "Choose data folder…", which waits for saves, opens the folder picked with
+ * its files where they are, remembers it, and reloads the page over it.
  *
- * Call it while a component initializes; it listens for the window's focus
- * for that component's life.
+ * `data-folder.svelte` makes it once the folder is open and sets it for the
+ * components under it; the header reads it with `getFolderSync()`.
  *
  * ```svelte
- * const sync = folderSync(folder);
+ * const sync = getFolderSync();
  * <FolderSyncActions {sync} />
- * <Button onclick={sync.chooseFolder}>Choose folder…</Button>
+ * <Button onclick={sync.chooseDataFolder}>Choose data folder…</Button>
  * ```
  */
 import type {
+	DataFolder,
 	DesktopFolder,
 	FolderRequest,
 	FolderSync,
 } from '@epicenter/folder/tauri';
-import { toast } from '@epicenter/ui/sonner';
+import { getContext, hasContext, setContext } from 'svelte';
 import { on } from 'svelte/events';
 import { whenSaved } from './leave-guard.js';
 
-export function folderSync(folder: Omit<DesktopFolder, 'config'>) {
+/** Call while a component initializes; it listens for the window's focus for that component's life. */
+export function folderSync(
+	desktop: Pick<DesktopFolder, 'choose'>,
+	folder: DataFolder,
+) {
 	let state = $state<FolderSync>('unknown');
 	let request = $state<{ tone: 'requested' | 'failed'; message: string }>();
 	let asking = $state(false);
@@ -46,15 +51,9 @@ export function folderSync(folder: Omit<DesktopFolder, 'config'>) {
 		void check();
 		return on(window, 'focus', () => void check());
 	});
-	void folder.remembered.then((answer) => {
-		if (!answer.ok)
-			toast.error('The app may ask for its folder again next time', {
-				description: answer.message,
-			});
-	});
 
 	return {
-		/** The folder's path, or null until the person chooses one. */
+		/** The data folder's path. */
 		get path() {
 			return folder.path;
 		},
@@ -76,14 +75,34 @@ export function folderSync(folder: Omit<DesktopFolder, 'config'>) {
 				'Asked your computer to open Epicenter. If it is installed, choose where to sync there.',
 			);
 		},
-		/** Move to a folder the person picks; this window's saves land first. */
-		chooseFolder() {
+		/** "Choose data folder…": this window's saves land first; the page reloads over the folder picked. */
+		chooseDataFolder() {
 			void ask(async () => {
 				await whenSaved();
-				return folder.choose('pick');
+				const answer = await desktop.choose();
+				if (answer === null) return { ok: true };
+				if (!answer.ok) return { ok: false, message: answer.refusal.message };
+				window.location.reload();
+				return { ok: true };
 			});
 		},
 	};
 }
 
 export type FolderSyncState = ReturnType<typeof folderSync>;
+
+const FOLDER_SYNC = Symbol('epicenter.folder-sync');
+
+/** Give the components under this one the open data folder's sync. */
+export function setFolderSync(sync: FolderSyncState): FolderSyncState {
+	return setContext(FOLDER_SYNC, sync);
+}
+
+/** The open data folder's sync, which `data-folder.svelte` set above. Throws outside it. */
+export function getFolderSync(): FolderSyncState {
+	if (!hasContext(FOLDER_SYNC))
+		throw new Error(
+			'getFolderSync() was called outside the open data folder (data-folder.svelte)',
+		);
+	return getContext<FolderSyncState>(FOLDER_SYNC);
+}

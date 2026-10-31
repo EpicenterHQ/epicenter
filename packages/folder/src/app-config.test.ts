@@ -8,6 +8,7 @@
  * - The first folder chosen creates the note, in the form the shell reads
  * - A later choice changes only `folder`, keeping other machine settings
  * - Choosing the folder already recorded writes nothing
+ * - The default folder is no `folder` at all: choosing it removes the key
  * - `appFolders()` is what the shell set before the page ran, or null
  */
 
@@ -54,13 +55,32 @@ test('a later choice changes only folder; the same one writes nothing', async ()
 	expect(await settings()).toBe(after);
 });
 
+test('the default folder removes folder and keeps the rest', async () => {
+	await writeFile(
+		join(directory, 'settings.md'),
+		'---\nfolder: "/old"\ntheme: dark\n---\n',
+	);
+	const config = openDevice(appConfig, { path: directory });
+	expectOk(await rememberFolder(config, undefined));
+	expect(await settings()).toBe('---\ntheme: dark\n---\n');
+	const fresh = await mkdtemp(join(tmpdir(), 'app-config-fresh-'));
+	try {
+		expectOk(
+			await rememberFolder(openDevice(appConfig, { path: fresh }), undefined),
+		);
+		expect(
+			await readFile(join(fresh, 'settings.md'), 'utf8').catch(() => null),
+		).toBeNull();
+	} finally {
+		await rm(fresh, { recursive: true, force: true });
+	}
+});
+
 test('appFolders is what the shell set before the page ran', () => {
 	expect(appFolders()).toBeNull();
 	const folders = {
 		config: '/c',
-		folder: null,
-		problem: null,
-		places: { epicenter: '/e', appData: '/a' },
+		default: '/d',
 	};
 	(globalThis as { window?: unknown }).window = {
 		__EPICENTER_APP_FOLDERS__: folders,

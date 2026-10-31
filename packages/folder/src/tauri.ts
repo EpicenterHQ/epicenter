@@ -31,9 +31,11 @@ export {
 } from './app-config.js';
 export * from './contract.js';
 export {
+	type DataFolder,
+	type DataFolderAnswer,
+	type DataFolderRefusal,
 	type DesktopFolder,
 	desktopFolder,
-	type FolderPlace,
 	type FolderRequest,
 	type FolderSync,
 } from './desktop-folder.js';

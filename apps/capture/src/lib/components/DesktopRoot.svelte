@@ -1,21 +1,16 @@
 <!--
 	The desktop window's root, which decides the store: the folder Capture
-	keeps its files in, set for every page under it. Until the person chooses
-	where that is, or when the remembered folder could not be opened, it asks.
+	keeps its files in, `~/Epicenter/Capture` unless the person chose another,
+	set for every page under it. When it cannot be opened, it says why and
+	offers Retry, Choose folder…, and Use the default folder.
 -->
 <script lang="ts">
-	import ChooseFolder from '@epicenter/svelte/choose-folder';
-	import { setRepo } from '@epicenter/svelte/repo';
+	import { capture } from '@epicenter/capture';
+	import DataFolder from '@epicenter/svelte/data-folder';
 	import type { Snippet } from 'svelte';
-	import { device, folder } from '../folder.tauri.js';
+	import { desktop } from '../folder.tauri.js';
 
 	let { children }: { children: Snippet } = $props();
-
-	if (device !== null) setRepo(device);
 </script>
 
-{#if device === null}
-	<ChooseFolder app="Capture" {folder} kept="Each capture is a Markdown file in this folder." />
-{:else}
-	{@render children()}
-{/if}
+<DataFolder app="Capture" contract={capture} {desktop} kept="Each capture is a Markdown file in this folder.">{@render children()}</DataFolder>
