@@ -50,6 +50,61 @@ export function labelOf(accelerator: string, mac = isMac): string {
 	return parts.join(mac ? '' : '+');
 }
 
+/** Keys whose code names a character the accelerator spells as that character. */
+const CHARACTERS: Record<string, string> = {
+	Backquote: '`',
+	Backslash: '\\',
+	BracketLeft: '[',
+	BracketRight: ']',
+	Comma: ',',
+	Equal: '=',
+	Minus: '-',
+	Period: '.',
+	Quote: "'",
+	Semicolon: ';',
+	Slash: '/',
+};
+
+/**
+ * The accelerator a key press spells (`CommandOrControl+Shift+;`), named by
+ * the key's place on the keyboard (`event.code`), so the layout and Shift do
+ * not change it, in the names the shell's parser takes. Undefined while only
+ * modifiers are down, and for a key with no modifier but Shift unless it is
+ * a function key: a global shortcut on a letter that types would take it
+ * from every app.
+ * The platform's command key (⌘ on a Mac, Ctrl elsewhere) is
+ * `CommandOrControl`, so a shortcut set on one computer means the same on
+ * the other.
+ */
+export function acceleratorOf(
+	event: Pick<
+		KeyboardEvent,
+		'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'
+	>,
+	mac = isMac,
+): string | undefined {
+	const { code } = event;
+	if (/^(Shift|Control|Alt|Meta|OS)(Left|Right)?$/.test(code) || code === '')
+		return undefined;
+	const key =
+		CHARACTERS[code] ??
+		/^Key([A-Z])$/.exec(code)?.[1] ??
+		/^Digit(\d)$/.exec(code)?.[1] ??
+		code;
+	const command = mac ? event.metaKey : event.ctrlKey;
+	const other = mac ? event.ctrlKey : event.metaKey;
+	const modifiers = [
+		command && 'CommandOrControl',
+		other && (mac ? 'Control' : 'Super'),
+		event.altKey && 'Alt',
+		event.shiftKey && 'Shift',
+	].filter((modifier): modifier is string => modifier !== false);
+	// Shift alone only types a capital: it needs another modifier too.
+	const held = modifiers.filter((modifier) => modifier !== 'Shift');
+	if (held.length === 0 && !/^F\d{1,2}$/.test(key)) return undefined;
+	return [...modifiers, key].join('+');
+}
+
 /** Ask the shell to hold `accelerator`: null once it does, else why not. */
 function hold(accelerator: string): Promise<string | null> {
 	return invoke('set_shortcut', { accelerator }).then(

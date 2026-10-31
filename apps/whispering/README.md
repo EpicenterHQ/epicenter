@@ -308,7 +308,11 @@ whose desktop leaf went missing.
   page asks it to hold the resolved key (`set_shortcut`) at startup and
   whenever the key changes, and a key that does not parse or that another
   app holds is refused before anything is written, the reason shown in
-  Settings.
+  Settings. The Settings field records the keys pressed in it
+  (`acceleratorOf`, by each key's place on the keyboard): a modifier other
+  than Shift and a key, or a function key; ⌘ on a Mac and Ctrl elsewhere
+  are both `CommandOrControl`, so a synced shortcut means the same on
+  either. Escape lets go of what was pressed; Tab moves on.
 
 `cargo test -p whispering` checks the identity, the native client id, that
 the capability grants exactly the plugins' permissions and the commands the

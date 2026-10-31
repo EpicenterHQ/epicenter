@@ -45,7 +45,9 @@ mock.module('@tauri-apps/api/event', () => ({
 	listen: async () => () => {},
 }));
 
-const { globalShortcut, labelOf } = await import('./shortcut.tauri.svelte.js');
+const { acceleratorOf, globalShortcut, labelOf } = await import(
+	'./shortcut.tauri.svelte.js'
+);
 const { fromClient } = await import('@epicenter/svelte/client');
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: InitHost } = await import(
@@ -175,6 +177,50 @@ test('a key the shell refuses is never written, and the resolved one is held aga
 	expect(await shortcut.save('  ', { onThisComputer: false })).toMatch(
 		/^Type a shortcut/,
 	);
+});
+
+test('a key press spells the accelerator the shell takes, by the key’s place, with the platform’s command key', () => {
+	const press = (code: string, keys: Partial<KeyboardEvent> = {}) => ({
+		code,
+		metaKey: false,
+		ctrlKey: false,
+		altKey: false,
+		shiftKey: false,
+		...keys,
+	});
+	expect(
+		acceleratorOf(press('Semicolon', { metaKey: true, shiftKey: true }), true),
+	).toBe('CommandOrControl+Shift+;');
+	expect(
+		acceleratorOf(press('Semicolon', { ctrlKey: true, shiftKey: true }), false),
+	).toBe('CommandOrControl+Shift+;');
+	expect(acceleratorOf(press('KeyK', { ctrlKey: true }), true)).toBe(
+		'Control+K',
+	);
+	expect(acceleratorOf(press('KeyK', { metaKey: true }), false)).toBe(
+		'Super+K',
+	);
+	expect(acceleratorOf(press('Digit5', { altKey: true }), true)).toBe('Alt+5');
+	expect(acceleratorOf(press('Space', { altKey: true }), true)).toBe(
+		'Alt+Space',
+	);
+	expect(acceleratorOf(press('F9'), true)).toBe('F9');
+	// Only modifiers so far, or a bare key: nothing to set yet.
+	expect(acceleratorOf(press('ShiftLeft', { shiftKey: true }), true)).toBe(
+		undefined,
+	);
+	expect(acceleratorOf(press('MetaRight', { metaKey: true }), true)).toBe(
+		undefined,
+	);
+	expect(acceleratorOf(press('KeyA'), true)).toBe(undefined);
+	expect(acceleratorOf(press('KeyA', { shiftKey: true }), true)).toBe(
+		undefined,
+	);
+	expect(acceleratorOf(press('F2', { shiftKey: true }), false)).toBe(
+		'Shift+F2',
+	);
+	// Every one reads back as a label.
+	expect(labelOf('CommandOrControl+Shift+;', true)).toBe('⌘⇧;');
 });
 
 test('a label reads as a Mac menu, or as Windows and Linux spell it', () => {
