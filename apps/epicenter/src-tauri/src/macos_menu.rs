@@ -1,4 +1,4 @@
-//! The macOS application menu, with Quit routed through the guarded exit.
+//! The macOS application menu, with Quit routed through `app.exit`.
 
 use anyhow::Context;
 use tauri::menu::{Menu, MenuItem};
@@ -7,8 +7,9 @@ use tauri::{AppHandle, Runtime};
 pub(crate) fn install<R: Runtime>(app: &AppHandle<R>) -> anyhow::Result<()> {
     let menu = Menu::default(app)?;
     // Tauri's default app menu ends with AppKit's terminate: item, which
-    // bypasses ExitRequested. Keep its title and route Cmd+Q through our
-    // guarded exit path, just like the tray's Quit command.
+    // bypasses ExitRequested. Keep its title and route Cmd+Q through
+    // `app.exit`, like the tray's Quit command, so every Quit takes Tauri's
+    // one exit path.
     let application = menu
         .items()?
         .first()

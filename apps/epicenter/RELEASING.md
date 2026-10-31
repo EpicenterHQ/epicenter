@@ -19,9 +19,9 @@ the second. The check compares the installed bundle to the built destination,
 including its native executable, CLI, pages, and release receipt.
 
 Add `--interactive` to launch the first packaged version and exercise **Check
-for Updates...** in its app menu. Confirm Download, then use Epicenter's
-application Quit confirmation to install and restart. Cancel leaves the
-installed version unchanged. Quit the rehearsal app before pressing Return
+for Updates...** in its app menu. Confirm Download, then confirm **Install and
+Restart** when the download is ready. Cancel leaves the installed version
+unchanged. Quit the rehearsal app before pressing Return
 in the terminal so the run can stop its local feed and remove temporary data.
 
 The rehearsal uses a distinct application identifier and deep-link scheme,
@@ -119,9 +119,9 @@ to retain pending runs. Feed version checks enforce forward progress regardless
 of the order queued runs start.
 
 Epicenter verifies the artifact's signature and its signed version before
-offering installation through the existing application Quit confirmation.
-After confirmation, it installs the bundle and requests a restart through
-Tauri's exit lifecycle, which finalizes native recording. It adds no updater
+asking whether to install it and restart. After confirmation, it installs the
+bundle and requests a restart through Tauri's exit lifecycle, which finalizes
+native recording. It adds no updater
 permission to a product page. A failed install leaves the app running and
 shows an error. A publication failure leaves the previous feed available.
 

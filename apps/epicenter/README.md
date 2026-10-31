@@ -300,21 +300,12 @@ opener and grants no page its URLs.
 
 ## Quitting Epicenter
 
-Application Quit always shows a native confirmation. Its message still warns
-that unsaved changes may be lost. Cancel keeps every window; Quit Anyway
-exits. Repeated requests share the current alert.
-
-Quit queries no page and waits for no status reply or timeout. Its standalone
-native alert has no window parent, so closing a window leaves the Quit question
-in place. Quit owns only ready, prompting, and approved
-state; it needs no attempt ID or window-destruction hook. On macOS, the
-unparented dialog uses the system's standalone alert presentation rather than
-an attached window sheet.
-
-The app menu's Quit, Cmd-Q, and tray Quit use this path. macOS Dock Quit,
-logout, and abrupt process termination are outside it. Standalone Todos' Cmd-Q
-still uses its one window's conditional close. Atomic file replacement keeps
-its existing guarantees.
+Quit quits, with no question: no Epicenter window holds unsaved input. The
+Folders and Settings windows run `epicenter` commands, and apps are separate
+programs (ADR-0701). The app menu's Quit, Cmd-Q (routed through `app.exit` by
+`src-tauri/src/macos_menu.rs`), and tray Quit all exit through Tauri's exit
+lifecycle, which stops the sync service. A downloaded update asks on its own
+whether to install and restart (see [Releasing](RELEASING.md)).
 
 - **An account change restarts nothing.** The account is the CLI's desktop
   grant (ADR-0556); a page that uses it reads it again when its window

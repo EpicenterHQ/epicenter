@@ -298,7 +298,7 @@ files; and `bookmarks.json` cleanup.
 | [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | principles 1, 2, 5, 6, 7 and 9: the contract, the web never syncs, the merge rules above, and LFS. |
 | [ADR-0632](0632-a-lens-belongs-to-its-reader.md) | "CLI check and query require the root epicenter.json": `check` takes a contract. |
 | [ADR-0648](0648-a-folders-saved-views-live-in-its-optional-epicenter-json.md) | the CLI and the desktop editor reading saved views in `epicenter.json`: `check` takes a contract, `query` is deleted, and the editor and table engine are deleted; nothing reads the file. |
-| [ADR-0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | window Close, which ADR-0689 had amended before it was rejected: a window waits for the writes its page has out (`guardLeave`) and asks nothing; closing again while it waits asks whether to close anyway. |
+| [ADR-0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | window Close, which ADR-0689 had amended before it was rejected: a window waits for the writes its page has out (`guardLeave`) and asks nothing; closing again while it waits asks whether to close anyway. (ADR-0701 deleted its application Quit alert.) |
 | [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) | browser synchronization: the web never syncs; a local variant's files stay in the browser. |
 
 ## Revisions

@@ -233,13 +233,12 @@ pub fn run() {
         .plugin(log_plugin)
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
-        // Rust owns the folder picker and application Quit confirmation; no
-        // page may open the file picker.
+        // Rust owns the folder picker and the update alerts; no page may open
+        // the file picker.
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(synced_folders::SyncedFolders::default())
         .manage(cli::CliChildren::default())
-        .manage(shell::QuitRequest::default())
         .manage(updates::Updates::default())
         .manage(DownloadManager::default());
 
@@ -334,9 +333,6 @@ pub fn run() {
         .expect("failed to build Epicenter")
         .run(|app, event| match event {
             RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Folders),
-            RunEvent::ExitRequested { api, code, .. } => {
-                shell::request_quit(app, &api, code.unwrap_or(0));
-            }
             // No task is left to stop the service's child, so signal it now.
             RunEvent::Exit => synced_folders::stop_service(app),
             _ => {}

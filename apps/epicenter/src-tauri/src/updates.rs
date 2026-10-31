@@ -1,17 +1,14 @@
 //! Native-only update checks. Pages have no updater capability or endpoint input.
-//! Verified bytes wait for the existing application Quit confirmation.
+//! Verified bytes are installed only after the person confirms, and the app
+//! restarts into them.
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Mutex,
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-/// Update alerts stay with a visible Epicenter window. Ordinary application
-/// Quit remains an independent alert; only an update's confirmation uses this.
-pub(crate) fn parent_window<R: Runtime>(app: &AppHandle<R>) -> Option<tauri::WebviewWindow<R>> {
+/// Update alerts stay with a visible Epicenter window.
+fn parent_window<R: Runtime>(app: &AppHandle<R>) -> Option<tauri::WebviewWindow<R>> {
     let windows = app.webview_windows();
     let window = windows
         .values()
@@ -37,61 +34,48 @@ fn message<R: Runtime>(
     }
 }
 
+/// Whether a check, download, or install question is under way; a second
+/// Check for Updates does nothing until it ends.
 #[derive(Default)]
 pub(crate) struct Updates {
     busy: AtomicBool,
-    pending: Mutex<Option<(Update, Vec<u8>)>>,
 }
 
-pub(crate) fn has_pending<R: Runtime>(app: &AppHandle<R>) -> bool {
-    app.state::<Updates>().pending.lock().unwrap().is_some()
-}
-
-fn cancel<R: Runtime>(app: &AppHandle<R>) {
-    let updates = app.state::<Updates>();
-    updates.pending.lock().unwrap().take();
-    updates.busy.store(false, Ordering::Release);
-}
-
-/// Cancelling Quit discards a ready candidate without unlocking a check or
-/// download that is still running.
-pub(crate) fn discard_pending<R: Runtime>(app: &AppHandle<R>) {
-    let updates = app.state::<Updates>();
-    if updates.pending.lock().unwrap().take().is_some() {
-        updates.busy.store(false, Ordering::Release);
-    }
-}
-
-/// Called only after the person's application Quit confirmation. A failed
-/// install keeps the running app open; Tauri restores the bundle on failure.
-pub(crate) fn install_pending<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
-    let pending = app.state::<Updates>().pending.lock().unwrap().take();
-    let Some((update, bytes)) = pending else {
-        return Ok(false);
-    };
-    let result = update.install(bytes).map_err(|error| error.to_string());
+fn finish<R: Runtime>(app: &AppHandle<R>) {
     app.state::<Updates>().busy.store(false, Ordering::Release);
-    result.map(|()| true)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tauri::test::{mock_builder, mock_context, noop_assets};
-
-    #[test]
-    fn cancelling_quit_during_download_keeps_the_update_busy() {
-        let app = mock_builder()
-            .manage(Updates::default())
-            .build(mock_context(noop_assets()))
-            .unwrap();
-        app.state::<Updates>().busy.store(true, Ordering::Release);
-        discard_pending(app.handle());
-        assert!(app.state::<Updates>().busy.load(Ordering::Acquire));
-    }
+/// Ask once the verified bytes are here. A failed install keeps the running
+/// app open; Tauri restores the bundle on failure.
+fn offer_install<R: Runtime>(app: &AppHandle<R>, update: Update, bytes: Vec<u8>) {
+    let owner = app.clone();
+    message(
+        app,
+        format!(
+            "Epicenter {} is downloaded and ready to install.",
+            update.version
+        ),
+    )
+    .title("Install update and restart Epicenter?")
+    .buttons(MessageDialogButtons::OkCancelCustom(
+        "Install and Restart".into(),
+        "Cancel".into(),
+    ))
+    .show(move |confirmed| {
+        if !confirmed {
+            finish(&owner);
+            return;
+        }
+        let installed = update.install(bytes);
+        finish(&owner);
+        match installed {
+            Ok(()) => owner.request_restart(),
+            Err(error) => show_error(&owner, &error.to_string()),
+        }
+    });
 }
 
-pub(crate) fn show_error<R: Runtime>(app: &AppHandle<R>, message: &str) {
+fn show_error<R: Runtime>(app: &AppHandle<R>, message: &str) {
     log::warn!("Epicenter update: {message}");
     self::message(app, message)
         .title("Epicenter update failed")
@@ -135,11 +119,11 @@ pub(crate) fn check<R: Runtime>(app: &AppHandle<R>) {
         .await;
         match result {
             Err(error) => {
-                cancel(&app);
+                finish(&app);
                 show_error(&app, &error.to_string());
             }
             Ok(None) => {
-                cancel(&app);
+                finish(&app);
                 message(&app, "You have the latest Epicenter release.")
                     .title("Epicenter updates")
                     .show(|_| {});
@@ -156,21 +140,16 @@ pub(crate) fn check<R: Runtime>(app: &AppHandle<R>) {
                     ))
                     .show(move |confirmed| {
                         if !confirmed {
-                            cancel(&owner);
+                            finish(&owner);
                             return;
                         }
                         tauri::async_runtime::spawn(async move {
                             match update.download(|_, _| {}, || {}).await {
                                 Err(error) => {
-                                    cancel(&owner);
+                                    finish(&owner);
                                     show_error(&owner, &error.to_string());
                                 }
-                                Ok(bytes) => {
-                                    *owner.state::<Updates>().pending.lock().unwrap() =
-                                        Some((update, bytes));
-                                    // The existing Quit owner asks about unsaved work and recording.
-                                    owner.exit(0);
-                                }
+                                Ok(bytes) => offer_install(&owner, update, bytes),
                             }
                         });
                     });

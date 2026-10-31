@@ -869,7 +869,7 @@ When you add an ADR, add its row here.
 | [0658](0658-capture-compositions-are-durable-markdown-records.md) | Capture compositions are durable Markdown records from Add, not before | Accepted |
 | [0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) | Native apps default authored work to the Epicenter root | Accepted (amends 0636, 0644, and 0647; restores the native default of 0539; standalone fixed default built) |
 | [0662](0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md) | One path edit exposes text and structured changes through one interface | Superseded by 0700 (0689 rejected) |
-| [0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | One native question before a window or Epicenter leaves | Accepted (window Close amended by 0700; shell Quit alert remains) |
+| [0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | One native question before a window or Epicenter leaves | Accepted (window Close amended by 0700; application Quit alert deleted by 0701) |
 | [0664](0664-folder-close-drains-admitted-work-through-one-owner.md) | Folder close drains admitted work through one owner | Superseded by 0700 (0689 rejected) |
 | [0665](0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md) | A Markdown file without frontmatter has empty fields and a body | Proposed |
 | [0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) | One source draft per path saves against its observed source | Superseded by 0668 |
@@ -898,4 +898,4 @@ When you add an ADR, add its row here.
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Superseded by 0701 (apps run as separate programs) |
 | [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Proposed (would supersede 0545, 0622, 0623, and 0628, and the 13 Folder engine records 0689 had; amends 26 records; grants, secrets, the Tauri opener, notify, the deep link, and Whispering unbuilt) |
-| [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Proposed (would supersede 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0647, 0652, 0674, 0678, and 0683; archive tag `archive/app-hosting`) |
+| [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Proposed (would supersede 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0647, 0652, 0663, 0674, 0678, and 0683; archive tag `archive/app-hosting`) |
