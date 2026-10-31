@@ -1,127 +1,110 @@
 ---
 name: services-layer
-description: Apply Whispering service-boundary patterns for UI-free capabilities, explicit inputs, Result fallibility, Live objects, lifecycle factories, and platform variants. Use when creating or refactoring services, contracts, provider dispatch, or the `$lib/services` barrel.
+description: Apply Epicenter's service-boundary patterns for UI-free capabilities, explicit inputs, Result fallibility, lifecycle factories, and per-build implementations behind a `#platform/*` seam. Use when creating or refactoring an app's services or their contract, provider or connection dispatch, or a desktop service over the shell, the keychain, or the account.
 metadata:
   author: epicenter
-  version: '3.0'
+  version: '4.0'
 ---
 
 # Services Layer
 
-This skill was grounded in Whispering's `src/lib/services` and its
-`#platform/*` mappings. Both were removed when Whispering became a standalone
-file-folder app, so every `apps/whispering/...` path below is historical. The
-patterns still apply; ground new work in the app you are editing and its own
-`package.json`. Neighboring skills are leads, not current architecture.
+Grounded in Whispering's `#platform/services` (`apps/whispering/src/lib/platform/`)
+and Vocab's `#platform/connections`. Read the app's own `package.json`
+"imports" and its platform types file before changing a service.
 
 ## Product Sentence
 
-The service layer owns UI-free capabilities; callers inject app policy through
-explicit inputs, fallible operations return Results, and platform selection has
-one build-time owner.
+A service owns a UI-free capability; the app passes in what it decides,
+fallible operations return Results, and the build picks one implementation
+per variant through one `#platform/*` seam.
 
 ## Boundary
 
-Services may perform IO and may own service-local runtime state. They are not
-required to be pure functions. They must remain free of UI and app-owned policy:
+Services may perform I/O and own service-local state. They stay free of UI
+and app policy:
 
-- no runtime reads of Svelte stores, `settings`, `deviceConfig`, toasts, or
-  `report`;
-- accept credentials, model names, endpoints, paths, and user choices as inputs;
-- return domain data and errors, not presentation copy or UI state;
-- expose the same contract from both sides of a `#platform/*` seam.
+- no reads of Svelte state, settings notes, toasts, or reporting;
+- credentials, endpoints, models, paths, and the store come in as inputs;
+- domain data and tagged errors come out, not presentation copy;
+- both leaves of the seam export the same contract.
 
-`$lib/operations` usually reads app settings, chooses providers, and composes
-services. `$lib/queries` adds shared query identity and observable lifecycle only
-when the UI needs it.
+A service never chooses or opens the store. It is constructed over the
+client the variant's root opened: Whispering's
+`CreateServices = (client: Client<Whispering>) => WhisperingServices`,
+called once in `createWhispering` (`whispering.svelte.ts`), so a recording
+lands in the same store the pages read.
 
-The transcription directory also holds provider registry data and the
-UI-facing `provider-ui.ts` join. Those colocated metadata modules are not
-service implementations; do not use them to weaken the service boundary.
+## Per-build implementations
+
+One seam, one type, two leaves (see the `platform-seams` skill):
+
+```txt
+#platform/services
+  default → src/lib/platform/browser.ts        the WebView microphone, fetch, localStorage
+  tauri   → src/lib/platform/services.tauri.ts the shell's microphone, send_request, the keychain, local models
+```
+
+Each leaf is `export const createServices: CreateServices = (client) => ({ … })`,
+annotated with the shared type in `platform/types.ts`. Shared code imports
+`createServices` from `#platform/services` and never checks `isTauri()`.
+
+On the desktop, a service reaches native code only through the app's shell
+and the shared crates, never through a credential in the page:
+
+- **Secrets** go to the OS keychain through `epicenter-account`: `keychain`
+  from `@epicenter/auth/tauri` (`keychain_get`, `keychain_set`). Whispering
+  keeps both connections as one entry; Vocab keeps each key under its
+  connection's id and the endpoint list in `connections.md` in AppData.
+  Never put a key in a settings note, the data folder, or WebView storage.
+- **The account** is a relay: requests go through `account.fetch`, which
+  the shell sends with `account_fetch` and a token the page never sees.
+- **Other requests** to a custom endpoint leave through the shell
+  (Whispering's `shellFetch` over `send_request`), so no endpoint needs a
+  CORS rule for the window's origin.
+- **A root-scoped native command** (the recorder, local transcription)
+  names the data folder by `rootOf(device)` from `@epicenter/folder/tauri`;
+  the shell refuses a root the window did not open.
+
+Read [service organization and platform variants](references/service-organization-platforms.md)
+when adding or moving a service.
 
 ## Model Fallibility Honestly
 
-Use `Result<T, E>` for a public operation that can fail in ordinary runtime use.
-Adapt throwing platform or library calls with the `error-handling` skill.
+Use `Result<T, E>` for an operation that can fail in ordinary use. Adapt
+throwing platform or library calls with the `error-handling` skill.
 
-Do not fake a Result for an infallible in-memory action or cleanup. Current
-examples include local shortcut `register` / `unregister` returning `void` and
-listener setup returning a cleanup function.
-
-```typescript
-export type DownloadService = {
-	downloadBlob(args: {
-		name: string;
-		blob: Blob;
-	}): Promise<Result<void, DownloadError>>;
-};
-```
-
-Errors belong to the layer that understands the failure. Preserve lower-layer
-tagged errors when composing services. Define a service-local variant only for
-a failure the service itself owns. Use `error-handling` for variant shape,
-message rules, adaptation, and propagation.
+Do not fake a Result for an infallible in-memory action or a cleanup. Errors
+belong to the layer that understands the failure: pass lower-layer tagged
+errors through (`TranscriptionError`, `RecorderError`), and define a
+service-local variant only for a failure the service owns.
 
 ## Direct Object Or Factory
 
-Default to a direct `*ServiceLive` object when construction has no input or
-lifecycle. Current download, analytics, text, and transcription provider
-implementations use this shape. Download, analytics, and text check their shared
-platform contracts with `satisfies <Service>`.
+Default to a plain object when construction has no input or lifecycle. Use a
+factory when it owns real construction inputs or a lifecycle: Whispering's
+`createServices(client)` takes the store, and its capture device
+(`createShellMicrophone`, `createWebViewMicrophone`) owns one recording
+session at a time with its stop and recovery. Do not add `create*` only to
+call it once at module load. See
+[service implementation patterns](references/service-implementation-pattern.md).
 
-Use a factory when it owns real construction inputs, replaceable dependencies,
-or stateful lifecycle. The browser and CPAL recorder factories earn their
-boundary because each creates recording sessions with stop, cancel, subscribe,
-and teardown behavior.
+## Runtime choices stay at the call
 
-Do not add `create*` plus `*Live` mechanically for a stateless object.
-
-Read [service implementation patterns](references/service-implementation-pattern.md)
-for the current direct-object example and the factory decision.
-
-## Platform And Runtime Selection
-
-Use `#platform/*` imports for a capability with browser and Tauri
-implementations. `package.json#imports` chooses the implementation at build
-time; shared callers import one stable name and do not inspect
-`window.__TAURI_INTERNALS__`.
-
-Use the nullable `#platform/tauri` namespace for Tauri-only capabilities.
-
-User-selected providers are runtime policy, not a platform seam. Keep the
-dispatch in the consuming operation. Whispering transcription reads the
-selected provider in `$lib/operations/transcribe.ts`; the query layer only
-observes that operation.
-
-Read [service organization and platform variants](references/service-organization-platforms.md)
-when adding or moving a platform service.
-
-## Service Barrel
-
-`$lib/services/index.ts` collects stable cross-platform capabilities:
-
-```typescript
-export const services = {
-	analytics: AnalyticsServiceLive,
-	text: TextServiceLive,
-	blobs: BlobsLive,
-	blobSources: BlobSourcesLive,
-	download: DownloadServiceLive,
-	localShortcutManager: LocalShortcutManagerLive,
-	sound: PlaySoundServiceLive,
-} as const;
-```
-
-Do not force every provider implementation into this barrel. A runtime
-operation may import its provider-specific services directly when it owns the
-dispatch table.
+Which connection or provider a request uses is run-time state, not a build
+choice. Whispering's `transcribe` and `transform` read the selected
+connection (account, custom, or local on the desktop) when the request is
+sent, and send only while it is still the connection the request was
+prepared for. Keep that dispatch inside the one service method, not spread
+across callers.
 
 ## Final Check
 
-- The service imports no UI or app-owned settings.
-- Every app choice enters as an explicit input or is selected by the caller.
-- Fallible public operations return Results; infallible operations stay plain.
-- A factory owns construction or lifecycle, not convention alone.
-- Platform choice happens through one `#platform/*` mapping.
-- Runtime provider choice happens once at the consuming operation.
-- Lower-layer errors pass through unless this service owns a new failure.
+- The service imports no UI and reads no settings; every app choice is an
+  input.
+- It is constructed over the client the root opened, and opens no store.
+- Fallible operations return Results; infallible ones stay plain.
+- A factory owns construction or a lifecycle, not convention.
+- The build picks the implementation through one `#platform/*` seam, with
+  one shared type.
+- On the desktop, secrets go through the keychain, account requests through
+  the relay, and no token or key reaches the page's storage.

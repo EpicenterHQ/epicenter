@@ -1,179 +1,121 @@
 ---
 name: platform-seams
-description: Apply Epicenter’s `#platform/*` build-time seam across browser and host targets. Use when adding or changing a seam, build condition, typecheck leaf, or deciding whether code belongs behind one.
+description: Apply Epicenter’s `#platform/*` build-time seams, which pick each app variant's leaves (the browser's by default, the desktop's under the `tauri` condition). Use when adding or changing a seam or a variant's root, the build condition, a typecheck leaf, or deciding whether code belongs behind one.
 metadata:
   author: epicenter
-  version: '7.0'
+  version: '8.0'
 ---
 
 # Platform seams
 
-Replaces `workspace-app-composition`, whose subject (`defineWorkspace`, the
-workspace singleton, environment factories, the daemon) was deleted with the
-workspace plane. The seam below is the part that survived.
+An app's web and desktop variants are the same UI built with different
+leaves. A `#platform/*` specifier in the app's `package.json` "imports" names
+two files; the build picks one, and nothing chooses at run time, so the type
+checker, the tests and every bundler resolve each specifier to the same file.
+The worked example is `apps/capture`; the pattern is written up in
+[`epicenter-standalone`'s README](../../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant).
 
-## Storage is not a seam
+## What belongs behind a seam
 
-**Every build opens its own store.** A host serves bundles and brokers
-credentials and owns no application data (ADR-0226), so there is no build where
-data lives somewhere else, and a `#platform/*` seam for storage is the thing to
-delete rather than to route. Applications acquire independent stores through
-`openLocal` and `openPersonal` from `@epicenter/app/open`. Resource constructors
-select browser or native implementations with `isTauri()` (ADR-0403).
-`StoreRuntime` injection controls store storage and admission; it is not an
-application-wide runtime. `defineStore` from the root is platform-free and
-carries no runtime or AI override.
+**The root, which chooses the store.** An app has up to three variants, each
+with one store (ADR-0700), and only a variant's root decides which. Every app
+with a desktop variant has `#platform/root`. Its leaves export components;
+the store choice is never buried in data code:
 
-App-level seams select auth and product capabilities. They do not choose store
-persistence. Keep resource composition at the product boundary; do not restore
-Whispering's removed `#platform/runtime` seam. For constructors and ownership,
-read the [folder package](../../../packages/folder/README.md).
+- `Startup` opens the store and renders the app over it, or says why it
+  could not. The web leaf's is the signed-in repository or this browser's
+  files; the desktop leaf's awaits `openAppData` and `openDataFolder` and
+  renders `@epicenter/svelte/recovery` on an error.
+- `Chrome` is the header's account of the store (the account on the web,
+  the folder and Sync with Epicenter on the desktop).
+- Whatever else differs by variant in that app: Capture's `store()`,
+  Whispering's `Settings` (desktop only, `null` on the web) and `Callback`
+  (the page that ends a sign-in).
 
-## Folder apps use the seam for their folder entry
+**A capability whose implementation differs by build.** Whispering's
+`#platform/services` (`createServices(client)`: the shell's microphone and
+the keychain on the desktop, the WebView's microphone and `localStorage` on
+the web), `#platform/auth` (`createTauriAuth` over `epicenter-account`, or
+browser OAuth), and Vocab's `#platform/connections`.
 
-Todos, Capture, Honeycrisp, and Whispering keep their data in a folder of
-files. Each picks its folder leaf at build time through `#platform/*` (for
-Whispering, `#platform/workspace`), and `hostAppViteConfig` from
-`@epicenter/vite-config` aliases the bare `@epicenter/folder` to
-`@epicenter/folder/tauri` in the `epicenter-host` build and to
-`@epicenter/folder/browser` otherwise. The "storage is not a seam" rule above
-is about store-backed apps and does not describe them.
+**Which build this is, for words only.** `#platform/variant` exports a
+constant (`'online'`, `'local'`, or `'desktop'`) for the few sentences that
+name the store. Do not branch behavior on it; put the behavior in a seam.
+
+Data code never sits behind a seam. UI components take the client (or its
+`fromClient` wrapper) they show and never know which store it is.
 
 ## Declaring one
 
-**1. Map the specifier in `package.json` "imports".** One entry per condition,
-plus a `default`:
+1. **Map it** in the app's `package.json`, the desktop leaf under `tauri`:
 
-```jsonc
-"imports": {
-  "#platform/auth": {
-    "epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
-    "default": "./src/lib/platform/auth.browser.ts"
-  }
-}
-```
+   ```jsonc
+   "imports": {
+     "#platform/root": { "tauri": "./src/lib/root.tauri.ts", "default": "./src/lib/root.ts" }
+   }
+   ```
 
-Condition order in the map is match order.
+2. **Import the bare specifier**, never a leaf, with no branch at the call
+   site: `import { Startup } from '#platform/root';`. Leaves import with
+   relative paths (no `$lib`), so the bundle test can resolve them.
 
-**2. Import the bare specifier, with no branch at the call site:**
+3. **Give it a type** both leaves annotate against, in a shared
+   `platform.ts` (or `platform/types.ts`):
 
-```ts
-import { auth } from '#platform/auth';
-```
+   ```ts
+   export const Startup: Platform['Startup'] = OnlineRoot;
+   ```
 
-**3. Activate the condition in Vite.** A folder app gets the `epicenter-host`
-condition from `hostAppViteConfig` in `@epicenter/vite-config`, which
-turns it on in the bundled host build (`EPICENTER_HOST=1`):
+   Use `: Type`, not `satisfies`: `satisfies` keeps the leaf's concrete type,
+   so the two leaves can drift apart without an error at the import.
 
-```ts
-// apps/honeycrisp/vite.config.ts
-export default defineConfig(hostAppViteConfig(APPS.HONEYCRISP));
-```
+4. **Build it.** Merge `desktopVariant()` from `@epicenter/vite-config`
+   into `vite.config.ts`. When `EPICENTER_DESKTOP=1` (the app's
+   `build:native`, into `build-desktop/`) it sets
+   `resolve.conditions: ['tauri', ...defaultClientConditions]`. Custom
+   conditions replace Vite's defaults, so the spread is load-bearing. A
+   choice outside module resolution (Whispering's Kit service worker, the
+   build directory) reads `EPICENTER_DESKTOP` in its config file, still at
+   build time.
 
-Inside, the condition list keeps Vite's defaults:
+5. **Typecheck both.** Bundler resolution lands on `default`, so the
+   desktop leaves are checked only by `tsconfig.tauri.json` (`extends`
+   `tsconfig.json` with `"customConditions": ["tauri"]`), which the app's
+   `typecheck` runs as a second `svelte-check`.
 
-```ts
-resolve: {
-	// Custom conditions REPLACE Vite's defaults, so the
-	// ...defaultClientConditions spread is LOAD-BEARING: drop it and all
-	// dependency resolution breaks.
-	...(host && {
-		conditions: ['epicenter-host', ...defaultClientConditions],
-	}),
-},
-```
-
-The same package owns the rest of the host build's choice:
-`hostAppAdapterOptions` (from `@epicenter/vite-config/host-app`) gives
-each `svelte.config.js` its adapter-static output, and each
-`src/routes/+layout.ts` prerenders when `import.meta.env.EPICENTER_HOST` is
-`'1'`.
-
-**4. Typecheck every leaf.** Bundler `moduleResolution` reads the `imports`
-field and lands on `default` for the editor, so the browser leaf is free. Every
-other condition needs its own `tsconfig.<condition>.json` setting
-`compilerOptions.customConditions`, run from `typecheck`. Without one, those
-leaves are never checked at all.
-
-**5. Give the seam a contract.** `types.ts` declares it; each leaf annotates
-against it:
-
-```ts
-// platform/types.ts
-export type PlatformAuth = { /* ... */ };
-
-// platform/auth.browser.ts
-export const auth: PlatformAuth | undefined = browserAuth;
-```
-
-Use `export const x: Contract = ...`, **not** `satisfies`. `satisfies` leaks the
-concrete type and breaks the lockstep that keeps every leaf the same shape.
-
-## The two conditions answer different questions (ADR-0190)
-
-`tauri` means **this build runs in a Tauri WebView**, so a leaf may call a native
-command. `epicenter-host` means **the desktop Epicenter host serves this build**,
-so a leaf may reach the host for a credential, a deployment choice, or an asset
-base. The only Tauri shell is Epicenter's own, so no build turns on `tauri`
-today and `epicenter-host` is the only condition in use.
-
-They used to be conflated because `epicenter-host` also meant the host owned the
-build's replica. ADR-0226 removed that, so the condition is now about brokered
-credentials and nothing about data.
-
-**Package selection and app seams.** `@epicenter/app` selects its default runtime
-and clipboard inside the package with `isTauri()` (ADR-0403). It requires no
-consumer build condition. Keep app-level conditions where they select auth or
-product UI; removing the package map does not remove those app-owned choices.
-
-A build that owns its own storage uses neither host condition, whether a browser
-or a bundle serves it: a WebView is a storage partition and origin pair like any
-other (ADR-0177). Every build owns its own storage, so this is now always true.
-
-## A dropped leaf fails nothing
-
-This is the one hazard worth remembering. Removing an `epicenter-host` key from
-a seam breaks no build: resolution falls back silently to `default`, and the
-hosted build quietly runs the browser leaf. A test that bundles both builds
-with `bundledModules` from `@epicenter/vite-config/module-graph`, reads every
-module they pull in, and names the broken seam guards each one: Todos'
-`src/lib/platform-selection.test.ts` for `#platform/auth`, Whispering's for
-`#platform/workspace`. The folder is no seam; the same alias trap holds for
-`hostAppViteConfig`'s alias of `@epicenter/folder`, which Honeycrisp's
-and Capture's `src/lib/bundle.test.ts` guard.
-`apps/epicenter/scripts/build-applications.test.ts` also runs the real build and
-reads the emitted bytes.
+6. **Guard it.** A dropped `tauri` key breaks no build: resolution falls
+   back to `default`, and the desktop app silently ships the browser leaf.
+   A bundle test bundles the seams both ways with `bundledModules` from
+   `@epicenter/vite-config/module-graph` and names the seam whose desktop
+   leaf went missing: `apps/capture/src/lib/platform.test.ts`,
+   `apps/whispering/src/lib/platform/platform.test.ts`. Add each new seam to
+   the app's test-support entry so the test sees it.
 
 ## Why not suffixes
 
 The old mechanism put `.browser.ts` / `.tauri.ts` ahead of `.ts` in Vite
 `resolve.extensions`, mirrored by tsconfig `moduleSuffixes`. That was global:
 every bare import was magic, which is how a bare `./fuji` once collided with a
-`fuji.browser.ts`. `#platform/*` is scoped to those specifiers only, so the rest
-of the import graph stays ordinary.
+`fuji.browser.ts`. `#platform/*` is scoped to those specifiers only, so the
+rest of the import graph stays ordinary.
 
 ## Anti-patterns
 
-- Adding a `#platform/*` seam for storage, a replica, or a database. Every build
-  opens its own store; that seam is what ADR-0226 refused.
-- Branching on the platform at an app's `#platform/*` call site. Import the
-  bare specifier and let the build select the leaf.
-- Detecting the host at runtime in an app seam. The build already answered.
-  `@epicenter/app` is the explicit exception: ADR-0403 selects its runtime and
-  clipboard with `isTauri()`, under the supported Epicenter-host-only Tauri model.
-- Using `satisfies` on a leaf instead of a `: Contract` annotation.
-- Importing a `.tauri.ts`-only symbol through `#platform/*`. It resolves to the
-  browser leaf off Tauri; import it directly from the `.tauri` module inside
-  another `.tauri.ts` file.
-- Reintroducing `resolve.extensions` suffixes or tsconfig `moduleSuffixes`.
-- Dropping `...defaultClientConditions` from the `epicenter-host`
-  `conditions` array.
-- Copying the host-build switch into an app's `vite.config.ts` or
-  `svelte.config.js` instead of using `@epicenter/vite-config`.
-- Adding a condition leaf with no `tsconfig.<condition>.json`, which means it is
-  never typechecked.
-- A `#platform/*` seam over identity. Whether a person is signed in is runtime
-  state, not a build condition, so the gate is an `{#if}` in the boot node and
-  never a leaf. Every app renders a sign-in screen when signed out (ADR-0342,
-  rejected: sign-in IS a door), and that is one branch in one file rather than a
-  seam.
+- Choosing the store anywhere but a variant's root, or moving files between
+  stores.
+- Detecting the platform at run time (`isTauri()`) to pick a store or a
+  capability in an app that has seams. Standalone Todos predates seams and
+  still picks with `isTauri()` in one build; do not copy it.
+- Branching on `#platform/variant` for behavior.
+- Importing a leaf directly from shared code, or importing a desktop-only
+  symbol through the seam: off the desktop it resolves to the browser leaf.
+  Import it from the `.tauri.ts` module inside another desktop leaf.
+- `$lib` imports inside a leaf.
+- `satisfies` on a leaf instead of a `: Type` annotation.
+- Dropping `...defaultClientConditions`, or copying the condition switch
+  into an app's config instead of `desktopVariant()`.
+- A seam with no `tsconfig.tauri.json` run, or missing from the bundle test.
+- Swapping SvelteKit's `kit.files.routes` per variant. The routes stay the
+  same; the root decides the store.
+- A seam over identity. Whether a person is signed in is run-time state, an
+  `{#if}` in the root, never a leaf.
