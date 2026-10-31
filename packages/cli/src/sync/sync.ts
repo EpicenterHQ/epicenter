@@ -3,8 +3,9 @@
  * system `git` (decisions 21, 31, 33, 41, 44, 52):
  *
  *   guards -> git add -A -- <folder> -> commit the folder's paths
- *   -> fetch -> checks (rewrite, index lock) -> merge origin/main
- *   -> edit beats delete, binary conflict copies -> git lfs push -> push
+ *   -> fetch -> checks (rewrite, index lock) -> git lfs fetch
+ *   -> [save locks: merge origin/main -> edit beats delete, binary
+ *   conflict copies -> merge commit] -> git lfs push -> push
  *   (a rejected push fetches, merges, and pushes again)
  *
  * Epicenter sync is the only desktop committer (decision 31), and it commits
@@ -12,6 +13,15 @@
  * repository; fetch, merge, and push are repository-wide. Rounds are
  * serialized per repository by a lock file in its Git directory, so the
  * desktop app's `--watch` and a person's `epicenter sync` take turns.
+ *
+ * The merge, and every checkout that settles it, holds the save lock of each
+ * registered data folder in the repository (`.epicenter/save-lock`, the one
+ * every app save takes, in Bun and in the desktop shell alike; decision 80),
+ * so an app save never lands between the merge's check of a file and its
+ * rewrite, and a save that read the file before the merge finds it changed
+ * instead of overwriting it. The LFS bytes the merge checks out are fetched
+ * first, so the locks are never held across the network: not the fetch, the
+ * LFS transfers, or the push.
  *
  * It never calls `git pull`: the rewrite check (decision 33) needs the
  * fetched remote before any merge. `refs/epicenter/last-seen` names the
@@ -27,14 +37,14 @@
 
 import { existsSync, statSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { isNotePath } from '@epicenter/definition/contract';
 import {
 	conflictSibling,
 	lfsOid,
 	parsePointer,
 } from '@epicenter/definition/merge';
-import { holdingFileLock } from '@epicenter/folder/bun';
+import { holdingFileLock, holdingSaveLock } from '@epicenter/folder/bun';
 import { resolveAppPaths } from '../app-paths.ts';
 import {
 	config,
@@ -43,7 +53,12 @@ import {
 	must,
 	type RemoteCredential,
 } from './git.ts';
-import { driverCommand, identity, repositoryRoot } from './setup.ts';
+import {
+	driverCommand,
+	identity,
+	registeredFolders,
+	repositoryRoot,
+} from './setup.ts';
 
 const LAST_SEEN = 'refs/epicenter/last-seen';
 const REMOTE_MAIN = 'refs/remotes/origin/main';
@@ -340,7 +355,8 @@ async function round(
 				`git fetch failed: ${fetched.stderr.trim()}`,
 				FORBIDDEN.test(fetched.stderr) ? 'stopped' : 'retry',
 			);
-		if (await has(root, REMOTE_MAIN)) await mergeRemote(root, auth, who, notes);
+		if (await has(root, REMOTE_MAIN))
+			await mergeRemote(folder, root, auth, who, notes);
 		if (
 			(await has(root, REMOTE_MAIN)) &&
 			(await sha(root, 'HEAD')) === (await sha(root, REMOTE_MAIN))
@@ -381,8 +397,35 @@ async function round(
 	}
 }
 
-/** Check, then merge the fetched remote main, settling what Git leaves unmerged. */
+/**
+ * The data folders a merge in `root` rewrites, sorted: `folder`, and every
+ * other registered folder inside the repository that still exists.
+ */
+async function foldersIn(root: string, folder: string) {
+	const inside = (await registeredFolders()).filter(
+		(other) =>
+			(other === root || other.startsWith(`${root}${sep}`)) &&
+			existsSync(other),
+	);
+	return [...new Set([folder, ...inside])].sort();
+}
+
+/** Run `work` holding the save lock of each folder in `folders`, in order. */
+function holdingSaveLocks<T>(
+	folders: readonly string[],
+	work: () => Promise<T>,
+): Promise<T> {
+	const [first, ...rest] = folders;
+	if (first === undefined) return work();
+	return holdingSaveLock(first, () => holdingSaveLocks(rest, work));
+}
+
+/**
+ * Check, then merge the fetched remote main, settling what Git leaves
+ * unmerged, under the save locks of the folders the merge rewrites.
+ */
 async function mergeRemote(
+	folder: string,
 	root: string,
 	auth: RemoteCredential | undefined,
 	who: Record<string, string>,
@@ -401,6 +444,45 @@ async function mergeRemote(
 				`Move your unsynced work onto origin/main (for example: git rebase --onto origin/main ${LAST_SEEN}), then: git update-ref ${LAST_SEEN} origin/main`,
 			'stopped',
 		);
+	const behind =
+		(await git(root, ['merge-base', '--is-ancestor', REMOTE_MAIN, 'HEAD']))
+			.code !== 0;
+	if (behind) {
+		// The bytes the merge checks out, so it never waits on the network holding the save locks.
+		const fetched = await git(root, ['lfs', 'fetch', 'origin', REMOTE_MAIN], {
+			credential: auth,
+		});
+		if (fetched.code !== 0)
+			throw new Stop(
+				`git lfs fetch failed: ${fetched.stderr.trim()}`,
+				FORBIDDEN.test(fetched.stderr) ? 'stopped' : 'retry',
+			);
+		const folders = await foldersIn(root, folder);
+		await holdingSaveLocks(folders, () =>
+			merge(root, firstContact, auth, who, notes),
+		).catch((cause: unknown) => {
+			if (cause instanceof Error && cause.name === 'NothingChanged')
+				throw new Stop(
+					`nothing was merged while another program held a folder's save lock: ${cause.message}`,
+					'retry',
+				);
+			throw cause;
+		});
+	}
+	await must(root, ['update-ref', LAST_SEEN, REMOTE_MAIN]);
+	notes.push(
+		`merged origin/main ${(await sha(root, REMOTE_MAIN)).slice(0, 7)}`,
+	);
+}
+
+/** Merge the fetched remote main and commit it, holding the folders' save locks. */
+async function merge(
+	root: string,
+	firstContact: boolean,
+	auth: RemoteCredential | undefined,
+	who: Record<string, string>,
+	notes: string[],
+) {
 	await refuseIfLocked(root);
 	// First contact joins two histories that each began on their own (decision 20).
 	const merged = await git(
@@ -437,10 +519,6 @@ async function mergeRemote(
 			env: who,
 		});
 	}
-	await must(root, ['update-ref', LAST_SEEN, REMOTE_MAIN]);
-	notes.push(
-		`merged origin/main ${(await sha(root, REMOTE_MAIN)).slice(0, 7)}`,
-	);
 }
 
 /**

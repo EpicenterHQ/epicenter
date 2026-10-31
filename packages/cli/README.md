@@ -147,10 +147,13 @@ with real `git add`, so Git LFS's filters run.
   entries, or a clone without the driver and LFS filters; stages and commits
   only the folder's own paths; fetches `origin`; stops if the remote `main`
   no longer contains `refs/epicenter/last-seen` (an owner rewrote `main`);
-  stops with `retry` if another program holds `index.lock`; merges
-  `origin/main` (unrelated histories only on first contact); keeps the
-  edited side of an edit/delete; lands a binary both sides replaced as
-  `<stem> (conflict <hash7>)<ext>` beside the remote's; runs
+  stops with `retry` if another program holds `index.lock`; fetches the
+  LFS bytes of `origin/main`; then, holding the save lock
+  (`.epicenter/save-lock`, `holdingSaveLock`) of every registered folder in
+  the repository, so no app save lands mid-merge, merges `origin/main`
+  (unrelated histories only on first contact), keeps the edited side of an
+  edit/delete, lands a binary both sides replaced as
+  `<stem> (conflict <hash7>)<ext>` beside the remote's, and commits; runs
   `git lfs push`, then pushes, fetching and merging again when the push is
   rejected, up to five times. `--json` prints one `{"sync": {"folder",
   "status", "head", "notes", "message"}}` line per folder per round. Exit

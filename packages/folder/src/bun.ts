@@ -1,8 +1,9 @@
 /**
  * `@epicenter/folder/bun`: open an existing directory as a folder and expose
- * the CLI's independent declaration and query tools, its file lock, and the
- * system `git` runner its sync verbs use. Folder writes take the directory
- * save lock; Git is outside its lifetime.
+ * the CLI's independent declaration and query tools, its file lock, the
+ * directory save lock, and the system `git` runner its sync verbs use.
+ * Folder writes take the save lock, and so does `epicenter sync` while its
+ * merge rewrites files; Git is outside its lifetime.
  */
 
 import { sweepStaleScratch } from './directory-store.js';
@@ -45,7 +46,7 @@ export {
 	locateGit,
 	runGit,
 } from './git/native-host.js';
-export { holdingFileLock } from './native/directory.js';
+export { holdingFileLock, holdingSaveLock } from './native/directory.js';
 export { DEFINITION_PATH } from './paths.js';
 export { queryDocuments } from './query-documents.js';
 
