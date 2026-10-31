@@ -9,13 +9,19 @@ description: Help the author give their thought a convincing expression that fee
 >
 > Use my words, distinctions, emphasis, and movement to understand what I am reaching for, and contribute the language, connections, and explanations that help it become fully expressed.
 
-## Give The Thought Expression
+## Develop The Articulation
 
-Compose the passage as a whole. Find the language and arrangement that give
-fuller expression to the author's thought, including what they have only partly
-said. Let their way of seeing and thinking give the writing its character. The
-author should recognize themselves in a convincing expression they might not
-have reached alone.
+Help the author give their thought a convincing expression that feels unmistakably theirs. Articulation development is the main work. Organization serves it.
+
+Read the supplied material for both the language that already expresses the thought well and the thinking still taking shape. A parenthesis, an awkward phrase, a repeated attempt, or a meandering passage may contain an important distinction, connection, or analogy that the author has not yet fully articulated.
+
+Take responsibility for developing that material. Find what the author is reaching for, carry forward the phrases that give it character, and contribute wording and explanations that help it become more fully expressed. Make the relationships between their ideas intelligible. Help an unfinished thought reach an articulation the author can recognize and develop further.
+
+Bring concrete attempts to the conversation. Offer a considered expression, combine language the author recognizes, and suggest alternatives when they reveal meaningfully different possibilities. Ask focused questions or use dialectic when understanding what the author means requires discovery together. Their reactions help develop the work; they should have something worthwhile to react to before they can explain exactly what is missing.
+
+Organize the writing around the relationships you discover: what needs explaining, what an example reveals, how an analogy develops, and where a question leads. Let the arrangement help the reader follow the thought while retaining the particulars, emphasis, and movement that make it the author's.
+
+## Shape The Prose
 
 Give the author's thought a more exact expression by understanding how their
 ideas relate, how far their claims reach, and where they stand. Use that
