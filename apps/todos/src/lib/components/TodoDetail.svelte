@@ -17,7 +17,8 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { getTodos } from '$lib/context.js';
-	import { describeIssues, labelOf, todoPath } from '$lib/todos.js';
+	import { describeIssues } from '@epicenter/definition/contract';
+	import { labelOf, todoPath } from '$lib/todos.js';
 
 	const todos = getTodos();
 	let {

@@ -96,20 +96,6 @@ another chat and does not create an implementation assignment.
 - Revisit when: Next CLI history API pass. Source: archived chat
   `01a15623-1fc4-7f32-87f9-42e2ea1b4563`.
 
-### Apply repairability to file-authoritative workflows
-
-- Desired result: Permit visible, repairable relationship inconsistencies while
-  protecting source and unfinished input. [ADR-0503](docs/adr/0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md)
-  owns the criterion.
-- Remaining decision: Honeycrisp's folder deletion still clears member notes'
-  `folderId` values in [notes](apps/honeycrisp/src/lib/notes.svelte.ts). Compare
-  preserving those references with the existing reassignment. Verify All Notes,
-  missing-ID display, reassignment after reopening, and reuse of an ID before
-  choosing the deletion behavior and updating its dialog.
-- Revisit when: After the current Honeycrisp editing migration. Keep ordinary
-  malformed-file repair and draft recovery in their existing owners; this item
-  does not authorize a second editing-lifecycle refactor.
-
 ### Prove a cross-device Folder journey
 
 - Desired result: Open existing local files without sign-in, attach a chosen

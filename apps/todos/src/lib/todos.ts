@@ -29,14 +29,6 @@ export type TodoRow = ListedNote<TodoNotes>;
 export const todoPath = (id: string) =>
 	todos.collections.todos.path.replace('{id}', id);
 
-/** Why a note does not read as a todo, in a line. */
-export const describeIssues = (
-	issues: readonly { field: string; message: string }[],
-) =>
-	issues
-		.map(({ field, message }) => (field ? `${field}: ${message}` : message))
-		.join('; ');
-
 /** The todo's label: its title, or its file's name when it has none. */
 export const labelOf = (todo: Pick<Todo, 'id' | 'title'>) =>
 	todo.title.trim() === '' ? `${todo.id}.md` : todo.title;

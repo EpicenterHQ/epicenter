@@ -31,6 +31,7 @@ export {
 	compileContract,
 	defineContract,
 } from './contract.js';
+export { type ConformanceIssue, describeIssues } from './issues.js';
 export { noteText, readNoteText } from './note-text.js';
 export {
 	EPICENTER_BLOCK_BEGIN,

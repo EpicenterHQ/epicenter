@@ -137,6 +137,42 @@ const smoke = {
 		const created = await device.recordings.create({ id, title });
 		return created.error?.name ?? 'landed';
 	},
+	/**
+	 * Delete `count` notes while listing over and over, as the uploader
+	 * deletes what it sent while the page lists: every listing must answer.
+	 */
+	async listDuringDeletes(count: number) {
+		const made = [];
+		for (let index = 0; index < count; index++) {
+			const created = await device.recordings.create({
+				id: `gone${index}`,
+				title: 'Gone',
+			});
+			if (created.error !== null) return { error: created.error.message };
+			made.push(created.data);
+		}
+		let done = false;
+		const deletes = Promise.all(
+			made.map(({ id, version }) =>
+				device.recordings.delete({ id }, { over: version }),
+			),
+		).finally(() => {
+			done = true;
+		});
+		const failures: string[] = [];
+		let listings = 0;
+		while (!done) {
+			const listed = await Promise.all(
+				[1, 2, 3].map(() => device.recordings.list()),
+			);
+			for (const { error } of listed) {
+				listings++;
+				if (error !== null) failures.push(error.message);
+			}
+		}
+		const deleted = (await deletes).filter(({ error }) => error === null);
+		return { listings, failures, deleted: deleted.length };
+	},
 	/** What a call answers where the browser refuses private storage. */
 	async refusal() {
 		const listed = await device.recordings.list();

@@ -100,7 +100,7 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 
 | App | Status | Notes |
 | --- | --- | --- |
-| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes in a browser tab. Metadata stays in frontmatter and logical folders preserve note identity. |
+| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes on the file contract, edited as Markdown with live preview: kept in the browser, uploaded to the signed-in person's repository. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted Git, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
 | [Whispering](apps/whispering) | Runs, development milestone | Voice recorder in a browser tab. Recordings, transcripts, and settings are files in a folder. |

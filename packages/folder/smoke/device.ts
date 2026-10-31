@@ -16,7 +16,9 @@
  *    Web Lock per path is what serializes them across the tabs' Workers.
  * 4. A write in one tab reaches the other tab's listeners (the Worker's
  *    broadcast), and the writing tab's own listeners before it resolves.
- * 5. Nothing is left staged, and the files survive a reload and a restart.
+ * 5. A listing taken while files are being deleted answers, without the
+ *    files that went (a file removed mid-walk is skipped, not a failure).
+ * 6. Nothing is left staged, and the files survive a reload and a restart.
  *
  * Then an ephemeral context: Chromium opens OPFS there; WebKit's refusal is
  * `Unavailable` with a `StorageRefused` cause, not a throw.
@@ -161,6 +163,17 @@ try {
 				`racing creates: ${creates}`,
 			);
 			steps.push(`two tabs racing: updates ${updates}, creates ${creates}`);
+
+			const racing = await a.evaluate(() => deviceSmoke.listDuringDeletes(40));
+			check(
+				!('error' in racing) &&
+					racing.deleted === 40 &&
+					racing.failures.length === 0,
+				`listing while deleting: ${JSON.stringify(racing)}`,
+			);
+			steps.push(
+				`${racing.listings} listings during 40 deletes, every one answered`,
+			);
 
 			check(
 				(await a.evaluate(() => deviceSmoke.staged())) === 0,

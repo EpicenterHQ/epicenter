@@ -1,199 +1,150 @@
 # Honeycrisp
 
-Honeycrisp is a Markdown notes app with a rich-text editor. Every note is one
-Markdown file in a folder, and that folder's files are the saved data. There
-is no account, no sync, and no database behind it.
+Honeycrisp is a Markdown notes app. Each note is a Markdown note at
+`notes/<id>.md`: its `title`, `folderId`, `pinned` and `createdAt` in front
+matter, its text in the body. Each folder is a note of its own at
+`folders/<id>.md` with a `name` (and an optional emoji `icon`). That layout
+is Honeycrisp's contract, `src/lib/contract.ts`, published unchanged as
+`static/contract.json` (`bun run contract` rewrites it after a change), the
+file `epicenter check <url>/contract.json <dir>` checks a folder against. Any
+program that writes the layout is a valid writer.
 
-The browser build keeps notes in this origin's local folder. Part of the
-[Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. Licensed under
-AGPL-3.0-or-later.
+Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo.
+Licensed under AGPL-3.0-or-later.
+
+## The layout
+
+```text
+notes/<id>.md     title?, folderId?, pinned?, createdAt; the body is the note
+folders/<id>.md   name, icon?
+```
+
+Only `createdAt` (an RFC 3339 time) is required of a note, so another
+program can write one with just a time and a body. A note with no `title`
+shows its first line; one with no `folderId` is in no folder; `pinned` is
+false when absent. Honeycrisp names new files with `timeId()`, so ids sort by
+when they were made.
+
+A note names its folder by id, so moving a note changes one key and never
+moves its file. Deleting a folder deletes its file alone: notes that name it
+keep their `folderId`, show in All Notes, and say "A deleted folder" until
+moved. That is one write, so it cannot half happen, and it needs no note to
+be readable. Deleting a note deletes its file; there is no trash. Signed in,
+the repository's history keeps what a delete removed.
+
+Honeycrisp has no settings, so it has no settings note, and keeps no other
+files.
+
+## The web app
+
+Honeycrisp opens without an account. Signed out, notes and folders live in
+this browser's private files (OPFS), at the same paths a folder holds.
+Signing in with Epicenter opens the person's own repository,
+`<handle>/honeycrisp`, beside them, one list per collection
+(`oneList` from `@epicenter/svelte/client`):
+
+- A note or folder made signed out or offline stays in the browser and
+  uploads on its own once someone is signed in and online; the browser then
+  lets go of its copy. Until then, signed in, a note is marked "not uploaded
+  yet".
+- One made while signed in and online goes straight to the repository.
+- Edits, moves, pins and deletes go to the copy shown: the browser's while it
+  holds one, else the repository's, which is online only. An open note stays
+  open while it uploads.
+- Signed in with the server unreachable, the header says "Offline: new notes
+  wait to upload", and new notes do.
+- Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show
+  without a reload, in the open note too.
+- A file at a note's or folder's path that does not read as one is listed
+  under "Needs repair" with why. It opens as its text; saving fixed text
+  replaces the file, written in house style, and text that still does not
+  fit is refused with why.
+
+Signing out leaves the browser with only what it never uploaded.
+
+The app signs in as `so.epicenter.honeycrisp` for the server's Git audience
+only (`src/lib/auth.ts`, made on first use). The server is
+`VITE_EPICENTER_SERVER` at build time, else Epicenter's. The hosted API does
+not serve web writes yet, so signing in works against a local or
+self-hosted API.
+
+Honeycrisp has no desktop app. Its notes on a computer are a clone of the
+repository (`epicenter clone <handle>/honeycrisp`), which Epicenter syncs and
+any editor can change.
+
+## Editing
+
+The title saves as you type. The body is edited in CodeMirror as the
+Markdown text itself, and also saves as you type: every edit changes exactly
+the characters typed, so merges and other programs' diffs stay exact. Live
+preview renders headings, bold, italic, strikethrough, inline code and links
+in place, and a task's `[ ]` as a checkbox that toggles the one character
+inside it; the line holding the cursor shows its syntax. Images and tables
+show as plain Markdown.
+
+Saves go through `fieldEdit` (`@epicenter/svelte/client`): one at a time,
+each made over what the person saw when they began typing. Another writer's
+change to other keys is carried over; their change to the same key (the
+title, or the body) is a conflict: the editor keeps what was typed and shows
+**Not saved** with Save again (which saves over theirs), Discard and Copy. A
+change from elsewhere to the body while nothing is waiting is applied to the
+open editor as the smallest edits, outside Undo, so the cursor stays.
+
+When two writers' edits of a body overlap in the repository, the merge writes
+a conflict block into the note. The editor shows each block as a card with
+Keep this, Keep that and Keep both; choosing is one edit, and Undo brings the
+block back.
+
+The folder and pin are commands: each saves at once and says so if it could
+not.
 
 ## Run it
 
 From the repository root:
 
-| Command | What it does |
-| --- | --- |
-| `bun dev:honeycrisp` | Starts the browser build on port 5175. Notes live in this browser's local folder (IndexedDB), not in a directory on disk. `bun dev:honeycrisp:ui` is the same. |
-| `bun build:honeycrisp:ui` | Builds one portable SPA and offline service worker into `apps/honeycrisp/build`. |
-
-Checks, from `apps/honeycrisp`:
-
-| Command | What it checks |
-| --- | --- |
-| `bun run typecheck` | The page and the tests. |
-| `bun run test` | The editor, the notes state over the local folder on an in-memory IndexedDB, bundle contents, then `test:dom`. |
-| `bun run test:dom` | The note view and the whole page, mounted with their UI library over jsdom. |
-
-## Where notes live
-
-```text
-notes/
-└── <note-id>.md
-folders/
-└── <folder-id>.md
+```sh
+bun dev:honeycrisp                         # Vite dev server on http://localhost:5175
+bun run --cwd apps/honeycrisp build        # static files in apps/honeycrisp/build/
+bun run --cwd apps/honeycrisp demo         # the whole stack, to try it by hand
 ```
 
-These are the folder's files: Honeycrisp opens
-`openFolder({ tables: honeycrispTables })`, this browser's one local folder,
-with `notes` and `folders` read as Markdown rows. Opening needs no account or
-network and writes nothing. A table's directory appears with its first file.
+The build is static: any host that answers unknown paths with `index.html`
+(for `/auth/callback`) serves it, at an origin the API registers. It also
+writes a service worker so a loaded app reopens offline.
 
-A browser that ran an earlier Honeycrisp keeps that version's notes in its
-origin private file system. This version does not read, copy, or delete them.
-It refuses to open while that earlier folder is present, so it never shows an
-empty workspace in place of existing notes. A fresh profile or origin opens
-the new local folder.
-
-A note's file stem is its identity. Its frontmatter holds `title`, `folderId`,
-`pinned`, `createdAt`, and `deletedAt`; its body is the note. The note list
-shows the newest notes first, by `createdAt`, grouped under labels such as
-"Today" and "Yesterday". Honeycrisp keeps no last-edited time (ADR-0573).
-Folders are logical: a note belongs to one through `folderId`, so moving a note
-between folders changes one field and never moves its file.
-
-The tables only interpret. Every field or body save keeps the keys Honeycrisp
-does not name, and a file that does not read as a note is still listed, with
-its text and why. To change a key Honeycrisp does not show, use **Edit as file**:
-it replaces the whole file with the text typed. Earlier changes to other parts
-of the file survive only if that text includes them.
-
-## Editing
-
-A note's title, body, and folder selection save through the folder mirror.
-Every change enters the folder queue immediately. Each edit keeps what was
-entered while its save is in flight; the mirror shows only what landed. Pinning
-and list actions await their saved result.
-
-An edit sends each typed value immediately. A later typed value can still land
-after an earlier save fails. Save again resends the failed value.
-
-A failed edit save keeps the typed value and shows **Not saved** beside the editor
-with **Save again**, **Discard**, and **Copy**. Failed commands report their error
-where the command was used. The header says **Saving…** while writes are pending and
-**On this device** otherwise.
-
-A note has **Rich text** and **Source** views of its body. They share one body
-edit in `NoteDetail`, so a save landing does not reset rich-text Undo. Editing
-only the title also keeps Undo. **Edit as file** and **Open as note** switch
-immediately. An earlier queued edit can land after the new view opens; a later
-whole-file edit replaces the file with the text it shows. A failed note edit
-remains in its mounted editor for recovery when returning to the note view.
-A different body shown in either source view starts
-a new rich-text history.
-
-`<OpenFolder>` opens the mirror, refreshes it on focus, visibility, and online,
-and closes it on unmount. Each edit queues a save as it happens. Leaving asks
-once, only while a save is out: a
-browser tab shows "Leave site?", and a desktop window waits for the writes
-and closes; closing again while it waits asks whether to close anyway. Text whose save failed is
-discarded on leaving.
-
-The mirror keeps text files and interprets Markdown rows. `row(id)` is absent
-when a file is gone; an invalid row has issues. `FileDetail` checks repair
-text with `readRow` as it is typed. A row patch sets only named fields or body
-over the file at save time. It writes frontmatter in schema key order, then
-other keys sorted, so comments and original key order are not preserved by a
-structured edit. **Edit as file** replaces the whole file and refuses to
-recreate one deleted elsewhere. Its failed edit offers Save again, Discard,
-and Copy.
-
-The body is edited with line feeds (ADR-0572): a note whose file has CRLF line
-endings shows normally, and its first edit saves it with line feeds.
-
-The rich-text view edits paragraphs, headings, bold, italic, strikethrough,
-inline code, links, bullet, numbered, and task lists, quotes, code blocks,
-dividers, and line breaks. There is no underline and there are no images.
-
-- **Source the editor cannot hold stays in Source.** A note containing HTML,
-  an image, or a table opens in Source only, with the reason shown.
-- **An edit Markdown cannot spell is refused before it appears.** Two are
-  known: bold, italic, or strikethrough that starts or ends with punctuation
-  directly against a letter (`a**(b)**`), and a line break inside a heading.
-- **Three things are not kept as content,** because Markdown has no spelling
-  for them: an empty paragraph, a line break with nothing after it in its
-  block, and bold, italic, or strikethrough on a space by itself.
-- **Text a file cannot hold is saved as the replacement character.** Half of
-  an emoji (a lone surrogate) typed or pasted anywhere becomes U+FFFD.
-- Spaces at the start or end of a line are kept. In Source they appear as
-  `&#32;` (and a tab as `&#9;`).
-- Changing the text in Source to say something different starts the
-  rich-text view over: its cursor goes to the start and Undo begins again.
-
-A file in `notes/` whose text does not read as a note, including plain
-Markdown with no `---` lines or a note with a bad field such as
-`pinned: maybe`, is listed under **Needs repair** with the reasons. It opens as
-its text, which saves as you type; the reasons update before each save.
-Once it reads as a note, **Open as note** shows its fields again. A file
-in `notes/` that is not text, and a file in `folders/` that does not read as a
-folder, are listed apart and open nothing here; Files can still delete them.
-
-Deleting a logical folder checks every note's relation, moves current
-members out with `folderId: null`, then removes the folder file if no member
-remains. It refuses when a note cannot identify its folder. This is not
-atomic: an earlier move remains if a later write fails, and another tab can
-move a note between the check and deletion.
-
-New notes use `folder.tables.notes.create`; folders use
-`folder.tables.folders.create`. A created file opens only after its write
-answers. Direct file and table writes take turns in the mirror's write queue.
-
-## When something changes underneath you
-
-Another tab's saved change appears in the mirror. An editor with pending typed
-text keeps showing that edit until its save answers. A failed save keeps
-the typed text and offers Save again, Discard, and Copy. A clean editor
-follows the changed file. Deleted files leave the list, and a selected deleted
-file shows that it is no longer in the folder. Read failures offer **Try
-again**, which refreshes the folder.
-
-## Header controls
-
-| Control | What it does |
-| --- | --- |
-| Status | Whether folder writes are pending, and where notes are kept. |
-| Files (Ctrl+B) | The folder's files: open any file as text, create a file, and delete a file. |
+`demo` boots a disposable Postgres, the local API with temporary Git and LFS
+stores, the built app on `http://localhost:5175`, a demo person, and a
+desktop sandbox for the `epicenter` CLI, then prints a sign-in helper URL and
+the `epicenter clone`, `check` and `sync` commands for the person's
+`honeycrisp` repository. It needs `initdb`, `pg_ctl`, `git` and `git-lfs` on
+`PATH`, and port 5175 free. Ctrl-C deletes everything.
 
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `src/lib/data.ts` | The tables: `notes` and `folders`, with each row's schema. |
-| `src/lib/editor/schema.ts` | The bounded ProseMirror schema. |
-| `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`. |
-| `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's edit before it is shown, and semantic state replacement when the note's body changes. |
-| `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
-| `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: note and folder actions over mirror rows, creates and deletes, and what the detail shows. |
-| `@epicenter/svelte/status-line` | The header's save line. |
-| `src/routes/+page.svelte` | `<OpenFolder>` over `honeycrispTables`, with `HoneycrispApp` inside it. |
-| `src/routes/components/` | Header, folder list, note list, the note view, files. |
+| `src/lib/contract.ts` | The contract. |
+| `src/lib/honeycrisp.svelte.ts` | The two lists (`createLists`, notes newest first, folders by name), what the list and detail show, and the actions over both collections. |
+| `src/lib/editor/` | The CodeMirror note editor: the binding that writes local edits and follows changes from elsewhere, live preview, conflict cards. It knows nothing of the app's UI or storage. |
+| `src/routes/+page.svelte` | Opens the device at the root; `src/lib/components/SignedIn.svelte` adds the repository and the uploader per account. |
+| `src/lib/components/` | The views, which read and write only through the state in context. |
 
-## Tech stack
+## Tests
 
-The [desktop acceptance report](evidence/desktop/README.md) records an
-earlier, directory-based Honeycrisp; none of its desktop, Git, or history
-features exist in this version.
+```sh
+bun run --cwd apps/honeycrisp test        # contract, state over real devices, the editor over jsdom
+bun run --cwd apps/honeycrisp typecheck
+bun x playwright test -c apps/honeycrisp/playwright.config.ts                    # both engines
+bun x playwright test -c apps/honeycrisp/playwright.config.ts --project=webkit   # one
+```
 
-- [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
-- [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
-- `@epicenter/folder` for the folder mirror and rows; `@epicenter/svelte` for `<OpenFolder>` and text edits; [TypeBox](https://github.com/sinclairzx81/typebox) for row schemas
-- `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
-
-## Changed promises
-
-This version moves Honeycrisp to the local folder, `openFolder({ tables })`.
-It drops these promises of the version before it:
-
-- Notes saved by the earlier browser build are not shown. They stay where
-  they were, unread and undeleted.
-- There is no **Save version**, no Git history, no Changes or Versions status,
-  and no warning that a deleted file's changes are in no version. A delete
-  cannot be undone.
-- The desktop build uses the mirror over its granted directory.
-- Files cannot be renamed, and the file browser cannot create or delete an
-  empty folder: the local folder has no rename, move, or directory of its
-  own. A directory exists while a file is in it.
-- A failed editor write keeps the attempted text beside its recovery controls.
-- While a note is open as its file, its repair reasons include unsaved text.
-- A note file named `notes/.md` is not listed: the local folder needs a
-  non-empty name.
+The Playwright suite (`e2e/honeycrisp.spec.ts`) starts the same environment
+as `demo`, built into a scratch directory (never `build/`), and walks one
+person through six steps per engine: create, edit, move, pin and delete
+notes and a folder signed out, typing the body into the editor; sign in, and
+they upload and leave the browser, while a new note goes straight to the
+repository; `epicenter clone` holds them as the browser wrote them and
+`epicenter check` passes; a body edited on the desktop shows in the note open
+on the web with no reload, and text typed on the web reaches the desktop; a
+note the desktop wrote that does not read shows on the web with its text and
+is repaired there; and signing out leaves the browser empty.

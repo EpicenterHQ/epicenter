@@ -134,18 +134,34 @@ async function sha256(bytes: Uint8Array) {
 
 const stampOf = (file: File) => `${file.size}:${file.lastModified}`;
 
+/**
+ * Every file, with its stamp. Writes run beside a listing, so an entry can
+ * go between being named and being read (the uploader deletes what it sent
+ * while the page lists): it is skipped, as a listing a moment later would
+ * skip it, rather than failing the whole listing.
+ */
 async function list() {
 	const files: { path: string; stamp: string }[] = [];
 	async function walk(directory: FileSystemDirectoryHandle, prefix: string) {
-		for await (const [name, handle] of (directory as Directory).entries()) {
-			const path = `${prefix}${name}`;
-			if (handle.kind === 'directory')
-				await walk(handle as FileSystemDirectoryHandle, `${path}/`);
-			else
-				files.push({
-					path,
-					stamp: stampOf(await (handle as FileSystemFileHandle).getFile()),
-				});
+		try {
+			for await (const [name, handle] of (directory as Directory).entries()) {
+				const path = `${prefix}${name}`;
+				if (handle.kind === 'directory') {
+					await walk(handle as FileSystemDirectoryHandle, `${path}/`);
+					continue;
+				}
+				let file: File;
+				try {
+					file = await (handle as FileSystemFileHandle).getFile();
+				} catch (cause) {
+					if (isMissing(cause)) continue;
+					throw cause;
+				}
+				files.push({ path, stamp: stampOf(file) });
+			}
+		} catch (cause) {
+			// The directory itself went while it was walked: nothing below it is there now.
+			if (!isMissing(cause)) throw cause;
 		}
 	}
 	await walk(await root(), '');
