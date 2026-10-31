@@ -1,25 +1,27 @@
 //! Where a recording is written while it records, and how it reaches its own
 //! path.
 //!
-//! A recording in progress is a WAV in the folder's own state directory, at
-//! `.epicenter/recording/<its folder-relative path>.wav` (`pending`), which
-//! no listing shows, no watcher reports, and `epicenter init`'s
-//! `.gitignore` keeps out of history. So `epicenter sync` never commits a
-//! half-written recording, and nothing reads one as the folder's audio.
+//! A recording in progress is a WAV among the folder's unfinished writes,
+//! at `.epicenter/recordings/<its folder-relative path>.wav` (`pending`,
+//! from `state::recording`): a hidden path, which no watcher reports and
+//! `epicenter sync` never commits, so nothing reads a half-written recording
+//! as the folder's audio.
 //!
 //! When it stops, `settle` encodes the WAV to Opus in WebM (`opus::encode`)
-//! in a scratch file of the folder's (`encode_scratch`), places that at
-//! `<path>.webm` without replacing anything there (`place`), and only then
-//! removes the WAV. A stop whose path something took meanwhile leaves the
-//! WAV; recovery places what it settles beside a taken path (`sweep`). A quit or a
-//! crash before then leaves the WAV, which `wav::recover` repairs and
-//! settles the same way the next time the folder opens, and at most a
-//! scratch file, which the folder removes once it is an hour old
-//! (`storage::sweep_scratch`). A WAV that cannot be encoded is placed itself,
-//! at `<path>.wav`: no audio is lost to an encoder.
+//! in a scratch file in the folder's `.epicenter/saves` (`encode_scratch`),
+//! places that at `<path>.webm` without replacing anything there (`place`),
+//! and only then removes the WAV. A stop whose path something took meanwhile
+//! leaves the WAV; recovery places what it settles beside a taken path
+//! (`sweep`). A quit or a crash before then leaves the WAV, which
+//! `wav::recover` repairs and settles the same way the next time the folder
+//! opens, and at most a scratch file, which the folder removes once it is an
+//! hour old (`storage::sweep_scratch`, which never reads `recordings/`). A
+//! WAV that cannot be encoded is placed itself, at `<path>.wav`: no audio is
+//! lost to an encoder.
 //!
 //! Where these files are is `pending`, `pending_under`, and
-//! `encode_scratch`; nothing else here names a directory.
+//! `encode_scratch`, each from the folder core's `state`; nothing else here
+//! names a directory.
 
 use std::fs;
 use std::io;
@@ -27,20 +29,17 @@ use std::path::{Path, PathBuf};
 
 use epicenter_folder_core::page_files;
 use epicenter_folder_core::paths::path_problem;
-use epicenter_folder_core::storage::{create_scratch, prepare_state_directory, STATE_DIRECTORY};
-
-/// The directory in a folder's `.epicenter` that recordings in progress are
-/// written under.
-const RECORDINGS: &str = "recording";
+use epicenter_folder_core::state;
+use epicenter_folder_core::storage::{create_scratch, prepare_state_directory};
 
 /// The checked full path the recording of the folder-relative `stem` (its
-/// path without an extension) is written to while it records, in `root`,
-/// with its missing directories made. `.epicenter` is made private to this
-/// account when missing and refused when it is a link; every name below it
-/// is checked as a data path is.
+/// path without an extension) is written to while it records, in `root`
+/// (`state::recording`), with its missing directories made. `.epicenter` is
+/// made `0700` when missing and refused when it is a link; every name below
+/// it is checked as a data path is.
 pub fn pending(root: &Path, stem: &str) -> Result<PathBuf, String> {
     prepare_state_directory(root)?;
-    let pending = format!("{STATE_DIRECTORY}/{RECORDINGS}/{stem}.wav");
+    let pending = state::recording(stem);
     let path = page_files::data_path(root, &pending)?;
     if let Some((parent, _)) = pending.rsplit_once('/') {
         page_files::mkdir(root, &root.join(parent))?;
@@ -53,8 +52,7 @@ pub fn pending(root: &Path, stem: &str) -> Result<PathBuf, String> {
 /// recording of. A link is never followed, and only paths the shared path
 /// rule accepts are visited. Nothing pending is nothing.
 pub fn pending_under(root: &Path, under: &str) -> Result<Vec<(PathBuf, String)>, String> {
-    let directory =
-        page_files::data_path(root, &format!("{STATE_DIRECTORY}/{RECORDINGS}/{under}"))?;
+    let directory = page_files::data_path(root, &state::recordings_under(under))?;
     let mut found = Vec::new();
     let mut directories: Vec<(PathBuf, String)> = vec![(directory, under.to_string())];
     while let Some((directory, relative)) = directories.pop() {
@@ -93,9 +91,9 @@ pub fn pending_under(root: &Path, under: &str) -> Result<Vec<(PathBuf, String)>,
     Ok(found)
 }
 
-/// A new scratch file in `root` to encode a recording into: on the folder's
-/// own file system, so it can be linked to its path, and named so that one a
-/// crash leaves behind is removed once stale.
+/// A new scratch file in `root`'s `.epicenter/saves` to encode a recording
+/// into: on the folder's own file system, so it can be linked to its path,
+/// and named so that one a crash leaves behind is removed once stale.
 fn encode_scratch(root: &Path) -> Result<(PathBuf, fs::File), String> {
     create_scratch(root)
 }
@@ -220,7 +218,7 @@ const RECOVERED_NAMES: usize = 100;
 /// copy of it and is removed (not placed); anything else is refused, or for
 /// `PlaceBeside` goes to the first free `<stem>-recovered.<ext>`,
 /// `<stem>-recovered-2.<ext>`, and so on, so no recording is stranded in
-/// `.epicenter`, which nothing lists or syncs.
+/// `.epicenter`, which sync never commits.
 fn sweep(
     root: &Path,
     staged: &Path,

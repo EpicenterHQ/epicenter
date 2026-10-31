@@ -3,8 +3,9 @@
  * (ADR-0543, decision 84).
  *
  * The shell's recorder writes a WAV from the first sample into the
- * `device`'s folder's own `.epicenter/recording`, which no listing shows and
- * sync never commits, its header updated about once a second. The folder is
+ * `device`'s folder's own `.epicenter/recordings`, a hidden path no watcher
+ * reports and sync never commits, its header updated about once a second.
+ * The folder is
  * named to the shell by the root it answered when the page opened the device
  * (`rootOf` from `@epicenter/folder/tauri`), or, for the window's own folder,
  * by none. `stop` finalizes it, encodes it to Opus in WebM, and places that
@@ -12,7 +13,7 @@
  * path whole. (A WAV the encoder refuses is placed at `<path>.wav` instead,
  * and `stop` fails saying so.) When the page reloads or its window closes,
  * the shell finalizes and places the recording itself: the audio is kept. A
- * process that ends before then leaves the WAV in `.epicenter/recording`
+ * process that ends before then leaves the WAV in `.epicenter/recordings`
  * with a header that undercounts the last second; `recoverRecordings`
  * rewrites it from the file's length, encodes it, and places it at its path.
  *
@@ -159,7 +160,7 @@ export const startRecording: StartRecording = async ({
 
 /**
  * Repair every WAV a quit or a crash left in the folder's
- * `.epicenter/recording` under `under`, encode each, and place it at its
+ * `.epicenter/recordings` under `under`, encode each, and place it at its
  * path (or beside it, `<name>-recovered.webm`, when the path is taken).
  * Answers the paths placed.
  */

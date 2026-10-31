@@ -1,0 +1,14 @@
+{
+	"description": "Where a folder's unfinished writes live. The folder core (core/src/state.rs) and @epicenter/folder (src/state.ts, and the OPFS worker's inlined copy) both build these paths; both test suites read this file.",
+	"directory": ".epicenter",
+	"saves": "saves",
+	"recordings": "recordings",
+	"savesDirectory": ".epicenter/saves",
+	"recordingPaths": [
+		{ "stem": "a", "path": ".epicenter/recordings/a.wav" },
+		{
+			"stem": "recordings/2026/a",
+			"path": ".epicenter/recordings/recordings/2026/a.wav"
+		}
+	]
+}

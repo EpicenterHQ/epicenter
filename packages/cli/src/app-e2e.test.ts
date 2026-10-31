@@ -11,7 +11,7 @@
  * Key behaviors:
  * - A file a write landed on mid-read is read again and listed.
  * - A file that went mid-walk is left out.
- * - The device's staging area is never listed.
+ * - The device's staged saves are never listed.
  */
 import { expect, test } from 'bun:test';
 import { digestTree } from './app-e2e.test-support.ts';
@@ -94,10 +94,10 @@ test('a file that went while the walk ran is left out', async () => {
 	expect(files).toEqual({ 'recordings/b.md': await sha256('kept') });
 });
 
-test('the staging area is not listed', async () => {
+test('staged saves are not listed', async () => {
 	const files = await walk(
 		directory({
-			'.epicenter': directory({ staging: directory({ x: file('staged') }) }),
+			'.epicenter': directory({ saves: directory({ x: file('staged') }) }),
 			'notes.md': file('note'),
 		}),
 	);

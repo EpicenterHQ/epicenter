@@ -22,7 +22,8 @@ import {
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { scratch } from '../git-http.test-support.js';
-import { openNativeStorage, scratchDirectory } from './directory.js';
+import { savesDirectory } from '../state.js';
+import { openNativeStorage } from './directory.js';
 
 const text = (value: string) => new TextEncoder().encode(value);
 
@@ -85,7 +86,7 @@ test('a put keeps its staging inside the folder and makes nothing beside it', as
 		).toBe('landed');
 		expect(await readdir(parent)).toEqual(['notes']);
 		expect((await readdir(root)).sort()).toEqual(['.epicenter', 'todos']);
-		expect(await readdir(scratchDirectory(root))).toEqual([]);
+		expect(await readdir(savesDirectory(root))).toEqual([]);
 		const listed = expectOk(await storage.list());
 		expect(listed.map(({ path }) => path)).toEqual(['todos/a.md']);
 	} finally {

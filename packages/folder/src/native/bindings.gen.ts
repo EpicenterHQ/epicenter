@@ -32,8 +32,8 @@ export const commands = {
 	/**  The caller can destroy only its own bound window after its writes drain. */
 	destroyBoundWindow: (token: number) => typedError<boolean, string>(__TAURI_INVOKE("plugin:epicenter-folder|destroy_bound_window", { token })),
 	/**
-	 *  Every file below the window's root, `.git` and `.epicenter` aside, none
-	 *  of them followed (`storage::list`).
+	 *  Every file below the window's root, `.git` aside, hidden ones included,
+	 *  none of them followed (`storage::list`).
 	 */
 	listFolder: (root: string | null) => typedError<ListedFile[], StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root })),
 	/**

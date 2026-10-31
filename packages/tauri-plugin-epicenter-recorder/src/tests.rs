@@ -234,7 +234,7 @@ fn a_microphone_that_is_not_connected_is_refused_not_replaced() {
     );
     assert!(!fixture
         .root
-        .join(".epicenter/recording/recordings/a.wav")
+        .join(epicenter_folder_core::state::recording("recordings/a"))
         .exists());
 }
 
@@ -342,7 +342,7 @@ fn without_microphone_access_no_meter_or_recording_resolves_a_device() {
     assert_eq!(name(&refused), "PermissionDenied", "{refused}");
     assert!(!fixture
         .root
-        .join(".epicenter/recording/recordings/a.wav")
+        .join(epicenter_folder_core::state::recording("recordings/a"))
         .exists());
     // Listing asks for nothing.
     assert!(invoke(&main, "inputs", json!({})).is_ok());
@@ -391,7 +391,7 @@ fn permission_granted_after_page_departure_resolves_no_device() {
             .is_capturing());
         assert!(!fixture
             .root
-            .join(".epicenter/recording/recordings/a.wav")
+            .join(epicenter_folder_core::state::recording("recordings/a"))
             .exists());
     }
 }
@@ -457,7 +457,7 @@ fn permission_granted_after_exit_finalization_resolves_no_device() {
         refusals.push(name(&refused).to_owned());
         assert!(!fixture
             .root
-            .join(".epicenter/recording/recordings/a.wav")
+            .join(epicenter_folder_core::state::recording("recordings/a"))
             .exists());
     }
     assert_eq!(
@@ -596,7 +596,9 @@ fn stop_reaches_only_a_recording_this_window_started() {
     let staged = crate::staging::pending(&fixture.root, "recordings/a").unwrap();
     assert_eq!(
         staged,
-        fixture.root.join(".epicenter/recording/recordings/a.wav")
+        fixture
+            .root
+            .join(epicenter_folder_core::state::recording("recordings/a"))
     );
     crate::recorder::tests::hold_recording(
         &mut fixture.app.state::<Recorders<MockRuntime>>().lock(),

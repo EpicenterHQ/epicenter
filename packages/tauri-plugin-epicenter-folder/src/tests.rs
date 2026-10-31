@@ -25,7 +25,7 @@
 //!   `stale`.
 //! - Storage reaches the data paths of the bound root and nothing else:
 //!   never `.git`, never another window's root, never through a link. A save
-//!   stages in the root's `.epicenter` and makes no `.git`; a `.git` file or link opens
+//!   stages in the root's `.epicenter/saves` and makes no `.git`; a `.git` file or link opens
 //!   and saves and is left as it is. Opening sweeps staged files a stopped
 //!   save left.
 //! - A put takes its bytes as a raw body and its arguments as
@@ -855,14 +855,14 @@ fn opening_a_bound_folder_that_is_gone_is_refused_and_makes_nothing() {
     assert!(!fixture.root.exists());
 }
 
-/// The scratch directory inside the folder, where a put stages its bytes.
-fn scratch(fixture: &Fixture) -> PathBuf {
-    epicenter_folder_core::storage::scratch_directory(&fixture.root)
+/// `.epicenter/saves` inside the folder, where a put stages its bytes.
+fn saves(fixture: &Fixture) -> PathBuf {
+    epicenter_folder_core::state::saves(&fixture.root)
 }
 
-/// The staged files left in the folder's scratch directory.
+/// The staged files left in the folder's `saves`.
 fn staged(fixture: &Fixture) -> Vec<String> {
-    std::fs::read_dir(scratch(fixture))
+    std::fs::read_dir(saves(fixture))
         .map(|entries| {
             entries
                 .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
@@ -1143,8 +1143,8 @@ fn a_path_through_a_link_or_naming_one_is_refused() {
 #[test]
 fn opening_sweeps_staged_files_a_stopped_save_left() {
     let fixture = fixture("sweep");
-    let scratch = scratch(&fixture);
-    std::fs::create_dir_all(&scratch).unwrap();
+    let saves = saves(&fixture);
+    std::fs::create_dir_all(&saves).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -1165,7 +1165,7 @@ fn opening_sweeps_staged_files_a_stopped_save_left() {
     let old = name(now - 2 * 60 * 60 * 1000);
     let young = name(now - 60 * 1000);
     for staged in [&old, &young] {
-        std::fs::write(scratch.join(staged), b"x").unwrap();
+        std::fs::write(saves.join(staged), b"x").unwrap();
     }
     let main = fixture.bound_window("main", &fixture.root);
     open(&main).unwrap();

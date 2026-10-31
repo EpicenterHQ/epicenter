@@ -234,8 +234,8 @@ fn bound<R: Runtime>(
         .map_err(|refusal| failed(path, operation, format!("{refusal:?}")))
 }
 
-/// Every file below the window's root, `.git` and `.epicenter` aside, none
-/// of them followed (`storage::list`).
+/// Every file below the window's root, `.git` aside, hidden ones included,
+/// none of them followed (`storage::list`).
 #[tauri::command]
 #[specta::specta]
 pub async fn list_folder<R: Runtime>(

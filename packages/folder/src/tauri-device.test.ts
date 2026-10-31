@@ -110,7 +110,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await rm(shell.root, { recursive: true, force: true });
-	await rm(shell.scratch, { recursive: true, force: true });
 	for (const path of removed.splice(0))
 		await rm(path, { recursive: true, force: true });
 });

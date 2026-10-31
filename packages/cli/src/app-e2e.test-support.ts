@@ -116,7 +116,7 @@ export async function sync(stack: Stack, person: Person, folder: string) {
 }
 
 /**
- * Every file in the page origin's OPFS but the device's staging area, by
+ * Every file in the page origin's OPFS but the device's staged saves, by
  * path, as sha256. A file the page moves or removes during the walk is not
  * listed; a file a write lands on while it is read is read again.
  */
@@ -126,7 +126,8 @@ export function opfsFiles(page: Page): Promise<Record<string, string>> {
 
 /**
  * Every file under `root` (the origin's OPFS when omitted) but the device's
- * staging area, by path, as sha256: `opfsFiles` in the page.
+ * staged saves (`.epicenter/saves`), by path, as sha256: `opfsFiles` in the
+ * page.
  *
  * The page's own writes run beside the walk. A file that went between being
  * named and being read is left out. A file a write landed on between taking
@@ -193,7 +194,7 @@ export async function digestTree(
 		'',
 	);
 	for (const path of Object.keys(files))
-		if (path.startsWith('.epicenter/staging/')) delete files[path];
+		if (path.startsWith('.epicenter/saves/')) delete files[path];
 	return files;
 }
 

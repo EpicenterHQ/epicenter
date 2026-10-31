@@ -84,14 +84,6 @@ export type FolderStorage = {
 export const PRIVATE_DIRECTORY = '.git';
 
 /**
- * Epicenter's own state at the top of a folder: the scratch directory saves
- * stage in, and unfinished files such as a recording in progress. A hidden
- * path, so no watcher reports it; `epicenter init`'s `.gitignore` keeps it
- * out of history.
- */
-export const STATE_DIRECTORY = '.epicenter';
-
-/**
  * This process's id in the names it stages under, so two never pick one
  * name. Made at the first stage, not at import: an insecure origin has no
  * `crypto.randomUUID`, and opening there answers `NoFileSystem` rather than

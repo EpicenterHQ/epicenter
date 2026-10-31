@@ -10,11 +10,8 @@
  * - The same markers hold the `.gitignore` block, which ignores `.DS_Store` and `.epicenter/`
  */
 import { expect, test } from 'bun:test';
-import {
-	REPOSITORY_ATTRIBUTES,
-	REPOSITORY_IGNORE,
-} from '@epicenter/definition/contract';
-import { withEpicenterBlock } from './managed-block.ts';
+import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
+import { REPOSITORY_IGNORE, withEpicenterBlock } from './managed-block.ts';
 
 const withAttributes = (current: string | null) =>
 	withEpicenterBlock(current, REPOSITORY_ATTRIBUTES);

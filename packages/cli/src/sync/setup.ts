@@ -18,13 +18,10 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import {
-	REPOSITORY_ATTRIBUTES,
-	REPOSITORY_IGNORE,
-} from '@epicenter/definition/contract';
+import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import { resolveAppPaths } from '../app-paths.ts';
 import { config, configAll, git, must, type RemoteCredential } from './git.ts';
-import { withEpicenterBlock } from './managed-block.ts';
+import { REPOSITORY_IGNORE, withEpicenterBlock } from './managed-block.ts';
 
 /** Init would adopt a repository the folder sits inside, and was not told to. */
 export class Refused extends Error {}

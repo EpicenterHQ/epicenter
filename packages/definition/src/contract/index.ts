@@ -39,7 +39,6 @@ export {
 	isHiddenPath,
 	isNotePath,
 	REPOSITORY_ATTRIBUTES,
-	REPOSITORY_IGNORE,
 	storedWithLfs,
 } from './storage.js';
 export {

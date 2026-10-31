@@ -25,7 +25,7 @@
 //!
 //! # A recording is a file from the first sample
 //!
-//! The WAV is created in the folder's `.epicenter/recording` when the
+//! The WAV is created in the folder's `.epicenter/recordings` when the
 //! recording starts and appended to in place (ADR-0543). Its header is
 //! brought up to date about once a second and exactly when `stop` finalizes
 //! it, so a process that ends mid-recording leaves every sample that reached
@@ -495,7 +495,7 @@ pub(crate) struct FinishedRecording {
 /// `settle` encodes it and places it.
 #[derive(Debug)]
 pub struct Finalized {
-    /// The WAV, in the folder's `.epicenter/recording`.
+    /// The WAV, in the folder's `.epicenter/recordings`.
     pub pending: PathBuf,
     root: PathBuf,
     /// Its folder-relative path without an extension, as the page named it.
@@ -578,7 +578,7 @@ struct HeldRecording {
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
     /// The recording's WAV while it records, absolute, in the folder's
-    /// `.epicenter/recording`, which `recover` leaves alone.
+    /// `.epicenter/recordings`, which `recover` leaves alone.
     path: PathBuf,
     /// The folder it is settled into once it stops.
     root: PathBuf,
@@ -723,7 +723,7 @@ impl Recorder {
     /// default.
     ///
     /// `pending` is the checked absolute path the WAV is written to while it
-    /// records, in the folder's `.epicenter/recording`; `root` is the folder
+    /// records, in the folder's `.epicenter/recordings`; `root` is the folder
     /// it is settled into when it stops, and `stem` its folder-relative path
     /// there without an extension, as the page named it. The file is created
     /// only after the device and its configuration resolve, and never over
@@ -1056,7 +1056,7 @@ impl Recorder {
 
 /// End a recording and keep it: tell the worker to finalize the WAV, and
 /// join it so the cpal stream is released. A WAV that could not be
-/// finalized stays in `.epicenter/recording`, where the next `recover`
+/// finalized stays in `.epicenter/recordings`, where the next `recover`
 /// repairs and settles it.
 ///
 /// The slot is unavailable for the whole round trip, because the caller's
@@ -1939,7 +1939,7 @@ pub(crate) mod tests {
             b"theirs"
         );
         assert_eq!(samples_in(&finalized.pending), TEST_RATE);
-        let scratch = root.path().join(".epicenter/scratch");
+        let scratch = epicenter_folder_core::state::saves(root.path());
         assert_eq!(std::fs::read_dir(scratch).unwrap().count(), 0);
     }
 

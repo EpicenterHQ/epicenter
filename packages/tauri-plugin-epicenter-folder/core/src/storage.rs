@@ -13,26 +13,27 @@
 //!   reach `Plan.md`. A name stored under another spelling is another entry:
 //!   a read finds nothing there, and a change refuses to land on it;
 //! - `.git` at the root is Git's, never listed and never named.
-//! - `.epicenter` at the root is Epicenter's own state (`STATE_DIRECTORY`):
-//!   the scratch directory saves stage in, and unfinished files such as a
-//!   recording in progress. It is a hidden path, so it is not the folder's
-//!   data: a listing shows it and its reader skips it, no watcher reports
-//!   it, and `epicenter init`'s `.gitignore` keeps it out of history.
+//! - `.epicenter` at the root holds the folder's unfinished writes
+//!   (`state`). A file in `.epicenter/` is on its way somewhere: `saves/` is
+//!   always safe to delete when no app runs, and `recordings/` may hold
+//!   audio until the app opens once. It is a hidden path, so it is not the
+//!   folder's data: a listing shows it and its reader skips it, no watcher
+//!   reports it, and sync never commits it.
 //!
 //! `put` is the one change of a file. Its bytes are staged in a new file in
-//! `.epicenter/scratch` inside the root, where the Bun host stages too, and
-//! renamed over the path, so a reader and a crash see the old file or the
-//! new one, and a new file never appears empty. Saving needs no Git: it
-//! makes nothing beside the root, nothing in it but the files saved and
-//! `.epicenter`, and never touches `.git`, whatever is there.
+//! `.epicenter/saves` inside the root (`state::saves`), where the Bun host
+//! stages too, and renamed over the path, so a reader and a crash see the
+//! old file or the new one, and a new file never appears empty. Saving needs
+//! no Git: it makes nothing beside the root, nothing in it but the files
+//! saved and `.epicenter`, and never touches `.git`, whatever is there.
 //!
 //! The version check (what the path holds, against what the page read)
 //! runs right before the rename or the removal, with no lock across the
 //! two: another program that saves in that instant can be overwritten.
 //! External editors never took a lock anyway, and Git history keeps every
 //! version sync committed (ADR-0562, ADR-0568). On Unix no other account can read
-//! staged bytes, before publication or after a stopped save: the scratch
-//! directory is `0700` before anything is staged in it (`make_private`), and
+//! staged bytes, before publication or after a stopped save: `saves/` and
+//! `.epicenter` are `0700` before anything is staged (`make_private`), and
 //! each staged file is `0600` before its first byte. On macOS each also has
 //! no access control entry (`without_acl`), such as an `everyone allow read`
 //! the parent passes on, or the save is refused first. Replacing an existing
@@ -55,22 +56,10 @@ use sha2::{Digest, Sha256};
 use specta::Type;
 
 use crate::paths::{path_problem, readable_path_problem};
+use crate::state;
 
 /// The folder's private Git directory, which no listing shows.
 const PRIVATE_DIRECTORY: &str = ".git";
-
-/// Epicenter's own state at the top of a folder: the scratch directory
-/// (`scratch_directory`) and unfinished files, such as a recording in
-/// progress. A hidden path, so no watcher reports it.
-pub const STATE_DIRECTORY: &str = ".epicenter";
-
-/// Where `put` stages a file's bytes: `.epicenter/scratch` inside the
-/// canonical `root`, the directory the Bun host stages in
-/// (`scratchDirectory` in `@epicenter/folder`'s `native/directory.ts`). It
-/// is on the root's own file system, so the rename over a path is one step.
-pub fn scratch_directory(root: &Path) -> PathBuf {
-    root.join(STATE_DIRECTORY).join("scratch")
-}
 
 /// Why the directory at `directory` cannot be used, if it cannot: something
 /// is there that is a link or not a directory. A link is never followed, so
@@ -99,11 +88,10 @@ fn directory_problem(directory: &Path) -> Option<String> {
     ))
 }
 
-/// Why the scratch directory inside `root` cannot hold staged bytes, if it
-/// cannot: `.epicenter` or `scratch` is a link or not a directory.
-fn scratch_problem(root: &Path) -> Option<String> {
-    directory_problem(&root.join(STATE_DIRECTORY))
-        .or_else(|| directory_problem(&scratch_directory(root)))
+/// Why `.epicenter/saves` inside `root` cannot hold staged bytes, if it
+/// cannot: `.epicenter` or `saves` is a link or not a directory.
+fn saves_problem(root: &Path) -> Option<String> {
+    directory_problem(&state::directory(root)).or_else(|| directory_problem(&state::saves(root)))
 }
 
 /// Make the directory at `directory` `0700` when missing; its parent must be
@@ -133,25 +121,25 @@ fn make_directory(directory: &Path) -> Result<(), String> {
 /// is a link or not a directory, so staged bytes are never reached through
 /// a link.
 pub fn prepare_state_directory(root: &Path) -> Result<PathBuf, String> {
-    let state = root.join(STATE_DIRECTORY);
-    make_directory(&state)?;
-    Ok(state)
+    let directory = state::directory(root);
+    make_directory(&directory)?;
+    Ok(directory)
 }
 
-/// The scratch directory inside `root`, private to this account with the
+/// `.epicenter/saves` inside `root`, private to this account with the
 /// `.epicenter` holding it, as the Bun host makes both: each made `0700`
 /// when missing, refused when it is a link or not a directory, and
 /// tightened (`make_private`) when it is open to others, before anything is
 /// staged.
-fn prepare_scratch(root: &Path) -> Result<PathBuf, String> {
+fn prepare_saves(root: &Path) -> Result<PathBuf, String> {
     make_private(&prepare_state_directory(root)?)?;
-    let scratch = scratch_directory(root);
-    make_directory(&scratch)?;
-    make_private(&scratch)?;
-    Ok(scratch)
+    let saves = state::saves(root);
+    make_directory(&saves)?;
+    make_private(&saves)?;
+    Ok(saves)
 }
 
-/// Leave the directory at `scratch` readable only by this account (`0700`,
+/// Leave the directory at `path` readable only by this account (`0700`,
 /// with no access control entry: `without_acl`), or answer why it cannot
 /// be: it was made `0755`, or its parent passes on an entry. The
 /// mode is read and changed through the open directory, which must be the
@@ -160,16 +148,16 @@ fn prepare_scratch(root: &Path) -> Result<PathBuf, String> {
 /// another account owns cannot be tightened. Windows has no such bits:
 /// there the directory has the access its parent passes on.
 #[cfg(unix)]
-fn make_private(scratch: &Path) -> Result<(), String> {
+fn make_private(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let refused = |cause: &dyn std::fmt::Display| {
         format!(
             "'{}' could not be made private to this account, so nothing was staged there: {cause}",
-            scratch.display()
+            path.display()
         )
     };
-    let seen = fs::symlink_metadata(scratch).map_err(|cause| refused(&cause))?;
-    let directory = fs::File::open(scratch).map_err(|cause| refused(&cause))?;
+    let seen = fs::symlink_metadata(path).map_err(|cause| refused(&cause))?;
+    let directory = fs::File::open(path).map_err(|cause| refused(&cause))?;
     let opened = directory.metadata().map_err(|cause| refused(&cause))?;
     if !seen.is_dir()
         || !opened.is_dir()
@@ -191,7 +179,7 @@ fn make_private(scratch: &Path) -> Result<(), String> {
 }
 
 #[cfg(not(unix))]
-fn make_private(_scratch: &Path) -> Result<(), String> {
+fn make_private(_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
@@ -721,17 +709,17 @@ fn now_ms() -> u64 {
         .map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
-/// A new, empty file in the scratch directory inside `root`, for bytes
-/// that are renamed or linked to their path once whole: `put` stages each
-/// save in one, and the recorder encodes a recording into one. Its name is
-/// a scratch name (`scratch_name`), so one a stopped writer leaves behind
-/// is removed once stale (`sweep_scratch`). It is made with `create_new`, so
-/// nothing already at the name is written through, and `0600` with no
-/// access control entry the scratch directory passed on, so no other
+/// A new, empty file in `.epicenter/saves` inside `root`, for bytes that
+/// are renamed or linked to their path once whole: `put` stages each save
+/// in one, and the recorder encodes a stopped recording into one. Its name
+/// is a scratch name (`scratch_name`), so one a stopped writer leaves
+/// behind is removed once stale (`sweep_scratch`). It is made with
+/// `create_new`, so nothing already at the name is written through, and
+/// `0600` with no access control entry `saves/` passed on, so no other
 /// account can read it before its first byte. Whoever made it renames or
 /// removes it.
 pub fn create_scratch(root: &Path) -> Result<(PathBuf, fs::File), String> {
-    let scratch = prepare_scratch(root)?.join(scratch_name(now_ms()));
+    let scratch = prepare_saves(root)?.join(scratch_name(now_ms()));
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -991,19 +979,19 @@ pub fn is_stale_scratch(name: &str, now_ms: u64) -> bool {
     }
 }
 
-/// Remove the staged files in the scratch directory inside `root` that a
+/// Remove the staged files in `.epicenter/saves` inside `root` that a
 /// stopped save left more than an hour before `now_ms`: regular files whose
 /// names a stager made (`is_stale_scratch`). Younger ones may belong to a
 /// save still running in another process; any other file, a directory, or a
-/// link stays. A scratch directory, or `.epicenter`, that is a link or not a
-/// directory is left alone, and what cannot be removed stays: it is inert.
-/// Nothing else in the root, `.git` included, is touched.
+/// link stays. A `saves` or `.epicenter` that is a link or not a directory
+/// is left alone, and what cannot be removed stays: it is inert. Nothing
+/// else in the root is touched: not `.git`, and never `recordings/`, whose
+/// audio waits for the recorder's recovery.
 pub fn sweep_scratch(root: &Path, now_ms: u64) {
-    if scratch_problem(root).is_some() {
+    if saves_problem(root).is_some() {
         return;
     }
-    let scratch = scratch_directory(root);
-    let Ok(entries) = fs::read_dir(&scratch) else {
+    let Ok(entries) = fs::read_dir(state::saves(root)) else {
         return;
     };
     for entry in entries.flatten() {

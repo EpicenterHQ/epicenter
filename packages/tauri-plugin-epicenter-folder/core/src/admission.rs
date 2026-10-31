@@ -100,7 +100,7 @@ mod tests {
         let library = base.join("Epicenter");
         fs::create_dir_all(data.join("logs")).unwrap();
         let notes = library.join("Notes");
-        let saves = notes.join(".epicenter/saves");
+        let saves = crate::state::saves(&notes);
         fs::create_dir_all(&saves).unwrap();
         for refused in [
             data.clone(),
@@ -108,7 +108,7 @@ mod tests {
             library.clone(),
             base.clone(),
             saves,
-            notes.join(".epicenter"),
+            crate::state::directory(&notes),
             notes.join(".git"),
             base.join(".notes/inbox"),
         ] {

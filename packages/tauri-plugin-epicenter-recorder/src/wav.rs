@@ -277,7 +277,7 @@ mod tests {
     fn recover_repairs_and_settles_what_a_cut_left_pending_and_nothing_else() {
         let directory = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(directory.path()).unwrap();
-        let pending = root.join(".epicenter/recording/recordings");
+        let pending = root.join(epicenter_folder_core::state::recordings_under("recordings"));
         fs::create_dir_all(pending.join("2026")).unwrap();
         fs::create_dir_all(root.join("recordings")).unwrap();
         cut_off(&pending.join("a.wav"), 100);
@@ -337,7 +337,7 @@ mod tests {
     fn a_leftover_whose_recording_is_already_placed_is_removed() {
         let directory = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(directory.path()).unwrap();
-        let pending = root.join(".epicenter/recording/recordings");
+        let pending = root.join(epicenter_folder_core::state::recordings_under("recordings"));
         fs::create_dir_all(&pending).unwrap();
         fs::create_dir_all(root.join("recordings")).unwrap();
         cut_off(&pending.join("a.wav"), 100);
@@ -347,7 +347,7 @@ mod tests {
         repair(&pending.join("c.wav")).unwrap();
         let (_, file) = epicenter_folder_core::storage::create_scratch(&root).unwrap();
         crate::opus::encode(&pending.join("c.wav"), file).unwrap();
-        for entry in fs::read_dir(root.join(".epicenter/scratch")).unwrap() {
+        for entry in fs::read_dir(epicenter_folder_core::state::saves(&root)).unwrap() {
             fs::rename(entry.unwrap().path(), root.join("recordings/c.webm")).unwrap();
         }
         // And one whose path and first `-recovered` name are someone else's.
@@ -425,7 +425,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(directory.path()).unwrap().join("folder");
         let outside = fs::canonicalize(directory.path()).unwrap().join("outside");
-        let pending = root.join(".epicenter/recording/recordings");
+        let pending = root.join(epicenter_folder_core::state::recordings_under("recordings"));
         fs::create_dir_all(&pending).unwrap();
         fs::create_dir_all(&outside).unwrap();
         cut_off(&outside.join("x.wav"), 100);

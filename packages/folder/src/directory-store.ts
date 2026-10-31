@@ -4,7 +4,7 @@
  * commands on the desktop.
  *
  * Every change lands whole and checked where it lands. A file's bytes are
- * written to a scratch file in the scratch directory the host names, and
+ * written to a scratch file in the `saves` directory the host names, and
  * renamed over the path, carrying what the change expects there
  * (`Expectation`), which the host checks right before the rename, and
  * keeping the mode of a file it replaces: another program sees the old file
@@ -17,7 +17,7 @@
  * land removes its staged file and the parent directories it made, unless
  * another writer put something in one. A parent another writer prunes
  * between this put's making it and its rename fails the rename. The
- * scratch directory and each staged file are private to this account before
+ * `saves` directory and each staged file are private to this account before
  * any byte is staged, so no other account reads a save that has not landed,
  * or one a crash stopped.
  *
@@ -45,7 +45,7 @@ import { FileError, UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
 import { pathProblem, readablePath, writableExistingPath } from './paths.js';
 
-/** The directory holding the absolute `path`, which uses `/` (`scratchDirectory`). */
+/** The directory holding the absolute `path`, which uses `/` (`savesDirectory`). */
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
 
 /** What a literal folder path names on disk. */
@@ -69,21 +69,20 @@ const linkRefusal = (path: string) =>
  * The storage of the directory at absolute path `root`, changing files
  * through `primitives`.
  *
- * `scratch` is the absolute directory a put stages its bytes in, made
+ * `saves` is the absolute directory a put stages its bytes in, made
  * private (`mkdir` with `private`) with its parent at each put: the native
- * hosts' is `.epicenter/scratch` inside `root` (`scratchDirectory` in
- * `native/directory.ts`), written with `/`. It must be on `root`'s file
- * system, so the rename over the path is one step; inside `root` it is in
- * `.epicenter`, which listings never show.
+ * hosts' is `.epicenter/saves` inside `root` (`savesDirectory` in
+ * `state.ts`), written with `/`. It must be on `root`'s file system, so the
+ * rename over the path is one step.
  */
 export function createDirectoryStorage({
 	root,
 	primitives: files,
-	scratch: scratchDirectory,
+	saves,
 }: {
 	root: string;
 	primitives: DirectoryPrimitives;
-	scratch: string;
+	saves: string;
 }): FolderStorage {
 	const absolute = (path: string) => (path === '' ? root : `${root}/${path}`);
 
@@ -183,7 +182,7 @@ export function createDirectoryStorage({
 		}
 		if (found.kind === 'underFile')
 			return FileError.NotADirectory({ path: found.ancestor });
-		const scratch = `${scratchDirectory}/${scratchName()}`;
+		const scratch = `${saves}/${scratchName()}`;
 		/** The parent directories this put made, shallowest first. */
 		const made: string[] = [];
 		/** Remove what this put left: its staged file and the directories it made. */
@@ -208,8 +207,8 @@ export function createDirectoryStorage({
 					made.push(at);
 				}
 			}
-			await files.mkdir(parentOf(scratchDirectory), { private: true });
-			await files.mkdir(scratchDirectory, { private: true });
+			await files.mkdir(parentOf(saves), { private: true });
+			await files.mkdir(saves, { private: true });
 			await files.writeFile(scratch, bytes, {
 				createNew: true,
 				private: true,
@@ -291,24 +290,25 @@ export function createDirectoryStorage({
 }
 
 /**
- * Remove the files staged in `scratch`, the scratch directory a directory's
- * storage names, that a stopped write (a crash, a quit) left an hour or more
- * ago. Another handle or process may be writing the directory now, so
- * younger ones stay. What cannot be removed stays; it is inert, and an open
- * that cannot clear it still opens. The desktop shell sweeps its own at
- * each grant.
+ * Remove the files staged in `saves`, the directory a directory's storage
+ * stages in, that a stopped write (a crash, a quit) left an hour or more
+ * ago: regular files with a scratch name (`isStaleScratch`), nothing else.
+ * Another handle or process may be writing the directory now, so younger
+ * ones stay. What cannot be removed stays; it is inert, and an open that
+ * cannot clear it still opens. The desktop shell sweeps its own at each
+ * grant.
  */
 export async function sweepStaleScratch(
-	scratch: string,
+	saves: string,
 	files: DirectoryPrimitives,
 ): Promise<void> {
 	try {
-		if ((await files.lstat(parentOf(scratch)))?.kind !== 'directory') return;
-		if ((await files.lstat(scratch))?.kind !== 'directory') return;
+		if ((await files.lstat(parentOf(saves)))?.kind !== 'directory') return;
+		if ((await files.lstat(saves))?.kind !== 'directory') return;
 		const now = Date.now();
-		for (const entry of await files.readDir(scratch))
+		for (const entry of await files.readDir(saves))
 			if (entry.kind === 'file' && isStaleScratch(entry.name, now))
-				await files.remove(`${scratch}/${entry.name}`).catch(() => {});
+				await files.remove(`${saves}/${entry.name}`).catch(() => {});
 	} catch {
 		// Leftovers are inert.
 	}

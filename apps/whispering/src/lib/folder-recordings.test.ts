@@ -100,7 +100,7 @@ test('a second Start with the same id is refused, never overwritten', async () =
 
 test('the next launch completes a recording a crash cut off, from its audio, repairing only while a note has no length', async () => {
 	const { path, device } = await folder();
-	const staged = join(path, '.epicenter/recording/recordings');
+	const staged = join(path, '.epicenter/recordings/recordings');
 	let repairs = 0;
 	// What the desktop's recover does: the cut-off recording lands at its
 	// path. The desktop encodes it to `.webm`; a WAV, as it places one its

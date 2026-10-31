@@ -10,7 +10,7 @@
  * the app's `#platform` seam, never at run time:
  *
  * - On the desktop the shell's recorder appends PCM from the first sample
- *   to a WAV in the data folder's `.epicenter/recording`, updating the header
+ *   to a WAV in the data folder's `.epicenter/recordings`, updating the header
  *   about once a second, and when it stops encodes it to Opus in WebM at
  *   `<path>.webm`; recovery rewrites a header a cut left short and encodes
  *   and places the file the same way.
@@ -118,7 +118,7 @@ export type RecordingHandle<TStopped> = {
 
 /**
  * A recording written into the store as it records: in a browser at
- * `<path>.<ext>`, on the desktop in the folder's `.epicenter/recording` until
+ * `<path>.<ext>`, on the desktop in the folder's `.epicenter/recordings` until
  * `stop` encodes it to `<path>.webm`.
  */
 export type Recording = RecordingHandle<StoppedRecording> & {

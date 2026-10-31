@@ -10,7 +10,7 @@
  *
  * - A replacement writes through `createWritable()`, which keeps the old
  *   bytes visible until `close()` and keeps them on `abort()`.
- * - A new file is written whole under `.epicenter/staging/` and moved to its
+ * - A new file is written whole under `.epicenter/saves/` and moved to its
  *   path with `move(parentDirectory, name)`, the one form both engines take,
  *   so it never appears empty first, and a crash leaves no empty file at the
  *   path.
@@ -80,9 +80,14 @@ type AccessibleFile = FileSystemFileHandle & {
 	}>;
 };
 
-const STAGING = ['.epicenter', 'staging'];
+/**
+ * Where a new file is staged: `.epicenter/saves`, as `savesDirectory` in
+ * `state.ts` builds it. This file imports nothing, so it keeps its own
+ * copy, which `state.test.ts` holds to the shared layout.
+ */
+export const SAVES = ['.epicenter', 'saves'];
 /** How old a staged file must be before it is swept: its writer stopped. */
-const STALE_STAGING_MS = 60 * 60 * 1000;
+const STALE_SAVE_MS = 60 * 60 * 1000;
 
 /** `getDirectory()` refused: this browser gives the page no private storage. */
 class Refused extends Error {}
@@ -92,7 +97,7 @@ let rootPromise: Promise<FileSystemDirectoryHandle> | undefined;
 function root() {
 	rootPromise ??= navigator.storage.getDirectory().then(
 		async (directory) => {
-			await sweepStaging(directory).catch(() => {});
+			await sweepSaves(directory).catch(() => {});
 			return directory;
 		},
 		(cause: unknown) => {
@@ -297,14 +302,14 @@ async function createWhole(path: string, bytes: Uint8Array) {
 	const name = segments.pop()!;
 	const directory = await root();
 	const parent = (await directoryAt(directory, segments, true))!;
-	const staging = (await directoryAt(directory, STAGING, true))!;
+	const saves = (await directoryAt(directory, SAVES, true))!;
 	const stagedName = `${Date.now().toString(36)}-${crypto.randomUUID()}`;
-	const staged = await staging.getFileHandle(stagedName, { create: true });
+	const staged = await saves.getFileHandle(stagedName, { create: true });
 	try {
 		await writeWhole(staged, bytes);
 		await (staged as MovableFile).move(parent, name);
 	} catch (cause) {
-		await staging.removeEntry(stagedName).catch(() => {});
+		await saves.removeEntry(stagedName).catch(() => {});
 		throw cause;
 	}
 }
@@ -350,14 +355,14 @@ async function writeWhole(handle: FileSystemFileHandle, bytes: Uint8Array) {
 }
 
 /** Remove staged files a stopped write left an hour or more ago. */
-async function sweepStaging(directory: FileSystemDirectoryHandle) {
-	const staging = await directoryAt(directory, STAGING, false);
-	if (staging === null) return;
+async function sweepSaves(directory: FileSystemDirectoryHandle) {
+	const saves = await directoryAt(directory, SAVES, false);
+	if (saves === null) return;
 	const now = Date.now();
-	for await (const [name, handle] of (staging as Directory).entries()) {
+	for await (const [name, handle] of (saves as Directory).entries()) {
 		const created = Number.parseInt(name.split('-')[0] ?? '', 36);
-		if (handle.kind === 'file' && now - created > STALE_STAGING_MS)
-			await staging.removeEntry(name).catch(() => {});
+		if (handle.kind === 'file' && now - created > STALE_SAVE_MS)
+			await saves.removeEntry(name).catch(() => {});
 	}
 }
 

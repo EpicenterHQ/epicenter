@@ -26,7 +26,7 @@ export const commands = {
 	 *
 	 *  The path must be a data path the shared path rule accepts, with nothing at
 	 *  `<path>.webm` or `<path>.wav` yet. While it records, it is a WAV in the
-	 *  folder's `.epicenter/recording` (`staging`), with nothing there yet
+	 *  folder's `.epicenter/recordings` (`staging::pending`), with nothing there yet
 	 *  either; `stop` encodes it and places it at its path. Missing directories
 	 *  on the way are made.
 	 *  Microphone access is asked for before the device is resolved. A refusal
@@ -42,7 +42,7 @@ export const commands = {
 	/**
 	 *  Repair every recording under `under` in `root` (the window's own folder
 	 *  for `None`, or a root its page opened) that a quit or a crash left in the
-	 *  folder's `.epicenter/recording`, encode each and place it at its path, and
+	 *  folder's `.epicenter/recordings`, encode each and place it at its path, and
 	 *  return those folder-relative paths. The recording still being written, and
 	 *  those a stop is still settling, are left alone. Running it again changes
 	 *  nothing.

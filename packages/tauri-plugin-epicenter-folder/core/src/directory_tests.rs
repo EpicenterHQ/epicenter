@@ -86,8 +86,8 @@ fn names(directory: &Path) -> Vec<String> {
 }
 
 /// A plain directory with no `.git` is opened and saved to, and the save
-/// makes nothing in it but the file and `.epicenter` (its empty scratch
-/// directory), no `.git`, and nothing beside it.
+/// makes nothing in it but the file and `.epicenter` (its empty `saves`),
+/// no `.git`, and nothing beside it.
 #[test]
 fn a_directory_with_no_git_is_opened_and_saved_to() {
     let temp = TempDir::new("bind-no-git");
@@ -95,9 +95,9 @@ fn a_directory_with_no_git_is_opened_and_saved_to() {
     assert_eq!(save(&root), Ok(PutOutcome::Landed { stamp: None }));
     assert_eq!(std::fs::read(root.join("todos/a.md")).unwrap(), b"milk");
     assert_eq!(names(&root), [".epicenter", "todos"]);
-    assert_eq!(names(&root.join(".epicenter")), ["scratch"]);
+    assert_eq!(names(&root.join(".epicenter")), ["saves"]);
     assert_eq!(names(temp.path()), ["notes"]);
-    assert!(names(&storage::scratch_directory(&root)).is_empty());
+    assert!(names(&crate::state::saves(&root)).is_empty());
 }
 
 /// A linked worktree's or submodule's `.git` file, and a `.git` link, open

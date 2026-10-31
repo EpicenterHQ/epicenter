@@ -6,8 +6,9 @@
  *   one predicate, `isNotePath`, for templates, the server and sync, since
  *   a Mac checkout (`core.ignorecase`) reads `*.md` that way anyway.
  * - A hidden path (any segment starting with `.`: `.gitattributes`,
- *   `.DS_Store`, `.epicenter/…`) is outside the contract (decision 58):
- *   `checkContract` skips it, and it is stored as it is.
+ *   `.DS_Store`, a folder's unfinished writes) is outside the contract
+ *   (decision 58): `checkContract` skips it, no watcher reports it, and it
+ *   is stored as it is.
  * - Every other file that is not a `.md` note is a Git LFS pointer
  *   (decision 40), whatever a folder's own `.gitattributes` says.
  *
@@ -21,10 +22,8 @@
  * line spells out both cases (`*.[mM][dD]`) to agree with `isNotePath`
  * everywhere.
  *
- * `REPOSITORY_IGNORE` is init's marked block of `.gitignore`, between the
- * same markers: hidden paths stay outside the LFS rule, but operating
- * system clutter (`.DS_Store`) and a device's own state (`.epicenter/`, the
- * outbox's sidecars) are never committed at all.
+ * Init's marked block of `.gitignore` (`REPOSITORY_IGNORE` in the CLI)
+ * sits between the same markers.
  */
 
 /** Whether a path names a note: a Markdown file, `.md` in any case. Anything else is a file (decision 3). */
@@ -38,7 +37,7 @@ export const isHiddenPath = (path: string) =>
 export const storedWithLfs = (path: string) =>
 	!isHiddenPath(path) && !isNotePath(path);
 
-/** The line that opens a block Epicenter manages (`REPOSITORY_ATTRIBUTES`, `REPOSITORY_IGNORE`), matched as a prefix. */
+/** The line that opens a block Epicenter manages (`REPOSITORY_ATTRIBUTES`, and init's `.gitignore` block), matched as a prefix. */
 export const EPICENTER_BLOCK_BEGIN = '# BEGIN epicenter';
 /** The line that closes a block Epicenter manages. */
 export const EPICENTER_BLOCK_END = '# END epicenter';
@@ -50,12 +49,5 @@ export const REPOSITORY_ATTRIBUTES = `${EPICENTER_BLOCK_BEGIN} (managed by Epice
 .* !filter !diff !merge !text
 .*/** !filter !diff !merge !text
 **/.*/** !filter !diff !merge !text
-${EPICENTER_BLOCK_END}
-`;
-
-export const REPOSITORY_IGNORE = `${EPICENTER_BLOCK_BEGIN} (managed by Epicenter; edit outside this block)
-# Operating system clutter and each device's own Epicenter state never travel.
-.DS_Store
-.epicenter/
 ${EPICENTER_BLOCK_END}
 `;

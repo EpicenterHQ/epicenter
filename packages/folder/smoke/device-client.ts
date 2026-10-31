@@ -236,16 +236,16 @@ const smoke = {
 			cause: listed.error.name === 'Unavailable' ? (cause?.name ?? null) : null,
 		};
 	},
-	/** Files left in the device's staging directory: none after writes land. */
+	/** Files left in the device's `.epicenter/saves`: none after writes land. */
 	async staged() {
 		try {
 			const root = await navigator.storage.getDirectory();
-			const staging = await (
+			const saves = await (
 				await root.getDirectoryHandle('.epicenter')
-			).getDirectoryHandle('staging');
+			).getDirectoryHandle('saves');
 			let count = 0;
 			for await (const _ of (
-				staging as FileSystemDirectoryHandle & {
+				saves as FileSystemDirectoryHandle & {
 					keys(): AsyncIterable<string>;
 				}
 			).keys())

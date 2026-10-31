@@ -19,7 +19,7 @@
 //! To record, a page names a folder-relative path, in its window's own folder
 //! or in a root its page opened (`root`, by the exact path the folder plugin
 //! answered); any other root is refused. `start` creates the WAV in the
-//! folder's `.epicenter/recording` and appends mono PCM16 to it as the
+//! folder's `.epicenter/recordings` and appends mono PCM16 to it as the
 //! microphone captures; `stop` finalizes its header, encodes it to Opus in
 //! WebM (`opus`, `webm`), and places that at `<path>.webm`, never over a file
 //! there (`staging`), then removes the WAV. A WAV that cannot be encoded is
@@ -28,7 +28,7 @@
 //! once capture has begun. When the page that started a recording reloads,
 //! or its window is destroyed, the recording is finalized and placed for it.
 //! A recording adds no Close or Quit warning. `recover` repairs the header of
-//! any WAV a quit or crash left in `.epicenter/recording` and settles it as a
+//! any WAV a quit or crash left in `.epicenter/recordings` and settles it as a
 //! stop does, which a page calls when it opens its folder.
 //!
 //! There is one recorder per host and at most one recording at a time; a
