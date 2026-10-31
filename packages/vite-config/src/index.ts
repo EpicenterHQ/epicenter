@@ -1,7 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
-import { mergeConfig, searchForWorkspaceRoot, type UserConfig } from 'vite';
-import { isDesktopAppBuild } from './desktop-app.js';
+import { searchForWorkspaceRoot, type UserConfig } from 'vite';
 
 /**
  * Base Vite config for SvelteKit workspace apps whose package contract and
@@ -39,35 +38,4 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 			fs: { allow: [searchForWorkspaceRoot(process.cwd())] },
 		},
 	};
-}
-
-/**
- * Base Vite config for a folder app that ships its own Tauri shell:
- * `workspaceAppViteConfig` plus the choice between its desktop build
- * (`EPICENTER_DESKTOP=1`, see `isDesktopAppBuild`) and its browser build. An
- * app adds its own settings with `mergeConfig`.
- *
- * - Shared code imports a folder contract from `@epicenter/folder`. The
- *   desktop build selects its Tauri entry; the browser build keeps the
- *   runtime choice.
- * - `import.meta.env.EPICENTER_DESKTOP` is `'1'` in the desktop build, which
- *   the app's `src/routes/+layout.ts` reads to prerender every page.
- */
-export function desktopAppViteConfig(app: { port: number }): UserConfig {
-	const desktop = isDesktopAppBuild();
-	return mergeConfig(workspaceAppViteConfig(app), {
-		resolve: {
-			alias: desktop
-				? [
-						{
-							find: /^@epicenter\/folder$/,
-							replacement: '@epicenter/folder/tauri',
-						},
-					]
-				: [],
-		},
-		define: {
-			'import.meta.env.EPICENTER_DESKTOP': JSON.stringify(desktop ? '1' : ''),
-		},
-	} satisfies UserConfig);
 }

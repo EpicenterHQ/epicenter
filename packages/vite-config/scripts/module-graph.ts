@@ -2,32 +2,22 @@
 /**
  * Print, as a JSON array, the modules Vite emits for one entry of a folder app,
  * resolved with the conditions, aliases, and defines the app's
- * `vite.config.ts` declares for one build. Svelte components compile as the
- * app's build compiles them, since a seam leaf may export one.
+ * `vite.config.ts` declares. Svelte components compile as the app's build
+ * compiles them, since a seam leaf may export one.
  *
  * Run it in the app's folder, which the app's config, like SvelteKit, takes as
  * its root. `bundledModules` in `src/module-graph.ts` spawns it, one process
- * per build, because a desktop app's config reads `EPICENTER_DESKTOP` when it
- * is imported.
+ * per call.
  */
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build, type PluginOption, type UserConfig } from 'vite';
 
-const [appArg, entry, platform] = process.argv.slice(2);
-if (
-	appArg === undefined ||
-	entry === undefined ||
-	(platform !== 'browser' && platform !== 'desktop')
-)
-	throw new Error(
-		'Usage: bun module-graph.ts <appDir> <entry> <browser|desktop>',
-	);
+const [appArg, entry] = process.argv.slice(2);
+if (appArg === undefined || entry === undefined)
+	throw new Error('Usage: bun module-graph.ts <appDir> <entry>');
 const appDir = resolve(appArg);
-
-if (platform === 'desktop') process.env.EPICENTER_DESKTOP = '1';
-else delete process.env.EPICENTER_DESKTOP;
 
 const { default: config }: { default: UserConfig } = await import(
 	pathToFileURL(join(appDir, 'vite.config.ts')).href

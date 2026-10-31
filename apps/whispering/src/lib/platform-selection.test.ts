@@ -41,7 +41,7 @@ describe('#platform/services', () => {
 	test(
 		'the browser build resolves the browser services over the folder mirror’s IndexedDB entry',
 		async () => {
-			const modules = await bundledModules(appDir, SEAM_ENTRY, 'browser');
+			const modules = await bundledModules(appDir, SEAM_ENTRY);
 
 			expect(reaches(modules, 'lib/platform/browser.ts')).toBe(true);
 			expect(reaches(modules, 'lib/platform/auth.ts')).toBe(true);

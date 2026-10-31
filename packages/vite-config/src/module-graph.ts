@@ -11,17 +11,16 @@ export const BUNDLE_TIMEOUT = 30_000;
 
 /**
  * Every module a build of `entry` pulls in, as paths, resolved the way the
- * app's `vite.config.ts` resolves that build. A dropped alias fails no build,
+ * app's `vite.config.ts` resolves its build. A dropped alias fails no build,
  * because resolution falls back silently, so a bundle test reads this list to
  * prove what a build carries.
  *
- * The build runs in its own process (`scripts/module-graph.ts`), since a
- * desktop app's config reads `EPICENTER_DESKTOP` when it is imported.
+ * The build runs in its own process (`scripts/module-graph.ts`), which
+ * imports the app's `vite.config.ts` from the app's folder.
  */
 export function bundledModules(
 	appDir: string,
 	entry: string,
-	platform: 'browser' | 'desktop',
 ): Promise<string[]> {
 	const script = fileURLToPath(
 		new URL('../scripts/module-graph.ts', import.meta.url),
@@ -29,7 +28,7 @@ export function bundledModules(
 	return new Promise((resolve, reject) => {
 		execFile(
 			process.execPath,
-			[script, appDir, entry, platform],
+			[script, appDir, entry],
 			{ cwd: appDir, maxBuffer: 64 * 1024 * 1024 },
 			(error, stdout, stderr) => {
 				if (error) reject(new Error(`Bundling ${entry} failed:\n${stderr}`));

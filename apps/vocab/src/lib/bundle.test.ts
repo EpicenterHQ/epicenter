@@ -27,7 +27,6 @@ test(
 		const modules = await bundledModules(
 			appDir,
 			'src/lib/bundle.test-support.ts',
-			'browser',
 		);
 		expect(modules.some(folderModule('browser.ts'))).toBe(true);
 		expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);

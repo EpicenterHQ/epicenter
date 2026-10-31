@@ -25,7 +25,7 @@ const folderModule = (name: string) => (path: string) =>
 test(
 	'the portable build carries both folder engines',
 	async () => {
-		const modules = await bundledModules(appDir, ENTRY, 'browser');
+		const modules = await bundledModules(appDir, ENTRY);
 		expect(modules.some(folderModule('browser.ts'))).toBe(true);
 		expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
 		expect(modules.some(folderModule('index.ts'))).toBe(true);
