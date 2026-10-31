@@ -84,9 +84,11 @@ describe('the variant root decides the one store', () => {
 			/\{#if auth\.state\.status !== 'signed-out'\}\s*\{#key auth\.state\.account\}\s*<Online account=\{auth\.state\.account\}>/,
 		);
 		const online = await Bun.file(join(components, 'Online.svelte')).text();
-		expect(online).toMatch(/setRepo\(openRemote\(vocab, \{ account \}\)\)/);
+		expect(online).toMatch(
+			/setRepo\(fromClient\(openRemote\(vocab, \{ account \}\)\)\)/,
+		);
 		const leaf = await Bun.file(join(source, 'lib/root.ts')).text();
-		expect(leaf).toMatch(/fromClient\(getRepo<Vocab>\(\)\)/);
+		expect(leaf).toMatch(/getRepo<Vocab>\(\)/);
 	});
 
 	test('on the desktop, Startup opens the AppData root, then the data folder', async () => {

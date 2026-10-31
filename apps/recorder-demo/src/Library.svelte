@@ -5,20 +5,20 @@
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
-	import { fromClient } from '@epicenter/svelte/client';
+	import type { ReactiveClient } from '@epicenter/svelte/client';
 	import RecordingRow from './RecordingRow.svelte';
 	import type { Recorder } from './contract.ts';
 	import { recordingsOf } from './lib/recordings.ts';
 
 	const {
 		client,
+		files,
 	}: {
-		/** The client this list reads and writes; fixed for the list's life. */
+		/** The client this list's rows read audio through; fixed for the list's life. */
 		client: Client<Recorder>;
+		/** That client as Svelte state, wrapped once by the recorder: what the list shows and writes. */
+		files: ReactiveClient<Recorder>;
 	} = $props();
-
-	// svelte-ignore state_referenced_locally
-	const files = fromClient(client);
 	const rows = $derived(
 		recordingsOf({ notes: files.recordings.items, audio: files.audio.items }),
 	);
@@ -36,7 +36,7 @@
 {:else}
 	<ul aria-label="Recordings">
 		{#each rows as row (row.id)}
-			<RecordingRow {row} {client} />
+			<RecordingRow {row} {client} {files} />
 		{/each}
 	</ul>
 {/if}

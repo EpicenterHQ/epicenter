@@ -12,11 +12,10 @@
 	import { type Backend, createDemoBackend, requestBeeper } from './backend.js';
 	import ConversationView from './Conversation.svelte';
 	let { device }: { device: Client<Messages> } = $props();
-	// One client for the app's life: `Startup` opened it.
+	// One client for the app's life: `Startup` opened it, and it is wrapped
+	// once for Svelte here, where it is set for every component under it.
 	// svelte-ignore state_referenced_locally
-	setDevice(device);
-	// svelte-ignore state_referenced_locally
-	const files = fromClient(device);
+	const { files } = setDevice({ client: device, files: fromClient(device) });
 	const queryClient = new QueryClient();
 	setQueryClientContext(queryClient);
 	const demo = createDemoBackend();

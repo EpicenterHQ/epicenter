@@ -65,7 +65,7 @@ export const device = openDevice(todos); // `@epicenter/folder/tauri`
 <!-- apps/todos/src/lib/components/Online.svelte -->
 <script lang="ts">
   const { account, children } = $props();
-  setRepo(openRemote(todos, { account })); // `@epicenter/svelte/repo`
+  setRepo(fromClient(openRemote(todos, { account }))); // wrapped once, where it is made
 </script>
 
 {@render children()}
@@ -73,7 +73,7 @@ export const device = openDevice(todos); // `@epicenter/folder/tauri`
 
 ```svelte
 <!-- apps/todos/src/routes/(app)/+page.svelte -->
-<TodosApp variant="online" todos={fromClient(getRepo<Todos>()).todos} />
+<TodosApp variant="online" todos={getRepo<Todos>().todos} />
 ```
 
 UI components take the client, or its `fromClient` collection, as a prop,

@@ -11,8 +11,9 @@ for the layout and page flow, and verify it against the code.
   sign-in) and the desktop app (`root.tauri.ts`: the window's folder through
   `openDevice` from `@epicenter/folder/tauri`, which never signs in). Every
   read and write goes through the contract's client, one store per page: the
-  variant's `Root` sets it (`setRepo`) and the page passes it to
-  `HoneycrispApp` through `fromClient(getRepo())`. The web app keeps
+  variant's `Root` wraps it once and sets it
+  (`setRepo(fromClient(…))`) and the page passes it to `HoneycrispApp`
+  through `getRepo()`. The web app keeps
   nothing in the browser: no device, OPFS, uploader, or service worker
   (ADR-0700). Components take the state from context and never import a
   client or know which store they are over; only the header's `Chrome`

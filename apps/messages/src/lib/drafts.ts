@@ -13,8 +13,8 @@ import type { Messages } from './contract.js';
 
 /**
  * This page's device as a send uses it: its client, to read straight from
- * storage, and that client as the page shows it (`fromClient(device)`), to
- * write through.
+ * storage, and that client as the page shows it (`fromClient`, wrapped once
+ * where `MessagesApp` sets the device), to write through.
  */
 export type Device = {
 	client: Client<Messages>;

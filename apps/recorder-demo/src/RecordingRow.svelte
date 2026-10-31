@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
-	import { fromClient } from '@epicenter/svelte/client';
+	import type { ReactiveClient } from '@epicenter/svelte/client';
 	import { onDestroy } from 'svelte';
 	import type { Recorder } from './contract.ts';
 	import type { RecordingRow } from './lib/recordings.ts';
@@ -12,14 +12,14 @@
 	const {
 		row,
 		client,
+		files,
 	}: {
 		row: RecordingRow;
-		/** The list's client, which this row reads and writes; fixed for the row's life. */
+		/** The list's client, which this row reads its audio's bytes through. */
 		client: Client<Recorder>;
+		/** The list's client as Svelte state, which this row edits through. */
+		files: ReactiveClient<Recorder>;
 	} = $props();
-
-	// svelte-ignore state_referenced_locally
-	const files = fromClient(client);
 
 	type Note = NonNullable<RecordingRow['note']>;
 	/**

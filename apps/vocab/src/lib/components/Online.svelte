@@ -6,6 +6,7 @@
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';
 	import { openRemote } from '@epicenter/folder/remote';
+	import { fromClient } from '@epicenter/svelte/client';
 	import { setRepo } from '@epicenter/svelte/repo';
 	import type { Snippet } from 'svelte';
 	import { vocab } from '../contract.js';
@@ -13,7 +14,7 @@
 	const { account, children }: { account: Account; children: Snippet } = $props();
 
 	// svelte-ignore state_referenced_locally
-	setRepo(openRemote(vocab, { account }));
+	setRepo(fromClient(openRemote(vocab, { account })));
 </script>
 
 {@render children()}

@@ -100,7 +100,7 @@ name, and never commits or contacts a server.
   `src/lib/components/Online.svelte` opens the repository and sets it
   (`setRepo`); signed out, it asks for a sign-in. In the window it adds
   nothing.
-- `src/routes/(app)/+page.svelte`: `fromClient(getRepo<Todos>()).todos` in
+- `src/routes/(app)/+page.svelte`: `getRepo<Todos>().todos` in
   a browser, `Desktop` in the window.
 - `src/lib/components/TodosApp.svelte`: Todos over the todos it is given;
   the components under it read and write only through them, so another

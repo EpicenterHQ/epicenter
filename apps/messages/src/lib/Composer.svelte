@@ -13,14 +13,12 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createMutation } from '@tanstack/svelte-query';
 	import type { Backend } from './backend.js';
-	import { fromClient } from '@epicenter/svelte/client';
 	import { messages as contract } from './contract.js';
 	import { getDevice } from './device.js';
 	import { recoverDraft, sendDraft } from './drafts.js';
 
 	let { backend, id, chatId, onAccepted }: { backend: Backend; id: string; chatId: string; onAccepted: () => void } = $props();
-	const client = getDevice();
-	const device = { client, files: fromClient(client) };
+	const device = getDevice();
 	const { drafts, attempts } = device.files;
 	// The parent keys this composer by its durable draft ID.
 	// svelte-ignore state_referenced_locally

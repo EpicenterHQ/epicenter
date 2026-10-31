@@ -89,10 +89,12 @@ account's own.
   `main.ts` opened for the page.
 - `src/OnlineApp.svelte`: the online variant's root: sign-in, and, signed
   in, `src/SignedIn.svelte` per account, which opens the repository
-  (`openRemote`), sets it (`setRepo`) and hands it to the recorder.
+  (`openRemote`) and hands it to the recorder.
 - `src/Recorder.svelte`, `src/Library.svelte`, `src/RecordingRow.svelte`:
-  recording, the list and one row, each over the client it is given and
-  that client alone.
+  recording, the list and one row, each over the client the recorder is
+  given and that client alone. The recorder wraps it once for Svelte
+  (`fromClient`) and hands both down: a row reads audio bytes through the
+  client and shows and edits through the wrapped one.
 - `src/lib/recordings.ts`: one client's notes and audio, joined by id.
 
 ## Tests

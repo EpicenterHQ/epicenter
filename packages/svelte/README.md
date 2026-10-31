@@ -50,15 +50,16 @@ page's life, and nothing moves between them
 The local variant reads `fromClient(device).x`, this browser's files, which
 its startup opened (`await openDevice(contract)`) and handed down; it works
 signed out and offline, and signing in only adds hosted capabilities.
-The online variant, under a signed-in layout that calls `setRepo`, reads
-`fromClient(getRepo()).x`, the person's repository through the server:
+The online variant, under a signed-in layout that wraps the repository
+once where it opens it and sets it (`setRepo(fromClient(openRemote(…)))`),
+reads `getRepo().x`, the person's repository through the server:
 
 ```ts
 import { fromClient } from '@epicenter/svelte/client';
 import { getRepo } from '@epicenter/svelte/repo';
 
 const local = fromClient(device).todos; // the local variant's pages
-const online = fromClient(getRepo<Todos>()).todos; // the online variant's pages
+const online = getRepo<Todos>().todos; // the online variant's pages, wrapped where it was set
 const shown = $derived(local.items.toSorted(openFirst)); // the app's order
 ```
 

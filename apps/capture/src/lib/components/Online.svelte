@@ -7,13 +7,14 @@
 	import type { Account } from '@epicenter/auth';
 	import { capture } from '@epicenter/capture';
 	import { openRemote } from '@epicenter/folder/remote';
+	import { fromClient } from '@epicenter/svelte/client';
 	import { setRepo } from '@epicenter/svelte/repo';
 	import type { Snippet } from 'svelte';
 
 	const { account, children }: { account: Account; children: Snippet } = $props();
 
 	// svelte-ignore state_referenced_locally
-	setRepo(openRemote(capture, { account }));
+	setRepo(fromClient(openRemote(capture, { account })));
 </script>
 
 {@render children()}

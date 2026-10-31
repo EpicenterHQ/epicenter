@@ -24,6 +24,7 @@
 		where: string;
 	} = $props();
 
+	// The one Svelte state over the client, for this recorder and its list.
 	// svelte-ignore state_referenced_locally
 	const files = fromClient(client);
 
@@ -154,4 +155,4 @@
 		<a href={held.download} download={`${held.id}.${held.ext}`}>Download it</a>
 	</p>
 {/each}
-<Library {client} />
+<Library {client} {files} />

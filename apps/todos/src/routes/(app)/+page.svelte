@@ -5,14 +5,13 @@
 	(`Desktop`, loaded only there).
 -->
 <script lang="ts">
-	import { fromClient } from '@epicenter/svelte/client';
 	import { getRepo } from '@epicenter/svelte/repo';
 	import { isTauri } from '@tauri-apps/api/core';
 	import { Loading } from '@epicenter/ui/loading';
 	import TodosApp from '$lib/components/TodosApp.svelte';
 	import type { Todos } from '$lib/contract.js';
 
-	const online = isTauri() ? null : fromClient(getRepo<Todos>()).todos;
+	const online = isTauri() ? null : getRepo<Todos>().todos;
 </script>
 
 {#if online !== null}

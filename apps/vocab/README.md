@@ -43,7 +43,7 @@ src/routes/auth/callback/+page.svelte     Callback from #platform/root: the web 
                                           sign-in, outside (app), then returns to /
 src/routes/(app)/+layout.svelte           <svelte:boundary> (spinner) around Startup from #platform/root
   lib/components/OnlineRoot.svelte        web: signed out, a sign-in; signed in, {#key account}
-    lib/components/Online.svelte          setRepo(openRemote(vocab, { account })), one per account
+    lib/components/Online.svelte          setRepo(fromClient(openRemote(vocab, { account }))), one per account
   lib/components/Startup.svelte           desktop: await openAppData(vocabSettings), openDataFolder(vocab); Recovery
     lib/components/DesktopRoot.svelte     setAppData/setDevice(fromClient(...)), setFolderSync
 src/routes/(app)/+page.svelte             VocabApp over store() (#platform/root)

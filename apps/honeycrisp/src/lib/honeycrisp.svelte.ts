@@ -70,9 +70,9 @@ export function shownIn(filter: Filter, note: Note) {
 }
 
 /**
- * Honeycrisp's state over `client`, its store's (`fromClient(getRepo())` in
- * the page): what the list and detail show, and the actions that are more
- * than one collection's write. Every other read and write goes to
+ * Honeycrisp's state over `client`, its store's as Svelte state (`store()`
+ * from `#platform/root`): what the list and detail show, and the actions
+ * that are more than one collection's write. Every other read and write goes to
  * `client.notes` or `client.folders` directly.
  */
 export function createHoneycrisp(client: ReactiveClient<Honeycrisp>) {
