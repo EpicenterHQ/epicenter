@@ -2,7 +2,8 @@
  * The page's one way to open a microphone, for recording and for voice
  * activity detection alike. A chosen input is asked for by its exact ID, and
  * when the browser cannot open exactly that one the answer is a refusal: no
- * other microphone is opened in its place.
+ * other microphone is opened in its place. Either way the browser's voice
+ * processing is off (see `UNPROCESSED`).
  */
 import { Ok, type Result } from 'wellcrafted/result';
 import { RecorderError, type RecordingInput } from './recording.js';
@@ -19,6 +20,19 @@ const nameOf = (cause: unknown) =>
 		: '';
 
 /**
+ * The microphone as it hears, without echo cancellation, noise suppression,
+ * or gain control. Safari's voice processing takes about 2 s to start, and
+ * MediaRecorder drops that time from the start of every recording: 2.0 to
+ * 2.4 s with `{ audio: true }`, 0.24 to 0.35 s with processing off (a probe
+ * in Safari 26.5, November 2026).
+ */
+const UNPROCESSED = {
+	echoCancellation: false,
+	noiseSuppression: false,
+	autoGainControl: false,
+} as const satisfies MediaTrackConstraints;
+
+/**
  * Open one microphone: exactly `input`, or the system default when none is
  * chosen. The caller owns the stream it is given and must release it.
  */
@@ -32,7 +46,9 @@ export async function openMicrophone(
 	try {
 		stream = await mediaDevices.getUserMedia({
 			audio:
-				input === undefined ? true : { deviceId: { exact: input.deviceId } },
+				input === undefined
+					? UNPROCESSED
+					: { ...UNPROCESSED, deviceId: { exact: input.deviceId } },
 		});
 	} catch (cause) {
 		if (signal?.aborted) return RecorderError.Cancelled();

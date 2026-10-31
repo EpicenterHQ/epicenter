@@ -36,6 +36,13 @@ import {
 	type MicrophoneEnvironment,
 } from './webview-microphone.js';
 
+/** What a recording's microphone request turns off: the browser's voice processing. */
+const UNPROCESSED = {
+	echoCancellation: false,
+	noiseSuppression: false,
+	autoGainControl: false,
+};
+
 const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
 
 /** A start with the system default. The scripted recorder hands over no audio, so nothing is written. */
@@ -92,7 +99,7 @@ function webView({
 	],
 	open = async (constraints: MediaStreamConstraints): Promise<string> => {
 		const audio = constraints.audio;
-		return typeof audio === 'object'
+		return typeof audio === 'object' && audio.deviceId !== undefined
 			? String((audio.deviceId as ConstrainDOMStringParameters).exact)
 			: 'built-in-id';
 	},
@@ -196,8 +203,8 @@ test('a chosen microphone is asked for by its exact ID, and the system default o
 	await expectOk(await device.start(INTO)).stop();
 
 	expect(view.requests).toEqual([
-		{ audio: { deviceId: { exact: 'usb-id' } } },
-		{ audio: true },
+		{ audio: { ...UNPROCESSED, deviceId: { exact: 'usb-id' } } },
+		{ audio: UNPROCESSED },
 	]);
 	expect(view.streams.map((stream) => stream.stopped)).toEqual([true, true]);
 });
@@ -216,7 +223,7 @@ test('a chosen microphone that is not there refuses after one request, and no ot
 		expect(error.name).toBe('InputUnavailable');
 		expect(error.message).toContain('USB Microphone');
 		expect(view.requests).toEqual([
-			{ audio: { deviceId: { exact: 'usb-id' } } },
+			{ audio: { ...UNPROCESSED, deviceId: { exact: 'usb-id' } } },
 		]);
 		expect(view.streams).toEqual([]);
 	}

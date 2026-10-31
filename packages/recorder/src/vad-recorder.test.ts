@@ -9,6 +9,13 @@ import { MicVAD } from '@ricky0123/vad-web';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createVadRecorder } from './vad-recorder.js';
 
+/** What every microphone request turns off: Safari's voice processing. */
+const UNPROCESSED = {
+	echoCancellation: false,
+	noiseSuppression: false,
+	autoGainControl: false,
+};
+
 /** Give the page a microphone that answers `getUserMedia`, until restored. */
 function microphone(
 	answer: MediaStream | MediaDevices['getUserMedia'],
@@ -87,7 +94,9 @@ test('a chosen microphone the browser cannot open is refused, and no other is op
 			}),
 		);
 		expect(error.name).toBe('InputUnavailable');
-		expect(asked).toEqual([{ audio: { deviceId: { exact: 'usb-1' } } }]);
+		expect(asked).toEqual([
+			{ audio: { ...UNPROCESSED, deviceId: { exact: 'usb-1' } } },
+		]);
 		expect(create).not.toHaveBeenCalled();
 	} finally {
 		create.mockRestore();

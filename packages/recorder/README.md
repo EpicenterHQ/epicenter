@@ -52,8 +52,9 @@ file with a sync access handle.
 | `silentRecordings` | None: the desktop keeps a recording outside its path until it stops | Of the paths asked about, those with no audio file whose Web Lock no tab holds: what a tab closed before its first piece left |
 | Refused before the microphone opens | The folder or path may not be written, or a file is there | This browser keeps no files here (a private window), or a file is there |
 | Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
+| Voice processing | None: cpal reads the device as it hears | Off: echo cancellation, noise suppression, and gain control are asked off, since Safari's take about 2 s to start and MediaRecorder drops that time |
 | `signal` aborted after the microphone opened | Stopped: the WAV is finalized and kept | Released; nothing was written |
-| `durationMs` at `stop` | The samples written over the rate | Read from the file written; the time between start and stop only when its bytes do not read. An engine drops the first moments of a recording (Safari 0.7 to 1.6 s), so the clock says more than the audio holds |
+| `durationMs` at `stop` | The samples written over the rate | Read from the file written; the time between start and stop only when its bytes do not read. An engine drops the first moments of a recording (Safari about 0.3 s), so the clock says more than the audio holds |
 
 `audioDurationMs(bytes, ext)` reads how long a `wav`, `m4a`, or `webm` the
 recorder wrote plays, from its own bytes, so an app can complete a note a cut

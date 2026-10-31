@@ -428,7 +428,7 @@ export function createBrowserRecorder(
 		/**
 		 * How long the audio written at `path` plays, read from its bytes, or
 		 * undefined when they do not read. Not the time between Start and Stop:
-		 * an engine drops the first moments of a recording (Safari 0.7 to 1.6 s).
+		 * an engine drops the first moments of a recording (Safari about 0.3 s).
 		 */
 		const heldMs = async (path: string) => {
 			const { data } = await files.read(path);

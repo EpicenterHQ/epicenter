@@ -33,6 +33,13 @@ import {
 	createBrowserRecorder,
 } from './browser.js';
 
+/** What every microphone request turns off: Safari's voice processing. */
+const UNPROCESSED = {
+	echoCancellation: false,
+	noiseSuppression: false,
+	autoGainControl: false,
+};
+
 type Track = {
 	stopped: boolean;
 	readonly label: string;
@@ -520,7 +527,9 @@ test('a chosen microphone is asked for exactly, and refused rather than replaced
 		await overconstrained.startPageRecording({ input }),
 	);
 	expect(refused).toMatchObject({ name: 'InputUnavailable', label: 'USB Mic' });
-	expect(asked).toEqual([{ audio: { deviceId: { exact: 'usb-1' } } }]);
+	expect(asked).toEqual([
+		{ audio: { ...UNPROCESSED, deviceId: { exact: 'usb-1' } } },
+	]);
 
 	const other = fakeStream('built-in');
 	const substituted = createBrowserRecorder(
