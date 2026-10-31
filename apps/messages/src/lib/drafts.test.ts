@@ -21,7 +21,6 @@ import { openDevice } from '@epicenter/folder/node';
 import { flushSync } from 'svelte';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type Backend, createDemoBackend } from './backend.js';
-import type { Device } from './context.js';
 import { type Messages, messages } from './contract.js';
 
 const { fromClient } = await import('@epicenter/svelte/client');
@@ -29,6 +28,7 @@ const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 );
 const { draftId, recoverDraft, sendDraft } = await import('./drafts.js');
+type Device = import('./drafts.js').Device;
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { getDevice } from './context.js';
+	import { fromClient } from '@epicenter/svelte/client';
+	import { device } from './device.js';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -8,7 +9,7 @@
 	import { QueryClient, createInfiniteQuery, createMutation, setQueryClientContext } from '@tanstack/svelte-query';
 	import { type Backend, createDemoBackend, requestBeeper } from './backend.js';
 	import ConversationView from './Conversation.svelte';
-	const { files } = getDevice();
+	const files = fromClient(device);
 	const queryClient = new QueryClient();
 	setQueryClientContext(queryClient);
 	const demo = createDemoBackend();

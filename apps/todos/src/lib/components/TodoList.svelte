@@ -10,11 +10,12 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
 	import { toast } from '@epicenter/ui/sonner';
-	import { getTodos } from '$lib/context.js';
 	import { describeIssues } from '@epicenter/definition/contract';
+	import { getTodos, openFirst } from '$lib/todos.js';
 	import TodoRow from './TodoRow.svelte';
 
 	const todos = getTodos();
+	const shown = $derived(todos.items.toSorted(openFirst));
 
 	let {
 		open,
@@ -74,7 +75,7 @@
 
 	<div class="flex min-h-0 flex-1 flex-col">
 		<ul class="min-h-0 flex-1 overflow-y-auto" aria-label="Todos">
-			{#each todos.items as todo (todo.id)}
+			{#each shown as todo (todo.id)}
 				<TodoRow {todo} selected={open === todo.id} {onOpen} />
 			{:else}
 				{#if !todos.loading}

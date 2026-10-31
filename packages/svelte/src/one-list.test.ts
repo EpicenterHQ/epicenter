@@ -4,8 +4,8 @@
  *
  * Key behaviors:
  * - A note on both sides shows the device copy (mid-upload); notes sort by
- *   placeholders unless the app gives an order
- * - Signed out, a new note stays on the device, recorded in the outbox
+ *   placeholders
+ * - The device side must be a device client's collection, for its outbox
  * - Signed in, a new note goes to the repository; offline, it stays on the
  *   device to upload later; created on the device (`createOn`), it always
  *   stays there to upload
@@ -79,25 +79,17 @@ async function until(check: () => boolean) {
 	expect(check()).toBe(true);
 }
 
-/** The list over a device and, unless null, a repository, with the device's outbox. */
+/** The list over a device and a repository; the device's outbox comes with it. */
 function listOver(
 	device: Client<Todos>,
-	repository: Client<Todos> | null,
-	{
-		order,
-		createOn,
-	}: Pick<
-		Parameters<typeof oneList<Todos, 'todos'>>[2],
-		'order' | 'createOn'
-	> = {},
+	repository: Client<Todos>,
+	options: Parameters<typeof oneList>[2] = {},
 ) {
-	return oneList(todos, 'todos', {
-		device: fromClient(device).todos,
-		repository: repository && fromClient(repository).todos,
-		outbox: outboxOf(device),
-		order,
-		createOn,
-	});
+	return oneList(
+		fromClient(device).todos,
+		fromClient(repository).todos,
+		options,
+	);
 }
 
 /** Read `list` in an effect, as a view does, until both sides have listed. */
@@ -119,7 +111,7 @@ async function shown(list: ReturnType<typeof listOver>) {
 const note = (title: string, done = false) =>
 	`---\ntitle: ${title}\ndone: ${done}\n---\n`;
 
-test('a note on both sides shows the device copy, in the order the app gives', async () => {
+test('a note on both sides shows the device copy, by placeholders', async () => {
 	const device = await side({
 		'todos/b.md': note('B, edited before upload'),
 		'todos/d.md': '---\ntitle: D\n---\n',
@@ -141,19 +133,6 @@ test('a note on both sides shows the device copy, in the order the app gives', a
 		invalid: ['device:d'],
 	});
 	byKey.stop();
-
-	const openFirst = await shown(
-		listOver(device.client, repository.client, {
-			order: (a, b) =>
-				Number(a.done) - Number(b.done) || a.id.localeCompare(b.id),
-		}),
-	);
-	expect(openFirst.latest()?.items).toEqual([
-		'device:b:B, edited before upload',
-		'repository:c:C',
-		'repository:a:A',
-	]);
-	openFirst.stop();
 });
 
 test('the side a note shows from is kept outside its fields: its own `where` key stays its own', async () => {
@@ -180,19 +159,11 @@ test('the side a note shows from is kept outside its fields: its own `where` key
 	view.stop();
 });
 
-test('signed out, a new note stays on this device, recorded in the outbox', async () => {
-	const device = await side();
-	const list = listOver(device.client, null);
-	const view = await shown(list);
-
-	expectOk(await list.create({ id: 'milk', title: 'Milk', done: false }));
-	await until(() => view.latest()?.items.includes('device:milk:Milk') ?? false);
-	expect(await device.text('todos/milk.md')).toBe(note('Milk'));
-	const captures = expectOk(await outboxOf(device.client).list()).items;
-	expect(captures.map(({ paths }) => Object.keys(paths))).toEqual([
-		['todos/milk.md'],
-	]);
-	view.stop();
+test("a device side that is not a device client's collection is refused: it has no outbox", async () => {
+	const repository = await side();
+	const notes = fromClient(repository.client).todos;
+	const elsewhere = { ...notes };
+	expect(() => oneList(elsewhere, notes)).toThrow(/fromClient\(device\)/);
 });
 
 test('signed in, a new note goes to the repository', async () => {

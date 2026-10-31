@@ -21,7 +21,7 @@
 	const repaired = $derived(folders.get({ id }));
 
 	function confirmDelete() {
-		const where = folders.where({ id });
+		const where = folders.where?.({ id });
 		confirmationDialog.open({
 			title: `Delete ${id}.md?`,
 			description: `This deletes ${folderPath(id)} from ${where === 'repository' ? 'your repository' : 'this device'}. Notes that name it are kept, in All Notes.`,

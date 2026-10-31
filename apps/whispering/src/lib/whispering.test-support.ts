@@ -12,7 +12,7 @@ export const headerLine = (whispering: Whispering) =>
 		unwrittenAnswers: whispering.unwrittenAnswers,
 		signedIn: whispering.signedIn,
 		waiting: whispering.waiting,
-		repositoryProblem: whispering.files.repositoryError?.message,
+		repositoryProblem: whispering.repositoryError?.message,
 	});
 
 /**

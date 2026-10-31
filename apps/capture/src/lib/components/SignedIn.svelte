@@ -1,35 +1,26 @@
 <!--
-	Signed in: the person's `capture` repository beside this browser's files,
-	as one list, and the uploader that moves the captures made here into the
-	repository (decision 12).
+	The signed-in boundary: the person's `capture` repository for everything
+	under it (`getRepo`), and the uploader that moves the captures made here
+	into it (decision 12).
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';
 	import { capture } from '@epicenter/capture';
-	import { outboxOf } from '@epicenter/folder/browser';
 	import { openRemote, startUploading } from '@epicenter/folder/remote';
-	import { fromClient } from '@epicenter/svelte/client';
-	import { onDestroy } from 'svelte';
-	import { createCaptureList } from '$lib/captures.svelte.js';
-	import { getDevice } from '$lib/context.js';
-	import CaptureApp from './CaptureApp.svelte';
+	import { setRepo } from '@epicenter/svelte/repo';
+	import { onDestroy, type Snippet } from 'svelte';
+	import { device } from '$lib/device.js';
 
 	// One account for this component's life: the parent's `{#key}` makes a
 	// new one for a new account, and sign-out or replacement retires this
-	// remote and its uploader.
-	const { account }: { account: Account } = $props();
+	// repository and its uploader.
+	const { account, children }: { account: Account; children: Snippet } = $props();
 
-	const device = getDevice();
 	// svelte-ignore state_referenced_locally
-	const remote = openRemote(capture, { account });
-	const list = createCaptureList({
-		device: device.files.captures,
-		repository: fromClient(remote).captures,
-		outbox: outboxOf(device.client),
-	});
+	const repo = setRepo(openRemote(capture, { account }));
 	// The uploader's writes reach both sides' listeners, so the list follows it.
-	const uploader = startUploading(device.client, remote);
+	const uploader = startUploading(device, repo);
 	onDestroy(() => uploader[Symbol.dispose]());
 </script>
 
-<CaptureApp {list} signedIn />
+{@render children()}

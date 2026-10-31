@@ -100,12 +100,14 @@ name, and never commits or contacts a server.
 ## Layout
 
 - `src/lib/contract.ts`: the contract.
-- `src/lib/todos.ts`: the one list (`createTodoList`): `oneList` from
-  `@epicenter/svelte/client` over the device and, signed in, the repository,
-  with Todos' order (open first, then done, each oldest first).
-- `src/routes/+page.svelte`: opens the device at the root;
-  `src/lib/components/SignedIn.svelte` adds the repository and the uploader
-  per account.
+- `src/lib/device.ts`: the device, a module singleton: this browser's files,
+  or the desktop window's folder.
+- `src/lib/todos.ts`: a todo's file, label and order (open first, then
+  done, each oldest first), and the list's context.
+- `src/lib/components/SignedIn.svelte`: the signed-in boundary: the
+  repository (`setRepo`) and the uploader, per account.
+- `src/lib/components/TodosApp.svelte`: composes the list: the device's
+  todos signed out, `oneList` over them and the repository's signed in.
 - `src/lib/components/`: the views, which read and write only through the
   list in context.
 

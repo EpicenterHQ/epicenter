@@ -3,7 +3,8 @@
  * notes on this device and, signed in, in their repository (decision 12).
  * The notes still on the device ("not uploaded yet") and the repository's,
  * by placeholders, as one `ReactiveNotes`, so views and `fieldEdit` never
- * know which side they read or write.
+ * know which side they read or write. Signed out there is no one list: a
+ * page shows the device's own collection (`fromClient(device).x`).
  *
  * - A note on both sides is mid-upload: the device's copy shows until the
  *   device lets go of it, which it does only once the server's reply shows
@@ -19,32 +20,32 @@
  *   the repository side hears of it a listing later. An editor open on it
  *   never sees it leave. (One deleted from the device elsewhere while the
  *   server is unreachable shows until it is reachable again.)
- * - A new note goes to the repository when there is one; when the server
- *   cannot be reached, or signed out, it stays on the device, recorded in
- *   the device's outbox to upload. An app whose notes must never wait on
- *   the server (a capture) passes `createOn: 'device'`: every new note is
- *   written to the device and the outbox, and the uploader moves it.
+ * - A new note goes to the repository; when the server cannot be reached
+ *   it stays on the device, recorded in the device's outbox to upload. An
+ *   app whose notes must never wait on the server (a capture) passes
+ *   `createOn: 'device'`: every new note is written to the device and the
+ *   outbox, and the uploader moves it.
+ *
+ * The notes come in placeholder order; a view sorts them its own way, the
+ * same signed in as signed out.
  *
  * @example
  * ```ts
- * const todos = oneList(contract, 'todos', {
- * 	device: fromClient(device).todos,
- * 	repository: account ? fromClient(openRemote(contract, { account })).todos : null,
- * 	outbox: outboxOf(device),
- * });
+ * const todos = oneList(fromClient(device).todos, fromClient(getRepo<Todos>()).todos);
  * ```
  */
-import {
-	type ClientError,
-	type Collection,
-	type Contract,
-	compileTemplate,
-	type InvalidNoteOf,
-	type NoteOf,
-	type PlaceholdersOf,
-	type Version,
+import type {
+	Client,
+	ClientError,
+	Collection,
+	Contract,
+	InvalidNoteOf,
+	NoteOf,
+	PlaceholdersOf,
+	Version,
 } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
+import { compiledContractOf, outboxOf } from '@epicenter/folder/outbox';
 import { defineErrors, type InferError } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import type { Result } from 'wellcrafted/result';
@@ -59,7 +60,7 @@ export type Side = 'device' | 'repository';
 /** One note collection over both sides, as Svelte state. */
 export type OneList<TCollection extends Collection> =
 	ReactiveNotes<TCollection> & {
-		/** Every note that reads, in `order`. */
+		/** Every note that reads, by placeholders. */
 		readonly items: readonly NoteOf<TCollection>[];
 		/** The notes that do not read, with their text, by placeholders. */
 		readonly invalid: readonly InvalidNoteOf<TCollection>[];
@@ -79,24 +80,29 @@ export type OneList<TCollection extends Collection> =
 		where(args: PlaceholdersOf<TCollection>): Side | undefined;
 	};
 
-/** What `oneList` needs of the device's outbox (`outboxOf(device)`): recording a capture. */
-export type CaptureQueue = {
-	add(capture: {
-		id: string;
-		files: ({ collection: string; version: Version } & Record<
-			string,
-			string
-		>)[];
-	}): Promise<Result<unknown, { name: string; message: string }>>;
-};
+/**
+ * A note collection as a view takes it: the device's own signed out
+ * (`fromClient(device).x`), or a one list signed in, which also says where
+ * each copy is and why the repository could not be listed. Signed out every
+ * note is on the device and there is no repository to fail.
+ */
+export type NoteList<TCollection extends Collection> =
+	ReactiveNotes<TCollection> &
+		Partial<Pick<OneList<TCollection>, 'where' | 'repositoryError'>>;
 
-/** The names of a contract's note collections. */
-type NoteCollectionName<TContract extends Contract> = {
-	[K in keyof TContract['collections'] &
-		string]: TContract['collections'][K]['path'] extends `${string}.md`
-		? K
-		: never;
-}[keyof TContract['collections'] & string];
+/** The client and collection each `fromClient` collection reads, so `oneList` reaches the device's outbox. */
+const sources = new WeakMap<
+	object,
+	{ client: Client<Contract>; name: string }
+>();
+
+/** Remember that `collection` is `fromClient(client)[name]`. */
+export function rememberSource(
+	collection: object,
+	source: { client: Client<Contract>; name: string },
+) {
+	sources.set(collection, source);
+}
 
 const log = createLogger('svelte/one-list');
 
@@ -117,43 +123,31 @@ const goneFromDevice = (written: Written) =>
 	(written.error?.name === 'Conflict' && written.error.current === null);
 
 /**
- * The collection `name` of `contract` over `device` (this browser's files,
- * or a desktop folder) and `repository` (null signed out, and wherever
- * Epicenter syncs the folder instead). `outbox` is the device's when its new
- * notes upload, else null. `order` sorts the notes that read; by default
- * they sort by placeholders. `createOn` is where a new note is written
- * first: the repository when there is one (the default), or always the
- * device, recorded in `outbox`, so creating never waits on the server.
+ * The collection over `device`, `fromClient(device).x` of a client
+ * `openDevice` returned, and `repository`, the same collection of the
+ * person's repository (`fromClient(getRepo()).x`). `createOn` is where a
+ * new note is written first: the repository (the default), or always the
+ * device, recorded in its outbox, so creating never waits on the server.
  */
-export function oneList<
-	TContract extends Contract,
-	TName extends NoteCollectionName<TContract>,
->(
-	contract: TContract,
-	name: TName,
-	{
-		device,
-		repository,
-		outbox = null,
-		order,
-		createOn = 'repository',
-	}: {
-		device: ReactiveNotes<TContract['collections'][TName]>;
-		repository: ReactiveNotes<TContract['collections'][TName]> | null;
-		outbox?: CaptureQueue | null;
-		order?: (
-			a: NoteOf<TContract['collections'][TName]>,
-			b: NoteOf<TContract['collections'][TName]>,
-		) => number;
-		createOn?: Side;
-	},
-): OneList<TContract['collections'][TName]> {
+export function oneList<TCollection extends Collection>(
+	device: ReactiveNotes<TCollection>,
+	repository: ReactiveNotes<TCollection>,
+	{ createOn = 'repository' }: { createOn?: Side } = {},
+): OneList<TCollection> {
 	type Notes = ReactiveNotes<Collection>;
-	const template = compileTemplate(
-		(contract.collections[name] as Collection).path,
+	const source = sources.get(device);
+	if (source === undefined)
+		throw new Error(
+			'oneList: the device side is fromClient(device).<collection>, of a client openDevice returned',
+		);
+	const { name } = source;
+	const collection = compiledContractOf(source.client).collections.find(
+		(compiled) => compiled.name === name,
 	);
-	if (template.error !== null) throw new Error(template.error.message);
-	const { params } = template.data;
+	if (collection === undefined)
+		throw new Error(`oneList: the device's contract has no collection ${name}`);
+	const outbox = outboxOf(source.client);
+	const { params } = collection.template;
 	/** A note's placeholders, as one string: a value never holds `/`. */
 	const keyOf = (entry: Record<string, unknown>) =>
 		params.map((param) => String(entry[param])).join('/');
@@ -161,10 +155,9 @@ export function oneList<
 		const [x, y] = [keyOf(a), keyOf(b)];
 		return x < y ? -1 : x > y ? 1 : 0;
 	};
-	const sort = (order as ((a: Entry, b: Entry) => number) | undefined) ?? byKey;
 	const sides = { device, repository } as {
 		device: Notes;
-		repository: Notes | null;
+		repository: Notes;
 	};
 
 	/** The device's notes as last shown, to see which ones it let go of. */
@@ -199,9 +192,9 @@ export function oneList<
 		const over = [
 			sides.device.items,
 			sides.device.invalid,
-			sides.repository?.items,
-			sides.repository?.invalid,
-			sides.repository?.error,
+			sides.repository.items,
+			sides.repository.invalid,
+			sides.repository.error,
 		];
 		if (last?.over.every((input, at) => input === over[at])) return last;
 		const onDevice = [
@@ -209,32 +202,29 @@ export function oneList<
 			...sides.device.invalid.map((row) => ({ row, invalid: true })),
 		] as { row: Entry; invalid: boolean }[];
 		const deviceKeys = new Set(onDevice.map(({ row }) => keyOf(row)));
-		const repositoryItems = (sides.repository?.items ?? []) as readonly Entry[];
-		const repositoryInvalid = (sides.repository?.invalid ??
-			[]) as readonly Entry[];
+		const repositoryItems = sides.repository.items as readonly Entry[];
+		const repositoryInvalid = sides.repository.invalid as readonly Entry[];
 		const repositoryKeys = new Set(
 			[...repositoryItems, ...repositoryInvalid].map(keyOf),
 		);
-		if (sides.repository !== null) {
-			// A listing that answers replaces one or the other.
-			const answered = [repositoryItems, sides.repository.error] as const;
-			for (const [key, shown] of lastOnDevice)
-				if (
-					!deviceKeys.has(key) &&
-					!repositoryKeys.has(key) &&
-					!deleted.has(key) &&
-					!held.has(key)
-				)
-					held.set(key, { ...shown, since: answered });
-			for (const [key, { since }] of held)
-				if (
-					deviceKeys.has(key) ||
-					repositoryKeys.has(key) ||
-					since[0] !== answered[0] ||
-					since[1] !== answered[1]
-				)
-					held.delete(key);
-		}
+		// A listing that answers replaces one or the other.
+		const answered = [repositoryItems, sides.repository.error] as const;
+		for (const [key, shown] of lastOnDevice)
+			if (
+				!deviceKeys.has(key) &&
+				!repositoryKeys.has(key) &&
+				!deleted.has(key) &&
+				!held.has(key)
+			)
+				held.set(key, { ...shown, since: answered });
+		for (const [key, { since }] of held)
+			if (
+				deviceKeys.has(key) ||
+				repositoryKeys.has(key) ||
+				since[0] !== answered[0] ||
+				since[1] !== answered[1]
+			)
+				held.delete(key);
 		lastOnDevice = new Map(onDevice.map((shown) => [keyOf(shown.row), shown]));
 		for (const key of deleted) if (!deviceKeys.has(key)) deleted.delete(key);
 
@@ -255,7 +245,7 @@ export function oneList<
 				...(sides.device.items as readonly Entry[]).map(there('device')),
 				...repositoryOnly(repositoryItems).map(there('repository')),
 				...stillHeld(false).map(there('repository')),
-			].sort(sort),
+			].sort(byKey),
 			invalid: [
 				...(sides.device.invalid as readonly Entry[]).map(there('device')),
 				...repositoryOnly(repositoryInvalid).map(there('repository')),
@@ -268,7 +258,6 @@ export function oneList<
 
 	/** The side whose copy shows: the device while it holds one, read or not. */
 	const sideOf = (args: Record<string, unknown>): Notes => {
-		if (sides.repository === null) return sides.device;
 		const key = keyOf(args);
 		const onDevice = [...sides.device.items, ...sides.device.invalid].some(
 			(row) => keyOf(row) === key,
@@ -287,9 +276,8 @@ export function oneList<
 		const side = sideOf(args);
 		return holdLeave(
 			to(side).then((written) => {
-				if (side === sides.repository || sides.repository === null)
+				if (side === sides.repository || !goneFromDevice(written))
 					return written;
-				if (!goneFromDevice(written)) return written;
 				return to(sides.repository);
 			}),
 		);
@@ -297,12 +285,12 @@ export function oneList<
 
 	/** Create on the side `createOn` says, else keep it on the device and queue it to upload. */
 	async function create(value: Record<string, unknown>) {
-		if (sides.repository !== null && createOn === 'repository') {
+		if (createOn === 'repository') {
 			const created = await sides.repository.create(value as never);
 			if (created.error?.name !== 'Unavailable') return created;
 		}
 		const kept = await sides.device.create(value as never);
-		if (kept.error !== null || outbox === null) return kept;
+		if (kept.error !== null) return kept;
 		const created = kept.data as Entry;
 		const queued = await outbox.add({
 			id: timeId(),
@@ -315,7 +303,7 @@ export function oneList<
 					version: created.version,
 				},
 			],
-		});
+		} as never);
 		if (queued.error !== null)
 			log.warn(OneListDiagnostic.NotQueued({ cause: queued.error }));
 		return kept;
@@ -334,13 +322,13 @@ export function oneList<
 			return merged().invalid;
 		},
 		get loading() {
-			return sides.device.loading || (sides.repository?.loading ?? false);
+			return sides.device.loading || sides.repository.loading;
 		},
 		get error() {
 			return sides.device.error;
 		},
 		get repositoryError() {
-			return sides.repository?.error ?? null;
+			return sides.repository.error;
 		},
 		get,
 		where: (args: Record<string, unknown>) => merged().sides.get(keyOf(args)),
@@ -377,5 +365,5 @@ export function oneList<
 			return removed;
 		},
 	};
-	return list as unknown as OneList<TContract['collections'][TName]>;
+	return list as unknown as OneList<TCollection>;
 }

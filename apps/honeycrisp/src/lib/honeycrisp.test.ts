@@ -1,11 +1,11 @@
 /**
- * Honeycrisp's state: `oneList` (tested in `@epicenter/svelte`) per
- * collection with Honeycrisp's orders, and the actions over both
+ * Honeycrisp's state: its orders over `oneList` (tested in
+ * `@epicenter/svelte`) per collection, and the actions over both
  * collections, on real device clients in temporary directories (a second
  * one stands in for the repository).
  *
  * Key behaviors:
- * - Notes come newest first and folders by name, from either side
+ * - Notes sort newest first and folders by name, from either side
  * - A new note is made in the folder shown, and opens ready to write in, once
  * - Deleting a folder deletes its file alone: its notes keep naming it and
  *   show in All Notes
@@ -19,15 +19,15 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openDevice, outboxOf } from '@epicenter/folder/node';
+import { openDevice } from '@epicenter/folder/node';
 import { honeycrisp } from './contract.js';
 
-const { fromClient } = await import('@epicenter/svelte/client');
+const { fromClient, oneList } = await import('@epicenter/svelte/client');
 const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 );
 const { flushSync } = await import('svelte');
-const { createHoneycrisp, createLists, shownIn } = await import(
+const { byName, createHoneycrisp, newestFirst, shownIn } = await import(
 	'./honeycrisp.svelte.js'
 );
 
@@ -64,7 +64,7 @@ async function until(done: () => boolean) {
 	throw new Error('timed out');
 }
 
-test('notes come newest first and folders by name, from either side', async () => {
+test('notes sort newest first and folders by name, from either side', async () => {
 	const device = await side({
 		'notes/b.md': note('2026-10-30T00:00:00.000Z'),
 		'folders/w.md': folder('Work'),
@@ -74,16 +74,19 @@ test('notes come newest first and folders by name, from either side', async () =
 		'notes/c.md': note('2026-10-29T00:00:00.000Z'),
 		'folders/h.md': folder('Home'),
 	});
-	const lists = createLists({
-		device: fromClient(device.client),
-		repository: fromClient(repository.client),
-		outbox: outboxOf(device.client),
-	});
+	const [here, there] = [
+		fromClient(device.client),
+		fromClient(repository.client),
+	];
+	const lists = {
+		notes: oneList(here.notes, there.notes),
+		folders: oneList(here.folders, there.folders),
+	};
 	const shown = follow(() => ({
-		notes: lists.notes.items.map(
-			({ id }) => `${lists.notes.where({ id })}:${id}`,
-		),
-		folders: lists.folders.items.map(({ name }) => name),
+		notes: lists.notes.items
+			.toSorted(newestFirst)
+			.map(({ id }) => `${lists.notes.where({ id })}:${id}`),
+		folders: lists.folders.items.toSorted(byName).map(({ name }) => name),
 	}));
 	await until(() => !lists.notes.loading && !lists.folders.loading);
 	expect(shown.values.at(-1)).toEqual({
@@ -95,13 +98,8 @@ test('notes come newest first and folders by name, from either side', async () =
 
 test('a new note is made in the folder shown, and opens ready to write in, once', async () => {
 	const device = await side({ 'folders/w.md': folder('Work') });
-	const app = createHoneycrisp(
-		createLists({
-			device: fromClient(device.client),
-			repository: null,
-			outbox: outboxOf(device.client),
-		}),
-	);
+	// Signed out, as the page composes it: the device's own collections.
+	const app = createHoneycrisp(fromClient(device.client));
 	app.showFolder('w');
 	const created = await app.createNote();
 	if (created.error !== null) throw created.error;
@@ -120,11 +118,7 @@ test('deleting a folder deletes its file alone; its notes keep naming it and sho
 		'folders/w.md': folder('Work'),
 		'notes/a.md': note('2026-10-31T00:00:00.000Z', 'folderId: w\n'),
 	});
-	const lists = createLists({
-		device: fromClient(device.client),
-		repository: null,
-		outbox: null,
-	});
+	const lists = fromClient(device.client);
 	const app = createHoneycrisp(lists);
 	const shown = follow(() => [lists.notes.items, lists.folders.items] as const);
 	await until(() => lists.folders.items.length === 1);

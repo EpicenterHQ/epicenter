@@ -14,7 +14,7 @@
 	import { format } from 'date-fns';
 	import { webAuth } from '$lib/auth.js';
 	import { getDateLabel } from '$lib/date-label.js';
-	import { folderLabel, getHoneycrisp, type Note, noteLabel, shownIn } from '$lib/honeycrisp.svelte.js';
+	import { byName, folderLabel, getHoneycrisp, newestFirst, type Note, noteLabel, shownIn } from '$lib/honeycrisp.svelte.js';
 	import { previewText } from '$lib/note-source.js';
 	import { confirmDeleteNote } from './delete-note.js';
 
@@ -25,7 +25,7 @@
 	const auth = webAuth();
 	const signedIn = $derived(auth.state.status !== 'signed-out');
 
-	const visible = $derived(notes.items.filter((note) => shownIn(app.view, note)));
+	const visible = $derived(notes.items.filter((note) => shownIn(app.view, note)).toSorted(newestFirst));
 	const selectedId = $derived(app.selected?.collection === 'notes' ? app.selected.id : undefined);
 
 	const heading = $derived.by(() => {
@@ -99,7 +99,7 @@
 					<h3 class="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground">{group.label}</h3>
 					<ul>
 						{#each group.notes as note (note.id)}
-							<li data-id={note.id} data-where={notes.where({ id: note.id })}>
+							<li data-id={note.id} data-where={notes.where?.({ id: note.id }) ?? 'device'}>
 								<ContextMenu.Root>
 									<ContextMenu.Trigger>
 										<button
@@ -119,7 +119,7 @@
 												</span>
 											</span>
 											<span class="line-clamp-2 text-xs text-muted-foreground">{previewText(note.body) || 'No text'}</span>
-											{#if signedIn && notes.where({ id: note.id }) === 'device'}
+											{#if signedIn && notes.where?.({ id: note.id }) === 'device'}
 												<Badge variant="outline" class="mt-1 w-fit">not uploaded yet</Badge>
 											{/if}
 										</button>
@@ -139,7 +139,7 @@
 													No folder
 												</ContextMenu.Item>
 												<ContextMenu.Separator />
-												{#each folders.items as folder (folder.id)}
+												{#each folders.items.toSorted(byName) as folder (folder.id)}
 													<ContextMenu.Item
 														onSelect={() => void report('move the note', notes.update({ id: note.id }, { folderId: folder.id }))}
 													>

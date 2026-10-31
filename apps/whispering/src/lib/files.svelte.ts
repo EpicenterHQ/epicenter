@@ -1,14 +1,14 @@
 /**
- * Whispering's files as one set of lists: what this browser holds (still to
- * upload) and, signed in, what the person's `whispering` repository holds
+ * Whispering's files: its note lists, their orders, and a recording's audio
+ * across this browser and, signed in, the person's `whispering` repository
  * (decision 12).
  *
- * - Each note collection is one `oneList` (`@epicenter/svelte/client`): a
- *   note on the device shows as the device's ("not uploaded yet") until the
- *   upload lets go of it; writes go to the copy shown; a new note goes to the
- *   repository when it can be reached, else stays on the device and is queued
- *   to upload. So every view reads and edits without knowing which side it
- *   is on.
+ * - Each note collection is this browser's notes signed out and, signed in,
+ *   one `oneList` (`@epicenter/svelte/client`) over them and the
+ *   repository's: a note on the device shows as the device's ("not uploaded
+ *   yet") until the upload lets go of it; writes go to the copy shown; a new
+ *   note goes to the repository when it can be reached, else stays on the
+ *   device and is queued to upload. `createWhispering` composes them.
  * - A recording is always kept on the device first, its audio and note as
  *   one capture (`saveCapture`), so recording never waits on the network and
  *   works offline; the uploader moves both together.
@@ -26,17 +26,12 @@ import type {
 	NoteOf,
 	Version,
 } from '@epicenter/definition/contract';
-import { cacheOf, outboxOf, saveCapture } from '@epicenter/folder/browser';
-import {
-	fromClient,
-	type OneList,
-	oneList,
-	type Side,
-} from '@epicenter/svelte/client';
+import { cacheOf, saveCapture } from '@epicenter/folder/browser';
+import { fromClient, type NoteList, type Side } from '@epicenter/svelte/client';
 import { holdLeave } from '@epicenter/svelte/leave-guard';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
-import { type Whispering, whispering } from './contract.js';
+import type { Whispering } from './contract.js';
 
 type Collections = Whispering['collections'];
 
@@ -103,19 +98,31 @@ export type NewRecording = {
 	readonly bytes: Uint8Array;
 };
 
+/** Each note collection as the views read it: this browser's, or both sides as one list. */
+export type NoteLists = {
+	readonly [K in NoteName]: NoteList<Collections[K]>;
+};
+
 const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 /** Newest first by `at`, then by id (ids sort by when they were made). */
-const newest =
+export const newest =
 	<T extends { id: string }>(at: (item: T) => string) =>
 	(a: T, b: T) =>
 		byText(at(b), at(a)) || byText(b.id, a.id);
 
+/** Transformations by title, as a person reads them, then by id. */
+export const byTitle = (a: TransformationNote, b: TransformationNote) =>
+	(a.title || a.id).localeCompare(b.title || b.id, undefined, {
+		sensitivity: 'base',
+	}) || byText(a.id, b.id);
+
 /**
- * Whispering's files over this browser's `device` and, signed in,
- * `repository` (null signed out). What the device makes is queued in its
- * outbox, to upload once someone is signed in.
+ * A recording's audio over this browser's `device` and, signed in,
+ * `repository` (null signed out): where it is, reading and deleting it,
+ * and keeping a new recording, queued in the device's outbox to upload
+ * once someone is signed in.
  */
-export function createWhisperingFiles({
+export function createAudio({
 	device,
 	repository,
 }: {
@@ -124,47 +131,7 @@ export function createWhisperingFiles({
 }) {
 	const here = fromClient(device);
 	const there = repository === null ? null : fromClient(repository);
-	const outbox = outboxOf(device);
 	const cache = cacheOf(device);
-
-	const list = <TName extends NoteName>(
-		name: TName,
-		order: (a: Listed<TName>, b: Listed<TName>) => number,
-	): OneList<Collections[TName]> =>
-		oneList(whispering, name, {
-			// SAFETY: a note collection's reactive collection is its notes'; the
-			// generic name does not narrow `ReactiveCollection`'s conditional.
-			device: here[name] as never,
-			repository: (there?.[name] ?? null) as never,
-			outbox,
-			order: order as never,
-		});
-
-	const lists = {
-		recordings: list(
-			'recordings',
-			newest((note) => note.recordedAt),
-		),
-		transcriptions: list(
-			'transcriptions',
-			newest((note) => note.createdAt),
-		),
-		transformations: list(
-			'transformations',
-			(a, b) =>
-				(a.title || a.id).localeCompare(b.title || b.id, undefined, {
-					sensitivity: 'base',
-				}) || byText(a.id, b.id),
-		),
-		transformation_runs: list(
-			'transformation_runs',
-			newest((note) => note.createdAt),
-		),
-		text_runs: list(
-			'text_runs',
-			newest((note) => note.createdAt),
-		),
-	};
 
 	/**
 	 * The audio this device's uploads cached, by `<id>.<ext>`. The cache is
@@ -239,18 +206,6 @@ export function createWhisperingFiles({
 	}
 
 	return {
-		...lists,
-		/** Whether a repository is open beside the device: someone is signed in. */
-		signedIn: there !== null,
-		/** Why the repository could not be listed (offline, or refused); null when it can be, or signed out. */
-		get repositoryError() {
-			return there?.recordings.error ?? there?.audio.error ?? null;
-		},
-		/** Why this device's files could not be listed (no private storage, as in a private window). */
-		get deviceError() {
-			return here.recordings.error ?? here.audio.error ?? null;
-		},
-
 		/** Where recording `id`'s audio is, read reactively. */
 		audioOf,
 
@@ -349,4 +304,5 @@ export function createWhisperingFiles({
 	};
 }
 
-export type WhisperingFiles = ReturnType<typeof createWhisperingFiles>;
+/** The note lists and the audio, as the app's logic reads and writes them. */
+export type WhisperingFiles = NoteLists & ReturnType<typeof createAudio>;

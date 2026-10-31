@@ -183,7 +183,7 @@
 			{:else}
 				Capture with no date
 			{/if}
-			{#if captures.uploads && note && captures.list.where({ id: note.id }) === 'device'}
+			{#if captures.uploads && note && captures.list.where?.({ id: note.id }) === 'device'}
 				<Badge variant="outline" class="ml-2 align-middle font-normal text-muted-foreground">Not uploaded yet</Badge>
 			{/if}
 		</h1>

@@ -4,11 +4,22 @@
  * asked, and an attempt Beeper never confirmed blocks the next send until
  * the person has checked it. Nothing is ever resent on its own.
  */
-import type { ClientError } from '@epicenter/definition/contract';
+import type { Client, ClientError } from '@epicenter/definition/contract';
+import type { ReactiveClient } from '@epicenter/svelte/client';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Backend } from './backend.js';
-import type { Device } from './context.js';
+import type { Messages } from './contract.js';
+
+/**
+ * This page's device as a send uses it: its client, to read straight from
+ * storage, and that client as the page shows it (`fromClient(device)`), to
+ * write through.
+ */
+export type Device = {
+	client: Client<Messages>;
+	files: ReactiveClient<Messages>;
+};
 
 export const DraftError = defineErrors({
 	Refused: ({ message }: { message: string }) => ({ message }),
@@ -35,17 +46,17 @@ const fieldsFor = (backend: Backend, chatId: string) => ({
 	mode: backend.mode,
 });
 
-/** Only send and recovery workflows write attempts. */
-const turns = new WeakMap<Device, Map<string, Promise<void>>>();
+/** Only send and recovery workflows write attempts: one at a time per draft, per device client. */
+const turns = new WeakMap<Client<Messages>, Map<string, Promise<void>>>();
 async function withDraft<T>(
 	device: Device,
 	id: string,
 	action: () => Promise<T>,
 ) {
-	let queue = turns.get(device);
+	let queue = turns.get(device.client);
 	if (!queue) {
 		queue = new Map();
-		turns.set(device, queue);
+		turns.set(device.client, queue);
 	}
 	const previous = queue.get(id) ?? Promise.resolve();
 	const turn = Promise.withResolvers<void>();

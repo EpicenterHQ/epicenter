@@ -9,7 +9,11 @@
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 	import { onDestroy } from 'svelte';
 	import type { Account } from '@epicenter/auth';
+	import { fromClient, oneList } from '@epicenter/svelte/client';
+	import { getRepo } from '@epicenter/svelte/repo';
+	import type { Vocab } from '$lib/contract.js';
 	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
+	import { device } from '$lib/device.js';
 	import { openVocabInference } from '$lib/inference.js';
 	import { createVocab, type VocabLists } from '$lib/vocab.svelte.js';
 	import AccountMenu from './AccountMenu.svelte';
@@ -18,9 +22,21 @@
 	import WordsView from './WordsView.svelte';
 
 	// One account for this component's life (undefined signed out): the root
-	// mounts a new Vocab for a new account. Signed in, the lists include the
-	// learner's repository; signed out, they are this browser's files alone.
-	let { lists, account }: { lists: VocabLists; account: Account | undefined } = $props();
+	// mounts a new Vocab for a new account, under the signed-in boundary.
+	// Signed in, the lists include the learner's repository; signed out, they
+	// are this browser's files alone.
+	let { account }: { account: Account | undefined } = $props();
+	const files = fromClient(device);
+	// svelte-ignore state_referenced_locally
+	const repo = account === undefined ? null : fromClient(getRepo<Vocab>());
+	const lists: VocabLists =
+		repo === null
+			? files
+			: {
+					entries: oneList(files.entries, repo.entries),
+					chats: oneList(files.chats, repo.chats),
+					messages: oneList(files.messages, repo.messages),
+				};
 	// svelte-ignore state_referenced_locally
 	const { entries, chats } = createVocab(lists, { uploads: account !== undefined });
 

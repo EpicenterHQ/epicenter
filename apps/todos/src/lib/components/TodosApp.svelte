@@ -1,26 +1,35 @@
 <!--
-	Todos over one list (`createTodoList`): the header, the list, and the
-	open todo. Which todo is open is the URL's `?todo=<id>`, so it survives
-	a reload and the breakpoint.
+	Todos: the header, the list, and the open todo, over this device's todos
+	and, signed in (under the signed-in boundary), the repository's as one
+	list. Which todo is open is the URL's `?todo=<id>`, so it survives a
+	reload and the breakpoint.
 -->
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
+	import { fromClient, oneList } from '@epicenter/svelte/client';
+	import { getRepo } from '@epicenter/svelte/repo';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { setTodos } from '$lib/context.js';
-	import type { TodoList as Todos } from '$lib/todos.js';
+	import type { Todos } from '$lib/contract.js';
+	import { device } from '$lib/device.js';
+	import { setTodos } from '$lib/todos.js';
 	import AppHeader from './AppHeader.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 
-	let { todos }: { todos: Todos } = $props();
+	/** Whether this renders under the signed-in boundary, which has the repository. */
+	let { signedIn }: { signedIn: boolean } = $props();
 
 	// The list stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	setTodos(todos);
+	setTodos(
+		signedIn
+			? oneList(fromClient(device).todos, fromClient(getRepo<Todos>()).todos)
+			: fromClient(device).todos,
+	);
 
 	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');

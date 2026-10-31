@@ -1,6 +1,7 @@
 /**
  * The mounted Whispering app state over its files (`files.svelte.ts`): this
- * browser's, and signed in, the person's repository's, as one set of lists.
+ * browser's notes and, signed in, each `oneList` over them and the person's
+ * repository's, composed here; and a recording's audio on either side.
  *
  * Every list here is derived from what the files show, read reactively.
  * Notes that read are listed to edit; the rest are named, with why and their
@@ -20,6 +21,7 @@
  */
 import type { Client, Version } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
+import { fromClient, oneList } from '@epicenter/svelte/client';
 import { createContext } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
 import { Err, type Result } from 'wellcrafted/result';
@@ -39,10 +41,14 @@ import {
 	runDeletion,
 } from './deletion.js';
 import {
-	createWhisperingFiles,
+	byTitle,
+	createAudio,
 	type InvalidNote,
 	type NewRecording,
+	type NoteLists,
 	type NoteName,
+	newest,
+	type WhisperingFiles,
 } from './files.svelte.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import type { PostProcessingChoice } from './post-processing.js';
@@ -127,7 +133,25 @@ export function createWhispering({
 	repository: Client<WhisperingContract> | null;
 }) {
 	const services = createServices();
-	const files = createWhisperingFiles({ device, repository });
+	const here = fromClient(device);
+	const there = repository === null ? null : fromClient(repository);
+	const lists: NoteLists =
+		there === null
+			? here
+			: {
+					recordings: oneList(here.recordings, there.recordings),
+					transcriptions: oneList(here.transcriptions, there.transcriptions),
+					transformations: oneList(here.transformations, there.transformations),
+					transformation_runs: oneList(
+						here.transformation_runs,
+						there.transformation_runs,
+					),
+					text_runs: oneList(here.text_runs, there.text_runs),
+				};
+	const files: WhisperingFiles = {
+		...lists,
+		...createAudio({ device, repository }),
+	};
 	/** What the shell shows. Held here so no route owns it. */
 	const view = $state({
 		sidebarOpen: false,
@@ -185,11 +209,21 @@ export function createWhispering({
 
 	// --- reads -----------------------------------------------------------------
 
-	const entries = $derived(files.recordings.items);
-	const transformations = $derived(files.transformations.items);
-	const transcriptions = $derived(files.transcriptions.items);
-	const transformationRuns = $derived(files.transformation_runs.items);
-	const textRuns = $derived(files.text_runs.items);
+	const entries = $derived(
+		files.recordings.items.toSorted(newest((note) => note.recordedAt)),
+	);
+	const transformations = $derived(
+		files.transformations.items.toSorted(byTitle),
+	);
+	const transcriptions = $derived(
+		files.transcriptions.items.toSorted(newest((note) => note.createdAt)),
+	);
+	const transformationRuns = $derived(
+		files.transformation_runs.items.toSorted(newest((note) => note.createdAt)),
+	);
+	const textRuns = $derived(
+		files.text_runs.items.toSorted(newest((note) => note.createdAt)),
+	);
 	const transcriptsByRecording = $derived.by(() => {
 		const byRecording = new Map<string, (typeof transcriptions)[number][]>();
 		for (const note of transcriptions)
@@ -217,7 +251,7 @@ export function createWhispering({
 			(count, list) =>
 				count +
 				[...list.items, ...list.invalid].filter(
-					({ id }) => list.where({ id }) === 'device',
+					({ id }) => list.where?.({ id }) === 'device',
 				).length,
 			0,
 		),
@@ -447,7 +481,15 @@ export function createWhispering({
 		settings,
 		/** Whether someone is signed in, so the repository is open beside this browser's files. */
 		get signedIn() {
-			return files.signedIn;
+			return there !== null;
+		},
+		/** Why the repository could not be listed (offline, or refused); null when it can be, or signed out. */
+		get repositoryError() {
+			return there?.recordings.error ?? there?.audio.error ?? null;
+		},
+		/** Why this device's files could not be listed (no private storage, as in a private window). */
+		get deviceError() {
+			return here.recordings.error ?? here.audio.error ?? null;
 		},
 		/** Notes still on this device, not uploaded yet. */
 		get waiting() {
@@ -455,11 +497,12 @@ export function createWhispering({
 		},
 		/** Which side the copy shown of the note `id` of `collection` is on. */
 		whereOf(collection: NoteName, id: string) {
-			return files[collection].where({ id });
+			// Signed out, every note is on this device.
+			return files[collection].where?.({ id }) ?? 'device';
 		},
 		/** Whether the note `id` of `collection` is still on this device while signed in: not uploaded yet. */
 		notUploaded(collection: NoteName, id: string) {
-			return files.signedIn && files[collection].where({ id }) === 'device';
+			return there !== null && files[collection].where?.({ id }) === 'device';
 		},
 		/** The selected transformation, resolved against the lists and the connection. */
 		get postProcessing(): PostProcessingChoice {

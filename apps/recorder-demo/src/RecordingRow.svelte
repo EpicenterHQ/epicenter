@@ -1,19 +1,22 @@
 <script lang="ts">
 	import { cacheOf } from '@epicenter/folder/browser';
+	import { fromClient } from '@epicenter/svelte/client';
+	import { getRepo } from '@epicenter/svelte/repo';
 	import { onDestroy } from 'svelte';
 	import { Ok } from 'wellcrafted/result';
-	import { getDevice, getRemote } from './lib/context.ts';
+	import type { Recorder } from './contract.ts';
+	import { device } from './lib/device.ts';
 	import type { RecordingRow } from './lib/recordings.ts';
 
 	const { row }: { row: RecordingRow } = $props();
 
 	// A repository or cache row exists only while signed in, under the
-	// remote's subtree. A row keeps its id and side for its life: rows are
+	// signed-in boundary. A row keeps its id and side for its life: rows are
 	// keyed by both, so an upload replaces the device row with a new
 	// repository one.
-	const device = getDevice();
 	// svelte-ignore state_referenced_locally
-	const side = row.where === 'device' ? device : getRemote();
+	const client = row.where === 'device' ? device : getRepo<Recorder>();
+	const files = fromClient(client);
 
 	type Note = NonNullable<RecordingRow['note']>;
 	/**
@@ -33,13 +36,13 @@
 	async function audioBytes(ext: string) {
 		if (row.cached) {
 			// Online, only the repository's version answers; offline, the cache is all there is.
-			const cached = await cacheOf(device.client).read(
+			const cached = await cacheOf(device).read(
 				{ collection: 'audio', id: row.id, ext },
 				row.audioVersion ? { version: row.audioVersion } : {},
 			);
 			if (cached.data) return Ok(cached.data);
 		}
-		return side.client.audio.get({ id: row.id, ext });
+		return client.audio.get({ id: row.id, ext });
 	}
 
 	async function play() {
@@ -64,7 +67,7 @@
 		const { title, base } = draft;
 		// Over the note as it was when the typing began: a change to other
 		// fields since is carried over; a new title since is a clash.
-		const renamed = await side.files.recordings.update(
+		const renamed = await files.recordings.update(
 			{ id: row.id },
 			{ title },
 			base ? { base } : {},
@@ -72,7 +75,7 @@
 		if (renamed.error?.name === 'Conflict' && renamed.error.current !== null) {
 			// Someone else renamed it. The row now shows their note; keep the
 			// draft, and saving again applies it over theirs.
-			const theirs = side.files.recordings.get({ id: row.id })?.title;
+			const theirs = files.recordings.get({ id: row.id })?.title;
 			draft = { title, base: null };
 			status = `Changed elsewhere to “${theirs}”; your title is kept. Save again to apply it.`;
 			return;

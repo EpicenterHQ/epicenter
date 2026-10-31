@@ -1,12 +1,17 @@
 <!--
-	Honeycrisp over its two lists (`createLists`): the header, the folders,
-	the notes, and what is open. Views read and write only through the state
-	in context, so none knows which side a note is on.
+	Honeycrisp: the header, the folders, the notes, and what is open, over
+	this browser's notes and folders and, signed in (under the signed-in
+	boundary), the repository's as one list each. Views read and write only
+	through the state in context, so none knows which side a note is on.
 -->
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
+	import { fromClient, oneList } from '@epicenter/svelte/client';
+	import { getRepo } from '@epicenter/svelte/repo';
+	import type { Honeycrisp } from '$lib/contract.js';
+	import { device } from '$lib/device.js';
 	import { createHoneycrisp, type Lists, setHoneycrisp } from '$lib/honeycrisp.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FolderNav from './FolderNav.svelte';
@@ -14,10 +19,17 @@
 	import NoteDetail from './NoteDetail.svelte';
 	import NoteList from './NoteList.svelte';
 
-	let { lists }: { lists: Lists } = $props();
+	/** Whether this renders under the signed-in boundary, which has the repository. */
+	let { signedIn }: { signedIn: boolean } = $props();
 
 	// The lists stay fixed until this app root unmounts.
+	const files = fromClient(device);
 	// svelte-ignore state_referenced_locally
+	const repo = signedIn ? fromClient(getRepo<Honeycrisp>()) : null;
+	const lists: Lists =
+		repo === null
+			? files
+			: { notes: oneList(files.notes, repo.notes), folders: oneList(files.folders, repo.folders) };
 	const app = setHoneycrisp(createHoneycrisp(lists));
 
 	async function createNote() {

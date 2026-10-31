@@ -11,7 +11,7 @@ export function confirmDeleteNote(
 	app: HoneycrispState,
 	{ id, label }: { id: string; label: string },
 ) {
-	const where = app.notes.where({ id });
+	const where = app.notes.where?.({ id });
 	confirmationDialog.open({
 		title: `Delete “${label}”?`,
 		description: `This deletes ${notePath(id)} from ${where === 'repository' ? 'your repository' : 'this device'}.`,

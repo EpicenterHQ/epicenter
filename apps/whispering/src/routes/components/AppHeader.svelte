@@ -22,7 +22,7 @@
 			unwrittenAnswers: whispering.unwrittenAnswers,
 			signedIn: whispering.signedIn,
 			waiting: whispering.waiting,
-			repositoryProblem: whispering.files.repositoryError?.message,
+			repositoryProblem: whispering.repositoryError?.message,
 		}),
 	);
 	/** The home page has the large recorder; every other page gets this compact one. */

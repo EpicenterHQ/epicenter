@@ -14,6 +14,10 @@ import { expectOk } from 'wellcrafted/testing';
 
 const { openVocabFolder, until } = await import('./vocab.test-support.js');
 const { createEntries } = await import('./entries.svelte.js');
+const { fromClient, oneList } = await import('@epicenter/svelte/client');
+const { follow } = await import(
+	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
+);
 
 const note = (text: string, stage = 'new', body = '') =>
 	`---\ntext: ${text}\nstage: ${stage}\ncreatedAt: 2026-01-01T00:00:00.000Z\n---\n${body}`;
@@ -114,8 +118,15 @@ test('a note that does not read is listed to repair, and replace repairs it', as
 
 test('signed in, a word still on this device is not uploaded yet', async () => {
 	await using folder = await openVocabFolder();
-	const entries = createEntries(folder.lists.entries, { uploads: true });
-	expectOk(await entries.add('lucid'));
-	expect(entries.words[0]?.waiting).toBe(true);
-	expect(createEntries(folder.lists.entries).words[0]?.waiting).toBe(false);
+	await using repository = await openVocabFolder();
+	expectOk(await createEntries(folder.lists.entries).add('lucid'));
+	const list = oneList(
+		fromClient(folder.client).entries,
+		fromClient(repository.client).entries,
+	);
+	const shown = follow(() => list.items);
+	await until(() => !list.loading);
+	expect(createEntries(list, { uploads: true }).words[0]?.waiting).toBe(true);
+	expect(createEntries(list).words[0]?.waiting).toBe(false);
+	shown.stop();
 });

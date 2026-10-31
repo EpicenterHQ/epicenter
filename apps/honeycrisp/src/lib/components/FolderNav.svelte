@@ -14,7 +14,7 @@
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import PlusIcon from '@lucide/svelte/icons/plus';
-	import { type Folder, folderLabel, folderPath, getHoneycrisp } from '$lib/honeycrisp.svelte.js';
+	import { byName, type Folder, folderLabel, folderPath, getHoneycrisp } from '$lib/honeycrisp.svelte.js';
 
 	const app = getHoneycrisp();
 	const { notes, folders } = app;
@@ -57,7 +57,7 @@
 	function confirmDelete(folder: Folder) {
 		confirmationDialog.open({
 			title: `Delete the folder “${folderLabel(folder)}”?`,
-			description: `This deletes ${folderPath(folder.id)} from ${folders.where({ id: folder.id }) === 'repository' ? 'your repository' : 'this device'}. Its notes are kept, in All Notes.`,
+			description: `This deletes ${folderPath(folder.id)} from ${folders.where?.({ id: folder.id }) === 'repository' ? 'your repository' : 'this device'}. Its notes are kept, in All Notes.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				const { error } = await app.deleteFolder(folder.id);
@@ -120,11 +120,11 @@
 		</Button>
 	</div>
 	{#if naming && naming.id === undefined}{@render nameInput()}{/if}
-	{#each folders.items as folder (folder.id)}
+	{#each folders.items.toSorted(byName) as folder (folder.id)}
 		{#if naming?.id === folder.id}
 			{@render nameInput()}
 		{:else}
-			<div class="group flex items-center" data-folder={folder.id} data-where={folders.where({ id: folder.id })}>
+			<div class="group flex items-center" data-folder={folder.id} data-where={folders.where?.({ id: folder.id }) ?? 'device'}>
 				<button
 					class={row}
 					class:bg-accent={app.view.folderId === folder.id}

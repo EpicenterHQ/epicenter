@@ -69,11 +69,9 @@ test('the page imports no Node, Bun, or Tauri module', () => {
 	).toEqual([]);
 });
 
-test('the device is opened at the root, and the repository under the signed-in subtree', () => {
+test('the device is opened once, in its module, and the repository at the signed-in boundary', () => {
 	expect(callers('openDevice')).toEqual(['lib/device.ts']);
-	expect(callers('openWhisperingDevice')).toEqual([
-		'routes/components/WhisperingRoot.svelte',
-	]);
+	expect(callers('setRepo')).toEqual(['routes/components/SignedIn.svelte']);
 	expect(callers('openRemote')).toEqual(['routes/components/SignedIn.svelte']);
 	expect(callers('startUploading')).toEqual([
 		'routes/components/SignedIn.svelte',
@@ -142,6 +140,7 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 						'@epicenter/svelte/client',
 						'@epicenter/svelte/leave-guard',
 						'@epicenter/svelte/note-repair',
+						'@epicenter/svelte/repo',
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',
@@ -180,9 +179,7 @@ test('WhisperingApp owns product state', () => {
 		'routes/components/WhisperingApp.svelte',
 	]);
 	expect(callers('createServices')).toEqual(['lib/whispering.svelte.ts']);
-	expect(callers('createWhisperingFiles')).toEqual([
-		'lib/whispering.svelte.ts',
-	]);
+	expect(callers('createAudio')).toEqual(['lib/whispering.svelte.ts']);
 });
 
 test('every page takes product state from context, installed by the app root', () => {

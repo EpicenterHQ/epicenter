@@ -44,7 +44,7 @@ const AT = '2026-10-01T10:30:00+08:00';
 const PATH = 'captures/one.md';
 const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n`;
 
-test('Add writes one finished capture in house style, records it to upload, and opens Add a thought', async () => {
+test('Add writes one finished capture in house style, keeps it in this browser, and opens Add a thought', async () => {
 	const h = await open();
 	const { id } = expectOk(await h.captures.create('Hello\nworld'));
 	expect(id).toMatch(
@@ -61,10 +61,9 @@ test('Add writes one finished capture in house style, records it to upload, and 
 		`---\ncapturedAt: "${note?.capturedAt}"\n---\n${composeBody('Hello\nworld').body}`,
 	);
 	expect(h.captures.timeline.rows[0]).toMatchObject({ id, where: 'device' });
-	const queued = expectOk(await outboxOf(h.device).list()).items;
-	expect(queued.map(({ paths }) => Object.keys(paths))).toEqual([
-		[`captures/${id}.md`],
-	]);
+	// Signed out nothing is queued: the uploader's first run at sign-in
+	// adopts every capture in this browser that no upload names.
+	expect(expectOk(await outboxOf(h.device).list()).items).toEqual([]);
 });
 
 test('signed in, Add writes to this browser first, marked not uploaded yet', async () => {

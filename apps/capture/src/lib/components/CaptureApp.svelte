@@ -1,9 +1,9 @@
 <!--
-	Capture over one list (`createCaptureList`): a header that says where the
-	captures are and who is signed in, then the timeline or the one open
-	capture. Signed out, the captures are this browser's; signed in, they are
-	the person's `capture` repository, and the ones made here count as "not
-	uploaded yet" until they are up.
+	Capture: a header that says where the captures are and who is signed in,
+	then the timeline or the one open capture. Signed out, the captures are
+	this browser's; signed in (under the signed-in boundary), this browser's
+	and the person's `capture` repository's as one list, and the ones made
+	here count as "not uploaded yet" until they are up.
 -->
 <script lang="ts">
 	import StatusPopover from '@epicenter/svelte/status-popover';
@@ -11,15 +11,26 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
+	import { type Capture, capture } from '@epicenter/capture';
+	import { fromClient, oneList } from '@epicenter/svelte/client';
+	import { getRepo } from '@epicenter/svelte/repo';
 	import { webAuth } from '$lib/auth.js';
 	import { type CaptureList, createCaptures } from '$lib/captures.svelte.js';
+	import { device } from '$lib/device.js';
 	import CaptureDetail from './CaptureDetail.svelte';
 	import TextDetail from './TextDetail.svelte';
 	import Timeline from './Timeline.svelte';
 
-	let { list, signedIn }: { list: CaptureList; signedIn: boolean } = $props();
+	/** Whether this renders under the signed-in boundary, which has the repository. */
+	let { signedIn }: { signedIn: boolean } = $props();
 
 	// The list and the account stay fixed until this app root unmounts.
+	// svelte-ignore state_referenced_locally
+	const list: CaptureList = signedIn
+		? oneList(fromClient(device).captures, fromClient(getRepo<Capture>()).captures, {
+				createOn: 'device',
+			})
+		: fromClient(device).captures;
 	// svelte-ignore state_referenced_locally
 	const captures = createCaptures(list, { uploads: signedIn });
 	const auth = webAuth();
@@ -27,7 +38,7 @@
 	/** One page: the timeline or the one open capture. */
 	const item = $derived(captures.opened);
 	/** Signed in, the captures made here that have not reached the repository yet. */
-	const waiting = $derived(list.items.filter(({ id }) => list.where({ id }) === 'device').length);
+	const waiting = $derived(list.items.filter(({ id }) => list.where?.({ id }) === 'device').length);
 	const status = $derived.by((): StatusLine => {
 		if (list.error !== null)
 			return { label: 'Not readable here', detail: list.error.message, tone: 'error' };
@@ -39,7 +50,7 @@
 				tone: 'warning',
 			};
 		// New captures still save, to this browser, and upload once it is back.
-		if (list.repositoryError !== null)
+		if (list.repositoryError)
 			return {
 				label: 'Offline: new captures wait to upload',
 				short: 'Offline',

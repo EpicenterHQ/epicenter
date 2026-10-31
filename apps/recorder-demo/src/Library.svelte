@@ -1,17 +1,23 @@
 <script lang="ts">
 	import { timeId } from '@epicenter/definition/ids';
 	import { cacheOf } from '@epicenter/folder/browser';
+	import { fromClient } from '@epicenter/svelte/client';
+	import { getRepo } from '@epicenter/svelte/repo';
 	import RecordingRow from './RecordingRow.svelte';
-	import { getDevice, type Side } from './lib/context.ts';
+	import type { Recorder } from './contract.ts';
+	import { device } from './lib/device.ts';
 	import { startRecording } from './lib/record.ts';
 	import { type Cached, mergeRecordings } from './lib/recordings.ts';
 	import { saveRecording } from './lib/save.ts';
 	import { openMicrophone } from './lib/microphone.ts';
 
-	const { remote }: { remote: Side | null } = $props();
+	/** Whether this renders under the signed-in boundary, which has the repository. */
+	const { signedIn }: { signedIn: boolean } = $props();
 
-	const device = getDevice();
-	const cache = cacheOf(device.client);
+	const files = fromClient(device);
+	// svelte-ignore state_referenced_locally
+	const remote = signedIn ? fromClient(getRepo<Recorder>()) : null;
+	const cache = cacheOf(device);
 
 	let problem = $state<string | null>(null);
 	let recording = $state<ReturnType<typeof startRecording> | null>(null);
@@ -39,7 +45,7 @@
 	});
 	$effect(() => {
 		if (remote === null) return;
-		void [device.files.audio.items, remote.files.audio.items];
+		void [files.audio.items, remote.audio.items];
 		let current = true;
 		void cache.list().then((listed) => {
 			if (!current) return;
@@ -58,14 +64,14 @@
 	/** The repository's listing, or null when it cannot be listed (offline). */
 	const repository = $derived(
 		remote === null ||
-			remote.files.recordings.error !== null ||
-			remote.files.audio.error !== null
+			remote.recordings.error !== null ||
+			remote.audio.error !== null
 			? null
-			: { notes: remote.files.recordings.items, audio: remote.files.audio.items },
+			: { notes: remote.recordings.items, audio: remote.audio.items },
 	);
 	const rows = $derived(
 		mergeRecordings(
-			{ notes: device.files.recordings.items, audio: device.files.audio.items },
+			{ notes: files.recordings.items, audio: files.audio.items },
 			repository,
 			remote === null ? [] : cached.items,
 		),
@@ -73,10 +79,10 @@
 	/** Why a side could not be read; the rows still show what was. */
 	const unreadable = $derived(
 		[
-			device.files.recordings.error,
-			device.files.audio.error,
-			remote?.files.recordings.error,
-			remote?.files.audio.error,
+			files.recordings.error,
+			files.audio.error,
+			remote?.recordings.error,
+			remote?.audio.error,
 		].find((error) => error)?.message ??
 			(remote === null ? null : cached.problem),
 	);
@@ -95,7 +101,7 @@
 
 	/** Keep `finished` on the device, or hold it in this page when that fails. */
 	async function keep(finished: Finished) {
-		const saved = await saveRecording(device.client, finished);
+		const saved = await saveRecording(device, finished);
 		const held = unsaved.find(({ id }) => id === finished.id);
 		if (saved.error === null) {
 			if (held) URL.revokeObjectURL(held.download);

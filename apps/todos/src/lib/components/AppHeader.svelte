@@ -13,8 +13,8 @@
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import { webAuth } from '$lib/auth.js';
-	import { getTodos } from '$lib/context.js';
 	import { isDesktop } from '$lib/device.js';
+	import { getTodos } from '$lib/todos.js';
 	import {
 		currentShell,
 		type HandoffStatus,
@@ -28,7 +28,7 @@
 	const signedIn = $derived(auth !== null && auth.state.status !== 'signed-out');
 	/** Signed in, the todos made here that have not reached the repository yet. */
 	const waiting = $derived(
-		todos.items.filter(({ id }) => todos.where({ id }) === 'device').length,
+		todos.items.filter(({ id }) => todos.where?.({ id }) === 'device').length,
 	);
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
@@ -46,7 +46,7 @@
 				tone: 'warning',
 			};
 		// New todos still save, to this device, and upload once it is back.
-		if (todos.repositoryError !== null)
+		if (todos.repositoryError)
 			return {
 				label: 'Offline: new todos wait to upload',
 				short: 'Offline',

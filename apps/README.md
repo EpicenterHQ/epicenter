@@ -27,34 +27,44 @@ files remain in place.
 ## Svelte app root
 
 An app on the file contract (decision 7 of the file-contract design; Todos is
-the reference) opens its device at the root, always there, and adds the
-person's repository under the signed-in subtree, one per account:
+the reference) has two sides. The device is a module singleton, always
+there; the person's repository is in context, set by the signed-in boundary,
+one per account:
+
+```ts
+// apps/todos/src/lib/device.ts
+export const device = isDesktop ? openFolderDevice(todos) : openBrowserDevice(todos);
+```
+
+```svelte
+<!-- apps/todos/src/lib/components/SignedIn.svelte: the signed-in boundary -->
+<script lang="ts">
+  const { account, children } = $props();
+  const repo = setRepo(openRemote(todos, { account })); // `@epicenter/svelte/repo`
+  const uploader = startUploading(device, repo);
+  onDestroy(() => uploader[Symbol.dispose]());
+</script>
+
+{@render children()}
+```
 
 ```svelte
 <!-- apps/todos/src/routes/+page.svelte -->
-<script lang="ts">
-  const client = openTodosDevice(); // OPFS in a browser, the bound folder in its desktop window
-  const device = setDevice({ client, files: fromClient(client) });
-  onDestroy(() => closeDevice(client));
-  const todos = createTodoList({ // `oneList` from `@epicenter/svelte/client`, with Todos' order
-    device: device.files.todos,
-    repository: null,
-    outbox: isDesktop ? null : outboxOf(client), // only the browser uploads
-  });
-  const auth = webAuth(); // made on first use; null in the desktop window
-</script>
-
 {#if auth === null || auth.state.status === 'signed-out'}
-  <TodosApp {todos} />
+  <TodosApp signedIn={false} />
 {:else}
-  {#key auth.state.account}<SignedIn account={auth.state.account} />{/key}
+  {#key auth.state.account}
+    <SignedIn account={auth.state.account}><TodosApp signedIn /></SignedIn>
+  {/key}
 {/if}
 ```
 
-`SignedIn` opens `openRemote(contract, { account })`, starts the uploader
-(`startUploading`), and renders the same views over a list that holds both
-sides (`oneList`, which routes each write to the copy shown and keeps a note
-shown while it moves). Views read and write through `fromClient` state:
+The app component composes its list directly: signed out,
+`fromClient(device).todos`; signed in,
+`oneList(fromClient(device).todos, fromClient(getRepo<Todos>()).todos)`,
+which routes each write to the copy shown and keeps a note shown while it
+moves. Views sort with the app's own order. Views read and write through
+`fromClient` state:
 tracked `items`, `invalid` (notes that do not read, with their text), and
 writes that pass the version shown; `fieldEdit` binds one field to an
 immediate editor. See

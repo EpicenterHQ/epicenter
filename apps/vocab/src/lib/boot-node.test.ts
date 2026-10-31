@@ -60,9 +60,10 @@ describe('the callback opens nothing', () => {
 });
 
 describe('the working page needs no account', () => {
-	test('the page opens this browser’s files and mounts the app signed out, with no sign-in gate', async () => {
+	test('the page mounts the app over this browser’s files signed out, with no sign-in gate', async () => {
+		const device = await Bun.file(join(source, 'lib/device.ts')).text();
+		expect(device).toMatch(/openDevice\(vocab\)/);
 		const page = await Bun.file(join(routes, '+page.svelte')).text();
-		expect(page).toMatch(/openDevice\(vocab\)/);
 		expect(page).toMatch(
 			/\{#if auth\.state\.status === 'signed-out'\}\s*<VocabApp\b/,
 		);

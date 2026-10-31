@@ -1,20 +1,13 @@
 /**
- * The one list Todos shows (decision 12): the todos still on this device
- * ("not uploaded yet") and, signed in, the ones in the repository, by id.
- * `oneList` from `@epicenter/svelte/client` does the merging and routing
- * (writes go to the copy shown and follow a todo that moves; new todos go
- * to the repository, or wait on the device); Todos adds its order and the
- * words it shows.
+ * What Todos knows of a todo: its file, its label and its order. The list
+ * the views read (`getTodos`) is the device's todos signed out and, signed
+ * in, `oneList` over them and the repository's (decision 12); `TodosApp`
+ * makes it.
  */
 import type { NoteOf } from '@epicenter/definition/contract';
-import {
-	type CaptureQueue,
-	type OneList,
-	oneList,
-	type ReactiveNotes,
-} from '@epicenter/svelte/client';
-import type { Todos } from './contract.js';
-import { todos } from './contract.js';
+import type { NoteList } from '@epicenter/svelte/client';
+import { createContext } from 'svelte';
+import { type Todos, todos } from './contract.js';
 
 /** Todos' one collection: a note per todo. */
 export type TodoNotes = Todos['collections']['todos'];
@@ -33,20 +26,5 @@ export const labelOf = (todo: Pick<Todo, 'id' | 'title'>) =>
 export const openFirst = (a: Todo, b: Todo) =>
 	Number(a.done) - Number(b.done) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-/**
- * The one list over `device` (this browser's files, or the desktop's
- * folder) and `repository` (null signed out, and on the desktop, whose
- * folder Epicenter syncs). `outbox` is the device's when its new todos
- * upload (the browser), else null.
- */
-export const createTodoList = ({
-	device,
-	repository,
-	outbox,
-}: {
-	device: ReactiveNotes<TodoNotes>;
-	repository: ReactiveNotes<TodoNotes> | null;
-	outbox: CaptureQueue | null;
-}) => oneList(todos, 'todos', { device, repository, outbox, order: openFirst });
-
-export type TodoList = OneList<TodoNotes>;
+/** The list every Todos view reads and edits: the device's own signed out, the one list signed in. */
+export const [getTodos, setTodos] = createContext<NoteList<TodoNotes>>();

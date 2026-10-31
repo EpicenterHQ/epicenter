@@ -20,8 +20,8 @@
 	const signedIn = $derived(auth.state.status !== 'signed-out');
 	/** Signed in, the notes and folders made here that have not reached the repository yet. */
 	const waiting = $derived(
-		notes.items.filter(({ id }) => notes.where({ id }) === 'device').length +
-			folders.items.filter(({ id }) => folders.where({ id }) === 'device').length,
+		notes.items.filter(({ id }) => notes.where?.({ id }) === 'device').length +
+			folders.items.filter(({ id }) => folders.where?.({ id }) === 'device').length,
 	);
 	const status = $derived.by((): StatusLine => {
 		const unreadable = notes.error ?? folders.error;
@@ -35,8 +35,8 @@
 				tone: 'warning',
 			};
 		// New notes still save, to this device, and upload once it is back.
-		const offline = notes.repositoryError ?? folders.repositoryError;
-		if (offline !== null)
+		const offline = notes.repositoryError || folders.repositoryError;
+		if (offline)
 			return {
 				label: 'Offline: new notes wait to upload',
 				short: 'Offline',

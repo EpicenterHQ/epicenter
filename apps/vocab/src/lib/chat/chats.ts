@@ -1,4 +1,4 @@
-import type { OneList } from '@epicenter/svelte/client';
+import type { NoteList } from '@epicenter/svelte/client';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -15,7 +15,7 @@ import {
 	type UnreadableFile,
 } from '../data.js';
 
-export type ChatList = OneList<Vocab['collections']['chats']>;
+export type ChatList = NoteList<Vocab['collections']['chats']>;
 
 export const ChatHistoryError = defineErrors({
 	NotSaved: ({ cause }: { cause: unknown }) => ({

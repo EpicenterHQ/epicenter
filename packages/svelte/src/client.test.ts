@@ -4,6 +4,8 @@
  * write them.
  *
  * Key behaviors:
+ * - One client has one adapter, so every component composing from it shows
+ *   the same state
  * - A collection lists and subscribes only while an effect reads it
  * - Changes heard through `subscribe` reach readers; a listing a change
  *   interrupted never replaces a newer one
@@ -246,6 +248,13 @@ test('a listing a change interrupted never replaces a newer one', async () => {
 		undefined,
 	);
 	shown.stop();
+});
+
+test('one client has one adapter; another client of the same files has its own', async () => {
+	const { open } = await folder();
+	const client = open();
+	expect(fromClient(client)).toBe(fromClient(client));
+	expect(fromClient(client).todos).not.toBe(fromClient(open()).todos);
 });
 
 test('update carries an edit over another writer’s other field; after a clash it shows theirs and saves over it', async () => {

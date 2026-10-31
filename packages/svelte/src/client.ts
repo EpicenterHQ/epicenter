@@ -7,7 +7,9 @@
  * which pass the version the adapter shows, so a component never handles
  * one. A collection lists and subscribes (`subscribe` on the client) only
  * while an effect reads it, through `createSubscriber`, and stops when the
- * last reader goes; a read outside tracking is a snapshot.
+ * last reader goes; a read outside tracking is a snapshot. One client has
+ * one adapter: every `fromClient(device)` on a page is the same state, so
+ * any component may compose from it and views never disagree.
  *
  * - A write through the adapter puts what landed into what it shows before
  *   it resolves, so an edit's answer and the next listing never disagree.
@@ -25,7 +27,7 @@
  * Every write is held for the page's leave guard (`@epicenter/svelte/leave-guard`)
  * from the call until it answers.
  *
- * `oneList(contract, name, { device, repository, outbox })` (`one-list.ts`)
+ * `oneList(fromClient(device).x, fromClient(repo).x)` (`one-list.ts`)
  * shows one note collection over this device and the person's repository
  * as one `ReactiveNotes`, for an app whose notes upload (decision 12).
  *
@@ -65,12 +67,9 @@ import { Ok, type Result } from 'wellcrafted/result';
 import { edit } from './edit.svelte.js';
 import { holdLeave } from './leave-guard.js';
 
-export {
-	type CaptureQueue,
-	type OneList,
-	oneList,
-	type Side,
-} from './one-list.js';
+import { rememberSource } from './one-list.js';
+
+export { type NoteList, type OneList, oneList, type Side } from './one-list.js';
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
@@ -146,18 +145,26 @@ export type ReactiveClient<TContract extends Contract> = {
 	>;
 };
 
-/** Bridge a contract's client into Svelte's graph. */
+/** Each client's adapter, so a client is bridged once however many components ask. */
+const adapters = new WeakMap<object, unknown>();
+
+/** Bridge a contract's client into Svelte's graph: the same state for the same client. */
 export function fromClient<TContract extends Contract>(
 	client: Client<TContract>,
 ): ReactiveClient<TContract> {
+	const known = adapters.get(client);
+	if (known !== undefined) return known as ReactiveClient<TContract>;
+	const adapted = Object.fromEntries(
+		Object.entries(client).map(([name, collection]) => {
+			const reactive = fromCollection(collection as Raw);
+			rememberSource(reactive, { client: client as Client<Contract>, name });
+			return [name, reactive];
+		}),
+	);
+	adapters.set(client, adapted);
 	// SAFETY: each collection's client is adapted by the kind it is (a note
 	// client has `replace`), which is the kind its contract path gives it.
-	return Object.fromEntries(
-		Object.entries(client).map(([name, collection]) => [
-			name,
-			fromCollection(collection as Raw),
-		]),
-	) as unknown as ReactiveClient<TContract>;
+	return adapted as unknown as ReactiveClient<TContract>;
 }
 
 /** Either kind of collection client, as this module calls it. */

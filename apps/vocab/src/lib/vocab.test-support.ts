@@ -21,7 +21,6 @@ import { openDevice } from '@epicenter/folder/node';
 import { fromClient } from '@epicenter/svelte/client';
 import { flushSync } from 'svelte';
 import { type Vocab, vocab } from './contract.js';
-import { createVocabLists } from './vocab.svelte.js';
 
 const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
@@ -78,11 +77,8 @@ export async function openVocabFolder(initial: Record<string, string> = {}) {
 	const control: WriteControl = {};
 	const client = openDevice(vocab, { path: root });
 	const files = fromClient(controlled(client, control));
-	const lists = createVocabLists({
-		device: files,
-		repository: null,
-		outbox: null,
-	});
+	// Signed out, as the page composes it: the device's own collections.
+	const lists = files;
 	const followed = follow(() => [
 		lists.entries.items,
 		lists.entries.invalid,

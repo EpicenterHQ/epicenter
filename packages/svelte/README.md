@@ -45,20 +45,24 @@ version shown.
 ### This device and the repository as one list
 
 An app whose notes are kept on the device and upload to the person's
-repository (decision 12) shows each note collection through `oneList`, a
-`ReactiveNotes` over both sides, so views and `fieldEdit` never know which
-side they write:
+repository (decision 12) shows each note collection, signed in, through
+`oneList`, a `ReactiveNotes` over both sides, so views and `fieldEdit` never
+know which side they write. Signed out it shows the device's own collection.
+`fromClient` gives one client one adapter, so any component may compose:
 
 ```ts
-import { fromClient, oneList } from '@epicenter/svelte/client';
+import { fromClient, type NoteList, oneList } from '@epicenter/svelte/client';
+import { getRepo } from '@epicenter/svelte/repo';
 
-const todos = oneList(contract, 'todos', {
-  device: fromClient(device).todos,
-  repository: remote ? fromClient(remote).todos : null, // null signed out
-  outbox: outboxOf(device), // null where nothing uploads
-  order: (a, b) => Number(a.done) - Number(b.done), // default: by placeholders
-});
+const todos: NoteList<Todos['collections']['todos']> = signedIn
+  ? oneList(fromClient(device).todos, fromClient(getRepo<Todos>()).todos)
+  : fromClient(device).todos;
+const shown = $derived(todos.items.toSorted(openFirst)); // the app's order
 ```
+
+The device side must be a collection of a client `openDevice` returned: its
+outbox is where a note created there waits to upload. `NoteList` is what a
+view takes either way: `where` and `repositoryError` are there only signed in.
 
 - A note on both sides is mid-upload, and shows the device copy.
   `todos.where({ id })` says which side the copy shown is on (`'device'`
@@ -69,8 +73,10 @@ const todos = oneList(contract, 'todos', {
   same base.
 - A note the device lets go of stays shown until the repository answers a
   listing, so an editor open on it is never unmounted while it uploads.
-- `create` goes to the repository; when it cannot be reached, or signed out,
-  the note stays on the device, recorded in the outbox to upload. With
+- `create` goes to the repository; when it cannot be reached, the note
+  stays on the device, recorded in the outbox to upload. (Signed out, a note
+  created on the device is not recorded; the uploader's first run at sign-in
+  adopts every device file no capture names.) With
   `createOn: 'device'` every new note goes to the device and the outbox, so
   creating never waits on the server (Capture's Add); the uploader moves it.
 - `error` is the device's; `repositoryError` says the repository could not

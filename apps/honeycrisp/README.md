@@ -124,9 +124,10 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 | Path | Role |
 | --- | --- |
 | `src/lib/contract.ts` | The contract. |
-| `src/lib/honeycrisp.svelte.ts` | The two lists (`createLists`, notes newest first, folders by name), what the list and detail show, and the actions over both collections. |
+| `src/lib/device.ts` | The device, a module singleton: this browser's files. |
+| `src/lib/honeycrisp.svelte.ts` | The orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections. |
 | `src/lib/editor/` | The CodeMirror note editor: the binding that writes local edits and follows changes from elsewhere, live preview, conflict cards. It knows nothing of the app's UI or storage. |
-| `src/routes/+page.svelte` | Opens the device at the root; `src/lib/components/SignedIn.svelte` adds the repository and the uploader per account. |
+| `src/routes/+page.svelte` | Signed out, or the signed-in boundary (`src/lib/components/SignedIn.svelte`: the repository, `setRepo`, and the uploader, per account). `HoneycrispApp.svelte` composes the two lists. |
 | `src/lib/components/` | The views, which read and write only through the state in context. |
 
 ## Tests

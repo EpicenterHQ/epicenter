@@ -17,9 +17,8 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { toast } from '@epicenter/ui/sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
-	import { getTodos } from '$lib/context.js';
 	import { todos as contract } from '$lib/contract.js';
-	import { labelOf, todoPath } from '$lib/todos.js';
+	import { getTodos, labelOf, todoPath } from '$lib/todos.js';
 
 	const todos = getTodos();
 	let {
@@ -49,7 +48,7 @@
 	}
 
 	function confirmDelete(label: string) {
-		const where = todos.where({ id }) === 'repository' ? 'your repository' : 'this device';
+		const where = todos.where?.({ id }) === 'repository' ? 'your repository' : 'this device';
 		confirmationDialog.open({
 			title: `Delete “${label}”?`,
 			description: `This deletes ${path} from ${where}.`,

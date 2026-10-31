@@ -1,35 +1,26 @@
 <!--
-	Signed in: the learner's `vocab` repository beside this browser's files,
-	as one list per collection, and the uploader that moves what was made
-	here signed out or offline into the repository (decision 12).
+	The signed-in boundary: the learner's `vocab` repository for everything
+	under it (`getRepo`), and the uploader that moves what was made here
+	signed out or offline into it (decision 12).
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';
-	import { outboxOf } from '@epicenter/folder/browser';
 	import { openRemote, startUploading } from '@epicenter/folder/remote';
-	import { fromClient } from '@epicenter/svelte/client';
-	import { onDestroy } from 'svelte';
-	import { getDevice } from '$lib/context.js';
+	import { setRepo } from '@epicenter/svelte/repo';
+	import { onDestroy, type Snippet } from 'svelte';
 	import { vocab } from '$lib/contract.js';
-	import { createVocabLists } from '$lib/vocab.svelte.js';
-	import VocabApp from './VocabApp.svelte';
+	import { device } from '$lib/device.js';
 
 	// One account for this component's life: the parent's `{#key}` makes a
 	// new one for a new account, and sign-out or replacement retires this
-	// remote and its uploader.
-	const { account }: { account: Account } = $props();
+	// repository and its uploader.
+	const { account, children }: { account: Account; children: Snippet } = $props();
 
-	const device = getDevice();
 	// svelte-ignore state_referenced_locally
-	const remote = openRemote(vocab, { account });
-	const lists = createVocabLists({
-		device: device.files,
-		repository: fromClient(remote),
-		outbox: outboxOf(device.client),
-	});
+	const repo = setRepo(openRemote(vocab, { account }));
 	// The uploader's writes reach both sides' listeners, so the lists follow it.
-	const uploader = startUploading(device.client, remote);
+	const uploader = startUploading(device, repo);
 	onDestroy(() => uploader[Symbol.dispose]());
 </script>
 
-<VocabApp {lists} {account} />
+{@render children()}

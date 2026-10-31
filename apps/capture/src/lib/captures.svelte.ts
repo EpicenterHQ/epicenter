@@ -1,13 +1,14 @@
 /**
- * Capture's one list and what the views do with it: the timeline, which
- * capture is open and how, Add, and deletion.
+ * What Capture's views do with its list: the timeline, which capture is
+ * open and how, Add, and deletion.
  *
- * The list (`createCaptureList`) is `oneList` over this browser's files and,
- * signed in, the person's `capture` repository (decision 12): the captures
- * still in the browser ("not uploaded yet") and the repository's, newest
- * first. A new capture is always written to the browser first and recorded
- * to upload (`createOn: 'device'`), so Add never waits on the server and
- * works offline; the uploader moves it, and an edit made meanwhile follows.
+ * The list is this browser's captures signed out and, signed in, `oneList`
+ * over them and the person's `capture` repository (decision 12): the
+ * captures still in the browser ("not uploaded yet") and the repository's.
+ * The timeline shows them newest first. Signed in, a new capture is still
+ * written to the browser first and recorded to upload (`createOn: 'device'`),
+ * so Add never waits on the server and works offline; the uploader moves
+ * it, and an edit made meanwhile follows.
  */
 import {
 	type CaptureNote,
@@ -25,18 +26,13 @@ import {
 	noteText,
 } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import {
-	type CaptureQueue,
-	type OneList,
-	oneList,
-	type ReactiveNotes,
-	type Side,
-} from '@epicenter/svelte/client';
+import type { NoteList, Side } from '@epicenter/svelte/client';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { TextRange } from './capture-actions.svelte.js';
 
-export type CaptureList = OneList<CaptureNotes>;
+/** The captures the views read: this browser's signed out, the one list signed in. */
+export type CaptureList = NoteList<CaptureNotes>;
 export type Captures = ReturnType<typeof createCaptures>;
 export type Mode = 'capture' | 'text';
 export type Focus = 'new-thought' | TextRange;
@@ -98,8 +94,9 @@ export const readCaptureBody = (note: Pick<CaptureNote, 'body'>) =>
 	captureBody.decode(note.body);
 
 /**
- * What the timeline shows: captures, files that open as text to repair, and
- * files that are not text. `whereOf` says which side a capture's copy is on.
+ * What the timeline shows: captures newest first, files that open as text
+ * to repair, and files that are not text. `whereOf` says which side a
+ * capture's copy is on.
  */
 export function timelineOf(
 	items: readonly CaptureNote[],
@@ -109,7 +106,7 @@ export function timelineOf(
 	const rows: TimelineRow[] = [];
 	const repairs: Repair[] = [];
 	const notText: NotText[] = [];
-	for (const note of items) {
+	for (const note of items.toSorted(newestFirst)) {
 		const reading = readCaptureBody(note);
 		if (reading.error !== null) {
 			repairs.push({
@@ -142,27 +139,6 @@ export function timelineOf(
 }
 
 /**
- * The one list over `device` (this browser's files) and `repository` (null
- * signed out). `outbox` is the device's, where new captures wait to upload.
- */
-export const createCaptureList = ({
-	device,
-	repository,
-	outbox,
-}: {
-	device: ReactiveNotes<CaptureNotes>;
-	repository: ReactiveNotes<CaptureNotes> | null;
-	outbox: CaptureQueue;
-}): CaptureList =>
-	oneList(capture, 'captures', {
-		device,
-		repository,
-		outbox,
-		order: newestFirst,
-		createOn: 'device',
-	});
-
-/**
  * What the views do with `list`. `uploads` is whether captures in the
  * browser go up to a repository (signed in), so the timeline marks the ones
  * that have not yet.
@@ -177,7 +153,8 @@ export function createCaptures(
 		timelineOf(
 			list.items,
 			list.invalid,
-			(id) => list.where({ id }) ?? 'device',
+			// Signed out, every capture is in this browser.
+			(id) => list.where?.({ id }) ?? 'device',
 		),
 	);
 

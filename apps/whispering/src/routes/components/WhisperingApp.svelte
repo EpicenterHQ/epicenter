@@ -1,31 +1,28 @@
 <script lang="ts">
-	import type { Client } from '@epicenter/definition/contract';
 	import * as Alert from '@epicenter/ui/alert';
 	import * as Empty from '@epicenter/ui/empty';
+	import { getRepo } from '@epicenter/svelte/repo';
 	import { Loading } from '@epicenter/ui/loading';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import type { Whispering as WhisperingContract } from '$lib/contract.js';
+	import { device } from '$lib/device.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import BottomNav from './BottomNav.svelte';
 	import VerticalNav from './VerticalNav.svelte';
 
-	/** Product state over this browser's files and, signed in, the repository; stops taking work when it leaves. */
-	let {
-		device,
-		repository,
-		children,
-	}: {
-		device: Client<WhisperingContract>;
-		repository: Client<WhisperingContract> | null;
-		children: Snippet;
-	} = $props();
+	/**
+	 * Product state over this browser's files and, signed in (under the
+	 * signed-in boundary), the repository; stops taking work when it leaves.
+	 */
+	let { signedIn, children }: { signedIn: boolean; children: Snippet } = $props();
 
-	// Each mounted product root keeps the sides it received.
+	// Each mounted product root keeps the sides it opened with.
 	// svelte-ignore state_referenced_locally
+	const repository = signedIn ? getRepo<WhisperingContract>() : null;
 	const whispering = createWhispering({ device, repository });
 	setWhispering(whispering);
 	const { view } = whispering;
@@ -39,11 +36,11 @@
 
 {#snippet header()}
 	<AppHeader />
-	{#if whispering.files.deviceError}
+	{#if whispering.deviceError}
 		<Alert.Root variant="warning" class="rounded-none" data-testid="device-unavailable">
 			<Alert.Title>This browser is not keeping files for Whispering</Alert.Title>
 			<Alert.Description>
-				{whispering.files.deviceError.message}. A private window keeps none. A recording stays in this page, to save again or download, until it closes.
+				{whispering.deviceError.message}. A private window keeps none. A recording stays in this page, to save again or download, until it closes.
 			</Alert.Description>
 		</Alert.Root>
 	{/if}

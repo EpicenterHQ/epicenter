@@ -9,7 +9,7 @@ import {
 	AgentMessageStoreError,
 } from '@epicenter/agent';
 import { sameValue } from '@epicenter/definition/note';
-import type { OneList } from '@epicenter/svelte/client';
+import type { NoteList } from '@epicenter/svelte/client';
 import { untrack } from 'svelte';
 import { Ok } from 'wellcrafted/result';
 import type { Vocab } from '../contract.js';
@@ -21,7 +21,7 @@ import {
 } from '../data.js';
 import { ChatHistoryError } from './chats.js';
 
-export type MessageList = OneList<Vocab['collections']['messages']>;
+export type MessageList = NoteList<Vocab['collections']['messages']>;
 
 const messagePath = (chat: string, id: string) => `messages/${chat}/${id}.md`;
 

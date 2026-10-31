@@ -1,35 +1,26 @@
 <!--
-	Signed in: the person's `todos` repository beside this browser's files,
-	as one list, and the uploader that moves the todos made here signed out
-	or offline into the repository (decision 12).
+	The signed-in boundary: the person's `todos` repository for everything
+	under it (`getRepo`), and the uploader that moves the todos made here
+	signed out or offline into it (decision 12).
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';
-	import { outboxOf } from '@epicenter/folder/browser';
 	import { openRemote, startUploading } from '@epicenter/folder/remote';
-	import { fromClient } from '@epicenter/svelte/client';
-	import { onDestroy } from 'svelte';
-	import { todos as contract } from '$lib/contract.js';
-	import { getDevice } from '$lib/context.js';
-	import { createTodoList } from '$lib/todos.js';
-	import TodosApp from './TodosApp.svelte';
+	import { setRepo } from '@epicenter/svelte/repo';
+	import { onDestroy, type Snippet } from 'svelte';
+	import { todos } from '$lib/contract.js';
+	import { device } from '$lib/device.js';
 
 	// One account for this component's life: the parent's `{#key}` makes a
 	// new one for a new account, and sign-out or replacement retires this
-	// remote and its uploader.
-	const { account }: { account: Account } = $props();
+	// repository and its uploader.
+	const { account, children }: { account: Account; children: Snippet } = $props();
 
-	const device = getDevice();
 	// svelte-ignore state_referenced_locally
-	const remote = openRemote(contract, { account });
-	const todos = createTodoList({
-		device: device.files.todos,
-		repository: fromClient(remote).todos,
-		outbox: outboxOf(device.client),
-	});
+	const repo = setRepo(openRemote(todos, { account }));
 	// The uploader's writes reach both sides' listeners, so the list follows it.
-	const uploader = startUploading(device.client, remote);
+	const uploader = startUploading(device, repo);
 	onDestroy(() => uploader[Symbol.dispose]());
 </script>
 
-<TodosApp {todos} />
+{@render children()}

@@ -22,24 +22,29 @@ src/routes/                  the root, the signed-in subtree, the pages and view
 sign-in callback, which finishes sign-in and loads the page it started from,
 so a page lifetime is one account.
 
-- `WhisperingRoot.svelte` opens the device once (`openWhisperingDevice`,
-  closed with `closeDevice` when it leaves) and reads `getAuth()`. Signed
-  out, it renders `WhisperingApp` with `repository={null}`. Otherwise, under
-  `{#key auth.state.account}`, it renders `SignedIn`.
-- `SignedIn.svelte` opens the repository, `openRemote(whispering, { account })`
-  (`<account>/whispering`, decision 46), starts `startUploading(device,
-  repository)`, and disposes the uploader when it leaves. Sign-out or another
+- `lib/device.ts` opens the device once for the page, a module singleton
+  (`export const device = openDevice(whispering)`).
+- `WhisperingRoot.svelte` reads `getAuth()`. Signed out, it renders
+  `WhisperingApp signedIn={false}`. Otherwise, under
+  `{#key auth.state.account}`, it renders `SignedIn` around
+  `WhisperingApp signedIn`.
+- `SignedIn.svelte` is the signed-in boundary: it opens the repository,
+  `openRemote(whispering, { account })` (`<account>/whispering`, decision
+  46), sets it in context (`setRepo` from `@epicenter/svelte/repo`), starts
+  `startUploading(device, repository)`, and disposes the uploader when it
+  leaves. Sign-out or another
   account retires the account, which stops its requests and its uploader and
   clears what its uploads cached. `reauth-required` keeps the subtree and
   pauses requests.
 - `WhisperingApp.svelte` makes the product state once,
-  `createWhispering({ device, repository })`, puts it in context
+  `createWhispering({ device, repository })` with `repository` from
+  `getRepo()` signed in and null signed out, puts it in context
   (`setWhispering`), awaits `start()` (connections and the saved microphone),
   and disposes it when it leaves. Pages and views read state from context
   (`getWhispering`) and never open a client.
 
 `src/lib/page-boundary.test.ts` pins this: `openDevice` only in `device.ts`,
-`openRemote` and `startUploading` only in `SignedIn`, `createWhispering` only
+`openRemote`, `setRepo` and `startUploading` only in `SignedIn`, `createWhispering` only
 in `WhisperingApp`, services only through `#platform/services`, nothing from
 Node, Bun or Tauri, and no use of the retired folder and table API
 (`openFolder`, `svelteFolder`, `defineTable`, `@epicenter/svelte/folder`)
@@ -47,14 +52,15 @@ anywhere, tests included.
 
 ## The files as lists
 
-`createWhisperingFiles({ device, repository })` (`files.svelte.ts`) adapts
-both clients with `fromClient` and makes one `oneList` per note collection
-(`@epicenter/svelte/client`): the notes still on the device ("not uploaded
-yet") and the repository's, by id, as one `ReactiveNotes`. Each list lists
-and listens only while something reactive reads it; a read outside an effect
-is a snapshot.
+`createWhispering` composes each note collection directly: signed out, the
+device's own (`fromClient(device).<collection>`); signed in, one `oneList`
+per collection (`@epicenter/svelte/client`): the notes still on the device
+("not uploaded yet") and the repository's as one `ReactiveNotes`. It sorts
+each with its order from `files.svelte.ts` (`newest`, `byTitle`). Each list
+lists and listens only while something reactive reads it; a read outside an
+effect is a snapshot.
 
-- Each listed note carries `where: 'device' | 'repository'`. Writes go to
+- Signed in, `where({ id })` says `'device' | 'repository'`. Writes go to
   the copy shown; a write that meets a device copy the upload already let go
   of follows the note to the repository.
 - `create` goes to the repository when there is one and it answers, else to
@@ -69,7 +75,9 @@ is a snapshot.
   transcriptions and transformation runs, and the transformations page
   shows its own and text runs'. `replace` repairs one from text.
 
-Audio is a file collection, `recordings/{id}.{ext}`, so it has no `oneList`.
+Audio is a file collection, `recordings/{id}.{ext}`, so it has no `oneList`;
+`createAudio({ device, repository })` (`files.svelte.ts`) reads it across
+both sides, and `files` is the lists and those reads together.
 `files.audioOf(id)` merges the repository's listed audio, the device's (which
 wins while both hold it, mid-upload), and, signed in, the device's cache
 (`cacheOf(device)`, read again whenever either side's audio changes). It

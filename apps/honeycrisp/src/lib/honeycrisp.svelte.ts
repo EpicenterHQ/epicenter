@@ -1,26 +1,19 @@
 /**
- * Honeycrisp's state over its two collections, each one list (decision 12):
- * the notes and folders still on this device ("not uploaded yet") and,
- * signed in, the ones in the person's repository. `oneList` from
- * `@epicenter/svelte/client` does the merging and routing (writes go to the
- * copy shown and follow one that moves; new ones go to the repository, or
- * wait on the device); Honeycrisp adds its orders, what the lists and the
- * detail show, and the actions that span both collections.
+ * Honeycrisp's state over its two collections: this browser's notes and
+ * folders and, signed in, the ones in the person's repository, each as one
+ * list (`oneList`, decision 12), which merges and routes writes (writes go
+ * to the copy shown and follow one that moves; new ones go to the
+ * repository, or wait on the device). Honeycrisp adds its orders, what the
+ * lists and the detail show, and the actions that span both collections.
  *
  * A note names its folder by id. Deleting a folder deletes its file only:
  * its notes keep their `folderId`, show in All Notes, and say their folder
  * was deleted until moved. That is one write, so it cannot half happen, and
  * it needs no note to be readable.
  */
-import type { Client, NoteOf } from '@epicenter/definition/contract';
+import type { NoteOf } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import {
-	type CaptureQueue,
-	type OneList,
-	oneList,
-	type ReactiveClient,
-	type Side,
-} from '@epicenter/svelte/client';
+import type { NoteList, Side } from '@epicenter/svelte/client';
 import { createContext } from 'svelte';
 import { type Honeycrisp, honeycrisp } from './contract.js';
 import { displayTitle } from './note-source.js';
@@ -32,8 +25,6 @@ export type FolderCollection = Honeycrisp['collections']['folders'];
 
 export type Note = NoteOf<NoteCollection>;
 export type Folder = NoteOf<FolderCollection>;
-export type NoteList = OneList<NoteCollection>;
-export type FolderList = OneList<FolderCollection>;
 
 /** The file of the note `id`. */
 export const notePath = (id: string) =>
@@ -64,35 +55,14 @@ export const byName = (a: Folder, b: Folder) =>
 	folderLabel(a).localeCompare(folderLabel(b)) || (a.id < b.id ? -1 : 1);
 
 /**
- * The two lists over `device` (this browser's files) and `repository` (null
- * signed out). `outbox` is the device's, so what is made here waits there
- * to upload.
+ * The two lists the views read and write: this browser's notes and folders
+ * signed out and, signed in, each `oneList` over them and the repository's.
+ * `HoneycrispApp` makes them.
  */
-export function createLists({
-	device,
-	repository,
-	outbox,
-}: {
-	device: ReactiveClient<Honeycrisp>;
-	repository: ReactiveClient<Honeycrisp> | null;
-	outbox: CaptureQueue | null;
-}) {
-	return {
-		notes: oneList(honeycrisp, 'notes', {
-			device: device.notes,
-			repository: repository?.notes ?? null,
-			outbox,
-			order: newestFirst,
-		}),
-		folders: oneList(honeycrisp, 'folders', {
-			device: device.folders,
-			repository: repository?.folders ?? null,
-			outbox,
-			order: byName,
-		}),
-	};
-}
-export type Lists = ReturnType<typeof createLists>;
+export type Lists = {
+	notes: NoteList<NoteCollection>;
+	folders: NoteList<FolderCollection>;
+};
 
 /** What the detail shows: a note (read or not), or a folder that needs repair. */
 export type Selection = {
@@ -190,11 +160,4 @@ export function createHoneycrisp(lists: Lists) {
 }
 export type HoneycrispState = ReturnType<typeof createHoneycrisp>;
 
-/** This page's device: its client (for the outbox and uploading) and that client as Svelte state (decision 10). */
-export type Device = {
-	client: Client<Honeycrisp>;
-	files: ReactiveClient<Honeycrisp>;
-};
-
-export const [getDevice, setDevice] = createContext<Device>();
 export const [getHoneycrisp, setHoneycrisp] = createContext<HoneycrispState>();

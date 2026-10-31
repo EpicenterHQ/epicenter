@@ -8,8 +8,7 @@
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { toast } from '@epicenter/ui/sonner';
 	import { webAuth } from '$lib/auth.js';
-	import { getTodos } from '$lib/context.js';
-	import { labelOf, type Todo } from '$lib/todos.js';
+	import { getTodos, labelOf, type Todo } from '$lib/todos.js';
 
 	const todos = getTodos();
 	const auth = webAuth();
@@ -31,7 +30,8 @@
 			toast.error('Could not update todo', { description: error.message });
 	}
 	const label = $derived(labelOf(todo));
-	const where = $derived(todos.where({ id: todo.id }));
+	// Signed out, every todo is on this device.
+	const where = $derived(todos.where?.({ id: todo.id }) ?? 'device');
 </script>
 
 <li

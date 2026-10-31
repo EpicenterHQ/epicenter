@@ -20,16 +20,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Capture, capture } from '@epicenter/capture';
 import { type Client, ClientError } from '@epicenter/definition/contract';
-import { openDevice, outboxOf } from '@epicenter/folder/node';
+import { openDevice } from '@epicenter/folder/node';
 
-const { fromClient } = await import('@epicenter/svelte/client');
+const { fromClient, oneList } = await import('@epicenter/svelte/client');
 const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 );
 const { flushSync } = await import('svelte');
-const { createCaptureList, createCaptures } = await import(
-	'./captures.svelte.ts'
-);
+const { createCaptures } = await import('./captures.svelte.ts');
 
 type Files = Record<string, string | Uint8Array>;
 
@@ -62,7 +60,10 @@ export async function until(
 
 /**
  * The capture store over a device holding `files` and, with `repository`,
- * a second device holding those files as the repository.
+ * a second device holding those files as the repository, as the page
+ * composes them: the device's captures signed out, the one list signed in.
+ * Writes fail or wait on command signed out; signed in the one list writes
+ * through the device client itself, whose outbox it records to.
  */
 export async function openCaptures(
 	files: Files = {},
@@ -97,11 +98,11 @@ export async function openCaptures(
 		},
 	};
 
-	const list = createCaptureList({
-		device: fromClient(client).captures,
-		repository: remote && fromClient(remote).captures,
-		outbox: outboxOf(device),
-	});
+	const list = remote
+		? oneList(fromClient(device).captures, fromClient(remote).captures, {
+				createOn: 'device',
+			})
+		: fromClient(client).captures;
 	const captures = createCaptures(list, { uploads: remote !== null });
 	// Read the list in an effect, as the views do, so it lists and listens.
 	const watching = follow(() => [list.items, list.invalid, list.loading]);

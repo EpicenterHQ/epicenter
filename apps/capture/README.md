@@ -100,24 +100,27 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 ## How it is wired
 
 ```text
-routes/+page.svelte          openDevice(capture) at the root (setDevice), and
-                             the one list over it, signed out
-  SignedIn.svelte            {#key account}: openRemote(capture, { account }),
-                             the one list over both, startUploading
-    CaptureApp.svelte        header (where, status, sign-in), then
+lib/device.ts                openDevice(capture), the page's device
+routes/+page.svelte          signed out: CaptureApp; signed in:
+  SignedIn.svelte            {#key account}: setRepo(openRemote(capture, { account })),
+                             startUploading
+    CaptureApp.svelte        the list (the device's captures, or oneList over
+                             both), header (where, status, sign-in), then
       Timeline | CaptureDetail | TextDetail
 ```
 
 Views read and write only through the store they are given
-(`createCaptures` over `createCaptureList`, in `src/lib/captures.svelte.ts`),
-never a client. The list is `oneList` from `@epicenter/svelte/client` with
-`createOn: 'device'` and newest-first order.
+(`createCaptures`, in `src/lib/captures.svelte.ts`), never a client. Signed
+in, the list is `oneList` from `@epicenter/svelte/client` with
+`createOn: 'device'`; the timeline shows it newest first.
 
 | Path | Role |
 | --- | --- |
-| `src/routes/+page.svelte` | The device and the signed-out list. |
-| `src/lib/components/SignedIn.svelte` | The repository, the two-sided list, and the uploader. |
-| `src/lib/captures.svelte.ts` | The one list, the timeline, Add, deletion, and navigation. |
+| `src/lib/device.ts` | The device. |
+| `src/routes/+page.svelte` | Signed out or the signed-in boundary. |
+| `src/lib/components/SignedIn.svelte` | The repository and the uploader. |
+| `src/lib/components/CaptureApp.svelte` | Composes the list, and the header. |
+| `src/lib/captures.svelte.ts` | The timeline, Add, deletion, and navigation. |
 | `src/lib/capture-actions.svelte.ts` | Thought and text commands over one body edit; a thought's lines in the note's text. |
 | `src/lib/components/CaptureDetail.svelte` | A capture as its text and thoughts. |
 | `src/lib/components/TextDetail.svelte` | A capture's note as text, saved with `replace`. |

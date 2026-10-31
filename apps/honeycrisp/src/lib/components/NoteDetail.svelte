@@ -13,7 +13,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import NoteEditor from '$lib/editor/NoteEditor.svelte';
-	import { folderLabel, getHoneycrisp, noteLabel, notePath } from '$lib/honeycrisp.svelte.js';
+	import { byName, folderLabel, getHoneycrisp, noteLabel, notePath } from '$lib/honeycrisp.svelte.js';
 	import { confirmDeleteNote } from './delete-note.js';
 	import RepairDetail from './RepairDetail.svelte';
 
@@ -64,7 +64,7 @@
 				onchange={(event) => void set('move the note', { folderId: folderOf(event.currentTarget.value) })}
 			>
 				<option value="">No folder</option>
-				{#each folders.items as folder (folder.id)}
+				{#each folders.items.toSorted(byName) as folder (folder.id)}
 					<option value={optionOf(folder.id)}>{folderLabel(folder)}</option>
 				{/each}
 				{#if folderId !== undefined && folders.get({ id: folderId }) === undefined}

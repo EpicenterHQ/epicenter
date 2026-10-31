@@ -3,7 +3,7 @@
  * words that read, newest first; the notes that do not, to repair as text;
  * and adding, editing, and deleting a word.
  */
-import type { OneList } from '@epicenter/svelte/client';
+import type { NoteList } from '@epicenter/svelte/client';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -33,7 +33,7 @@ export const EntryError = defineErrors({
 });
 export type EntryError = InferErrors<typeof EntryError>;
 
-export type EntryList = OneList<Vocab['collections']['entries']>;
+export type EntryList = NoteList<Vocab['collections']['entries']>;
 
 /** A word note that does not read, as the repair list shows it. */
 export type EntryRepair = {
@@ -80,7 +80,7 @@ export function createEntries(
 			// Signed in, a word whose copy is still on this device has not uploaded yet.
 			return wordsOf(
 				list.items,
-				(id) => uploads && list.where({ id }) === 'device',
+				(id) => uploads && list.where?.({ id }) === 'device',
 			);
 		},
 		get repairs(): EntryRepair[] {
