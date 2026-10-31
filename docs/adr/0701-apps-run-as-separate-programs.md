@@ -3,8 +3,8 @@
 - **Status:** Proposed (awaiting the owner's review; flip to Accepted when approved)
 - **Date:** 2026-10-31
 - **Supersedes:** [ADR-0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md) (a hosted HTTPS site), [ADR-0687](0687-opening-a-site-url-opens-its-derived-folder.md) (opening a site URL in Epicenter), [ADR-0691](0691-offline-reopening-keeps-the-sites-https-origin.md) (offline reopening of a hosted site), [ADR-0680](0680-rust-serves-each-installed-app-from-a-pinned-build-on-its-own-origin.md) (pinned installed builds), [ADR-0677](0677-one-source-repository-can-provide-many-desktop-apps.md) (source-installed desktop apps), and [ADR-0493](0493-whisperings-only-desktop-shell-is-epicenter.md) (Whispering's desktop shell is Epicenter).
-- **Amends:** [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) at the Apps list; [ADR-0644](0644-the-shell-assigns-a-native-windows-default-folder.md) and [ADR-0652](0652-the-folder-plugin-opens-one-window-per-app-and-directory.md) at the Epicenter host's bundled app windows; [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) at apps bundled with Epicenter; [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) at bundled and installed app roots; [ADR-0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) at the desktop window's account command; [ADR-0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) at standalone app defaults: an app on `epicenter-standalone` defaults to `~/Epicenter/<productName>`, not a reverse-DNS child; [ADR-0682](0682-secrets-use-one-persistent-api-and-a-shared-tauri-plugin.md) at `tauri-plugin-epicenter-secrets`: a standalone app reaches the keychain through `epicenter-account`.
-- **Revised:** 2026-10-31 for decisions 79 to 97: per-app desktop programs, two roots, Tauri's grants, startup and recovery, settings notes, and the sign-in crate (see [Revisions](#revisions)).
+- **Amends:** [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) at the Apps list; [ADR-0644](0644-the-shell-assigns-a-native-windows-default-folder.md) and [ADR-0652](0652-the-folder-plugin-opens-one-window-per-app-and-directory.md) at the Epicenter host's bundled app windows; [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) at apps bundled with Epicenter; [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) at bundled and installed app roots; [ADR-0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) at the desktop window's account command; [ADR-0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) at standalone app defaults: an app on `epicenter-standalone` defaults to `~/Epicenter/<productName>`, not a reverse-DNS child; [ADR-0682](0682-secrets-use-one-persistent-api-and-a-shared-tauri-plugin.md) at `tauri-plugin-epicenter-secrets`: a standalone app reaches the keychain through `epicenter-account`; [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) at Epicenter's own bound windows: Settings and the folder editor window bound no directory, because Epicenter opens no folder's files.
+- **Revised:** 2026-10-31 for decisions 79 to 97: per-app desktop programs, two roots, Tauri's grants, startup and recovery, settings notes, and the sign-in crate; 2026-11-01 for the folder editor window and Settings' AI connections, both deleted (see [Revisions](#revisions)).
 - **Unbuilt:** standalone Todos on `epicenter-standalone` and two roots; a native client for Capture or Honeycrisp, which sign in to nothing today.
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (apps share data through a file contract, so no app needs Epicenter to reach its data).
 - **Archive:** the annotated tag `archive/app-hosting` at `728e820cc0`, the last commit with app hosting.
@@ -29,9 +29,9 @@ it made Epicenter the only desktop shell Whispering had.
 ## Decision
 
 **Apps are separate programs; the Epicenter desktop app manages folders only.**
-It registers, syncs, shares, and shows the status of folders, and opens a
-registered folder's files in its editor window. It does not list, open,
-install, serve, or update apps, and it does not open published sites.
+It registers, syncs, shares, and shows the status of folders. It opens no
+folder's files, and it does not list, open, install, serve, or update apps
+or open published sites.
 
 **An app ships its own builds.** Each app keeps its web build. Its desktop
 variant is a small Tauri program of its own on the shared
@@ -123,11 +123,11 @@ goes through `account_fetch`. The page's side is `createTauriAuth` and
 
 ## Consequences
 
-- The Folders window has Folders and the editor; its Apps and Sites sections
-  are gone. Settings keeps its account, AI keys, and local model
-  administration.
-- `epicenter-app://localhost` serves only Settings (`/home/`), the Folders
-  window (`/folders/`), and the editor (`/folders/editor/`).
+- The Folders window has Folders only; its Apps and Sites sections and the
+  editor window it opened are gone. Settings keeps its account and local
+  model administration; its AI connections are gone.
+- `epicenter-app://localhost` serves only Settings (`/home/`) and the Folders
+  window (`/folders/`).
 - Whispering's desktop build is its own program again (milestone A), over
   `~/Epicenter/Whispering`.
 - Messages' web build runs its demo conversations only.
@@ -305,6 +305,17 @@ directory, serve that build from its own origin, and grant the window the
 folder its contract names (ADR-0677 and ADR-0680 sketch this).
 
 ## Revisions
+
+### 2026-11-01: the editor window and AI connections
+
+Epicenter's folder editor window (Files, grid, board, SQL, and saved views
+over a bound folder) and Settings' AI connection rows in `so.epicenter` were
+deleted. Every app reaches its folder through its own program and the file
+contract, so an editor inside the folder manager had no caller an app could
+not serve, and nothing but Settings read the connection rows. Epicenter now
+binds no window to a directory and does not install the folder plugin.
+`epicenter auth key` and `epicenter send` keep the keychain half of AI
+connections in the CLI.
 
 ### 2026-10-31: decisions 79 to 97
 

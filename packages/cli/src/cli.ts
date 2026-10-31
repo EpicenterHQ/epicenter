@@ -28,11 +28,6 @@ type Run = (
  */
 const HANDLERS: Record<string, Run> = {
 	messages: async () => (await import('./messages.js')).messagesCommand(),
-	'documents-query': async ({ positionals: [directory], json }) =>
-		(await import('./document-commands.ts')).documentsQuery(
-			directory as string,
-			json,
-		),
 	check: async ({ positionals: [contract, dir], json }) =>
 		(await import('./contract-commands.ts')).check(
 			contract as string,

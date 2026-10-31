@@ -247,4 +247,4 @@ with the folder. Files and grid share one draft owner, and SQL reads a disposabl
 projection of saved Markdown through the same document reader. Named-view
 persistence, boards, browser SQL, and schema distribution remain separate work.
 See the [folder contract](../packages/folder/README.md#portable-schemas-and-generic-documents)
-and [desktop editor](../apps/epicenter/README.md#folder-editor-windows).
+and the desktop editor (deleted on 2026-11-01).

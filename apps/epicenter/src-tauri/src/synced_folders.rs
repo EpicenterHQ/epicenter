@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime, Webview};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
-use tauri_plugin_epicenter_folder::Directory;
+use tauri_plugin_epicenter_folder::{library, Directory};
 
 use crate::cli::{self, CliChildren, CliError, StartedChild};
 use crate::{BuiltInApp, DesktopAppHandle};
@@ -639,9 +639,9 @@ pub async fn synced_folders(webview: Webview) -> Result<SyncedFolderListing, Cli
 
 /// Run `epicenter init <path>`, then restart the service.
 ///
-/// A folder that is there must be one the shell would open in any window: a
-/// real directory holding none of Epicenter's own files, so neither the
-/// records nor the library root around every folder becomes a repository.
+/// A folder that is there must be a real directory holding none of
+/// Epicenter's own files, so neither the records nor the library root around
+/// every folder becomes a repository.
 async fn init<R: Runtime>(webview: &Webview<R>, path: &str) -> Result<FolderSetUp, CliError> {
     #[derive(Deserialize)]
     struct Reply {
@@ -781,24 +781,6 @@ pub async fn forget_synced_folder(webview: Webview, path: String) -> Result<(), 
     Ok(())
 }
 
-/// Open a synced folder's files in an editor window of their own.
-#[tauri::command]
-#[specta::specta]
-pub async fn open_synced_folder(app: DesktopAppHandle, path: String) -> Result<(), String> {
-    let path = app
-        .state::<SyncedFolders>()
-        .member(&path)
-        .map_err(|error| error_message(&error))?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let directory = admit(&app.state::<DesktopPaths>(), &path)?;
-        crate::folder_windows::open_editor(&app, directory)
-            .map(|_| ())
-            .map_err(|error| format!("{error:#}"))
-    })
-    .await
-    .map_err(|error| format!("the folder could not be opened: {error}"))?
-}
-
 /// The directory at `path` when it is a real folder that holds none of
 /// Epicenter's own files.
 fn admit(paths: &DesktopPaths, path: &str) -> Result<Directory, String> {
@@ -811,7 +793,7 @@ fn admit(paths: &DesktopPaths, path: &str) -> Result<Directory, String> {
         Ok(_) => {}
     }
     let directory = Directory::existing(Path::new(path)).map_err(|error| error.to_string())?;
-    if crate::folder_windows::overlaps_epicenter_files(paths, &directory) {
+    if library::check_app_directory(&paths.data_dir, &paths.folder_dir, directory.root()).is_err() {
         return Err("This folder holds Epicenter's own files.".to_string());
     }
     Ok(directory)
@@ -1100,14 +1082,16 @@ mod tests {
             data_dir: root.join("data"),
             folder_dir: root.join("Epicenter"),
         };
-        let records = paths
-            .open_default(epicenter_folder_core::library::RECORDS)
-            .unwrap();
+        let records = paths.open_default(library::RECORDS).unwrap();
         let notes = paths.folder_dir.join("notes");
         fs::create_dir_all(&notes).unwrap();
         fs::create_dir_all(&paths.data_dir).unwrap();
+        // Any folder's own `.epicenter`, records or not.
+        let scratch = root.join("elsewhere/.epicenter/scratch");
+        fs::create_dir_all(&scratch).unwrap();
         for refused in [
             records.root().to_path_buf(),
+            scratch,
             paths.folder_dir.clone(),
             paths.data_dir.clone(),
             root.clone(),

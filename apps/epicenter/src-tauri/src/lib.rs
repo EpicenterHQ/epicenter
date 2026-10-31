@@ -14,12 +14,10 @@ use tauri_plugin_opener::OpenerExt;
 mod command_names;
 
 mod cli;
-mod folder_query;
-mod folder_windows;
 mod synced_folders;
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 #[cfg(target_os = "macos")]
-mod macos_tabs;
+mod macos_menu;
 mod scheme;
 
 pub mod audio;
@@ -57,8 +55,7 @@ pub mod clipboard;
 
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 
-/// Epicenter's own windows. Each synced folder's files open in a window of
-/// their own through `open_synced_folder` (`synced_folders.rs`).
+/// Epicenter's own windows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BuiltInApp {
     Home,
@@ -111,12 +108,10 @@ macro_rules! shell_commands {
             synced_folders::clone_synced_folder,
             synced_folders::sync_folder_now,
             synced_folders::forget_synced_folder,
-            synced_folders::open_synced_folder,
             synced_folders::folder_sharing,
             synced_folders::share_folder,
             synced_folders::unshare_folder,
             synced_folders::restart_sync_service,
-            folder_query::folder_query,
             cli::auth_login::<tauri::Wry>,
             cli::auth_status,
             cli::auth_logout,
@@ -235,12 +230,11 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             open_forwarded_deep_links(app, &args);
         }))
-        .plugin(tauri_plugin_epicenter_folder::init())
         .plugin(log_plugin)
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
-        // Rust owns the folder picker and application Quit confirmation.
-        // Pages confirm their own window close; none may open the file picker.
+        // Rust owns the folder picker and application Quit confirmation; no
+        // page may open the file picker.
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(synced_folders::SyncedFolders::default())
@@ -278,7 +272,7 @@ pub fn run() {
         .setup(move |app| {
             specta_builder.mount_events(app);
             #[cfg(target_os = "macos")]
-            macos_tabs::install(app.handle()).context("install native window menu")?;
+            macos_menu::install(app.handle()).context("install native app menu")?;
 
             let desktop_paths = DesktopPaths::resolve(app.handle()).map_err(anyhow::Error::msg)?;
             // Git's configuration runs `~/.local/bin/epicenter`; point it
@@ -561,7 +555,7 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
         WebviewUrl::CustomProtocol(scheme::url(built_in.path())?),
     );
     let builder = configure_app_window(builder, app, built_in.title(), built_in.path().to_owned());
-    // These singleton windows hide on close and stay outside folder tab groups.
+    // These windows hide on close, so neither joins another's tab group.
     #[cfg(target_os = "macos")]
     let builder = builder.tabbing_identifier(built_in.id());
     let window = builder.build()?;
@@ -608,18 +602,9 @@ mod tests {
 
     const FOLDERS: &str = include_str!("../capabilities/folders.json");
     const HOME: &str = include_str!("../capabilities/home.json");
-    const FOLDER_EDITOR: &str = include_str!("../capabilities/folder-editor.json");
 
     /// Every capability file, for checks that hold for all of them.
-    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, FOLDER_EDITOR];
-
-    /// The windows a page with label prefix `prefix` opens in, on two folders.
-    fn folder_labels(prefix: &str) -> [String; 2] {
-        [
-            format!("{prefix}:first-directory"),
-            format!("{prefix}:second-directory"),
-        ]
-    }
+    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME];
 
     #[test]
     fn built_in_window_table_has_stable_ids_routes_and_titles() {
@@ -643,7 +628,7 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
             .collect();
         files.sort();
-        assert_eq!(files, ["folder-editor.json", "folders.json", "home.json"]);
+        assert_eq!(files, ["folders.json", "home.json"]);
 
         let mut identifiers = Vec::new();
         for encoded in ALL_CAPABILITIES {
@@ -659,8 +644,8 @@ mod tests {
             production["app"]["security"]["capabilities"],
             serde_json::json!(identifiers)
         );
-        // A page reads and changes only the directory bound to its window: no fs
-        // plugin is installed, and Git is a separate CLI concern.
+        // No page reads or changes files: no fs plugin is installed, and Git is
+        // a separate CLI concern.
         assert!(
             production["plugins"].get("fs").is_none(),
             "no fs plugin is installed"
@@ -668,34 +653,6 @@ mod tests {
         let development: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.dev.conf.json")).unwrap();
         assert!(development.get("app").is_none());
-    }
-
-    /// A folder editor window, one per synced folder (`synced_folders.rs`), is
-    /// selected by `folder-editor.json` alone and holds the folder plugin, its
-    /// visible query refresh, read-only SQL, and close confirmation for pending saves: no
-    /// listing, launch, account, AI, recorder, or model command.
-    #[test]
-    fn a_folder_editor_window_holds_files_and_read_only_sql() {
-        let capability: serde_json::Value = serde_json::from_str(FOLDER_EDITOR).unwrap();
-        assert_eq!(
-            capability["windows"],
-            serde_json::json!([format!("{}:*", crate::folder_windows::EDITOR_PREFIX)])
-        );
-        assert_eq!(
-            capability["permissions"],
-            serde_json::json!(["epicenter-folder:default", "allow-folder-query"])
-        );
-        for label in folder_labels(crate::folder_windows::EDITOR_PREFIX) {
-            for encoded in ALL_CAPABILITIES {
-                let other: serde_json::Value = serde_json::from_str(encoded).unwrap();
-                assert_eq!(
-                    selects(&other, &label),
-                    *encoded == FOLDER_EDITOR,
-                    "{} {label}",
-                    other["identifier"]
-                );
-            }
-        }
     }
 
     /// Who Epicenter is signed in as, and signing in and out, reach Settings
@@ -906,21 +863,6 @@ mod tests {
         }
     }
 
-    /// Whether `capability` applies to the window labelled `label`, decided as
-    /// Tauri decides it: each `windows` entry is a `glob::Pattern` matched
-    /// against the label (`tauri::ipc::authority`).
-    fn selects(capability: &serde_json::Value, label: &str) -> bool {
-        capability["windows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|pattern| {
-                glob::Pattern::new(pattern.as_str().unwrap())
-                    .unwrap()
-                    .matches(label)
-            })
-    }
-
     /// A development build and an installed one can be running at the same time
     /// on one machine, and they own separate config, data, and log directories.
     /// Telling them apart has to be possible from the Dock, the menu bar, and
@@ -943,7 +885,7 @@ mod tests {
     /// other window may do any of it.
     #[test]
     fn the_folders_window_manages_synced_folders_without_folder_commands() {
-        const FOLDERS_ONLY: [&str; 12] = [
+        const FOLDERS_ONLY: [&str; 11] = [
             "allow-synced-folders",
             "allow-add-synced-folder",
             "allow-accept-folder-setup",
@@ -951,7 +893,6 @@ mod tests {
             "allow-clone-synced-folder",
             "allow-sync-folder-now",
             "allow-forget-synced-folder",
-            "allow-open-synced-folder",
             "allow-folder-sharing",
             "allow-share-folder",
             "allow-unshare-folder",

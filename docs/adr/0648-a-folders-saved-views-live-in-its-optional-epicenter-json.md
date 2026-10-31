@@ -8,7 +8,7 @@
 
 ## Context
 
-The general editor in `apps/epicenter/src/folders/Editor.svelte` opens a
+The general editor in `701665f7af:apps/epicenter/src/folders/Editor.svelte` opened a
 Folder with no table schemas. Its Files, grid, board, and SQL presentations
 share that handle. Apps such as Todos supply TypeBox schemas from application
 code. The CLI's `check` and `query` read

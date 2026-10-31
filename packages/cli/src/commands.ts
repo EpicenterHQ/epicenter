@@ -15,15 +15,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary: 'Beeper operation as JSON on stdin',
 	},
 	{
-		path: ['documents-query'],
-		args: '<dir>',
-		minArgs: 1,
-		maxArgs: 1,
-		hidden: true,
-		summary:
-			'query saved Markdown documents for the desktop editor, SQL on stdin',
-	},
-	{
 		path: ['check'],
 		args: '<contract> [<dir>]',
 		minArgs: 1,

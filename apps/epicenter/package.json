@@ -23,14 +23,9 @@
 		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
-		"@epicenter/definition": "workspace:*",
-		"@epicenter/folder": "workspace:*",
 		"@epicenter/cli": "workspace:*",
-		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
-		"@tauri-apps/api": "catalog:",
-		"runed": "catalog:",
-		"wellcrafted": "catalog:"
+		"@tauri-apps/api": "catalog:"
 	},
 	"devDependencies": {
 		"@sveltejs/vite-plugin-svelte": "catalog:",

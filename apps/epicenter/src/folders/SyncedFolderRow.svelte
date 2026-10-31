@@ -15,7 +15,6 @@
 		now,
 		busy,
 		onSync,
-		onOpen,
 		onShare,
 		onForget,
 	}: {
@@ -24,7 +23,6 @@
 		/** What the window is doing to this folder, said while it runs. */
 		busy: string | undefined;
 		onSync: () => void;
-		onOpen: () => void;
 		onShare: () => void;
 		onForget: () => void;
 	} = $props();
@@ -86,9 +84,6 @@
 				{/snippet}
 			</DropdownMenu.Trigger>
 			<DropdownMenu.Content align="end">
-				<DropdownMenu.Item disabled={folder.problem === 'not on disk'} onclick={onOpen}>
-					Open files
-				</DropdownMenu.Item>
 				<DropdownMenu.Item disabled={folder.remote === null} onclick={onShare}>
 					Sharing…
 				</DropdownMenu.Item>

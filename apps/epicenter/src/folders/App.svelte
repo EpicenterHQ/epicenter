@@ -271,10 +271,6 @@
 								void act({ folder: folder.path, what: 'Syncing…' }, () =>
 									commands.syncFolderNow(folder.path),
 								)}
-							onOpen={() =>
-								void act({ folder: folder.path, what: 'Opening…' }, () =>
-									commands.openSyncedFolder(folder.path),
-								)}
 							onShare={() => (sharing = folder)}
 							onForget={() =>
 								confirmationDialog.open({

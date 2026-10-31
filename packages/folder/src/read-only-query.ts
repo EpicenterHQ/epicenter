@@ -1,7 +1,6 @@
 /**
  * Answer one read-only SQL statement over a disposable in-memory `bun:sqlite`
- * projection that the caller populates (ADR-0494). The desktop editor's
- * `documents-query` reads saved Markdown documents through it.
+ * projection that the caller populates (ADR-0494).
  */
 
 import { Database } from 'bun:sqlite';

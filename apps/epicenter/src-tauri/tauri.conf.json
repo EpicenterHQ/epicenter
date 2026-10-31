@@ -14,7 +14,7 @@
 		"macOSPrivateApi": true,
 		"windows": [],
 		"security": {
-			"capabilities": ["folders", "home", "folder-editor"]
+			"capabilities": ["folders", "home"]
 		}
 	},
 	"bundle": {

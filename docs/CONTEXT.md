@@ -3,8 +3,8 @@
 Epicenter is a toolkit for local-first apps over files, with optional Git
 synchronization and inference. Apps open local data before sign-in. The CLI
 can inspect ordinary files. The Epicenter desktop app manages folders: it
-registers, syncs, shares, and shows the status of folders, and offers Files,
-grid, board, saved views, and read-only SQL over them. Apps are separate
+registers, syncs, shares, and shows the status of folders, and opens none of
+their files. Apps are separate
 programs; Epicenter does not host them ([ADR-0701](adr/0701-apps-run-as-separate-programs.md)).
 
 Use these names for the current API and the named remaining work. Source names
@@ -61,8 +61,8 @@ a recovery screen, never another folder, and there is no first-run question
 awaits `openDevice(contract)` over the origin's private file system; an
 online web variant opens the repository with `openRemote`.
 
-The legacy `openFolder({ tables })` remains for Epicenter's own windows and
-Bun, which passes an explicit `directory`. Epicenter's records keep the
+The legacy `openFolder({ tables })` remains in `/tauri` and in Bun, which
+passes an explicit `directory`, with no app caller left. Epicenter's records keep the
 library's fixed reverse-DNS default, `so.epicenter` under `~/Epicenter`
 (`~/Epicenter Dev` in development)
 ([ADR-0672](adr/0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md)).
@@ -114,23 +114,11 @@ commits unless Git ignores them. The folder's `.gitignore` files travel as
 ordinary content, and native Git also honors machine-specific excludes. Schema
 disagreements retain raw source.
 
-ADR-0648 records optional table schemas and shared saved views. The canonical
-TypeBox format, whole-table readers, grid, board, saved-view settings, and
-desktop SQL are implemented; schema exchange and `epicenter query` are deleted
-(decision 72). Grid and board configurations name a top-level
-directory without requiring a schema. They retain column choices, filters, and
-sort rules. Grid cells and board moves share the editor's existing file edits;
-moving a card edits its grouping field without a separate rank record.
-SQL results remain read-only. Explicitly saving the first view can create a
-declaration containing only `views`.
-
-Clean view settings follow saved changes; unfinished settings remain owned by
-the window until submitted or reloaded. A submission transforms the current
-`epicenter.json` editor text, preserving sibling entries, then immediately
-replaces and saves that same source. Raw and structured submissions share the
-file owner and publication lane. Assignments have no source precondition.
-Invalid and future entries retain source and diagnostics. The transform is
-portable; the generic editor remains a desktop product surface.
+ADR-0648 records optional table schemas and shared saved views. Schema
+exchange and `epicenter query` are deleted (decision 72), and so is the
+desktop editor that showed grids, boards, saved views, and SQL over a folder
+(2026-11-01). Saved views already in a folder's `epicenter.json` stay there
+as ordinary text.
 
 A schema-distribution service remains unbuilt. Existing app callers use Folder;
 migration of older stored browser data is separate. The CLI retains its
@@ -204,7 +192,7 @@ of local saving. The Folder exposes only local `saving()`; it does not expose th
 | App | A program using its own read schemas. Qualify a web app or desktop app when runtime or native capabilities matter. |
 | CLI | The `epicenter` executable. Its package entry points and commands are documented by the CLI package. |
 | Agent or person | A direct file writer. Its changes reach editors through the Folder copy; later writes to the same unit win locally. |
-| Epicenter desktop app | The app in `apps/epicenter`: the folder manager, with a generic Files/grid/board/SQL editor with saved views, and Settings. It hosts no app (ADR-0701). It is optional to standalone apps and the CLI. |
+| Epicenter desktop app | The app in `apps/epicenter`: the folder manager and Settings. It hosts no app and opens no folder's files (ADR-0701). It is optional to standalone apps and the CLI. |
 | Web origin | The web app's storage and OAuth client boundary. It is distinct from Git's remote named `origin`. |
 | Runtime or shell | The environment executing an app or providing native mechanisms. Qualify a Git host or inference host separately. |
 | Deployment | A hosted or self-hosted service installation. Hosted-only billing stays in `apps/api/worker/billing/`. |

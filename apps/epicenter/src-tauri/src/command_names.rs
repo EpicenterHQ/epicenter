@@ -12,7 +12,6 @@
 pub const COMMANDS: &[&str] = &[
     "get_active_model",
     "open_home",
-    "folder_query",
     "synced_folders",
     "add_synced_folder",
     "accept_folder_setup",
@@ -20,7 +19,6 @@ pub const COMMANDS: &[&str] = &[
     "clone_synced_folder",
     "sync_folder_now",
     "forget_synced_folder",
-    "open_synced_folder",
     "folder_sharing",
     "share_folder",
     "unshare_folder",

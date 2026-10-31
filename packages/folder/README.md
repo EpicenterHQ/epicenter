@@ -3,9 +3,8 @@
 Two surfaces open an app's files. The contract openers, `openDevice` and
 `openRemote`, return the typed client an app's file contract derives
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md));
-see [Contract openers](#contract-openers). The legacy `openFolder` below serves
-only the Epicenter app's own folder editor; every other
-app is on a contract.
+see [Contract openers](#contract-openers). The legacy `openFolder` below has no app caller
+left; every app is on a contract.
 
 A Folder mirrors the files that storage last returned or accepted. It owns a
 root, a serial write queue, and table views over Markdown files at
@@ -23,7 +22,7 @@ landed storage.
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
 | `@epicenter/folder/tauri` | `openDevice(contract, { path?, create? })` over a root the shell lets this window reach: the directory it bound to the window (no `path`, or a relative one inside it), or a folder by absolute path that Tauri's file-system scope allows; and `openFolder` over the bound directory. A standalone app opens its two roots with `openAppData(settingsContract)` (its AppData root, through the app's own settings contract, whose `settings.md` has `folder`) and `openDataFolder(contract, { appData })` (the `folder` that names, or `~/Epicenter/<productName>`, which alone is made when missing; `defaultDataFolder()` answers that path). `rootOf(device)` answers the root a client opened by absolute path, as the shell answered it, for the window's other native commands (the recorder's and local transcription's `root`). `pickDataFolder(appData, { title, at? })` opens the native picker, which allows the folder it answers and answers its canonical path (the shell's `resolve_folder`), so `/tmp/x` and `/private/tmp/x` are one folder, and remembers that path, or forgets `folder` when the default is picked, for both "Choose folder…" and "Allow access"; `rememberFolder(appData, folder \| undefined)` records or forgets a choice. `syncWithEpicenter({ path, contract })` asks the shell to open `epicenter://init?path=<path>&contract=<contract>` (decisions 81 and 82), and `syncedWithEpicenter({ path })` says whether `epicenter init` set that folder up (its `.git/config` names it as `epicenter.root`). |
-| `@epicenter/folder/bun` | Open an existing directory with `{ directory, tables }`; also exports the CLI's document readers (`readDirectoryDocuments`, `queryDocuments`) and the system `git` runner (`runGit`). |
+| `@epicenter/folder/bun` | Open an existing directory with `{ directory, tables }`; also exports the document readers (`readDirectoryDocuments`, `queryDocuments`) and the CLI's system `git` runner (`runGit`). |
 | `@epicenter/folder/testing` | Construct a folder over `memoryHost` and control its storage in tests. |
 | `@epicenter/folder/file-browser` | Text classification and newline helpers for a file editor. |
 | `@epicenter/folder/documents` | Interpret saved Markdown files for the generic editor and SQL reader. |
@@ -274,8 +273,8 @@ line-ending style.
 saved Markdown at any path for the generic editor and SQL reader. It includes
 schema diagnostics and unreadable paths. The declaration entry owns the
 saved-view reader and writer; the declaration's JSON Schema is generated from
-the TypeBox source. `@epicenter/folder/bun` exports the CLI's
-`readDirectoryDocuments`, `queryDocuments`, and the `runGit` runner. These
+the TypeBox source. `@epicenter/folder/bun` exports
+`readDirectoryDocuments`, `queryDocuments`, and the CLI's `runGit` runner. These
 tools can read or change a directory independently of an opened Folder.
 
 ## Layout

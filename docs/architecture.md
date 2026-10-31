@@ -72,11 +72,10 @@ them from one `epicenter-app://localhost` origin. It manages folders and opens
 no app: apps are separate programs (ADR-0701). It does not install or run app
 source from a repository.
 
-The Folders window lists the folders the `epicenter` CLI syncs. **Open files**
-binds a listed directory to an editor window of its own and grants that window
-the folder plugin's scoped file commands before the window loads. A listed
-directory that disappeared is refused and never created. Epicenter's own
-records are always `~/Epicenter/so.epicenter`.
+The Folders window lists the folders the `epicenter` CLI syncs, and each of
+its actions is one CLI call. Epicenter opens no folder's files and binds no
+window to a directory. Epicenter's own records are always
+`~/Epicenter/so.epicenter`.
 
 Each standalone app (Capture, Honeycrisp, Todos, Vocab, Whispering) is its
 own Tauri program on the shared `epicenter-standalone` crate: its window

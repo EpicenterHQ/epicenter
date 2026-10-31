@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "folders",
-	"description": "Epicenter’s Folders window manages the folders the epicenter CLI syncs: it lists them, sets one up through the Rust-owned picker, a clone, or an accepted epicenter://init request, syncs, forgets, and shares one, and opens a synced folder's files, each as one CLI call. It also opens Settings. It is bound to no folder and is served on the local epicenter-app scheme.",
+	"description": "Epicenter’s Folders window manages the folders the epicenter CLI syncs: it lists them, sets one up through the Rust-owned picker, a clone, or an accepted epicenter://init request, syncs, forgets, and shares one, each as one CLI call. It also opens Settings. It is bound to no folder and is served on the local epicenter-app scheme.",
 	"local": true,
 	"windows": ["folders"],
 	"permissions": [
@@ -14,7 +14,6 @@
 		"allow-clone-synced-folder",
 		"allow-sync-folder-now",
 		"allow-forget-synced-folder",
-		"allow-open-synced-folder",
 		"allow-folder-sharing",
 		"allow-share-folder",
 		"allow-unshare-folder",

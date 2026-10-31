@@ -119,13 +119,8 @@
       "version": "0.0.2",
       "dependencies": {
         "@epicenter/cli": "workspace:*",
-        "@epicenter/definition": "workspace:*",
-        "@epicenter/folder": "workspace:*",
-        "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@tauri-apps/api": "catalog:",
-        "runed": "catalog:",
-        "wellcrafted": "catalog:",
       },
       "devDependencies": {
         "@sveltejs/vite-plugin-svelte": "catalog:",

@@ -35,7 +35,6 @@ front end over `status`, `init`, `clone`, `sync`, `forget`, `share`, and
 
 | Command | Status | Wraps |
 | --- | --- | --- |
-| `epicenter documents-query <dir>` | built, hidden | Desktop saved-document SQL; statement on stdin |
 | `epicenter check <contract> [<dir>]` | built | `checkFiles` in `@epicenter/folder/node` |
 | `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
 | `epicenter init [<dir>] [--enclosing-ok]` | built | `src/sync/setup.ts` |
@@ -57,12 +56,9 @@ front end over `status`, `init`, `clone`, `sync`, `forget`, `share`, and
 | `epicenter messages` | built, hidden | Local Beeper operations on stdin; token in the device keychain |
 | `epicenter install-command` | built, hidden | `src/install-command.ts` |
 
-`messages`, `documents-query`, `send`, `install-command`,
+`messages`, `send`, `install-command`,
 `merge-driver`, `sync --interval`, and `--desktop` are left out of `--help`:
 the desktop app or Git runs them.
-
-The hidden desktop SQL operation, `documents-query`, reads the generic
-`documents` relation through one read-only SQLite executor.
 
 ## Hosted repositories
 

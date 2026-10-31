@@ -26,8 +26,8 @@ pub struct LibraryDefault {
 }
 
 /// Epicenter's own records folder, where Settings once kept AI connections.
-/// No window binds it now; it stays refused to apps and folder editors so
-/// nothing claims the files a person may still have there.
+/// No window binds it now; it stays refused to apps and to `epicenter init`
+/// so nothing claims the files a person may still have there.
 pub const RECORDS: LibraryDefault = LibraryDefault {
     id: "so.epicenter",
     title: "Epicenter",
@@ -79,7 +79,7 @@ pub fn check_editable_directory(data_dir: &Path, path: &Path) -> Result<(), Stri
     Ok(())
 }
 
-/// Whether an app or a folder editor window may open `path`:
+/// Whether an app may open `path`, or Epicenter may set it up for sync:
 /// everything `check_editable_directory` refuses, and also Epicenter's records
 /// at `<library_root>/so.epicenter`, anything in them (its `.epicenter`
 /// included), or a directory holding them, such as the library root.

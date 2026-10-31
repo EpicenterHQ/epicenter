@@ -387,9 +387,6 @@ mod tests {
             "/folders/assets/",
             "/folders",
             "/home/account",
-            // A folder editor window's page: the Folders document, whose
-            // route selects the editor.
-            crate::folder_windows::EDITOR_PATH,
         ] {
             let response = get(&pages, route);
             assert_eq!(response.status(), StatusCode::OK, "{route}");
@@ -399,10 +396,6 @@ mod tests {
                 "{route}"
             );
         }
-        assert_eq!(
-            body(&get(&pages, crate::folder_windows::EDITOR_PATH)),
-            "<!doctype html><title>folders</title>"
-        );
         // A missing asset is not a route.
         for missing in ["/folders/assets/index-missing.js", "/home/favicon.ico"] {
             assert_eq!(
@@ -578,8 +571,8 @@ mod tests {
         }
     }
 
-    /// Each window stays below the path it opened at: Folders, Settings, and
-    /// the editor at their pages, so no window loads another's page.
+    /// Each window stays below the path it opened at, Folders and Settings at
+    /// their pages, so no window loads another's page.
     #[test]
     fn each_window_navigates_only_below_the_path_it_opened_at() {
         for (prefix, path) in [
@@ -587,11 +580,6 @@ mod tests {
             ("/folders/", "/folders/table/notes?row=1#x"),
             ("/home/", "/home/"),
             ("/home/", "/home/account?x=1"),
-            ("/folders/editor/", "/folders/editor/"),
-            (
-                "/folders/editor/",
-                "/folders/editor/?folder=data%3AGroceries",
-            ),
         ] {
             assert!(
                 is_allowed_navigation(prefix, &url(path).unwrap()),
@@ -601,13 +589,11 @@ mod tests {
         for (prefix, path) in [
             ("/folders/", "/home/"),
             ("/folders/", "/folders"),
-            ("/folders/editor/", "/folders/"),
             ("/home/", "/folders/"),
             ("/home/", "/homex/"),
             ("/home/", "/home"),
             ("/home/", "/home/../folders/"),
             ("/home/", "/home/%2e%2e/folders/"),
-            ("/folders/editor/", "/home/"),
             ("/folders/", "/todos/"),
             ("", "/folders/"),
             ("/home", "/home/"),

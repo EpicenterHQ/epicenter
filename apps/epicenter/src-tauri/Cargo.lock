@@ -1266,8 +1266,6 @@ dependencies = [
  "core-graphics 0.22.3",
  "dunce",
  "enigo",
- "epicenter-folder-core",
- "glob",
  "hf-hub",
  "hound",
  "libc",

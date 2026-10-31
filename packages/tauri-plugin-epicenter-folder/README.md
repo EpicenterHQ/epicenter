@@ -82,13 +82,13 @@ then creates it when missing or reuses the directory already there with its
 files. It reads and writes no configuration and claims no ownership: a
 default that was moved or deleted is made again by the next ordinary launch,
 and two apps may open one directory. A file or a link at the path is refused
-and kept; no alternative name is allocated. Picker-chosen directories and synced
-folders opened in an editor bypass the defaults and must exist.
+and kept; no alternative name is allocated. Picker-chosen directories bypass
+the defaults and must exist.
 
 Admission is `library::check_editable_directory` for records: never a
 folder's `.epicenter` or anything in one, and never overlapping application
 data. `library::check_app_directory`, for ordinary apps, one-time launches,
-and folder editor windows, also refuses records, anything in them, and any
+and Epicenter's `epicenter init`, also refuses records, anything in them, and any
 directory holding them, such as the root. Overlap compares canonical
 paths and directory identity, so a linked parent or another spelling of a
 protected directory is no route around it. A root override is admitted before
@@ -110,7 +110,7 @@ operation.
 
 `FolderExt::open_folder_window(application, directory, url, configure)` opens
 one window per application key and canonical root. A standalone app supplies
-its page name (`"todos"`) and Epicenter's editor supplies `"files"`; the plugin computes
+its page name (`"todos"`); the plugin computes
 `<key>:<digest>` internally.
 Opening the same pair reveals its existing window without configuring it
 again. Different apps can open the same root in separate windows. Labels are
@@ -127,16 +127,14 @@ releases the binding; a presentation failure retains the live window and its
 binding so another open can reveal it. Destruction removes the binding.
 Shutdown refuses both new windows and reuse.
 
-`Folders::bind_while_building(label, directory, build)` remains for a
-role-based singleton such as Epicenter's Settings window, whose fixed `home`
-label and hide-on-close lifetime differ from app-and-folder windows. It binds
-before construction and rolls back a failed build; callers own that window's
-identity and reuse. Ordinary apps use `open_folder_window`.
+`Folders::bind_while_building(label, directory, build)` binds a window
+whose label the caller owns before construction and rolls back a failed
+build; callers own that window's identity and reuse. Apps use
+`open_folder_window`.
 
 Bindings are runtime resources, not a persisted list of folder choices.
 
-Several windows may be bound to one directory, as Settings and a folder
-editor are to `so.epicenter`. Each page runs its own engine over the
+Several windows may be bound to one directory. Each page runs its own engine over the
 directory. Each save is checked against the version its page read right
 before its rename (see Storage). A save that another writer overtook is
 answered `stale`; the page reads again and merges. No lock spans the check

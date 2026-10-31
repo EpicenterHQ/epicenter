@@ -1,32 +1,28 @@
 # Epicenter desktop app
 
 Epicenter manages folders: it registers, syncs, shares, and shows the status
-of the folders the `epicenter` CLI syncs, and opens a folder's files in an
-editor window. Apps are separate programs that read and write those folders
+of the folders the `epicenter` CLI syncs. Apps are separate programs that read and write those folders
 through the file contract
 ([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md),
 [ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md));
 Epicenter does not open, install, or serve them. History and sync belong to
 the `epicenter` CLI: the [Folders window](#the-folders-window) is a front end
-over it, listing the folders it syncs and running its commands. The editor
-offers no Save version or Sync action.
+over it, listing the folders it syncs and running its commands. Epicenter
+opens no folder's files: an app or any editor does.
 
 The app owns one Tauri runtime, one native command API, and the short list of
-what it compiles in. Its pages are Settings, the Folders window, and the
-folder editor:
+what it compiles in. Its pages are Settings and the Folders window:
 
 ```text
 page source                         build output        served at
 
 apps/epicenter/src/ui ------------> dist/home --------> epicenter-app://localhost/home/
 apps/epicenter/src/folders -------> dist/folders -----> epicenter-app://localhost/folders/
-                                                        epicenter-app://localhost/folders/editor/
 ```
 
 Rust serves these pages from one origin, `epicenter-app://localhost`, through
 a scheme the shell registers (`src-tauri/src/scheme.rs`, ADR-0561): Settings
-(the `home` window) at `/home/`, the Folders window at `/folders/`, and each
-editor window at `/folders/editor/`. No server listens on a port and no Bun
+(the `home` window) at `/home/` and the Folders window at `/folders/`. No server listens on a port and no Bun
 process outlives a command.
 
 The scheme answers GET only. It serves a regular file inside the page's
@@ -38,9 +34,6 @@ Content-Security-Policy: a page reaches its own origin and Tauri's IPC
 document's policy admits each of its inline scripts by hash. Each window
 navigates only below the path it opened at; a new-window link opens in the
 system browser only when it is the hosted account website.
-
-The editor reaches native folders through the shared Folder plugin. It
-opens the directory the shell binds to its window (ADR-0531).
 
 The shell holds no credential: the `epicenter` CLI holds the account and
 every key (ADR-0556).
@@ -189,9 +182,8 @@ other signed in.
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
 it. It lists the folders the `epicenter` CLI syncs and runs the CLI's
-commands on them, opens a synced folder's files in an editor window of its
-own, and opens Settings from its Settings button with `open_home`. Closing
-the Folders window leaves every editor window it opened running.
+commands on them, and opens Settings from its Settings button with
+`open_home`.
 
 Settings is the window labelled `home`. It signs the app in and out and alone
 administers the local transcription model (ADR-0180). The tray (Show Folders,
@@ -205,36 +197,6 @@ open 'epicenter://app/folders'
 open 'epicenter://app/home'
 open 'epicenter://init?path=%2FUsers%2Fme%2FNotes'
 ```
-
-### Try saved views with sample data (macOS)
-
-From the repository root, run:
-
-```bash
-bun demo:views
-```
-
-This builds and opens **Epicenter Views Demo**, using the real desktop file
-commands and SQL engine. Its separate application identity and fresh temporary
-folders leave your normal Epicenter data alone. No API server or sign-in is
-needed. The terminal prints the sample data location; files remain there after
-the demo exits. Quit the demo before running the command again.
-
-1. Open **Project**, then choose **Project board** from **Saved views**. Move
-   **Try moving this card** from Todo to Doing with its lane selector.
-2. Choose **All tasks** to inspect the same record in the grid. Edit its title,
-   then open its file in **Files** to see the changed frontmatter and retained body.
-3. Choose **Progress by status**, then **Run SQL**. After that move, the counts
-   should be Doing: 2, Done: 1, Todo: 1.
-4. Change a view's title and click **Save view**. Close and reopen Project to
-   check that its saved settings return. Record edits save when you pause;
-   view settings save only when you ask.
-5. Open **Plain notes** and choose **Tables**, then the **notes** directory.
-   It has no schema or declaration. Saving its first named view creates an
-   `epicenter.json` containing only `views`.
-
-This is an interactive desktop walkthrough. The mounted editor tests run with
-`bun run --cwd apps/epicenter test:mounted`; they do not launch a native WebView.
 
 ## The Folders window
 
@@ -282,7 +244,7 @@ however the app ends, and `sync --watch --desktop` stops when it does.
 
 ### Folder actions
 
-Every action but **Open files** runs one CLI command with `--json --desktop`,
+Every action runs one CLI command with `--json --desktop`,
 then the window lists again:
 
 | Action | Command | CLI call |
@@ -294,16 +256,14 @@ then the window lists again:
 | **Sharing…** | `folder_sharing(path)` | `epicenter share <dir>`, listing who the repository is shared with |
 | | `share_folder(path, person, level)` | `epicenter share <dir> <handle> --read` or `--write` |
 | | `unshare_folder(path, person)` | `epicenter unshare <dir> <handle>` |
-| **Open files** | `open_synced_folder(path)` | No CLI call: opens the folder's [editor window](#folder-editor-windows) |
 
 The shell passes a clone source or handle as one argument and refuses an
 empty one, one with a control character, or one that starts with `-`.
-Before `epicenter init`, a folder that already exists must be one the shell
-would open in any window: a real directory holding none of Epicenter's own
-files, so neither the records nor the library root becomes a repository.
+Before `epicenter init`, a folder that already exists must be a real
+directory holding none of Epicenter's own files, so neither the records nor
+the library root becomes a repository.
 `init` and `clone` report warnings, such as a missing command link, beside the
-list. **Sharing…** is offered for a folder with a remote, and **Open files**
-for a folder that is on disk.
+list. **Sharing…** is offered for a folder with a remote.
 
 ### Requests to sync a folder
 
@@ -321,159 +281,15 @@ the request so the person can read why and dismiss it. **Dismiss**
 (`dismiss_folder_setup`) drops it without reading the folder. The contract is
 shown but not passed, because `epicenter init` takes no contract yet.
 
-### Folder editor windows
-
-**Open files** on a synced folder calls `open_synced_folder(path)`. The shell
-requires a path the last listing held and an existing real directory that
-overlaps none of Epicenter's own files: Settings' records, save staging, or
-application data, anything in them, or a directory holding them, such as the
-Epicenter folder itself. It binds that exact directory to a window labelled
-`files:<digest of the canonical root>` and opens `/folders/editor/`. Opening
-it again reveals the existing window. Folders anywhere on disk open this way,
-without copying or creating a directory.
-
-The editor mounts `<OpenFolder>` with no table schemas, so Files, grid, board,
-and SQL share one opened folder and its window lifetime. Files opens exact
-source text, retaining byte-order marks and CRLF endings. Files also reads
-unkept extensions such as `.py` on demand and edits them when they decode as
-UTF-8. Binary content and mixed line endings remain available without text editing.
-
-Tables reads root-level and nested Markdown through the same generic document
-reader as SQL. Columns combine observed fields with declared properties from
-optional `epicenter.json`. Missing frontmatter means empty fields; malformed
-source remains visible with diagnostics and a link to Files. Scalar cells are
-editable; nested JSON values remain readable through the grid and editable in
-Files. The folder's schema interprets values and never refuses a save.
-Unparseable source locks structured edits until it is repaired in Files;
-schema diagnostics alone do not lock editing.
-
-Grid and board settings retain columns, typed filters, and ordered sort rules.
-Filters and sorting use landed values. A row edited out of a filter stays
-visible while it has focus, labelled "No longer matches this view's filters".
-A saved grid or board names one top-level directory; it needs no declared
-table schema. The unsaved Tables view can also browse all Markdown, the folder
-root, or nested directories.
-
-Boards group one field into distinct string, number, boolean, and null lanes.
-Enum and boolean schema hints retain empty destinations. **No value** represents
-an absent field. Object and array values appear in **Other**, which cannot be
-chosen as a move destination. Moving a card changes its grouping field through
-`folder.update(path, { fields }, { schema })`. A failed move leaves the card
-in its current lane and reports the error beside the control.
-Cards have no separate rank or drag-order record.
-
-The mirror reads every kept text file when it opens and gives Files its exact
-source through `folder.file(path)`. Tables interprets the same file values with
-`documentsOf`, while the SQL CLI builds the same values from disk. Each text
-input has a local `edit` that queues each typed value immediately and shows it
-until its write answers; folder writes then update the mirror's landed values.
-Structured edits use `folder.update(path, patch, { schema })`, including root and nested Markdown.
-Each write takes a turn in the folder queue. A patch reads the file as it is
-when its turn comes, so adjacent cell edits do not overwrite one another.
-A file read failure can be retried with `folder.refresh()`. Failed edits keep
-their value and offer Save again, Discard, and Copy beside the editor.
-Checkboxes and board moves write directly and report failures beside the action.
-Opening a row's source from Tables is immediate. Whole-file edits in Files
-replace the file at their queue turn; a cell change that lands first survives
-only if the file editor includes it. A failed cell edit
-that unmounts when its source opens loses its recovery controls.
-
-The folder owner refreshes on focus, visibility, and connectivity. Closing the
-folder drains writes already queued by its editors.
-Closing an editor window waits for writes in flight before destroying it.
-Saved-view submissions compose from the latest submitted declaration text while
-a write is waiting. Files edits refuse to recreate a deleted file;
-saved-view saves use last write wins when they race.
-
-The SQL console uses `documents(path, directory, stem, fields, body, issues)`.
-`fields` and `issues` contain JSON. Each run reads saved files into disposable
-Bun SQLite; it excludes unreadable and non-text files by name, retains readable
-malformed records with issues, and writes no query result back. Runs have a 15-second request deadline, and results stop at 1,000 rows or
-4 MiB of encoded row data. Each SQL view keeps its own unfinished statement,
-running request, result, and error while another view is selected. The console
-warns when results belong to a previous statement. The native command
-accepts SQL only; Rust derives the directory from the invoking window's
-existing binding and uses the owned CLI child lifetime. There is no browser
-SQL engine or page-supplied filesystem root. Public CLI `query` keeps its
-separate declared-table contract.
-
-**Save view** persists grid, board, or SQL settings in root `epicenter.json`.
-Browsing and changing view settings write nothing until that action. The first save
-can create a declaration containing only `views`. The editor assigns an opaque
-UUID key; changing the display title keeps that key. **Save as new** creates a
-separate entry. These views travel with the folder and have no personal override.
-
-A saved view reads the current `epicenter.json` mirror value. Editing its
-controls creates an unsubmitted form value retained across selections. **Reload
-settings** drops that form and refreshes the folder. Saving transforms the
-latest submitted declaration text, preserving unrelated JSON sections and other
-views, then sends that text through `folder.write`. There is no source
-precondition or separate native writer.
-
-A submitted copy gets its new key immediately. The local `sending` text composes
-later view submissions while earlier writes are waiting; `submitted` keeps each
-view visible until its save answers. A failed save restores the form for retry
-and offers source access and the error beside the form. The form keeps settings
-that have not yet been submitted.
-Invalid and future view entries stay in the source with diagnostics while valid
-siblings remain available. The pure `changeSavedView(text, { key, value })`
-transform is portable across storage backends.
-
-The mirror notifies the editor when a write lands or outside changes are read.
-It refreshes on focus, visibility, and connectivity; **Reload
-settings** also refreshes. Files, Tables, and saved views then read the same
-current file values without query invalidation or manual refresh.
-
-### Editor windows, tabs, and close
-
-The native Folder reads ordinary files as they stand. File writes, table
-assignments, and editor saves publish without a source precondition. The last
-publication wins. Opening writes nothing and does not start Git. The separate
-`epicenter` CLI retains Git commands; the editor exposes none as a Folder
-action.
-
-Closing an editor window destroys it; only Epicenter's own windows hide. The
-CLI runner ends the `epicenter` children that page started.
-
-On macOS, folder windows can share the system tab bar. Automatic grouping
-follows the macOS tab preference. The **Window** menu offers **Merge Folder
-Windows**, **Move Tab to New Window**, and **Close Tab Group** (Shift-Command-W).
-Settings and the Folders window stay separate because closing them hides
-them. Windows and Linux keep separate folder windows.
-
-Each native tab keeps its own window, page, directory binding, and save
-guard. Detaching or merging changes presentation without reopening the
-folder or transferring edits. Tab membership lives in AppKit, never in
-application data.
-
-The editor answers window Close over the Folder plugin's private channel:
-editor writes are already queued, and `<OpenFolder>` waits for queued mirror
-writes, then destroys the window without a question. Closing again while it
-waits asks whether to close anyway. Repeated requests for one window share
-its current close; other windows answer independently, including native
-tab-group members. A dispatched destruction keeps the page inert until it is
-gone; a failed destroy restores it for retry.
-
-Application Quit always asks one separate native question, without asking any
-folder page for save status. Cancel preserves every window. There is no
-cross-window status protocol or global gate over individual window closes.
-
-The Folder engine stages a save's bytes in `.epicenter/scratch` inside the
-folder; no
-listing shows `.epicenter`, and nothing is made beside the folder. WebView
-data and the page builds live in the application data and resource
-directories.
-
 ### Capabilities
 
 Each kind of window has one capability file, and every file is `"local": true`
 because its page is served on the scheme: `folders.json`, which alone grants
 the Folders window's CLI commands (`src-tauri/src/command_names.rs` lists every
-app command); `home.json`, which alone grants sign-in and model
-administration; and `folder-editor.json`, which selects `files:*` and grants
-the folder plugin, its private observation and close channels, and
-`folder_query`. A development build selects the same three. This is wiring,
-not a sandbox (ADR-0179, ADR-0334).
+app command); and `home.json`, which alone grants sign-in and model
+administration. Neither grants the folder plugin: no window is bound to a
+folder, and the shell does not install the plugin. A development build
+selects the same two. This is wiring, not a sandbox (ADR-0179, ADR-0334).
 
 Native dictation, which no page reaches, compiles only with the `dictation`
 Cargo feature, off by default: paste at the cursor and the keyboard supervisor
@@ -490,14 +306,13 @@ opener and grants no page its URLs.
 
 ## Quitting Epicenter
 
-Application Quit always shows a native confirmation, even when every folder is
-saved. Its message warns that unsaved changes may be lost. Cancel keeps every window and its input; Quit Anyway exits
-without waiting for pending saves. Repeated requests share the current alert.
+Application Quit always shows a native confirmation. Its message still warns
+that unsaved changes may be lost. Cancel keeps every window; Quit Anyway
+exits. Repeated requests share the current alert.
 
 Quit queries no page and waits for no status reply or timeout. Its standalone
 native alert has no window parent, so closing a window leaves the Quit question
-in place. Window close remains independent; the editor waits for queued
-Folder writes; closing again while they wait asks. Quit owns only ready, prompting, and approved
+in place. Quit owns only ready, prompting, and approved
 state; it needs no attempt ID or window-destruction hook. On macOS, the
 unparented dialog uses the system's standalone alert presentation rather than
 an attached window sheet.
@@ -511,8 +326,7 @@ its existing guarantees.
   grant (ADR-0556); a page that uses it reads it again when its window
   regains focus.
 - **Closing a window hides it.** The built-in windows are hidden, not
-  destroyed, so their pages and folders stay open until Epicenter quits. An
-  editor window is destroyed when it closes.
+  destroyed, so their pages stay open until Epicenter quits.
 
 ## Build and verify
 

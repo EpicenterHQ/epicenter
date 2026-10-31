@@ -857,7 +857,7 @@ When you add an ADR, add its row here.
 | [0643](0643-the-folder-package-owns-its-local-engine.md) | The Folder package owns its local engine | Accepted (amends 0626 and 0636) |
 | [0644](0644-the-shell-assigns-a-native-windows-default-folder.md) | The shell assigns a native window's default folder | Accepted (amends 0636; amended by 0647 and 0660); amended by 0701 |
 | [0646](0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md) | A native app hands Epicenter a directory path, and the person accepts it | Accepted (amended by 0647) |
-| [0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) | A native window edits one directory bound before it exists | Accepted (amends 0531 and 0644; amended by 0660 at the standalone default) |
+| [0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) | A native window edits one directory bound before it exists | Accepted (amends 0531 and 0644; amended by 0660 at the standalone default); amended by 0701 |
 | [0648](0648-a-folders-saved-views-live-in-its-optional-epicenter-json.md) | A folder's saved views live in its optional epicenter.json | Proposed (amends 0632) |
 | [0649](0649-folders-json-selects-this-machines-folder-locations.md) | Folders.json selects this machine's folder locations | Proposed (amends 0539, 0641, and 0647) |
 | [0650](0650-a-browsers-current-folder-is-one-immutable-tree.md) | A browser's current folder is one immutable tree | Proposed (amends 0628) |
@@ -896,4 +896,4 @@ When you add an ADR, add its row here.
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Superseded by 0701 (apps run as separate programs) |
 | [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Proposed (would supersede 0545, 0622, 0623, and 0628; amends 23 records; grants, secrets, the Tauri opener, notify, the deep link, and Whispering unbuilt) |
-| [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Proposed (would supersede 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0652, 0674, 0678, and 0683; archive tag `archive/app-hosting`) |
+| [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Proposed (would supersede 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0647, 0652, 0674, 0678, and 0683; archive tag `archive/app-hosting`) |

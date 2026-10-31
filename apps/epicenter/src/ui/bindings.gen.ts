@@ -68,8 +68,6 @@ export const commands = {
 	syncFolderNow: (path: string) => typedError<SyncRound, CliError>(__TAURI_INVOKE("sync_folder_now", { path })),
 	/**  `epicenter forget <path>`: stop syncing it, leaving its files and history. */
 	forgetSyncedFolder: (path: string) => typedError<null, CliError>(__TAURI_INVOKE("forget_synced_folder", { path })),
-	/**  Open a synced folder's files in an editor window of their own. */
-	openSyncedFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("open_synced_folder", { path })),
 	/**  Who the repository a synced folder pushes to is shared with. */
 	folderSharing: (path: string) => typedError<RepositoryGrants, CliError>(__TAURI_INVOKE("folder_sharing", { path })),
 	/**  Let `person` read, or also write, the repository a synced folder pushes to. */
@@ -78,7 +76,6 @@ export const commands = {
 	unshareFolder: (path: string, person: string) => typedError<RepositoryGrantRevoked, CliError>(__TAURI_INVOKE("unshare_folder", { path, person })),
 	/**  Start the service again after it stopped. */
 	restartSyncService: () => __TAURI_INVOKE<void>("restart_sync_service"),
-	folderQuery: (sql: string) => typedError<QueryAnswer, CliError>(__TAURI_INVOKE("folder_query", { sql })),
 	/**
 	 *  Sign the app in: the CLI's loopback sign-in as `so.epicenter`. The shell
 	 *  opens the authorization page in the person's browser; each line the CLI
@@ -292,16 +289,6 @@ export type ModelInfo = {
 	recommended: boolean,
 	downloaded: boolean,
 };
-
-export type QueryAnswer = {
-	columns: string[],
-	rows: { [key in string]: QueryCell }[],
-	excluded: string[],
-	warnings: string[],
-	truncated: boolean,
-};
-
-export type QueryCell = null | number | null | string | number[];
 
 /**  One person a repository is shared with (`RepositoryGrant`). */
 export type RepositoryGrant = {
