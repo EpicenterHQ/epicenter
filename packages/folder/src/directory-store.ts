@@ -55,8 +55,7 @@ const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
 
 /** What a literal folder path names on disk. */
 type Found =
-	| { readonly kind: 'file' | 'other'; readonly size: number }
-	| { readonly kind: 'directory' }
+	| { readonly kind: 'file' | 'directory' | 'other' }
 	| { readonly kind: 'absent' }
 	/** A case-variant of one of its names is stored there instead. */
 	| { readonly kind: 'occupied' }
@@ -118,10 +117,7 @@ export function createDirectoryStorage({
 			// disk, is another entry: nothing reads through it, and nothing
 			// is written into it.
 			if (!(await literal(at, name, found))) return { kind: 'occupied' };
-			if (index === segments.length - 1)
-				return found.kind === 'directory'
-					? { kind: 'directory' }
-					: { kind: found.kind, size: found.size };
+			if (index === segments.length - 1) return { kind: found.kind };
 			if (found.kind !== 'directory')
 				return {
 					kind: 'underFile',

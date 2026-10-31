@@ -224,9 +224,7 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 			const name = stored === asked ? stored : undefined;
 			return {
 				kind,
-				size: Number(stats.size),
 				stamp: stampOf(stats),
-				mode: Number(stats.mode),
 				name,
 			};
 		} catch (cause) {

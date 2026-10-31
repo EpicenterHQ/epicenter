@@ -27,18 +27,15 @@ export type DirectoryPrimitives = {
 	): Promise<readonly { readonly name: string; readonly kind: EntryKind }[]>;
 	/**
 	 * What `path` is, without following a final link, or `undefined` when
-	 * absent. `mode` is the Unix permission bits where the platform has them.
-	 * `name` is the final segment as the file system stores it, which differs
-	 * from the one asked for only on a case-insensitive file system; a
-	 * platform that cannot say leaves it out, and the handle lists the parent
-	 * instead.
+	 * absent. `name` is the final segment as the file system stores it,
+	 * which differs from the one asked for only on a case-insensitive file
+	 * system; a platform that cannot say leaves it out, and the handle lists
+	 * the parent instead.
 	 */
 	lstat(path: string): Promise<
 		| {
 				readonly kind: EntryKind;
-				readonly size: number;
 				readonly stamp: string;
-				readonly mode?: number;
 				readonly name?: string;
 		  }
 		| undefined
