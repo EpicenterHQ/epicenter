@@ -636,10 +636,18 @@ pub async fn synced_folders(webview: Webview) -> Result<SyncedFolderListing, Cli
 }
 
 /// Run `epicenter init <path>`, then restart the service.
+///
+/// A folder that is there must be one the shell would open in any window: a
+/// real directory holding none of Epicenter's own files, so neither the
+/// records nor the library root around every folder becomes a repository.
 async fn init<R: Runtime>(webview: &Webview<R>, path: &str) -> Result<FolderSetUp, CliError> {
     #[derive(Deserialize)]
     struct Reply {
         init: FolderSetUp,
+    }
+    if Path::new(path).exists() {
+        admit(&webview.state::<DesktopPaths>(), path)
+            .map_err(|message| CliError::Refused { message })?;
     }
     let reply: Reply = cli::window_invocation(webview)?
         .desktop()
@@ -1080,6 +1088,36 @@ mod tests {
         assert!(!folders.is_current(old));
         assert!(folders.service_is(new, SyncService::Running));
         assert_eq!(folders.lock().service.state, SyncService::Running);
+    }
+
+    #[test]
+    fn epicenters_own_folders_are_never_set_up_for_sync() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        let paths = DesktopPaths {
+            data_dir: root.join("data"),
+            folder_dir: root.join("Epicenter"),
+        };
+        let records = paths
+            .open_default(epicenter_folder_core::library::RECORDS)
+            .unwrap();
+        let notes = paths.folder_dir.join("notes");
+        fs::create_dir_all(&notes).unwrap();
+        fs::create_dir_all(&paths.data_dir).unwrap();
+        for refused in [
+            records.root().to_path_buf(),
+            paths.folder_dir.clone(),
+            paths.data_dir.clone(),
+            root.clone(),
+        ] {
+            assert!(
+                admit(&paths, &refused.to_string_lossy()).is_err(),
+                "{refused:?}"
+            );
+        }
+        assert!(admit(&paths, &notes.to_string_lossy()).is_ok());
+        fs::write(root.join("file"), "").unwrap();
+        assert!(admit(&paths, &root.join("file").to_string_lossy()).is_err());
     }
 
     #[test]

@@ -376,6 +376,9 @@ then the window lists again:
 
 The shell passes a clone source or handle as one argument and refuses an
 empty one, one with a control character, or one that starts with `-`.
+Before `epicenter init`, a folder that already exists must be one the shell
+would open in any window: a real directory holding none of Epicenter's own
+files, so neither the records nor the library root becomes a repository.
 `init` and `clone` report warnings, such as a missing command link, beside the
 list. **Sharing…** is offered for a folder with a remote, and **Open files**
 for a folder that is on disk.
