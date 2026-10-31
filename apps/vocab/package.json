@@ -1,17 +1,34 @@
 {
 	"name": "@epicenter/vocab",
-	"description": "English vocabulary tutor whose words and chats are Markdown notes in the signed-in learner's Epicenter repository, online only",
+	"description": "English vocabulary tutor whose words and chats are Markdown notes: online in the signed-in learner's Epicenter repository, or on the desktop in a folder Vocab keeps them in",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
+	"imports": {
+		"#platform/auth": {
+			"tauri": "./src/lib/auth.tauri.ts",
+			"default": "./src/lib/auth.ts"
+		},
+		"#platform/connections": {
+			"tauri": "./src/lib/connections.tauri.ts",
+			"default": "./src/lib/connections.ts"
+		},
+		"#platform/root": {
+			"tauri": "./src/lib/root.tauri.ts",
+			"default": "./src/lib/root.ts"
+		}
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"build": "NODE_ENV=production vite build",
+		"build:native": "EPICENTER_DESKTOP=1 VOCAB_BUILD_DIR=build-desktop NODE_ENV=production vite build",
+		"dev:desktop": "bun run build:native && tauri dev --config src-tauri/tauri.dev.conf.json",
+		"build:desktop": "bun run build:native && tauri build --bundles app",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun test --conditions=browser --conditions=svelte src/lib && bun run test:svelte",
 		"test:svelte": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --conditions=browser --conditions=svelte src/routes",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json",
 		"contract": "bun scripts/write-contract.ts",
 		"demo": "bun e2e/stack.ts --demo",
 		"test:e2e": "playwright test -c playwright.config.ts",
@@ -19,20 +36,21 @@
 	},
 	"dependencies": {
 		"@epicenter/agent": "workspace:*",
+		"@epicenter/ai": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
+		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
+		"@tauri-apps/api": "catalog:",
 		"mode-watcher": "^1.1.0",
 		"openai": "^7.12.1",
 		"runed": "catalog:",
-		"wellcrafted": "catalog:",
-		"@epicenter/ai": "workspace:*",
-		"@epicenter/definition": "workspace:*"
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@epicenter/vite-config": "workspace:*",
@@ -40,6 +58,7 @@
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
+		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
 		"jsdom": "26.1.0",

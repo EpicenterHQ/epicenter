@@ -81,7 +81,7 @@
 	<div class="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-6 overflow-y-auto px-4 py-6 md:px-8">
 		<div>
 			<h2 class="text-2xl font-semibold">Words</h2>
-			<p class="text-sm text-muted-foreground">Save expressions, write your own notes, and choose up to three for a tutor-led chat. These are in your Epicenter repository, on every device you sign in on.</p>
+			<p class="text-sm text-muted-foreground">Save expressions, write your own notes, and choose up to three for a tutor-led chat.</p>
 		</div>
 		<div class="flex flex-wrap items-end gap-2">
 			<form class="flex min-w-0 basis-full gap-2 sm:flex-1 sm:basis-auto" onsubmit={(event) => { event.preventDefault(); void addSingle(); }}>

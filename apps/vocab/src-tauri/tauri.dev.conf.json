@@ -1,0 +1,10 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Vocab Dev",
+	"identifier": "so.epicenter.vocab.dev",
+	"app": {
+		"security": {
+			"capabilities": ["vocab"]
+		}
+	}
+}

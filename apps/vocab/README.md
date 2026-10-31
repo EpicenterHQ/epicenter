@@ -2,9 +2,12 @@
 
 Vocab helps a learner collect English expressions and practice using them in tutor-led conversations. Each saved expression has exact text, a learner-owned note, and a self-reported stage: New, Recognize, Understand, or Use. Only the learner changes the stage.
 
-Words, notes, stages, chats, and finished messages are Markdown notes of Vocab's contract, in the learner's own Epicenter repository (`<account>/vocab`), where other devices, `git`, and agents reach them.
+Words, notes, stages, chats, and finished messages are Markdown notes of Vocab's contract: in the learner's own Epicenter repository (`<account>/vocab`) on the web, or in a folder on the computer in the desktop app, which Epicenter can sync to the same repository. Other devices, `git`, and agents reach them.
 
-Vocab is online web only for now; a desktop app comes later. It is served at `/` behind sign-in: signed out it asks for a sign-in; signed in, every add, edit, delete, repair, and saved chat is a commit in the repository, and none of the learner's words or chats are kept in the browser. It needs the network; there is no browser copy to fall back on ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)). The same one sign-in covers the repository and Epicenter's hosted tutor models and dictation. The learner can also connect an OpenAI-compatible endpoint in this browser.
+Vocab has two variants, chosen at build time (decision 79):
+
+- **Online web**, served at `/` behind sign-in: signed out it asks for a sign-in; signed in, every add, edit, delete, repair, and saved chat is a commit in the repository, and none of the learner's words or chats are kept in the browser. It needs the network; there is no browser copy to fall back on ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)). The same one sign-in covers the repository and Epicenter's hosted tutor models and dictation. The learner can also connect an OpenAI-compatible endpoint in this browser.
+- **Desktop** ([below](#the-desktop-app)): the same pages over the folder Vocab keeps its words and chats in, with no sign-in needed. Signing in only adds the hosted tutor models and dictation.
 
 ## Learner flow
 
@@ -16,7 +19,7 @@ Choose one to three saved expressions to start a chat. Vocab saves the chat's fo
 
 Each word card edits its note (the note's body) and stage directly. The note saves as it is typed (`fieldEdit`), one save at a time, the newest value waiting; it is written over the word as the learner saw it, so another device's change to the stage is kept, and another device's change to the same note surfaces instead of being overwritten. A stage press saves at once. The visible note follows what was typed until its save answers, then follows the note again. A failed note save keeps the typed note visible with Save again, Discard, and Copy controls. A failed stage change shows an error toast.
 
-Deleting a word asks first, then deletes its note; the repository's Git history keeps it. A failed deletion shows an error toast. The header says whether the repository answers: Online, Offline when it does not, or Sign in again (with a button) when the sign-in needs renewing. Sign out is in the account menu. Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show without a reload.
+Deleting a word asks first, then deletes its note; the repository's Git history keeps it. A failed deletion shows an error toast. On the web the header says whether the repository answers: Online, Offline when it does not, or Sign in again (with a button) when the sign-in needs renewing. Sign out is in the account menu. Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show without a reload.
 
 ### Repair as text
 
@@ -32,21 +35,45 @@ chats/<id>.md                            createdAt, and focus: one to three { en
 messages/<chat id>/<message id>.md       role, createdAt (ms), and parts (text, tool calls, tool results)
 ```
 
-The signed-in layout opens the learner's repository (`openRemote` from `@epicenter/folder/remote`) for the account and sets it in context (`setRepo`); the page passes its client to `VocabApp` (`fromClient(getRepo<Vocab>())`), which composes the words, chats, and messages from that one client (`createVocab`, in `src/lib/vocab.svelte.ts`). Components read and write only through the client they are given, never a client of their own, so only the `(app)` layout chooses the store. Another variant, such as the desktop app to come, needs only a new root that passes `VocabApp` its own store's client.
+The variant's root (`#platform/root`) opens the store before any page renders: on the web, the learner's repository (`openRemote` from `@epicenter/folder/remote`) for the account, set in context (`setRepo`); on the desktop, the data folder. The page passes that store's client to `VocabApp` (`store()`), which composes the words, chats, and messages from that one client (`createVocab`, in `src/lib/vocab.svelte.ts`). Components read and write only through the client they are given, never a client of their own, so only the variant's root chooses the store.
 
 ```text
 src/routes/+layout.svelte                 every page: the chrome and the leave guard
-src/routes/auth/callback/+page.svelte     completes a sign-in, outside (app), then returns to /
-src/routes/(app)/+layout.svelte           the root that decides the store: signed out, a sign-in;
-                                          signed in, {#key account} Online
-src/routes/components/Online.svelte       setRepo(openRemote(vocab, { account })), one per account
-src/routes/(app)/+page.svelte             VocabApp over fromClient(getRepo<Vocab>())
-src/routes/components/VocabApp.svelte     the header (status, account), Words, and Chat over that client
+src/routes/auth/callback/+page.svelte     Callback from #platform/root: the web app finishes
+                                          sign-in, outside (app), then returns to /
+src/routes/(app)/+layout.svelte           <svelte:boundary> (spinner) around Startup from #platform/root
+  lib/components/OnlineRoot.svelte        web: signed out, a sign-in; signed in, {#key account}
+    lib/components/Online.svelte          setRepo(openRemote(vocab, { account })), one per account
+  lib/components/Startup.svelte           desktop: await openAppData(), openDataFolder(vocab); Recovery
+    lib/components/DesktopRoot.svelte     setAppData/setDevice(fromClient(...)), setFolderSync
+src/routes/(app)/+page.svelte             VocabApp over store() (#platform/root)
+src/routes/components/VocabApp.svelte     the header (Chrome from #platform/root), Words, and Chat
 ```
 
-The tutor model chosen and the endpoints connected are this browser's settings (`localStorage`), not the learner's data, so they are not in the contract. Unsent drafts and partial answers live only in the open conversation. One sign-in asks for both audiences, the API (tutor, dictation, profile) and Git (the repository).
+The tutor model chosen and the endpoints connected are this device's settings, not the learner's data, so they are not in the contract: on the web both are in this browser's `localStorage`; on the desktop the endpoints are in the AppData root's `connections.md`, their keys in the keychain. Unsent drafts and partial answers live only in the open conversation. One sign-in asks for both audiences, the API (tutor, dictation, profile) and Git (the repository).
 
 A new word's note is named by the SHA-256 of its exact UTF-8 text. An add first checks the listed words for that text, then the note at the hashed path; it creates only when the path is free, and a different note already there is refused. A message's note is named by its chat and its own id, so saving it twice never makes two, and a different message at that id is refused. The tutor loop reads the chat's saved messages sorted by creation time. A failed learner-message save asks nothing of the tutor; the conversation keeps the unsaved message available for retry. A failed finished-answer save likewise keeps the answer visible and copyable.
+
+## The desktop app
+
+```sh
+bun run --cwd apps/vocab dev:desktop     # needs a Rust toolchain
+bun run --cwd apps/vocab build:desktop   # a local, unsigned macOS app bundle
+```
+
+Its Tauri shell (`src-tauri/`, on the shared [`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md) crate) starts the window on Vocab's AppData root. There is no first-run question: the page opens `~/Epicenter/Vocab` (`~/Epicenter/Vocab Dev` under `tauri.dev.conf.json`), made when missing, or the folder `settings.md` names (`openAppData`, then `openDataFolder(vocab, { appData })`). Tauri decides which folders the window may open: the shell allows the default at startup, the native picker allows a folder the learner picks, and persisted-scope keeps it. A folder that cannot open shows the shared recovery screen. The header says "On this computer", or "Synced by Epicenter" once Epicenter syncs the folder, offers **Sync with Epicenter** until it does, and holds the folder's path and **Choose data folder…** in the status details.
+
+Signing in is optional, from the account menu, and only adds Epicenter's hosted tutor models and dictation. The shell signs in as `so.epicenter.vocab.native` through the system browser (the shared [`epicenter-account`](../../packages/tauri-epicenter-account/README.md) crate, `createTauriAuth` from `@epicenter/auth/tauri`), keeps the refresh token in the keychain, and sends the account's requests itself, so the page never holds a token; dictation's microphone needs `Info.plist`'s usage description and `entitlements.plist`.
+
+The connected endpoints are machine-local and never synced. Their list (each one's id, name, base URL and models, never a key) is `connections.md` at the top of the AppData root, beside `settings.md`, read and written through its own contract's client (`machineConnections` in `src/lib/connections.tauri.ts`). Each key is in the keychain under the connection's id (`keychain.get`, `keychain.set`), saved with the endpoint it was entered for and applied only while the connection still names that endpoint, so editing `connections.md` by hand cannot send a key elsewhere. Nothing about connections is in the data folder or `settings.md`.
+
+| Seam | Web leaf | Desktop leaf |
+| --- | --- | --- |
+| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in), `store()`, `Chrome` (status, account), the end of sign-in | `root.tauri.ts`: `Startup` (the two roots or the recovery screen), `store()`, `Chrome` (folder, sync, account), no callback |
+| `#platform/auth` | `auth.ts`: the browser OAuth client for the API and Git | `auth.tauri.ts`: the shell's account, hosted models only |
+| `#platform/connections` | `connections.ts`: this browser's storage, keys included | `connections.tauri.ts`: `connections.md` in AppData, keys in the keychain |
+
+`desktopVariant()` in `vite.config.ts` turns on the `tauri` condition for `bun run build:native` (into `build-desktop/`), `tsconfig.tauri.json` typechecks the desktop leaves, and `src/lib/platform.test.ts` bundles both builds and names a seam whose desktop leaf went missing.
 
 ## Development
 
@@ -56,6 +83,7 @@ From the repository root, run `bun dev:vocab`. Verify with:
 bun run --cwd apps/vocab typecheck
 bun run --cwd apps/vocab test
 bun x playwright test -c apps/vocab/playwright.config.ts
+cargo test -p vocab
 ```
 
 The unit tests run Vocab's stores and real Svelte cards (in jsdom) over a stand-in client: a real device folder in a temporary directory (`openDevice` from `@epicenter/folder/node`, `src/lib/vocab.test-support.ts`), the same contract's client at the same paths, in place of the repository. The Playwright suite runs Vocab against the local API with temporary Git and LFS stores, in Chromium and WebKit, in one persistent profile per engine: signed out, `/` asks for a sign-in; signed in, the repository is empty; words are added, noted, staged and deleted and a chat is started, all in the repository and never in the browser's files, and a reload shows them; a desktop clone matches and passes `epicenter check`; edits each way between the desktop and the browser; a repair; and sign-out. `bun run --cwd apps/vocab demo` starts the same environment by hand. jsdom tests prove rendered content and delivered events, not layout or IME behavior.

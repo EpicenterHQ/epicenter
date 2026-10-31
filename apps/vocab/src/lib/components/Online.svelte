@@ -8,7 +8,7 @@
 	import { openRemote } from '@epicenter/folder/remote';
 	import { setRepo } from '@epicenter/svelte/repo';
 	import type { Snippet } from 'svelte';
-	import { vocab } from '$lib/contract.js';
+	import { vocab } from '../contract.js';
 
 	const { account, children }: { account: Account; children: Snippet } = $props();
 

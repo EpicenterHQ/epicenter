@@ -36,7 +36,8 @@ in grants capabilities, never storage
 | App | Variants |
 | --- | --- |
 | Todos | online web, desktop |
-| Capture, Honeycrisp, Vocab | online web |
+| Capture, Honeycrisp | online web |
+| Vocab | online web, desktop |
 | Whispering, Messages | local web |
 | Recorder demo | local web (`/`) and online web (`/online`) |
 
@@ -112,7 +113,7 @@ fixed default. Both contexts keep the same `openFolder({ tables })` page API.
 | [Honeycrisp](honeycrisp/README.md) | online web | none: the `honeycrisp` repository | contract `honeycrisp`: `notes`, `folders` |
 | [Whispering](whispering/README.md) | local web | none: the origin's OPFS | contract `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs` |
 | [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: the origin's OPFS | contract `messages`: `drafts`, `attempts` |
-| [Vocab](vocab/README.md) | online web | none: the `vocab` repository | contract `vocab`: `entries`, `chats`, `messages` |
+| [Vocab](vocab/README.md) | online web; desktop (standalone native) | the web: none, the `vocab` repository; the desktop: `~/Epicenter/Vocab` | contract `vocab`: `entries`, `chats`, `messages` |
 
 Local Books keeps its QuickBooks replica in SQLite under
 `<AppData>/apps/so.epicenter.local-books`, outside the library. `api`,

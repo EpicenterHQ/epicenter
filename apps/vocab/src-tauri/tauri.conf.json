@@ -1,0 +1,30 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Vocab",
+	"version": "0.0.2",
+	"identifier": "so.epicenter.vocab",
+	"build": {
+		"frontendDist": "../build-desktop"
+	},
+	"app": {
+		"windows": [],
+		"security": {
+			"capabilities": ["vocab"],
+			"csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https: http://localhost:* http://127.0.0.1:*; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+		}
+	},
+	"bundle": {
+		"active": true,
+		"icon": ["icons/icon.png"],
+		"macOS": {
+			"entitlements": "entitlements.plist",
+			"hardenedRuntime": true,
+			"minimumSystemVersion": "10.15"
+		}
+	},
+	"plugins": {
+		"fs": {
+			"scopeDroppedPaths": false
+		}
+	}
+}

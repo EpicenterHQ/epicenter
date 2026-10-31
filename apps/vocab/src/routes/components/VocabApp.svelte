@@ -1,26 +1,26 @@
 <!--
-	Vocab over the client it is given: a header with the connection and the
-	account, then Words and Chat over that client's words, chats and
-	messages. Every component under it reads and writes only through that
-	client, so the root that passes it alone decides the store.
+	Vocab over the client it is given: a header with the variant's account
+	of its store and the account (`Chrome`), then Words and Chat over that
+	client's words, chats and messages. Every component under it reads and
+	writes only through that client, so the root that passes it alone
+	decides the store.
 -->
 <script lang="ts">
 	import { createBrowserInferenceSelections } from '@epicenter/ai/selections';
 	import { createInferenceCatalog } from '@epicenter/ai/picker';
 	import { toHostedCatalog } from '@epicenter/constants/ai-providers';
+	import { auth } from '#platform/auth';
+	import { Chrome } from '#platform/root';
 	import { Button } from '@epicenter/ui/button';
-	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import { toast } from '@epicenter/ui/sonner';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 	import { onDestroy } from 'svelte';
 	import type { ReactiveClient } from '@epicenter/svelte/client';
-	import { auth } from '$lib/auth.svelte.js';
 	import type { Vocab } from '$lib/contract.js';
 	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
 	import { openVocabInference } from '$lib/inference.js';
 	import { createVocab } from '$lib/vocab.svelte.js';
-	import AccountMenu from './AccountMenu.svelte';
 	import ConversationView from './ConversationView.svelte';
 	import FocusWords from './FocusWords.svelte';
 	import WordsView from './WordsView.svelte';
@@ -28,35 +28,24 @@
 	let {
 		vocab,
 	}: {
-		/** The learner's repository's client, whose collections every section reads and edits. */
+		/** The store's client (the learner's repository, or the desktop's folder), whose collections every section reads and edits. */
 		vocab: ReactiveClient<Vocab>;
 	} = $props();
 	// A page shows one store's client for its life.
 	// svelte-ignore state_referenced_locally
 	const { entries, chats, messages } = createVocab(vocab);
 
-	// One account for this component's life: the signed-in layout mounts every
-	// page anew for a new account, and signing out unmounts it. The account
-	// adds the hosted models and dictation; the endpoints connected in this
-	// browser and the chosen model are its settings, not the learner's data.
+	// One account for this component's life: the root mounts every page anew
+	// for a new account (on the web, signing out unmounts it). The account
+	// adds the hosted models and dictation; the endpoints connected on this
+	// device and the chosen model are its settings, not the learner's data.
 	const account = auth.state.status === 'signed-out' ? undefined : auth.state.account;
 	const departure = new AbortController();
 	const sources = openVocabInference(account);
 	const catalog = createInferenceCatalog({ ai: sources, signal: departure.signal, hostedModels: toHostedCatalog([VOCAB_MODEL]) });
 	const selections = createBrowserInferenceSelections('vocab');
-	/** Whether the repository answers, in a line; `problem` says why it is a warning. */
-	const status = $derived.by((): { label: string; problem?: string } => {
-		if (auth.state.status === 'reauth-required')
-			return { label: 'Sign in again', problem: 'Sign in again to see and edit your repository.' };
-		const error = vocab.entries.error ?? vocab.chats.error;
-		return error === null ? { label: 'Online' } : { label: 'Offline', problem: error.message };
-	});
-
-	async function signInAgain() {
-		// A successful start leaves this page for the sign-in page.
-		const { error } = await auth.startSignIn();
-		if (error !== null) toast.error('Could not sign in', { description: error.message });
-	}
+	/** Why the words or chats did not list, if they did not; the variant's `Chrome` says it. */
+	const listError = $derived(vocab.entries.error ?? vocab.chats.error);
 
 	const SECTIONS = [
 		{ id: 'words', label: 'Words', icon: BookOpenIcon },
@@ -121,11 +110,7 @@
 	<header class="contents md:flex md:items-center md:gap-2 md:border-b md:px-4 md:py-2">
 		<div class="flex items-center justify-between gap-2 border-b px-4 py-2 md:contents">
 			<h1 class="text-lg font-semibold">Vocab</h1>
-			<span class="text-xs max-md:mr-auto {status.problem === undefined ? 'text-muted-foreground' : 'text-destructive'}" role="status" title={status.problem} data-testid="status">{status.label}</span>
-			<div class="flex items-center gap-1 md:order-last md:ml-auto">
-				{#if auth.state.status === 'reauth-required'}<Button size="sm" onclick={() => void signInAgain()}>Sign in again</Button>{/if}
-				<LightSwitch variant="ghost" /><AccountMenu />
-			</div>
+			<Chrome unreadable={listError} />
 		</div>
 		<!--
 			Chat resumes the open chat; with none open, the chat section shows the

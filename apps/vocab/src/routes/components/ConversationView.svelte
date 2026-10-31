@@ -11,7 +11,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import type { AgentMessage } from '@epicenter/agent';
 	import type { Account } from '@epicenter/auth';
-	import { auth } from '$lib/auth.svelte.js';
+	import { auth } from '#platform/auth';
 	import { createVocabChat } from '$lib/chat/session.svelte.js';
 	import type { MessageList } from '$lib/chat/messages.svelte.js';
 	import type { Entries } from '$lib/entries.svelte.js';

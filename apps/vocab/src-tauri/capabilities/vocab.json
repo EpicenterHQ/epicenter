@@ -1,0 +1,21 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "vocab",
+	"description": "The one Vocab window. Rust opens it on Vocab's AppData root, whose settings.md the page reads (openAppData from @epicenter/folder/tauri, which finds it with Tauri's path API) and whose connections.md lists the endpoints the learner connected; the page then opens its data folder by path (openDataFolder): the folder settings.md names, or ~/Epicenter/<productName> (the app's name, core:app:allow-name), which Rust allows in Tauri's runtime file-system scope at startup. Any other folder opens only once the native picker (dialog:allow-open) allowed it; persisted-scope keeps that across launches. No capability names a folder. Through the folder plugin it may ask Epicenter to sync the data folder (epicenter://init) and whether Epicenter already does. It signs in with Epicenter for hosted tutor models and dictation and sends the account's requests with a token it never holds, and keeps its connected endpoints' keys in the keychain.",
+	"local": true,
+	"windows": ["vocab:*"],
+	"permissions": [
+		"epicenter-folder:default",
+		"dialog:allow-open",
+		"core:app:allow-name",
+		"core:path:allow-resolve-directory",
+		"core:path:allow-join",
+		"allow-account-state",
+		"allow-account-sign-in",
+		"allow-account-sign-out",
+		"allow-account-fetch",
+		"allow-account-fetch-cancel",
+		"allow-keychain-get",
+		"allow-keychain-set"
+	]
+}

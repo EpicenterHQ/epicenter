@@ -1,9 +1,11 @@
 /**
  * Vocab acquisition boundary tests.
- * The signed-in layout is the one root that decides the store, the learner's
- * repository; the page passes that client to the app; callback pages and
- * ancestor layouts open nothing; and no shipped source opens a store in the
- * browser.
+ * The variant's root is the one place that decides the store: on the web
+ * the signed-in root sets the learner's repository, on the desktop
+ * `Startup` opens the data folder; the page passes that client to the app;
+ * callback pages and ancestor layouts open nothing; and no web source opens
+ * a store in the browser. Which leaves each build carries is
+ * `platform.test.ts`'s.
  */
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -14,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 const appRoot = fileURLToPath(new URL('../..', import.meta.url));
 const source = join(appRoot, 'src');
 const routes = join(source, 'routes');
+const components = join(source, 'lib/components');
 const callback = join(routes, 'auth/callback/+page.svelte');
 
 function ancestorLayouts(page: string): string[] {
@@ -28,6 +31,9 @@ function ancestorLayouts(page: string): string[] {
 	}
 	return found;
 }
+
+/** The desktop window's own sources, which open its folder. */
+const desktopOnly = /\.tauri\.ts$|components\/(Startup|Desktop\w+)\.svelte$/;
 
 /** Every shipped source file: no tests and no test support. */
 async function shippedSources(): Promise<{ path: string; text: string }[]> {
@@ -60,20 +66,34 @@ describe('the callback opens nothing', () => {
 	});
 });
 
-describe('the repository is the one store', () => {
-	test('signed in, the layout sets the repository for the account; signed out, it asks for a sign-in', async () => {
+describe('the variant root decides the one store', () => {
+	test('the layout renders the variant’s Startup under its boundary, and the page passes its store', async () => {
 		const layout = await Bun.file(join(routes, '(app)/+layout.svelte')).text();
+		expect(layout).toMatch(/import \{ Startup \} from '#platform\/root'/);
 		expect(layout).toMatch(
+			/<svelte:boundary>[\s\S]*<Startup>\{@render children\(\)\}<\/Startup>/,
+		);
+		const page = await Bun.file(join(routes, '(app)/+page.svelte')).text();
+		expect(page).toMatch(/const vocab = store\(\);/);
+		expect(page).toMatch(/<VocabApp \{vocab\} \/>/);
+	});
+
+	test('on the web, signed in, the root sets the repository for the account; signed out, it asks for a sign-in', async () => {
+		const root = await Bun.file(join(components, 'OnlineRoot.svelte')).text();
+		expect(root).toMatch(
 			/\{#if auth\.state\.status !== 'signed-out'\}\s*\{#key auth\.state\.account\}\s*<Online account=\{auth\.state\.account\}>/,
 		);
-		expect(layout).toMatch(/Sign in to use the words and chats/);
-		const online = await Bun.file(
-			join(routes, 'components/Online.svelte'),
-		).text();
+		const online = await Bun.file(join(components, 'Online.svelte')).text();
 		expect(online).toMatch(/setRepo\(openRemote\(vocab, \{ account \}\)\)/);
-		const page = await Bun.file(join(routes, '(app)/+page.svelte')).text();
-		expect(page).toMatch(
-			/<VocabApp vocab=\{fromClient\(getRepo<Vocab>\(\)\)\}/,
+		const leaf = await Bun.file(join(source, 'lib/root.ts')).text();
+		expect(leaf).toMatch(/fromClient\(getRepo<Vocab>\(\)\)/);
+	});
+
+	test('on the desktop, Startup opens the AppData root, then the data folder', async () => {
+		const startup = await Bun.file(join(components, 'Startup.svelte')).text();
+		expect(startup).toMatch(/openAppData\(\)/);
+		expect(startup).toMatch(
+			/openDataFolder\(vocab, \{ appData: appData\.data \}\)/,
 		);
 	});
 
@@ -82,8 +102,10 @@ describe('the repository is the one store', () => {
 		expect(contract).not.toMatch(/accountKey|@epicenter\/auth/);
 	});
 
-	test('no shipped source opens a store in the browser: the repository is the only one', async () => {
-		const files = await shippedSources();
+	test('no web source opens a store in the browser: the repository is the only one', async () => {
+		const files = (await shippedSources()).filter(
+			({ path }) => !desktopOnly.test(path),
+		);
 		const openers = files
 			.filter(({ text }) =>
 				/@epicenter\/app\/(open|store|memory)|@epicenter\/folder\/browser|\bopenDevice\b|\bopenLocal\b|\bopenPersonal\b|PersistenceNotice|fromData\b/.test(

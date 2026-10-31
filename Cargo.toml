@@ -9,6 +9,7 @@ resolver = "2"
 members = [
     "apps/capture/src-tauri",
     "apps/honeycrisp/src-tauri",
+    "apps/vocab/src-tauri",
     "apps/whispering/src-tauri",
     "packages/epicenter-transcription-build",
     "packages/tauri-epicenter-account",
