@@ -1,12 +1,7 @@
-//! Canonical directories and publication across independent native and Bun writers.
-//! Validation preserves existing files and accepts linked parents. Shared save
-//! locks prevent stale writers from replacing a newer save.
+//! Canonical directories, and saves through one.
+//! Validation preserves existing files and accepts linked parents.
 
-use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
-use std::time::Duration;
 
 use crate::directory::{Directory, DirectoryError};
 use crate::storage::{self, PutOutcome};
@@ -73,7 +68,6 @@ fn save(root: &Path) -> Result<PutOutcome, storage::StorageError> {
         "todos/a.md",
         Some(b"milk"),
         &storage::Expectation::Absent,
-        || directory.publishing(),
     )
     .map(|outcome| match outcome {
         PutOutcome::Landed { .. } => PutOutcome::Landed { stamp: None },
@@ -92,8 +86,8 @@ fn names(directory: &Path) -> Vec<String> {
 }
 
 /// A plain directory with no `.git` is opened and saved to, and the save
-/// makes nothing in it but the file and `.epicenter` (its save lock and an
-/// empty scratch directory), no `.git`, and nothing beside it.
+/// makes nothing in it but the file and `.epicenter` (its empty scratch
+/// directory), no `.git`, and nothing beside it.
 #[test]
 fn a_directory_with_no_git_is_opened_and_saved_to() {
     let temp = TempDir::new("bind-no-git");
@@ -101,7 +95,7 @@ fn a_directory_with_no_git_is_opened_and_saved_to() {
     assert_eq!(save(&root), Ok(PutOutcome::Landed { stamp: None }));
     assert_eq!(std::fs::read(root.join("todos/a.md")).unwrap(), b"milk");
     assert_eq!(names(&root), [".epicenter", "todos"]);
-    assert_eq!(names(&root.join(".epicenter")), ["save-lock", "scratch"]);
+    assert_eq!(names(&root.join(".epicenter")), ["scratch"]);
     assert_eq!(names(temp.path()), ["notes"]);
     assert!(names(&storage::scratch_directory(&root)).is_empty());
 }
@@ -159,150 +153,4 @@ fn git_state_linked_elsewhere_does_not_block_opening_or_saving() {
         assert_eq!(names(&root.join(".git")), [planted], "{planted}");
     }
     assert!(names(&elsewhere).is_empty());
-}
-
-fn hex_sha256(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-
-/// Independent directory values and their clones all take the root's save
-/// lock. Pausing after the expectation check exposes unsynchronized publication:
-/// exactly one of the competing saves may land.
-#[test]
-fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
-    const SAVES: usize = 9;
-    let temp = TempDir::new("bind-race");
-    let root = temp.folder("notes");
-    let directories: Vec<_> = (0..3)
-        .map(|_| Directory::existing(&root).unwrap())
-        .collect();
-    std::fs::write(root.join("a.md"), b"old").unwrap();
-    let expected = hex_sha256(b"old");
-    let start = Arc::new(std::sync::Barrier::new(SAVES));
-    let saves: Vec<_> = (0..SAVES)
-        .map(|save| {
-            let directory = directories[save % directories.len()].clone();
-            let start = Arc::clone(&start);
-            let expected = expected.clone();
-            std::thread::spawn(move || {
-                storage::PAUSE_AFTER_CHECK.with(|pause| pause.set(Duration::from_millis(50)));
-                let bytes = format!("save {save}");
-                start.wait();
-                let landed = storage::put(
-                    directory.root(),
-                    "a.md",
-                    Some(bytes.as_bytes()),
-                    &storage::Expectation::Sha256(expected),
-                    || directory.publishing(),
-                );
-                (bytes, landed)
-            })
-        })
-        .collect();
-    let outcomes: Vec<_> = saves.into_iter().map(|save| save.join().unwrap()).collect();
-    let winners: Vec<_> = outcomes
-        .iter()
-        .filter(|(_, landed)| matches!(landed, Ok(PutOutcome::Landed { .. })))
-        .collect();
-    assert_eq!(winners.len(), 1, "{outcomes:?}");
-    assert_eq!(
-        std::fs::read(root.join("a.md")).unwrap(),
-        winners[0].0.as_bytes()
-    );
-    assert!(
-        outcomes
-            .iter()
-            .filter(|(_, landed)| !matches!(landed, Ok(PutOutcome::Landed { .. })))
-            .all(|(_, landed)| *landed == Ok(PutOutcome::Stale)),
-        "{outcomes:?}"
-    );
-    assert!(names(&storage::scratch_directory(&root)).is_empty());
-    assert!(!root.join(".git").exists());
-}
-
-/// Another process, in Bun, that takes the folder's save lock as the Bun host
-/// does (`@epicenter/folder/bun`), says `locked`, and on a line from stdin
-/// lands its own save of `theirs` at `target`, then lets go and says
-/// `released`.
-fn bun_saver(root: &Path, target: &Path, theirs: &str) -> Child {
-    let script = r#"
-        import { Database } from 'bun:sqlite';
-        import { mkdirSync, writeFileSync } from 'node:fs';
-        import { join } from 'node:path';
-        const [root, target, theirs] = process.argv.slice(-3);
-        mkdirSync(join(root, '.epicenter'), { recursive: true });
-        const database = new Database(join(root, '.epicenter', 'save-lock'), { create: true });
-        database.run('PRAGMA busy_timeout = 0');
-        database.run('BEGIN EXCLUSIVE');
-        console.log('locked');
-        for await (const _ of console) {
-            writeFileSync(target, theirs);
-            database.run('ROLLBACK');
-            database.close();
-            console.log('released');
-            process.exit(0);
-        }
-    "#;
-    Command::new("bun")
-        .args(["-e", script, "--"])
-        .arg(root)
-        .arg(target)
-        .arg(theirs)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .expect("bun is required to save from another process")
-}
-
-/// A save from another process holds the folder's save lock across its own
-/// check and rename. A shell save that read the same version waits for it,
-/// then checks against what that save left, so it is `Stale` and the other
-/// process's save is kept, not overwritten.
-#[test]
-fn a_shell_save_waits_for_another_process_save_and_then_is_stale() {
-    let temp = TempDir::new("save-lock-process");
-    let root = temp.folder("notes");
-    let directory = Directory::existing(&root).unwrap();
-    let target = root.join("a.md");
-    std::fs::write(&target, b"old").unwrap();
-
-    let mut other = bun_saver(&root, &target, "theirs");
-    let mut said = BufReader::new(other.stdout.take().unwrap());
-    let mut line = String::new();
-    said.read_line(&mut line).unwrap();
-    assert_eq!(line.trim(), "locked");
-
-    let ours = {
-        let directory = directory.clone();
-        std::thread::spawn(move || {
-            storage::put(
-                directory.root(),
-                "a.md",
-                Some(b"ours"),
-                &storage::Expectation::Sha256(hex_sha256(b"old")),
-                || directory.publishing(),
-            )
-        })
-    };
-    std::thread::sleep(Duration::from_millis(200));
-    assert!(
-        !ours.is_finished(),
-        "the shell's save waits for the other process"
-    );
-    assert_eq!(std::fs::read(&target).unwrap(), b"old");
-
-    writeln!(other.stdin.as_mut().unwrap(), "go").unwrap();
-    line.clear();
-    said.read_line(&mut line).unwrap();
-    assert_eq!(line.trim(), "released");
-    other.wait().unwrap();
-
-    assert_eq!(ours.join().unwrap(), Ok(PutOutcome::Stale));
-    assert_eq!(std::fs::read(&target).unwrap(), b"theirs");
-    assert!(names(&storage::scratch_directory(&root)).is_empty());
 }

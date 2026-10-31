@@ -11,10 +11,10 @@
  * while the path holds what the caller expects (`Expectation`), which may be
  * anything at all. It lands whole: a reader,
  * and a crash, see the old file or the new one, never part of either, and a
- * new file never appears empty first. Where Sync publishes, `lock` holds the
- * folder's save lock, the one every cooperating writer takes for each
- * change, across several (`LockingStorage`). Reads, a folder's list, and its
- * captures are built on these.
+ * new file never appears empty first. The host checks the expectation right
+ * before the change, with no lock between the two: a save another program
+ * lands in that instant can be replaced, and Git history is the backstop
+ * (ADR-0568). Reads, a folder's list, and its captures are built on these.
  *
  * Saves are not ordered by when their methods were called: the last to land
  * on a path wins. A change that must not overwrite bytes its caller did not
@@ -26,9 +26,9 @@
  * there lands only while the file is still there, checked where it lands;
  * otherwise it is `InvalidPath`. A `HEAD` segment is never written.
  *
- * What every host shares is here once (`hostStorage`, `lockingStorage`): the
+ * What every host shares is here once (`hostStorage`): the
  * path rule, owning the bytes a put was handed, telling other pages what
- * landed, the order of a listing, holding the lock, and where and under what
+ * landed, the order of a listing, and where and under what
  * names a new file is staged, which the desktop shell's own staging matches
  * (`storage.rs` in `tauri-plugin-epicenter-folder`). A host supplies only
  * its own operations (`HostFiles`).
@@ -40,7 +40,7 @@ import { pathProblem, readablePath, writableExistingPath } from './paths.js';
 /**
  * What a change expects at its path when it lands: nothing there, a file, a
  * file whose bytes hash to `sha256`, or whatever is there. A host checks it
- * where the change lands, under the folder's save lock.
+ * where the change lands, right before the change.
  */
 export type Expectation =
 	| 'absent'
@@ -92,8 +92,7 @@ export type FolderStorage = {
 	 * nothing changed; `'any'` is never stale. Removing nothing that may be
 	 * absent has landed. Missing parent directories are made for a new file.
 	 * The bytes land whole. The host checks the condition where the change
-	 * lands, under the folder's save lock, the lock the desktop shell and Bun
-	 * share (ADR-0562). A reply that was lost is `Unconfirmed`.
+	 * lands, right before it. A reply that was lost is `Unconfirmed`.
 	 */
 	put(
 		path: string,
@@ -103,20 +102,6 @@ export type FolderStorage = {
 	mkdir(path: string): Promise<Result<undefined, FileError>>;
 	/** Remove the empty directory at `path`. */
 	rmdir(path: string): Promise<Result<undefined, FileError>>;
-};
-
-/**
- * Storage that Sync publishes through: the browser's, and a directory's in
- * Bun, where the `epicenter` CLI runs a desktop page's Sync. A desktop page's
- * own storage has no `lock`, since its Sync never runs there.
- */
-export type LockingStorage = FolderStorage & {
-	/**
-	 * Run `work` holding the folder's save lock, with storage whose changes
-	 * land under it without asking for it again, so no cooperating save lands
-	 * between `work`'s check and its last change.
-	 */
-	lock<T>(work: (held: FolderStorage) => Promise<T>): Promise<T>;
 };
 
 /**
@@ -146,8 +131,8 @@ export const mayHaveChanged = (
 export const PRIVATE_DIRECTORY = '.git';
 
 /**
- * Epicenter's own state at the top of a folder: the save lock and the
- * scratch directory saves stage in. No listing shows it and no watcher
+ * Epicenter's own state at the top of a folder: the scratch directory saves
+ * stage in, and unfinished files such as a recording in progress. No listing shows it and no watcher
  * reports it; `epicenter init`'s `.gitignore` keeps it out of history.
  */
 export const STATE_DIRECTORY = '.epicenter';
@@ -276,24 +261,5 @@ export function hostStorage(
 			if (removed.error === null) relay([path]);
 			return removed;
 		},
-	};
-}
-
-/**
- * The storage over a host's `files`, which each take the folder's save lock
- * for themselves where the host has one in this process, with `lock` taking
- * it once to change files through `held`, the same operations without it.
- */
-export function lockingStorage(
-	files: HostFiles,
-	hold: {
-		lock<T>(work: () => Promise<T>): Promise<T>;
-		held: HostFiles;
-	},
-	relay?: (paths: readonly string[]) => void,
-): LockingStorage {
-	return {
-		...hostStorage(files, relay),
-		lock: (work) => hold.lock(() => work(hostStorage(hold.held, relay))),
 	};
 }

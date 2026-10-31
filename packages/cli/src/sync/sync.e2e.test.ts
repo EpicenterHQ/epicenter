@@ -20,8 +20,7 @@
  * - T4, T5: every non-note file travels as an LFS pointer; init repairs a
  *   clone missing its filters or bytes, and sync refuses one until then
  * - T6: a held index lock stops sync with nothing changed; concurrent syncs
- *   are serialized and a rejected push is retried, so every run succeeds;
- *   the merge waits for an app holding the folder's save lock
+ *   are serialized and a rejected push is retried, so every run succeeds
  * - T7: a rewritten remote main stops sync before it merges
  * - T8: a binary both sides replaced lands as a conflict copy (decision 44)
  * - clone, status, forget, sync of every registered folder, and --watch
@@ -43,7 +42,6 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { findConflicts } from '@epicenter/definition/merge';
 import { formatNote, parseRowSource } from '@epicenter/definition/note';
-import { holdingSaveLock } from '@epicenter/folder/bun';
 import { type LfsServer, startLfsServer } from './lfs-server.test-support.ts';
 
 const BIN = resolve(import.meta.dir, '..', 'bin.ts');
@@ -632,40 +630,6 @@ describe('epicenter sync over stock git', () => {
 				);
 		},
 		LONG * 3,
-	);
-
-	test(
-		"T6d: sync's merge waits for an app holding the folder's save lock (decision 80)",
-		async () => {
-			write(
-				A,
-				'notes/after-the-save.md',
-				'---\ntitle: After the save\n---\nmerged only once the save let go\n',
-			);
-			expect((await sync(A)).code).toBe(0);
-			const pushed = await head(A);
-			const remoteMain = () =>
-				quiet(B, 'rev-parse', '-q', '--verify', 'refs/remotes/origin/main');
-			// The lock every app save takes in Bun (`nativeStorage`), held as one save holds it.
-			const { syncing } = await holdingSaveLock(B, async () => {
-				const syncing = sync(B);
-				for (let waited = 0; (await remoteMain()) !== pushed; waited += 25) {
-					if (waited > 30_000) throw new Error('sync of B never fetched');
-					await Bun.sleep(25);
-				}
-				// Fetched, so only the save lock stands between it and the merge.
-				await Bun.sleep(500);
-				expect(existsSync(join(B, 'notes/after-the-save.md'))).toBe(false);
-				expect(existsSync(join(B, '.git/MERGE_HEAD'))).toBe(false);
-				return { syncing };
-			});
-			expect((await syncing).code).toBe(0);
-			expect(read(B, 'notes/after-the-save.md')).toContain(
-				'merged only once the save let go',
-			);
-			expect(await tree(B)).toBe(await tree(A));
-		},
-		LONG,
 	);
 
 	test(

@@ -1,12 +1,9 @@
 /**
  * `@epicenter/folder/bun`: open an existing directory as a folder and expose
- * the CLI's independent declaration and query tools, its file lock, the
- * directory save lock, and the system `git` runner its sync verbs use.
- * Folder writes take the save lock, and so does `epicenter sync` while its
- * merge rewrites files; Git is outside its lifetime.
+ * the CLI's independent declaration and query tools and the system `git`
+ * runner its sync verbs use. Git is outside a folder's lifetime.
  */
 
-import { sweepStaleScratch } from './directory-store.js';
 import { OpenFolderError } from './errors.js';
 import {
 	createFolder,
@@ -14,8 +11,7 @@ import {
 	type OpenOptions,
 	type Tables,
 } from './folder.js';
-import { localRoot, scratchDirectory } from './native/directory.js';
-import { nativeStorage, savingPrimitives } from './native/storage.js';
+import { localRoot, openNativeStorage } from './native/directory.js';
 import { watchDirectory } from './native/watch.js';
 import { storageHost } from './storage.js';
 
@@ -46,7 +42,6 @@ export {
 	locateGit,
 	runGit,
 } from './git/native-host.js';
-export { holdingFileLock, holdingSaveLock } from './native/directory.js';
 export { DEFINITION_PATH } from './paths.js';
 export { queryDocuments } from './query-documents.js';
 
@@ -56,9 +51,10 @@ export async function openFolder<const T extends Tables>({
 }: OpenOptions<T> & { readonly directory: string }): Opened<T> {
 	const { data: root, error } = await localRoot(directory);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
-	await sweepStaleScratch(scratchDirectory(root), savingPrimitives(root));
 	return createFolder(
-		storageHost(nativeStorage(root), { watch: watchDirectory(root) }),
+		storageHost(await openNativeStorage(root), {
+			watch: watchDirectory(root),
+		}),
 		options,
 	);
 }

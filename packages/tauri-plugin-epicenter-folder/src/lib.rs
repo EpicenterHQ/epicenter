@@ -25,11 +25,11 @@
 //! WebView. The `epicenter` CLI owns Git over explicit directories
 //! (ADR-0559); this plugin offers file storage.
 //!
-//! Several windows may be bound to one directory: the shell checks and
-//! publishes each save under the folder's save lock, which native windows
-//! and other participating processes all take, so a save another writer
-//! overtook is answered `stale` rather
-//! than silently replaced (ADR-0562, ADR-0568). `Folders::shutdown` refuses
+//! Several windows may be bound to one directory: the shell checks each save
+//! against the version its page read right before the rename, so a save
+//! another writer overtook is answered `stale` rather than silently replaced.
+//! No lock spans the check and the rename; Git history is the backstop for
+//! that instant (ADR-0562, ADR-0568). `Folders::shutdown` refuses
 //! new work without waiting for work already running (ADR-0542).
 //!
 //! Each opened binding owns one recursive native watch. Its private channel

@@ -36,7 +36,7 @@ export function watchDirectory(root: string): FolderWatch {
 				)
 					.split(sep)
 					.join('/');
-				// Epicenter's own state (the save lock and staged saves) is not
+				// Epicenter's own state (staged saves, unfinished files) is not
 				// the folder's files, so a save does not echo as a change.
 				if (path.split('/')[0] === STATE_DIRECTORY) return;
 				if (readablePath(path)) return report([path]);

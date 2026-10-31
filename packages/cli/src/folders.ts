@@ -46,8 +46,8 @@ export async function epicenterDirectory(
 
 /**
  * The same admission as native `library::check_editable_directory` for the
- * records default: never a folder's `.epicenter` (its save lock and staged
- * saves) or anything in one, and never overlapping application data. The
+ * records default: never a folder's `.epicenter` (its staged saves and
+ * unfinished files) or anything in one, and never overlapping application data. The
  * shared `records-default.json` cases exercise both implementations before
  * anything is created.
  */

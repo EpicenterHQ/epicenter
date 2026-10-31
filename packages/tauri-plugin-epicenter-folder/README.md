@@ -20,7 +20,7 @@ file-system scope must allow (see Other roots).
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, the page's storage (`storage.rs`), and the fixed native defaults (`library.rs`). No Tauri; its tests need only `git` and `bun`. |
+| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the shared path rule, the page's storage (`storage.rs`), and the fixed native defaults (`library.rs`). No Tauri. |
 | `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), which roots a page may open (`scope.rs`), and storage commands. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
@@ -137,10 +137,11 @@ Bindings are runtime resources, not a persisted list of folder choices.
 
 Several windows may be bound to one directory, as Settings and a folder
 editor are to `so.epicenter`. Each page runs its own engine over the
-directory. Every participating writer takes the folder's save lock across
-its expectation check and change (see Storage). A save that another writer
-overtook is answered `stale`; the page reads again and merges. Native windows,
-other Epicenter processes, and Bun writers use the same lock
+directory. Each save is checked against the version its page read right
+before its rename (see Storage). A save that another writer overtook is
+answered `stale`; the page reads again and merges. No lock spans the check
+and the rename, so two saves racing in that instant can both land, the later
+replacing the earlier; Git history is the backstop
 ([ADR-0568](../../docs/adr/0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md)).
 
 A shell must also give the window the plugin's commands in a capability:
@@ -277,7 +278,7 @@ regular file, whatever its bytes), or the lowercase SHA-256 of the file
 be absent has landed. A new file must pass the shared path rule; an existing
 name only some disks hold may be replaced or removed, never made, so a put of
 bytes expecting `any` there lands only while a file is there, checked
-holding the turn, and is `InvalidPath` otherwise. `HEAD` is never written.
+right before the rename, and is `InvalidPath` otherwise. `HEAD` is never written.
 A JSON array of bytes, Tauri's `postMessage`
 fallback, is accepted too. The generated bindings cannot type a raw request,
 so the command is left out of them; the plugin dispatches it beside the
@@ -308,24 +309,16 @@ written; a put that cannot remove them is `Io`. Replacing a file keeps its
 permission bits; a new file is `0600`. Windows has no such bits: there the
 scratch directory has the access its parent passes on. The scratch
 directory is on the root's own file system, so the rename is one step. Then
-the put takes the folder's save lock, an exclusive SQLite transaction on
-`.epicenter/save-lock` (`lock.rs`), making `.epicenter` (`0700`) when it is
-missing. Holding the turn,
-it walks the path again (no link, every name stored as asked), checks what
-the path holds, and only then makes the path's missing parent directories
-and renames the staged file over it. A removal takes the turn, walks and
-checks, and removes. `remove_folder_directory` takes the same turn across
-its check and removal; `make_folder_directory` takes none. A Bun process
-opening the same directory (`@epicenter/folder/bun`, and so the `epicenter`
-CLI) takes the same save lock around each of its own checks and renames, as
-does any other Epicenter shell, so no other save through the plugin or the
-Bun host lands between the check and the change
+the put walks the path again (no link, every name stored as asked), checks
+what the path holds, and only then makes the path's missing parent
+directories and renames the staged file over it. A removal walks, checks,
+and removes. Nothing holds the path between the check and the change, in
+the shell or in a Bun process opening the same directory: a save another
+writer lands in that instant can be replaced
 ([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
-A directory another writer pruned while the put waited is made again under
-the turn; the root itself never is. A put waits up to ten seconds for
-another writer's save; past that it changes nothing and is `Io`, naming the
-lock file. The cost is a read and hash of the destination when `expected`
-names a hash. A path that holds something else changes nothing and answers
+A directory another writer pruned while the put staged is made again; the
+root itself never is. The cost is a read and hash of the destination when
+`expected` names a hash. A path that holds something else changes nothing and answers
 `{ kind: "stale" }`. On every answer but `{ kind: "landed", stamp }` the put
 leaves nothing behind: not
 its staged file, and not a directory it made, unless another writer put
@@ -397,15 +390,10 @@ file or the new one. A late change is refused as `ShuttingDown` and writes nothi
 
 - A link another program swaps in between a check and the read or change
   that follows is not defended against; a page cannot make one. A put
-  checks the path for links again under the save lock.
-- The save lock is an exclusive SQLite transaction on
-  `.epicenter/save-lock` inside the directory. The system
-  releases it when the process ends, however it ends (`fcntl`, through
-  SQLite). It is unreliable on some network filesystems.
-- The expectation is checked under the folder's save lock. A program that
-  takes no lock and changes a path between that check and the rename is not
-  seen. Two windows bound to nested roots, one inside the other, take
-  different save locks.
+  checks the path for links again right before its rename.
+- The expectation is checked right before the rename, with no lock between
+  them. A writer that changes a path in that instant is not seen, and its
+  save can be replaced; Git history keeps what sync committed.
 - A compromised page keeps the powers the engine needs: it can move the
   branch, reset the index, and change or delete any data path. Each is
   visible and repairable from the reflog and the remote.

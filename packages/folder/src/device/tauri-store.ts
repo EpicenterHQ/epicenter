@@ -4,7 +4,7 @@
  * commands; or a folder `inside` it. The shell refuses a root the window did
  * not open. The shell
  * stages each write and renames it over its path, checking the version it
- * expects under the directory's save lock, the lock Bun takes too. Changes
+ * expects right before the rename. Changes
  * come from the shell's watcher of that directory (`watch`).
  */
 

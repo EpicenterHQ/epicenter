@@ -10,7 +10,7 @@
 ## Context
 
 The folder plugin kept two locks beside each folder
-(`packages/tauri-plugin-epicenter-folder/core/src/lock.rs`):
+(`92f32cc476:packages/tauri-plugin-epicenter-folder/core/src/lock.rs`):
 
 ```txt
 .<name>.epicenter-lock        RootLock   taken at a folder's first grant, held until the shell exits; a second holder is refused Busy
@@ -83,3 +83,14 @@ across its merge, the checkouts that settle it, and the merge commit
 (`mergeRemote` in `packages/cli/src/sync/sync.ts`), never across the network,
 so an app's save waits for a merge at most `SAVE_LOCK_WAIT` and is checked
 against what the merge wrote.
+
+## Amendment, 2026-11-01: no writer takes a save lock
+
+The save lock is deleted
+([ADR-0562's amendment](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md#amendment-2026-11-01-the-save-lock-is-deleted)).
+Writers no longer take turns: each save is checked against the version its
+writer read right before its rename, and a save that finds the file changed
+is refused as `stale`. Two saves racing in the instant between one's check and its
+rename can both land, the later replacing the earlier; external editors never
+took the lock, and Git history keeps what sync committed. `epicenter sync`
+merges without taking any folder's lock.

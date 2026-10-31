@@ -1,19 +1,17 @@
 /**
  * A device store over a directory, in Bun: the directory storage the native
- * folder already uses (`native/storage.ts`). Each write is staged beside the
- * directory and renamed over its path, with the version it expects checked
- * under the directory's save lock, the lock the desktop shell takes too, so
- * a file appears whole and never lands over bytes its writer did not see.
+ * folder already uses (`openNativeStorage`). Each write is staged in the
+ * directory's `.epicenter` and renamed over its path, with the version it
+ * expects checked right before the rename, so a file appears whole and does
+ * not land over bytes its writer did not see.
  */
 import { mkdir } from 'node:fs/promises';
 import { ClientError, type Version } from '@epicenter/definition/contract';
 import type { InferError } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { LockingStorage } from '../boundary.js';
+import type { FolderStorage } from '../boundary.js';
 import { createChanges } from '../changes.js';
-import { sweepStaleScratch } from '../directory-store.js';
-import { localRoot, scratchDirectory } from '../native/directory.js';
-import { nativeStorage, savingPrimitives } from '../native/storage.js';
+import { localRoot, openNativeStorage } from '../native/directory.js';
 import { watchDirectory } from '../native/watch.js';
 import type { DeviceStore } from './store.js';
 
@@ -27,9 +25,7 @@ export function nodeStore(
 	{ create }: { create: boolean },
 ): DeviceStore {
 	let opening:
-		| Promise<
-				Result<LockingStorage, InferError<typeof ClientError.Unavailable>>
-		  >
+		| Promise<Result<FolderStorage, InferError<typeof ClientError.Unavailable>>>
 		| undefined;
 
 	async function open() {
@@ -41,8 +37,7 @@ export function nodeStore(
 			}
 		const { data: root, error } = await localRoot(path);
 		if (error !== null) return ClientError.Unavailable({ cause: error.cause });
-		await sweepStaleScratch(scratchDirectory(root), savingPrimitives(root));
-		return Ok(nativeStorage(root));
+		return Ok(await openNativeStorage(root));
 	}
 
 	function storage() {

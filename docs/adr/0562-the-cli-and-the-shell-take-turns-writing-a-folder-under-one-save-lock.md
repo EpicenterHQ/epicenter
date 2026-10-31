@@ -21,7 +21,7 @@ processes did not take turns. That was safe while one program wrote a folder.
 [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md)
 makes the `epicenter` CLI, a Bun process, write folders that Epicenter may have
 open: `epicenter sync` while a page saves. The shell's `RootLock`
-(`packages/tauri-plugin-epicenter-folder/core/src/lock.rs`), an exclusive SQLite
+(`92f32cc476:packages/tauri-plugin-epicenter-folder/core/src/lock.rs`), an exclusive SQLite
 transaction on `.<name>.epicenter-lock`, is held from a folder's first grant
 until the shell exits, so the CLI cannot take it.
 
@@ -91,3 +91,27 @@ save wait ends `retry` with nothing merged. `T6d` in
 `packages/cli/src/sync/sync.e2e.test.ts` shows the merge waiting for a held
 save lock. `epicenter init` writes `.gitattributes`, `.gitignore`, and the
 bytes of `git lfs pull` without it.
+
+## Amendment, 2026-11-01: the save lock is deleted
+
+The save lock described above, and the 2026-10-31 amendment's use of it by
+`epicenter sync`, are gone. No writer takes `.epicenter/save-lock`: the
+folder plugin's `lock.rs` (`SaveLock`, `Directory::publishing`, and its
+`rusqlite` dependency), Bun's `holdingSaveLock` and the locking storage built
+on it, and sync's per-folder locks around its merge were deleted.
+
+What stays is the version check. Every store still checks a save against the
+SHA-256 of what its writer read (`Expectation` in
+`packages/folder/src/boundary.ts`, `storage::put` in the folder plugin),
+right before the rename or removal, and answers `stale` when the file
+changed. What is given up is only the instant between that check and the
+rename: another save landing exactly then can be replaced. That race is
+accepted because the lock never covered the writers that matter most: an
+external editor, a script, or `git` itself never took it, so it protected
+Epicenter's own writers from each other at the cost of a cross-process lock
+in two languages. Git history is the backstop: a save `epicenter sync`
+committed stays in history even if a later one replaces it in the working
+tree. `.epicenter/` remains the one place for unfinished files (staged saves,
+and recordings in progress). The CLI keeps its own file lock
+(`packages/cli/src/file-lock.ts`) for sign-in refreshes and for
+serializing sync rounds of one repository.

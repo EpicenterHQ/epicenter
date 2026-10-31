@@ -1,4 +1,4 @@
-//! An existing, canonical directory and its shared publication lock.
+//! An existing, canonical directory.
 //!
 //! The shell prepares a fixed default or resolves a chosen directory before
 //! binding it to a window. An admitted operation retains its own clone, so
@@ -8,7 +8,6 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::lock::{SaveLock, SAVE_LOCK_WAIT};
 use crate::root::{prepare_directory, resolve_root, PrepareError};
 
 /// An existing directory, resolved once to its canonical root.
@@ -42,13 +41,6 @@ impl Directory {
     /// The canonical root, an absolute path.
     pub fn root(&self) -> &Path {
         self.0.as_path()
-    }
-
-    /// Hold the folder's save lock across one expectation check and change.
-    /// Every participating native window and Bun process takes this lock.
-    /// Refused after `SAVE_LOCK_WAIT`, without changing the destination.
-    pub fn publishing(&self) -> Result<SaveLock, String> {
-        SaveLock::acquire(self.root(), SAVE_LOCK_WAIT)
     }
 }
 

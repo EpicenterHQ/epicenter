@@ -190,14 +190,14 @@ mod tests {
         .is_none());
     }
 
-    /// Epicenter's own state, the save lock and staged saves in
-    /// `.epicenter`, never reports a change, so a save does not echo.
+    /// Epicenter's own state in `.epicenter`, staged saves and recordings in
+    /// progress, never reports a change, so a save does not echo.
     #[test]
     fn writes_in_the_state_directory_are_not_folder_changes() {
         let root = Path::new("/folder");
         for path in [
             ".epicenter",
-            ".epicenter/save-lock",
+            ".epicenter/recording/notes/a.wav",
             ".epicenter/scratch",
             ".epicenter/scratch/lz0-0123456789abcdef0123456789abcdef-1",
         ] {

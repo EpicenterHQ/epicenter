@@ -46,8 +46,8 @@ runs. Updates use conditional puts and retry when storage changed; whole-file
 writes replace the file. A landed write then updates the mirror. Its
 promise answers after the new value is visible, or with a `WriteError`. There
 is no merge on a local write; the last publication to land wins. The browser
-commits the change atomically in IndexedDB. Native storage stages and renames
-one whole file under the shared save lock.
+commits the change atomically in IndexedDB. Native storage stages one whole
+file and renames it over its path after checking the version the writer read.
 
 A Svelte editor owns an `edit(source, save)` for typed text. It shows that
 text until its save answers, and keeps it with an inline error after a failed

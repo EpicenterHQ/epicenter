@@ -3,11 +3,9 @@
  * any host that can reach the disk itself.
  *
  * A rename or removal checks what it expects at its path and then changes
- * it: two steps, with nothing here holding the path between them. The caller
- * holds what keeps other saves out: `@epicenter/folder/bun` wraps each one in
- * the folder's save lock, the lock the desktop shell takes around its own
- * checked renames, so a Bun process's save and a window's never interleave.
- * A program that takes no save lock can still change the path in between.
+ * it: two steps, with nothing holding the path between them, as in the
+ * desktop shell. Another program can change the path in that instant; Git
+ * history is the backstop (ADR-0568).
  *
  * On Unix a private directory is `0700` and a private file `0600`, so no
  * other account reads what is staged in one. On macOS each also has no

@@ -101,7 +101,7 @@ test('the list is connections.md at the top of the root, and the key is in the k
 			hasApiKey: true,
 		},
 	]);
-	// The note, beside the engine's own `.epicenter` (its save lock).
+	// The note, beside the engine's own `.epicenter` (where saves stage).
 	expect((await readdir(root)).sort()).toEqual([
 		'.epicenter',
 		'connections.md',

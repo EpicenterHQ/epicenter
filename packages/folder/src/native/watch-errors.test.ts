@@ -58,10 +58,10 @@ test('absent filenames and errors reconcile all, while closed callbacks are igno
 test("Epicenter's own state at the top of the folder never reports a change", () => {
 	const hints: unknown[] = [];
 	const stop = watchDirectory(root)((paths) => hints.push(paths));
-	// The save lock and staged saves live in `.epicenter`, so a save does
-	// not echo as a change.
+	// Staged saves and unfinished files live in `.epicenter`, so a save
+	// does not echo as a change.
 	event('rename', '.epicenter');
-	event('change', join('.epicenter', 'save-lock'));
+	event('change', join('.epicenter', 'recording', 'recordings', 'a.wav'));
 	event('rename', join('.epicenter', 'scratch', 'staged'));
 	// Below the top, `.epicenter` is an ordinary hidden name.
 	event('change', join('notes', '.epicenter'));

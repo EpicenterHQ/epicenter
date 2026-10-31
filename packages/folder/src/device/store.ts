@@ -6,8 +6,7 @@
  *
  * A version is the sha256 of a file's bytes, so a write can carry the
  * version its writer read and land only while the file still holds it. The
- * store checks that where the write lands, under its own lock, so no
- * cooperating writer lands between the check and the change.
+ * store checks that where the write lands, right before the change.
  */
 import type { ClientError, Version } from '@epicenter/definition/contract';
 import type { InferError } from 'wellcrafted/error';

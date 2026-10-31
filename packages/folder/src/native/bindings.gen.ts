@@ -46,10 +46,7 @@ export const commands = {
 	 *  (`storage::mkdir`).
 	 */
 	makeFolderDirectory: (path: string, root: string | null) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { path, root })),
-	/**
-	 *  Remove an empty directory in the window's folder (`storage::rmdir`),
-	 *  under the same save lock as a put.
-	 */
+	/**  Remove an empty directory in the window's folder (`storage::rmdir`). */
 	removeFolderDirectory: (path: string, root: string | null) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_directory", { path, root })),
 	/**
 	 *  Ask the operating system to open Epicenter with a request to sync the
@@ -127,10 +124,7 @@ export type StorageError =
 { name: "NotADirectory"; path: string } |
 /**  The directory to remove holds something. */
 { name: "DirectoryNotEmpty"; path: string } |
-/**
- *  The operation failed, and changed nothing. A save lock another
- *  process held too long is one.
- */
+/**  The operation failed, and changed nothing. */
 { name: "Io"; path: string; operation: string; message: string };
 
 /**  Why the request to Epicenter was not made: what the page is told. */

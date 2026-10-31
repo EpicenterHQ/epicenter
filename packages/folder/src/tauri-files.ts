@@ -7,8 +7,8 @@
  * The shell checks every path as the Bun directory storage does
  * (`directory-store.ts`): literal names, no link followed, `.git` never
  * named. It stages a put's bytes and renames them over the path, checking
- * what the page expects there under the folder's save lock, so the page
- * makes one call per method. A refusal or a failure comes back named as a
+ * what the page expects there right before the rename, so the page makes
+ * one call per method. A refusal or a failure comes back named as a
  * `FileError`; a failure the shell reports changed nothing.
  *
  * An invoke that rejects with anything else did not get the shell's answer.

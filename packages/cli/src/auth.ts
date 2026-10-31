@@ -42,6 +42,7 @@ import {
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { resolveAppPaths } from './app-paths.ts';
+import { holdingFileLock } from './file-lock.ts';
 import { AUTH_KEYCHAIN_SERVICE, keychain } from './secrets.ts';
 import { finishBeforeExit } from './stop.ts';
 
@@ -244,8 +245,7 @@ async function writeGrant(
 /**
  * Run `work` holding `grant`'s lock, one process at a time on this machine
  * (`holdingFileLock`), so two processes never spend one refresh token
- * (ADR-0549). The folder engine loads only when a refresh or a sign-in
- * needs the lock, so a cached token answers without it.
+ * (ADR-0549). A cached token answers without it.
  */
 async function holdingGrantLock<T>(
 	ctx: AuthContext,
@@ -253,7 +253,6 @@ async function holdingGrantLock<T>(
 	work: () => Promise<T>,
 ): Promise<T> {
 	const path = join(ctx.lockDir, `${grant}.lock`);
-	const { holdingFileLock } = await import('@epicenter/folder/bun');
 	return holdingFileLock(
 		path,
 		{

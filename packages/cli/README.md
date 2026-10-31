@@ -148,9 +148,7 @@ with real `git add`, so Git LFS's filters run.
   only the folder's own paths; fetches `origin`; stops if the remote `main`
   no longer contains `refs/epicenter/last-seen` (an owner rewrote `main`);
   stops with `retry` if another program holds `index.lock`; fetches the
-  LFS bytes of `origin/main`; then, holding the save lock
-  (`.epicenter/save-lock`, `holdingSaveLock`) of every registered folder in
-  the repository, so no app save lands mid-merge, merges `origin/main`
+  LFS bytes of `origin/main`; then merges `origin/main`
   (unrelated histories only on first contact), keeps the edited side of an
   edit/delete, lands a binary both sides replaced as
   `<stem> (conflict <hash7>)<ext>` beside the remote's, and commits; runs
@@ -222,7 +220,7 @@ desktop shell's `whispering_connection_read` and `whispering_connection_set`.
 It takes no path: the records are the fixed `so.epicenter` under
 `EPICENTER_FOLDER_DIR`'s folder, and a save creates it when missing. Each
 run opens it with `connectionsTables`, reads or saves the one row, and closes
-it; a save takes the folder's save lock, as Settings' saves do. The command
+it; a save is checked against the version it read, as Settings' saves are. The command
 awaits its save before answering, while a stop signal may interrupt that
 ordinary work. Token refresh keeps its separate persistence protection.
 It needs no
@@ -291,7 +289,7 @@ auth git-credential`, so no broader helper is asked to store the token. Only
 Git audience. A cached token is reused until five minutes before it
 expires; otherwise one refresh runs under `<data dir>/auth/<grant>.lock`, an
 exclusive SQLite transaction the system releases if the process dies
-(`holdingFileLock` in `@epicenter/folder/bun`), and rereads the entry inside it, so concurrent callers
+(`holdingFileLock` in `src/file-lock.ts`), and rereads the entry inside it, so concurrent callers
 share one refresh. A refresh whose answer was lost is sent again, which the
 server's 60-second reuse interval answers with the same tokens; one answered
 `invalid_grant` is retried once with what the entry then holds, and a second

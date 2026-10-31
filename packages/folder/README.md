@@ -23,7 +23,7 @@ landed storage.
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
 | `@epicenter/folder/tauri` | `openDevice(contract, { path?, create? })` over a root the shell lets this window reach: the directory it bound to the window (no `path`, or a relative one inside it), or a folder by absolute path that Tauri's file-system scope allows; and `openFolder` over the bound directory. A standalone app opens its two roots with `openAppData(settingsContract)` (its AppData root, through the app's own settings contract, whose `settings.md` has `folder`) and `openDataFolder(contract, { appData })` (the `folder` that names, or `~/Epicenter/<productName>`, which alone is made when missing; `defaultDataFolder()` answers that path). `rootOf(device)` answers the root a client opened by absolute path, as the shell answered it, for the window's other native commands (the recorder's and local transcription's `root`). `chooseFolder({ title, at? })` is the native picker, which allows the folder it answers and answers its canonical path (the shell's `resolve_folder`), so `/tmp/x` and `/private/tmp/x` are one folder; `pickDataFolder(appData, { title, at? })` picks and remembers that path, or forgets `folder` when the default is picked, for both "Choose folder…" and "Allow access"; `rememberFolder(appData, folder \| undefined)` records or forgets a choice. `syncWithEpicenter({ path, contract })` asks the shell to open `epicenter://init?path=<path>&contract=<contract>` (decisions 81 and 82), and `syncedWithEpicenter({ path })` says whether `epicenter init` set that folder up (its `.git/config` names it as `epicenter.root`). |
-| `@epicenter/folder/bun` | Open an existing directory with `{ directory, tables }`; also exports the CLI's declaration tools, `holdingFileLock`, `holdingSaveLock`, and the system `git` runner. |
+| `@epicenter/folder/bun` | Open an existing directory with `{ directory, tables }`; also exports the CLI's declaration tools and the system `git` runner. |
 | `@epicenter/folder/testing` | Construct a folder over `memoryHost` and control its storage in tests. |
 | `@epicenter/folder/file-browser` | Pure path, tree, text classification, and newline helpers. |
 | `@epicenter/folder/documents` | Interpret saved Markdown files for the generic editor and SQL reader. |
@@ -165,7 +165,7 @@ Only a context with no Worker opens nothing (`StorageUnavailable`). In Bun
 the directory is made when missing (`Unreadable` when it cannot be). `/node` also exports `checkFiles`
 and `formatNotes`, which `epicenter check` and `epicenter format` run. In a
 Tauri window the client works over a root the shell opened for it, through
-the folder plugin's commands, and the shell holds the save lock and watches
+the folder plugin's commands, and the shell checks each save and watches
 each root a page opened. A root other than the bound directory opens only
 when Tauri's runtime file-system scope allows it (the shell's default, or a
 folder the picker allowed); see the folder plugin's README. See
@@ -252,11 +252,12 @@ Git: the web never syncs, and new apps use `openDevice` instead.
 
 Bun and Tauri open ordinary directory files, with no required Git repository.
 They stage a replacement in the directory's own `.epicenter/scratch` and
-rename one whole file under a shared save lock, `.epicenter/save-lock`;
-no listing shows `.epicenter`, no watcher reports it, and nothing is made
-beside the directory. Bun takes this lock through an exclusive SQLite
-transaction; the Tauri plugin uses the same boundary, and `epicenter sync`
-holds it across its merge. Paths and links are checked before writes. A
+rename one whole file over its path, after checking it still holds the
+version the writer read. No lock spans that check and the rename: a save
+another program lands in that instant can be replaced, and Git history is
+the backstop (ADR-0568). No listing shows `.epicenter`, no watcher reports
+it, and nothing is made beside the directory. Paths and links are checked
+before writes. A
 native watcher reports outside changes as hints, and `refresh()` rereads the
 mirror. Watching is best effort, so an application also refreshes on return
 to a visible window.
@@ -282,7 +283,7 @@ saved Markdown at any path for the generic editor and SQL reader. It includes
 schema diagnostics and unreadable paths. The declaration entry owns portable
 schema and saved-view readers; its JSON Schema is generated from the TypeBox
 source. `@epicenter/folder/bun` exports the CLI's declaration readers,
-`queryDocuments`, `holdingFileLock`, `holdingSaveLock`, and the `runGit`
+`queryDocuments`, and the `runGit`
 runner. These tools can read or change a directory independently of an
 opened Folder.
 
@@ -309,7 +310,7 @@ chooses at call time and loads only the chosen engine. The
 | `src/device/` | `openDevice`: the contract client, its Bun, OPFS and Tauri stores, and `check`/`format`. |
 | `src/remote/` | `openRemote` and its wire to the server. |
 | `src/browser/` | The legacy IndexedDB repository behind `openFolder`. |
-| `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, bindings, and save locks. |
+| `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, and bindings. |
 | `src/shared/` | Markdown reading, rows, and the legacy engine's file content types. |
 | `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
 | `src/git/raw-objects.ts` | Git objects for the browser repository. |

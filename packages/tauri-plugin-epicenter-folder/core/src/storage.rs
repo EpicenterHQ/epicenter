@@ -14,19 +14,22 @@
 //!   a read finds nothing there, and a change refuses to land on it;
 //! - `.git` at the root is Git's, never listed and never named.
 //! - `.epicenter` at the root is Epicenter's own state (`STATE_DIRECTORY`):
-//!   the save lock and the scratch directory saves stage in. No listing
-//!   shows it, no watcher reports it, and `epicenter init`'s `.gitignore`
-//!   keeps it out of history.
+//!   the scratch directory saves stage in, and unfinished files such as a
+//!   recording in progress. No listing shows it, no watcher reports it, and
+//!   `epicenter init`'s `.gitignore` keeps it out of history.
 //!
 //! `put` is the one change of a file. Its bytes are staged in a new file in
 //! `.epicenter/scratch` inside the root, where the Bun host stages too, and
 //! renamed over the path, so a reader and a crash see the old file or the
 //! new one, and a new file never appears empty. Saving needs no Git: it
 //! makes nothing beside the root, nothing in it but the files saved and
-//! `.epicenter`, and never touches `.git`, whatever is there. Only the check of what the path holds and the
-//! rename (or the removal) hold the folder's publishing turn
-//! (`directory::Directory::publishing`), so no other save through the shell, and no save
-//! by the Bun host, lands between them. On Unix no other account can read
+//! `.epicenter`, and never touches `.git`, whatever is there.
+//!
+//! The version check (what the path holds, against what the page read)
+//! runs right before the rename or the removal, with no lock across the
+//! two: another program that saves in that instant can be overwritten.
+//! External editors never took a lock anyway, and Git history keeps every
+//! version sync committed (ADR-0562, ADR-0568). On Unix no other account can read
 //! staged bytes, before publication or after a stopped save: the scratch
 //! directory is `0700` before anything is staged in it (`make_private`), and
 //! each staged file is `0600` before its first byte. On macOS each also has
@@ -56,9 +59,9 @@ use crate::paths::{path_problem, readable_path_problem};
 /// The folder's private Git directory, which no listing shows.
 const PRIVATE_DIRECTORY: &str = ".git";
 
-/// Epicenter's own state at the top of a folder: the save lock
-/// (`lock::save_lock_path`) and the scratch directory (`scratch_directory`).
-/// No listing shows it and no watcher reports it.
+/// Epicenter's own state at the top of a folder: the scratch directory
+/// (`scratch_directory`) and unfinished files, such as a recording in
+/// progress. No listing shows it and no watcher reports it.
 pub const STATE_DIRECTORY: &str = ".epicenter";
 
 /// Where `put` stages a file's bytes: `.epicenter/scratch` inside the
@@ -127,8 +130,8 @@ fn make_directory(directory: &Path) -> Result<(), String> {
 }
 
 /// `.epicenter` inside `root`, made `0700` when missing, and refused when it
-/// is a link or not a directory, so the save lock and staged bytes are
-/// never reached through a link.
+/// is a link or not a directory, so staged bytes are never reached through
+/// a link.
 pub fn prepare_state_directory(root: &Path) -> Result<PathBuf, String> {
     let state = root.join(STATE_DIRECTORY);
     make_directory(&state)?;
@@ -286,8 +289,7 @@ pub enum StorageError {
     NotADirectory { path: String },
     /// The directory to remove holds something.
     DirectoryNotEmpty { path: String },
-    /// The operation failed, and changed nothing. A save lock another
-    /// process held too long is one.
+    /// The operation failed, and changed nothing.
     Io {
         path: String,
         operation: String,
@@ -722,19 +724,11 @@ pub fn mkdir(root: &Path, path: &str) -> Result<(), StorageError> {
     made().unwrap_or_else(|cause| Err(io_error(path, "create directory", cause)))
 }
 
-/// Remove the empty directory at `path`, holding the folder's publishing
-/// turn (`turn`) across the check and the removal, as a put does, so no
-/// save that takes the turn lands in it between the two. A turn refused is
-/// `Io`, and nothing changed; an entry that appeared in it is
-/// `DirectoryNotEmpty`.
-pub fn rmdir<Turn>(
-    root: &Path,
-    path: &str,
-    turn: impl FnOnce() -> Result<Turn, String>,
-) -> Result<(), StorageError> {
+/// Remove the empty directory at `path`. An entry that appeared in it since
+/// the check is `DirectoryNotEmpty`.
+pub fn rmdir(root: &Path, path: &str) -> Result<(), StorageError> {
     admit(path)?;
     let target = full(root, path);
-    let _held = turn().map_err(|message| io_error(path, "remove directory", message))?;
     let removed = || -> io::Result<Result<(), StorageError>> {
         match find(root, path)? {
             Found::Link => return Ok(Err(link_refusal(path))),
@@ -750,7 +744,6 @@ pub fn rmdir<Turn>(
                 }))
             }
         }
-        pause_after_check();
         // `remove_dir` removes only an empty directory, whatever appeared
         // in it since the check.
         match fs::remove_dir(&target) {
@@ -779,7 +772,7 @@ fn hex(digest: &[u8]) -> String {
 }
 
 /// The lowercase hexadecimal SHA-256 of the file at `target`, streamed so a
-/// large file is never held in memory while the folder's turn is held.
+/// large file is never held in memory.
 fn file_sha256(target: &Path) -> io::Result<String> {
     let mut hasher = Sha256::new();
     io::copy(&mut fs::File::open(target)?, &mut hasher)?;
@@ -850,20 +843,6 @@ fn now_ms() -> u64 {
         .map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
-#[cfg(test)]
-thread_local! {
-    /// How long a test's put on this thread waits between checking its
-    /// path and changing it, so a race test can show that the publishing
-    /// turn, not luck, keeps another save out of that gap.
-    pub(crate) static PAUSE_AFTER_CHECK: std::cell::Cell<std::time::Duration> =
-        const { std::cell::Cell::new(std::time::Duration::ZERO) };
-}
-
-fn pause_after_check() {
-    #[cfg(test)]
-    std::thread::sleep(PAUSE_AFTER_CHECK.with(std::cell::Cell::get));
-}
-
 /// Why a put cannot land on what `find` found at `path`, if it cannot.
 fn put_refusal(path: &str, found: &Found) -> Option<StorageError> {
     match found {
@@ -914,10 +893,9 @@ fn remove_made(made: &[PathBuf]) {
 /// at `target`, when one is there, so replacing a file keeps it private
 /// (`0600`) or executable. A new file keeps the staged file's own `0600`,
 /// which it was made with. Only the read, write, and execute bits are
-/// carried; setuid, setgid, and sticky never are. Called holding the
-/// publishing turn, right after the check of what `target` holds, so the
-/// mode is the one of the file the rename replaces. Other platforms have no
-/// such bits to carry.
+/// carried; setuid, setgid, and sticky never are. Called right after the
+/// check of what `target` holds, so the mode is the one of the file the
+/// rename replaces. Other platforms have no such bits to carry.
 fn keep_mode(target: &Path, staged: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -944,23 +922,22 @@ fn keep_mode(target: &Path, staged: &Path) -> io::Result<()> {
 ///
 /// A new file must satisfy the portable rule (`path_problem`). An existing
 /// nonportable name may be replaced or removed, never made: a write
-/// expecting `Any` there lands only while a file is there, checked holding
-/// the turn, and is `InvalidPath` otherwise. HEAD can make a plain
-/// directory a Git repository, so it stays private even when it exists.
+/// expecting `Any` there lands only while a file is there, and is
+/// `InvalidPath` otherwise. HEAD can make a plain directory a Git
+/// repository, so it stays private even when it exists.
 ///
-/// `turn` takes the folder's publishing turn. Held, the put walks the path
-/// again (no link, every name stored as asked, as `find` checks), checks
-/// what the path holds, then makes a new file's missing parent directories
-/// and renames the staged bytes over the path, or removes the file. A turn
-/// refused, such as a save lock another process held too long, is `Io`. On
-/// every answer but `Landed` nothing of the put is left: not the staged
-/// file, and not a directory it made.
-pub fn put<Turn>(
+/// A write refuses what cannot land before staging anything, stages the
+/// bytes, then walks the path again (no link, every name stored as asked, as
+/// `find` checks), checks what the path holds, makes a new file's missing
+/// parent directories, and renames the staged bytes over the path. Nothing
+/// holds the path between that check and the rename. On every answer but
+/// `Landed` nothing of the put is left: not the staged file, and not a
+/// directory it made.
+pub fn put(
     root: &Path,
     path: &str,
     bytes: Option<&[u8]>,
     expected: &Expectation,
-    turn: impl FnOnce() -> Result<Turn, String>,
 ) -> Result<PutOutcome, StorageError> {
     let nonportable = admit(path).err();
     if let Some(refused) = &nonportable {
@@ -986,47 +963,35 @@ pub fn put<Turn>(
     let expected = if requires_file { &present } else { expected };
     let operation = if bytes.is_some() { "write" } else { "remove" };
     let failed = |cause: &dyn std::fmt::Display| io_error(path, operation, cause);
-    // Refuse what cannot land before staging anything.
-    let found = find(root, path).map_err(|cause| io_error(path, "write", cause))?;
-    if let Some(refused) = put_refusal(path, &found) {
-        return Err(refused);
-    }
+    // Where the change may land, or why it cannot.
+    let landing = || -> Result<Found, StorageError> {
+        let found = find(root, path).map_err(|cause| failed(&cause))?;
+        match put_refusal(path, &found) {
+            Some(refused) => Err(refused),
+            None => Ok(found),
+        }
+    };
     let target = full(root, path);
     let names: Vec<&str> = path.split('/').collect();
 
-    let removed_nothing = || -> Result<PutOutcome, StorageError> {
-        Ok(
-            if matches!(expected, Expectation::Absent | Expectation::Any) {
-                PutOutcome::Landed { stamp: None }
-            } else {
-                PutOutcome::Stale
-            },
-        )
-    };
     let Some(bytes) = bytes else {
-        if !matches!(found, Found::File { .. }) {
-            return removed_nothing();
+        if !matches!(landing()?, Found::File { .. }) {
+            return Ok(
+                if matches!(expected, Expectation::Absent | Expectation::Any) {
+                    PutOutcome::Landed { stamp: None }
+                } else {
+                    PutOutcome::Stale
+                },
+            );
         }
-        if *expected == Expectation::Absent {
-            return Ok(PutOutcome::Stale);
-        }
-        let _held = turn().map_err(|message| failed(&message))?;
-        let found = find(root, path).map_err(|cause| failed(&cause))?;
-        if let Some(refused) = put_refusal(path, &found) {
-            return Err(refused);
-        }
-        if !matches!(found, Found::File { .. }) {
-            return removed_nothing();
-        }
-        let holds = holds(&target, expected).map_err(|cause| failed(&cause))?;
-        pause_after_check();
-        if !holds {
+        if !holds(&target, expected).map_err(|cause| failed(&cause))? {
             return Ok(PutOutcome::Stale);
         }
         fs::remove_file(&target).map_err(|cause| failed(&cause))?;
         return Ok(PutOutcome::Landed { stamp: None });
     };
 
+    let found = landing()?;
     if let Found::UnderFile { ancestor } = found {
         return Err(StorageError::NotADirectory { path: ancestor });
     }
@@ -1074,17 +1039,11 @@ pub fn put<Turn>(
         }
     };
     let published = (|| -> Result<PutOutcome, StorageError> {
-        let _held = turn().map_err(|message| failed(&message))?;
-        let found = find(root, path).map_err(|cause| failed(&cause))?;
-        if let Some(refused) = put_refusal(path, &found) {
-            return Err(refused);
-        }
-        if let Found::UnderFile { ancestor } = found {
+        // Staging took time: walk and check again right before the rename.
+        if let Found::UnderFile { ancestor } = landing()? {
             return Err(StorageError::NotADirectory { path: ancestor });
         }
-        let holds = holds(&target, expected).map_err(|cause| failed(&cause))?;
-        pause_after_check();
-        if !holds {
+        if !holds(&target, expected).map_err(|cause| failed(&cause))? {
             return match &nonportable {
                 Some(refused) if requires_file => Err(refused.clone()),
                 _ => Ok(PutOutcome::Stale),

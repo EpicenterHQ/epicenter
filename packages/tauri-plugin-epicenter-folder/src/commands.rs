@@ -307,10 +307,8 @@ pub async fn read_folder_file<R: Runtime>(
 /// sends one when its custom-protocol IPC failed and it fell back to
 /// `postMessage`. Any other body is refused.
 ///
-/// The check and the change hold the folder's save lock, shared by every
-/// participating native and Bun writer (`Directory::publishing`), so a save
-/// cannot be overtaken between them. A save lock held too long is `Io`, and nothing
-/// changed. tauri-specta cannot type a raw request, so the generated
+/// The check runs right before the change, with no lock between them
+/// (`storage::put`). tauri-specta cannot type a raw request, so the generated
 /// bindings leave this command out and `tauri-files.ts` invokes it by name;
 /// `init` dispatches it beside the typed commands.
 #[tauri::command]
@@ -355,11 +353,7 @@ pub async fn put_folder_file<R: Runtime>(
     let directory = bound(&webview, root.as_deref(), &path, operation)?;
     let at = path.clone();
     blocking(
-        move || {
-            storage::put(directory.root(), &path, bytes.as_deref(), &expected, || {
-                directory.publishing()
-            })
-        },
+        move || storage::put(directory.root(), &path, bytes.as_deref(), &expected),
         |message| Err(failed(&at, operation, message)),
     )
     .await
@@ -383,8 +377,7 @@ pub async fn make_folder_directory<R: Runtime>(
     .await
 }
 
-/// Remove an empty directory in the window's folder (`storage::rmdir`),
-/// under the same save lock as a put.
+/// Remove an empty directory in the window's folder (`storage::rmdir`).
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_folder_directory<R: Runtime>(
@@ -395,7 +388,7 @@ pub async fn remove_folder_directory<R: Runtime>(
     let directory = bound(&webview, root.as_deref(), &path, "remove directory")?;
     let at = path.clone();
     blocking(
-        move || storage::rmdir(directory.root(), &path, || directory.publishing()),
+        move || storage::rmdir(directory.root(), &path),
         |message| Err(failed(&at, "remove directory", message)),
     )
     .await

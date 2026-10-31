@@ -11,8 +11,8 @@ pub(crate) const EDITOR_PREFIX: &str = "files";
 
 /// Whether `directory` overlaps Epicenter's own files, so that no app or
 /// editor window may bind it: Settings' folder, the fixed
-/// `<folder_dir>/so.epicenter`, any folder's `.epicenter` (its save lock and
-/// staged saves), or the app data, anything inside them, or a directory
+/// `<folder_dir>/so.epicenter`, any folder's `.epicenter` (its staged saves
+/// and unfinished files), or the app data, anything inside them, or a directory
 /// holding them, such as the folder root. No configuration is read.
 pub(crate) fn overlaps_epicenter_files(paths: &DesktopPaths, directory: &Directory) -> bool {
     library::check_app_directory(&paths.data_dir, &paths.folder_dir, directory.root()).is_err()

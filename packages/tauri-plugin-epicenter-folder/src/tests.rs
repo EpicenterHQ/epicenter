@@ -866,60 +866,6 @@ fn opening_a_bound_folder_that_is_gone_is_refused_and_makes_nothing() {
     assert!(!fixture.root.exists());
 }
 
-/// Two windows bound to one root save the same file over the version both
-/// read, at once. The shell checks and renames under the folder's save lock, so
-/// exactly one save lands and the other is `stale`, whichever wins.
-#[test]
-fn two_windows_on_one_root_saving_one_file_over_the_same_version_publish_once() {
-    const ROUNDS: usize = 8;
-    let (fixture, main) = opened("two-editors");
-    let side = fixture.bound_window("side", &fixture.root);
-    open(&side).unwrap();
-    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
-    write(&fixture, &main, "a.md", "round 0\n").unwrap();
-    for round in 1..=ROUNDS {
-        let expected = sha256(format!("round {}\n", round - 1).as_bytes());
-        let start = std::sync::Arc::new(std::sync::Barrier::new(2));
-        let saves: Vec<_> = [&main, &side]
-            .into_iter()
-            .map(|editor| {
-                let content = format!("round {round}\n{}\n", editor.label());
-                let (editor, start, expected) = (
-                    editor.clone(),
-                    std::sync::Arc::clone(&start),
-                    expected.clone(),
-                );
-                std::thread::spawn(move || {
-                    start.wait();
-                    let outcome = put(&editor, "a.md", Some(content.as_bytes()), Some(&expected));
-                    (content, outcome)
-                })
-            })
-            .collect();
-        let outcomes: Vec<_> = saves.into_iter().map(|save| save.join().unwrap()).collect();
-        let landed: Vec<_> = outcomes
-            .iter()
-            .filter(|(_, outcome)| *outcome == Ok(json!("landed")))
-            .collect();
-        assert_eq!(landed.len(), 1, "round {round}: {outcomes:?}");
-        let won = &landed[0].0;
-        assert_eq!(
-            &std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
-            won
-        );
-        assert!(
-            outcomes
-                .iter()
-                .any(|(_, outcome)| *outcome == Ok(json!("stale"))),
-            "round {round}: {outcomes:?}"
-        );
-        // The next round expects what landed, as an editor that read again
-        // after its `stale` would.
-        write(&fixture, &main, "a.md", &format!("round {round}\n")).unwrap();
-    }
-    assert_eq!(staged(&fixture), Vec::<String>::new());
-}
-
 /// The scratch directory inside the folder, where a put stages its bytes.
 fn scratch(fixture: &Fixture) -> PathBuf {
     epicenter_folder_core::storage::scratch_directory(&fixture.root)
@@ -1380,7 +1326,6 @@ fn admitted_work_keeps_its_root_after_the_label_is_reused() {
         "a.md",
         Some(b"first"),
         &epicenter_folder_core::storage::Expectation::Absent,
-        || admitted.publishing(),
     )
     .unwrap();
     assert!(matches!(

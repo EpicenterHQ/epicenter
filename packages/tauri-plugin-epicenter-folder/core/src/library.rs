@@ -96,7 +96,7 @@ pub fn check_app_directory(
     Ok(())
 }
 
-/// A folder's own `.epicenter` (its save lock and staged saves), or
+/// A folder's own `.epicenter` (its staged saves and unfinished files), or
 /// anything in one, is never a folder of its own.
 fn check_namespace(root: &Path) -> Result<(), String> {
     if root.components().any(|component| {
