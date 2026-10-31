@@ -75,8 +75,7 @@ const StoredToken = type({
 	accessToken: 'string > 0',
 	expiresAt: 'number',
 	principalId: PrincipalId,
-	/** Missing only on cells written before attachment generations existed. */
-	'generation?': 'string > 0',
+	generation: 'string > 0',
 });
 type StoredToken = typeof StoredToken.infer;
 
@@ -129,8 +128,6 @@ function base64url(bytes: Uint8Array) {
 }
 
 const randomToken = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
-
-const generationOf = (stored: StoredToken) => stored.generation ?? 'legacy';
 
 async function challengeFor(verifier: string) {
 	const digest = await crypto.subtle.digest(
@@ -251,10 +248,10 @@ export function createBrowserOAuth({
 		if (!stored) retire();
 		else if (
 			attachment?.account.principalId !== stored.principalId ||
-			attachment.generation !== generationOf(stored)
+			attachment.generation !== stored.generation
 		) {
 			retire();
-			attachment = createAttachment(stored.principalId, generationOf(stored));
+			attachment = createAttachment(stored.principalId, stored.generation);
 		} else if (attachment.refusedToken !== stored.accessToken) {
 			attachment.refusedToken = null;
 		}
@@ -392,7 +389,7 @@ export function createBrowserOAuth({
 			state: randomToken(),
 			returnTo: currentPath(),
 			createdAt: now(),
-			attachmentGeneration: current ? generationOf(current) : null,
+			attachmentGeneration: current ? current.generation : null,
 			accessToken: current?.accessToken ?? null,
 		};
 		const url = new URL('/auth/oauth2/authorize', serverOrigin);
@@ -514,7 +511,7 @@ export function createBrowserOAuth({
 				// session. A newer token or sign-in from another tab survives it.
 				const current = readToken();
 				if (
-					(current ? generationOf(current) : null) ===
+					(current ? current.generation : null) ===
 						attempt.attachmentGeneration &&
 					(current?.accessToken ?? null) === attempt.accessToken
 				)
@@ -538,7 +535,7 @@ export function createBrowserOAuth({
 				throw cause;
 			}
 			const current = readToken();
-			const currentGeneration = current ? generationOf(current) : null;
+			const currentGeneration = current ? current.generation : null;
 			if (currentGeneration !== attempt.attachmentGeneration) {
 				void revoke(token.access_token);
 				throw new Error('The account changed during sign-in.');
@@ -549,7 +546,7 @@ export function createBrowserOAuth({
 				principalId,
 				generation:
 					current?.principalId === principalId
-						? generationOf(current)
+						? current.generation
 						: randomToken(),
 			};
 			storage.setItem(tokenKey, JSON.stringify(stored));

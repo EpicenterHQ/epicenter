@@ -109,7 +109,7 @@ type CachedToken = { token: string; expiresAt: number };
 export type StoredGrant = {
 	client: string;
 	/** Nonsecret identity of this sign-in. Unchanged by token refresh. */
-	generation?: string;
+	generation: string;
 	/** The deployment origin the grant belongs to. */
 	issuer: string;
 	refreshToken: string;
@@ -206,8 +206,11 @@ function readStored(text: string | null): StoredGrant | null {
 	try {
 		const value = JSON.parse(text) as StoredGrant;
 		return typeof value?.refreshToken === 'string' &&
-			typeof value.client === 'string'
-			? { ...value, access: value.access ?? {} }
+			typeof value.client === 'string' &&
+			typeof value.generation === 'string' &&
+			typeof value.access === 'object' &&
+			value.access !== null
+			? value
 			: null;
 	} catch {
 		return null;
@@ -236,32 +239,6 @@ async function writeGrant(
 	} catch (cause) {
 		return AuthError.KeychainUnavailable({ reason: describe(cause) });
 	}
-}
-
-/** Upgrade an old desktop grant once, under the same lock as token refresh. */
-async function readGrantWithGeneration(
-	ctx: AuthContext,
-	grant: GrantKind,
-): Promise<Result<StoredGrant | null, AuthError>> {
-	const outside = await readGrant(ctx, grant);
-	if (
-		outside.error !== null ||
-		outside.data?.generation ||
-		outside.data === null
-	)
-		return outside;
-	return holdingGrantLock(ctx, grant, async () => {
-		const inside = await readGrant(ctx, grant);
-		if (
-			inside.error !== null ||
-			inside.data?.generation ||
-			inside.data === null
-		)
-			return inside;
-		const updated = { ...inside.data, generation: crypto.randomUUID() };
-		const written = await writeGrant(ctx, grant, updated);
-		return written.error === null ? Ok(updated) : Err(written.error);
-	});
 }
 
 /**
@@ -814,7 +791,7 @@ export type GrantStatus =
 			grant: GrantKind;
 			client: string;
 			signedIn: true;
-			generation: string | null;
+			generation: string;
 			account: Account | null;
 			scope: string;
 			signedInAt: string;
@@ -826,10 +803,7 @@ export async function authStatus(
 ): Promise<Result<GrantStatus[], AuthError>> {
 	const grants: GrantStatus[] = [];
 	for (const grant of ['device', 'desktop'] as const) {
-		const { data, error } =
-			grant === 'desktop'
-				? await readGrantWithGeneration(ctx, grant)
-				: await readGrant(ctx, grant);
+		const { data, error } = await readGrant(ctx, grant);
 		if (error !== null) return Err(error);
 		grants.push(
 			data === null
@@ -838,7 +812,7 @@ export async function authStatus(
 						grant,
 						client: data.client,
 						signedIn: true,
-						generation: data.generation ?? null,
+						generation: data.generation,
 						account: data.account,
 						scope: data.scope,
 						signedInAt: data.signedInAt,

@@ -189,6 +189,7 @@ test('same-owner refresh preserves an account client and sign-out retires its st
 				accessToken,
 				expiresAt: Date.now() + 8 * 60 * 60_000,
 				principalId: 'alice',
+				generation: 'alice-sign-in',
 			}),
 		);
 	store('first');
