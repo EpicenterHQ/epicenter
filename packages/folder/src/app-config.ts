@@ -9,7 +9,12 @@
  * The desktop shell reads and writes the same note in Rust
  * (`epicenter-standalone`'s `Places`), before the page exists.
  */
-import { defineContract } from '@epicenter/definition/contract';
+import {
+	type Client,
+	type ClientError,
+	defineContract,
+} from '@epicenter/definition/contract';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 
 export const appConfig = defineContract({
 	name: 'app-config',
@@ -24,3 +29,54 @@ export const appConfig = defineContract({
 });
 
 export type AppConfig = typeof appConfig;
+
+/**
+ * The roots the standalone shell gave this window (`epicenter-standalone`),
+ * set before any of the page's code runs. `config` is the app's
+ * configuration directory; `folder` is where it keeps the person's files, or
+ * `null` until the person chooses one, in which case `problem` may say why
+ * the folder remembered in `settings.md` was not opened. `places` are the
+ * two folders offered on first run, beside "Choose folder…".
+ */
+export type AppFolders = {
+	readonly config: string;
+	readonly folder: string | null;
+	readonly problem: string | null;
+	readonly places: { readonly epicenter: string; readonly appData: string };
+};
+
+declare global {
+	interface Window {
+		__EPICENTER_APP_FOLDERS__?: AppFolders;
+	}
+}
+
+/** This window's roots, or `null` outside a standalone app's window. */
+export function appFolders(): AppFolders | null {
+	if (typeof window === 'undefined') return null;
+	return window.__EPICENTER_APP_FOLDERS__ ?? null;
+}
+
+/**
+ * Record `folder` as the app's folder in its `settings.md`, keeping every
+ * other setting: the page calls this once the shell opened its window on a
+ * folder the person chose, so the next launch opens it again.
+ */
+export async function rememberFolder(
+	config: Client<AppConfig>,
+	folder: string,
+): Promise<Result<undefined, ClientError>> {
+	const read = await config.settings.get({});
+	if (read.error?.name === 'NotFound') {
+		const made = await config.settings.create({ folder });
+		return made.error === null ? Ok(undefined) : Err(made.error);
+	}
+	if (read.error !== null) return Err(read.error);
+	if (read.data.folder === folder) return Ok(undefined);
+	const updated = await config.settings.update(
+		{},
+		{ folder },
+		{ over: read.data.version },
+	);
+	return updated.error === null ? Ok(undefined) : Err(updated.error);
+}
