@@ -119,12 +119,11 @@ export type RecordingHandle<TStopped> = {
 /**
  * A recording written into the store as it records: in a browser at
  * `<path>.<ext>`, on the desktop in the folder's `.epicenter/recordings` until
- * `stop` encodes it to `<path>.webm`.
+ * `stop` encodes it to `<path>.webm`. Where its audio is, extension included,
+ * is `stop`'s answer, decided when it stops: on the desktop a recording the
+ * encoder refuses is placed at `<path>.wav`, and `stop` fails saying so.
  */
-export type Recording = RecordingHandle<StoppedRecording> & {
-	/** The audio file this recording is, or becomes at `stop`, store-relative: `<path>.webm` or `<path>.m4a`. `stop` answers where it is. */
-	readonly path: string;
-};
+export type Recording = RecordingHandle<StoppedRecording>;
 
 /** A recording `recoverRecordings` repaired. */
 export type RecoveredRecording = {

@@ -142,7 +142,6 @@ mock.module('@epicenter/recorder/tauri', () => ({
 	startRecording: async (options: { device: unknown; path: string }) => {
 		started.push(options);
 		return Ok({
-			path: `${options.path}.wav`,
 			startedAt: 0,
 			microphone: 'USB',
 			onLevel: () => () => {},

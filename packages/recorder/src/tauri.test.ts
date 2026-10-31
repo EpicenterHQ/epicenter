@@ -8,8 +8,8 @@
  * - `listInputs` answers the shell's inputs; `openMeter` opens one by ID,
  *   hears its levels, and closes it, and a meter withdrawn while opening is
  *   closed
- * - `stop` names the recording the shell minted, and stops hearing the
- *   channel
+ * - `stop` names the recording the shell minted, answers where the shell
+ *   placed it (the start answers no path), and stops hearing the channel
  * - The shell's refusals arrive as this package's errors, by name
  * - A start withdrawn while the shell opened the microphone is stopped:
  *   released, with what the shell wrote kept
@@ -60,7 +60,6 @@ roots.set(device, ROOT);
 
 const started = {
 	id: '7',
-	path: 'recordings/a.wav',
 	device: 'Desk Microphone',
 };
 
@@ -82,7 +81,6 @@ test('a recording starts in the device’s root and stops by the id the shell mi
 			input: { deviceId: 'coreaudio:desk-uid', label: 'Desk Microphone' },
 		}),
 	);
-	expect(recording.path).toBe('recordings/a.wav');
 	expect(recording.microphone).toBe('Desk Microphone');
 	const [start] = calls;
 	expect(start?.cmd).toBe('plugin:epicenter-recorder|start');

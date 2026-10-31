@@ -128,7 +128,7 @@ export const startRecording: StartRecording = async ({
 		return RecorderError.Failed({ cause });
 	}
 	if (answer.error !== null) return fromNative(answer.error, input?.label);
-	const { id, path: file, device: microphone } = answer.data;
+	const { id, device: microphone } = answer.data;
 	// Withdrawn while the shell was opening the microphone: it is released,
 	// and what the shell already wrote is finalized and kept, never deleted.
 	if (signal?.aborted) {
@@ -139,7 +139,6 @@ export const startRecording: StartRecording = async ({
 	const startedAt = Date.now();
 
 	return Ok({
-		path: file,
 		startedAt,
 		microphone,
 		onLevel: signals.onLevel,

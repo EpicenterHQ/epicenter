@@ -147,3 +147,11 @@ from the file just repaired. An app completes a cut-off recording's note with
 it, and reads audio back to measure it only when the audio was already at its
 path: a recording the shell placed when its page left, or a stop whose
 answer was lost.
+
+## Amendment, 2026-11-01: a recording's path is known when it stops
+
+A started recording no longer answers a path: on the desktop its extension
+is decided at `stop` (`<path>.webm`, or `<path>.wav` when the encoder refuses
+it, which `stop` reports as a failure), so a path answered at `start` could
+be wrong. `stop` answers where the audio is, and `recoverRecordings` where it
+placed each recording it finished.

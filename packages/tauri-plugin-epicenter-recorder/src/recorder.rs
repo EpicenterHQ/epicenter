@@ -538,16 +538,14 @@ impl Finalized {
     }
 }
 
-/// What `start` answers: the id to stop the recording by, the file
-/// it is writing, and the microphone it opened.
+/// What `start` answers: the id to stop the recording by, and the
+/// microphone it opened. Where the recording lands is decided when it
+/// stops: `stop` answers `<path>.webm`, or fails naming `<path>.wav` when the
+/// encoder refused it.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StartedRecording {
     pub id: String,
-    /// The folder-relative path the recording is placed at when it stops:
-    /// the path the page named plus `.webm` (`.wav` if it cannot be
-    /// encoded).
-    pub path: String,
     /// The name of the microphone that is recording.
     pub device: String,
 }
@@ -861,7 +859,6 @@ impl Recorder {
         info!(
             "Recording started: id={id}, owner={owner_label}, path={stem}, device={device_name}, {device_rate} Hz, {device_channels} channels",
         );
-        let path = format!("{stem}.webm");
         self.active = Some(HeldRecording {
             id: id.clone(),
             owner_label,
@@ -875,7 +872,6 @@ impl Recorder {
         });
         Ok(StartedRecording {
             id,
-            path,
             device: device_name,
         })
     }

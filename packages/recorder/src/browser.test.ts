@@ -258,7 +258,6 @@ test('a recording is written into the store as it records, and heard made and fi
 	const recording = expectOk(
 		await startRecording({ device: store, path: 'recordings/a' }),
 	);
-	expect(recording.path).toBe('recordings/a.webm');
 	expect(recording.microphone).toBe('Desk Microphone');
 	expect(memory.held.has('recordings/a.webm')).toBe(false);
 
@@ -335,8 +334,7 @@ test('AAC in MP4 is recorded into <path>.m4a where the browser records it', asyn
 	const recording = expectOk(
 		await startRecording({ device: store, path: 'recordings/a' }),
 	);
-	expect(recording.path).toBe('recordings/a.m4a');
-	expectOk(await recording.stop());
+	expect(expectOk(await recording.stop()).path).toBe('recordings/a.m4a');
 	expect(memory.held.get('recordings/a.m4a')).toEqual(new Uint8Array([4, 5]));
 });
 

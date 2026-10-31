@@ -30,9 +30,9 @@ const { data: recording, error } = await startRecording({
 	path: 'recordings/2026-10-15-0930', // no extension: the format's is added
 	input: { deviceId, label }, // optional; undefined is the system default
 });
-recording.path; // 'recordings/2026-10-15-0930.webm' (desktop, and a browser without MP4) or '.m4a' (browser)
 const unsubscribe = recording.onLevel((level) => meter.set(level));
 const { data: stopped } = await recording.stop(); // { path, durationMs }
+stopped.path; // 'recordings/2026-10-15-0930.webm' (desktop, and a browser without MP4) or '.m4a' (browser): only stop says which
 ```
 
 `device` is the app's own store, so the audio lands beside the rest of its

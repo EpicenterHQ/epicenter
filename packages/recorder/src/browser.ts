@@ -478,7 +478,6 @@ export function createBrowserRecorder(
 		for (const piece of early.splice(0)) write(piece);
 
 		return Ok({
-			path: file,
 			startedAt: started.startedAt,
 			microphone: started.microphone,
 			onLevel: started.onLevel,

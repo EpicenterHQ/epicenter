@@ -190,17 +190,13 @@ export type RecoveredRecording = {
 };
 
 /**
- *  What `start` answers: the id to stop the recording by, the file
- *  it is writing, and the microphone it opened.
+ *  What `start` answers: the id to stop the recording by, and the
+ *  microphone it opened. Where the recording lands is decided when it
+ *  stops: `stop` answers `<path>.webm`, or fails naming `<path>.wav` when the
+ *  encoder refused it.
  */
 export type StartedRecording = {
 	id: string,
-	/**
-	 *  The folder-relative path the recording is placed at when it stops:
-	 *  the path the page named plus `.webm` (`.wav` if it cannot be
-	 *  encoded).
-	 */
-	path: string,
 	/**  The name of the microphone that is recording. */
 	device: string,
 };
