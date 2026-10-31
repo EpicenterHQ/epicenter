@@ -23,6 +23,7 @@
 		"build": "NODE_ENV=production vite build",
 		"build:host": "EPICENTER_HOST=1 bun run build",
 		"check": "bun run typecheck",
+		"contract": "bun scripts/write-contract.ts",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json"

@@ -1,0 +1,150 @@
+{
+	"name": "whispering",
+	"description": "Voice notes: a note per recording beside its audio, its transcripts, reusable recipes, and the results of applying them.",
+	"collections": {
+		"recordings": {
+			"path": "recordings/{id}.md",
+			"fields": {
+				"title": {
+					"type": "string"
+				},
+				"recordedAt": {
+					"type": "string",
+					"format": "date-time",
+					"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+				},
+				"durationMs": {
+					"type": "number"
+				},
+				"capture": {
+					"enum": ["microphone", "fixture"]
+				}
+			},
+			"required": ["title", "recordedAt", "capture"]
+		},
+		"audio": {
+			"path": "recordings/{id}.{ext}"
+		},
+		"transcriptions": {
+			"path": "transcriptions/{id}.md",
+			"fields": {
+				"recordingId": {
+					"type": "string"
+				},
+				"createdAt": {
+					"type": "string",
+					"format": "date-time",
+					"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+				},
+				"model": {
+					"type": "string"
+				},
+				"endpoint": {
+					"type": "string"
+				}
+			},
+			"required": ["recordingId", "createdAt", "model", "endpoint"]
+		},
+		"transformations": {
+			"path": "transformations/{id}.md",
+			"fields": {
+				"title": {
+					"type": "string"
+				},
+				"model": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					]
+				}
+			},
+			"required": ["title", "model"]
+		},
+		"transformation_runs": {
+			"path": "transformation_runs/{id}.md",
+			"fields": {
+				"recordingId": {
+					"type": "string"
+				},
+				"transcriptionId": {
+					"type": "string"
+				},
+				"transformationId": {
+					"type": "string"
+				},
+				"transformationTitle": {
+					"type": "string"
+				},
+				"createdAt": {
+					"type": "string",
+					"format": "date-time",
+					"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+				},
+				"model": {
+					"type": "string"
+				},
+				"endpoint": {
+					"type": "string"
+				},
+				"prompt": {
+					"type": "string"
+				},
+				"input": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"recordingId",
+				"transcriptionId",
+				"transformationId",
+				"transformationTitle",
+				"createdAt",
+				"model",
+				"endpoint",
+				"prompt",
+				"input"
+			]
+		},
+		"text_runs": {
+			"path": "text_runs/{id}.md",
+			"fields": {
+				"transformationId": {
+					"type": "string"
+				},
+				"transformationTitle": {
+					"type": "string"
+				},
+				"createdAt": {
+					"type": "string",
+					"format": "date-time",
+					"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+				},
+				"model": {
+					"type": "string"
+				},
+				"endpoint": {
+					"type": "string"
+				},
+				"prompt": {
+					"type": "string"
+				},
+				"input": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"transformationId",
+				"transformationTitle",
+				"createdAt",
+				"model",
+				"endpoint",
+				"prompt",
+				"input"
+			]
+		}
+	}
+}
