@@ -1,0 +1,50 @@
+[package]
+name = "tauri-plugin-epicenter-transcription"
+version = "0.0.1"
+description = "Shared local transcription and model administration"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+links = "tauri-plugin-epicenter-transcription"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+specta = "=2.0.0-rc.26"
+specta-typescript = "=0.0.13"
+tauri = "2.12"
+# `transcribe_file` reads from the calling window's bound folder under the shared path rule.
+epicenter-folder-core = { path = "../tauri-plugin-epicenter-folder/core" }
+tauri-plugin-epicenter-folder = { path = "../tauri-plugin-epicenter-folder" }
+tauri-plugin-opener = "2.5"
+tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }
+tokio = { version = "1", features = ["full"] }
+thiserror = "2.0.12"
+log = "0.4"
+tempfile = "3.8"
+transcribe-cpp = { version = "0.1.0", default-features = false }
+hf-hub = { version = "0.5", default-features = false, features = ["ureq", "default-tls"] }
+rubato = "0.15"
+symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4"] }
+audiopus = "0.3.0-rc.0"
+
+[dev-dependencies]
+hound = "3.5"
+tauri = { version = "2.12", features = ["test"] }
+
+[target.'cfg(all(windows, target_arch = "x86_64"))'.dependencies]
+transcribe-cpp = { version = "0.1.0", default-features = false, features = ["dynamic-backends", "vulkan"] }
+
+[target.'cfg(all(windows, target_arch = "aarch64"))'.dependencies]
+transcribe-cpp = { version = "0.1.0", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+plist = "1"
+transcribe-cpp = { version = "0.1.0", default-features = false, features = ["metal"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+transcribe-cpp = { version = "0.1.0", default-features = false, features = ["dynamic-backends", "vulkan"] }

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-models"
+description = "Enables the list_models command without any pre-configured scope."
+commands.allow = ["list_models"]
+
+[[permission]]
+identifier = "deny-list-models"
+description = "Denies the list_models command without any pre-configured scope."
+commands.deny = ["list_models"]
