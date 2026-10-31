@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-20
-- **Superseded by:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md).
+- **Superseded by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md), whose contract client replaced the Folder engine. [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) superseded this first and was rejected.
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), external-change detection and UI refresh policy.
 
 ## Context

@@ -3,6 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-20
 - **Amends:** [ADR-0632](0632-a-lens-belongs-to-its-reader.md) at the folder declaration's schema-only purpose: generic views share that file, and the generic editor can interpret files without a declaration; the v1 CLI requirement for declared schemas remains. Amends [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) at deferring generic structured desktop tools: grid, board, saved views, and read-only SQL are implemented optional clients.
+- **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at every reader of `epicenter.json`: `epicenter check` takes an app's contract and `epicenter query` is deleted, so no tool reads or writes the file. The desktop editor that showed grids, boards, saved views, and SQL was deleted with the table engine (`4467140355`, `4016fb5ff7`). Saved views already in a folder's `epicenter.json` stay there as ordinary text.
 - **Relates:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) separates portable records from machine state; [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) keeps remembered paths on this machine; [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) binds one directory to a native editor window.
 - **Unbuilt:** a schema-distribution service.
 
