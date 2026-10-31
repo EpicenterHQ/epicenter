@@ -1,5 +1,6 @@
 export {
 	type ConnectionCatalog,
+	openConnectionCatalog,
 	openLocalConnectionCatalog,
 } from './connection-catalog.js';
 
