@@ -41,7 +41,28 @@ export function openDevice<TContract extends Contract>(
 	contract: TContract,
 	{ path }: { path?: string } = {},
 ): Client<TContract> {
-	return createDeviceClient(contract, tauriStore({ inside: path }));
+	return createDeviceClient(
+		contract,
+		tauriStore({ inside: path, watch: watchBoundFolder }),
+	);
+}
+
+/**
+ * Hear the shell's watcher of the bound directory: the same registration
+ * every `openFolder` handle shares, held while anything listens. Outside
+ * Tauri, or when the shell refuses, nothing is heard.
+ */
+function watchBoundFolder(listener: (paths: readonly string[] | null) => void) {
+	if (!isTauri()) return () => {};
+	const observer = ({ paths }: FolderChanged) => listener(paths);
+	observers.add(observer);
+	openHandles++;
+	openBoundFolder().catch(() => {});
+	return () => {
+		observers.delete(observer);
+		openHandles--;
+		releaseRegistrationIfIdle();
+	};
 }
 
 const observers = new Set<(change: FolderChanged) => void>();

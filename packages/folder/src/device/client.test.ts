@@ -11,6 +11,8 @@
  * - Fields and placeholders that do not fit the contract are refused (`Invalid`)
  * - A version is the sha256 of the bytes, the same from `list`, `get` and a write
  * - Reads are lenient: a hand-written note reads, and its next write formats it
+ * - A note that does not read is listed with its text, to show and repair it
+ * - A collection's listeners hear its own writes at once and outside ones soon
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -283,4 +285,102 @@ test('a folder that cannot be made is Unavailable on every call, not a throw', a
 	expect(
 		expectErr(await device.recordings.create({ id: 'a', title: 'x' })).name,
 	).toBe('Unavailable');
+});
+
+test('a note that does not read is listed with its placeholders, text and version, and replace repairs it', async () => {
+	const { device, put, text } = await setup();
+	const broken = '---\ntitle: [unclosed\n---\nKept.\n';
+	await put('recordings/b.md', broken);
+	await put('recordings/z.md', bytes(0xff, 0xfe));
+	const { invalid } = expectOk(await device.recordings.list());
+	expect(invalid.map(({ issues: _, ...rest }) => rest)).toEqual([
+		{
+			id: 'b',
+			path: 'recordings/b.md',
+			text: broken,
+			version: (await hashBytes(new TextEncoder().encode(broken))) as Version,
+		},
+		{
+			id: 'z',
+			path: 'recordings/z.md',
+			text: null,
+			version: (await hashBytes(bytes(0xff, 0xfe))) as Version,
+		},
+	]);
+	const [b] = invalid;
+	if (b === undefined) throw new Error('expected the broken note');
+
+	// Text that still does not read is refused, and nothing is written.
+	const refused = expectErr(
+		await device.recordings.replace({ id: 'b' }, '---\ntitle: [\n---\n', {
+			over: b.version,
+		}),
+	);
+	expect(refused.name).toBe('Invalid');
+	expect(await text('recordings/b.md')).toBe(broken);
+
+	const repaired = expectOk(
+		await device.recordings.replace(
+			{ id: 'b' },
+			'---\ndurationMs: 3\ntitle: Fixed\n---\nKept.\n',
+			{ over: b.version },
+		),
+	);
+	expect(await text('recordings/b.md')).toBe(
+		'---\ntitle: Fixed\ndurationMs: 3\n---\nKept.\n',
+	);
+	expect(repaired).toMatchObject({ id: 'b', title: 'Fixed', body: 'Kept.\n' });
+	expect(
+		expectErr(
+			await device.recordings.replace({ id: 'b' }, '---\ntitle: X\n---\n', {
+				over: b.version,
+			}),
+		),
+	).toMatchObject({ name: 'Conflict', current: repaired.version });
+});
+
+test("a collection's listeners hear its writes before they resolve, and only its own paths", async () => {
+	const { device, put } = await setup();
+	const heard: string[] = [];
+	const stopNotes = device.recordings.subscribe(() => heard.push('notes'));
+	const stopAudio = device.audio.subscribe(() => heard.push('audio'));
+	const note = expectOk(
+		await device.recordings.create({ id: 'a', title: 'One' }),
+	);
+	// The folder's watcher may also echo a write, sooner or later.
+	expect(new Set(heard)).toEqual(new Set(['notes']));
+	await Bun.sleep(300);
+	heard.length = 0;
+	expectOk(await device.audio.create({ id: 'a', ext: 'm4a', bytes: bytes(1) }));
+	expect(new Set(heard)).toEqual(new Set(['audio']));
+
+	stopNotes();
+	stopAudio();
+	heard.length = 0;
+	expectOk(
+		await device.recordings.update(
+			{ id: 'a' },
+			{ title: 'Two' },
+			{ over: note.version },
+		),
+	);
+	await put('recordings/b.md', '---\ntitle: B\n---\n');
+	await Bun.sleep(150);
+	expect(heard).toEqual([]);
+});
+
+test('a write by another program to the folder reaches listeners; a hidden path does not', async () => {
+	const { device, put } = await setup();
+	// The folder exists once the client has opened it.
+	expectOk(await device.recordings.list());
+	let heard = 0;
+	const stop = device.recordings.subscribe(() => heard++);
+	await Bun.sleep(50);
+	await put('.epicenter/outbox/x.json', '{}');
+	await Bun.sleep(150);
+	expect(heard).toBe(0);
+	await put('recordings/b.md', '---\ntitle: B\n---\n');
+	for (let turn = 0; turn < 300 && heard === 0; turn++) await Bun.sleep(10);
+	expect(heard).toBeGreaterThan(0);
+	stop();
 });

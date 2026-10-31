@@ -14,7 +14,9 @@
  * 3. Two tabs racing an update over one version: one lands, one `Conflict`.
  *    Two tabs racing a create of one path: one lands, one `Occupied`. The
  *    Web Lock per path is what serializes them across the tabs' Workers.
- * 4. Nothing is left staged, and the files survive a reload and a restart.
+ * 4. A write in one tab reaches the other tab's listeners (the Worker's
+ *    broadcast), and the writing tab's own listeners before it resolves.
+ * 5. Nothing is left staged, and the files survive a reload and a restart.
  *
  * Then an ephemeral context: Chromium opens OPFS there; WebKit's refusal is
  * `Unavailable` with a `StorageRefused` cause, not a throw.
@@ -127,6 +129,20 @@ try {
 			);
 			steps.push('second tab reads the same files and capture');
 
+			await Promise.all([
+				a.evaluate(() => deviceSmoke.listen()),
+				b.evaluate(() => deviceSmoke.listen()),
+			]);
+			const toldSelf = await a.evaluate(async () => {
+				await deviceSmoke.create('told', 'Told');
+				return deviceSmoke.heard();
+			});
+			check(toldSelf === 1, `own write heard ${toldSelf} times`);
+			await b.waitForFunction(() => deviceSmoke.heard() > 0, null, {
+				timeout: 5000,
+			});
+			steps.push("a write reaches this tab's listeners and the other tab's");
+
 			const over = seeded.noteVersion;
 			const updates = await Promise.all([
 				a.evaluate((over) => deviceSmoke.update('r1', 'From A', over), over),
@@ -154,7 +170,7 @@ try {
 			await a.waitForFunction(() => globalThis.deviceSmoke !== undefined);
 			const reloaded = await a.evaluate(() => deviceSmoke.read('r1'));
 			check(
-				Array.isArray(reloaded.notes) && reloaded.notes.length === 2,
+				Array.isArray(reloaded.notes) && reloaded.notes.length === 3,
 				`after reload: ${JSON.stringify(reloaded.notes)}`,
 			);
 			await context.close();

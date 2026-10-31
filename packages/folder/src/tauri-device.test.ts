@@ -10,6 +10,7 @@
  * - `path` names a folder inside it, and the client sees only that folder
  * - Versions are sha256, so a stale `over` is a `Conflict` and lands nothing
  * - A refusal from the shell, or a page outside Tauri, is `Unavailable`
+ * - The shell's watcher reaches a collection's listeners, inside `path` only
  */
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { readFile, rm } from 'node:fs/promises';
@@ -24,6 +25,9 @@ import {
 
 let shell: GrantedShell;
 let inTauri = true;
+/** The channel each `open_folder` handed the shell, as its watcher would send on. */
+const watchers: { onmessage?: (change: { paths: string[] | null }) => void }[] =
+	[];
 
 mock.module('@tauri-apps/api/core', () => ({
 	Channel: class {},
@@ -33,7 +37,11 @@ mock.module('@tauri-apps/api/core', () => ({
 		cmd: string,
 		body?: Record<string, unknown> | Uint8Array,
 		options?: { headers?: Record<string, string> },
-	) => shell.invoke(cmd, body, options),
+	) => {
+		if (cmd === 'plugin:epicenter-folder|open_folder')
+			watchers.push((body as { onChange: (typeof watchers)[number] }).onChange);
+		return shell.invoke(cmd, body, options);
+	},
 }));
 
 const { openDevice } = await import('./tauri.js');
@@ -143,4 +151,29 @@ test('outside Tauri every call is Unavailable', async () => {
 	const device = openDevice(notes);
 	expect(expectErr(await device.notes.list()).name).toBe('Unavailable');
 	expect(shell.calls).toEqual([]);
+});
+
+test("the shell's watcher reaches a collection's listeners, and a folder inside hears only its own paths", async () => {
+	const device = openDevice(notes);
+	const inside = openDevice(notes, { path: 'inner' });
+	let heard = 0;
+	let heardInside = 0;
+	const stop = device.notes.subscribe(() => heard++);
+	const stopInside = inside.notes.subscribe(() => heardInside++);
+	await Bun.sleep(0);
+	const watcher = watchers.at(-1);
+	if (watcher?.onmessage === undefined)
+		throw new Error('no watcher was opened');
+	watcher.onmessage({ paths: ['notes/a.md'] });
+	expect([heard, heardInside]).toEqual([1, 0]);
+	watcher.onmessage({ paths: ['inner/notes/a.md'] });
+	expect([heard, heardInside]).toEqual([1, 1]);
+	watcher.onmessage({ paths: ['elsewhere/x.md'] });
+	expect([heard, heardInside]).toEqual([1, 1]);
+	watcher.onmessage({ paths: null });
+	expect([heard, heardInside]).toEqual([2, 2]);
+	stop();
+	stopInside();
+	watcher.onmessage({ paths: ['notes/a.md'] });
+	expect([heard, heardInside]).toEqual([2, 2]);
 });

@@ -20,7 +20,7 @@ contract.
 
 | Subpath | What it holds |
 | --- | --- |
-| `@epicenter/definition/contract` | `defineContract`, path templates (`fill`, `match`), `compileContract`, `checkContract`, and the `Client<T>` types every opener returns |
+| `@epicenter/definition/contract` | `defineContract`, path templates (`fill`, `match`), `compileContract`, `checkContract`, the `Client<T>` types every opener returns, and `updateNote`, the rule for an edit that meets a `Conflict` |
 | `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
 | `@epicenter/definition/merge` | `settle`, the note merge the server and the merge driver run, plus conflict blocks, conflict copies and Git hashes |
 | `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files |

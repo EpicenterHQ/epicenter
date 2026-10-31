@@ -20,6 +20,13 @@
  * a conflict copy. The client then answers with what landed: the merged
  * note, or for a file `Occupied` or `Conflict`, since its bytes are not at
  * the path.
+ *
+ * A collection's listeners hear this client's own writes (its uploads
+ * included) before they resolve, and, while any listens, every move of
+ * `main` by another writer: one poller per client reads `main` every
+ * `POLL_MS`, and stops with the last listener or the account. The notify
+ * Durable Object (decision 18) will replace the poll here, with no change to
+ * callers.
  */
 
 import {
@@ -39,9 +46,11 @@ import { gitBlobHash } from '@epicenter/definition/merge';
 import type { CanonicalDocument } from '@epicenter/definition/note';
 import type { InferError } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
+import { createChanges, forCollection } from '../changes.js';
 import {
 	createdFields,
 	defined,
+	invalidNote,
 	noteCodec,
 	noteValue,
 	type Params,
@@ -63,6 +72,9 @@ type Conflict = InferError<typeof ClientError.Conflict>;
 
 /** How many notes a listing reads at once. */
 const READS_AT_ONCE = 8;
+
+/** How often a remote with listeners reads `main` to hear that it moved. */
+const POLL_MS = 3000;
 
 /** What a remote client is made of, for this package's uploader. */
 export type RemoteParts = {
@@ -103,15 +115,64 @@ export function createRemoteClient<TContract extends Contract>(
 		throw new Error(
 			`'${path}' names no repository: use <owner>/<name>, where <owner> is a person's handle or ~`,
 		);
-	const wire = createWire(account, path);
+	const { wire, changes } = observedWire(account, createWire(account, path));
 	const clients: Record<string, unknown> = {};
 	for (const collection of compiled.collections)
-		clients[collection.name] =
-			collection.kind === 'note'
+		clients[collection.name] = {
+			...(collection.kind === 'note'
 				? noteClient(compiled, collection, wire)
-				: fileClient(compiled, collection, wire);
+				: fileClient(compiled, collection, wire)),
+			subscribe: (listener: () => void) =>
+				changes.watch(forCollection(compiled, collection.name, listener)),
+		};
 	remotes.set(clients, { account, compiled, wire });
 	return clients as Client<TContract>;
+}
+
+/**
+ * `wire`, whose writes that land tell its listeners the paths they wrote,
+ * with the listeners of every move of `main` while any listens: a poll of
+ * `main` every `POLL_MS`, which cannot say what moved (null). The server
+ * becoming unreachable, or reachable again, is a change too: what a reader
+ * can show changed with it.
+ */
+function observedWire(account: RemoteAccount, wire: Wire) {
+	/** The commit `main` was at when last read; undefined before the first read. */
+	let seen: string | null | undefined;
+	let reachable = true;
+	const changes = createChanges((emit) => {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let stopped = false;
+		async function poll() {
+			if (stopped || account.signal.aborted) return;
+			const head = await wire.head();
+			if (stopped) return;
+			if (head.error === null) {
+				if (!reachable || (seen !== undefined && head.data !== seen))
+					emit(null);
+				seen = head.data;
+				reachable = true;
+			} else if (reachable) {
+				reachable = false;
+				emit(null);
+			}
+			timer = setTimeout(poll, POLL_MS);
+		}
+		void poll();
+		return () => {
+			stopped = true;
+			clearTimeout(timer);
+		};
+	});
+	const observed: Wire = {
+		...wire,
+		async write(request) {
+			const written = await wire.write(request);
+			if (written.data?.landed) changes.emit(written.data.receipt.paths);
+			return written;
+		},
+	};
+	return { wire: observed, changes };
 }
 
 /**
@@ -267,10 +328,7 @@ function noteClient(
 				wire.read(path),
 			);
 			const items: ReturnType<typeof noteValue>[] = [];
-			const unfit: {
-				path: string;
-				issues: { field: string; message: string }[];
-			}[] = [];
+			const unfit: ReturnType<typeof invalidNote>[] = [];
 			for (const [index, { path, params }] of paths.data.entries()) {
 				const read = reads[index];
 				if (read === undefined) continue;
@@ -283,7 +341,15 @@ function noteClient(
 						? codec.decode(path, text)
 						: codec.invalid(path, undefined, 'The note is not text on main');
 				if (decoded.error !== null)
-					unfit.push({ path, issues: decoded.error.issues });
+					unfit.push(
+						invalidNote(
+							params,
+							path,
+							decoded.error.issues,
+							typeof text === 'string' ? text : null,
+							blob,
+						),
+					);
 				else items.push(noteValue(params, decoded.data, blob));
 			}
 			return Ok({ items, invalid: unfit });
@@ -338,6 +404,33 @@ function noteClient(
 				body,
 			});
 			if (encoded.error !== null) return encoded;
+			const params = paramsOf(collection, args);
+			if (gitBlobHash(encoded.data.text) === over)
+				return Ok(noteValue(params, encoded.data.document, over));
+			return land(
+				path.data,
+				params,
+				encoded.data.text,
+				encoded.data.document,
+				over,
+			);
+		},
+		async replace(args: Params, text: string, { over }: { over: Version }) {
+			const path = pathOf(collection, args);
+			if (path.error !== null) return path;
+			if (typeof text !== 'string')
+				return codec.invalid(path.data, undefined, 'The text is not a string');
+			const decoded = codec.decode(path.data, text);
+			if (decoded.error !== null) return decoded;
+			const encoded = codec.encode(path.data, decoded.data);
+			if (encoded.error !== null) return encoded;
+			const read = await wire.read(path.data);
+			if (read.error !== null) return read;
+			if (read.data === null || read.data.blob !== over)
+				return ClientError.Conflict({
+					path: path.data,
+					current: read.data?.blob ?? null,
+				});
 			const params = paramsOf(collection, args);
 			if (gitBlobHash(encoded.data.text) === over)
 				return Ok(noteValue(params, encoded.data.document, over));

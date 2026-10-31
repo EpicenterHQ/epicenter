@@ -1,7 +1,8 @@
 /**
  * The HTTP a remote client speaks to its repository on the server: the write
- * translator (`epicenter/files`, `epicenter/file`, `epicenter/writes`) and
- * the Git LFS API, both under the repository's Git remote.
+ * translator (`epicenter/head`, `epicenter/files`, `epicenter/file`,
+ * `epicenter/writes`) and the Git LFS API, both under the repository's Git
+ * remote.
  *
  * The repository is `<git>/<owner>/<name>.git`, by default
  * `<git>/~/<contract name>.git` (decision 46): `~` is the signed-in person's
@@ -208,6 +209,19 @@ export function createWire(account: RemoteAccount, repository: string) {
 	return {
 		/** The repository's Git remote. */
 		remote,
+		/** The commit `main` is at, null before the repository's first write. */
+		async head(): Promise<Result<string | null, Unavailable>> {
+			const sent = await send(`${remote}/epicenter/head`, { method: 'GET' });
+			if (sent.error !== null) return sent;
+			if (!sent.data.ok) return refused(sent.data);
+			const answer = await body(sent.data);
+			if (
+				!isRecord(answer) ||
+				(typeof answer.commit !== 'string' && answer.commit !== null)
+			)
+				return refused(sent.data);
+			return Ok(answer.commit);
+		},
 		/** Every file on `main` under `root` (`''`: the whole repository). */
 		async list(
 			root: string,

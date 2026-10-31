@@ -12,6 +12,11 @@
  * the store lands it only while the file still holds that version, so a
  * write never replaces bytes its writer did not see. A file deleted since it
  * was read is a `Conflict` whose `current` is null.
+ *
+ * A collection's listeners hear every change that lands through this client
+ * (its outbox and cache included) before the write resolves, and the store's
+ * outside changes (other tabs, the shell's watcher, other programs) as they
+ * come, each only when it touches a path the contract gives the collection.
  */
 import {
 	type Client,
@@ -23,10 +28,12 @@ import {
 	type Version,
 } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
+import { createChanges, forCollection } from '../changes.js';
 import { hashBytes } from '../hash.js';
 import {
 	createdFields,
 	defined,
+	invalidNote,
 	noteCodec,
 	noteValue,
 	type Params,
@@ -49,19 +56,42 @@ export const versionOf = async (bytes: Uint8Array) =>
  */
 export function createDeviceClient<TContract extends Contract>(
 	contract: TContract,
-	store: DeviceStore,
+	outside: DeviceStore,
 ): Client<TContract> {
 	const { data: compiled, error } = compileContract(contract);
 	if (error !== null) throw new Error(error.message, { cause: error });
+	const store = observed(outside);
 	const clients: Record<string, unknown> = {};
 	for (const collection of compiled.collections)
-		clients[collection.name] =
-			collection.kind === 'note'
+		clients[collection.name] = {
+			...(collection.kind === 'note'
 				? noteClient(compiled, collection, store)
-				: fileClient(compiled, collection, store);
+				: fileClient(compiled, collection, store)),
+			subscribe: (listener: () => void) =>
+				store.watch(forCollection(compiled, collection.name, listener)),
+		};
 	const client = clients as Client<TContract>;
 	registerDevice(client, { compiled, store });
 	return client;
+}
+
+/**
+ * `store`, whose listeners also hear every write that lands through it,
+ * before the write resolves, so a reader never lags this device's own writes.
+ */
+function observed(store: DeviceStore): DeviceStore {
+	const changes = createChanges((emit) => store.watch(emit));
+	return {
+		list: store.list,
+		read: store.read,
+		async write(path, bytes, expected) {
+			const written = await store.write(path, bytes, expected);
+			if (written.data === 'landed') changes.emit([path]);
+			return written;
+		},
+		watch: changes.watch,
+		close: store.close,
+	};
 }
 
 /**
@@ -131,19 +161,21 @@ function noteClient(
 			const { data: paths, error } = await claimed(compiled, collection, store);
 			if (error !== null) return { data: null, error };
 			const items: ReturnType<typeof noteValue>[] = [];
-			const unfit: {
-				path: string;
-				issues: { field: string; message: string }[];
-			}[] = [];
+			const unfit: ReturnType<typeof invalidNote>[] = [];
 			for (const { path, params } of paths) {
 				const read = await store.read(path);
 				if (read.error !== null) return read;
 				// Removed since the listing: it is no longer the collection's.
 				if (read.data === null) continue;
-				const decoded = decode(path, read.data.bytes);
+				const { bytes, version } = read.data;
+				const text = codec.text(path, bytes);
+				const decoded =
+					text.error === null ? codec.decode(path, text.data) : text;
 				if (decoded.error !== null)
-					unfit.push({ path, issues: decoded.error.issues });
-				else items.push(noteValue(params, decoded.data, read.data.version));
+					unfit.push(
+						invalidNote(params, path, decoded.error.issues, text.data, version),
+					);
+				else items.push(noteValue(params, decoded.data, version));
 			}
 			return Ok({ items, invalid: unfit });
 		},
@@ -207,6 +239,22 @@ function noteClient(
 			const params = paramsOf(collection, args);
 			if (version === over)
 				return Ok(noteValue(params, encoded.data.document, version));
+			const written = await store.write(path.data, encoded.data.bytes, over);
+			if (written.error !== null) return written;
+			if (written.data === 'stale') return conflict(store, path.data);
+			return Ok(noteValue(params, encoded.data.document, version));
+		},
+		async replace(args: Params, text: string, { over }: { over: Version }) {
+			const path = pathOf(collection, args);
+			if (path.error !== null) return path;
+			if (typeof text !== 'string')
+				return codec.invalid(path.data, undefined, 'The text is not a string');
+			const decoded = codec.decode(path.data, text);
+			if (decoded.error !== null) return decoded;
+			const encoded = encode(path.data, decoded.data);
+			if (encoded.error !== null) return encoded;
+			const version = await versionOf(encoded.data.bytes);
+			const params = paramsOf(collection, args);
 			const written = await store.write(path.data, encoded.data.bytes, over);
 			if (written.error !== null) return written;
 			if (written.data === 'stale') return conflict(store, path.data);

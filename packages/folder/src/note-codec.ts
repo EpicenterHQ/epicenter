@@ -8,9 +8,12 @@
  * Reads are lenient: a hand-written note in any key order reads, and its
  * next write formats it.
  */
+
 import {
 	ClientError,
+	type Collection,
 	type CompiledCollection,
+	type InvalidNoteOf,
 	type Version,
 } from '@epicenter/definition/contract';
 import {
@@ -61,6 +64,18 @@ export const noteValue = (
 	document: CanonicalDocument,
 	version: Version,
 ) => ({ ...document.fields, ...params, body: document.body, version });
+
+/**
+ * A note that does not read, as `list` reports it: its placeholders, then
+ * its path, why, its text (null when not UTF-8) and the version read.
+ */
+export const invalidNote = (
+	params: Params,
+	path: string,
+	issues: InvalidNoteOf<Collection>['issues'],
+	text: string | null,
+	version: Version,
+) => ({ ...params, path, issues, text, version });
 
 /** `fields` without the keys whose value is `undefined`, which means absent. */
 export const defined = (fields: Value) =>

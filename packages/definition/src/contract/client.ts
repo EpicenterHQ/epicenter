@@ -4,11 +4,13 @@
  * server (`openRemote`). Types and the error vocabulary only; the openers
  * own storage.
  *
- * Per collection: `list`, `get`, `create`, `update`, `delete`. A read carries
- * the `version` it saw, and every update or delete passes it back as `over`,
- * so a write never lands on a file it did not see (`Conflict`). A version is
- * opaque: a device holds a sha256 capture of the bytes, the server a Git blob
- * id, and a caller only compares them and hands them back.
+ * Per collection: `list`, `get`, `create`, `update`, `delete`, and
+ * `subscribe` to hear that its files changed. A read carries the `version` it
+ * saw, and every update or delete passes it back as `over`, so a write never
+ * lands on a file it did not see (`Conflict`); `updateNote` is the one rule
+ * for carrying a person's edit over such a change. A version is opaque: a
+ * device holds a sha256 capture of the bytes, the server a Git blob id, and a
+ * caller only compares them and hands them back.
  *
  * A note reads as `{ ...placeholders, ...fields, body, version }`; a file as
  * `{ ...placeholders, bytes, version }`. Placeholders are the path's
@@ -125,6 +127,37 @@ export type FileEntryOf<TCollection extends Collection> = Flat<
 /** What every write passes back: the version its writer read. */
 export type Over = { over: Version };
 
+/** What a note `update` changes: some fields (`undefined` removes one), the body, or both. */
+export type NotePatch<TCollection extends Collection> = Partial<
+	FieldsOf<TCollection> & { body: string }
+>;
+
+/**
+ * A note at one of a collection's paths that does not read as one: its
+ * front matter does not parse, its fields do not fit, or it is not UTF-8.
+ * Its placeholders, why, its text as it is (null when not UTF-8), and the
+ * version read, so an app can show it and repair it (`update` when the
+ * front matter parses, else `replace`) or delete it.
+ */
+export type InvalidNoteOf<TCollection extends Collection> = Flat<
+	PlaceholdersOf<TCollection> & {
+		path: string;
+		issues: ConformanceIssue[];
+		text: string | null;
+		version: Version;
+	}
+>;
+
+/**
+ * Hear that a collection's files changed: `listener` runs, with nothing to
+ * say what, after any change to them, made here, by another tab or program
+ * on the same files, or by another writer of the repository. Read again to
+ * see it. It may run when nothing the collection holds changed, and runs for
+ * this client's own writes before their promises resolve. Returns the
+ * function that stops it.
+ */
+export type Subscribe = (listener: () => void) => () => void;
+
 export type NoteClient<TCollection extends Collection> = {
 	/**
 	 * Every note the collection holds. A note at one of its paths whose front
@@ -133,10 +166,7 @@ export type NoteClient<TCollection extends Collection> = {
 	 */
 	list(): Promise<
 		Result<
-			{
-				items: NoteOf<TCollection>[];
-				invalid: { path: string; issues: ConformanceIssue[] }[];
-			},
+			{ items: NoteOf<TCollection>[]; invalid: InvalidNoteOf<TCollection>[] },
 			Unavailable
 		>
 	>;
@@ -152,7 +182,20 @@ export type NoteClient<TCollection extends Collection> = {
 	/** Change the fields named in `patch` (a field set to `undefined` is removed) or the body. */
 	update(
 		args: PlaceholdersOf<TCollection>,
-		patch: Partial<FieldsOf<TCollection> & { body: string }>,
+		patch: NotePatch<TCollection>,
+		options: Over,
+	): Promise<
+		Result<NoteOf<TCollection>, NotFound | Conflict | Invalid | Unavailable>
+	>;
+	/**
+	 * Replace the whole note with `text`, which must read as a note whose
+	 * fields fit (else `Invalid`, and nothing is written); it is written in
+	 * house style. How an app repairs a note whose front matter does not
+	 * parse, from the `text` its `list` gave.
+	 */
+	replace(
+		args: PlaceholdersOf<TCollection>,
+		text: string,
 		options: Over,
 	): Promise<
 		Result<NoteOf<TCollection>, NotFound | Conflict | Invalid | Unavailable>
@@ -161,6 +204,7 @@ export type NoteClient<TCollection extends Collection> = {
 		args: PlaceholdersOf<TCollection>,
 		options: Over,
 	): Promise<Result<undefined, NotFound | Conflict | Unavailable>>;
+	subscribe: Subscribe;
 };
 
 export type FileClient<TCollection extends Collection> = {
@@ -186,6 +230,7 @@ export type FileClient<TCollection extends Collection> = {
 		args: PlaceholdersOf<TCollection>,
 		options: Over,
 	): Promise<Result<undefined, NotFound | Conflict | Unavailable>>;
+	subscribe: Subscribe;
 };
 
 /** A collection's client: notes for a path ending in `.md`, files for any other. */

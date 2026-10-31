@@ -3,14 +3,26 @@
  * files. Null Linux filenames and watcher errors must not silently lose scope.
  */
 import { expect, mock, test } from 'bun:test';
+import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 let event: (kind: string, filename: string | null) => void;
 let failure: () => void;
 let closed = 0;
+const root = join(tmpdir(), 'folder');
+// A module mock outlives this file when tests share a process, so any other
+// directory is watched for real.
+const { watch } = fs;
 mock.module('node:fs', () => ({
-	watch: (_root: string, options: unknown, listener: typeof event) => {
+	...fs,
+	watch: (
+		at: string,
+		options: fs.WatchOptionsWithStringEncoding,
+		listener: typeof event,
+	): unknown => {
+		if (at !== root)
+			return watch(at, options, listener as fs.WatchListener<string>);
 		expect(options).toMatchObject({ recursive: true, persistent: false });
 		event = listener;
 		return {
@@ -27,7 +39,6 @@ const { watchDirectory } = await import('./watch.js');
 
 test('absent filenames and errors reconcile all, while closed callbacks are ignored', () => {
 	const hints: unknown[] = [];
-	const root = join(tmpdir(), 'folder');
 	const stop = watchDirectory(root)((paths) => hints.push(paths));
 	event('rename', null);
 	event('change', '');

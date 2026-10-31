@@ -12,6 +12,7 @@
 import type { ClientError, Version } from '@epicenter/definition/contract';
 import type { InferError } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
+import type { ChangeListener } from '../changes.js';
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
@@ -44,6 +45,13 @@ export type DeviceStore = {
 		bytes: Uint8Array | null,
 		expected: 'absent' | 'any' | Version,
 	): Promise<Result<'landed' | 'stale', Unavailable>>;
+	/**
+	 * Hear changes made outside this store: by another tab, the desktop
+	 * shell's watcher, or another program. It may also hear this store's own
+	 * writes, and may give null for "something may have changed". Started
+	 * by the first listener, stopped with the last; returns the stop.
+	 */
+	watch(listener: ChangeListener): () => void;
 	/** Release what the store holds open; every later call is `Unavailable`. */
 	close?(): void;
 };

@@ -167,6 +167,24 @@ inside the bound one. See
 `src/device/`; `bun run --cwd packages/folder smoke:device` drives the
 browser opener in Playwright Chromium and WebKit.
 
+Each collection's `subscribe(listener)` hears that its files changed, with
+no word of what (read again to see). The device hears every write through
+it, its outbox and cache included, before the write resolves, and outside
+writes as they come: other tabs through the Worker's `epicenter-device`
+broadcast channel, the shell's watcher in Tauri, a recursive watch in Bun.
+A remote hears its own writes the same way, and other writers' by reading
+`main` (`GET <repo>.git/epicenter/head`) every three seconds while anything
+listens, until the notify Durable Object replaces the poll. A listener can
+run when nothing it shows changed, never for a hidden path.
+
+A note that does not read is listed in `invalid` with its placeholders,
+`text` (null when not UTF-8) and `version`. Repair it with `update` when its
+front matter parses, else `replace(args, text, { over })`, which writes the
+whole note from text that reads and fits, in house style. `updateNote`
+(`@epicenter/definition/contract`) is the one rule for an edit that meets a
+`Conflict`; `fromClient` in `@epicenter/svelte/client` is the Svelte state
+over a client.
+
 `openRemote(contract, { account })` returns the same client over the
 signed-in person's repository for the app, `<git audience>/~/<contract
 name>.git`, through `account.fetch` (any `@epicenter/auth` `Account`). A

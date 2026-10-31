@@ -57,7 +57,15 @@ async function opfsText(path: string) {
 	return file.text();
 }
 
+/** How many times this page's listener heard the recordings change. */
+let heard = 0;
+
 const smoke = {
+	/** Start hearing the recordings change, from this tab or another. */
+	listen() {
+		device.recordings.subscribe(() => heard++);
+	},
+	heard: () => heard,
 	/** Create a note and 5 MB of audio, read both back, and record a capture. */
 	async seed(id: string) {
 		const note = await device.recordings.create({

@@ -10,6 +10,9 @@
  * `Unavailable`, its cause a `DeviceError.StorageRefused`, never a throw.
  * OPFS is evictable (`persist()` was false in every headless probe), so what
  * the device holds should reach the server once it can (the outbox).
+ *
+ * Other tabs' writes arrive on the broadcast channel the Worker posts every
+ * landed change to (`CHANGES`); a store skips the ones it asked for itself.
  */
 import { ClientError, type Version } from '@epicenter/definition/contract';
 import {
@@ -18,8 +21,15 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok } from 'wellcrafted/result';
-import type { Reply } from './opfs-worker.js';
+import { createChanges } from '../changes.js';
+import type { Changed, Reply } from './opfs-worker.js';
 import type { DeviceStore } from './store.js';
+
+/**
+ * The broadcast channel every device store and worker of this origin shares.
+ * The Worker names it too, since importing a value from it would run it here.
+ */
+const CHANGES = 'epicenter-device';
 
 export const DeviceError = defineErrors({
 	/** The browser gives this page no private file storage (`navigator.storage.getDirectory()` rejected). */
@@ -43,6 +53,7 @@ type Request =
 			path: string;
 			bytes: Uint8Array | null;
 			expected: string;
+			from: string;
 	  };
 
 export function opfsStore(): DeviceStore {
@@ -50,6 +61,17 @@ export function opfsStore(): DeviceStore {
 	let closed = false;
 	let next = 0;
 	const waiting = new Map<number, (reply: Reply) => void>();
+	/** Names this store's writes on the broadcast channel, to skip them there. */
+	const writer = crypto.randomUUID();
+	const changes = createChanges((emit) => {
+		if (typeof BroadcastChannel === 'undefined') return () => {};
+		const channel = new BroadcastChannel(CHANGES);
+		channel.onmessage = ({ data }: MessageEvent<Changed>) => {
+			if (data?.from !== writer)
+				emit(Array.isArray(data?.paths) ? data.paths : null);
+		};
+		return () => channel.close();
+	});
 
 	function start() {
 		// The literal `new Worker(new URL(…, import.meta.url))` is what Vite
@@ -139,12 +161,13 @@ export function opfsStore(): DeviceStore {
 			// A copy goes to the Worker, so the caller's bytes stay usable.
 			const owned = bytes === null ? null : bytes.slice();
 			const written = await call(
-				{ op: 'write', path, bytes: owned, expected },
+				{ op: 'write', path, bytes: owned, expected, from: writer },
 				owned === null ? [] : [owned.buffer],
 			);
 			if (written.error !== null) return written;
 			return Ok(written.data as 'landed' | 'stale');
 		},
+		watch: changes.watch,
 		close() {
 			closed = true;
 			worker?.terminate();

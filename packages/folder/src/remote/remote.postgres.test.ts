@@ -18,6 +18,8 @@
  * - A capture naming a path outside the contract stays on the device and is never sent
  * - Files no capture names are adopted and uploaded
  * - Retiring the account stops uploading for good
+ * - A note that does not read on main is listed with its text, and `replace` repairs it
+ * - Listeners hear this client's writes at once and other writers' within a poll of `main`
  *
  * Requires initdb and pg_ctl on PATH; never connects to a configured database.
  */
@@ -755,6 +757,98 @@ describe('the remote client', () => {
 				).json()) as { blob: Version }
 			).blob,
 		);
+	}, 30_000);
+
+	test('a note that does not read on main is listed with its text and version, and replace repairs it', async () => {
+		const person = await signIn('repair');
+		const remote = openRemote(recorder, { account: person.account });
+		const id = timeId();
+		const broken = '---\ntitle: [unclosed\n---\nKept.\n';
+		const raw = await person.account.fetch(
+			`${audiences.git}/~/recorder.git/epicenter/writes`,
+			{
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					files: [{ path: `recordings/${id}.md`, text: broken }],
+				}),
+			},
+		);
+		expect(raw.status).toBe(200);
+		const { invalid } = expectOk(await remote.recordings.list());
+		expect(invalid).toHaveLength(1);
+		const [entry] = invalid;
+		if (entry === undefined) throw new Error('expected the broken note');
+		expect(entry).toMatchObject({
+			id,
+			path: `recordings/${id}.md`,
+			text: broken,
+		});
+		expect(
+			expectErr(
+				await remote.recordings.replace({ id }, '---\ntitle: [\n---\n', {
+					over: entry.version,
+				}),
+			).name,
+		).toBe('Invalid');
+		const repaired = expectOk(
+			await remote.recordings.replace(
+				{ id },
+				'---\nzeta: 1\ntitle: Fixed\n---\nKept.\n',
+				{ over: entry.version },
+			),
+		);
+		expect(repaired).toMatchObject({ id, title: 'Fixed', body: 'Kept.\n' });
+		expect(expectOk(await remote.recordings.get({ id }))).toEqual(repaired);
+		const file = await person.account.fetch(
+			`${audiences.git}/~/recorder.git/epicenter/file?path=recordings/${id}.md`,
+		);
+		expect(((await file.json()) as { text: string }).text).toBe(
+			'---\ntitle: Fixed\nzeta: 1\n---\nKept.\n',
+		);
+		expect(
+			expectErr(
+				await remote.recordings.replace({ id }, '---\ntitle: X\n---\n', {
+					over: entry.version,
+				}),
+			),
+		).toMatchObject({ name: 'Conflict', current: repaired.version });
+	}, 30_000);
+
+	test("listeners hear this client's writes at once, another writer's within a poll, and polling stops with the last listener", async () => {
+		const person = await signIn('notify');
+		const remote = openRemote(recorder, { account: person.account });
+		const other = openRemote(recorder, { account: person.account });
+		const HEAD = /^GET .*\/epicenter\/head$/;
+		let notes = 0;
+		let audio = 0;
+		const stopNotes = remote.recordings.subscribe(() => notes++);
+		const stopAudio = remote.audio.subscribe(() => audio++);
+		const id = timeId();
+		const created = expectOk(
+			await remote.recordings.create({ id, title: 'Mine' }),
+		);
+		expect([notes, audio]).toEqual([1, 0]);
+
+		// Another writer moves main; a poll of main hears it.
+		notes = 0;
+		expectOk(
+			await other.recordings.update(
+				{ id },
+				{ title: 'Theirs' },
+				{ over: created.version },
+			),
+		);
+		for (let turn = 0; turn < 100 && notes === 0; turn++) await Bun.sleep(50);
+		expect(notes).toBeGreaterThan(0);
+		expect(person.requests(HEAD).length).toBeGreaterThan(0);
+
+		stopNotes();
+		stopAudio();
+		await Bun.sleep(100);
+		const polls = person.requests(HEAD).length;
+		await Bun.sleep(3500);
+		expect(person.requests(HEAD).length).toBe(polls);
 	}, 30_000);
 
 	test('a retired account makes every call Unavailable, never a throw', async () => {

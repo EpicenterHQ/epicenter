@@ -15,6 +15,7 @@ import {
 	defineContract,
 	type FileEntryOf,
 	type FileOf,
+	type InvalidNoteOf,
 	type NoteOf,
 	type PlaceholdersOf,
 	type Version,
@@ -117,12 +118,30 @@ export async function writes() {
 	);
 	await client.settings.create({ theme: 'dark' });
 	await client.settings.get({});
+	await client.recordings.replace({ id: 'a' }, '---\ntitle: x\n---\n', {
+		over: version,
+	});
+	const stop: () => void = client.recordings.subscribe(() => {});
+	const stopAudio: () => void = client.audio.subscribe(() => {});
+	stop();
+	stopAudio();
 	const listed = await client.recordings.list();
 	if (listed.error === null) {
-		const invalid: { path: string; issues: ConformanceIssue[] }[] =
-			listed.data.invalid;
+		const invalid: InvalidNoteOf<Recordings>[] = listed.data.invalid;
+		const invalidType: Expect<
+			Equal<
+				InvalidNoteOf<Recordings>,
+				{
+					id: string;
+					path: string;
+					issues: ConformanceIssue[];
+					text: string | null;
+					version: Version;
+				}
+			>
+		> = true;
 		const titles: string[] = listed.data.items.map((note) => note.title);
-		return [createdType, invalid, titles];
+		return [createdType, invalidType, invalid, titles];
 	}
 	return [createdType];
 }

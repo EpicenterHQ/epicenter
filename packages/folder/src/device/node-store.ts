@@ -10,9 +10,11 @@ import { ClientError, type Version } from '@epicenter/definition/contract';
 import type { InferError } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { LockingStorage } from '../boundary.js';
+import { createChanges } from '../changes.js';
 import { sweepStaleScratch } from '../directory-store.js';
 import { localRoot, scratchDirectory } from '../native/directory.js';
 import { nativeStorage, savingPrimitives } from '../native/storage.js';
+import { watchDirectory } from '../native/watch.js';
 import type { DeviceStore } from './store.js';
 
 /**
@@ -51,6 +53,25 @@ export function nodeStore(
 		return opening;
 	}
 
+	// Every change below the directory, its own writes included, once it is
+	// open: a directory that cannot be opened has nothing to hear.
+	const changes = createChanges((emit) => {
+		let stop: (() => void) | undefined;
+		let stopped = false;
+		void storage().then(({ error }) => {
+			if (error !== null || stopped) return;
+			try {
+				stop = watchDirectory(path)(emit);
+			} catch {
+				// A directory removed since it was opened has nothing to hear.
+			}
+		});
+		return () => {
+			stopped = true;
+			stop?.();
+		};
+	});
+
 	return {
 		async list() {
 			const { data: files, error } = await storage();
@@ -84,5 +105,6 @@ export function nodeStore(
 				return ClientError.Unavailable({ cause: put.error });
 			return Ok(put.data.kind);
 		},
+		watch: changes.watch,
 	};
 }

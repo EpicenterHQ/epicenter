@@ -12,10 +12,13 @@ export {
 	type FileClient,
 	type FileEntryOf,
 	type FileOf,
+	type InvalidNoteOf,
 	type NoteClient,
 	type NoteOf,
+	type NotePatch,
 	type Over,
 	type PlaceholdersOf,
+	type Subscribe,
 	type Version,
 } from './client.js';
 export {
@@ -48,3 +51,4 @@ export {
 	TemplateError,
 	templatesOverlap,
 } from './templates.js';
+export { updateNote } from './update-note.js';

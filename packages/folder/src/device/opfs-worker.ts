@@ -15,6 +15,10 @@
  *   so it never appears empty first, and a crash leaves no empty file at the
  *   path.
  *
+ * Every change that lands is posted on the `epicenter-device` broadcast
+ * channel (`{ paths, from }`), so the stores of other tabs hear it; `from`
+ * names the store that asked, which skips its own.
+ *
  * This file imports nothing, so any bundler can ship it as a Worker.
  */
 
@@ -27,7 +31,14 @@ type Request =
 			path: string;
 			bytes: Uint8Array | null;
 			expected: string;
+			from: string;
 	  };
+
+/** What the worker posts on `CHANGES` for each change that lands. */
+export type Changed = { paths: string[]; from: string };
+
+/** The broadcast channel every device store and worker of this origin shares (`opfs-store.ts` names it too). */
+const CHANGES = 'epicenter-device';
 
 export type Reply =
 	| { id: number; ok: true; value: unknown }
@@ -156,7 +167,9 @@ async function write(path: string, bytes: Uint8Array | null, expected: string) {
 		const current = expected === 'any' ? null : await read(path);
 		const holds =
 			expected === 'any' ||
-			(expected === 'absent' ? current === null : current?.version === expected);
+			(expected === 'absent'
+				? current === null
+				: current?.version === expected);
 		if (!holds) return 'stale';
 		if (bytes === null) {
 			const found = await fileAt(path);
@@ -212,14 +225,30 @@ async function sweepStaging(directory: FileSystemDirectoryHandle) {
 	}
 }
 
+let changes: BroadcastChannel | undefined;
+
+/** Tell every other store of this origin that `path` changed. */
+function announce(path: string, from: string) {
+	if (typeof BroadcastChannel === 'undefined') return;
+	changes ??= new BroadcastChannel(CHANGES);
+	changes.postMessage({ paths: [path], from } satisfies Changed);
+}
+
 async function answer(request: Request): Promise<unknown> {
 	switch (request.op) {
 		case 'list':
 			return list();
 		case 'read':
 			return read(request.path);
-		case 'write':
-			return write(request.path, request.bytes, request.expected);
+		case 'write': {
+			const outcome = await write(
+				request.path,
+				request.bytes,
+				request.expected,
+			);
+			if (outcome === 'landed') announce(request.path, request.from);
+			return outcome;
+		}
 		default:
 			return request satisfies never;
 	}
