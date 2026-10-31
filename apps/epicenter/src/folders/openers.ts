@@ -3,8 +3,7 @@
  *
  * Every app Epicenter bundles, Todos, Capture, Honeycrisp, and Whispering, is
  * listed under Apps, where it opens on its default folder or on a folder the
- * person chooses, and is offered on every data folder as "Open with". Each
- * reads the folder bound to its window through the schema it supplies to
+ * person chooses. Each reads the folder bound to its window through the schema it supplies to
  * Folder.
  */
 

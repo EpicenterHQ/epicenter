@@ -28,7 +28,7 @@ const IDENTIFIER = 'so.epicenter';
 const FOLDER_NAME = 'Epicenter';
 
 export type AppPaths = {
-	/** The library root: scanned for folders, with records at its `so.epicenter/` child. */
+	/** The library root: where `epicenter clone` puts a folder, with records at its `so.epicenter/` child. */
 	readonly folderDir: string;
 	/** Machine state worth keeping, including sign-in locks. */
 	readonly dataDir: string;

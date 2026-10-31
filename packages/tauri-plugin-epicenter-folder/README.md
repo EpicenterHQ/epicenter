@@ -81,14 +81,14 @@ then creates it when missing or reuses the directory already there with its
 files. It reads and writes no configuration and claims no ownership: a
 default that was moved or deleted is made again by the next ordinary launch,
 and two apps may open one directory. A file or a link at the path is refused
-and kept; no alternative name is allocated. Picker-chosen and listed
-directories bypass the defaults and must exist.
+and kept; no alternative name is allocated. Picker-chosen directories and synced
+folders opened in an editor bypass the defaults and must exist.
 
-Admission is `library::check_editable_directory` for a folder editor and for
-records: never a save staging directory or anything in one, and never
-overlapping application data through the directory or its staging sibling.
-`library::check_app_directory`, for ordinary apps, one-time launches, and
-handoffs, also refuses records, its staging sibling, anything in them, and
+Admission is `library::check_editable_directory` for records: never a save
+staging directory or anything in one, and never overlapping application data
+through the directory or its staging sibling. `library::check_app_directory`,
+for ordinary apps, one-time launches, hosted sites, and folder editor
+windows, also refuses records, its staging sibling, anything in them, and
 any directory holding them, such as the root. Overlap compares canonical
 paths and directory identity, so a linked parent or another spelling of a
 protected directory is no route around it. A root override is admitted before
