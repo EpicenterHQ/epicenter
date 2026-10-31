@@ -3,12 +3,13 @@
  * the person exactly that, and delete those files.
  *
  * Deleting a recording removes its note, its audio, its transcripts, and the
- * results made from them, wherever each is: on this device, or in the
- * repository (online only). It is refused while a request for it runs or a
- * result of it is being kept, and while a result does not read, since it
- * might be this recording's. A result on pasted text names no recording and
- * is never part of one. Deleting a transformation keeps the results it made,
- * each of which carries the prompt it used.
+ * results made from them, in the files of the view it is deleted from: this
+ * device's, or the repository's (online only). It is refused while a
+ * request for it runs or a result of it is being kept, and while a result
+ * does not read, since it might be this recording's. A result on pasted
+ * text names no recording and is never part of one. Deleting a
+ * transformation keeps the results it made, each of which carries the
+ * prompt it used.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type {

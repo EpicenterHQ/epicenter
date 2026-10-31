@@ -1,30 +1,24 @@
 /**
- * The mounted Whispering app state over its files (`files.svelte.ts`): this
- * browser's notes and, signed in, each `oneList` over them and the person's
- * repository's, composed here; and a recording's audio on either side.
+ * Whispering for one mounted page and account: the services, the
+ * connections, the microphone, and the recorder. What the files show is
+ * each view's own (`library.svelte.ts`); this is what both views share.
  *
- * Every list here is derived from what the files show, read reactively.
- * Notes that read are listed to edit; the rest are named, with why and their
- * text, for repair. Nothing here holds text ahead of the files: what a
- * person types is an edit in the view that shows it, and each write answers
- * once it landed. The caller of a write presents a failure.
- *
- * A recording is kept when it stops: its audio and its note, on this device,
- * as one capture that uploads once someone is signed in. One the device
- * cannot keep (a private window, a full disk) stays in this page, to save
- * again or download, until the page closes. A transcription or recipe run
- * lives in this window until its answer arrives, and its result is kept then
- * (`runs.svelte.ts`).
+ * A recording is kept when it stops: its audio and its note, on this
+ * device, as one capture (`saveCapture`), signed in or not, so recording
+ * never waits on the network. It shows under "On this device"; signed in,
+ * the uploader moves it to the repository, and it shows under "Synced". One
+ * the device cannot keep (a private window, a full disk) stays in this
+ * page, to save again or download, until the page closes.
  *
  * Closing waits for nothing here: `dispose` refuses new work and late
  * answers and returns. A recording under way ends with the page.
  */
-import type { Client, Version } from '@epicenter/definition/contract';
+import type { Client } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import { fromClient, oneList } from '@epicenter/svelte/client';
+import { saveCapture } from '@epicenter/folder/browser';
+import { holdLeave } from '@epicenter/svelte/leave-guard';
 import { createContext } from 'svelte';
-import { SvelteSet } from 'svelte/reactivity';
-import { Err, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { createServices } from '#platform/services';
 import type { ActiveCapture } from './capture.js';
 import type {
@@ -33,54 +27,16 @@ import type {
 	Operation,
 } from './connections.js';
 import type { Whispering as WhisperingContract } from './contract.js';
-import {
-	captureDeletion,
-	type Deletion,
-	describeIssues,
-	type NoteRef,
-	runDeletion,
-} from './deletion.js';
-import {
-	byTitle,
-	createAudio,
-	type InvalidNote,
-	type NewRecording,
-	type NoteLists,
-	type NoteName,
-	newest,
-	type WhisperingFiles,
-} from './files.svelte.js';
+import type { NewRecording } from './files.svelte.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
-import type { PostProcessingChoice } from './post-processing.js';
 import {
 	type RecipeRow,
 	type ResolvedRecipe,
 	resolveRecipe,
 } from './recipe.js';
-import { DEFAULT_SORT, type RecordingSort } from './recording-collection.js';
-import { createRuns } from './runs.svelte.js';
 import { createSettingsDraft } from './settings-draft.svelte.js';
 
 export const STOPPED = 'Whispering stopped before it finished starting.';
-
-export type { Deletion, NoteRef } from './deletion.js';
-export type {
-	AudioFile,
-	RecordingAudio,
-	RecordingNote,
-	TextRunNote,
-	TranscriptionNote,
-	TransformationNote,
-	TransformationRunNote,
-} from './files.svelte.js';
-export type { Run, RunState } from './runs.svelte.js';
-
-/** A note that does not read, for the person to repair as text or delete. */
-export type Repair = InvalidNote<NoteName> & {
-	readonly collection: NoteName;
-	/** Why it does not read, in a line. */
-	readonly reason: string;
-};
 
 export type RecorderState =
 	| { readonly phase: 'idle' }
@@ -108,154 +64,21 @@ function defaultTitle(at: Date): string {
 	})}`;
 }
 
-const repairsOf = <TName extends NoteName>(
-	collection: TName,
-	invalid: readonly InvalidNote<TName>[],
-): Repair[] =>
-	invalid.map((note) => ({
-		...(note as InvalidNote<NoteName>),
-		collection,
-		reason: describeIssues(note.issues),
-	}));
-
-/** Newest first. */
-const byNewest = <T extends { readonly createdAt: string }>(
-	list: readonly T[],
-): T[] => [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-
 export function createWhispering({
 	device,
-	repository,
 }: {
-	/** This browser's files. */
+	/** This browser's files, where every recording is kept first. */
 	device: Client<WhisperingContract>;
-	/** The person's repository, signed in; null signed out. */
-	repository: Client<WhisperingContract> | null;
 }) {
 	const services = createServices();
-	const here = fromClient(device);
-	const there = repository === null ? null : fromClient(repository);
-	const lists: NoteLists =
-		there === null
-			? here
-			: {
-					recordings: oneList(here.recordings, there.recordings),
-					transcriptions: oneList(here.transcriptions, there.transcriptions),
-					transformations: oneList(here.transformations, there.transformations),
-					transformation_runs: oneList(
-						here.transformation_runs,
-						there.transformation_runs,
-					),
-					text_runs: oneList(here.text_runs, there.text_runs),
-				};
-	const files: WhisperingFiles = {
-		...lists,
-		...createAudio({ device, repository }),
-	};
-	/** What the shell shows. Held here so no route owns it. */
-	const view = $state({
-		sidebarOpen: false,
-		/** The recordings search. Notes needing repair are never searched out. */
-		recordingQuery: '',
-		/** The order of the recordings table. */
-		recordingSort: DEFAULT_SORT as RecordingSort,
-		/**
-		 * The recordings selected in the table, by id. A listing removes ids
-		 * that are gone; search keeps hidden selections.
-		 */
-		recordingSelected: [] as string[],
-		/**
-		 * An action on several recordings that is under way: how far it has got.
-		 * Held here so a page change neither hides it nor lets a second start.
-		 */
-		recordingBulk: undefined as
-			| {
-					readonly label: string;
-					readonly done: number;
-					readonly total: number;
-			  }
-			| undefined,
-		/**
-		 * Whether a recording's details are showing: beside the table on a wide
-		 * window, in place of it on a narrow one. Closing them changes nothing
-		 * else: the recording stays selected.
-		 */
-		showingDetail: false,
-		/** On a narrow window, whether a transformation's editor shows in place of the list. */
-		showingTransformation: false,
-		/** The transcription a transformation is tried on, by id. */
-		applyTo: undefined as string | undefined,
-		/** What a transformation's page runs on: a saved transcript, or pasted text. */
-		applySource: 'transcript' as 'transcript' | 'pasted',
-		/**
-		 * Text pasted to try a transformation on. One text for the mounted app, so
-		 * it stays when the person moves between pages or transformations. It
-		 * is never written anywhere; a run takes a copy of it when it starts.
-		 */
-		pastedText: '',
-		/**
-		 * The transformation chosen for post-processing, by id. Undefined is
-		 * None, which is how the app starts. Choosing sends nothing: a
-		 * transformation runs only when the person asks for it.
-		 */
-		postProcessing: undefined as string | undefined,
-	});
+	/** Whether the sidebar is open on a wide window. Held here so no page owns it. */
+	let sidebarOpen = $state(false);
 	let starting: Promise<void> | undefined;
 
-	/** Product cleanup also fences new work and late replies. */
+	/** Cleanup also fences new work and late replies. */
 	let disposed = false;
 	/** Why nothing new starts now, if it does not. */
 	const refused = () => (disposed ? CLOSING : undefined);
-
-	// --- reads -----------------------------------------------------------------
-
-	const entries = $derived(
-		files.recordings.items.toSorted(newest((note) => note.recordedAt)),
-	);
-	const transformations = $derived(
-		files.transformations.items.toSorted(byTitle),
-	);
-	const transcriptions = $derived(
-		files.transcriptions.items.toSorted(newest((note) => note.createdAt)),
-	);
-	const transformationRuns = $derived(
-		files.transformation_runs.items.toSorted(newest((note) => note.createdAt)),
-	);
-	const textRuns = $derived(
-		files.text_runs.items.toSorted(newest((note) => note.createdAt)),
-	);
-	const transcriptsByRecording = $derived.by(() => {
-		const byRecording = new Map<string, (typeof transcriptions)[number][]>();
-		for (const note of transcriptions)
-			byRecording.set(note.recordingId, [
-				...(byRecording.get(note.recordingId) ?? []),
-				note,
-			]);
-		return byRecording;
-	});
-	const repairs = $derived([
-		...repairsOf('recordings', files.recordings.invalid),
-		...repairsOf('transcriptions', files.transcriptions.invalid),
-		...repairsOf('transformation_runs', files.transformation_runs.invalid),
-	]);
-
-	/** Notes still on this device, not uploaded yet (a recording counts once, by its note). */
-	const waiting = $derived(
-		[
-			files.recordings,
-			files.transcriptions,
-			files.transformations,
-			files.transformation_runs,
-			files.text_runs,
-		].reduce(
-			(count, list) =>
-				count +
-				[...list.items, ...list.invalid].filter(
-					({ id }) => list.where?.({ id }) === 'device',
-				).length,
-			0,
-		),
-	);
 
 	// --- connections, microphone -------------------------------------------------
 
@@ -282,9 +105,6 @@ export function createWhispering({
 		}
 	}
 
-	let selectedId = $state<string | undefined>();
-	let selectedTransformationId = $state<string | undefined>();
-
 	type CaptureState =
 		| { phase: 'idle' }
 		| { phase: 'starting'; attempt: AbortController }
@@ -299,30 +119,6 @@ export function createWhispering({
 	let recorderError = $state<string | undefined>();
 	/** Finished recordings this device could not keep, newest last. */
 	let unsaved = $state.raw<UnsavedRecording[]>([]);
-	/** Recordings whose deletion is under way. No request starts for one. */
-	const deleting = new SvelteSet<string>();
-
-	// Recordings that are gone are no longer selected in the table.
-	const stopPruning = $effect.root(() => {
-		$effect(() => {
-			if (files.recordings.loading) return;
-			const present = new Set(entries.map((note) => note.id));
-			if (view.recordingSelected.some((id) => !present.has(id)))
-				view.recordingSelected = view.recordingSelected.filter((id) =>
-					present.has(id),
-				);
-		});
-	});
-
-	const runs = createRuns({
-		files,
-		transcribe: (request) => services.transcribe(request),
-		transform: (request) => services.transform(request),
-		refused,
-		connections: () => ({ info: connections, error: connectionsError }),
-		resolve,
-		deleting,
-	});
 
 	const input = createMicrophoneInput({
 		capture: services.capture,
@@ -330,38 +126,35 @@ export function createWhispering({
 		recording: () => captureState.phase !== 'idle',
 	});
 
-	/** Show recording `id` beside the recordings. Opening never waits or asks. */
-	function openRecording(id: string): boolean {
-		if (disposed) return false;
-		selectedId = id;
-		return true;
-	}
-
-	/** Show transformation `id` on its page. */
-	function openTransformation(id: string): boolean {
-		if (disposed) return false;
-		selectedTransformationId = id;
-		return true;
-	}
-
-	/** After a delete, the view state lets the note go. */
-	function deleted({ collection, id }: NoteRef) {
-		if (collection === 'recordings' && selectedId === id)
-			selectedId = undefined;
-		if (collection === 'transformations' && selectedTransformationId === id)
-			selectedTransformationId = undefined;
-		if (collection === 'transformations' && view.postProcessing === id)
-			view.postProcessing = undefined;
-	}
-
 	// --- recording ----------------------------------------------------------
+
+	/**
+	 * Keep a finished recording on this device: its audio, then its note, as
+	 * one capture that uploads once someone is signed in. Run again with the
+	 * same recording after a failure, it finishes what was kept.
+	 */
+	async function saveRecording(
+		recording: NewRecording,
+	): Promise<Result<void, string>> {
+		const { id, ext, bytes, ...note } = recording;
+		const saved = await holdLeave(
+			saveCapture(device, {
+				id,
+				files: [
+					{ collection: 'audio', value: { id, ext, bytes } },
+					{ collection: 'recordings', value: { id, ...note } },
+				],
+			}),
+		);
+		return saved.error === null ? Ok(undefined) : Err(saved.error.message);
+	}
 
 	/**
 	 * Keep `recording` on this device; one that cannot be kept is held in this
 	 * page with why. Answers whether it was kept.
 	 */
 	async function keepRecording(recording: NewRecording): Promise<boolean> {
-		const saved = await files.saveRecording(recording);
+		const saved = await saveRecording(recording);
 		const held = unsaved.find(({ id }) => id === recording.id);
 		if (saved.error === null) {
 			if (held) URL.revokeObjectURL(held.download);
@@ -403,7 +196,6 @@ export function createWhispering({
 		at,
 		capture,
 	}: Extract<CaptureState, { phase: 'recording' }>) {
-		const selectionBefore = selectedId;
 		const { data: audio, error } = await capture
 			.stop()
 			.catch((cause) => ({ data: null, error: { message: describe(cause) } }));
@@ -413,9 +205,8 @@ export function createWhispering({
 			recorderError = error.message;
 			return;
 		}
-		const id = timeId(at);
-		const kept = await keepRecording({
-			id,
+		await keepRecording({
+			id: timeId(at),
 			title: defaultTitle(at),
 			recordedAt: at.toISOString(),
 			durationMs: audio.durationMs,
@@ -423,14 +214,7 @@ export function createWhispering({
 			ext: audio.ext,
 			bytes: audio.bytes,
 		});
-		if (kept && !disposed && selectedId === selectionBefore) openRecording(id);
 	}
-
-	const deletionContext = () => ({
-		files,
-		busy: (id: string) =>
-			deleting.has(id) ? 'This recording is being deleted.' : runs.busy(id),
-	});
 
 	async function saveConnection(
 		operation: Operation,
@@ -463,8 +247,6 @@ export function createWhispering({
 			captureState = { phase: 'idle' };
 		}
 		for (const { download } of unsaved) URL.revokeObjectURL(download);
-		stopPruning();
-		files.dispose();
 	}
 
 	const settings = createSettingsDraft(
@@ -475,62 +257,13 @@ export function createWhispering({
 
 	return {
 		services,
-		/** The lists the views edit through (`fieldEdit`), one per note collection. */
-		files,
-		view,
 		settings,
-		/** Whether someone is signed in, so the repository is open beside this browser's files. */
-		get signedIn() {
-			return there !== null;
+		/** Whether the sidebar is open on a wide window. */
+		get sidebarOpen() {
+			return sidebarOpen;
 		},
-		/** Why the repository could not be listed (offline, or refused); null when it can be, or signed out. */
-		get repositoryError() {
-			return there?.recordings.error ?? there?.audio.error ?? null;
-		},
-		/** Why this device's files could not be listed (no private storage, as in a private window). */
-		get deviceError() {
-			return here.recordings.error ?? here.audio.error ?? null;
-		},
-		/** Notes still on this device, not uploaded yet. */
-		get waiting() {
-			return waiting;
-		},
-		/** Which side the copy shown of the note `id` of `collection` is on. */
-		whereOf(collection: NoteName, id: string) {
-			// Signed out, every note is on this device.
-			return files[collection].where?.({ id }) ?? 'device';
-		},
-		/** Whether the note `id` of `collection` is still on this device while signed in: not uploaded yet. */
-		notUploaded(collection: NoteName, id: string) {
-			return there !== null && files[collection].where?.({ id }) === 'device';
-		},
-		/** The selected transformation, resolved against the lists and the connection. */
-		get postProcessing(): PostProcessingChoice {
-			const id = view.postProcessing;
-			if (id === undefined) return { kind: 'none' };
-			const entry = transformations.find((item) => item.id === id);
-			if (entry === undefined) return { kind: 'missing', id };
-			const resolved = resolve(entry);
-			return resolved.kind === 'ready'
-				? { kind: 'ready', entry }
-				: { kind: 'repair', entry, reason: resolved.reason };
-		},
-		/** The microphone the next recording uses, and the test of it. */
-		input,
-		/** Recordings that read, newest first. */
-		get entries() {
-			return entries;
-		},
-		/** Whether the recordings have not been listed yet. */
-		get listing() {
-			return files.recordings.loading;
-		},
-		/** Recordings, transcripts and their results that do not read, with why. */
-		get repairs() {
-			return repairs;
-		},
-		get transcriptions() {
-			return transcriptions;
+		set sidebarOpen(open: boolean) {
+			sidebarOpen = open;
 		},
 		/** What this device has set up for requests, never a key. */
 		get connections() {
@@ -545,54 +278,18 @@ export function createWhispering({
 		 * itself all use. Undefined is a recipe whose note does not read.
 		 */
 		resolve,
+		/** Why nothing new starts now, if it does not: Whispering is closing. */
+		refused,
+		/** The microphone the next recording uses, and the test of it. */
+		input,
 
 		// ------------------------------------------------------------------
-		// Selection
-		// ------------------------------------------------------------------
-
-		get selectedId() {
-			return selectedId;
-		},
-		/** What the recordings page shows until selection changes, including a recording that went. */
-		get selection() {
-			const id = selectedId;
-			if (id === undefined) return undefined;
-			return {
-				id,
-				note: entries.find((note) => note.id === id),
-				repair: repairs.find(
-					(note) => note.collection === 'recordings' && note.id === id,
-				),
-			};
-		},
-		get selectedTransformationId() {
-			return selectedTransformationId;
-		},
-		/** The transformation being edited, with its listed note when it reads. */
-		get selectedTransformation() {
-			const id = selectedTransformationId;
-			if (id === undefined) return undefined;
-			return {
-				id,
-				note: transformations.find((note) => note.id === id),
-				repair: files.transformations.invalid.find((note) => note.id === id),
-			};
-		},
-		openRecording,
-		openTransformation,
-
-		// ------------------------------------------------------------------
-		// Closing
+		// Starting and closing
 		// ------------------------------------------------------------------
 
 		get closing() {
 			return disposed;
 		},
-
-		// ------------------------------------------------------------------
-		// Starting
-		// ------------------------------------------------------------------
-
 		/** Read the connections and the saved microphone choice. */
 		start(): Promise<void> {
 			starting ??= (async () => {
@@ -611,53 +308,12 @@ export function createWhispering({
 			})();
 			return starting;
 		},
-
-		// ------------------------------------------------------------------
-		// Lists
-		// ------------------------------------------------------------------
-
-		/** Transcripts of one recording, newest first. */
-		resultsFor(id: string) {
-			return transcriptsByRecording.get(id) ?? [];
-		},
-		/** Transformations that read, by title. */
-		get transformations() {
-			return transformations;
-		},
-		/** Transformation notes that do not read, with why. */
-		get transformationRepairs(): Repair[] {
-			return repairsOf('transformations', files.transformations.invalid);
-		},
-		/** Results made from one transcript, newest first. */
-		outputsFor(transcriptionId: string) {
-			return byNewest(
-				transformationRuns.filter(
-					(note) => note.transcriptionId === transcriptionId,
-				),
-			);
-		},
-		/** Results one transformation made from transcripts, newest first. They outlive it. */
-		outputsOf(transformationId: string) {
-			return byNewest(
-				transformationRuns.filter(
-					(note) => note.transformationId === transformationId,
-				),
-			);
-		},
-		/** Results on pasted text one transformation made, newest first. */
-		textOutputsOf(transformationId: string) {
-			return byNewest(
-				textRuns.filter((note) => note.transformationId === transformationId),
-			);
-		},
-		/** Notes in `text_runs/` that do not read as results. */
-		get textRepairs(): Repair[] {
-			return repairsOf('text_runs', files.text_runs.invalid);
-		},
-		/** Where recording `id`'s audio is, read reactively. */
-		audioOf: files.audioOf,
-		/** Recording `id`'s audio bytes, from the nearest copy. */
-		readAudio: files.readAudio,
+		/**
+		 * Stop new work and late answers, and release the microphone this page
+		 * opened for a test; waits for nothing. A recording opening now is
+		 * released when it answers; one under way ends with the page.
+		 */
+		dispose,
 
 		// ------------------------------------------------------------------
 		// Recording
@@ -730,58 +386,12 @@ export function createWhispering({
 				void finishRecording();
 			});
 		},
-		/** Stop: the microphone is released and the recording kept. */
+		/** Stop: the microphone is released and the recording kept on this device. */
 		stopRecording: finishRecording,
 
 		// ------------------------------------------------------------------
-		// Requests and their results
+		// Connections
 		// ------------------------------------------------------------------
-
-		transcriptionRun: runs.transcriptionRun,
-		runsOn: runs.runsOn,
-		textRun: runs.textRun,
-		get recipeRuns() {
-			return runs.recipeRuns;
-		},
-		/** Answers that arrived and whose note could not be created; each is saved again when asked. */
-		get unwrittenAnswers() {
-			return runs.unwritten;
-		},
-		transcribe: runs.transcribe,
-		transform: runs.transform,
-		transformText: runs.transformText,
-		runAgain: runs.runAgain,
-		saveAgain: runs.saveAgain,
-		dismissRun: runs.dismiss,
-
-		// ------------------------------------------------------------------
-		// Actions
-		// ------------------------------------------------------------------
-
-		/**
-		 * A new recipe: a title and instructions. It names no model of its own
-		 * (`null`), so it runs with the text connection.
-		 */
-		async createTransformation({
-			title,
-			prompt,
-		}: {
-			title: string;
-			prompt: string;
-		}): Promise<string | undefined> {
-			const why = refused();
-			if (why !== undefined) return why;
-			const id = timeId();
-			const { error } = await files.transformations.create({
-				id,
-				title,
-				model: null,
-				body: prompt,
-			});
-			if (error !== null) return error.message;
-			if (!disposed) openTransformation(id);
-			return undefined;
-		},
 
 		/**
 		 * Save one connection on this device. Nothing is sent to the endpoint
@@ -790,67 +400,6 @@ export function createWhispering({
 		saveConnection,
 		/** Read the connections again, as after a failed read. */
 		readConnections,
-
-		/**
-		 * Replace note `ref` with `text`, as a repair, over `over` (by default
-		 * the version shown): it must read as one, and it is written in house
-		 * style.
-		 */
-		replace(ref: NoteRef, text: string, options?: { over?: Version }) {
-			const why = refused();
-			if (why !== undefined)
-				return Promise.resolve(Err({ name: 'Closing', message: why }));
-			return files[ref.collection].replace({ id: ref.id }, text, options);
-		},
-
-		/**
-		 * Capture what deleting `ref` would remove, for the person to confirm,
-		 * from what the lists show. Capturing changes nothing.
-		 */
-		deletionFor(ref: NoteRef): Result<Deletion, string> {
-			const why = refused();
-			if (why !== undefined) return Err(why);
-			return captureDeletion(deletionContext(), ref);
-		},
-		/**
-		 * Delete what was confirmed. A recording is kept if new results
-		 * appeared after confirmation.
-		 */
-		async delete(deletion: Deletion): Promise<string | undefined> {
-			const why = refused();
-			if (why !== undefined) return why;
-			const recording =
-				deletion.kind === 'recording'
-					? deletion.id
-					: deletion.kind === 'invalid' &&
-							deletion.note.collection === 'recordings'
-						? deletion.note.id
-						: undefined;
-			const busy = recording && deletionContext().busy(recording);
-			if (busy) return busy;
-			if (recording !== undefined) deleting.add(recording);
-			try {
-				return await runDeletion(
-					{
-						files,
-						dropFailed: runs.dropFailed,
-						deleted: (note) => {
-							if (!disposed) deleted(note);
-						},
-					},
-					deletion,
-				).catch((cause: unknown) => describe(cause));
-			} finally {
-				if (recording !== undefined) deleting.delete(recording);
-			}
-		},
-		/**
-		 * Stop new work and late answers, release the microphone this page
-		 * opened for a test, and stop following the lists; waits for nothing. A
-		 * recording opening now is released when it answers; one under way
-		 * ends with the page.
-		 */
-		dispose,
 	};
 }
 

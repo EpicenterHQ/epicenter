@@ -5,19 +5,19 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import { getWhispering } from '$lib/whispering.svelte.js';
-	import TransformationDetail from '../components/TransformationDetail.svelte';
-	import TransformationList from '../components/TransformationList.svelte';
+	import { getLibrary } from '$lib/library.svelte.js';
+	import TransformationDetail from './TransformationDetail.svelte';
+	import TransformationList from './TransformationList.svelte';
 
-	const whispering = getWhispering();
-	const { view } = whispering;
+	const library = getLibrary();
+	const { ui } = library;
 
 	/** Below this width, the list and the editor take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');
 
 	async function back() {
-		const id = whispering.selectedTransformationId;
-		view.showingTransformation = false;
+		const id = library.selectedTransformationId;
+		ui.showingTransformation = false;
 		await tick();
 		if (id !== undefined)
 			document.querySelector<HTMLElement>(`[data-transformation="${CSS.escape(id)}"]`)?.focus();
@@ -27,7 +27,7 @@
 <svelte:head><title>Transformations · Whispering</title></svelte:head>
 
 {#snippet detail(onBack: (() => void) | undefined)}
-	{@const selected = whispering.selectedTransformation}
+	{@const selected = library.selectedTransformation}
 	{#if selected && (selected.note || selected.repair)}
 		{#key selected.id}
 			<TransformationDetail id={selected.id} note={selected.note} {onBack} />
@@ -58,8 +58,8 @@
 			{@render detail(undefined)}
 		</Resizable.Pane>
 	</Resizable.PaneGroup>
-{:else if view.showingTransformation}
+{:else if ui.showingTransformation}
 	{@render detail(back)}
 {:else}
-	<TransformationList onOpen={() => (view.showingTransformation = true)} />
+	<TransformationList onOpen={() => (ui.showingTransformation = true)} />
 {/if}

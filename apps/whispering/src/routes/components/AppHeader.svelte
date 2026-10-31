@@ -1,3 +1,8 @@
+<!--
+	The header: a live recording, the two views (decision 76), "On this
+	device" and "Synced", what the open one shows, and Settings, where the
+	account is.
+-->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -9,24 +14,31 @@
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import { page } from '$app/state';
+	import { getAuth } from '#platform/auth';
+	import { getLibrary } from '$lib/library.svelte.js';
+	import { headerStatus } from '$lib/status.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
+	import { pageAt, pathOf } from './nav-items.js';
 	import RecorderClock from './RecorderClock.svelte';
 	import SettingsForm from './SettingsForm.svelte';
-	import { headerStatus } from '$lib/status.js';
 
 	const whispering = getWhispering();
+	const library = getLibrary();
+	const auth = getAuth();
 
-	/** Where the person's files are: this browser, waiting to upload, or the repository. */
-	const files = $derived(
+	/** The page open now, which a view link keeps in the other view. */
+	const current = $derived(pageAt(page.url.pathname));
+	/** What the open view shows: this browser's files, or the repository and whether it can be reached. */
+	const status = $derived(
 		headerStatus({
-			unwrittenAnswers: whispering.unwrittenAnswers,
-			signedIn: whispering.signedIn,
-			waiting: whispering.waiting,
-			repositoryProblem: whispering.repositoryError?.message,
+			view: library.view,
+			unwrittenAnswers: library.unwrittenAnswers,
+			auth: auth.state.status,
+			problem: library.error?.message,
 		}),
 	);
 	/** The home page has the large recorder; every other page gets this compact one. */
-	const onHome = $derived(page.route.id === '/');
+	const onHome = $derived(current === 'home');
 </script>
 
 <header class="flex h-12 shrink-0 items-center gap-1.5 border-b px-2 sm:gap-2 sm:px-3">
@@ -55,9 +67,28 @@
 		<span class="min-w-0 truncate text-xs text-destructive" role="alert" title={whispering.recorderError}>{whispering.recorderError}</span>
 	{/if}
 
-	<StatusPopover summary={files} details={[{ name: 'Files', testid: 'status-files', line: files }]}>
+	<nav class="flex shrink-0 items-center gap-1" aria-label="Views">
+		<Button
+			size="sm"
+			variant={library.view === 'device' ? 'secondary' : 'ghost'}
+			href={pathOf('device', current)}
+			aria-current={library.view === 'device' ? 'page' : undefined}
+		>
+			On this device
+		</Button>
+		<Button
+			size="sm"
+			variant={library.view === 'synced' ? 'secondary' : 'ghost'}
+			href={pathOf('synced', current)}
+			aria-current={library.view === 'synced' ? 'page' : undefined}
+		>
+			Synced
+		</Button>
+	</nav>
+
+	<StatusPopover summary={status} details={[{ name: 'Files', testid: 'status-files', line: status }]}>
 		<StatusRow name="Kept in" class="text-xs break-all" data-testid="status-folder">
-			{whispering.signedIn ? 'Your whispering repository, and this browser until uploaded' : 'This browser’s storage for this site'}
+			{library.view === 'device' ? 'This browser’s storage for this site' : 'Your whispering repository'}
 		</StatusRow>
 	</StatusPopover>
 

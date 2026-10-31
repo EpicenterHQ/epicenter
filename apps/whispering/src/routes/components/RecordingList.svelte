@@ -16,7 +16,7 @@
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import SearchIcon from '@lucide/svelte/icons/search';
-	import { resolve } from '$app/paths';
+	import { pathOf } from './nav-items.js';
 	import {
 		captureDeletions,
 		describeDeletions,
@@ -34,14 +34,15 @@
 		transcriptExcerpt,
 		transcriptsToCopy,
 	} from '$lib/recording-collection.js';
+	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { copyText, formatTime } from './file-actions.js';
 	import NoteRepair from './NoteRepair.svelte';
 
 	/**
-	 * Every recording as one table, from this browser and the repository:
-	 * search, sort, tick, and act on several. The search text, the order, and the ticks are the app's,
-	 * so they are as they were after a visit to another page. Activating a row
+	 * Every recording in this view as one table: search, sort, tick, and act
+	 * on several. The search text, the order, and the ticks are the view's,
+	 * so they are as they were after a visit to another of its pages. Activating a row
 	 * opens that recording's details; ticking one does not.
 	 */
 	let { onOpen }: {
@@ -50,14 +51,15 @@
 	} = $props();
 
 	const whispering = getWhispering();
-	const { view } = whispering;
+	const library = getLibrary();
+	const { ui } = library;
 
-	const rows = $derived(shownRows(whispering, view.recordingQuery, view.recordingSort));
-	const hidden = $derived(whispering.entries.length - rows.length);
-	const selection = $derived(selectionIn(view.recordingSelected, rows, whispering));
+	const rows = $derived(shownRows(library, ui.recordingQuery, ui.recordingSort));
+	const hidden = $derived(library.entries.length - rows.length);
+	const selection = $derived(selectionIn(ui.recordingSelected, rows, library));
 	const selectedIds = $derived(new Set(selection.rows.map((row) => row.id)));
 	const allSelected = $derived(rows.length > 0 && selection.rows.length === rows.length);
-	const busy = $derived(view.recordingBulk !== undefined);
+	const busy = $derived(ui.recordingBulk !== undefined);
 
 	/**
 	 * The columns beside the title, shown only when the list is wide. Narrower,
@@ -95,7 +97,7 @@
 	];
 	const orders = orderGroups.flat();
 	const orderValue = ({ key, direction }: RecordingSort) => `${key} ${direction}`;
-	const order = $derived(orders.find(({ sort }) => orderValue(sort) === orderValue(view.recordingSort)));
+	const order = $derived(orders.find(({ sort }) => orderValue(sort) === orderValue(ui.recordingSort)));
 
 	const statusTone: Record<RecordingStatus, string> = {
 		failed: 'text-destructive',
@@ -112,7 +114,7 @@
 	}
 
 	function openRow(id: string) {
-		if (whispering.openRecording(id)) onOpen();
+		if (library.openRecording(id)) onOpen();
 	}
 
 	const several = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -140,10 +142,10 @@
 	async function transcribeSelected() {
 		if (busy) return;
 		const ids = selection.rows.map((row) => row.id);
-		view.recordingBulk = { label: 'Transcribing', done: 0, total: ids.length };
+		ui.recordingBulk = { label: 'Transcribing', done: 0, total: ids.length };
 		try {
-			const outcome = await transcribeRows(whispering, ids, (done) => {
-				view.recordingBulk = { label: 'Transcribing', done, total: ids.length };
+			const outcome = await transcribeRows(library, ids, (done) => {
+				ui.recordingBulk = { label: 'Transcribing', done, total: ids.length };
 			});
 			const summary = [
 				several(outcome.transcribed.length, 'recording transcribed', 'recordings transcribed'),
@@ -155,7 +157,7 @@
 			else if (outcome.transcribed.length === 0) toast.info(summary, { description });
 			else toast.success(summary, { description });
 		} finally {
-			view.recordingBulk = undefined;
+			ui.recordingBulk = undefined;
 		}
 	}
 
@@ -163,7 +165,7 @@
 	async function deleteSelected() {
 		if (busy) return;
 		const captured = await captureDeletions(
-			whispering,
+			library,
 			selection.rows.map((row) => row.id),
 		);
 		if (captured.deletions.length === 0) {
@@ -174,16 +176,16 @@
 			...describeDeletions(captured),
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
-				view.recordingBulk = { label: 'Deleting', done: 0, total: captured.deletions.length };
+				ui.recordingBulk = { label: 'Deleting', done: 0, total: captured.deletions.length };
 				try {
-					const { deleted, problems } = await deleteCaptured(whispering, captured.deletions);
+					const { deleted, problems } = await deleteCaptured(library, captured.deletions);
 					if (problems.length > 0)
 						toast.error(`${several(deleted, 'recording', 'recordings')} deleted, ${problems.length} not`, {
 							description: reasons(problems),
 						});
 					else if (problems.length === 0) toast.success(`${several(deleted, 'recording', 'recordings')} deleted`);
 				} finally {
-					view.recordingBulk = undefined;
+					ui.recordingBulk = undefined;
 				}
 			},
 		});
@@ -196,14 +198,14 @@
 			<SectionHeader.Root class="min-w-0 flex-1">
 				<SectionHeader.Title level={1} class="text-lg">Recordings</SectionHeader.Title>
 				<SectionHeader.Description class="text-xs">
-					{several(whispering.entries.length, 'recording', 'recordings')}{#if hidden > 0}, {hidden} hidden by the search{/if}
+					{several(library.entries.length, 'recording', 'recordings')}{#if hidden > 0}, {hidden} hidden by the search{/if}
 				</SectionHeader.Description>
 			</SectionHeader.Root>
 			<Select.Root
 				type="single"
 				bind:value={
-					() => orderValue(view.recordingSort),
-					(value) => (view.recordingSort = orders.find(({ sort }) => orderValue(sort) === value)?.sort ?? view.recordingSort)
+					() => orderValue(ui.recordingSort),
+					(value) => (ui.recordingSort = orders.find(({ sort }) => orderValue(sort) === value)?.sort ?? ui.recordingSort)
 				}
 			>
 				<Select.Trigger size="sm" class="@3xl:hidden" aria-label="Sort recordings" data-testid="recording-sort">
@@ -225,7 +227,7 @@
 				<Input
 					type="search"
 					class="ps-8"
-					bind:value={view.recordingQuery}
+					bind:value={ui.recordingQuery}
 					placeholder="Search titles, notes, and transcripts"
 					aria-label="Search recordings"
 					autocomplete="off"
@@ -234,12 +236,12 @@
 			</div>
 		</div>
 
-		{#if selection.rows.length > 0 || selection.hidden > 0 || view.recordingBulk}
+		{#if selection.rows.length > 0 || selection.hidden > 0 || ui.recordingBulk}
 			<div class="flex flex-wrap items-center gap-2 text-sm" role="toolbar" aria-label="Selected recordings" data-testid="recording-selection">
 				<span class="text-muted-foreground" role="status">
-					{#if view.recordingBulk}
+					{#if ui.recordingBulk}
 						<Spinner class="mr-1 inline size-3.5" />
-						{view.recordingBulk.label} {view.recordingBulk.done} of {view.recordingBulk.total}…
+						{ui.recordingBulk.label} {ui.recordingBulk.done} of {ui.recordingBulk.total}…
 					{:else if selection.rows.length > 0}
 						<!-- Actions are on the ticked rows that are shown. What a search hides stays ticked and is left alone. -->
 						{selection.rows.length} of the recordings shown {selection.rows.length === 1 ? 'is' : 'are'} selected{#if selection.hidden > 0}.
@@ -270,7 +272,7 @@
 						size="sm"
 						variant="ghost"
 						tooltip="Clears every selected recording, including any the search hides"
-						onclick={() => (view.recordingSelected = [])}
+						onclick={() => (ui.recordingSelected = [])}
 						data-testid="clear-selection"
 					>
 						Clear selection
@@ -290,13 +292,13 @@
 								checked={allSelected}
 								indeterminate={selection.rows.length > 0 && !allSelected}
 								onCheckedChange={(checked) =>
-									(view.recordingSelected = toggleAllShown(view.recordingSelected, rows, checked === true, whispering))}
+									(ui.recordingSelected = toggleAllShown(ui.recordingSelected, rows, checked === true, library))}
 								aria-label={allSelected ? 'Clear the selection of the recordings shown' : 'Select every recording shown'}
 								data-testid="select-all"
 							/>
 						</Table.Head>
 						{#each columns as column (column.key)}
-							{@const sorted = view.recordingSort.key === column.key ? view.recordingSort.direction : undefined}
+							{@const sorted = ui.recordingSort.key === column.key ? ui.recordingSort.direction : undefined}
 							<Table.Head
 								class={column.class}
 								aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'}
@@ -305,7 +307,7 @@
 									variant="ghost"
 									size="sm"
 									class="-ms-2.5 {sorted ? '' : 'text-muted-foreground'}"
-									onclick={() => (view.recordingSort = nextSort(view.recordingSort, column.key))}
+									onclick={() => (ui.recordingSort = nextSort(ui.recordingSort, column.key))}
 									data-testid="sort-{column.key}"
 								>
 									{column.label}
@@ -317,8 +319,8 @@
 				</Table.Header>
 				<Table.Body>
 					{#each rows as row (row.id)}
-						{@const open = view.showingDetail && whispering.selectedId === row.id}
-						{@const excerpt = transcriptExcerpt(row, view.recordingQuery)}
+						{@const open = ui.showingDetail && library.selectedId === row.id}
+						{@const excerpt = transcriptExcerpt(row, ui.recordingQuery)}
 						{@const recorded = formatTime(row.note.recordedAt, 'short')}
 						{@const duration = length(row.note.durationMs)}
 						<!--
@@ -332,13 +334,12 @@
 							onclick={() => void openRow(row.id)}
 							data-testid="recording-row"
 							data-id={row.id}
-							data-where={whispering.whereOf('recordings', row.note.id)}
 						>
 							<Table.Cell class="ps-3 sm:ps-4" onclick={(event) => event.stopPropagation()}>
 								<Checkbox
 									checked={selectedIds.has(row.id)}
 									onCheckedChange={(checked) =>
-										(view.recordingSelected = toggleSelected(view.recordingSelected, row.id, checked === true, whispering))}
+										(ui.recordingSelected = toggleSelected(ui.recordingSelected, row.id, checked === true, library))}
 									aria-label="Select {row.title}"
 								/>
 							</Table.Cell>
@@ -357,7 +358,6 @@
 											{row.title}
 										</button>
 										{#if row.note.capture === 'fixture'}<Badge variant="outline" class="shrink-0">Fixture</Badge>{/if}
-										{#if whispering.notUploaded('recordings', row.note.id)}<Badge variant="outline" class="shrink-0" data-testid="row-not-uploaded">Not uploaded yet</Badge>{/if}
 										{#if row.audio.kind === 'absent'}<Badge variant="outline" class="shrink-0" data-testid="row-audio-absent">No audio</Badge>{/if}
 										{#if row.audio.kind === 'ambiguous'}<Badge variant="outline" class="shrink-0">Multiple audio files</Badge>{/if}
 									</span>
@@ -387,7 +387,7 @@
 				</Table.Body>
 			</Table.Root>
 		{:else}
-			{@const searching = view.recordingQuery.trim() !== ''}
+			{@const searching = ui.recordingQuery.trim() !== ''}
 			<Empty.Root class="py-10">
 				<Empty.Header>
 					<Empty.Media variant="icon">
@@ -396,9 +396,9 @@
 					<Empty.Title>{searching ? 'No recordings match' : 'No recordings yet'}</Empty.Title>
 					<Empty.Description>
 						{#if searching}
-							Nothing has “{view.recordingQuery.trim()}” in its title, notes, or transcripts.
+							Nothing has “{ui.recordingQuery.trim()}” in its title, notes, or transcripts.
 						{:else}
-							Record from <Link href={resolve('/')}>Home</Link>.
+							Record from <Link href={pathOf(library.view, 'home')}>Home</Link>.
 						{/if}
 					</Empty.Description>
 				</Empty.Header>
@@ -406,11 +406,11 @@
 		{/if}
 	</div>
 
-	{#if whispering.repairs.length > 0}
+	{#if library.repairs.length > 0}
 		<div class="max-h-[50%] overflow-y-auto border-t bg-warning/10 px-3 py-2 text-xs" data-testid="recording-repairs">
 			<p class="mb-2 font-medium">Needs repair</p>
 			<div class="flex flex-col gap-4">
-				{#each whispering.repairs as repair (repair.path)}
+				{#each library.repairs as repair (repair.path)}
 					<NoteRepair {repair} />
 				{/each}
 			</div>

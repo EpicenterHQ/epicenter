@@ -16,7 +16,8 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { getWhispering, type RecordingNote, type Repair } from '$lib/whispering.svelte.js';
+	import { getLibrary, type RecordingNote, type Repair } from '$lib/library.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioMissing from './AudioMissing.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { confirmDelete } from './file-actions.js';
@@ -44,17 +45,18 @@
 		onClose?: () => void;
 	} = $props();
 	const whispering = getWhispering();
+	const library = getLibrary();
 
 	// The parent keys this view by the recording.
 	// svelte-ignore state_referenced_locally
 	const own = id;
-	const title = fieldEdit(whispering.files.recordings, { id: own }, 'title');
-	const notes = fieldEdit(whispering.files.recordings, { id: own }, 'body');
+	const title = fieldEdit(library.files.recordings, { id: own }, 'title');
+	const notes = fieldEdit(library.files.recordings, { id: own }, 'body');
 
-	const results = $derived(whispering.resultsFor(own));
-	const run = $derived(whispering.transcriptionRun(own));
+	const results = $derived(library.resultsFor(own));
+	const run = $derived(library.transcriptionRun(own));
 	const transcribing = $derived(run?.state.kind === 'running' || (run?.state.kind === 'unsaved' && run.state.message === undefined));
-	const audio = $derived(whispering.audioOf(own));
+	const audio = $derived(library.audioOf(own));
 
 	function when(value: string) {
 		const date = new Date(value);
@@ -62,8 +64,8 @@
 	}
 
 	async function transcribe() {
-		const problem = await whispering.transcribe(own);
-		if (problem && whispering.transcriptionRun(own) === undefined) toast.error('Nothing was sent', { description: problem });
+		const problem = await library.transcribe(own);
+		if (problem && library.transcriptionRun(own) === undefined) toast.error('Nothing was sent', { description: problem });
 	}
 </script>
 
@@ -84,7 +86,6 @@
 		{:else}
 			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="recording-title-text">{own}</h2>
 		{/if}
-		{#if note && whispering.notUploaded('recordings', note.id)}<Badge variant="outline" data-testid="not-uploaded">Not uploaded yet</Badge>{/if}
 		{#if onClose}
 			<Button variant="ghost" size="icon-sm" tooltip="Close details" aria-label="Close details" onclick={onClose} data-testid="close-detail">
 				<XIcon />
@@ -171,7 +172,7 @@
 						</dd>
 						<dt class="text-muted-foreground">Kept in</dt>
 						<dd data-testid="kept-in">
-							{whispering.whereOf('recordings', note.id) === 'device' ? 'This browser (not uploaded yet)' : 'Your repository'}{#if audio.kind === 'here' && audio.file.cached}; its audio is also cached in this browser{/if}
+							{library.view === 'device' ? 'This browser' : 'Your repository'}{#if audio.kind === 'here' && audio.file.cached}; its audio is also cached in this browser{/if}
 						</dd>
 						<dt class="text-muted-foreground">Transcribes with</dt>
 						<dd class="min-w-0 break-words">
@@ -193,7 +194,7 @@
 		</div>
 
 		<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
-			<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => confirmDelete(whispering, { collection: 'recordings', id: own })} data-testid="delete-recording">
+			<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => confirmDelete(library, { collection: 'recordings', id: own })} data-testid="delete-recording">
 				Delete recording
 			</Button>
 		</div>

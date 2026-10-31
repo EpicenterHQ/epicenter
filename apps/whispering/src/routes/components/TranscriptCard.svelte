@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
-	import { getWhispering, type TranscriptionNote } from '$lib/whispering.svelte.js';
+	import { pathOf } from './nav-items.js';
+	import { getLibrary, type TranscriptionNote } from '$lib/library.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
 	import { confirmDelete, copyText, formatTime } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -19,40 +19,40 @@
 	/**
 	 * One transcript of the recording that is open, edited where it is read,
 	 * beside the player. Its text is the body of the transcript's own note,
-	 * saved as it is typed, wherever the note is: still in this browser, or in
-	 * the repository.
+	 * saved as it is typed, in the open view's files.
 	 */
 	let { result }: { result: TranscriptionNote } = $props();
 	const whispering = getWhispering();
+	const library = getLibrary();
 	// The list keys each card by its note; what is typed is sent to that one.
 	// svelte-ignore state_referenced_locally
 	const id = result.id;
 
 	/** The text now: as typed until its save answers, else as the note holds it. */
-	const body = fieldEdit(whispering.files.transcriptions, { id }, 'body');
+	const body = fieldEdit(library.files.transcriptions, { id }, 'body');
 	const text = $derived(body.value ?? result.body);
 
-	const outputs = $derived(whispering.outputsFor(id));
-	const runs = $derived(whispering.runsOn(id));
+	const outputs = $derived(library.outputsFor(id));
+	const runs = $derived(library.runsOn(id));
 	const transforming = $derived(runs.some((run) => run.state.kind === 'running'));
 	/**
 	 * Every transformation, with whether it can run now by the one decision
 	 * the run itself makes. One that cannot is shown with why, and fixed on its
 	 * own page or in Settings first.
 	 */
-	const choices = $derived(whispering.transformations.map((item) => ({ item, resolved: whispering.resolve(item) })));
+	const choices = $derived(library.transformations.map((item) => ({ item, resolved: whispering.resolve(item) })));
 
 	/**
 	 * Apply a transformation to this transcript as it is shown. The result is
 	 * a new note; the transcript is not changed by it.
 	 */
 	async function transform(recipeId: string) {
-		const problem = await whispering.transform(id, recipeId, { input: text });
+		const problem = await library.transform(id, recipeId, { input: text });
 		if (problem) toast.error('The transformation did not run', { description: problem });
 	}
 </script>
 
-<article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result" data-where={whispering.whereOf('transcriptions', result.id)}>
+<article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result">
 	<Textarea
 		class="min-h-32 resize-y font-sans"
 		bind:value={() => text, (value) => (body.value = value)}
@@ -63,7 +63,6 @@
 	<UnsavedEdit edit={body} />
 	<footer class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 		<span>{formatTime(result.createdAt) || 'Unknown time'} · {result.model}</span>
-		{#if whispering.notUploaded('transcriptions', result.id)}<Badge variant="outline">Not uploaded yet</Badge>{/if}
 		<span class="ml-auto flex items-center gap-1">
 			<Button size="xs" variant="outline" disabled={!text?.trim()} onclick={() => void copyText(text ?? '', 'the transcript')} data-testid="copy-transcript">
 				Copy
@@ -96,7 +95,7 @@
 						<DropdownMenu.Item disabled>No transformations yet</DropdownMenu.Item>
 					{/each}
 					<DropdownMenu.Separator />
-					<DropdownMenu.Item onSelect={() => void goto(resolve('/transformations'))}>
+					<DropdownMenu.Item onSelect={() => void goto(pathOf(library.view, 'transformations'))}>
 						Manage transformations…
 					</DropdownMenu.Item>
 				</DropdownMenu.Content>
@@ -104,7 +103,7 @@
 			<Button
 				size="xs"
 				variant="ghost-destructive"
-				onclick={() => confirmDelete(whispering, { collection: 'transcriptions', id })}
+				onclick={() => confirmDelete(library, { collection: 'transcriptions', id })}
 				data-testid="delete-transcript"
 			>
 				Delete

@@ -8,8 +8,9 @@
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import WandIcon from '@lucide/svelte/icons/wand';
-	import { resolve } from '$app/paths';
+	import { pathOf } from './nav-items.js';
 	import { transformationName } from '$lib/post-processing.js';
+	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { returnFocusToTrigger } from './option-popover-focus.js';
 
@@ -25,9 +26,10 @@
 	let content = $state<HTMLElement | null>(null);
 
 	const whispering = getWhispering();
-	const { view } = whispering;
+	const library = getLibrary();
+	const { ui } = library;
 
-	const choice = $derived(whispering.postProcessing);
+	const choice = $derived(library.postProcessing);
 	const name = $derived(
 		choice.kind === 'none' ? 'None' : choice.kind === 'missing' ? 'No longer listed' : transformationName(choice.entry),
 	);
@@ -92,8 +94,8 @@
 		</p>
 
 		<RadioGroup.Root
-			value={view.postProcessing ?? NONE}
-			onValueChange={(next) => (view.postProcessing = next === NONE ? undefined : next)}
+			value={ui.postProcessing ?? NONE}
+			onValueChange={(next) => (ui.postProcessing = next === NONE ? undefined : next)}
 			aria-labelledby="post-processing-heading"
 			class="gap-2"
 		>
@@ -101,13 +103,13 @@
 				<RadioGroup.Item value={NONE} id="post-processing-none" />
 				<Label for="post-processing-none" class="font-normal">None</Label>
 			</div>
-			{#each whispering.transformations as item, index (item.id)}
+			{#each library.transformations as item, index (item.id)}
 				{@const resolved = whispering.resolve(item)}
 				{@const runnable = resolved.kind === 'ready'}
 				<!-- The group is a grid, so a row shrinks to the popover only with min-w-0; the label then takes what the radio leaves and the title truncates in it. -->
 				<div class="flex min-w-0 items-center gap-2">
 					<!-- One that cannot run is not offered, but stays shown as chosen if it already is. -->
-					<RadioGroup.Item value={item.id} id="post-processing-{index}" disabled={!runnable && view.postProcessing !== item.id} />
+					<RadioGroup.Item value={item.id} id="post-processing-{index}" disabled={!runnable && ui.postProcessing !== item.id} />
 					<Label for="post-processing-{index}" class="min-w-0 flex-1 font-normal">
 						<span class="min-w-0 truncate" title={transformationName(item)}>{transformationName(item)}</span>
 						{#if resolved.kind === 'blocked'}
@@ -129,16 +131,16 @@
 			{/if}
 		</RadioGroup.Root>
 
-		{#if whispering.transformations.length === 0}
+		{#if library.transformations.length === 0}
 			<p class="text-xs text-muted-foreground" data-testid="post-processing-empty">
 				There are no transformations yet. Create one to choose it here.
 			</p>
 		{/if}
-		{#if whispering.transformationRepairs.length > 0}
+		{#if library.transformationRepairs.length > 0}
 			<p class="text-xs text-warning" role="status">
-				{whispering.transformationRepairs.length === 1
+				{library.transformationRepairs.length === 1
 					? '1 file in transformations/ needs repair and is not listed.'
-					: `${whispering.transformationRepairs.length} notes in transformations/ need repair and are not listed.`}
+					: `${library.transformationRepairs.length} notes in transformations/ need repair and are not listed.`}
 			</p>
 		{/if}
 		{#if choice.kind === 'repair'}
@@ -147,7 +149,7 @@
 			<p class="text-xs text-warning" role="status">The chosen transformation was deleted or moved. Choose another, or None.</p>
 		{/if}
 
-		<Button variant="outline" size="sm" href={resolve('/transformations')} data-testid="manage-transformations">
+		<Button variant="outline" size="sm" href={pathOf(library.view, 'transformations')} data-testid="manage-transformations">
 			Manage transformations
 		</Button>
 	</Popover.Content>

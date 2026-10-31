@@ -1,72 +1,31 @@
+<!--
+	What both views share, made once for the page and account: the services,
+	the connections, the microphone, and the recorder, which keeps every
+	recording on this device (`$lib/device.ts`). Each view's layout renders
+	its pages under it (`WhisperingView`). It stops taking work when it
+	leaves.
+-->
 <script lang="ts">
-	import * as Alert from '@epicenter/ui/alert';
 	import * as Empty from '@epicenter/ui/empty';
-	import { getRepo } from '@epicenter/svelte/repo';
 	import { Loading } from '@epicenter/ui/loading';
-	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { onDestroy, type Snippet } from 'svelte';
-	import { MediaQuery } from 'svelte/reactivity';
-	import type { Whispering as WhisperingContract } from '$lib/contract.js';
 	import { device } from '$lib/device.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
-	import AppHeader from './AppHeader.svelte';
-	import BottomNav from './BottomNav.svelte';
-	import VerticalNav from './VerticalNav.svelte';
 
-	/**
-	 * Product state over this browser's files and, signed in (under the
-	 * signed-in boundary), the repository; stops taking work when it leaves.
-	 */
-	let { signedIn, children }: { signedIn: boolean; children: Snippet } = $props();
+	let { children }: { children: Snippet } = $props();
 
-	// Each mounted product root keeps the sides it opened with.
-	// svelte-ignore state_referenced_locally
-	const repository = signedIn ? getRepo<WhisperingContract>() : null;
-	const whispering = createWhispering({ device, repository });
+	const whispering = createWhispering({ device });
 	setWhispering(whispering);
-	const { view } = whispering;
 	const starting = whispering.start();
 	// Leaving waits for nothing; a recording under way ends with the page.
 	onDestroy(whispering.dispose);
-
-	/** Below this width the sidebar becomes a bottom bar. */
-	const wide = new MediaQuery('(min-width: 768px)');
 </script>
-
-{#snippet header()}
-	<AppHeader />
-	{#if whispering.deviceError}
-		<Alert.Root variant="warning" class="rounded-none" data-testid="device-unavailable">
-			<Alert.Title>This browser is not keeping files for Whispering</Alert.Title>
-			<Alert.Description>
-				{whispering.deviceError.message}. A private window keeps none. A recording stays in this page, to save again or download, until it closes.
-			</Alert.Description>
-		</Alert.Root>
-	{/if}
-{/snippet}
 
 {#await starting}
 	<Loading class="h-dvh" label="Opening your recordings…" />
 {:then}
-	{#if wide.current}
-		<Sidebar.Provider bind:open={view.sidebarOpen} class="h-dvh min-h-0 overflow-hidden">
-			<VerticalNav />
-			<Sidebar.Inset class="min-h-0 overflow-hidden">
-				{@render header()}
-				<div class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="page">{@render children()}</div>
-			</Sidebar.Inset>
-		</Sidebar.Provider>
-	{:else}
-		<div class="flex h-dvh flex-col overflow-hidden">
-			{@render header()}
-			<main class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="page">
-				{@render children()}
-			</main>
-			<BottomNav />
-		</div>
-	{/if}
-
+	{@render children()}
 {:catch error}
 	<Empty.Root class="h-dvh">
 		<Empty.Header>

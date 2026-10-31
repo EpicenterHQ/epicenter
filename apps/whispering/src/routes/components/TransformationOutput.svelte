@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
-	import { getWhispering, type TextRunNote, type TransformationRunNote } from '$lib/whispering.svelte.js';
+	import { getLibrary, type TextRunNote, type TransformationRunNote } from '$lib/library.svelte.js';
 	import { confirmDelete, copyText, formatTime, titleOf } from './file-actions.js';
 
 	/**
@@ -18,13 +17,13 @@
 		/** Which side of the result to name: the transformation that made it, or what it was made from. */
 		naming: 'transformation' | 'source';
 	} = $props();
-	const whispering = getWhispering();
+	const library = getLibrary();
 
 	const note = $derived(output.note);
 	const collection = $derived(output.source === 'transcript' ? 'transformation_runs' : 'text_runs');
 	const recording = $derived(
 		output.source === 'transcript'
-			? whispering.entries.find((item) => item.id === output.note.recordingId)
+			? library.entries.find((item) => item.id === output.note.recordingId)
 			: undefined,
 	);
 	const heading = $derived.by(() => {
@@ -41,14 +40,13 @@
 		{#if output.source === 'text' && naming === 'source' && note.input}
 			<span class="min-w-0 flex-1 truncate text-muted-foreground" title={note.input}>{note.input.trim()}</span>
 		{/if}
-		{#if whispering.notUploaded(output.source === 'text' ? 'text_runs' : 'transformation_runs', note.id)}<Badge variant="outline">Not uploaded yet</Badge>{/if}
 	</header>
 	<p class="whitespace-pre-wrap" data-testid="result-text">{note.body.trim() || '(empty result)'}</p>
 	<footer class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 		<span>{formatTime(note.createdAt) || 'Unknown time'} · {note.model}</span>
 		<span class="ml-auto flex items-center gap-1">
 			<Button size="xs" variant="ghost" onclick={() => void copyText(note.body, 'the result')}>Copy</Button>
-			<Button size="xs" variant="ghost-destructive" onclick={() => confirmDelete(whispering, { collection, id: note.id })}>Delete</Button>
+			<Button size="xs" variant="ghost-destructive" onclick={() => confirmDelete(library, { collection, id: note.id })}>Delete</Button>
 		</span>
 	</footer>
 </article>

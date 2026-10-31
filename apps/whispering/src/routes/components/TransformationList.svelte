@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import * as Empty from '@epicenter/ui/empty';
@@ -9,13 +8,13 @@
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
-	import { getWhispering } from '$lib/whispering.svelte.js';
+	import { getLibrary } from '$lib/library.svelte.js';
 	import { recipeModel, STARTER_TRANSFORMATIONS } from '$lib/recipe.js';
 	import { titleOf } from './file-actions.js';
 	import NoteRepair from './NoteRepair.svelte';
 
 	let { onOpen }: { onOpen?: () => void } = $props();
-	const whispering = getWhispering();
+	const library = getLibrary();
 
 	let creating = $state(false);
 
@@ -23,7 +22,7 @@
 	async function create(starter: { title: string; prompt: string }) {
 		creating = true;
 		try {
-			const problem = await whispering.createTransformation(starter);
+			const problem = await library.createTransformation(starter);
 			if (problem === undefined) onOpen?.();
 			else toast.error('Could not create the transformation', { description: problem });
 		} finally {
@@ -68,9 +67,9 @@
 	</div>
 
 	<ul class="min-h-0 flex-1 overflow-y-auto" aria-label="Saved transformations" data-testid="transformation-list">
-		{#each whispering.transformations as entry (entry.id)}
-			{@const selected = whispering.selectedTransformationId === entry.id}
-			{@const results = whispering.outputsOf(entry.id).length + whispering.textOutputsOf(entry.id).length}
+		{#each library.transformations as entry (entry.id)}
+			{@const selected = library.selectedTransformationId === entry.id}
+			{@const results = library.outputsOf(entry.id).length + library.textOutputsOf(entry.id).length}
 			{@const model = recipeModel(entry)}
 			<li class="border-b text-sm {selected ? 'bg-accent text-accent-foreground' : 'hover:bg-muted/50'}">
 				<button
@@ -79,12 +78,11 @@
 					aria-current={selected ? 'true' : undefined}
 					data-transformation={entry.id}
 					onclick={() => {
-						if (whispering.openTransformation(entry.id)) onOpen?.();
+						if (library.openTransformation(entry.id)) onOpen?.();
 					}}
 				>
 					<span class="flex items-center gap-2">
 						<span class="truncate font-medium">{titleOf(entry)}</span>
-						{#if whispering.notUploaded('transformations', entry.id)}<Badge variant="outline">Not uploaded yet</Badge>{/if}
 					</span>
 					<span class="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
 						<span>{model ?? 'The text connection’s model'}</span>
@@ -113,11 +111,11 @@
 		{/each}
 	</ul>
 
-	{#if whispering.transformationRepairs.length + whispering.textRepairs.length > 0}
+	{#if library.transformationRepairs.length + library.textRepairs.length > 0}
 		<div class="max-h-[50%] overflow-y-auto border-t bg-warning/10 px-3 py-2 text-xs" data-testid="transformation-repairs">
 			<p class="mb-2 font-medium">Needs repair</p>
 			<div class="flex flex-col gap-4">
-				{#each [...whispering.transformationRepairs, ...whispering.textRepairs] as repair (repair.path)}
+				{#each [...library.transformationRepairs, ...library.textRepairs] as repair (repair.path)}
 					<NoteRepair {repair} />
 				{/each}
 			</div>

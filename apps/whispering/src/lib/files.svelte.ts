@@ -1,21 +1,16 @@
 /**
- * Whispering's files: its note lists, their orders, and a recording's audio
- * across this browser and, signed in, the person's `whispering` repository
- * (decision 12).
+ * One view's files: the note lists of one client and a recording's audio
+ * beside them (decision 76). Whispering has two views, each over its own
+ * client, never merged:
  *
- * - Each note collection is this browser's notes signed out and, signed in,
- *   one `oneList` (`@epicenter/svelte/client`) over them and the
- *   repository's: a note on the device shows as the device's ("not uploaded
- *   yet") until the upload lets go of it; writes go to the copy shown; a new
- *   note goes to the repository when it can be reached, else stays on the
- *   device and is queued to upload. `createWhispering` composes them.
- * - A recording is always kept on the device first, its audio and note as
- *   one capture (`saveCapture`), so recording never waits on the network and
- *   works offline; the uploader moves both together.
- * - A recording's audio is read from wherever it is nearest: the device,
- *   then the device's cache of audio it uploaded (decision 66, read only,
- *   which the browser may drop), then the repository. So a recording made
- *   here keeps playing and transcribing after it uploads, offline included.
+ * - "On this device" (`deviceFiles`): this browser's files (OPFS), signed
+ *   in or not, online or not. A recording is kept here first; signed in,
+ *   the uploader moves each file to the repository, and it leaves this view.
+ * - "Synced" (`syncedFiles`): the person's `whispering` repository, signed
+ *   in. A recording's audio is read from this browser's cache of what it
+ *   uploaded (decision 66, read only, which the browser may drop), then the
+ *   repository, so a recording made here keeps playing and transcribing
+ *   after it uploads, offline included.
  *
  * Reads are Svelte state: each list lists and listens only while something
  * reactive reads it. Writes answer a `Result`; the caller presents failures.
@@ -26,14 +21,20 @@ import type {
 	NoteOf,
 	Version,
 } from '@epicenter/definition/contract';
-import { cacheOf, saveCapture } from '@epicenter/folder/browser';
-import { fromClient, type NoteList, type Side } from '@epicenter/svelte/client';
-import { holdLeave } from '@epicenter/svelte/leave-guard';
+import { cacheOf } from '@epicenter/folder/browser';
+import {
+	fromClient,
+	type ReactiveFiles,
+	type ReactiveNotes,
+} from '@epicenter/svelte/client';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
 import type { Whispering } from './contract.js';
 
 type Collections = Whispering['collections'];
+
+/** Which of Whispering's two views: this device's files, or the repository's. */
+export type View = 'device' | 'synced';
 
 /** The note collections, by name. */
 export type NoteName = Exclude<keyof Collections, 'audio'>;
@@ -51,18 +52,13 @@ export type InvalidNote<TName extends NoteName> = InvalidNoteOf<
 	Collections[TName]
 >;
 
-/** One audio file a recording has, and where the copy that would be read is. */
+/** One audio file a recording has in this view. */
 export type AudioFile = {
 	readonly id: string;
 	readonly ext: string;
-	/** The repository's version of it; null while it is only on this device. */
+	/** Its version as listed; null when only this browser's cache holds it. */
 	readonly version: Version | null;
-	/**
-	 * Still on this device (not uploaded yet), in the repository, or only in
-	 * this device's cache while the repository cannot be listed.
-	 */
-	readonly where: Side | 'cache';
-	/** Whether this device's cache holds its bytes, so it reads without the network. */
+	/** Whether this browser's cache holds its bytes, so it reads without the network. */
 	readonly cached: boolean;
 };
 
@@ -71,7 +67,7 @@ export type RecordingAudio =
 	/** Nothing has been listed yet. */
 	| { readonly kind: 'listing' }
 	| { readonly kind: 'here'; readonly file: AudioFile }
-	/** No side holds audio for it. */
+	/** This view holds no audio for it. */
 	| { readonly kind: 'absent' }
 	/** It may be in the repository, which cannot be listed now, and nothing is cached. */
 	| { readonly kind: 'unreachable' }
@@ -98,9 +94,23 @@ export type NewRecording = {
 	readonly bytes: Uint8Array;
 };
 
-/** Each note collection as the views read it: this browser's, or both sides as one list. */
+/** Each note collection of one client, as the views read it. */
 export type NoteLists = {
-	readonly [K in NoteName]: NoteList<Collections[K]>;
+	readonly [K in NoteName]: ReactiveNotes<Collections[K]>;
+};
+
+/** One view's files: its note lists, and its recordings' audio. */
+export type WhisperingFiles = NoteLists & {
+	/** Which view these are. */
+	readonly view: View;
+	/** Where recording `id`'s audio is, read reactively. */
+	audioOf(id: string): RecordingAudio;
+	/** Recording `id`'s audio bytes. */
+	readAudio(id: string): Promise<Result<AudioBytes, string>>;
+	/** Delete recording `id`'s audio files from this view's client. */
+	deleteAudio(id: string): Promise<Result<void, string>>;
+	/** Stop following what these files follow beyond their lists. */
+	dispose(): void;
 };
 
 const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -116,34 +126,121 @@ export const byTitle = (a: TransformationNote, b: TransformationNote) =>
 		sensitivity: 'base',
 	}) || byText(a.id, b.id);
 
+const UNREACHABLE =
+	'This recording’s audio is in your repository, which cannot be reached now.';
+
+/** One client's note lists. */
+function notesOf(client: Client<Whispering>): NoteLists {
+	const files = fromClient(client);
+	return {
+		recordings: files.recordings,
+		transcriptions: files.transcriptions,
+		transformations: files.transformations,
+		transformation_runs: files.transformation_runs,
+		text_runs: files.text_runs,
+	};
+}
+
+/** A recording's audio from the files a view lists for it. */
+function audioIn(
+	files: readonly AudioFile[],
+	state: { loading: boolean; unreachable: boolean },
+): RecordingAudio {
+	const playable = files.filter(
+		(file) => audioMimeTypeOf(`x.${file.ext}`) !== undefined,
+	);
+	const [file, ...more] = playable;
+	if (file !== undefined && more.length === 0) return { kind: 'here', file };
+	if (file !== undefined)
+		return { kind: 'ambiguous', exts: playable.map(({ ext }) => ext).sort() };
+	if (state.loading) return { kind: 'listing' };
+	return state.unreachable ? { kind: 'unreachable' } : { kind: 'absent' };
+}
+
+/** Why `audio` cannot be read, or the one file to read. */
+function readable(audio: RecordingAudio): Result<AudioFile, string> {
+	if (audio.kind === 'here') return Ok(audio.file);
+	if (audio.kind === 'ambiguous')
+		return Err(
+			`More than one audio file has this recording’s id (${audio.exts.join(', ')}). Keep one.`,
+		);
+	if (audio.kind === 'listing')
+		return Err('This recording’s audio has not been listed yet.');
+	if (audio.kind === 'unreachable') return Err(UNREACHABLE);
+	return Err('This recording has no audio file.');
+}
+
+const bytesOf = (file: AudioFile, bytes: Uint8Array): AudioBytes => ({
+	bytes,
+	ext: file.ext,
+	name: `${file.id}.${file.ext}`,
+	mimeType: audioMimeTypeOf(`x.${file.ext}`) ?? 'application/octet-stream',
+});
+
+/** Delete each of recording `id`'s audio files `audio` lists, over the version listed. */
+async function deleteListed(
+	audio: ReactiveFiles<Collections['audio']>,
+	id: string,
+): Promise<Result<void, string>> {
+	for (const { ext } of audio.items.filter((file) => file.id === id)) {
+		const deleted = await audio.delete({ id, ext });
+		if (deleted.error && deleted.error.name !== 'NotFound')
+			return Err(deleted.error.message);
+	}
+	return Ok(undefined);
+}
+
+/** "On this device": this browser's files, and the audio beside them. */
+export function deviceFiles(device: Client<Whispering>): WhisperingFiles {
+	const audio = fromClient(device).audio;
+	function audioOf(id: string) {
+		return audioIn(
+			audio.items
+				.filter((file) => file.id === id)
+				.map(({ ext, version }) => ({ id, ext, version, cached: false })),
+			{ loading: audio.loading, unreachable: false },
+		);
+	}
+	return {
+		...notesOf(device),
+		view: 'device',
+		audioOf,
+		async readAudio(id) {
+			const { data: file, error } = readable(audioOf(id));
+			if (error !== null) return Err(error);
+			const read = await device.audio.get({ id, ext: file.ext });
+			return read.error === null
+				? Ok(bytesOf(file, read.data.bytes))
+				: Err(read.error.message);
+		},
+		deleteAudio: (id) => deleteListed(audio, id),
+		dispose() {},
+	};
+}
+
 /**
- * A recording's audio over this browser's `device` and, signed in,
- * `repository` (null signed out): where it is, reading and deleting it,
- * and keeping a new recording, queued in the device's outbox to upload
- * once someone is signed in.
+ * "Synced": the repository's files, and the audio beside them, read from
+ * this browser's cache of what it uploaded (`device`'s) before the
+ * repository.
  */
-export function createAudio({
-	device,
-	repository,
-}: {
-	device: Client<Whispering>;
-	repository: Client<Whispering> | null;
-}) {
-	const here = fromClient(device);
-	const there = repository === null ? null : fromClient(repository);
+export function syncedFiles(
+	repository: Client<Whispering>,
+	device: Client<Whispering>,
+): WhisperingFiles {
+	const audio = fromClient(repository).audio;
+	const uploading = fromClient(device).audio;
 	const cache = cacheOf(device);
 
 	/**
-	 * The audio this device's uploads cached, by `<id>.<ext>`. The cache is
-	 * outside the contract, so it is read again whenever either side's audio
-	 * changes: an upload caches its audio, then lets go of the device's copy.
-	 * Signed out there is none (an account's cache goes with it).
+	 * The audio this browser's uploads cached, by `<id>.<ext>`. The cache is
+	 * outside the contract, so it is read again whenever the repository's
+	 * audio or this device's changes: an upload caches its audio, then lets
+	 * go of the device's copy.
 	 */
 	let cached = $state.raw<ReadonlySet<string>>(new Set());
 	const stopCache = $effect.root(() => {
 		$effect(() => {
-			if (there === null) return;
-			void [here.audio.items, there.audio.items];
+			void [audio.items, uploading.items];
 			let current = true;
 			void cache.list().then(({ data }) => {
 				if (!current || data === null) return;
@@ -159,150 +256,68 @@ export function createAudio({
 		});
 	});
 
-	/** Every recording's audio files, by recording id: the device's copy over the repository's. */
+	/** Every recording's audio files, by recording id. */
 	const audioById = $derived.by(() => {
 		const byKey = new Map<string, AudioFile>();
-		const add = (file: AudioFile) => byKey.set(`${file.id}.${file.ext}`, file);
-		for (const { id, ext, version } of there?.audio.items ?? [])
-			add({
+		for (const { id, ext, version } of audio.items)
+			byKey.set(`${id}.${ext}`, {
 				id,
 				ext,
 				version,
-				where: 'repository',
 				cached: cached.has(`${id}.${ext}`),
 			});
-		// Offline, what the device cached still reads, though no listing names it.
-		if (there?.audio.error)
+		// Offline, what this browser cached still reads, though no listing names it.
+		if (audio.error)
 			for (const key of cached)
 				if (!byKey.has(key)) {
 					const dot = key.lastIndexOf('.');
-					add({
+					byKey.set(key, {
 						id: key.slice(0, dot),
 						ext: key.slice(dot + 1),
 						version: null,
-						where: 'cache',
 						cached: true,
 					});
 				}
-		for (const { id, ext } of here.audio.items)
-			add({ id, ext, version: null, where: 'device', cached: false });
 		const byId = new Map<string, AudioFile[]>();
 		for (const file of byKey.values())
 			byId.set(file.id, [...(byId.get(file.id) ?? []), file]);
 		return byId;
 	});
 
-	function audioOf(id: string): RecordingAudio {
-		const files = (audioById.get(id) ?? []).filter(
-			(file) => audioMimeTypeOf(`x.${file.ext}`) !== undefined,
-		);
-		const [file, ...more] = files;
-		if (file !== undefined && more.length === 0) return { kind: 'here', file };
-		if (file !== undefined)
-			return { kind: 'ambiguous', exts: files.map(({ ext }) => ext).sort() };
-		if (here.audio.loading || (there?.audio.loading ?? false))
-			return { kind: 'listing' };
-		return there?.audio.error ? { kind: 'unreachable' } : { kind: 'absent' };
+	function audioOf(id: string) {
+		return audioIn(audioById.get(id) ?? [], {
+			loading: audio.loading,
+			unreachable: audio.error !== null,
+		});
 	}
 
 	return {
-		/** Where recording `id`'s audio is, read reactively. */
+		...notesOf(repository),
+		view: 'synced',
 		audioOf,
-
 		/**
-		 * Recording `id`'s audio bytes, from the nearest copy: this device, its
-		 * cache, then the repository (a download).
+		 * From this browser's cache when it holds the bytes (checked against
+		 * the repository's version when listed), else the repository (a
+		 * download). A download is not cached.
 		 */
-		async readAudio(id: string): Promise<Result<AudioBytes, string>> {
-			const audio = audioOf(id);
-			if (audio.kind === 'ambiguous')
-				return Err(
-					`More than one audio file has this recording’s id (${audio.exts.join(', ')}). Keep one.`,
-				);
-			if (audio.kind === 'listing')
-				return Err('This recording’s audio has not been listed yet.');
-			if (audio.kind === 'unreachable')
-				return Err(
-					'This recording’s audio is in your repository, which cannot be reached now.',
-				);
-			if (audio.kind === 'absent')
-				return Err('This recording has no audio file.');
-			const { file } = audio;
-			const found = (bytes: Uint8Array) =>
-				Ok({
-					bytes,
-					ext: file.ext,
-					name: `${file.id}.${file.ext}`,
-					mimeType:
-						audioMimeTypeOf(`x.${file.ext}`) ?? 'application/octet-stream',
-				});
-			if (file.where === 'device') {
-				const read = await device.audio.get({ id, ext: file.ext });
-				return read.error === null
-					? found(read.data.bytes)
-					: Err(read.error.message);
-			}
+		async readAudio(id) {
+			const { data: file, error } = readable(audioOf(id));
+			if (error !== null) return Err(error);
 			if (file.cached) {
-				// Online, only the repository's version answers; offline, the cache is all there is.
 				const read = await cache.read(
 					{ collection: 'audio', id, ext: file.ext },
 					file.version === null ? {} : { version: file.version },
 				);
-				if (read.data) return found(read.data.bytes);
+				if (read.data) return Ok(bytesOf(file, read.data.bytes));
 			}
-			if (repository === null || file.where === 'cache')
-				return Err(
-					'This recording’s audio is in your repository, which cannot be reached now.',
-				);
+			if (file.version === null) return Err(UNREACHABLE);
 			const read = await repository.audio.get({ id, ext: file.ext });
 			return read.error === null
-				? found(read.data.bytes)
+				? Ok(bytesOf(file, read.data.bytes))
 				: Err(read.error.message);
 		},
-
-		/**
-		 * Delete recording `id`'s audio from each side that lists it: both,
-		 * while an upload of it is under way. A copy in the repository is
-		 * deleted only online.
-		 */
-		async deleteAudio(id: string): Promise<Result<void, string>> {
-			const sides = [here, ...(there === null ? [] : [there])];
-			for (const side of sides)
-				for (const { ext } of side.audio.items.filter(
-					(file) => file.id === id,
-				)) {
-					const deleted = await side.audio.delete({ id, ext });
-					if (deleted.error && deleted.error.name !== 'NotFound')
-						return Err(deleted.error.message);
-				}
-			return Ok(undefined);
-		},
-
-		/**
-		 * Keep a finished recording on this device: its audio, then its note,
-		 * as one capture that uploads once someone is signed in. Run again with
-		 * the same recording after a failure, it finishes what was kept.
-		 */
-		async saveRecording(
-			recording: NewRecording,
-		): Promise<Result<void, string>> {
-			const { id, ext, bytes, ...note } = recording;
-			const saved = await holdLeave(
-				saveCapture(device, {
-					id,
-					files: [
-						{ collection: 'audio', value: { id, ext, bytes } },
-						{ collection: 'recordings', value: { id, ...note } },
-					],
-				}),
-			);
-			return saved.error === null ? Ok(undefined) : Err(saved.error.message);
-		},
-
-		/** Stop following the cache. */
+		/** Online only: the repository's copy is deleted there. */
+		deleteAudio: (id) => deleteListed(audio, id),
 		dispose: stopCache,
 	};
 }
-
-/** The note lists and the audio, as the app's logic reads and writes them. */
-export type WhisperingFiles = NoteLists & ReturnType<typeof createAudio>;

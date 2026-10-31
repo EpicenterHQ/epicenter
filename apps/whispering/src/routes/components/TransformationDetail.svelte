@@ -7,7 +7,6 @@
 <script lang="ts">
 	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Collapsible from '@epicenter/ui/collapsible';
 	import * as Field from '@epicenter/ui/field';
@@ -22,7 +21,8 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import { tick } from 'svelte';
 	import type { RecipeRow } from '$lib/recipe.js';
-	import { getWhispering, type TransformationNote } from '$lib/whispering.svelte.js';
+	import { getLibrary, type TransformationNote } from '$lib/library.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { confirmDelete, formatTime, titleOf } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
 	import NoteRepair from './NoteRepair.svelte';
@@ -43,16 +43,17 @@
 		onBack?: () => void;
 	} = $props();
 	const whispering = getWhispering();
-	const { view } = whispering;
+	const library = getLibrary();
+	const { ui } = library;
 
 	// The parent keys this view by the transformation.
 	// svelte-ignore state_referenced_locally
 	const own = id;
-	const title = fieldEdit(whispering.files.transformations, { id: own }, 'title');
-	const modelEdit = fieldEdit(whispering.files.transformations, { id: own }, 'model');
-	const prompt = fieldEdit(whispering.files.transformations, { id: own }, 'body');
+	const title = fieldEdit(library.files.transformations, { id: own }, 'title');
+	const modelEdit = fieldEdit(library.files.transformations, { id: own }, 'model');
+	const prompt = fieldEdit(library.files.transformations, { id: own }, 'body');
 	/** Why its note does not read, when it does not. */
-	const repair = $derived(whispering.transformationRepairs.find((item) => item.id === own));
+	const repair = $derived(library.transformationRepairs.find((item) => item.id === own));
 
 	/** Each field as typed until its save answers, else as the note holds it. */
 	const titleText = $derived(title.value ?? note?.title ?? '');
@@ -68,8 +69,8 @@
 	/** Saved results on transcripts and on pasted text, newest first. */
 	const outputs = $derived(
 		[
-			...whispering.outputsOf(own).map((item) => ({ source: 'transcript' as const, note: item })),
-			...whispering.textOutputsOf(own).map((item) => ({ source: 'text' as const, note: item })),
+			...library.outputsOf(own).map((item) => ({ source: 'transcript' as const, note: item })),
+			...library.textOutputsOf(own).map((item) => ({ source: 'text' as const, note: item })),
 		].sort((a, b) => b.note.createdAt.localeCompare(a.note.createdAt)),
 	);
 	/** The model a run would use: this transformation's own, or the text connection's. */
@@ -82,8 +83,8 @@
 	 * Saved transcripts with text, newest first, named by their recording.
 	 */
 	const transcripts = $derived(
-		whispering.entries.flatMap((recording) =>
-			whispering
+		library.entries.flatMap((recording) =>
+			library
 				.resultsFor(recording.id)
 				.filter((result) => result.body.trim() !== '')
 				.map((result) => ({
@@ -92,17 +93,17 @@
 				})),
 		),
 	);
-	const chosen = $derived(transcripts.find((item) => item.result.id === view.applyTo));
+	const chosen = $derived(transcripts.find((item) => item.result.id === ui.applyTo));
 	/** This recipe's runs under way, on a transcript and on pasted text. Each result shows below once kept. */
-	const running = $derived(whispering.recipeRuns.some((run) => run.collection === 'transformation_runs' && run.fields.transformationId === own));
-	const runningOnText = $derived(whispering.recipeRuns.some((run) => run.collection === 'text_runs' && run.fields.transformationId === own));
+	const running = $derived(library.recipeRuns.some((run) => run.collection === 'transformation_runs' && run.fields.transformationId === own));
+	const runningOnText = $derived(library.recipeRuns.some((run) => run.collection === 'text_runs' && run.fields.transformationId === own));
 	/** What became of this recipe's last runs here: on the chosen transcript, and on pasted text. */
 	const settled = $derived(
 		[
-			...(chosen ? whispering.runsOn(chosen.result.id) : []).filter(
+			...(chosen ? library.runsOn(chosen.result.id) : []).filter(
 				(run) => run.collection === 'transformation_runs' && run.fields.transformationId === own,
 			),
-			...[whispering.textRun(own)].filter((run) => run !== undefined),
+			...[library.textRun(own)].filter((run) => run !== undefined),
 		].filter((run) => run.state.kind !== 'running'),
 	);
 	/** Authoring comes first. */
@@ -118,9 +119,9 @@
 		if (note === undefined) return 'This transformation is not listed.';
 		// The request sends this recipe, so decide by what is shown.
 		if (resolved.kind === 'blocked') return resolved.reason;
-		if (view.applySource === 'pasted') {
+		if (ui.applySource === 'pasted') {
 			if (runningOnText) return 'Running on pasted text…';
-			if (view.pastedText.trim() === '') return 'Paste some text to run this on.';
+			if (ui.pastedText.trim() === '') return 'Paste some text to run this on.';
 			return undefined;
 		}
 		if (transcripts.length === 0) return 'Transcribe a recording first, or paste text to run this on.';
@@ -134,9 +135,9 @@
 		// The run sends the recipe as shown; its result is kept when the answer arrives.
 		const inputs = shown ? { recipe: shown } : {};
 		const problem =
-			view.applySource === 'pasted'
-				? await whispering.transformText(own, view.pastedText, inputs)
-				: chosen && (await whispering.transform(chosen.result.id, own, inputs));
+			ui.applySource === 'pasted'
+				? await library.transformText(own, ui.pastedText, inputs)
+				: chosen && (await library.transform(chosen.result.id, own, inputs));
 		if (problem) toast.error('The transformation did not run', { description: problem });
 	}
 
@@ -179,7 +180,7 @@
 		await tick();
 		const focused = document.activeElement;
 		if (focused !== null && focused !== document.body && focused !== from) return;
-		(blocked === undefined ? runButtons[view.applySource] : (goToInstructionsButton ?? blockedReason))?.focus();
+		(blocked === undefined ? runButtons[ui.applySource] : (goToInstructionsButton ?? blockedReason))?.focus();
 	}
 
 	function selectTab(value: string) {
@@ -205,7 +206,6 @@
 		{:else}
 			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="transformation-title-text">{own}</h2>
 		{/if}
-		{#if note && whispering.notUploaded('transformations', note.id)}<Badge variant="outline">Not uploaded yet</Badge>{/if}
 	</div>
 	{#if title.error}
 		<div class="px-4 pt-2"><UnsavedEdit edit={title} /></div>
@@ -298,8 +298,8 @@
 			<div class="flex flex-col gap-5 py-1">
 				<div class="flex flex-col gap-2">
 					<Tabs.Root
-						value={view.applySource}
-						onValueChange={(next) => (view.applySource = next === 'pasted' ? 'pasted' : 'transcript')}
+						value={ui.applySource}
+						onValueChange={(next) => (ui.applySource = next === 'pasted' ? 'pasted' : 'transcript')}
 						class="flex flex-col gap-2"
 					>
 						<Tabs.List class="self-start" aria-label="Run it on">
@@ -308,7 +308,7 @@
 						</Tabs.List>
 						<Tabs.Content value="transcript" class="flex flex-col gap-2">
 							<div class="flex flex-wrap items-center gap-2">
-								<Select.Root type="single" bind:value={() => view.applyTo ?? '', (value) => (view.applyTo = value || undefined)}>
+								<Select.Root type="single" bind:value={() => ui.applyTo ?? '', (value) => (ui.applyTo = value || undefined)}>
 									<Select.Trigger class="min-w-0 flex-1" aria-label="Transcript to transform" disabled={transcripts.length === 0} data-testid="transformation-input">
 										<span class="truncate">{chosen?.label ?? (transcripts.length === 0 ? 'No saved transcripts yet' : 'Choose a transcript')}</span>
 									</Select.Trigger>
@@ -341,7 +341,7 @@
 						<Tabs.Content value="pasted" class="flex flex-col gap-2">
 							<Textarea
 								class="min-h-28 resize-y font-sans"
-								bind:value={view.pastedText}
+								bind:value={ui.pastedText}
 								placeholder="Paste text to try this on. It stays here while you move between pages and transformations. Running saves it with its result."
 								aria-label="Text to transform"
 								data-testid="pasted-text"
@@ -422,7 +422,7 @@
 	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 		<span><code class="font-mono">transformations/{own}.md</code></span>
 		{#if note !== undefined}
-			<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => confirmDelete(whispering, { collection: 'transformations', id: own })} data-testid="delete-transformation">
+			<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => confirmDelete(library, { collection: 'transformations', id: own })} data-testid="delete-transformation">
 				Delete transformation
 			</Button>
 		{/if}

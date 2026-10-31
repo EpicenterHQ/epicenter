@@ -1,8 +1,9 @@
 <!--
 	The signed-in boundary: the person's `whispering` repository for
-	everything under it (`getRepo`), and the uploader that moves what was
-	made here, signed out or offline, into it (decision 12). Recordings made
-	signed out upload to whoever signs in next on this browser (decision 67).
+	everything under it (`getRepo`, read by the "Synced" pages), and the
+	uploader that moves every file on this device into it (decisions 12 and
+	76). Recordings made signed out upload to whoever signs in next on this
+	browser (decision 67).
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';
@@ -19,7 +20,8 @@
 
 	// svelte-ignore state_referenced_locally
 	const repo = setRepo(openRemote(whispering, { account }));
-	// The uploader's writes reach both sides' listeners, so the lists follow it.
+	// Each view follows its own client: an uploaded file leaves this device's
+	// view and appears in the repository's.
 	const uploader = startUploading(device, repo);
 	onDestroy(() => uploader[Symbol.dispose]());
 </script>

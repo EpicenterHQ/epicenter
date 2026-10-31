@@ -67,11 +67,11 @@
 	{#if checking}
 		<p>Checking Epicenter sign-in…</p>
 	{:else if authState.status === 'signed-in'}
-		<p>Signed in to {new URL(authState.account.baseURL).host}. Your recordings are kept in your whispering repository there.</p>
+		<p>Signed in to {new URL(authState.account.baseURL).host}. Your recordings upload to your whispering repository there, under Synced.</p>
 	{:else if authState.status === 'reauth-required'}
 		<p>Your Epicenter sign-in needs to be renewed. Uploads wait until it is.</p>
 	{:else}
-		<p>Sign in to keep your recordings in your Epicenter repository and use hosted inference. What this browser holds uploads then.</p>
+		<p>Sign in to keep your recordings in your Epicenter repository and use hosted inference. What this browser holds uploads then, under Synced.</p>
 	{/if}
 	{#if problem}
 		<p class="text-destructive" role="alert">{problem}</p>

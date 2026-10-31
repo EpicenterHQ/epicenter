@@ -3,11 +3,11 @@
  * rows a search keeps, what order they are in, which are selected, and what
  * the actions on several of them do.
  *
- * Everything here is read from what Whispering lists now. Nothing is kept:
- * the search text, the sort, and the selection are the product's, and are
- * handed in. A row's identity is its recording's id, so a selection survives
- * a new sort, a new search, and an upload, and a recording that is gone is
- * simply no longer selected.
+ * Everything here is read from what one view (`library.svelte.ts`) lists
+ * now. Nothing is kept: the search text, the sort, and the selection are the
+ * view's, and are handed in. A row's identity is its recording's id, so a
+ * selection survives a new sort and a new search, and a recording that is
+ * gone, deleted or uploaded out of this view, is simply no longer selected.
  *
  * The actions on several rows are Whispering's own actions on one row,
  * taken one at a time in table order. A transcription is asked for once for
@@ -20,7 +20,7 @@ import type {
 	RecordingNote,
 	TranscriptionNote,
 } from './files.svelte.js';
-import type { Whispering } from './whispering.svelte.js';
+import type { Library } from './library.svelte.js';
 
 export type RecordingStatus =
 	| 'transcribing'
@@ -62,7 +62,7 @@ export const DEFAULT_SORT: RecordingSort = {
 };
 
 type Source = Pick<
-	Whispering,
+	Library,
 	'entries' | 'resultsFor' | 'transcriptionRun' | 'audioOf'
 >;
 
@@ -211,7 +211,7 @@ export function shownRows(
 export function selectionIn(
 	selected: readonly string[],
 	shown: readonly RecordingRow[],
-	whispering: Pick<Whispering, 'entries'>,
+	whispering: Pick<Library, 'entries'>,
 ): { rows: RecordingRow[]; hidden: number } {
 	const chosen = new Set(selected);
 	const rows = shown.filter((row) => chosen.has(row.id));
@@ -225,7 +225,7 @@ export function toggleSelected(
 	selected: readonly string[],
 	id: string,
 	on: boolean,
-	whispering: Pick<Whispering, 'entries'>,
+	whispering: Pick<Library, 'entries'>,
 ): string[] {
 	const present = new Set(whispering.entries.map((note) => note.id));
 	const next = selected.filter((item) => item !== id && present.has(item));
@@ -240,7 +240,7 @@ export function toggleAllShown(
 	selected: readonly string[],
 	shown: readonly RecordingRow[],
 	on: boolean,
-	whispering: Pick<Whispering, 'entries'>,
+	whispering: Pick<Library, 'entries'>,
 ): string[] {
 	const present = new Set(whispering.entries.map((note) => note.id));
 	const visible = new Set(shown.map((row) => row.id));
@@ -295,7 +295,7 @@ export type BulkTranscription = {
  * the rows still waiting are not sent.
  */
 export async function transcribeRows(
-	whispering: Source & Pick<Whispering, 'transcribe' | 'closing'>,
+	whispering: Source & Pick<Library, 'transcribe' | 'closing'>,
 	ids: readonly string[],
 	onProgress?: (done: number) => void,
 ): Promise<BulkTranscription> {
@@ -359,7 +359,7 @@ export type CapturedDeletions = {
  * told apart from its own, is refused with that reason and left out.
  */
 export async function captureDeletions(
-	whispering: Pick<Whispering, 'deletionFor' | 'entries'>,
+	whispering: Pick<Library, 'deletionFor' | 'entries'>,
 	ids: readonly string[],
 ): Promise<CapturedDeletions> {
 	const captured: CapturedDeletions = { deletions: [], refused: [] };
@@ -411,7 +411,7 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
  * the rest still go.
  */
 export async function deleteCaptured(
-	whispering: Pick<Whispering, 'delete'>,
+	whispering: Pick<Library, 'delete'>,
 	deletions: CapturedDeletions['deletions'],
 ): Promise<{ deleted: number; problems: { title: string; reason: string }[] }> {
 	let deleted = 0;

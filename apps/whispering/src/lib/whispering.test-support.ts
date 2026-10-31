@@ -1,24 +1,25 @@
 /** Construct the real app over test files and platform capabilities. */
 import type { Client } from '@epicenter/definition/contract';
 import type { Whispering as WhisperingContract } from './contract.js';
+import type { Library } from './library.svelte.js';
 import type { WhisperingServices } from './platform/types.js';
 import { provideServices } from './services.test-support.js';
 import { headerStatus } from './status.js';
-import type { Whispering } from './whispering.svelte.js';
 
-/** The header's status line, as AppHeader words it. */
-export const headerLine = (whispering: Whispering) =>
+/** The header's status line over `library`, as AppHeader words it. */
+export const headerLine = (library: Library, signedIn = false) =>
 	headerStatus({
-		unwrittenAnswers: whispering.unwrittenAnswers,
-		signedIn: whispering.signedIn,
-		waiting: whispering.waiting,
-		repositoryProblem: whispering.repositoryError?.message,
+		view: library.view,
+		unwrittenAnswers: library.unwrittenAnswers,
+		auth: signedIn ? 'signed-in' : 'signed-out',
+		problem: library.error?.message,
 	});
 
 /**
- * Same construction as WhisperingApp's, over this browser's files and,
- * signed in, the repository. The lists are followed as a mounted app's
- * views follow them, so they list and hear changes.
+ * Same construction as the app's: what both views share
+ * (`WhisperingApp`), "On this device" over `device`, and, signed in, "Synced"
+ * over `repository` (`WhisperingView`). Each view's lists are followed as
+ * its mounted pages follow them, so they list and hear changes.
  */
 export async function createTestWhispering({
 	services,
@@ -31,26 +32,43 @@ export async function createTestWhispering({
 }) {
 	provideServices(services);
 	const { createWhispering } = await import('./whispering.svelte.js');
+	const { createLibrary } = await import('./library.svelte.js');
+	const { deviceFiles, syncedFiles } = await import('./files.svelte.js');
 	const { follow } = await import(
 		'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 	);
-	const whispering = createWhispering({ device, repository });
-	const followed = follow(() => [
-		whispering.entries,
-		whispering.repairs,
-		whispering.transcriptions,
-		whispering.transformations,
-		whispering.transformationRepairs,
-		whispering.textRepairs,
-		whispering.files.transformation_runs.items,
-		whispering.files.text_runs.items,
-		whispering.entries.map((note) => whispering.audioOf(note.id)),
-		whispering.waiting,
-	]);
+	const whispering = createWhispering({ device });
+	const libraries: Library[] = [];
+	function view(files: Parameters<typeof createLibrary>[0]['files']) {
+		const library = createLibrary({ whispering, files });
+		libraries.push(library);
+		return library;
+	}
+	const onDevice = view(deviceFiles(device));
+	const synced =
+		repository === null ? null : view(syncedFiles(repository, device));
+	const followed = libraries.map((library) =>
+		follow(() => [
+			library.entries,
+			library.repairs,
+			library.transcriptions,
+			library.transformations,
+			library.transformationRepairs,
+			library.textRepairs,
+			library.files.transformation_runs.items,
+			library.files.text_runs.items,
+			library.entries.map((note) => library.audioOf(note.id)),
+		]),
+	);
 	return {
 		whispering,
+		/** "On this device". */
+		onDevice,
+		/** "Synced", when a repository was given. */
+		synced,
 		close() {
-			followed.stop();
+			for (const following of followed) following.stop();
+			for (const library of libraries) library.dispose();
 			whispering.dispose();
 		},
 	};

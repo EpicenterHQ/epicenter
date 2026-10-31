@@ -3,9 +3,11 @@
 	import { useSidebar } from '@epicenter/ui/sidebar';
 	import { page } from '$app/state';
 	import studioMicrophone from '$lib/assets/studio-microphone.png';
-	import { NAV_ITEMS } from './nav-items.js';
+	import { getLibrary } from '$lib/library.svelte.js';
+	import { navItems, pageAt } from './nav-items.js';
 
 	const sidebar = useSidebar();
+	const library = getLibrary();
 </script>
 
 <Sidebar.Root collapsible="icon">
@@ -29,8 +31,8 @@
 		<Sidebar.Group>
 			<Sidebar.GroupContent>
 				<Sidebar.Menu aria-label="Pages">
-					{#each NAV_ITEMS as item (item.href)}
-						{@const active = item.isActive(page.url.pathname)}
+					{#each navItems(library.view) as item (item.href)}
+						{@const active = item.page === pageAt(page.url.pathname)}
 						<Sidebar.MenuItem>
 							<Sidebar.MenuButton isActive={active} tooltipContent={item.label}>
 								{#snippet child({ props })}

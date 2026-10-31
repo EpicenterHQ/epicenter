@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { RecordingAudio } from '$lib/whispering.svelte.js';
+	import type { RecordingAudio } from '$lib/library.svelte.js';
 
 	/** Why a recording's audio cannot be played or sent now. */
 	let { audio }: { audio: Exclude<RecordingAudio, { kind: 'here' }> } = $props();

@@ -1,13 +1,16 @@
 <script lang="ts">
 	import { cn } from '@epicenter/ui/utils';
 	import { page } from '$app/state';
-	import { NAV_ITEMS } from './nav-items.js';
+	import { getLibrary } from '$lib/library.svelte.js';
+	import { navItems, pageAt } from './nav-items.js';
+
+	const library = getLibrary();
 </script>
 
 <!-- The pages on a narrow window. It sits in the shell's column, so nothing is hidden behind it. -->
 <nav class="flex h-14 shrink-0 items-center gap-1 border-t border-sidebar-border bg-sidebar px-1" aria-label="Pages">
-	{#each NAV_ITEMS as item (item.href)}
-		{@const active = item.isActive(page.url.pathname)}
+	{#each navItems(library.view) as item (item.href)}
+		{@const active = item.page === pageAt(page.url.pathname)}
 		{@const Icon = item.icon}
 		<a
 			href={item.href}

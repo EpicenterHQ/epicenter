@@ -6,56 +6,58 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
+	import { pathOf } from './nav-items.js';
 	import { transformationName } from '$lib/post-processing.js';
+	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
-	import AudioMissing from './components/AudioMissing.svelte';
-	import AudioPlayer from './components/AudioPlayer.svelte';
-	import { copyText, formatTime, titleOf } from './components/file-actions.js';
-	import RecorderCard from './components/RecorderCard.svelte';
-	import RunStatus from './components/RunStatus.svelte';
-	import TransformationOutput from './components/TransformationOutput.svelte';
-	import UnsavedRecordings from './components/UnsavedRecordings.svelte';
+	import AudioMissing from './AudioMissing.svelte';
+	import AudioPlayer from './AudioPlayer.svelte';
+	import { copyText, formatTime, titleOf } from './file-actions.js';
+	import RecorderCard from './RecorderCard.svelte';
+	import RunStatus from './RunStatus.svelte';
+	import TransformationOutput from './TransformationOutput.svelte';
+	import UnsavedRecordings from './UnsavedRecordings.svelte';
 
 	const whispering = getWhispering();
-	const { view } = whispering;
+	const library = getLibrary();
+	const { ui } = library;
 
 	/** The newest kept recording. */
-	const latest = $derived(whispering.entries[0]);
+	const latest = $derived(library.entries[0]);
 	/** Where its audio is, read from the nearest copy. */
-	const audio = $derived(latest ? whispering.audioOf(latest.id) : undefined);
-	const transcript = $derived(latest ? whispering.resultsFor(latest.id)[0] : undefined);
+	const audio = $derived(latest ? library.audioOf(latest.id) : undefined);
+	const transcript = $derived(latest ? library.resultsFor(latest.id)[0] : undefined);
 	/** A transcription of it in this window, and what became of it. */
-	const run = $derived(latest ? whispering.transcriptionRun(latest.id) : undefined);
+	const run = $derived(latest ? library.transcriptionRun(latest.id) : undefined);
 	const transcribing = $derived(run?.state.kind === 'running' || (run?.state.kind === 'unsaved' && run.state.message === undefined));
 	const model = $derived(whispering.connections?.transcription?.model);
 
 	/** The transformation chosen beside the recorder, as the lists and the text connection have it now. */
-	const postProcessing = $derived(whispering.postProcessing);
+	const postProcessing = $derived(library.postProcessing);
 	/** Whether a transformation of the newest transcript is under way. Its result shows below once kept. */
 	const postRunning = $derived(
-		transcript !== undefined && whispering.runsOn(transcript.id).some((item) => item.state.kind === 'running'),
+		transcript !== undefined && library.runsOn(transcript.id).some((item) => item.state.kind === 'running'),
 	);
-	const postRuns = $derived(transcript ? whispering.runsOn(transcript.id).filter((item) => item.state.kind !== 'running') : []);
-	const outputs = $derived(transcript ? whispering.outputsFor(transcript.id) : []);
+	const postRuns = $derived(transcript ? library.runsOn(transcript.id).filter((item) => item.state.kind !== 'running') : []);
+	const outputs = $derived(transcript ? library.outputsFor(transcript.id) : []);
 
 	/** Run the chosen transformation on the latest transcript. This press is the only thing that sends it. */
 	async function runPostProcessing() {
 		if (transcript === undefined || postProcessing.kind !== 'ready') return;
-		const problem = await whispering.transform(transcript.id, postProcessing.entry.id);
+		const problem = await library.transform(transcript.id, postProcessing.entry.id);
 		if (problem) toast.error('Post-processing did not run', { description: problem });
 	}
 
 	async function transcribe(id: string) {
-		const problem = await whispering.transcribe(id);
-		if (problem && whispering.transcriptionRun(id) === undefined) toast.error('Nothing was sent', { description: problem });
+		const problem = await library.transcribe(id);
+		if (problem && library.transcriptionRun(id) === undefined) toast.error('Nothing was sent', { description: problem });
 	}
 
 	/** Show the recording on the Recordings page. */
 	async function openRecording(id: string) {
-		if (!whispering.openRecording(id)) return;
-		view.showingDetail = true;
-		await goto(resolve('/recordings'));
+		if (!library.openRecording(id)) return;
+		ui.showingDetail = true;
+		await goto(pathOf(library.view, 'recordings'));
 	}
 </script>
 
@@ -80,7 +82,6 @@
 				<div class="flex items-center gap-2 text-sm">
 					<h2 class="min-w-0 flex-1 truncate font-medium">{titleOf(latest)}</h2>
 					{#if latest.capture === 'fixture'}<Badge variant="outline">Fixture</Badge>{/if}
-					{#if whispering.notUploaded('recordings', latest.id)}<Badge variant="outline" data-testid="not-uploaded">Not uploaded yet</Badge>{/if}
 					<span class="shrink-0 text-xs text-muted-foreground max-sm:hidden">{formatTime(latest.recordedAt, 'short')}</span>
 				</div>
 

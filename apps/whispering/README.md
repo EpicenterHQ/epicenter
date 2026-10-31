@@ -31,29 +31,33 @@ Whispering runs in a browser tab. Its own desktop app is a later step (see
 
 ## Where the files are
 
-Whispering opens without an account. Signed out, its files live in this
-browser's private files (OPFS, `openDevice` from `@epicenter/folder/browser`),
-at the same paths a folder holds. Signing in with Epicenter opens the person's
-own repository, `<handle>/whispering`, beside them, and every list shows both
-as one:
+Whispering opens without an account. Its files live in two places, and it
+shows each in its own view (decision 76), never merged:
 
-- A recording is kept in the browser when you press Stop, its audio and note
+- **On this device** (`/`): this browser's private files (OPFS, `openDevice`
+  from `@epicenter/folder/browser`), at the same paths a folder holds. It
+  works signed out and offline.
+- **Synced** (`/synced`): the person's own repository, `<handle>/whispering`,
+  once they sign in with Epicenter. Signed out, it asks for a sign-in.
+
+Each view lists, edits, transcribes, transforms and deletes in its own files
+only:
+
+- A recording is kept on this device when you press Stop, its audio and note
   together as one capture, whether or not you are signed in, so recording
-  never waits on the network. Signed in and online, it uploads on its own;
-  the browser then lets go of the note and keeps the audio as a read-only
-  cache (decision 66), which the browser may drop. Until it has uploaded,
-  signed in, it is marked "Not uploaded yet".
-- A transcript, a transformation, or a result made while signed in and online
-  goes straight to the repository; made signed out or offline, it waits in the
-  browser and uploads like a recording.
+  never waits on the network. It shows under "On this device".
+- Signed in, everything on this device uploads on its own: a recording, a
+  transcript, a transformation, a result. Each leaves "On this device" as it
+  uploads and appears under "Synced"; nothing keeps it on screen across the
+  move. The browser keeps an uploaded recording's audio as a read-only cache
+  (decision 66), which the browser may drop.
 - Recordings made signed out upload to whoever signs in next on that browser
   (decision 67).
-- Playing or transcribing a recording reads its audio from the nearest copy:
-  the browser's own, then the browser's cache, then the repository (a
-  download). A recording made here keeps playing and transcribing after it
-  uploads, offline included.
-- Edits and deletes go to the copy shown: the browser's while it holds one,
-  else the repository's, which is online only.
+- Under "Synced", playing or transcribing a recording reads its audio from
+  the browser's cache, then the repository (a download), so a recording made
+  here keeps playing and transcribing after it uploads, offline included.
+- A transcript or result is kept in the view it was asked from: this
+  device's files (uploaded later, signed in) or the repository's.
 - Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show
   without a reload.
 - A note at one of these paths that does not read is listed under "Needs
@@ -61,10 +65,12 @@ as one:
   written in house style; text that still does not fit is refused and stays
   to fix.
 
-The header's status line says where things are: "In this browser" signed out,
-"N not uploaded yet" while uploads wait, "In your repository" once they have
-landed, or "Repository unreachable". Signing out drops the cached audio and
-leaves the browser with only what it never uploaded.
+The header switches between the views and its status line says what the open
+one shows: "On this device", or "Synced", "Offline" when the repository cannot
+be reached, or "Sign in again". Signing out drops the cached audio and leaves
+the browser with only what it never uploaded.
+
+A merged view of both may come back later; it is not there now.
 
 One sign-in covers both hosted inference and the repository (decision 65): the
 app signs in as `so.epicenter.whispering` for the server's API and Git
@@ -75,29 +81,32 @@ signing in to a repository works against a local or self-hosted API.
 
 ## Using it
 
-Three pages, switched by the sidebar on a wide window and a bar at the bottom
-on a narrow one. Each has its own address, so back, forward, and refresh
-work. Changing pages keeps everything in progress: a recording keeps
+Each view has three pages, switched by the sidebar on a wide window and a bar
+at the bottom on a narrow one. Each has its own address, so back, forward, and
+refresh work. Changing pages keeps everything in progress: a recording keeps
 recording, a request keeps running, and what you typed is already saved.
+Switching views keeps a recording going, and a request under way still keeps
+its answer, but the other view's search, selection and pasted text start
+afresh.
 
-| Page | Address | What it is for |
-| --- | --- | --- |
-| Home | `/` | The recorder, and the newest recording with its transcript. |
-| Recordings | `/recordings` | Search, sort, and select recordings; play, transcribe, and edit beside the table. |
-| Transformations | `/transformations` | The instructions you apply to transcripts or pasted text, and their results. |
+| Page | On this device | Synced | What it is for |
+| --- | --- | --- | --- |
+| Home | `/` | `/synced` | The recorder, and the view's newest recording with its transcript. |
+| Recordings | `/recordings` | `/synced/recordings` | Search, sort, and select recordings; play, transcribe, and edit beside the table. |
+| Transformations | `/transformations` | `/synced/transformations` | The instructions you apply to transcripts or pasted text, and their results. |
 
-The header has the status line, a recorder control on every page but Home, and
-Settings (the account and the two connections).
+The header has the two views, the status line, a recorder control on every
+page but Home, and Settings (the account and the two connections).
 
 ### Recording
 
-Press the microphone on Home to start and again to stop. Nothing is kept
-until Stop: then the audio and a note titled with the time are kept as one
-capture and the recording opens. A refresh or a closed tab during a recording
-loses it. A browser that keeps no files for the site (a private window), or
-one that refuses a write, keeps the finished recording in the page with
-**Save again**, **Download it**, and **Discard** until the page closes; the
-app says so under the header.
+Press the microphone on either Home to start and again to stop. Nothing is
+kept until Stop: then the audio and a note titled with the time are kept on
+this device as one capture. Signed in, it moves to "Synced" as it uploads.
+A refresh or a closed tab during a recording loses it. A browser that keeps
+no files for the site (a private window), or one that refuses a write, keeps
+the finished recording in the page with **Save again**, **Download it**, and
+**Discard** until the page closes; the app says so under the header.
 
 ### Recordings
 
@@ -110,12 +119,12 @@ only the ticked rows shown.
 
 A recording's details hold its player, its transcripts (each edited where it
 is read, with Copy, Transform, and Delete), its notes, and File details:
-where it is kept, which files it has, and when it was made. The title and
+which view keeps it, which files it has, and when it was made. The title and
 every text save as you type; a save that fails stays in its editor with
 **Save again**, **Discard**, and **Copy**.
 
 Deleting a recording deletes its note, its audio, its transcripts, and the
-results made from them, wherever each is. It is refused while a request for
+results made from them, in the view's files. It is refused while a request for
 it runs, and while a transcript or result does not read (it might be this
 recording's). A result on pasted text is never deleted with a recording.
 
@@ -205,11 +214,12 @@ The build is static: any host that answers unknown paths with `index.html`
 temporary Git and LFS stores, a person per browser with a desktop sandbox for
 the `epicenter` CLI, and the app built against that API on
 `http://localhost:1420` (which must be free). It records, edits, transcribes
-(over a stubbed endpoint) and deletes signed out; signs in and checks the
-upload and the audio cache; clones with `epicenter clone` and `git lfs pull`
-and runs `epicenter check`; edits on the desktop; and repairs a broken note on
-the web. `bun apps/whispering/e2e/stack.ts --demo` runs the same stack to try
-by hand. It needs `initdb`, `pg_ctl`, `git`, and `git-lfs` on `PATH`.
+(over a stubbed endpoint) and deletes on this device signed out; signs in and
+checks that recordings leave this device for "Synced", where the cached audio
+plays and a new recording is transcribed; clones with `epicenter clone` and
+`git lfs pull` and runs `epicenter check`; edits on the desktop; and repairs a
+broken note in "Synced". `bun apps/whispering/e2e/stack.ts --demo` runs the
+same stack to try by hand. It needs `initdb`, `pg_ctl`, `git`, and `git-lfs` on `PATH`.
 
 ### Fixture audio
 

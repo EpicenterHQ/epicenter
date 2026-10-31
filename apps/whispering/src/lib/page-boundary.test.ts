@@ -4,10 +4,13 @@
  * The page runs in a browser tab, so nothing under `src/` may reach Node,
  * Bun or Tauri. Its files are Whispering's contract's client (decision 10):
  * this browser's device is opened in one place, at the root, and the
- * repository and its uploader in one place, the signed-in subtree. Nothing
- * in the app, its tests included, uses the retired folder and table API.
- * The services come through `#platform/services`, so no page code asks where
- * it is running. This reads the sources, so a violation names its file.
+ * repository and its uploader in one place, the signed-in boundary. The
+ * two views (decision 76) are never merged: each view's layout composes one
+ * client's files, "On this device" this browser's and "Synced" the
+ * repository's, and a recording is always kept on the device. Nothing in
+ * the app, its tests included, uses the retired folder and table API. The
+ * services come through `#platform/services`, so no page code asks where it
+ * is running. This reads the sources, so a violation names its file.
  */
 import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -168,37 +171,78 @@ test('the platform leaf owns auth composition; the subtree only names the accoun
 	).toContain("import type { Account } from '@epicenter/auth'");
 });
 
-/** Files whose source calls `name(`, ignoring its own declaration. */
+/** Files whose source calls `name(` (or `name<T>(`), ignoring its own declaration. */
 function callers(name: string) {
-	const call = new RegExp(`(?<!function )\\b${name}\\(`);
+	const call = new RegExp(`(?<!function )\\b${name}(<[^>()]*>)?\\(`);
 	return files.filter((file) => call.test(file.text)).map((file) => file.path);
 }
 
-test('WhisperingApp owns product state', () => {
+test('WhisperingApp owns what both views share; each view composes one client', () => {
 	expect(callers('createWhispering')).toEqual([
 		'routes/components/WhisperingApp.svelte',
 	]);
 	expect(callers('createServices')).toEqual(['lib/whispering.svelte.ts']);
-	expect(callers('createAudio')).toEqual(['lib/whispering.svelte.ts']);
+	// A recording is kept on the device, as one capture, by the recorder alone.
+	expect(callers('saveCapture')).toEqual(['lib/whispering.svelte.ts']);
+	// One client per view: the device's, or the repository's.
+	expect(callers('fromClient')).toEqual(['lib/files.svelte.ts']);
+	expect(callers('createLibrary')).toEqual([
+		'routes/components/WhisperingView.svelte',
+	]);
+	expect(callers('deviceFiles')).toEqual([
+		'routes/components/WhisperingView.svelte',
+	]);
+	expect(callers('syncedFiles')).toEqual([
+		'routes/components/WhisperingView.svelte',
+	]);
+	expect(callers('getRepo')).toEqual([
+		'routes/components/WhisperingView.svelte',
+	]);
 });
 
-test('every page takes product state from context, installed by the app root', () => {
+test('each view has the same pages, and every page takes its view from context', () => {
 	const pages = files.filter(
 		(file) =>
 			/\+page\.svelte$/.test(file.path) &&
 			file.path !== 'routes/auth/callback/+page.svelte',
 	);
 	expect(pages.map((file) => file.path).sort()).toEqual([
-		'routes/+page.svelte',
-		'routes/recordings/+page.svelte',
-		'routes/transformations/+page.svelte',
+		'routes/(device)/+page.svelte',
+		'routes/(device)/recordings/+page.svelte',
+		'routes/(device)/transformations/+page.svelte',
+		'routes/synced/+page.svelte',
+		'routes/synced/recordings/+page.svelte',
+		'routes/synced/transformations/+page.svelte',
 	]);
-	for (const file of pages) expect(file.text).toContain('getWhispering()');
+	const bodies = {
+		'+page.svelte': 'HomePage',
+		'recordings/+page.svelte': 'RecordingsPage',
+		'transformations/+page.svelte': 'TransformationsPage',
+	} as const;
+	for (const [page, body] of Object.entries(bodies)) {
+		for (const view of ['(device)', 'synced'])
+			expect(
+				files.find((file) => file.path === `routes/${view}/${page}`)?.text,
+			).toContain(`<${body} />`);
+		expect(
+			files.find((file) => file.path === `routes/components/${body}.svelte`)
+				?.text,
+		).toContain('getLibrary()');
+	}
+	expect(
+		files.find((file) => file.path === 'routes/(device)/+layout.svelte')?.text,
+	).toContain('<WhisperingView view="device">');
+	expect(
+		files.find((file) => file.path === 'routes/synced/+layout.svelte')?.text,
+	).toContain('<WhisperingView view="synced">');
 	expect(
 		files.find((file) => file.path === 'routes/auth/callback/+page.svelte')
 			?.text,
-	).not.toContain('getWhispering()');
+	).not.toMatch(/getWhispering\(\)|getLibrary\(\)/);
 	expect(callers('setWhispering')).toEqual([
 		'routes/components/WhisperingApp.svelte',
+	]);
+	expect(callers('setLibrary')).toEqual([
+		'routes/components/WhisperingView.svelte',
 	]);
 });

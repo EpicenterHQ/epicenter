@@ -225,7 +225,7 @@ async function open({
 	device?: ReturnType<typeof devicePreferences>;
 } = {}) {
 	const test = await openTestServices();
-	const { whispering, close } = await createTestWhispering({
+	const { whispering, onDevice, close } = await createTestWhispering({
 		device: test.device,
 		services: {
 			...test.services,
@@ -240,6 +240,7 @@ async function open({
 	await whispering.start();
 	return {
 		whispering,
+		onDevice,
 		close,
 		input: whispering.input,
 		microphone,
@@ -333,7 +334,7 @@ test('a recording asks for exactly the chosen microphone, and for the default wh
 });
 
 test('a chosen microphone that is not connected refuses the recording, records nothing, and stays chosen', async () => {
-	const { whispering, input, microphone, device } = await open({
+	const { whispering, onDevice, input, microphone, device } = await open({
 		microphone: scriptedMicrophone([BUILT_IN]),
 		device: devicePreferences(USB),
 	});
@@ -348,7 +349,7 @@ test('a chosen microphone that is not connected refuses the recording, records n
 	expect(microphone.open.captures).toBe(0);
 	expect(input.choice).toEqual(USB);
 	expect(device.store.saved).toEqual(USB);
-	expect(whispering.entries).toEqual([]);
+	expect(onDevice.entries).toEqual([]);
 
 	await input.refresh();
 	expect(input.choiceListed).toBe(false);
@@ -821,7 +822,7 @@ test('closing while a choice is being saved releases the microphone at once and 
 test('fixture mode has no input: nothing is listed, tested, enabled, or chosen', async () => {
 	const test = await openTestServices();
 	const device = devicePreferences(USB);
-	const { whispering, close } = await createTestWhispering({
+	const { whispering, onDevice, close } = await createTestWhispering({
 		device: test.device,
 		services: {
 			...test.services,
@@ -848,8 +849,8 @@ test('fixture mode has no input: nothing is listed, tested, enabled, or chosen',
 	// The fixture still records, and is saved as a fixture take.
 	await whispering.startRecording();
 	await whispering.stopRecording();
-	await eventually(() => whispering.entries.length === 1);
-	expect(whispering.entries[0]?.capture).toBe('fixture');
+	await eventually(() => onDevice.entries.length === 1);
+	expect(onDevice.entries[0]?.capture).toBe('fixture');
 });
 
 test('an unreadable saved microphone reports the failure without opening a device or saving a default', async () => {

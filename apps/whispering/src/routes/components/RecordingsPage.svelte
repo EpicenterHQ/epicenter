@@ -5,12 +5,12 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import { getWhispering } from '$lib/whispering.svelte.js';
-	import RecordingDetail from '../components/RecordingDetail.svelte';
-	import RecordingList from '../components/RecordingList.svelte';
+	import { getLibrary } from '$lib/library.svelte.js';
+	import RecordingDetail from './RecordingDetail.svelte';
+	import RecordingList from './RecordingList.svelte';
 
-	const whispering = getWhispering();
-	const { view } = whispering;
+	const library = getLibrary();
+	const { ui } = library;
 
 	/**
 	 * The table is the page. Opening a recording shows its details: beside the
@@ -23,8 +23,8 @@
 
 	/** Close the details and put focus back on the row they were opened from. */
 	async function close() {
-		const id = whispering.selectedId;
-		view.showingDetail = false;
+		const id = library.selectedId;
+		ui.showingDetail = false;
 		await tick();
 		if (id !== undefined)
 			document.querySelector<HTMLElement>(`[data-recording="${CSS.escape(id)}"]`)?.focus();
@@ -34,14 +34,14 @@
 <svelte:head><title>Recordings · Whispering</title></svelte:head>
 
 {#snippet detail(onBack: (() => void) | undefined, onClose: (() => void) | undefined)}
-	{@const selection = whispering.selection}
+	{@const selection = library.selection}
 	{#if selection && (selection.note || selection.repair)}
 		{#key selection.id}
 			<RecordingDetail id={selection.id} note={selection.note} repair={selection.repair} {onBack} {onClose} />
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">
-			{#if selection !== undefined && !whispering.listing}
+			{#if selection !== undefined && !library.listing}
 				<Empty.Title>This recording is no longer listed</Empty.Title>
 				<Empty.Description>It was deleted, here or elsewhere.</Empty.Description>
 			{:else}
@@ -55,12 +55,12 @@
 	{/if}
 {/snippet}
 
-{#if !view.showingDetail}
-	<RecordingList onOpen={() => (view.showingDetail = true)} />
+{#if !ui.showingDetail}
+	<RecordingList onOpen={() => (ui.showingDetail = true)} />
 {:else if wide.current}
 	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
 		<Resizable.Pane id="list" order={1} defaultSize={42} minSize={25}>
-			<RecordingList onOpen={() => (view.showingDetail = true)} />
+			<RecordingList onOpen={() => (ui.showingDetail = true)} />
 		</Resizable.Pane>
 		<Resizable.Handle />
 		<Resizable.Pane id="detail" order={2} defaultSize={58} minSize={35}>

@@ -4,8 +4,8 @@
  *
  * A request lives in this window until its answer arrives. Then its result
  * is created as a new note, every field fixed and the answer as its body:
- * in the repository when signed in and reachable, else on this device,
- * queued to upload (decision 12). So a result note always holds an answer.
+ * in the files of the view it was asked from: this device's (uploaded later,
+ * signed in) or the repository's. So a result note always holds an answer.
  *
  * What lives only in this window is what is happening: a request under way,
  * why one failed (Run again sends the same request), and an answer whose

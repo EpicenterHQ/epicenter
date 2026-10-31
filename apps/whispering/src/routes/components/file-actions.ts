@@ -6,7 +6,7 @@
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { describeDeletion, type NoteRef, notePath } from '$lib/deletion.js';
-import type { Whispering } from '$lib/whispering.svelte.js';
+import type { Library } from '$lib/library.svelte.js';
 
 export { titleOf } from '$lib/deletion.js';
 
@@ -37,9 +37,9 @@ export function formatTime(value: unknown, style: 'short' | 'full' = 'full') {
  * Ask before deleting `note`. What the dialog names is read first, and the
  * deletion deletes those files, whatever they hold by then (ADR-0576).
  */
-export function confirmDelete(whispering: Whispering, note: NoteRef) {
+export function confirmDelete(library: Library, note: NoteRef) {
 	const name = notePath(note);
-	const { data: deletion, error: refusal } = whispering.deletionFor(note);
+	const { data: deletion, error: refusal } = library.deletionFor(note);
 	if (refusal !== null) {
 		toast.error(`Could not delete ${name}`, { description: refusal });
 		return;
@@ -48,7 +48,7 @@ export function confirmDelete(whispering: Whispering, note: NoteRef) {
 		...describeDeletion(deletion),
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
-			const problem = await whispering.delete(deletion);
+			const problem = await library.delete(deletion);
 			if (problem)
 				toast.error(`Could not delete ${name}`, { description: problem });
 		},
