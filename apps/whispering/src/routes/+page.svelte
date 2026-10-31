@@ -9,47 +9,51 @@
 	import { resolve } from '$app/paths';
 	import { transformationName } from '$lib/post-processing.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
-	import AudioAbsent from './components/AudioAbsent.svelte';
+	import AudioMissing from './components/AudioMissing.svelte';
 	import AudioPlayer from './components/AudioPlayer.svelte';
-	import { confirmDelete, copyText, formatTime, recordingTitle } from './components/file-actions.js';
+	import { copyText, formatTime, titleOf } from './components/file-actions.js';
 	import RecorderCard from './components/RecorderCard.svelte';
-	import ResultStatus from './components/ResultStatus.svelte';
+	import RunStatus from './components/RunStatus.svelte';
 	import TransformationOutput from './components/TransformationOutput.svelte';
+	import UnsavedRecordings from './components/UnsavedRecordings.svelte';
 
 	const whispering = getWhispering();
 	const { view } = whispering;
 
-	/** The newest saved recording. A capture still being saved is in the notice under the header. */
+	/** The newest kept recording. */
 	const latest = $derived(whispering.entries[0]);
-	/** Playback and transcription use the same sibling resolution as recording details. */
-	const audio = $derived(latest ? whispering.audioOf(latest) : undefined);
-	const audioPath = $derived(audio?.kind === 'here' ? audio.path : undefined);
-	/** Whether the audio the newest recording names is missing from this device's folder. */
-	const absent = $derived(audio?.kind === 'absent');
-	const transcript = $derived(latest ? whispering.resultsFor(latest.stem)[0] : undefined);
-	const run = $derived(latest ? whispering.transcriptionRun(latest.stem) : undefined);
-	/** Whether the newest transcript has its answer, or what is happening to it. */
-	const progress = $derived(transcript && whispering.resultState(transcript.path, transcript.row.body));
+	/** Where its audio is, read from the nearest copy. */
+	const audio = $derived(latest ? whispering.audioOf(latest.id) : undefined);
+	const transcript = $derived(latest ? whispering.resultsFor(latest.id)[0] : undefined);
+	/** A transcription of it in this window, and what became of it. */
+	const run = $derived(latest ? whispering.transcriptionRun(latest.id) : undefined);
+	const transcribing = $derived(run?.state.kind === 'running' || (run?.state.kind === 'unsaved' && run.state.message === undefined));
 	const model = $derived(whispering.connections?.transcription?.model);
 
-	/** The transformation chosen beside the recorder, as the folder and the text connection have it now. */
+	/** The transformation chosen beside the recorder, as the lists and the text connection have it now. */
 	const postProcessing = $derived(whispering.postProcessing);
-	/** Whether a transformation of the newest transcript is under way. Its result shows below once its file is written. */
+	/** Whether a transformation of the newest transcript is under way. Its result shows below once kept. */
 	const postRunning = $derived(
-		transcript !== undefined && whispering.recipeRuns.some((item) => item.transcriptionId === transcript.stem),
+		transcript !== undefined && whispering.runsOn(transcript.id).some((item) => item.state.kind === 'running'),
 	);
-	const outputs = $derived(transcript ? whispering.outputsFor(transcript.stem) : []);
+	const postRuns = $derived(transcript ? whispering.runsOn(transcript.id).filter((item) => item.state.kind !== 'running') : []);
+	const outputs = $derived(transcript ? whispering.outputsFor(transcript.id) : []);
 
 	/** Run the chosen transformation on the latest transcript. This press is the only thing that sends it. */
 	async function runPostProcessing() {
 		if (transcript === undefined || postProcessing.kind !== 'ready') return;
-		const problem = await whispering.transform(transcript.path, postProcessing.entry.path);
+		const problem = await whispering.transform(transcript.id, postProcessing.entry.id);
 		if (problem) toast.error('Post-processing did not run', { description: problem });
 	}
 
-	/** Show the recording, or one of its results, on the Recordings page. */
-	async function openFile(path: string) {
-		if (!whispering.open(path)) return;
+	async function transcribe(id: string) {
+		const problem = await whispering.transcribe(id);
+		if (problem && whispering.transcriptionRun(id) === undefined) toast.error('Nothing was sent', { description: problem });
+	}
+
+	/** Show the recording on the Recordings page. */
+	async function openRecording(id: string) {
+		if (!whispering.openRecording(id)) return;
 		view.showingDetail = true;
 		await goto(resolve('/recordings'));
 	}
@@ -67,44 +71,42 @@
 		</SectionHeader.Root>
 
 		<RecorderCard />
+		<UnsavedRecordings />
 	</div>
 
 	<div class="w-full flex-3">
 		{#if latest}
 			<section class="mt-8 flex flex-col gap-2 border-t pt-5" aria-label="Latest recording" data-testid="latest-recording">
 				<div class="flex items-center gap-2 text-sm">
-					<h2 class="min-w-0 flex-1 truncate font-medium">{recordingTitle(latest)}</h2>
-					{#if latest.row.fields.capture === 'fixture'}<Badge variant="outline">Fixture</Badge>{/if}
-					<span class="shrink-0 text-xs text-muted-foreground max-sm:hidden">{formatTime(latest.row.fields.recordedAt, 'short')}</span>
+					<h2 class="min-w-0 flex-1 truncate font-medium">{titleOf(latest)}</h2>
+					{#if latest.capture === 'fixture'}<Badge variant="outline">Fixture</Badge>{/if}
+					{#if latest.where === 'device' && whispering.signedIn}<Badge variant="outline" data-testid="not-uploaded">Not uploaded yet</Badge>{/if}
+					<span class="shrink-0 text-xs text-muted-foreground max-sm:hidden">{formatTime(latest.recordedAt, 'short')}</span>
 				</div>
 
-				{#if transcript && progress && progress.kind !== 'answered'}
-					<ResultStatus
-						path={transcript.path}
-						result={progress}
-						audioAbsent={absent}
-						onDelete={() => void confirmDelete(whispering, transcript.path)}
-					/>
-				{:else if transcript}
+				{#if run && run.state.kind !== 'running'}
+					<RunStatus {run} />
+				{/if}
+				{#if transcript}
 					<div class="flex items-start gap-2 rounded-md border p-3 text-sm">
 						<p class="max-h-40 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap" data-testid="latest-transcript">
-							{transcript.row.body.trim() || '(empty transcript)'}
+							{transcript.body.trim() || '(empty transcript)'}
 						</p>
-						<Button size="xs" variant="outline" onclick={() => void copyText(transcript.row.body, 'the transcript')} data-testid="copy-latest">
+						<Button size="xs" variant="outline" onclick={() => void copyText(transcript.body, 'the transcript')} data-testid="copy-latest">
 							Copy
 						</Button>
 					</div>
 
 					<!-- Post-processing never starts by itself. The transcript above is not changed by it: a result is its own file. -->
 					{#if postProcessing.kind === 'ready'}
-						{@const chosen = whispering.resolve(postProcessing.entry.row)}
+						{@const chosen = whispering.resolve(postProcessing.entry)}
 						{@const name = transformationName(postProcessing.entry)}
 						<div class="flex flex-wrap items-center gap-2 text-sm">
 							<!-- The visible label stays short: a title can be longer than a narrow window. The name is in the accessible label and the tooltip. -->
 							<Button
 								size="sm"
 								variant="outline"
-								disabled={!transcript.row.body.trim() || postRunning}
+								disabled={!transcript.body.trim() || postRunning}
 								aria-label="Run post-processing: {name}"
 								tooltip={chosen.kind === 'ready' ? `Runs “${name}”: sends this transcript to ${chosen.model} at ${chosen.endpoint}` : undefined}
 								onclick={() => void runPostProcessing()}
@@ -118,27 +120,24 @@
 					{:else if postProcessing.kind !== 'none'}
 						<p class="text-sm break-words text-warning" role="status" data-testid="post-processing-unavailable">
 							{postProcessing.kind === 'missing'
-								? 'The transformation chosen for post-processing is no longer in the folder. Choose another beside the recorder.'
+								? 'The transformation chosen for post-processing is no longer listed. Choose another beside the recorder.'
 								: `“${transformationName(postProcessing.entry)}” cannot run: ${postProcessing.reason}`}
 						</p>
 					{/if}
+					{#each postRuns as postRun (postRun.key)}
+						<RunStatus run={postRun} />
+					{/each}
 					{#if outputs[0]}
-						<TransformationOutput
-							output={{ source: 'transcript', entry: outputs[0] }}
-							naming="transformation"
-							onOpenFile={(path) => void openFile(path)}
-						/>
+						<TransformationOutput output={{ source: 'transcript', note: outputs[0] }} naming="transformation" />
 						{#if outputs.length > 1}
 							<p class="text-xs text-muted-foreground">
 								{outputs.length - 1 === 1 ? '1 earlier result is' : `${outputs.length - 1} earlier results are`} on the recording’s page.
 							</p>
 						{/if}
 					{/if}
-				{:else if run?.kind === 'failed'}
-					<p class="text-sm text-destructive" role="alert" data-testid="transcription-error">{run.message}</p>
-				{:else if audioPath}
+				{:else if audio?.kind === 'here' && !(run && run.state.kind !== 'running')}
 					<p class="text-sm text-muted-foreground">
-						{#if run?.kind === 'running'}
+						{#if transcribing}
 							Transcribing…
 						{:else if model}
 							Not transcribed yet. Nothing is sent until you press Transcribe.
@@ -150,33 +149,28 @@
 
 				<!-- On a narrow window the player takes its own line, so its scrubber and duration stay visible. -->
 				<div class="flex flex-wrap items-center gap-2">
-					{#if absent}
-						<div class="flex-1 basis-full sm:basis-0"><AudioAbsent /></div>
-					{:else if audio?.kind === 'ambiguous'}
-						<p class="flex-1 text-sm text-destructive" role="alert">More than one audio file matches this recording. Open it to keep one matching file.</p>
-					{:else if audioPath}
+					{#if audio?.kind === 'here'}
 						<div class="min-w-0 flex-1 basis-full sm:basis-0">
-							<AudioPlayer
-								path={audioPath}
-								label="Audio of {recordingTitle(latest)}"
-							/>
+							{#key latest.id}
+								<AudioPlayer id={latest.id} file={audio.file} label="Audio of {titleOf(latest)}" />
+							{/key}
 						</div>
-					{:else}
-						<p class="flex-1 basis-full text-sm text-muted-foreground sm:basis-0">Checking this recording’s audio beside its Markdown file.</p>
+					{:else if audio}
+						<div class="flex-1 basis-full sm:basis-0"><AudioMissing {audio} /></div>
 					{/if}
 					{#if !transcript}
 						<Button
 							size="sm"
 							tooltip={model ? `Transcribes with ${model}` : undefined}
-							disabled={audioPath === undefined || whispering.capturePhase(audioPath) !== undefined || run?.kind === 'running'}
-							onclick={() => void whispering.transcribe(latest)}
+							disabled={audio?.kind !== 'here' || transcribing}
+							onclick={() => void transcribe(latest.id)}
 							data-testid="transcribe-latest"
 						>
-							{#if run?.kind === 'running'}<Spinner class="size-3.5" />{/if}
-							{run?.kind === 'failed' ? 'Try again' : 'Transcribe'}
+							{#if transcribing}<Spinner class="size-3.5" />{/if}
+							{run?.state.kind === 'failed' ? 'Try again' : 'Transcribe'}
 						</Button>
 					{/if}
-					<Button size="sm" variant="outline" onclick={() => void openFile(latest.path)} data-testid="open-latest">Open</Button>
+					<Button size="sm" variant="outline" onclick={() => void openRecording(latest.id)} data-testid="open-latest">Open</Button>
 				</div>
 			</section>
 		{/if}

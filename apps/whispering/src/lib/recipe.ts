@@ -1,7 +1,7 @@
 /**
  * What running a recipe would send, or why it cannot run.
  *
- * A recipe is a row in `transformations/`: a title and instructions, with an
+ * A recipe is a note in `transformations/`: a title and instructions, with an
  * optional model to use instead of the text connection's. Where the request
  * goes is always the text connection.
  *
@@ -13,11 +13,13 @@
  */
 
 import type { ConnectionInfo } from './connections.js';
-import type { TransformationFields } from './definition.js';
 
-/** A recipe as a row: listed, or as typed. Undefined when its file does not read as one. */
+/** A recipe as a note: listed, or as typed. Undefined when its file does not read as one. */
 export type RecipeRow = {
-	readonly fields: TransformationFields;
+	readonly title: string;
+	/** A chat model to use instead of the text connection's; `null` or blank uses the connection's. */
+	readonly model: string | null;
+	/** The instructions. */
 	readonly body: string;
 };
 
@@ -45,9 +47,9 @@ function given(value: string | null | undefined): string | undefined {
 
 /** The model a recipe names for itself, or undefined when it uses the connection's. */
 export function recipeModel(
-	fields: Readonly<TransformationFields>,
+	recipe: Pick<RecipeRow, 'model'>,
 ): string | undefined {
-	return given(fields.model);
+	return given(recipe.model);
 }
 
 /**
@@ -85,7 +87,7 @@ export function resolveRecipe(
 			fix: 'connection',
 			reason: 'Set up the text connection in Settings to run this.',
 		};
-	const model = recipeModel(recipe.fields) ?? given(text.model);
+	const model = recipeModel(recipe) ?? given(text.model);
 	if (model === undefined)
 		return {
 			kind: 'blocked',
@@ -94,9 +96,35 @@ export function resolveRecipe(
 		};
 	return {
 		kind: 'ready',
-		title: recipe.fields.title,
+		title: recipe.title,
 		prompt: recipe.body,
 		model,
 		endpoint: text.baseUrl,
 	};
 }
+
+/**
+ * Prompts offered as explicit "create" buttons. Nothing is written until one
+ * is pressed, and the file it creates is an ordinary
+ * transformation the person can edit or delete.
+ */
+export const STARTER_TRANSFORMATIONS: readonly {
+	readonly title: string;
+	readonly prompt: string;
+}[] = [
+	{
+		title: 'Clean up',
+		prompt:
+			'You clean up dictated text. Fix punctuation, capitalization, and obvious transcription mistakes. Remove filler words and false starts. Keep the speaker’s wording and meaning. Answer with the cleaned text only.\n',
+	},
+	{
+		title: 'Summarize',
+		prompt:
+			'You summarize transcripts. Write a short summary of the main points as a bulleted list, then list any action items. Use only what the transcript says. Answer with the summary only.\n',
+	},
+	{
+		title: 'Draft an email',
+		prompt:
+			'You turn dictated notes into an email. Write a clear, polite email with a subject line, a greeting, short paragraphs, and a sign-off. Do not invent facts that are not in the notes. Answer with the email only.\n',
+	},
+];

@@ -5,9 +5,7 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import { basename } from '@epicenter/folder/file-browser';
 	import { getWhispering } from '$lib/whispering.svelte.js';
-	import FileView from '../components/FileView.svelte';
 	import RecordingDetail from '../components/RecordingDetail.svelte';
 	import RecordingList from '../components/RecordingList.svelte';
 
@@ -19,17 +17,17 @@
 	 * table on a wide window, where the table keeps its search, order, and
 	 * ticks in view, and in place of it below this width. Closing the details
 	 * gives the whole width back to the table and changes nothing else: the
-	 * recording stays selected, and everything typed is already in its file.
+	 * recording stays selected, and everything typed is already in its note.
 	 */
 	const wide = new MediaQuery('(min-width: 768px)');
 
 	/** Close the details and put focus back on the row they were opened from. */
 	async function close() {
-		const path = whispering.selectedPath;
+		const id = whispering.selectedId;
 		view.showingDetail = false;
 		await tick();
-		if (path !== undefined)
-			document.querySelector<HTMLElement>(`[data-recording="${CSS.escape(path)}"]`)?.focus();
+		if (id !== undefined)
+			document.querySelector<HTMLElement>(`[data-recording="${CSS.escape(id)}"]`)?.focus();
 	}
 </script>
 
@@ -37,22 +35,18 @@
 
 {#snippet detail(onBack: (() => void) | undefined, onClose: (() => void) | undefined)}
 	{@const selection = whispering.selection}
-	{#if selection?.kind === 'recording'}
-		{#key selection.path}
-			<RecordingDetail path={selection.path} entry={selection.entry} {onBack} {onClose} />
-		{/key}
-	{:else if selection?.kind === 'file'}
-		{#key selection.path}
-			<FileView path={selection.path} onBack={onBack ?? onClose} />
+	{#if selection && (selection.note || selection.repair)}
+		{#key selection.id}
+			<RecordingDetail id={selection.id} note={selection.note} repair={selection.repair} {onBack} {onClose} />
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">
-			{#if whispering.selectedPath !== undefined}
-				<Empty.Title>{basename(whispering.selectedPath)} is no longer in the folder</Empty.Title>
-				<Empty.Description>It was renamed or deleted outside this window.</Empty.Description>
+			{#if selection !== undefined && !whispering.listing}
+				<Empty.Title>This recording is no longer listed</Empty.Title>
+				<Empty.Description>It was deleted, here or elsewhere.</Empty.Description>
 			{:else}
 				<Empty.Title>Select a recording</Empty.Title>
-				<Empty.Description>Its audio, transcripts, transformation results, notes, and source open here. Any other file opens from Files.</Empty.Description>
+				<Empty.Description>Its audio, transcripts, transformation results, and notes open here.</Empty.Description>
 			{/if}
 			{#if onBack ?? onClose}
 				<Button variant="outline" size="sm" onclick={onBack ?? onClose}><ArrowLeftIcon /> Back to recordings</Button>

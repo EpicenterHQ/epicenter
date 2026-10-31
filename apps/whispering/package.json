@@ -11,9 +11,9 @@
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
-		"test": "bun test --isolate --path-ignore-patterns='src/routes/**' --path-ignore-patterns='**/*.postgres.test.ts' && bun run test:mounted",
-		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte src/routes",
+		"test": "bun test --isolate --conditions=browser --conditions=svelte --path-ignore-patterns='**/*.postgres.test.ts' src",
 		"test:postgres": "bun test --isolate ./src/lib/platform/web-sign-in.postgres.test.ts",
+		"test:e2e": "playwright test -c playwright.config.ts",
 		"build": "NODE_ENV=production vite build",
 		"check": "bun run typecheck",
 		"contract": "bun scripts/write-contract.ts",
@@ -31,10 +31,8 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"@types/bun": "catalog:",
-		"@types/jsdom": "21.1.7",
-		"fake-indexeddb": "^6.2.6",
-		"jsdom": "26.1.0",
 		"mode-watcher": "catalog:",
+		"playwright": "^1.61.1",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"svelte-sonner": "catalog:",
@@ -51,8 +49,6 @@
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
-		"typebox": "catalog:",
-		"nanoid": "catalog:",
 		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	}

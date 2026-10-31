@@ -14,7 +14,8 @@
 					"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
 				},
 				"durationMs": {
-					"type": "number"
+					"type": "number",
+					"minimum": 0
 				},
 				"capture": {
 					"enum": ["microphone", "fixture"]

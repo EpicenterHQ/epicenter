@@ -135,6 +135,29 @@ async function sha256(bytes: Uint8Array) {
 const stampOf = (file: File) => `${file.size}:${file.lastModified}`;
 
 /**
+ * Whether reading `name` in `directory` failed because the entry went
+ * meanwhile: this device's own writes move and delete files while a listing
+ * or a read runs. Chromium says `NotFoundError`; WebKit says
+ * `NotReadableError` for a file removed during its read, so that one counts
+ * only when the entry is in fact gone.
+ */
+async function went(
+	cause: unknown,
+	directory: FileSystemDirectoryHandle,
+	name: string,
+) {
+	if (isMissing(cause)) return true;
+	if (!(cause instanceof DOMException) || cause.name !== 'NotReadableError')
+		return false;
+	try {
+		await directory.getFileHandle(name);
+		return false;
+	} catch (missing) {
+		return isMissing(missing);
+	}
+}
+
+/**
  * Every file, with its stamp. Writes run beside a listing, so an entry can
  * go between being named and being read (the uploader deletes what it sent
  * while the page lists): it is skipped, as a listing a moment later would
@@ -150,17 +173,17 @@ async function list() {
 					await walk(handle as FileSystemDirectoryHandle, `${path}/`);
 					continue;
 				}
-				let file: File;
 				try {
-					file = await (handle as FileSystemFileHandle).getFile();
+					files.push({
+						path,
+						stamp: stampOf(await (handle as FileSystemFileHandle).getFile()),
+					});
 				} catch (cause) {
-					if (isMissing(cause)) continue;
-					throw cause;
+					if (!(await went(cause, directory, name))) throw cause;
 				}
-				files.push({ path, stamp: stampOf(file) });
 			}
 		} catch (cause) {
-			// The directory itself went while it was walked: nothing below it is there now.
+			// The directory itself went (its last file moved or was deleted).
 			if (!isMissing(cause)) throw cause;
 		}
 	}
@@ -168,11 +191,19 @@ async function list() {
 	return files.filter(({ path }) => !path.startsWith(`${STAGING.join('/')}/`));
 }
 
+/** The file at `path`, or null when it is not there, deleted mid-read included. */
 async function read(path: string) {
 	const found = await fileAt(path);
 	if (found === null) return null;
-	const file = await found.handle.getFile();
-	const bytes = new Uint8Array(await file.arrayBuffer());
+	let file: File;
+	let bytes: Uint8Array;
+	try {
+		file = await found.handle.getFile();
+		bytes = new Uint8Array(await file.arrayBuffer());
+	} catch (cause) {
+		if (await went(cause, found.parent, found.name)) return null;
+		throw cause;
+	}
 	return { bytes, version: await sha256(bytes), stamp: stampOf(file) };
 }
 

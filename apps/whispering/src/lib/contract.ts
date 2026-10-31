@@ -1,20 +1,33 @@
 /**
- * Whispering's contract: the folder layout its tables already write, stated
- * as plain data any program can check (`epicenter check <url>/contract.json
- * <dir>`). Each table is a note collection at `<table>/{id}.md` whose fields
- * are the table's own schema (`definition.ts`; `contract.test.ts` fails when
- * they differ), and a recording's audio is the file beside its note, with
- * whatever extension its bytes call for (`webm` or `m4a` from a browser,
- * `wav` from the desktop).
+ * Whispering's contract: what its files are, as plain data any program can
+ * check (`epicenter check <url>/contract.json <dir>`).
  *
- * Its name makes the repository `<account>/whispering` (one repository per
- * app). Nothing opens it yet: the app still reads and writes through the
- * table API. It is published, unchanged, as `static/contract.json`
- * (`bun run contract` writes it).
+ * - A recording is a note at `recordings/{id}.md` (its title, when it was
+ *   recorded, how long it is, and what it was captured from; notes in the
+ *   body) beside its audio at `recordings/{id}.{ext}`: `m4a` or `webm` from a
+ *   browser, `wav` from the desktop.
+ * - A transcription is a note naming its recording, the transcript as body.
+ * - A transformation is a reusable title and instructions (the body), with an
+ *   optional model of its own (`null` uses the text connection's).
+ * - Applying one writes a result: on a transcript in `transformation_runs/`,
+ *   on pasted text in `text_runs/`. Each keeps the prompt and input it sent,
+ *   with the answer as its body, so it reads the same after anything it came
+ *   from changes or goes.
+ *
+ * A file's id is its identity: renaming a recording changes its title, never
+ * its path, so a result's `recordingId` never breaks.
+ *
+ * Whispering keeps no settings in its files: its connections (where requests
+ * go, and their keys) and the chosen microphone belong to a device, so they
+ * stay in the browser.
+ *
+ * Its name makes the repository `<account>/whispering` (decision 46). It is
+ * published, unchanged, as `static/contract.json` (`bun run contract` writes
+ * it).
  */
 import { defineContract } from '@epicenter/definition/contract';
 
-/** An instant as the table API writes it: UTC, to the millisecond. */
+/** An instant in UTC, to the millisecond, as `Date.prototype.toISOString` writes it. */
 const instant = {
 	type: 'string',
 	format: 'date-time',
@@ -31,7 +44,7 @@ export const whispering = defineContract({
 			fields: {
 				title: { type: 'string' },
 				recordedAt: instant,
-				durationMs: { type: 'number' },
+				durationMs: { type: 'number', minimum: 0 },
 				capture: { enum: ['microphone', 'fixture'] },
 			},
 			required: ['title', 'recordedAt', 'capture'],

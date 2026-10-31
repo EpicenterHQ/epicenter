@@ -1,28 +1,51 @@
 /**
- * The plain-language status line the header shows: whether what the person
- * did is in the folder on this device.
- *
- * The folder keeps no versions and does not sync here, so the line reports
- * saving alone: a save running, or an answer whose file could not be
- * written. A save that fails is its own notice, with the text to copy.
+ * The plain-language status line the header shows: where the person's files
+ * are. Signed out, everything is in this browser. Signed in, what this
+ * browser made uploads to the repository on its own, so the line says how
+ * much is still waiting, or that the repository cannot be reached. An
+ * answer whose result could not be kept outranks all of these.
  */
 import type { StatusLine } from '@epicenter/svelte/status-line';
-import { saveLine } from '@epicenter/svelte/status-line';
 
-/** What is saved to files: saves running, and answers whose write failed. */
 export function headerStatus(state: {
-	readonly saving: boolean;
-	/** Answers that arrived and whose result file could not be written. */
+	/** Answers that arrived and whose result note could not be created. */
 	readonly unwrittenAnswers: number;
+	/** Whether someone is signed in, so a repository is open. */
+	readonly signedIn: boolean;
+	/** Notes and recordings still on this device, not uploaded yet. */
+	readonly waiting: number;
+	/** Why the repository cannot be listed now, if it cannot. */
+	readonly repositoryProblem: string | undefined;
 }): StatusLine {
-	const unwritten = state.unwrittenAnswers;
+	const { unwrittenAnswers: unwritten, waiting } = state;
 	if (unwritten > 0)
 		return {
-			label: `${unwritten} ${unwritten === 1 ? 'answer' : 'answers'} not written yet`,
-			short: 'Answer not written',
+			label: `${unwritten} ${unwritten === 1 ? 'answer' : 'answers'} not saved yet`,
+			short: 'Answer not saved',
 			detail:
-				'The answer is kept in this window: open its result to save it again or copy it. If the window closes first, its file stays without the answer, and you can run it again.',
+				'The answer is kept in this window: open its result to save it again or copy it. If the window closes first, it is lost, and you can run it again.',
 			tone: 'error',
 		};
-	return saveLine(state.saving);
+	if (!state.signedIn)
+		return {
+			label: 'In this browser',
+			detail:
+				'Your recordings are kept in this browser. Sign in to keep them in your Epicenter repository; what is here uploads then.',
+			tone: 'neutral',
+		};
+	if (state.repositoryProblem !== undefined)
+		return {
+			label: 'Repository unreachable',
+			short: 'Offline',
+			detail: `Your repository cannot be reached: ${state.repositoryProblem}. What you make is kept in this browser and uploads when it can.`,
+			tone: 'warning',
+		};
+	if (waiting > 0)
+		return {
+			label: `${waiting} not uploaded yet`,
+			short: 'Uploading',
+			detail: 'Kept in this browser until it reaches your repository.',
+			tone: 'busy',
+		};
+	return { label: 'In your repository', tone: 'good' };
 }

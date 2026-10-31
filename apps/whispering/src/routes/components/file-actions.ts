@@ -1,24 +1,14 @@
 /**
- * Actions the screens share: copy a path or some text, open a file, delete
- * with a confirmation that names what will be removed.
+ * Actions the screens share: copy some text, show a time, delete with a
+ * confirmation that names what will be removed.
  */
 
-import { basename } from '@epicenter/folder/file-browser';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
-import { describeDeletion } from '$lib/deletion.js';
+import { describeDeletion, type NoteRef, notePath } from '$lib/deletion.js';
 import type { Whispering } from '$lib/whispering.svelte.js';
 
-export { recordingTitle } from '$lib/deletion.js';
-
-export async function copyPath(path: string) {
-	try {
-		await navigator.clipboard.writeText(path);
-		toast.success(`Copied ${path}`);
-	} catch {
-		toast.error('Could not copy the path', { description: path });
-	}
-}
+export { titleOf } from '$lib/deletion.js';
 
 /** Copy text the person asked for. `what` names it: "the transcript". */
 export async function copyText(text: string, what: string) {
@@ -44,15 +34,14 @@ export function formatTime(value: unknown, style: 'short' | 'full' = 'full') {
 }
 
 /**
- * Ask before deleting `path`. What the dialog names is read first, and the
+ * Ask before deleting `note`. What the dialog names is read first, and the
  * deletion deletes those files, whatever they hold by then (ADR-0576).
  */
-export async function confirmDelete(whispering: Whispering, path: string) {
-	const { data: deletion, error: refusal } = await whispering.deletionFor(path);
+export function confirmDelete(whispering: Whispering, note: NoteRef) {
+	const name = notePath(note);
+	const { data: deletion, error: refusal } = whispering.deletionFor(note);
 	if (refusal !== null) {
-		toast.error(`Could not delete ${basename(path)}`, {
-			description: refusal,
-		});
+		toast.error(`Could not delete ${name}`, { description: refusal });
 		return;
 	}
 	confirmationDialog.open({
@@ -61,9 +50,7 @@ export async function confirmDelete(whispering: Whispering, path: string) {
 		async onConfirm() {
 			const problem = await whispering.delete(deletion);
 			if (problem)
-				toast.error(`Could not delete ${basename(path)}`, {
-					description: problem,
-				});
+				toast.error(`Could not delete ${name}`, { description: problem });
 		},
 	});
 }

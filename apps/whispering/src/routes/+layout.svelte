@@ -3,19 +3,17 @@
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { ModeWatcher } from 'mode-watcher';
-	import OpenFolder from '@epicenter/svelte/open-folder';
-	import { openFolder } from '@epicenter/folder';
-	import { whisperingTables } from '$lib/definition.js';
 	import { page } from '$app/state';
-	import WhisperingApp from './components/WhisperingApp.svelte';
+	import WhisperingRoot from './components/WhisperingRoot.svelte';
 	import '@epicenter/ui/app.css';
 	// Whispering's brand overrides, layered after the shared theme so they win.
 	import '../app.css';
 
 	let props = $props();
 
-	// OpenFolder opens once for this layout and closes after WhisperingApp stops;
-	// route changes render inside.
+	// The root opens this browser's files once for the layout; route changes
+	// render inside. The sign-in callback opens nothing: it finishes sign-in
+	// and loads the page it started from.
 </script>
 
 <svelte:head><title>Whispering</title></svelte:head>
@@ -24,13 +22,9 @@
 	{#if page.route.id === '/auth/callback'}
 		{@render props.children?.()}
 	{:else}
-	<OpenFolder open={() => openFolder({ tables: whisperingTables })}>
-		{#snippet children(folder)}
-			<WhisperingApp {folder}>
-				{@render props.children?.()}
-			</WhisperingApp>
-		{/snippet}
-	</OpenFolder>
+		<WhisperingRoot>
+			{@render props.children?.()}
+		</WhisperingRoot>
 	{/if}
 </Tooltip.Provider>
 

@@ -36,10 +36,11 @@
 	} from '$lib/recording-collection.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { copyText, formatTime } from './file-actions.js';
+	import NoteRepair from './NoteRepair.svelte';
 
 	/**
-	 * Every recording in the folder as one table: search, sort, tick, and act
-	 * on several. The search text, the order, and the ticks are the app's,
+	 * Every recording as one table, from this browser and the repository:
+	 * search, sort, tick, and act on several. The search text, the order, and the ticks are the app's,
 	 * so they are as they were after a visit to another page. Activating a row
 	 * opens that recording's details; ticking one does not.
 	 */
@@ -54,7 +55,7 @@
 	const rows = $derived(shownRows(whispering, view.recordingQuery, view.recordingSort));
 	const hidden = $derived(whispering.entries.length - rows.length);
 	const selection = $derived(selectionIn(view.recordingSelected, rows, whispering));
-	const selectedPaths = $derived(new Set(selection.rows.map((row) => row.path)));
+	const selectedIds = $derived(new Set(selection.rows.map((row) => row.id)));
 	const allSelected = $derived(rows.length > 0 && selection.rows.length === rows.length);
 	const busy = $derived(view.recordingBulk !== undefined);
 
@@ -98,7 +99,6 @@
 
 	const statusTone: Record<RecordingStatus, string> = {
 		failed: 'text-destructive',
-		unfinished: 'text-warning',
 		transcribing: 'text-foreground',
 		untranscribed: 'text-muted-foreground',
 		transcribed: 'text-muted-foreground',
@@ -111,8 +111,8 @@
 		return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 	}
 
-	function openRow(path: string) {
-		if (whispering.open(path)) onOpen();
+	function openRow(id: string) {
+		if (whispering.openRecording(id)) onOpen();
 	}
 
 	const several = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -139,11 +139,11 @@
 	/** Sent only by this press: one request for each selected recording that has no transcript, one at a time. */
 	async function transcribeSelected() {
 		if (busy) return;
-		const paths = selection.rows.map((row) => row.path);
-		view.recordingBulk = { label: 'Transcribing', done: 0, total: paths.length };
+		const ids = selection.rows.map((row) => row.id);
+		view.recordingBulk = { label: 'Transcribing', done: 0, total: ids.length };
 		try {
-			const outcome = await transcribeRows(whispering, paths, (done) => {
-				view.recordingBulk = { label: 'Transcribing', done, total: paths.length };
+			const outcome = await transcribeRows(whispering, ids, (done) => {
+				view.recordingBulk = { label: 'Transcribing', done, total: ids.length };
 			});
 			const summary = [
 				several(outcome.transcribed.length, 'recording transcribed', 'recordings transcribed'),
@@ -164,7 +164,7 @@
 		if (busy) return;
 		const captured = await captureDeletions(
 			whispering,
-			selection.rows.map((row) => row.path),
+			selection.rows.map((row) => row.id),
 		);
 		if (captured.deletions.length === 0) {
 			toast.error('None of the selected recordings can be deleted now', { description: reasons(captured.refused) });
@@ -196,7 +196,7 @@
 			<SectionHeader.Root class="min-w-0 flex-1">
 				<SectionHeader.Title level={1} class="text-lg">Recordings</SectionHeader.Title>
 				<SectionHeader.Description class="text-xs">
-					{several(whispering.entries.length, 'recording', 'recordings')} in the folder{#if hidden > 0}, {hidden} hidden by the search{/if}
+					{several(whispering.entries.length, 'recording', 'recordings')}{#if hidden > 0}, {hidden} hidden by the search{/if}
 				</SectionHeader.Description>
 			</SectionHeader.Root>
 			<Select.Root
@@ -316,27 +316,29 @@
 					</Table.Row>
 				</Table.Header>
 				<Table.Body>
-					{#each rows as row (row.path)}
-						{@const open = view.showingDetail && whispering.selectedPath === row.path}
+					{#each rows as row (row.id)}
+						{@const open = view.showingDetail && whispering.selectedId === row.id}
 						{@const excerpt = transcriptExcerpt(row, view.recordingQuery)}
-						{@const recorded = formatTime(row.entry.row.fields.recordedAt, 'short')}
-						{@const duration = length(row.entry.row.fields.durationMs)}
+						{@const recorded = formatTime(row.note.recordedAt, 'short')}
+						{@const duration = length(row.note.durationMs)}
 						<!--
 							The title is the row's button, so the keyboard reaches and opens a row the usual way.
 							A click anywhere else on the row opens it too, except in the tick's own cell.
 						-->
 						<Table.Row
 							class="cursor-pointer"
-							data-state={selectedPaths.has(row.path) ? 'selected' : undefined}
+							data-state={selectedIds.has(row.id) ? 'selected' : undefined}
 							aria-current={open ? 'true' : undefined}
-							onclick={() => void openRow(row.path)}
+							onclick={() => void openRow(row.id)}
 							data-testid="recording-row"
+							data-id={row.id}
+							data-where={row.note.where}
 						>
 							<Table.Cell class="ps-3 sm:ps-4" onclick={(event) => event.stopPropagation()}>
 								<Checkbox
-									checked={selectedPaths.has(row.path)}
+									checked={selectedIds.has(row.id)}
 									onCheckedChange={(checked) =>
-										(view.recordingSelected = toggleSelected(view.recordingSelected, row.path, checked === true, whispering))}
+										(view.recordingSelected = toggleSelected(view.recordingSelected, row.id, checked === true, whispering))}
 									aria-label="Select {row.title}"
 								/>
 							</Table.Cell>
@@ -346,16 +348,17 @@
 										<button
 											type="button"
 											class="min-w-0 truncate rounded-sm text-left font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50 {open ? 'underline underline-offset-4' : ''}"
-											data-recording={row.path}
+											data-recording={row.id}
 											onclick={(event) => {
 												event.stopPropagation();
-												void openRow(row.path);
+												void openRow(row.id);
 											}}
 										>
 											{row.title}
 										</button>
-										{#if row.entry.row.fields.capture === 'fixture'}<Badge variant="outline" class="shrink-0">Fixture</Badge>{/if}
-										{#if row.audio.kind === 'absent'}<Badge variant="outline" class="shrink-0" data-testid="row-audio-absent">Audio not on this device</Badge>{/if}
+										{#if row.note.capture === 'fixture'}<Badge variant="outline" class="shrink-0">Fixture</Badge>{/if}
+										{#if row.note.where === 'device' && whispering.signedIn}<Badge variant="outline" class="shrink-0" data-testid="row-not-uploaded">Not uploaded yet</Badge>{/if}
+										{#if row.audio.kind === 'absent'}<Badge variant="outline" class="shrink-0" data-testid="row-audio-absent">No audio</Badge>{/if}
 										{#if row.audio.kind === 'ambiguous'}<Badge variant="outline" class="shrink-0">Multiple audio files</Badge>{/if}
 									</span>
 									{#if excerpt !== undefined}
@@ -395,8 +398,7 @@
 						{#if searching}
 							Nothing has “{view.recordingQuery.trim()}” in its title, notes, or transcripts.
 						{:else}
-							Record from <Link href={resolve('/')}>Home</Link>, or add
-							<code class="font-mono">recordings/&lt;id&gt;.md</code> to the folder.
+							Record from <Link href={resolve('/')}>Home</Link>.
 						{/if}
 					</Empty.Description>
 				</Empty.Header>
@@ -405,18 +407,13 @@
 	</div>
 
 	{#if whispering.repairs.length > 0}
-		<div class="border-t bg-warning/10 px-3 py-2 text-xs" data-testid="recording-repairs">
-			<p class="font-medium">Needs repair</p>
-			<ul class="mt-1 space-y-0.5">
-				{#each whispering.repairs as item (item.path)}
-					<li>
-						<button type="button" class="font-mono underline" onclick={() => void openRow(item.path)}>{item.path}</button>: {item.reason}
-						{#if item.unreadable}
-							<Button size="xs" variant="outline" class="ml-1" onclick={() => whispering.refresh()}>Try again</Button>
-						{/if}
-					</li>
+		<div class="max-h-[50%] overflow-y-auto border-t bg-warning/10 px-3 py-2 text-xs" data-testid="recording-repairs">
+			<p class="mb-2 font-medium">Needs repair</p>
+			<div class="flex flex-col gap-4">
+				{#each whispering.repairs as repair (repair.path)}
+					<NoteRepair {repair} />
 				{/each}
-			</ul>
+			</div>
 		</div>
 	{/if}
 </section>

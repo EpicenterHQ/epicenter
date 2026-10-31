@@ -1,17 +1,15 @@
 /**
- * The small pure pieces the workflow rests on: audio file facts, recording
- * ids, and the transcription request.
+ * The small pure pieces the workflow rests on: audio file facts and the
+ * transcription request.
  */
+
+import { expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import '../../../../packages/svelte/src/svelte-modules.test-support.js';
-import { expect, test } from 'bun:test';
 import { audioMimeTypeOf, wavDurationMs } from './audio-format.js';
 import { toneWav } from './capture.js';
 import type { StoredConnection } from './connections.js';
 import { transcribeOverConnection } from './transcription.js';
-
-const { recordingId } = await import('./whispering.svelte.js');
 
 test('a file’s extension names its playback type, ignoring case', () => {
 	expect(audioMimeTypeOf('recordings/a.M4A')).toBe('audio/mp4');
@@ -28,11 +26,6 @@ test('a WAV reports its own length', () => {
 	expect(wavDurationMs(new Uint8Array(64))).toBeUndefined();
 });
 
-test('recording ids encode capture time', () => {
-	const id = recordingId(new Date('2026-01-02T03:04:05.678Z'));
-	expect(id).toMatch(/^20260102-030405-[0-9a-z]{4}$/);
-});
-
 const KEY = 'sk-transcription-key';
 const audio = { bytes: toneWav(), filename: 'a.wav', mimeType: 'audio/wav' };
 
@@ -46,8 +39,7 @@ const transcribe = (
 ) =>
 	transcribeOverConnection(
 		async () => stored,
-		{ audioPath: 'recordings/a.wav', expectedBaseUrl: stored.baseUrl, model },
-		async () => Ok(audio),
+		{ audio: async () => Ok(audio), expectedBaseUrl: stored.baseUrl, model },
 		send,
 	);
 

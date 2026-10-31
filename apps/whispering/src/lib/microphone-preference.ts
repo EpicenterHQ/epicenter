@@ -1,14 +1,12 @@
 /**
  * The chosen microphone, kept in this origin's `localStorage`.
  *
- * It names hardware on one device, so it is neither folder data nor a
- * secret, and it is never written to the folder. A browser tab and Epicenter
- * both keep it here: Epicenter serves every app from one fixed loopback
- * origin, so the choice lasts from launch to launch.
+ * It names hardware on one device, so it is neither Whispering's data nor
+ * a secret, and it is never written to Whispering's files.
  */
 import type { MicrophonePreference } from './capture.js';
 
-/** The device's saved microphone choice, independent of folder and capture state. */
+/** The device's saved microphone choice, independent of files and capture state. */
 export type MicrophonePreferences = {
 	/** The saved microphone, or undefined for the system default. Rejects if storage cannot be read. */
 	microphone(): Promise<MicrophonePreference | undefined>;

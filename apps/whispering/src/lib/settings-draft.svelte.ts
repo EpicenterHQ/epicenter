@@ -1,8 +1,8 @@
 /**
  * The one draft of the connection settings: for transcription and for text,
  * a base URL, a default model, and what to do with the key. All of it stays
- * on this device; none of it is written to the folder, so it is not a file
- * edited through a folder draft. It is a form being composed: `$state`
+ * on this device; none of it is written to Whispering's files, so it is not
+ * a note edited in place. It is a form being composed: `$state`
  * until its explicit Save. Departure does not wait for the connection request.
  *
  * The product owns it, so the form is the same draft wherever it is shown:
@@ -156,7 +156,7 @@ export function createSettingsDraft(
 			},
 			/**
 			 * Save this connection on the device. Nothing is sent to the endpoint
-			 * and nothing is written to the folder. Input typed while the save is
+			 * and nothing is written to Whispering's files. Input typed while the save is
 			 * under way stays in the form for its next explicit save.
 			 */
 			async save(): Promise<SettingsSaveProblem | undefined> {

@@ -1,57 +1,65 @@
 # @epicenter/recorder
 
-Recordings written into a folder, microphone streams, device vocabulary, and
-voice activity detection.
+Recordings, microphone streams, device vocabulary, and voice activity
+detection.
 
-## Recording into a folder
+## Recording
 
-A recording is a file in its folder
-([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
-Each build imports the entry for where it runs; nothing chooses at run
-time, so the type checker, tests, and every bundler resolve each specifier to
-the same file:
+Each build imports the entry for where it runs; nothing chooses at run time,
+so the type checker, tests, and every bundler resolve each specifier to the
+same file:
 
 ```txt
-@epicenter/recorder           the recording contract: types and RecorderError, no implementation
-  /tauri    → tauri-plugin-epicenter-recorder: the shell writes <path>.wav from the first sample
-  /browser  → MediaRecorder in memory, written to the folder on stop; streams and VAD
+@epicenter/recorder           the shared vocabulary: types and RecorderError, no implementation
+  /tauri    → tauri-plugin-epicenter-recorder: the shell writes <path>.wav into its folder from the first sample
+  /browser  → MediaRecorder in memory; stop answers the audio; streams and VAD
   /vad-assets → the VAD runtime files, for a build's static copy
 ```
 
-An app that runs in both picks the entry through its own build-time seam
-(Whispering's `#platform/services`), and its shared code names only the bare
-contract.
+In a browser, `stop` answers the audio itself, and the app keeps it where it
+keeps files (for a contract app, its device client and outbox):
 
 ```ts
-import { recoverRecordings, startRecording } from '@epicenter/recorder/browser'; // or /tauri
+import { startRecording } from '@epicenter/recorder/browser';
 
-await recoverRecordings({ under: 'recordings' });
 const { data: recording, error } = await startRecording({
-	folder: { write: opened.files.write },
-	path: 'recordings/2026-10-15-0930',
 	input: { deviceId, label }, // optional; undefined is the system default
 });
 const unsubscribe = recording.onLevel((level) => meter.set(level));
+const { data: audio } = await recording.stop();
+// { bytes, extension: 'm4a' | 'webm', mimeType, durationMs }
+```
+
+A browser asks for AAC in MP4 first (`audio/mp4;codecs=mp4a.40.2`, saved as
+`.m4a`), then Opus in WebM (`.webm`), and names the file by the type it
+actually produced. `browserEnvironment()` is the browser's own microphone,
+encoder, audio graph and clock; `createBrowserRecorder(environment)` records
+over another, such as a generated tone in place of the microphone.
+
+On the desktop the shell records into the folder it bound to the recording
+window ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
+
+```ts
+import { recoverRecordings, startRecording } from '@epicenter/recorder/tauri';
+
+await recoverRecordings({ under: 'recordings' });
+const { data: recording } = await startRecording({ path: 'recordings/2026-10-15-0930' });
 const { data: stopped } = await recording.stop(); // { path, durationMs }
 ```
 
 `onEnded` reports the first unexpected ending, including one received before
 subscription. Stop still claims what was captured and retires the listeners.
-Nothing deletes a recording. In a browser, final encoder output is collected even if the browser
-already stopped after its microphone tracks ended.
-
-`folder` supplies `write(path, bytes)`, which publishes the complete recording.
-A handle from `@epicenter/folder` supplies it. On the desktop the shell records into
-the folder it bound to the recording window, and no call names a folder.
+Nothing deletes a recording. In a browser, final encoder output is collected
+even if the browser already stopped after its microphone tracks ended.
 
 | | Desktop | Browser |
 | --- | --- | --- |
-| `recording.path` | `<path>.wav`, already in the folder | `<path>.webm`, or `.mp4` or `.ogg` where the browser records those, written on stop |
+| Where the audio goes | `<path>.wav`, in the folder from the first sample | Answered by `stop`, for the app to keep |
+| Format | WAV | AAC in MP4 (`m4a`), else Opus in WebM (`webm`) |
 | Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
-| `stop` | Finalizes the WAV | Publishes the file with `write(path, bytes)` |
-| `signal` aborted after the microphone opened | Stopped: the WAV is finalized and kept | Released; nothing was written |
+| `signal` aborted after the microphone opened | Stopped: the WAV is finalized and kept | Released; nothing was kept |
 | Quit, crash, closed window | Audio kept up to the cut | Lost |
-| `recoverRecordings` | Rewrites the header of any WAV a quit cut off | Answers `[]` |
+| `recoverRecordings` | Rewrites the header of any WAV a quit cut off | None |
 
 A chosen microphone that is not connected is refused as `InputUnavailable`
 on both; no other microphone is opened in its place. Every failure is a

@@ -1,15 +1,17 @@
 /**
- * The recording contract both hosts implement (ADR-0543).
+ * The recording vocabulary both hosts share (ADR-0543).
  *
- * A recording is a file in its folder. On the desktop the shell's recorder
+ * On the desktop a recording is a file in its folder: the shell's recorder
  * creates `<path>.wav` when the recording starts and appends to it as it
  * captures, so a quit or a crash keeps the audio up to the cut, and
- * `recoverRecordings` repairs its header the next time the folder opens. In a
- * browser the page records in memory and writes `<path>.<extension>` on stop,
- * so a refresh loses the recording in progress.
+ * `recoverRecordings` repairs its header the next time the folder opens
+ * (`StartRecording`, `Recording`). In a browser the page records in memory
+ * and `stop` answers the audio itself, for the app to keep where it keeps
+ * files (`@epicenter/recorder/browser`); a refresh loses the recording in
+ * progress.
  *
  * Nothing here says whether a recording is running. That is the live handle
- * `startRecording` returns; it ends with the page.
+ * a start returns; it ends with the page.
  *
  * This is the package's bare entry, the same file for every build: shared
  * code names these types and errors, and a build reaches an implementation
@@ -17,19 +19,6 @@
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-
-/**
- * The folder a recording is written into, by the write a browser writes
- * through: a handle's `files.write`, the folder's one write, which places a
- * recording as a whole-file publication. On the desktop the shell writes into
- * the folder it bound to the recording window, which no page names.
- */
-export type RecordingFolder = {
-	write(
-		path: string,
-		to: Uint8Array,
-	): Promise<Result<unknown, { readonly message: string }>>;
-};
 
 /** A microphone the person chose, asked for by its ID. */
 export type RecordingInput = {
@@ -39,18 +28,22 @@ export type RecordingInput = {
 	readonly label: string;
 };
 
-export type StartRecordingOptions = {
-	readonly folder: RecordingFolder;
-	/** Folder-relative, without an extension, such as `recordings/2026-10-15-0930`. */
-	readonly path: string;
+/** What every start takes: which microphone, and a way to withdraw. */
+export type RecordingStart = {
 	/** Undefined is the system default. A chosen input that is not connected is refused, never replaced. */
 	readonly input?: RecordingInput;
 	/**
 	 * Withdraws the start. A microphone that opens afterward is released. A
-	 * browser has written nothing yet; on the desktop what the shell already
+	 * browser has kept nothing yet; on the desktop what the shell already
 	 * wrote is finalized and kept, never deleted.
 	 */
 	readonly signal?: AbortSignal;
+};
+
+/** A desktop start: where in the shell's folder the recording is written. */
+export type StartRecordingOptions = RecordingStart & {
+	/** Folder-relative, without an extension, such as `recordings/2026-10-15-0930`. */
+	readonly path: string;
 };
 
 /** Why the host ended a capture nobody asked to end. What was captured is still the recording's. */
@@ -66,14 +59,12 @@ export type StoppedRecording = {
 	readonly durationMs: number;
 };
 
-/** One recording in progress, owned by the page that started it. */
-export type Recording = {
-	/**
-	 * The audio file this recording is, folder-relative: `<path>.wav` on the
-	 * desktop, already in the folder; `<path>.<extension>` in a browser,
-	 * written on stop.
-	 */
-	readonly path: string;
+/**
+ * One recording in progress, owned by the page that started it. `stop`
+ * answers `TStopped`: on the desktop where its file is, in a browser the
+ * audio itself.
+ */
+export type RecordingHandle<TStopped> = {
 	/** `Date.now()` when capture began. */
 	readonly startedAt: number;
 	/** The name of the microphone that is recording. */
@@ -83,11 +74,17 @@ export type Recording = {
 	/** Hear that capture ended on its own, including an ending before subscription. `stop` keeps what was captured. Retired by stop. */
 	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;
 	/**
-	 * Finish the file and release the microphone. Nothing deletes a recording:
-	 * one its page leaves without stopping is finalized by the shell on the
-	 * desktop and lost with the page in a browser.
+	 * Finish the recording and release the microphone. Nothing deletes a
+	 * recording: one its page leaves without stopping is finalized by the
+	 * shell on the desktop and lost with the page in a browser.
 	 */
-	stop(): Promise<Result<StoppedRecording, RecorderError>>;
+	stop(): Promise<Result<TStopped, RecorderError>>;
+};
+
+/** A desktop recording: `<path>.wav`, in the shell's folder from the first sample. */
+export type Recording = RecordingHandle<StoppedRecording> & {
+	/** The audio file this recording is, folder-relative: `<path>.wav`. */
+	readonly path: string;
 };
 
 export type RecoverRecordingsOptions = {
@@ -135,7 +132,7 @@ export const RecorderError = defineErrors({
 		message: `There is no such recording to end: ${reason}`,
 		reason,
 	}),
-	/** The folder or the path may not be recorded into, or a file is already there. */
+	/** The desktop folder or the path may not be recorded into, or a file is already there. */
 	Refused: ({ reason }: { reason: string }) => ({
 		message: `The recording could not be saved there: ${reason}`,
 		reason,
@@ -147,7 +144,7 @@ export const RecorderError = defineErrors({
 	Cancelled: () => ({
 		message: 'The request was withdrawn before it finished.',
 	}),
-	/** The recording captured no audio, so no file was written. */
+	/** The recording captured no audio. */
 	Empty: () => ({
 		message: 'The recording contained no audio.',
 	}),

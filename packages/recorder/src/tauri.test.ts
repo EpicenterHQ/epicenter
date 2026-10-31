@@ -17,7 +17,6 @@
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { RecordingFolder } from './recording.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 let calls: Call[] = [];
@@ -40,12 +39,6 @@ mock.module('@tauri-apps/api/core', () => ({
 const { listInputs, openMeter, startRecording, recoverRecordings } =
 	await import('./tauri.js');
 
-const folder: RecordingFolder = {
-	write: () => {
-		throw new Error('the desktop recorder never writes through the page');
-	},
-};
-
 const started = {
 	id: '7',
 	path: 'recordings/a.wav',
@@ -65,7 +58,6 @@ beforeEach(() => {
 test('a recording starts in the window folder and stops by the id the shell minted', async () => {
 	const recording = expectOk(
 		await startRecording({
-			folder,
 			path: 'recordings/a',
 			input: { deviceId: 'coreaudio:desk-uid', label: 'Desk Microphone' },
 		}),
@@ -104,14 +96,12 @@ test('a recording starts in the window folder and stops by the id the shell mint
 });
 
 test('the system default is asked for by naming no microphone', async () => {
-	expectOk(await startRecording({ folder, path: 'recordings/a' }));
+	expectOk(await startRecording({ path: 'recordings/a' }));
 	expect(calls[0]?.args.device).toBeNull();
 });
 
 test('a stop the shell refuses arrives by name', async () => {
-	const recording = expectOk(
-		await startRecording({ folder, path: 'recordings/a' }),
-	);
+	const recording = expectOk(await startRecording({ path: 'recordings/a' }));
 	answer = () => {
 		throw { name: 'NotRecording', message: 'already stopped' };
 	};
@@ -135,7 +125,6 @@ test('the shell refusing a start is the matching error, with the chosen label', 
 		};
 		const refused = expectErr(
 			await startRecording({
-				folder,
 				path: 'recordings/a',
 				input: { deviceId: 'x', label: 'USB Mic' },
 			}),
@@ -156,7 +145,6 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 	expect(
 		expectErr(
 			await startRecording({
-				folder,
 				path: 'recordings/a',
 				signal: controller.signal,
 			}),
@@ -265,9 +253,7 @@ test('an ending received before start answers reaches its subscriber once and re
 		}
 		return { path: 'recordings/a.wav', durationMs: 1250 };
 	};
-	const recording = expectOk(
-		await startRecording({ folder, path: 'recordings/a' }),
-	);
+	const recording = expectOk(await startRecording({ path: 'recordings/a' }));
 	const endings: string[] = [];
 	recording.onEnded((reason) => endings.push(reason));
 	const channel = calls[0]?.args.signals as FakeChannel<unknown>;
@@ -281,9 +267,7 @@ test('an ending received before start answers reaches its subscriber once and re
 });
 
 test('an ending reaches every listener when the first listener stops the native recorder', async () => {
-	const recording = expectOk(
-		await startRecording({ folder, path: 'recordings/a' }),
-	);
+	const recording = expectOk(await startRecording({ path: 'recordings/a' }));
 	let stopping: ReturnType<typeof recording.stop> | undefined;
 	const endings: string[] = [];
 	recording.onEnded(() => {

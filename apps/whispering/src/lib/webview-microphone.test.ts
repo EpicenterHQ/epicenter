@@ -28,21 +28,16 @@ import {
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { CaptureDevice, CaptureStart } from './capture.js';
+import { deferred } from './services.test-support.js';
 import {
 	createWebViewMicrophone,
 	type MicrophoneEnvironment,
 } from './webview-microphone.js';
-import { deferred } from './services.test-support.js';
 
 const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
 
-/** Where a test's recordings would be written. Nothing here stops one, so nothing is. */
-const INTO: CaptureStart = {
-	folder: {
-		write: async () => Ok(undefined),
-	},
-	path: 'recordings/a',
-};
+/** A start with the system default. Nothing here stops one, so nothing is kept. */
+const INTO: CaptureStart = {};
 
 /** The browser recorder over `environment`, as the page records in a browser. */
 const recorderOver = (

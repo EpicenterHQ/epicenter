@@ -3,12 +3,12 @@
  *
  * Drives the session's microphone choice and test, and Whispering's
  * recorder over them, with a scripted capture device that counts what is
- * open. The folder is a real directory; no microphone is involved.
+ * open. This browser's files are a real directory; no microphone is involved.
  *
  * Key behaviors:
  * - Opening a session reads the saved choice and opens, lists, and asks for
  *   nothing
- * - A choice is saved on this device, never in the folder, and survives a
+ * - A choice is saved on this device, never in its files, and survives a
  *   new session
  * - A recording asks for exactly the chosen microphone; one that is not
  *   there refuses, records nothing, and keeps the choice
@@ -28,12 +28,9 @@
  *   same name is not taken for it, and a recording with it refuses
  * - Fixture mode has no input: nothing is listed, tested, or asked for
  */
-import {
-	closeTestWhispering,
-	createTestWhispering,
-} from './whispering.test-support.js';
+import { createTestWhispering } from './whispering.test-support.js';
 
-import '../../../../packages/svelte/src/svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -50,7 +47,11 @@ import {
 } from './capture.js';
 
 import type { MicrophonePreferences } from './microphone-preference.js';
-import { deferred, openTestServices } from './services.test-support.js';
+import {
+	deferred,
+	eventually,
+	openTestServices,
+} from './services.test-support.js';
 
 const BUILT_IN = { deviceId: 'built-in-id', label: 'Built-in Microphone' };
 const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
@@ -146,7 +147,7 @@ function scriptedMicrophone(
 				return () => changeListeners.delete(listener);
 			},
 		},
-		async start(options): Promise<Result<ActiveCapture, CaptureError>> {
+		async start(options = {}): Promise<Result<ActiveCapture, CaptureError>> {
 			calls.start.push(options);
 			const { error: openError } = await opening(options.input, options.signal);
 			if (openError !== null) return Err(openError);
@@ -156,17 +157,12 @@ function scriptedMicrophone(
 				if (!stopped) open.captures -= 1;
 				stopped = true;
 			};
-			const audioPath = `${options.path}.wav`;
 			return Ok({
-				audioPath,
 				startedAt: performance.now(),
 				onEnded: () => () => {},
 				async stop() {
 					release();
-					const { error } = await options.folder.write(audioPath, toneWav());
-					if (error !== null)
-						return CaptureError.NotSaved({ reason: error.message });
-					return Ok({ durationMs: 1000 });
+					return Ok({ bytes: toneWav(), ext: 'wav', durationMs: 1000 });
 				},
 			});
 		},
@@ -229,8 +225,8 @@ async function open({
 	device?: ReturnType<typeof devicePreferences>;
 } = {}) {
 	const test = await openTestServices();
-	const { whispering, folder } = await createTestWhispering({
-		folder: test.folder,
+	const { whispering, close } = await createTestWhispering({
+		device: test.device,
 		services: {
 			...test.services,
 			capture: microphone.device,
@@ -238,13 +234,13 @@ async function open({
 		},
 	});
 	cleanups.push(async () => {
-		await closeTestWhispering({ whispering, folder });
+		close();
 		await test.remove();
 	});
 	await whispering.start();
 	return {
 		whispering,
-		folder,
+		close,
 		input: whispering.input,
 		microphone,
 		device,
@@ -303,7 +299,7 @@ test('opening a session reads the saved choice and opens, lists, and asks for no
 	expect(microphone.changeListeners.size).toBe(0);
 });
 
-test('a choice is saved on this device, not in the folder, and a new session starts with it', async () => {
+test('a choice is saved on this device, not in its files, and a new session starts with it', async () => {
 	const device = devicePreferences();
 	const first = await open({ device });
 	await first.input.refresh();
@@ -311,7 +307,9 @@ test('a choice is saved on this device, not in the folder, and a new session sta
 	await first.input.select(USB);
 
 	expect(device.store.saved).toEqual(USB);
-	expect(await readdir(first.root)).toEqual(['.gitignore']);
+	expect(
+		await readdir(join(first.root, 'device')).catch(() => [] as string[]),
+	).toEqual([]);
 	const second = await open({ device });
 	expect(second.input.choice).toEqual(USB);
 
@@ -453,7 +451,7 @@ test('a test that is still opening when a recording starts never holds a microph
 });
 
 test('choosing another input and closing the session each release a running test', async () => {
-	const { folder, whispering, input, microphone } = await open();
+	const { close, whispering, input, microphone } = await open();
 	await input.refresh();
 	await input.startTest();
 
@@ -463,7 +461,7 @@ test('choosing another input and closing the session each release a running test
 
 	await input.startTest();
 	expect(microphone.calls.meter).toEqual([undefined, USB]);
-	await closeTestWhispering({ whispering, folder });
+	close();
 
 	expect(microphone.open.meters).toBe(0);
 	expect(microphone.changeListeners.size).toBe(0);
@@ -475,29 +473,26 @@ test('choosing another input and closing the session each release a running test
 	expect(microphone.calls.allow).toBe(0);
 });
 
-test('dispose still releases product resources once after the folder closed first', async () => {
-	const { whispering, input, microphone, test } = await open();
+test('dispose releases product resources once, however often it is called', async () => {
+	const { whispering, input, microphone } = await open();
 	await input.startTest();
 	expect(microphone.open.meters).toBe(1);
 
-	await test.opened.close();
-	expect(test.closes).toBe(1);
 	whispering.dispose();
 	whispering.dispose();
 
-	expect(test.closes).toBe(1);
 	expect(microphone.meterStops()).toBe(1);
 	expect(microphone.open.meters).toBe(0);
 	expect(microphone.changeListeners.size).toBe(0);
 });
 
 test('a recording closed while its microphone is opening releases it when it opens', async () => {
-	const { folder, whispering, microphone } = await open();
+	const { close, whispering, microphone } = await open();
 	const held = deferred<void>();
 	microphone.gate.next = held.promise;
 
 	const starting = whispering.startRecording();
-	const closing = closeTestWhispering({ whispering, folder });
+	const closing = Promise.resolve(close());
 	held.resolve();
 	await starting;
 	await closing;
@@ -661,12 +656,12 @@ test('starting a recording withdraws a pending enable before the recording opens
 });
 
 test('closing the session withdraws a pending enable at once', async () => {
-	const { folder, whispering, input, microphone } = await open();
+	const { close, whispering, input, microphone } = await open();
 	const held = deferred<void>();
 	microphone.gate.next = held.promise;
 	const enabling = input.allow();
 
-	const closing = closeTestWhispering({ whispering, folder });
+	const closing = Promise.resolve(close());
 	await Promise.resolve();
 
 	expect(microphone.calls.allowSignals[0]?.aborted).toBe(true);
@@ -681,15 +676,15 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 	for (const holding of ['test', 'recording'] as const) {
 		const microphone = scriptedMicrophone();
 		const test = await openTestServices();
-		const { whispering, folder } = await createTestWhispering({
-			folder: test.folder,
+		const { whispering, close } = await createTestWhispering({
+			device: test.device,
 			services: {
 				...test.services,
 				capture: microphone.device,
 			},
 		});
 		cleanups.push(async () => {
-			await closeTestWhispering({ whispering, folder });
+			close();
 			await test.remove();
 		});
 		await whispering.start();
@@ -701,11 +696,10 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 				: { meters: 0, captures: 1 },
 		);
 
-		const closing = closeTestWhispering({ whispering, folder });
+		const closing = Promise.resolve(close());
 
 		// A test's microphone is released now. A recording is neither stopped
-		// nor written by the page; its departure ends it (the shell finalizes
-		// it on the desktop).
+		// nor kept by the page; its departure ends it.
 		expect(microphone.open).toEqual(
 			holding === 'test'
 				? { meters: 0, captures: 0 }
@@ -714,7 +708,9 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 		expect(whispering.input.test).toEqual({ phase: 'idle' });
 		await closing;
 		const audio = (
-			await readdir(join(test.root, 'recordings')).catch(() => [] as string[])
+			await readdir(join(test.root, 'device', 'recordings')).catch(
+				() => [] as string[],
+			)
 		).filter((name) => name.endsWith('.wav'));
 		expect(audio).toEqual([]);
 	}
@@ -788,9 +784,8 @@ test('closing while a choice is being saved releases the microphone at once and 
 	const held = heldPreferences();
 	const microphone = scriptedMicrophone();
 	const test = await openTestServices();
-	const order: string[] = [];
-	const { whispering, folder } = await createTestWhispering({
-		folder: test.folder,
+	const { whispering, close } = await createTestWhispering({
+		device: test.device,
 		services: {
 			...test.services,
 			capture: microphone.device,
@@ -798,7 +793,7 @@ test('closing while a choice is being saved releases the microphone at once and 
 		},
 	});
 	cleanups.push(async () => {
-		await closeTestWhispering({ whispering, folder });
+		close();
 		await test.remove();
 	});
 	await whispering.start();
@@ -808,16 +803,12 @@ test('closing while a choice is being saved releases the microphone at once and 
 	await input.startTest();
 	expect(microphone.open.meters).toBe(1);
 
-	closeTestWhispering({ whispering, folder });
+	close();
 
 	expect(microphone.open.meters).toBe(0);
 	// A choice made after closing is not accepted.
 	await input.select(undefined);
 	expect(input.choice).toEqual(BUILT_IN);
-	// The choice is kept on this device, not in the folder, so the folder
-	// closes without it, as `<OpenFolder>` closes it after the app.
-	await test.opened.close().then(() => order.push('folder closed'));
-	expect(order).toEqual(['folder closed']);
 
 	// Saves already accepted still answer in order.
 	held.saves[0]?.answer();
@@ -830,15 +821,15 @@ test('closing while a choice is being saved releases the microphone at once and 
 test('fixture mode has no input: nothing is listed, tested, enabled, or chosen', async () => {
 	const test = await openTestServices();
 	const device = devicePreferences(USB);
-	const { whispering, folder } = await createTestWhispering({
-		folder: test.folder,
+	const { whispering, close } = await createTestWhispering({
+		device: test.device,
 		services: {
 			...test.services,
 			preferences: device.preferences,
 		},
 	});
 	cleanups.push(async () => {
-		await closeTestWhispering({ whispering, folder });
+		close();
 		await test.remove();
 	});
 	await whispering.start();
@@ -857,7 +848,8 @@ test('fixture mode has no input: nothing is listed, tested, enabled, or chosen',
 	// The fixture still records, and is saved as a fixture take.
 	await whispering.startRecording();
 	await whispering.stopRecording();
-	expect(whispering.entries).toHaveLength(1);
+	await eventually(() => whispering.entries.length === 1);
+	expect(whispering.entries[0]?.capture).toBe('fixture');
 });
 
 test('an unreadable saved microphone reports the failure without opening a device or saving a default', async () => {

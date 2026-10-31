@@ -31,6 +31,7 @@
 import {
 	type Client,
 	ClientError,
+	type CollectionClient,
 	type CompiledContract,
 	type Contract,
 	type PlaceholdersOf,
@@ -516,4 +517,110 @@ export function cacheOf<TContract extends Contract>(
 	device: Client<TContract>,
 ): Cache<TContract> {
 	return deviceParts(device).cache as Cache<TContract>;
+}
+
+/** One new file of a capture: its collection, and the value its `create` takes. */
+export type NewFile<TContract extends Contract> = {
+	[K in keyof TContract['collections'] & string]: {
+		collection: K;
+		value: Parameters<
+			CollectionClient<TContract['collections'][K]>['create']
+		>[0];
+	};
+}[keyof TContract['collections'] & string];
+
+/** A collection client as `saveCapture` calls it, whichever kind it is. */
+type Creates = {
+	create(
+		value: unknown,
+	): Promise<Result<{ version: Version }, { name: string; message: string }>>;
+	get(
+		args: unknown,
+	): Promise<Result<{ version: Version }, { name: string; message: string }>>;
+};
+
+/**
+ * Keep new `files` on `device` as one capture, `id`, which uploads them
+ * together once someone is signed in (decision 12): each file is created in
+ * order, then the outbox records them.
+ *
+ * A failure leaves what was written, and running it again with the same
+ * `id` and files picks that up and finishes: a file already at one of these
+ * paths is the one an earlier attempt created (a capture's paths are its
+ * own, named by fresh ids), and a capture already recorded under `id` is
+ * the one it added.
+ *
+ * @example
+ * ```ts
+ * const id = timeId();
+ * await saveCapture(device, {
+ *   id,
+ *   files: [
+ *     { collection: 'audio', value: { id, ext: 'm4a', bytes } },
+ *     { collection: 'recordings', value: { id, title: 'Standup' } },
+ *   ],
+ * });
+ * ```
+ */
+export async function saveCapture<TContract extends Contract>(
+	device: Client<TContract>,
+	{ id, files }: { id: string; files: NewFile<TContract>[] },
+): Promise<
+	Result<
+		Capture,
+		{ name: string; message: string } & (
+			| NotFound
+			| Occupied
+			| Conflict
+			| Invalid
+			| Unavailable
+		)
+	>
+> {
+	const { compiled, outbox } = deviceParts(device);
+	const kept: OutboxFile<Contract>[] = [];
+	for (const { collection: name, value } of files) {
+		const collection = compiled.collections.find(
+			(compiled) => compiled.name === name,
+		);
+		const client = (device as Record<string, unknown>)[name] as
+			| Creates
+			| undefined;
+		if (collection === undefined || client === undefined)
+			return ClientError.Invalid({
+				path: null,
+				issues: [
+					{
+						field: 'files',
+						message: `The contract has no collection '${name}'`,
+					},
+				],
+			});
+		const placeholders = Object.fromEntries(
+			collection.template.params.map((param) => [
+				param,
+				String((value as Record<string, unknown>)[param]),
+			]),
+		);
+		const created = await client.create(value);
+		const file =
+			created.error?.name === 'Occupied'
+				? await client.get(placeholders)
+				: created;
+		// SAFETY: every collection client answers its own errors, which are
+		// among the client errors this function answers.
+		if (file.error !== null) return file as never;
+		kept.push({
+			collection: name,
+			...placeholders,
+			version: file.data.version,
+		} as OutboxFile<Contract>);
+	}
+	const added = await outbox.add({ id, files: kept });
+	if (added.error?.name !== 'Occupied') return added;
+	// An earlier attempt recorded the capture and failed after.
+	const listed = await outbox.list();
+	if (listed.error !== null) return listed;
+	const capture = listed.data.items.find((item) => item.id === id);
+	return capture ? Ok(capture) : added;
 }

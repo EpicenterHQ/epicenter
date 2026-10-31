@@ -1,7 +1,13 @@
 # Recipes, connections, and the pasted-text playground (October 3, 2026)
 
-Execution notes for one slice. The README describes the behavior; ARCHITECTURE
-describes the structure. On October 17, 2026 the clean break deleted three
+> Historical. Execution notes for one slice of the folder-era app. The
+> connection and recipe rules recorded here still hold, but recipes and
+> results are now notes under Whispering's contract, created when a run's
+> answer arrives rather than when it starts, and none of the folder machinery
+> named below exists. The README describes current behavior; ARCHITECTURE
+> describes the structure.
+
+Execution notes for one slice. On October 17, 2026 the clean break deleted three
 things this record describes: the recipe `endpoint` constraint, the `kv.json`
 form fill, and adopting the earlier transcription key. This file records the decision, what it costs an
 existing folder or device, and what was and was not verified.

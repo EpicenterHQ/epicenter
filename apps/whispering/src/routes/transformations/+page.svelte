@@ -5,9 +5,6 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
-	import { basename } from '@epicenter/folder/file-browser';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import TransformationDetail from '../components/TransformationDetail.svelte';
 	import TransformationList from '../components/TransformationList.svelte';
@@ -19,18 +16,11 @@
 	const wide = new MediaQuery('(min-width: 768px)');
 
 	async function back() {
-		const path = whispering.selectedTransformationPath;
+		const id = whispering.selectedTransformationId;
 		view.showingTransformation = false;
 		await tick();
-		if (path !== undefined)
-			document.querySelector<HTMLElement>(`[data-transformation="${CSS.escape(path)}"]`)?.focus();
-	}
-
-	/** A result is an ordinary file: its source opens beside the recordings, like any other file. */
-	async function openFile(path: string) {
-		if (!whispering.open(path)) return;
-		view.showingDetail = true;
-		await goto(resolve('/recordings'));
+		if (id !== undefined)
+			document.querySelector<HTMLElement>(`[data-transformation="${CSS.escape(id)}"]`)?.focus();
 	}
 </script>
 
@@ -38,20 +28,15 @@
 
 {#snippet detail(onBack: (() => void) | undefined)}
 	{@const selected = whispering.selectedTransformation}
-	{#if selected}
-		{#key selected.path}
-			<TransformationDetail
-				path={selected.path}
-				entry={selected.entry}
-				{onBack}
-				onOpenFile={(path) => void openFile(path)}
-			/>
+	{#if selected && (selected.note || selected.repair)}
+		{#key selected.id}
+			<TransformationDetail id={selected.id} note={selected.note} {onBack} />
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">
-			{#if whispering.selectedTransformationPath !== undefined}
-				<Empty.Title>{basename(whispering.selectedTransformationPath)} is no longer in the folder</Empty.Title>
-				<Empty.Description>It was renamed or deleted outside this window. Results it produced are still saved.</Empty.Description>
+			{#if selected !== undefined}
+				<Empty.Title>This transformation is no longer listed</Empty.Title>
+				<Empty.Description>It was deleted, here or elsewhere. Results it produced are still saved.</Empty.Description>
 			{:else}
 				<Empty.Title>Select a transformation</Empty.Title>
 				<Empty.Description>Its instructions and results open here, with a place to try it on pasted text.</Empty.Description>
