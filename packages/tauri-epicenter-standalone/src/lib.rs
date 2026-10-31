@@ -1,13 +1,14 @@
 //! Standalone startup: one app, two roots, one primary window (decisions 88
-//! to 90).
+//! to 97).
 //!
 //! An installed app keeps two roots. Its **AppData root** is fixed: the
 //! operating system's application data directory for the app, one per
 //! installation, never synced and never chosen. Its settings notes sit at its
 //! top (`settings.md`, `shortcuts.md`), as the same notes sit at the top of
-//! the data root. Its **data root** is the person's files: `~/Epicenter/<App>`
-//! by default (`~/Epicenter/<App> Dev` for the development configuration),
-//! or the folder the person picked with "Choose data folder…", which the page remembers as
+//! the data root. Its **data root** is the person's files:
+//! `~/Epicenter/<productName>` by default (`~/Epicenter/<App> Dev` for the
+//! development configuration, which overrides `productName`), or the folder
+//! the person picked with "Choose data folder…", which the page remembers as
 //! `folder` in the AppData root's `settings.md`. Only the data root is ever
 //! synced (by Epicenter).
 //!
@@ -238,10 +239,9 @@ mod tests {
     //! The folder plugin's real commands on the mock runtime, as a page calls
     //! them over the window startup opens, with a mock window standing in for
     //! the WebView. Tauri's runtime file-system scope stands in for the
-    //! grants: the dialog plugin's `open` extends it the same way
-    //! (`allow_directory(picked, true)`); the capability's static scope is
-    //! the folder plugin's own test. The native picker and the page are not
-    //! driven here; what they lead to is.
+    //! grants: startup's `allow_default_folder` and the dialog plugin's
+    //! `open` both extend it with `allow_directory(folder, true)`. The
+    //! native picker and the page are not driven here; what they lead to is.
 
     use std::fs;
 

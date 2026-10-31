@@ -50,13 +50,22 @@ local web (this browser's files, for good), and online web (the repository
 through the server, online only). Nothing moves between stores, and signing
 in grants capabilities, never storage ([ADR-0700](adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
-`openFolder({ tables })` opens the browser origin's local default or the
-existing directory bound to a native window. Bun receives an explicit
-`directory` path. Native defaults are fixed reverse-DNS children of one library
-root, `~/Epicenter` in release and `~/Epicenter Dev` in development. Standalone
-Todos uses `so.epicenter.todos`; Epicenter's records use `so.epicenter`. Ordinary launch creates or reuses that default. A missing bound
-or explicitly chosen directory is refused. There is no first-use path selection
-or independently configurable app home (ADR-0672).
+Only a variant's root chooses its store. A desktop app on
+`epicenter-standalone` opens two roots in its root startup component:
+`openAppData(settings)`, the app's operating-system AppData directory
+(machine-local, never synced), then `openDataFolder(contract, { appData })`,
+the `folder` its `settings.md` names or `~/Epicenter/<productName>` by
+default. Only the default is made when missing; a root that cannot open shows
+a recovery screen, never another folder, and there is no first-run question
+([ADR-0701](adr/0701-apps-run-as-separate-programs.md)). A local web variant
+awaits `openDevice(contract)` over the origin's private file system; an
+online web variant opens the repository with `openRemote`.
+
+The legacy `openFolder({ tables })` remains for Epicenter's own windows and
+Bun, which passes an explicit `directory`. Epicenter's records and standalone
+Todos keep the library's fixed reverse-DNS defaults, `so.epicenter` and
+`so.epicenter.todos` under `~/Epicenter` (`~/Epicenter Dev` in development)
+([ADR-0672](adr/0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md)).
 
 The folders Epicenter syncs are the global Git configuration's multi-valued
 `epicenter.folder`, which `epicenter init`, `clone`, and `forget` change; the

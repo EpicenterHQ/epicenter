@@ -54,10 +54,11 @@ export {
  * no `path`, or a relative one, it is the window's own folder, or a folder
  * inside it (a data folder may sit at any depth). An absolute `path` names
  * a root by its path: the window's own folder, or any folder Tauri's
- * file-system scope allows, which the app's capability does for its default
- * data folder and the folder picker (`chooseFolder`) does for the folder a
- * person picks. `create` makes a missing root (only a default should be
- * made); otherwise a missing one is `Missing`.
+ * runtime file-system scope allows, which the standalone shell does for the
+ * app's default data folder at startup and the folder picker
+ * (`chooseFolder`) does for the folder a person picks. `create` makes a
+ * missing root (only a default should be made); otherwise a missing one is
+ * `Missing`.
  *
  * An `Err` says why nothing opened (`OpenDeviceError`); a contract that is
  * not well formed, or a relative `path` that leaves the folder, throws.

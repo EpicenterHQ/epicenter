@@ -8,11 +8,12 @@
  * whose configuration also gives it its own AppData). Both are found with
  * Tauri's own APIs; the shell names no path to the page.
  *
- * Tauri decides which folders a window may open: the app's capability
- * allows its default data folder, and the folder picker (`chooseFolder`)
- * allows the folder a person picks, which persisted-scope keeps across
- * launches. A `folder` written by hand or by an agent opens as `NotGranted`
- * until the person picks it.
+ * Tauri decides which folders a window may open, through its runtime
+ * file-system scope: the standalone shell allows the app's default data
+ * folder at startup, and the folder picker (`chooseFolder`) allows the
+ * folder a person picks, which persisted-scope keeps across launches. No
+ * capability names a folder. A `folder` written by hand or by an agent
+ * opens as `NotGranted` until the person picks it.
  *
  * ```ts
  * const appData = await openAppData(captureSettings);
