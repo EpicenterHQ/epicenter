@@ -3669,6 +3669,7 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "tauri-plugin-dialog",
+ "tauri-plugin-fs",
  "tauri-plugin-opener",
  "tauri-specta",
 ]
