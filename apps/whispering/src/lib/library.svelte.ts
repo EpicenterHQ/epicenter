@@ -1,22 +1,20 @@
 /**
- * One of Whispering's two views (decision 76) over its own files
- * (`files.svelte.ts`): "On this device" over this browser's, or "Synced"
- * over the person's repository. Never both: a note uploading leaves this
- * device's view and appears in the repository's, and nothing here follows
- * it across.
+ * Whispering's library over its files (`files.svelte.ts`): what the pages
+ * list, edit, run and delete. The files are one contract client's, which
+ * the variant root chose; nothing here knows which.
  *
- * Every list here is derived from what the view's files show, read
- * reactively. Notes that read are listed to edit; the rest are named, with
- * why and their text, for repair. Nothing here holds text ahead of the
- * files: what a person types is an edit in the component that shows it, and
- * each write answers once it landed. The caller of a write presents a
- * failure. A transcription or recipe run lives in this window until its
- * answer arrives, and its result is created then, in this view's files
+ * Every list here is derived from what the files show, read reactively.
+ * Notes that read are listed to edit; the rest are named, with why and
+ * their text, for repair. Nothing here holds text ahead of the files: what
+ * a person types is an edit in the component that shows it, and each write
+ * answers once it landed. The caller of a write presents a failure. A
+ * transcription or recipe run lives in this window until its answer
+ * arrives, and its result is created then, in the files
  * (`runs.svelte.ts`).
  *
- * A view's library is made when its pages open and let go when they close.
- * Leaving it waits for nothing and refuses nothing: a run under way still
- * keeps its answer in its view's files, unless Whispering itself is closing.
+ * The library is made when the app's pages open and let go when they
+ * close. Leaving waits for nothing and refuses nothing: a run under way
+ * still keeps its answer in the files, unless Whispering itself is closing.
  */
 import type { Version } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
@@ -51,7 +49,6 @@ export type {
 	TranscriptionNote,
 	TransformationNote,
 	TransformationRunNote,
-	View,
 } from './files.svelte.js';
 export type { Run, RunState } from './runs.svelte.js';
 
@@ -84,13 +81,13 @@ export function createLibrary({
 	whispering,
 	files,
 }: {
-	/** What both views share: the connections, and whether Whispering is closing. */
+	/** The services, the connections, and whether Whispering is closing. */
 	whispering: Whispering;
-	/** This view's files. */
+	/** The files the pages read and edit. */
 	files: WhisperingFiles;
 }) {
 	const { refused } = whispering;
-	/** What this view's pages show. Held here so no page owns it. */
+	/** What the pages show. Held here so no page owns it. */
 	const ui = $state({
 		/** The recordings search. Notes needing repair are never searched out. */
 		recordingQuery: '',
@@ -126,13 +123,13 @@ export function createLibrary({
 		applySource: 'transcript' as 'transcript' | 'pasted',
 		/**
 		 * Text pasted to try a transformation on. It stays when the person
-		 * moves between this view's pages or transformations. It is never
+		 * moves between pages or transformations. It is never
 		 * written anywhere; a run takes a copy of it when it starts.
 		 */
 		pastedText: '',
 		/**
 		 * The transformation chosen for post-processing, by id. Undefined is
-		 * None, which is how a view starts. Choosing sends nothing: a
+		 * None, which is how the page starts. Choosing sends nothing: a
 		 * transformation runs only when the person asks for it.
 		 */
 		postProcessing: undefined as string | undefined,
@@ -214,7 +211,7 @@ export function createLibrary({
 		return true;
 	}
 
-	/** After a delete, the view state lets the note go. */
+	/** After a delete, the page state lets the note go. */
 	function deleted({ collection, id }: NoteRef) {
 		if (collection === 'recordings' && selectedId === id)
 			selectedId = undefined;
@@ -231,12 +228,10 @@ export function createLibrary({
 	});
 
 	return {
-		/** Which view this is: this device's files, or the repository's. */
-		view: files.view,
 		/** The lists the components edit through (`fieldEdit`), one per note collection. */
 		files,
 		ui,
-		/** Why this view's recordings or audio could not be listed (no private storage, or offline). */
+		/** Why the recordings could not be listed (this browser keeps no private storage, say). */
 		get error() {
 			return files.recordings.error ?? null;
 		},
@@ -451,13 +446,10 @@ export function createLibrary({
 			}
 		},
 		/** Stop following the lists. Runs under way still keep their answers. */
-		dispose() {
-			stopPruning();
-			files.dispose();
-		},
+		dispose: stopPruning,
 	};
 }
 
 export type Library = ReturnType<typeof createLibrary>;
-/** The view a page shows: set by its view's layout (`WhisperingView`). */
+/** The library every page reads: set by the app root (`WhisperingApp`). */
 export const [getLibrary, setLibrary] = createContext<Library>();

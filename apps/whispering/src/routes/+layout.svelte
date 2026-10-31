@@ -1,31 +1,30 @@
+<!--
+	Every page of Whispering: the chrome and the leave guard. The web build
+	is the local variant, the `(local)` group at `/`, which opens this
+	browser's files; the sign-in callback is outside it and opens nothing: it
+	finishes sign-in and loads the page it started from.
+-->
 <script lang="ts">
+	import { guardLeave } from '@epicenter/svelte/leave-guard';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { ModeWatcher } from 'mode-watcher';
-	import { page } from '$app/state';
-	import WhisperingRoot from './components/WhisperingRoot.svelte';
+	import { onMount } from 'svelte';
 	import '@epicenter/ui/app.css';
 	// Whispering's brand overrides, layered after the shared theme so they win.
 	import '../app.css';
 
 	let props = $props();
 
-	// The root opens this browser's files once for the layout; route changes
-	// render inside. The sign-in callback opens nothing: it finishes sign-in
-	// and loads the page it started from.
+	// Leaving while a save is out asks first.
+	onMount(guardLeave);
 </script>
 
 <svelte:head><title>Whispering</title></svelte:head>
 
 <Tooltip.Provider>
-	{#if page.route.id === '/auth/callback'}
-		{@render props.children?.()}
-	{:else}
-		<WhisperingRoot>
-			{@render props.children?.()}
-		</WhisperingRoot>
-	{/if}
+	{@render props.children?.()}
 </Tooltip.Provider>
 
 <ConfirmationDialog />

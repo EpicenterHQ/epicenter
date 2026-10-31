@@ -172,7 +172,7 @@
 						</dd>
 						<dt class="text-muted-foreground">Kept in</dt>
 						<dd data-testid="kept-in">
-							{library.view === 'device' ? 'This browser' : 'Your repository'}{#if audio.kind === 'here' && audio.file.cached}; its audio is also cached in this browser{/if}
+							This browser
 						</dd>
 						<dt class="text-muted-foreground">Transcribes with</dt>
 						<dd class="min-w-0 break-words">

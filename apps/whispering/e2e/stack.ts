@@ -34,14 +34,13 @@ await runAppStack({
 		cwd: appDir,
 	}),
 	ready: '/contract.json',
-	demo: ({ stack, person, signIn, script }) => `
+	demo: ({ stack, signIn, script }) => `
 Whispering        ${stack.app}
 API               ${stack.origin}
 Sign in           open ${signIn} (sets the demo person's session), then Settings, Sign in
+                  (optional: it adds hosted transcription and AI; recordings stay in the browser)
 Desktop sandbox   source '${script}'
-                  epicenter clone ${person.namespace}/whispering
-                  epicenter check ${stack.app}/contract.json whispering
-                  epicenter sync whispering
+                  epicenter repos
 Stop              Ctrl-C (everything above is deleted)
 `,
 });

@@ -13,8 +13,6 @@
 >
 	{#if audio.kind === 'listing'}
 		Looking for this recording’s audio…
-	{:else if audio.kind === 'unreachable'}
-		This recording’s audio is in your repository, which can’t be reached now.
 	{:else if audio.kind === 'ambiguous'}
 		More than one audio file has this recording’s id ({audio.exts.join(', ')}). Keep one.
 	{:else}

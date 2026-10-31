@@ -2,8 +2,8 @@
 	A note that does not read: why, and the repair (`NoteRepair` from
 	`@epicenter/svelte/note-repair`: its text, what is wrong as typed, saved
 	over the version the repair began from, a refusal kept beside the text).
-	The repair is written in house style in the open view's files: this
-	browser's, or the repository's. Delete removes it.
+	The repair is written in house style in Whispering's files. Delete
+	removes it.
 -->
 <script lang="ts">
 	import SharedNoteRepair from '@epicenter/svelte/note-repair';

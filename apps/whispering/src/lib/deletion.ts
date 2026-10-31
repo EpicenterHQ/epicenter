@@ -3,8 +3,7 @@
  * the person exactly that, and delete those files.
  *
  * Deleting a recording removes its note, its audio, its transcripts, and the
- * results made from them, in the files of the view it is deleted from: this
- * device's, or the repository's (online only). It is refused while a
+ * results made from them, in Whispering's files. It is refused while a
  * request for it runs or a result of it is being kept, and while a result
  * does not read, since it might be this recording's. A result on pasted
  * text names no recording and is never part of one. Deleting a
@@ -182,7 +181,7 @@ type RunContext = {
 	readonly files: WhisperingFiles;
 	/** Forget what failed for a recording that is gone. */
 	dropFailed(recordingId: string): void;
-	/** The view state lets a deleted note go. */
+	/** The page state lets a deleted note go. */
 	deleted(note: NoteRef): void;
 };
 

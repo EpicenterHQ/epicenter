@@ -1,3 +1,9 @@
+<!--
+	The optional sign-in with Epicenter. It grants capabilities only: the
+	Epicenter account route for transcription and AI (the API audience). It
+	never opens a repository and never moves a recording, which stays in
+	this browser either way (ADR-0700).
+-->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { onMount } from 'svelte';
@@ -67,11 +73,11 @@
 	{#if checking}
 		<p>Checking Epicenter sign-in…</p>
 	{:else if authState.status === 'signed-in'}
-		<p>Signed in to {new URL(authState.account.baseURL).host}. Your recordings upload to your whispering repository there, under Synced.</p>
+		<p>Signed in to {new URL(authState.account.baseURL).host}, for hosted transcription and AI. Your recordings stay in this browser.</p>
 	{:else if authState.status === 'reauth-required'}
-		<p>Your Epicenter sign-in needs to be renewed. Uploads wait until it is.</p>
+		<p>Your Epicenter sign-in needs to be renewed before hosted transcription and AI work again.</p>
 	{:else}
-		<p>Sign in to keep your recordings in your Epicenter repository and use hosted inference. What this browser holds uploads then, under Synced.</p>
+		<p>Optional: sign in to Epicenter for hosted transcription and AI. Your recordings stay in this browser either way.</p>
 	{/if}
 	{#if problem}
 		<p class="text-destructive" role="alert">{problem}</p>

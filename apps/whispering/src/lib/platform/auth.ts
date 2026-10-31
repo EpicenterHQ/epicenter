@@ -1,4 +1,12 @@
-/** This browser tab's OAuth client. Created on first use so the callback can use it without opening any files. */
+/**
+ * This browser tab's sign-in with Epicenter, which is optional: it grants
+ * capabilities only, the Epicenter account route for transcription and AI,
+ * so its one token is for the server's API audience with the `ai` scope.
+ * It asks for no Git audience and no `folders:*` scope: Whispering's web
+ * build keeps its recordings in this browser and never opens a repository
+ * (ADR-0700). Created on first use so the callback can use it without
+ * opening any files.
+ */
 import {
 	createBrowserOAuth,
 	epicenterCloud,
@@ -17,15 +25,11 @@ let auth: PlatformAuth | undefined;
 
 export function getAuth(): PlatformAuth {
 	if (auth) return auth;
-	const audiences = resolveOAuthAudiences(server.baseURL);
-	// One sign-in covers transcription (the API) and the person's whispering
-	// repository (Git), decision 65: one redirect, one access token per
-	// audience.
 	const client = createBrowserOAuth({
 		server,
 		clientId: APPS.WHISPERING.id,
-		resources: [audiences.api, audiences.git],
-		scope: 'openid profile email ai folders:read folders:write',
+		resources: [resolveOAuthAudiences(server.baseURL).api],
+		scope: 'openid profile email ai',
 		accountManagement: !SELF_HOST_ORIGIN,
 		// A timer must not navigate away in the middle of a recording.
 		automaticRenewal: false,

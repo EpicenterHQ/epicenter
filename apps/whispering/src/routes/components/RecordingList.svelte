@@ -40,9 +40,9 @@
 	import NoteRepair from './NoteRepair.svelte';
 
 	/**
-	 * Every recording in this view as one table: search, sort, tick, and act
-	 * on several. The search text, the order, and the ticks are the view's,
-	 * so they are as they were after a visit to another of its pages. Activating a row
+	 * Every recording as one table: search, sort, tick, and act on several.
+	 * The search text, the order, and the ticks are the library's, so they
+	 * are as they were after a visit to another page. Activating a row
 	 * opens that recording's details; ticking one does not.
 	 */
 	let { onOpen }: {
@@ -398,7 +398,7 @@
 						{#if searching}
 							Nothing has “{ui.recordingQuery.trim()}” in its title, notes, or transcripts.
 						{:else}
-							Record from <Link href={pathOf(library.view, 'home')}>Home</Link>.
+							Record from <Link href={pathOf('home')}>Home</Link>.
 						{/if}
 					</Empty.Description>
 				</Empty.Header>

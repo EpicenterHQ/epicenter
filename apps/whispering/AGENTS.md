@@ -1,44 +1,47 @@
 # Whispering App
 
-Whispering runs in a browser tab; its own desktop app is a later step
-([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)).
-Recordings, transcripts, transformations, and results are the `whispering`
-contract's files (`src/lib/contract.ts`), shown in two views that are never
-merged (decision 76): "On this device", this browser's files, and "Synced",
-the person's repository, signed in. Read `README.md` for behavior and
-`ARCHITECTURE.md` for structure.
+Whispering's web build is its local variant: it runs in a browser tab and
+keeps recordings, transcripts, transformations, and results as the
+`whispering` contract's files (`src/lib/contract.ts`) in this browser's
+storage, for good. Nothing syncs, uploads, or moves to a repository
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
+Signing in with Epicenter is optional and grants capabilities only. Its
+desktop app is built separately later
+([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)), with its
+own store. Read `README.md` for behavior and `ARCHITECTURE.md` for
+structure.
 
 ## Constraints
 
-- **Files through the contract's client only.** The device is opened in
-  `src/lib/device.ts`; the repository and its uploader only in `SignedIn`.
-  Each view composes one client's files in `WhisperingView`
-  (`deviceFiles` or `syncedFiles`), and components read and edit through
-  `library.files` and `fieldEdit`, never a client of their own.
-- **Two views, no merging.** Do not show both sides in one list, tag a note
-  with where it is, count what is waiting to upload, or follow a note across
-  its upload. A merged view may return later as its own decision. Do not reintroduce `openFolder`, `svelteFolder`,
-  `defineTable`, `@epicenter/svelte/folder`, a second store, or a cache of
-  notes. `src/lib/page-boundary.test.ts` enforces this; keep it passing.
+- **One store, chosen in one place.** The device is opened in
+  `src/lib/device.ts` and chosen only by the variant's root,
+  `src/routes/(local)/+layout.svelte`, which passes it to `WhisperingApp`
+  as `client`. Components read and edit through `library.files` and
+  `fieldEdit`, never a client of their own, so a later variant passes its
+  own client and changes nothing below its root.
+- **Sign-in grants capabilities, never storage.** It asks for the API
+  audience and `ai` only (`src/lib/platform/auth.ts`). Do not add a Git
+  audience, a `folders:*` scope, `openRemote`, `setRepo`, an uploader, an
+  outbox, a cache of uploaded audio, a repository view, or a switcher.
+  Nothing a sign-in or sign-out does touches the files.
+  `src/lib/page-boundary.test.ts` enforces this; keep it passing.
 - **No migration or compatibility code** (decision 72). Nothing reads an
-  earlier build's IndexedDB folder or Yjs store.
+  earlier build's IndexedDB folder or Yjs store. Do not reintroduce
+  `openFolder`, `svelteFolder`, `defineTable`, `@epicenter/svelte/folder`, a
+  second store, or a cache of notes.
 - **Capabilities through the seam.** Capture, inference, connections and
   preferences come from `#platform/services`, auth from `#platform/auth`
   (`src/lib/platform/`). Nothing under `src/` imports Node, Bun, or Tauri.
-- **One mounted app lifetime per account.** `WhisperingApp` makes what both
-  views share once; route changes keep it. Each view's library lives while
-  its pages are open; leaving it refuses nothing, so a run still keeps its
-  answer. Keep product state out of module-level variables. `dispose`
-  refuses new work and late replies and waits for nothing; a recording
-  under way ends with the page.
-- **A recording is kept at Stop, on the device, as one capture** (audio and
-  note, `saveCapture`), signed in or not. Its note holds facts only: never add
-  a status, pending, or interrupted field. Store no audio path in a note: the
-  audio is `recordings/<id>.<ext>`; refuse ambiguous matches. A recording the
-  device cannot keep stays in the page to save again or download.
-- **Audio is read from the view's files:** the device's on this device; in
-  "Synced", the cache (decision 66), then the repository. Only an upload
-  fills the cache.
+- **One mounted app lifetime per page.** `WhisperingApp` makes Whispering
+  and its library once; route changes and sign-in keep them. Keep product
+  state out of module-level variables. `dispose` refuses new work and late
+  replies and waits for nothing; a recording under way ends with the page.
+- **A recording is kept at Stop as two writes:** its audio, then its note,
+  so a note never names audio that is not there. Its note holds facts only:
+  never add a status, pending, or interrupted field. Store no audio path in
+  a note: the audio is `recordings/<id>.<ext>`; refuse ambiguous matches. A
+  recording the browser cannot keep stays in the page to save again or
+  download.
 - **A result is created when its answer arrives,** with an id fixed when the
   run starts. Saving an answer again must not call the endpoint or create a
   second note. A transformation never writes its transcript. A result on
@@ -64,7 +67,7 @@ the person's repository, signed in. Read `README.md` for behavior and
 From `apps/whispering`: `bun run typecheck`, `bun run test` (Svelte's browser
 runtime; the lists notify nothing on the server runtime), `bun run build`,
 and `bun run test:e2e` (Playwright in Chromium and WebKit over the local
-stack; port 1420 must be free). Unit tests open two `/node` device clients
-over temporary directories, one standing in for the repository, and a
-library over each. Only the
+stack; port 1420 must be free). `bun run test:postgres` checks the sign-in
+against a real authorization server. Unit tests open a `/node` device
+client over a temporary directory and a library over it. Only the
 end-to-end suite, or using the app, establishes that it works in a browser.

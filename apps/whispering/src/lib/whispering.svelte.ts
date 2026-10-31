@@ -1,21 +1,21 @@
 /**
- * Whispering for one mounted page and account: the services, the
- * connections, the microphone, and the recorder. What the files show is
- * each view's own (`library.svelte.ts`); this is what both views share.
+ * Whispering for one mounted page: the services, the connections, the
+ * microphone, and the recorder. What the files show is the library's
+ * (`library.svelte.ts`); both write through the same client, which the
+ * variant root chose (`$lib/device.ts` in the web build).
  *
- * A recording is kept when it stops: its audio and its note, on this
- * device, as one capture (`saveCapture`), signed in or not, so recording
- * never waits on the network. It shows under "On this device"; signed in,
- * the uploader moves it to the repository, and it shows under "Synced". One
- * the device cannot keep (a private window, a full disk) stays in this
- * page, to save again or download, until the page closes.
+ * A recording is kept when it stops, as two writes through the client: its
+ * audio first, then its note, so a note never names audio that is not
+ * there. Recording never waits on the network, and nothing kept here ever
+ * moves (ADR-0700). One the client cannot keep (a private window, a full
+ * disk) stays in this page, to save again or download, until the page
+ * closes.
  *
  * Closing waits for nothing here: `dispose` refuses new work and late
  * answers and returns. A recording under way ends with the page.
  */
 import type { Client } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import { saveCapture } from '@epicenter/folder/browser';
 import { holdLeave } from '@epicenter/svelte/leave-guard';
 import { createContext } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -44,7 +44,7 @@ export type RecorderState =
 	| { readonly phase: 'recording'; readonly startedAt: number }
 	| { readonly phase: 'stopping' };
 
-/** A finished recording this device could not keep, held in this page. */
+/** A finished recording the client could not keep, held in this page. */
 export type UnsavedRecording = NewRecording & {
 	/** Why it was not kept. */
 	readonly reason: string;
@@ -65,10 +65,10 @@ function defaultTitle(at: Date): string {
 }
 
 export function createWhispering({
-	device,
+	client,
 }: {
-	/** This browser's files, where every recording is kept first. */
-	device: Client<WhisperingContract>;
+	/** Whispering's files, where every recording is kept. */
+	client: Client<WhisperingContract>;
 }) {
 	const services = createServices();
 	/** Whether the sidebar is open on a wide window. Held here so no page owns it. */
@@ -117,7 +117,7 @@ export function createWhispering({
 	 */
 	let finishing: Promise<void> | undefined;
 	let recorderError = $state<string | undefined>();
-	/** Finished recordings this device could not keep, newest last. */
+	/** Finished recordings the client could not keep, newest last. */
 	let unsaved = $state.raw<UnsavedRecording[]>([]);
 
 	const input = createMicrophoneInput({
@@ -129,29 +129,31 @@ export function createWhispering({
 	// --- recording ----------------------------------------------------------
 
 	/**
-	 * Keep a finished recording on this device: its audio, then its note, as
-	 * one capture that uploads once someone is signed in. Run again with the
-	 * same recording after a failure, it finishes what was kept.
+	 * Keep a finished recording: its audio, then its note, so the note never
+	 * names audio that is not there. Run again with the same recording after
+	 * a failure, it finishes what was kept: a file already at the
+	 * recording's path is this recording's own (its id is new), so
+	 * `Occupied` counts as kept.
 	 */
 	async function saveRecording(
 		recording: NewRecording,
 	): Promise<Result<void, string>> {
 		const { id, ext, bytes, ...note } = recording;
-		const saved = await holdLeave(
-			saveCapture(device, {
-				id,
-				files: [
-					{ collection: 'audio', value: { id, ext, bytes } },
-					{ collection: 'recordings', value: { id, ...note } },
-				],
-			}),
-		);
-		return saved.error === null ? Ok(undefined) : Err(saved.error.message);
+		async function write(): Promise<Result<void, string>> {
+			const audio = await client.audio.create({ id, ext, bytes });
+			if (audio.error && audio.error.name !== 'Occupied')
+				return Err(audio.error.message);
+			const written = await client.recordings.create({ id, ...note });
+			if (written.error && written.error.name !== 'Occupied')
+				return Err(written.error.message);
+			return Ok(undefined);
+		}
+		return holdLeave(write());
 	}
 
 	/**
-	 * Keep `recording` on this device; one that cannot be kept is held in this
-	 * page with why. Answers whether it was kept.
+	 * Keep `recording`; one that cannot be kept is held in this page with
+	 * why. Answers whether it was kept.
 	 */
 	async function keepRecording(recording: NewRecording): Promise<boolean> {
 		const saved = await saveRecording(recording);
@@ -327,7 +329,7 @@ export function createWhispering({
 		get recorderError() {
 			return recorderError;
 		},
-		/** Finished recordings this device could not keep, held in this page. */
+		/** Finished recordings the client could not keep, held in this page. */
 		get unsavedRecordings() {
 			return unsaved;
 		},
@@ -386,7 +388,7 @@ export function createWhispering({
 				void finishRecording();
 			});
 		},
-		/** Stop: the microphone is released and the recording kept on this device. */
+		/** Stop: the microphone is released and the recording kept. */
 		stopRecording: finishRecording,
 
 		// ------------------------------------------------------------------

@@ -2,43 +2,32 @@
  * Whispering end to end, per engine, as one person in one persistent
  * browser profile with a desktop sandbox beside it (see `stack.ts`).
  *
- * Whispering has two views (decision 76): "On this device" (`/`), this
- * browser's files, and "Synced" (`/synced`), the person's repository, each
- * with the same pages.
+ * Whispering's web build is its local variant: recordings live in this
+ * browser's files (OPFS) for good, and nothing ever moves to a repository
+ * (ADR-0700). Signing in is optional and grants capabilities only.
  *
- * 1. Signed out, recordings are kept on this device (OPFS) as a note and
- *    its audio (`m4a` or `webm`), queued to upload; a title is edited, a
- *    recording is transcribed (over a stubbed endpoint), and one is deleted
- *    with its files. "Synced" asks for a sign-in.
- * 2. Signed in, they upload on their own: each leaves "On this device" and
- *    the browser's files, keeping only the audio as a cache, and appears in
- *    "Synced", where the cached audio plays with no download. One recorded
- *    while signed in follows, and is transcribed in "Synced".
- * 3. `epicenter clone` and `git lfs pull` give the bytes the browser
- *    recorded and the notes as edited, and `epicenter check` passes against
- *    the published contract.
- * 4. A title edited on the desktop and synced shows in "Synced", with no
- *    reload.
- * 5. A transcript the desktop wrote that does not read shows in "Synced"
- *    with its text, and saving fixed text there repairs it.
- * 6. Signing out leaves this browser with nothing, and "Synced" asks for a
- *    sign-in again.
+ * 1. On this browser, with no account, a recording is kept as its audio
+ *    (`m4a` or `webm`) and its note and nothing else; its title and
+ *    transcript are edited, it is transcribed over a custom endpoint (a
+ *    stub), one is deleted with its files, and all of it survives a reload.
+ * 2. Offline, recording and editing still work, and survive a reload.
+ * 3. Transcription over the Epicenter account needs a sign-in; signed in, it
+ *    sends the account's API token (to a stub) and keeps the transcript
+ *    here. Signing in moved nothing: this browser's files are as they were,
+ *    and the person has no `whispering` repository (`epicenter repos`).
+ * 4. Signing out keeps every recording.
  */
-import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type BrowserContext, expect, type Page } from 'playwright/test';
 import {
 	emptyOpfs,
 	epicenter,
+	goOffline,
 	opfsFiles,
 	opfsText,
-	recordUploaderStarts,
-	run,
 	stackTest,
-	sync,
-	uploaderStarts,
 } from '../../../packages/cli/src/app-e2e.test-support.ts';
 
 /** Which microphone a project records from: the engine's capture device, or `?fixture=tone`. */
@@ -53,7 +42,7 @@ const test = stackTest('WHISPERING_E2E_STATE').extend<
 
 test.describe.configure({ mode: 'serial' });
 
-/** The transcription endpoint the browser is set up with, answered by the test. */
+/** The custom transcription endpoint the browser is set up with, answered by the test. */
 const TRANSCRIBE = 'https://transcribe.example/v1';
 
 let profile: string;
@@ -63,13 +52,10 @@ let page: Page;
 /** What the first steps learn, for the later ones. */
 let app: string;
 let kept: string;
-let fresh: string;
-let audioPath: string;
-let audioSha: string;
-let clone: string;
+let offline: string;
+/** This browser's files, as the last step left them. */
+let localFiles: Record<string, string>;
 let transcribed = 0;
-/** What the page logged, attached to a failed step. */
-const consoled: string[] = [];
 
 test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 	profile = await mkdtemp(join(tmpdir(), `whispering-${browserName}-`));
@@ -88,9 +74,6 @@ test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 		});
 	});
 	page = context.pages()[0] ?? (await context.newPage());
-	page.on('console', (message) =>
-		consoled.push(`${message.type()}: ${message.text()}`),
-	);
 });
 
 test.afterAll(async () => {
@@ -98,35 +81,30 @@ test.afterAll(async () => {
 	if (profile) await rm(profile, { recursive: true, force: true });
 });
 
-const sha256 = (bytes: Uint8Array) =>
-	createHash('sha256').update(bytes).digest('hex');
-
-const views = () => page.getByRole('navigation', { name: 'Views' });
-/** A page of the open view, from the sidebar. */
+/** A page, from the sidebar. */
 const pageLink = (name: 'Home' | 'Recordings') =>
 	page.getByRole('link', { name, exact: true }).first();
 const status = () => page.getByTestId('status-summary');
 const row = (id: string) =>
 	page.locator(`[data-testid="recording-row"][data-id="${id}"]`);
 const detail = () => page.getByTestId('recording-detail');
-const SIGN_IN_TO_SEE =
-	'Sign in to see the recordings in your Epicenter repository.';
+const account = () => page.getByTestId('account-status');
 
-/**
- * The recordings this origin's OPFS has kept, by id: those still on the
- * device, and those whose audio an upload cached after letting go of them.
- */
+/** The recordings this origin's OPFS holds a note for, by id. */
 async function recordingIds() {
-	const ids = Object.keys(await opfsFiles(page)).flatMap((path) => {
-		const id =
-			/^recordings\/([^/]+)\.md$/.exec(path)?.[1] ??
-			/^\.epicenter\/cache\/recordings\/([^/]+)\.[^./]+$/.exec(path)?.[1];
-		return id === undefined ? [] : [id];
-	});
-	return [...new Set(ids)].sort();
+	return Object.keys(await opfsFiles(page))
+		.flatMap((path) => /^recordings\/([^/]+)\.md$/.exec(path)?.[1] ?? [])
+		.sort();
 }
 
-/** Record about a second and a half from a home page; answers the new recording's id. */
+/** The paths of this origin's OPFS files under `prefix`. */
+async function pathsUnder(prefix: string) {
+	return Object.keys(await opfsFiles(page))
+		.filter((path) => path.startsWith(prefix))
+		.sort();
+}
+
+/** Record about a second and a half from the home page; answers the new recording's id. */
 async function record() {
 	const before = await recordingIds();
 	await page.getByTestId('start-recording').click();
@@ -142,19 +120,19 @@ async function record() {
 	return id as string;
 }
 
-/** Open recording `id`'s details from a Recordings page. */
+/** Open recording `id`'s details from the Recordings page. */
 async function open(id: string) {
 	await row(id).locator('button[data-recording]').click();
 	await expect(detail()).toHaveAttribute('data-recording-id', id);
 }
 
-/** Open Settings, where the account is. */
+/** Open Settings, where the connections and the optional sign-in are; Escape closes it. */
 async function settings() {
-	await page.getByRole('button', { name: 'Settings' }).click();
-	return page.getByTestId('account-status');
+	await page.getByTestId('settings').click();
+	await expect(account()).toBeVisible();
 }
 
-test('1. signed out, recordings are kept on this device, edited, transcribed and deleted', async ({
+test('1. on this browser, a recording is kept as its audio and note, edited, transcribed and deleted, with no account', async ({
 	stack,
 	microphone,
 }) => {
@@ -170,31 +148,37 @@ test('1. signed out, recordings are kept on this device, edited, transcribed and
 		);
 	}, TRANSCRIBE);
 	await page.goto(app);
-	await expect(
-		views().getByRole('link', { name: 'On this device' }),
-	).toHaveAttribute('aria-current', 'page');
 	await expect(status()).toHaveAttribute(
 		'aria-label',
-		/^Status: On this device\./,
+		/^Status: On this browser\./,
 	);
+	// One variant: no other view to switch to.
+	await expect(page.getByRole('navigation', { name: 'Views' })).toHaveCount(0);
+	await expect(page.getByRole('link', { name: 'Synced' })).toHaveCount(0);
 
 	kept = await record();
 	const gone = await record();
 
+	// Each recording is two files, its audio and its note, and nothing else
+	// is written: no outbox, no cache.
 	const files = await opfsFiles(page);
-	audioPath = Object.keys(files).find(
+	const audioPath = Object.keys(files).find(
 		(path) => path.startsWith(`recordings/${kept}.`) && !path.endsWith('.md'),
 	) as string;
 	// AAC where the engine records it, else Opus in WebM (decision 56).
 	expect(audioPath).toMatch(/\.(m4a|webm)$/);
-	audioSha = files[audioPath] as string;
+	expect(Object.keys(files).sort()).toEqual(
+		[
+			`recordings/${kept}.md`,
+			audioPath,
+			`recordings/${gone}.md`,
+			audioPath.replace(kept, gone),
+		].sort(),
+	);
 	// Not empty: the sha256 of no bytes.
-	expect(audioSha).not.toBe(
+	expect(files[audioPath]).not.toBe(
 		'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
 	);
-	expect(
-		Object.keys(files).filter((path) => path.startsWith('.epicenter/outbox/')),
-	).toHaveLength(2);
 	expect(await opfsText(page, `recordings/${kept}.md`)).toMatch(
 		new RegExp(
 			`^capture: ${microphone === 'tone' ? 'fixture' : 'microphone'}$`,
@@ -211,23 +195,21 @@ test('1. signed out, recordings are kept on this device, edited, transcribed and
 	await expect
 		.poll(() => opfsText(page, `recordings/${kept}.md`))
 		.toMatch(/^title: Standup notes$/m);
-	await expect(detail().getByTestId('audio-player')).toHaveAttribute(
-		'data-audio-cached',
-		'false',
-	);
+	await detail().getByTestId('file-details').click();
+	await expect(detail().getByTestId('kept-in')).toHaveText('This browser');
 
 	await detail().getByTestId('transcribe').click();
-	await expect(detail().getByTestId('transcript-text')).toHaveValue(
-		/hello from the stub/,
-	);
+	const transcript = detail().getByTestId('transcript-text');
+	await expect(transcript).toHaveValue(/hello from the stub/);
 	expect(transcribed).toBe(1);
+	await expect.poll(() => pathsUnder('transcriptions/')).toHaveLength(1);
+	const [transcriptPath] = await pathsUnder('transcriptions/');
+
+	// The transcript is the body of its own note, saved as it is typed.
+	await transcript.fill('hello, edited by hand');
 	await expect
-		.poll(async () =>
-			Object.keys(await opfsFiles(page)).filter((path) =>
-				path.startsWith('transcriptions/'),
-			),
-		)
-		.toHaveLength(1);
+		.poll(() => opfsText(page, transcriptPath as string))
+		.toMatch(/\nhello, edited by hand\n?$/);
 
 	await open(gone);
 	await detail().getByTestId('delete-recording').click();
@@ -236,249 +218,160 @@ test('1. signed out, recordings are kept on this device, edited, transcribed and
 		.getByRole('button', { name: 'Delete' })
 		.click();
 	await expect(row(gone)).toHaveCount(0);
-	await expect
-		.poll(async () =>
-			Object.keys(await opfsFiles(page)).filter((path) =>
-				path.startsWith(`recordings/${gone}.`),
-			),
-		)
-		.toEqual([]);
+	await expect.poll(() => pathsUnder(`recordings/${gone}.`)).toEqual([]);
 
 	// Still there after a reload.
 	await page.reload();
 	await expect(row(kept)).toContainText('Standup notes');
-
-	// "Synced" is the repository's, which needs a sign-in.
-	await views().getByRole('link', { name: 'Synced' }).click();
-	await expect(page.getByText(SIGN_IN_TO_SEE)).toBeVisible();
-	await page.getByRole('link', { name: 'On this device' }).click();
-	await expect(status()).toHaveAttribute(
-		'aria-label',
-		/^Status: On this device\./,
+	await open(kept);
+	await expect(detail().getByTestId('transcript-text')).toHaveValue(
+		/hello, edited by hand/,
 	);
 });
 
-test('2. signed in, recordings upload: each leaves this device and appears in Synced, where its cached audio plays', async ({
+test('2. offline, recording and editing still work, and survive a reload', async () => {
+	// Online, load both pages this step moves between (with the fixture
+	// microphone the URL asks for); offline, nothing more can load.
+	await page.goto(app);
+	await pageLink('Recordings').click();
+	await expect(row(kept)).toBeVisible();
+	await pageLink('Home').click();
+	await expect(page.getByTestId('start-recording')).toBeVisible();
+
+	const online = await goOffline(context);
+	try {
+		offline = await record();
+		await pageLink('Recordings').click();
+		await open(offline);
+		await detail().getByLabel('Recording title').fill('Offline take');
+		await expect
+			.poll(() => opfsText(page, `recordings/${offline}.md`))
+			.toMatch(/^title: Offline take$/m);
+		await expect(status()).toHaveAttribute(
+			'aria-label',
+			/^Status: On this browser\./,
+		);
+	} finally {
+		await online();
+	}
+	await page.reload();
+	await expect(row(offline)).toContainText('Offline take');
+	await expect(row(kept)).toContainText('Standup notes');
+});
+
+test('3. signing in enables hosted transcription and moves nothing', async ({
 	stack,
 	person,
 }) => {
+	// The deployment's transcription route, answered by the test: the stack
+	// has no provider behind it.
+	const hosted = `${stack.origin}/v1/audio/transcriptions`;
+	const sent: (string | null)[] = [];
+	const cors = {
+		'access-control-allow-origin': stack.app,
+		'access-control-allow-headers': 'authorization, content-type',
+		'access-control-allow-methods': 'POST',
+	};
+	await context.route(hosted, (route) => {
+		if (route.request().method() === 'OPTIONS')
+			return route.fulfill({ status: 204, headers: cors });
+		sent.push(route.request().headers().authorization ?? null);
+		return route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			headers: cors,
+			body: JSON.stringify({ text: 'hello from Epicenter' }),
+		});
+	});
+
+	// Transcription over the Epicenter account is refused until signed in.
+	await settings();
+	await page
+		.getByTestId('connection-transcription')
+		.getByRole('button', { name: 'Use Epicenter account' })
+		.click();
+	await expect(
+		page.getByTestId('connection-transcription-status'),
+	).toContainText(`${stack.origin}/v1`);
+	await page.keyboard.press('Escape');
+	await open(kept);
+	await detail().getByTestId('transcribe').click();
+	await expect(detail().getByTestId('run-error')).toContainText(
+		'Sign in to Epicenter',
+	);
+	expect(sent).toEqual([]);
+	await detail().getByTestId('dismiss-run').click();
+
+	localFiles = await opfsFiles(page);
+
 	// A signed-in session on the API; the real authorization redirect does the rest.
-	await recordUploaderStarts(context);
 	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
+	await settings();
 	const callback = page.waitForURL(/\/auth\/callback/, { waitUntil: 'commit' });
-	await (await settings()).getByRole('button', { name: 'Sign in' }).click();
+	await account().getByRole('button', { name: 'Sign in' }).click();
 	await callback;
 	await page.waitForURL((url) => !url.pathname.startsWith('/auth/'));
+	await settings();
+	await expect(account()).toContainText('Signed in to');
+	await page.keyboard.press('Escape');
 
-	await pageLink('Recordings').click();
-	try {
-		// The uploader moves it: this device's view and notes empty, and the
-		// audio stays as a cache, outside the contract's paths, byte for byte.
-		await expect(row(kept)).toHaveCount(0, { timeout: 60_000 });
-		await expect
-			.poll(() => opfsFiles(page), { timeout: 60_000 })
-			.toEqual({ [`.epicenter/cache/${audioPath}`]: audioSha });
-	} catch (cause) {
-		// Kept with the failed step's results: the page's log, status and files.
-		await writeFile(
-			test.info().outputPath('diagnosis.json'),
-			JSON.stringify(
-				{
-					status: await status().getAttribute('aria-label'),
-					opfs: await opfsFiles(page),
-					console: consoled,
-				},
-				null,
-				2,
-			),
-		);
-		throw cause;
-	}
-	await expect(page.getByText('No recordings yet')).toBeVisible();
-	// The callback page only finished sign-in: no repository, no uploader.
-	const uploaders = await uploaderStarts(page);
-	expect(uploaders.length).toBeGreaterThan(0);
-	expect(uploaders.filter((path) => path.includes('/auth/callback'))).toEqual(
-		[],
-	);
-
-	// One recorded on this device while signed in follows on its own.
-	await page.goto(app);
-	fresh = await record();
-	await expect
-		.poll(async () =>
-			Object.keys(await opfsFiles(page)).filter((path) =>
-				path.startsWith('recordings/'),
-			),
-		)
-		.toEqual([]);
-
-	await views().getByRole('link', { name: 'Synced' }).click();
-	await expect(views().getByRole('link', { name: 'Synced' })).toHaveAttribute(
-		'aria-current',
-		'page',
-	);
-	await expect(status()).toHaveAttribute('aria-label', /^Status: Synced\./);
-	await expect(page.getByTestId('latest-recording')).toBeVisible();
-	await pageLink('Recordings').click();
-	await expect(row(kept)).toContainText('Standup notes');
-	await expect(row(fresh)).toBeVisible();
-
-	// Played from the cache: nothing comes down through Git LFS.
-	const lfs: string[] = [];
-	const listen = (request: { url(): string }) => {
-		if (request.url().includes('/info/lfs/')) lfs.push(request.url());
-	};
-	page.on('request', listen);
-	await open(kept);
-	const player = detail().getByTestId('audio-player');
-	await expect(player).toHaveAttribute('data-audio-cached', 'true');
-	await expect(player).toHaveAttribute('src', /^blob:/);
-	await expect(detail().getByTestId('transcript-text')).toHaveValue(
-		/hello from the stub/,
-	);
-
-	// One transcribed in "Synced" sends its cached audio, and its transcript
-	// goes to the repository, never this device.
-	await open(fresh);
-	await expect(detail().getByTestId('audio-player')).toHaveAttribute(
-		'data-audio-cached',
-		'true',
-	);
-	await detail().getByTestId('transcribe').click();
-	await expect(detail().getByTestId('transcript-text')).toHaveValue(
-		/hello from the stub/,
-	);
-	page.off('request', listen);
-	expect(lfs).toEqual([]);
-	expect(transcribed).toBe(2);
-	expect(
-		Object.keys(await opfsFiles(page)).filter(
-			(path) => !path.startsWith('.epicenter/cache/'),
-		),
-	).toEqual([]);
-});
-
-test('3. a desktop clone holds the bytes the browser recorded and the notes as edited, and fits the contract', async ({
-	stack,
-	person,
-}) => {
-	clone = join(person.home, 'whispering');
-	const cloned = await epicenter(
-		stack,
-		person,
-		'clone',
-		`${person.namespace}/whispering`,
-		clone,
-	);
-	expect(cloned.code, `${cloned.stdout}\n${cloned.stderr}`).toBe(0);
-	const pulled = await run(['git', 'lfs', 'pull'], {
-		cwd: clone,
-		env: person.env,
-	});
-	expect(pulled.code, pulled.stderr).toBe(0);
-
-	expect(sha256(await readFile(join(clone, audioPath)))).toBe(audioSha);
-	expect(await readFile(join(clone, `recordings/${kept}.md`), 'utf8')).toMatch(
-		/^title: Standup notes$/m,
-	);
-	const listed = await run(['git', 'ls-files', 'transcriptions'], {
-		cwd: clone,
-		env: person.env,
-	});
-	const transcripts = await Promise.all(
-		listed.stdout
-			.trim()
-			.split('\n')
-			.map((path) => readFile(join(clone, path), 'utf8')),
-	);
-	expect(transcripts).toHaveLength(2);
-	// House style quotes a value YAML would otherwise read as something else.
-	for (const id of [kept, fresh])
-		expect(
-			transcripts.find((text) =>
-				new RegExp(`^recordingId: "?${id}"?$`, 'm').test(text),
-			),
-		).toMatch(/hello from the stub\n$/);
-
-	const checked = await epicenter(
-		stack,
-		person,
-		'check',
-		`${stack.app}/contract.json`,
-		clone,
-	);
-	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
-});
-
-test('4. a title edited on the desktop shows in Synced with no reload', async ({
-	stack,
-	person,
-}) => {
-	const path = join(clone, `recordings/${kept}.md`);
-	await writeFile(
-		path,
-		(await readFile(path, 'utf8')).replace(
-			/^title: .*$/m,
-			'title: Edited on the desktop',
-		),
-	);
-	await sync(stack, person, clone);
-
-	// The repository hears main move (a poll until the notify Durable Object).
-	await expect(row(kept)).toContainText('Edited on the desktop');
-});
-
-test('5. a transcript the desktop wrote that does not read shows in Synced with its text, and is repaired there', async ({
-	stack,
-	person,
-}) => {
-	const broken = '---\nrecordingId: [oops\n---\nsome text\n';
-	await writeFile(join(clone, 'transcriptions/broken.md'), broken);
-	await sync(stack, person, clone);
-
-	const repairs = page.getByTestId('recording-repairs');
-	await expect(repairs).toContainText('transcriptions/broken.md');
-	const text = repairs.getByLabel('Text of transcriptions/broken.md');
-	await expect(text).toHaveValue(broken);
-
-	// Text that still does not fit is refused, and stays to fix.
-	await text.fill(`---\nrecordingId: ${kept}\n---\nsome text\n`);
-	await repairs.getByRole('button', { name: 'Save repair' }).click();
-	await expect(repairs.getByRole('alert')).toContainText('createdAt');
-
-	await text.fill(
-		`---\nrecordingId: ${kept}\ncreatedAt: '2026-10-31T09:30:00.000Z'\nmodel: whisper-1\nendpoint: https://api.openai.com/v1\n---\nsome text\n`,
-	);
-	await repairs.getByRole('button', { name: 'Save repair' }).click();
-	await expect(repairs).toHaveCount(0);
-
-	await sync(stack, person, clone);
-	const repaired = await readFile(
-		join(clone, 'transcriptions/broken.md'),
-		'utf8',
-	);
-	expect(repaired).toMatch(/^model: whisper-1$/m);
-	expect(repaired).toMatch(/some text\n$/);
-	const checked = await epicenter(
-		stack,
-		person,
-		'check',
-		`${stack.app}/contract.json`,
-		clone,
-	);
-	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
-});
-
-test('6. signed out, the browser holds nothing, and Synced asks for a sign-in', async () => {
-	await (await settings()).getByRole('button', { name: 'Sign out' }).click();
-	await expect(page.getByText(SIGN_IN_TO_SEE)).toBeVisible();
-	await page.getByRole('link', { name: 'On this device' }).click();
+	// Signing in moved nothing.
 	await expect(status()).toHaveAttribute(
 		'aria-label',
-		/^Status: On this device\./,
+		/^Status: On this browser\./,
 	);
-	await expect.poll(() => opfsFiles(page)).toEqual({});
+	expect(await opfsFiles(page)).toEqual(localFiles);
+
+	// Signed in, the account's API token goes with the audio, and the
+	// transcript is kept here, newest first.
 	await pageLink('Recordings').click();
-	await expect(page.getByText('No recordings yet')).toBeVisible();
+	await open(kept);
+	await detail().getByTestId('transcribe').click();
+	const transcripts = detail().getByTestId('transcript-text');
+	await expect(transcripts).toHaveCount(2);
+	await expect(transcripts.first()).toHaveValue(/hello from Epicenter/);
+	expect(sent).toHaveLength(1);
+	expect(sent[0]).toMatch(/^Bearer ep_at_/);
+	expect(transcribed).toBe(1);
+	await expect
+		.poll(async () =>
+			Promise.all(
+				(await pathsUnder('transcriptions/')).map((path) =>
+					opfsText(page, path),
+				),
+			),
+		)
+		.toContainEqual(expect.stringMatching(/\nhello from Epicenter\n?$/));
+	// The new transcript is the only change to this browser's files.
+	const after = await opfsFiles(page);
+	expect(
+		Object.keys(after).filter((path) => !(path in localFiles)),
+	).toHaveLength(1);
+	for (const [path, sha] of Object.entries(localFiles))
+		expect(after[path], path).toBe(sha);
+	localFiles = after;
+
+	// The person has no whispering repository: nothing was ever sent to one.
+	const listed = await epicenter(stack, person, 'repos', '--json');
+	expect(listed.code, `${listed.stdout}\n${listed.stderr}`).toBe(0);
+	const listing = JSON.parse(listed.stdout) as {
+		namespaces: { repositories: { name: string }[] }[];
+	};
+	expect(
+		listing.namespaces.flatMap((namespace) =>
+			namespace.repositories.map((repository) => repository.name),
+		),
+	).not.toContain('whispering');
+});
+
+test('4. signing out keeps every recording', async () => {
+	await settings();
+	await account().getByRole('button', { name: 'Sign out' }).click();
+	await expect(account()).toContainText('Optional: sign in');
+	await page.keyboard.press('Escape');
+	expect(await opfsFiles(page)).toEqual(localFiles);
+	await page.reload();
+	await expect(row(kept)).toContainText('Standup notes');
+	await expect(row(offline)).toContainText('Offline take');
+	expect(await opfsFiles(page)).toEqual(localFiles);
 });

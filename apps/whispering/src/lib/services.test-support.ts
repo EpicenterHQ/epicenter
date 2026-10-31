@@ -1,14 +1,11 @@
 /**
- * Services for tests: this browser's files and a stand-in repository, a
- * fixture capture device, and stubbed endpoints. Nothing here reaches a
- * network, a microphone, or a provider.
+ * Services for tests: this browser's files, a fixture capture device, and
+ * stubbed endpoints. Nothing here reaches a network, a microphone, or a
+ * provider.
  *
- * Both sides are the contract's client over a real directory
- * (`@epicenter/folder/node`): the device as the browser's OPFS holds it, at
- * the same paths, with its outbox and cache; the repository stand-in is a
- * second directory, which is all the lists need of a repository (a
- * `Client<Whispering>`). What the server does is tested in
- * `@epicenter/folder`'s remote tests and the end-to-end suite.
+ * The files are the contract's client over a real directory
+ * (`@epicenter/folder/node`), as the browser's OPFS holds them, at the same
+ * paths.
  *
  * The endpoint stubs are plain functions, so a test decides each answer and
  * counts each request.
@@ -17,7 +14,6 @@ import { mock } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Client } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
 import { Err, Ok } from 'wellcrafted/result';
 import { createFixtureDevice, toneWav } from './capture.js';
@@ -29,7 +25,7 @@ import {
 	type Operation,
 	type StoredConnection,
 } from './connections.js';
-import { type Whispering, whispering } from './contract.js';
+import { whispering } from './contract.js';
 import type { WhisperingServices } from './platform/types.js';
 import { TranscriptionError } from './transcription.js';
 import { TransformationError } from './transformation.js';
@@ -122,10 +118,7 @@ export type TestServicesOptions = {
 	connections?: Partial<Record<Operation, StoredConnection>>;
 };
 
-/**
- * This browser's files and a stand-in repository in a temporary directory,
- * and services whose endpoints are stubs.
- */
+/** This browser's files in a temporary directory, and services whose endpoints are stubs. */
 export async function openTestServices({
 	transcribe,
 	transform,
@@ -133,9 +126,6 @@ export async function openTestServices({
 }: TestServicesOptions = {}) {
 	const root = await mkdtemp(join(tmpdir(), 'whispering-'));
 	const device = openDevice(whispering, { path: join(root, 'device') });
-	const repository = openDevice(whispering, {
-		path: join(root, 'repository'),
-	});
 	const stored = testConnections({ connections });
 
 	const transformed: TransformRequest[] = [];
@@ -200,8 +190,6 @@ export async function openTestServices({
 		root,
 		/** This browser's files, as the contract's client. */
 		device,
-		/** The repository's stand-in, as the contract's client. */
-		repository,
 		services,
 		/** Every transformation request the endpoint stub received, in order. */
 		transformed,
@@ -209,7 +197,7 @@ export async function openTestServices({
 		transcribed,
 		/** The device's stored connections, keys included. */
 		connections: stored,
-		/** Remove both directories. */
+		/** Remove the directory. */
 		async remove() {
 			await rm(root, { recursive: true, force: true });
 		},
@@ -250,13 +238,4 @@ export function provideServices(services: WhisperingServices) {
 			return provided;
 		},
 	}));
-}
-
-/** A client whose `name` collection answers some calls differently; the rest read through. */
-export function replacing<TName extends keyof Whispering['collections']>(
-	client: Client<Whispering>,
-	name: TName,
-	calls: Partial<Client<Whispering>[TName]>,
-): Client<Whispering> {
-	return { ...client, [name]: { ...client[name], ...calls } };
 }

@@ -24,7 +24,7 @@
 
 	/** The newest kept recording. */
 	const latest = $derived(library.entries[0]);
-	/** Where its audio is, read from the nearest copy. */
+	/** Where its audio is. */
 	const audio = $derived(latest ? library.audioOf(latest.id) : undefined);
 	const transcript = $derived(latest ? library.resultsFor(latest.id)[0] : undefined);
 	/** A transcription of it in this window, and what became of it. */
@@ -57,7 +57,7 @@
 	async function openRecording(id: string) {
 		if (!library.openRecording(id)) return;
 		ui.showingDetail = true;
-		await goto(pathOf(library.view, 'recordings'));
+		await goto(pathOf('recordings'));
 	}
 </script>
 

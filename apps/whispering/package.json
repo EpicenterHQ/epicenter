@@ -2,7 +2,7 @@
 	"name": "@epicenter/whispering",
 	"private": true,
 	"version": "7.11.1",
-	"description": "Voice notes: recordings, transcripts, and settings are files in a Git-versioned folder, in a browser tab",
+	"description": "Voice notes in a browser tab: recordings, transcripts, and transformations are files kept in this browser for good; signing in only adds hosted transcription and AI",
 	"type": "module",
 	"imports": {
 		"#platform/auth": "./src/lib/platform/auth.ts",

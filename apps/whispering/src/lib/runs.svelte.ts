@@ -3,9 +3,8 @@
  * recording, and recipe runs on a transcript or on pasted text.
  *
  * A request lives in this window until its answer arrives. Then its result
- * is created as a new note, every field fixed and the answer as its body:
- * in the files of the view it was asked from: this device's (uploaded later,
- * signed in) or the repository's. So a result note always holds an answer.
+ * is created as a new note in Whispering's files, every field fixed and the
+ * answer as its body. So a result note always holds an answer.
  *
  * What lives only in this window is what is happening: a request under way,
  * why one failed (Run again sends the same request), and an answer whose
@@ -13,7 +12,7 @@
  * request). A reload loses them. Waiting for an endpoint never delays
  * closing; an answer that arrives after closing keeps nothing.
  *
- * A run sends what the person sees: the recipe and transcript text a view
+ * A run sends what the person sees: the recipe and transcript text a page
  * shows, typing included, or else the notes as listed.
  */
 import { timeId } from '@epicenter/definition/ids';
@@ -330,8 +329,8 @@ export function createRuns({
 		},
 
 		/**
-		 * Transcribe recording `id`: send its audio, read from the nearest
-		 * copy, over the transcription connection, then create its transcript.
+		 * Transcribe recording `id`: send its audio over the transcription
+		 * connection, then create its transcript.
 		 * Answers why nothing was sent.
 		 */
 		async transcribe(id: string): Promise<string | undefined> {
@@ -376,9 +375,7 @@ export function createRuns({
 				return fail(
 					audio.kind === 'ambiguous'
 						? `More than one audio file has this recording’s id (${audio.exts.join(', ')}). Keep one before transcribing.`
-						: audio.kind === 'unreachable'
-							? 'This recording’s audio is in your repository, which cannot be reached now.'
-							: 'This recording has no audio to transcribe.',
+						: 'This recording has no audio to transcribe.',
 				);
 			const at = new Date();
 			const run: Run = {

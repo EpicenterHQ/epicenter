@@ -2,15 +2,14 @@
  * What the page may import, and who opens what.
  *
  * The page runs in a browser tab, so nothing under `src/` may reach Node,
- * Bun or Tauri. Its files are Whispering's contract's client (decision 10):
- * this browser's device is opened in one place, at the root, and the
- * repository and its uploader in one place, the signed-in boundary. The
- * two views (decision 76) are never merged: each view's layout composes one
- * client's files, "On this device" this browser's and "Synced" the
- * repository's, and a recording is always kept on the device. Nothing in
- * the app, its tests included, uses the retired folder and table API. The
- * services come through `#platform/services`, so no page code asks where it
- * is running. This reads the sources, so a violation names its file.
+ * Bun or Tauri. Its files are Whispering's contract's client (decision 10).
+ * The web build is the local variant: this browser's device is opened in
+ * one module and chosen in one place, the variant's root layout, which
+ * hands it to the app as a prop; nothing opens or reads a repository, and
+ * nothing uploads (ADR-0700). Nothing in the app, its tests included, uses
+ * the retired folder and table API. The services come through
+ * `#platform/services`, so no page code asks where it is running. This
+ * reads the sources, so a violation names its file.
  */
 import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -72,18 +71,20 @@ test('the page imports no Node, Bun, or Tauri module', () => {
 	).toEqual([]);
 });
 
-test('the device is opened once, in its module, and the repository at the signed-in boundary', () => {
+test('the device is opened once, in its module, and chosen only by the local variant’s root; nothing opens a repository', () => {
 	expect(callers('openDevice')).toEqual(['lib/device.ts']);
-	expect(callers('setRepo')).toEqual(['routes/components/SignedIn.svelte']);
-	expect(callers('openRemote')).toEqual(['routes/components/SignedIn.svelte']);
-	expect(callers('startUploading')).toEqual([
-		'routes/components/SignedIn.svelte',
+	expect(importers((specifier) => /\/device(\.js)?$/.test(specifier))).toEqual([
+		'routes/(local)/+layout.svelte imports $lib/device.js',
 	]);
+	for (const name of ['openRemote', 'setRepo', 'getRepo'])
+		expect(callers(name)).toEqual([]);
 	expect(
-		importers((specifier) => specifier === '@epicenter/folder/remote'),
-	).toEqual([
-		'routes/components/SignedIn.svelte imports @epicenter/folder/remote',
-	]);
+		importers(
+			(specifier) =>
+				specifier === '@epicenter/folder/remote' ||
+				specifier === '@epicenter/svelte/repo',
+		),
+	).toEqual([]);
 });
 
 test('nothing in the app uses the retired folder and table API', () => {
@@ -143,7 +144,6 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 						'@epicenter/svelte/client',
 						'@epicenter/svelte/leave-guard',
 						'@epicenter/svelte/note-repair',
-						'@epicenter/svelte/repo',
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',
@@ -157,18 +157,14 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 	).toEqual([]);
 });
 
-test('the platform leaf owns auth composition; the subtree only names the account', () => {
+test('the platform leaf owns auth composition; nothing else names the account', () => {
 	expect(
 		importers((specifier) => specifier.startsWith('@epicenter/auth')).filter(
 			(source) =>
 				!source.startsWith('lib/platform/') &&
 				!source.startsWith('routes/auth/callback/'),
 		),
-	).toEqual(['routes/components/SignedIn.svelte imports @epicenter/auth']);
-	expect(
-		files.find((file) => file.path === 'routes/components/SignedIn.svelte')
-			?.text,
-	).toContain("import type { Account } from '@epicenter/auth'");
+	).toEqual([]);
 });
 
 /** Files whose source calls `name(` (or `name<T>(`), ignoring its own declaration. */
@@ -177,42 +173,33 @@ function callers(name: string) {
 	return files.filter((file) => call.test(file.text)).map((file) => file.path);
 }
 
-test('WhisperingApp owns what both views share; each view composes one client', () => {
-	expect(callers('createWhispering')).toEqual([
-		'routes/components/WhisperingApp.svelte',
-	]);
+test('WhisperingApp composes Whispering over the client it is given', () => {
+	for (const name of [
+		'createWhispering',
+		'setWhispering',
+		'filesOf',
+		'createLibrary',
+		'setLibrary',
+	])
+		expect(callers(name)).toEqual(['routes/components/WhisperingApp.svelte']);
 	expect(callers('createServices')).toEqual(['lib/whispering.svelte.ts']);
-	// A recording is kept on the device, as one capture, by the recorder alone.
-	expect(callers('saveCapture')).toEqual(['lib/whispering.svelte.ts']);
-	// One client per view: the device's, or the repository's.
 	expect(callers('fromClient')).toEqual(['lib/files.svelte.ts']);
-	expect(callers('createLibrary')).toEqual([
-		'routes/components/WhisperingView.svelte',
-	]);
-	expect(callers('deviceFiles')).toEqual([
-		'routes/components/WhisperingView.svelte',
-	]);
-	expect(callers('syncedFiles')).toEqual([
-		'routes/components/WhisperingView.svelte',
-	]);
-	expect(callers('getRepo')).toEqual([
-		'routes/components/WhisperingView.svelte',
-	]);
+	expect(
+		files.find((file) => file.path === 'routes/components/WhisperingApp.svelte')
+			?.text,
+	).toContain('client: Client<WhisperingContract>');
 });
 
-test('each view has the same pages, and every page takes its view from context', () => {
+test('the local variant has every page, and every page reads its library from context', () => {
 	const pages = files.filter(
 		(file) =>
 			/\+page\.svelte$/.test(file.path) &&
 			file.path !== 'routes/auth/callback/+page.svelte',
 	);
 	expect(pages.map((file) => file.path).sort()).toEqual([
-		'routes/(device)/+page.svelte',
-		'routes/(device)/recordings/+page.svelte',
-		'routes/(device)/transformations/+page.svelte',
-		'routes/synced/+page.svelte',
-		'routes/synced/recordings/+page.svelte',
-		'routes/synced/transformations/+page.svelte',
+		'routes/(local)/+page.svelte',
+		'routes/(local)/recordings/+page.svelte',
+		'routes/(local)/transformations/+page.svelte',
 	]);
 	const bodies = {
 		'+page.svelte': 'HomePage',
@@ -220,29 +207,19 @@ test('each view has the same pages, and every page takes its view from context',
 		'transformations/+page.svelte': 'TransformationsPage',
 	} as const;
 	for (const [page, body] of Object.entries(bodies)) {
-		for (const view of ['(device)', 'synced'])
-			expect(
-				files.find((file) => file.path === `routes/${view}/${page}`)?.text,
-			).toContain(`<${body} />`);
+		expect(
+			files.find((file) => file.path === `routes/(local)/${page}`)?.text,
+		).toContain(`<${body} />`);
 		expect(
 			files.find((file) => file.path === `routes/components/${body}.svelte`)
 				?.text,
 		).toContain('getLibrary()');
 	}
 	expect(
-		files.find((file) => file.path === 'routes/(device)/+layout.svelte')?.text,
-	).toContain('<WhisperingView view="device">');
-	expect(
-		files.find((file) => file.path === 'routes/synced/+layout.svelte')?.text,
-	).toContain('<WhisperingView view="synced">');
+		files.find((file) => file.path === 'routes/(local)/+layout.svelte')?.text,
+	).toContain('<WhisperingApp client={device}>');
 	expect(
 		files.find((file) => file.path === 'routes/auth/callback/+page.svelte')
 			?.text,
-	).not.toMatch(/getWhispering\(\)|getLibrary\(\)/);
-	expect(callers('setWhispering')).toEqual([
-		'routes/components/WhisperingApp.svelte',
-	]);
-	expect(callers('setLibrary')).toEqual([
-		'routes/components/WhisperingView.svelte',
-	]);
+	).not.toMatch(/getWhispering\(\)|getLibrary\(\)|device/);
 });

@@ -1,7 +1,7 @@
 /**
  * Facts about audio files, read from their names and bytes.
  *
- * A file's extension decides the MIME type the app plays or uploads it as, and
+ * A file's extension decides the MIME type the app plays or sends it as, and
  * a WAV's own header gives its play length.
  */
 

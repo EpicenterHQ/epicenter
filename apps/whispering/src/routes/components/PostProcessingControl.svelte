@@ -149,7 +149,7 @@
 			<p class="text-xs text-warning" role="status">The chosen transformation was deleted or moved. Choose another, or None.</p>
 		{/if}
 
-		<Button variant="outline" size="sm" href={pathOf(library.view, 'transformations')} data-testid="manage-transformations">
+		<Button variant="outline" size="sm" href={pathOf('transformations')} data-testid="manage-transformations">
 			Manage transformations
 		</Button>
 	</Popover.Content>

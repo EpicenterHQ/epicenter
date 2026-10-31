@@ -1,11 +1,12 @@
 /**
- * Whispering's browser sign-in covers both of its audiences (decision 65):
- * one sign-in through `getAuth()`, the client the web build uses, against the
- * real authorization server on a disposable Postgres cluster and a `Bun.serve`
- * listener, with this deployment's first-party registrations. The same Account
- * then writes a recording to the person's repository through `openRemote` (the
- * Git audience, `folders:write`) and sends a transcription (the API audience,
- * `ai`), and no refresh token is left in the browser's storage.
+ * Whispering's browser sign-in grants capabilities, never storage
+ * (ADR-0700): one sign-in through `getAuth()`, the client the web build
+ * uses, against the real authorization server on a disposable Postgres
+ * cluster and a `Bun.serve` listener, with this deployment's first-party
+ * registrations. It asks for the API audience alone, with `ai` and no
+ * `folders:*` scope; the Account sends a transcription over the API, and
+ * the deployment's Git host refuses it, so it cannot reach a repository. No
+ * refresh token is left in the browser's storage.
  *
  * The browser is played by in-memory storage and a location whose `assign`
  * the test answers as the authorization server would for a signed-in person.
@@ -23,9 +24,6 @@ import {
 	localUrl,
 	resolveOAuthAudiences,
 } from '@epicenter/constants/apps';
-import { defineContract } from '@epicenter/definition/contract';
-import { timeId } from '@epicenter/definition/ids';
-import { openRemote } from '@epicenter/folder/remote';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	type CloudEnv,
@@ -41,17 +39,6 @@ import {
 import { startDisposablePostgres } from '../../../../../packages/server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../../../packages/server/src/test-helpers/oauth-client.js';
 import { buildFirstPartyClients } from '../../../../api/worker/oauth-registrations.js';
-
-const notes = defineContract({
-	name: 'whispering',
-	collections: {
-		recordings: {
-			path: 'recordings/{id}.md',
-			fields: { title: { type: 'string' } },
-			required: ['title'],
-		},
-	},
-});
 
 const secret = 'whispering-web-sign-in-secret-0123456789ab';
 const appOrigin = localUrl(APPS.WHISPERING);
@@ -147,7 +134,7 @@ afterAll(async () => {
 	if (scratch) await rm(scratch, { recursive: true, force: true });
 });
 
-test('one Whispering sign-in writes to the folder over Git and transcribes over the API', async () => {
+test('one Whispering sign-in transcribes over the API and reaches no repository', async () => {
 	const person = await oauth.person('whispering-web');
 	const storage = memoryStorage();
 	const attempts = memoryStorage();
@@ -174,10 +161,10 @@ test('one Whispering sign-in writes to the folder over Git and transcribes over 
 	expect(navigations).toHaveLength(1);
 	// The authorization server answers for the signed-in person.
 	const authorize = new URL(navigations[0]!);
-	expect(authorize.searchParams.getAll('resource')).toEqual([
-		origin,
-		`${origin}/git`,
-	]);
+	expect(authorize.searchParams.getAll('resource')).toEqual([origin]);
+	expect(authorize.searchParams.get('scope')?.split(' ').sort()).toEqual(
+		['ai', 'email', 'openid', 'profile'].sort(),
+	);
 	const answer = await oauth.request(
 		`${authorize.pathname}${authorize.search}`,
 		{
@@ -196,13 +183,6 @@ test('one Whispering sign-in writes to the folder over Git and transcribes over 
 	for (const cells of [storage.cells, attempts.cells])
 		for (const value of cells.values()) expect(value).not.toContain('ep_rt_');
 
-	const remote = openRemote(notes, { account: state.account });
-	const id = timeId();
-	expectOk(
-		await remote.recordings.create({ id, title: 'Over Git', body: 'hello\n' }),
-	);
-	expect(expectOk(await remote.recordings.get({ id })).title).toBe('Over Git');
-
 	const transcribed = await state.account.fetch(
 		`${origin}/v1/audio/transcriptions`,
 		{ method: 'POST', body: new FormData() },
@@ -212,4 +192,10 @@ test('one Whispering sign-in writes to the folder over Git and transcribes over 
 	expect(reached).toEqual([
 		{ path: '/v1/audio/transcriptions', principal: person.id },
 	]);
+
+	// The Git host takes no token this sign-in holds.
+	const refs = await state.account.fetch(
+		`${origin}/git/~/whispering.git/info/refs?service=git-upload-pack`,
+	);
+	expect(refs.status).toBe(401);
 }, 60_000);

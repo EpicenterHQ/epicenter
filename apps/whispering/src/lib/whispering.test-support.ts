@@ -7,68 +7,47 @@ import { provideServices } from './services.test-support.js';
 import { headerStatus } from './status.js';
 
 /** The header's status line over `library`, as AppHeader words it. */
-export const headerLine = (library: Library, signedIn = false) =>
-	headerStatus({
-		view: library.view,
-		unwrittenAnswers: library.unwrittenAnswers,
-		auth: signedIn ? 'signed-in' : 'signed-out',
-		problem: library.error?.message,
-	});
+export const headerLine = (library: Library) =>
+	headerStatus({ unwrittenAnswers: library.unwrittenAnswers });
 
 /**
- * Same construction as the app's: what both views share
- * (`WhisperingApp`), "On this device" over `device`, and, signed in, "Synced"
- * over `repository` (`WhisperingView`). Each view's lists are followed as
- * its mounted pages follow them, so they list and hear changes.
+ * Same construction as the app's root (`WhisperingApp`): Whispering and its
+ * library over `client`. The lists are followed as mounted pages follow
+ * them, so they list and hear changes.
  */
 export async function createTestWhispering({
 	services,
-	device,
-	repository = null,
+	client,
 }: {
 	services: WhisperingServices;
-	device: Client<WhisperingContract>;
-	repository?: Client<WhisperingContract> | null;
+	client: Client<WhisperingContract>;
 }) {
 	provideServices(services);
 	const { createWhispering } = await import('./whispering.svelte.js');
 	const { createLibrary } = await import('./library.svelte.js');
-	const { deviceFiles, syncedFiles } = await import('./files.svelte.js');
+	const { filesOf } = await import('./files.svelte.js');
 	const { follow } = await import(
 		'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 	);
-	const whispering = createWhispering({ device });
-	const libraries: Library[] = [];
-	function view(files: Parameters<typeof createLibrary>[0]['files']) {
-		const library = createLibrary({ whispering, files });
-		libraries.push(library);
-		return library;
-	}
-	const onDevice = view(deviceFiles(device));
-	const synced =
-		repository === null ? null : view(syncedFiles(repository, device));
-	const followed = libraries.map((library) =>
-		follow(() => [
-			library.entries,
-			library.repairs,
-			library.transcriptions,
-			library.transformations,
-			library.transformationRepairs,
-			library.textRepairs,
-			library.files.transformation_runs.items,
-			library.files.text_runs.items,
-			library.entries.map((note) => library.audioOf(note.id)),
-		]),
-	);
+	const whispering = createWhispering({ client });
+	const library = createLibrary({ whispering, files: filesOf(client) });
+	const followed = follow(() => [
+		library.entries,
+		library.repairs,
+		library.transcriptions,
+		library.transformations,
+		library.transformationRepairs,
+		library.textRepairs,
+		library.files.transformation_runs.items,
+		library.files.text_runs.items,
+		library.entries.map((note) => library.audioOf(note.id)),
+	]);
 	return {
 		whispering,
-		/** "On this device". */
-		onDevice,
-		/** "Synced", when a repository was given. */
-		synced,
+		library,
 		close() {
-			for (const following of followed) following.stop();
-			for (const library of libraries) library.dispose();
+			followed.stop();
+			library.dispose();
 			whispering.dispose();
 		},
 	};

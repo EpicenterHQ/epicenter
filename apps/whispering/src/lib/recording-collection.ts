@@ -3,11 +3,11 @@
  * rows a search keeps, what order they are in, which are selected, and what
  * the actions on several of them do.
  *
- * Everything here is read from what one view (`library.svelte.ts`) lists
- * now. Nothing is kept: the search text, the sort, and the selection are the
- * view's, and are handed in. A row's identity is its recording's id, so a
- * selection survives a new sort and a new search, and a recording that is
- * gone, deleted or uploaded out of this view, is simply no longer selected.
+ * Everything here is read from what the library (`library.svelte.ts`)
+ * lists now. Nothing is kept: the search text, the sort, and the selection
+ * are the library's, and are handed in. A row's identity is its recording's
+ * id, so a selection survives a new sort and a new search, and a recording
+ * that is gone is simply no longer selected.
  *
  * The actions on several rows are Whispering's own actions on one row,
  * taken one at a time in table order. A transcription is asked for once for

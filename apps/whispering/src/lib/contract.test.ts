@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { compileContract } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import { checkFiles, openDevice, saveCapture } from '@epicenter/folder/node';
+import { checkFiles, openDevice } from '@epicenter/folder/node';
 import { expectOk } from 'wellcrafted/testing';
 import { whispering } from './contract.js';
 
@@ -35,26 +35,21 @@ test('the files Whispering writes fit its contract with no issues', async () => 
 	const device = openDevice(whispering, { path: root });
 	const at = new Date('2026-10-31T09:30:00.000Z');
 	const id = timeId(at);
-	// A recording, as Stop keeps it: its audio and note as one capture.
+	// A recording, as Stop keeps it: its audio, then its note.
 	expectOk(
-		await saveCapture(device, {
+		await device.audio.create({
 			id,
-			files: [
-				{
-					collection: 'audio',
-					value: { id, ext: 'm4a', bytes: new Uint8Array([1, 2, 3]) },
-				},
-				{
-					collection: 'recordings',
-					value: {
-						id,
-						title: 'Standup',
-						recordedAt: at.toISOString(),
-						durationMs: 1500,
-						capture: 'microphone',
-					},
-				},
-			],
+			ext: 'm4a',
+			bytes: new Uint8Array([1, 2, 3]),
+		}),
+	);
+	expectOk(
+		await device.recordings.create({
+			id,
+			title: 'Standup',
+			recordedAt: at.toISOString(),
+			durationMs: 1500,
+			capture: 'microphone',
 		}),
 	);
 	const transcription = timeId();

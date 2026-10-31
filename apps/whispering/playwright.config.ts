@@ -19,7 +19,7 @@ export default defineConfig<WhisperingOptions>({
 	globalSetup: './e2e/global-setup.ts',
 	timeout: 120_000,
 	expect: { timeout: 30_000 },
-	// The steps of one project share a browser profile and a repository, in order.
+	// The steps of one project share a browser profile, in order.
 	fullyParallel: false,
 	workers: 1,
 	reporter: [['list']],

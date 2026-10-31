@@ -19,7 +19,7 @@
 	/**
 	 * One transcript of the recording that is open, edited where it is read,
 	 * beside the player. Its text is the body of the transcript's own note,
-	 * saved as it is typed, in the open view's files.
+	 * saved as it is typed.
 	 */
 	let { result }: { result: TranscriptionNote } = $props();
 	const whispering = getWhispering();
@@ -95,7 +95,7 @@
 						<DropdownMenu.Item disabled>No transformations yet</DropdownMenu.Item>
 					{/each}
 					<DropdownMenu.Separator />
-					<DropdownMenu.Item onSelect={() => void goto(pathOf(library.view, 'transformations'))}>
+					<DropdownMenu.Item onSelect={() => void goto(pathOf('transformations'))}>
 						Manage transformations…
 					</DropdownMenu.Item>
 				</DropdownMenu.Content>
