@@ -11,7 +11,7 @@
 	import { Input } from '@epicenter/ui/input';
 	import { toast } from '@epicenter/ui/sonner';
 	import { getTodos } from '$lib/context.js';
-	import { describeIssues } from '$lib/todos.js';
+	import { describeIssues } from '@epicenter/definition/contract';
 	import TodoRow from './TodoRow.svelte';
 
 	const todos = getTodos();

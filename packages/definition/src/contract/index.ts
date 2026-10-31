@@ -30,6 +30,7 @@ export {
 	compileContract,
 	defineContract,
 } from './contract.js';
+export { type ConformanceIssue, describeIssues } from './issues.js';
 export {
 	EPICENTER_BLOCK_BEGIN,
 	EPICENTER_BLOCK_END,
