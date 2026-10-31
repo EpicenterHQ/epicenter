@@ -1,7 +1,8 @@
 <!--
 	What both views share, made once for the page and account: the services,
 	the connections, the microphone, and the recorder, which keeps every
-	recording on this device (`$lib/device.ts`). Each view's layout renders
+	recording in `device`: this browser's files, or the desktop app's folder.
+	Only a root chooses which (decision 78). Each view's layout renders
 	its pages under it (`WhisperingView`). It stops taking work when it
 	leaves.
 -->
@@ -10,11 +11,15 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { onDestroy, type Snippet } from 'svelte';
-	import { device } from '$lib/device.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
 
-	let { children }: { children: Snippet } = $props();
+	import type { Client } from '@epicenter/definition/contract';
+	import type { Whispering as WhisperingContract } from '$lib/contract.js';
 
+	let { device, children }: { device: Client<WhisperingContract>; children: Snippet } = $props();
+
+	// One device for the app's life: a root renders a new app for another.
+	// svelte-ignore state_referenced_locally
 	const whispering = createWhispering({ device });
 	setWhispering(whispering);
 	const starting = whispering.start();

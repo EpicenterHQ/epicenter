@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Separator } from '@epicenter/ui/separator';
+	import { desktop } from '#platform/desktop';
 	import type { Operation } from '$lib/connections.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import ConnectionForm from './ConnectionForm.svelte';
@@ -18,6 +19,10 @@
 </script>
 
 <div class="flex flex-col gap-4 text-sm">
+	{#if desktop && !only}
+		<desktop.Settings />
+		<Separator />
+	{/if}
 	<AccountStatus />
 	{#if whispering.connectionsProblem}
 		<div class="flex flex-col gap-2 text-xs text-destructive" role="alert" data-testid="connections-problem">

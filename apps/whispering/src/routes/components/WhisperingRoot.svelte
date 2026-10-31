@@ -11,6 +11,7 @@
 	import { onMount, type Snippet } from 'svelte';
 	import { getAuth } from '#platform/auth';
 	import SignedIn from './SignedIn.svelte';
+	import { device } from '$lib/device.js';
 	import WhisperingApp from './WhisperingApp.svelte';
 
 	let { children }: { children: Snippet } = $props();
@@ -21,11 +22,11 @@
 </script>
 
 {#if auth.state.status === 'signed-out'}
-	<WhisperingApp>{@render children()}</WhisperingApp>
+	<WhisperingApp {device}>{@render children()}</WhisperingApp>
 {:else}
 	{#key auth.state.account}
 		<SignedIn account={auth.state.account}>
-			<WhisperingApp>{@render children()}</WhisperingApp>
+			<WhisperingApp {device}>{@render children()}</WhisperingApp>
 		</SignedIn>
 	{/key}
 {/if}

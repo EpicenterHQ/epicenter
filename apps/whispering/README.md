@@ -26,7 +26,7 @@ so a transcript's `recordingId` never breaks. Whispering keeps no settings in
 its files: its connections and the chosen microphone belong to one device and
 stay in the browser.
 
-Whispering runs in a browser tab. Its own desktop app is a later step (see
+Whispering runs in a browser tab, and as its own desktop app (see
 [The desktop app](#the-desktop-app)).
 
 ## Where the files are
@@ -233,12 +233,56 @@ nothing about the microphone.
 
 ## The desktop app
 
-Not yet. Whispering's own Tauri app is the next step: it will open its
-folder with `openDevice` from `@epicenter/folder/tauri`, record WAV into it
-from the first sample through `tauri-plugin-epicenter-recorder`
-(`@epicenter/recorder/tauri`), and leave syncing to Epicenter, which syncs a
-folder added to it (`epicenter sync`). Epicenter no longer hosts apps
-([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)).
+Whispering's own Tauri program (`src-tauri/`, identifier
+`so.epicenter.whispering`; ADR-0701: apps run as separate programs). The
+same pages as the browser, over a folder the app owns (decisions 81, 82):
+
+- **First run** asks "Where should Whispering keep its files?": the Epicenter
+  folder `~/Epicenter/Whispering` (recommended, visible), the app's data
+  folder (hidden), or a folder you pick. An existing folder is used with its
+  files. The choice is `folder` in `settings.md` in the app's config
+  directory (`appConfig`), never in the folder. Settings has "Choose
+  folder…"; a folder that has gone missing is asked about again.
+- **Recording** goes through the shell's microphone
+  (`tauri-plugin-epicenter-recorder`): `recordings/<id>.wav` is written into
+  the folder from the first sample, the recording's note is made when it
+  starts and gets its length when it stops (`src/lib/folder-recordings.ts`).
+  After a quit or a crash, the next launch repairs the WAV header and writes
+  the note's length.
+- **Transcription** goes to a custom OpenAI-compatible endpoint, Epicenter's
+  hosted transcription (sign in; it is the only use of signing in), or a
+  model on this computer (`tauri-plugin-epicenter-transcription`: download
+  one in Settings, then "Use this computer"). Requests leave from Rust
+  (`send_request`), so no endpoint needs CORS. Connections and keys are in
+  the OS credential store (Keychain), never in the folder or the WebView.
+- **Sign-in** opens your browser and returns to a loopback redirect
+  (RFC 8252, client `so.epicenter.whispering.desktop`); the refresh token
+  stays in the credential store and only short-lived access tokens reach
+  the page.
+- **Sync** is Epicenter's: "Sync with Epicenter" sends
+  `epicenter://init?path=<folder>&contract=https://whispering.epicenter.so/contract.json`,
+  and the header says "Synced by Epicenter" once `epicenter init` has set
+  the folder up. Whispering never commits or pushes.
+- **Global shortcut**: ⌘⇧; (Ctrl+Shift+; elsewhere) starts and stops a
+  recording from any app.
+- Closing the window or Quit waits for saves in flight (the leave guard).
+
+The build chooses the variant: `bun run build:native` sets
+`EPICENTER_DESKTOP=1`, which resolves `#platform/*` (`package.json`
+"imports") to the `tauri` leaves (`*.tauri.ts`) into `build-desktop/`.
+`tsconfig.tauri.json` typechecks those leaves; no page code asks
+`isTauri()`.
+
+```sh
+bun run --cwd apps/whispering dev:desktop     # build:native, then tauri dev (Whispering Dev)
+bun run --cwd apps/whispering build:desktop   # build:native, then the .app bundle
+cargo test -p whispering                      # the shell's commands, sign-in, sender, secrets
+```
+
+A debug build reads `EPICENTER_API_URL` (a local API) and
+`WHISPERING_SECRETS_FILE` (a JSON file instead of the keychain, for automated
+runs); a release build ignores both. `EPICENTER_FOLDER_DIR` moves the
+Epicenter folder.
 
 ## What is not supported
 
@@ -247,13 +291,15 @@ folder added to it (`epicenter sync`). Epicenter no longer hosts apps
   it is listed.
 - Reading files an earlier build kept (its IndexedDB folder, or a Yjs store).
   There is no migration.
-- A recording surviving a refresh or a closed tab before Stop.
-- System-wide dictation: global shortcuts, push-to-talk, voice-activated
-  recording, and delivering text to the cursor. Copy buttons are the only way
-  text leaves the app.
+- In a browser, a recording surviving a refresh or a closed tab before Stop
+  (the desktop app keeps it).
+- System-wide dictation beyond the desktop app's one start/stop shortcut:
+  push-to-talk, voice-activated recording, and delivering text to the
+  cursor. Copy buttons are the only way text leaves the app.
 - Automatic transcription or transformation. Each is a button you press, so
   nothing is sent to a paid endpoint on its own.
-- Transcription on this computer, and importing audio files.
+- Transcription on this computer in a browser (the desktop app has it), and
+  importing audio files.
 - Transformations beyond one prompt and one request, a provider or model
   catalog, and a connection or key per transformation.
 - Windows and Linux are untested.

@@ -2,6 +2,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import { onMount } from 'svelte';
 	import { getAuth } from '#platform/auth';
+	import { desktop } from '#platform/desktop';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 
 	const whispering = getWhispering();
@@ -66,6 +67,12 @@
 <div class="flex flex-col gap-2 text-xs" data-testid="account-status">
 	{#if checking}
 		<p>Checking Epicenter sign-in…</p>
+	{:else if desktop && authState.status === 'signed-in'}
+		<p>Signed in to {new URL(authState.account.baseURL).host} for hosted transcription and AI. Your recordings stay in your folder.</p>
+	{:else if desktop && authState.status === 'reauth-required'}
+		<p>Your Epicenter sign-in needs to be renewed before hosted transcription and AI work again.</p>
+	{:else if desktop}
+		<p>Sign in to use Epicenter’s hosted transcription and AI. Your recordings stay in your folder either way; you can also transcribe on this computer.</p>
 	{:else if authState.status === 'signed-in'}
 		<p>Signed in to {new URL(authState.account.baseURL).host}. Your recordings upload to your whispering repository there, under Synced.</p>
 	{:else if authState.status === 'reauth-required'}

@@ -1,9 +1,14 @@
 /**
- * Audio capture for one recording at a time.
+ * Audio capture for one recording at a time, in one of two ways:
  *
- * A capture holds its audio until Stop, which answers it: the bytes, the
- * extension they are saved under, and how long it ran. The app then keeps it
- * as the recording's files. The microphone device (`microphone.ts`) records
+ * - In a browser (`CaptureDevice`), a capture holds its audio until Stop,
+ *   which answers it: the bytes, the extension they are saved under, and how
+ *   long it ran. The app then keeps it as the recording's files.
+ * - On the desktop (`FolderCaptureDevice`), the shell writes the recording's
+ *   audio into the folder from its first sample (ADR-0543), at the path the
+ *   recording's id names, so a quit or a crash keeps everything up to the
+ *   cut. Stop answers only how long it ran, and `recover` finishes the
+ *   recordings a quit or a crash cut off. The microphone device (`microphone.ts`) records
  * with `@epicenter/recorder`'s browser recorder. A fixture device stands in
  * for a microphone in automation and marks the recording `fixture`, so a
  * fixture take is never stored as a microphone take. The platform adapter
@@ -144,7 +149,10 @@ export type CaptureStart = {
 	readonly signal?: AbortSignal;
 };
 
+/** A capture device that answers the audio at Stop (a browser). */
 export type CaptureDevice = {
+	/** Where the audio is while it records: in the page, until Stop. */
+	readonly keeps?: 'page';
 	readonly source: CaptureSource;
 	/** What the person is told this session records from. */
 	readonly label: string;
@@ -152,6 +160,47 @@ export type CaptureDevice = {
 	readonly inputs: MicrophoneInputs | undefined;
 	start(options?: CaptureStart): Promise<Result<ActiveCapture, CaptureError>>;
 };
+
+/** A desktop start: the recording's id names its audio's path in the folder. */
+export type FolderCaptureStart = CaptureStart & {
+	/** The recording's id: the audio is written to `recordings/<id>.<ext>`. */
+	readonly id: string;
+};
+
+/** A recording the shell is writing into the folder. */
+export type FolderCapture = Omit<ActiveCapture, 'stop'> & {
+	/**
+	 * Finish the file and release the microphone. Answers how long it ran;
+	 * the audio is already in the folder.
+	 */
+	stop(): Promise<Result<{ readonly durationMs: number }, CaptureError>>;
+};
+
+/**
+ * A capture device that writes each recording into the folder from its
+ * first sample (the desktop shell's).
+ */
+export type FolderCaptureDevice = {
+	/** Where the audio is while it records: in the folder, from the start. */
+	readonly keeps: 'folder';
+	readonly source: CaptureSource;
+	/** What the person is told this session records from. */
+	readonly label: string;
+	readonly inputs: MicrophoneInputs | undefined;
+	/** The extension each recording's audio is written under: `wav`. */
+	readonly ext: string;
+	start(
+		options: FolderCaptureStart,
+	): Promise<Result<FolderCapture, CaptureError>>;
+	/**
+	 * Repair the audio of recordings a quit or a crash cut off, so each reads
+	 * to its last sample. Answers the ids repaired.
+	 */
+	recover(): Promise<Result<string[], CaptureError>>;
+};
+
+/** Either way of capturing: the build's platform chooses one. */
+export type AnyCaptureDevice = CaptureDevice | FolderCaptureDevice;
 
 export type FixtureAudio = {
 	readonly name: string;

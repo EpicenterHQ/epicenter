@@ -1,0 +1,42 @@
+[package]
+name = "whispering"
+version = "7.11.1"
+description = "Whispering's desktop app: voice notes in its own folder, recorded from the first sample"
+authors = ["Epicenter"]
+repository = "https://github.com/EpicenterHQ/epicenter"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[build-dependencies]
+epicenter-transcription-build = { path = "../../../packages/epicenter-transcription-build" }
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+base64 = "0.22"
+# The OS credential store (Keychain, Credential Manager, Secret Service), as
+# main's Epicenter shell used for its auth cell.
+keyring = "4"
+rand = "0.9"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tauri = { version = "2.12", features = [] }
+epicenter-standalone = { path = "../../../packages/tauri-epicenter-standalone" }
+# tauri-build discovers plugin permissions through DEP_*_PERMISSION_FILES_PATH,
+# which Cargo passes only to direct dependents.
+tauri-plugin-dialog = "2.7"
+tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
+tauri-plugin-epicenter-transcription = { path = "../../../packages/tauri-plugin-epicenter-transcription" }
+tauri-plugin-global-shortcut = "2.3"
+tauri-plugin-opener = "2.5"
+tokio = { version = "1", features = ["net", "io-util", "time", "macros", "rt"] }
+# A direct dependency supplies DEP_TRANSCRIBE_CPP_* metadata to this final
+# app's build script.
+transcribe-cpp = { version = "0.1.0", default-features = false }
+
+[dev-dependencies]
+tauri = { version = "2.12", features = ["test"] }
+tempfile = "3.8"

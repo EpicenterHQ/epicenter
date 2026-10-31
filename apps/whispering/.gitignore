@@ -25,3 +25,4 @@ vite.config.ts.timestamp-*
 
 # VAD runtime assets are copied from node_modules at build time (vite.config.ts)
 /static/vad/
+/build-desktop

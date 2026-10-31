@@ -1,0 +1,40 @@
+# The standalone desktop apps and the native crates they share: one lockfile,
+# one Specta pin, one release profile, and one target directory (`target/`).
+# Each app keeps its own manifest, grants, and shipping command; build or ship
+# one through its own manifest (`--manifest-path apps/<app>/src-tauri/Cargo.toml`)
+# or its `build:desktop` script. `--workspace` unifies features across apps, so
+# it is a check, not a shipping build.
+[workspace]
+resolver = "2"
+members = [
+    "apps/whispering/src-tauri",
+    "packages/epicenter-transcription-build",
+    "packages/tauri-epicenter-standalone",
+    "packages/tauri-plugin-epicenter-folder",
+    "packages/tauri-plugin-epicenter-folder/core",
+    "packages/tauri-plugin-epicenter-recorder",
+    "packages/tauri-plugin-epicenter-transcription",
+]
+# Shells with their own lockfile and profile, not yet moved here, and
+# independent tools.
+exclude = [
+    "apps/epicenter/src-tauri",
+    "apps/epicenter/bench/backend-latency",
+    "apps/epicenter/scripts/release-check",
+    "apps/todos/src-tauri",
+]
+
+# Every standalone app aborts on an unexpected panic in release. Errors
+# returned as values are unaffected.
+[profile.release]
+panic = "abort"
+strip = true
+
+# tauri-specta's pinned revision needs this Specta revision; the same pins as
+# apps/epicenter/src-tauri/Cargo.toml and apps/todos/src-tauri/Cargo.toml.
+[patch.crates-io]
+specta = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-macros = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-serde = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-typescript = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-util = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }

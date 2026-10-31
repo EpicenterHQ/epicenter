@@ -22,7 +22,7 @@
  * else: no audio is recorded, sent, or saved.
  */
 import type {
-	CaptureDevice,
+	AnyCaptureDevice,
 	CaptureError,
 	MicrophoneMeter,
 	MicrophonePreference,
@@ -63,7 +63,7 @@ export function createMicrophoneInput({
 	preferences,
 	recording,
 }: {
-	capture: CaptureDevice;
+	capture: Pick<AnyCaptureDevice, 'inputs'>;
 	preferences: MicrophonePreferences;
 	/** Whether a recording is starting, running, or finishing. */
 	recording: () => boolean;

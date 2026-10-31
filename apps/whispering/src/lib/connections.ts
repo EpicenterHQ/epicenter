@@ -36,8 +36,12 @@ export type ConnectionInfo = {
 	readonly model: string;
 	/** Whether a custom endpoint has a saved provider key; an account uses no provider key. */
 	readonly keyPresent: boolean;
-	/** This connection sends through the signed-in Epicenter account. */
-	readonly source?: 'account';
+	/**
+	 * `account`: this connection sends through the signed-in Epicenter
+	 * account. `local`: it transcribes on this computer with the active local
+	 * model (the desktop app); its base URL is the word `local`.
+	 */
+	readonly source?: 'account' | 'local';
 	/** Set when the connection cannot be changed from the app. */
 	readonly readOnlyReason: string | undefined;
 };
@@ -100,8 +104,13 @@ export function canonicalBaseUrl(text: string): Result<string, string> {
 	return Ok(`${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '')}`);
 }
 
-/** Whether two base URLs name the same endpoint; one that is not a URL names none. */
+/**
+ * Whether two base URLs name the same endpoint. One that is not a URL names
+ * none, unless both are the same word: the desktop's local route records
+ * its endpoint as `local`.
+ */
 export function sameBaseUrl(a: string, b: string): boolean {
+	if (a === b && canonicalBaseUrl(a).error !== null) return a.trim() !== '';
 	const { data: left, error: leftError } = canonicalBaseUrl(a);
 	const { data: right, error: rightError } = canonicalBaseUrl(b);
 	return leftError === null && rightError === null && left === right;

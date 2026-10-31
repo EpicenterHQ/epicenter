@@ -12,7 +12,6 @@
 	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import type { Whispering as WhisperingContract } from '$lib/contract.js';
-	import { device } from '$lib/device.js';
 	import { deviceFiles, syncedFiles } from '$lib/files.svelte.js';
 	import { createLibrary, setLibrary, type View } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
@@ -25,7 +24,7 @@
 	const whispering = getWhispering();
 	// A view shows one client's files for its life.
 	// svelte-ignore state_referenced_locally
-	const files = view === 'device' ? deviceFiles(device) : syncedFiles(getRepo<WhisperingContract>(), device);
+	const files = view === 'device' ? deviceFiles(whispering.device) : syncedFiles(getRepo<WhisperingContract>(), whispering.device);
 	const library = createLibrary({ whispering, files });
 	setLibrary(library);
 	onDestroy(library.dispose);

@@ -6,6 +6,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import type { KeyAction } from '$lib/settings-draft.svelte.js';
+	import { desktop } from '#platform/desktop';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 
 	/**
@@ -50,6 +51,18 @@
 		else await whispering.readConnections();
 	}
 
+	/** Transcription on this computer, where the build offers it (the desktop app). */
+	const useLocal = $derived(
+		operation === 'transcription' ? whispering.services.connections.useLocal : undefined,
+	);
+
+	async function chooseLocal() {
+		if (!useLocal) return;
+		const { error } = await useLocal(operation);
+		if (error !== null) toast.error(error);
+		else await whispering.readConnections();
+	}
+
 	async function chooseCustom() {
 		const { error } = await whispering.services.connections.useCustom(operation);
 		if (error !== null) toast.error(error);
@@ -61,7 +74,7 @@
 	<p class="font-medium">{copy[operation].title}</p>
 	<p class="text-xs text-muted-foreground" data-testid="{id}-status">
 		{#if draft.saved}
-			Set up: {draft.saved.baseUrl} · {draft.saved.model || 'no default model'}.
+			Set up: {draft.saved.source === 'local' ? 'this computer' : draft.saved.baseUrl} · {draft.saved.model || 'no default model'}.
 		{:else}
 			Not set up. Nothing is sent until you save it.
 		{/if}
@@ -70,13 +83,19 @@
 	{#if draft.readOnlyReason}
 		<p class="text-xs text-muted-foreground">{draft.readOnlyReason}</p>
 	{/if}
-	{#if draft.saved?.source === 'account'}
-		<Button type="button" size="xs" variant="outline" class="self-start" onclick={() => void chooseCustom()}>Use a custom endpoint</Button>
-	{:else}
-		<Button type="button" size="xs" variant="outline" class="self-start" disabled={draft.unsent} onclick={() => void chooseAccount()}>Use Epicenter account</Button>
-		{#if draft.unsent}<p class="text-xs text-muted-foreground">Save or clear your edits before switching connections.</p>{/if}
-	{/if}
-	{#if draft.saved?.source !== 'account'}
+	<div class="flex flex-wrap gap-2">
+		{#if draft.saved?.source !== undefined}
+			<Button type="button" size="xs" variant="outline" onclick={() => void chooseCustom()}>Use a custom endpoint</Button>
+		{/if}
+		{#if draft.saved?.source !== 'account'}
+			<Button type="button" size="xs" variant="outline" disabled={draft.unsent} onclick={() => void chooseAccount()}>Use Epicenter account</Button>
+		{/if}
+		{#if useLocal && draft.saved?.source !== 'local'}
+			<Button type="button" size="xs" variant="outline" disabled={draft.unsent} onclick={() => void chooseLocal()} data-testid="{id}-use-local">Use this computer</Button>
+		{/if}
+	</div>
+	{#if draft.unsent && draft.saved?.source === undefined}<p class="text-xs text-muted-foreground">Save or clear your edits before switching connections.</p>{/if}
+	{#if draft.saved?.source === undefined}
 	<label class="flex flex-col gap-1">
 		<span class="text-xs text-muted-foreground">API endpoint</span>
 		<Input bind:value={draft.baseUrl} autocomplete="off" spellcheck={false} disabled={readOnly} data-testid="{id}-base-url" />
@@ -117,9 +136,11 @@
 			<span class="text-xs text-muted-foreground">
 				Kept in {whispering.services.connections.storedIn}. It is sent only to this endpoint; a new endpoint needs its key entered again.
 			</span>
-			<span class="text-xs text-warning" data-testid="{id}-key-warning">
-				This key is saved in this browser. Code running on this site can read it.
-			</span>
+			{#if !desktop}
+				<span class="text-xs text-warning" data-testid="{id}-key-warning">
+					This key is saved in this browser. Code running on this site can read it.
+				</span>
+			{/if}
 		</div>
 	{/if}
 	{/if}

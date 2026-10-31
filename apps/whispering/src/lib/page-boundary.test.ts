@@ -1,8 +1,10 @@
 /**
  * What the page may import, and who opens what.
  *
- * The page runs in a browser tab, so nothing under `src/` may reach Node,
- * Bun or Tauri. Its files are Whispering's contract's client (decision 10):
+ * The page runs in a browser tab, so nothing under `src/` may reach Node or
+ * Bun, and only the desktop build's own modules reach Tauri: its
+ * `#platform/*` leaves and their helpers (`*.tauri.ts`) and its components
+ * (`routes/components/desktop/`), which only those leaves import. Its files are Whispering's contract's client (decision 10):
  * this browser's device is opened in one place, at the root, and the
  * repository and its uploader in one place, the signed-in boundary. The
  * two views (decision 76) are never merged: each view's layout composes one
@@ -39,6 +41,10 @@ const files = [...sources(src)].map((path) => ({
 	text: readFileSync(path, 'utf8'),
 }));
 
+/** Modules only the desktop build reaches. */
+const desktopOnly = (path: string) =>
+	/\.tauri\.ts$/.test(path) || path.startsWith('routes/components/desktop/');
+
 /** Every source under `src/`, tests and their support included. */
 function* everything(directory: string): Generator<string> {
 	for (const name of readdirSync(directory).sort()) {
@@ -68,12 +74,29 @@ test('the page imports no Node, Bun, or Tauri module', () => {
 		),
 	).toEqual([]);
 	expect(
-		importers((specifier) => specifier.startsWith('@tauri-apps/')),
+		importers(
+			(specifier) =>
+				specifier.startsWith('@tauri-apps/') ||
+				specifier.endsWith('/tauri') ||
+				specifier === '@epicenter/transcription-native' ||
+				specifier.startsWith('@epicenter/transcription-native/'),
+		).filter((source) => !desktopOnly(source.split(' imports ')[0]!)),
+	).toEqual([]);
+	// A desktop module is reached only through `#platform/desktop` and
+	// `#platform/services`, never from shared code.
+	expect(
+		importers((specifier) =>
+			/\.tauri(\.js)?$|\/desktop\//.test(specifier),
+		).filter((source) => !desktopOnly(source.split(' imports ')[0]!)),
 	).toEqual([]);
 });
 
 test('the device is opened once, in its module, and the repository at the signed-in boundary', () => {
-	expect(callers('openDevice')).toEqual(['lib/device.ts']);
+	// This browser's files, and the desktop app's folder at its root.
+	expect(callers('openDevice')).toEqual([
+		'lib/device.ts',
+		'routes/components/desktop/DesktopRoot.svelte',
+	]);
 	expect(callers('setRepo')).toEqual(['routes/components/SignedIn.svelte']);
 	expect(callers('openRemote')).toEqual(['routes/components/SignedIn.svelte']);
 	expect(callers('startUploading')).toEqual([
@@ -103,7 +126,9 @@ test('a microphone is reached only through the browser recorder entry', () => {
 	// names the bare specifier, which is the recording contract alone.
 	expect(
 		importers((specifier) => specifier === '@epicenter/recorder/tauri'),
-	).toEqual([]);
+	).toEqual([
+		'lib/platform/microphone.tauri.ts imports @epicenter/recorder/tauri',
+	]);
 	expect(
 		importers((specifier) => specifier === '@epicenter/recorder/browser'),
 	).toEqual([

@@ -4,8 +4,9 @@
  */
 import type { AuthClient } from '@epicenter/auth';
 import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
+import type { Component, Snippet } from 'svelte';
 import type { Result } from 'wellcrafted/result';
-import type { CaptureDevice } from '../capture.js';
+import type { AnyCaptureDevice } from '../capture.js';
 import type {
 	ConnectionChange,
 	ConnectionDefaults,
@@ -26,8 +27,12 @@ import type {
 export type PlatformAuth = ReactiveAuthClient<AuthClient>;
 
 export type WhisperingServices = {
-	/** What this app records from. Fixed when the services are constructed. */
-	readonly capture: CaptureDevice;
+	/**
+	 * What this app records from, and how: a browser answers the audio at
+	 * Stop, the desktop writes it into the folder from the first sample.
+	 * Fixed when the services are constructed.
+	 */
+	readonly capture: AnyCaptureDevice;
 	/**
 	 * Send a recording's audio over the transcription connection, only while
 	 * that connection is still the base URL the request was prepared for.
@@ -66,12 +71,53 @@ export type WhisperingServices = {
 		useAccount(operation: Operation): Promise<Result<ConnectionsInfo, string>>;
 		/** Leave the account route to configure a custom endpoint. */
 		useCustom(operation: Operation): Promise<Result<ConnectionsInfo, string>>;
+		/**
+		 * Transcribe on this computer with the active local model. Only the
+		 * desktop app has it.
+		 */
+		useLocal?(operation: Operation): Promise<Result<ConnectionsInfo, string>>;
 	};
 	/**
 	 * What this device remembers that is neither a file nor a secret. It is
 	 * never written to Whispering's files, so it does not travel with them.
 	 */
 	readonly preferences: MicrophonePreferences;
+};
+
+/** Whether Epicenter syncs the desktop app's folder, as far as the app can tell. */
+export type FolderSync = 'synced' | 'not-synced' | 'unknown';
+
+/** The folder Whispering's desktop app keeps its files in (decision 81). */
+export type DesktopFolder = {
+	/** The window's folder, as an absolute path. */
+	path(): Promise<string>;
+	/** Asks again each call: Epicenter may set the folder up while Whispering is open. */
+	synced(folder: string): Promise<FolderSync>;
+	/**
+	 * "Sync with Epicenter": ask the computer to open Epicenter with a request
+	 * to sync `folder`. Ok means the request was made, not that it syncs.
+	 */
+	syncWithEpicenter(folder: string): Promise<Result<undefined, string>>;
+	/**
+	 * "Choose folder…": pick another folder; Whispering moves there in a new
+	 * window and this one closes. Wait for saves before asking. Ok with
+	 * `false` when the person cancels.
+	 */
+	choose(): Promise<Result<boolean, string>>;
+};
+
+/**
+ * `#platform/desktop`: what only the desktop app has, or null in a browser.
+ * A build chooses it; no page code asks where it runs.
+ */
+export type DesktopShell = {
+	/** The root of every page: Whispering over the folder the person chose. */
+	readonly Root: Component<{ children: Snippet }>;
+	/** The header's account of the folder, where the browser shows its two views. */
+	readonly Header: Component;
+	/** Settings only the desktop has: the folder, and models on this computer. */
+	readonly Settings: Component;
+	readonly folder: DesktopFolder;
 };
 
 /** Construct the capabilities this build offers, without I/O. */

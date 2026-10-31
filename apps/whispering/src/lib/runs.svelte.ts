@@ -20,7 +20,7 @@ import { timeId } from '@epicenter/definition/ids';
 import { SvelteMap } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
-import type { WhisperingFiles } from './files.svelte.js';
+import { audioPathOf, type WhisperingFiles } from './files.svelte.js';
 import type { WhisperingServices } from './platform/types.js';
 import type { RecipeRow, ResolvedRecipe } from './recipe.js';
 
@@ -406,6 +406,7 @@ export function createRuns({
 					},
 					expectedBaseUrl: connection.baseUrl,
 					model: connection.model,
+					audioPath: audioPathOf(files.audioOf(id)),
 				}),
 			);
 			return undefined;

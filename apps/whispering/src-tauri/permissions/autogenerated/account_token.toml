@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-account-token"
+description = "Enables the account_token command without any pre-configured scope."
+commands.allow = ["account_token"]
+
+[[permission]]
+identifier = "deny-account-token"
+description = "Denies the account_token command without any pre-configured scope."
+commands.deny = ["account_token"]

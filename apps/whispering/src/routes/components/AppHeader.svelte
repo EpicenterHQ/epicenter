@@ -1,7 +1,8 @@
 <!--
 	The header: a live recording, the two views (decision 76), "On this
 	device" and "Synced", what the open one shows, and Settings, where the
-	account is.
+	account is. The desktop app has one store, its folder, so it shows the
+	folder and whether Epicenter syncs it instead of the views.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -15,6 +16,7 @@
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import { page } from '$app/state';
 	import { getAuth } from '#platform/auth';
+	import { desktop } from '#platform/desktop';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { headerStatus } from '$lib/status.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
@@ -67,6 +69,9 @@
 		<span class="min-w-0 truncate text-xs text-destructive" role="alert" title={whispering.recorderError}>{whispering.recorderError}</span>
 	{/if}
 
+	{#if desktop}
+		<desktop.Header />
+	{:else}
 	<nav class="flex shrink-0 items-center gap-1" aria-label="Views">
 		<Button
 			size="sm"
@@ -91,6 +96,7 @@
 			{library.view === 'device' ? 'This browser’s storage for this site' : 'Your whispering repository'}
 		</StatusRow>
 	</StatusPopover>
+	{/if}
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">
 		<Popover.Root>

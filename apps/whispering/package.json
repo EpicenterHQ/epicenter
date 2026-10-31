@@ -2,24 +2,37 @@
 	"name": "@epicenter/whispering",
 	"private": true,
 	"version": "7.11.1",
-	"description": "Voice notes: recordings, transcripts, and settings are files in a Git-versioned folder, in a browser tab",
+	"description": "Voice notes: recordings, transcripts, and settings are files in a folder, in a browser tab or in Whispering's desktop app",
 	"type": "module",
 	"imports": {
-		"#platform/auth": "./src/lib/platform/auth.ts",
-		"#platform/services": "./src/lib/platform/browser.ts"
+		"#platform/auth": {
+			"tauri": "./src/lib/platform/auth.tauri.ts",
+			"default": "./src/lib/platform/auth.ts"
+		},
+		"#platform/desktop": {
+			"tauri": "./src/lib/platform/desktop.tauri.ts",
+			"default": "./src/lib/platform/desktop.ts"
+		},
+		"#platform/services": {
+			"tauri": "./src/lib/platform/services.tauri.ts",
+			"default": "./src/lib/platform/browser.ts"
+		}
 	},
 	"scripts": {
 		"dev": "vite dev",
+		"dev:desktop": "bun run build:native && tauri dev --config src-tauri/tauri.dev.conf.json",
 		"dev:ui": "vite dev",
 		"test": "bun test --isolate --conditions=browser --conditions=svelte --path-ignore-patterns='**/*.postgres.test.ts' src",
 		"test:postgres": "bun test --isolate ./src/lib/platform/web-sign-in.postgres.test.ts",
 		"test:e2e": "playwright test -c playwright.config.ts",
 		"build": "NODE_ENV=production vite build",
+		"build:native": "EPICENTER_DESKTOP=1 WHISPERING_BUILD_DIR=build-desktop NODE_ENV=production vite build",
+		"build:desktop": "bun run build:native && tauri build --bundles app",
 		"check": "bun run typecheck",
 		"contract": "bun scripts/write-contract.ts",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json"
 	},
 	"license": "AGPL-3.0-or-later",
 	"devDependencies": {
@@ -30,6 +43,7 @@
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
+		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"mode-watcher": "catalog:",
 		"playwright": "^1.61.1",
@@ -47,8 +61,11 @@
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/principal": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
+		"@epicenter/transcription-native": "workspace:*",
+		"@tauri-apps/api": "catalog:",
 		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	}

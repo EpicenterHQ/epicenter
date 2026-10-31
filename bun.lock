@@ -385,8 +385,11 @@
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
+        "@epicenter/principal": "workspace:*",
         "@epicenter/recorder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
+        "@epicenter/transcription-native": "workspace:*",
+        "@tauri-apps/api": "catalog:",
         "runed": "catalog:",
         "wellcrafted": "catalog:",
       },
@@ -398,6 +401,7 @@
         "@sveltejs/kit": "catalog:",
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@tailwindcss/vite": "catalog:",
+        "@tauri-apps/cli": "catalog:",
         "@types/bun": "catalog:",
         "mode-watcher": "catalog:",
         "playwright": "^1.61.1",
@@ -664,6 +668,15 @@
         "svelte": "catalog:",
         "svelte-check": "catalog:",
         "typescript": "catalog:",
+      },
+    },
+    "packages/tauri-plugin-epicenter-transcription": {
+      "name": "@epicenter/transcription-native",
+      "version": "0.0.1",
+      "dependencies": {
+        "@epicenter/ui": "workspace:*",
+        "@tauri-apps/api": "catalog:",
+        "svelte": "catalog:",
       },
     },
     "packages/ui": {
@@ -1021,6 +1034,8 @@
     "@epicenter/svelte": ["@epicenter/svelte@workspace:packages/svelte"],
 
     "@epicenter/todos": ["@epicenter/todos@workspace:apps/todos"],
+
+    "@epicenter/transcription-native": ["@epicenter/transcription-native@workspace:packages/tauri-plugin-epicenter-transcription"],
 
     "@epicenter/ui": ["@epicenter/ui@workspace:packages/ui"],
 

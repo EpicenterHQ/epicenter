@@ -1,0 +1,31 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "whispering",
+	"description": "Whispering's folder window: its folder (read, write, Sync with Epicenter, and choosing another), recording from the shell's microphone into it, transcribing its recordings on this computer and administering the local models, the global shortcut's presses, the credential store for its connections, sign-in for hosted transcription, and requests to the endpoints the person configured.",
+	"local": true,
+	"windows": ["whispering:*"],
+	"permissions": [
+		"epicenter-folder:default",
+		"epicenter-recorder:default",
+		"epicenter-transcription:allow-list-inference-models",
+		"epicenter-transcription:allow-transcribe-file",
+		"epicenter-transcription:allow-list-models",
+		"epicenter-transcription:allow-download-model",
+		"epicenter-transcription:allow-reveal-model",
+		"epicenter-transcription:allow-get-active-model",
+		"epicenter-transcription:allow-set-active-model",
+		"epicenter-transcription:allow-get-unload-policy",
+		"epicenter-transcription:allow-set-unload-policy",
+		"core:event:allow-listen",
+		"core:event:allow-unlisten",
+		"allow-account-state",
+		"allow-account-sign-in",
+		"allow-account-sign-out",
+		"allow-account-token",
+		"allow-secret-get",
+		"allow-secret-set",
+		"allow-send-request",
+		"allow-choose-folder",
+		"allow-folder-path"
+	]
+}
