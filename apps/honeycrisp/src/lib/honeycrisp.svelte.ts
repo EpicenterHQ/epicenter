@@ -1,8 +1,8 @@
 /**
- * Honeycrisp's state over one store's two collections, notes and folders:
- * this browser's in the local variant, the repository's in the online
- * variant. Honeycrisp adds its orders, what the lists and the detail show,
- * and the actions that span both collections.
+ * Honeycrisp's state over one store's two collections, notes and folders.
+ * The root that passes the client chooses the store (the person's
+ * `honeycrisp` repository, ADR-0700). Honeycrisp adds its orders, what the
+ * lists and the detail show, and the actions that span both collections.
  *
  * A note names its folder by id. Deleting a folder deletes its file only:
  * its notes keep their `folderId`, show in All Notes, and say their folder
@@ -50,12 +50,6 @@ export const newestFirst = (a: Note, b: Note) =>
 export const byName = (a: Folder, b: Folder) =>
 	folderLabel(a).localeCompare(folderLabel(b)) || (a.id < b.id ? -1 : 1);
 
-/**
- * Which variant a page is: `local`, this browser's files, or `online`, the
- * person's repository.
- */
-export type Variant = 'local' | 'online';
-
 /** What the detail shows: a note (read or not), or a folder that needs repair. */
 export type Selection = {
 	readonly collection: 'notes' | 'folders';
@@ -75,10 +69,10 @@ export function shownIn(filter: Filter, note: Note) {
 }
 
 /**
- * Honeycrisp's state over `client` (one variant's store: `fromClient(device)`
- * or `fromClient(getRepo())`): what the list and detail show, and the actions
- * that are more than one collection's write. Every other read and write goes
- * to `client.notes` or `client.folders` directly.
+ * Honeycrisp's state over `client`, its store's (`fromClient(getRepo())` in
+ * the page): what the list and detail show, and the actions that are more
+ * than one collection's write. Every other read and write goes to
+ * `client.notes` or `client.folders` directly.
  */
 export function createHoneycrisp(client: ReactiveClient<Honeycrisp>) {
 	const { notes, folders } = client;

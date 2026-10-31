@@ -2,28 +2,23 @@
  * Honeycrisp end to end, per engine, as one person in one persistent
  * browser profile with a desktop sandbox beside it (see `stack.ts`).
  *
- * Honeycrisp has two web variants, each over one store for the page's life,
- * and nothing moves between them (ADR-0700): "On this browser" (`/`), this
- * browser's files, with no account; and "Online" (`/online`), the person's
- * repository, signed in.
+ * Honeycrisp is online web only: the person's `honeycrisp` repository,
+ * behind sign-in, with nothing kept in the browser (ADR-0700). The
+ * sandbox's CLI stands in for a desktop that clones and syncs the
+ * repository.
  *
- * 1. On this browser, notes and folders are created, edited, moved, pinned
- *    and deleted as Markdown notes at `notes/<id>.md` and `folders/<id>.md`
- *    in OPFS, the body typed into the CodeMirror editor, and survive a
- *    reload. No sign-in is offered.
- * 2. Offline, the local variant still creates and edits a note.
- * 3. Online asks for a sign-in; signed in, it shows the repository, which
- *    holds none of this browser's notes, and a folder and a note made and
- *    edited there land in the repository and never in this browser.
- * 4. `epicenter clone` holds them as written, and `epicenter check` passes
+ * 1. Signed out, Honeycrisp asks for a sign-in. Signed in, the repository is
+ *    empty; notes and folders are created, edited, moved, pinned and
+ *    deleted there, the body typed into the CodeMirror editor, never in this
+ *    browser's files, and a reload shows them again.
+ * 2. `epicenter clone` holds them as written, and `epicenter check` passes
  *    against the published contract.
- * 5. A body edited on the desktop and synced shows in the note open online,
- *    with no reload; text typed there reaches the desktop.
- * 6. A note the desktop wrote that does not read as a note shows online with
- *    its text; text that still does not fit is refused, and fixed text
- *    repairs it.
- * 7. Signing in moved nothing: this browser's notes are where they were, and
- *    the repository has none of them. Signing out leaves them too.
+ * 3. A body edited on the desktop and synced shows in the open note with no
+ *    reload; text typed in the browser reaches the desktop in house style.
+ * 4. A note the desktop wrote that does not read as a note shows with its
+ *    text; text that still does not fit is refused, and fixed text repairs
+ *    it.
+ * 5. Signing out asks for a sign-in again, and the browser holds nothing.
  */
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -32,9 +27,7 @@ import { type BrowserContext, expect, type Page } from 'playwright/test';
 import {
 	emptyOpfs,
 	epicenter,
-	goOffline,
 	opfsFiles,
-	opfsText,
 	stackTest,
 	sync,
 } from '../../../packages/cli/src/app-e2e.test-support.ts';
@@ -50,25 +43,17 @@ let page: Page;
 /** What the first steps learn, for the later ones. */
 let recipes: string;
 let home: string;
-let errands: string;
-/** This browser's notes and folders once the local steps are done. */
-let localFiles: Record<string, string>;
-/** The note and folder made online, in the repository. */
-let groceries: string;
-let work: string;
-/** The online note's file as the browser wrote it, read from the clone. */
-let groceriesText: string;
+/** The note's file as the browser wrote it, read from the clone. */
+let recipesText: string;
 let clone: string;
 
 test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 	profile = await mkdtemp(join(tmpdir(), `honeycrisp-${browserName}-`));
-	// A persistent profile: WebKit refuses OPFS in an ephemeral context.
+	// A persistent profile: WebKit refuses OPFS in an ephemeral context, and
+	// the steps look there to show nothing is kept in the browser.
 	context = await playwright[browserName].launchPersistentContext(profile, {
 		...launchOptions,
 		viewport: { width: 1280, height: 800 },
-		// No step opens the app offline from a reload, so no service worker:
-		// one would answer the page's requests out of sight of the test.
-		serviceWorkers: 'block',
 	});
 	page = context.pages()[0] ?? (await context.newPage());
 });
@@ -78,9 +63,9 @@ test.afterAll(async () => {
 	if (profile) await rm(profile, { recursive: true, force: true });
 });
 
+const signInPrompt = () =>
+	page.getByText('Sign in to use the notes in your Epicenter repository.');
 const list = () => page.getByRole('list', { name: 'Note list' });
-const ways = () =>
-	page.getByRole('navigation', { name: 'Ways to use Honeycrisp' });
 const status = () => page.getByTestId('status-summary');
 const row = (id: string) => list().locator(`li[data-id="${id}"]`);
 const folderRow = (id: string) => page.locator(`[data-folder="${id}"]`);
@@ -125,23 +110,10 @@ async function typeAtEnd(text: string) {
 	await page.keyboard.type(text);
 }
 
-/** The notes and folders in this origin's OPFS, by path, and no other files. */
-async function noteFiles() {
-	return Object.fromEntries(
-		Object.entries(await opfsFiles(page)).filter(
-			([path]) => path.startsWith('notes/') || path.startsWith('folders/'),
-		),
-	);
-}
-
-/** A note's file: front matter `keys` (each ending in `\n`), its `createdAt`, then `body`. */
-const noteText = (keys: string, body: string) =>
-	new RegExp(`^---\\n${keys}createdAt: "[^"]+"\\n---\\n${body}$`);
-
 /**
  * What a note's file says, in any key order: its front matter lines sorted,
- * `createdAt`'s time elided, and its body. The move and the pin made online
- * can race, and the server's merge of the two does not keep house-style order.
+ * `createdAt`'s time elided, and its body. The move and the pin can race,
+ * and the server's merge of the two does not keep house-style order.
  */
 function said(text: string) {
 	const [, front = '', body = ''] =
@@ -157,29 +129,27 @@ function said(text: string) {
 /** The file names in the clone's `dir`, sorted. */
 const cloned = async (dir: string) => (await readdir(join(clone, dir))).sort();
 
-test('1. on this browser, notes and folders are created, edited, moved, pinned and deleted, and survive a reload', async ({
+test('1. signed in, notes and folders are created, edited, moved, pinned and deleted in the repository, never in the browser', async ({
 	stack,
+	person,
 }) => {
 	// WebKit keeps OPFS outside the profile directory: start from an empty origin.
 	await page.goto(`${stack.app}/`);
 	await emptyOpfs(page);
 	await page.goto(`${stack.app}/`);
-	await expect(
-		ways().getByRole('link', { name: 'On this browser' }),
-	).toHaveAttribute('aria-current', 'page');
-	await expect(status()).toHaveAttribute(
-		'aria-label',
-		/^Status: On this browser\./,
-	);
+	await expect(signInPrompt()).toBeVisible();
+
+	// A signed-in session on the API; the real authorization redirect does the rest.
+	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
+	await page.getByRole('button', { name: 'Sign in' }).click();
+	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+	await expect(page).toHaveURL(`${stack.app}/`);
+	await expect(status()).toHaveAttribute('aria-label', /^Status: Online\./);
 	await expect(page.getByText('No notes here yet')).toBeVisible();
-	// The local variant needs no account, and offers none.
-	await expect(page.getByRole('button', { name: 'Sign in' })).toHaveCount(0);
+	await expect(page.locator('[data-folder]')).toHaveCount(0);
 
 	// A folder, named as it is made.
 	home = await newFolder('Home');
-	await expect
-		.poll(() => opfsText(page, `folders/${home}.md`))
-		.toBe('---\nname: Home\n---\n');
 
 	// A note: its title, then its body typed into the editor.
 	recipes = await newNote();
@@ -193,14 +163,6 @@ test('1. on this browser, notes and folders are created, edited, moved, pinned a
 	await detail().getByLabel('Folder').selectOption({ label: 'Home' });
 	await detail().getByRole('button', { name: 'Pin', exact: true }).click();
 	await expect(detail().getByRole('button', { name: 'Unpin' })).toBeVisible();
-	await expect
-		.poll(() => opfsText(page, `notes/${recipes}.md`))
-		.toMatch(
-			noteText(
-				`title: Recipes\\nfolderId: "${home}"\\npinned: true\\n`,
-				'Apple pie',
-			),
-		);
 
 	// The folder shows the note it holds.
 	await folderRow(home).getByRole('button', { name: /^Home/ }).click();
@@ -227,9 +189,6 @@ test('1. on this browser, notes and folders are created, edited, moved, pinned a
 	await expect(
 		detail().getByLabel('Folder').locator('option:checked'),
 	).toHaveText('A deleted folder');
-	await expect
-		.poll(() => opfsText(page, `notes/${gone}.md`))
-		.toMatch(/^---\nfolderId: "[^"]+"\ncreatedAt/);
 
 	// Deleted for good.
 	await detail().getByRole('button', { name: 'Delete' }).click();
@@ -238,79 +197,20 @@ test('1. on this browser, notes and folders are created, edited, moved, pinned a
 		.getByRole('button', { name: 'Delete' })
 		.click();
 	await expect(row(gone)).toHaveCount(0);
-	expect(Object.keys(await noteFiles()).sort()).toEqual(
-		[`folders/${home}.md`, `notes/${recipes}.md`].sort(),
-	);
+	// Nothing is kept in this browser.
+	expect(await opfsFiles(page)).toEqual({});
 
-	// Still there after a reload.
+	// The repository still has them after a reload.
 	await page.reload();
 	await expect(row(recipes)).toContainText('Recipes');
-	await expect(folderRow(home)).toContainText('Home');
-});
-
-test('2. offline, the local variant still creates and edits a note', async () => {
-	const online = await goOffline(context);
-	try {
-		errands = await newNote();
-		await title().fill('Errands');
-		await typeAtEnd('Post office');
-		await expect
-			.poll(() => opfsText(page, `notes/${errands}.md`))
-			.toMatch(noteText('title: Errands\\n', 'Post office'));
-		await expect(status()).toHaveAttribute(
-			'aria-label',
-			/^Status: On this browser\./,
-		);
-	} finally {
-		await online();
-	}
-	await expect(row(errands)).toContainText('Errands');
-	await expect(row(recipes)).toContainText('Recipes');
-	localFiles = await noteFiles();
-	expect(Object.keys(localFiles).sort()).toEqual(
-		[`folders/${home}.md`, `notes/${errands}.md`, `notes/${recipes}.md`].sort(),
-	);
-});
-
-test('3. online, signed in, shows the repository; a folder and a note made and edited there land in it, never in this browser', async ({
-	stack,
-	person,
-}) => {
-	await ways().getByRole('link', { name: 'Online' }).click();
-	await expect(page).toHaveURL(`${stack.app}/online`);
-	await expect(
-		page.getByText('Sign in to use the notes in your Epicenter repository.'),
-	).toBeVisible();
-
-	// A signed-in session on the API; the real authorization redirect does the rest.
-	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
-	await expect(page).toHaveURL(`${stack.app}/online`);
-	await expect(ways().getByRole('link', { name: 'Online' })).toHaveAttribute(
-		'aria-current',
-		'page',
-	);
-	await expect(status()).toHaveAttribute('aria-label', /^Status: Online\./);
-	// The repository is its own set of notes: none of this browser's are in it.
-	await expect(page.getByText('No notes here yet')).toBeVisible();
-	await expect(page.locator('[data-folder]')).toHaveCount(0);
-
-	work = await newFolder('Work');
-	groceries = await newNote();
-	await title().fill('Groceries');
-	await typeAtEnd('Oat milk');
-	await expect(row(groceries)).toContainText('Oat milk');
-	await detail().getByLabel('Folder').selectOption({ label: 'Work' });
-	await detail().getByRole('button', { name: 'Pin', exact: true }).click();
-	await expect(detail().getByRole('button', { name: 'Unpin' })).toBeVisible();
+	await expect(row(recipes)).toContainText('Apple pie');
 	await expect(list().locator('li[data-id]')).toHaveCount(1);
-
-	// Nothing online is kept in this browser.
-	expect(await noteFiles()).toEqual(localFiles);
+	await expect(folderRow(home)).toContainText('Home');
+	await expect(page.locator('[data-folder]')).toHaveCount(1);
+	expect(await opfsFiles(page)).toEqual({});
 });
 
-test('4. a desktop clone holds what was written online, and the folder fits the contract', async ({
+test('2. a desktop clone holds what was written, and the folder fits the contract', async ({
 	stack,
 	person,
 }) => {
@@ -324,7 +224,7 @@ test('4. a desktop clone holds what was written online, and the folder fits the 
 	);
 	expect(made.code, `${made.stdout}\n${made.stderr}`).toBe(0);
 
-	const path = join(clone, `notes/${groceries}.md`);
+	const path = join(clone, `notes/${recipes}.md`);
 	await expect
 		.poll(async () => {
 			await sync(stack, person, clone);
@@ -333,19 +233,19 @@ test('4. a desktop clone holds what was written online, and the folder fits the 
 		.toEqual({
 			keys: [
 				'createdAt: <time>',
-				`folderId: "${work}"`,
+				`folderId: "${home}"`,
 				'pinned: true',
-				'title: Groceries',
+				'title: Recipes',
 			],
-			body: 'Oat milk',
+			body: 'Apple pie',
 		});
-	groceriesText = await readFile(path, 'utf8');
-	expect(await readFile(join(clone, `folders/${work}.md`), 'utf8')).toBe(
-		'---\nname: Work\n---\n',
+	recipesText = await readFile(path, 'utf8');
+	expect(await readFile(join(clone, `folders/${home}.md`), 'utf8')).toBe(
+		'---\nname: Home\n---\n',
 	);
-	// Only what was made online.
-	expect(await cloned('notes')).toEqual([`${groceries}.md`]);
-	expect(await cloned('folders')).toEqual([`${work}.md`]);
+	// The deleted note and folder are gone.
+	expect(await cloned('notes')).toEqual([`${recipes}.md`]);
+	expect(await cloned('folders')).toEqual([`${home}.md`]);
 
 	const checked = await epicenter(
 		stack,
@@ -357,38 +257,38 @@ test('4. a desktop clone holds what was written online, and the folder fits the 
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('5. a body edited on the desktop shows in the note open online with no reload, and text typed there reaches the desktop', async ({
+test('3. a body edited on the desktop shows in the open note with no reload, and text typed in the browser reaches the desktop', async ({
 	stack,
 	person,
 }) => {
-	await list().locator(`[data-note="${groceries}"]`).click();
-	await expect(title()).toHaveValue('Groceries');
+	await list().locator(`[data-note="${recipes}"]`).click();
+	await expect(title()).toHaveValue('Recipes');
 
-	const path = join(clone, `notes/${groceries}.md`);
+	const path = join(clone, `notes/${recipes}.md`);
 	await writeFile(
 		path,
-		groceriesText.replace(/Oat milk$/, 'Oat milk, two cartons'),
+		recipesText.replace(/Apple pie$/, 'Apple pie, with cinnamon'),
 	);
 	await sync(stack, person, clone);
 
 	// The remote hears main move (a poll until the notify Durable Object).
-	await expect(editor()).toContainText('Oat milk, two cartons');
-	await expect(row(groceries)).toContainText('Oat milk, two cartons');
+	await expect(editor()).toContainText('Apple pie, with cinnamon');
+	await expect(row(recipes)).toContainText('Apple pie, with cinnamon');
 
 	// The browser writes the note in house style, keys in the contract's order.
-	const createdAt = /^createdAt: (.+)$/m.exec(groceriesText)?.[1];
-	await typeAtEnd(' and bread');
+	const createdAt = /^createdAt: (.+)$/m.exec(recipesText)?.[1];
+	await typeAtEnd(' and cream');
 	await expect
 		.poll(async () => {
 			await sync(stack, person, clone);
 			return readFile(path, 'utf8');
 		})
 		.toBe(
-			`---\ntitle: Groceries\nfolderId: "${work}"\npinned: true\ncreatedAt: ${createdAt}\n---\nOat milk, two cartons and bread`,
+			`---\ntitle: Recipes\nfolderId: "${home}"\npinned: true\ncreatedAt: ${createdAt}\n---\nApple pie, with cinnamon and cream`,
 		);
 });
 
-test('6. a note that does not read as a note shows online with its text, and is repaired there', async ({
+test('4. a note that does not read as a note shows with its text, and is repaired', async ({
 	stack,
 	person,
 }) => {
@@ -421,35 +321,13 @@ test('6. a note that does not read as a note shows online with its text, and is 
 	expect(await readFile(join(clone, 'notes/call.md'), 'utf8')).toBe(
 		'---\ntitle: Call mom\ncreatedAt: "2026-10-31T09:00:00.000Z"\n---\nSunday\n',
 	);
-	expect(await noteFiles()).toEqual(localFiles);
+	expect(await cloned('notes')).toEqual(['call.md', `${recipes}.md`].sort());
+	expect(await cloned('folders')).toEqual([`${home}.md`]);
+	expect(await opfsFiles(page)).toEqual({});
 });
 
-test('7. signing in moved nothing: this browser keeps its notes, the repository has none of them, and signing out keeps them too', async ({
-	stack,
-	person,
-}) => {
-	await ways().getByRole('link', { name: 'On this browser' }).click();
-	await expect(page).toHaveURL(`${stack.app}/`);
-	await expect(row(recipes)).toContainText('Recipes');
-	await expect(row(errands)).toContainText('Errands');
-	await expect(list().locator('li[data-id]')).toHaveCount(2);
-	await expect(folderRow(home)).toContainText('Home');
-	await expect(page.locator('[data-folder]')).toHaveCount(1);
-	// Signed in or not, the local variant has no account.
-	await expect(page.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
-	expect(await noteFiles()).toEqual(localFiles);
-
-	await sync(stack, person, clone);
-	expect(await cloned('notes')).toEqual(['call.md', `${groceries}.md`].sort());
-	expect(await cloned('folders')).toEqual([`${work}.md`]);
-
-	await ways().getByRole('link', { name: 'Online' }).click();
+test('5. signed out, Honeycrisp asks for a sign-in again, and the browser holds nothing', async () => {
 	await page.getByRole('button', { name: 'Sign out' }).click();
-	await expect(
-		page.getByText('Sign in to use the notes in your Epicenter repository.'),
-	).toBeVisible();
-	await page.getByRole('link', { name: 'On this browser' }).click();
-	await expect(row(recipes)).toContainText('Recipes');
-	await expect(list().locator('li[data-id]')).toHaveCount(2);
-	expect(await noteFiles()).toEqual(localFiles);
+	await expect(signInPrompt()).toBeVisible();
+	expect(await opfsFiles(page)).toEqual({});
 });

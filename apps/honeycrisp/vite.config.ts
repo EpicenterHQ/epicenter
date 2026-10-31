@@ -12,7 +12,5 @@ export default defineConfig(
 			strictPort: true,
 			host: 'localhost',
 		},
-		// The device's OPFS Worker is a module Worker.
-		worker: { format: 'es' },
 	}),
 );

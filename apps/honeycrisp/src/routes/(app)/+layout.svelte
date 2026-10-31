@@ -1,13 +1,13 @@
 <!--
-	The online variant's signed-in layout: signed in, the person's
-	`honeycrisp` repository for every page under it (`Online`); signed out, a
-	sign-in instead.
+	Honeycrisp's root, which decides the store: the person's `honeycrisp`
+	repository. Signed in, `Online` sets it for every page under it; signed
+	out, a sign-in instead. Honeycrisp keeps nothing in the browser
+	(ADR-0700). The sign-in callback is outside this group.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { toast } from '@epicenter/ui/sonner';
-	import { resolve } from '$app/paths';
 	import Online from '$lib/components/Online.svelte';
 	import { webAuth } from '$lib/auth.js';
 
@@ -26,9 +26,8 @@
 	{/key}
 {:else}
 	<Empty.Root class="h-dvh">
-		<Empty.Title>Honeycrisp online</Empty.Title>
+		<Empty.Title>Honeycrisp</Empty.Title>
 		<Empty.Description>Sign in to use the notes in your Epicenter repository.</Empty.Description>
 		<Button size="sm" onclick={() => void signIn()}>Sign in</Button>
-		<Button variant="outline" size="sm" href={resolve('/')} data-sveltekit-reload>On this browser</Button>
 	</Empty.Root>
 {/if}

@@ -5,14 +5,15 @@ for the layout and page flow, and verify it against the code.
 
 ## The files are the data
 
-- Every read and write goes through the contract's client, one store per
-  page: `openDevice` from `@epicenter/folder/browser` for the local variant
-  (`/`, "On this browser", never signed in), `openRemote` from
-  `@epicenter/folder/remote` under the online variant's signed-in layout
-  (`/online`, "Online"), each as Svelte state through `fromClient` at the
-  route. Nothing moves between the two: no uploader, no copying (ADR-0700).
-  Components take the state from context and never import a client. Do not
-  add another store, cache, or save queue.
+- Honeycrisp is online web only for now (a desktop app comes later). Every
+  read and write goes through the contract's client, one store per page:
+  `openRemote` from `@epicenter/folder/remote`, set by the signed-in layout
+  (`src/routes/(app)/+layout.svelte`, `setRepo`) and passed by the page to
+  `HoneycrispApp` through `fromClient(getRepo())`. Nothing is kept in the
+  browser: no device, OPFS, uploader, or service worker (ADR-0700).
+  Components take the state from context and never import a client, so a
+  later variant is a new root. Do not add another store, cache, or save
+  queue.
 - A change to the layout is a change to `src/lib/contract.ts`, then
   `bun run contract`; the fit test fails until the two agree. No migration or
   compatibility code: there is no earlier data to read (decision 72).

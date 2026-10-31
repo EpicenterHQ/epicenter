@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/honeycrisp",
-	"description": "Markdown notes with a live-preview editor: in this browser, or online in the person's repository",
+	"description": "Markdown notes with a live-preview editor, in the signed-in person's Epicenter repository, online only",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",

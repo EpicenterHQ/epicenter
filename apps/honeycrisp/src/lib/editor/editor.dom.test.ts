@@ -2,8 +2,8 @@
  * Note Editor DOM Tests
  *
  * The CodeMirror editor over jsdom, alone and bound to a note's body as
- * `NoteDetail` binds it (`fieldEdit` over a real device client in a
- * temporary directory). jsdom has no layout, so these prove the text, the
+ * `NoteDetail` binds it (`fieldEdit` over a stand-in client: a real device
+ * client in a temporary directory, in place of the repository). jsdom has no layout, so these prove the text, the
  * decorations, the history and the writes, not what a person sees; the
  * Playwright suite covers that.
  *

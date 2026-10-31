@@ -1,8 +1,7 @@
 <!--
-	The online variant's repository: the person's `honeycrisp` repository for
-	everything under it (`getRepo`), for one account. The parent's `{#key}`
-	makes a new one for a new account; sign-out or replacement retires this
-	one.
+	Honeycrisp's store: the person's `honeycrisp` repository for everything
+	under it (`getRepo`), for one account. The parent's `{#key}` makes a new
+	one for a new account; sign-out or replacement retires this one.
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';

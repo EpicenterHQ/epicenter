@@ -1,6 +1,8 @@
 /**
  * Honeycrisp's state: its orders, and the actions over both collections, on
- * a real device client in a temporary directory.
+ * a stand-in client: a real device client (`@epicenter/folder/node`) in a
+ * temporary directory, the same contract's client at the same paths, in
+ * place of the repository the page is given.
  *
  * Key behaviors:
  * - Notes sort newest first and folders by name
@@ -85,7 +87,7 @@ test('notes sort newest first and folders by name', async () => {
 
 test('a new note is made in the folder shown, and opens ready to write in, once', async () => {
 	const device = await deviceWith({ 'folders/w.md': folder('Work') });
-	// As the local variant composes it: the device's own collections.
+	// As the page composes it: the client's own collections.
 	const app = createHoneycrisp(fromClient(device.client));
 	app.showFolder('w');
 	const created = await app.createNote();

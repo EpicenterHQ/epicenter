@@ -1,7 +1,7 @@
 <!--
-	Every page of Honeycrisp: the chrome and the leave guard. The local
-	variant is `/`, the online variant `/online` behind its signed-in layout;
-	the sign-in callback opens neither.
+	Every page of Honeycrisp: the chrome and the leave guard. The app is the
+	`(app)` group, whose layout decides the store; the sign-in callback is
+	outside it.
 -->
 <script lang="ts">
 	import { guardLeave } from '@epicenter/svelte/leave-guard';
