@@ -115,3 +115,42 @@ tree. `.epicenter/` remains the one place for unfinished files (staged saves,
 and recordings in progress). The CLI keeps its own file lock
 (`packages/cli/src/file-lock.ts`) for sign-in refreshes and for
 serializing sync rounds of one repository.
+
+## Amendment, 2026-11-01: `.epicenter` holds only unfinished writes, in `saves/` and `recordings/`
+
+A file in `.epicenter/` is on its way somewhere: it finishes (moves to its
+real path), or the next open recovers or removes it. Each part is named for
+the operation that owns it:
+
+```
+.epicenter/
+├── saves/        a save waiting to be renamed over its target (was scratch/; OPFS's staging/)
+└── recordings/   a desktop recording until stop or recovery, at its target path (was recording/)
+```
+
+`saves/` is always safe to delete when no app runs; `recordings/` may hold
+audio until the app opens once. The directory and `saves/` stay `0700`, and
+each staged file `0600`, created exclusively with no inherited access
+control entry. Opening a folder sweeps only stale scratch names in `saves/`
+(`storage::sweep_scratch`, `sweepStaleScratch`), never `recordings/`.
+Folders written before this change are not migrated: an old `scratch/` or
+`recording/` is left as it is.
+
+One module per language owns the layout: `state.rs` in the folder core and
+`state.ts` in `@epicenter/folder`, held to
+`packages/tauri-plugin-epicenter-folder/fixtures/state-layout.json`; the OPFS
+worker's inlined copy is held to the same file. `bun run check:state-paths`
+fails when other production code spells `.epicenter`.
+
+The name-based special cases are gone. A hidden path (`isHiddenPath`, and
+`paths::is_hidden_path` in the folder core) is what is not a folder's data:
+the watchers (`native/watch.ts`, the plugin's `watch.rs`, `sync --watch`)
+drop every change under one, so a recording's header rewrite wakes nothing;
+listings show hidden files, `.epicenter`'s included, and their readers skip
+them, leaving out only `.git` at the root; and the desktop refuses a hidden
+directory, or one inside one, as a folder to sync (`check_namespace` is
+gone). `epicenter sync` excludes `.epicenter` itself
+(`:(exclude,glob)**/.epicenter/**` in `packages/cli/src/sync/sync.ts`),
+whatever `.gitignore` says. A save whose target is below a mount point
+inside the folder fails saying it cannot cross a mount point, since a rename
+from `saves/` cannot reach it, and nothing is copied instead.

@@ -100,8 +100,9 @@ Whatever `settle` writes is in house style.
 `.md` note (in any case) nor hidden (a segment starting with `.`): those files
 are Git LFS pointers. `REPOSITORY_ATTRIBUTES` is the `.gitattributes` block
 that says so, with `merge=epicenter` on notes; `epicenter init` commits it and
-the server writes it in a repository's first commit. `REPOSITORY_IGNORE` keeps
-`.DS_Store` and `.epicenter/` out of Git.
+the server writes it in a repository's first commit. A hidden path is not a
+folder's data (`isHiddenPath`); the CLI's own `.gitignore` block keeps
+`.DS_Store` and a folder's unfinished writes out of Git.
 
 ## A note field is plain JSON
 

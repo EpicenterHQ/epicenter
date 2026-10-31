@@ -113,3 +113,14 @@ Homebrew copy (`OPUS_NO_PKG` in `.cargo/config.toml`). The transcription
 decoder trims the pre-skip and the end padding, and decodes Opus straight
 to 16 kHz, so it reads back exactly the samples recorded. The browser
 recorder is unchanged.
+
+## Amendment, 2026-11-01: a recording in progress is in `.epicenter/recordings`
+
+The WAV the two amendments above place in `.epicenter/recording/<path>.wav`
+is written to `.epicenter/recordings/<path>.wav`, and its encode to a
+scratch file in `.epicenter/saves`. The folder's sweep never reads
+`recordings/`, so a cut-off recording waits there until the app opens and
+`recoverRecordings` finishes it. A change under `.epicenter` is a change
+under a hidden path, which no watcher reports, so the header rewrite about
+once a second wakes no sync round. [ADR-0562's amendment](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md#amendment-2026-11-01-epicenter-holds-only-unfinished-writes-in-saves-and-recordings)
+gives the layout.

@@ -38,6 +38,8 @@ The decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in-code-on-th
 | Row directory | Optional adjacent files under `<table>/<id>/`. Deleting the Markdown row leaves these files in place. It is not a nested table. |
 | Field, value, body | A frontmatter key, its complete value, and the Markdown text after frontmatter. |
 | File, path, root | Source bytes, their address relative to opened data, and that address's boundary. File access remains available outside selected tables. |
+| Hidden path | A path with a segment starting with `.`. It is not a folder's data: no contract claims it, no watcher reports a change to it, sync never commits `.epicenter`, and listings show hidden files for their readers to skip. |
+| Unfinished write | A file in a folder's `.epicenter/`, on its way somewhere: a save in `saves/` waiting to be renamed over its target (always safe to delete when no app runs), or a desktop recording in `recordings/` until it stops or the next open recovers it. |
 | Reference | A value interpreted by its app's format, or a literal Markdown link. Existing record IDs remain; automatic cross-repository navigation is deferred. |
 
 Browser local data lives under its web origin: in the origin's private file

@@ -20,10 +20,11 @@ file-system scope must allow (see Other roots).
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the shared path rule, the page's storage (`storage.rs`), and which directories may be set up for sync (`admission.rs`). No Tauri. |
+| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the shared path rule and hidden-path rule (`paths.rs`), where unfinished writes live (`state.rs`), the page's storage (`storage.rs`), and which directories may be set up for sync (`admission.rs`). No Tauri. |
 | `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), which roots a page may open (`scope.rs`), and storage commands. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
-| `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
+| `fixtures/path-rules.json` | The paths the shared path rule refuses and allows, and which are hidden. `core/src/paths.rs` and `paths.test.ts` in `@epicenter/folder` both read it. |
+| `fixtures/state-layout.json` | Where unfinished writes live: `.epicenter`, `saves`, `recordings`, and the paths built from them. `core/src/state.rs` and `state.test.ts` in `@epicenter/folder` both read it. |
 | `fixtures/storage-outcomes.json` | Storage calls and what each answers. `core/src/storage_tests.rs` runs them over the shell's storage and `storage-outcomes.test.ts` in `@epicenter/folder` over the Bun directory storage, so both give the same outcomes. |
 
 This crate has no JavaScript package of its own. A page reaches it through
@@ -68,7 +69,8 @@ and `~/Epicenter Dev`. A nonempty absolute `EPICENTER_DATA_DIR` or
 `EPICENTER_FOLDER_DIR` overrides either.
 
 `admission::check_sync_directory`, which Epicenter runs before
-`epicenter init`, refuses a folder's `.epicenter` or anything in one, a
+`epicenter init`, refuses a hidden directory or one inside a hidden directory
+(`paths::is_hidden_path`; another folder's `.epicenter` among them), a
 directory inside, equal to, or holding application data, and the library root
 or a directory holding it, so the folders in it never become one repository.
 Containment compares canonical paths and directory identity, so a linked
@@ -182,13 +184,14 @@ close anyway. Keeping the window open lets the first wait finish and close it.
 A page reload clears
 the old channel and token, so an old page cannot close its successor.
 
-Every open also removes the staged files in the root's `.epicenter/scratch`
+Every open also removes the staged files in the root's `.epicenter/saves`
 that a stopped save left more than an hour ago
 (`storage::sweep_scratch`), by the creation time in the name the stager gave
 it, the same rule as `isStaleScratch` in `@epicenter/folder`. Younger ones
 may belong to a save still running in another process. Only regular files
 with a name a stager made are removed: any other file, a directory, or a link
-stays, and a scratch path that is a link or not a directory is not read.
+stays, a `saves` that is a link or not a directory is not read, and
+`.epicenter/recordings` is never read at all.
 
 Each command clones the window's `Directory` when it arrives and works in
 that root until it ends. A window closed and replaced under the same label
@@ -202,7 +205,7 @@ A page's folder storage (`FolderStorage` in `@epicenter/folder`'s
 
 | Method | Command | Answers |
 | --- | --- | --- |
-| `list()` | `list_folder()` | `{ path, stamp }[]`, every file, `.git` and `.epicenter` aside |
+| `list()` | `list_folder()` | `{ path, stamp }[]`, every file, `.git` aside; hidden files, `.epicenter`'s included, are listed for the reader to skip |
 | `read(path)` | `read_folder_file(path)` | the stamp, a zero byte, then the file bytes, raw |
 | `put(path, bytes, expected)` | `put_folder_file`, raw body and headers | `{ kind: "landed", stamp: string \| null }` or `{ kind: "stale" }` |
 
@@ -268,23 +271,23 @@ the published file, or `null` for a removal. Stamps detect changes;
 expectations remain byte hashes.
 
 A put of bytes writes the bytes to a new file in the root's
-`.epicenter/scratch`, the directory the Bun host stages in (opened with
-`create_new`, so nothing already there is written through). `.epicenter` at
-the root is Epicenter's own: no listing shows it, the
-watcher reports no change in it, and `epicenter init`'s `.gitignore` keeps
-it out of history. A scratch path, or an `.epicenter`, that is a link or not
-a directory refuses the put as `Io`, and nothing changes. On Unix the scratch directory is `0700` before
+`.epicenter/saves`, the directory the Bun host stages in (opened with
+`create_new`, so nothing already there is written through). A `saves`, or an
+`.epicenter`, that is a link or not a directory refuses the put as `Io`, and
+nothing changes. On Unix `saves` is `0700` before
 anything is staged in it: made so, or tightened through the opened directory
 when it is open to others, and a put that cannot make it so is `Io`.
 Each staged file is `0600` before its first byte, so no other account reads
 a save that has not landed or one that stopped. On macOS an access control
 entry lets other accounts past those bits, and a parent can pass one on
-(`everyone allow read`), so the scratch directory and each staged file have
+(`everyone allow read`), so `saves` and each staged file have
 every entry removed through the open descriptor before anything is staged or
 written; a put that cannot remove them is `Io`. Replacing a file keeps its
-permission bits; a new file is `0600`. Windows has no such bits: there the
-scratch directory has the access its parent passes on. The scratch
-directory is on the root's own file system, so the rename is one step. Then
+permission bits; a new file is `0600`. Windows has no such bits: there
+`saves` has the access its parent passes on. `saves` is on the root's own
+file system, so the rename is one step; a path below a mount point inside
+the folder is on another, and the put fails as `Io` saying it cannot save
+across a mount point (`storage::rename_failure`), with nothing copied. Then
 the put walks the path again (no link, every name stored as asked), checks
 what the path holds, and only then makes the path's missing parent
 directories and renames the staged file over it. A removal walks, checks,
@@ -307,8 +310,9 @@ nothing in the root but the files saved, their directories, and
 `.epicenter`, nothing beside the root, and nothing in `.git` is reachable, with or without `HEAD` (`page_files.rs`).
 
 A data file is never written in place: the rename replaces a hard link
-rather than writing through it. The one data file written in place is a
-recording, by `tauri-plugin-epicenter-recorder`
+rather than writing through it. A recording, by
+`tauri-plugin-epicenter-recorder`, grows in `.epicenter/recordings` and is
+placed at its path whole
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
 It asks `app.folders().bound(window)` for the calling window's directory,
 checks the path with `page_files::data_path` (the same rule and link check
@@ -316,6 +320,24 @@ as a put), and creates the file with `create_new`. A directory is removed
 only when empty; nothing removes a tree whole. The page writes no Git
 object: the `epicenter` CLI stores each with `git hash-object -w`, which
 names and checks it.
+
+### Unfinished writes
+
+`.epicenter` at the root holds the folder's unfinished writes, laid out by
+`state.rs` (and `state.ts` in `@epicenter/folder`) alone:
+
+```
+.epicenter/
+├── saves/        a save waiting to be renamed over its target
+└── recordings/   a desktop recording, at its target path, until stop or recovery
+```
+
+A file in `.epicenter/` is on its way somewhere; `saves/` is always safe to
+delete when no app runs; `recordings/` may hold audio until the app opens
+once. `.epicenter` is a hidden path (`paths::is_hidden_path`), so it is not
+the folder's data: no watcher reports a change in it, listings show it for
+their readers to skip, and `epicenter sync` never commits it, whatever
+`.gitignore` says.
 
 ## Git
 
@@ -331,7 +353,8 @@ recursively, without following symbolic links. It sends typed `FolderChanged`
 hints to the calling WebView's private channel. Its `paths` are root-relative hints, including
 directory hints that cover descendants; `null` means any path may differ.
 Rename notifications retain both paths when the operating system supplies them.
-Read/open access events and private Git paths are ignored; close-after-write
+Read/open access events and every hidden path (`paths::is_hidden_path`:
+Git's state, `.epicenter`'s unfinished writes) are ignored; close-after-write
 events remain observations. A native rescan, unknown
 scope, or watch error emits `null`; no file is read or hashed by the callback.
 

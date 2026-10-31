@@ -14,7 +14,7 @@ tests, and every bundler resolve each specifier to the same file:
 
 ```txt
 @epicenter/recorder           the shared vocabulary: types, RecorderError, audioDurationMs; no implementation
-  /tauri    → tauri-plugin-epicenter-recorder: the shell writes a WAV under .epicenter/recording from the first sample, then encodes it to <path>.webm
+  /tauri    → tauri-plugin-epicenter-recorder: the shell writes a WAV under .epicenter/recordings from the first sample, then encodes it to <path>.webm
   /browser  → MediaRecorder: each piece appended to <path>.m4a (or .webm) in this browser's files; streams and VAD
   /vad-assets → the VAD runtime files, for a build's static copy
 ```
@@ -44,7 +44,7 @@ file with a sync access handle.
 
 | | Desktop | Browser |
 | --- | --- | --- |
-| The file | `<path>.webm`: a WAV written from the first sample in the folder's `.epicenter/recording` (unlisted, never synced), encoded and placed at its path at `stop`; `<path>.wav` when the encoder refuses it, and `stop` fails saying so | `<path>.m4a`, else `<path>.webm`, from the first piece (about a second) |
+| The file | `<path>.webm`: a WAV written from the first sample in the folder's `.epicenter/recordings` (hidden, never synced), encoded and placed at its path at `stop`; `<path>.wav` when the encoder refuses it, and `stop` fails saying so | `<path>.m4a`, else `<path>.webm`, from the first piece (about a second) |
 | Format | Opus in WebM, mono, 24 kbps, from 16 kHz PCM (about 10.5 MB an hour of speech; the WAV is 115 MB) | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | The header is rewritten about once a second | Each piece is appended as it arrives; the store's listeners hear the file made and finished, not every piece |
 | Quit, crash, closed window or tab | Audio kept up to the cut | Every piece already written is kept |

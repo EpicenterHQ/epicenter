@@ -97,7 +97,7 @@ recorder asks for AAC in MP4 first and Opus in WebM second, and appends each
 piece (about a second) to `recordings/<id>.m4a` or `.webm` in this browser's
 files as it arrives. On the desktop it is the shell's microphone
 (`platform/microphone.tauri.ts`, over `@epicenter/recorder/tauri`), which
-writes a WAV from the first sample in the folder's `.epicenter/recording`
+writes a WAV from the first sample in the folder's `.epicenter/recordings`
 and, when it stops, encodes it to Opus in WebM at `recordings/<id>.webm`
 (`recordings/<id>.wav` when the encoder refuses it). Until its Stop has
 finished, a recording's audio reads as `recording` (`files.svelte.ts`): its
@@ -111,7 +111,7 @@ written plays, into the note over the version it reads then
 (`folder-recordings.ts`). A recording that wrote no audio (the store
 refused it, or nothing was captured) leaves no note; a Stop that fails
 otherwise keeps it, since the desktop may still hold the audio in
-`.epicenter/recording`.
+`.epicenter/recordings`.
 Recording never waits on the network. Where the browser keeps no files (a
 private window) the note cannot be made, so recording is refused before
 any microphone opens. When a start finds a note with no length beside its

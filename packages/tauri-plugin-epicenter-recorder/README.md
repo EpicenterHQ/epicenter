@@ -6,7 +6,7 @@ records: a page in the shell opens no microphone of its own
 A recording is written from the first sample
 into a folder the recording window opened
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
-`start` creates a WAV in the folder's `.epicenter/recording` and appends
+`start` creates a WAV in the folder's `.epicenter/recordings` and appends
 16 kHz mono PCM16 as the microphone captures, and `stop` finalizes its header,
 encodes it to Opus in WebM, and places that at `<path>.webm`. Nothing
 deletes a recording's audio. A quit, a crash, or a closed window keeps the
@@ -27,7 +27,7 @@ each piece of a recording to this browser's files instead (decision 84).
 | --- | --- |
 | `src/recorder.rs` | The CPAL and `hound` pipeline: a non-blocking audio callback, a bounded queue, and a writer thread that appends to the WAV, updates its header about once a second, and sends the level. One recording at a time, owned by the window that started it. |
 | `src/rate.rs` | The conversion from the microphone's rate to the recording's 16 kHz, on the writer thread. |
-| `src/wav.rs` | `repair` and `recover`: rewrite a WAV header whose sizes disagree with the file's length, and settle what a cut left in `.epicenter/recording` as a stop does. |
+| `src/wav.rs` | `repair` and `recover`: rewrite a WAV header whose sizes disagree with the file's length, and settle what a cut left in `.epicenter/recordings` as a stop does. |
 | `src/staging.rs` | Where a recording is written while it records (`pending`, `pending_under`) and encoded (`encode_scratch`), and `settle`: encode it and place it at its path without replacing a file (`place`, `sweep`). |
 | `src/opus.rs` | The encoder: a finalized WAV, read 20 ms at a time, to Opus at 24 kbps. |
 | `src/webm.rs` | The WebM writer the encoder writes through. |
@@ -78,9 +78,9 @@ read once when the command arrives.
 | `inputs()` | Lists the input devices connected now as `{ id, name, isDefault }`. Opens nothing, so it needs no microphone permission. |
 | `open_meter(device, levels)` | Opens the microphone with id `device`, or the system default, and sends its level on `levels` until `close_meter(id)`, or until the window's page reloads or the window is destroyed. Nothing is recorded. Answers the meter's `id` and the microphone's name. |
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
-| `start(root, path, device, signals)` | Records `<path>.webm` in `root`, from the microphone with id `device` or the system default, writing a WAV in `.epicenter/recording` until it stops. Answers the recording's `id`, its path, and the microphone's name. |
+| `start(root, path, device, signals)` | Records `<path>.webm` in `root`, from the microphone with id `device` or the system default, writing a WAV in `.epicenter/recordings` until it stops. Answers the recording's `id`, its path, and the microphone's name. |
 | `stop(id)` | Finalizes the WAV, encodes it, places it at its path, and answers that path and its length. Only the window that started it may stop it. |
-| `recover(root, under)` | Repairs every `.wav` a cut left under `under` in `root`'s `.epicenter/recording` and settles it as `stop` does, never over a file there, leaving the recording still being written, and any a stop is still settling, alone. Where the path is taken, a recording with the same bytes is removed and any other goes to the first free `<name>-recovered.webm` (`-recovered-2`, ...), so none stays stranded in `.epicenter`. Answers the paths it placed; a second run places none. |
+| `recover(root, under)` | Repairs every `.wav` a cut left under `under` in `root`'s `.epicenter/recordings` and settles it as `stop` does, never over a file there, leaving the recording still being written, and any a stop is still settling, alone. Where the path is taken, a recording with the same bytes is removed and any other goes to the first free `<name>-recovered.webm` (`-recovered-2`, ...), so none stays stranded in `.epicenter`. Answers the paths it placed; a second run places none. |
 
 `start` refuses before it opens anything:
 
@@ -88,7 +88,7 @@ read once when the command arrives.
   `root`, the path is not a data path
   the shared path rule accepts (`page_files::data_path` in the folder
   plugin's core, no link on the way), or a file is already at `<path>.webm`,
-  at `<path>.wav`, or at its place in `.epicenter/recording`.
+  at `<path>.wav`, or at its place in `.epicenter/recordings`.
 - `PermissionDenied`: macOS does not allow Epicenter the microphone.
 - `InputUnavailable`: no microphone with the id `device` is connected.
   Another is never opened in its place. `open_meter` refuses the same way.
@@ -101,10 +101,13 @@ file could not be written. What was captured stays the owner's to `stop`.
 
 ## The file in the folder
 
-While it records, the recording lives in the folder's own state directory,
-at `.epicenter/recording/<path>.wav`: no listing shows it, no watcher reports
-it, and `epicenter init`'s `.gitignore` keeps it out of history, so sync never
-commits a half-written WAV and no reader sees one at a data path. It is
+While it records, the recording is one of the folder's unfinished writes,
+at `.epicenter/recordings/<path>.wav` (`state::recording` in the folder
+core, which alone lays out `.epicenter`): a hidden path, which no watcher
+reports and `epicenter sync` never commits, so sync never commits a
+half-written WAV, the header rewrite wakes no sync round, and no reader sees
+one at a data path. The folder's sweep never reads `recordings/`: a cut-off
+recording waits there until the app opens once. It is
 created with `create_new` there (`.epicenter` made `0700` when missing, and
 refused when it is a link), so nothing already there is written through. Its
 header states the samples written so far about once a second.
@@ -128,17 +131,19 @@ a minute in a release build on an Apple-silicon Mac, and comes to about
   that plays, and Cues for seeking. Nothing in it varies between two
   encodes of one WAV: no date, no random ID.
 
-The encode is written into a new file in the folder's scratch directory
-(`.epicenter/scratch`, as a save stages there: `0600`, named so a stale one
-is swept). That file is placed at `<path>.webm` without replacing anything
+The encode is written into a new file in the folder's `.epicenter/saves`
+(as a save stages there: `0600`, named so a stale one is swept). That file is placed at `<path>.webm` without replacing anything
 there: a hard link to the path, which fails when a name is already there,
 then the scratch name removed (`staging::place`). A move cut off between the
 two is finished by the next one. Where the disk has no hard links it is
 renamed only while nothing is at the path. Only then is the WAV removed. A
+path below a mount point inside the folder is on another file system, which
+neither reaches: placing there fails saying it cannot save across a mount
+point, nothing is copied, and the WAV stays. A
 WAV the encoder refuses is placed itself, at `<path>.wav`, and `stop`
 answers a failure that says so. A recording that cannot be placed, because
 something took its path while it recorded or the disk refused, stays in
-`.epicenter/recording`, and `stop` says so; the next `recover` places it
+`.epicenter/recordings`, and `stop` says so; the next `recover` places it
 beside the taken path.
 
 A crash while it encodes leaves the WAV, which the next `recover` encodes
@@ -157,7 +162,7 @@ The recording is finalized, never deleted, when:
 - `stop` is called after the capture ended on its own.
 
 A process that ends before any of those leaves the WAV in
-`.epicenter/recording` with a header that undercounts the last second.
+`.epicenter/recordings` with a header that undercounts the last second.
 `recover`, which a page calls when it opens its folder, rewrites it from the
 file's length, rounded down to a whole frame, and settles it as `stop` does.
 

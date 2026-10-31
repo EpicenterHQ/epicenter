@@ -139,13 +139,25 @@ keychain.
 ## Native directories
 
 Bun and Tauri open ordinary directory files, with no required Git repository.
-They stage a replacement in the directory's own `.epicenter/scratch` and
+They stage a replacement in the directory's own `.epicenter/saves` and
 rename one whole file over its path, after checking it still holds the
 version the writer read. No lock spans that check and the rename: a save
 another program lands in that instant can be replaced, and Git history is
-the backstop (ADR-0568). No listing shows `.epicenter`, no watcher reports
-it, and nothing is made beside the directory. Paths and links are checked
-before writes. A native watcher reports outside changes, and a client's
+the backstop (ADR-0568). A path below a mount point inside the directory
+cannot be reached by that rename, and its save fails saying it cannot cross
+a mount point. Nothing is made beside the directory. Paths and links are
+checked before writes.
+
+`.epicenter` holds a folder's unfinished writes, and `state.ts` alone lays
+it out (with `state.rs` in the folder core, both held to
+`fixtures/state-layout.json` in `tauri-plugin-epicenter-folder`): `saves/`,
+a save waiting to be renamed over its target, and `recordings/`, a desktop
+recording until it stops or is recovered. A file in `.epicenter/` is on its
+way somewhere; `saves/` is always safe to delete when no app runs, and
+`recordings/` may hold audio until the app opens once. Like every hidden
+path (`isHiddenPath`), it is not a folder's data: no watcher reports a
+change to it, listings show it for their readers to skip, and `epicenter
+sync` never commits it. A native watcher reports outside changes, and a client's
 listeners hear them. Watching is best effort.
 Native listings compare opaque stamps made from file size, modification time,
 and file identity where available. Reads and saves return the stamp of the

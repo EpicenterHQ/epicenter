@@ -111,8 +111,10 @@ with real `git add`, so Git LFS's filters run.
   `@epicenter/definition/contract`, which the server writes in a
   repository's first commit: `.md` notes (in any case) merge with
   `merge=epicenter`, every other file is LFS, and dotfiles and dot
-  directories are exempt. The ignore block is `REPOSITORY_IGNORE`:
-  `.DS_Store` and `.epicenter/` (a device's outbox) are never committed.
+  directories are exempt. The ignore block is `REPOSITORY_IGNORE`, in
+  `managed-block.ts`: `.DS_Store` and `.epicenter/` (a device's unfinished
+  writes) are never committed, and sync leaves `.epicenter/` out itself
+  even when `.gitignore` does not name it.
   Then `merge.epicenter.driver`, the command link (`~/.local/bin/
   epicenter merge-driver %O %A %B %P`, the link `install-command` keeps);
   `git lfs install --local`;
@@ -126,7 +128,8 @@ with real `git add`, so Git LFS's filters run.
   `<git dir>/epicenter-sync.lock` (`holdingFileLock`). A round refuses a
   repository `init` did not adopt, an unfinished merge or rebase, unmerged
   entries, or a clone without the driver and LFS filters; stages and commits
-  only the folder's own paths; fetches `origin`; stops if the remote `main`
+  only the folder's own paths, never `.epicenter` (the folder's unfinished
+  writes, excluded by pathspec whatever `.gitignore` says); fetches `origin`; stops if the remote `main`
   no longer contains `refs/epicenter/last-seen` (an owner rewrote `main`);
   stops with `retry` if another program holds `index.lock`; fetches the
   LFS bytes of `origin/main`; then merges `origin/main`
@@ -137,8 +140,9 @@ with real `git add`, so Git LFS's filters run.
   rejected, up to five times. `--json` prints one `{"sync": {"folder",
   "status", "head", "notes", "message"}}` line per folder per round. Exit
   codes: 0 synced, 1 run again, 2 stopped for a person or agent.
-  `--watch` runs a round after each change under the folders and every 30
-  seconds (`--interval`) until a stop signal. With `--desktop` it also
+  `--watch` runs a round after each change under the folders, except a
+  change under a hidden path (`isHiddenPath`: `.git`, `.epicenter`), and
+  every 30 seconds (`--interval`) until a stop signal. With `--desktop` it also
   stops, as on `SIGHUP` (exit 129), when stdin closes: the desktop app holds
   stdin open while it lives, so the watch cannot outlive it.
 - `status [<dir>]` reads `git status --porcelain` for the folder and the

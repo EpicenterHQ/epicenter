@@ -251,7 +251,7 @@ Not done, and needed before this can be called accepted on the desktop:
   content security policy, and that the owner's events arrive.
 - Record, play, transcribe, transform, quit, and reopen against a disposable
   folder. Confirm the microphone permission prompt, that the WAV in
-  `.epicenter/recording/recordings/<id>.wav` grows while recording, that
+  `.epicenter/recordings/recordings/<id>.wav` grows while recording, that
   Stop leaves `recordings/<id>.webm` and no WAV, and that quitting
   mid-recording leaves a WAV that becomes a `.webm` playing to the cut once
   the folder reopens and `recoverRecordings` runs.
