@@ -156,7 +156,12 @@ export const startRecording: StartRecording = async ({
 	});
 };
 
-/** Rewrite the header of every WAV under `under` that a quit cut short. */
+/**
+ * Repair every WAV a quit or a crash left in the folder's
+ * `.epicenter/recording` under `under`, and move each to its path (or beside
+ * it, `<name>-recovered.wav`, when the path is taken). Answers the paths
+ * placed.
+ */
 export const recoverRecordings: RecoverRecordings = async ({
 	device,
 	under,
