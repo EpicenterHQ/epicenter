@@ -119,6 +119,20 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 			skipConsent: true,
 			applicationType: 'native',
 		},
+		// Whispering's desktop app signs in through its own loopback redirect,
+		// for hosted transcription and AI only: Epicenter syncs its folder, so
+		// it asks for the API audience and no Git scope. It keeps its refresh
+		// token in the operating system's credential store.
+		{
+			clientId: 'so.epicenter.whispering.desktop',
+			name: 'Whispering',
+			redirectUris: ['http://127.0.0.1/callback'],
+			grantTypes: ['authorization_code', 'refresh_token'],
+			scopes: ['openid', 'offline_access', 'profile', 'email', 'ai'],
+			resources: [audiences.api],
+			skipConsent: true,
+			applicationType: 'native',
+		},
 		// The CLI and the agents on the person's machine: the device grant
 		// only, approved on the device approval page every time.
 		{
