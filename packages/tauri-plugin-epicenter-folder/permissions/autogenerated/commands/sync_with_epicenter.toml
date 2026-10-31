@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-sync-with-epicenter"
+description = "Enables the sync_with_epicenter command without any pre-configured scope."
+commands.allow = ["sync_with_epicenter"]
+
+[[permission]]
+identifier = "deny-sync-with-epicenter"
+description = "Denies the sync_with_epicenter command without any pre-configured scope."
+commands.deny = ["sync_with_epicenter"]

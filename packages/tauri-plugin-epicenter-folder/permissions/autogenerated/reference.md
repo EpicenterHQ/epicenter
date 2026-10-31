@@ -1,6 +1,6 @@
 ## Default Permission
 
-Open the folder the shell bound to this window, then read and change its files through the shell.
+Open the folder the shell bound to this window, read and change its files through the shell, and ask Epicenter to sync it.
 
 #### This default permission set includes the following:
 
@@ -14,6 +14,8 @@ Open the folder the shell bound to this window, then read and change its files t
 - `allow-put-folder-file`
 - `allow-make-folder-directory`
 - `allow-remove-folder-directory`
+- `allow-sync-with-epicenter`
+- `allow-synced-with-epicenter`
 
 ## Permission Table
 
@@ -254,6 +256,58 @@ Enables the subscribe_close command without any pre-configured scope.
 <td>
 
 Denies the subscribe_close command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:allow-sync-with-epicenter`
+
+</td>
+<td>
+
+Enables the sync_with_epicenter command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-sync-with-epicenter`
+
+</td>
+<td>
+
+Denies the sync_with_epicenter command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:allow-synced-with-epicenter`
+
+</td>
+<td>
+
+Enables the synced_with_epicenter command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-synced-with-epicenter`
+
+</td>
+<td>
+
+Denies the synced_with_epicenter command without any pre-configured scope.
 
 </td>
 </tr>
