@@ -81,7 +81,17 @@
 	async function checkSync() {
 		if (folder !== null) sync = await folder.synced();
 	}
-	onMount(() => void checkSync());
+	onMount(() => {
+		void checkSync();
+		// The window opened on a folder the person chose; say so if recording
+		// it for the next launch failed.
+		void folder?.remembered.then((answer) => {
+			if (!answer.ok)
+				toast.error('Capture may ask for its folder again next time', {
+					description: answer.message,
+				});
+		});
+	});
 
 	async function ask(action: () => Promise<FolderRequest>, requested?: string) {
 		asking = true;
@@ -107,7 +117,7 @@
 		if (desktop === null) return;
 		void ask(async () => {
 			await whenSaved();
-			return desktop.chooseFolder();
+			return desktop.choose('pick');
 		});
 	}
 </script>

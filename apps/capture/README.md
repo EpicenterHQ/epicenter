@@ -110,38 +110,36 @@ bun build:capture:desktop   # a local, unsigned macOS app bundle
 
 Its Tauri shell (`src-tauri/`, on the shared
 [`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
-crate) owns Capture's folder (decision 81). On first run it asks "Where should
-Capture keep its files?": the Epicenter folder `~/Epicenter/Capture`
-(recommended; `~/Epicenter Dev/Capture` for `dev:desktop`'s `.dev`
-identifier), the app's data folder, or "Choose folder…". It creates the
-folder, or reuses one already there with its files, and remembers the choice
-as `folder` in `settings.md` in its own configuration directory (`appConfig`,
-decision 82: machine-local, never synced, never in the folder). The window is
-bound to that folder before the page loads.
+crate) gives the window two roots (decision 82): Capture's configuration
+directory, whose `settings.md` (`appConfig`, machine-local, never synced)
+records `folder`, and that folder, where the captures are. On first run there
+is no folder, and the page asks "Where should Capture keep its files?"
+(`ChooseFolder.svelte`): the Epicenter folder `~/Epicenter/Capture`
+(recommended; `~/Epicenter Dev/Capture` for `dev:desktop`), the app data
+folder, or "Choose folder…". The shell refuses an unsafe answer in one line,
+creates the folder or reuses it with its files, and reopens the window there;
+the page then records it with `rememberFolder`.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`): the "On this device" view
-over the folder (`openDevice` from `@epicenter/folder/tauri`), with no
-"Synced" view, no sign-in (Capture makes no inference calls), and no service
-worker. Its header says whether Epicenter syncs the folder, offers **Sync
-with Epicenter** until it does (`syncWithEpicenter({ path, contract })`,
-with the folder's path from the shell and `APPS.CAPTURE.url`'s
-`contract.json`, which opens
-`epicenter://init?path=<the folder>&contract=https://capture.epicenter.so/contract.json`),
-and holds **Choose folder…** in the status details. Closing the window or
-quitting waits for saves (the leave guard), and so does Choose folder….
+over the folder (`openDevice(capture, { path: folder })`), with no "Synced"
+view, no sign-in (Capture makes no inference calls), and no service worker.
+Its header says whether Epicenter syncs the folder, offers **Sync with
+Epicenter** until it does (`syncWithEpicenter({ path, contract })`, the
+contract at `APPS.CAPTURE.url`'s `contract.json`), and holds **Choose
+folder…** in the status details. Closing the window or quitting waits for
+saves (the leave guard), and so does Choose folder….
 
-The variant is chosen at build time, never at run time: the `#platform/*`
-seams in `package.json` "imports" resolve to their `.tauri.ts` leaves under
-the `tauri` condition, which `vite.config.ts` turns on when
-`EPICENTER_DESKTOP=1`. `tsconfig.tauri.json` typechecks that build, and
-`src/lib/platform.test.ts` bundles both and names a seam whose desktop leaf
-went missing.
+The variant is chosen at build time through `#platform/*` seams, as
+[the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant)
+describes: `desktopVariant()` in `vite.config.ts`, `tsconfig.tauri.json`, and
+`src/lib/platform.test.ts`, which names a seam whose desktop leaf went
+missing.
 
 | Seam | Browser leaf | Desktop leaf |
 | --- | --- | --- |
-| `#platform/device` | `device.ts`: OPFS | `device.tauri.ts`: the window's folder |
-| `#platform/folder` | `folder.ts`: none | `folder.tauri.ts`: sync state, Sync with Epicenter, Choose folder… |
+| `#platform/device` | `device.ts`: OPFS | `device.tauri.ts`: the window's folder, or none before the first choice |
+| `#platform/folder` | `folder.ts`: none | `folder.tauri.ts`: settings, sync state, Sync with Epicenter, choosing the folder |
 | `#platform/auth` | `auth.ts`: sign-in with Epicenter | `auth.tauri.ts`: none |
 | `#platform/offline` | `offline.ts`: the service worker | `offline.tauri.ts`: nothing |
 

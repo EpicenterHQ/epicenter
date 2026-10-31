@@ -1,14 +1,17 @@
 /**
- * `#platform/device` in Capture's desktop window: the folder its shell bound
- * to the window, the one Capture keeps its files in (asked for on first run,
- * `~/Epicenter/Capture` recommended), opened once for the page as Capture's
- * contract client (`@epicenter/folder/tauri`). The page names no path and
- * never uploads or signs in: Epicenter syncs the folder once the person asks
- * it to (decision 81).
+ * `#platform/device` in Capture's desktop window: the folder Capture keeps
+ * its files in (decision 82), opened by the path the shell gave this window
+ * (`appFolders()`), as Capture's contract client. Null until the person
+ * chooses a folder, when the page asks where (`ChooseFolder.svelte`). The
+ * page never uploads or signs in: Epicenter syncs the folder once the person
+ * asks it to.
  */
 
 import { capture } from '@epicenter/capture';
-import { openDevice } from '@epicenter/folder/tauri';
+import { appFolders, openDevice } from '@epicenter/folder/tauri';
 
-/** The window's folder, as Capture's client. */
-export const device = openDevice(capture);
+const folder = appFolders()?.folder ?? null;
+
+/** The window's folder, as Capture's client, or null before the first choice. */
+export const device =
+	folder === null ? null : openDevice(capture, { path: folder });

@@ -20,8 +20,9 @@
 	const repo = setRepo(openRemote(capture, { account }));
 	// Each view follows its own client: an uploaded capture leaves this
 	// browser's and appears in the repository's.
-	const uploader = startUploading(device, repo);
-	onDestroy(() => uploader[Symbol.dispose]());
+	// The browser always has its device; the desktop window never signs in.
+	const uploader = device === null ? null : startUploading(device, repo);
+	onDestroy(() => uploader?.[Symbol.dispose]());
 </script>
 
 {@render children()}

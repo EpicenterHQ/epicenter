@@ -1,11 +1,9 @@
-//! Capture's desktop app: one window over the folder Capture keeps its files
-//! in, asked for on first run (`~/Epicenter/Capture` recommended) and bound
-//! before the page loads (`epicenter-standalone`). The page opens it as
-//! Capture's contract client (`openDevice` from `@epicenter/folder/tauri`)
-//! and never signs in: it asks Epicenter to sync the folder
-//! (`syncWithEpicenter({ path, contract })`, the path from `folder_path`),
-//! and can move it (`choose_folder`). The choice is `folder` in Capture's
-//! `settings.md`, in its configuration directory (decision 82).
+//! Capture's desktop app (`epicenter-standalone`): one window over the
+//! folder Capture keeps its files in, with its configuration directory
+//! granted beside it (decision 82). The page opens both by path
+//! (`openDevice` from `@epicenter/folder/tauri`), asks where to keep the
+//! files on first run and records the answer in `settings.md`, asks Epicenter
+//! to sync the folder (`syncWithEpicenter`), and never signs in.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -22,8 +20,7 @@ const CAPTURE: StandaloneApp = StandaloneApp {
 fn main() {
     epicenter_standalone::builder(CAPTURE)
         .invoke_handler(tauri::generate_handler![
-            epicenter_standalone::commands::choose_folder,
-            epicenter_standalone::commands::folder_path,
+            epicenter_standalone::commands::choose_folder
         ])
         .run(tauri::generate_context!())
         .expect("Capture could not start");
@@ -46,9 +43,9 @@ mod tests {
         assert_eq!(dev["identifier"], "so.epicenter.capture.dev");
     }
 
-    /// The window reaches its folder, Epicenter's sync request and status
-    /// through the folder plugin, its folder's path, and may ask to move the
-    /// folder; nothing else.
+    /// The window reaches its roots, and Epicenter's sync request and status,
+    /// through the folder plugin, and may ask to choose its folder; nothing
+    /// else.
     #[test]
     fn the_capability_selects_the_one_window_and_grants_only_its_folder() {
         let capability: Value =
@@ -57,11 +54,7 @@ mod tests {
         assert_eq!(capability["local"], true);
         assert_eq!(
             capability["permissions"],
-            json!([
-                "epicenter-folder:default",
-                "allow-choose-folder",
-                "allow-folder-path"
-            ])
+            json!(["epicenter-folder:default", "allow-choose-folder"])
         );
     }
 }
