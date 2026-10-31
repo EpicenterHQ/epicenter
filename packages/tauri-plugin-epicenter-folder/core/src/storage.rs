@@ -718,6 +718,35 @@ fn now_ms() -> u64 {
         .map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
+/// A new, empty file in the scratch directory inside `root`, for bytes
+/// that are renamed or linked to their path once whole: `put` stages each
+/// save in one, and the recorder encodes a recording into one. Its name is
+/// a scratch name (`scratch_name`), so one a stopped writer leaves behind
+/// is removed once stale (`sweep_scratch`). It is made with `create_new`, so
+/// nothing already at the name is written through, and `0600` with no
+/// access control entry the scratch directory passed on, so no other
+/// account can read it before its first byte. Whoever made it renames or
+/// removes it.
+pub fn create_scratch(root: &Path) -> Result<(PathBuf, fs::File), String> {
+    let scratch = prepare_scratch(root)?.join(scratch_name(now_ms()));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let file = options
+        .open(&scratch)
+        .map_err(|cause| format!("'{}' could not be staged: {cause}", scratch.display()))?;
+    if let Err(cause) = without_acl(&file) {
+        drop(file);
+        let _ = fs::remove_file(&scratch);
+        return Err(format!(
+            "'{}' could not be made private to this account, so nothing was written to it: {cause}",
+            scratch.display()
+        ));
+    }
+    Ok((scratch, file))
+}
+
 /// Why a put cannot land on what `find` found at `path`, if it cannot.
 fn put_refusal(path: &str, found: &Found) -> Option<StorageError> {
     match found {
@@ -875,32 +904,14 @@ pub fn put(
             return Err(refused.clone());
         }
     }
-    let scratch = prepare_scratch(root)
-        .map_err(|message| failed(&message))?
-        .join(scratch_name(now_ms()));
+    let (scratch, mut file) = create_scratch(root).map_err(|message| failed(&message))?;
     let unstaged = |cause: io::Error| {
         failed(&format!(
             "'{}' could not be staged: {cause}",
             scratch.display()
         ))
     };
-    // `create_new`, so nothing already at the name is written through, and
-    // `0600` with no access control entry the scratch directory passed on,
-    // so no other account can read the file before its first byte.
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(&scratch).map_err(unstaged)?;
-    let written = without_acl(&file)
-        .map_err(|cause| {
-            failed(&format!(
-                "'{}' could not be made private to this account, so nothing was written to it: {cause}",
-                scratch.display()
-            ))
-        })
-        .and_then(|()| file.write_all(bytes).map_err(unstaged));
-    if let Err(error) = written {
+    if let Err(error) = file.write_all(bytes).map_err(unstaged) {
         drop(file);
         let _ = fs::remove_file(&scratch);
         return Err(error);
