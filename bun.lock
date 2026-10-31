@@ -539,6 +539,7 @@
         "@types/pg": "^8.18.0",
         "drizzle-orm": "catalog:",
         "pg": "^8.20.0",
+        "playwright": "^1.61.1",
         "typescript": "catalog:",
       },
     },

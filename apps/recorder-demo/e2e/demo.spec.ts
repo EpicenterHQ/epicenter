@@ -26,44 +26,25 @@
  *    windows): a recording the device cannot keep stays in the page, to
  *    save again or download.
  */
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { type BrowserContext, expect, type Page } from 'playwright/test';
 import {
-	type BrowserContext,
-	test as base,
-	expect,
-	type Page,
-} from 'playwright/test';
-import type { Person, Stack } from './stack.ts';
+	emptyOpfs,
+	epicenter,
+	opfsFiles,
+	run,
+	stackTest,
+	sync,
+} from '../../../packages/cli/src/app-e2e.test-support.ts';
 
 /** Which microphone a project records from: the engine's capture device, or `?fixture=tone`. */
 export type DemoOptions = { microphone: 'device' | 'tone' };
 
-const test = base.extend<
-	object,
-	DemoOptions & { stack: Stack; person: Person }
->({
+const test = stackTest('RECORDER_DEMO_E2E_STATE').extend<object, DemoOptions>({
 	microphone: ['device', { option: true, scope: 'worker' }],
-	stack: [
-		// biome-ignore lint/correctness/noEmptyPattern: Playwright reads a fixture's dependencies from this pattern.
-		async ({}, use) => {
-			const state = process.env.RECORDER_DEMO_E2E_STATE;
-			if (!state) throw new Error('globalSetup did not start the stack');
-			await use(JSON.parse(await readFile(state, 'utf8')) as Stack);
-		},
-		{ scope: 'worker' },
-	],
-	person: [
-		async ({ stack }, use, workerInfo) => {
-			const person = stack.people[workerInfo.project.name];
-			if (!person) throw new Error(`no person for ${workerInfo.project.name}`);
-			await use(person);
-		},
-		{ scope: 'worker' },
-	],
 });
 
 test.describe.configure({ mode: 'serial' });
@@ -94,79 +75,6 @@ test.afterAll(async () => {
 	if (profile) await rm(profile, { recursive: true, force: true });
 });
 
-/** Every file in this origin's OPFS but the device's staging area, by path, as sha256. */
-function opfsFiles(): Promise<Record<string, string>> {
-	return page.evaluate(async () => {
-		type Directory = {
-			entries(): AsyncIterable<
-				[string, { kind: 'file' | 'directory' } & FileSystemHandle]
-			>;
-		};
-		const files: Record<string, string> = {};
-		async function walk(directory: Directory, prefix: string) {
-			for await (const [name, handle] of directory.entries()) {
-				const path = `${prefix}${name}`;
-				if (handle.kind === 'directory') {
-					await walk(handle as unknown as Directory, `${path}/`);
-					continue;
-				}
-				const file = await (handle as FileSystemFileHandle).getFile();
-				const digest = await crypto.subtle.digest(
-					'SHA-256',
-					await file.arrayBuffer(),
-				);
-				files[path] = [...new Uint8Array(digest)]
-					.map((byte) => byte.toString(16).padStart(2, '0'))
-					.join('');
-			}
-		}
-		await walk(
-			(await navigator.storage.getDirectory()) as unknown as Directory,
-			'',
-		);
-		for (const path of Object.keys(files))
-			if (path.startsWith('.epicenter/staging/')) delete files[path];
-		return files;
-	});
-}
-
-function run(
-	command: string[],
-	{ cwd, env }: { cwd: string; env: Record<string, string> },
-): Promise<{ code: number | null; stdout: string; stderr: string }> {
-	return new Promise((done) => {
-		const child = spawn(command[0] as string, command.slice(1), { cwd, env });
-		let stdout = '';
-		let stderr = '';
-		child.stdout.on('data', (chunk: Buffer) => {
-			stdout += chunk;
-		});
-		child.stderr.on('data', (chunk: Buffer) => {
-			stderr += chunk;
-		});
-		child.on('close', (code) => done({ code, stdout, stderr }));
-	});
-}
-
-/** The `epicenter` command from this checkout, in the person's desktop sandbox. */
-function epicenter(stack: Stack, person: Person, ...args: string[]) {
-	return run([stack.bun, '--no-install', stack.cli, ...args], {
-		cwd: person.home,
-		env: person.env,
-	});
-}
-
-/** `epicenter sync` until it has synced; exit 1 means run again. */
-async function sync(stack: Stack, person: Person, folder: string) {
-	for (let round = 1; ; round++) {
-		const synced = await epicenter(stack, person, 'sync', folder);
-		if (synced.code !== 1 || round === 5) {
-			expect(synced.code, `${synced.stdout}\n${synced.stderr}`).toBe(0);
-			return;
-		}
-	}
-}
-
 const sha256 = (bytes: Uint8Array) =>
 	createHash('sha256').update(bytes).digest('hex');
 
@@ -185,13 +93,7 @@ test('1. signed out, a recording stays in the browser, not uploaded yet', async 
 	// WebKit keeps OPFS outside the profile directory, so an earlier run's
 	// files may still be there: start from an empty origin.
 	await page.goto(app);
-	await page.evaluate(async () => {
-		const root = await navigator.storage.getDirectory();
-		for await (const name of (
-			root as unknown as { keys(): AsyncIterable<string> }
-		).keys())
-			await root.removeEntry(name, { recursive: true });
-	});
+	await emptyOpfs(page);
 	await page.goto(app);
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 
@@ -206,7 +108,7 @@ test('1. signed out, a recording stays in the browser, not uploaded yet', async 
 	id = (await recording.getAttribute('data-id')) as string;
 	expect(id).toBeTruthy();
 
-	recorded = await opfsFiles();
+	recorded = await opfsFiles(page);
 	audioPath = Object.keys(recorded).find(
 		(path) => path.startsWith(`recordings/${id}.`) && !path.endsWith('.md'),
 	) as string;
@@ -252,7 +154,7 @@ test("2. signed in, it uploads on its own, and the browser lets go only after th
 
 	await expect.poll(() => lost).toBe(200);
 	// The server committed, but no reply reached the browser: it keeps all.
-	expect(await opfsFiles()).toEqual(recorded);
+	expect(await opfsFiles(page)).toEqual(recorded);
 	await expect(row()).toContainText('not uploaded yet');
 
 	held.resolve();
@@ -261,7 +163,7 @@ test("2. signed in, it uploads on its own, and the browser lets go only after th
 	await expect(row('repository')).toContainText('cached');
 	// The note went (it is the repository's); the audio stays as a cache,
 	// outside the contract's paths, byte for byte what was recorded.
-	expect(await opfsFiles()).toEqual({
+	expect(await opfsFiles(page)).toEqual({
 		[`.epicenter/cache/${audioPath}`]: audioSha,
 	});
 	await context.unroute('**/epicenter/writes');
@@ -491,7 +393,7 @@ test('9. signing out drops the cached audio from the browser', async () => {
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 	// The walk may meet a file as it is dropped; look again.
-	await expect.poll(() => opfsFiles().catch(() => null)).toEqual({});
+	await expect.poll(() => opfsFiles(page).catch(() => null)).toEqual({});
 	await expect(row()).toHaveCount(0);
 });
 
