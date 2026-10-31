@@ -5354,6 +5354,7 @@ dependencies = [
 name = "tauri-plugin-epicenter-folder"
 version = "0.0.1"
 dependencies = [
+ "dunce",
  "epicenter-folder-core",
  "log",
  "notify",
@@ -5366,6 +5367,8 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-opener",
  "tauri-specta",
 ]
 
