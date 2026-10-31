@@ -390,6 +390,7 @@ test('3. offline, recording and editing still work, and survive a reload', async
 test('4. signing in enables hosted transcription and moves nothing', async ({
 	stack,
 	person,
+	browserName,
 }) => {
 	// The deployment's transcription route, answered by the test: the stack
 	// has no provider behind it.
@@ -414,6 +415,12 @@ test('4. signing in enables hosted transcription and moves nothing', async ({
 
 	// Transcription over the Epicenter account is refused until signed in.
 	await settings();
+	// Under the sign-in, WebKit alone adds that Safari may clear these
+	// recordings, while this browser has not made its storage persistent.
+	const persisted = await page.evaluate(() => navigator.storage.persisted());
+	await expect(page.getByTestId('eviction-note')).toHaveCount(
+		browserName === 'webkit' && !persisted ? 1 : 0,
+	);
 	await page
 		.getByTestId('connection-transcription')
 		.getByRole('button', { name: 'Use Epicenter account' })

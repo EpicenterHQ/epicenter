@@ -53,6 +53,13 @@ repository, and there is no other view
   to fix.
 
 The header's status line says where the recordings are: "On this browser".
+In Safari (any WebKit browser, by `navigator.vendor`) whose storage for the
+site is not persistent (`navigator.storage.persisted()`), Settings adds one
+line under the sign-in: "Safari may clear these recordings if you don’t
+visit for a while. The desktop app keeps them as files in your Epicenter
+folder." WebKit deletes a site's script-written storage after days without a
+visit; Chromium, Firefox, and the desktop app never show it
+(`src/lib/eviction-note.ts`).
 
 ### Signing in is optional
 
@@ -215,6 +222,7 @@ recording, then reloads; it watches a recording's audio file appear and
 grow in OPFS while it records, reloads mid-recording, and sees the next
 start complete the note's length from what was written; offline, it records
 and edits; it shows the
+Safari line in Settings in WebKit and not in Chromium, and the
 Epicenter account route refused until sign-in, then, signed in, sending the
 account's API token (to a stub of the API's transcription route) and
 keeping the transcript here, with this browser's files otherwise unchanged
