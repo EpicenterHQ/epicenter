@@ -16,7 +16,7 @@
  * - A crash after the PUT, after the write, or before the delete resumes without loss
  * - The remote client refuses a stale version (`Conflict`) and an occupied path (`Occupied`)
  * - A capture naming a path outside the contract stays on the device and is never sent
- * - Files no capture names are adopted and uploaded, whenever they are made
+ * - Files no capture names are adopted and uploaded, once quiet for `QUIET_MS`; a capture goes up at once
  * - Retiring the account stops uploading for good
  * - A note that does not read on main is listed with its text, and `replace` repairs it
  * - Listeners hear this client's writes at once and other writers' within a poll of `main`
@@ -49,7 +49,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { startDisposablePostgres } from '../../../server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../server/src/test-helpers/oauth-client.js';
 import { cacheOf, openDevice, outboxOf, saveCapture } from '../node.js';
-import { openRemote, startUploading } from '../remote.js';
+import { openRemote, QUIET_MS, startUploading } from '../remote.js';
 
 const recorder = defineContract({
 	name: 'recorder',
@@ -527,37 +527,80 @@ describe('upload', () => {
 		expect(expectOk(await remote.recordings.get({ id })).title).toBe('Orphan');
 	}, 30_000);
 
-	test('a file made on the device while uploading runs goes up on its own, and a capture saved meanwhile goes up whole', async () => {
-		const person = await signIn('adopt-later');
+	test('a device file edited in a burst goes up once, after it has been quiet', async () => {
+		const person = await signIn('quiet-burst');
 		const { root, device } = await deviceAt();
 		const remote = openRemote(recorder, { account: person.account });
 		using uploader = startUploading(device, remote);
 		await uploader.drain();
 
-		// Made directly on the device (an app's view of it), no capture asked.
+		// Typed into an app's view of this device: a create, then edits.
 		const id = timeId();
-		expectOk(await device.recordings.create({ id, title: 'Made here' }));
-		const whole = await capture(device, 'Saved meanwhile');
-		for (
-			let i = 0;
-			i < 100 && (await filesIn(root)).some((path) => !path.startsWith('.'));
-			i++
+		let { version } = expectOk(
+			await device.recordings.create({ id, title: 'Draft 0' }),
+		);
+		for (let i = 1; i <= 4; i++) {
+			await Bun.sleep(300);
+			({ version } = expectOk(
+				await device.recordings.update(
+					{ id },
+					{ title: `Draft ${i}` },
+					{ over: version },
+				),
+			));
+		}
+		const lastEdit = Date.now();
+		// A run asked for meanwhile leaves the file being typed in alone.
+		await uploader.drain();
+		expect(person.requests(WRITES)).toHaveLength(0);
+
+		const deadline = lastEdit + QUIET_MS + 10_000;
+		while (
+			Date.now() < deadline &&
+			(await filesIn(root)).some((path) => !path.startsWith('.'))
 		)
-			await Bun.sleep(50);
+			await Bun.sleep(100);
+
+		expect(Date.now() - lastEdit).toBeGreaterThanOrEqual(QUIET_MS);
+		expect(person.requests(WRITES)).toHaveLength(1);
+		expect(await filesIn(root)).toEqual([]);
+		expect(expectOk(await remote.recordings.get({ id })).title).toBe('Draft 4');
+	}, 30_000);
+
+	test('a capture goes up at once and whole, while a file being typed in waits to be quiet', async () => {
+		const person = await signIn('quiet-capture');
+		const { root, device } = await deviceAt();
+		const remote = openRemote(recorder, { account: person.account });
+		using uploader = startUploading(device, remote);
 		await uploader.drain();
 
+		const typing = timeId();
+		expectOk(await device.recordings.create({ id: typing, title: 'Typing' }));
+		const started = Date.now();
+		const whole = await capture(device, 'Saved at Stop');
+		const sent = (id: string) =>
+			person
+				.requests(WRITES)
+				.filter(({ body }) => JSON.stringify(body).includes(id));
+		while (Date.now() - started < 3_000 && sent(whole.id).length === 0)
+			await Bun.sleep(50);
+
+		// The capture's note and audio landed in one write, well inside the quiet period.
+		expect(sent(whole.id)).toHaveLength(1);
+		expect(Date.now() - started).toBeLessThan(QUIET_MS);
+		expect(sent(typing)).toHaveLength(0);
+
+		const deadline = started + QUIET_MS + 10_000;
+		while (
+			Date.now() < deadline &&
+			(await filesIn(root)).some((path) => !path.startsWith('.'))
+		)
+			await Bun.sleep(100);
 		expect(await filesIn(root)).toEqual([cachedAudio(whole.id)]);
-		expect(expectOk(await remote.recordings.get({ id })).title).toBe(
-			'Made here',
+		expect(expectOk(await remote.recordings.get({ id: typing })).title).toBe(
+			'Typing',
 		);
-		expect(expectOk(await remote.recordings.get({ id: whole.id })).title).toBe(
-			'Saved meanwhile',
-		);
-		// The capture's note and audio landed in one write, not adopted apart.
-		const commits = person
-			.requests(WRITES)
-			.filter(({ body }) => JSON.stringify(body).includes(whole.id));
-		expect(commits).toHaveLength(1);
+		expect(sent(whole.id)).toHaveLength(1);
 	}, 30_000);
 
 	test('a capture naming a path outside the contract stays on the device and is never sent', async () => {

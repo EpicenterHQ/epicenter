@@ -26,17 +26,20 @@
  * Every run also adopts the device's files that no capture names, one
  * capture per file: a file made on the device directly (signed out,
  * offline, or in an app's view of this device while signed in), or left by
- * a crash between `create` and the outbox's `add`. A file a `saveCapture`
- * in this page is still saving is that capture's, and is left to it.
+ * a crash between `create` and the outbox's `add`. A file is adopted only
+ * once it has gone `QUIET_MS` without a change this uploader heard, so a
+ * note being typed in goes up once after a pause; one changed before
+ * uploading started is adopted at once. A file a `saveCapture` in this page
+ * is still saving is that capture's, and is left to it.
  * A capture that names a path the contract does not claim, or that the
  * server refuses, stays on the device and is reported, never sent again
  * until something changes.
  *
  * Runs are single flight: one at a time in a page, and across a browser's
  * tabs one at a time through a Web Lock. A run starts when uploading starts,
- * when the browser comes back online, after each new capture or change to a
- * file the contract claims, and again after a failure, waiting longer each
- * time. Uploading stops for good when
+ * when the browser comes back online, after each new capture, once a
+ * changed file the contract claims has been quiet, and again after a
+ * failure, waiting longer each time. Uploading stops for good when
  * the account is retired (sign-out or another person signing in), so one
  * person's credential never uploads after another's arrives; the files that
  * account's uploads cached on the device go with it, once a run in flight
@@ -126,6 +129,13 @@ export type Uploader = {
 /** The Web Lock every tab's uploader takes, so one tab drains the outbox at a time. */
 export const UPLOAD_LOCK = 'epicenter-upload';
 
+/**
+ * How long a device file must go unchanged before a run adopts it, so a file
+ * being typed in goes up once after a pause, not on every save. A capture
+ * (`saveCapture`) is not waited for: it goes up at once.
+ */
+export const QUIET_MS = 5_000;
+
 /** How long to wait before running again after the nth failure in a row. */
 const RETRY_MS = [5_000, 30_000, 120_000, 300_000] as const;
 
@@ -174,6 +184,10 @@ export function startUploading<TContract extends Contract>(
 	let retry: ReturnType<typeof setTimeout> | undefined;
 	let running: Promise<UploadReport> | null = null;
 	let queued: Promise<UploadReport> | null = null;
+	/** When this uploader last heard each claimed device file change. */
+	const changedAt = new Map<string, number>();
+	/** The run waiting for a changed file to be quiet, and when it is due. */
+	let quiet: { timer: ReturnType<typeof setTimeout>; due: number } | undefined;
 
 	const retired = () =>
 		ClientError.Unavailable({
@@ -190,8 +204,17 @@ export function startUploading<TContract extends Contract>(
 			captures.data.items.flatMap((capture) => Object.keys(capture.paths)),
 		);
 		const paths = listed.data.map(({ path }) => path).sort();
+		const now = Date.now();
+		for (const [path, at] of changedAt)
+			if (now - at >= QUIET_MS) changedAt.delete(path);
 		for (const path of paths) {
 			if (named.has(path) || capturing.has(path)) continue;
+			const at = changedAt.get(path);
+			// Still being changed: a run once it is quiet adopts it.
+			if (at !== undefined) {
+				wakeAt(at + QUIET_MS);
+				continue;
+			}
 			const claim = compiled.claim(path);
 			if (claim === null) continue;
 			const read = await store.read(path);
@@ -399,12 +422,32 @@ export function startUploading<TContract extends Contract>(
 	}
 
 	const wake = () => void drain();
+
+	/** Run at `due`, unless a run is already set for then or sooner. */
+	function wakeAt(due: number) {
+		if (stopped || (quiet !== undefined && quiet.due <= due)) return;
+		clearTimeout(quiet?.timer);
+		const timer = setTimeout(
+			() => {
+				quiet = undefined;
+				wake();
+			},
+			Math.max(0, due - Date.now()),
+		);
+		(timer as { unref?: () => void }).unref?.();
+		quiet = { timer, due };
+	}
+
 	const unsubscribe = onCapture(wake);
-	// A file made or changed on the device directly: adopt it. The outbox's
-	// own sidecars are hidden, so no claim covers them.
+	// A file made or changed on the device directly: adopt it once quiet.
+	// The outbox's own sidecars are hidden, so no claim covers them.
 	const unwatch = store.watch((paths) => {
-		if (paths === null || paths.some((path) => compiled.claim(path) !== null))
-			wake();
+		const now = Date.now();
+		const claimed = (paths ?? []).filter(
+			(path) => compiled.claim(path) !== null,
+		);
+		for (const path of claimed) changedAt.set(path, now);
+		if (paths === null || claimed.length > 0) wakeAt(now + QUIET_MS);
 	});
 	globalThis.addEventListener?.('online', wake);
 
@@ -412,6 +455,7 @@ export function startUploading<TContract extends Contract>(
 		if (stopped) return;
 		stopped = true;
 		clearTimeout(retry);
+		clearTimeout(quiet?.timer);
 		unsubscribe();
 		unwatch();
 		globalThis.removeEventListener?.('online', wake);

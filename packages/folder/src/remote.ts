@@ -32,6 +32,7 @@ import { createRemoteClient } from './remote/client.js';
 import type { RemoteAccount } from './remote/wire.js';
 
 export {
+	QUIET_MS,
 	startUploading,
 	UPLOAD_LOCK,
 	type Uploader,
