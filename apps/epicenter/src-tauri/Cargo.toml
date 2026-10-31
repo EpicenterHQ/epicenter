@@ -1,7 +1,7 @@
 [package]
 name = "epicenter"
 version = "0.0.1"
-description = "The Epicenter desktop application host"
+description = "The Epicenter desktop app: registers, syncs, and shares folders"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"
@@ -17,12 +17,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6", features = [] }
 
 [features]
-# The runtime smoke embeds a built Todos page, which ordinary cargo tests
-# must not require on a fresh checkout.
-native-tabs-smoke = []
-# Experiment only (`evidence/offline-proxy/run-tauri.ts`): a hosted site through
-# a pinned local replay proxy in its own WebKit store. Not a product proxy.
-hosted-site-offline-gate = ["tauri/macos-proxy"]
 # Native dictation: paste at the cursor and its Accessibility-grant watch,
 # pausing other apps' media, the macOS recording overlay panel, and the
 # clipboard-manager and global-shortcut plugins. No page reaches any of it, and
@@ -50,21 +44,12 @@ tauri = { version = "2.12", features = ["test"] }
 # labels, so a test can check which windows a capability selects.
 glob = "0.3"
 
-[[example]]
-name = "native_tabs"
-required-features = ["native-tabs-smoke"]
-
-[[example]]
-name = "hosted_site_offline"
-required-features = ["hosted-site-offline-gate"]
-
 [dependencies]
 dunce = "1"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
 # Fixed library defaults shared with the CLI.
 epicenter-folder-core = { path = "../../../packages/tauri-plugin-epicenter-folder/core" }
-tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
 anyhow = "1"
 base64 = "0.22"
 enigo = { version = "0.5.0", optional = true }
@@ -85,8 +70,6 @@ tauri-plugin-clipboard-manager = { version = "2", optional = true }
 tauri-plugin-deep-link = "2"
 tauri-plugin-global-shortcut = { version = "2", optional = true }
 tauri-plugin-log = "2"
-# Unregistered: ADR-0555 grants it to apps; register it with that grant.
-tauri-plugin-notification = "2"
 tauri-plugin-opener = "2.5"
 tauri-plugin-updater = "=2.14.0"
 tempfile = "3.8"

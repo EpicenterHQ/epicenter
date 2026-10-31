@@ -1,9 +1,8 @@
-//! The `epicenter-app` scheme: Rust serves built-in and legacy bundled pages
-//! from `epicenter-app://localhost` (ADR-0561). Published sites load HTTPS.
+//! The `epicenter-app` scheme: Rust serves Epicenter's own pages from
+//! `epicenter-app://localhost` (ADR-0561).
 //!
 //! ```txt
 //! epicenter-app://localhost/<page>/…    Epicenter's own pages (`BuiltInApp`), from `<pages>/<page>/`
-//! epicenter-app://localhost/<page>/…    an app Epicenter bundles (`BundledApp`), from `<pages>/<page>/`
 //! ```
 //!
 //! The handler answers GET only. It serves a regular file inside the page's
@@ -23,7 +22,6 @@ use tauri::http::{header, Method, Request, Response, StatusCode};
 use tauri::utils::mime_type::MimeType;
 use tauri::{Builder, Manager, Runtime, Url};
 
-use crate::bundled_apps::BundledApp;
 use crate::BuiltInApp;
 
 /// The scheme every Epicenter window loads. Not `epicenter`, the deep-link
@@ -32,8 +30,7 @@ pub const SCHEME: &str = "epicenter-app";
 const HOST: &str = "localhost";
 
 /// The directory the scheme reads, resolved once at startup: Epicenter's own
-/// pages, one directory per `BuiltInApp` id, and each bundled app's build,
-/// one directory per `BundledApp` page.
+/// pages, one directory per `BuiltInApp` id.
 pub struct Pages(pub PathBuf);
 
 /// Where Epicenter's own pages are built. A development build reads the
@@ -56,7 +53,7 @@ pub fn url(path: &str) -> anyhow::Result<Url> {
 
 /// Whether a window opened at `prefix`, the path its page is served below,
 /// may navigate to `url`: only on the one origin, and only below that path,
-/// so a built-in page's or a bundled app's window stays that page.
+/// so a window stays that page.
 pub fn is_allowed_navigation(prefix: &str, url: &Url) -> bool {
     url.scheme() == SCHEME
         && url.host_str() == Some(HOST)
@@ -73,10 +70,9 @@ pub fn is_allowed_navigation(prefix: &str, url: &Url) -> bool {
 pub fn register<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder.register_asynchronous_uri_scheme_protocol(SCHEME, |context, request, responder| {
         let app = context.app_handle().clone();
-        let requester = context.webview_label().to_owned();
         tauri::async_runtime::spawn_blocking(move || {
             let response = match request.uri().host() {
-                Some(HOST) if !requester.starts_with("site:") => match app.try_state::<Pages>() {
+                Some(HOST) => match app.try_state::<Pages>() {
                     Some(pages) => respond(&pages.0, &request),
                     None => plain(StatusCode::SERVICE_UNAVAILABLE, "Epicenter is starting."),
                 },
@@ -123,22 +119,13 @@ fn resolve(pages: &Path, path: &str) -> Option<PathBuf> {
     let [page, rest @ ..] = segments.as_slice() else {
         return None;
     };
-    let root = pages.join(page_dir(page)?);
+    let root = pages.join(BuiltInApp::from_id(page)?.id());
     // `contained_file` canonicalizes the root, so a linked page directory is
     // refused here, before it would be followed.
     if !is_real_directory(&root) {
         return None;
     }
     contained_file(&root, rest)
-}
-
-/// The directory below the pages directory that serves `page`: one of
-/// Epicenter's own pages, or an app Epicenter bundles.
-fn page_dir(page: &str) -> Option<&'static str> {
-    match BuiltInApp::from_id(page) {
-        Some(built_in) => Some(built_in.id()),
-        None => BundledApp::from_page(page).map(BundledApp::page),
-    }
 }
 
 /// The regular file at `rest` below `root`, or `root`'s `index.html` for a
@@ -310,16 +297,15 @@ mod tests {
     use std::fs;
 
     /// A document with an inline script, which its policy admits by hash.
-    const BOOT: &str = "/todos/boot.html";
+    const BOOT: &str = "/home/boot.html";
 
-    /// A pages directory with Folders, Settings, and each bundled app under a
-    /// fresh temporary directory.
+    /// A pages directory with Folders and Settings under a fresh temporary
+    /// directory.
     fn fixture() -> (tempfile::TempDir, PathBuf) {
         let temporary = tempfile::tempdir().unwrap();
         let base = temporary.path().canonicalize().unwrap();
         let pages = base.join("pages");
-        let bundled = BundledApp::ALL.map(BundledApp::page);
-        for page in ["folders", "home"].into_iter().chain(bundled) {
+        for page in ["folders", "home"] {
             fs::create_dir_all(pages.join(page).join("assets")).unwrap();
             fs::write(
                 pages.join(page).join("index.html"),
@@ -335,9 +321,9 @@ mod tests {
             "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
         )
         .unwrap();
-        fs::write(pages.join("todos/assets/app.wasm"), b"\0asm\x01\0\0\0").unwrap();
+        fs::write(pages.join("home/assets/app.wasm"), b"\0asm\x01\0\0\0").unwrap();
         fs::write(
-            pages.join("todos/boot.html"),
+            pages.join("home/boot.html"),
             "<html><script>boot()</script></html>",
         )
         .unwrap();
@@ -368,24 +354,12 @@ mod tests {
             body(&get(&pages, "/folders/")),
             "<!doctype html><title>folders</title>"
         );
-        assert_eq!(
-            body(&get(&pages, "/home/")),
-            "<!doctype html><title>home</title>"
-        );
-        // Each app Epicenter bundles, and its client-side routes.
-        for app in BundledApp::ALL {
-            let path = app.path();
-            for page in [
-                path.clone(),
-                format!("{path}index.html"),
-                format!("{path}todo/42"),
-            ] {
-                assert_eq!(
-                    body(&get(&pages, &page)),
-                    format!("<!doctype html><title>{}</title>", app.page()),
-                    "{page}"
-                );
-            }
+        for page in ["/home/", "/home/index.html", "/home/account"] {
+            assert_eq!(
+                body(&get(&pages, page)),
+                "<!doctype html><title>home</title>",
+                "{page}"
+            );
         }
         assert_eq!(
             body(&get(&pages, "/folders/index.html")),
@@ -395,11 +369,8 @@ mod tests {
             body(&get(&pages, "/folders/assets/index-abc.js")),
             "export {};"
         );
-        // A page Epicenter does not have.
-        for missing in [
-            "/unknown/",
-            "/",
-        ] {
+        // A page Epicenter does not have, including an app's.
+        for missing in ["/unknown/", "/todos/", "/whispering/", "/"] {
             assert_eq!(
                 get(&pages, missing).status(),
                 StatusCode::NOT_FOUND,
@@ -415,7 +386,7 @@ mod tests {
             "/folders/data/notes",
             "/folders/assets/",
             "/folders",
-            "/todos/todo/42",
+            "/home/account",
             // A folder editor window's page: the Folders document, whose
             // route selects the editor.
             crate::folder_windows::EDITOR_PATH,
@@ -433,7 +404,7 @@ mod tests {
             "<!doctype html><title>folders</title>"
         );
         // A missing asset is not a route.
-        for missing in ["/folders/assets/index-missing.js", "/todos/favicon.ico"] {
+        for missing in ["/folders/assets/index-missing.js", "/home/favicon.ico"] {
             assert_eq!(
                 get(&pages, missing).status(),
                 StatusCode::NOT_FOUND,
@@ -456,10 +427,10 @@ mod tests {
             "/folders//index.html",
             "/folders/%00index.html",
             "/folders/%ff",
-            "/todos/../secret.txt",
-            "/todos%2f..%2fsecret.txt",
+            "/home/../secret.txt",
+            "/home%2f..%2fsecret.txt",
             "/%2e%2e/secret.txt",
-            "/Todos/",
+            "/Home/",
             "/secret.txt",
         ] {
             let response = get(&pages, escape);
@@ -485,11 +456,11 @@ mod tests {
         }
 
         // A page directory that is a link must not become the trusted root.
-        fs::remove_dir_all(pages.join("capture")).unwrap();
-        std::os::unix::fs::symlink(temporary.path(), pages.join("capture")).unwrap();
-        assert_eq!(get(&pages, "/capture/").status(), StatusCode::NOT_FOUND);
+        fs::remove_dir_all(pages.join("home")).unwrap();
+        std::os::unix::fs::symlink(temporary.path(), pages.join("home")).unwrap();
+        assert_eq!(get(&pages, "/home/").status(), StatusCode::NOT_FOUND);
         assert_eq!(
-            get(&pages, "/capture/outside.js").status(),
+            get(&pages, "/home/outside.js").status(),
             StatusCode::NOT_FOUND
         );
     }
@@ -534,7 +505,7 @@ mod tests {
                 "application/json; charset=utf-8",
             ),
             ("/folders/assets/icon.svg", "image/svg+xml; charset=utf-8"),
-            ("/todos/assets/app.wasm", "application/wasm"),
+            ("/home/assets/app.wasm", "application/wasm"),
         ] {
             assert_eq!(content_type(&get(&pages, path)), expected, "{path}");
         }
@@ -608,22 +579,19 @@ mod tests {
     }
 
     /// Each window stays below the path it opened at: Folders, Settings, and
-    /// each bundled app at their pages, so no window loads another's page.
+    /// the editor at their pages, so no window loads another's page.
     #[test]
     fn each_window_navigates_only_below_the_path_it_opened_at() {
-        let todos = BundledApp::Todos.path();
-        let todos = todos.as_str();
-        let whispering = BundledApp::Whispering.path();
-        let whispering = whispering.as_str();
         for (prefix, path) in [
             ("/folders/", "/folders/"),
             ("/folders/", "/folders/table/notes?row=1#x"),
             ("/home/", "/home/"),
+            ("/home/", "/home/account?x=1"),
             ("/folders/editor/", "/folders/editor/"),
-            (todos, "/todos/"),
-            (todos, "/todos/todo/42"),
-            (todos, "/todos/?folder=data%3AGroceries"),
-            (whispering, "/whispering/recordings"),
+            (
+                "/folders/editor/",
+                "/folders/editor/?folder=data%3AGroceries",
+            ),
         ] {
             assert!(
                 is_allowed_navigation(prefix, &url(path).unwrap()),
@@ -635,20 +603,14 @@ mod tests {
             ("/folders/", "/folders"),
             ("/folders/editor/", "/folders/"),
             ("/home/", "/folders/"),
-            ("/home/", "/todos/"),
-            (todos, "/folders/"),
-            (todos, "/home/"),
-            (todos, "/whispering/"),
-            (todos, "/todosx/"),
-            (todos, "/todos"),
-            (todos, "/todos/../home/"),
-            (todos, "/todos/%2e%2e/home/"),
-            (todos, "/apps/so.epicenter.todos/"),
-            (whispering, "/todos/"),
-            (whispering, "/capture/"),
+            ("/home/", "/homex/"),
+            ("/home/", "/home"),
+            ("/home/", "/home/../folders/"),
+            ("/home/", "/home/%2e%2e/folders/"),
+            ("/folders/editor/", "/home/"),
             ("/folders/", "/todos/"),
             ("", "/folders/"),
-            ("/todos", "/todos/"),
+            ("/home", "/home/"),
         ] {
             assert!(
                 !is_allowed_navigation(prefix, &url(path).unwrap()),

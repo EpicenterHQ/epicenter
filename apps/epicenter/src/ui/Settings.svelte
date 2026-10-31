@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Channel } from '@tauri-apps/api/core';
-	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { onMount } from 'svelte';
-	import { type AuthGrant, commands, events, type HomeSection } from './bindings.gen';
+	import { type AuthGrant, commands } from './bindings.gen';
 	import { failureText } from './connections/connections';
-	import { followHomeSections, keepInView } from './home-section';
 	import { isDesktopHost } from './runtime.ts';
 	import * as Empty from '@epicenter/ui/empty';
 	import AiConnections from './connections/AiConnections.svelte';
@@ -14,10 +12,8 @@
 
 	/**
 	 * Host-level administration (ADR-0189) includes the app's sign-in, the AI
-	 * connections every app may use (ADR-0557), and the local transcription
-	 * model (ADR-0180), which lives here rather than in the shell
-	 * header: choosing what every application on this device transcribes with is
-	 * a settings act, not a conversation control.
+	 * connections the `epicenter` CLI sends over (ADR-0557), and the local
+	 * transcription model (ADR-0180).
 	 *
 	 * The sign-in is the `epicenter` CLI's desktop grant (ADR-0558): Sign in
 	 * runs its loopback sign-in through the shell, which opens the browser, and
@@ -27,10 +23,6 @@
 	 * The choice names files and an accelerator on this machine, so a browser or
 	 * remote Home says where it lives instead of offering controls that would
 	 * reach the wrong device.
-	 *
-	 * An app that cannot transcribe locally sends the person here with
-	 * `open_home('transcription')`, and the page scrolls to the model and keeps
-	 * it there while the sections above it load.
 	 */
 
 	let origin = $state('');
@@ -49,33 +41,9 @@
 		grant = data.grants.find((each) => each.grant === 'desktop') ?? null;
 	}
 
-	/** Where each section an app may ask for starts. */
-	const sections = $state<Record<HomeSection, HTMLElement | undefined>>({
-		account: undefined,
-		transcription: undefined,
-	});
-
 	onMount(() => {
 		if (!isDesktopHost()) return;
 		void readStatus().finally(() => (busy = null));
-		let stopScrolling: (() => void) | undefined;
-		const stopFollowing = followHomeSections({
-			claim: commands.takePendingHomeSection,
-			// The window's own listener: the shell nudges this window alone.
-			onNudge: (nudged) =>
-				events.homeSectionPending(getCurrentWebviewWindow()).listen(nudged),
-			show: (section) => {
-				const target = sections[section];
-				if (target === undefined) return;
-				stopScrolling?.();
-				// The account and the connections above it fill in after this.
-				stopScrolling = keepInView(target);
-			},
-		});
-		return () => {
-			stopFollowing();
-			stopScrolling?.();
-		};
 	});
 
 	async function signIn() {
@@ -113,7 +81,7 @@
 </script>
 
 {#if isDesktopHost()}
-	<div class="grid gap-3 border-b p-3" bind:this={sections.account}>
+	<div class="grid gap-3 border-b p-3">
 		<h2 class="font-medium">Account</h2>
 		{#if busy === 'reading'}
 			<p class="text-muted-foreground">Reading this computer's sign-in…</p>
@@ -139,7 +107,7 @@
 {/if}
 
 {#if localModels.available}
-	<div class="grid gap-3 p-3" bind:this={sections.transcription}>
+	<div class="grid gap-3 p-3">
 		<LocalModelAdministration />
 	</div>
 {:else}

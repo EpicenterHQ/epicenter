@@ -129,9 +129,8 @@ pub enum TranscriptionOutcome {
 /// `None` when nobody has chosen one.
 ///
 /// **Administration only.** Home holds this grant because Home chooses the
-/// active model and must show which one that is. Applications are not granted
-/// this command. Their active-model route reads `get_local_transcription_readiness`;
-/// explicit file inference reads installed IDs through `list_inference_models`.
+/// active model and must show which one that is. No other window is granted
+/// this command.
 #[tauri::command]
 #[specta::specta]
 pub fn get_active_model(model_cache: State<'_, ModelCache>) -> Option<ActiveModel> {
@@ -174,24 +173,7 @@ pub fn set_unload_policy(
     model_cache.settings().set_unload_policy(policy)
 }
 
-// ── Applications: readiness and transcribe ────────────────────────────
-
-/// Whether the local transcription route can run right now, and what it accepts.
-///
-/// Readiness for the active-model route lets an app warn the user before they
-/// speak, which matters because the surface that reports a
-/// failure afterwards (a dictation pill) has nowhere to put a recovery action.
-/// Advisory only: it never mutates, and it is not a gate the caller must pass
-/// before transcribing.
-#[tauri::command]
-#[specta::specta]
-pub fn get_local_transcription_readiness(
-    model_cache: State<'_, ModelCache>,
-) -> LocalTranscriptionReadiness {
-    model_cache.readiness()
-}
-
-// ── Applications: transcribe ──────────────────────────────────────────
+// ── Dictation ─────────────────────────────────────────────────────────
 
 /// Prewarm the active local model so a following transcribe finds it warm. The
 /// frontend fires this fire-and-forget at capture start (manual record or VAD
@@ -220,6 +202,7 @@ pub async fn prewarm_model(model_cache: State<'_, ModelCache>) -> Result<(), Tra
 /// Map a join failure from spawn_blocking into a TranscriptionError so the
 /// frontend always sees a structured error even when the background task
 /// panics or is cancelled.
+#[cfg(feature = "dictation")]
 fn join_err(e: tauri::Error) -> TranscriptionError {
     TranscriptionError::TranscriptionError {
         message: format!(
@@ -227,43 +210,4 @@ fn join_err(e: tauri::Error) -> TranscriptionError {
             error::error_chain_message(&e)
         ),
     }
-}
-
-/// Installed native models available to explicit file inference. No cache paths escape.
-#[tauri::command]
-#[specta::specta]
-pub fn list_inference_models(model_cache: State<'_, ModelCache>) -> Vec<InferenceModel> {
-    let active = model_cache.settings().active_model_id();
-    catalog::list_models()
-        .into_iter()
-        .filter(|model| model.downloaded)
-        .map(|model| InferenceModel {
-            active: active.as_deref() == Some(model.id.as_str()),
-            id: model.id,
-            installed: true,
-        })
-        .collect()
-}
-
-/// Decode uploaded bytes in memory and run the exact requested catalog model.
-/// The blocking job owns its input until inference finishes, including after caller abort.
-#[tauri::command]
-#[specta::specta]
-pub async fn transcribe_audio_bytes(
-    model_id: String,
-    bytes: Vec<u8>,
-    hints: TranscriptionHints,
-    model_cache: State<'_, ModelCache>,
-) -> Result<TranscriptionOutcome, TranscriptionError> {
-    let cache = model_cache.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || cache.transcribe_explicit(model_id, bytes, hints))
-        .await
-        .map_err(join_err)?
-}
-
-#[derive(Debug, Clone, Serialize, specta::Type)]
-pub struct InferenceModel {
-    pub id: String,
-    pub installed: bool,
-    pub active: bool,
 }

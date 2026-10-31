@@ -1,13 +1,12 @@
 {
 	"name": "@epicenter/epicenter",
-	"description": "The Epicenter desktop app: Rust serves its pages and the apps it bundles from one origin.",
+	"description": "The Epicenter desktop app: registers, syncs, and shares folders. Rust serves its pages from one origin.",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
 	"scripts": {
 		"build": "bun run scripts/with-build-lock.ts bun run build:apps",
-		"build:apps": "bun run clean:dist && bun run build:home && bun run build:folders && bun run build:bundled",
-		"build:bundled": "bun run scripts/build-bundled-apps.ts",
+		"build:apps": "bun run clean:dist && bun run build:home && bun run build:folders",
 		"build:desktop": "bun run build && bun run build:sidecar",
 		"build:folders": "vite build --config vite.folders.config.ts",
 		"build:home": "vite build",

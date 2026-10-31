@@ -4,8 +4,7 @@
 	 * last round, and the actions on them, each one CLI call the shell runs
 	 * (`src-tauri/src/synced_folders.rs`). The shell runs `epicenter sync
 	 * --watch` in the background and tells this window when anything changed;
-	 * the window then lists again. Below the folders, the apps Epicenter
-	 * bundles and hosted sites still open from here.
+	 * the window then lists again.
 	 */
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
@@ -23,8 +22,6 @@
 		type SyncedFolder,
 		type SyncedFolderListing,
 	} from '../ui/bindings.gen';
-	import { createLaunch } from '../ui/launch.svelte.ts';
-	import { bundledOpeners } from './openers.ts';
 	import SharingDialog from './SharingDialog.svelte';
 	import SyncedFolderRow from './SyncedFolderRow.svelte';
 	import { folderName, SYNCED_FOLDERS_CHANGED } from './synced-folders.ts';
@@ -44,11 +41,6 @@
 	let cloning = $state(false);
 	let cloneSource = $state('');
 	let sharing = $state.raw<SyncedFolder | undefined>(undefined);
-
-	let siteUrl = $state('');
-	let siteProblem = $state<string | undefined>(undefined);
-	let siteBusy = $state(false);
-	const launcher = createLaunch();
 
 	/** One listing at a time; changes that arrive meanwhile list once more after it. */
 	let reading = false;
@@ -116,23 +108,9 @@
 	async function openSettings() {
 		failure = undefined;
 		try {
-			await commands.openHome(null);
+			await commands.openHome();
 		} catch (cause) {
 			failure = `Settings did not open. ${cause instanceof Error ? cause.message : String(cause)}`;
-		}
-	}
-
-	async function openSite(url: string) {
-		siteBusy = true;
-		siteProblem = undefined;
-		try {
-			const result = await commands.openHostedSite(url);
-			if (result.error !== null) throw new Error(result.error);
-			siteUrl = '';
-		} catch (cause) {
-			siteProblem = cause instanceof Error ? cause.message : String(cause);
-		} finally {
-			siteBusy = false;
 		}
 	}
 
@@ -182,10 +160,10 @@
 			</div>
 		</header>
 
-		{#if failure ?? launcher.failure}
+		{#if failure}
 			<Alert.Root variant="destructive">
 				<Alert.Title>Could not finish</Alert.Title>
-				<Alert.Description>{failure ?? launcher.failure}</Alert.Description>
+				<Alert.Description>{failure}</Alert.Description>
 			</Alert.Root>
 		{/if}
 		{#if notice}
@@ -313,46 +291,6 @@
 						/>
 					{/each}
 				</Item.Group>
-			{/if}
-		</section>
-
-		<section class="flex flex-col gap-1 pt-2" aria-label="Apps">
-			<h2 class="text-sm font-semibold">Apps</h2>
-			<ul class="flex flex-col">
-				{#each bundledOpeners as application (application.app)}
-					<li class="flex items-center gap-1">
-						<span class="min-w-0 flex-1 truncate py-1.5 text-sm">{application.title}</span>
-						<Button variant="ghost" size="xs" onclick={() => void launcher.launch(application)}>
-							Open
-						</Button>
-						<Button variant="ghost" size="xs" onclick={() => void launcher.choose(application)}>
-							Choose folder…
-						</Button>
-					</li>
-				{/each}
-			</ul>
-		</section>
-
-		<section class="flex flex-col gap-1" aria-label="Sites">
-			<h2 class="text-sm font-semibold">Sites</h2>
-			<form
-				class="flex gap-2"
-				onsubmit={(event) => {
-					event.preventDefault();
-					void openSite(siteUrl.trim());
-				}}
-			>
-				<Input
-					aria-label="Site URL"
-					type="url"
-					placeholder="https://todos.example.com"
-					bind:value={siteUrl}
-					required
-				/>
-				<Button type="submit" size="sm" variant="outline" disabled={siteBusy}>Open</Button>
-			</form>
-			{#if siteProblem}
-				<p class="text-sm text-destructive" role="alert">{siteProblem}</p>
 			{/if}
 		</section>
 	</div>
