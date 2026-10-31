@@ -218,10 +218,12 @@ test('WhisperingApp composes Whispering over the client it is given', () => {
 	])
 		expect(callers(name)).toEqual(['routes/components/WhisperingApp.svelte']);
 	expect(callers('createServices')).toEqual(['lib/whispering.svelte.ts']);
-	// The desktop root also wraps its two roots once, for the shortcut's notes.
+	// Each build wraps its store once, where its Startup opened it
+	// (decision 87); the desktop root also wraps its AppData root, for the
+	// shortcut's notes.
 	expect(callers('fromClient')).toEqual([
 		'lib/components/DesktopRoot.svelte',
-		'lib/files.svelte.ts',
+		'lib/components/LocalStartup.svelte',
 	]);
 	expect(
 		files.find((file) => file.path === 'routes/components/WhisperingApp.svelte')
@@ -254,17 +256,18 @@ test('the app group has every page, and every page reads its library from contex
 				?.text,
 		).toContain('getLibrary()');
 	}
-	// The variant's Startup opens the store and hands its client to the app.
+	// The variant's Startup opens the store and hands the app its client,
+	// wrapped once for Svelte there.
 	const layout = files.find(
 		(file) => file.path === 'routes/(app)/+layout.svelte',
 	)?.text;
 	expect(layout).toContain("import { Startup } from '#platform/root';");
-	expect(layout).toContain('<WhisperingApp {client}>');
+	expect(layout).toContain('<WhisperingApp {client} {files}>');
 	for (const startup of ['LocalStartup', 'DesktopStartup'])
 		expect(
 			files.find((file) => file.path === `lib/components/${startup}.svelte`)
 				?.text,
-		).toMatch(/\{@render children\(device\.data\)\}/);
+		).toMatch(/\{@render (children|outer)\(device\.data, files\)\}/);
 	for (const callback of [
 		'routes/auth/callback/+page.svelte',
 		'lib/components/SignInCallback.svelte',

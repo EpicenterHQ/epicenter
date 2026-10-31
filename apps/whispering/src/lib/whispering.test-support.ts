@@ -30,7 +30,11 @@ export async function createTestWhispering({
 		'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 	);
 	const whispering = createWhispering({ client });
-	const library = createLibrary({ whispering, files: filesOf(client) });
+	const { fromClient } = await import('@epicenter/svelte/client');
+	const library = createLibrary({
+		whispering,
+		files: filesOf(client, fromClient(client)),
+	});
 	const followed = follow(() => [
 		library.entries,
 		library.repairs,

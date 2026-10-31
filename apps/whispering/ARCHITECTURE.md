@@ -27,17 +27,18 @@ src-tauri/                   the desktop app's shell
   (`guardLeave`), which asks before leaving while a save is out.
 - `routes/(app)/+layout.svelte` is the app's root: under a
   `<svelte:boundary>` it renders the build's `Startup` (`#platform/root`),
-  which opens the store and hands its client to `<WhisperingApp {client}>`:
+  which opens the store, wraps it for Svelte once there (decision 87), and
+  hands both to `<WhisperingApp {client} {files}>`:
   `LocalStartup` awaits this browser's device; `DesktopStartup` awaits the
   AppData root and the data folder, or renders the recovery screen. Its
   pages are `/`, `/recordings` and `/transformations`.
 - `routes/auth/callback/` is outside the group, so it opens no files: it
   renders the build's `Callback`, which finishes a web sign-in and loads the
   page it started from.
-- `WhisperingApp.svelte` takes the client as a prop. It makes
+- `WhisperingApp.svelte` takes the client and its Svelte state as props. It makes
   `createWhispering({ client })` (the services, the connections, the
   microphone and the recorder) and
-  `createLibrary({ whispering, files: filesOf(client) })`, puts both in
+  `createLibrary({ whispering, files: filesOf(client, files) })`, puts both in
   context (`setWhispering`, `setLibrary`), awaits `start()` (connections
   and the saved microphone), renders the frame (sidebar or bottom bar, and
   the header with its status line), and disposes both when it leaves.
@@ -54,8 +55,9 @@ the files unless Whispering itself is closing.
 `LocalStartup`, `openDataFolder` only in `DesktopStartup`; nothing
 calls `openRemote`, `setRepo` or `getRepo`, or imports
 `@epicenter/folder/remote` or `@epicenter/svelte/repo`; `createWhispering`,
-`filesOf` and `createLibrary` only in `WhisperingApp`; `fromClient` only in
-`files.svelte.ts`; auth only through `#platform/auth`; services only through
+`filesOf` and `createLibrary` only in `WhisperingApp`; `fromClient` only
+where each build's store is opened (`LocalStartup`, `DesktopRoot`, which
+also wraps the AppData root); auth only through `#platform/auth`; services only through
 `#platform/services`; nothing from Node or Bun, Tauri only in the desktop
 leaves; and no use of the
 retired folder and table API (`openFolder`, `svelteFolder`, `defineTable`,
@@ -63,8 +65,8 @@ retired folder and table API (`openFolder`, `svelteFolder`, `defineTable`,
 
 ## The files
 
-`files.svelte.ts` gives the pages one client's note collections
-(`fromClient(client).<collection>`) and its recordings' audio. The library
+`files.svelte.ts` gives the pages one client's note collections (its
+Svelte state, `files.<collection>`) and its recordings' audio. The library
 sorts each list (`newest`, `byTitle`). Each list lists and listens only while
 something reactive reads it; a read outside an effect is a snapshot.
 

@@ -8,13 +8,14 @@
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
 	import { openAppData, openDataFolder } from '@epicenter/folder/tauri';
+	import type { ReactiveClient } from '@epicenter/svelte/client';
 	import Recovery from '@epicenter/svelte/recovery';
 	import type { Snippet } from 'svelte';
 	import { type Whispering, whispering } from '../contract.js';
 	import { whisperingSettings } from '../settings.tauri.js';
 	import DesktopRoot from './DesktopRoot.svelte';
 
-	let { children }: { children: Snippet<[Client<Whispering>]> } = $props();
+	let { children: outer }: { children: Snippet<[Client<Whispering>, ReactiveClient<Whispering>]> } = $props();
 
 	/** Retry counts another attempt; reading it below opens both roots again. */
 	let attempt = $state(0);
@@ -30,5 +31,9 @@
 {:else if device?.error}
 	<Recovery app="Whispering" error={device.error} appData={appData.data} {retry} />
 {:else if device !== null}
-	<DesktopRoot appData={appData.data} device={device.data}>{@render children(device.data)}</DesktopRoot>
+	<DesktopRoot appData={appData.data} device={device.data}>
+		{#snippet children(files)}
+			{@render outer(device.data, files)}
+		{/snippet}
+	</DesktopRoot>
 {/if}

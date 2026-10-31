@@ -2,11 +2,14 @@
 	Whispering over one contract client, which the variant's `Startup` passes in:
 	the services, the connections, the microphone and the recorder
 	(`createWhispering`), the library the pages read (`createLibrary` over
-	`filesOf(client)`), and the frame around the pages. Made once for the
+	`filesOf(client, files)`, with the client as `Startup` wrapped it for
+	Svelte), and the
+	frame around the pages. Made once for the
 	page; it stops taking work when it leaves.
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
+	import type { ReactiveClient } from '@epicenter/svelte/client';
 	import * as Alert from '@epicenter/ui/alert';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Sidebar from '@epicenter/ui/sidebar';
@@ -24,10 +27,13 @@
 
 	let {
 		client,
+		files,
 		children,
 	}: {
 		/** Whispering's files for this page's whole life: the variant's store. */
 		client: Client<WhisperingContract>;
+		/** The same client as Svelte state, wrapped once where `Startup` opened it. */
+		files: ReactiveClient<WhisperingContract>;
 		children: Snippet;
 	} = $props();
 
@@ -36,7 +42,7 @@
 	const whispering = createWhispering({ client });
 	setWhispering(whispering);
 	// svelte-ignore state_referenced_locally
-	const library = createLibrary({ whispering, files: filesOf(client) });
+	const library = createLibrary({ whispering, files: filesOf(client, files) });
 	setLibrary(library);
 	// Leaving waits for nothing; a recording under way ends with the page.
 	onDestroy(() => {

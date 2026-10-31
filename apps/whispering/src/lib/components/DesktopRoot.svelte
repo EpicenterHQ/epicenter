@@ -5,12 +5,13 @@
 	Epicenter, and Choose data folder…, which remembers the choice in the
 	AppData root's `settings.md`. It holds the global shortcut that
 	`shortcuts.md` resolves to, from both roots (`setGlobalShortcut`). The
-	app over the folder is `children`.
+	app over the folder is `children`, given the data folder wrapped here,
+	the one place it is (decision 87).
 -->
 <script lang="ts">
 	import { APPS } from '@epicenter/constants/apps';
 	import type { Client } from '@epicenter/definition/contract';
-	import { fromClient } from '@epicenter/svelte/client';
+	import { fromClient, type ReactiveClient } from '@epicenter/svelte/client';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
 	import type { Snippet } from 'svelte';
 	import type { Whispering } from '../contract.js';
@@ -21,7 +22,11 @@
 		appData,
 		device,
 		children,
-	}: { appData: Client<WhisperingSettings>; device: Client<Whispering>; children: Snippet } = $props();
+	}: {
+		appData: Client<WhisperingSettings>;
+		device: Client<Whispering>;
+		children: Snippet<[ReactiveClient<Whispering>]>;
+	} = $props();
 
 	/**
 	 * Where Whispering's web app publishes its contract (`static/contract.json`):
@@ -34,7 +39,9 @@
 	// svelte-ignore state_referenced_locally
 	setFolderSync(folderSync({ appData, contract: CONTRACT_URL }));
 	// svelte-ignore state_referenced_locally
-	setGlobalShortcut(globalShortcut({ appData: fromClient(appData), device: fromClient(device) }));
+	const files = fromClient(device);
+	// svelte-ignore state_referenced_locally
+	setGlobalShortcut(globalShortcut({ appData: fromClient(appData), device: files }));
 </script>
 
-{@render children()}
+{@render children(files)}

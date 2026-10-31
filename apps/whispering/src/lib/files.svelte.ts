@@ -14,7 +14,7 @@ import type {
 	NoteOf,
 	Version,
 } from '@epicenter/definition/contract';
-import { fromClient, type ReactiveNotes } from '@epicenter/svelte/client';
+import type { ReactiveClient, ReactiveNotes } from '@epicenter/svelte/client';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
 import type { Whispering } from './contract.js';
@@ -113,9 +113,16 @@ function readable(audio: RecordingAudio): Result<AudioFile, string> {
 	return Err('This recording has no audio file.');
 }
 
-/** Whispering's files over `client`, which every page reads and edits. */
-export function filesOf(client: Client<Whispering>): WhisperingFiles {
-	const files = fromClient(client);
+/**
+ * Whispering's files over `client`, which every page reads and edits:
+ * listed and written through `files`, the same client as Svelte state
+ * (wrapped once where the store was opened), and audio bytes read through
+ * `client`.
+ */
+export function filesOf(
+	client: Client<Whispering>,
+	files: ReactiveClient<Whispering>,
+): WhisperingFiles {
 	const { audio } = files;
 
 	function audioOf(id: string): RecordingAudio {

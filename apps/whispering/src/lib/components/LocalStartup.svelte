@@ -10,11 +10,12 @@
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
 	import { closeDevice, openDevice } from '@epicenter/folder/browser';
+	import { fromClient, type ReactiveClient } from '@epicenter/svelte/client';
 	import * as Alert from '@epicenter/ui/alert';
 	import { onDestroy, type Snippet } from 'svelte';
 	import { type Whispering, whispering } from '../contract.js';
 
-	let { children }: { children: Snippet<[Client<Whispering>]> } = $props();
+	let { children }: { children: Snippet<[Client<Whispering>, ReactiveClient<Whispering>]> } = $props();
 
 	// Registered before the await, which ends the component's setup.
 	let opened: Client<Whispering> | undefined;
@@ -23,6 +24,8 @@
 	});
 	const device = await openDevice(whispering);
 	if (device.error === null) opened = device.data;
+	// Wrapped for Svelte once, here where it is made (decision 87).
+	const files = device.error === null ? fromClient(device.data) : null;
 </script>
 
 {#if device.error !== null}
@@ -32,6 +35,6 @@
 			<Alert.Description>{device.error.message}</Alert.Description>
 		</Alert.Root>
 	</main>
-{:else}
-	{@render children(device.data)}
+{:else if files !== null}
+	{@render children(device.data, files)}
 {/if}

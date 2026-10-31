@@ -15,6 +15,7 @@
 import type { AuthClient } from '@epicenter/auth';
 import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 import type { Client } from '@epicenter/definition/contract';
+import type { ReactiveClient } from '@epicenter/svelte/client';
 import type { Component, Snippet } from 'svelte';
 import type { Result } from 'wellcrafted/result';
 import type { CaptureDevice } from '../capture.js';
@@ -44,7 +45,8 @@ export type Variant = 'local' | 'desktop';
 /**
  * `#platform/root`: the one thing a variant decides (decision 78).
  * `Startup` opens the store and renders the app over it (`children`, given
- * the store's client), or says why it could not: this browser's storage on
+ * the store's client and that client wrapped once for Svelte, where it was
+ * made: decision 87), or says why it could not: this browser's storage on
  * the web; on the desktop the AppData root and then the data folder, or the
  * recovery screen. `Chrome` is the header's account of the store (where the
  * recordings are, and on the desktop whether Epicenter syncs them). `Settings`
@@ -52,7 +54,9 @@ export type Variant = 'local' | 'desktop';
  * `Callback` is the page that ends a sign-in, which only the web app makes.
  */
 export type Platform = {
-	Startup: Component<{ children: Snippet<[Client<Whispering>]> }>;
+	Startup: Component<{
+		children: Snippet<[Client<Whispering>, ReactiveClient<Whispering>]>;
+	}>;
 	Chrome: Component<ChromeProps>;
 	Settings: Component | null;
 	Callback: Component<CallbackProps>;

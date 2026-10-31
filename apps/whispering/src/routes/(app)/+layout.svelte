@@ -21,8 +21,8 @@
 		<Loading class="h-dvh" />
 	{/snippet}
 	<Startup>
-		{#snippet children(client)}
-			<WhisperingApp {client}>{@render page()}</WhisperingApp>
+		{#snippet children(client, files)}
+			<WhisperingApp {client} {files}>{@render page()}</WhisperingApp>
 		{/snippet}
 	</Startup>
 </svelte:boundary>
