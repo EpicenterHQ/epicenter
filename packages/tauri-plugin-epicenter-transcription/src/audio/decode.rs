@@ -3,7 +3,9 @@
 //! Symphonia handles container demux and decode for everything except Opus.
 //! Opus packets (inside WebM, OGG, or MP4) are extracted by Symphonia as a
 //! demuxer and decoded by libopus through the `audiopus` crate, because
-//! Symphonia's own Opus decoder is incomplete as of 0.5.5.
+//! Symphonia's own Opus decoder is incomplete as of 0.5.5. Symphonia also
+//! reads neither a WebM track's pre-skip nor its end trim, so those are read
+//! here (`decode_via_libopus`).
 
 use std::io::Cursor;
 
@@ -28,9 +30,9 @@ use super::resample::resample_mono;
 /// Target sample rate for local GGUF transcription, which consumes 16 kHz mono.
 const TARGET_RATE: u32 = 16_000;
 
-/// libopus runs at 48 kHz internally; any Opus packet from any container
-/// produces output at this rate.
-const OPUS_RATE: u32 = 48_000;
+/// The rate an Opus stream states its pre-skip, granule positions, and
+/// padding at, whatever rate it is decoded to (RFC 7845).
+const OPUS_RATE: u64 = 48_000;
 
 /// Decode arbitrary audio bytes into 16 kHz mono interleaved f32 PCM.
 ///
@@ -69,7 +71,7 @@ pub fn decode_to_pcm16k_mono(bytes: &[u8]) -> Result<Vec<f32>, AudioError> {
     let codec_params = track.codec_params.clone();
 
     let (samples, source_rate, channel_count) = if codec_params.codec == CODEC_TYPE_OPUS {
-        decode_via_libopus(&mut *format, track_id, &codec_params)?
+        decode_via_libopus(&mut *format, track_id, &codec_params, bytes)?
     } else {
         decode_via_symphonia(&mut *format, track_id, &codec_params)?
     };
@@ -168,7 +170,16 @@ fn decode_via_symphonia(
 }
 
 /// Decode an Opus track by extracting raw packets from the container
-/// (Symphonia) and decoding them with libopus (audiopus).
+/// (Symphonia) and decoding them with libopus (audiopus), then trim it to
+/// what the file says plays: the encoder's pre-skip off the front (RFC 7845
+/// section 4.2), and off the end the padding of its last packet, stated by
+/// an Ogg stream's last granule position or a WebM file's last
+/// DiscardPadding. `bytes` is the whole file, read for the end.
+///
+/// libopus decodes straight to the 16 kHz transcription reads, as it can
+/// for any stream: the samples a 16 kHz recording was encoded from come
+/// back in place, with no resampler's delay, and a 48 kHz stream's high
+/// band, which 16 kHz cannot hold, is not decoded at all.
 ///
 /// Unlike `decode_via_symphonia`, this does not skip individual packet
 /// decode errors. Container demuxers (OGG, MKV/WebM) validate packets
@@ -178,6 +189,7 @@ fn decode_via_libopus(
     format: &mut dyn symphonia::core::formats::FormatReader,
     track_id: u32,
     codec_params: &symphonia::core::codecs::CodecParameters,
+    bytes: &[u8],
 ) -> Result<(Vec<f32>, u32, u16), AudioError> {
     // Some container/codec combinations leave `channels` unpopulated on
     // `CodecParameters` (notably Opus inside Matroska/WebM). The OpusHead
@@ -205,11 +217,13 @@ fn decode_via_libopus(
         }
     };
 
-    let mut decoder = OpusDecoder::new(OpusSampleRate::Hz48000, opus_channels)
+    let mut decoder = OpusDecoder::new(OpusSampleRate::Hz16000, opus_channels)
         .map_err(|e| AudioError::decode(format!("libopus init failed: {e}")))?;
+    // From Opus's 48 kHz counts to samples decoded.
+    let per_sample = OPUS_RATE / u64::from(TARGET_RATE);
 
-    // Worst-case Opus frame size: 120 ms @ 48 kHz = 5760 samples per channel.
-    let max_frame = 5760usize * channel_count as usize;
+    // Worst-case Opus frame size: 120 ms @ 16 kHz = 1920 samples per channel.
+    let max_frame = 1920usize * channel_count as usize;
     let mut scratch = vec![0f32; max_frame];
 
     let mut interleaved: Vec<f32> = Vec::new();
@@ -243,16 +257,153 @@ fn decode_via_libopus(
         interleaved.extend_from_slice(&scratch[..n_samples]);
     }
 
-    // Drop the pre-skip frames the encoder padded onto the front, per
-    // RFC 7845 §4.2. Symphonia parses this out of OpusHead and exposes it
-    // on `CodecParameters::delay`.
-    let pre_skip_frames = codec_params.delay.unwrap_or(0) as usize;
-    let pre_skip_samples = pre_skip_frames * channel_count as usize;
-    if pre_skip_samples > 0 && pre_skip_samples < interleaved.len() {
-        interleaved.drain(..pre_skip_samples);
+    let channels = channel_count as usize;
+    let decoded = (interleaved.len() / channels) as u64;
+    // Symphonia reads the pre-skip out of an Ogg stream's OpusHead into
+    // `delay`, and not out of a WebM track's, whose CodecPrivate is the same
+    // OpusHead: bytes 10 and 11, little-endian.
+    let pre_skip = codec_params
+        .delay
+        .map(u64::from)
+        .or_else(|| {
+            let head = codec_params.extra_data.as_deref()?;
+            let pre_skip = head.get(10..12)?;
+            Some(u64::from(u16::from_le_bytes([pre_skip[0], pre_skip[1]])))
+        })
+        .map_or(0, |pre_skip| pre_skip / per_sample)
+        .min(decoded);
+    let played = if bytes.starts_with(b"OggS") {
+        ogg_last_granule(bytes).map(|granule| (granule / per_sample).saturating_sub(pre_skip))
+    } else {
+        webm_last_discard_padding(bytes).map(|nanoseconds| {
+            let padding = (nanoseconds * u64::from(TARGET_RATE) + 500_000_000) / 1_000_000_000;
+            (decoded - pre_skip).saturating_sub(padding)
+        })
+    };
+    interleaved.drain(..pre_skip as usize * channels);
+    if let Some(played) = played {
+        interleaved.truncate(played as usize * channels);
     }
 
-    Ok((interleaved, OPUS_RATE, channel_count))
+    Ok((interleaved, TARGET_RATE, channel_count))
+}
+
+/// The granule position of an Ogg file's last page: its last sample, at
+/// 48 kHz for Opus, counting the pre-skip. `None` when the bytes do not end
+/// in a whole page, or that page ends no packet.
+fn ogg_last_granule(bytes: &[u8]) -> Option<u64> {
+    // A page: "OggS", version, flags, granule (8 bytes, little-endian),
+    // serial, sequence, checksum, then its segment count and lacing values
+    // (27 bytes and the table), then the segments.
+    let mut at = bytes.len().checked_sub(27)?;
+    loop {
+        if bytes[at..].starts_with(b"OggS") {
+            let segments = usize::from(*bytes.get(at + 26)?);
+            let table = bytes.get(at + 27..at + 27 + segments)?;
+            let length = 27
+                + segments
+                + table
+                    .iter()
+                    .map(|&lacing| usize::from(lacing))
+                    .sum::<usize>();
+            if at + length == bytes.len() {
+                let granule = u64::from_le_bytes(bytes[at + 6..at + 14].try_into().ok()?);
+                return (granule != u64::MAX).then_some(granule);
+            }
+        }
+        at = at.checked_sub(1)?;
+    }
+}
+
+/// The DiscardPadding of a WebM file's last block, in nanoseconds: how much
+/// of its last packet's end the encoder padded and a player trims. `None`
+/// when the last block has none.
+///
+/// Walks the elements in order, entering the Segment and each Cluster (whose
+/// sizes a live recorder may leave unknown: their children follow either
+/// way) and stepping over everything else.
+fn webm_last_discard_padding(bytes: &[u8]) -> Option<u64> {
+    const SEGMENT: u64 = 0x1853_8067;
+    const CLUSTER: u64 = 0x1F43_B675;
+    const SIMPLE_BLOCK: u64 = 0xA3;
+    const BLOCK_GROUP: u64 = 0xA0;
+    const DISCARD_PADDING: u64 = 0x75A2;
+
+    let mut padding = None;
+    let mut at = 0;
+    while let Some(element) = ebml_element(bytes, at) {
+        match element.id {
+            SEGMENT | CLUSTER => {
+                at = element.body;
+                continue;
+            }
+            SIMPLE_BLOCK => padding = None,
+            BLOCK_GROUP => {
+                padding = None;
+                let mut child_at = element.body;
+                while let Some(child) =
+                    ebml_element(bytes, child_at).filter(|child| child.end <= element.end)
+                {
+                    if child.id == DISCARD_PADDING {
+                        let value = &bytes[child.body..child.end];
+                        if !value.is_empty() && value.len() <= 8 {
+                            let sign = if value[0] & 0x80 != 0 { 0xFF } else { 0 };
+                            let mut signed = [sign; 8];
+                            signed[8 - value.len()..].copy_from_slice(value);
+                            padding = u64::try_from(i64::from_be_bytes(signed)).ok();
+                        }
+                    }
+                    child_at = child.end;
+                }
+            }
+            _ => {}
+        }
+        at = element.end;
+    }
+    padding
+}
+
+/// An EBML element: its ID (marker bits kept), where its body starts, and
+/// where it ends.
+struct EbmlElement {
+    id: u64,
+    body: usize,
+    end: usize,
+}
+
+/// The whole element at `at`, or `None` when there is none there or it runs
+/// past the end. An unknown size ends at the end of `bytes`.
+fn ebml_element(bytes: &[u8], at: usize) -> Option<EbmlElement> {
+    let (id, id_length) = ebml_vint(bytes, at, true)?;
+    let (size, size_length) = ebml_vint(bytes, at + id_length, false)?;
+    let body = at + id_length + size_length;
+    let unknown = size == (1u64 << (7 * size_length)) - 1;
+    let end = if unknown {
+        bytes.len()
+    } else {
+        body.checked_add(usize::try_from(size).ok()?)?
+    };
+    (end <= bytes.len()).then_some(EbmlElement { id, body, end })
+}
+
+/// The variable-length integer at `at` and its length, with its length
+/// marker kept (an ID) or cleared (a size).
+fn ebml_vint(bytes: &[u8], at: usize, keep_marker: bool) -> Option<(u64, usize)> {
+    let first = *bytes.get(at)?;
+    if first == 0 {
+        return None;
+    }
+    let length = first.leading_zeros() as usize + 1;
+    let rest = bytes.get(at + 1..at + length)?;
+    let first = if keep_marker {
+        first
+    } else {
+        first & 0xFFu8.checked_shr(length as u32).unwrap_or(0)
+    };
+    let value = rest.iter().fold(u64::from(first), |value, &byte| {
+        (value << 8) | u64::from(byte)
+    });
+    Some((value, length))
 }
 
 #[cfg(test)]
@@ -331,6 +482,103 @@ mod tests {
             "expected ~{expected} samples, got {}",
             samples.len(),
         );
+    }
+
+    /// Ogg Opus as `opusenc` writes it (RFC 7845): `OpusHead`, `OpusTags`,
+    /// 20 ms packets about a second to a page, and the last page's granule
+    /// position stating where the stream ends, before its last packet does.
+    /// `samples` are at 16 kHz.
+    fn ogg_opus(samples: &[i16]) -> Vec<u8> {
+        use audiopus::{coder::Encoder, Application};
+        use ogg::writing::{PacketWriteEndInfo, PacketWriter};
+
+        let encoder = Encoder::new(
+            OpusSampleRate::Hz16000,
+            OpusChannels::Mono,
+            Application::Voip,
+        )
+        .unwrap();
+        let pre_skip = u64::from(encoder.lookahead().unwrap()) * 3;
+        let mut head = b"OpusHead\x01\x01".to_vec();
+        head.extend_from_slice(&(pre_skip as u16).to_le_bytes());
+        head.extend_from_slice(&16_000u32.to_le_bytes());
+        head.extend_from_slice(&[0, 0, 0]);
+        let mut tags = b"OpusTags".to_vec();
+        tags.extend_from_slice(&[4, 0, 0, 0]);
+        tags.extend_from_slice(b"test");
+        tags.extend_from_slice(&[0, 0, 0, 0]);
+
+        let mut writer = PacketWriter::new(Vec::new());
+        writer
+            .write_packet(head, 1, PacketWriteEndInfo::EndPage, 0)
+            .unwrap();
+        writer
+            .write_packet(tags, 1, PacketWriteEndInfo::EndPage, 0)
+            .unwrap();
+        let end = pre_skip + 3 * samples.len() as u64;
+        let mut frames: Vec<[i16; 320]> = samples
+            .chunks(320)
+            .map(|chunk| {
+                let mut frame = [0i16; 320];
+                frame[..chunk.len()].copy_from_slice(chunk);
+                frame
+            })
+            .collect();
+        while (frames.len() as u64) * 960 < end {
+            frames.push([0; 320]);
+        }
+        let mut packet = [0u8; 1_500];
+        for (index, frame) in frames.iter().enumerate() {
+            let length = encoder.encode(frame, &mut packet).unwrap();
+            let last = index + 1 == frames.len();
+            let (info, granule) = if last {
+                (PacketWriteEndInfo::EndStream, end)
+            } else if (index + 1) % 50 == 0 {
+                (PacketWriteEndInfo::EndPage, (index as u64 + 1) * 960)
+            } else {
+                (PacketWriteEndInfo::NormalPacket, (index as u64 + 1) * 960)
+            };
+            writer
+                .write_packet(packet[..length].to_vec(), 1, info, granule)
+                .unwrap();
+        }
+        writer.into_inner()
+    }
+
+    /// The pre-skip comes off the front and the end comes where the last
+    /// granule position says, so every sample encoded is decoded, in place.
+    #[test]
+    fn decodes_ogg_opus_to_exactly_the_samples_encoded() {
+        let count = 2 * 16_000 + 123;
+        let original: Vec<i16> = (0..count)
+            .map(|i| {
+                let t = i as f32 / 16_000.0;
+                let tau = 2.0 * std::f32::consts::PI;
+                ((t * 3.0).sin().abs()
+                    * (0.6 * (tau * 440.0 * t).sin() + 0.4 * (tau * 1_234.0 * t * (1.0 + t)).sin())
+                    * 16_000.0) as i16
+            })
+            .collect();
+
+        let decoded = decode_to_pcm16k_mono(&ogg_opus(&original)).expect("decode");
+        assert_eq!(decoded.len(), count);
+
+        let likeness = |lag: i64| {
+            let (mut ab, mut aa, mut bb) = (0f64, 0f64, 0f64);
+            for i in 1_000..count - 1_000 {
+                let x = f64::from(original[i]) / 32_768.0;
+                let y = f64::from(decoded[(i as i64 + lag) as usize]);
+                ab += x * y;
+                aa += x * x;
+                bb += y * y;
+            }
+            ab / (aa.sqrt() * bb.sqrt())
+        };
+        let best = (-40..=40)
+            .max_by(|&a, &b| likeness(a).total_cmp(&likeness(b)))
+            .unwrap();
+        assert_eq!(best, 0, "decoded {best} samples late");
+        assert!(likeness(0) > 0.95);
     }
 
     #[test]

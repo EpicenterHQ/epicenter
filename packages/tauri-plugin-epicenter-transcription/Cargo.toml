@@ -33,6 +33,8 @@ audiopus = "0.3.0-rc.0"
 
 [dev-dependencies]
 hound = "3.5"
+# Writes the Ogg Opus stream the decoder's tests decode.
+ogg = "0.9"
 tauri = { version = "2.12", features = ["test"] }
 
 [target.'cfg(all(windows, target_arch = "x86_64"))'.dependencies]

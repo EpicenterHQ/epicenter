@@ -8,8 +8,12 @@
 //! across three tiers (WAV fast-path, hound + rubato, external sidecar)
 //! and required users to install an external decoder for compressed
 //! formats. The new pipeline is one path built on Symphonia (demux +
-//! non-Opus decode), libopus via `audiopus` (Opus decode), and rubato
-//! (resample to 16 kHz).
+//! non-Opus decode), libopus via `audiopus` (Opus decode, straight to
+//! 16 kHz), and rubato (resample everything else to 16 kHz).
+//!
+//! The whole file is decoded into memory before transcription reads it: an
+//! hour is about 230 MB of 16 kHz f32 samples, more for a source at a higher
+//! rate until it is resampled.
 
 mod decode;
 mod error;
