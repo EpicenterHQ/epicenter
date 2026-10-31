@@ -1,5 +1,5 @@
 /**
- * The pieces `epicenter send` and a page share: the keychain entry and its
+ * The pieces `epicenter send` and its callers share: the keychain entry and its
  * endpoint check, the request's URL below its endpoint, the stdin format,
  * and a response's lines read back into a `Response`. The CLI's own tests
  * run them end to end against a server (`packages/cli/src/ai-commands.test.ts`).
@@ -17,7 +17,6 @@ import {
 	responseEvents,
 	saveKey,
 	sendRequest,
-	sendThroughShell,
 	toSendRequest,
 } from './send.js';
 
@@ -258,53 +257,6 @@ test('an account target reads back only with a known audience', () => {
 		expect(
 			decodeSendInput(head({ kind: 'account', audience })).error?.name,
 		).toBe('InvalidRequest');
-});
-
-test('aborting after the response head stops the shell run and its body', async () => {
-	const controller = new AbortController();
-	let cancellations = 0;
-	const response = await sendThroughShell(
-		{ method: 'GET', path: 'v1/chat/completions', headers: [] },
-		async (_request, onLine) => {
-			onLine(
-				JSON.stringify({
-					type: 'head',
-					status: 200,
-					statusText: 'OK',
-					headers: [],
-				}),
-			);
-			return new Promise<null>(() => {});
-		},
-		{ signal: controller.signal, cancel: () => cancellations++ },
-	);
-	controller.abort();
-	expect(response.text()).rejects.toMatchObject({ name: 'AbortError' });
-	expect(cancellations).toBe(1);
-});
-
-test('a completed response does not leave an abortable native request', async () => {
-	const controller = new AbortController();
-	let cancellations = 0;
-	const response = await sendThroughShell(
-		{ method: 'GET', path: 'v1/chat/completions', headers: [] },
-		async (_request, onLine) => {
-			onLine(
-				JSON.stringify({
-					type: 'head',
-					status: 200,
-					statusText: 'OK',
-					headers: [],
-				}),
-			);
-			onLine(JSON.stringify({ type: 'end' }));
-			return null;
-		},
-		{ signal: controller.signal, cancel: () => cancellations++ },
-	);
-	expect(await response.text()).toBe('');
-	controller.abort();
-	expect(cancellations).toBe(0);
 });
 
 test('stdin carries one JSON line and the raw body, and reads back the same', async () => {

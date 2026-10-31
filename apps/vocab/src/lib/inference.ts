@@ -29,7 +29,6 @@ export async function openVocabInference(
 	]);
 	return {
 		account: hosted.status === 'fulfilled' ? hosted.value : null,
-		runtime: null,
 		connections: connections.status === 'fulfilled' ? connections.value : null,
 		errors: [hosted, connections].flatMap((result) =>
 			result.status === 'rejected' ? [extractErrorMessage(result.reason)] : [],

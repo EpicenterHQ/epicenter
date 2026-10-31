@@ -1,11 +1,9 @@
 use std::sync::Mutex;
 
-use tauri::image::Image;
 use tauri::menu::MenuBuilder;
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, ExitRequestApi, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-use tauri_plugin_epicenter_recorder::is_recording;
 
 use crate::{request_window, BuiltInApp, DesktopAppHandle};
 
@@ -22,14 +20,6 @@ enum QuitState {
     Ready,
     Prompting,
     Approved,
-}
-
-fn quit_message(recording: bool) -> &'static str {
-    if recording {
-        "A recording is running. Quitting ends it and keeps the audio captured so far. Unsaved changes may be lost."
-    } else {
-        "Unsaved changes may be lost."
-    }
 }
 
 /// Called by ExitRequested on the native event thread. Quit always asks;
@@ -52,7 +42,7 @@ pub(crate) fn request_quit<R: Runtime>(app: &AppHandle<R>, api: &ExitRequestApi,
 
     let installing = crate::updates::has_pending(app);
     let finish_app = app.clone();
-    let dialog = app.dialog().message(quit_message(is_recording(app)));
+    let dialog = app.dialog().message("Unsaved changes may be lost.");
     let dialog = if installing {
         match crate::updates::parent_window(app) {
             Some(window) => dialog.parent(&window),
@@ -135,49 +125,10 @@ pub fn create_tray(app: &DesktopAppHandle) -> tauri::Result<()> {
         .separator()
         .text("quit", "Quit Epicenter")
         .build()?;
-    let icon = tray_icon(false)?;
-
-    TrayIconBuilder::with_id(TRAY_ID)
-        .icon(icon)
-        .tooltip("Epicenter")
-        .menu(&menu)
-        .build(app)?;
+    let mut tray = TrayIconBuilder::with_id(TRAY_ID);
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.tooltip("Epicenter").menu(&menu).build(app)?;
     Ok(())
-}
-
-pub fn set_tray_recording_state(app: &AppHandle, recording: bool) {
-    let Some(tray) = app.tray_by_id(TRAY_ID) else {
-        return;
-    };
-    match tray_icon(recording).and_then(|icon| tray.set_icon(Some(icon))) {
-        Ok(()) => {}
-        Err(error) => log::warn!("update Epicenter tray recording state: {error}"),
-    }
-}
-
-fn tray_icon(recording: bool) -> tauri::Result<Image<'static>> {
-    let bytes = if recording {
-        include_bytes!("../recorder-state-icons/red_large_square.png").as_slice()
-    } else {
-        include_bytes!("../recorder-state-icons/studio_microphone.png").as_slice()
-    };
-    Image::from_bytes(bytes)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn quit_always_warns_even_without_a_recording() {
-        assert_eq!(quit_message(false), "Unsaved changes may be lost.");
-    }
-
-    #[test]
-    fn quit_adds_the_recording_warning_without_promising_pending_changes_saved() {
-        let message = quit_message(true);
-        assert!(message.contains("recording"));
-        assert!(message.contains("keeps the audio captured so far"));
-        assert!(message.contains("Unsaved changes may be lost"));
-    }
 }

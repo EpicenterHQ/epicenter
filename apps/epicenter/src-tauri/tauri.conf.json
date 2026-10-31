@@ -14,14 +14,7 @@
 		"macOSPrivateApi": true,
 		"windows": [],
 		"security": {
-			"capabilities": [
-				"folders",
-				"home",
-				"bundled-app",
-				"whispering",
-				"folder-editor",
-				"messages"
-			]
+			"capabilities": ["folders", "home", "folder-editor"]
 		}
 	},
 	"bundle": {
@@ -30,12 +23,10 @@
 		"category": "Productivity",
 		"publisher": "Epicenter",
 		"copyright": "Copyright © 2026 Epicenter",
-		"shortDescription": "One trusted desktop host for Epicenter apps",
+		"shortDescription": "Registers, syncs, and shares your Epicenter folders",
 		"externalBin": ["binaries/epicenter-cli"],
 		"resources": {
-			"../dist": "apps-dist",
-			"recorder-state-icons/studio_microphone.png": "recorder-state-icons/studio_microphone.png",
-			"recorder-state-icons/red_large_square.png": "recorder-state-icons/red_large_square.png"
+			"../dist": "apps-dist"
 		},
 		"icon": ["icons/icon.png", "icons/icon.icns"],
 		"macOS": {

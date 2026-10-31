@@ -1,3 +1,3 @@
-import { hostAppViteConfig } from '@epicenter/vite-config';
+import { workspaceAppViteConfig } from '@epicenter/vite-config';
 import { defineConfig } from 'vite';
-export default defineConfig(hostAppViteConfig({ port: 5188 }));
+export default defineConfig(workspaceAppViteConfig({ port: 5188 }));

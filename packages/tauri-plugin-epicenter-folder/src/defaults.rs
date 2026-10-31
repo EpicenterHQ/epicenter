@@ -1,4 +1,4 @@
-//! Authored-folder launch defaults shared by standalone and hosted shells.
+//! Authored-folder launch defaults shared by Epicenter and standalone app shells.
 //! The shell resolves the library root once at startup; window binding and
 //! explicitly chosen directories do not depend on this policy.
 
@@ -152,9 +152,9 @@ mod tests {
     }
 
     #[test]
-    fn shipped_standalone_and_hosted_configs_select_the_same_todos_default() {
+    fn shipped_epicenter_and_todos_configs_select_the_same_library_root() {
         let home = std::env::temp_dir().join("epicenter-home");
-        for (host, standalone, name) in [
+        for (epicenter, standalone, name) in [
             (
                 include_str!("../../../apps/epicenter/src-tauri/tauri.conf.json"),
                 include_str!("../../../apps/todos/src-tauri/tauri.conf.json"),
@@ -166,7 +166,7 @@ mod tests {
                 "Epicenter Dev",
             ),
         ] {
-            for config in [host, standalone] {
+            for config in [epicenter, standalone] {
                 let config: serde_json::Value = serde_json::from_str(config).unwrap();
                 let identifier = config["identifier"].as_str().unwrap();
                 for value in [None, Some(OsStr::new(""))] {

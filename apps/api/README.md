@@ -79,7 +79,7 @@ bytes it keeps beside Git are hosted repositories' Git LFS objects, in R2
 `/auth/oauth2/userinfo`, which needs `openid`, and answers the email only
 with `email`. Browser
 apps get a token by authorization code with PKCE as their own client; the
-desktop app's pages reach the API through `epicenter send`, which holds the
+desktop app reaches the API through the `epicenter` CLI, which holds the
 desktop grant. See [Authorization server](#authorization-server).
 
 ## Trust model

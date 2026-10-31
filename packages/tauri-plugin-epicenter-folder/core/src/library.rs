@@ -33,25 +33,9 @@ pub const TODOS: LibraryDefault = LibraryDefault {
     id: "so.epicenter.todos",
     title: "Todos",
 };
-pub const CAPTURE: LibraryDefault = LibraryDefault {
-    id: "so.epicenter.capture",
-    title: "Capture",
-};
-pub const HONEYCRISP: LibraryDefault = LibraryDefault {
-    id: "so.epicenter.honeycrisp",
-    title: "Honeycrisp",
-};
-pub const WHISPERING: LibraryDefault = LibraryDefault {
-    id: "so.epicenter.whispering",
-    title: "Whispering",
-};
-pub const MESSAGES: LibraryDefault = LibraryDefault {
-    id: "so.epicenter.messages",
-    title: "Messages",
-};
 
 /// Every fixed default, records first.
-pub const ALL: [LibraryDefault; 6] = [RECORDS, TODOS, CAPTURE, HONEYCRISP, WHISPERING, MESSAGES];
+pub const ALL: [LibraryDefault; 2] = [RECORDS, TODOS];
 
 impl LibraryDefault {
     /// `<library_root>/<id>`, computed without touching the disk.
@@ -99,7 +83,7 @@ pub fn check_editable_directory(data_dir: &Path, path: &Path) -> Result<(), Stri
     Ok(())
 }
 
-/// Whether an app, a hosted site, or a folder editor window may open `path`:
+/// Whether an app or a folder editor window may open `path`:
 /// everything `check_editable_directory` refuses, and also Epicenter's records
 /// at `<library_root>/so.epicenter` or its staging sibling, anything in them,
 /// or a directory holding them, such as the library root.
@@ -207,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn the_table_has_six_unique_permanent_reverse_dns_identifiers() {
+    fn the_table_has_unique_permanent_reverse_dns_identifiers() {
         let ids: std::collections::BTreeSet<_> = ALL
             .iter()
             .map(|default| default.id.to_lowercase())
@@ -216,14 +200,7 @@ mod tests {
         assert_eq!(ALL[0], RECORDS);
         assert_eq!(
             ALL.map(|default| default.id),
-            [
-                "so.epicenter",
-                "so.epicenter.todos",
-                "so.epicenter.capture",
-                "so.epicenter.honeycrisp",
-                "so.epicenter.whispering",
-                "so.epicenter.messages",
-            ]
+            ["so.epicenter", "so.epicenter.todos"]
         );
         for default in ALL {
             assert!(default.id == "so.epicenter" || default.id.starts_with("so.epicenter."));
@@ -288,16 +265,16 @@ mod tests {
         let elsewhere = library.base.join("elsewhere");
         fs::create_dir_all(&elsewhere).unwrap();
         fs::create_dir_all(&library.root).unwrap();
-        symlink(&elsewhere, CAPTURE.path(&library.root)).unwrap();
-        assert!(open_default(&library.data, &library.root, CAPTURE).is_err());
+        symlink(&elsewhere, TODOS.path(&library.root)).unwrap();
+        assert!(open_default(&library.data, &library.root, TODOS).is_err());
         assert!(entries(&elsewhere).is_empty());
 
         let real = library.base.join("real");
         fs::create_dir(&real).unwrap();
         let alias = library.base.join("alias");
         symlink(&real, &alias).unwrap();
-        let opened = open_default(&library.data, &alias, HONEYCRISP).unwrap();
-        assert_eq!(opened.root(), real.join(HONEYCRISP.id));
+        let opened = open_default(&library.data, &alias, TODOS).unwrap();
+        assert_eq!(opened.root(), real.join(TODOS.id));
     }
 
     #[test]
@@ -309,7 +286,7 @@ mod tests {
                 let (data, root, gate) = (library.data.clone(), library.root.clone(), gate.clone());
                 std::thread::spawn(move || {
                     gate.wait();
-                    open_default(&data, &root, WHISPERING).unwrap()
+                    open_default(&data, &root, TODOS).unwrap()
                 })
             })
             .collect();
@@ -318,7 +295,7 @@ mod tests {
             .map(|thread| thread.join().unwrap())
             .collect();
         assert!(opened.windows(2).all(|pair| pair[0] == pair[1]));
-        assert_eq!(entries(&library.root), [WHISPERING.id]);
+        assert_eq!(entries(&library.root), [TODOS.id]);
     }
 
     /// A root override that reaches application data or staging is refused

@@ -13,7 +13,7 @@ All workflows live flat in `.github/workflows/` (GitHub Actions requirement). We
 | `meta.{name}` | Repo housekeeping | Whole repo |
 
 Standalone products get separate release workflows. Epicenter's own release
-includes its CLI and fixed bundled app pages; those pages update with Epicenter.
+includes its CLI and its own pages.
 Its tag workflow builds signed macOS drafts, and a separate manual workflow
 publishes a selected draft and its update feed. Standalone app releases are
 not added. See [Epicenter releases](../../apps/epicenter/RELEASING.md).

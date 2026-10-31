@@ -90,7 +90,6 @@
       "dependencies": {
         "@epicenter/capture": "workspace:*",
         "@epicenter/constants": "workspace:*",
-        "@epicenter/epicenter": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
@@ -271,7 +270,6 @@
         "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@tanstack/svelte-query": "catalog:",
-        "@tauri-apps/api": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
@@ -413,8 +411,6 @@
         "@sveltejs/kit": "catalog:",
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@tailwindcss/vite": "catalog:",
-        "@tauri-apps/api": "catalog:",
-        "@tauri-apps/plugin-opener": "catalog:",
         "@types/bun": "catalog:",
         "@types/jsdom": "21.1.7",
         "fake-indexeddb": "^6.2.6",
@@ -469,7 +465,6 @@
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@tanstack/svelte-query": "catalog:",
-        "@tauri-apps/api": "catalog:",
         "nanoid": "catalog:",
         "openai": "^7.12.1",
         "typebox": "catalog:",
@@ -1526,8 +1521,6 @@
     "@tauri-apps/cli-win32-ia32-msvc": ["@tauri-apps/cli-win32-ia32-msvc@2.12.3", "", { "os": "win32", "cpu": "ia32" }, "sha512-kE+KUg6Dbbkgvcw0m99wJVIToFQzJqpMBAXah74WqxaLzssNwSTUccrHp6+QVzMhjQP330tvekFmnQF+0NbE6Q=="],
 
     "@tauri-apps/cli-win32-x64-msvc": ["@tauri-apps/cli-win32-x64-msvc@2.12.3", "", { "os": "win32", "cpu": "x64" }, "sha512-L7wndWAgX2mLW7alswpL3d1R0P9FN2WYBgHaQkAYEBxHHGkY4vFX9CjcRQ1LAxDAMIJxrY7/aDziFJeChS84NQ=="],
-
-    "@tauri-apps/plugin-opener": ["@tauri-apps/plugin-opener@2.7.2", "", { "dependencies": { "@tauri-apps/api": "^2.12.0" } }, "sha512-LyybP1VSzTMQiaFYcsbAse47KpivlyXdLZMQzGLEnkgQacGESnpjAfFoQ6h5sqWgAdZDH9szYjPzHMpv0Sz+TQ=="],
 
     "@tybys/wasm-util": ["@tybys/wasm-util@0.10.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg=="],
 

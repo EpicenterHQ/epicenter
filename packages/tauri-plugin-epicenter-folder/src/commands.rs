@@ -9,9 +9,6 @@
 //! cannot redirect it. Every command that touches the disk runs on the
 //! blocking pool, never on the thread that drives the windows. The folder's
 //! Git is not here: the `epicenter` CLI runs it (ADR-0559).
-//!
-//! Hosted pages are published independently of the shell, so their Folder
-//! commands must tolerate the site's deployment and the shell's update cycle.
 
 use epicenter_folder_core::root::{prepare_directory, PrepareError};
 use epicenter_folder_core::storage::{self, Children, FileListing, PutOutcome, StorageError};
@@ -106,7 +103,10 @@ pub async fn destroy_bound_window<R: Runtime>(
     window: WebviewWindow<R>,
     token: u32,
 ) -> Result<bool, String> {
-    match window.state::<Folders>().begin_close_answer(window.label(), token) {
+    match window
+        .state::<Folders>()
+        .begin_close_answer(window.label(), token)
+    {
         CloseAnswer::Ignore => return Ok(false),
         CloseAnswer::WaitForPrompt => return Ok(true),
         CloseAnswer::Destroy => {}
@@ -135,14 +135,15 @@ pub(crate) fn confirm_unanswered_close<R: Runtime>(window: WebviewWindow<R>, tok
                 "Keep waiting".into(),
             ))
             .blocking_show();
-        let result = if window
-            .state::<Folders>()
-            .finish_native_prompt(window.label(), token, confirmed)
-        {
-            destroy_if_current(window.clone(), token)
-        } else {
-            Ok(false)
-        };
+        let result =
+            if window
+                .state::<Folders>()
+                .finish_native_prompt(window.label(), token, confirmed)
+            {
+                destroy_if_current(window.clone(), token)
+            } else {
+                Ok(false)
+            };
         if result != Ok(false) {
             window
                 .state::<Folders>()

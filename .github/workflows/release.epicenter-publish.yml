@@ -1,4 +1,4 @@
-# Deliberate publication stays separate while bundled apps are unfinished.
+# Deliberate publication stays separate from the tag build.
 name: Publish Epicenter release and update feed
 on:
   workflow_dispatch:

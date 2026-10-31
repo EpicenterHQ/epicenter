@@ -3,7 +3,6 @@
 import { cp, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { BUNDLED_PAGES } from './build-bundled-apps.js';
 
 export const UPDATE_FEED = 'https://updates.epicenter.so/epicenter/stable.json';
 const appDir = resolve(import.meta.dir, '..');
@@ -212,7 +211,6 @@ export async function buildRelease(
 			tag,
 			commit,
 			target,
-			bundledApps: BUNDLED_PAGES,
 			rehearsal: !!rehearsal,
 		};
 		await Bun.write(

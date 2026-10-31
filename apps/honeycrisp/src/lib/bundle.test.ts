@@ -2,14 +2,12 @@
  * Bundle Tests
  *
  * Bundles the notes and editor modules through the app's Vite resolution, as
- * each build resolves them, and reads every module the bundle pulls in.
+ * the browser build resolves them, and reads every module the bundle pulls in.
  *
  * Key behaviors:
- * - Neither build carries a Yjs, Node, or Bun module, or the directory
+ * - The browser build carries no Yjs, Node, or Bun module, or the directory
  *   folder and Git host that run on them
- * - The bundled host build carries the native folder engine and no browser
- *   engine or OPFS store; the published build carries both folder engines
- *   behind one runtime choice
+ * - It carries both folder engines behind one runtime choice
  */
 import { expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -26,13 +24,13 @@ const FORBIDDEN =
 const NODE =
 	/^(node|bun):|folder\/src\/(bun|directory-node)\.ts$|git\/native-host\.ts$/;
 
-test.each(['epicenter-host', 'browser'] as const)(
-	'the %s build carries no Yjs, Node, or Bun module',
-	async (build) => {
+test(
+	'the browser build carries no Yjs, Node, or Bun module',
+	async () => {
 		const modules = await bundledModules(
 			appDir,
 			'src/lib/bundle.test-support.ts',
-			build,
+			'browser',
 		);
 		expect(modules.filter((path) => FORBIDDEN.test(path))).toEqual([]);
 		expect(modules.filter((path) => NODE.test(path))).toEqual([]);
@@ -43,20 +41,6 @@ test.each(['epicenter-host', 'browser'] as const)(
 /** A module of `@epicenter/folder`, by its path below its `src/`. */
 const folderModule = (name: string) => (path: string) =>
 	path.endsWith(`packages/folder/src/${name}`);
-
-test(
-	'the bundled host build carries the native engine and no browser storage',
-	async () => {
-		const modules = await bundledModules(
-			appDir,
-			'src/lib/bundle.test-support.ts',
-			'epicenter-host',
-		);
-		expect(modules.some(folderModule('tauri.ts'))).toBe(true);
-		expect(modules.some(folderModule('browser.ts'))).toBe(false);
-	},
-	BUNDLE_TIMEOUT,
-);
 
 test(
 	'the published build carries the runtime choice and both folder engines',

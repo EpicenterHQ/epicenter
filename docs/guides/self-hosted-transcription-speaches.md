@@ -35,7 +35,7 @@ image and model catalog.
 
 ## Point a connection at it
 
-In any surface that can reach `localhost` (Whispering inside Epicenter, the browser
+In any surface that can reach `localhost` (the browser
 extension), add a custom inference connection:
 
 ```txt

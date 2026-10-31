@@ -23,15 +23,13 @@
 //! only after [`STOP_GRACE`], so a refresh the child already sent reaches
 //! the keychain (ADR-0565).
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::ipc::Channel;
@@ -135,84 +133,32 @@ pub(crate) fn stop_started(slot: &StartedChild) {
 /// run can hold it across its awaits.
 #[derive(Clone, Default)]
 pub struct CliChildren {
-    running: Arc<Mutex<HashMap<String, WindowChildren>>>,
-}
-
-#[derive(Default)]
-struct WindowChildren {
-    active: Vec<(Option<String>, Arc<Notify>)>,
-    pending_cancels: VecDeque<String>,
+    running: Arc<Mutex<HashMap<String, Vec<Arc<Notify>>>>>,
 }
 
 impl CliChildren {
-    fn state(&self) -> std::sync::MutexGuard<'_, HashMap<String, WindowChildren>> {
+    fn state(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<Arc<Notify>>>> {
         self.running
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn start(&self, window: &str, request_id: Option<&str>) -> Result<Arc<Notify>, CliError> {
+    fn start(&self, window: &str) -> Arc<Notify> {
         let end = Arc::new(Notify::new());
-        let mut state = self.state();
-        let children = state.entry(window.to_string()).or_default();
-        if let Some(id) = request_id {
-            if children
-                .active
-                .iter()
-                .any(|(active, _)| active.as_deref() == Some(id))
-            {
-                return Err(failed("an account request with this id is already running"));
-            }
-            if let Some(index) = children
-                .pending_cancels
-                .iter()
-                .position(|pending| pending == id)
-            {
-                children.pending_cancels.remove(index);
-                if children.active.is_empty() && children.pending_cancels.is_empty() {
-                    state.remove(window);
-                }
-                return Err(failed("the account request was canceled before it started"));
-            }
-        }
-        children
-            .active
-            .push((request_id.map(str::to_string), Arc::clone(&end)));
-        Ok(end)
+        self.state()
+            .entry(window.to_string())
+            .or_default()
+            .push(Arc::clone(&end));
+        end
     }
 
     fn finish(&self, window: &str, end: &Arc<Notify>) {
         let mut state = self.state();
         if let Some(children) = state.get_mut(window) {
-            children
-                .active
-                .retain(|(_, other)| !Arc::ptr_eq(other, end));
-            if children.active.is_empty() && children.pending_cancels.is_empty() {
+            children.retain(|other| !Arc::ptr_eq(other, end));
+            if children.is_empty() {
                 state.remove(window);
             }
-        }
-    }
-
-    /// End one request from this window, even if cancellation reaches the
-    /// host before the corresponding send command registers its child.
-    fn cancel(&self, window: &str, request_id: &str) {
-        let mut state = self.state();
-        let children = state.entry(window.to_string()).or_default();
-        if let Some((_, end)) = children
-            .active
-            .iter()
-            .find(|(id, _)| id.as_deref() == Some(request_id))
-        {
-            end.notify_one();
-        } else if !children
-            .pending_cancels
-            .iter()
-            .any(|pending| pending == request_id)
-        {
-            if children.pending_cancels.len() == 128 {
-                children.pending_cancels.pop_front();
-            }
-            children.pending_cancels.push_back(request_id.to_string());
         }
     }
 
@@ -221,7 +167,7 @@ impl CliChildren {
     /// early does ([`Running`]): its child and the processes the child
     /// started are asked to stop, and killed after [`STOP_GRACE`].
     pub fn page_ended(&self, window: &str) {
-        for (_, end) in self.state().remove(window).unwrap_or_default().active {
+        for end in self.state().remove(window).unwrap_or_default() {
             // A run not yet waiting keeps the permit and ends when it waits.
             end.notify_one();
         }
@@ -230,9 +176,7 @@ impl CliChildren {
     /// How many children `window`'s page has running.
     #[cfg(test)]
     pub(crate) fn running(&self, window: &str) -> usize {
-        self.state()
-            .get(window)
-            .map_or(0, |children| children.active.len())
+        self.state().get(window).map_or(0, Vec::len)
     }
 }
 
@@ -343,7 +287,7 @@ pub(crate) struct Invocation {
     env: Vec<(OsString, OsString)>,
     desktop: bool,
     lifeline: bool,
-    owner: Option<(CliChildren, String, Option<String>)>,
+    owner: Option<(CliChildren, String)>,
     started: Option<StartedChild>,
 }
 
@@ -403,14 +347,7 @@ impl Invocation {
 
     /// The run belongs to `window`'s page, and ends with it.
     pub(crate) fn owned_by(mut self, children: &CliChildren, window: &str) -> Self {
-        self.owner = Some((children.clone(), window.to_string(), None));
-        self
-    }
-
-    fn request(mut self, request_id: &str) -> Self {
-        if let Some((_, _, id)) = &mut self.owner {
-            *id = Some(request_id.to_string());
-        }
+        self.owner = Some((children.clone(), window.to_string()));
         self
     }
 
@@ -431,8 +368,7 @@ impl Invocation {
         let end = self
             .owner
             .as_ref()
-            .map(|(children, window, request_id)| children.start(window, request_id.as_deref()))
-            .transpose()?;
+            .map(|(children, window)| children.start(window));
         let exit = run_child(
             &self.program,
             &args,
@@ -447,7 +383,7 @@ impl Invocation {
         if let Some(slot) = &self.started {
             *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         }
-        if let (Some((children, window, _)), Some(end)) = (&self.owner, &end) {
+        if let (Some((children, window)), Some(end)) = (&self.owner, &end) {
             children.finish(window, end);
         }
         exit
@@ -688,48 +624,10 @@ pub(crate) fn spawn_command_link_refresh(paths: &DesktopPaths) {
 }
 
 // ---------------------------------------------------------------------------
-// AI connections (ADR-0557): one request over a connection, and its key in
-// the keychain. The CLI holds both; these commands only carry the page's
-// typed input to one fixed invocation, so no page reads a saved key.
+// AI connection keys (ADR-0557): each connection's key in the keychain. The
+// CLI holds it; these commands only carry Settings' typed input to one fixed
+// invocation, so no page reads a saved key.
 // ---------------------------------------------------------------------------
-
-/// Where a request goes: a connection by its id, which is the stem of its row
-/// in the selected Epicenter records folder's `connections/` directory. An
-/// `openai-compatible` target names the endpoint the page prepared the request
-/// for; the CLI sends only while the
-/// keychain entry still holds it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum AiTarget {
-    OpenaiCompatible {
-        connection: String,
-        endpoint: String,
-    },
-    Local {
-        connection: String,
-    },
-}
-
-impl AiTarget {
-    fn connection(&self) -> &str {
-        match self {
-            Self::OpenaiCompatible { connection, .. } | Self::Local { connection } => connection,
-        }
-    }
-}
-
-/// One request `epicenter send` carries, relative to its target: below an AI
-/// connection's endpoint, or below the deployment's origin for an account
-/// request.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, specta::Type)]
-pub struct AiRequest {
-    pub method: String,
-    /// Below the target, such as `audio/transcriptions` or `api/repos`.
-    pub path: String,
-    pub headers: Vec<(String, String)>,
-    /// The body in base64, decoded here and written to the CLI as raw bytes.
-    pub body: Option<String>,
-}
 
 /// What this computer's keychain holds for a connection. Never the key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -758,76 +656,6 @@ fn connection_id(id: &str) -> Result<&str, CliError> {
             message: format!("'{id}' is not a connection id"),
         })
     }
-}
-
-/// What `epicenter send` reads on stdin: one JSON line naming the target
-/// and the request, then the body's raw bytes (`encodeSendInput` in
-/// `@epicenter/ai/send`).
-fn send_input(target: &impl Serialize, request: &AiRequest) -> Result<Vec<u8>, CliError> {
-    let body = match &request.body {
-        Some(encoded) => STANDARD
-            .decode(encoded)
-            .map_err(|error| CliError::Refused {
-                message: format!("the request body is not base64: {error}"),
-            })?,
-        None => Vec::new(),
-    };
-    let mut input = serde_json::to_vec(&json!({
-        "target": target,
-        "request": {
-            "method": request.method,
-            "path": request.path,
-            "headers": request.headers,
-        },
-    }))
-    .map_err(|error| failed(error.to_string()))?;
-    input.push(b'\n');
-    input.extend_from_slice(&body);
-    Ok(input)
-}
-
-/// `epicenter send --json` over `target` as the app's grant, each NDJSON
-/// line handed to `on_line`. `--desktop` gives an Epicenter connection and
-/// an account request the app's own grant (ADR-0558).
-async fn run_send(
-    invocation: &Invocation,
-    target: &impl Serialize,
-    request: &AiRequest,
-    on_line: impl FnMut(String) -> Result<(), String>,
-) -> Result<CliExit, CliError> {
-    let input = send_input(target, request)?;
-    invocation
-        .clone()
-        .desktop()
-        .run(&["send".into(), "--json".into()], Some(input), on_line)
-        .await
-}
-
-/// [`run_send`] over an AI connection, whose id is checked first.
-async fn send_with(
-    invocation: &Invocation,
-    target: &AiTarget,
-    request: &AiRequest,
-    on_line: impl FnMut(String) -> Result<(), String>,
-) -> Result<CliExit, CliError> {
-    connection_id(target.connection())?;
-    run_send(invocation, target, request, on_line).await
-}
-
-/// Send one line of a send's output to the page's channel.
-fn to_channel(on_event: &Channel<String>) -> impl FnMut(String) -> Result<(), String> + '_ {
-    |line| on_event.send(line).map_err(|error| error.to_string())
-}
-
-/// After a send's own lines, one more, `{"type":"exit","code","stderr"}`, so
-/// a page that sees it knows no other line is coming, whenever the command's
-/// own result arrives.
-fn end_channel(on_event: &Channel<String>, exit: CliExit) -> Result<CliExit, CliError> {
-    let last = json!({ "type": "exit", "code": exit.code, "stderr": exit.stderr });
-    on_event
-        .send(last.to_string())
-        .map_err(|error| failed(error.to_string()))?;
-    Ok(exit)
 }
 
 /// Run one `epicenter auth key <action> <connection> --json` and read its
@@ -870,30 +698,6 @@ async fn key_remove_with(invocation: &Invocation, connection: &str) -> Result<bo
     Ok(answer.removed)
 }
 
-/// Send one request over an AI connection with the key saved on this
-/// computer, through `epicenter send` (ADR-0557). Each line of its NDJSON
-/// (the response's head, its body in base64 chunks, and `end`, or an
-/// `error`) goes to `on_event`; the page reads them back into a `Response`.
-/// One more line, `{"type":"exit","code","stderr"}`, follows the CLI's own
-/// on the same channel (`end_channel`).
-#[tauri::command]
-#[specta::specta]
-pub async fn ai_send(
-    webview: Webview,
-    connection: AiTarget,
-    request: AiRequest,
-    on_event: Channel<String>,
-) -> Result<CliExit, CliError> {
-    let exit = send_with(
-        &window_invocation(&webview)?,
-        &connection,
-        &request,
-        to_channel(&on_event),
-    )
-    .await?;
-    end_channel(&on_event, exit)
-}
-
 /// Save `endpoint` and `key` for `connection` in this computer's keychain,
 /// through `epicenter auth key set`, which reads both on stdin. An empty key
 /// confirms a keyless endpoint.
@@ -920,294 +724,6 @@ pub async fn ai_key_remove(webview: Webview, connection: String) -> Result<bool,
 #[specta::specta]
 pub async fn ai_key_state(webview: Webview, connection: String) -> Result<AiKeyState, CliError> {
     key_state_with(&window_invocation(&webview)?, &connection).await
-}
-
-// ---------------------------------------------------------------------------
-// Whispering's connection rows (ADR-0557): its two rows of the selected records
-// folder's `connections` table. The CLI resolves the selection through this
-// shell's AppData directory. The page names an operation,
-// never a row, a folder, or a path, and opens no second folder for them.
-// ---------------------------------------------------------------------------
-
-/// Which of Whispering's two connections: a closed set, which the CLI maps
-/// to the row `whispering-transcription` or `whispering-text`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "lowercase")]
-pub enum WhisperingConnection {
-    Transcription,
-    Text,
-}
-
-impl WhisperingConnection {
-    fn arg(self) -> &'static str {
-        match self {
-            Self::Transcription => "transcription",
-            Self::Text => "text",
-        }
-    }
-}
-
-/// What a connection row's `kind` names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "kebab-case")]
-pub enum ConnectionKind {
-    OpenaiCompatible,
-    Epicenter,
-    Local,
-}
-
-/// The only kind a Whispering save assigns; an `epicenter` or `local` row
-/// is Settings' to make.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "kebab-case")]
-pub enum AssignedConnectionKind {
-    OpenaiCompatible,
-}
-
-/// Why a row does not read as a connection, as `@epicenter/folder` reports it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "kebab-case")]
-pub enum ConnectionRowIssueKind {
-    NotText,
-    Frontmatter,
-    Schema,
-}
-
-/// One step of an issue's path: a field name or an index.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(untagged)]
-pub enum IssuePathStep {
-    Field(String),
-    Index(u32),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-pub struct ConnectionRowIssue {
-    pub kind: ConnectionRowIssueKind,
-    pub message: String,
-    pub path: Vec<IssuePathStep>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub line: Option<u32>,
-}
-
-/// A connection row's three schema fields, when it reads as one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-pub struct ConnectionRowFields {
-    pub kind: ConnectionKind,
-    pub title: String,
-    pub model: String,
-}
-
-/// One of Whispering's connection rows as the CLI read or sent it. `text`
-/// is the file's exact source; `issues` describes its interpretation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-pub struct ConnectionRow {
-    pub text: String,
-    pub issues: Option<Vec<ConnectionRowIssue>>,
-    /// `null` when the row does not read; any other field stays in `text`.
-    pub fields: Option<ConnectionRowFields>,
-}
-
-/// The fields a Whispering save assigns. One left out keeps its value, and
-/// every field another program added survives.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(deny_unknown_fields)]
-pub struct ConnectionRowAssignment {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<AssignedConnectionKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-}
-
-/// What `epicenter whispering-connection read|set` answers.
-#[derive(Deserialize)]
-struct RowAnswer<T> {
-    row: T,
-}
-
-async fn connection_read_with(
-    invocation: &Invocation,
-    connection: WhisperingConnection,
-) -> Result<Option<ConnectionRow>, CliError> {
-    let answer: RowAnswer<Option<ConnectionRow>> = invocation
-        .answer(
-            &["whispering-connection", "read", connection.arg(), "--json"],
-            None,
-        )
-        .await?;
-    Ok(answer.row)
-}
-
-async fn connection_set_with(
-    invocation: &Invocation,
-    connection: WhisperingConnection,
-    fields: &ConnectionRowAssignment,
-) -> Result<ConnectionRow, CliError> {
-    let input = serde_json::to_vec(&json!({ "fields": fields }))
-        .map_err(|error| failed(error.to_string()))?;
-    let answer: RowAnswer<ConnectionRow> = invocation
-        .answer(
-            &["whispering-connection", "set", connection.arg(), "--json"],
-            Some(input),
-        )
-        .await?;
-    Ok(answer.row)
-}
-
-/// Read one of Whispering's connection rows in the selected records directory, through
-/// `epicenter whispering-connection read`; `null` when there is none.
-/// Reading creates nothing.
-#[tauri::command]
-#[specta::specta]
-pub async fn whispering_connection_read(
-    webview: Webview,
-    connection: WhisperingConnection,
-) -> Result<Option<ConnectionRow>, CliError> {
-    connection_read_with(&window_invocation(&webview)?, connection).await
-}
-
-/// Assign `fields` to one of Whispering's current connection rows through
-/// `epicenter whispering-connection set`. Answers the row as sent. A refusal
-/// changed nothing; a run that failed may or may not have saved.
-#[tauri::command]
-#[specta::specta]
-pub async fn whispering_connection_set(
-    webview: Webview,
-    connection: WhisperingConnection,
-    fields: ConnectionRowAssignment,
-) -> Result<ConnectionRow, CliError> {
-    connection_set_with(&window_invocation(&webview)?, connection, &fields).await
-}
-
-// ---------------------------------------------------------------------------
-// Account requests (ADR-0549, ADR-0556): a page's call to one of the
-// deployment's resources, which `epicenter send` makes with the app's grant.
-// The page names the resource by role and never holds the token.
-// ---------------------------------------------------------------------------
-
-/// The deployment's resources an account request may carry a token for, by
-/// role: `api` for the profile read, `git` for Git and the folder connect
-/// call. A closed set, so a page cannot name an audience of its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "lowercase")]
-pub enum AccountAudience {
-    Api,
-    Git,
-}
-
-/// The account target `epicenter send` reads: `{"kind":"account","audience"}`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-enum AccountTarget {
-    Account {
-        audience: AccountAudience,
-        generation: String,
-    },
-}
-
-/// This installed page's account authority. A Tauri command permission alone
-/// does not grant an audience or every path at the deployment's origin.
-fn account_request_allowed(window: &str, audience: AccountAudience, request: &AiRequest) -> bool {
-    let Some((page, _)) = window.split_once(':') else {
-        return false;
-    };
-    match crate::bundled_apps::BundledApp::from_page(page) {
-        Some(crate::bundled_apps::BundledApp::Whispering) => {
-            audience == AccountAudience::Api
-                && matches!(
-                    (request.method.as_str(), request.path.as_str()),
-                    ("POST", "v1/audio/transcriptions")
-                        | ("POST", "v1/chat/completions")
-                        | ("GET", "auth/oauth2/userinfo")
-                )
-        }
-        _ => false,
-    }
-}
-
-fn request_id_valid(id: &str) -> bool {
-    id.len() == 36
-        && id.as_bytes()[14] == b'4'
-        && matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b' | b'A' | b'B')
-        && id.bytes().enumerate().all(|(index, byte)| {
-            if matches!(index, 8 | 13 | 18 | 23) {
-                byte == b'-'
-            } else {
-                byte.is_ascii_hexdigit()
-            }
-        })
-}
-
-/// `epicenter send --json --desktop` with an account target. The CLI checks
-/// the requested path and grant generation before selecting the token.
-async fn account_send_with(
-    invocation: &Invocation,
-    audience: AccountAudience,
-    generation: &str,
-    request: &AiRequest,
-    on_line: impl FnMut(String) -> Result<(), String>,
-) -> Result<CliExit, CliError> {
-    run_send(
-        invocation,
-        &AccountTarget::Account {
-            audience,
-            generation: generation.to_string(),
-        },
-        request,
-        on_line,
-    )
-    .await
-}
-
-/// Send one request to the deployment's `audience` resource with the app's
-/// grant, through `epicenter send` (ADR-0549, ADR-0683). The lines are
-/// `ai_send`'s: the response's head, its body in base64 chunks, and `end`,
-/// or an `error` such as `NoAccountToken` when the app is not signed in,
-/// then the shell's own `{"type":"exit","code","stderr"}`.
-#[tauri::command]
-#[specta::specta]
-pub async fn account_send(
-    webview: Webview,
-    audience: AccountAudience,
-    generation: String,
-    request: AiRequest,
-    request_id: String,
-    on_event: Channel<String>,
-) -> Result<CliExit, CliError> {
-    if !account_request_allowed(webview.label(), audience, &request)
-        || !request_id_valid(&generation)
-        || !request_id_valid(&request_id)
-    {
-        return Err(CliError::Refused {
-            message: "the account request is not permitted for this window".into(),
-        });
-    }
-    let exit = account_send_with(
-        &window_invocation(&webview)?.request(&request_id),
-        audience,
-        &generation,
-        &request,
-        to_channel(&on_event),
-    )
-    .await?;
-    end_channel(&on_event, exit)
-}
-
-/// Stop this window's one account request, including its response stream.
-#[tauri::command]
-#[specta::specta]
-pub fn send_cancel(webview: Webview, request_id: String) -> Result<(), CliError> {
-    if !request_id_valid(&request_id) {
-        return Err(CliError::Refused {
-            message: "the request id is invalid".into(),
-        });
-    }
-    webview
-        .state::<CliChildren>()
-        .cancel(webview.label(), &request_id);
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1724,382 +1240,13 @@ process.exitCode = 1;
         }
     }
 
-    /// One HTTP exchange on a local port: answers `body` with status 200 and
-    /// hands back the request it read, head and body.
-    async fn fake_endpoint(body: Vec<u8>) -> (String, tokio::task::JoinHandle<Vec<u8>>) {
-        use tokio::net::TcpListener;
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let served = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = Vec::new();
-            let mut chunk = vec![0u8; 64 * 1024];
-            loop {
-                let read = socket.read(&mut chunk).await.unwrap();
-                request.extend_from_slice(&chunk[..read]);
-                let text = String::from_utf8_lossy(&request).to_lowercase();
-                if let Some(end) = text.find("\r\n\r\n") {
-                    let length = text[..end]
-                        .lines()
-                        .find_map(|line| line.strip_prefix("content-length:"))
-                        .map(|value| value.trim().parse::<usize>().unwrap())
-                        .unwrap_or(0);
-                    if request.len() >= end + 4 + length {
-                        break;
-                    }
-                }
-                if read == 0 {
-                    break;
-                }
-            }
-            let head = format!(
-                "HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
-                body.len()
-            );
-            socket.write_all(head.as_bytes()).await.unwrap();
-            socket.write_all(&body).await.unwrap();
-            socket.shutdown().await.unwrap();
-            request
-        });
-        (format!("http://127.0.0.1:{}/v1", address.port()), served)
-    }
-
-    fn openai(endpoint: &str) -> AiTarget {
-        AiTarget::OpenaiCompatible {
-            connection: "groq".into(),
-            endpoint: endpoint.into(),
-        }
-    }
-
-    /// `ai_send` runs exactly `epicenter send --json`, writes the target and
-    /// request as one JSON line followed by the body's raw bytes, and passes
-    /// each line the child prints on, unread. The child here reports what it
-    /// was given.
-    #[tokio::test]
-    async fn ai_send_writes_one_fixed_invocation_with_the_raw_body() {
-        let dir = scratch("send-input");
-        let script = dir.join("child.ts");
-        fs::write(
-            &script,
-            r#"
-const input = await Bun.stdin.bytes();
-const newline = input.indexOf(10);
-const head = JSON.parse(new TextDecoder().decode(input.subarray(0, newline)));
-const body = input.subarray(newline + 1);
-console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subarray(0, 4)], length: body.length }));
-"#,
-        )
-        .unwrap();
-        let program = Program {
-            program: PathBuf::from("bun"),
-            prefix: vec![script.into_os_string()],
-        };
-        let mut body = vec![0u8, 10, 13, 255];
-        body.extend(std::iter::repeat(7u8).take(2 * 1024 * 1024));
-        let request = AiRequest {
-            method: "POST".into(),
-            path: "audio/transcriptions".into(),
-            headers: vec![(
-                "content-type".into(),
-                "multipart/form-data; boundary=x".into(),
-            )],
-            body: Some(STANDARD.encode(&body)),
-        };
-        let mut lines = Vec::new();
-        let exit = send_with(
-            &plain(program.clone()),
-            &openai("https://api.groq.com/openai/v1"),
-            &request,
-            |line| {
-                lines.push(line);
-                Ok(())
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(exit.code, 0, "{}", exit.stderr);
-        let seen: Value = serde_json::from_str(&lines[0]).unwrap();
-        assert_eq!(seen["argv"], json!(["send", "--json", "--desktop"]));
-        assert_eq!(
-            seen["head"],
-            json!({
-                "target": { "kind": "openai-compatible", "connection": "groq", "endpoint": "https://api.groq.com/openai/v1" },
-                "request": {
-                    "method": "POST",
-                    "path": "audio/transcriptions",
-                    "headers": [["content-type", "multipart/form-data; boundary=x"]],
-                },
-            })
-        );
-        assert_eq!(seen["body"], json!([0, 10, 13, 255]));
-        assert_eq!(seen["length"], body.len());
-
-        let refused = send_with(
-            &plain(program),
-            &AiTarget::OpenaiCompatible {
-                connection: "--json".into(),
-                endpoint: "https://api.example.test/v1".into(),
-            },
-            &request,
-            |_| Ok(()),
-        )
-        .await
-        .unwrap_err();
-        assert!(matches!(refused, CliError::Refused { .. }), "{refused:?}");
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    /// `account_send` runs exactly `epicenter send --json --desktop`, and
-    /// stdin's head carries the account target, named by role, and the
-    /// request. The child here reports what it was given.
-    #[tokio::test]
-    async fn account_send_writes_the_account_target_and_request() {
-        let dir = scratch("account-send-input");
-        let script = dir.join("child.ts");
-        fs::write(
-            &script,
-            r#"
-const input = await Bun.stdin.bytes();
-const newline = input.indexOf(10);
-const head = JSON.parse(new TextDecoder().decode(input.subarray(0, newline)));
-console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecoder().decode(input.subarray(newline + 1)) }));
-"#,
-        )
-        .unwrap();
-        let program = Program {
-            program: PathBuf::from("bun"),
-            prefix: vec![script.into_os_string()],
-        };
-        let request = AiRequest {
-            method: "POST".into(),
-            path: "api/repos".into(),
-            headers: vec![("content-type".into(), "application/json".into())],
-            body: Some(STANDARD.encode(br#"{"folder":"so.epicenter.todos"}"#)),
-        };
-        let mut lines = Vec::new();
-        let exit = account_send_with(
-            &plain(program),
-            AccountAudience::Git,
-            "11111111-1111-4111-8111-111111111111",
-            &request,
-            |line| {
-                lines.push(line);
-                Ok(())
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(exit.code, 0, "{}", exit.stderr);
-        let seen: Value = serde_json::from_str(&lines[0]).unwrap();
-        assert_eq!(seen["argv"], json!(["send", "--json", "--desktop"]));
-        assert_eq!(
-            seen["head"],
-            json!({
-                "target": { "kind": "account", "audience": "git", "generation": "11111111-1111-4111-8111-111111111111" },
-                "request": {
-                    "method": "POST",
-                    "path": "api/repos",
-                    "headers": [["content-type", "application/json"]],
-                },
-            })
-        );
-        assert_eq!(seen["body"], r#"{"folder":"so.epicenter.todos"}"#);
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn account_requests_are_scoped_to_whisperings_methods_and_paths() {
-        let request = |method: &str, path: &str| AiRequest {
-            method: method.into(),
-            path: path.into(),
-            headers: vec![],
-            body: None,
-        };
-        assert!(account_request_allowed(
-            "whispering:folder",
-            AccountAudience::Api,
-            &request("POST", "v1/audio/transcriptions")
-        ));
-        assert!(account_request_allowed(
-            "whispering:folder",
-            AccountAudience::Api,
-            &request("POST", "v1/chat/completions")
-        ));
-        assert!(account_request_allowed(
-            "whispering:folder",
-            AccountAudience::Api,
-            &request("GET", "auth/oauth2/userinfo")
-        ));
-        for (window, audience, method, path) in [
-            (
-                "todos:folder",
-                AccountAudience::Api,
-                "POST",
-                "v1/chat/completions",
-            ),
-            (
-                "whispering:folder",
-                AccountAudience::Git,
-                "POST",
-                "v1/chat/completions",
-            ),
-            (
-                "whispering:folder",
-                AccountAudience::Api,
-                "GET",
-                "v1/chat/completions",
-            ),
-            (
-                "whispering:folder",
-                AccountAudience::Api,
-                "POST",
-                "v1/../v1/chat/completions",
-            ),
-            (
-                "whispering:folder",
-                AccountAudience::Api,
-                "POST",
-                "v1/%63hat/completions",
-            ),
-        ] {
-            assert!(!account_request_allowed(
-                window,
-                audience,
-                &request(method, path)
-            ));
-        }
-    }
-
-    #[tokio::test]
-    async fn one_window_cancels_only_its_named_request_even_when_cancel_arrives_first() {
-        let children = CliChildren::default();
-        children.cancel("whispering:first", "11111111-1111-4111-8111-111111111111");
-        assert!(children
-            .start(
-                "whispering:first",
-                Some("11111111-1111-4111-8111-111111111111")
-            )
-            .is_err());
-        let second = children
-            .start(
-                "whispering:second",
-                Some("11111111-1111-4111-8111-111111111111"),
-            )
-            .unwrap();
-        assert!(
-            tokio::time::timeout(Duration::from_millis(10), second.notified())
-                .await
-                .is_err()
-        );
-        children.cancel("whispering:second", "11111111-1111-4111-8111-111111111111");
-        tokio::time::timeout(Duration::from_millis(10), second.notified())
-            .await
-            .unwrap();
-    }
-
-    #[test]
-    fn newest_pre_start_cancel_survives_a_full_window_queue() {
-        let children = CliChildren::default();
-        for id in 0..128 {
-            children.cancel("whispering:first", &format!("stale-{id}"));
-        }
-        children.cancel("whispering:first", "current");
-        assert!(children.start("whispering:first", Some("current")).is_err());
-        assert!(children.start("whispering:first", Some("stale-0")).is_ok());
-        children.page_ended("whispering:first");
-    }
-
-    /// A page names a resource by role; an audience outside the closed set,
-    /// such as a URL or another resource, never reaches the CLI.
-    #[test]
-    fn an_account_audience_outside_the_enum_does_not_deserialize() {
-        assert_eq!(
-            serde_json::from_value::<AccountAudience>(json!("api")).unwrap(),
-            AccountAudience::Api
-        );
-        assert_eq!(
-            serde_json::from_value::<AccountAudience>(json!("git")).unwrap(),
-            AccountAudience::Git
-        );
-        for refused in [
-            json!("mcp"),
-            json!("Git"),
-            json!("https://git.epicenter.so"),
-            json!(""),
-            json!(null),
-            json!({ "kind": "account", "audience": "git" }),
-        ] {
-            assert!(
-                serde_json::from_value::<AccountAudience>(refused.clone()).is_err(),
-                "{refused} deserialized"
-            );
-        }
-    }
-
-    /// Through the real CLI, with a keychain that holds no grant: an account
-    /// request below `/api/` is refused for want of the app's sign-in, and
-    /// one outside it is refused before any token is asked for.
-    #[tokio::test]
-    async fn account_send_through_the_cli_needs_the_apps_grant_and_an_api_path() {
-        let dir = scratch("account-send-cli");
-        let invocation = invocation_in(cli_with_secrets(&dir, json!({})), &dir);
-        let request = |path: &str| AiRequest {
-            method: "GET".into(),
-            path: path.into(),
-            headers: Vec::new(),
-            body: None,
-        };
-        let mut events = Vec::new();
-        let exit = account_send_with(
-            &invocation,
-            AccountAudience::Api,
-            "11111111-1111-4111-8111-111111111111",
-            &request("api/session"),
-            |line| {
-                events.push(serde_json::from_str::<Value>(&line).unwrap());
-                Ok(())
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(exit.code, 2);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0]["name"], "NoAccountToken");
-        assert!(
-            events[0]["message"]
-                .as_str()
-                .unwrap()
-                .contains("Sign in from Epicenter's Settings"),
-            "{}",
-            events[0]
-        );
-
-        let mut events = Vec::new();
-        account_send_with(
-            &invocation,
-            AccountAudience::Api,
-            "11111111-1111-4111-8111-111111111111",
-            &request("auth/oauth2/revoke"),
-            |line| {
-                events.push(serde_json::from_str::<Value>(&line).unwrap());
-                Ok(())
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(events[0]["name"], "InvalidRequest");
-        let _ = fs::remove_dir_all(dir);
-    }
-
     /// Through the real CLI: the key state names the endpoint and never the
-    /// key, a request reaches the endpoint with the keychain's key and comes
-    /// back as head, chunks, and end, and a request prepared for another
-    /// endpoint is refused without being sent.
+    /// key, a save canonicalizes the endpoint and refuses one that is not
+    /// HTTP, and removing nothing says so.
     #[tokio::test]
-    async fn ai_send_and_the_key_commands_run_the_cli() {
-        let dir = scratch("send-cli");
-        let reply: Vec<u8> = (0..200_000u32).map(|index| (index % 251) as u8).collect();
-        let (endpoint, served) = fake_endpoint(reply.clone()).await;
+    async fn the_key_commands_run_the_cli() {
+        let dir = scratch("key-cli");
+        let endpoint = "https://api.groq.test/v1".to_string();
         let program = invocation_in(
             cli_with_secrets(
                 &dir,
@@ -2134,205 +1281,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         assert!(matches!(refused, CliError::Refused { .. }), "{refused:?}");
         assert!(!key_remove_with(&program, "other").await.unwrap());
 
-        let request = AiRequest {
-            method: "POST".into(),
-            path: "chat/completions".into(),
-            headers: vec![("cookie".into(), "ambient=1".into())],
-            body: Some(STANDARD.encode(b"{\"model\":\"m\"}")),
-        };
-        let mut events = Vec::new();
-        let exit = send_with(&program, &openai(&endpoint), &request, |line| {
-            events.push(serde_json::from_str::<Value>(&line).unwrap());
-            Ok(())
-        })
-        .await
-        .unwrap();
-        assert_eq!(exit.code, 0, "{}", exit.stderr);
-        assert_eq!(events[0]["type"], "head");
-        assert_eq!(events[0]["status"], 200);
-        assert_eq!(events.last().unwrap()["type"], "end");
-        let mut body = Vec::new();
-        for event in &events[1..events.len() - 1] {
-            assert_eq!(event["type"], "chunk");
-            body.extend(STANDARD.decode(event["data"].as_str().unwrap()).unwrap());
-        }
-        assert_eq!(body, reply);
-        let sent = String::from_utf8(served.await.unwrap()).unwrap();
-        assert!(sent.starts_with("POST /v1/chat/completions "), "{sent}");
-        assert!(
-            sent.to_lowercase()
-                .contains("authorization: bearer sk-rust"),
-            "{sent}"
-        );
-        assert!(!sent.to_lowercase().contains("cookie"), "{sent}");
-        assert!(sent.ends_with("{\"model\":\"m\"}"), "{sent}");
-
-        let mut events = Vec::new();
-        let exit = send_with(
-            &program,
-            &openai("https://api.example.com/v1"),
-            &request,
-            |line| {
-                events.push(serde_json::from_str::<Value>(&line).unwrap());
-                Ok(())
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(exit.code, 2);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0]["name"], "EndpointChanged");
-
         let _ = fs::remove_dir_all(dir);
-    }
-
-    /// Through the real CLI over a new Epicenter folder: a missing row reads
-    /// as none and creates nothing; a save makes the row with only the
-    /// assigned fields; each field save writes canonical frontmatter with LF,
-    /// no BOM or comments, and declared key order while keeping unknown fields;
-    /// a row whose frontmatter does not parse is refused, its bytes intact.
-    #[tokio::test]
-    async fn whispering_connection_rows_run_the_cli_over_the_shells_folder() {
-        let dir = scratch("connection-rows");
-        let invocation = invocation_in(cli_with_secrets(&dir, json!({})), &dir);
-        let epicenter = paths_in(&dir).folder_dir;
-        let row_file = epicenter.join("so.epicenter/connections/whispering-text.md");
-
-        assert_eq!(
-            connection_read_with(&invocation, WhisperingConnection::Text)
-                .await
-                .unwrap(),
-            None
-        );
-        assert!(!epicenter.exists());
-
-        fs::create_dir_all(&epicenter).unwrap();
-        let assign = |model: &str, title: Option<&str>| ConnectionRowAssignment {
-            kind: Some(AssignedConnectionKind::OpenaiCompatible),
-            title: title.map(str::to_string),
-            model: Some(model.to_string()),
-        };
-        let made = connection_set_with(
-            &invocation,
-            WhisperingConnection::Text,
-            &assign("chat", Some("Whispering text")),
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            made,
-            ConnectionRow {
-                text: "---\nkind: openai-compatible\ntitle: Whispering text\nmodel: chat\n---\n"
-                    .into(),
-                issues: None,
-                fields: Some(ConnectionRowFields {
-                    kind: ConnectionKind::OpenaiCompatible,
-                    title: "Whispering text".into(),
-                    model: "chat".into(),
-                }),
-            }
-        );
-        assert_eq!(fs::read_to_string(&row_file).unwrap(), made.text);
-
-        let source = "\u{feff}---\r\n# from Settings\r\nkind: openai-compatible\r\ntitle: Whispering text\r\nmodel: chat\r\nretries: 3\r\n---\r\nNotes.\r\n";
-        fs::write(&row_file, source).unwrap();
-        let read = connection_read_with(&invocation, WhisperingConnection::Text)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(read.text, source);
-        let saved = connection_set_with(
-            &invocation,
-            WhisperingConnection::Text,
-            &assign("other", None),
-        )
-        .await
-        .unwrap();
-        let expected = "---\nkind: openai-compatible\ntitle: Whispering text\nmodel: other\nretries: 3\n---\nNotes.\r\n";
-        assert_eq!(saved.text, expected);
-        assert_eq!(fs::read_to_string(&row_file).unwrap(), expected);
-
-        let broken = "---\nkind: [open\n---\n";
-        fs::write(&row_file, broken).unwrap();
-        let read = connection_read_with(&invocation, WhisperingConnection::Text)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(read.fields, None);
-        assert_eq!(
-            read.issues.as_ref().unwrap()[0].kind,
-            ConnectionRowIssueKind::Frontmatter
-        );
-        let refused = connection_set_with(
-            &invocation,
-            WhisperingConnection::Text,
-            &assign("other", None),
-        )
-        .await
-        .unwrap_err();
-        assert!(matches!(&refused, CliError::Refused { .. }), "{refused:?}");
-        assert_eq!(fs::read_to_string(&row_file).unwrap(), broken);
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    /// The directory the shell binds for Settings is the one the real CLI
-    /// it starts saves connection rows in: both compute `<root>/so.epicenter`,
-    /// and neither reads or writes configuration.
-    #[tokio::test]
-    async fn settings_and_the_cli_agree_on_the_records_folder_without_configuration() {
-        let dir = scratch("records-agreement");
-        let paths = paths_in(&dir);
-        fs::create_dir_all(&paths.data_dir).unwrap();
-
-        let records = paths
-            .open_default(epicenter_folder_core::library::RECORDS)
-            .unwrap();
-        assert_eq!(records.root(), paths.folder_dir.join("so.epicenter"));
-        let invocation = invocation_in(cli_with_secrets(&dir, json!({})), &dir);
-        connection_set_with(
-            &invocation,
-            WhisperingConnection::Text,
-            &ConnectionRowAssignment {
-                kind: Some(AssignedConnectionKind::OpenaiCompatible),
-                title: None,
-                model: Some("chat".into()),
-            },
-        )
-        .await
-        .unwrap();
-        assert!(records
-            .root()
-            .join("connections/whispering-text.md")
-            .is_file());
-        assert_eq!(fs::read_dir(&paths.data_dir).unwrap().count(), 0);
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    /// A page names one of two operations and assigns only the closed
-    /// fields: a row id, another kind, a body, or any other member never
-    /// deserializes, so it never reaches the CLI.
-    #[test]
-    fn a_connection_save_outside_the_closed_contract_does_not_deserialize() {
-        assert_eq!(
-            serde_json::from_value::<WhisperingConnection>(json!("transcription")).unwrap(),
-            WhisperingConnection::Transcription
-        );
-        for refused in [json!("whispering-text"), json!("Text"), json!("../x")] {
-            assert!(serde_json::from_value::<WhisperingConnection>(refused).is_err());
-        }
-        assert!(serde_json::from_value::<ConnectionRowAssignment>(json!({ "model": "m" })).is_ok());
-        for refused in [
-            json!({ "kind": "epicenter" }),
-            json!({ "kind": "local" }),
-            json!({ "body": "text" }),
-            json!({ "endpoint": "https://x.test/v1" }),
-            json!({ "path": "/tmp/x.md" }),
-        ] {
-            assert!(
-                serde_json::from_value::<ConnectionRowAssignment>(refused.clone()).is_err(),
-                "{refused} deserialized"
-            );
-        }
     }
 
     /// Through the real CLI, with a keychain that holds nothing: status names
@@ -2456,14 +1405,4 @@ console.log(JSON.stringify({ signedIn: { grant: 'desktop' } }));
         }
         let _ = fs::remove_dir_all(dir);
     }
-}
-
-/// Messages alone reaches Beeper through a fixed CLI command. Tokens cross on stdin.
-#[tauri::command]
-#[specta::specta]
-pub async fn messages_beeper(webview: Webview, request: String) -> Result<String, CliError> {
-    let answer: Value = window_invocation(&webview)?
-        .answer(&["messages", "--json"], Some(request.into_bytes()))
-        .await?;
-    Ok(answer.to_string())
 }

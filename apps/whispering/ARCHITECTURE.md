@@ -1,61 +1,22 @@
 # Whispering architecture
 
-Whispering is a page. On the desktop it is an app bundled with Epicenter
-(ADR-0493, ADR-0552), and Epicenter's shell and host do what a page cannot;
-in a browser tab it keeps its folder in browser storage. Exactly one thing
-opens the data folder: the page's own folder mirror.
+Whispering is a page that runs in a browser tab and keeps its folder in
+browser storage. Exactly one thing opens the data folder: the page's own
+folder mirror. Whispering has no desktop shell; Epicenter no longer hosts it
+([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)). The
+hosted design is archived at the tag `archive/app-hosting`.
 
 ```text
-src/                        the page      the UI; opens the folder bound to its window
+src/                        the page      the UI; opens this site's folder
 ```
 
-```text
-┌───────────── Epicenter's shell (Rust) ─────────────┐
-│ binds one folder to each Whispering window before  │
-│ it exists; tauri-plugin-epicenter-folder makes     │
-│ checked reads and ordered whole-file publications      │
-│ tauri-plugin-epicenter-recorder: audio into folder │
-│ local transcription with the one active model      │
-└──────────────────────▲─────────────────┬───────────┘
-                       │ invoke          │ reads, changes, audio
-             ┌─────────┴── page ───┐     ▼
-             │ the folder mirror   │   the data folder
-             └─────────┬───────────┘
-                       │ invoke ai_send
-┌──────────────────────▼─────────────────────────────┐
-│ the `epicenter` CLI, run by the shell: endpoints   │
-│ and keys in this computer's keychain; checks the   │
-│ endpoint, adds the key, sends, streams the answer  │
-└────────────────────────────────────────────────────┘
-```
-
-The page opens the folder with `@epicenter/folder/tauri` and names no
-folder: Epicenter binds one directory to each Whispering window before the
-window exists, and the shared Rust plugin (`tauri-plugin-epicenter-folder`),
-in Epicenter's process, answers every command in the calling window's
-directory. The page's own folder mirror then makes every read
-(`read_folder_file` and the rest) and every change (`put_folder_file`)
-through the folder plugin, one command per storage method, and the plugin's
-watcher names the paths that changed. It reads only inside the window's directory and never through a link;
-the plugin checks each change against the shared path rule, keeps it out of
-Git's private state, and lands it only while the path still holds the bytes
-the save read. This app has no folder code of its own on the desktop: no copy
-of the plugin's bindings and no second transport.
-
-Every other native service is Epicenter's, granted to Whispering's windows
-(`whispering.json` in `apps/epicenter/src-tauri/capabilities`):
-the recorder, local transcription with Epicenter's active model, and the AI
-commands. The two connections are rows of Epicenter's own folder
-`so.epicenter`, which Epicenter reads and saves for the page by operation;
-their endpoints and keys stay in this computer's keychain, and a request goes
-through the `epicenter` CLI, which adds the key. The page runs the folder
-mirror over its recording directory. The native folder plugin performs its
-rooted file operations; the connection commands separately read and save the
-two rows in Epicenter's own directory through the CLI.
-
-The two fail apart. If the `epicenter` command fails while Whispering is
-open, the folder is still open and still saves; what stops is a request that
-was out.
+The page opens the folder with `@epicenter/folder` and names no folder: in a
+browser tab that is this site's local folder in IndexedDB. The page's own
+folder mirror then makes every read and every change, and notices outside
+changes when it looks at storage again. Its two AI connections live in this
+site's `localStorage`, and a request leaves from the page, either to a custom
+endpoint, which must allow the page's origin (CORS), or to the Epicenter API
+through the signed-in account.
 
 ## The data model
 
@@ -115,18 +76,14 @@ What Whispering adds on top:
   transcript, so recording deletion never counts or waits on it.
 - Connections are not data in Whispering's folder. There are two,
   transcription and text, each a canonical base URL, a default model, and an
-  optional key. In Epicenter each is a row of the `connections` table in
-  Epicenter's own folder `so.epicenter`, `connections/whispering-transcription.md`
-  or `connections/whispering-text.md`, holding the kind `openai-compatible`,
-  the title "Whispering transcription" or "Whispering text", and the model.
-  The base URL and key are not in the row: they are in this computer's
-  keychain under the row's id (`src/lib/platform/desktop/connections.ts`).
-  In a browser tab they are `whispering.connections` in `localStorage`.
-  `src/lib/connections.ts` holds the rules both storages apply.
+  optional key. They are `whispering.connections` in this site's
+  `localStorage`; either one may instead name the signed-in Epicenter
+  account and a model. `src/lib/connections.ts` holds the rules a storage
+  applies.
 - The chosen microphone is not folder data either: it names hardware on one
   device. It is `whispering.microphone` in the origin's `localStorage`
-  (`src/lib/microphone-preference.ts`). Epicenter serves
-  every app from its one origin, so it lasts between launches.
+  (`src/lib/microphone-preference.ts`), so it lasts between visits to the
+  same site.
 
 Every file action, including settings saves, file creation, rename, and
 deletion, checks `whispering.closing` before starting. Late provider and
@@ -160,105 +117,49 @@ constructor assembles the app's capture,
 inference, connections, and preferences through `#platform/services`. The
 layout and route pages do not construct or receive a separate workspace.
 
-The build selects `src/lib/platform/desktop/services.ts` in the Epicenter host
-and `browser.ts` otherwise (ADR-0391). `platform/types.ts` describes
-those app capabilities. They neither open nor close storage:
+`#platform/services` (package.json "imports") maps to
+`src/lib/platform/browser.ts`, and `#platform/auth` to
+`src/lib/platform/auth.ts`. `platform/types.ts` describes those app
+capabilities. They neither open nor close storage:
 
-| | Desktop, in Epicenter (`desktop.ts`) | Browser (`browser.ts`) |
-| --- | --- | --- |
-| Folder | The directory Epicenter bound to this window, opened with Whispering's tables (`openFolder({ tables })` from `@epicenter/folder/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/browser`); earlier OPFS folders are not read or changed |
-| Recording | Epicenter's recorder plugin writes into the folder as it captures | `MediaRecorder`, written on stop |
-| Transcription and transformation | The page reads the audio and sends the request through the `epicenter` CLI (`ai_send`), which adds the key | The page sends the request, so the endpoint must allow its origin (CORS) |
-| Connections and keys | Rows of `so.epicenter`'s `connections` table, read and saved by Epicenter by operation; endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |
-| Local transcription | Epicenter's active local model (`local-transcription.ts`) | None |
-| Chosen microphone | `localStorage` | `localStorage` |
+| | Browser (`browser.ts`) |
+| --- | --- |
+| Folder | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder`); earlier OPFS folders are not read or changed |
+| Recording | `MediaRecorder`, written on stop |
+| Transcription and transformation | The page sends the request, so a custom endpoint must allow its origin (CORS); the account route sends through the signed-in account's `fetch` |
+| Connections and keys | `whispering.connections` in `localStorage` |
+| Local transcription | None (`localTranscription` is `undefined`) |
+| Chosen microphone | `localStorage` |
 
-The desktop folder opener opens the folder Epicenter bound to this window with
-Whispering's tables; it names no folder. Moving between Whispering's routes
-or reloading keeps that folder, since the binding is the window's. It writes
-nothing on opening: no declaration, no ignore file, no repository. The
-recorder writes into the same folder, which no call names. The shell's
-refusal (a window with no folder, a folder that is gone, a missing
-permission) remains the folder opener's own error, as does a folder
-the engine cannot open.
+`platform/types.ts` still names members only a desktop shell would supply,
+such as `localTranscription` and a status-read `problem` on the auth handle.
+The browser leaf leaves them `undefined`; they stay unused until Whispering
+has a desktop shell, which would reuse `@epicenter/recorder/tauri`,
+`tauri-plugin-epicenter-recorder`, and the CLI's
+`epicenter whispering-connection` command.
 
-Everything above the seam (`whispering.svelte.ts`, the components) is the
-same code for both. Opening returns a `Result`, and OpenFolder shows a
-refusal on its "Could not open storage" screen as it is. The two storages are
-never substitutes: nothing that is missing or refuses inside a desktop app is
-replaced by browser storage, and the host build carries none.
+Everything above the seam (`whispering.svelte.ts`, the components) names
+only the service contract. Opening returns a `Result`, and OpenFolder shows a
+refusal on its "Could not open storage" screen as it is. The browser folder
+refuses to open inside a Tauri window rather than open browser storage there.
 
-Page code names types and `readRow` from `@epicenter/folder`, and the
-layout its `openFolder`. `hostAppViteConfig` (from `@epicenter/vite-config`,
-which `vite.config.ts` builds on) aliases that exact specifier to
-`@epicenter/folder/tauri` in the host build and to
-`@epicenter/folder/browser` otherwise, so a browser build carries no
-desktop adapter or Epicenter's generated bindings, and the host build no
-browser storage or isomorphic-git. `src/lib/platform-selection.test.ts`
-bundles both builds and reads what each pulls in.
+Page code names types, `readRow`, and the layout's `openFolder` from
+`@epicenter/folder`. `src/lib/platform-selection.test.ts` bundles the
+browser build and reads what it pulls in: the browser services, the WebView
+microphone, and no Bun or Node module or the native recorder.
 `src/lib/page-boundary.test.ts` fails if anything else under `src/` opens a
-folder, imports a platform adapter other than through `#platform/services`, imports
-a Node or Bun module, imports a Tauri module other than the `Channel` the
-desktop connections stream on, imports the bindings outside the desktop
-adapter, or imports the Yjs store, sync, or an account module.
+folder, imports a platform adapter other than through `#platform/services`,
+imports a Node, Bun, or Tauri module, or imports the Yjs store, sync, or an
+account module.
 
-## Bundled in Epicenter
-
-Epicenter's `BundledApp::Whispering` names the page and its default `Whispering`
-folder. Epicenter runs `bun run build:host`, which writes `dist/` (ADR-0560).
-`build:host` sets `EPICENTER_HOST=1`: adapter-static writes `dist/` with
-relative asset paths, and every page is prerendered (`src/routes/+layout.ts`),
-so the build runs wherever Epicenter serves it, at
-`epicenter-app://localhost/whispering/`. Links go through `resolve` from
-`$app/paths`.
-
-Epicenter opens the app's window with a `whispering:<digest of the folder's
-directory>` label, one window per folder. The `whispering.json` capability selects those labels and
-grants the folder plugin, the recorder, local transcription and its
-readiness, opening Settings, the AI commands, and the two connection-row
-commands. Epicenter's README states
-the rule.
-
-## Connections through Epicenter
-
-Whispering's window opens no folder but its own and reaches no other. `src/lib/platform/desktop/connections.ts` reads and changes the two
-rows of `so.epicenter`'s `connections` table, which sync with that folder,
-through two Epicenter commands that name an operation, `transcription` or
-`text`, never a row or a path: `whispering_connection_read` and
-`whispering_connection_set`. Each runs `epicenter whispering-connection
-read|set` (`packages/cli/src/connection-rows.ts`), which opens `so.epicenter`
-under the Epicenter folder with `connectionsTables` from
-`@epicenter/ai/connection-table`, reads or saves the one row, and closes it.
-Reading writes nothing there. A row that does not read is reported, never
-taken for none. A save sends the row's exact source as the page read it as
-its base and assigns only `kind`, `title` for a new row, and `model`, so it
-keeps the row's title, every field another program added, and an edit
-Settings saved meanwhile. A save whose reply never arrived is reported as not
-confirmed, never as saved. The endpoint and key are
-in this computer's keychain under the row's id, and only the `epicenter` CLI
-reads or writes them (`epicenter auth key set|remove|state`), through the
-Rust commands `ai_key_set`, `ai_key_remove`, and `ai_key_state`. The page
-learns the endpoint and whether a key is saved, never the key. A save writes
-the keychain entry first, then makes or updates the row; `keep` leaves the
-entry as it is, `replace` saves the new key, and `remove` saves none.
-`applyConnectionChange` refuses keeping a key for another base URL before
-anything is saved, as in a browser tab. A row synced from another computer is
-not set up on this one until a person saves its endpoint, and key if it has
-one, here.
+## Connections and requests
 
 `transcribe` and `transform` take what to send, the model, and the base URL
-the page prepared the request for (`expectedBaseUrl`). The platform adapter reads
-the operation's row and keychain entry once, at entry; if either is missing,
-or the base URL is not exactly `expectedBaseUrl`, it answers
-`ConnectionUnavailable` or `ConnectionChanged` and sends nothing. Otherwise
-the request goes to the Rust command `ai_send`, which runs `epicenter send`.
-The CLI checks that the keychain entry still holds the endpoint the request
-was prepared for, and refuses the request, with nothing sent, rather than
-retarget it. Then it adds the key, sends with redirects refused and no
-cookie, and streams the response back as NDJSON lines over a Tauri `Channel`.
-The page reads those lines into a `Response` with `createResponseReader`
-from `@epicenter/ai/send`. The request never leaves from the page, so the
-endpoint needs no CORS headers.
+the page prepared the request for (`expectedBaseUrl`). The platform adapter
+reads the operation's connection once, at entry; if it is missing, or the
+base URL is not exactly `expectedBaseUrl`, it answers `ConnectionUnavailable`
+or `ConnectionChanged` and sends nothing. `applyConnectionChange` refuses
+keeping a key for another base URL before anything is saved.
 
 Before preparing a request, the run captures valid current owner content. It
 reads the input only if it has not been acquired and never saves source files
@@ -269,27 +170,14 @@ after preparation and initial result publication.
 
 A transcription reads its audio through the folder engine, from the path the
 recording's row names, and sends those bytes with the file's own name and the
-type its extension calls for. The folder plugin reads only beneath the root
-and never through a link. Audio that cannot be read is `AudioUnreadable`, and
-nothing is sent.
+type its extension calls for. Audio that cannot be read is `AudioUnreadable`,
+and nothing is sent.
 
-A request whose reply never arrived from the `epicenter` command says only
-that no reply arrived: the command may have sent it and had the answer lost
-on the way back. The page reports that as `HostUnavailable`, worded as an unknown
-outcome and never as "not sent", and does not make the call again; trying
-again is the person's choice and is one more request.
-
-## Local transcription
-
-`src/lib/platform/desktop/transcription.ts` transcribes a recording with
-Epicenter's one active local model (ADR-0180). It asks
-`list_inference_models` which installed model is active, reads the audio
-through the folder engine, and hands the bytes to `transcribe_audio_bytes`
-with that model's id; it never chooses or downloads a model. No active model
-is `ConnectionUnavailable`, naming Settings, and `openSettings` calls
-`open_home` with the transcription section, which opens Epicenter's Settings
-at the model. Nothing in Whispering's UI uses it yet: its settings have no way
-to choose transcription on this computer.
+A request whose reply never arrived says only that no reply arrived: the
+endpoint may have received it and the answer been lost on the way back. The
+page reports that as an unknown outcome and never as "not sent", and does not
+make the call again; trying again is the person's choice and is one more
+request.
 
 ## The product root and the pages
 
@@ -310,9 +198,7 @@ module-level mutable state.
 
 Unmount closes the folder: new writes are refused, waiting writes are sent,
 and storage is released once they answer. If opening finishes after unmount,
-OpenFolder closes that folder without registering a window guard. In a
-desktop window, OpenFolder holds the window's close: it never asks, waits for
-the writes in flight, then lets the window go.
+OpenFolder closes that folder without registering a window guard.
 
 Product construction is synchronous and reads nothing. Its `start()` first
 calls `maintainExclusions` (`src/lib/exclusions.ts`), before any product read.
@@ -351,14 +237,10 @@ mounts a fresh root and repeats startup.
 Leaving asks through `beforeunload`: edits have already queued their values, and the page is
 unsure while a write is out. A browser tab raises its
 leave warning then. Internal route changes keep the mounted app and need no
-guard. Inside Epicenter a window's Close waits for writes in flight and
-closes; closing again while it waits asks whether to close anyway. The host always
-confirms application Quit and adds its native recording warning; see
-"Closing".
+guard; see "Closing".
 
-Every page is prerendered in Epicenter's build, and Epicenter serves the app's
-document for any other path below it; a browser build serves a fallback page.
-So `/recordings` and `/transformations` open directly and survive a refresh.
+The browser build serves a fallback page for every path, so `/recordings` and
+`/transformations` open directly and survive a refresh.
 
 ## Recording
 
@@ -373,15 +255,13 @@ A recording is in the folder from the moment it starts (ADR-0543). Whispering
 names it at start: `startRecording` makes the ID from the start time,
 asks the capture device to record into
 `recordings/<id>` (`recordingAudioStem`), and writes the row with the start
-time and capture source. A native start interrupted before that row lands can
-leave audio without a Markdown row; Files still exposes the audio. The device
+time and capture source. The device
 adds its format extension; the row stores no path. `stopRecording` stops the
 device and writes the length (`durationMs`) onto the row it reads again, so a
 title typed meanwhile is kept. Stop reports separately when audio was saved
 but its row could not be created. Capture has no discard operation.
 Closing Whispering neither stops nor deletes a running recording: leaving
-the page ends it. On the desktop the shell finalizes its WAV and frees the
-recorder; in a browser the recording held in the page is lost. Its row,
+the page ends it, and the recording held in the page is lost. Its row,
 written at start, gets no length. A Stop already under way when Whispering
 closes writes no length either. Nothing in a row says whether a recording is
 running: Whispering's live capture says that, and a running recording is
@@ -399,25 +279,16 @@ stopped can still save its bytes.
 There are two capture devices, and each mounted product has exactly one, chosen at construction; neither falls back to the other.
 
 - The microphone device (`src/lib/microphone.ts`) records with the recorder
-  each platform adapter supplies, over that adapter's inputs: the desktop
-  adapter imports `@epicenter/recorder/tauri` and the browser adapter
-  `@epicenter/recorder/browser`; shared code names only the bare contract.
-  Whispering calls the desktop adapter's `recoverRecordings()` before reads, and
-  shows a failure as its capture notice. Inside the
-  desktop app (`src/lib/platform/desktop/microphone.ts`) Rust owns the
-  microphone (ADR-0571): the shell's `tauri-plugin-epicenter-recorder` lists
-  the inputs, reads a level, and writes `<path>.wav` into the granted folder
-  as it captures, finalizing it on stop and on a page reload or a closed
-  window; the page opens no microphone. In a browser tab
-  (`src/lib/webview-microphone.ts`) `MediaRecorder` holds the audio and the
-  page writes `<path>.webm` (or the browser's container) on stop.
+  the platform adapter supplies, over that adapter's inputs: the browser
+  adapter imports `@epicenter/recorder/browser`; shared code names only the
+  bare contract. In a browser tab (`src/lib/webview-microphone.ts`)
+  `MediaRecorder` holds the audio and the page writes `<path>.webm` (or the
+  browser's container) on stop.
 - The fixture device (`src/lib/capture.ts`) writes fixed bytes on stop, under
   the fixture's own extension, and marks the row `fixture`.
 
-When Whispering starts it calls `recoverRecordings` over `recordings/`: on
-the desktop the shell rewrites the header of any WAV a quit or a crash cut
-off, so it plays to its end; a browser has none. The row of such a recording
-has no length.
+When Whispering starts it calls `recoverRecordings`, which a browser answers
+with nothing to repair.
 
 ### The microphone
 
@@ -425,27 +296,13 @@ The microphone device also has `inputs`: listing, asking for access, and a
 level reading. The fixture device has none, so in fixture mode nothing lists,
 asks for, or opens a microphone.
 
-- In Epicenter, listing is the recorder plugin's `inputs`: every input with
-  cpal's device ID (`coreaudio:<device UID>`) and its name, which needs no
-  microphone permission. A test is the plugin's meter and a recording its
-  `start`, each asking for the chosen input by that ID; the shell refuses an
-  ID that is not connected (`InputUnavailable`) and opens nothing in its
-  place. The plugin asks macOS for microphone access before either resolves a
-  device, raising the prompt once and otherwise reading the stored decision;
-  a denial is `PermissionDenied` and nothing opens. There is no `allow`, and
-  listing never clears a denial: only a microphone that opens does. A denied
-  control offers to open System Settings at the microphone pane
-  (`openSettings`, through the opener). A meter that stops on its own ends the
-  test with its reason. No `getUserMedia`, `enumerateDevices`,
-  `MediaRecorder`, or `AudioContext` runs; `platform-selection.test.ts` proves
-  the build reaches none of them.
 - In a browser, a chosen microphone is asked for as `{ deviceId: { exact } }`.
   A WebView that cannot open exactly that one answers with a refusal
   (`InputUnavailable`), and a stream that reports another device is released
   and refused. Listing is `enumerateDevices` and nothing else. It never asks
   for access, so before access is allowed it names no input. `allow` is the
   separate action: it opens the default microphone and releases it at once.
-- On both, the system default is asked for only when nothing is chosen.
+- The system default is asked for only when nothing is chosen.
 - Every request takes an `AbortSignal`. A stream that arrives after its
   request was withdrawn is released there, so a late answer leaves nothing
   open.
@@ -462,12 +319,10 @@ The recorder and that request never hold a microphone together.
 `startRecording` releases before it asks for its own microphone and passes the
 choice it read at that moment; the choice, a test, and `allow` are refused
 while a recording is starting, running, or finishing. A recording closed while
-its microphone is opening aborts that request: a browser releases the
-microphone when it answers, and on the desktop the shell stops what it
-started, keeping its audio. Closing Whispering releases a test's microphone
+its microphone is opening aborts that request: the browser releases the
+microphone when it answers. Closing Whispering releases a test's microphone
 at once, waits for no save of the choice, and stops listening for
-`devicechange` (a browser announces
-connected inputs; the shell does not, so there the person lists again).
+`devicechange`, by which a browser announces connected inputs.
 
 Nothing here runs at launch. The app reads the saved choice through
 `services.preferences` and opens nothing; the first listing is when the
@@ -479,21 +334,18 @@ saved ID that is not listed is never matched to a listed input by name. The
 choice stays as it is, the control shows it as not listed, and it changes only
 when the person chooses again. A listing can be limited by permission, so
 absence from it proves nothing about the microphone: a recording still asks
-for exactly that ID, and refuses only if it cannot be opened. In Epicenter the
-ID is the device's CoreAudio UID, which macOS keeps across launches and
-reconnections. A WebView may give the same microphone another ID in a new
-origin.
+for exactly that ID, and refuses only if it cannot be opened. A WebView may
+give the same microphone another ID in a new origin.
 
 ## Transformations
 
 `src/lib/transformation.ts` is the request: `POST <base>/chat/completions` with
 the model, the prompt as the system message, and the input as the user
 message, reading `choices[0].message.content`. It is plain `fetch` with
-`redirect: 'error'` and `credentials: 'omit'`, shared by both platform adapters like
-the transcription request (in Epicenter, its `fetch` goes through
-the `epicenter` CLI), and it refuses a base URL
+`redirect: 'error'` and `credentials: 'omit'`, like the transcription
+request, and it refuses a base URL
 that is not plain HTTP(S) before sending. `transformOverConnection` is the one
-entry both use: it reads the text connection once, refuses a request prepared
+entry: it reads the text connection once, refuses a request prepared
 for another base URL, and sends with that connection's key. An error never
 carries the key: an endpoint that echoes it has it removed.
 
@@ -654,34 +506,18 @@ waits before releasing storage.
 
 ## Closing
 
-Closing a desktop window never asks: OpenFolder's guard closes the folder,
-which refuses new writes and waits for those in flight, then the window is
-destroyed. A recording alone closes silently; Rust still finalizes and keeps
-its audio. Epicenter always confirms application Quit and mentions active
-capture from its native recorder, without querying pages
-([ADR-0663](../../docs/adr/0663-one-native-question-before-a-window-or-epicenter-leaves.md)).
-Unsubmitted settings and pasted text do not hold a window.
+Unsubmitted settings and pasted text do not hold the page.
 Recorded audio and started requests have their own lifetimes:
 
 - A recording is in the folder from its start
-  ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
-  On the desktop the recorder plugin appends its audio as it captures and
-  finalizes the file when the window reloads or closes, freeing the recorder;
-  only Stop writes its length. A WAV cut off by a crash has its header
-  rewritten (`recoverRecordings`) when the folder next opens.
+  ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
+  its row is written at start, and only Stop writes its audio and length.
 - A transcription or recipe run writes its result row before the request goes
   out. An answer that has not arrived when the app quits is lost, and the row
   stays unfinished, to run again.
 - File edits save after a short pause in typing. The editor keeps a failed
   value with Save again,
   Discard, and Copy.
-
-A save is staged and then renamed over its path by the shell, so one cut off
-between them leaves the path as it was and a staged copy, which a later
-opening sweeps.
-
-A window whose folder could not be opened closes the same way: nothing is
-open in it.
 
 In a browser tab, the page warns only while a write is out. Recording adds no warning. Browser audio stays in the page
 until Stop saves it, so reloading or closing the tab loses an unfinished take.
@@ -701,31 +537,30 @@ and Copy. There is no per-file save line.
 ## Noticing outside changes
 
 The mirror looks at storage again when OpenFolder sees focus, a visibility
-change, coming online, or page hide, and at once when the desktop watcher or
-another browser tab names a changed path. A listing compares each file's
-change token (its size on the desktop, its content in a browser) and rereads
+change, coming online, or page hide, and at once when another browser tab
+names a changed path. A listing compares each file's change token (its
+content in a browser) and rereads
 the text files that changed. Saves and closing never wait for it.
 
 ## Debug builds
 
 A development browser build opened with `?fixture=tone` records a generated
-tone instead of the microphone (`src/lib/capture.ts`); a production build and
-Epicenter never do.
+tone instead of the microphone (`src/lib/capture.ts`); a production build
+never does.
 
 No build offers failure injection. Tests open a real directory with
 `@epicenter/folder/bun`, or a folder over memory with
 `@epicenter/folder/testing` whose host a test can hold (`putGate`), make
 refuse a save (`failPut`, `beforePut`), or change behind the folder
 (`outside`), so the folder itself answers as it would on a real disk
-(`src/lib/services.test-support.ts`). Desktop tests open
-`@epicenter/folder/tauri` over a scripted shell.
+(`src/lib/services.test-support.ts`).
 
 ## Where things are
 
 | Path | Role |
 | --- | --- |
 | `src/lib/definition.ts` | The tables, each row's schema, and row paths. |
-| `src/lib/platform/` | The service contract, browser implementation, and native adapters grouped under `desktop/`. |
+| `src/lib/platform/` | The service contract and its browser implementation. |
 | `src/lib/whispering.svelte.ts` | One mounted app owner: startup, capture and inference workflows, lists, selections, settings drafts, file actions, and synchronous disposal. |
 | `src/lib/folder.ts` | `WhisperingFolder` (`SvelteFolder<WhisperingTables>`) and its context, provided by WhisperingApp. |
 | `src/lib/settings-draft.svelte.ts` | The one draft of the two connections, shown by the header's Settings and (transcription only) by the control on Home. |
@@ -736,9 +571,8 @@ refuse a save (`failPut`, `beforePut`), or change behind the folder
 | `src/lib/deletion.ts` | What a deletion deletes, read fresh for the person to confirm, and running it. |
 | `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and transformation requests. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one mounted app. |
-| `src/lib/microphone-preference.ts` | The device's saved microphone choice, shared by both platforms. |
+| `src/lib/microphone-preference.ts` | The device's saved microphone choice. |
 | `src/lib/status.ts`, `files.ts` | The header's status line; file messages, the listing, and reading a file's bytes. |
 | `src/routes/` | The layout that mounts OpenFolder, the product root, and the three pages. |
 | `src/routes/components/` | The shell, navigation, header, recorder, recording and transformation lists and details, file browser and view. |
 | `src/lib/assets/` | The microphone mark from the earlier Whispering. |
-| `src/lib/tauri/bindings.gen.ts` | Epicenter's typed commands, generated by its Rust tests. Only the desktop adapter imports it. |

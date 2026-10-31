@@ -11,17 +11,17 @@ export const BUNDLE_TIMEOUT = 30_000;
 
 /**
  * Every module a build of `entry` pulls in, as paths, resolved the way the
- * app's `vite.config.ts` resolves that build. A dropped `#platform/*` leaf or
- * alias fails no build, because resolution falls back silently, so a
- * platform-selection test reads this list to prove the selection.
+ * app's `vite.config.ts` resolves that build. A dropped alias fails no build,
+ * because resolution falls back silently, so a bundle test reads this list to
+ * prove what a build carries.
  *
- * The build runs in its own process (`scripts/module-graph.ts`), since the
- * app's config reads `EPICENTER_HOST` when it is imported.
+ * The build runs in its own process (`scripts/module-graph.ts`), since a
+ * desktop app's config reads `EPICENTER_DESKTOP` when it is imported.
  */
 export function bundledModules(
 	appDir: string,
 	entry: string,
-	platform: 'browser' | 'epicenter-host',
+	platform: 'browser' | 'desktop',
 ): Promise<string[]> {
 	const script = fileURLToPath(
 		new URL('../scripts/module-graph.ts', import.meta.url),

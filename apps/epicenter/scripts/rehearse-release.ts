@@ -92,13 +92,13 @@ try {
 	).json();
 	if (receipt.version !== '0.0.2' || !receipt.rehearsal)
 		throw new Error('Installed bundle did not advance');
-	for (const page of receipt.bundledApps) {
+	for (const page of ['home', 'folders']) {
 		if (
 			!(await Bun.file(
 				join(installed, 'Contents/Resources/apps-dist', page, 'index.html'),
 			).exists())
 		)
-			throw new Error(`Missing bundled ${page}`);
+			throw new Error(`Missing page ${page}`);
 	}
 	// Keep the exact upgraded bundle for a native launch with isolated directories.
 	await cp(installed, join(output, 'Epicenter Release Rehearsal.app'), {

@@ -2,9 +2,10 @@
 
 Epicenter is a toolkit for local-first apps over files, with optional Git
 synchronization and inference. Apps open local data before sign-in. The CLI
-can inspect ordinary files. The Epicenter desktop app offers Files, grid,
-board, saved views, read-only SQL, and a fixed set of bundled apps. A
-personal-tool runner remains future work.
+can inspect ordinary files. The Epicenter desktop app manages folders: it
+registers, syncs, shares, and shows the status of folders, and offers Files,
+grid, board, saved views, and read-only SQL over them. Apps are separate
+programs; Epicenter does not host them ([ADR-0701](adr/0701-apps-run-as-separate-programs.md)).
 
 Use these names for the current API and the named remaining work. Source names
 in the implementation table remain exact. Package READMEs describe the available
@@ -50,8 +51,7 @@ server while online, and uploads the files it made on the device ([ADR-0700](adr
 existing directory bound to a native window. Bun receives an explicit
 `directory` path. Native defaults are fixed reverse-DNS children of one library
 root, `~/Epicenter` in release and `~/Epicenter Dev` in development. Standalone
-and hosted Todos share `so.epicenter.todos`; Epicenter's records use
-`so.epicenter`. Ordinary launch creates or reuses that default. A missing bound
+Todos uses `so.epicenter.todos`; Epicenter's records use `so.epicenter`. Ordinary launch creates or reuses that default. A missing bound
 or explicitly chosen directory is refused. There is no first-use path selection
 or independently configurable app home (ADR-0672).
 
@@ -192,8 +192,7 @@ of local saving. The Folder exposes only local `saving()`; it does not expose th
 | App | A program using its own read schemas. Qualify a web app or desktop app when runtime or native capabilities matter. |
 | CLI | The `epicenter` executable. Its package entry points and commands are documented by the CLI package. |
 | Agent or person | A direct file writer. Its changes reach editors through the Folder copy; later writes to the same unit win locally. |
-| Epicenter desktop app | The app in `apps/epicenter`: a folder launcher, generic Files/grid/board/SQL editor with saved views, Settings, and host for fixed bundled apps. Host app, desktop host, and launcher are not additional products. It is optional to standalone apps and the CLI. |
-| Runner | A deferred capability of the Epicenter desktop app: opening built local websites over selected disk data. It is not another app or required platform layer. |
+| Epicenter desktop app | The app in `apps/epicenter`: the folder manager, with a generic Files/grid/board/SQL editor with saved views, and Settings. It hosts no app (ADR-0701). It is optional to standalone apps and the CLI. |
 | Web origin | The web app's storage and OAuth client boundary. It is distinct from Git's remote named `origin`. |
 | Runtime or shell | The environment executing an app or providing native mechanisms. Qualify a Git host or inference host separately. |
 | Deployment | A hosted or self-hosted service installation. Hosted-only billing stays in `apps/api/worker/billing/`. |
@@ -217,9 +216,8 @@ Shared files and credentials still require compatible protocols; CLI selection
 does not select a data folder.
 
 Host is a qualified technical role: a runtime can host an app, a Git service
-hosts repositories, and a deployment hosts services. Hosting an app does not
-make host app a second product. Shell names runtime integration when that
-mechanism matters. Launcher describes opening an app; it adds no component.
+hosts repositories, and a deployment hosts services. Shell names runtime
+integration when that mechanism matters.
 
 Record can explain a row to a person; it does not introduce a second stored
 object. Workspace should not become an alias for a folder, local selection,

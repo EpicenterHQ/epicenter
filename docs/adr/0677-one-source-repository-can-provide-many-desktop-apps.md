@@ -1,6 +1,7 @@
 # 0677. One source repository can provide many desktop apps
 
-- **Status:** Proposed
+- **Status:** Superseded
+- **Superseded by:** [ADR-0701](0701-apps-run-as-separate-programs.md): Epicenter installs and builds no app; installing from source or GitHub is the likely shape if hosting returns.
 - **Date:** 2026-10-22
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) and [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) (the present, narrower desktop runner); [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) (standalone releases and fixed bundled pages); [ADR-0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) (fixed first-party data folders); [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) (native device storage); the proposed folder launcher grouping; historical [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (a retired source-install and merge design).
 - **Unbuilt:** The CLI `apps` group, source installation, app manifest discovery, user-owned checkout registration, installed builds, update discovery, agent-assisted merge workflow, and native admission for installed pages. The desktop currently bundles fixed app pages; it does not install their source.

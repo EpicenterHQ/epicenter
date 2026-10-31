@@ -113,7 +113,11 @@ bun run --cwd apps/todos test        # contract, the one list, the native CLI
 bun run --cwd apps/todos typecheck
 bun x playwright test -c apps/todos/playwright.config.ts                    # both engines
 bun x playwright test -c apps/todos/playwright.config.ts --project=webkit   # one
+bun run --cwd apps/todos build && cargo test --manifest-path apps/todos/src-tauri/Cargo.toml
 ```
+
+The desktop shell's tests compile against `build/` (`frontendDist`), so they
+need a build first.
 
 The Playwright suite (`e2e/todos.spec.ts`) starts the same environment as
 `demo`, built into a scratch directory (never `build/`), and walks one person

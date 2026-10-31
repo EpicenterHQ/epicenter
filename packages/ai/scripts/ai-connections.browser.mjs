@@ -34,7 +34,7 @@ window.acceptance = {
  select(target) { selections.set('transcription', target); },
  async run() {
   const target = selections.get('transcription');
-  const resolved = resolveInferenceTarget({account:null,runtime:null,connections:catalog}, target);
+  const resolved = resolveInferenceTarget({account:null,connections:catalog}, target);
   if (!resolved) return null;
   await resolved.client.audio.transcriptions.create({ file: new File(['audio'], 'audio.wav'), model: resolved.model });
   return requests.at(-1).key;

@@ -50,13 +50,13 @@ use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 use crate::{init, BindError, Directory, FolderExt, COMMANDS};
 
 #[test]
-fn hosted_observations_use_only_the_callers_channel() {
+fn observations_use_only_the_callers_channel() {
     use std::sync::mpsc;
     use std::time::Duration;
     use tauri::ipc::{Channel, InvokeResponseBody};
 
-    let fixture = fixture("hosted-channel");
-    let window = fixture.bound_window("site:hosted", &fixture.root);
+    let fixture = fixture("caller-channel");
+    let window = fixture.bound_window("files:caller", &fixture.root);
     let webview: tauri::Webview<MockRuntime> = window.as_ref().clone();
     let (send, receive) = mpsc::channel();
     let channel = Channel::new(move |body: InvokeResponseBody| {

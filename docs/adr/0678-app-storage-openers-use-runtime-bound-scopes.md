@@ -5,6 +5,7 @@
 - **Amends:** [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) at requiring `sqlite/<name>.sqlite` for hosted app databases. The named database capability puts `<name>.sqlite` directly in the app-owned private root; this does not restore the retired source installer or define another asset lifecycle.
 - **Relates:** [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) keeps authored Folders shared and app-managed state in each shell's AppData; [ADR-0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) defines database admission, deletion, SQL operations, and connection lifetime; [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) gives Epicenter and standalone apps independent releases.
 - **Unbuilt:** `openDeviceDatabase` and `deleteDeviceDatabase`, native per-installation bindings, browser SQLite storage, and production connection cleanup. The existing `openFolder` already uses the browser origin or native window binding. SQLite adapters remain fictional-data prototypes.
+- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at bundled and installed app roots: Epicenter hosts no app.
 
 ## Context
 

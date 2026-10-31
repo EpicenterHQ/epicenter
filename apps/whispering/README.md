@@ -5,16 +5,15 @@ Whispering is an app for voice notes. It records audio,
 transcribes it with an OpenAI-compatible endpoint you choose, turns a transcript
 into another text with prompts you write, and keeps every recording, transcript,
 prompt, and result as an ordinary file in one folder. It can use a provider
-connection without an account. In either build, a connection can also use
-Epicenter's hosted API with an Epicenter sign-in. Epicenter bundles the desktop page
-([ADR-0493](../../docs/adr/0493-whisperings-only-desktop-shell-is-epicenter.md))
-and opens it on a directory on disk. In a browser tab it keeps its folder in
-the browser's storage for the site.
+connection without an account, or Epicenter's hosted API with an Epicenter
+sign-in. It runs in a browser tab and keeps its folder in the browser's
+storage for the site. It has no desktop build: Epicenter no longer hosts it
+([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)), and the
+hosted design is archived at the tag `archive/app-hosting`.
 
-This is a development milestone, not a release. Its voice-note workflow is launch, record,
-stop, save, play, transcribe, transform, inspect files, quit, reopen.
-Native recording, Close/Quit and reopening were exercised on macOS with
-copied test folders and a silent virtual input. Provider transcription remains
+This is a development milestone, not a release. Its voice-note workflow is open, record,
+stop, save, play, transcribe, transform, inspect files, close, reopen.
+Provider transcription remains
 covered by tests, rather than a live endpoint run. Dictating into other apps is not part
 of it. [What is not supported](#what-is-not-supported) lists the rest.
 
@@ -22,13 +21,12 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 
 The layout renders `<OpenFolder open={() => openFolder({ tables: whisperingTables })}>`
 (`@epicenter/svelte/open-folder`, with `openFolder` from
-`@epicenter/folder`, which the build resolves to the browser or Tauri
-entry). Its child is `<WhisperingApp {folder}>`: the product root puts that
+`@epicenter/folder`). Its child is `<WhisperingApp {folder}>`: the product root puts that
 folder in its own context and calls `createWhispering(folder)`. Whispering
 constructs its own platform services internally; callers do not assemble a
-workspace or provide a second folder lifetime. The build selects browser or
-native capture and inference through `#platform/services`. Each `#platform/auth`
-leaf keeps a plain client private and exports one Svelte facade for the UI and
+workspace or provide a second folder lifetime. Capture and inference come
+through `#platform/services`, which maps to the browser leaf. `#platform/auth`
+keeps a plain client private and exports one Svelte facade for the UI and
 services. Settings reads its reactive `state` and subscribes to
 `onStateChange` only to refresh connection details. Services read `state`
 outside Svelte tracking to capture an Account for a request. The OAuth callback
@@ -59,8 +57,7 @@ connections and the saved microphone choice. Its synchronous `dispose()`
 cleans up once without finishing recordings or waiting for workflows. New
 work and late replies are refused after it. OpenFolder closes the folder when
 it unmounts, which sends the writes that wait and then releases storage, and
-closes a folder whose open finishes late. Native departure finalizes captured
-audio. Route changes retain the same app state.
+closes a folder whose open finishes late. Route changes retain the same app state.
 
 Product-specific components read that mounted instance with `getWhispering()`
 during initialization. Props select files or supply UI actions. Transformation
@@ -70,7 +67,7 @@ it without parent bindings.
 ## The data folder
 
 ```text
-~/Epicenter/Whispering/
+<folder>/
 ├── .gitignore                     app-maintained Markdown-only Git defaults
 ├── recordings/
 │   ├── <recording-id>.md            title, time, length; notes in the body
@@ -93,13 +90,7 @@ transformation, and result files are created by explicit actions. A folder has n
 until you save a result on pasted text.
 
 These files are the data. The app and any other program edit the same paths;
-there is no export step and no second copy. Epicenter opens
-`<folder root>/Whispering` by default, or another folder you choose through
-"Open with…" in the Folders window. The folder an earlier installed copy
-used, `<folder root>/so.epicenter.whispering`, remains on disk, is listed as a
-data folder, and opens through that same menu. Epicenter no longer installs
-apps. Set `EPICENTER_FOLDER_DIR` when starting Epicenter to
-use another root, such as a disposable one for a test.
+there is no export step and no second copy.
 
 A recording's ID is its file stem, set when the recording starts
 (`20260102-030405-k3f9`). Its title is a field, so renaming a recording changes
@@ -153,8 +144,7 @@ no `epicenter.json`, initializes no Git repository, and sends no Git requests at
 startup. The folder opener and clone do not perform app maintenance themselves.
 
 A new recording pairs `recordings/<id>.md` with one supported audio file
-`recordings/<id>.<extension>`. Desktop capture writes WAV; browser capture
-keeps its supported container. The filename supplies the link, so new rows
+`recordings/<id>.<extension>`. Browser capture keeps its supported container. The filename supplies the link, so new rows
 store no `audioPath` field.
 
 - No matching audio means the recording is readable but cannot play or transcribe on this device.
@@ -169,29 +159,9 @@ See [ADR-0659](../../docs/adr/0659-whispering-audio-lives-beside-its-markdown.md
 From the repository root, with Bun.
 
 ```sh
-# The page alone in a browser tab, over this site's folder in the browser's storage
+# The page in a browser tab, over this site's folder in the browser's storage
 bun dev:whispering
-
-# Epicenter, which bundles Whispering's desktop page (needs Rust)
-bun dev:epicenter
 ```
-
-In Epicenter's Folders window, choose Whispering under Apps to open its default
-folder, or Choose folder… to pick another. Choose "Open with…" beside a listed
-folder to open that folder in Whispering. Each folder opens in its own window.
-The shell binds the directory to the window before opening it, then serves
-the bundled page at `/whispering/`. Local opening needs no installation,
-account, approval, or network connection. Build changes take effect when you
-rebuild Epicenter and reopen the window.
-
-Inside Epicenter the shell binds the window its folder, and the page names
-no path or folder. The page is the UI, and it opens the
-folder itself: it reads the files and saves them, and every read and save goes
-through the shell, which keeps them inside the folder and out of Git's private
-files. The shell's recorder writes a recording into the folder
-as it captures. Custom endpoint requests go through the `epicenter` CLI, which
-adds the connection's key. A hosted connection uses an API-bound Account; the
-CLI adds its bearer outside the window.
 
 In a browser tab, Settings can select an Epicenter account connection for
 transcription or text. The browser OAuth callback returns to the page that
@@ -208,10 +178,9 @@ Checks, from `apps/whispering`:
 bun run typecheck                 # the page
 bun run test                      # tests without PostgreSQL, then the mounted row views
 bun run build                     # the browser build, into build/
-bun run build:host                # Epicenter's bundled page, into dist/
 ```
 
-Run the PostgreSQL connection check separately, from a normal terminal at the
+Run the PostgreSQL sign-in check separately, from a normal terminal at the
 repository root:
 
 ```sh
@@ -227,17 +196,14 @@ even when they match an exclusion. From Claude, use the equivalent direct
 command from the repository root:
 
 ```sh
-bun test --isolate ./apps/whispering/src/lib/platform/desktop/connections.postgres.test.ts
+bun test --isolate ./apps/whispering/src/lib/platform/web-sign-in.postgres.test.ts
 ```
 
-The repository's `.claude/settings.json` excludes only that exact direct command
-from the sandbox. Send it as a standalone command: adding `cd`, redirects, or
+It runs outside the sandbox only when the repository's `.claude/settings.json`
+excludes that exact direct command. Send it as a standalone command: adding `cd`, redirects, or
 chaining other commands can prevent the exception from matching. See Claude Code's
 [command matching rules](https://code.claude.com/docs/en/sandboxing#run-commands-outside-the-sandbox-with-excludedcommands).
 Other tests keep their existing sandbox behavior.
-
-Epicenter's native checks cover what it grants Whispering:
-`cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml`.
 
 ## Using it
 
@@ -303,13 +269,9 @@ on a narrow window. Each opens its own popover.
 **Microphone input.** System default, or one microphone by name.
 
 - Opening the popover lists the inputs. It never asks for microphone access.
-  In Epicenter every input is listed by name, and Epicenter asks macOS for
-  microphone access the first time you test or record. If access was denied,
-  **Open Microphone Settings** takes you to the place in System Settings to
-  allow it; with no microphone connected, the popover says so. In a browser, inputs
-  are not listed by name until access is allowed; **Enable microphones** asks
-  for it, which opens the system default microphone for a moment and records
-  nothing.
+  Inputs are not listed by name until access is allowed; **Enable
+  microphones** asks for it, which opens the system default microphone for a
+  moment and records nothing.
 - A microphone you choose is the only one a recording will use. If it is not
   connected, the recording does not start and says so. No other microphone is
   used in its place; connect it or choose another input.
@@ -322,16 +284,13 @@ on a narrow window. Each opens its own popover.
   Only one of the two runs at a time, and never beside a recording. A test
   whose microphone is unplugged or loses access ends and says why.
 - The choice is kept on this device and is never written to the folder. It is
-  in the page's `localStorage`, in Epicenter and in a browser tab; Epicenter
-  serves every app from one fixed address, so the choice lasts between
-  launches.
+  in the page's `localStorage`, so it lasts between visits to the same site.
 - A microphone is identified by the ID the app is given for it, never by its
   name: two microphones can share a name. If the saved ID is not among the
   listed inputs, the choice is shown as "not listed" and nothing is chosen
   for you. Not being listed does not prove the microphone is gone, since the
   list can be limited by permission, so a recording still asks for exactly
-  that ID. In Epicenter the ID is the one macOS keeps for the device, so it
-  lasts across launches and reconnections. If it cannot be opened, the
+  that ID. If it cannot be opened, the
   recording does not start and no other microphone is used. Choose the input
   again, or System default, to change it.
 - With fixture audio there is no real input: the popover says so, and no
@@ -445,20 +404,13 @@ changed the connection since, it is not sent: delete it and run anew.
 
 Settings has two connections, **Transcription** and **Text**. Each is a base
 URL, the model used when a request names none, and an optional API key. They
-are never in Whispering's folder. In Epicenter each is a row of Epicenter's
-own folder `so.epicenter` ("Whispering transcription" and "Whispering
-text"), which other apps in Epicenter can use too. The row holds the model
-and syncs with that folder; the base URL and key stay in this computer's
-keychain. A connection synced from another computer is not set up on this
-one until you save its base URL, and key, here. In a browser tab they are in
-this site's `localStorage`. Nothing about them is in Whispering's folder.
+are in this site's `localStorage`, never in Whispering's folder.
 
-An Epicenter connection is different: its row chooses the model, while the
-desktop Account supplies the deployment URL and authorization. Whispering
+An Epicenter account connection is different: it chooses the model, while the
+signed-in Account supplies the deployment URL and authorization. Whispering
 captures that Account for each request and calls `account.fetch` for hosted
-transcription or text. Its window never receives the access token; the host
-allows only those hosted paths. Sign-in and sign-out stay in Epicenter's
-Settings. A new sign-in retires a request held by the old Account.
+transcription or text. A new sign-in retires a request held by the old
+Account.
 
 You can keep editing while a connection's Save runs. Its completion preserves
 any newer endpoint, model, key choice, or key for the next explicit Save.
@@ -478,17 +430,13 @@ any newer endpoint, model, key choice, or key for the next explicit Save.
 - A redirect from an endpoint is refused, not followed, so a key is never
   carried to another URL. Base URLs are `http` or `https` with no user name,
   password, query, or fragment.
-- The window is told only each connection's endpoint, model, and whether it
-  has a key. In Epicenter the key never reaches the window or a folder: the
-  `epicenter` CLI adds it to the request, and the endpoint needs no CORS
-  headers.
-- In a browser tab (`bun dev:whispering`) the tab sends requests itself, so
-  the endpoint must allow the page's origin (CORS). Most hosted providers
-  refuse that; a local endpoint or Epicenter works. The key is saved in this
+- The tab sends requests itself, so a custom endpoint must allow the page's
+  origin (CORS). Most hosted providers refuse that; a local endpoint or the
+  Epicenter account connection works. The key is saved in this
   browser, where code running on the site can read it, and the key form says
   so. Errors that echo the key have it removed.
 
-One failure is different. If Epicenter stops answering partway, the window cannot tell whether the request reached the endpoint: it
+One failure is different. If the answer stops partway, the page cannot tell whether the request reached the endpoint: it
 may have been sent, and even answered, with the reply lost on the way back. The
 notice says the outcome is not known, not that nothing was sent. Whispering
 never sends it again on its own; **Try again** is one more request, and with a
@@ -504,8 +452,8 @@ its folder. Save version, Connect, and Sync are not in this build.
 
 - Terminal commands and other programs edit the files directly.
 - The folder looks at storage again when the window gains focus, becomes
-  visible or hidden, comes back online, and before the page hides; the desktop
-  watcher and another browser tab's saves make it look at once. What it finds
+  visible or hidden, comes back online, and before the page hides; another
+  browser tab's saves make it look at once. What it finds
   shows everywhere it is listed.
 - Folder writes run in one queue. Each typed value enters it immediately;
   `update` applies its named fields over the file when its turn comes
@@ -521,14 +469,7 @@ then, with the time it started and its capture source; its length
 is written when it stops. Nothing in the row says whether it is still
 recording: the window knows that, and only while it runs.
 
-- In Epicenter the shell writes the audio as it is captured, to
-  `recordings/<id>.wav`, and brings its header up to date about once a
-  second. Stop finishes the file and writes its length. Reloading or closing
-  the window finishes the file too, without a length. A quit, a crash, or
-  power loss keeps the audio up to that moment; when
-  the folder next opens, the app rewrites the header of any recording that
-  was cut off so it plays to its end. Its row then has no length.
-- In a browser tab the audio is held in the page and written on stop, as
+- The audio is held in the page and written on stop, as
   `recordings/<id>.webm` (or `.mp4` or `.ogg`, as the browser records).
   Reloading or closing the tab loses it, and the row stays without its audio.
   A recording does not hold the tab open.
@@ -562,30 +503,18 @@ row and audio and says so.
 
 ### Closing and quitting
 
-Closing a desktop window never asks: it waits for the writes already out,
-which answer in milliseconds, then closes. A recording alone closes without a
-warning; native cleanup finishes and keeps its audio. Epicenter always
-confirms application Quit and mentions any active recording. Cancel keeps the
-windows, input, and recording going. Quit Anyway leaves without waiting for
-page workflows, and departure does not promise recording length metadata. An
-unfinished settings form or pasted text does not hold a window.
+A crash or power loss cannot ask. A transcription or transformation writes
+its result file before sending a request.
 
-Force Quit, a crash, and power loss cannot ask. A recording is in the desktop
-folder from its start; a transcription or transformation writes its result
-file before sending a request.
-
-- In Epicenter a recording keeps its audio up to the moment the app
-  closed, and the next time the folder opens its header is repaired so it
-  plays to its end.
 - A transcription or transformation whose answer had not arrived stays
   unfinished, to run again.
-- A change typed in the last instant before quitting can be lost, as it can
+- A change typed in the last instant before closing can be lost, as it can
   be in any app. Every earlier change is already in its file.
 
 Moving between Home, Recordings, and Transformations keeps the mounted app
-and never prompts. In a browser tab (`bun dev:whispering:ui`), the browser's
-leave warning appears only while a write is still out. Reloading or closing
-the tab loses a browser recording in progress.
+and never prompts. The browser's leave warning appears only while a write is
+still out. Reloading or closing the tab loses a recording in progress, and an
+unfinished settings form or pasted text does not hold the tab.
 
 ### Editing
 
@@ -653,8 +582,7 @@ For repeatable automation, a development build in a browser tab
 (`bun dev:whispering`) opened with `?fixture=tone` answers every recording
 with a generated tone instead of the microphone. Recordings made this way are
 saved with `capture: fixture` and labelled on Home, in the list, and in
-details. A production build ignores the parameter. Inside Epicenter, recording
-always uses the microphone.
+details. A production build ignores the parameter.
 
 A fixture recording proves the save, playback, and transcription path. It
 proves nothing about the microphone: with it, the microphone input control
@@ -686,15 +614,13 @@ discard it. These promises of the earlier build changed:
   again** action; neither retries on its own.
 - There is no loading screen per file, no "larger than 1 MB" refusal, and no
   banner for a listing that failed: opening reads the whole folder once.
-- On the desktop, audio replaced by other bytes of exactly the same length is
-  not noticed until the folder opens again: the folder tells files it does not
-  keep apart by size there. A browser tab tells them apart by content.
+- The folder tells audio and other files it does not keep apart by content.
 - A deletion deletes the file as it is when it runs.
 - Files no longer creates empty folders, and renaming a file is a save under
   the new name followed by deleting the old one.
-- Epicenter bundles Whispering, and "Open with…" can open any listed folder.
-  The status names the folder as opened in Epicenter rather than showing an
-  internal ID.
+- Epicenter no longer bundles Whispering
+  ([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)); it runs
+  in a browser tab only.
 
 ## What is not supported
 
@@ -712,13 +638,9 @@ These are absent, not hidden behind a setting:
   the app's window has focus.
 - Automatic transcription or transformation after a recording. Each is a button
   you press, so nothing is sent to a paid endpoint on its own.
-- Choosing transcription on this computer. Epicenter grants Whispering its
-  local model, and the native services can transcribe with it
-  (`src/lib/platform/desktop/transcription.ts`), but Settings has no way to
-  choose it yet, so transcription needs an endpoint.
-- A terminal and Reveal folder. The standalone desktop app ran them in its own
-  host; Epicenter gives Whispering neither. Use a terminal or Finder on the
-  folder.
+- Transcription on this computer. A browser tab has no local model, so
+  transcription needs an endpoint.
+- A terminal and Reveal folder.
 - Transformations beyond one prompt and one request: chained steps, find and
   replace rules, tools, running code, importing the earlier Whispering's
   transformations or recipes, a provider or model catalog, and a connection or
@@ -730,10 +652,12 @@ These are absent, not hidden behind a setting:
 - Running post-processing on its own after a recording or a transcript. It is
   a button you press.
 - Windows and Linux are untested.
-- A desktop app of its own. Whispering's standalone Tauri shell is deleted
-  (ADR-0493); on the desktop it runs only in Epicenter.
-- Opening the desktop folder from a browser tab. The shell binds the folder
-  to Whispering's window alone.
+- A desktop app. Whispering's standalone Tauri shell was deleted earlier,
+  and Epicenter no longer hosts it (ADR-0701). A future desktop shell would
+  reuse `@epicenter/recorder/tauri`, `tauri-plugin-epicenter-recorder`, and
+  the CLI's `epicenter whispering-connection` command; the hosted design is
+  archived at the tag `archive/app-hosting`.
+- Opening a folder on disk from a browser tab.
 - Moving audio away from its recording or renaming its stem and having the recording follow.
   Nothing collects orphan audio automatically or follows a frontmatter audio path.
 
@@ -746,4 +670,4 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces fit,
 [recipes and connections](./docs/recipe-playground.md) for why requests are
 routed by device connections and what that change costs an existing folder, and
 [desktop verification](./docs/desktop-verification.md) for what was checked in
-the standalone desktop app before it was deleted.
+the desktop builds before they were removed.

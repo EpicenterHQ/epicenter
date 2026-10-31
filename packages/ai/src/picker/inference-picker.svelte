@@ -33,8 +33,6 @@
 		disabled?: boolean;
 		/** Suggestions appropriate to this workflow's account operation. */
 		accountModels?: InferenceCatalog['hostedModels'];
-		/** Native file inference is useful to audio workflows only. */
-		includeRuntime?: boolean;
 		placeholder?: string;
 	};
 
@@ -44,7 +42,6 @@
 		catalog,
 		disabled = false,
 		accountModels,
-		includeRuntime = false,
 		placeholder = 'Select model',
 	}: Props = $props();
 	const ai = $derived(catalog.ai);
@@ -144,11 +141,9 @@
 	const triggerLabel = $derived(
 		!selected
 			? placeholder
-			: selected.connectionId === catalog.runtimeId
-				? `${model} · This device`
-				: selected.connectionId === catalog.accountId
-					? `${models.find((entry) => entry.id === model)?.label ?? model} · ${catalog.accountLabel}`
-					: `${model} · ${catalog.custom.find((entry) => entry.id === selected.connectionId)?.name ?? 'Unavailable connection'}`,
+			: selected.connectionId === catalog.accountId
+				? `${models.find((entry) => entry.id === model)?.label ?? model} · ${catalog.accountLabel}`
+				: `${model} · ${catalog.custom.find((entry) => entry.id === selected.connectionId)?.name ?? 'Unavailable connection'}`,
 	);
 
 	function isSelected(connectionId: string, id: string) {
@@ -232,9 +227,6 @@
 			view = 'list';
 			resetConnectForm();
 		}
-	});
-	$effect(() => {
-		if (open && includeRuntime) void catalog.refreshRuntime();
 	});
 
 	// Auto-discover on a debounced change of the connect form's endpoint or key.
@@ -345,22 +337,6 @@
 				<Command.Input placeholder="Search models..." />
 				<Command.List class="max-h-80">
 					<Command.Empty>No models found.</Command.Empty>
-					{#if includeRuntime && catalog.runtimeError}<p role="alert">{catalog.runtimeError}</p>{/if}
-                    {#if includeRuntime && catalog.runtimeId}
-						<Command.Group heading="This device">
-							{#each catalog.runtimeModels as id (id)}
-								<Command.Item value="native {id}" onSelect={() => selectModel(catalog.runtimeId!, id)}>
-									<Check class="size-4 {isSelected(catalog.runtimeId!, id) ? 'opacity-100' : 'opacity-0'}" />
-									<span class="break-all">{id}</span>
-								</Command.Item>
-							{/each}
-							<div class="flex gap-1 p-2">
-								<Input bind:value={formModel} aria-label="Native model ID" placeholder="Enter an installed model ID" />
-								<Button size="sm" disabled={!formModel.trim()} onclick={() => selectModel(catalog.runtimeId!, formModel.trim())}>Use</Button>
-							</div>
-						</Command.Group>
-					{/if}
-
 					{#if ai.account && catalog.accountId}
 						<Command.Group heading={`Connected account · ${catalog.accountLabel}`}>
 							{#each models as hostedModel (hostedModel.id)}

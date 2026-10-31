@@ -3,6 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-20
 - **Amends:** [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) at shell-owned window identity and standalone Todos's fixed label. Directory admission, binding before construction, and page storage remain unchanged.
+- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at the Epicenter host half: Epicenter opens editor windows only; standalone Todos keeps its window rule.
 
 ## Context
 

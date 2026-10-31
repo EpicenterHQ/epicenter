@@ -94,7 +94,7 @@
 			<p class="text-sm">Connect to your real conversations on this device. Create a token in Beeper Settings → Integrations → Approved connections. It is stored in the device keychain.</p>
 			<label for="beeper-token" class="text-sm">Beeper access token</label>
 			<div class="flex gap-2"><Input id="beeper-token" type="password" autocomplete="off" placeholder="Paste a new token, or use your saved connection" bind:value={token} /><Button type="submit" disabled={connect.isPending}>{connect.isPending ? 'Connecting…' : 'Connect to live Beeper'}</Button></div>
-			{#if import.meta.env.EPICENTER_HOST !== '1'}<p class="text-xs text-muted-foreground">Live connections are available only in the Epicenter desktop app.</p>{/if}
+			<p class="text-xs text-muted-foreground">Live connections need a desktop build of Messages.</p>
 		</form>
 	{/if}
 	{#if notice}<p role="alert" class="border-b p-3 text-sm text-destructive">{notice}</p>{/if}

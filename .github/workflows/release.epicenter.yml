@@ -142,4 +142,4 @@ jobs:
           set -euo pipefail
           bun apps/epicenter/scripts/release.ts collect-draft "$RELEASE_TAG" .artifacts/release
           gh release upload "$RELEASE_TAG" .artifacts/release/stable.json --clobber
-          gh release edit "$RELEASE_TAG" --notes "Signed and notarized internal Epicenter development build. Review the bundled apps before publication."
+          gh release edit "$RELEASE_TAG" --notes "Signed and notarized internal Epicenter development build."

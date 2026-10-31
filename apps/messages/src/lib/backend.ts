@@ -11,30 +11,19 @@ export type Backend = {
 	request(request: BeeperRequest): Promise<BeeperAnswer>;
 };
 
-/** Browser builds cannot access the native Beeper connection. No HTTP fallback. */
+/**
+ * The live Beeper connection. Only a native build can reach Beeper Desktop,
+ * through `epicenter messages --json`; this browser build has no such build
+ * and no HTTP fallback, so it answers with demo conversations only.
+ */
 export async function requestBeeper(
-	request: BeeperRequest,
+	_request: BeeperRequest,
 ): Promise<BeeperAnswer> {
-	if (import.meta.env.EPICENTER_HOST !== '1')
-		return {
-			kind: 'error',
-			message:
-				'Connect Beeper from Messages in the Epicenter desktop app. This browser build uses demo conversations only.',
-		};
-	const { invoke } = await import('@tauri-apps/api/core');
-	try {
-		return JSON.parse(
-			await invoke<string>('messages_beeper', {
-				request: JSON.stringify(request),
-			}),
-		) as BeeperAnswer;
-	} catch {
-		return {
-			kind: 'error',
-			message:
-				'The Beeper connection did not respond. If you were sending, check Beeper before sending again.',
-		};
-	}
+	return {
+		kind: 'error',
+		message:
+			'Live Beeper needs a desktop build of Messages. This browser build uses demo conversations only.',
+	};
 }
 
 /** Entirely fictional conversations. Sending here cannot reach a network. */

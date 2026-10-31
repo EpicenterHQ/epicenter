@@ -1,5 +1,3 @@
-use std::sync::Mutex;
-
 use anyhow::{bail, Context, Result};
 use tauri::webview::NewWindowResponse;
 use tauri::{
@@ -10,23 +8,17 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_epicenter_folder::FolderExt;
 use tauri_plugin_opener::OpenerExt;
-use tauri_specta::Event as _;
 
 /// The command list, shared with `build.rs` through `include!`. Only the tests
 /// read it from the crate, which is where the drift checks live.
 #[cfg(test)]
 mod command_names;
 
-mod bundled_apps;
 mod cli;
 mod folder_query;
 mod folder_windows;
-mod hosted_sites;
 mod synced_folders;
-// Experiment only: the offline-proxy Tauri gate (`evidence/offline-proxy`).
 use epicenter_folder_core::library;
-#[cfg(all(target_os = "macos", feature = "hosted-site-offline-gate"))]
-pub use hosted_sites::offline_gate;
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 #[cfg(target_os = "macos")]
 mod macos_tabs;
@@ -36,9 +28,8 @@ pub mod audio;
 
 pub mod transcription;
 use transcription::{
-    download_model, get_active_model, get_local_transcription_readiness, get_unload_policy,
-    list_inference_models, list_models, reveal_model, set_active_model, set_unload_policy,
-    transcribe_audio_bytes, LocalTranscriptionSettings, ModelCache,
+    download_model, get_active_model, get_unload_policy, list_models, reveal_model,
+    set_active_model, set_unload_policy, LocalTranscriptionSettings, ModelCache,
 };
 
 pub mod download;
@@ -68,11 +59,8 @@ pub mod clipboard;
 
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 
-/// Epicenter's own windows. Todos, Capture, Honeycrisp, and Whispering, which
-/// Epicenter bundles, open one window per folder through `open_bundled_app`
-/// and `choose_folder_for_app` (`bundled_apps.rs`), and each synced folder's
-/// files open in a window of their own through `open_synced_folder`
-/// (`synced_folders.rs`).
+/// Epicenter's own windows. Each synced folder's files open in a window of
+/// their own through `open_synced_folder` (`synced_folders.rs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BuiltInApp {
     Home,
@@ -110,37 +98,14 @@ impl BuiltInApp {
 
 type DesktopAppHandle = AppHandle<Wry>;
 
-/// A section of Settings an application asked the shell to open, held until
-/// Settings is able to claim it. Only the latest survives: two recovery nudges
-/// in a row should land the user somewhere once, not queue a backlog.
-#[derive(Default)]
-struct PendingHomeSection(Mutex<Option<HomeSection>>);
-
-impl PendingHomeSection {
-    fn queue(&self, section: HomeSection) {
-        *self.0.lock().expect("pending home section lock poisoned") = Some(section);
-    }
-
-    fn take(&self) -> Option<HomeSection> {
-        self.0
-            .lock()
-            .expect("pending home section lock poisoned")
-            .take()
-    }
-}
-
 /// The shell's commands, with any `extra` appended. `collect_commands!` takes
 /// no `#[cfg]` on an entry, so a feature adds its commands through this.
 macro_rules! shell_commands {
     ($($extra:tt)*) => {
         tauri_specta::collect_commands![
-            transcribe_audio_bytes,
-            list_inference_models,
             get_active_model,
             set_active_model,
-            get_local_transcription_readiness,
             open_home,
-            take_pending_home_section,
             synced_folders::synced_folders,
             synced_folders::add_synced_folder,
             synced_folders::accept_folder_setup,
@@ -154,21 +119,12 @@ macro_rules! shell_commands {
             synced_folders::unshare_folder,
             synced_folders::restart_sync_service,
             folder_query::folder_query,
-            cli::ai_send,
-            cli::account_send,
-            cli::send_cancel,
             cli::ai_key_set,
             cli::ai_key_remove,
             cli::ai_key_state,
             cli::auth_login::<tauri::Wry>,
             cli::auth_status,
-            cli::messages_beeper,
             cli::auth_logout,
-            cli::whispering_connection_read,
-            cli::whispering_connection_set,
-            bundled_apps::open_bundled_app,
-            bundled_apps::choose_folder_for_app,
-            hosted_sites::open_hosted_site,
             get_unload_policy,
             set_unload_policy,
             list_models,
@@ -180,13 +136,11 @@ macro_rules! shell_commands {
     };
 }
 
-/// The typed command and event contract every Epicenter window and Whispering
-/// share.
+/// The typed command contract every Epicenter window shares.
 #[cfg(not(feature = "dictation"))]
 fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(shell_commands![])
-        .events(tauri_specta::collect_events![HomeSectionPending])
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
 
@@ -204,8 +158,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             keyboard::commands::get_dictation_capability,
         ])
         .events(tauri_specta::collect_events![
-            keyboard::DictationCapabilityEvent,
-            HomeSectionPending,
+            keyboard::DictationCapabilityEvent
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
@@ -217,15 +170,12 @@ mod export_bindings {
     /// Every consumer of this crate's typed command API is generated from
     /// Rust, so none can drift from it.
     ///
-    /// Settings and Whispering carry the whole API in one file each. What a
-    /// window may actually call is decided by its capability file, not by
-    /// which bindings it can import: only `home.json` grants the local-model
-    /// administration commands (ADR-0180), and a window whose file does not
-    /// grant a command is denied it at the IPC boundary.
-    const WHOLE_API: &[&str] = &[
-        "../../whispering/src/lib/tauri/bindings.gen.ts",
-        "../src/ui/bindings.gen.ts",
-    ];
+    /// Epicenter's pages carry the whole API in one file. What a window may
+    /// actually call is decided by its capability file, not by which bindings
+    /// it can import: only `home.json` grants the local-model administration
+    /// commands (ADR-0180), and a window whose file does not grant a command
+    /// is denied it at the IPC boundary.
+    const WHOLE_API: &[&str] = &["../src/ui/bindings.gen.ts"];
 
     /// The committed bindings are the default build's page API. A `dictation`
     /// build's commands are not part of it, so that build exports into a
@@ -261,65 +211,11 @@ mod export_bindings {
     }
 }
 
-/// A section of Epicenter Home an application can ask the shell to open.
-///
-/// A closed set, not a string-addressed destination: Home is a privileged
-/// built-in app, so what an application may name inside it is enumerated
-/// here rather than parsed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
-#[serde(rename_all = "kebab-case")]
-pub enum HomeSection {
-    /// Account sign-in and sign-out.
-    Account,
-    /// Local transcription model administration.
-    Transcription,
-}
-
-/// A nudge telling an already-running Home to collect any pending section
-/// intent. It deliberately carries no section of its own: the intent lives in
-/// the host, and Home reads it with `take_pending_home_section`, so an event
-/// that arrives twice, late, or not at all cannot produce a different outcome.
-#[derive(Clone, Debug, serde::Serialize, specta::Type, tauri_specta::Event)]
-pub struct HomeSectionPending;
-
-/// Take the user to the app that can fix an unavailable local transcription
-/// route.
-///
-/// The app shell owns this navigation. The host reports that the route is
-/// unavailable, an application decides how to present it, and getting the user
-/// to Home is neither of their jobs: an application asks the shell to show a
-/// section of Home, and the shell decides how.
-///
-/// The intent is recorded *before* any window work, which is what makes this
-/// safe against the state Home happens to be in. Home may be absent, still
-/// booting, hidden, or already open; in every case the intent is waiting when
-/// Home next asks for it, and the event below is only an optimization for the
-/// already-running case. Emitting the section directly would lose it whenever
-/// no listener existed yet, which is exactly the recovery path that matters.
-///
-/// It mutates no transcription state: it opens a window, and the user chooses.
-///
-/// Without a section it only opens Settings: the Folders window's Settings
-/// button (ADR-0537, ADR-0552).
+/// Show Settings: the Folders window's Settings button (ADR-0537).
 #[tauri::command]
 #[specta::specta]
-fn open_home(section: Option<HomeSection>, app: DesktopAppHandle) {
-    if let Some(section) = section {
-        app.state::<PendingHomeSection>().queue(section);
-    }
+fn open_home(app: DesktopAppHandle) {
     request_window(&app, BuiltInApp::Home);
-    if section.is_some() {
-        let _ = HomeSectionPending.emit_to(&app, BuiltInApp::Home.id());
-    }
-}
-
-/// Claim the pending section intent, if any. Home calls this on mount and
-/// whenever it is nudged; taking is destructive, so one intent opens one
-/// section exactly once however many nudges arrive.
-#[tauri::command]
-#[specta::specta]
-fn take_pending_home_section(app: DesktopAppHandle) -> Option<HomeSection> {
-    app.state::<PendingHomeSection>().take()
 }
 
 pub fn run() {
@@ -345,11 +241,6 @@ pub fn run() {
             open_forwarded_deep_links(app, &args);
         }))
         .plugin(tauri_plugin_epicenter_folder::init())
-        .plugin(
-            tauri_plugin_epicenter_recorder::Builder::new()
-                .on_capturing(shell::set_tray_recording_state)
-                .build(),
-        )
         .plugin(log_plugin)
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
@@ -357,12 +248,10 @@ pub fn run() {
         // Pages confirm their own window close; none may open the file picker.
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(PendingHomeSection::default())
         .manage(synced_folders::SyncedFolders::default())
         .manage(cli::CliChildren::default())
         .manage(shell::QuitRequest::default())
         .manage(updates::Updates::default())
-        .manage(hosted_sites::HostedSites::default())
         .manage(DownloadManager::default());
 
     // Only native dictation uses these plugins; no capability grants them.
@@ -738,24 +627,12 @@ fn focus<R: Runtime>(window: WebviewWindow<R>) {
 mod tests {
     use super::*;
 
-    use crate::bundled_apps::BundledApp;
-
     const FOLDERS: &str = include_str!("../capabilities/folders.json");
     const HOME: &str = include_str!("../capabilities/home.json");
-    const BUNDLED_APP: &str = include_str!("../capabilities/bundled-app.json");
-    const WHISPERING: &str = include_str!("../capabilities/whispering.json");
-    const MESSAGES: &str = include_str!("../capabilities/messages.json");
     const FOLDER_EDITOR: &str = include_str!("../capabilities/folder-editor.json");
 
     /// Every capability file, for checks that hold for all of them.
-    const ALL_CAPABILITIES: &[&str] = &[
-        FOLDERS,
-        HOME,
-        BUNDLED_APP,
-        WHISPERING,
-        FOLDER_EDITOR,
-        MESSAGES,
-    ];
+    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, FOLDER_EDITOR];
 
     /// The windows a page with label prefix `prefix` opens in, on two folders.
     fn folder_labels(prefix: &str) -> [String; 2] {
@@ -777,35 +654,8 @@ mod tests {
         );
     }
 
-    /// The recovery path an application offers must survive Settings not being
-    /// there yet. The intent is shell state, so "Settings is absent", "Settings
-    /// is still booting", and "Settings is open behind another window" are the
-    /// same code path: the intent waits until Settings claims it.
-    #[test]
-    fn a_pending_home_section_waits_for_home_to_claim_it() {
-        let pending = PendingHomeSection::default();
-        assert_eq!(pending.take(), None, "nothing pending before anyone asks");
-        pending.queue(HomeSection::Transcription);
-        assert_eq!(
-            pending.take(),
-            Some(HomeSection::Transcription),
-            "the intent is still there whenever Settings gets around to asking"
-        );
-    }
-
-    /// Taking is destructive, so however many nudges arrive, one request opens
-    /// one section once, and two requests in a row land the user there once.
-    #[test]
-    fn a_claimed_home_section_is_not_replayed() {
-        let pending = PendingHomeSection::default();
-        pending.queue(HomeSection::Transcription);
-        pending.queue(HomeSection::Transcription);
-        assert!(pending.take().is_some());
-        assert_eq!(pending.take(), None, "a claimed intent must not fire again");
-    }
-
-    /// Built-in and legacy bundled pages use local capabilities. Published
-    /// sites receive an exact-origin capability at window creation instead.
+    /// Every window's page is served on the scheme, so every capability is
+    /// local.
     #[test]
     fn one_local_capability_per_kind_of_window() {
         let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
@@ -814,17 +664,7 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
             .collect();
         files.sort();
-        assert_eq!(
-            files,
-            [
-                "bundled-app.json",
-                "folder-editor.json",
-                "folders.json",
-                "home.json",
-                "messages.json",
-                "whispering.json"
-            ]
-        );
+        assert_eq!(files, ["folder-editor.json", "folders.json", "home.json"]);
 
         let mut identifiers = Vec::new();
         for encoded in ALL_CAPABILITIES {
@@ -851,15 +691,11 @@ mod tests {
         assert!(development.get("app").is_none());
     }
 
-    /// The AI commands reach Settings and Whispering (ADR-0557).
-    /// Whispering, which Epicenter bundles, sends over its connections, saves
-    /// a key, and reads whether one is saved; it removes none. The other
-    /// bundled apps call none. Each is one fixed CLI invocation that never
-    /// hands a page a saved key.
+    /// The AI key commands reach Settings alone (ADR-0557). Each is one fixed
+    /// CLI invocation that never hands a page a saved key.
     #[test]
-    fn ai_commands_are_granted_where_a_page_calls_them() {
-        const AI: [&str; 4] = [
-            "allow-ai-send",
+    fn ai_key_commands_are_granted_to_settings_alone() {
+        const AI: [&str; 3] = [
             "allow-ai-key-set",
             "allow-ai-key-remove",
             "allow-ai-key-state",
@@ -868,55 +704,12 @@ mod tests {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             let permissions = capability["permissions"].as_array().unwrap();
             for permission in AI {
-                let expected = match *encoded {
-                    HOME => true,
-                    WHISPERING => permission != "allow-ai-key-remove",
-                    _ => false,
-                };
                 assert_eq!(
                     permissions.contains(&serde_json::json!(permission)),
-                    expected,
+                    *encoded == HOME,
                     "{} {permission}",
                     capability["identifier"]
                 );
-            }
-        }
-    }
-
-    /// Each bundled app's windows, one per folder (`bundled_apps.rs`), are
-    /// selected by the one capability its row names, and by no other file.
-    /// Todos, Capture, and Honeycrisp hold the folder plugin and its change
-    /// event, and nothing else: no account, AI, history, recorder, or app
-    /// command is on their path. No bundled capability selects Epicenter's
-    /// own windows.
-    #[test]
-    fn each_bundled_apps_windows_hold_their_own_capability_alone() {
-        let bundled: serde_json::Value = serde_json::from_str(BUNDLED_APP).unwrap();
-        assert_eq!(
-            bundled["windows"],
-            serde_json::json!(["todos:*", "capture:*", "honeycrisp:*"])
-        );
-        assert_eq!(
-            bundled["permissions"],
-            serde_json::json!(["epicenter-folder:default"])
-        );
-        for app in BundledApp::ALL {
-            for label in folder_labels(app.page()) {
-                for encoded in ALL_CAPABILITIES {
-                    let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-                    assert_eq!(
-                        selects(&capability, &label),
-                        capability["identifier"] == app.capability(),
-                        "{} {label}",
-                        capability["identifier"]
-                    );
-                }
-            }
-        }
-        for encoded in [BUNDLED_APP, WHISPERING, FOLDER_EDITOR, MESSAGES] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            for built_in in BuiltInApp::ALL {
-                assert!(!selects(&capability, built_in.id()), "{}", built_in.id());
             }
         }
     }
@@ -949,104 +742,20 @@ mod tests {
         }
     }
 
-    /// Whispering's windows hold what its page calls and nothing more: the
-    /// folder plugin; the recorder, which finalizes a
-    /// recording when the window is destroyed (ADR-0543, ADR-0571); System
-    /// Settings' privacy panes (ADR-0555); transcription with the active
-    /// local model, its readiness, and opening Settings to fix it
-    /// (ADR-0180); and its AI connections, their two rows by operation, and
-    /// who Epicenter is signed in as (ADR-0557, ADR-0558). Its hosted Account
-    /// sends only through `account_send` and `send_cancel` (ADR-0683). No second folder,
-    /// folder history, key removal, or model
-    /// administration.
-    #[test]
-    fn whispering_windows_hold_what_whispering_calls() {
-        let capability: serde_json::Value = serde_json::from_str(WHISPERING).unwrap();
-        assert_eq!(
-            capability["windows"],
-            serde_json::json!([format!("{}:*", BundledApp::Whispering.page())])
-        );
-        assert_eq!(
-            capability["permissions"],
-            serde_json::json!([
-                "epicenter-folder:default",
-                "epicenter-recorder:default",
-                {
-                    "identifier": "opener:allow-open-url",
-                    "allow": [{ "url": "x-apple.systempreferences:*" }]
-                },
-                "allow-list-inference-models",
-                "allow-transcribe-audio-bytes",
-                "allow-get-local-transcription-readiness",
-                "allow-open-home",
-                "allow-ai-send",
-                "allow-account-send",
-                "allow-send-cancel",
-                "allow-ai-key-set",
-                "allow-ai-key-state",
-                "allow-auth-status",
-                "allow-whispering-connection-read",
-                "allow-whispering-connection-set"
-            ])
-        );
-    }
-
-    /// Whispering's connection rows are read and saved by operation, for
-    /// Whispering's windows alone. Settings edits `so.epicenter` as its own
-    /// folder, and no other window calls these.
-    #[test]
-    fn whispering_connection_rows_are_granted_to_whispering_alone() {
-        for encoded in ALL_CAPABILITIES {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            let permissions = capability["permissions"].as_array().unwrap();
-            for permission in [
-                "allow-whispering-connection-read",
-                "allow-whispering-connection-set",
-            ] {
-                assert_eq!(
-                    permissions.contains(&serde_json::json!(permission)),
-                    *encoded == WHISPERING,
-                    "{} {permission}",
-                    capability["identifier"]
-                );
-            }
-        }
-    }
-
-    /// Epicenter's own pages and the bundled apps' pages are served from one
-    /// pages directory, so no page is both.
-    #[test]
-    fn bundled_pages_are_not_epicenters_own() {
-        for app in BundledApp::ALL {
-            assert_eq!(BuiltInApp::from_id(app.page()), None, "{}", app.page());
-        }
-        for built_in in BuiltInApp::ALL {
-            assert_eq!(BundledApp::from_page(built_in.id()), None);
-        }
-    }
-
-    /// Who Epicenter is signed in as reaches Settings and Whispering; signing
-    /// in and out reaches Settings alone (ADR-0558). No page makes an account
-    /// request through its resource-bound Account; Settings alone owns the
-    /// desktop grant's login and logout.
+    /// Who Epicenter is signed in as, and signing in and out, reach Settings
+    /// alone (ADR-0558): Settings owns the desktop grant.
     #[test]
     fn signing_in_and_out_is_granted_to_settings_alone() {
         for encoded in ALL_CAPABILITIES {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             let permissions = capability["permissions"].as_array().unwrap();
-            let grants = |permission: &str| permissions.contains(&serde_json::json!(permission));
             let identifier = capability["identifier"].as_str().unwrap();
-            let settings = *encoded == HOME;
-            let whispering = *encoded == WHISPERING;
-            assert_eq!(grants("allow-account-send"), whispering, "{identifier}");
-            assert_eq!(grants("allow-send-cancel"), whispering, "{identifier}");
-            assert_eq!(
-                grants("allow-auth-status"),
-                settings || whispering,
-                "{identifier}"
-            );
-            for permission in ["allow-auth-login", "allow-auth-logout"] {
-                assert_eq!(grants(permission), settings, "{identifier} {permission}");
+            for permission in ["allow-auth-status", "allow-auth-login", "allow-auth-logout"] {
+                assert_eq!(
+                    permissions.contains(&serde_json::json!(permission)),
+                    *encoded == HOME,
+                    "{identifier} {permission}"
+                );
             }
         }
     }
@@ -1104,7 +813,7 @@ mod tests {
     /// the recorder plugin asks for microphone access through AVFoundation
     /// itself, and the keyboard supervisor watches the Accessibility grant.
     ///
-    /// Its `macos-permissions:default` grant handed Whispering twelve unrelated
+    /// Its `macos-permissions:default` grant handed a page twelve unrelated
     /// plugin commands (screen recording, input monitoring, full disk access,
     /// camera) to reach the two it used. A grant naming a plugin this build does
     /// not ship is a silent no-op, so nothing would fail if it were pasted back;
@@ -1166,10 +875,7 @@ mod tests {
     /// carry the page API and none of the dictation commands no page reaches.
     #[test]
     fn generated_bindings_cover_every_declared_command() {
-        for bindings in [
-            include_str!("../../../whispering/src/lib/tauri/bindings.gen.ts"),
-            include_str!("../../src/ui/bindings.gen.ts"),
-        ] {
+        for bindings in [include_str!("../../src/ui/bindings.gen.ts")] {
             // Either quote style: specta emits double quotes and the repo
             // formatter rewrites them to single, so both are "fresh".
             let names = |command: &str| {
@@ -1194,17 +900,15 @@ mod tests {
         }
     }
 
-    /// Model administration is routed to Home and to no application window
-    /// (ADR-0180). This is wiring, not a sandbox: an app window runs as
-    /// Epicenter. What it proves is that the ownership the record describes is
-    /// the ownership the build actually wires, so "Whispering cannot pick a
-    /// model" does not quietly become false the next time a permission is
-    /// pasted into the wrong file.
+    /// Model administration is routed to Home and to no other window
+    /// (ADR-0180). This is wiring, not a sandbox. What it proves is that the
+    /// ownership the record describes is the ownership the build actually
+    /// wires, so it does not quietly become false the next time a permission
+    /// is pasted into the wrong file.
     #[test]
     fn model_administration_is_routed_to_home_and_away_from_applications() {
         // `get_active_model` is in this list: model *identity* is administration
-        // data. An application reads readiness, which answers "can the route run
-        // and what does it accept" without naming a model (ADR-0180).
+        // data (ADR-0180).
         const ADMINISTRATION: &[&str] = &[
             "allow-list-models",
             "allow-download-model",
@@ -1230,8 +934,7 @@ mod tests {
             );
         }
 
-        // Applications read readiness and transcribe, and can send the person
-        // to Settings to fix it; none administers the model.
+        // No other window administers the model.
         for encoded in ALL_CAPABILITIES {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             if capability["windows"] == serde_json::json!(["home"]) {
@@ -1241,7 +944,7 @@ mod tests {
             for permission in ADMINISTRATION {
                 assert!(
                     !permissions.contains(&serde_json::json!(permission)),
-                    "an application must not administer models: {permission}"
+                    "only Settings administers models: {permission}"
                 );
             }
         }
@@ -1279,13 +982,12 @@ mod tests {
     }
 
     /// The Folders window manages the synced folders (`synced_folders.rs`),
-    /// each action one CLI call, and opens bundled apps on their default or a
-    /// folder chosen in the native picker (`bundled_apps.rs`), hosted sites,
-    /// and Settings. It is bound to no folder, holds no folder command, and
-    /// administers no model or connection. No other window may do any of it.
+    /// each action one CLI call, and opens Settings. It is bound to no folder,
+    /// holds no folder command, and administers no model or connection. No
+    /// other window may do any of it.
     #[test]
     fn the_folders_window_manages_synced_folders_without_folder_commands() {
-        const FOLDERS_ONLY: [&str; 15] = [
+        const FOLDERS_ONLY: [&str; 12] = [
             "allow-synced-folders",
             "allow-add-synced-folder",
             "allow-accept-folder-setup",
@@ -1298,9 +1000,6 @@ mod tests {
             "allow-share-folder",
             "allow-unshare-folder",
             "allow-restart-sync-service",
-            "allow-open-bundled-app",
-            "allow-open-hosted-site",
-            "allow-choose-folder-for-app",
         ];
         let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
         assert_eq!(capability["windows"], serde_json::json!(["folders"]));
@@ -1349,8 +1048,7 @@ mod tests {
 
         for denied in [
             "epicenter://app/unknown",
-            // Bundled apps are opened from the Folders window, which assigns
-            // a folder, not by link.
+            // An app is a separate program; no link opens one here.
             "epicenter://app/todos",
             "epicenter://app/so.epicenter.todos",
             "epicenter://app/capture",
@@ -1431,8 +1129,7 @@ mod tests {
         );
     }
 
-    /// A setup link is its own form: it never names a built-in or bundled
-    /// window, and the built-in table takes no query.
+    /// A setup link is its own form: it never names a window, and the built-in table takes no query.
     #[test]
     fn a_setup_link_and_a_window_link_are_read_apart() {
         assert_eq!(

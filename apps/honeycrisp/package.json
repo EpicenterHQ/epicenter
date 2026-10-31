@@ -8,7 +8,6 @@
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
 		"build": "NODE_ENV=production vite build",
-		"build:host": "EPICENTER_HOST=1 bun run build",
 		"preview": "vite preview",
 		"deploy": "wrangler deploy",
 		"prepare": "svelte-kit sync || echo ''",

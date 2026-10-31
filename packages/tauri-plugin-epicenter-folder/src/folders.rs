@@ -551,11 +551,17 @@ mod tests {
             CloseRequest::ConfirmNatively(token)
         );
         assert_eq!(folders.request_close("main"), CloseRequest::Waiting);
-        assert_eq!(folders.begin_close_answer("main", token), CloseAnswer::WaitForPrompt);
+        assert_eq!(
+            folders.begin_close_answer("main", token),
+            CloseAnswer::WaitForPrompt
+        );
         assert!(folders.finish_native_prompt("main", token, false));
         folders.finish_close_request("main", token);
         assert_eq!(folders.request_close("main"), CloseRequest::Sent);
-        assert_eq!(folders.begin_close_answer("main", token), CloseAnswer::Destroy);
+        assert_eq!(
+            folders.begin_close_answer("main", token),
+            CloseAnswer::Destroy
+        );
         assert_eq!(folders.request_close("main"), CloseRequest::Waiting);
         folders.finish_close_request("main", token);
         assert_eq!(folders.request_close("main"), CloseRequest::Sent);
@@ -574,9 +580,15 @@ mod tests {
             .subscribe_close("main", Channel::new(|_: InvokeResponseBody| Ok(())))
             .unwrap();
         assert_eq!(folders.request_close("main"), CloseRequest::Sent);
-        assert_eq!(folders.request_close("main"), CloseRequest::ConfirmNatively(token));
+        assert_eq!(
+            folders.request_close("main"),
+            CloseRequest::ConfirmNatively(token)
+        );
         assert!(!folders.finish_native_prompt("main", token, false));
-        assert_eq!(folders.begin_close_answer("main", token), CloseAnswer::Destroy);
+        assert_eq!(
+            folders.begin_close_answer("main", token),
+            CloseAnswer::Destroy
+        );
     }
 
     #[test]

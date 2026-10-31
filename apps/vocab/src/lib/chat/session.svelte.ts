@@ -66,7 +66,7 @@ export function createVocabChat({
 
 	function captureTarget(): boolean {
 		const resolved = catalog.resolve(target());
-		if (!resolved || resolved.source === 'runtime') return false;
+		if (!resolved) return false;
 		runTarget = {
 			client: resolved.client,
 			model: resolved.model,
@@ -152,17 +152,12 @@ export function createVocabChat({
 		},
 		get canServe() {
 			const resolved = catalog.resolve(target());
-			return resolved !== null && resolved.source !== 'runtime';
+			return resolved !== null;
 		},
 		/** Whether `retry` would ask the tutor now. */
 		get canAsk() {
 			const resolved = catalog.resolve(target());
-			return (
-				resolved !== null &&
-				resolved.source !== 'runtime' &&
-				!isBusy() &&
-				!hasNothingToAsk()
-			);
+			return resolved !== null && !isBusy() && !hasNothingToAsk();
 		},
 		get inputValue() {
 			return draft;
@@ -174,7 +169,6 @@ export function createVocabChat({
 			const resolved = catalog.resolve(target());
 			return (
 				resolved !== null &&
-				resolved.source !== 'runtime' &&
 				!isBusy() &&
 				loop.messages.length > 0 &&
 				draft.trim().length > 0

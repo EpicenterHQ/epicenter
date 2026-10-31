@@ -67,8 +67,7 @@ for the current page flow and verify it against the code.
   `HoneycrispApp`, which creates the `notes` state and provides context.
 - Shared imports use `@epicenter/folder`; Vite selects the platform
   opener. Do not import Bun or Node modules under `src/`.
-- The host build opens the desktop shell's granted directory through the
-  same component. Browser tests fault `fake-indexeddb` storage.
+- Browser tests fault `fake-indexeddb` storage.
 
 ## Words a person reads
 
