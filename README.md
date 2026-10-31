@@ -39,11 +39,12 @@
 
 `@epicenter/folder` opens one rooted set of local files. Tables interpret
 Markdown files through schemas an app supplies. Opening needs no account,
-remote, Git repository, or declaration file. A browser stores its default
-folder in IndexedDB; a desktop app opens a directory the shell grants.
+remote, Git repository, or declaration file. A desktop app opens a directory
+the shell grants (`@epicenter/folder/tauri`); a Bun script names one
+(`@epicenter/folder/bun`).
 
 ```ts
-import { openFolder } from '@epicenter/folder';
+import { openFolder } from '@epicenter/folder/tauri';
 import { Type } from 'typebox';
 
 const { data: folder, error } = await openFolder({

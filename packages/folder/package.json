@@ -19,7 +19,6 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server-tests.json",
 		"test": "bun test --isolate",
-		"test:engine": "bun test --isolate src/browser/ src/shared/",
 		"smoke:device": "bun smoke/device.ts",
 		"schema:generate": "bun src/declaration/generate-schema.ts"
 	},
@@ -37,7 +36,6 @@
 		"@types/bun": "catalog:",
 		"@types/pg": "^8.18.0",
 		"drizzle-orm": "catalog:",
-		"fake-indexeddb": "^6.2.6",
 		"pg": "^8.20.0",
 		"playwright": "^1.61.1",
 		"typescript": "catalog:",

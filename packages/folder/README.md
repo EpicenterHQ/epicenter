@@ -18,8 +18,8 @@ landed storage.
 
 | Import | Purpose |
 | --- | --- |
-| `@epicenter/folder` | Open this browser origin's default folder or the directory bound to this Tauri window. Apps may alias this exact specifier to one platform entry at build time. |
-| `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece); and `openFolder`, the fixed IndexedDB folder in a web page, which refuses inside Tauri. |
+| `@epicenter/folder` | The shared types and errors (`contract.ts`); it opens nothing. |
+| `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
 | `@epicenter/folder/tauri` | `openDevice(contract, { path?, create? })` over a root the shell lets this window reach: the directory it bound to the window (no `path`, or a relative one inside it), or a folder by absolute path that Tauri's file-system scope allows; and `openFolder` over the bound directory. A standalone app opens its two roots with `openAppData(settingsContract)` (its AppData root, through the app's own settings contract, whose `settings.md` has `folder`) and `openDataFolder(contract, { appData })` (the `folder` that names, or `~/Epicenter/<productName>`, which alone is made when missing; `defaultDataFolder()` answers that path). `rootOf(device)` answers the root a client opened by absolute path, as the shell answered it, for the window's other native commands (the recorder's and local transcription's `root`). `chooseFolder({ title, at? })` is the native picker, which allows the folder it answers and answers its canonical path (the shell's `resolve_folder`), so `/tmp/x` and `/private/tmp/x` are one folder; `pickDataFolder(appData, { title, at? })` picks and remembers that path, or forgets `folder` when the default is picked, for both "Choose folder…" and "Allow access"; `rememberFolder(appData, folder \| undefined)` records or forgets a choice. `syncWithEpicenter({ path, contract })` asks the shell to open `epicenter://init?path=<path>&contract=<contract>` (decisions 81 and 82), and `syncedWithEpicenter({ path })` says whether `epicenter init` set that folder up (its `.git/config` names it as `epicenter.root`). |
@@ -35,11 +35,11 @@ an entry does not open a folder.
 ## Opening
 
 ```ts
-import { openFolder } from '@epicenter/folder';
+import { openFolder } from '@epicenter/folder/bun';
 import { Type } from 'typebox';
 
 const tables = { notes: Type.Object({ title: Type.String() }) };
-const opened = await openFolder({ tables });
+const opened = await openFolder({ directory: '/path/to/folder', tables });
 if (opened.error !== null) throw opened.error;
 const folder = opened.data;
 
@@ -52,9 +52,8 @@ console.log(folder.tables.notes.row('milk')?.fields.title); // Milk
 await folder.close();
 ```
 
-A browser opens one fixed IndexedDB folder for its origin. A desktop page opens
-only the directory its shell assigned before creating the window; the page
-names no path. A Bun caller supplies an existing directory. Opening needs no
+A desktop page opens (`@epicenter/folder/tauri`) only the directory its shell
+assigned before creating the window; the page names no path. A Bun caller supplies an existing directory. Opening needs no
 account, network, Git repository, or `epicenter.json`, and creates no authored
 file. `openFolder` returns a refusal when storage is unavailable or the root or
 table names are invalid. It never falls back to another store.
@@ -66,8 +65,8 @@ table names are invalid. It never falls back to another store.
 `data: undefined`; use `read(path)` to fetch their bytes. A failed read leaves
 `readError` on the file and retains any earlier data. The mirror reads listed
 text files when opening and reconciles outside changes through `refresh()`.
-Its `subscribe(listener)` method reports changes to mirrored values. Browser
-tabs and native directory watchers provide change hints; focus and explicit
+Its `subscribe(listener)` method reports changes to mirrored values. Native
+directory watchers provide change hints; focus and explicit
 refresh reconcile missed hints. A hint naming a file the mirror already holds
 rereads that file without a full relist. New paths, directory hints, and
 unnamed hints relist the folder.
@@ -241,13 +240,6 @@ defaults and its device's note; an online web app reads its notes from the
 repository. API keys never go in a settings note: they stay in the
 keychain.
 
-## Browser storage
-
-The [browser repository engine](src/browser/README.md) behind the legacy
-`openFolder` stores the current folder as an immutable Git working tree in
-IndexedDB. Local saves create no Git commit. The browser no longer exchanges
-Git: the web never syncs, and new apps use `openDevice` instead.
-
 ## Native directories
 
 Bun and Tauri open ordinary directory files, with no required Git repository.
@@ -287,20 +279,6 @@ source. `@epicenter/folder/bun` exports the CLI's declaration readers,
 runner. These tools can read or change a directory independently of an
 opened Folder.
 
-## Building for one environment
-
-Alias only the bare specifier in a build that targets one host:
-
-```ts
-resolve: {
-  alias: [{ find: /^@epicenter\/folder$/, replacement: '@epicenter/folder/tauri' }],
-}
-```
-
-Use `/browser` for a browser-only build. Without an alias, the bare entry
-chooses at call time and loads only the chosen engine. The
-[`evidence/bundles`](evidence/bundles/) tests inspect emitted chunks.
-
 ## Layout
 
 | Path | Responsibility |
@@ -309,20 +287,18 @@ chooses at call time and loads only the chosen engine. The
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts`, `node.ts`, `testing.ts` | Public and test entries. |
 | `src/device/` | `openDevice`: the contract client, its Bun, OPFS and Tauri stores, and `check`/`format`. |
 | `src/remote/` | `openRemote` and its wire to the server. |
-| `src/browser/` | The legacy IndexedDB repository behind `openFolder`. |
 | `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, and bindings. |
-| `src/shared/` | Markdown reading, rows, and the legacy engine's file content types. |
+| `src/shared/` | Markdown reading and rows. |
 | `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
-| `src/git/raw-objects.ts` | Git objects for the browser repository. |
 | `src/declaration/`, `declaration.ts`, `directory-documents.ts` | Portable schemas and generic document reads. |
-| `evidence/`, `smoke/` | Bundle checks and browser smoke runs. |
+| `evidence/`, `smoke/` | Recorded experiments, the closure check, and browser smoke runs. |
 
 ## Commands
 
 ```sh
 bun run typecheck
 bun run test
-bun test evidence/bundles evidence/closure
+bun test evidence/closure
 ```
 
 Each save changes one file; there is no multi-file transaction. Directory

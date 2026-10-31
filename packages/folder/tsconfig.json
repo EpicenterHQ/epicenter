@@ -6,5 +6,5 @@
 		"noUnusedParameters": true
 	},
 	"include": ["src/**/*.ts", "evidence/**/*.ts", "smoke/**/*.ts"],
-	"exclude": ["evidence/bundles/out", "src/**/*.postgres.test.ts"]
+	"exclude": ["src/**/*.postgres.test.ts"]
 }

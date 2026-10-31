@@ -133,7 +133,7 @@ several files, is held with `holdLeave(write)`.
 
 ```svelte
 <script lang="ts">
-  import { openFolder } from '@epicenter/folder';
+  import { openFolder } from '@epicenter/folder/tauri';
   import OpenFolder from '@epicenter/svelte/open-folder';
   import { todosTables } from '$lib/definition.js';
   import TodosApp from './local/TodosApp.svelte';

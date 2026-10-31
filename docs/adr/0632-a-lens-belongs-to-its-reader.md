@@ -20,7 +20,7 @@ callers migrate.
 Whispering declares its recording and transcription fields in
 `606cbceebb64:apps/whispering/src/lib/definition.ts`. It already brings the knowledge
 needed to read its files. The internal browser engine accepts caller-supplied
-schemas in `packages/folder/src/browser/repository.ts`; its saves do not validate
+schemas in `92f32cc476:packages/folder/src/browser/repository.ts`; its saves do not validate
 against those schemas.
 
 Applications still use `@epicenter/folder`. Its opener reads a root

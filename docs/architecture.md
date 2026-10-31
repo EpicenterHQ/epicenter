@@ -18,8 +18,7 @@ const { data: folder, error } = await openFolder({ tables: { todos: todoSchema }
 if (error !== null) throw error;
 ```
 
-In a browser, this opens the origin's stable default in IndexedDB. In a
-Tauri page, it opens the directory that the shell assigned to that window
+In a Tauri page (`@epicenter/folder/tauri`), it opens the directory that the shell assigned to that window
 before creating its WebView. A Bun process passes an existing path with
 `openFolder({ directory, tables })`. To choose another native directory, the
 shell assigns it to another window. Opening needs no account,
@@ -27,9 +26,9 @@ network connection, Git repository, or `epicenter.json`, and it writes no
 authored file. A storage refusal is returned to the caller; another store is
 never opened in its place.
 
-The browser's older OPFS folders remain on disk but the current default
-opener does not read them. The desktop shell leaves older authored
-directories intact and lists them as folders. Neither boundary silently
+A browser page keeps a contract's files through `openDevice` from
+`@epicenter/folder/browser` instead; it has no Folder. The desktop shell
+leaves older authored directories intact and lists them as folders. Neither boundary silently
 migrates or removes data.
 
 ## Editing and saving
@@ -37,7 +36,7 @@ migrates or removes data.
 The Folder mirrors the file values that storage last returned or accepted.
 `folder.files()` reads its current listing; `folder.tables` interprets rows at
 `<table>/<id>.md`. A row with issues keeps its path and diagnostics for repair.
-Browser and native change hints, focus, and explicit `refresh()` reconcile
+Native change hints, focus, and explicit `refresh()` reconcile
 outside edits without periodic polling.
 
 Each `write`, `update`, `create`, or `delete` enters one serial queue. An
@@ -45,8 +44,8 @@ Each `write`, `update`, `create`, or `delete` enters one serial queue. An
 runs. Updates use conditional puts and retry when storage changed; whole-file
 writes replace the file. A landed write then updates the mirror. Its
 promise answers after the new value is visible, or with a `WriteError`. There
-is no merge on a local write; the last publication to land wins. The browser
-commits the change atomically in IndexedDB. Native storage stages one whole
+is no merge on a local write; the last publication to land wins. Native
+storage stages one whole
 file and renames it over its path after checking the version the writer read.
 
 A Svelte editor owns an `edit(source, save)` for typed text. It shows that

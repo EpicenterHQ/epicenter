@@ -128,11 +128,6 @@ export const OpenFolderError = defineErrors({
 		message:
 			'This folder lives in the desktop app; it cannot be opened from a browser tab',
 	}),
-	/** The browser's default local folder was asked for inside the desktop shell. */
-	InsideTauri: () => ({
-		message:
-			'This page runs in the desktop app, whose folders are files on disk; browser storage is not opened there',
-	}),
 	/** The directory a native opener was given cannot hold a folder. */
 	InvalidRoot: ({ root, cause }: { root: string; cause: unknown }) => ({
 		message: `The directory '${root}' cannot be opened as a folder: ${describe(cause)}`,
