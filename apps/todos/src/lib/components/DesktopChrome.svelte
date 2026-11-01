@@ -11,13 +11,16 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import type { ChromeProps } from '../platform.js';
+	import { getTodos } from '../todos.js';
 
-	let { unreadable, pendingNewTodo }: ChromeProps = $props();
+	let { pendingNewTodo }: ChromeProps = $props();
 
 	// DesktopRoot renders the app, and so this, only over its open data folder.
 	const sync = getFolderSync();
+	const todos = getTodos();
 
 	const status = $derived.by((): StatusLine => {
+		const unreadable = todos.error;
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
 		if (unreadable !== null) return { label: 'Not readable here', detail: unreadable.message, tone: 'error' };
 		if (sync.synced) return { label: 'Synced by Epicenter', tone: 'good' };

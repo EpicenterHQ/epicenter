@@ -4,10 +4,7 @@
 	is kept in the browser, or the desktop window's folder.
 -->
 <script lang="ts">
-	import { store } from '#platform/root';
 	import TodosApp from '$lib/components/TodosApp.svelte';
-
-	const { todos } = store();
 </script>
 
-<TodosApp {todos} />
+<TodosApp />

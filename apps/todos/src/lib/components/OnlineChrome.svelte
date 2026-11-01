@@ -10,11 +10,14 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { webAuth } from '../auth.js';
 	import type { ChromeProps } from '../platform.js';
+	import { getTodos } from '../todos.js';
 
-	let { unreadable, pendingNewTodo }: ChromeProps = $props();
+	let { pendingNewTodo }: ChromeProps = $props();
 	const auth = webAuth();
+	const todos = getTodos();
 
 	const status = $derived.by((): StatusLine => {
+		const unreadable = todos.error;
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
 		if (auth.state.status === 'reauth-required')
 			return {
