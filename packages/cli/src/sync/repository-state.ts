@@ -10,11 +10,8 @@ export async function repositoryProblem(root: string): Promise<string | null> {
 		if (existsSync(resolve(root, path)))
 			return `${name} exists: finish or abort it before running Epicenter.`;
 	}
-	for (const name of ['rebase-merge', 'rebase-apply']) {
-		const path = (await must(root, ['rev-parse', '--git-path', name])).trim();
-		if (existsSync(resolve(root, path)))
-			return 'a rebase is in progress. Finish or abort it before running Epicenter.';
-	}
+	if (await rebasing(root))
+		return 'a rebase is in progress. Finish or abort it before running Epicenter.';
 	const unmerged = await must(root, ['ls-files', '-u']);
 	if (unmerged.trim() !== '')
 		return 'unmerged entries exist. Resolve them before running Epicenter.';
@@ -24,4 +21,15 @@ export async function repositoryProblem(root: string): Promise<string | null> {
 	if (branch.stdout.trim() !== 'main')
 		return `this repository is on ${branch.stdout.trim()}, but Epicenter syncs only main. Check out main before running Epicenter.`;
 	return null;
+}
+
+/** Whether Git is replaying commits (`rebase-merge` or `rebase-apply` exists). */
+export async function rebasing(cwd: string): Promise<boolean> {
+	for (const name of ['rebase-merge', 'rebase-apply']) {
+		const path = (
+			await git(cwd, ['rev-parse', '--git-path', name])
+		).stdout.trim();
+		if (path !== '' && existsSync(resolve(cwd, path))) return true;
+	}
+	return false;
 }

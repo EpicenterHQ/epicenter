@@ -24,22 +24,10 @@
  * It says what it did on one stderr line, `[epicenter merge] ...`.
  */
 
-import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { settle } from '@epicenter/definition/merge';
 import { git } from './git.ts';
-
-/** Whether Git is replaying commits (`rebase-merge` or `rebase-apply` exists). */
-async function rebasing(cwd: string): Promise<boolean> {
-	for (const name of ['rebase-merge', 'rebase-apply']) {
-		const path = (
-			await git(cwd, ['rev-parse', '--git-path', name])
-		).stdout.trim();
-		if (path !== '' && existsSync(resolve(cwd, path))) return true;
-	}
-	return false;
-}
+import { rebasing } from './repository-state.ts';
 
 /** Author and time of a commit, for a conflict label. */
 async function partyOf(cwd: string, rev: string, fallback: string) {
