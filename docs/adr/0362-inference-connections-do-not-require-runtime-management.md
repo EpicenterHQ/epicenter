@@ -13,7 +13,7 @@ multiple connections. Whispering also resolves custom completion endpoints in
 `eb8c8631f9:apps/whispering/src/lib/operations/completion-target.ts`.
 
 Native transcription already has host-owned model administration in
-`apps/epicenter/src-tauri/src/transcription/mod.rs`, governed by
+`packages/tauri-plugin-epicenter-transcription/src/transcription/mod.rs`, governed by
 [ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md).
 The optional integrations below concern external inference servers; they do not
 turn that existing native capability into an HTTP connection. The native

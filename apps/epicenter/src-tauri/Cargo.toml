@@ -47,13 +47,11 @@ tauri = { version = "2.12", features = ["test"] }
 dunce = "1"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
-# Its audio decoder only (`audio::decode_to_pcm16k_mono`); the plugin itself is
-# not installed.
+# Settings' local model administration, and the model cache dictation prewarms.
 tauri-plugin-epicenter-transcription = { path = "../../../packages/tauri-plugin-epicenter-transcription" }
 anyhow = "1"
 base64 = "0.22"
 enigo = { version = "0.5.0", optional = true }
-hf-hub = { version = "0.5", features = ["tokio"] }
 log = "0.4"
 percent-encoding = "2"
 serde = { version = "1", features = ["derive"] }
@@ -70,9 +68,7 @@ tauri-plugin-log = "2"
 tauri-plugin-opener = "2.5"
 tauri-plugin-updater = "=2.14.0"
 tempfile = "3.8"
-thiserror = "2.0.12"
 tokio = { version = "1", features = ["full"] }
-tracing = "0.1.41"
 transcribe-cpp = { version = "0.1.0", default-features = false }
 
 [target.'cfg(unix)'.dependencies]

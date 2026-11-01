@@ -4,41 +4,6 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	/**
-	 *  The active local model's identity and whether it can run right now, or
-	 *  `None` when nobody has chosen one.
-	 * 
-	 *  **Administration only.** Home holds this grant because Home chooses the
-	 *  active model and must show which one that is. No other window is granted
-	 *  this command.
-	 */
-	getActiveModel: () => __TAURI_INVOKE<{
-	id: string,
-	/**
-	 *  The curated display name, so a caller can name the model in an error
-	 *  without holding a catalog of its own.
-	 */
-	name: string,
-	/**
-	 *  Whether the model's file is present on this machine. Disk presence, the
-	 *  same verdict `list_models` renders; never a statement about memory.
-	 */
-	installed: boolean,
-	/**
-	 *  Whether this model accepts an initial prompt, so a caller knows whether
-	 *  to offer the field at all. The runtime still guards the real decision at
-	 *  use and reports what it applied, so a stale hint can only hide a field,
-	 *  never misfeed the model.
-	 */
-	supportsPrompt: boolean,
-	/**  Whether this model takes a spoken-language hint. */
-	supportsLanguage: boolean,
-} | null>("get_active_model"),
-	/**
-	 *  Make `model_id` the active local model, or clear the choice with `null`.
-	 *  Home's administration write: the only way the active model changes.
-	 */
-	setActiveModel: (modelId: string | null) => typedError<null, SettingsError>(__TAURI_INVOKE("set_active_model", { modelId })),
 	/**  Show Settings: the Folders window's Settings button (ADR-0537). */
 	openHome: () => __TAURI_INVOKE<void>("open_home"),
 	/**  The folders the CLI registered, each with its last round. */
@@ -88,83 +53,9 @@ export const commands = {
 	 *  keychain. A terminal's `epicenter auth login` is left signed in.
 	 */
 	authLogout: () => typedError<AuthSignOut, CliError>(__TAURI_INVOKE("auth_logout")),
-	/**  When the host drops the resident model. */
-	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>("get_unload_policy"),
-	/**
-	 *  Set the unload policy. Host-owned and durable alongside the active model:
-	 *  Rust owns the idle clock because a backgrounded webview timer throttles
-	 *  exactly when idle eviction must fire (ADR-0012), and now owns the value too,
-	 *  so it applies from launch instead of waiting for a webview to reconcile it.
-	 *  It carries no model identity, so it applies whether or not a model is active.
-	 */
-	setUnloadPolicy: (policy: UnloadPolicy) => typedError<null, SettingsError>(__TAURI_INVOKE("set_unload_policy", { policy })),
-	/**
-	 *  The full local GGUF catalog with per-model download status. The picker's one
-	 *  data source: which models exist, what they can do, and which are on disk.
-	 */
-	listModels: () => __TAURI_INVOKE<ModelInfo[]>("list_models"),
-	/**
-	 *  Download a catalog model into the shared Hugging Face cache, reporting
-	 *  cumulative progress on `on_progress`. Registered under `download_id` so
-	 *  `cancel_download(download_id)` can abort the in-flight transfer (the aborted
-	 *  task drops mid-download; hf-hub leaves a temp file, never a corrupt final).
-	 *  A no-op when the file is already cached, at any commit.
-	 */
-	downloadModel: (modelId: string, downloadId: string, onProgress: Channel<DownloadProgress>) => typedError<null, CatalogError>(__TAURI_INVOKE("download_model", { modelId, downloadId, onProgress })),
-	/**
-	 *  Show a downloaded model's folder in the shared Hugging Face cache, such as
-	 *  `models--handy-computer--whisper-tiny-gguf`, so the user can see where it
-	 *  lives and remove it themselves. Epicenter itself never deletes a model.
-	 * 
-	 *  The folder, not the file: the file is a symlink into the repo's `blobs/`,
-	 *  and the file manager would select the 64-hex blob it resolves to. Deleting
-	 *  the folder frees the space, and the model then reads as not downloaded.
-	 *  Async so a slow file manager call never blocks the main thread.
-	 */
-	revealModel: (modelId: string) => typedError<null, CatalogError>(__TAURI_INVOKE("reveal_model", { modelId })),
-	/**
-	 *  Abort the in-flight download registered under `download_id`, if any. The
-	 *  matching `download_model` call then resolves with an `Err` (and the dropped
-	 *  task leaves a temp file in the HF cache, never a corrupt final). A no-op when
-	 *  nothing is downloading under that id, so it is always safe to call.
-	 */
-	cancelDownload: (downloadId: string) => __TAURI_INVOKE<void>("cancel_download", { downloadId }),
 };
 
 /* Types */
-/**
- *  The one active local model as **Home** sees it: its exact identity and
- *  whether its file is on this machine right now.
- * 
- *  Administration data, not application data (ADR-0180). Home chooses the active
- *  model, so Home is told which one it is; an ordinary application never learns
- *  model identity and reads `get_local_transcription_readiness` instead. Nothing
- *  here reports residency: `installed` is disk presence, and how many models are
- *  resident or warm stays host-private.
- */
-export type ActiveModel = {
-	id: string,
-	/**
-	 *  The curated display name, so a caller can name the model in an error
-	 *  without holding a catalog of its own.
-	 */
-	name: string,
-	/**
-	 *  Whether the model's file is present on this machine. Disk presence, the
-	 *  same verdict `list_models` renders; never a statement about memory.
-	 */
-	installed: boolean,
-	/**
-	 *  Whether this model accepts an initial prompt, so a caller knows whether
-	 *  to offer the field at all. The runtime still guards the real decision at
-	 *  use and reports what it applied, so a stale hint can only hide a field,
-	 *  never misfeed the model.
-	 */
-	supportsPrompt: boolean,
-	/**  Whether this model takes a spoken-language hint. */
-	supportsLanguage: boolean,
-};
-
 /**  Who approved a grant, as the server's userinfo answered at sign-in. */
 export type AuthAccount = {
 	id: string,
@@ -202,8 +93,6 @@ export type AuthStatus = {
 	grants: AuthGrant[],
 };
 
-export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "RevealFailed"; message: string };
-
 /**  Why a command did not run the CLI, or the CLI did not finish. */
 export type CliError = 
 /**
@@ -232,22 +121,6 @@ export type CliExit = {
 	stderr: string,
 };
 
-/**
- *  Cumulative download progress for one model: bytes received so far across all
- *  of its files, and the grand total to expect. The frontend turns it into a
- *  0-100 percent.
- */
-export type DownloadProgress = {
-	/**
-	 *  Bytes received so far. `f64` because specta forbids exporting 64-bit
-	 *  ints to TypeScript; model sizes are far below `f64`'s 2^53 exact-integer
-	 *  ceiling, so no precision is lost.
-	 */
-	bytesReceived: number | null,
-	/**  Grand total bytes for the whole model (sum of the catalog file sizes). */
-	totalBytes: number | null,
-};
-
 /**  Git state shown before a person accepts a setup request. */
 export type FolderFound = {
 	folder: string,
@@ -273,27 +146,6 @@ export type FolderSetupPreview = {
 
 export type GrantLevel = "read" | "write";
 
-/**
- *  A catalog model as Home's administration view sees it: identity, display
- *  fields, static capabilities, and whether it is already downloaded. Home names
- *  `id` when it activates, downloads, or reveals a model; it never learns the
- *  Hugging Face coordinate. Applications see none of this.
- */
-export type ModelInfo = {
-	id: string,
-	name: string,
-	description: string,
-	/**
-	 *  Approximate download size in bytes. `f64` because specta forbids 64-bit
-	 *  ints in TS; model sizes are far below `f64`'s exact-integer ceiling.
-	 */
-	sizeBytes: number | null,
-	supportsPrompt: boolean,
-	supportsLanguage: boolean,
-	recommended: boolean,
-	downloaded: boolean,
-};
-
 /**  One person a repository is shared with (`RepositoryGrant`). */
 export type RepositoryGrant = {
 	person: string,
@@ -308,13 +160,6 @@ export type RepositoryGrantRevoked = {
 export type RepositoryGrants = {
 	grants: RepositoryGrant[],
 };
-
-/**
- *  Failures the Home administration commands can report. Both are actionable:
- *  the id is not a model this build knows, or the choice could not be made
- *  durable.
- */
-export type SettingsError = { name: "UnknownModel"; message: string } | { name: "SaveFailed"; message: string };
 
 /**  One folder's line of `epicenter sync --json` (`SyncResult` in the CLI). */
 export type SyncRound = {
@@ -364,14 +209,6 @@ export type SyncedFolderListing = {
 	service: SyncService,
 	setups: FolderSetupPreview[],
 };
-
-/**
- *  How long after the last transcription the resident model should be dropped.
- * 
- *  `Immediately` is enforced synchronously at the end of each transcription;
- *  timed variants are enforced by the background idle watcher.
- */
-export type UnloadPolicy = "never" | "immediately" | "after_5_minutes" | "after_30_minutes";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ data: T; error: null } | { data: null; error: E }> {

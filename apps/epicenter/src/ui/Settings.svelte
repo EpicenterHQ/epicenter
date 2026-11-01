@@ -1,12 +1,10 @@
 <script lang="ts">
+	import LocalModelAdministration from '@epicenter/transcription-native/local-model-administration';
 	import { Button } from '@epicenter/ui/button';
-	import { Channel } from '@tauri-apps/api/core';
+	import * as Empty from '@epicenter/ui/empty';
+	import { Channel, isTauri } from '@tauri-apps/api/core';
 	import { onMount } from 'svelte';
 	import { type AuthGrant, commands } from './bindings.gen';
-	import { isTauri } from '@tauri-apps/api/core';
-	import * as Empty from '@epicenter/ui/empty';
-	import LocalModelAdministration from './LocalModelAdministration.svelte';
-	import { localModels } from './local-models.svelte';
 
 	/**
 	 * Host-level administration (ADR-0189) includes the app's sign-in and the
@@ -102,7 +100,7 @@
 	</div>
 {/if}
 
-{#if localModels.available}
+{#if isTauri()}
 	<div class="grid gap-3 p-3">
 		<LocalModelAdministration />
 	</div>

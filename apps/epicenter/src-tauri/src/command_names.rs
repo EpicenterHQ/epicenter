@@ -10,7 +10,6 @@
 
 /// The commands every build registers: the page API.
 pub const COMMANDS: &[&str] = &[
-    "get_active_model",
     "open_home",
     "synced_folders",
     "add_synced_folder",
@@ -27,13 +26,6 @@ pub const COMMANDS: &[&str] = &[
     "auth_login",
     "auth_status",
     "auth_logout",
-    "set_active_model",
-    "get_unload_policy",
-    "set_unload_policy",
-    "list_models",
-    "download_model",
-    "reveal_model",
-    "cancel_download",
 ];
 
 /// The native dictation commands, registered only by a build with the

@@ -37,7 +37,7 @@ moves it), keeps OS credentials with the `keyring` crate
 <!-- doc-path-check: ignore-next-line -->
 (`apps/epicenter/src-tauri/src/keyring_storage.rs`), downloads transcription
 models ([ADR-0022](0022-rust-owns-the-models-folder-the-webview-owns-the-catalog.md),
-`apps/epicenter/src-tauri/src/download.rs`), and installs apps
+`14fdbf2c82:apps/epicenter/src-tauri/src/download.rs`), and installs apps
 (`999012befb:apps/epicenter/src-tauri/src/installed_apps.rs`, 2,017 lines), running `bun`
 as the compiled host with `BUN_BE_BUN=1` on Unix (`:355-382`) and nothing on
 Windows (`:385-388`).

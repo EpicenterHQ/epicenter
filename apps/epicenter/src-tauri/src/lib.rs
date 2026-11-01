@@ -20,17 +20,6 @@ use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 mod macos_menu;
 mod scheme;
 
-pub mod transcription;
-use transcription::{
-    download_model, get_active_model, get_unload_policy, list_models, reveal_model,
-    set_active_model, set_unload_policy, LocalTranscriptionSettings, ModelCache,
-};
-
-pub mod download;
-use download::{cancel_download, DownloadManager};
-
-pub mod timing;
-
 mod shell;
 mod updates;
 
@@ -96,8 +85,6 @@ type DesktopAppHandle = AppHandle<Wry>;
 macro_rules! shell_commands {
     ($($extra:tt)*) => {
         tauri_specta::collect_commands![
-            get_active_model,
-            set_active_model,
             open_home,
             synced_folders::synced_folders,
             synced_folders::add_synced_folder,
@@ -114,12 +101,6 @@ macro_rules! shell_commands {
             cli::auth_login::<tauri::Wry>,
             cli::auth_status,
             cli::auth_logout,
-            get_unload_policy,
-            set_unload_policy,
-            list_models,
-            download_model,
-            reveal_model::<tauri::Wry>,
-            cancel_download,
             $($extra)*
         ]
     };
@@ -140,7 +121,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .commands(shell_commands![
             delivery::write_text,
             delivery::simulate_enter_keystroke,
-            transcription::prewarm_model,
+            prewarm_model,
             media::pause_playback,
             media::resume_playback,
             keyboard::commands::set_auto_paste_enabled,
@@ -200,6 +181,24 @@ mod export_bindings {
     }
 }
 
+/// Prewarm the active local model so a following transcribe finds it warm,
+/// overlapping the ~1 s load with the person's speech. A no-op when it is
+/// already resident; a failure here is not fatal, since transcribe loads
+/// normally and reports any real error then.
+#[cfg(feature = "dictation")]
+#[tauri::command]
+#[specta::specta]
+async fn prewarm_model(
+    app: DesktopAppHandle,
+) -> Result<(), tauri_plugin_epicenter_transcription::TranscriptionError> {
+    use tauri_plugin_epicenter_transcription::TranscriptionError;
+    let failed = |message: String| TranscriptionError::TranscriptionError { message };
+    let cache = tauri_plugin_epicenter_transcription::model_cache(&app).map_err(failed)?;
+    tauri::async_runtime::spawn_blocking(move || cache.prewarm())
+        .await
+        .map_err(|error| failed(format!("Background transcription task failed: {error}")))?
+}
+
 /// Show Settings: the Folders window's Settings button (ADR-0537).
 #[tauri::command]
 #[specta::specta]
@@ -212,7 +211,10 @@ pub fn run() {
     let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
     let log_plugin = tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
-        .level_for("epicenter::transcription", log::LevelFilter::Debug)
+        .level_for(
+            "tauri_plugin_epicenter_transcription",
+            log::LevelFilter::Debug,
+        )
         .target(tauri_plugin_log::Target::new(
             tauri_plugin_log::TargetKind::Stdout,
         ))
@@ -236,10 +238,13 @@ pub fn run() {
         // the file picker.
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Settings administers this app's local model through the plugin's
+        // commands. Its file transcription needs the folder plugin, which the
+        // shell does not install, and no window is granted it.
+        .plugin(tauri_plugin_epicenter_transcription::init())
         .manage(synced_folders::SyncedFolders::default())
         .manage(cli::CliChildren::default())
-        .manage(updates::Updates::default())
-        .manage(DownloadManager::default());
+        .manage(updates::Updates::default());
 
     // Only native dictation uses these plugins; no capability grants them.
     #[cfg(feature = "dictation")]
@@ -283,20 +288,9 @@ pub fn run() {
             app.manage(scheme::Pages(
                 scheme::pages_dir(app.handle()).context("locate packaged pages")?,
             ));
-            // The active local model and the unload policy are device-local host
-            // state (ADR-0180), so they live in the app's data directory, never
-            // in a folder that could carry them to a machine without the model
-            // files or a compatible accelerator.
-            let settings = LocalTranscriptionSettings::load(
-                desktop_paths.data_dir.join("local-transcription.json"),
-            );
             app.manage(desktop_paths);
             // `epicenter sync --watch` runs for as long as the app does.
             synced_folders::start_service(app.handle());
-
-            let cache = ModelCache::new(settings);
-            cache.start_idle_watcher();
-            app.manage(cache);
 
             #[cfg(all(desktop, feature = "dictation"))]
             app.manage(keyboard::TapController::new());
@@ -818,14 +812,13 @@ mod tests {
         // `get_active_model` is in this list: model *identity* is administration
         // data (ADR-0180).
         const ADMINISTRATION: &[&str] = &[
-            "allow-list-models",
-            "allow-download-model",
-            "allow-cancel-download",
-            "allow-reveal-model",
-            "allow-get-active-model",
-            "allow-set-active-model",
-            "allow-get-unload-policy",
-            "allow-set-unload-policy",
+            "epicenter-transcription:allow-list-models",
+            "epicenter-transcription:allow-download-model",
+            "epicenter-transcription:allow-reveal-model",
+            "epicenter-transcription:allow-get-active-model",
+            "epicenter-transcription:allow-set-active-model",
+            "epicenter-transcription:allow-get-unload-policy",
+            "epicenter-transcription:allow-set-unload-policy",
         ];
 
         let capability: serde_json::Value = serde_json::from_str(HOME).unwrap();

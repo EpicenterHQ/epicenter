@@ -20,7 +20,7 @@ OpenAI-wire destination over IPC and refuses any request without an explicit
 model id, then invokes the `transcribe_audio_bytes` Tauri command, which calls
 `ModelCache::transcribe_explicit`. `GET /v1/models` over that transport lists
 installed models. The active-model command `transcribe_recording` still exists
-in `apps/epicenter/src-tauri/src/transcription/mod.rs` and is re-exported once
+in `14fdbf2c82:apps/epicenter/src-tauri/src/transcription/mod.rs` and is re-exported once
 in `14fdbf2c82:apps/whispering/src/lib/tauri.tauri.ts`, but nothing invokes it.
 
 Naming a model turned out not to be the hazard. Residency is: how many models

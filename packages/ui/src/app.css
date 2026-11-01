@@ -16,6 +16,8 @@
 @source "../../app-shell/src/**/*.{svelte,ts}";
 /* The same holds for the shared components in @epicenter/svelte. */
 @source "../../svelte/src/**/*.{svelte,ts}";
+/* And for the model administration pane in @epicenter/transcription-native. */
+@source "../../tauri-plugin-epicenter-transcription/guest-js/**/*.{svelte,ts}";
 
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,
