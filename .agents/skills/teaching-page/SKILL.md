@@ -56,10 +56,11 @@ both satisfy the three rules. Make the choice once and hold it.
 
 ## One stylesheet
 
-A standalone page inlines its CSS and stays portable. Pages maintained and
-distributed together as a family share `page.css` so their visual language
-stays consistent. Sharing a folder alone does not make unrelated artifacts a
-family; choose the stylesheet boundary from how the pages will be used.
+A single page inlines its CSS and stays portable. **The moment there is a second
+page in the same folder, extract the shared styles to `page.css` and link both.**
+Copies drift, and a family of pages that drifted is how a house style dies: the
+tokens diverge one page at a time and nobody sees it until the fifth page looks
+wrong. A linked file makes the drift a diff.
 
 The tokens, copied verbatim rather than re-derived as near-neighbours:
 
@@ -158,9 +159,9 @@ order — say so in the caption and use qualitative marks.
 ## Before you finish
 
 Write to an ignored scratch path, with inline SVG, no CDN, and no build step.
-Inline CSS for a standalone page; use the shared `page.css` for a page family
-as described above. Open it, then screenshot it and look, because these failures
-are visual and do not appear in the source.
+Inline the CSS for a single page; once the folder holds a second page, link the
+shared `page.css` as described above. Open it, then screenshot it and look,
+because these failures are visual and do not appear in the source.
 
 Three checks: nothing is in a box; the accent appears in exactly one role; a
 reader could stop after any section without losing the thread.

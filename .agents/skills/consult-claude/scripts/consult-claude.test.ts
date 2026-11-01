@@ -422,7 +422,7 @@ test('delegation applies work in the current checkout by default or a selected s
 				'Read,Glob,Grep,Edit,Write,Bash',
 			);
 			expect(args[args.indexOf('--allowedTools') + 1]).toBe(
-				'Read,Glob,Grep,Edit,Write',
+				'Read,Glob,Grep,Edit,Write,Bash',
 			);
 			expect(args).toContain('--restricted');
 			expect(args[args.indexOf('--permission-mode') + 1]).toBe('dontAsk');

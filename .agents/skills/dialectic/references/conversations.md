@@ -1,266 +1,186 @@
 # Example conversations
 
-These illustrations show how making intent, proposed work, or consequences
-visible can advance a discussion. A reading of the intent may clarify what
-matters; actual prose or a design may expose a choice; caller code, a sample
-conversation, or a rendered page may reveal how the proposal works in practice.
-The user’s response can change both the work and our understanding of it.
-These are not measured runs or records of the user's preferences. The examples
-teach judgment, not a fixed sequence, number of versions, or response format.
+These illustrations make the progression and particular conversational
+judgments available for examination. They are not measured runs or records of
+the user's preferences. The complete reading-list example has been reviewed;
+the existing examples that follow are being reviewed individually for retention.
+Focused excerpts that begin with a vision or concrete proposal assume the
+intent has already been explicitly agreed. A new dialectic begins with that
+intent exchange, as the complete examples show.
 
-## Process reflection: investigate before turning an experience into rules
+## Reading list: intent, vision, and concrete form
 
-This proposed response draws on the writing-process reflection in chat
-`01a126b8-8530-78c1-89bb-2048257e8aba`. The observed response listed lessons
-about drafting, voice, journals, and review batches, then asked whether those
-lessons captured what felt distinctive. The user had to ask what the goal and
-cruxes were. This alternative is an illustration, not a tested outcome or an
-invented reply from the user.
+Everything in this conversation is hypothetical, including the user's replies.
+It shows corrections leading to revisions and recognition establishing a basis
+for the next stage. The final stage develops one consequential piece of the
+design; it does not settle the entire implementation.
 
-> **Human:** That writing chat took an interesting path. Can we have a
-> dialectic about what it changes for page writing, journal writing, or voice?
->
-> **Agent:** The Eastern Europe fragment is the moment I'd start with. The
-> draft said only, “Yinson dreams of going to Eastern Europe.” You came back
-> with an inside joke between friends. Almost all the writing happened in
-> your reply.
->
-> That makes “draft early” a tempting lesson. But this draft barely added
-> anything to the original fragment. We don't yet know whether turning it
-> into a sentence helped, or whether having your place held in a review made
-> it easy to start telling the story.
->
-> My current hunch is that having something concrete in front of you made
-> it easier to start telling the story. If that's what helped, a recognizable
-> fragment plus an openly provisional passage might do the same job with
-> less invented meaning.
->
-> At that moment, was there anything in the draft that helped you start
-> telling the joke, beyond seeing the original fragment again? I'm trying
-> to work out what the draft contributed before making it our default.
+**User:** I keep saving articles, but the list just gets longer. Can we rethink it?
 
-The response offers an interpretation and a reason to question it. The question
-could change what the agent recommends producing first. The user can answer
-with a remembered moment, reject the premise, or identify a different cause.
-It does not ask them to endorse a complete retrospective or choose a general
-editorial personality. Another salient moment might lead to a different crux;
-this example does not prescribe opening every reflection with a counterexample.
+**Agent:** My first reading of the intent is:
 
-## Writing: a correction can leave several directions open
+> Help me decide what to read next.
 
-This sample develops the unread-books alternatives discussed with Braden.
-The exchange is an illustration, not a record of work on a saved page. Its
-closing selection and synthesis are hypothetical.
+Does that capture what you're reaching for?
 
-> **Human:** I like having books around even when I haven't read them.
-> Sometimes I see one and remember why I bought it. I don't need every book
-> to become homework.
->
-> **Agent:** The thought seems to be that an unread book can bring back your
-> curiosity without becoming an obligation. One way to say it:
->
->> Sometimes I see a book on my shelf and remember what interested me. Before
->> I've even opened it, it's given me something: that little return of curiosity.
->>
->> I don't need every book to become homework.
->
-> **Human:** The return of curiosity is right. But “it's given me something”
-> makes it sound like I'm justifying owning the book.
->
-> **Agent:** Keep the return of curiosity and leave out the defense of owning
-> the book. There are a few different thoughts we could develop from there.
->
-> **A — Seeing an unread book reminds me what made me curious about it**
->
->> Sometimes I see a book on my shelf and remember why I bought it.
->>
->> **Oh right, I wanted to know about that.**
->>
->> **I don't need every book to become homework.**
->
-> **B — I enjoy having books around, even when noticing them doesn't lead to reading them**
->
->> Sometimes I see a book on my shelf and remember why I bought it.
->>
->> **I like having books around even when I haven't read them.**
->>
->> **Sometimes that's as far as it goes.**
->
-> **C — I can remain interested in a book without making plans to read it**
->
->> Sometimes I see a book on my shelf and remember why I bought it.
->>
->> **I look at it and think, I'm still curious about that.**
->>
->> **I don't necessarily take it down.**
->
-> **Agent:** I'd start with A because it keeps your original moment of
-> remembering most directly. C leaves more room for the interest to stay open.
->
-> **Human:** A's voice, but C's ending. Show me that together.
->
-> **Agent:** Keep the remembered thought, then let it end without taking action:
->
->> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
->> I wanted to know about that.
->>
->> I don't necessarily take it down.
+**User:** Partly. But I don't necessarily want to read more. Sometimes I just
+want to remember what interested me.
 
-The correction clarifies the intent without selecting one passage.
-Each heading articulates a distinct direction in terms the user
-can understand on its own; the passage beneath it shows how that direction
-could read. The later reaction calls for a synthesis rather than another menu.
-The same method can compare complete drafts when their development and endings
-matter; short passages suffice for this local choice.
+**Agent:** Then I'd revise the intent to:
 
+> Help me return to things that interested me, whenever that interest becomes
+> relevant again.
 
-## Writing: recover the person in the expression
+Finishing the list wouldn't be the measure of success. Is that closer?
 
-This hypothetical exchange shows how the same idea can lose its speaker, and
-how developing the source language can make a new expression judgeable. All
-material and reactions are invented for the example.
+**User:** That's right.
 
-**Supplied words**
+**Agent:** Starting from that intent, I'd imagine arriving with a current
+curiosity. You might say, “I've been thinking about cities,” and encounter a few
+things you saved, with enough context to recognize what drew you to them.
 
-> I don't think a simple API is one where I never have to think. It's more
-> like when I do have to think, the thing I'm thinking about is my problem.
-> I don't want to be sitting there wondering which of three methods is the
-> real one.
+The vision could be:
 
-**Earlier attempt**
+> A reading list you return to through curiosity, where saved things can become
+> interesting again.
 
-> A good API reduces cognitive overhead and lets developers focus on their goals.
+**User:** I like that, but I also want to stumble across things. I won't always
+have a question.
 
-**Sample conversation**
+**Agent:** Then the vision needs room for both searching and accidental
+rediscovery:
 
-> **Human:** That's roughly the idea, but it sounds like somebody explaining
-> me. It doesn't sound like me saying it.
->
-> **Agent:** Your version keeps returning to “think,” then lands on the
-> frustration of choosing between three methods. The summary loses that
-> movement. I'd develop those words and give the frustration its own paragraph.
->
-> **Earlier attempt**
->
->> **A good API reduces cognitive overhead and lets developers focus on their
->> goals.**
->
-> **Proposed version**
->
->> **I don't think a simple API means I never have to think. I want
->> the thinking to be about my problem.**
->>
->> **If I'm sitting there wondering which of three methods is the real one,
->> the API has given me another problem to solve.**
->
-> **Human:** The first paragraph sounds more like me. But “another problem
-> to solve” wraps it up too neatly. I'm more exasperated about which one I'm
-> supposed to use.
->
-> **Agent:** Keep the first paragraph and let the ending sound more like
-> that moment of frustration.
->
-> **Previous version**
->
->> I don't think a simple API means I never have to think. I want the thinking
->> to be about my problem.
->>
->> **If I'm sitting there wondering which of three methods is the real one,
->> the API has given me another problem to solve.**
->
-> **Proposed version**
->
->> I don't think a simple API means I never have to think. I want the thinking
->> to be about my problem.
->>
->> **I don't want to sit there looking at three methods and thinking, wait,
->> which one am I supposed to use?**
+> A place to rediscover your interests, whether you come looking for something
+> or encounter something you'd forgotten.
 
-The source, failed attempt, and revisions expose what each change does. The
-agent contributes arrangement and new language, then learns that its neat
-ending loses the author's emotional register. The next attempt carries the
-recognized paragraph forward and develops the unsettled ending. It remains a
-proposal; the example leaves the author's next reaction open.
+You could arrive with a question, or simply open it and see a few things you
+once cared about.
 
-## API design: make the caller's choices visible
+**User:** That's right.
 
-This hypothetical example draws on Epicenter's independent-resource API design.
-The caller code makes acquisition and cleanup visible so the human can judge
-using the design. These are sketches, not a runnable application or a claim
-about current package exports. Unrelated setup is omitted.
+**Agent:** Working backward, one consequential question is what we preserve
+when you save something. The article tells us its subject; a passage you
+highlighted or a few words from you could preserve what caught your attention.
 
-> **Human:** Opening an entire app just to read an audio file feels wrong.
->
-> **Agent:** I'd let the caller open file storage directly. Reading bytes
-> doesn't require table definitions or an account:
->
-> ```ts
-> import { openLocalBlobs } from '@epicenter/app/blobs';
->
-> const blobs = await openLocalBlobs({ id: 'audio-preview' });
-> try {
->   const result = await blobs.get(blobId);
->   // Preview the audio from the result.
-> } finally {
->   await blobs.close();
-> }
-> ```
->
-> **Agent:** The cost is that callers opening several resources now own their
-> cleanup. I'd keep that responsibility in the screen or product using them,
-> rather than make every resource belong to an app again.
->
-> **Human:** Yes. What if I add recording? Could the recorder take the same ID?
->
-> **Agent:** It could. The difference is whether it opens its own storage or
-> uses storage you've already opened. Here's what the caller would write.
->
-> **1. The recorder opens its storage**
->
-> ```ts
-> // An alternative API sketch, not an existing constructor.
-> const recorder = await openRecorder({ id: 'audio-preview' });
-> try {
->   // Capture audio into the recorder's own storage.
-> } finally {
->   await recorder.close();
-> }
-> ```
->
-> **2. Pass the storage to the recorder**
->
-> Storage is an independent resource. The recorder uses it without owning its
-> lifetime, so recording can stop while storage stays available for preview.
->
-> ```ts
-> import { openLocalBlobs } from '@epicenter/app/blobs';
-> import { createRecorder } from '@epicenter/app/recorder';
->
-> const blobs = await openLocalBlobs({ id: 'audio-preview' });
-> try {
->   const recorder = createRecorder({ blobs });
->   try {
->     // Capture audio into this storage; preview can use it too.
->   } finally {
->     await recorder.close();
->   }
-> } finally {
->   await blobs.close();
-> }
-> ```
->
-> **Agent:** I'd use 2 here. Recording and preview already need the same
-> storage. Passing it makes that sharing explicit, and closing the recorder
-> can leave preview usable. Version 1 is convenient for a recorder that owns
-> the whole session, but sharing its storage would need another decision.
->
-> **Human:** That's the part I care about. Recording can stop while preview
-> stays open. The nested cleanup still looks heavy.
->
-> **Agent:** Keep that lifetime distinction. The recording screen can manage
-> these handles once, so its event handlers just use them. I'd check that
-> actual caller before adding a shared helper; the smaller preview-only tool
-> shouldn't inherit a recording session it doesn't need.
+For the capture interaction, I'd start with:
+
+> **Saved.**
+> Add what caught your attention: a passage, a thought, or a question.
+
+That addition would be optional, so saving remains immediate.
+
+**User:** That's right. But sometimes I won't remember why until I encounter
+it again.
+
+**Agent:** Then that context should be editable whenever you return. The saved
+item could show:
+
+> **Why this caught my attention**
+> Add a passage, thought, or question.
+
+Saving works immediately, and rediscovery can develop the context later. That
+gives us one piece of the design to build on before we work out how resurfacing
+should work.
+
+**User:** That's right.
+
+The move from rediscovery to preserving personal context is a design judgment
+to examine. Another concrete approach might fulfill the vision better.
+
+## API design: develop a resource-ownership model from a felt mismatch
+
+The conversation, replies, and API names are hypothetical. Dialectic has
+already been invoked within an API-design task. The caller code is a proposal
+to examine, not a claim about current package exports or behavior.
+
+**User:** Opening an entire app just to read an audio file feels wrong. I'm
+struggling to explain why.
+
+**Agent:** Reading a file seems like a small, understandable operation. Opening
+the app brings in a larger set of concepts before you can do it. My first
+reading of the expectation underneath your reaction is:
+
+> Accessing a file should require understanding only the resources that
+> operation actually needs.
+
+That could explain why opening the whole app feels disproportionate. Does that
+name what bothers you?
+
+**User:** Partly. It's also that storage seems like its own thing. Why does it
+have to belong to an app?
+
+**Agent:** Then the concern reaches beyond the amount of setup. The current
+design makes the app the owner of something you see as independently useful.
+
+I'd articulate the intent as:
+
+> Let features use independently meaningful resources without requiring those
+> resources to belong to an entire app.
+
+**User:** That's right.
+
+**Agent:** Starting from that intent, I'd imagine storage as something a caller
+can open directly. A preview feature could use it without acquiring tables, an
+account, or a recording session.
+
+The vision is:
+
+> Features assemble the resources they need. Each resource has an understandable
+> purpose and lifetime.
+
+**User:** What if I add recording? Recording and preview would need the same files.
+
+**Agent:** Then independently useful resources also need to support sharing.
+Making storage belong to the recorder could create another problem: stopping
+recording might end access that preview still needs.
+
+I'd develop the vision to:
+
+> Resources can be used independently and shared between features. Their
+> lifetimes follow who still needs them, so stopping one feature leaves the
+> others' resources available.
+
+**User:** That's right. Recording should be able to stop while preview stays open.
+
+**Agent:** Working backward, that gives us a concrete ownership decision: the
+screen using recording and preview can own their shared storage. The recorder
+uses that storage; closing the recorder ends its own work.
+
+Here's a caller sketch to examine:
+
+```ts
+const blobs = await openLocalBlobs({ id: 'audio-preview' });
+
+try {
+  const recorder = createRecorder({ blobs });
+
+  try {
+    // Record audio into the shared storage.
+  } finally {
+    await recorder.close();
+  }
+
+  // Preview can still use blobs after recording closes.
+} finally {
+  await blobs.close();
+}
+```
+
+The placement of cleanup makes the proposed lifetimes visible: storage
+surrounds both recording and preview.
+
+**User:** That's the model I mean. But the nested cleanup still looks heavy.
+
+**Agent:** We can carry forward the ownership model while developing how callers
+express it. I'd examine the recording screen's actual operations next: when
+recording starts and stops, when preview opens, and when the screen releases
+storage. That would let us judge where cleanup belongs and whether a helper
+earns its place.
+
+The consequential movement is from “this feels wrong” to independent resources,
+shared lifetimes, and a caller that exposes ownership. The user's corrections
+develop the model, and recognizing that model still leaves its implementation
+open to improvement.
 
 ## Agent skills: inspect instructions and behavior
 

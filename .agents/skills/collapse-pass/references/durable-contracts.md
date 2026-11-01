@@ -33,8 +33,7 @@ costs, regardless of caller count.
 Name the information a proposed change protects, how existing work remains
 accessible, and which consumer contracts survive. Surface a durable-format or
 consumer-contract change before editing; ask when it exceeds existing
-authorization. Use [repairability](../../rethink/references/repairability.md)
-when removing recovery or consistency machinery.
+authorization.
 
 ## Preserve the error contract
 

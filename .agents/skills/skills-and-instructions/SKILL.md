@@ -1,64 +1,90 @@
 ---
 name: skills-and-instructions
-description: Design, write, and maintain skills and agent instructions. Use when the user asks to create, edit, improve, review, or troubleshoot skills or agent instructions, decide where guidance belongs, or diagnose instruction sprawl, conflicting guidance, or skill selection. Do not use merely because another skill is being executed.
+description: Design, write, and maintain skills and agent instructions. Use when the user asks to create, revise, evaluate, or troubleshoot skills or agent instructions, including investigating selection behavior to improve the guidance and deciding where guidance belongs.
 ---
 
 # Skills and Instructions
 
-Preserve useful judgment in guidance a future agent can find and apply.
-A skill earns its place through knowledge, preferences, or recurring failures
-the agent would otherwise miss. More instructions are not evidence of progress.
+A skill should help a future agent do the work better. Preserve knowledge,
+preferences, and lessons it would otherwise miss. Judge the skill by whether
+that guidance helps the agent make better decisions in real situations.
+
+## Shape a change together
+
+For a new skill or a substantial revision, work through these responsibilities
+with the user. Later work can send you back to an earlier one.
+
+1. **Agree on what the guidance should do.** Settle its purpose and the
+   behavior it should produce. Use [dialectic](../dialectic/SKILL.md) when
+   either is unsettled.
+2. **Reconsider the structure before polishing wording.** Decide what the
+   relevant whole is responsible for, then how its sections should be divided
+   and ordered. Existing section boundaries need not survive. A short sketch of
+   the proposed sections can make this concrete.
+3. **Rewrite in pieces the user can judge.** How much you rethink and how much
+   you show at once are separate choices: you can rethink a whole skill while
+   reviewing one section, merge, or replacement at a time, at the user's pace.
+   Put the **Current** wording in a blockquote and the **Proposed** wording in
+   a copyable writing block, with explanation outside both. When behavior is at
+   issue, show how each version would handle a realistic request. The user may
+   accept the direction and still object to the wording; carry settled pieces
+   forward and keep working on the rest.
+4. **Read the assembled whole.** Check it against the intended behavior and
+   for clarity, repetition, and whether each rule sits with its owner. A
+   passage or example may show that the structure or intent needs revisiting.
+
+A settled change skips this sequence. When the user has selected wording or the
+fix is already clear and authorized, apply it, say what you saved, and carry
+the work through without asking again.
 
 ## Find the instruction's owner
 
-Use [dialectic](../dialectic/SKILL.md) when the purpose or desired behavior is
-unsettled. Let the current question determine whether to clarify intent,
-propose instructions, or show an example of their behavior. Use the user's
-responses to develop the instructions. Settled edits do not require another
-discovery conversation.
-
 Ground the guidance in actual work, source material, or the user's corrections.
-Extract the judgment behind an accepted interaction, not its topic, layout, or
-turn count. Remove instructions that push against that judgment before adding
-compensating rules. An example is evidence for a principle, not a template for
-every future response.
+Extract the judgment that made an accepted interaction work so it transfers
+across topics and formats. Resolve conflicting guidance at its source. Use
+examples as evidence for principles that future agents can apply to new cases.
 
 Update the existing owner when the intent is the same. Create a separate skill
 when it offers a coherent capability someone would reach for independently.
 Merge or delete guidance whose distinction creates more work than it saves;
-legitimate composition does not require every phrase to have exactly one owner.
+let skills compose where their responsibilities work together.
 
 Keep cross-task constraints in AGENTS.md, specialized judgment in skills, and
 architecture or decision history in the relevant README or ADR. References
-carry conditional detail; scripts carry repeated fragile mechanics. One-off
-advice and rules already owned elsewhere need not become another instruction.
+carry conditional detail; scripts carry repeated fragile mechanics. Preserve
+recurring judgment in guidance, keep task-specific advice with its task, and
+link to existing owners for rules they already carry.
 
 ## Write for judgment
 
 State the premise and connect instructions to their reasons so the agent can
-apply them to cases you did not anticipate. Give criteria and boundaries;
-prescribe a sequence only when the order affects correctness. Keep enough
-context to prevent the recurring mistake without dictating unrelated work.
+apply them to new cases. Give criteria and boundaries. Use ordered steps where
+sequence affects correctness. Supply the context the agent needs to recognize
+the situation and make a sound decision within the task.
+
+Prefer positive framing: describe what the agent should do, when to do it,
+and why. When correcting a failure, state the behavior that would handle that
+situation well. This gives future agents a useful action to take and a principle
+they can apply to new cases. Keep explicit prohibitions where they express a
+necessary boundary more precisely.
 
 Start the frontmatter description with a sentence stating what the skill does.
 Begin the second sentence with "Use when" and name the user intents or situations
 that should select it. This makes both the capability and its selection
-conditions clear. Use examples when they clarify the boundary, and add
-exclusions for plausible near misses. Revisit the description when the
-capability changes. The body supplies the judgment and workflow rather than
-repeating a list of trigger phrases.
+conditions clear. Use examples to distinguish nearby user intents and the
+work each calls for. Revisit the description when the capability changes. The
+body explains the judgment and workflow behind those selection conditions.
 
 Keep the core readable on its own. Link to a reference with a concrete reason
-to read it, and retain examples only when they reveal something the principle
-cannot carry alone. Remove obsolete references and duplicated rules as part of
-the same edit; moving every paragraph elsewhere is not simplification.
+to read it. Keep examples that add judgment beyond the principle. Simplify as
+part of the same edit by deleting obsolete references and duplicated rules.
 
 ## Repository conventions
 
 Project skills live in `.agents/skills/<name>/SKILL.md` with lowercase hyphenated
-names and YAML frontmatter containing `name` and `description`. Preserve optional
-metadata or host settings unless the requested change makes them unnecessary;
-do not add host scaffolding to portable skills by default.
+names and YAML frontmatter containing `name` and `description`. Carry forward
+optional metadata and host settings that still serve the requested capability.
+Add host-specific scaffolding for an identified host requirement.
 
 For skills intended for Claude as well, create a relative sibling link from the
 repository root, and update or remove it with the skill:
@@ -67,42 +93,36 @@ repository root, and update or remove it with the skill:
 ln -s ../../.agents/skills/<name> .claude/skills/<name>
 ```
 
-Codex-only skills deliberately have no Claude link.
-
-Durable personal guidance belongs in the tracked dotfiles repository, not a
-host-managed system-skill installation.
+Codex-only skills use Codex's skill discovery paths. CLAUDE.md files are shims
+importing the sibling AGENTS.md. Store durable personal guidance in the tracked
+dotfiles repository so it survives host-managed skill updates.
 
 When importing guidance, inspect its scripts, dependencies, external actions,
 and assumptions before using them. Adapt to local conventions and state the
-tools or credentials the workflow needs; instructions cannot grant access.
+tools or credentials the workflow needs. Work within the credentials and
+permissions available in the session.
 
 ## Check what changed
 
-When changing a skill, **show how the revised skill would handle a realistic
-request compared with the current skill**. Include enough of the interaction
-or result for the user to judge the difference.
-
-Alongside that comparison, **show the actual skill wording being changed**.
-Use [writing-voice's comparison guidance](../writing-voice/SKILL.md#show-revisions-in-context)
-for both the proposed instructions and the sample outputs.
-
-Keep the request and unrelated material consistent. Clearly identify examples
-you are illustrating versus results you actually obtained by running the skill.
+When comparing how current and revised guidance handle a request, keep the
+request and unrelated material the same so the difference comes from the
+guidance. Present sample outputs using
+[writing-voice's comparison guidance](../writing-voice/SKILL.md#show-revisions-in-context).
+Clearly identify examples you are illustrating versus results you actually
+obtained by running the skill.
 
 For a new skill, show the proposed instructions and intended interaction. Use
 the appropriate surface for other outputs, such as caller code, a rendered
 screen, or an action sequence.
 
-Describe the conditions of actual runs. Use the user's reaction to develop the
-instruction; one preferred sample does not establish a general improvement.
-
-Samples support review without introducing another approval step for work
-already authorized.
+Describe the conditions of actual runs. Treat a preference as evidence about
+that sample, and test materially different requests before claiming a general
+improvement.
 
 Choose checks that answer a concrete uncertainty. Check affected links after
 moving references; check frontmatter and intended-host discovery after changing
-skill names, locations, or discovery metadata. A prose correction does not by
-itself require an installation CLI or an audit of the whole library.
+skill names, locations, or discovery metadata. For a prose correction, focus
+verification on the changed guidance and its diff.
 
 Review the motivating request and a materially different use to see whether the
 judgment transfers, including when direct action is appropriate. When behavior
@@ -112,5 +132,4 @@ without the skill for a new capability.
 Read [evaluation](references/evaluation.md) when investigating selection or
 behavior, comparing versions, or asked for evidence of improvement. Read
 [composition diagnostics](references/composition-audit.md) when checking broken
-links, duplicated guidance, or competing skill descriptions. Neither is a
-required pass for every edit.
+links, duplicated guidance, or competing skill descriptions.

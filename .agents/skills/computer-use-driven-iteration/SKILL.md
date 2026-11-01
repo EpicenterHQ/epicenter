@@ -11,13 +11,15 @@ in use, and reconsider the design with the new evidence. Hunt for the owner,
 invariant, or smaller promise that makes a family of complexity unnecessary.
 Success is a better product with a simpler supported design, not more waves.
 
-Codex owns continuity, decisions, acceptance, and integration. Prefer GPT 6.1
-for computer use and Claude Opus 5.5 to direct delegated implementation, with
-a Codex helper writing substantial changes. Respect explicit model choices;
-report unavailable capabilities and any substitution.
-The responsibilities survive changes to model availability. This is a Codex
-coordination skill; Claude receives bounded assignments through the linked
-delegation skill.
+Codex owns continuity, decisions, acceptance, and integration. Use a Codex
+model with computer-use tools for simulations and Claude Opus 5.5 to own
+delegated implementation waves, with a Codex helper writing substantial changes
+under Claude's direction, following the agent collaboration guidance in
+`AGENTS.md`.
+Respect explicit model choices; report unavailable capabilities and any
+substitution. The responsibilities survive changes to model availability. This
+is a Codex coordination skill; Claude receives bounded assignments through the
+linked delegation skill.
 
 ## Establish the outcome and evidence
 

@@ -66,13 +66,15 @@ For component-local operation lifecycle, wrap the function locally:
 	import { createMutation } from '@tanstack/svelte-query';
 	import { resultMutationOptions } from 'wellcrafted/query';
 	import { exportRecordingsMarkdown } from '$lib/whispering/recordings-markdown-export';
-	import { local } from '$lib/whispering/local';
+	import { getWhisperingApp } from '$lib/whispering/context';
 	import { report } from '$lib/report';
+
+	const app = getWhisperingApp();
 
 	const exportMarkdown = createMutation(() =>
 		resultMutationOptions({
 			mutationKey: ['recordings', 'exportMarkdown'],
-			mutationFn: () => exportRecordingsMarkdown(local),
+			mutationFn: () => exportRecordingsMarkdown(app),
 		}),
 	);
 </script>
@@ -133,18 +135,20 @@ observe `isPending`. Wrap the operation locally:
 	import { createMutation } from '@tanstack/svelte-query';
 	import { resultMutationOptions } from 'wellcrafted/query';
 	import { exportRecordingsMarkdown } from '$lib/whispering/recordings-markdown-export';
-	import { local } from '$lib/whispering/local';
+	import { getWhisperingApp } from '$lib/whispering/context';
+
+	const app = getWhisperingApp();
 
 	const exportRecordings = createMutation(() =>
 		resultMutationOptions({
 			mutationKey: ['recordings', 'export'],
-			mutationFn: () => exportRecordingsMarkdown(local),
+			mutationFn: () => exportRecordingsMarkdown(app),
 		}),
 	);
 </script>
 ```
 
-Whispering error presentation goes through `$lib/report` at the interaction
+Whispering error presentation goes through `$lib/report` at the UI or operation
 boundary:
 
 ```typescript
@@ -171,15 +175,9 @@ if (error !== null) {
 In `.svelte` files, direct `await` is still appropriate when the template does not read pending, success, or error state:
 
 ```svelte
-<script lang="ts">
-	import { clipboard } from '@epicenter/app/clipboard';
-	import { toastOnError } from '@epicenter/ui/sonner';
-</script>
-
 <Button
 	onclick={async () => {
-		const { error } = await clipboard.writeText(value);
-		if (error !== null) toastOnError(error, 'Could not copy');
+		await navigator.clipboard.writeText(value);
 	}}
 >
 	Copy
@@ -192,8 +190,8 @@ For when a single-use handler should be inlined at its call site versus kept as 
 
 # Commit-on-Blur for Workspace String Fields
 
-This section describes existing Y.Map-backed value fields. It does not govern
-Folder row editors: their immediate setters own accepted input and publication.
+This section describes Y.Map-backed value fields. It does not govern note
+editors: `fieldEdit` saves as the person types and owns accepted input.
 An onblur commit is an explicit submission event with the DOM holding unfinished
 input. See [immediate editing and explicit submission](input-ownership.md).
 

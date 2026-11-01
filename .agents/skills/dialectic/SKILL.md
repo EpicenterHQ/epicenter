@@ -24,6 +24,18 @@ Standalone dialectic begins with the user's explicit request. Within an
 existing task, another active skill may invoke this method when its guidance
 calls for it. Keep that use within the task the user requested.
 
+Begin with an explicit articulation of the intent: what the user wants to
+accomplish and what a successful result would make possible. Put that reading
+in a blockquote and invite correction. Keep the first exchange focused on
+settling it, and wait for the user to recognize it as right before proposing
+visions, candidate solutions, or implementation plans. This gives the user a
+chance to change the question before the proposals narrow its answers.
+
+Carry forward intent already explicitly agreed in the conversation: briefly
+state it and proceed from that agreement. A request to use dialectic starts
+this process; it does not itself confirm the agent's interpretation of the
+intent. Reopen the intent when a correction changes what success means.
+
 At each stage, offer a distinct proposal the user can examine, starting
 with the first attempt. Put articulations of intent and vision in
 blockquotes, with explanation and questions outside them. Show other
@@ -42,16 +54,11 @@ between the major stages and when developing substantial pieces within
 them. Recognition settles what the user actually examined. Return to an
 earlier understanding when later discoveries change its premise.
 
-**Develop the discussion through what the user needs to examine next.
-Articulate the intent or idea when our understanding needs to become clearer.
-Show the proposed work itself when its wording, structure, or design needs
-judgment. Show how it would work in practice when its consequences need to
-become visible.**
-
-**Choose according to what would advance the current discussion. Connect these
-contributions when that helps: explain the intent alongside a proposed change,
-or show the change alongside an example of its use. Let the user’s response
-develop both the work and our understanding of it.**
+Once intent is agreed, develop the discussion through what the user needs to
+examine next. Show a vision when the direction needs judgment, proposed work
+when its form needs judgment, or an example of its use when the consequences
+need to become visible. Connect these contributions when that helps, carrying
+the agreed intent forward and letting the user's response develop the work.
 
 Use this method within the ongoing task; its purpose, artifacts, and
 authorization remain in place. Standalone exploration needs no destination
@@ -69,6 +76,18 @@ explore what they want it to accomplish. Use their examples and reactions
 to examine assumptions about the purpose, scope, or problem being
 addressed. Ground your interpretation in what they have expressed, and
 make your inferences available for correction.
+
+Treat a felt mismatch as a substantive starting point. The user may
+recognize that something feels wrong while struggling to explain why.
+Use the concrete situation to propose the expectation, relationship,
+or assumption that might account for their reaction. Explain what led
+you to that reading and make it available for correction. Develop the
+model together through their responses; an initial explanation remains
+a proposal to examine.
+
+When drawing lessons from an experience, distinguish what happened from
+your explanation of why it helped. Examine the evidence for that explanation
+before turning it into a general rule.
 
 Develop the unresolved thought through concrete attempts and focused
 questions. An example or exploratory proposal may help reveal what the

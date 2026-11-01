@@ -13,6 +13,64 @@ not create a second implementation assignment.
 
 ## Current plan
 
+### Verify remaining companion-task findings
+
+- Desired result: Close the remaining verification and documentation gaps from
+  the archived Folder migration companions, against the current integrated
+  code rather than rerunning obsolete migration briefs.
+- Grounding: Cleanup on 2026-10-26 verified the companions' reported commits
+  exist. `claude/folder-mirror` contains the finished C2 Whispering commits;
+  interrupted and contradictory earlier runs have later completed replacements.
+  The source chats and their final reports are indexed in the
+  [cleanup checkpoint](/Users/braden/.codex/visualizations/2026/10/26/01a17718-6b8e-7741-a605-0635f216a8f1/companion-archive-checkpoint.json).
+- Remaining outcomes: Determine whether the two Folder smoke failures
+  (independent paragraphs and concurrent saves), root consultation/skill-routing
+  failures, and Svelte `derived_inert` teardown warnings still reproduce on the
+  integrated branch. Verify Whispering retains failed field drafts after an
+  outside deletion; an earlier sweep omitted that mounted scenario. Reconcile
+  stale CLI row-creation and `docs/CONTEXT.md` repository/schema descriptions
+  with source. Verify older reads cannot overwrite newer reads of the same path;
+  an early mirror review reproduced that ordering failure before later rewrites.
+  Check same-size desktop audio replacement detection and document
+  the rename limit when outside edits have not yet been observed. Complete the
+  previously unverified manual desktop editing, Settings, and ignore-file checks
+  if they are still relevant to the current app. Earlier Rust and window-close failures have subsequent fixes;
+  confirm their current coverage rather than treating those old failures as open.
+- Continuation: This backlog entry owns these bounded checks. Review the
+  current branch and ongoing work first; archiving does not schedule
+  implementation or authorize discarding any files, branches, or worktrees.
+
+- October 27 continuation, updated after the later companion results:
+  `9d1611c67f`, `24857743d4`, and `b434f9007c` replace local based-write merging
+  with writes by smallest unit and `Folder.replace`, including three checked
+  patch attempts and refusal to replace a missing file. Earlier base-tracking,
+  body-base, and switch-gate proposals are superseded; do not implement them from
+  archived reviews. Verify stale Svelte skill guidance and the Messages
+  create/Exists/retry close interval only if still applicable.
+  Sync spike commit `974f6876c5` preserves local-only sync and desktop evidence in
+  `packages/folder/evidence/sync-spike/` on `claude/sync-spike`. Investigate its
+  1 MB editing slowdown: 100 keystrokes took about another 30 seconds to finish
+  landing after typing stopped, with high WebKit CPU and memory use. Decide checkpoint cadence
+  during continuous editing and how the UI exposes and restores overridden Git
+  versions; the spike recommends these but does not implement product policy.
+  Full reports and archive results are in the
+  [October 27 checkpoint](/Users/braden/.codex/visualizations/2026/10/27/01a17b6d-30c3-73b2-be2c-bf72edd6ca38/companion-cleanup.json).
+
+- Older companion acceptance, reviewed October 27: The old Rust-owner,
+  page-engine, guarded edit-session, account-relaunch, and Quit-flush proposals
+  no longer describe this checkout. Current native Cmd-Q/menu Quit acceptance
+  already exists in `apps/whispering/docs/desktop-verification.md` and the
+  Todos README; do not repeat the old blocked smoke attempts as unfinished work.
+  The existing manual desktop checks may include current app/root reuse and
+  native Git lock contention/recovery; these have source tests, not reproduced
+  bugs. The sibling sync spike supplies additional Honeycrisp Cmd-W and browser
+  transfer evidence, not acceptance of this checkout or hosted credentials.
+  Keep physical microphone recovery
+  under [native capture acceptance](#finish-native-capture-interruption-acceptance).
+  The existing [cross-device journey](#prove-a-cross-device-folder-journey)
+  owns authenticated transfer and redirect/credential isolation. Detailed
+  per-chat decisions are in `older-companion-review.json` beside the checkpoint.
+
 Architecture entries reviewed against committed source on 2026-10-22; the
 other chat continuations retain their recorded assignments. Folder-owned
 sources, unconditional local publication, app migrations, Whispering app owner,
@@ -72,6 +130,13 @@ another chat and does not create an implementation assignment.
   ancestry. The current adapter rebuilds temporary Git storage and may expand
   historical file contents. Keep ancestry evidence while avoiding unnecessary
   payload retention; establish peak-memory evidence before replacing transport.
+- Older review continuation: Keep ignore selection and native checkpoint safety
+  checks on one captured rule map. Capture currently recognizes only lowercase
+  `.gitignore`, while Git on this Mac honors `.GITIGNORE`; check root and nested
+  case variants, native temporary capture, and Whispering's exclusion defaults
+  before claiming ignored payloads cannot be selected. The checkpoint preflight
+  and commit capture also read rules separately. Preserve native info/exclude
+  and configured excludes behavior when deciding the correction.
 
 ### Make browser snapshot capture intent explicit
 
@@ -119,6 +184,27 @@ another chat and does not create an implementation assignment.
 
 ## Remaining app acceptance
 
+### Keep AI connection rows and machine keys consistent
+
+- Desired result: Sending, adding, removing, or failing to read one connection
+  leaves an understandable and recoverable state on this machine.
+- Current evidence: The old send path (`epicenter send`, deleted in `ed0a915fc8`)
+  checked the stored endpoint and key, but not whether the synced connection row
+  still existed with the expected kind, so deleting a row outside Settings could
+  leave an unlisted key usable. Each standalone app now keeps its own
+  connections through `epicenter-account`; confirm whether that gap survives
+  there. Establish the row/key lifecycle and intentional trust boundary before
+  changing how a request uses a key.
+- Remaining recovery: Keep one attempted connection ID through a failed Add/key
+  save, so retry does not create another row. Show a safe keychain failure message
+  instead of blindly displaying external store error text. Resolve Whispering's
+  transcription and text connections independently when one read fails.
+- Scope: The arbitrary installed-app capability model is gone; do not restore it.
+  Provider responses are currently forwarded as received, so a provider echoing
+  request credentials remains a separate trust-contract question, not proof that
+  the local key store leaks them. The historical reports remain in the cleanup
+  checkpoint; this item owns the remaining connection decisions.
+
 ### Verify Whispering's recordings table and detail pane
 
 - Desired result: Search, sort, selection, bulk actions, playback, and transcript
@@ -159,6 +245,11 @@ another chat and does not create an implementation assignment.
   records the limitation.
 - Revisit when: Next Whispering connection or first-run pass. Verify model
   selection, unavailable state, and a real transcription through the host.
+- Older cache review: The resolver trusts Hugging Face cache layout rather than
+  hashing cached bytes. Preserve that narrowed claim and provide a repair path
+  for a damaged existing file. Reconcile current model support with superseded
+  records, and direct shared-cache cleanup through Hugging Face's cache tools
+  rather than suggesting deletion of a folder other applications may use.
 
 ### Show where Whispering keeps audio and resulting text
 
@@ -306,6 +397,10 @@ another chat and does not create an implementation assignment.
   still uses ad hoc signing. Verify an actual distributed build before closing
   this item.
 - Revisit when: Before distributing outside the development team.
+- Keychain acceptance: In the signed distributed build, verify `Bun.secrets`
+  set/get for the stored grant and AI keys, then verify those entries remain
+  readable after installing the next signed build. Development or ad hoc signing
+  does not establish this release behavior.
 
 ### Establish hosted erasure before external onboarding
 

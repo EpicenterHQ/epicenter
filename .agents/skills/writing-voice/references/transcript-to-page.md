@@ -223,3 +223,119 @@ same image.
 the plainer draft won over one adding “Thankfully, YC itself gave me events
 that anchored my sense of time.” His point was that he was grinding too hard
 to write anything down; the addition changed what happened.
+
+## Keep the Precision a Voice Pass Would Loosen
+
+From the unfinished draft *Centralization Takes Information and Processing
+Power*, October 21, 2026. A voice pass on the saved, committed draft proposed a
+more conversational version. The commit was a source-control checkpoint, not a
+decision that the draft was finished, and the input was draft prose, not a
+transcript. Braden preferred the committed draft's wording; in dictation he
+said it “sounded more smart, sharper.”
+
+**Committed draft, preferred**
+
+> Sometimes the choice between centralizing and decentralizing processing comes
+> down to whether the center has both the information and the computational
+> power to do something useful with it.
+>
+> The center might be able to process an enormous amount of information, but it
+> still needs to receive it. If what matters is happening somewhere else, how
+> quickly can that information reach the center? A faster processor can still be
+> working from an outdated picture of the situation.
+
+**Proposed voice pass, not chosen**
+
+> Sometimes the choice between centralizing and decentralizing processing comes
+> down to two things: how much the center can process, and how quickly it can
+> get the information it needs.
+>
+> The center might have enough computational power to handle everything. But if
+> what matters is happening somewhere else, the information still has to reach
+> it. How quickly can it get there? A faster processor can still be working from
+> an outdated picture of the situation.
+
+His stated reason was the sharpness; the rest is a craft reading, not his
+explanation. “Both” and “something useful” make information and processing a
+joint condition for a purpose. This particular list presents them as separate
+factors, drops the purpose, and pulls the next paragraph's question of speed
+into the opening. “Handle everything” claims an absolute that “an enormous
+amount” did not, and “but it still needs to receive it” turns on the problem in
+one clause where the pass spends two sentences. One preferred version does not
+show that a saved draft's wording should usually stand; it shows that sounding
+more conversational is not what makes a pass sound like him.
+
+## Sharpen Without Assuming Shorter Is Better
+
+From *Read Your Skills Like Writing*, October 22, 2026. Braden asked to commit
+the initial draft, then make it "a bit sharper and less repetitive, while
+keeping the concrete workflow of how I evaluate and edit my skills."
+Writing-voice and page-writing were already loaded in the conversation; the
+agent did not load a separate sharpening skill for the revision.
+
+**Committed opening, preferred as part of the earlier version**
+
+> I think it's important to actually read your AI skills. Open the file and look
+> at the text. It's okay if you don't fully understand everything in the skill
+> yet, but you should nevertheless read it.
+
+**Revised opening, part of the rejected pass**
+
+> Read your AI skills. Open the file and look at the text, even if you don't
+> fully understand it yet.
+
+The revision also folded away the paragraph "But the most important thing is
+that I want to literally see the prose of the skill itself. I want to read the
+actual words," placing that point in a shorter ending. Braden responded:
+
+> Honestly, I don't think that this really was the right way. I feel like the
+> older version felt better.
+
+He asked whether the revision was "a little bit too sharp." He preferred the
+earlier version overall; he did not identify individual changes as the reason.
+The imperative opening changes the stance, and folding the prose paragraph
+into the ending removes a separate beat of emphasis. These are editorial
+diagnoses to test, not his stated explanation or a controlled comparison of
+skill instructions. Together with the centralization example above, this
+reaction supports judging precision, stance, and rhythm in the actual passage:
+neither a more conversational pass nor a more compressed pass automatically
+improves the voice.
+
+## Let the Reader Hear the Person Thinking
+
+From a Vault page session on October 27, 2026, about being Chinese American in
+Singapore and its parallels to racialized dating conversations in America.
+After an anecdote and the compliments "You're so articulate" and "You have
+personality," the saved prose read:
+
+> Sometimes I wonder whether part of what makes me interesting to them is that
+> I go against their idea of what local men, or Asian men, are like. That is
+> another part of the parallel for me. Even the compliments can remind me of the
+> same comparisons I hear in America.
+
+Earlier, "That is something I need to be cognizant of" followed a paragraph
+that had already explained the interest attached to being American. Braden
+said the writing lacked personality and singled out "That is another part of
+the parallel for me" as unnecessary and overly difficult. He recognized the
+agent's reading: "Keep the thinking, but let me hear the person doing it. The
+uncertainty, the recognition, the slightly uncomfortable feeling. Give the
+explanation somewhere concrete to go."
+
+Of three alternatives, he asked for A without its last sentence, "Maybe part of
+what makes me appealing is that I go against those stereotypes," saying he did
+not like "this sort of maybe qualifier" in general. He called B's questions
+"really, really well done." The parts he selected:
+
+> I've also heard the same sorts of compliments from Singaporean women. "You're
+> so articulate." "You have personality." And sometimes it reminds me of the way
+> people talk about Asian men in America.
+
+> And I wonder what I'm being compared to. Singaporean men? Asian men generally?
+
+This is the combination he requested for one passage, not a tested general
+improvement. The rest is a craft reading. The rejected sentences name a
+parallel or a lesson the reader can already see. A's "maybe" turns his
+uncertainty into a tentative conclusion; B's questions say what he is unsure
+about and make the comparison concrete. Neither the questions nor the sequence
+of compliments and wondering are templates; elsewhere a conviction, a condition,
+or an explicit explanation may be what the thought needs.

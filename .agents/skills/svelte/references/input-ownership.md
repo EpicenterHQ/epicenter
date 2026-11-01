@@ -7,29 +7,22 @@ Judge the information and coordination each owner carries, not the rune count.
 
 ## Immediate editing
 
-The editor owns accepted input and publication. Controls read its current value
-and send complete replacements to its setter. Do not copy that input into a
-component draft and synchronize the two with effects.
+The editor owns accepted input. A text input bound to one field of a note gets
+its own `fieldEdit(collection, args, field)` from `@epicenter/svelte/client`,
+which saves as the person types and shows the typed value until its save
+answers; controls read the owner's current value and send changes to it. Do not
+copy that input into a component draft and synchronize the two with effects.
 
-| Control | Read | Write |
-| --- | --- | --- |
-| Complete file text | Current editor text | `fileDocument.replace(text)` |
-| Structured field | Current valid Markdown fields | `fileDocument.patch({ fields: { title } })` |
-| Markdown body | Current Markdown body | `fileDocument.patch({ body })` |
+Render structured controls only while the current value is valid, and show a
+reason instead of inventing empty field values. When a binding getter needs a
+narrowed value, capture it with `{@const}` in the nearest template scope, then
+narrow that local before creating the binding callbacks. Do not spread a
+render-time snapshot back into the owner or merge it with outside changes in
+the control.
 
-Render structured controls only while the current row is valid. Invalid rows
-show a reason and a Files repair action; do not invent empty field values.
-When a binding getter needs narrowed Markdown, capture it with `{@const}` in
-the nearest template scope, then narrow that local before creating the binding
-callbacks. The setter calls `fileDocument.replace(text)` or `fileDocument.patch(patch)`; the
-document owner applies it to the live source in call order. Do not spread a render-time
-row back into the source or merge it with outside changes in the control.
-These data-shape checks are not view permissions.
-
-Real bindings preserve file newlines and present refusal or save errors according
-to the app's policy. Accepted input whose save fails stays with its editor, above
-disposable controls. Codecs transform representations; they do not become another
-current-content owner.
+A checkbox, select, or button writes through the collection directly. A failed
+save stays with its editor, shown beside it by `<UnsavedEdit>`. Codecs transform representations; they do not become another current-content
+owner.
 
 ## Explicit submission
 
@@ -118,8 +111,8 @@ rg -n -g '*.svelte' -g '*.svelte.ts' '\b(draft|form|values)\.[[:alnum:]_.]+[[:sp
 # Late results that might clear or overwrite a newer draft.
 rg -n -g '*.svelte' -g '*.svelte.ts' 'await|submitted|reset\(|draft =|form =|\.then\(' apps
 
-# Binding wrappers and source/form interpretation state.
-rg -n -g '*.svelte' -g '*.svelte.ts' 'getValue|setValue|onValueChange|BoundText|SourceEditor|rawMode|preferView|shownView|showSource|editSource|Tabs\.Content' apps
+# Binding wrappers that recreate a value protocol.
+rg -n -g '*.svelte' -g '*.svelte.ts' 'getValue|setValue|onValueChange' apps
 ```
 
 For a raw mutation candidate, inspect all writes, including aliases, nested

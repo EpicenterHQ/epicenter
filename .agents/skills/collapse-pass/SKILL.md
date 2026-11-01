@@ -1,6 +1,6 @@
 ---
 name: collapse-pass
-description: Find and carry through worthwhile code simplifications across recent edits, named files, or a subsystem. Use for a collapse pass, a refactoring pass, another simplification pass, "simplify this", clean up code, or a hunt for indirection and dead abstractions. Specific transformations, planning requests, review-only requests, and explicit file limits determine the work. Use control-flow for a request limited to one function's branching.
+description: Find and carry through worthwhile code simplifications across recent edits, named files, or a subsystem. Use when asked for a collapse pass, a refactoring pass, another simplification pass, "simplify this", to clean up code, or to hunt for indirection and dead abstractions. Specific transformations, planning requests, review-only requests, and explicit file limits determine the work. Use control-flow for a request limited to one function's branching.
 metadata:
   author: epicenter
   version: '1.0'
@@ -106,14 +106,11 @@ condition. Use
 [clean breaks](../rethink/references/clean-breaks.md) to carry an authorized
 replacement through its callers.
 
-For Svelte surfaces, hunt custom binding protocols, mirrored input state, and
-duplicated editor-view conditions. Use
+For Svelte surfaces, hunt custom binding protocols and mirrored input state. Use
 [function bindings](../svelte/references/component-ui-patterns.md#function-bindings-for-transformed-values)
-for wrapper boundaries, [input ownership](../svelte/references/input-ownership.md)
-for drafts and submission, and
-[file editor views](../svelte/references/component-ui-patterns.md#file-editor-views)
-for selection, repair, and control lifetimes. Trace the current owner before
-removing state or guards.
+for wrapper boundaries and [input ownership](../svelte/references/input-ownership.md)
+for drafts and submission. Trace the current owner before removing state or
+guards.
 
 Mentally inline the affected layers and reconsider the resulting flow from
 scratch. When should work happen? Who should own its lifetime? Are caching,
@@ -158,7 +155,9 @@ proposed diff.
 
 Apply the change, inspect its callers, and run checks appropriate to the affected
 behavior. Verify external library behavior against official docs or installed
-types when correctness depends on it. Re-search removed or renamed symbols and
+types when correctness depends on it. When a simplification would reshape or
+reimplement a library's public surface, read
+[library refusal](references/library-refusal.md) first. Re-search removed or renamed symbols and
 clean up stale imports, exports, comments, tests, and documentation as part of
 the same logical change. Preserve coverage for behavior that remains; redundant
 tests can be removed when retained coverage protects the same contract. Then use
@@ -173,9 +172,6 @@ reported with evidence; do not attribute them to the baseline without checking.
 Read [durable contracts](references/durable-contracts.md) before editing affected
 storage, sync, auth, or public-contract code, and verify its claims against
 current source. Preserve stored data, unsaved input, and real consumer contracts.
-For file-authoritative recovery or consistency machinery, establish the visible
-repair path using [repairability](../rethink/references/repairability.md) before
-removing a protection.
 
 Surface consequential changes that exceed the authorized outcome: product
 behavior, durable formats, externally consumed contracts, or unresolved

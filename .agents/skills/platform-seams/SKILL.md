@@ -24,8 +24,10 @@ the store choice is never buried in data code:
 
 - `Startup` opens the store and renders the app over it, or says why it
   could not. The web leaf's is the signed-in repository or this browser's
-  files; the desktop leaf's awaits `openAppData` and `openDataFolder` and
-  renders `@epicenter/svelte/recovery` on an error.
+  files; the desktop leaf's wraps `DesktopStartup` from
+  `@epicenter/svelte/desktop-startup`, which awaits `openAppData` and then
+  `openDataFolder` under the layout's `<svelte:boundary>` and renders its
+  recovery screen when either cannot open.
 - `Chrome` is the header's account of the store (the account on the web,
   the folder and Sync with Epicenter on the desktop).
 - Whatever else differs by variant in that app: Capture's `store()`,

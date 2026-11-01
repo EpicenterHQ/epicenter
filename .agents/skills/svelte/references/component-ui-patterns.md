@@ -8,13 +8,13 @@ For general CSS and Tailwind guidelines, see the `styling` skill.
 
 # UI component boundary
 
-Apps use `@epicenter/ui` subpaths. Components and extras are vendored in the
-shared UI package; this repo does not use shadcn-svelte's app-local
-`$lib/components/ui` layout or a `components.json` in the UI package. Inspect
-the shared component's exports and source before importing or updating it. Do
-not run an unpinned `shadcn-svelte add` or `jsrepo add` into the live package:
-generated files need review against the local overlay, imports, and component
-contracts.
+Apps use `@epicenter/ui` subpaths. Components and extras are vendored in
+`packages/ui/src`; this repo does not use shadcn-svelte's app-local
+`$lib/components/ui` layout or a `components.json` in the UI package. Read the
+[UI package guide](../../../../packages/ui/README.md) for imports, component
+selection, Vega styling, and the update workflow. Do not run an unpinned
+`shadcn-svelte add` or `jsrepo add` into the live package: generated files need
+review against the local overlay, imports, and component contracts.
 
 For a changed component's current API or composition, check its local source
 and the [shadcn-svelte docs](https://shadcn-svelte.com/docs/components) or
@@ -42,8 +42,8 @@ that only exposes an action. If you need to pass an action through a component
 or compose it with other DOM behavior, check `fromAction` in `svelte/attachments`
 before writing adapter code yourself.
 
-This repo already uses `{@attach (node) => node.focus()}` for focused fields
-in Todos and Honeycrisp. Follow that shape for small one-off element behavior; extract
+This repo already uses `{@attach (node) => node.focus()}` for focused
+controls in Todos and Whispering. Follow that shape for small one-off element behavior; extract
 an attachment factory only when several call sites share the behavior or the
 setup owns cleanup.
 
@@ -160,24 +160,21 @@ template block containing the controls that need it, then narrow that local
 before creating the callbacks:
 
 ```svelte
-{#each rowEdits as rowEdit (rowEdit.path)}
-	{@const row = rowEdit.content}
-	{#if row && row.issues === null}
-		<Input
-			bind:value={() => row.fields.title, title => rowEdit.patch({ fields: { title } })}
-		/>
-		<Textarea bind:value={() => row.body, body => rowEdit.patch({ body })} />
+{#each items as item (item.id)}
+	{@const details = item.details}
+	{#if details}
+		<Input bind:value={() => details.title, (title) => item.update({ title })} />
+		<Textarea bind:value={() => details.notes, (notes) => item.update({ notes })} />
 	{/if}
 {/each}
 ```
 
-`{@const}` stays reactive within its template block. Use `$derived(rowEdit.content)`
-when script code also needs the row or no existing template scope supports
-`{@const}` before the guard; a plain script `const row = rowEdit.content`
-captures only the initial value. Narrow absent or invalid rows outside the
+`{@const}` stays reactive within its template block. Use `$derived(item.details)`
+when script code also needs the value or no existing template scope supports
+`{@const}` before the guard; a plain script `const details = item.details`
+captures only the initial value. Narrow absent or invalid values outside the
 control instead of putting `?.` and an empty fallback into every binding.
-Use the source's actual sentinel (`undefined` or `null`); a Folder row is valid
-when present and `issues === null`.
+Use the source's actual sentinel (`undefined` or `null`).
 
 Share one local across the controls that use it instead of creating one per
 input. If only one control needs it, place the declaration beside that control
@@ -188,12 +185,10 @@ the value with a script `$derived`, then narrow that local in the template.
 Do not add an artificial loop, key, or conditional just to host `{@const}`;
 those blocks introduce structure or lifetimes unrelated to the binding.
 
-For optional text whose binding getter needs narrowing, capture
-`{@const content = snapshot.current.content}` in the nearest supported scope, then gate
-the control with `content !== undefined`, then bind to `content.text`. An empty
-string is valid source. Use `?? ''` only when absence
-really means an empty editable value; it must not turn unread, missing, or
-non-text content into an editable blank control.
+For optional text, gate the control on presence and bind to the narrowed value.
+An empty string is valid content. Use `?? ''` only when absence really means an
+empty editable value; it must not turn unread, missing, or non-text content into
+an editable blank control.
 
 Do not add this local mechanically. If an `{#each}` variable or a value already
 held in a `const` is narrowed for the callback, use it directly. A simple
@@ -203,24 +198,22 @@ by the mere presence of a getter or `bind:value`. Nested access alone, such as
 `() => editor.settings.title`, needs no alias when the accessed values are
 always available.
 
-The setter sends a field patch or body through `edit.change`; it does not mutate
-the snapshot or send the whole row back. If a command composes a replacement
-from existing content, read the current owner synchronously at the event so it
-preserves changes made since rendering. Retain a snapshot across `await` only
-when that particular operation requires it and checks whether it still applies.
+The setter sends the change to its owner's update operation; it does not mutate
+a rendered snapshot or send the whole record back. If a command composes a
+replacement from existing content, read the current owner synchronously at the
+event so it preserves changes made since rendering. Retain a snapshot across
+`await` only when that particular operation requires it and checks whether it
+still applies.
 
 When the transformation has substantial format rules, keep its read and
 write-back operations together in the format's codec or module. Give the write
 operation the current source when it must preserve unrelated spans, newline
 style, or other source information. A projection and a source-preserving update
 are not necessarily total inverses. Show the problem when a structured edit
-cannot represent what was typed. Decide whether the app retains that refused
-input for repair or restores the accepted row with a visible notice. Do not turn
-those rules into binding infrastructure or remove draft, identity, eligibility,
-or destroyed-control guards just because the syntax becomes shorter. Use `encode`/`decode` for a complete structured value when the encoder also
-takes current source as preservation context. Name a genuinely partial operation
-after the region it changes. A generic signature pairs types; tests establish whether the operations reverse
-each other and which source information survives.
+cannot represent what was typed. Do not turn those rules into binding
+infrastructure or remove draft, identity, eligibility, or destroyed-control
+guards just because the syntax becomes shorter. Tests establish whether the
+operations reverse each other and which source information survives.
 
 ## File editor views
 

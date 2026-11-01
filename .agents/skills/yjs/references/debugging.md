@@ -12,7 +12,7 @@ Design document state around this or use single-writer keys. A value field and
 a KV attribute both resolve by Yjs map LWW inside the one application document;
 there is no second plane that decides it.
 
-### 2. Using Y.Array Position for User-Controlled Order
+### 2. Using List Position for User-Controlled Order
 
 Array position is for append-only data (logs, chat). User-reorderable lists need fractional indexing.
 
@@ -21,13 +21,14 @@ Array position is for append-only data (logs, chat). User-reorderable lists need
 Y types must be added to a document before use:
 
 ```typescript
-// BAD: Orphan Y.Map
-const orphan = new Y.Map();
-orphan.set('key', 'value'); // Works but doesn't sync
+// Detached: not part of a document, so no document update is emitted.
+const orphan = new Y.Type<{ attrs: Record<string, string> }>();
+orphan.setAttr('key', 'value');
 
-// GOOD: Attached to document
-const attached = doc.getMap('myMap');
-attached.set('key', 'value'); // Syncs to peers
+// A standalone diagnostic document. App code uses its declared roots.
+const doc = new Y.Doc();
+const attached = doc.get('debug');
+attached.setAttr('key', 'value'); // Emits the document update used by sync.
 ```
 
 ### 4. Storing Non-Serializable Values
@@ -36,13 +37,10 @@ Y types store JSON-serializable data. No functions, no class instances, no circu
 
 ### 5. Expecting Moves to Preserve Identity
 
-```typescript
-// This creates a NEW item, not a moved item
-yarray.delete(0);
-yarray.push([sameItem]); // Different Y.Map instance internally
-```
-
-Any concurrent edits to the "moved" item are lost because you deleted the original.
+Deleting a nested type and inserting a replacement changes its identity. It
+does not move the existing type or transfer references held by editors and
+providers. Keep the row's identity stable and update its ordering field for
+user-controlled reordering.
 
 ## Debugging Tips
 
@@ -63,6 +61,6 @@ console.log('My ID:', doc.clientID);
 
 If documents grow unexpectedly, check for:
 
-- Frequent Y.Map key overwrites
+- Frequent `Y.Type.setAttr` overwrites
 - "Move" operations on arrays
 - Missing epoch compaction or a runtime doc accidentally created with `gc: false`

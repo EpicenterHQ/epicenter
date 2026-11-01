@@ -22,13 +22,15 @@ Project-wide TypeScript conventions compose with narrower skills such as `arktyp
 - Export symbols at their declarations. Reserve `export { ... } from ...` for barrel files.
 - In React/TSX, prefer named function components with explicit props parameters over `React.FC`/`FunctionComponent`; only type component values when you are storing them in a registry or passing them as data.
 - Prefer factory functions over classes. Let closure position communicate private vs public API.
+- Pass injected dependencies through a destructured object in the function signature, even for one dependency: `createMailbox({ db })`, never `createMailbox(db)`. Function-valued dependencies follow the same convention: `createSession({ signOut })`.
+- Prefer a factory that captures shared dependencies and returns related methods over standalone functions taking dependencies on every call: `const mailbox = createMailbox({ db }); mailbox.search(input)`, rather than `searchMessages(db, input)`. Implement behavior directly in the returned methods; avoid forwarding to helpers that merely take the same dependencies again. See [factory patterns](references/factory-patterns.md) for examples and extraction boundaries.
 - Use descriptive generic names with a `T` prefix, such as `TSchema`, `TDefs`, and `TKey`.
-- Destructure options in the function signature when the object is a configuration bag. Keep a named value only when it is the domain object being transformed or forwarded.
+- Destructure options in the function signature when the object is a configuration bag or dependency object. Keep a named value only when it is the domain object being transformed or forwarded.
 - Let TypeScript infer private and inner return types. Annotate exported APIs only when useful for clarity or to break circular inference.
 - If an exported type is exactly the object returned by a `create*`, `attach*`, `open*`, or similar factory, derive it from the implementation with `ReturnType<typeof createThing>`. Put the exported output alias immediately after the factory. Keep input, config, data, protocol, and multi-implementation contract types above the factory.
 - Move consumer-facing JSDoc onto the returned object members. Add concrete member annotations inside the returned object when they preserve IntelliSense, narrow an implementation detail, or keep a public method/property surface stable.
 - For curried factories, derive from the inner return, such as `ReturnType<ReturnType<typeof createThing>>`. For generic factories, instantiate `typeof` when needed, such as `ReturnType<typeof openThing<TActions>>`.
-- Prefer explicit read methods for live or computed values in framework-neutral JavaScript and TypeScript, including React: `getValue()` or `isLocked()`. Ordinary data stays in properties. [Svelte reactive adapters](../svelte/SKILL.md) are the getter exception, regardless of file extension. Preserve required upstream contracts; do not add wrappers or duplicate spellings just for this convention.
+- For new or deliberately redesigned APIs, prefer explicit read methods for live or computed values in framework-neutral JavaScript and TypeScript, including React: `getValue()` or `isLocked()`. Ordinary data stays in properties. [Svelte reactive adapters](../svelte/SKILL.md) are the getter exception, regardless of file extension. Existing getters and upstream-required shapes are current contracts; keep them unless the API is being redesigned, and do not add wrappers or duplicate spellings just for this convention. Keep writable internal state private rather than exposing it because the implementation happens to store it that way.
 - Use a `Symbol` brand when identity means a specific factory output, not a coincidental shape probe.
 - Avoid `as any`. Use `unknown`, validation, brands, or narrower helpers instead.
 - Prefer optional chaining over `in` checks or truthiness when checking optional properties.
@@ -60,7 +62,7 @@ For broader public-shape decisions that affect navigation across packages, see `
 - [Project conventions](references/project-conventions.md): detailed examples for derived types, local shape copies, imports, barrels, factories, generics, destructuring, and factory return types.
 - [Type safety and control flow](references/type-safety-and-control-flow.md): identity brands, casts, optional properties, boolean naming, switches, record lookups, error composition, fallback smells, and round-trip invariants.
 - [Type organization](references/type-organization.md): `types.ts` location, co-location rules, inline-vs-extract hop test, options and ID naming.
-- [Factory patterns](references/factory-patterns.md): factory-focused refactors, parameter destructuring, and coupled state extraction.
+- [Factory patterns](references/factory-patterns.md): named dependency objects, methods sharing captured dependencies, parameter destructuring, and coupled state extraction.
 - [Runtime schema patterns](references/runtime-schema-patterns.md): arktype, branded IDs, optional property syntax, and workspace table IDs.
 - [Testing patterns](references/testing-patterns.md): inline single-use setup and source-shadowing tests.
 - [Advanced TypeScript features](references/advanced-typescript-features.md): iterator helpers and const generic array inference.

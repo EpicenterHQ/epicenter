@@ -1,91 +1,98 @@
 ---
 name: rethink
-description: >
-  Use when the user asks whether there is a better or simpler way,
-  wants to zoom out, questions why existing concepts or boundaries
-  exist, or asks for rethink, redesign, greenfield thinking, first
-  principles, radical alternatives, or a clean break. Also use when
-  repeated complexity suggests the current ownership, lifecycle,
-  representation, or API contract should be reconsidered. Skip routine
-  fixes and local changes within a settled design.
+description: Develop the strongest grounded vision of a system, API, or abstraction through dialectic, then work backward to make it real. Use when the user asks for greenfield thinking, radical options, a clean break, first-principles design, or questions the current organizing idea or boundaries.
 ---
 
 # Rethink
 
-Pursue the strongest vision of what this could become. Greenfield discovery is
-the default: start from the desired outcome and actual users and callers, then
-question the inherited boundaries, promises, and organizing idea. Discover what
-deserves to be built before narrowing to whether an emerging proposal works.
+Develop your own account of what the system should do from the desired
+experience and actual use. Treat the current design as one explanation of the
+problem. Discover the organizing idea that gives the whole its strongest shape,
+then derive its concepts, operations, responsibilities, and guarantees.
 
-Use [dialectic](../dialectic/SKILL.md) to make that vision concrete enough to
-experience and challenge. Make the deletion prize and new complexity explicit:
-what machinery, obligations, or planned work disappears, and what guarantees
-replace it? A better design may introduce an abstraction that earns its place.
-Establish which constraints are real, then work backward from the strongest
-supported destination. Judge the whole bargain rather than the number of parts.
+Use [dialectic](../dialectic/SKILL.md) to develop that vision together through
+concrete expression. Contribute a considered model the user can recognize,
+challenge, and improve. Take responsibility for pursuing the idea beyond what
+they have already articulated.
 
-## Pursue the vision
+## Form an account of the whole
 
-Start with what the user wants to make possible and follow the idea all the way.
-Let the surrounding system come into question when its shape limits the outcome.
-Existing APIs, ownership boundaries, package layouts, and prior decisions can all
-be reconsidered. The cost of changing them belongs in the path to the destination;
-it need not define the destination before we have seen it.
+Start with what someone wants to make possible and how they would naturally
+use it. Articulate what the system does, what its operations mean, and which
+information and responsibilities belong together. Follow that account far
+enough to reveal a coherent design. Let the surrounding system come into
+question when its shape limits the outcome.
 
-[Greenfield thinking](references/greenfield.md) develops the desired whole.
-[Radical options](references/radical-options.md) challenges assumptions that keep
-that whole out of reach. Use these references as the question calls for them.
-Neither is a requirement to produce a fixed number of alternatives.
+Read the current implementation and actual callers to understand the work,
+needs, and consequences. Distinguish necessary work from problems created by
+the current arrangement. Existing names, APIs, ownership boundaries, lifetimes,
+and guarantees are evidence about earlier choices. They need not supply the
+vocabulary or boundaries of the destination.
 
+Use [greenfield thinking](references/greenfield.md) to develop natural use and
+derive ownership. Use [radical options](references/radical-options.md) when the
+apparent choices share an assumption worth reconsidering. Let the live question
+determine the exploration; a fixed number of alternatives or a mandatory
+guarantee-removal exercise would prejudge what a better design looks like.
 When questioning which concepts a workflow or API needs, use the
 [concept inventory](../collapse-pass/references/concept-inventory.md) to make
 the current and alternative nouns and their distinctions visible.
 
-When a promise of consistent file data drives coordination, use
-[repairability](references/repairability.md) to distinguish information
-protection from inconsistencies a human or agent could inspect and repair.
+Keep the desired outcome distinct from a proposed way to achieve it. Explicit
+requirements govern implementation; a promising vision may reveal a requirement
+worth changing. Show that conflict and its consequences as a proposal. Investigate
+uncertain limits, and separate demonstrated constraints from inherited assumptions.
+Keep transition costs visible without letting them define the destination
+before it has been developed.
 
-Develop the vision through dialectic: articulate what the system could become,
-show how someone would use it, and let reactions to both deepen or revise the
-proposal. Concrete expression makes ambition inspectable. Follow a caller,
-interaction, or data flow far enough to expose the decisions the model makes
-about ownership, state, policy, and lifetime.
+## Give the vision concrete expression
 
-Read the current system to learn what it reveals about the problem. Separate
-inherited choices from demonstrated constraints. Investigate uncertain limits;
-do not silently turn them into reasons to lower the ambition. Respect the user’s
-explicit requirements, and surface a conflict when pursuing the vision would
-require changing one.
+Show how someone would use the proposed system: realistic caller code, an
+interaction, or a data flow. Derive the public surface and internal boundaries
+from that use. Follow important information through creation, change,
+persistence, failure, and cleanup where those affect the design. An attractive
+entrypoint alone may conceal the decisions that matter.
 
-Use independent explorations when they could reveal a better destination,
-different boundary, or neglected caller need. A known blind spot is not required.
-[adversarial-review](../adversarial-review/SKILL.md) owns that search and its
-coordination. Bring discoveries back into the concrete vision through dialectic.
+Use what the expression reveals to revise the model. Explain what the person
+must understand and do, which distinctions carry independent information, and
+which coordination problems disappear or move elsewhere. A new abstraction may
+earn its place by making the whole easier to understand and own. Fewer concepts
+and less code are valuable consequences when supported by the design.
+
+Use the user's reactions to develop the account of the whole. A correction may
+reveal a preference, tradeoff, or requirement that was not apparent at the start.
+Follow that new understanding through related decisions and show the revised
+design in concrete use. When a consequential tradeoff remains unresolved, make
+its effects visible and ask a focused question. A rename or local repair remains
+appropriate when that is what the evidence supports.
+
+Compare the promising vision with the existing approach through concrete use
+and consequential failures. Show what improves, what machinery or obligations
+disappears, and what complexity or loss is introduced. A counterexample reveals
+a cost to judge against the intended experience. Develop the strongest supported
+destination, whether it retains the current model or changes it substantially.
 
 ## Work backward from the destination
 
-As the direction settles, describe the observable behavior that would make it
-real. Derive the implementation from that target: what must be created, moved,
-replaced, or removed, in what dependency order, and what evidence will establish
-that it works? Let the destination determine the work.
+As the direction settles, state the observable behavior that would make it real.
+Derive what must be created, moved, replaced, or removed, in dependency order,
+and what evidence will establish that it works. Use
+[clean breaks](references/clean-breaks.md) to carry an authorized replacement
+through consumers and retire the superseded shapes.
 
 Keep the reasons the vision is worth pursuing present through implementation.
-A convenient intermediate shape must not quietly become the endpoint. Use
-[clean breaks](references/clean-breaks.md) to carry the chosen direction through
-consumers and retire the superseded shapes.
-
+A convenient intermediate shape must not quietly become the endpoint.
 Distinguish a difficult step from a discovery that changes the destination.
-Continue solving the former. Bring the latter back into dialectic with the
-concrete consequence visible, then work backward from the revised understanding.
-An already settled direction needs no repeated discovery exercise.
+Continue solving the former; bring the latter back into dialectic with its
+consequences visible, then work backward from the revised understanding.
 
-Carry out the work within the user’s authorization. A request to explore a
-vision remains exploration; an authorized replacement should proceed without
-an added confirmation ritual.
+An already settled direction needs no repeated discovery exercise. Carry out
+the work within the user's authorization: exploration remains exploration, and
+an authorized replacement proceeds without an added confirmation ritual.
 
 ## Close against the vision
 
-Judge the result against the destination and the qualities that made it worth
-pursuing. Exercise its concrete use and verify the changed contracts. Explain
-what now realizes the vision and identify consequential drift. Passing tests
-alone does not establish that the intended system has been built.
+Exercise the concrete use and verify changed contracts. Judge the result against
+the destination and the qualities that made it worth pursuing. Explain what now
+realizes the vision and resolve consequential drift. Passing tests alone does
+not establish that the intended system has been built.

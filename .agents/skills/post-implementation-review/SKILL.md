@@ -32,6 +32,9 @@ Scale the review to what changed. A small local correction needs caller and
 behavior checks, not a subsystem inventory. A structural refactor needs enough
 of the affected system to establish where its state and rules now belong.
 Identify the files that support a finding; no fixed report layout is required.
+Load the focused skill for the touched surface, such as `testing`,
+`typescript`, `svelte`, or `yjs`, and escalate ownership, lifecycle, API, or
+package-boundary decisions to [rethink](../rethink/SKILL.md).
 
 Before accepting the final shape, replay the change as if designing it from
 scratch. For a structural review, use the
@@ -58,17 +61,23 @@ mandatory pass:
   user-visible state. Look for mirrored state, repeated decisions, and rules
   checked downstream that an earlier owner could guarantee once. Name who
   preserves information before removing an owner or protection.
+  An `untrack` inside imperative widget setup is a prompt to ask whether the
+  prop should be reactive or cross that boundary at all.
 - Check the resulting API and file layout from a caller's perspective. Does
   each name describe current behavior? Is there one clear path? Did the change
   leave an obsolete export, forwarding layer, comment, test, or documentation
   claim? Distinguish a wrong name, wrong owner, and unnecessary boundary;
-  they call for different repairs.
+  they call for different repairs. Go to Definition from a call site should
+  land on the source of truth; see [typescript](../typescript/SKILL.md)
+  "Go-to-Definition Awareness" for the hops that regress navigation.
 
 Do not remove necessary parsing or validation boundaries, real consumer
 contracts, or repetition that costs less than the abstraction replacing it.
-Retire an old API or compatibility path only after tracing its active callers
-and stored data and establishing that the authorized replacement preserves
-them or includes their migration.
+For a clean break, compatibility is a feature only when explicitly requested;
+otherwise remove old public names and update examples to the new shape. Retire
+an old API or compatibility path after tracing its active callers and stored
+data and establishing that the authorized replacement preserves them or
+includes their migration.
 
 ## Act on findings
 

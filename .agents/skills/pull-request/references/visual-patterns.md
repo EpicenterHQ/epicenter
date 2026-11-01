@@ -71,9 +71,9 @@ Use when the new location communicates intent (these belong to the tables subsys
 When components stack, show them from high-level to low-level with a one-line job per layer. Keep it to a thin form; full boxes are rarely worth it.
 
 ```txt
-defineStore({ id, tables, kv })       declare and validate the schema
-  await openPersonal(definition, { account })  acquire a ready store
-    store.tables / store.kv / store.blobs     use store-owned data
+defineData({ id, tables, kv })                 declare and validate the schema
+  await openDatabase(definition, { account })  open a ready database
+    db.tables / db.kv                          use database-owned data
 ```
 
 ## Comparison Table

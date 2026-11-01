@@ -170,10 +170,9 @@ async function main() {
 	const helperTools = values.codex
 		? ['mcp__codex__evidence', ...(delegating ? ['mcp__codex__implement'] : [])]
 		: [];
-	const fileTools = directExecution
-		? 'Read,Glob,Grep,Edit,Write'
+	const tools = directExecution
+		? 'Read,Glob,Grep,Edit,Write,Bash'
 		: 'Read,Glob,Grep';
-	const tools = directExecution ? `${fileTools},Bash` : fileTools;
 	const mcpConfig = values.codex
 		? {
 				mcpServers: {
@@ -215,7 +214,7 @@ async function main() {
 		'--tools',
 		tools,
 		...(directExecution || values.codex
-			? ['--allowedTools', [fileTools, ...helperTools].join(',')]
+			? ['--allowedTools', [tools, ...helperTools].join(',')]
 			: []),
 		...(!values.codex
 			? ['--disallowedTools', 'mcp__*']

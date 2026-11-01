@@ -1,6 +1,6 @@
 # Svelte Lifecycle And Reactivity Patterns
 
-Detailed Svelte 5 guidance for keyed resources, async gates, shallow aliases, finite union mapping, SvelteMap, Folder reads and editing, and state modules.
+Detailed Svelte 5 guidance for keyed resources, async gates, shallow aliases, finite union mapping, SvelteMap, reactive table state, and state modules.
 
 # Prop-Keyed Resources: Let the Tree Own the Lifecycle
 
@@ -113,10 +113,12 @@ Svelte's deep proxy can break handles whose methods rely on `this` being the ori
 
 ## Project-specific application
 
-For contract apps, the root startup component awaits `openDevice` (or
-`openDataFolder` on the desktop) and hands `fromClient(client)` to the product
-root, which installs it in its app-owned context. Key editors by note identity
-so each mounted editor owns one edit. See
+For contract apps, the variant's root startup opens the store and the product
+root installs `fromClient(client)` in its app-owned context. On the desktop,
+`DesktopStartup` from `@epicenter/svelte/desktop-startup` awaits `openAppData`
+and then `openDataFolder` under the layout's `<svelte:boundary>`, and renders
+`Recovery` when either cannot open; the online web root wraps `openRemote`.
+Key editors by note identity so each mounted editor owns one edit. See
 [Contract reads and editing](#contract-reads-and-editing).
 
 ## Imperative Widgets: Own The Whole Runtime Boundary
@@ -168,38 +170,61 @@ callbacks. Several controls in that scope share one local; nested property
 access alone does not justify another alias.
 
 ```svelte
-{#each ids as id (id)}
-	{@const todo = files.todos.get({ id })}
-	{#if todo}
-		<button onclick={() => void files.todos.update({ id }, { done: !todo.done })}>
-			{todo.done ? 'Done' : 'Open'}
-		</button>
+{#each items as item (item.id)}
+	{@const details = item.details}
+	{#if details}
+		<Input bind:value={() => details.title, (title) => item.update({ title })} />
+		<Textarea bind:value={() => details.notes, (notes) => item.update({ notes })} />
 	{/if}
 {/each}
 ```
 
-In this case, read the note once, then check presence. Use the actual contract:
-a collection's `get(args)` is `undefined` for a missing note.
+Read the value once, then check its presence with the source's actual sentinel.
 The [function binding guidance](component-ui-patterns.md#function-bindings-for-transformed-values)
 explains event-time composition through the current owner.
 
-Use `const todo = $derived(files.todos.get({ id }))` if script code also needs it or no
+Use `const details = $derived(item.details)` if script code also needs it or no
 existing template scope supports `{@const}` before the guard. Do not add a
 block solely to host the local. Do not replace either reactive form with a
-component-level `const todo = files.todos.get({ id })`:
-that captures only the initial value. A simple display that needs no shared
-narrowing may read `session.current` directly; do not add an alias just to
-rename it, and do not remove a useful local merely because its initializer
-is a shallow property read.
+component-level `const details = item.details`: that captures only the initial
+value. A simple display that needs no shared narrowing may read
+`session.current` directly:
 
-Other reasons to keep a local include a computed predicate, an expensive
-projection shared by several consumers, a change filter that skips downstream
-work when its value stays identical, or a dynamic component such as
-`{@const Icon = item.icon}`. Inspect the consumers before inlining.
+```svelte
+<!-- Bad: the alias does not compute or narrow anything -->
+<script lang="ts">
+	const current = $derived(session.current);
+</script>
+
+{#if current}
+	<AccountPopover principal={current.principal} />
+{/if}
+```
+
+```svelte
+<!-- Good: read the source directly in markup -->
+{#if session.current}
+	<AccountPopover principal={session.current.principal} />
+{/if}
+```
+
+Do not add an alias just to rename a read, and do not remove a useful local
+merely because its initializer is a shallow property read. Other reasons to
+keep a local include a computed predicate, an expensive projection shared by
+several consumers, a change filter that skips downstream work when its value
+stays identical, or a dynamic component such as `{@const Icon = item.icon}`.
+Inspect the consumers before inlining.
 
 An operation-local snapshot can keep a read-modify-write operation coherent.
 Capture it when the handler runs, and re-read or check the operation's
 validity after an `await` before writing.
+
+Searches for candidate passthroughs:
+
+```bash
+rg -n '\$derived\([^)]*\.[A-Za-z_$][A-Za-z0-9_$]*\)' --glob '*.svelte'
+rg -n '\{@const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*[^}\n]+\.[A-Za-z_$][A-Za-z0-9_$]*\s*\}' --glob '*.svelte'
+```
 
 # Stable adapters and reactive reads
 
@@ -220,7 +245,7 @@ the source owner is fixed for the component instance:
 	let { session } = $props();
 </script>
 
-<p>{session.draft.fields.title}</p>
+<p>{session.draft.title}</p>
 ```
 
 The session's getters are reactive, so changes to the draft or save state need
@@ -329,9 +354,9 @@ pair. A text editor owns typed input until its save answers.
 
 ```svelte
 <script lang="ts">
-  import { getFiles } from '$lib/files.js';
+  import { store } from '#platform/root';
 
-  const files = getFiles();
+  const files = store();
   const open = $derived(files.todos.items.filter((todo) => !todo.done));
 </script>
 ```
@@ -371,27 +396,31 @@ See `docs/articles/derived-vs-getter-caching-matters.md` for rationale.
 
 # Reactive State Module Conventions
 
-Export a factory for state tied to an opened Folder or mounted app. The app
-root creates one instance and supplies it through props or typed context.
-A module-level singleton would retain the first app's state across replacement
-or share it between separate opened folders. Global preference state can have a
-separate deliberate lifetime.
-
-Keep local view state separate from the Folder's document and query owners.
-For example, a `.svelte.ts` module can own a selection:
+State modules use a factory function that returns a flat object with getters and methods, exported as a singleton.
 
 ```typescript
-export function createNoteSelection() {
-	let path = $state<string>();
+function createBookmarkState(db: AppData) {
+	let rows = $state.raw<Bookmark[]>([]);
+	function read() {
+		const { data, error } = db.bookmarks.list();
+		if (error !== null) return reportBackgroundError(error);
+		rows = data.rows;
+	}
+	read();
+	const stop = db.bookmarks.subscribe(read);
+
+	const bookmarks = $derived(rows.filter((b) => b.deletedAt === null));
+
 	return {
-		get current() { return path; },
-		select(next: string | undefined) { path = next; },
+		[Symbol.dispose]: stop,
+		get bookmarks() { return bookmarks; },
+		add(fields: BookmarkFields) { /* ... */ },
+		remove(id: BookmarkId) { /* ... */ },
 	};
 }
-```
 
-Create that selection in its owning component, rather than exporting an
-initialized instance from the module. File content still belongs to its editor.
+export const bookmarkState = createBookmarkState(db);
+```
 
 ## Naming
 

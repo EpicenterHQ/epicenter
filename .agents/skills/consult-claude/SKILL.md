@@ -42,11 +42,6 @@ Distinguish explicit requirements, observed behavior, and hypotheses. If the
 contract is unresolved, assign its discovery rather than assuming a fix.
 Check the deciding claims against sources; do not redo the whole investigation.
 
-An exploration can advance a decision by discovering a better destination or an
-unknown blind spot; it need not resolve a question already identified. Name the
-opportunity the assignment could explore. Claude may propose worthwhile
-follow-up investigations, but Codex decides which to commission.
-
 ## Make the design legible
 
 Supply the desired outcome, genuine constraints, representative callsites, and
@@ -58,22 +53,21 @@ observed facts, proposals, assumptions, and preferences. Give enough concrete
 evidence to judge the decision; Claude can read further to verify your account.
 
 For a requested adversarial design review, have Claude apply
-[adversarial-review](../adversarial-review/SKILL.md) itself without commissioning
-another reviewer. Its coordinator owns staffing, the starting questions, and
-relaying exchanges between reviewers; this consultation supplies the review's
-Claude seat or a standalone opinion.
-For other design questions, answer the bounded question from source evidence;
-a complete architectural review is not implied. Treat the implementer's reasoning
-as contestable evidence. Ask for a concrete smaller alternative when that would
-decide the question; keeping the design is valid when its guarantees earn their
-cost.
+[adversarial-review](../adversarial-review/SKILL.md) itself without
+commissioning another reviewer. Its coordinator owns staffing, the starting
+questions, and relaying exchanges between reviewers; this consultation supplies
+the review's Claude seat or a standalone opinion. For other design questions,
+answer the bounded question from source evidence; a complete architectural
+review is not implied. Treat the implementer's reasoning as contestable
+evidence. Ask for a concrete smaller alternative when that would decide the
+question; keeping the design is valid when its guarantees earn their cost.
 
 ## Send a brief
 
 Requires Bun, Git, and authenticated Claude Code 2.1.280 or later with access to
 the selected model. New and resumed consultations default to `claude-opus-5-5`
-at high effort. Sonnet is an explicit alternative for routine bounded work.
-Adversarial architecture reviews use Opus high, including
+at high effort. Sonnet is an explicit choice for routine bounded work, not the
+default reasoning lead. Adversarial architecture reviews use Opus high, including
 follow-ups. Use `xhigh` only for a
 focused unresolved decision, then return to high. Run from the checkout
 containing the evidence; supply the brief directly on stdin:
@@ -169,9 +163,19 @@ and fallback can change the model used.
 ### Choose a subscription account
 
 Every launch, including resumes, requires `--account personal|work` and
-`--account-email <verified Claude email>`. `personal` uses the existing native
-default login; `work` uses `~/.claude-work`. Carry the same account and verified
-email into follow-ups. Do not infer a Claude login from a ChatGPT billing email.
+`--account-email <verified Claude email>`.
+`personal` uses the existing native default login; `work` uses `~/.claude-work`.
+The email assertion blocks a profile signed into the wrong identity. Codex carries
+the verified email and original account into follow-ups; no alias registry is
+stored. Do not infer a Claude login from a ChatGPT billing email. For example:
+
+```bash
+bun .agents/skills/consult-claude/scripts/consult-claude.ts \
+  --account personal --account-email claude@example.com \
+  --model claude-opus-5-5 --effort high <<'BRIEF'
+[Bounded consultation.]
+BRIEF
+```
 
 The launcher clears inherited Anthropic credentials, endpoints, provider flags,
 and secure-storage overrides in the child environment. Native `auth status`
@@ -190,12 +194,12 @@ user's work email:
 CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude auth login --claudeai --email "work@example.com"
 ```
 
-The user completes browser login and verifies its Claude email. Keep profile
+The user completes the browser login and verifies its Claude email. Keep profile
 login changes out of active launches: preflight does not lock the login while
-Claude runs. Do not copy credentials between profiles
-or log out of the default account. Explicitly setting `CLAUDE_CONFIG_DIR` to
-`~/.claude` selects a different Keychain entry from leaving it unset, so the
-launcher preserves the unset default for personal. See the official
+Claude runs. Do not copy credentials between profiles or log out of the default
+account. Explicitly setting `CLAUDE_CONFIG_DIR` to
+`~/.claude` selects a different Keychain entry from leaving it unset, so preserve
+the unset default for personal. This follows the official
 [multiple-account guidance](https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts).
 
 ## Adjudicate and continue
@@ -207,8 +211,7 @@ Ask before materially expanding the task; prior authorization still applies.
 
 This route remains read-only. When the assignment requires Claude to own
 implementation or experimental execution, use delegate-claude within the
-parent task's authorization. Substantial delivery uses Codex assistance by
-default, with Claude directing and inspecting the implementation.
+user's authorized scope. Do not turn an advice-only request into execution.
 Return artifacts and evidence, including limitations. A longer report or more
 objections does not establish that a consultation was useful.
 

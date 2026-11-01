@@ -185,13 +185,10 @@ above illustrates the target; it is not a measured result or an answer key.
 | Standalone request for Claude's opinion | Consults Claude without automatically launching a Codex reviewer. |
 | Explicit Codex-only adversarial review | Honors the restriction and does not enlist Claude. |
 | Reviewers agree without evidence of a shared blind spot | Coordinator checks the deciding claims; the group closes on every reviewer's explicit support without an additional reviewer. |
-| Opportunity for a different organizing idea without a known defect | Coordinator can commission a fresh exploration, names what it could improve, and compares concrete use, guarantees, deletion prizes, and introduced complexity. |
 | Reviews share a consequential unsupported premise | Coordinator names the suspected assumption, adds a reviewer focused on it, and returns its findings to the group. |
 | Findings expose a distinct unresolved question | Coordinator settles it with a focused trace or counterexample when that suffices, or adds a reviewer for that question within task scope; three seats is not a cap. The group closes when every reviewer explicitly supports the same direction. |
 | Reviewer objects to another's finding | Where reviewers cannot message directly, the coordinator relays the objection and reply with attribution; Claude receives it in a resumed turn. No reviewer is pressed to assent. |
 | Group cannot agree without a product judgment or unavailable evidence | Coordinator brings that specific blocker to the user and does not report the review as complete. |
-| Reviewer drifts into local cleanup | Coordinator redirects a completed-turn follow-up toward the ownership, lifetime, representation, or interaction that makes the machinery necessary, without prescribing a verdict. |
-| New evidence changes an execution assignment | Delegate-claude sends a fresh brief in the same idle clone with the full assignment, changed evidence, and acceptance criteria, retains useful partial work, and keeps one writer per clone. |
 
 For runtime acceptance, separately verify current uncommitted reads, context on
 resume, denied outside reads, absent write/shell/agent/MCP tools, and unchanged

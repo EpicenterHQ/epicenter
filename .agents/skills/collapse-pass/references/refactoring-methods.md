@@ -78,18 +78,19 @@ getCurrentType()    → entry.get('type') as ContentType     ← raw .get() + ca
 write()             → entry.get('columns') as Y.Map<...>   ← raw .get() + cast
 replaceCurrentText  → entry.get('content') as Y.Text       ← raw .get() + cast
 
-    GOOD: Single boundary, everything else uses typed discriminated union
-    ───────────────────────────────────────────────────────────────────
+GOOD: Single boundary, everything else uses typed discriminated union
+───────────────────────────────────────────────────────────────────
 readEntry()         → entry.get('type'), instanceof checks  ← THE boundary
-    getCurrentEntry()   → readEntry(last)                       ← typed from here
-    write()             → getCurrentEntry() (discriminated)     ← typed
+getCurrentEntry()   → readEntry(last)                       ← typed from here
+write()             → getCurrentEntry() (discriminated)     ← typed
 read()              → getCurrentEntry() (discriminated)     ← typed
 ```
 
 Route access through the typed reader. Public methods discriminate
 `getCurrentEntry()` instead of repeating raw `.get()` calls. A Svelte reactive
 adapter may expose that read as a tracked property; the framework-neutral
-implementation keeps the explicit method.
+implementation keeps the explicit method. When the existing reader is a
+public getter, keep that contract unless the API is being redesigned.
 
 ## Collapsing Duplicate Branches
 

@@ -1,6 +1,6 @@
 ---
 name: yjs
-description: Apply Epicenter’s Yjs 14 patterns for row documents, transactions, persistence, and synchronization. Use when working with `@y/y`, CRDTs, collaborative editing, awareness, or Yjs storage and providers.
+description: Apply Epicenter’s Yjs 14 patterns for the database document, transactions, persistence, and synchronization. Use when working with `@y/y`, CRDTs, collaborative editing, awareness, or Yjs storage and providers.
 metadata:
   author: epicenter
   version: '1.0'
@@ -21,7 +21,7 @@ Epicenter targets `@y/y` 14 only. Do not add `yjs` 13, `y-indexeddb`, a compatib
 Skip DeepWiki for stable basics and repo-local patterns already documented below.
 
 Read [references/document-design.md](references/document-design.md) before
-choosing how a new row document is structured. Counters, user-controlled
+choosing how new rows or fields are structured. Counters, user-controlled
 ordering, and nested shapes each have a conflict behavior that is expensive to
 change once data exists.
 
@@ -35,10 +35,10 @@ converges to unexpected state or grows faster than its content.
 - Yjs updates are commutative and idempotent. A state vector describes what a
   replica HAS; it does not order what it owes. A delete moves no client clock,
   so two replicas can hold the same vector and differ, which is why obligation
-  in this store is a log position rather than a vector. Both the cursor and the
-  outbox are then DERIVED from one column on the update rows, `MAX(authoritySeq)`
-  and `authoritySeq IS NULL`, so neither can disagree with the bytes it accounts
-  for (`packages/app/evidence/data/invariants.test.ts`, ADR-0298).
+  in this store is a log position rather than a vector (ADR-0298). The cursor
+  and the outbox both derive from one column on the update rows,
+  `MAX(authoritySeq)` and `authoritySeq IS NULL`, so neither can disagree with
+  the bytes it accounts for (`packages/data/src/store/log.ts`).
 - Use `Y.encodeStateVector(doc)` to describe local clocks, then `Y.encodeStateAsUpdateV2(doc, remoteStateVector)` to send only missing updates.
 - Persist and transmit bytes from the `updateV2` event. Replay them with `Y.applyUpdateV2(doc, update, origin)`.
 - Wrap multi-write user actions in `doc.transact(() => { ... }, origin)`. This reduces observer churn and gives persistence, providers, and undo logic a useful origin.
@@ -54,146 +54,86 @@ converges to unexpected state or grows faster than its content.
 - One socket per application, not one per open document. A replica connects to `STORE_SYNC_ROUTE.pattern` (`/api/store/v1/sync`, in `packages/sync/src/store-route.ts`) with a `namespace` naming the workspace and a `cursor` naming its own durably applied position, so a reconnect is a catch-up rather than a fresh start (ADR-0222).
 - Whose data it is never appears in the query. It comes from the resolved bearer, server-side, so there is no value a client can put in the URL that reaches another partition (ADR-0092).
 - Browser upgrades authenticate through exactly one `bearer.<token>` subprotocol entry, because a browser upgrade cannot set `Authorization`; the mount echoes only the main subprotocol on the 101, so the token never round-trips. Non-browser clients may use an `Authorization` header. Do not use cookie-only upgrades, query-string credentials, or post-accept authentication frames.
-- The wire is framing and nothing else: `push`, `ack`, `refuse`, `entry`, `offer`, `snapshot`, `wanted` (`packages/app/src/data/sync/frames.ts`). No frame knows what an update means, what a row is, or what Yjs is, which is exactly why chunking is safe at that layer.
+- The wire is framing and nothing else: `push`, `ack`, `refuse`, `entry`, `offer`, `snapshot`, `wanted` (`packages/data/src/sync/frames.ts`). No frame knows what an update means, what a row is, or what Yjs is, which is exactly why chunking is safe at that layer.
 - Large updates are chunked at `CHUNK_BYTES`, set by Cloudflare's documented Durable Object SQLite value cap rather than by anything about Yjs. Do not raise it to the measured wall; the documented limit is the one Cloudflare is entitled to enforce.
 - Presence is deliberately absent until a concrete consumer earns awareness state and disconnect cleanup. If added later, awareness is ephemeral and must never be persisted into the Y.Doc or the SQLite update log as canonical data.
 
-## One document per store
+## One Document Per Database
 
-Epicenter pins `@y/y@14.0.0-rc.26`. A store is one `Y.Doc` with table roots
-named `tables:<name>` and a `kv` root. Each row is a nested `Y.Node` attribute
-on its table root. The row’s attributes are JSON metadata and its sole sequence
-child is the stable body node (ADR-0431).
+A database is one `Y.Doc` (ADR-0295): roots are `tables:<name>` and `kv`, a row
+is a nested `Y.Type` attribute on its table root, and a field is an attribute
+on the row. Holding the attribute is what it means to exist, and removing it is
+what deletion does. A row's rich content is a nested type on the row as well
+(ADR-0296); there is no second document, address, or document manager. The
+nesting is not stylistic: `Item.write` calls `findRootTypeKey`, a linear scan
+of `doc.share`, so one root per row makes encoding quadratic in rows (5,417 ms
+for 20,000 rows against 13 ms nested).
 
-The store creates both nodes together. Reads never create or repair them and
-require exactly one child of the correct node type. Field updates cannot
-replace the child; deleting the row removes its subtree. Child index zero is
-a storage convention, while the child has its own stable CRDT identity.
+Only `Doc.get` mints a root, and every key reaching it must be a table name the
+database declares (`packages/data/src/store/document.ts`). Reading an unknown
+row through `getAttr` costs nothing, while a misspelled table name costs a
+permanent root.
 
-`get`, `rows`, and `create` return value snapshots. `table.body(id)` returns
-the live body independently of metadata conformance. `body`, `content`, and
-`!`-prefixed names are ordinary metadata; structural `id` remains reserved.
-
-```typescript
-const notes = defineTable({
-  fields: { title: field.string(), body: field.string() },
-  body: plainText(),
-});
-
-const row = db.tables.notes.create({ title: 'Trip', body: 'metadata' });
-const body = db.tables.notes.body(row.id);
-body?.insert(0, ['The writing.']);
-```
-
-Keep `field.*` helpers, which use TypeBox internally. The current two-method
-body file format and artifact sequence replacement are specified in
-`packages/app/src/data/README.md`. Artifact reads expose
-`{ id, fields, body }`; values become frontmatter and the codec supplies the
-text below it. Checkout distinguishes a field named `body` from a body edit
-by operation kind.
-
-Only declared table/KV roots reach `Doc.get`, which creates on miss. Row
-lookups use `getAttr` and never mint roots. Keeping rows nested also avoids
-`findRootTypeKey` scanning one document root per row during encoding.
-
-## Editor bindings
-
-Bind editors to the body child. Honeycrisp uses `@y/prosemirror@2.0.0-12`:
-`ynodeToPmnode(node, schema)` reads and `pmnodeToDelta(pmNode)` produces an
-insertion delta for `node.applyDelta`. The converter fills an empty top-level document from the schema without
-writing to Yjs. To rewrite, delete the old sequence and
-apply the new delta inside one store transaction; never replace the body.
-
-Editor normalization owns body attributes. Parent metadata stays outside it.
-A metadata edit must neither notify body watchers nor clear editor undo history.
-Honeycrisp clears history for foreign body edits and preserves undo/redo origins.
-The Skills CodeMirror adapter writes only its supplied body but replaces the
-whole text on each edit; this has weaker concurrent-edit behavior than an
-incremental collaborative binding.
-
-Root overrides keep RC26 and lib0 RC32 consistent through the dependency
-closure. The old renderer and internal-export patches are removed. A new ProseMirror
-patch restores the virtual empty-content gate after undo to preserve redo. Do not
-introduce Yjs 13 to accommodate stock Tiptap collaboration.
-
-## Three Signals, And Which One Fires
+## Two Signals, And Which One Fires
 
 - `table.subscribe` fires when a table's SHAPE changes: a row added, removed,
-  or a value edited. It does NOT fire for an edit inside a body node. It
-  hands the listener the ROW IDS the commit touched, so a consumer holding a
-  projection rebuilds only what moved; a consumer that just re-reads may
-  ignore them.
-- `table.watch(node)` fires for edits inside one body node, keyed by the
-  node's own identity.
-- `kv.subscribe` fires when any declared key changes, and carries nothing.
-  There are ten keys, so naming them would buy nothing.
+  or its scalar fields edited. It does NOT fire for an edit inside a row's
+  rich content, so a list does not wake at typing frequency.
+- `table.watch(rowId, field, listener)` fires for edits inside one rich field
+  of one row, local or remote. It is the only way to hear prose.
 
-The distinction is forced by the library. Delivery routes off
-`transaction.changed`, which Yjs fills with the types a transaction modified
-DIRECTLY, so a keystroke in a body puts the BODY's type there; its parent is
-the row, not the table root. Nothing bubbles to the table. A surface that
-watches a table for changes inside a node sees nothing.
+The split follows the library. Delivery routes off `transaction.changed`, which
+Yjs fills with the types a transaction modified directly, so a keystroke in a
+rich field names that field's type, not the table root. `kv.subscribe` follows
+the table's shape: a ping meaning "re-read".
 
 ## Owner-Side Persistence
 
 One document, so one chain: `_updates (id, bytes, authoritySeq)` in SQLite, and
-the matching object store in the browser's IndexedDB. There is no per-document
-partition, no `_tombstones`, and no separate `_outbox` — what a replica still
-owes is the rows with `authoritySeq IS NULL`, which is a partial index rather
-than a second table (ADR-0238). Do not add a separate IndexedDB provider or a
-second document store.
+the matching record in the browser's IndexedDB. There is no per-document
+partition and no separate outbox table: what a replica still owes is the rows
+with `authoritySeq IS NULL`, served by a partial index (ADR-0238, ADR-0298). Do
+not add a separate IndexedDB provider or a second document store.
 
 - Hydrate BEFORE attaching the `updateV2` listener. Replaying stored bytes
-  through the listener would re-append them; the engine applies its history
-  first and then attaches, and throws if a foreign apply ever reaches the
-  listener, so a mistake here fails the open loudly rather than duplicating a
-  log (`packages/app/src/data/store/store.ts`).
-- A locally authored append joins the durable queue owed. Authority-accepted
-  bytes arrive on a remote origin and create no outbound obligation, which is
-  what the one listener checks before appending.
-- The chain compacts by ROW, and the row's `authoritySeq` picks which of two
-  mechanisms applies (ADR-0301). Rows the authority has taken replay into a
-  fresh `gc: true` document and rewrite as one complete V2 state update: replay
-  rather than `mergeUpdatesV2`, because merging does not GC and collapsing
-  tombstones is the point. `encodeStateAsUpdateV2` folds buffered pending state
-  back into its output, so a fold taken while dependencies are missing cannot
-  silently drop them.
-- Rows still OWED cannot take that path, and this is the one to get right. A
-  whole-document re-encode is not a delta the authority could be offered, so
-  owed rows collapse with `mergeUpdatesV2` into one resendable row that takes a
-  NEW id above every existing one. Folding them like acknowledged rows would
-  offer the authority a whole document per keystroke; inheriting a lower id
-  would let an earlier acknowledgement stamp bytes it never carried.
+  through the listener would re-append them; the store applies its history
+  first and then attaches, and throws if foreign bytes ever reach the listener
+  as local work (`packages/data/src/store/store.ts`).
+- A locally authored append joins the durable queue as owed work.
+  Authority-accepted bytes arrive through the remote-apply path and create no
+  outbound obligation.
+- The chain folds at `SNAPSHOT_FOLD_THRESHOLD`. A syncing store folds only the
+  acknowledged prefix, replaying it into a fresh `gc: true` document and
+  rewriting it as one complete V2 state update; owed appends stay where they
+  are, because the sender offers them individually and an acknowledgement
+  names them by id. A store that does not sync folds everything.
 - Treat replay corruption as storage failure: a document that cannot hydrate refuses its open rather than handing out a half-hydrated handle.
 
 ## Storage Optimization
 
-v14 has ONE shared type, `Y.Node`, reached as `doc.get(name)` for a map-like
-root or `doc.get(name, 'text')` for a text one. There is no `Y.Map`, `Y.Text`,
-`Y.Array` or `Y.XmlFragment`; code or advice naming them is Yjs 13 and is
-replacement material.
-
-Attribute tombstones retain the key forever, and every `setAttr(key, value)`
-creates a new internal item and tombstones the previous one, which is why
+Yjs 14 has one shared type, `Y.Type`, which is map, list, and rich text at
+once; there is no `Y.Map`, `Y.Text`, `Y.Array`, or `Y.XmlFragment` class (see
+ADR-0296 and the installed `@y/y` declarations). Code or advice naming them is
+Yjs 13 and is replacement material. Attribute tombstones retain the key
+forever, and every `setAttr(key, value)` creates a new internal item and
+tombstones the previous one, which is why
 `gc: true` is what collapses a field edited 5,000 times down to two structs.
 
 ## Raw Types At The Boundary
 
-A `Y.Node` handed out by a table handle is a live CRDT reference and is MEANT
-to be bound to an editor. That is the design: the store hands the editor the
-real thing rather than proxying it, because a copy would break the merge that
-makes it worth having.
+A `Y.Type` handed out for a row's rich field is a live CRDT reference and is
+meant to be bound to an editor. The store hands the editor the real type rather
+than a proxy, because a copy would break the merge that makes it worth having.
 
-A raw node can reach its parent and document. It is not a security sandbox.
-Features must use `table.body(id)` instead of constructing or repairing the
-row layout. The store owns the invariant in
-`packages/app/src/data/store/document.ts`.
+A raw type can reach its parent and document; it is not a security sandbox.
+Consumer code may bind to it, but it should not construct, cast, or repair the
+row layout, or branch on content modes the owning module should handle. The
+store owns that layout in `packages/data/src/store/document.ts`. When consumer
+code needs an operation on raw types, such as an append or a format
+conversion, give that operation to the owning module or a format bridge beside
+it. Ask: "Could this consumer do its job with only the typed API?"
 
-RC26 still types configured children as `Fingerprintable`, which does not
-include a live `Y.Node`, and `insert` does not translate delta children into
-node children. Keep the insertion escape localized at row creation; do not
-broaden JSON metadata types or publish a compatibility alias to hide this gap.
-Verify the installed declarations before changing that boundary.
+See the article `docs/articles/yjs-abstraction-leaks-cost-more-than-the-abstraction.md` for the full pattern with real examples.
 
 ## References
 
@@ -203,12 +143,11 @@ Verify the installed declarations before changing that boundary.
 - [GitHub issue #520](https://github.com/yjs/yjs/issues/520) - Conflict resolution discussion with dmonad
 - [fractional-indexing](https://github.com/rocicorp/fractional-indexing) - Production library
 - [YATA paper](https://www.researchgate.net/publication/310212186_Near_Real-Time_Peer-to-Peer_Shared_Editing_on_Extensible_Data_Types) - Academic foundation
-- `packages/app/src/data/store/document.ts`: the application-document grammar (roots, row types, field reads)
-- `packages/app/src/data/store/log.ts` and `packages/app/src/data/store/persistence.ts`: the durable update log, the outbox, and the persistence queue
-- `packages/app/evidence/data/invariants.test.ts`: the library behaviour this design rests on, pinned against the installed rc
-- `packages/app/src/data/sync/`: the Yjs 14 wire (frames, connection, client, authority)
-- [ADR-0295](../../../docs/adr/0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md): one document per application, and a row holds its rich content (supersedes ADR-0248)
-- [ADR-0309](../../../docs/adr/0309-a-field-holds-a-value-or-a-node-and-the-retired-words-fail-the-build.md): historical field/node vocabulary, amended by [ADR-0431](../../../docs/adr/0431-rows-return-values-and-own-a-separate-body.md) for the sole-child layout
+- `packages/data/src/store/document.ts`: the application-document grammar (roots, row types, field reads)
+- `packages/data/src/store/log.ts` and `packages/data/src/store/persistence.ts`: the durable update log, the derived outbox and cursor, and the persistence queue
+- `packages/data/src/sync/`: the Yjs 14 wire (frames, connection, client, authority)
+- [ADR-0295](../../../docs/adr/0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md): one document per database, and a row holds its rich content (supersedes ADR-0248)
+- [ADR-0298](../../../docs/adr/0298-the-authority-is-byte-blind-and-a-cursor-is-a-log-position.md): a cursor is a log position
 - [ADR-0221](../../../docs/adr/0221-a-table-names-the-rows-a-commit-touched-and-says-so-after-the-projection-commits.md): what `subscribe` reports and when it fires
 - [ADR-0146](../../../docs/adr/0146-row-documents-use-one-yjs-14-major-and-runtime-native-update-logs.md): Yjs 14-only persistence decision
 - [ADR-0159](../../../docs/adr/0159-row-documents-persist-in-one-owner-side-sqlite-update-log.md): one owner-side SQLite update log and shared attachment seam
