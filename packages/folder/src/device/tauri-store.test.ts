@@ -21,7 +21,6 @@ let readArgs: { path?: string; root?: string } | undefined;
 let listedRoot: string | undefined;
 
 mock.module('@tauri-apps/api/core', () => ({
-	isTauri: () => true,
 	transformCallback: () => 0,
 	invoke: async (
 		command: string,

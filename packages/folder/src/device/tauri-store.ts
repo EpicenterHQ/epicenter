@@ -21,7 +21,7 @@
  */
 
 import { ClientError, type Version } from '@epicenter/definition/contract';
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import { Ok } from 'wellcrafted/result';
 import { type ChangeSource, createChanges } from '../changes.js';
 import { hashBytes } from '../hash.js';
@@ -30,8 +30,9 @@ import type { DeviceStore } from './store.js';
 
 /**
  * The store of `root`, hearing changes from `watch` (the shell's watcher,
- * whose paths are relative to the root). Outside Tauri, and whenever the
- * shell refuses, a call is `Unavailable`.
+ * whose paths are relative to the root). Whenever the shell refuses, a call
+ * is `Unavailable`. Only `openDevice`, once it found a Tauri window, makes
+ * one.
  */
 export function tauriStore({
 	root,
@@ -42,14 +43,9 @@ export function tauriStore({
 }): DeviceStore {
 	const changes = createChanges(watch);
 	const unavailable = (cause: unknown) => ClientError.Unavailable({ cause });
-	const notTauri = () =>
-		unavailable(
-			new Error('openDevice from /tauri runs only in a Tauri window'),
-		);
 
 	return {
 		async list() {
-			if (!isTauri()) return notTauri();
 			let listed: Awaited<ReturnType<typeof commands.listFolder>>;
 			try {
 				listed = await commands.listFolder(root);
@@ -60,7 +56,6 @@ export function tauriStore({
 			return Ok(listed.data);
 		},
 		async read(path) {
-			if (!isTauri()) return notTauri();
 			let response: Uint8Array;
 			try {
 				response = new Uint8Array(
@@ -81,7 +76,6 @@ export function tauriStore({
 			return Ok({ bytes, version: (await hashBytes(bytes)) as Version, stamp });
 		},
 		async write(path, bytes, expected) {
-			if (!isTauri()) return notTauri();
 			const headers: Record<string, string> = {
 				path: encodeURIComponent(path),
 				root: encodeURIComponent(root),
