@@ -17,7 +17,9 @@ reads. A write puts what landed into what shows before it resolves. A note `upda
 writer's change to other fields, a `Conflict` when they changed the same
 one, after which the adapter shows theirs and a second save applies over it.
 `notes.edit(args)` is one note as an immediate editor, one save at a time,
-made over what the person saw when the typing began.
+made over what the person saw when the typing began, and the view's read of
+that note: `note` is the note as shown, undefined while it is not listed or
+does not read.
 
 The root, wherever it opens the client (the desktop root, the local web
 startup, or the online root), wraps it once and sets one typed context per
@@ -34,23 +36,35 @@ const files = fromClient(device); // or fromClient(openRemote(todos, { account }
 setTodos(files.todos);
 ```
 
-A component reads the collection from its context and makes one editor per
-open note during setup:
+A list reads the collection from its context:
 
 ```svelte
 <script lang="ts">
   import { getTodos } from '$lib/todos.js';
 
   const todos = getTodos(); // ReactiveNotes for that collection
-  const todo = todos.edit({ id }); // one editor per open note
 </script>
 
 {#each todos.items as todo (todo.id)}<TodoRow {todo} />{/each}
 {#each todos.invalid as file (file.path)}<pre>{file.text}</pre>{/each}
-<Input bind:value={todo.title} />
-<Textarea bind:value={todo.body} />
-<Checkbox bind:checked={todo.done} />
-<UnsavedEdit edit={todo} />
+```
+
+The view of one open note makes one editor of it during setup, and reads the
+note from it rather than a second `todos.get({ id })` or a prop:
+
+```svelte
+<script lang="ts">
+  const todo = getTodos().edit({ id }); // one editor per open note
+</script>
+
+{#if todo.note}
+  <Input bind:value={todo.title} />
+  <Textarea bind:value={todo.body} />
+  <Checkbox bind:checked={todo.done} />
+  <UnsavedEdit edit={todo} />
+{:else}
+  <p>This todo is no longer here.</p>
+{/if}
 ```
 
 An editor that holds a whole-note draft saves it with

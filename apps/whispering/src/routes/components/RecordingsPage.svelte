@@ -37,7 +37,7 @@
 	{@const selection = library.selection}
 	{#if selection && (selection.note || selection.repair)}
 		{#key selection.id}
-			<RecordingDetail id={selection.id} note={selection.note} repair={selection.repair} {onBack} {onClose} />
+			<RecordingDetail id={selection.id} repair={selection.repair} {onBack} {onClose} />
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">

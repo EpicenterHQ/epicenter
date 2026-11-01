@@ -23,7 +23,9 @@
  *   then the adapter shows theirs, so saving again applies over it.
  *
  * `notes.edit(args)` is one note as an immediate editor (`NoteEdit`), for
- * the component that shows it; `update` stays for code that is not typing.
+ * the component that shows it: its fields to bind, and the note as shown
+ * (`note`) to read. `get` stays for lists, and `update` for code that is
+ * not typing.
  *
  * Every write is held for the page's leave guard (`@epicenter/svelte/leave-guard`)
  * from the call until it answers.
@@ -41,10 +43,14 @@
  * 	const todo = todos.edit({ id });
  * </script>
  *
- * <Input bind:value={todo.title} />
- * <Textarea bind:value={todo.body} />
- * <Checkbox bind:checked={todo.done} />
- * <UnsavedEdit edit={todo} />
+ * {#if todo.note}
+ * 	<Input bind:value={todo.title} />
+ * 	<Textarea bind:value={todo.body} />
+ * 	<Checkbox bind:checked={todo.done} />
+ * 	<UnsavedEdit edit={todo} />
+ * {:else}
+ * 	<p>This todo is no longer here.</p>
+ * {/if}
  * ```
  */
 import {
@@ -79,6 +85,11 @@ type Base<TCollection extends Collection> = {
 
 /** What an editor of one note (`edit`) does besides its fields. */
 type EditControls<TCollection extends Collection> = {
+	/**
+	 * The note as shown, without what was typed: the version that landed or
+	 * was last listed. Undefined while it is not listed or does not read.
+	 */
+	readonly note: NoteOf<TCollection> | undefined;
 	/** Why the newest save failed; null while none has. What was typed stays. */
 	readonly error: ClientError | null;
 	/** Whether a save is out: from the keystroke until it answers. */
@@ -96,7 +107,9 @@ type EditControls<TCollection extends Collection> = {
 /**
  * One note as an immediate editor: each of its fields, `body` included,
  * shows what was typed until its save answers, then the note; setting one
- * saves it. A field named like a control (`error`, `saving`…) is not one.
+ * saves it. `note` is the note itself as shown, for what the view reads
+ * beside the fields. A field named like a control (`note`, `error`,
+ * `saving`…) is not one.
  */
 export type NoteEdit<TCollection extends Collection> = {
 	[K in Exclude<
@@ -510,6 +523,10 @@ function fromCollection(collection: Raw) {
 		}
 
 		const controls = {
+			get note() {
+				track();
+				return shown(args);
+			},
 			get error() {
 				return error;
 			},

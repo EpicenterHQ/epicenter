@@ -36,8 +36,6 @@
 	const id = shownId;
 	const path = todoPath(id);
 	const todo = todos.edit({ id });
-	/** The todo as listed, when it reads. */
-	const listed = $derived(todos.get({ id }));
 	const invalid = $derived(todos.invalid.find((note) => note.id === id));
 
 	function confirmDelete(label: string) {
@@ -78,7 +76,7 @@
 			<UnsavedEdit edit={todo} />
 		</div>
 	{/if}
-	{#if listed}
+	{#if todo.note}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
 			<Checkbox aria-label="Done" bind:checked={todo.done} />
@@ -99,7 +97,7 @@
 				bind:value={todo.body}
 			/>
 		</div>
-		{@render fileBar(labelOf(listed))}
+		{@render fileBar(labelOf(todo.note))}
 	{:else if invalid}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}

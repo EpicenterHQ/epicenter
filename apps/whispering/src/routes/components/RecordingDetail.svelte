@@ -16,7 +16,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { variant } from '#platform/variant';
 	import { getRecordings } from '$lib/files.svelte.js';
-	import { getLibrary, type RecordingNote, type Repair } from '$lib/library.svelte.js';
+	import { getLibrary, type Repair } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioMissing from './AudioMissing.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
@@ -28,15 +28,12 @@
 
 	let {
 		id,
-		note,
 		repair,
 		onBack,
 		onClose,
 	}: {
 		/** The recording's id. The parent keys this view by it. */
 		id: string;
-		/** The listed note, or undefined when it does not read or is gone. */
-		note: RecordingNote | undefined;
 		/** Why its note does not read, when it does not. */
 		repair: Repair | undefined;
 		/** Shown on narrow windows, where the table and the details take turns. */
@@ -75,7 +72,7 @@
 				<ArrowLeftIcon />
 			</Button>
 		{/if}
-		{#if note}
+		{#if recording.note}
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={recording.title}
@@ -99,12 +96,12 @@
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 			<NoteRepair {repair} />
 		</div>
-	{:else if note === undefined}
+	{:else if recording.note === undefined}
 		<p class="flex-1 px-4 py-4 text-sm text-muted-foreground" role="status">This recording is no longer listed.</p>
 	{:else}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3 sm:px-4">
 			{#if audio.kind === 'here'}
-				<AudioPlayer id={own} file={audio.file} label="Audio of {note.title || own}" />
+				<AudioPlayer id={own} file={audio.file} label="Audio of {recording.note.title || own}" />
 			{:else}
 				<AudioMissing {audio} />
 			{/if}
@@ -157,9 +154,9 @@
 				<Collapsible.Content class="pt-2">
 					<dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
 						<dt class="text-muted-foreground">Recorded</dt>
-						<dd>{when(note.recordedAt)}</dd>
+						<dd>{when(recording.note.recordedAt)}</dd>
 						<dt class="text-muted-foreground">Length</dt>
-						<dd>{note.durationMs === undefined ? 'Not recorded' : `${(note.durationMs / 1000).toFixed(1)} s`}</dd>
+						<dd>{recording.note.durationMs === undefined ? 'Not recorded' : `${(recording.note.durationMs / 1000).toFixed(1)} s`}</dd>
 						<dt class="text-muted-foreground">Kept in</dt>
 						<dd data-testid="kept-in">
 							{variant === 'desktop' ? 'Your data folder' : 'This browser'}

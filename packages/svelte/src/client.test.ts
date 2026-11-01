@@ -20,7 +20,8 @@
  *   since the last that landed, so typing never clashes with itself; another
  *   writer's change to a typed field surfaces and the typing stays
  * - `edit` shows the newest typing until its own save answers: an older
- *   answer, a discard, or teardown never brings back what was replaced
+ *   answer, a discard, or teardown never brings back what was replaced;
+ *   its `note` is the note as shown, following what landed and a delete
  * - A write through the adapter, or a keystroke in `edit`, is out for the
  *   leave guard at once, until it answers
  */
@@ -621,6 +622,41 @@ test('edit shows the newest typing until its own save answers; discard shows the
 	expectOk(await todo.landed());
 	expect(gates).toHaveLength(2);
 	shown.stop();
+});
+
+test('edit’s note is the note as shown: the version that landed, not the typing, and undefined once it is deleted', async () => {
+	const { open } = await folder();
+	const device = await open();
+	const created = expectOk(
+		await device.todos.create({ id: 'a', title: 'Milk', done: false }),
+	);
+	const files = fromClient(device);
+	const host = setup(() => files.todos.edit({ id: 'a' }));
+	const todo = host.made;
+	const seen = follow(() => todo.note);
+	await until(() => seen.values.at(-1)?.title === 'Milk');
+	expect(todo.note?.version).toBe(created.version);
+
+	// Typing shows in the field; the note stays as shown until its save lands.
+	todo.title = 'Oat milk';
+	expect(todo.title).toBe('Oat milk');
+	expect(todo.note?.title).toBe('Milk');
+	expectOk(await todo.landed());
+	flushSync();
+	const landed = expectOk(await device.todos.get({ id: 'a' }));
+	expect(todo.note?.title).toBe('Oat milk');
+	expect(todo.note?.version).toBe(landed.version);
+	expect(landed.version).not.toBe(created.version);
+
+	// Another program deletes it: the note reads as gone.
+	expectOk(
+		await (await open()).todos.delete({ id: 'a' }, { over: landed.version }),
+	);
+	await until(() => seen.values.at(-1) === undefined);
+	expect(todo.note).toBeUndefined();
+
+	seen.stop();
+	await host.unmount();
 });
 
 test('edit with create makes the note on the first save, then updates it; one made elsewhere first is saved over', async () => {

@@ -335,7 +335,7 @@ value with `set(id, next)`.
 | Data Shape | Use | Example |
 |---|---|---|
 | Contract listings | `files.notes.items`, `files.notes.invalid` | notes and notes that do not read |
-| An open note's fields | `notes.edit({ id })` | typed fields and inline save feedback |
+| An open note | `notes.edit({ id })` | `todo.note` as shown, typed fields, and inline save feedback |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
 | Replace-only sequential data without IDs | `$state.raw<T[]>([])` | terminal history, command history |
@@ -365,7 +365,10 @@ setTodos(files.todos);
 ```
 
 The component that shows a note makes one editor of it during setup. The
-editor owns typed input until its save answers:
+editor is that view's read of the note too: `todo.note` is the note as
+shown (the version that landed or was last listed), undefined while it is
+not listed or does not read, and the fields show typed input until its save
+answers:
 
 ```svelte
 <script lang="ts">
@@ -376,13 +379,19 @@ editor owns typed input until its save answers:
   const open = $derived(todos.items.filter((todo) => !todo.done));
 </script>
 
-<Input bind:value={todo.title} />
-<Textarea bind:value={todo.body} />
-<Checkbox bind:checked={todo.done} />
-<UnsavedEdit edit={todo} />
+{#if todo.note}
+  <Input bind:value={todo.title} />
+  <Textarea bind:value={todo.body} />
+  <Checkbox bind:checked={todo.done} />
+  <UnsavedEdit edit={todo} />
+{:else}
+  <p>This todo is no longer here.</p>
+{/if}
 ```
 
-Keep derived filters in `$derived`. The editor's saves go one at a time; the
+Do not read the open note a second time with `todos.get({ id })` or take it
+as a prop; `get` is for lists and code that is not the note's view. Keep
+derived filters in `$derived`. The editor's saves go one at a time; the
 newest carries every field typed since the last that landed, made over the
 note as the person saw it when each field's typing began. Another writer's
 change to a field not typed is carried over; their change to a typed field

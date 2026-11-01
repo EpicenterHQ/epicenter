@@ -24,7 +24,6 @@
 	// The parent keys this view by the note.
 	// svelte-ignore state_referenced_locally
 	const id = shownId;
-	const note = $derived(notes.get({ id }));
 	const invalid = $derived(notes.invalid.find((file) => file.id === id));
 	/** A note just made opens ready to write in. */
 	const isNew = app.takeNew(id);
@@ -46,7 +45,8 @@
 			<UnsavedEdit {edit} />
 		</div>
 	{/if}
-	{#if note}
+	{#if edit.note}
+		{@const note = edit.note}
 		{@const folderId = note.folderId}
 		<div class="flex flex-wrap items-center gap-2 border-b px-3 py-2">
 			<Input

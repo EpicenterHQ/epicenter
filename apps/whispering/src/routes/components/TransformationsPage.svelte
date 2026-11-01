@@ -30,7 +30,7 @@
 	{@const selected = library.selectedTransformation}
 	{#if selected && (selected.note || selected.repair)}
 		{#key selected.id}
-			<TransformationDetail id={selected.id} note={selected.note} {onBack} />
+			<TransformationDetail id={selected.id} {onBack} />
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">

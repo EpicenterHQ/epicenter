@@ -7,9 +7,8 @@
 	let { notes, id }: { notes: ReactiveNotes<NoteCollection>; id: string } = $props();
 	// svelte-ignore state_referenced_locally
 	const edit = notes.edit({ id });
-	const listed = $derived(notes.get({ id }) !== undefined);
 </script>
 
-{#if listed}
+{#if edit.note}
 	<NoteEditor body={edit.body ?? ''} onEdit={(text) => (edit.body = text)} />
 {/if}
