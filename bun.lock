@@ -19,6 +19,12 @@
         "wrangler": "catalog:",
       },
     },
+    ".agents/skills/consult-claude": {
+      "name": "claude-delegation-tools",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.29.0",
+      },
+    },
     "apps/api": {
       "name": "@epicenter/api",
       "version": "0.0.2",
@@ -1721,6 +1727,8 @@
     "chokidar": ["chokidar@4.0.3", "", { "dependencies": { "readdirp": "^4.0.1" } }, "sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA=="],
 
     "ci-info": ["ci-info@4.4.0", "", {}, "sha512-77PSwercCZU2Fc4sX94eF8k8Pxte6JAwL4/ICZLFjJLqegs7kCuAsqqj/70NQF6TvDpgFjkubQB2FW2ZZddvQg=="],
+
+    "claude-delegation-tools": ["claude-delegation-tools@workspace:.agents/skills/consult-claude"],
 
     "cli-boxes": ["cli-boxes@3.0.0", "", {}, "sha512-/lzGpEWL/8PfI0BmBOPRwp0c/wFNX1RdUML3jK/RcSBA9T8mZDdQpqYBKtCFTOfQbwPqWEOpjqW+Fnayc0969g=="],
 

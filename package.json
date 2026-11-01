@@ -30,6 +30,7 @@
 			"apps/*",
 			"apps/api/ui",
 			"apps/local-books/ui",
+			".agents/skills/consult-claude",
 			"ops",
 			"packages/*",
 			"examples/*"
