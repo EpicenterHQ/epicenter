@@ -82,7 +82,7 @@ at once, offline or not. Messages never signs in, and nothing uploads.
 | Selection, filter, loaded pages, connection mode | Memory; every launch begins in demo mode |
 
 Selecting a conversation creates no file; the first keystroke creates its
-draft (`fieldEdit` with `create`), and each keystroke after updates it.
+draft (`drafts.edit` with `create`), and each keystroke after updates it.
 Emptying the composer clears the draft (its note stays, with an empty
 body); no action deletes a draft's note. The
 composer keeps typed text until its save answers; a failed save keeps it with

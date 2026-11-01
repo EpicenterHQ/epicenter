@@ -67,28 +67,25 @@ describe('the callback opens nothing', () => {
 });
 
 describe('the variant root decides the one store', () => {
-	test('the layout renders the variant’s Startup under its boundary, and the page passes its store', async () => {
+	test('the layout renders the variant’s Startup under its boundary, and the page renders the app over what it set', async () => {
 		const layout = await Bun.file(join(routes, '(app)/+layout.svelte')).text();
 		expect(layout).toMatch(/import \{ Startup \} from '#platform\/root'/);
 		expect(layout).toMatch(
 			/<svelte:boundary>[\s\S]*<Startup>\{@render children\(\)\}<\/Startup>/,
 		);
 		const page = await Bun.file(join(routes, '(app)/+page.svelte')).text();
-		expect(page).toMatch(/const vocab = store\(\);/);
-		expect(page).toMatch(/<VocabApp \{vocab\} \/>/);
+		expect(page).toMatch(/<VocabApp \/>/);
 	});
 
-	test('on the web, signed in, the root sets the repository for the account; signed out, it asks for a sign-in', async () => {
+	test('on the web, signed in, the root sets the repository’s collections for the account; signed out, it asks for a sign-in', async () => {
 		const root = await Bun.file(join(components, 'OnlineRoot.svelte')).text();
 		expect(root).toMatch(
 			/\{#if auth\.state\.status !== 'signed-out'\}\s*\{#key auth\.state\.account\}\s*<Online account=\{auth\.state\.account\}>/,
 		);
 		const online = await Bun.file(join(components, 'Online.svelte')).text();
 		expect(online).toMatch(
-			/setRepo\(fromClient\(openRemote\(vocab, \{ account \}\)\)\)/,
+			/const files = fromClient\(openRemote\(vocab, \{ account \}\)\);\s*setEntryList\(files\.entries\);/,
 		);
-		const leaf = await Bun.file(join(source, 'lib/root.ts')).text();
-		expect(leaf).toMatch(/getRepo<Vocab>\(\)/);
 	});
 
 	test('on the desktop, Startup opens the AppData root, then the data folder, with the sign-in answer', async () => {

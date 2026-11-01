@@ -1,8 +1,9 @@
 # @epicenter/svelte
 
 This package makes an app's files reactive in Svelte 5: a contract's client
-through `fromClient` (`@epicenter/svelte/client`). Each text editor owns an
-edit (`fieldEdit`) for what the person typed until that value's save answers.
+through `fromClient` (`@epicenter/svelte/client`). The component that shows
+a note owns one editor of it (`notes.edit({ id })`), which shows what the
+person typed until its save answers.
 
 ## A contract's client
 
@@ -15,23 +16,41 @@ is tried again after half a second, doubling to 30 seconds, while anyone
 reads. A write puts what landed into what shows before it resolves. A note `update` follows `updateNote`: carried over another
 writer's change to other fields, a `Conflict` when they changed the same
 one, after which the adapter shows theirs and a second save applies over it.
-`fieldEdit(notes, args, field)` is one field as an immediate editor, one save
-at a time, made over what the person saw when the typing began.
+`notes.edit(args)` is one note as an immediate editor, one save at a time,
+made over what the person saw when the typing began.
+
+The root, wherever it opens the client (the desktop root, the local web
+startup, or the online root), wraps it once and sets one typed context per
+collection its components read. Each app declares those pairs with
+`createContext` beside the collection's type, and sets them during the
+root's setup, never after an `await`:
+
+```ts
+// src/lib/todos.ts
+export const [getTodos, setTodos] = createContext<ReactiveNotes<TodoNotes>>();
+
+// The root, where the client is made
+const files = fromClient(device); // or fromClient(openRemote(todos, { account }))
+setTodos(files.todos);
+```
+
+A component reads the collection from its context and makes one editor per
+open note during setup:
 
 ```svelte
 <script lang="ts">
-  import { openDevice } from '@epicenter/folder/browser';
-  import { fieldEdit, fromClient } from '@epicenter/svelte/client';
+  import { getTodos } from '$lib/todos.js';
 
-  const files = fromClient(openDevice(todosContract));
-  const todo = $derived(files.todos.get({ id }));
-  const title = fieldEdit(files.todos, { id }, 'title');
+  const todos = getTodos(); // ReactiveNotes for that collection
+  const todo = todos.edit({ id }); // one editor per open note
 </script>
 
-{#each files.todos.items as todo (todo.id)}<TodoRow {todo} />{/each}
-{#each files.todos.invalid as file (file.path)}<pre>{file.text}</pre>{/each}
-<Input bind:value={title.value} />
-<Checkbox checked={todo?.done} onCheckedChange={(done) => files.todos.update({ id }, { done })} />
+{#each todos.items as todo (todo.id)}<TodoRow {todo} />{/each}
+{#each todos.invalid as file (file.path)}<pre>{file.text}</pre>{/each}
+<Input bind:value={todo.title} />
+<Textarea bind:value={todo.body} />
+<Checkbox bind:checked={todo.done} />
+<UnsavedEdit edit={todo} />
 ```
 
 An editor that holds a whole-note draft saves it with
@@ -45,23 +64,13 @@ version shown.
 An app's web build has up to two variants, each over one store for the
 page's life, and nothing moves between them
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
-The local variant reads `fromClient(device).x`, this browser's files, which
-its startup opened (`await openDevice(contract)`) and handed down; it works
-signed out and offline, and signing in only adds hosted capabilities.
-The online variant, under a signed-in layout that wraps the repository
-once where it opens it and sets it (`setRepo(fromClient(openRemote(…)))`),
-reads `getRepo().x`, the person's repository through the server:
-
-```ts
-import { fromClient } from '@epicenter/svelte/client';
-import { getRepo } from '@epicenter/svelte/repo';
-
-const local = fromClient(device).todos; // the local variant's pages
-const online = getRepo<Todos>().todos; // the online variant's pages, wrapped where it was set
-const shown = $derived(local.items.toSorted(openFirst)); // the app's order
-```
-
-A page uses one or the other, never both.
+The local variant's startup opens this browser's files
+(`await openDevice(contract)`); it works signed out and offline, and signing
+in only adds hosted capabilities. The online variant, under a signed-in
+layout, opens the person's repository through the server
+(`openRemote(contract, { account })`). Either root wraps its client once and
+sets the same collection contexts, so the pages never know which store they
+read. A page uses one or the other, never both.
 
 ### A desktop app's folder
 
@@ -90,7 +99,7 @@ folder:
   {/snippet}
 </DesktopStartup>
 
-<!-- DesktopRoot.svelte: setAppData(fromClient(appData)), setDevice(fromClient(device)),
+<!-- DesktopRoot.svelte: setCaptureList(fromClient(device).captures),
      setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL })) -->
 <!-- The header -->
 <FolderSyncActions sync={getFolderSync()} /> <!-- Set up in Epicenter until it manages local history -->
@@ -99,9 +108,9 @@ folder:
 
 ### Leaving while a save is out
 
-Every write through `fromClient` and `fieldEdit` is held for the
-page's leave guard from the moment it is asked for (a `fieldEdit` keystroke
-counts before its save starts; `title.saving` says so for one editor). Each
+Every write through `fromClient`, and every keystroke in a note's `edit`, is
+held for the page's leave guard from the moment it is asked for (a keystroke
+counts before its save starts; `todo.saving` says so for one editor). Each
 app root installs the guard once:
 
 ```svelte
@@ -121,16 +130,23 @@ a client directly, such as a capture of several files, is held with
 
 ## Keep typed text in an edit
 
-`fieldEdit` shows what the person typed until that value's save answers,
-then follows the collection again. An older answer cannot clear newer
-typing. A failed save keeps the typed value and its error while the editor
-is mounted; `<UnsavedEdit edit={title} />` from `@epicenter/svelte/unsaved-edit`
-shows it inline with Save again, Discard, and Copy. A checkbox, select, or
-button writes directly and handles its own returned error near the action.
+A note's editor shows each field the person typed until the save carrying
+it answers, then follows the collection again. Saves go one at a time; the
+newest carries every field typed since the last that landed, so a title and
+a body typed together never clash with each other. An older answer cannot
+clear newer typing. Another writer's change to a field not typed is carried
+over; their change to a typed field is a `Conflict`, and the typing stays. A
+failed save keeps the typed fields (`todo.typed`) and the error while the
+editor is mounted; `<UnsavedEdit edit={todo} />` from
+`@epicenter/svelte/unsaved-edit` shows it inline with Save again, Discard,
+and Copy. A field named like one of the editor's own members (`error`,
+`saving`, `typed`, `retry`, `discard`, `landed`) is not reachable through it.
+Code that is not typing, such as a list row's checkbox or a workflow, writes
+with `update` and handles its own returned error near the action.
 
-Call `await title.landed()` when an action needs to know the newest typed
-value saved, such as before sending it over a network. A failure remains on
-`title.error` and is also returned to stop the action. After teardown,
+Call `await todo.landed()` when an action needs to know the newest typed
+values saved, such as before sending them over a network. A failure remains
+on `todo.error` and is also returned to stop the action. After teardown,
 `landed()` succeeds without saving.
 
 **Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through the client's writes like any editor. Agents may write files directly; their changes reach editors through the client's listeners.

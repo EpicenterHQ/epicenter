@@ -150,8 +150,9 @@ field is carried over, and a same-field `Conflict` keeps the typed text for
 retry (overwrite) or discard (take theirs). A client runs no Git merge;
 `epicenter sync` does.
 
-A Svelte page binds a text input to `fieldEdit`, which shows typed text until
-its save answers, then follows the client again. A failed save keeps that
+A Svelte view binds its controls to the open note's editor (`notes.edit`),
+which shows each typed field until its save answers, then follows the client
+again. A failed save keeps that
 text and its error beside the control for retry or discard. In-memory edits
 do not survive a crash. See [the folder package](../packages/folder/README.md)
 and [the Svelte adapter](../packages/svelte/README.md).

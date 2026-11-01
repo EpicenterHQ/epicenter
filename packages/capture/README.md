@@ -72,7 +72,7 @@ capture until it is repaired.
 An app holds one draft of the body shown in its capture editor; this package
 owns only the body codec. Decode that draft, compose the complete desired
 value, encode it over the draft, and submit the resulting body as the note's
-`body` (the Capture app does it through `fieldEdit`). This keeps a thought
+`body` (the Capture app does it through the note's editor, `edit`). This keeps a thought
 command from losing text typed just before it. The update keeps unknown front
 matter keys and writes house style: declared keys first, then other keys
 sorted. Comments and original key spelling or order do not survive it.

@@ -15,6 +15,7 @@ import type {
 	Version,
 } from '@epicenter/definition/contract';
 import type { ReactiveClient, ReactiveNotes } from '@epicenter/svelte/client';
+import { createContext } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
 import type { Whispering } from './contract.js';
@@ -77,6 +78,16 @@ export type AudioBytes = {
 export type NoteLists = {
 	readonly [K in NoteName]: ReactiveNotes<Collections[K]>;
 };
+
+/** The recordings a page edits, set by `WhisperingApp` over its store. */
+export const [getRecordings, setRecordings] =
+	createContext<NoteLists['recordings']>();
+/** The transcripts a page edits, set by `WhisperingApp` over its store. */
+export const [getTranscriptions, setTranscriptions] =
+	createContext<NoteLists['transcriptions']>();
+/** The transformations a page edits, set by `WhisperingApp` over its store. */
+export const [getTransformations, setTransformations] =
+	createContext<NoteLists['transformations']>();
 
 /** Whispering's files: the note lists, and the recordings' audio. */
 export type WhisperingFiles = NoteLists & {

@@ -228,8 +228,6 @@ export function createLibrary({
 	});
 
 	return {
-		/** The lists the components edit through (`fieldEdit`), one per note collection. */
-		files,
 		ui,
 		/** Why the recordings could not be listed (this browser keeps no private storage, say). */
 		get error() {

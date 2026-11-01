@@ -1,11 +1,10 @@
 <!--
-	The open note: its title and body as immediate editors (`fieldEdit`),
+	The open note: its title and body as one immediate editor (`notes.edit`),
 	its folder and pin as commands, and Delete. The body is CodeMirror over
 	the Markdown text itself. A note at its path that does not read shows its
 	text and why, to repair (`replace`) or delete.
 -->
 <script lang="ts">
-	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
@@ -13,12 +12,13 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import NoteEditor from '$lib/editor/NoteEditor.svelte';
-	import { byName, folderLabel, getHoneycrisp, noteLabel, notePath } from '$lib/honeycrisp.svelte.js';
+	import { byName, folderLabel, getFolders, getHoneycrisp, getNotes, noteLabel, notePath } from '$lib/honeycrisp.svelte.js';
 	import { confirmDeleteNote } from './delete-note.js';
 	import RepairDetail from './RepairDetail.svelte';
 
 	const app = getHoneycrisp();
-	const { notes, folders } = app;
+	const notes = getNotes();
+	const folders = getFolders();
 	let { id: shownId }: { id: string } = $props();
 
 	// The parent keys this view by the note.
@@ -28,8 +28,7 @@
 	const invalid = $derived(notes.invalid.find((file) => file.id === id));
 	/** A note just made opens ready to write in. */
 	const isNew = app.takeNew(id);
-	const title = fieldEdit(notes, { id }, 'title');
-	const body = fieldEdit(notes, { id }, 'body');
+	const edit = notes.edit({ id });
 
 	/** A folder's option value. No folder is the empty value, so a folder id never is. */
 	const optionOf = (folderId: string | undefined) => (folderId === undefined ? '' : `folder:${folderId}`);
@@ -42,10 +41,9 @@
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
-	{#if title.error !== null || body.error !== null}
-		<div class="space-y-2 px-3 py-2">
-			<UnsavedEdit edit={title} />
-			<UnsavedEdit edit={body} />
+	{#if edit.error !== null}
+		<div class="px-3 py-2">
+			<UnsavedEdit {edit} />
 		</div>
 	{/if}
 	{#if note}
@@ -55,7 +53,7 @@
 				class="min-w-40 flex-1 text-base font-medium"
 				placeholder={noteLabel({ title: undefined, body: note.body })}
 				aria-label="Title"
-				bind:value={() => title.value ?? '', (value) => (title.value = value)}
+				bind:value={edit.title}
 			/>
 			<select
 				class="h-9 max-w-40 rounded-md border bg-background px-2 text-sm"
@@ -83,7 +81,7 @@
 			</Button>
 		</div>
 		<div class="min-h-0 flex-1">
-			<NoteEditor body={body.value ?? ''} onEdit={(text) => (body.value = text)} autofocus={isNew} />
+			<NoteEditor body={edit.body ?? ''} onEdit={(text) => (edit.body = text)} autofocus={isNew} />
 		</div>
 		<div class="flex shrink-0 items-center gap-2 border-t px-4 py-2">
 			<span class="min-w-0 truncate font-mono text-xs text-muted-foreground" data-testid="file-path">{notePath(id)}</span>

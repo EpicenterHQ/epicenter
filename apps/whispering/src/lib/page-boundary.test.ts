@@ -100,14 +100,9 @@ test('the store is opened once, by each variant’s startup; nothing opens a rep
 	).toEqual([
 		'lib/components/LocalStartup.svelte imports @epicenter/folder/browser',
 	]);
-	for (const name of ['openRemote', 'setRepo', 'getRepo'])
-		expect(callers(name)).toEqual([]);
+	expect(callers('openRemote')).toEqual([]);
 	expect(
-		importers(
-			(specifier) =>
-				specifier === '@epicenter/folder/remote' ||
-				specifier === '@epicenter/svelte/repo',
-		),
+		importers((specifier) => specifier === '@epicenter/folder/remote'),
 	).toEqual([]);
 });
 

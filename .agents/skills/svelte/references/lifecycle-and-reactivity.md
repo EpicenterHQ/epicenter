@@ -113,8 +113,9 @@ Svelte's deep proxy can break handles whose methods rely on `this` being the ori
 
 ## Project-specific application
 
-For contract apps, the variant's root startup opens the store and the product
-root installs `fromClient(client)` in its app-owned context. On the desktop,
+For contract apps, the variant's root startup opens the store, wraps it once
+(`fromClient(client)`), and sets each collection its components read in that
+collection's app-owned context. On the desktop,
 `DesktopStartup` from `@epicenter/svelte/desktop-startup` awaits `openAppData`
 and then `openDataFolder` under the layout's `<svelte:boundary>`, and renders
 `Recovery` when either cannot open; the online web root wraps `openRemote`.
@@ -334,7 +335,7 @@ value with `set(id, next)`.
 | Data Shape | Use | Example |
 |---|---|---|
 | Contract listings | `files.notes.items`, `files.notes.invalid` | notes and notes that do not read |
-| Editable text | `fieldEdit(files.notes, args, field)` | typed text and inline save feedback |
+| An open note's fields | `notes.edit({ id })` | typed fields and inline save feedback |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
 | Replace-only sequential data without IDs | `$state.raw<T[]>([])` | terminal history, command history |
@@ -349,25 +350,47 @@ TanStack Table into an infinite loop. See
 # Contract reads and editing
 
 `fromClient(client)` gives each collection tracked `items`, `invalid`,
-`loading`, and `error`. The root installs it in an app-owned `createContext`
-pair. A text editor owns typed input until its save answers.
+`loading`, and `error`. The root that opens the client (the desktop root, the
+local web startup's child, or the online root) wraps it once and sets one
+app-owned `createContext` pair per collection its components read, during
+its setup and never after an `await`:
+
+```ts
+// src/lib/todos.ts
+export const [getTodos, setTodos] = createContext<ReactiveNotes<TodoNotes>>();
+
+// The root, where the client is made
+const files = fromClient(device);
+setTodos(files.todos);
+```
+
+The component that shows a note makes one editor of it during setup. The
+editor owns typed input until its save answers:
 
 ```svelte
 <script lang="ts">
-  import { store } from '#platform/root';
+  import { getTodos } from '$lib/todos.js';
 
-  const files = store();
-  const open = $derived(files.todos.items.filter((todo) => !todo.done));
+  const todos = getTodos();
+  const todo = todos.edit({ id });
+  const open = $derived(todos.items.filter((todo) => !todo.done));
 </script>
+
+<Input bind:value={todo.title} />
+<Textarea bind:value={todo.body} />
+<Checkbox bind:checked={todo.done} />
+<UnsavedEdit edit={todo} />
 ```
 
-Keep derived filters in `$derived`. Each text input bound to a note uses its
-own `fieldEdit(files.todos, args, field)` from `@epicenter/svelte/client`,
-including titles. Show failed saves beside that editor with `<UnsavedEdit>`.
-A checkbox, select, or button writes directly, and its returned result belongs
-to that action. A write is conditional on the version shown; another writer's
-change to the same field is a `Conflict`, after which the collection shows
-theirs and a second save applies over it.
+Keep derived filters in `$derived`. The editor's saves go one at a time; the
+newest carries every field typed since the last that landed, made over the
+note as the person saw it when each field's typing began. Another writer's
+change to a field not typed is carried over; their change to a typed field
+is a `Conflict`, after which the collection shows theirs, the typing stays,
+and a second save applies over it. Code that is not typing, such as a list
+row's toggle, writes with `update`, and its returned result belongs to that
+action. Keep an app-level context only for state that is not a collection
+(selection, a recorder), named for what it holds.
 
 ### Template Props
 

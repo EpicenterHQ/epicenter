@@ -225,15 +225,18 @@ shows its reason and opens as text, as below; repairing text does not switch a
 mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
 mode, or automatic Source fallback.
 
-`fromClient` passes a contract's collections to the product root. Read
-`files.notes.items` for listings, `files.notes.invalid` for notes that do not
-read (with their text, for repair), and `get(args)` for one note.
+The root sets each collection a page reads in its own context
+(`setTodos(fromClient(device).todos)`). Read `todos.items` for listings,
+`todos.invalid` for notes that do not read (with their text, for repair), and
+`get(args)` for one note.
 
-Each text editor creates its own `fieldEdit(files.notes, args, field)` from
-`@epicenter/svelte/client`. Bind text inputs to `title.value` and render
-`<UnsavedEdit edit={title} />` for inline failure, retry, discard, and Copy.
-A checkbox, select, or button writes directly, computing toggles from the
-value shown. Keep unsubmitted Add, Send, or Save form input with the form.
+The view that shows a note makes one editor of it during setup
+(`const todo = getTodos().edit({ id })`) from `@epicenter/svelte/client`.
+Bind its fields (`bind:value={todo.title}`, `bind:checked={todo.done}`) and
+render `<UnsavedEdit edit={todo} />` for inline failure, retry, discard, and
+Copy. A control outside the open note's view, such as a list row's toggle,
+writes with `update`, computing toggles from the value shown. Keep
+unsubmitted Add, Send, or Save form input with the form.
 
 Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel
 mounting, so do not repeat `tab === value` inside each panel. A disabled trigger

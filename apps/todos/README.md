@@ -29,8 +29,10 @@ copy to fall back on
   "Needs repair" with its text. Saving fixed text there replaces the note,
   written in house style; text that still does not fit is refused.
 
-The title and notes save as you type; a save that fails stays in its editor
-with Save again, Discard and Copy.
+The title, notes and Done of the open todo are one editor of its note
+(`todos.edit({ id })`): they save as you type or click, one save at a time,
+and a save that fails stays in the editor with Save again, Discard and Copy.
+Done in the list saves at once and says when it fails.
 
 The app signs in as `so.epicenter.todos` for the server's Git audience only
 (`src/lib/auth.ts`, made on first use, and only by the web build). The
@@ -101,7 +103,7 @@ missing.
 
 | Seam | Web leaf | Desktop leaf |
 | --- | --- | --- |
-| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in), `store()`, and the account | `root.tauri.ts`: `Startup` (the two roots or the recovery screen), `store()`, and its sync |
+| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in, which sets the todos) and the account | `root.tauri.ts`: `Startup` (the two roots or the recovery screen, which sets the todos) and its sync |
 
 ## The native CLI
 
@@ -122,26 +124,27 @@ routes/+layout.svelte          every page: the chrome and the leave guard
 routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: setRepo(fromClient(openRemote(todos, { account })))
+    Online.svelte              {#key account}: setTodos(fromClient(openRemote(todos, { account })).todos)
   Startup.svelte               desktop: await openAppData(todosSettings), openDataFolder(); Recovery
-    DesktopRoot.svelte         setAppData/setDevice(fromClient(...)), setFolderSync
-routes/(app)/+page.svelte      TodosApp over store().todos (#platform/root)
+    DesktopRoot.svelte         setTodos(fromClient(device).todos), setFolderSync
+routes/(app)/+page.svelte      TodosApp over the todos the root set (getTodos)
   TodosApp.svelte              header (Chrome from #platform/root), the list, the open todo
 routes/auth/callback           finishes sign-in, outside (app), then returns to /
 ```
 
-Components read and write only through the todos they are given
-(`TodosApp` sets them, `getTodos` in `src/lib/todos.ts` reads them), never a
-client of their own; only the variant's root chooses the store.
+Components read and write only through the todos the variant's root set
+(`setTodos` where it opens the store, `getTodos` in `src/lib/todos.ts`
+reads them), never a client of their own; only the variant's root chooses
+the store.
 
 | Path | Role |
 | --- | --- |
 | `src/lib/contract.ts` | The contract. |
 | `src/lib/todos.ts` | A todo's file, label and order (open first, then done, each oldest first), and the list's context. |
-| `src/lib/components/OnlineRoot.svelte`, `Online.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account (`setRepo`); the header's status and account. |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the roots set for every page (`setAppData`, `setDevice`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
-| `src/lib/folder.tauri.ts` | The desktop window's settings contract, typed contexts (`getAppData`, `getDevice`), and where the contract is published. |
-| `src/lib/components/TodosApp.svelte` | The header, the list, and the open todo, over the todos it is given. |
+| `src/lib/components/OnlineRoot.svelte`, `Online.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account and sets its todos (`setTodos`); the header's status and account. |
+| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's todos set for every page (`setTodos`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
+| `src/lib/folder.tauri.ts` | The desktop window's settings contract, and where the contract is published. |
+| `src/lib/components/TodosApp.svelte` | The header, the list, and the open todo, over the todos the root set. |
 
 ## Tests
 

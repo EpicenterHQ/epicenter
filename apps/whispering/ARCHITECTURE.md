@@ -53,8 +53,7 @@ the files unless Whispering itself is closing.
 
 `src/lib/page-boundary.test.ts` pins this: `openDevice` only in
 `LocalStartup`, `openDataFolder` only in `DesktopStartup`; nothing
-calls `openRemote`, `setRepo` or `getRepo`, or imports
-`@epicenter/folder/remote` or `@epicenter/svelte/repo`; `createWhispering`,
+calls `openRemote` or imports `@epicenter/folder/remote`; `createWhispering`,
 `filesOf` and `createLibrary` only in `WhisperingApp`; `fromClient` only
 where each build's store is opened (`LocalStartup`, `DesktopRoot`, which
 also wraps the AppData root); auth only through `#platform/auth`; services only through
@@ -68,10 +67,12 @@ Svelte state, `files.<collection>`) and its recordings' audio. The library
 sorts each list (`newest`, `byTitle`). Each list lists and listens only while
 something reactive reads it; a read outside an effect is a snapshot.
 
-- Pages edit fields with `fieldEdit(library.files.<collection>, { id },
-  field)`: a save over what the person saw when typing began, so another
-  writer's change to another field is kept and a change to the same field
-  surfaces as a conflict.
+- `WhisperingApp` sets the collections the pages edit (`setRecordings`,
+  `setTranscriptions`, `setTransformations`), and a page edits one note with
+  one editor (`getRecordings().edit({ id })`): its saves go one at a time,
+  over what the person saw when typing began, so another writer's change to
+  a field not typed is kept and a change to a typed one surfaces as a
+  conflict.
 - A note that does not read is in the list's `invalid`, with its issues and
   text; `library.repairs` gathers those of recordings, transcriptions and
   transformation runs, and the transformations page shows its own and text

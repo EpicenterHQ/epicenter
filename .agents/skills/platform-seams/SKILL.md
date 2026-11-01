@@ -30,8 +30,7 @@ the store choice is never buried in data code:
   recovery screen when either cannot open.
 - `Chrome` is the header's account of the store (the account on the web,
   the folder and Sync with Epicenter on the desktop).
-- Whatever else differs by variant in that app: Capture's `store()`,
-  Whispering's `Settings` (desktop only, `null` on the web) and `Callback`
+- Whatever else differs by variant in that app: Whispering's `Settings` (desktop only, `null` on the web) and `Callback`
   (the page that ends a sign-in).
 
 **A capability whose implementation differs by build.** Whispering's

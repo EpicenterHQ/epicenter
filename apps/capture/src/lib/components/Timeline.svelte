@@ -10,10 +10,11 @@
 	import * as Item from '@epicenter/ui/item';
 	import { Loading } from '@epicenter/ui/loading';
 	import { variant } from '#platform/variant';
-	import type { Captures } from '$lib/captures.svelte.js';
+	import { type Captures, getCaptureList } from '$lib/captures.svelte.js';
 	import NewCapture from './NewCapture.svelte';
 
 	let { captures }: { captures: Captures } = $props();
+	const list = getCaptureList();
 
 	const timeline = $derived(captures.timeline.rows);
 	const repairs = $derived(captures.timeline.repairs);
@@ -50,7 +51,7 @@
 			</Item.Button>
 		{/each}
 	</Item.Group>
-{:else if captures.list.loading}
+{:else if list.loading}
 	<Loading class="py-12" label="Opening captures…" />
 {:else}
 	<Empty.Root>

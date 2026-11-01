@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
@@ -8,6 +7,7 @@
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { goto } from '$app/navigation';
 	import { pathOf } from './nav-items.js';
+	import { getTranscriptions } from '$lib/files.svelte.js';
 	import { getLibrary, type TranscriptionNote } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
@@ -29,8 +29,8 @@
 	const id = result.id;
 
 	/** The text now: as typed until its save answers, else as the note holds it. */
-	const body = fieldEdit(library.files.transcriptions, { id }, 'body');
-	const text = $derived(body.value ?? result.body);
+	const transcript = getTranscriptions().edit({ id });
+	const text = $derived(transcript.body ?? result.body);
 
 	const outputs = $derived(library.outputsFor(id));
 	const runs = $derived(library.runsOn(id));
@@ -55,12 +55,12 @@
 <article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result">
 	<Textarea
 		class="min-h-32 resize-y font-sans"
-		bind:value={() => text, (value) => (body.value = value)}
+		bind:value={() => text, (value) => (transcript.body = value)}
 		placeholder="This transcript has no text."
 		aria-label="Transcript of {formatTime(result.createdAt) || result.id}"
 		data-testid="transcript-text"
 	/>
-	<UnsavedEdit edit={body} />
+	<UnsavedEdit edit={transcript} />
 	<footer class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 		<span>{formatTime(result.createdAt) || 'Unknown time'} · {result.model}</span>
 		<span class="ml-auto flex items-center gap-1">

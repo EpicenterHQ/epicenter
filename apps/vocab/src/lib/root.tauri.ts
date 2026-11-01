@@ -7,10 +7,8 @@
 import DesktopCallback from './components/DesktopCallback.svelte';
 import DesktopChrome from './components/DesktopChrome.svelte';
 import Startup from './components/Startup.svelte';
-import { getDevice } from './folder.tauri.js';
 import type { Platform } from './platform.js';
 
 export { Startup };
-export const store: Platform['store'] = getDevice;
 export const Chrome: Platform['Chrome'] = DesktopChrome;
 export const Callback: Platform['Callback'] = DesktopCallback;

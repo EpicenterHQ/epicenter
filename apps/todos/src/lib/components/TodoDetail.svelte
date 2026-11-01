@@ -1,11 +1,11 @@
 <!--
-	The open todo: its title and notes as immediate editors (`fieldEdit`),
-	whether it is done, and Delete. A note at its path that does not read as
-	a todo shows its text and why, and is repaired as text (`NoteRepair`,
-	saved with `replace` over the version the repair began from) or deleted.
+	The open todo as one immediate editor (`todos.edit`): its title, notes
+	and whether it is done, and Delete. A note at its path that does not
+	read as a todo shows its text and why, and is repaired as text
+	(`NoteRepair`, saved with `replace` over the version the repair began
+	from) or deleted.
 -->
 <script lang="ts">
-	import { fieldEdit } from '@epicenter/svelte/client';
 	import NoteRepair from '@epicenter/svelte/note-repair';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
@@ -35,17 +35,10 @@
 	// svelte-ignore state_referenced_locally
 	const id = shownId;
 	const path = todoPath(id);
-	const todo = $derived(todos.get({ id }));
+	const todo = todos.edit({ id });
+	/** The todo as listed, when it reads. */
+	const listed = $derived(todos.get({ id }));
 	const invalid = $derived(todos.invalid.find((note) => note.id === id));
-	const title = fieldEdit(todos, { id }, 'title');
-	const body = fieldEdit(todos, { id }, 'body');
-
-	async function toggleDone() {
-		if (todo === undefined) return;
-		const { error } = await todos.update({ id }, { done: !todo.done });
-		if (error !== null)
-			toast.error('Could not update todo', { description: error.message });
-	}
 
 	function confirmDelete(label: string) {
 		confirmationDialog.open({
@@ -80,25 +73,21 @@
 {/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
-	{#if title.error !== null || body.error !== null}
-		<div class="space-y-2 px-4 py-2">
-			<UnsavedEdit edit={title} />
-			<UnsavedEdit edit={body} />
+	{#if todo.error !== null}
+		<div class="px-4 py-2">
+			<UnsavedEdit edit={todo} />
 		</div>
 	{/if}
-	{#if todo}
+	{#if listed}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
-			<Checkbox
-				aria-label="Done"
-				bind:checked={() => todo.done, () => void toggleDone()}
-			/>
+			<Checkbox aria-label="Done" bind:checked={todo.done} />
 			<div class="min-w-0 flex-1 space-y-2">
 				<Input
 					class="text-base font-medium"
 					placeholder="Title"
 					aria-label="Title"
-					bind:value={() => title.value ?? '', (value) => (title.value = value)}
+					bind:value={todo.title}
 				/>
 			</div>
 		</div>
@@ -107,10 +96,10 @@
 				class="min-h-0 flex-1 field-sizing-fixed resize-none"
 				placeholder="Notes in Markdown"
 				aria-label="Notes"
-				bind:value={() => body.value ?? '', (value) => (body.value = value)}
+				bind:value={todo.body}
 			/>
 		</div>
-		{@render fileBar(labelOf(todo))}
+		{@render fileBar(labelOf(listed))}
 	{:else if invalid}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}

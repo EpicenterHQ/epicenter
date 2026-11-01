@@ -3,9 +3,9 @@
 	the services, the connections, the microphone and the recorder
 	(`createWhispering`), the library the pages read (`createLibrary` over
 	`filesOf(client, files)`, with the client as `Startup` wrapped it for
-	Svelte), and the
-	frame around the pages. Made once for the
-	page; it stops taking work when it leaves.
+	Svelte), the note collections the pages edit (`setRecordings`,
+	`setTranscriptions`, `setTransformations`), and the frame around the
+	pages. Made once for the page; it stops taking work when it leaves.
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
@@ -18,7 +18,7 @@
 	import { MediaQuery } from 'svelte/reactivity';
 	import { variant } from '#platform/variant';
 	import type { Whispering as WhisperingContract } from '$lib/contract.js';
-	import { filesOf } from '$lib/files.svelte.js';
+	import { filesOf, setRecordings, setTranscriptions, setTransformations } from '$lib/files.svelte.js';
 	import { createLibrary, setLibrary } from '$lib/library.svelte.js';
 	import { sentences } from '$lib/sentences.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
@@ -48,6 +48,12 @@
 		files: filesOf(client, files),
 	});
 	setLibrary(library);
+	// svelte-ignore state_referenced_locally
+	setRecordings(files.recordings);
+	// svelte-ignore state_referenced_locally
+	setTranscriptions(files.transcriptions);
+	// svelte-ignore state_referenced_locally
+	setTransformations(files.transformations);
 	// Leaving waits for nothing; a recording under way ends with the page.
 	onDestroy(() => {
 		library.dispose();

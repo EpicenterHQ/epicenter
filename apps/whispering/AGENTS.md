@@ -14,8 +14,9 @@ Signing in with Epicenter is optional and grants capabilities only. Read
 - **One store, chosen in one place.** The variant's `Startup`
   (`#platform/root`: `LocalStartup` or `DesktopStartup` in
   `src/lib/components/`) opens it, and `src/routes/(app)/+layout.svelte`
-  passes its client to `WhisperingApp` as `client`. Components read and
-  edit through `library.files` and `fieldEdit`, never a client of their own.
+  passes its client to `WhisperingApp` as `client`. Components read through
+  the library (`getLibrary`) and edit a note through its collection's
+  context (`getRecordings().edit({ id })`), never a client of their own.
 - **The build chooses the variant.** Everything that differs is a
   `#platform/*` leaf (`root`, `services`, `auth`, `variant`; `*.tauri.ts`
   and `components/Desktop*.svelte` for the desktop). No runtime
@@ -23,7 +24,7 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   not `$lib`, so `src/lib/platform/platform.test.ts` can bundle them.
 - **Sign-in grants capabilities, never storage.** It asks for the API
   audience and `ai` only (`src/lib/platform/auth.ts`). Do not add a Git
-  audience, a `folders:*` scope, `openRemote`, `setRepo`, an uploader, an
+  audience, a `folders:*` scope, `openRemote`, an uploader, an
   outbox, a cache of uploaded audio, a repository view, or a switcher.
   Nothing a sign-in or sign-out does touches the files.
   `src/lib/page-boundary.test.ts` enforces this; keep it passing.

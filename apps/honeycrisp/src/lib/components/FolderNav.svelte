@@ -14,10 +14,11 @@
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import PlusIcon from '@lucide/svelte/icons/plus';
-	import { byName, type Folder, folderLabel, folderPath, getHoneycrisp } from '$lib/honeycrisp.svelte.js';
+	import { byName, type Folder, folderLabel, folderPath, getFolders, getHoneycrisp, getNotes } from '$lib/honeycrisp.svelte.js';
 
 	const app = getHoneycrisp();
-	const { notes, folders } = app;
+	const notes = getNotes();
+	const folders = getFolders();
 
 	const counts = $derived.by(() => {
 		const byFolder = new Map<string, number>();

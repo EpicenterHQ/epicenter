@@ -31,10 +31,8 @@ export async function createTestWhispering({
 	);
 	const whispering = createWhispering({ client });
 	const { fromClient } = await import('@epicenter/svelte/client');
-	const library = createLibrary({
-		whispering,
-		files: filesOf(client, fromClient(client)),
-	});
+	const files = filesOf(client, fromClient(client));
+	const library = createLibrary({ whispering, files });
 	const followed = follow(() => [
 		library.entries,
 		library.repairs,
@@ -42,8 +40,8 @@ export async function createTestWhispering({
 		library.transformations,
 		library.transformationRepairs,
 		library.textRepairs,
-		library.files.transformation_runs.items,
-		library.files.text_runs.items,
+		files.transformation_runs.items,
+		files.text_runs.items,
 		library.entries.map((note) => library.audioOf(note.id)),
 	]);
 	return {

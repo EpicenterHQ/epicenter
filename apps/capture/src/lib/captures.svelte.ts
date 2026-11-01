@@ -2,8 +2,9 @@
  * What Capture does with the list it is given: the timeline, which capture
  * is open and how, Add, and deletion.
  *
- * The list is one store's captures for the page's whole life; the root that
- * passes it chooses the store (the person's `capture` repository, ADR-0700).
+ * The list is one store's captures for the page's whole life; the variant's
+ * root chooses the store (the person's `capture` repository, ADR-0700, or
+ * the desktop window's folder) and sets it (`setCaptureList`).
  * Add writes a capture to that store, where it is a commit. The timeline
  * shows the list newest first.
  */
@@ -24,12 +25,15 @@ import {
 } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
 import type { ReactiveNotes } from '@epicenter/svelte/client';
+import { createContext } from 'svelte';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { TextRange } from './capture-actions.svelte.js';
 
 /** The captures a page reads and edits: its store's. */
 export type CaptureList = ReactiveNotes<CaptureNotes>;
+/** The page's captures, set by the variant's root where it opens the store. */
+export const [getCaptureList, setCaptureList] = createContext<CaptureList>();
 export type Captures = ReturnType<typeof createCaptures>;
 export type Mode = 'capture' | 'text';
 export type Focus = 'new-thought' | TextRange;
@@ -152,7 +156,6 @@ export function createCaptures(list: CaptureList) {
 	}
 
 	return {
-		list,
 		get timeline() {
 			return timeline;
 		},

@@ -1,7 +1,8 @@
 <!--
-	The desktop window's root over its two open roots: it sets them, each
-	wrapped once, for every page under it (`setAppData`, `setDevice`), and
-	the data folder's sync for the header (`setFolderSync`).
+	The desktop window's root over its two open roots: it wraps the data
+	folder once for Svelte, here where it is open, and sets its notes and
+	folders for every page under it (`setNotes`, `setFolders`), and the
+	folder's sync for the header (`setFolderSync`).
 -->
 <script lang="ts">
 	import type { Honeycrisp } from '../contract.js';
@@ -9,7 +10,8 @@
 	import { fromClient } from '@epicenter/svelte/client';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
 	import type { Snippet } from 'svelte';
-	import { CONTRACT_URL, type HoneycrispSettings, setAppData, setDevice } from '../folder.tauri.js';
+	import { CONTRACT_URL, type HoneycrispSettings } from '../folder.tauri.js';
+	import { setFolders, setNotes } from '../honeycrisp.svelte.js';
 
 	let {
 		appData,
@@ -19,9 +21,9 @@
 
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally
-	setAppData(fromClient(appData));
-	// svelte-ignore state_referenced_locally
-	setDevice(fromClient(device));
+	const files = fromClient(device);
+	setNotes(files.notes);
+	setFolders(files.folders);
 	// svelte-ignore state_referenced_locally
 	setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL }));
 </script>

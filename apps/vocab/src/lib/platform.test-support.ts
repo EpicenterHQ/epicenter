@@ -4,5 +4,5 @@
  */
 export { auth } from '#platform/auth';
 export { openConnections } from '#platform/connections';
-export { Callback, Chrome, Startup, store } from '#platform/root';
+export { Callback, Chrome, Startup } from '#platform/root';
 export { createVocab } from './vocab.svelte.js';

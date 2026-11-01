@@ -7,10 +7,11 @@ Judge the information and coordination each owner carries, not the rune count.
 
 ## Immediate editing
 
-The editor owns accepted input. A text input bound to one field of a note gets
-its own `fieldEdit(collection, args, field)` from `@epicenter/svelte/client`,
-which saves as the person types and shows the typed value until its save
-answers; controls read the owner's current value and send changes to it. Do not
+The editor owns accepted input. The view that shows a note makes one editor
+of it (`collection.edit({ id })` from `@epicenter/svelte/client`), which saves
+as the person types and shows each typed field until its save answers;
+controls bind its fields, reading the owner's current value and sending
+changes to it. Do not
 copy that input into a component draft and synchronize the two with effects.
 
 Render structured controls only while the current value is valid, and show a
@@ -20,8 +21,9 @@ narrow that local before creating the binding callbacks. Do not spread a
 render-time snapshot back into the owner or merge it with outside changes in
 the control.
 
-A checkbox, select, or button writes through the collection directly. A failed
-save stays with its editor, shown beside it by `<UnsavedEdit>`. Codecs
+A checkbox, select, or button in that view binds the editor's field too; one
+outside it, such as a list row's toggle, writes with `update`. A failed save
+stays with its editor, shown beside it by `<UnsavedEdit>`. Codecs
 transform representations; they do not become another current-content owner.
 
 ## Explicit submission

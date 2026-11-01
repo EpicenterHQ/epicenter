@@ -1,9 +1,8 @@
-<!-- One capture as its text and thoughts. One body edit holds both until each save answers. -->
+<!-- One capture as its text and thoughts. One editor of its note (`edit`) holds both until each save answers. -->
 <script lang="ts">
 	import { variant } from '#platform/variant';
 	import { captureBody } from '@epicenter/capture';
 	import { describeIssues } from '@epicenter/definition/contract';
-	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
@@ -16,7 +15,7 @@
 
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { createCaptureActions, locateThought } from '$lib/capture-actions.svelte.js';
-	import { type Captures, captureText, instantOf } from '$lib/captures.svelte.js';
+	import { type Captures, captureText, getCaptureList, instantOf } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 
@@ -29,9 +28,9 @@
 		id: string;
 	} = $props();
 
-	// The view is keyed by the capture, so neither changes for this view.
+	// The view is keyed by the capture, so it does not change for this view.
 	const args = untrack(() => ({ id }));
-	const list = untrack(() => captures.list);
+	const list = getCaptureList();
 	let active = true;
 	onDestroy(() => {
 		active = false;
@@ -40,17 +39,17 @@
 	const note = $derived(list.get(args));
 	/** The file at this capture's path, when it does not read as a capture. */
 	const broken = $derived(list.invalid.find((file) => file.id === args.id));
-	/** The body, showing what was typed until its save answers. */
-	const body = fieldEdit(list, args, 'body');
+	/** The capture, its body showing what was typed until its save answers. */
+	const edit = list.edit(args);
 	const actions = createCaptureActions({
 		get value() {
-			return body.value ?? '';
+			return edit.body ?? '';
 		},
-		set: (value: string) => body.set(value),
+		set: (value: string) => (edit.body = value),
 	});
 	/** Opened right after Add: focus goes to Add a thought. */
 	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');
-	const reading = $derived(note && captureBody.decode(body.value ?? ''));
+	const reading = $derived(note && captureBody.decode(edit.body ?? ''));
 	const text = $derived(reading?.data?.text ?? '');
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
 	const capturedAt = $derived(instantOf(note?.capturedAt));
@@ -103,7 +102,7 @@
 
 	/** The capture's file text once the typed body has landed, or undefined when it is gone. */
 	async function landedText() {
-		if ((await body.landed()).error !== null || !active) return undefined;
+		if ((await edit.landed()).error !== null || !active) return undefined;
 		const saved = list.get(args);
 		if (saved === undefined) return undefined;
 		const written = captureText(saved);
@@ -144,7 +143,7 @@
 	}
 </script>
 
-<UnsavedEdit edit={body} />
+<UnsavedEdit {edit} />
 
 {#if reading === undefined}
 	<div class="flex flex-col gap-4">

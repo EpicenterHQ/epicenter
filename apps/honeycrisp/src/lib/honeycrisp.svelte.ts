@@ -12,7 +12,7 @@
  */
 import type { NoteOf } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import type { ReactiveClient } from '@epicenter/svelte/client';
+import type { ReactiveNotes } from '@epicenter/svelte/client';
 import { createContext } from 'svelte';
 import { type Honeycrisp, honeycrisp } from './contract.js';
 import { displayTitle } from './note-source.js';
@@ -69,22 +69,32 @@ export function shownIn(filter: Filter, note: Note) {
 	return `${note.title ?? ''}\n${note.body}`.toLowerCase().includes(needle);
 }
 
+/** The notes every component of a page reads and edits: its store's, set by the variant's root. */
+export const [getNotes, setNotes] =
+	createContext<ReactiveNotes<NoteCollection>>();
+/** The folders every component of a page reads and edits: its store's, set by the variant's root. */
+export const [getFolders, setFolders] =
+	createContext<ReactiveNotes<FolderCollection>>();
+
 /**
- * Honeycrisp's state over `client`, its store's as Svelte state (`store()`
- * from `#platform/root`): what the list and detail show, and the actions
- * that are more than one collection's write. Every other read and write goes to
- * `client.notes` or `client.folders` directly.
+ * What a Honeycrisp page shows over its store's notes and folders: the
+ * list's filter, what the detail shows, and the actions that are more than
+ * one collection's write. Every other read and write goes to the notes or
+ * folders (`getNotes`, `getFolders`) directly.
  */
-export function createHoneycrisp(client: ReactiveClient<Honeycrisp>) {
-	const { notes, folders } = client;
+export function createHoneycrisp({
+	notes,
+	folders,
+}: {
+	notes: ReactiveNotes<NoteCollection>;
+	folders: ReactiveNotes<FolderCollection>;
+}) {
 	let filter = $state<Filter>({ folderId: null, query: '' });
 	let selected = $state.raw<Selection | undefined>();
 	/** A note just made, whose editor takes focus once it opens. */
 	let newNote: string | undefined;
 
 	return {
-		notes,
-		folders,
 		get filter() {
 			return filter;
 		},
@@ -149,4 +159,5 @@ export function createHoneycrisp(client: ReactiveClient<Honeycrisp>) {
 }
 export type HoneycrispState = ReturnType<typeof createHoneycrisp>;
 
+/** What the page shows, set by `HoneycrispApp`. */
 export const [getHoneycrisp, setHoneycrisp] = createContext<HoneycrispState>();

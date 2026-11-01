@@ -58,7 +58,10 @@ async function setup(files: Record<string, string>, mode: 'capture' | 'text') {
 	h.captures.open('one', mode);
 	const target = document.createElement('main');
 	document.body.replaceChildren(target);
-	const host = mount(ViewHost, { target, props: { captures: h.captures } });
+	const host = mount(ViewHost, {
+		target,
+		props: { captures: h.captures, list: h.list },
+	});
 	cleanup.push(async () => {
 		await unmount(host);
 		await h.close();

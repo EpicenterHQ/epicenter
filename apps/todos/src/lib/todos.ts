@@ -1,8 +1,8 @@
 /**
  * What Todos knows of a todo: its file, its label and its order. The list
  * the components read (`getTodos`) is one store's todos: the desktop
- * window's folder, or the person's repository in a browser; `TodosApp` sets
- * it.
+ * window's folder, or the person's repository in a browser; the variant's
+ * root sets it where it opens the store (`DesktopRoot`, `Online`).
  */
 import type { NoteOf } from '@epicenter/definition/contract';
 import type { ReactiveNotes } from '@epicenter/svelte/client';

@@ -109,13 +109,13 @@ example.
    ```
 
    A leaf is TypeScript, exporting components where the variants render
-   differently (`export const Startup: Platform['Startup'] = OnlineRoot;`)
-   and how the pages read the store (`store()`), so neither build carries
-   the other's root. The desktop leaf's `Startup` hands
-   `@epicenter/svelte/desktop-startup` the app's name and contracts; it
-   awaits `openAppData(<app>Settings)` and `openDataFolder(...)` and renders
-   the app's desktop root over them (which sets `setAppData(fromClient(appData))` and
-   `setDevice(fromClient(device))`), or its recovery screen; the
+   differently (`export const Startup: Platform['Startup'] = OnlineRoot;`),
+   so neither build carries the other's root. The desktop leaf's `Startup`
+   hands `@epicenter/svelte/desktop-startup` the app's name and contracts;
+   it awaits `openAppData(<app>Settings)` and `openDataFolder(...)` and
+   renders the app's desktop root over them (which wraps the folder once
+   and sets each collection the pages read, such as
+   `setTodos(fromClient(device).todos)`), or its recovery screen; the
    app's layout wraps `Startup` in `<svelte:boundary>` with the UI kit's
    spinner as its `pending`, and `svelte.config.js` turns on
    `compilerOptions.experimental.async`. Components import

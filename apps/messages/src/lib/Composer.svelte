@@ -5,7 +5,6 @@
 	that does not read is shown as text to repair.
 -->
 <script lang="ts">
-	import { fieldEdit } from '@epicenter/svelte/client';
 	import NoteRepair from '@epicenter/svelte/note-repair';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
@@ -28,10 +27,10 @@
 	const attempt = $derived(attempts.get({ id: draftId }));
 	const brokenAttempt = $derived(attempts.invalid.find(named));
 	// svelte-ignore state_referenced_locally
-	const reply = fieldEdit(drafts, { id: draftId }, 'body', {
+	const reply = drafts.edit({ id: draftId }, {
 		create: () => ({ chatId, profile: backend.profile, mode: backend.mode }),
 	});
-	const typed = () => reply.value ?? '';
+	const typed = () => reply.body ?? '';
 	const pending = $derived(attempt?.state === 'sending');
 	let message = $state('');
 	const send = createMutation(() => ({
@@ -85,7 +84,7 @@
 		</section>
 	{:else}
 		<label for="reply" class="sr-only">Message</label>
-		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} bind:value={typed, (value) => (reply.value = value)} />
+		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} bind:value={reply.body} />
 		<div class="flex items-center justify-end gap-3">
 			<Button disabled={send.isPending || recover.isPending || pending || !!brokenAttempt || !typed().trim()} onclick={() => send.mutate({ text: typed(), previousAttemptId: attempt?.attemptId })}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
 		</div>

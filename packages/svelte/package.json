@@ -16,7 +16,6 @@
 		".": "./src/index.ts",
 		"./client": "./src/client.svelte.ts",
 		"./leave-guard": "./src/leave-guard.ts",
-		"./repo": "./src/repo.ts",
 		"./note-repair": "./src/note-repair.svelte",
 		"./unsaved-edit": "./src/unsaved-edit.svelte",
 		"./status-line": "./src/status-line.ts",

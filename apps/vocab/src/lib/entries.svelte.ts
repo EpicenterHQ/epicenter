@@ -68,8 +68,6 @@ export function wordsOf(notes: readonly EntryNote[]): Entry[] {
 
 export function createEntries(list: EntryList) {
 	return {
-		/** The notes themselves, for editors (`fieldEdit`) and repair (`NoteRepair`). */
-		list,
 		get words() {
 			return wordsOf(list.items);
 		},

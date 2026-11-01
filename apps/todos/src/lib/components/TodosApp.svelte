@@ -1,6 +1,7 @@
 <!--
 	Todos itself, in either variant: the header, the list, and the open todo,
-	over the todos it is given, the desktop folder's or the repository's. Which
+	over the todos the root set (`getTodos`), the desktop folder's or the
+	repository's. Which
 	todo is open is the URL's `?todo=<id>`, so it survives a reload and the
 	breakpoint.
 -->
@@ -9,24 +10,11 @@
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import type { ReactiveNotes } from '@epicenter/svelte/client';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { setTodos, type TodoNotes } from '$lib/todos.js';
 	import AppHeader from './AppHeader.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
-
-	let {
-		todos,
-	}: {
-		/** Its store's todos, which every component under it reads and edits. */
-		todos: ReactiveNotes<TodoNotes>;
-	} = $props();
-
-	// A page shows one client's todos for its life.
-	// svelte-ignore state_referenced_locally
-	setTodos(todos);
 
 	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');

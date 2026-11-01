@@ -1,11 +1,10 @@
 <!--
 	One transformation: its instructions, model, results, and a place to try
-	it. Title, model and instructions are each an edit over the note the
-	lists show, saved as they are typed. Run sends the recipe as it is shown.
+	it. Title, model and instructions are one editor of the note the lists
+	show (`getTransformations().edit`), saved as they are typed. Run sends the recipe as it is shown.
 	A transformation whose note does not read shows its text, to repair.
 -->
 <script lang="ts">
-	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import * as Collapsible from '@epicenter/ui/collapsible';
@@ -21,6 +20,7 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import { tick } from 'svelte';
 	import type { RecipeRow } from '$lib/recipe.js';
+	import { getTransformations } from '$lib/files.svelte.js';
 	import { getLibrary, type TransformationNote } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { confirmDelete, formatTime, titleOf } from './file-actions.js';
@@ -49,19 +49,15 @@
 	// The parent keys this view by the transformation.
 	// svelte-ignore state_referenced_locally
 	const own = id;
-	const title = fieldEdit(library.files.transformations, { id: own }, 'title');
-	const modelEdit = fieldEdit(library.files.transformations, { id: own }, 'model');
-	const prompt = fieldEdit(library.files.transformations, { id: own }, 'body');
+	const recipe = getTransformations().edit({ id: own });
 	/** Why its note does not read, when it does not. */
 	const repair = $derived(library.transformationRepairs.find((item) => item.id === own));
 
-	/** Each field as typed until its save answers, else as the note holds it. */
-	const titleText = $derived(title.value ?? note?.title ?? '');
-	const modelText = $derived((modelEdit.value === undefined ? note?.model : modelEdit.value) ?? '');
-	const promptText = $derived(prompt.value ?? note?.body ?? '');
+	/** The model as typed until its save answers, else as the note holds it. */
+	const modelText = $derived(recipe.model ?? '');
 	/** The recipe as its fields show it, typing included. */
 	const shown = $derived<RecipeRow | undefined>(
-		note ? { title: titleText, model: modelText.trim() || null, body: promptText } : undefined,
+		note ? { title: recipe.title ?? '', model: modelText.trim() || null, body: recipe.body ?? '' } : undefined,
 	);
 	/** The one decision about this recipe, as it is shown; Run decides again from the same recipe. */
 	const resolved = $derived(whispering.resolve(shown));
@@ -198,7 +194,7 @@
 		{#if note}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => titleText, (value) => (title.value = value)}
+				bind:value={recipe.title}
 				placeholder="Title"
 				aria-label="Transformation title"
 				data-testid="transformation-title"
@@ -207,8 +203,8 @@
 			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="transformation-title-text">{own}</h2>
 		{/if}
 	</div>
-	{#if title.error}
-		<div class="px-4 pt-2"><UnsavedEdit edit={title} /></div>
+	{#if recipe.error}
+		<div class="px-4 pt-2"><UnsavedEdit edit={recipe} /></div>
 	{/if}
 
 	{#if repair}
@@ -236,7 +232,7 @@
 						<Textarea
 							id="transformation-prompt"
 							class="min-h-36 resize-y font-sans"
-							bind:value={() => promptText, (value) => (prompt.value = value)}
+							bind:value={recipe.body}
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"
 						/>
@@ -263,7 +259,7 @@
 							{#if note}
 								<Input
 									id="transformation-model"
-									bind:value={() => modelText, (value) => (modelEdit.value = value.trim() === '' ? null : value)}
+									bind:value={() => modelText, (value) => (recipe.model = value.trim() === '' ? null : value)}
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
 									autocomplete="off"
 									spellcheck={false}
@@ -416,8 +412,6 @@
 		</Tabs.Content>
 	</Tabs.Root>
 	{/if}
-	<UnsavedEdit edit={prompt} />
-	<UnsavedEdit edit={modelEdit} />
 
 	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 		<span><code class="font-mono">transformations/{own}.md</code></span>

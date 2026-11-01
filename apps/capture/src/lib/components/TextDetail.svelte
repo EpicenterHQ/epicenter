@@ -17,15 +17,15 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { onDestroy, untrack } from 'svelte';
-	import { type Captures, captureText, readCaptureBody } from '$lib/captures.svelte.js';
+	import { type Captures, captureText, getCaptureList, readCaptureBody } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 
 	let { captures, id }: { captures: Captures; id: string } = $props();
 
-	// The editor is keyed by the capture, so neither changes for its life.
+	// The editor is keyed by the capture, so it does not change for its life.
 	const args = untrack(() => ({ id }));
-	const list = untrack(() => captures.list);
+	const list = getCaptureList();
 	const path = capturePath(args.id);
 	const collection = capture.collections.captures;
 	let active = true;

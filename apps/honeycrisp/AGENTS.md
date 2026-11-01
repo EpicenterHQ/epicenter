@@ -11,9 +11,9 @@ for the layout and page flow, and verify it against the code.
   sign-in) and the desktop app (`root.tauri.ts`: the window's folder through
   `openDevice` from `@epicenter/folder/tauri`, which never signs in). Every
   read and write goes through the contract's client, one store per page: the
-  variant's `Root` wraps it once and sets it
-  (`setRepo(fromClient(…))`) and the page passes it to `HoneycrispApp`
-  through `getRepo()`. The web app keeps
+  variant's root wraps it once and sets its notes and folders
+  (`setNotes`, `setFolders`), and components read them (`getNotes`,
+  `getFolders`). The web app keeps
   nothing in the browser: no device, OPFS, uploader, or service worker
   (ADR-0700). Components take the state from context and never import a
   client or know which store they are over; only the header's `Chrome`
@@ -29,9 +29,10 @@ for the layout and page flow, and verify it against the code.
 
 ## Editing
 
-- Text a person types (the title, the body) goes through `fieldEdit`, one per
-  field per open note, with `<UnsavedEdit>` beside it. Commands (folder, pin,
-  delete) call the list's `update` or `delete` and say when they fail.
+- Text a person types (the title, the body) goes through the open note's one
+  editor (`getNotes().edit({ id })`), with `<UnsavedEdit>` beside it. Commands
+  (folder, pin, delete) call the notes' `update` or `delete` and say when they
+  fail.
 - `NoteEditor.svelte` owns CodeMirror's state for as long as it is mounted:
   its mount reads nothing reactive, and a body that changes from elsewhere is
   applied as the smallest edits outside Undo (`applyExternal`). Do not make

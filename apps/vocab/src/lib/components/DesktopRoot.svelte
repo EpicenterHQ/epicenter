@@ -1,7 +1,8 @@
 <!--
-	The desktop window's root over its two open roots: it sets them, each
-	wrapped once, for every page under it (`setAppData`, `setDevice`), and
-	the data folder's sync for the header (`setFolderSync`). The pages hold
+	The desktop window's root over its two open roots: it wraps the data
+	folder once for Svelte, here where it is open, and sets its words, chats
+	and messages for every page under it (`setEntryList`, `setChatList`,
+	`setMessageList`), and the folder's sync for the header (`setFolderSync`). The pages hold
 	one account for their life (the hosted models and dictation they open),
 	so signing in or out renders them again over the same folder.
 -->
@@ -12,7 +13,8 @@
 	import { fromClient } from '@epicenter/svelte/client';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
 	import type { Snippet } from 'svelte';
-	import { CONTRACT_URL, setAppData, setDevice, type VocabSettings } from '../folder.tauri.js';
+	import { CONTRACT_URL, type VocabSettings } from '../folder.tauri.js';
+	import { setChatList, setEntryList, setMessageList } from '../vocab.svelte.js';
 
 	let {
 		appData,
@@ -22,9 +24,10 @@
 
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally
-	setAppData(fromClient(appData));
-	// svelte-ignore state_referenced_locally
-	setDevice(fromClient(device));
+	const files = fromClient(device);
+	setEntryList(files.entries);
+	setChatList(files.chats);
+	setMessageList(files.messages);
 	// svelte-ignore state_referenced_locally
 	setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL }));
 </script>

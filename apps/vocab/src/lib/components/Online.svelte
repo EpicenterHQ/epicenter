@@ -1,20 +1,24 @@
 <!--
-	Vocab's store: the learner's `vocab` repository for everything under it
-	(`getRepo`), for one account. The parent's `{#key}` makes a new one for a
-	new account; sign-out or replacement retires this one.
+	Vocab's store: the learner's `vocab` repository, for one account, its
+	words, chats and messages set for everything under it (`setEntryList`,
+	`setChatList`, `setMessageList`). The parent's `{#key}` makes a new one
+	for a new account; sign-out or replacement retires this one.
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';
 	import { openRemote } from '@epicenter/folder/remote';
 	import { fromClient } from '@epicenter/svelte/client';
-	import { setRepo } from '@epicenter/svelte/repo';
 	import type { Snippet } from 'svelte';
 	import { vocab } from '../contract.js';
+	import { setChatList, setEntryList, setMessageList } from '../vocab.svelte.js';
 
 	const { account, children }: { account: Account; children: Snippet } = $props();
 
 	// svelte-ignore state_referenced_locally
-	setRepo(fromClient(openRemote(vocab, { account })));
+	const files = fromClient(openRemote(vocab, { account }));
+	setEntryList(files.entries);
+	setChatList(files.chats);
+	setMessageList(files.messages);
 </script>
 
 {@render children()}

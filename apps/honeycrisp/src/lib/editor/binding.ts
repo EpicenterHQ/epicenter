@@ -1,6 +1,6 @@
 /**
  * CodeMirror bound to a note's body. A local change hands the whole body to
- * `onEdit`, which saves it (`fieldEdit(notes, { id }, 'body')`); the note
+ * `onEdit`, which saves it through the note's editor (`notes.edit`); the note
  * then holds exactly what the text reads, so every edit changes only the
  * characters typed. A change from elsewhere is applied as the smallest text
  * changes, marked `Transaction.remote` so it skips `onEdit` and kept out of

@@ -43,7 +43,10 @@ async function setup(...args: Parameters<typeof openCaptures>) {
 	const h = await openCaptures(...args);
 	const target = document.createElement('main');
 	document.body.replaceChildren(target);
-	const view = mount(ViewHost, { target, props: { captures: h.captures } });
+	const view = mount(ViewHost, {
+		target,
+		props: { captures: h.captures, list: h.list },
+	});
 	cleanup.push(async () => {
 		await unmount(view);
 		await h.close();

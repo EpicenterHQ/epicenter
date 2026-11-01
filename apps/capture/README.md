@@ -39,7 +39,7 @@ again when the session needs renewing; Sign out is beside it.
 Open a capture to edit its text and add, reorder, copy, or delete thoughts.
 New capture and Add a thought are explicit submissions: their text boxes
 write nothing before Add, and leaving clears them. The capture text and the
-thought commands compose over one body edit (`fieldEdit` over the body), so
+thought commands compose over one editor of the note (`list.edit({ id })`), so
 a thought command never loses text typed just before it. Typed text shows
 until its save answers; a save that fails stays with Save again, Discard and
 Copy. Thoughts are identified by their position in the shown list; a move or
@@ -99,18 +99,18 @@ routes/+layout.svelte          every page: the chrome and the leave guard
 routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: setRepo(fromClient(openRemote(capture, { account })))
+    Online.svelte              {#key account}: setCaptureList(fromClient(openRemote(capture, { account })).captures)
   Startup.svelte               desktop: await openAppData(captureSettings), openDataFolder(); Recovery
-    DesktopRoot.svelte         setAppData/setDevice(fromClient(...)), setFolderSync
-routes/(app)/+page.svelte      CaptureApp over store().captures (#platform/root)
+    DesktopRoot.svelte         setCaptureList(fromClient(device).captures), setFolderSync
+routes/(app)/+page.svelte      CaptureApp over the captures the root set (getCaptureList)
   CaptureApp.svelte            header (Chrome from #platform/root), then
     Timeline | CaptureDetail | TextDetail
 routes/auth/callback           finishes sign-in, outside (app), then returns to /
 ```
 
-Components read and write only through the captures they are given
-(`createCaptures`, in `src/lib/captures.svelte.ts`), never a client of their
-own; only the variant's root chooses the store. Another variant needs only
+Components read and write only through the captures the variant's root
+set (`getCaptureList`) and the page state over them (`createCaptures`), both
+in `src/lib/captures.svelte.ts`, never a client of their own; only the variant's root chooses the store. Another variant needs only
 a new root that sets its own store, and a header that says what it is.
 
 | Path | Role |
@@ -118,11 +118,11 @@ a new root that sets its own store, and a header that says what it is.
 | `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome and the leave guard. |
 | `src/routes/(app)/+layout.svelte` | The variant's `Startup` (`#platform/root`), under a `<svelte:boundary>` whose `pending` is the UI kit's spinner. |
 | `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account. |
-| `src/lib/components/Online.svelte` | The repository (`setRepo`), per account. |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the roots set for every page (`setAppData`, `setDevice`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
-| `src/lib/folder.tauri.ts` | The desktop window's typed contexts (`getAppData`, `getDevice`) and where the contract is published. |
+| `src/lib/components/Online.svelte` | The repository per account, its captures set for every page (`setCaptureList`). |
+| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's captures set for every page (`setCaptureList`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
+| `src/lib/folder.tauri.ts` | The desktop window's settings contract, and where the contract is published. |
 | `src/routes/(app)/+page.svelte` | Capture over the store's captures. |
-| `src/lib/components/CaptureApp.svelte` | The header and the page it shows, over the captures it is given. |
+| `src/lib/components/CaptureApp.svelte` | The header and the page it shows, over the captures the root set. |
 | `src/lib/captures.svelte.ts` | The timeline, Add, deletion, and navigation. |
 | `src/lib/capture-actions.svelte.ts` | Thought and text commands over one body edit; a thought's lines in the note's text. |
 | `src/lib/components/CaptureDetail.svelte` | A capture as its text and thoughts. |
@@ -173,7 +173,7 @@ missing.
 
 | Seam | Web leaf | Desktop leaf |
 | --- | --- | --- |
-| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in), `store()`, and the account | `root.tauri.ts`: `Startup` (the two roots or the recovery screen), `store()`, and its sync |
+| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in, which sets the captures) and the account | `root.tauri.ts`: `Startup` (the two roots or the recovery screen, which sets the captures) and its sync |
 | `#platform/variant` | `variant.ts`: `'online'` | `variant.tauri.ts`: `'desktop'`, for the few sentences that name the store |
 
 ## Checks

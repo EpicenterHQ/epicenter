@@ -1,9 +1,9 @@
 <!--
-	Vocab over the client it is given: a header with the variant's account
-	of its store and the account (`Chrome`), then Words and Chat over that
-	client's words, chats and messages. Every component under it reads and
-	writes only through that client, so the root that passes it alone
-	decides the store.
+	Vocab over the words, chats and messages the variant's root set
+	(`getEntryList`, `getChatList`, `getMessageList`): a header with the
+	variant's account of its store and the account (`Chrome`), then Words and
+	Chat over them. Every component under it reads and writes only through
+	them, so the root alone decides the store.
 -->
 <script lang="ts">
 	import { createBrowserInferenceSelections } from '@epicenter/ai/selections';
@@ -16,24 +16,15 @@
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 	import { onDestroy } from 'svelte';
-	import type { ReactiveClient } from '@epicenter/svelte/client';
-	import type { Vocab } from '$lib/contract.js';
 	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
 	import { openVocabInference } from '$lib/inference.js';
-	import { createVocab } from '$lib/vocab.svelte.js';
+	import { createVocab, getChatList, getEntryList, getMessageList } from '$lib/vocab.svelte.js';
 	import ConversationView from './ConversationView.svelte';
 	import FocusWords from './FocusWords.svelte';
 	import WordsView from './WordsView.svelte';
 
-	let {
-		vocab,
-	}: {
-		/** The store's client (the learner's repository, or the desktop's folder), whose collections every section reads and edits. */
-		vocab: ReactiveClient<Vocab>;
-	} = $props();
-	// A page shows one store's client for its life.
-	// svelte-ignore state_referenced_locally
-	const { entries, chats, messages } = createVocab(vocab);
+	const lists = { entries: getEntryList(), chats: getChatList(), messages: getMessageList() };
+	const { entries, chats, messages } = createVocab(lists);
 
 	// One account for this component's life: the root mounts every page anew
 	// for a new account (on the web, signing out unmounts it). The account
@@ -45,7 +36,7 @@
 	const catalog = createInferenceCatalog({ ai: sources, signal: departure.signal, hostedModels: toHostedCatalog([VOCAB_MODEL]) });
 	const selections = createBrowserInferenceSelections('vocab');
 	/** Why the words or chats did not list, if they did not; the variant's `Chrome` says it. */
-	const listError = $derived(vocab.entries.error ?? vocab.chats.error);
+	const listError = $derived(lists.entries.error ?? lists.chats.error);
 
 	const SECTIONS = [
 		{ id: 'words', label: 'Words', icon: BookOpenIcon },

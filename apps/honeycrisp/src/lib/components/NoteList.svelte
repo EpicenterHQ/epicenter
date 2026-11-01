@@ -12,14 +12,15 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { format } from 'date-fns';
 	import { getDateLabel } from '$lib/date-label.js';
-	import { byName, folderLabel, getHoneycrisp, newestFirst, type Note, noteLabel, shownIn } from '$lib/honeycrisp.svelte.js';
+	import { byName, folderLabel, getFolders, getHoneycrisp, getNotes, newestFirst, type Note, noteLabel, shownIn } from '$lib/honeycrisp.svelte.js';
 	import { previewText } from '$lib/note-source.js';
 	import { confirmDeleteNote } from './delete-note.js';
 
 	let { onCreate }: { onCreate: () => void } = $props();
 
 	const app = getHoneycrisp();
-	const { notes, folders } = app;
+	const notes = getNotes();
+	const folders = getFolders();
 
 	const visible = $derived(notes.items.filter((note) => shownIn(app.filter, note)).toSorted(newestFirst));
 	const selectedId = $derived(app.selected?.collection === 'notes' ? app.selected.id : undefined);

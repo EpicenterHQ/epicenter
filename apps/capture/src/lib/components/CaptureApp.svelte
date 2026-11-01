@@ -1,27 +1,19 @@
 <!--
-	Capture over the captures it is given: a header with where they are and
-	what can be done about it (the variant's `Chrome`: the account on the web,
-	the folder on the desktop), then the timeline or the one open capture.
-	Every component under it reads and writes only through that list, so the
-	root that passes it alone decides the store.
+	Capture over the captures the variant's root set (`getCaptureList`): a
+	header with where they are and what can be done about it (the variant's
+	`Chrome`: the account on the web, the folder on the desktop), then the
+	timeline or the one open capture. Every component under it reads and
+	writes only through that list, so the root alone decides the store.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Chrome } from '#platform/root';
-	import { type CaptureList, createCaptures } from '$lib/captures.svelte.js';
+	import { createCaptures, getCaptureList } from '$lib/captures.svelte.js';
 	import CaptureDetail from './CaptureDetail.svelte';
 	import TextDetail from './TextDetail.svelte';
 	import Timeline from './Timeline.svelte';
 
-	let {
-		list,
-	}: {
-		/** The store's captures, which every component under it reads and edits. */
-		list: CaptureList;
-	} = $props();
-
-	// A page shows one store's captures for its life.
-	// svelte-ignore state_referenced_locally
+	const list = getCaptureList();
 	const captures = createCaptures(list);
 
 	/** One page: the timeline or the one open capture. */

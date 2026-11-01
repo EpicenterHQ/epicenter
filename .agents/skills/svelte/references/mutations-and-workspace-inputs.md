@@ -191,7 +191,7 @@ For when a single-use handler should be inlined at its call site versus kept as 
 # Commit-on-Blur for Workspace String Fields
 
 This section is for a field whose blur is its submission. It does not govern
-note editors: `fieldEdit` saves as the person types and owns accepted input.
+note editors: a note's `edit` saves as the person types and owns accepted input.
 The Yjs-backed workspace tables and `FlushEditsOnHide` it describes were
 removed with the Yjs store; the pattern remains the convention for a field
 that commits on blur, such as Honeycrisp's folder rename.

@@ -5,9 +5,10 @@
 -->
 <script lang="ts">
 	import { Chrome } from '#platform/root';
-	import { getHoneycrisp } from '$lib/honeycrisp.svelte.js';
+	import { getFolders, getNotes } from '$lib/honeycrisp.svelte.js';
 
-	const { notes, folders } = getHoneycrisp();
+	const notes = getNotes();
+	const folders = getFolders();
 </script>
 
 <header class="flex h-12 shrink-0 items-center gap-2 border-b px-3">

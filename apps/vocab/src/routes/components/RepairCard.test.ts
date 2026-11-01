@@ -32,7 +32,10 @@ async function setup(initial: Record<string, string>) {
 	const entries = createEntries(folder.lists.entries);
 	const target = document.createElement('div');
 	document.body.append(target);
-	const mounted = mount(WordsViewHost, { target, props: { entries } });
+	const mounted = mount(WordsViewHost, {
+		target,
+		props: { entries, list: folder.lists.entries },
+	});
 	await until(() => entries.repairs.length > 0);
 	return {
 		folder,

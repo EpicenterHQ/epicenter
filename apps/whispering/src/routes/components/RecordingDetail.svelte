@@ -1,11 +1,10 @@
 <!--
-	One recording: its audio, transcripts, and notes. Each input is an edit
-	over the note the lists show: what was typed shows until its save
-	answers, then the note again. A recording whose note does not read shows
+	One recording: its audio, transcripts, and notes. Its title and notes are
+	one editor of the note the lists show (`getRecordings().edit`): what was
+	typed shows until its save answers, then the note again. A recording whose note does not read shows
 	its text, to repair.
 -->
 <script lang="ts">
-	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -16,6 +15,7 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { variant } from '#platform/variant';
+	import { getRecordings } from '$lib/files.svelte.js';
 	import { getLibrary, type RecordingNote, type Repair } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioMissing from './AudioMissing.svelte';
@@ -50,8 +50,7 @@
 	// The parent keys this view by the recording.
 	// svelte-ignore state_referenced_locally
 	const own = id;
-	const title = fieldEdit(library.files.recordings, { id: own }, 'title');
-	const notes = fieldEdit(library.files.recordings, { id: own }, 'body');
+	const recording = getRecordings().edit({ id: own });
 
 	const results = $derived(library.resultsFor(own));
 	const run = $derived(library.transcriptionRun(own));
@@ -79,7 +78,7 @@
 		{#if note}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => title.value ?? note.title, (value) => (title.value = value)}
+				bind:value={recording.title}
 				placeholder="Title"
 				aria-label="Recording title"
 			/>
@@ -92,8 +91,8 @@
 			</Button>
 		{/if}
 	</div>
-	{#if title.error}
-		<div class="px-4 pt-2"><UnsavedEdit edit={title} /></div>
+	{#if recording.error}
+		<div class="px-4 pt-2"><UnsavedEdit edit={recording} /></div>
 	{/if}
 
 	{#if repair}
@@ -140,11 +139,10 @@
 				<h3 class="text-sm font-medium">Notes</h3>
 				<Textarea
 					class="min-h-28 resize-y font-sans"
-					bind:value={() => notes.value ?? note.body, (value) => (notes.value = value)}
+					bind:value={recording.body}
 					placeholder="Notes in Markdown, saved in the recording’s note"
 					aria-label="Notes"
 				/>
-				<UnsavedEdit edit={notes} />
 			</div>
 
 			<Collapsible.Root>

@@ -115,7 +115,7 @@ missing and checks that the desktop build carries no sign-in.
 
 | Seam | Web leaf | Desktop leaf |
 | --- | --- | --- |
-| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in), `store()`, the account, and the end of sign-in | `root.tauri.ts`: `Startup` (the two roots or the recovery screen), `store()`, its sync, and no sign-in |
+| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in, which sets the notes and folders), the account, and the end of sign-in | `root.tauri.ts`: `Startup` (the two roots or the recovery screen, which sets the notes and folders), its sync, and no sign-in |
 
 ## Editing
 
@@ -127,10 +127,12 @@ in place, and a task's `[ ]` as a checkbox that toggles the one character
 inside it; the line holding the cursor shows its syntax. Images and tables
 show as plain Markdown.
 
-Saves go through `fieldEdit` (`@epicenter/svelte/client`): one at a time,
-each made over what the person saw when they began typing. Another writer's
-change to other keys is carried over; their change to the same key (the
-title, or the body) is a conflict: the editor keeps what was typed and shows
+The open note's title and body are one editor of its note
+(`getNotes().edit({ id })`, `@epicenter/svelte/client`): saves go one at a
+time, the newest carrying both when both were typed, each made over what the
+person saw when they began typing. Another writer's change to other keys is
+carried over; their change to a typed key (the title, or the body) is a
+conflict: the editor keeps what was typed and shows
 **Not saved** with Save again (which saves over theirs), Discard and Copy. A
 change from elsewhere to the body while nothing is waiting is applied to the
 open editor as the smallest edits, outside Undo, so the cursor stays.
@@ -170,16 +172,17 @@ routes/+layout.svelte          every page: the chrome and the leave guard
 routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: setRepo(fromClient(openRemote(honeycrisp, { account })))
+    Online.svelte              {#key account}: setNotes/setFolders(fromClient(openRemote(honeycrisp, { account })))
   Startup.svelte               desktop: await openAppData(honeycrispSettings), openDataFolder(); Recovery
-    DesktopRoot.svelte         setAppData/setDevice(fromClient(...)), setFolderSync
-routes/(app)/+page.svelte      HoneycrispApp over store() (#platform/root)
+    DesktopRoot.svelte         setNotes/setFolders(fromClient(device)), setFolderSync
+routes/(app)/+page.svelte      HoneycrispApp over the notes and folders the root set
   HoneycrispApp.svelte         header (Chrome from #platform/root), folders, notes, the open note
 routes/auth/callback           Callback from #platform/root: the web app finishes sign-in,
                                outside (app), then returns to /
 ```
 
-Components read and write only through the client they are given
+Components read and write only through the notes and folders the variant's
+root set (`getNotes`, `getFolders`) and the page state over them
 (`createHoneycrisp`, in context), never a client of their own; only the
 variant's root chooses the store. Another variant needs only a new root
 that sets its own store, and a header that says what it is.
@@ -190,11 +193,11 @@ that sets its own store, and a header that says what it is.
 | `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome and the leave guard. |
 | `src/routes/(app)/+layout.svelte` | The variant's `Startup` (`#platform/root`), under a `<svelte:boundary>` whose `pending` is the UI kit's spinner. |
 | `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte`, `SignInCallback.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account; the end of sign-in. |
-| `src/lib/components/Online.svelte` | The repository (`setRepo`), per account. |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the roots set for every page (`setAppData`, `setDevice`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
-| `src/lib/folder.tauri.ts` | The desktop window's typed contexts (`getAppData`, `getDevice`) and where the contract is published. |
-| `src/routes/(app)/+page.svelte` | `HoneycrispApp` over `store()` (`#platform/root`), the store's client. |
-| `src/lib/honeycrisp.svelte.ts` | The orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections, over the client it is given. |
+| `src/lib/components/Online.svelte` | The repository per account, its notes and folders set for every page (`setNotes`, `setFolders`). |
+| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's notes and folders set for every page (`setNotes`, `setFolders`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
+| `src/lib/folder.tauri.ts` | The desktop window's settings contract, and where the contract is published. |
+| `src/routes/(app)/+page.svelte` | `HoneycrispApp`, over the notes and folders the root set. |
+| `src/lib/honeycrisp.svelte.ts` | The notes' and folders' contexts, the orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections. |
 | `src/lib/editor/` | The CodeMirror note editor: the binding that writes local edits and follows changes from elsewhere, live preview, conflict cards. It knows nothing of the app's UI or storage. |
 | `src/lib/components/` | Honeycrisp's UI, which reads and writes only through the state in context. |
 | `src-tauri/` | The desktop shell: `main.rs` names Honeycrisp to `epicenter-standalone`; `capabilities/honeycrisp.json` grants the folder plugin, the native picker, and the app's name and path API, and names no folder. |

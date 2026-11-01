@@ -80,22 +80,24 @@ screen when one does not open:
 ```
 
 An online root is the signed-in layout, which opens the repository per
-account and sets it in context:
+account and sets each collection its components read in context, as the
+desktop root does over its folder:
 
 ```svelte
 <!-- apps/todos/src/lib/components/Online.svelte -->
 <script lang="ts">
   const { account, children } = $props();
-  setRepo(fromClient(openRemote(todos, { account }))); // wrapped once, where it is made
+  setTodos(fromClient(openRemote(todos, { account })).todos); // wrapped once, where it is made
 </script>
 
 {@render children()}
 ```
 
-UI components sort with the app's own order, and read and write through
-`fromClient` state: tracked `items`, `invalid` (notes that do not read, with
-their text), and writes that pass the version shown; `fieldEdit` binds one
-field to an immediate editor. See [Todos](todos/README.md),
+UI components read a collection from its context (`getTodos()`), sort with
+the app's own order, and read and write through `fromClient` state: tracked
+`items`, `invalid` (notes that do not read, with their text), and writes
+that pass the version shown. The component that shows a note makes one
+editor of it (`todos.edit({ id })`) and binds its fields. See [Todos](todos/README.md),
 [Capture](capture/README.md) and the
 [Svelte package](../packages/svelte/README.md).
 

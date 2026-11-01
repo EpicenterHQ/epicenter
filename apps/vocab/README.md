@@ -17,7 +17,7 @@ Choose one to three saved expressions to start a chat. Vocab saves the chat's fo
 
 ### Editing a word
 
-Each word card edits its note (the note's body) and stage directly. The note saves as it is typed (`fieldEdit`), one save at a time, the newest value waiting; it is written over the word as the learner saw it, so another device's change to the stage is kept, and another device's change to the same note surfaces instead of being overwritten. A stage press saves at once. The visible note follows what was typed until its save answers, then follows the note again. A failed note save keeps the typed note visible with Save again, Discard, and Copy controls. A failed stage change shows an error toast.
+Each word card edits its note (the note's body) and stage directly. The note saves as it is typed (the word's editor, `getEntryList().edit({ id })`), one save at a time, the newest value waiting; it is written over the word as the learner saw it, so another device's change to the stage is kept, and another device's change to the same note surfaces instead of being overwritten. A stage press saves at once. The visible note follows what was typed until its save answers, then follows the note again. A failed note save keeps the typed note visible with Save again, Discard, and Copy controls. A failed stage change shows an error toast.
 
 Deleting a word asks first, then deletes its note; the repository's Git history keeps it. A failed deletion shows an error toast. On the web the header says whether the repository answers: Online, Offline when it does not, or Sign in again (with a button) when the sign-in needs renewing. Sign out is in the account menu. Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show without a reload.
 
@@ -35,7 +35,7 @@ chats/<id>.md                            createdAt, and focus: one to three { en
 messages/<chat id>/<message id>.md       role, createdAt (ms), and parts (text, tool calls, tool results)
 ```
 
-The variant's root (`#platform/root`) opens the store before any page renders: on the web, the learner's repository (`openRemote` from `@epicenter/folder/remote`) for the account, set in context (`setRepo`); on the desktop, the data folder. The page passes that store's client to `VocabApp` (`store()`), which composes the words, chats, and messages from that one client (`createVocab`, in `src/lib/vocab.svelte.ts`). Components read and write only through the client they are given, never a client of their own, so only the variant's root chooses the store.
+The variant's root (`#platform/root`) opens the store before any page renders: on the web, the learner's repository (`openRemote` from `@epicenter/folder/remote`) for the account; on the desktop, the data folder. Either root wraps that one client once and sets its words, chats and messages in context (`setEntryList`, `setChatList`, `setMessageList`, in `src/lib/vocab.svelte.ts`); `VocabApp` composes the word and chat state over them (`createVocab`). Components read and write only through those collections, never a client of their own, so only the variant's root chooses the store.
 
 ```text
 src/routes/+layout.svelte                 every page: the chrome and the leave guard
@@ -43,10 +43,10 @@ src/routes/auth/callback/+page.svelte     Callback from #platform/root: the web 
                                           sign-in, outside (app), then returns to /
 src/routes/(app)/+layout.svelte           <svelte:boundary> (spinner) around Startup from #platform/root
   lib/components/OnlineRoot.svelte        web: signed out, a sign-in; signed in, {#key account}
-    lib/components/Online.svelte          setRepo(fromClient(openRemote(vocab, { account }))), one per account
+    lib/components/Online.svelte          setEntryList/setChatList/setMessageList(fromClient(openRemote(…))), one per account
   lib/components/Startup.svelte           desktop: DesktopStartup (vocabSettings, vocab, authReady), then DesktopRoot
-    lib/components/DesktopRoot.svelte     setAppData/setDevice(fromClient(...)), setFolderSync
-src/routes/(app)/+page.svelte             VocabApp over store() (#platform/root)
+    lib/components/DesktopRoot.svelte     setEntryList/setChatList/setMessageList(fromClient(device)), setFolderSync
+src/routes/(app)/+page.svelte             VocabApp over the collections the root set
 src/routes/components/VocabApp.svelte     the header (Chrome from #platform/root), Words, and Chat
 ```
 
@@ -69,7 +69,7 @@ The connected endpoints are machine-local and never synced. Their list (each one
 
 | Seam | Web leaf | Desktop leaf |
 | --- | --- | --- |
-| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in), `store()`, `Chrome` (status, account), the end of sign-in | `root.tauri.ts`: `Startup` (the two roots or the recovery screen), `store()`, `Chrome` (folder, sync, account), no callback |
+| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in, which sets the collections), `Chrome` (status, account), the end of sign-in | `root.tauri.ts`: `Startup` (the two roots or the recovery screen, which sets the collections), `Chrome` (folder, sync, account), no callback |
 | `#platform/auth` | `auth.ts`: the browser OAuth client for the API and Git | `auth.tauri.ts`: the shell's account, hosted models only |
 | `#platform/connections` | `connections.ts`: this browser's storage, keys included, sent by the browser's `fetch` | `connections.tauri.ts`: `connections.md` in AppData, keys in the keychain, sent by the shell |
 

@@ -1,32 +1,21 @@
 <!--
-	Honeycrisp over the client it is given: the header, the folders, the
-	notes, and what is open. Every component under it reads and writes only
-	through the state in context, over that client, so the root that passes
-	it alone decides the store.
+	Honeycrisp over the notes and folders the variant's root set (`getNotes`,
+	`getFolders`): the header, the folders, the notes, and what is open, which
+	it sets for every component under it (`setHoneycrisp`). The root alone
+	decides the store.
 -->
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
-	import type { ReactiveClient } from '@epicenter/svelte/client';
-	import type { Honeycrisp } from '$lib/contract.js';
-	import { createHoneycrisp, setHoneycrisp } from '$lib/honeycrisp.svelte.js';
+	import { createHoneycrisp, getFolders, getNotes, setHoneycrisp } from '$lib/honeycrisp.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FolderNav from './FolderNav.svelte';
 	import FolderRepair from './FolderRepair.svelte';
 	import NoteDetail from './NoteDetail.svelte';
 	import NoteList from './NoteList.svelte';
 
-	let {
-		client,
-	}: {
-		/** The store's client, which every component under it reads and edits. */
-		client: ReactiveClient<Honeycrisp>;
-	} = $props();
-
-	// A page shows one store's notes and folders for its life.
-	// svelte-ignore state_referenced_locally
-	const app = setHoneycrisp(createHoneycrisp(client));
+	const app = setHoneycrisp(createHoneycrisp({ notes: getNotes(), folders: getFolders() }));
 
 	async function createNote() {
 		const { error } = await app.createNote();

@@ -1,15 +1,10 @@
 /**
- * Vocab's desktop window's two roots as its components read them (decisions
- * 88 to 94): the AppData root's settings (`getAppData`, through Vocab's own
- * settings contract) and the data folder's client (`getDevice`), each
- * wrapped once for Svelte where `DesktopRoot` sets them, and where Vocab
- * publishes its contract. Only the desktop leaves import this.
+ * What Vocab's desktop window opens besides its data folder (decisions 88 to
+ * 94): its AppData root's settings contract, and where Vocab publishes its
+ * contract. Only the desktop leaves import this.
  */
 import { APPS } from '@epicenter/constants/apps';
 import { defineContract } from '@epicenter/definition/contract';
-import type { ReactiveClient } from '@epicenter/svelte/client';
-import { createContext } from 'svelte';
-import type { Vocab } from './contract.js';
 
 /** Where Vocab's web app publishes its contract (`static/contract.json`). */
 export const CONTRACT_URL = `${APPS.VOCAB.url}/contract.json`;
@@ -54,7 +49,3 @@ export const vocabSettings = defineContract({
 });
 
 export type VocabSettings = typeof vocabSettings;
-
-export const [getAppData, setAppData] =
-	createContext<ReactiveClient<VocabSettings>>();
-export const [getDevice, setDevice] = createContext<ReactiveClient<Vocab>>();
