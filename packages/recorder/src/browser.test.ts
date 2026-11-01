@@ -93,12 +93,13 @@ const recorders: { piece(bytes: Uint8Array): void }[] = [];
 
 /**
  * A MediaRecorder that records the `supported` types and produces `produced`
- * when it stops. Asked for no type, it reports `defaultType`.
+ * when it stops. It reports producing `reports`, whatever it was asked
+ * for, or else what it was asked for.
  */
 function fakeRecorderClass(
 	produced: () => Uint8Array,
 	supported: readonly string[] = ['audio/webm;codecs=opus'],
-	defaultType = '',
+	reports?: string,
 ) {
 	return class FakeRecorder {
 		static isTypeSupported(type: string) {
@@ -114,7 +115,7 @@ function fakeRecorderClass(
 						if (this.state !== 'inactive') this.stop();
 					}),
 				);
-			this.mimeType = options?.mimeType ?? defaultType;
+			this.mimeType = reports ?? options?.mimeType ?? '';
 			recorders.push(this);
 		}
 		/** Hand over a piece while recording, as the browser does each second. */
@@ -551,18 +552,20 @@ test('AAC in MP4 is asked for first, and held in the page as m4a', async () => {
 	expect(expectOk(await recording.stop()).extension).toBe('m4a');
 });
 
-test('a browser left to its default names the file by the type it reports, however it spells it', async () => {
+test('the file is named by the type the recorder reports, however it spells it', async () => {
 	for (const [reported, extension] of [
-		[' Audio/OGG ; codecs=opus', 'ogg'],
-		['video/mp4;codecs=mp4a.40.2', 'm4a'],
+		[' Video/MP4 ; codecs=mp4a.40.2', 'm4a'],
 		['audio/webm', 'webm'],
 		['', 'webm'],
-		['audio/unknown', 'webm'],
 	] as const) {
 		const memory = memoryFiles();
 		const { device } = browser({
 			files: memory.files,
-			Recorder: fakeRecorderClass(() => new Uint8Array([1]), [], reported),
+			Recorder: fakeRecorderClass(
+				() => new Uint8Array([1]),
+				undefined,
+				reported,
+			),
 		});
 		const recording = expectOk(
 			await recorder.start({ device, path: 'recordings/a' }),
@@ -571,7 +574,11 @@ test('a browser left to its default names the file by the type it reports, howev
 		expect([...memory.held.keys()]).toEqual([`recordings/a.${extension}`]);
 
 		browser({
-			Recorder: fakeRecorderClass(() => new Uint8Array([1]), [], reported),
+			Recorder: fakeRecorderClass(
+				() => new Uint8Array([1]),
+				undefined,
+				reported,
+			),
 		});
 		const held = expectOk(await startPageRecording());
 		expect(expectOk(await held.stop()).extension).toBe(extension);
@@ -584,8 +591,12 @@ test('a recording whose file takes a type it did not ask for still holds its loc
 	const { device } = browser({
 		files: memory.files,
 		locks,
-		// Asked for nothing it supports, the browser records MP4 by default.
-		Recorder: fakeRecorderClass(() => new Uint8Array([9]), [], 'audio/mp4'),
+		// Asked for WebM, the browser records MP4.
+		Recorder: fakeRecorderClass(
+			() => new Uint8Array([9]),
+			undefined,
+			'audio/mp4',
+		),
 	});
 	const recording = expectOk(
 		await recorder.start({ device, path: 'recordings/a' }),
@@ -786,7 +797,7 @@ test('levels are heard while recording, and a lost microphone is an ending', asy
 	expect(levels.length).toBe(heard);
 });
 
-test('a window without a microphone or an encoder cannot record', async () => {
+test('a window without a microphone, an encoder, or MP4 or WebM audio cannot record', async () => {
 	for (const [target, key] of [
 		[navigator, 'mediaDevices'],
 		[globalThis, 'MediaRecorder'],
@@ -795,6 +806,8 @@ test('a window without a microphone or an encoder cannot record', async () => {
 		stub(target, key, undefined);
 		expect(expectErr(await startPageRecording()).name).toBe('Unavailable');
 	}
+	browser({ Recorder: fakeRecorderClass(() => new Uint8Array([1]), []) });
+	expect(expectErr(await startPageRecording()).name).toBe('Unavailable');
 });
 
 test('an already-ended browser stream keeps its final bytes and reports the ending to a late subscriber', async () => {

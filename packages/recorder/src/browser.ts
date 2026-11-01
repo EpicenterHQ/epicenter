@@ -17,10 +17,10 @@
  *
  * AAC in MP4 is asked for first (`.m4a`), since a recording lands in folders
  * that native players open, then Opus in WebM (`.webm`). Never bare
- * `audio/mp4`, whose codec differs by engine. The extension is read from what
- * the recorder reports, not from the request (`extensionOf`): engines differ
- * in what they honor. Both engines hand each piece of MP4 over as a whole
- * fragment.
+ * `audio/mp4`, whose codec differs by engine. A browser that records neither
+ * cannot record. The extension is read from what the recorder reports, not
+ * from the request (`extensionOf`): engines differ in what they honor. Both
+ * engines hand each piece of MP4 over as a whole fragment.
  *
  * A chosen microphone is asked for by its exact ID. When the browser cannot
  * open exactly that one, the answer is a refusal: no other microphone is
@@ -64,22 +64,21 @@ const RECORDING_TYPES = [
 
 /**
  * The extension a recording's file is named with, from the type a recorder
- * produced however the engine spells it (`audio/mp4; codecs=mp4a.40.2` is
- * `m4a`). WebM when the browser names no type or one not listed here, as a
- * recorder left to its default records WebM.
+ * produced however the engine spells it (`audio/mp4; codecs=mp4a.40.2` and
+ * `video/mp4` are `m4a`); otherwise `webm`, the other type it is asked for.
  */
-function extensionOf(type: string): 'm4a' | 'webm' | 'ogg' {
+function extensionOf(type: string): 'm4a' | 'webm' {
 	const container = type.split(';')[0]?.trim().toLowerCase();
-	if (container === 'audio/mp4' || container === 'video/mp4') return 'm4a';
-	if (container === 'audio/ogg') return 'ogg';
-	return 'webm';
+	return container === 'audio/mp4' || container === 'video/mp4'
+		? 'm4a'
+		: 'webm';
 }
 
 /** A recording held in the page, finished: its audio, and how long it plays. */
 export type RecordedAudio = {
 	readonly bytes: Uint8Array;
-	/** `m4a` or `webm` (or `ogg`), from the type the browser produced. */
-	readonly extension: string;
+	/** From the type the browser produced. */
+	readonly extension: 'm4a' | 'webm';
 	readonly durationMs: number;
 };
 
@@ -164,9 +163,11 @@ async function hold(name: string): Promise<(() => void) | null> {
 	return granted ? release : null;
 }
 
-/** The first of `RECORDING_TYPES` the browser records, or undefined for its default. */
+/** The first of `RECORDING_TYPES` this window records, if any. */
 const requestedType = () =>
-	RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
+	typeof MediaRecorder === 'undefined'
+		? undefined
+		: RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
 
 /**
  * Open the microphone and start `MediaRecorder` over it, handing each piece
@@ -177,22 +178,18 @@ async function openCapture(
 	{ input, signal }: RecordingStart,
 	onPiece: (piece: Blob) => void,
 ) {
-	if (typeof MediaRecorder === 'undefined')
+	const requested = requestedType();
+	if (requested === undefined)
 		return RecorderError.Unavailable({
-			reason: 'this window cannot encode audio',
+			reason: 'this window cannot encode audio as MP4 or WebM',
 		});
 	const { data: stream, error: openError } = await openMicrophone(
 		input,
 		signal,
 	);
 	if (openError !== null) return Err(openError);
-	const requested = requestedType();
 	const { data: recorder, error: createError } = trySync({
-		try: () =>
-			new MediaRecorder(
-				stream,
-				requested === undefined ? undefined : { mimeType: requested },
-			),
+		try: () => new MediaRecorder(stream, { mimeType: requested }),
 		catch: (cause) => RecorderError.Failed({ cause }),
 	});
 	if (createError !== null) {
@@ -258,7 +255,7 @@ async function openCapture(
 		startedAt,
 		microphone: stream.getAudioTracks()[0]?.label || input?.label || '',
 		/** The type the recorder reports producing, or what was asked for. */
-		type: recorder.mimeType || requested || '',
+		type: recorder.mimeType || requested,
 		/** Whether `finish` was called. */
 		isSettled: () => settled,
 		interrupted,
@@ -298,9 +295,7 @@ type Capture = NonNullable<Awaited<ReturnType<typeof openCapture>>['data']>;
  */
 const start: Recorder['start'] = async ({ device, path, input, signal }) => {
 	const files = deviceFiles(device);
-	const expected = `${path}.${extensionOf(
-		(typeof MediaRecorder !== 'undefined' && requestedType()) || '',
-	)}`;
+	const expected = `${path}.${extensionOf(requestedType() ?? '')}`;
 	const there = await files.read(expected);
 	if (there.error !== null)
 		return RecorderError.Refused({ reason: there.error.message });
