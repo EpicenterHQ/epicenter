@@ -16,10 +16,11 @@
  *
  * `.epicenter` is a hidden path (`isHiddenPath`), so it is never a folder's
  * data: no watcher reports it and `epicenter sync` never commits it. This
- * module is the one place TypeScript spells the layout; the folder core's
- * `state.rs` is the other, and `fixtures/state-layout.json` holds both to
- * it. The OPFS worker, which imports nothing, keeps its own copy of
- * `.epicenter/saves`, held to the same fixture.
+ * module is the one place TypeScript spells the layout, as far as a page
+ * writes it (`saves/`); the folder core's `state.rs` spells all of it, and
+ * `fixtures/state-layout.json` holds both to it. The OPFS worker, which
+ * imports nothing, keeps its own copy of `.epicenter/saves`, held to the
+ * same fixture.
  */
 
 /** The directory at the top of a folder that holds its unfinished writes. */
@@ -29,23 +30,9 @@ export const STATE_DIRECTORY = '.epicenter';
 export const SAVES = 'saves';
 
 /**
- * The part of `STATE_DIRECTORY` where a desktop recording is written while
- * it records, at its own folder-relative path.
- */
-export const RECORDINGS = 'recordings';
-
-/**
  * `.epicenter/saves` inside the directory at `root`, written with `/` as the
  * directory storage writes its own paths: on the root's own file system, so
  * a staged save's rename over its path is one step.
  */
 export const savesDirectory = (root: string) =>
 	`${root}/${STATE_DIRECTORY}/${SAVES}`;
-
-/**
- * The folder-relative path the desktop shell writes the recording of the
- * folder-relative `stem` (its path without an extension) to while it
- * records: `.epicenter/recordings/<stem>.wav` (`state::recording`).
- */
-export const recordingPath = (stem: string) =>
-	`${STATE_DIRECTORY}/${RECORDINGS}/${stem}.wav`;

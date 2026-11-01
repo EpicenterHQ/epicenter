@@ -1,5 +1,5 @@
 {
-	"description": "Where a folder's unfinished writes live. The folder core (core/src/state.rs) and @epicenter/folder (src/state.ts, and the OPFS worker's inlined copy) both build these paths; both test suites read this file.",
+	"description": "Where a folder's unfinished writes live. The folder core (core/src/state.rs) builds all of these paths; @epicenter/folder (src/state.ts, and the OPFS worker's inlined copy) builds the saves directory, the only part a page writes. Both test suites read this file.",
 	"directory": ".epicenter",
 	"saves": "saves",
 	"recordings": "recordings",

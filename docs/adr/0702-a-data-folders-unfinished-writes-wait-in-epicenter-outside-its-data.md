@@ -73,8 +73,8 @@ there finishes at its real path, or the next open recovers or removes it.
 
 - One module per language spells the layout:
   `packages/tauri-plugin-epicenter-folder/core/src/state.rs` and
-  `packages/folder/src/state.ts` (`STATE_DIRECTORY`, `savesDirectory`,
-  `recordingPath`). Both, and the OPFS worker's inlined copy, are held to
+  `packages/folder/src/state.ts` (`STATE_DIRECTORY`, `savesDirectory`; only
+  the shell writes `recordings/`). Both, and the OPFS worker's inlined copy, are held to
   `packages/tauri-plugin-epicenter-folder/fixtures/state-layout.json`, and
   `bun run check:state-paths` (`scripts/check-state-paths.ts`) fails when
   other production code spells `.epicenter`. A new kind of unfinished write

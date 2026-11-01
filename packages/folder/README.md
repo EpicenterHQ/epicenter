@@ -152,8 +152,9 @@ before writes.
 
 `.epicenter` holds only unfinished writes: `saves/`, safe to delete when no
 app runs, and `recordings/`, a desktop recording until it stops or is
-recovered. `state.ts` spells that layout here and `state.rs` in the folder
-core, both held to one fixture with the OPFS worker's copy;
+recovered. `state.rs` in the folder core spells that layout, and `state.ts`
+here the `saves/` a page writes, both held to one fixture with the OPFS
+worker's copy;
 `bun run check:state-paths` fails when other production code spells it. Like
 every hidden path (`isHiddenPath`), it is not a folder's data: no watcher
 reports it, listings show it for their readers to skip, and `epicenter sync`

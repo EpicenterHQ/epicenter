@@ -15,8 +15,9 @@
 //! `.epicenter` is a hidden path, so it is never a folder's data: no
 //! watcher reports it and `epicenter sync` never commits it. This module is
 //! the one place Rust spells the layout; `state.ts` in `@epicenter/folder`
-//! is the other, and `fixtures/state-layout.json` holds both to it. A new
-//! kind of unfinished write gets its own part here, never from its caller.
+//! spells the `saves/` a page writes, and `fixtures/state-layout.json` holds
+//! both to it. A new kind of unfinished write gets its own part here, never
+//! from its caller.
 
 use std::path::{Path, PathBuf};
 

@@ -332,7 +332,7 @@ names and checks it.
 ### Unfinished writes
 
 `.epicenter` at the root holds the folder's unfinished writes, laid out by
-`state.rs` (and `state.ts` in `@epicenter/folder`) alone:
+`state.rs` (and, for `saves/`, `state.ts` in `@epicenter/folder`) alone:
 
 ```
 .epicenter/

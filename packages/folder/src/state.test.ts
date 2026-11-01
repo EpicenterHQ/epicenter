@@ -8,21 +8,15 @@
  * `.epicenter/saves`, held to the same fixture here.
  *
  * Key behaviors:
- * - The directory and its two parts match the shared layout
- * - `savesDirectory` and `recordingPath` build the shared layout's paths
+ * - The directory and its `saves` part match the shared layout
+ * - `savesDirectory` builds the shared layout's path
  * - The OPFS worker stages where `savesDirectory` says
  */
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SAVES as WORKER_SAVES } from './device/opfs-worker.js';
-import {
-	RECORDINGS,
-	recordingPath,
-	SAVES,
-	STATE_DIRECTORY,
-	savesDirectory,
-} from './state.js';
+import { SAVES, STATE_DIRECTORY, savesDirectory } from './state.js';
 
 /** The layout `state.rs` reads too. */
 const layout = JSON.parse(
@@ -36,24 +30,15 @@ const layout = JSON.parse(
 ) as {
 	directory: string;
 	saves: string;
-	recordings: string;
 	savesDirectory: string;
-	recordingPaths: { stem: string; path: string }[];
 };
 
-test('the directory and its parts are the shared layout', () => {
-	expect([STATE_DIRECTORY, SAVES, RECORDINGS]).toEqual([
-		layout.directory,
-		layout.saves,
-		layout.recordings,
-	]);
+test('the directory and its saves part are the shared layout', () => {
+	expect([STATE_DIRECTORY, SAVES]).toEqual([layout.directory, layout.saves]);
 });
 
-test('savesDirectory and recordingPath build the shared layout', () => {
+test('savesDirectory builds the shared layout', () => {
 	expect(savesDirectory('/folder')).toBe(`/folder/${layout.savesDirectory}`);
-	expect(layout.recordingPaths).not.toHaveLength(0);
-	for (const { stem, path } of layout.recordingPaths)
-		expect(recordingPath(stem)).toBe(path);
 });
 
 test('the OPFS worker stages in the shared layout', () => {
