@@ -60,7 +60,11 @@ export function recordInto(device: Client<Recorder>): Record {
 			async stop() {
 				const stopped = await recording.stop();
 				if (stopped.error !== null) return stopped;
-				const { path, durationMs } = stopped.data;
+				const { durationMs } = stopped.data;
+				// A browser wrote it at its path as it recorded: placed at once.
+				const placed = await stopped.data.placed;
+				if (placed.error !== null) return placed;
+				const { path } = placed.data;
 				return Ok({
 					written: true,
 					ext: path.slice(path.lastIndexOf('.') + 1),

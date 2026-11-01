@@ -20,10 +20,11 @@
 //! or the directory the shell bound to its window (`root`, by the exact path
 //! the folder plugin answered); any other root is refused. `start` creates the WAV in the
 //! folder's `.epicenter/recordings` and appends mono PCM16 to it as the
-//! microphone captures; `stop` finalizes its header, encodes it to Opus in
-//! WebM (`opus`, `webm`), and places that at `<path>.webm`, never over a file
-//! there (`staging`), then removes the WAV. A WAV that cannot be encoded is
-//! placed itself, at `<path>.wav`. A half-written recording is never at a
+//! microphone captures; `stop` finalizes its header and answers, and then, on
+//! a thread of its own, the recording is encoded to Opus in WebM (`opus`,
+//! `webm`) and placed at `<path>.webm`, never over a file there (`staging`),
+//! and the WAV removed; where it landed arrives on the channel the page gave
+//! `stop`. A WAV that cannot be encoded is placed itself, at `<path>.wav`. A half-written recording is never at a
 //! data path, so sync never commits one. Nothing deletes a recording's audio
 //! once capture has begun. When the page that started a recording reloads,
 //! or its window is destroyed, the recording is finalized and placed for it.
@@ -37,6 +38,7 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use log::warn;
+use tauri::ipc::Channel;
 use tauri::plugin::TauriPlugin;
 use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, RunEvent, Runtime, WindowEvent};
@@ -203,21 +205,47 @@ fn page_ended<R: Runtime>(app: &AppHandle<R>, window: &str) {
     if finalized.is_some() || meters_closed {
         refresh_capturing(app);
     }
-    // Encoded off the main thread; nobody waits for the answer.
+    // Nobody is left to hear where it lands.
     if let Some(finalized) = finalized {
-        let app = app.clone();
-        std::thread::spawn(move || {
-            // Released for `recover` even if settling panics.
-            let settled =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| finalized.settle()));
-            if !matches!(settled, Ok(Ok(_))) {
-                warn!("A recording finalized after its page left was not settled: {settled:?}");
-            }
-            if let Some(recorders) = app.try_state::<Recorders<R>>() {
-                recorders.lock().settled(&finalized.pending);
-            }
-        });
+        settle_in_background(app, finalized, None);
     }
+}
+
+/// Encode and place a finalized recording on a thread of its own, so the
+/// caller (a `stop`, or a page that ended) answers without waiting for it,
+/// and tell `placed` where it landed, once. Its WAV stays named by
+/// `held_paths` until then, and is released for `recover` even if settling
+/// panics. A quit before it finishes leaves the WAV pending, which the next
+/// `recover` settles.
+pub(crate) fn settle_in_background<R: Runtime>(
+    app: &AppHandle<R>,
+    finalized: recorder::Finalized,
+    placed: Option<Channel<recorder::Placement>>,
+) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        #[cfg(test)]
+        tests::wait_at_settle_gate(&finalized.pending);
+        let placement =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| finalized.settle()))
+                .unwrap_or_else(|_| recorder::Placement::Pending {
+                    reason: format!(
+                        "settling panicked; it is kept in {} until the folder is opened again",
+                        finalized.pending.display()
+                    ),
+                });
+        if let Some(recorders) = app.try_state::<Recorders<R>>() {
+            recorders.lock().settled(&finalized.pending);
+        }
+        if !matches!(placement, recorder::Placement::Placed { .. }) {
+            warn!("A stopped recording was not encoded and placed: {placement:?}");
+        }
+        if let Some(placed) = placed {
+            if let Err(error) = placed.send(placement) {
+                warn!("Failed to tell the page where its recording landed: {error}");
+            }
+        }
+    });
 }
 
 /// Bring the shell's recording indicator up to date with the recorder.

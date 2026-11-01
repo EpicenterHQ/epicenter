@@ -31,8 +31,9 @@ const { data: recording, error } = await startRecording({
 	input: { deviceId, label }, // optional; undefined is the system default
 });
 const unsubscribe = recording.onLevel((level) => meter.set(level));
-const { data: stopped } = await recording.stop(); // { path, durationMs }
-stopped.path; // 'recordings/2026-10-15-0930.webm' (desktop, and a browser without MP4) or '.m4a' (browser): only stop says which
+const { data: stopped } = await recording.stop(); // { durationMs, placed }: the microphone is released
+const { data: placed } = await stopped.placed; // { path }, once the audio is at its path
+placed.path; // 'recordings/2026-10-15-0930.webm' (desktop, and a browser without MP4) or '.m4a' (browser): only placed says which
 ```
 
 `device` is the app's own store, so the audio lands beside the rest of its
@@ -44,7 +45,8 @@ file with a sync access handle.
 
 | | Desktop | Browser |
 | --- | --- | --- |
-| The file | `<path>.webm`: a WAV written from the first sample in the folder's `.epicenter/recordings` (hidden, never synced), encoded and placed at its path at `stop`; `<path>.wav` when the encoder refuses it, and `stop` fails saying so | `<path>.m4a`, else `<path>.webm`, from the first piece (about a second) |
+| The file | `<path>.webm`: a WAV written from the first sample in the folder's `.epicenter/recordings` (hidden, never synced), encoded and placed at its path after `stop` answers; `<path>.wav` when the encoder refuses it, and `placed` says why (`unencoded`) | `<path>.m4a`, else `<path>.webm`, from the first piece (about a second) |
+| `stop`, then `placed` | `stop` answers once the WAV is finalized; `placed` resolves once the shell has encoded and placed it (about 24 s for an hour of speech), or with an error when it could not be placed, which the next `recoverRecordings` places | `placed` is resolved when `stop` answers: the file was written at its path as it recorded |
 | Format | Opus in WebM, mono, 24 kbps, from 16 kHz PCM (about 10.5 MB an hour of speech; the WAV is 115 MB) | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | The header is rewritten about once a second | Each piece is appended as it arrives; the store's listeners hear the file made and finished, not every piece |
 | Quit, crash, closed window or tab | Audio kept up to the cut | Every piece already written is kept |

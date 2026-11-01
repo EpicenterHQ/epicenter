@@ -79,8 +79,8 @@ once when the command arrives.
 | `inputs()` | Lists the input devices connected now as `{ id, name, isDefault }`. Opens nothing, so it needs no microphone permission. |
 | `open_meter(device, levels)` | Opens the microphone with id `device`, or the system default, and sends its level on `levels` until `close_meter(id)`, or until the window's page reloads or the window is destroyed. Nothing is recorded. Answers the meter's `id` and the microphone's name. |
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
-| `start(root, path, device, signals)` | Records `<path>.webm` in `root`, from the microphone with id `device` or the system default, writing a WAV in `.epicenter/recordings` until it stops. Answers the recording's `id` and the microphone's name; where it lands is `stop`'s answer. |
-| `stop(id)` | Finalizes the WAV, encodes it, places it at its path, and answers that path and its length. Only the window that started it may stop it. |
+| `start(root, path, device, signals)` | Records `<path>.webm` in `root`, from the microphone with id `device` or the system default, writing a WAV in `.epicenter/recordings` until it stops. Answers the recording's `id` and the microphone's name; where it lands follows its `stop`. |
+| `stop(id, placed)` | Finalizes the WAV and answers its length (`{ durationMs }`) without waiting for the encode. The recording is then encoded and placed at its path on a thread of its own, and `placed` hears where it landed, once: `{ kind: 'placed', path }`, `{ kind: 'unencoded', path, reason }` (its WAV was placed), or `{ kind: 'pending', reason }` (not placed; the next `recover` places it). Only the window that started it may stop it. |
 | `recover(root, under)` | Repairs every `.wav` a cut left under `under` in `root`'s `.epicenter/recordings` and settles it as `stop` does, never over a file there, leaving the recording still being written, and any a stop is still settling, alone. Where the path is taken, a recording with the same bytes is removed and any other goes to the first free `<name>-recovered.webm` (`-recovered-2`, ...), so none stays stranded in `.epicenter`. Answers each recording it placed as `{ path, durationMs }`, the length from the WAV's repaired header, which the WebM plays exactly (`null` for a leftover that is not a WAV, placed as it is), so a page never reads the audio back to measure it; a second run places none. |
 
 `start` refuses before it opens anything:
@@ -113,9 +113,10 @@ created with `create_new` there (`.epicenter` made `0700` when missing, and
 refused when it is a link), so nothing already there is written through. Its
 header states the samples written so far about once a second.
 
-When it stops, the WAV is encoded (`staging::settle`), after the microphone
-is released and the recorder is free for the next recording, off the main
-thread and the IPC handler. The encoder reads the WAV 20 ms at a time and
+When it stops, `stop` answers as soon as the WAV is finalized, and the WAV
+is then encoded (`staging::settle`) on a thread of its own, after the
+microphone is released and the recorder is free for the next recording.
+Until it is placed, its WAV is held from `recover`. The encoder reads the WAV 20 ms at a time and
 writes each packet as it is made, so an hour costs the memory a second does
 (12 MB peak for the whole process, measured). Speech encodes at about 0.4 s
 a minute in a release build on an Apple-silicon Mac, and comes to about
@@ -142,14 +143,14 @@ renamed only while nothing is at the path. Only then is the WAV removed. A
 path below a mount point inside the folder is on another file system, which
 neither reaches: placing there fails saying it cannot save across a mount
 point, nothing is copied, and the WAV stays. A
-WAV the encoder refuses is placed itself, at `<path>.wav`, and `stop`
-answers a failure that says so. A recording that cannot be placed, because
+WAV the encoder refuses is placed itself, at `<path>.wav`, and `placed`
+hears `unencoded` with why. A recording that cannot be placed, because
 something took its path while it recorded or the disk refused, stays in
-`.epicenter/recordings`, and `stop` says so; the next `recover` places it
-beside the taken path.
+`.epicenter/recordings`, and `placed` hears `pending`; the next `recover`
+places it beside the taken path.
 
-A crash while it encodes leaves the WAV, which the next `recover` encodes
-again, and a part-written scratch file, which the folder removes once it is
+A crash or a quit while it encodes leaves the WAV, which the next `recover`
+encodes again, and a part-written scratch file, which the folder removes once it is
 an hour old. A crash after the WebM is placed and before the WAV is removed
 leaves a WAV that encodes to the same bytes, which `recover` removes as a
 copy.

@@ -53,7 +53,7 @@ mock.module('@tauri-apps/api/core', () => ({
 		switch (command) {
 			case 'keychain_get':
 				return Object.fromEntries(
-					(args?.names as string[])
+					(args as { names: string[] }).names
 						.filter((name) => keychain.has(name))
 						.map((name) => [name, keychain.get(name)]),
 				);
@@ -146,7 +146,11 @@ mock.module('@epicenter/recorder/tauri', () => ({
 			microphone: 'USB',
 			onLevel: () => () => {},
 			onEnded: () => () => {},
-			stop: async () => Ok({ path: `${options.path}.wav`, durationMs: 1500 }),
+			stop: async () =>
+				Ok({
+					durationMs: 1500,
+					placed: Promise.resolve(Ok({ path: `${options.path}.webm` })),
+				}),
 		});
 	},
 	recoverRecordings: async (options: { device: unknown; under: string }) => {

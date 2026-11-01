@@ -502,8 +502,9 @@ export function createBrowserRecorder(
 						? RecorderError.Empty()
 						: RecorderError.Refused({ reason: storageFailure });
 				return Ok({
-					path: file,
 					durationMs: (await heldMs(file)) ?? finished.data.durationMs,
+					// Written at its path as it recorded.
+					placed: Promise.resolve(Ok({ path: file })),
 				});
 			},
 		});

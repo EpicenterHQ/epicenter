@@ -155,10 +155,15 @@ Opus in WebM at its path after.**
 - `startRecording({ device, path })` refuses when `<path>.webm` or
   `<path>.wav` exists, then creates `.epicenter/recordings/<path>.wav` before
   the microphone opens and writes it from the first sample.
-- `stop` encodes it once to Opus in WebM, in a scratch file in `saves/`,
-  places that at `<path>.webm`, and then removes the WAV. When encoding fails,
-  the WAV itself is placed at `<path>.wav` and `stop` fails saying so. `stop`
-  answers `{ path, durationMs }`; `start` answers no path.
+- `stop` finalizes the WAV and answers `{ durationMs, placed }` without
+  waiting for the encode (about 24 s for an hour of speech). The shell then
+  encodes it once to Opus in WebM, in a scratch file in `saves/`, on a thread
+  of its own, places that at `<path>.webm`, and then removes the WAV; until
+  then the WAV is held from recovery. `placed` resolves with `{ path }` once
+  it is there. When encoding fails, the WAV itself is placed at `<path>.wav`
+  and `placed` says why (`unencoded`); when it cannot be placed, `placed` is
+  an error and the WAV stays for recovery. A quit during the encode leaves
+  the WAV, which recovery encodes again. `start` answers no path.
 - After a quit or a crash, `recoverRecordings({ device, under })` repairs each
   WAV under `.epicenter/recordings/<under>` and settles it the same way,
   placing it at `<stem>-recovered[-n]` beside a taken path. It answers

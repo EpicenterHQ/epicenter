@@ -22,7 +22,7 @@ use tauri_plugin_epicenter_folder::FolderExt;
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
 use crate::meter::OpenedMeter;
-use crate::recorder::{Input, Result, StartedRecording, StoppedRecording};
+use crate::recorder::{Input, Placement, Result, StartedRecording, StoppedRecording};
 use crate::wav::RecoveredRecording;
 use crate::{refresh_capturing, Recorders};
 
@@ -118,8 +118,8 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
 /// The path must be a data path the shared path rule accepts, with nothing at
 /// `<path>.webm` or `<path>.wav` yet. While it records, it is a WAV in the
 /// folder's `.epicenter/recordings` (`staging::pending`), with nothing there yet
-/// either; `stop` encodes it and places it at its path. Missing directories
-/// on the way are made.
+/// either; once `stop` finalizes it, it is encoded and placed at its path.
+/// Missing directories on the way are made.
 /// Microphone access is asked for before the device is resolved. A refusal
 /// opens nothing.
 #[tauri::command]
@@ -187,12 +187,18 @@ pub async fn start<R: Runtime>(
     Ok(started)
 }
 
-/// Stop the recording `id` this window started, finalize it, encode it, and
-/// place it at its path (`Finalized::settle`). Encoding runs after the
-/// microphone is released and the recorder is free, off the IPC handler.
+/// Stop the recording `id` this window started and finalize its WAV, then
+/// answer how long it plays, without waiting for the encode: it is encoded
+/// and placed at its path on a thread of its own (`settle_in_background`),
+/// after the microphone is released and the recorder is free, and where it
+/// landed arrives on `placed`, once.
 #[tauri::command]
 #[specta::specta]
-pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<StoppedRecording> {
+pub async fn stop<R: Runtime>(
+    webview: Webview<R>,
+    id: String,
+    placed: Channel<Placement>,
+) -> Result<StoppedRecording> {
     let app = webview.app_handle().clone();
     let finalized = app
         .state::<Recorders<R>>()
@@ -200,10 +206,11 @@ pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<Stopped
         .stop(&id, webview.label());
     refresh_capturing(&app);
     let finalized = finalized?;
-    let pending = finalized.pending.clone();
-    let settled = tauri::async_runtime::spawn_blocking(move || finalized.settle()).await;
-    app.state::<Recorders<R>>().lock().settled(&pending);
-    settled.map_err(|error| RecorderError::failed(error.to_string()))?
+    let stopped = StoppedRecording {
+        duration_ms: finalized.duration_ms,
+    };
+    crate::settle_in_background(&app, finalized, Some(placed));
+    Ok(stopped)
 }
 
 /// Repair every recording under `under` in `root` (`bound_root`) that a

@@ -8,8 +8,10 @@
  * - `listInputs` answers the shell's inputs; `openMeter` opens one by ID,
  *   hears its levels, and closes it, and a meter withdrawn while opening is
  *   closed
- * - `stop` names the recording the shell minted, answers where the shell
- *   placed it (the start answers no path), and stops hearing the channel
+ * - `stop` names the recording the shell minted, answers its length once
+ *   the shell finalized it, and stops hearing the channel; where the shell
+ *   placed it (or why it did not) follows on the channel `stop` gave, once
+ *   the encode has finished
  * - The shell's refusals arrive as this package's errors, by name
  * - A start withdrawn while the shell opened the microphone is stopped:
  *   released, with what the shell wrote kept
@@ -69,7 +71,7 @@ beforeEach(() => {
 		cmd === 'plugin:epicenter-recorder|start'
 			? started
 			: cmd === 'plugin:epicenter-recorder|stop'
-				? { path: 'recordings/a.wav', durationMs: 1250 }
+				? { durationMs: 1250 }
 				: null;
 });
 
@@ -102,16 +104,52 @@ test('a recording starts in the device’s root and stops by the id the shell mi
 	expect(levels).toEqual([0.25, 0]);
 	expect(endings).toEqual(['deviceDisconnected']);
 
-	expect(expectOk(await recording.stop())).toEqual({
-		path: 'recordings/a.wav',
-		durationMs: 1250,
-	});
-	expect(calls.at(-1)).toEqual({
-		cmd: 'plugin:epicenter-recorder|stop',
-		args: { id: '7' },
-	});
+	const stopped = expectOk(await recording.stop());
+	expect(stopped.durationMs).toBe(1250);
+	const stop = calls.at(-1) as Call;
+	expect(stop.cmd).toBe('plugin:epicenter-recorder|stop');
+	expect(stop.args.id).toBe('7');
 	channel.onmessage({ kind: 'level', level: 0.9 });
 	expect(levels).toEqual([0.25, 0]);
+
+	// Stop answered before the shell placed it: that follows on its channel.
+	let placed: unknown;
+	void stopped.placed.then((answer) => (placed = answer));
+	await Promise.resolve();
+	expect(placed).toBeUndefined();
+	(stop.args.placed as FakeChannel<unknown>).onmessage({
+		kind: 'placed',
+		path: 'recordings/a.webm',
+	});
+	expect(expectOk(await stopped.placed)).toEqual({ path: 'recordings/a.webm' });
+});
+
+test('a recording the shell could not encode is placed as its WAV, and one it could not place is an error', async () => {
+	for (const [placement, expected] of [
+		[
+			{ kind: 'unencoded', path: 'recordings/a.wav', reason: 'no encoder' },
+			{ data: { path: 'recordings/a.wav', unencoded: 'no encoder' } },
+		],
+		[
+			{ kind: 'pending', reason: 'a file is already at recordings/a.webm' },
+			{
+				error: {
+					name: 'Failed',
+					cause: 'a file is already at recordings/a.webm',
+				},
+			},
+		],
+	] as const) {
+		calls = [];
+		const recording = expectOk(
+			await startRecording({ device, path: 'recordings/a' }),
+		);
+		const stopped = expectOk(await recording.stop());
+		((calls.at(-1) as Call).args.placed as FakeChannel<unknown>).onmessage(
+			placement,
+		);
+		expect(await stopped.placed).toMatchObject(expected);
+	}
 });
 
 test('the system default is asked for by naming no microphone', async () => {
@@ -177,7 +215,7 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 		'plugin:epicenter-recorder|start',
 		'plugin:epicenter-recorder|stop',
 	]);
-	expect(calls[1]?.args).toEqual({ id: '7' });
+	expect(calls[1]?.args.id).toBe('7');
 });
 
 test('recover names the directory in the device’s root, and answers what it repaired with its length', async () => {
@@ -292,7 +330,7 @@ test('an ending received before start answers reaches its subscriber once and re
 			});
 			return started;
 		}
-		return { path: 'recordings/a.wav', durationMs: 1250 };
+		return { durationMs: 1250 };
 	};
 	const recording = expectOk(
 		await startRecording({ device, path: 'recordings/a' }),
@@ -319,7 +357,7 @@ test('an ending reaches every listener when the first listener stops the native 
 		stopping = recording.stop();
 	});
 	recording.onEnded((reason) => endings.push(reason));
-	(calls[0]?.args.signals as FakeChannel<unknown>).onmessage({
+	((calls[0] as Call).args.signals as FakeChannel<unknown>).onmessage({
 		kind: 'ended',
 		reason: 'permissionRevoked',
 	});

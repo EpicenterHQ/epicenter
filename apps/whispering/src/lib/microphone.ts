@@ -111,6 +111,14 @@ export function createMicrophoneDevice({
 				async stop() {
 					const { data, error: stopError } = await recording.stop();
 					if (stopError !== null) return Err(captureErrorOf(stopError));
+					const placed = await data.placed;
+					if (placed.error !== null) return Err(captureErrorOf(placed.error));
+					if (placed.data.unencoded !== undefined)
+						return CaptureError.Failed({
+							cause: new Error(
+								`the recording could not be encoded (${placed.data.unencoded}), so it was kept as ${placed.data.path}`,
+							),
+						});
 					return Ok({ durationMs: data.durationMs });
 				},
 			});

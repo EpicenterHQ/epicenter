@@ -36,11 +36,14 @@
 //! A finalized recording is [`Finalized`]: its WAV, still pending. Settling
 //! it encodes it to Opus in WebM and places that at its path
 //! (`staging::settle`), which takes about 0.4 s a minute of speech in a
-//! release build on an Apple-silicon Mac (24 s for an hour), so it runs
-//! after the recorder lock is released, off the main thread and the IPC
-//! handler. Until it is done its WAV is named by [`Recorder::held_paths`],
-//! so `recover` does not settle it a second time. Exit finalizes and does not
-//! encode: the WAV is settled when the folder next opens.
+//! release build on an Apple-silicon Mac (24 s for an hour), so it runs on a
+//! thread of its own after the recorder lock is released: `stop` answers as
+//! soon as the WAV is finalized, and where the recording landed
+//! ([`Placement`]) follows on the channel the page gave `stop`. Until it is
+//! done its WAV is named by [`Recorder::held_paths`], so `recover` does not
+//! settle it a second time. Exit finalizes and does not encode: a WAV still
+//! pending, an encode cut off included, is settled when the folder next
+//! opens.
 //!
 //! # The microphone keeps its rate; the file is 16 kHz
 //!
@@ -505,43 +508,38 @@ pub struct Finalized {
 
 impl Finalized {
     /// Encode the recording, place it at `<stem>.webm`, and answer where it
-    /// is. A WAV that cannot be encoded is placed itself, and the answer is a
-    /// failure that says where and why. A recording that cannot be placed,
-    /// because another file took its path meanwhile or the disk refused it,
-    /// stays pending, for the next `recover` to place beside it.
-    pub fn settle(&self) -> Result<StoppedRecording> {
-        let settled = crate::staging::settle(
+    /// is. A WAV that cannot be encoded is placed itself, at `<stem>.wav`. A
+    /// recording that cannot be placed, because another file took its path
+    /// meanwhile or the disk refused it, stays pending, for the next
+    /// `recover` to place beside it.
+    pub fn settle(&self) -> Placement {
+        match crate::staging::settle(
             &self.root,
             &self.pending,
             &self.stem,
             crate::staging::WhenTaken::Refuse,
-        )
-        .map_err(
-            |error| {
-                RecorderError::failed(format!(
+        ) {
+            Ok(settled) => match settled.unencoded {
+                None => Placement::Placed { path: settled.path },
+                Some(reason) => Placement::Unencoded {
+                    path: settled.path,
+                    reason,
+                },
+            },
+            Err(error) => Placement::Pending {
+                reason: format!(
                     "{} could not be moved into place ({error}); it is kept in {} until the folder is opened again",
                     self.stem,
                     self.pending.display()
-                ))
+                ),
             },
-        )?;
-        if let Some(reason) = settled.unencoded {
-            return Err(RecorderError::failed(format!(
-                "the recording could not be encoded ({reason}), so it was kept as {}",
-                settled.path
-            )));
         }
-        Ok(StoppedRecording {
-            path: settled.path,
-            duration_ms: self.duration_ms,
-        })
     }
 }
 
 /// What `start` answers: the id to stop the recording by, and the
-/// microphone it opened. Where the recording lands is decided when it
-/// stops: `stop` answers `<path>.webm`, or fails naming `<path>.wav` when the
-/// encoder refused it.
+/// microphone it opened. Where the recording lands is decided after it
+/// stops (`Placement`).
 #[derive(Debug, Clone, Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StartedRecording {
@@ -550,14 +548,28 @@ pub struct StartedRecording {
     pub device: String,
 }
 
-/// What `stop` answers: the finalized file and its length.
+/// What `stop` answers once the WAV is finalized and the microphone
+/// released: how long the recording plays. Where it lands arrives later, on
+/// the channel `stop` was given (`Placement`).
 #[derive(Debug, Clone, Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StoppedRecording {
-    /// The folder-relative path of the recording, the path the page named
-    /// plus `.webm`.
-    pub path: String,
     pub duration_ms: u32,
+}
+
+/// Where a stopped recording landed, sent once on the channel `stop` was
+/// given, when its encode and placement have finished.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Placement {
+    /// Encoded and placed at `path`, the path the page named plus `.webm`.
+    Placed { path: String },
+    /// The encoder refused it, so its WAV was placed at `path`, the path the
+    /// page named plus `.wav`, and why.
+    Unencoded { path: String, reason: String },
+    /// Not placed: another file took its path, or the disk refused. It stays
+    /// in `.epicenter/recordings`, where the next `recover` places it.
+    Pending { reason: String },
 }
 
 /// What the recorder calls when capture ends on its own, with the recording's
@@ -1902,10 +1914,14 @@ pub(crate) mod tests {
         recorder
             .require_free_slot()
             .expect("the slot is free before the recording is encoded");
-        let stopped = finalized.settle().unwrap();
+        assert_eq!(
+            finalized.settle(),
+            Placement::Placed {
+                path: "1.webm".to_string()
+            }
+        );
         recorder.settled(&finalized.pending);
-        assert_eq!(stopped.path, "1.webm");
-        assert_eq!(stopped.duration_ms, 1_000);
+        assert_eq!(finalized.duration_ms, 1_000);
         assert!(std::fs::read(root.path().join("1.webm"))
             .unwrap()
             .starts_with(&[0x1A, 0x45, 0xDF, 0xA3]));
@@ -1919,7 +1935,7 @@ pub(crate) mod tests {
     }
 
     /// A file something made at the recording's path meanwhile is never
-    /// replaced: the stop says so, and the recording stays pending, for
+    /// replaced: the placement says so, and the recording stays pending, for
     /// `recover` to place beside it. Nothing of the encode is left.
     #[test]
     fn a_stop_never_replaces_a_file_at_its_path() {
@@ -1928,8 +1944,11 @@ pub(crate) mod tests {
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
         std::fs::write(root.path().join("1.webm"), b"theirs").unwrap();
         let finalized = recorder.stop("1", "app-notes").unwrap();
-        let refused = finalized.settle().unwrap_err();
-        assert_eq!(error_name(&refused), "Failed");
+        let refused = finalized.settle();
+        assert!(
+            matches!(&refused, Placement::Pending { reason } if reason.contains("already at 1.webm")),
+            "{refused:?}"
+        );
         assert_eq!(
             std::fs::read(root.path().join("1.webm")).unwrap(),
             b"theirs"
@@ -1940,7 +1959,7 @@ pub(crate) mod tests {
     }
 
     /// No audio is lost to the encoder: a recording it refuses is placed as
-    /// the WAV it is, and the stop says so.
+    /// the WAV it is, and the placement says so.
     #[test]
     fn a_recording_that_cannot_be_encoded_is_placed_as_its_wav() {
         let root = folder_root();
@@ -1964,12 +1983,10 @@ pub(crate) mod tests {
         writer.finalize().unwrap();
         let bytes = std::fs::read(&finalized.pending).unwrap();
 
-        let refused = finalized.settle().unwrap_err();
-        assert_eq!(error_name(&refused), "Failed");
-        let RecorderError::Failed { message } = refused else {
-            panic!("expected Failed");
+        let Placement::Unencoded { path, .. } = finalized.settle() else {
+            panic!("expected the WAV to be placed unencoded");
         };
-        assert!(message.contains("kept as 1.wav"), "{message}");
+        assert_eq!(path, "1.wav");
         assert_eq!(std::fs::read(root.path().join("1.wav")).unwrap(), bytes);
         assert!(!root.path().join("1.webm").exists());
         assert!(!finalized.pending.exists());

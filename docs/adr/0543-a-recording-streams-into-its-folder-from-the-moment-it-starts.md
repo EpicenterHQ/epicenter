@@ -166,4 +166,5 @@ A started recording no longer answers a path: on the desktop its extension
 is decided at `stop` (`<path>.webm`, or `<path>.wav` when the encoder refuses
 it, which `stop` reports as a failure), so a path answered at `start` could
 be wrong. `stop` answers where the audio is, and `recoverRecordings` where it
-placed each recording it finished.
+placed each recording it finished. ADR-0702 since has `stop` answer before the
+encode, and where the audio is follows as `placed`.

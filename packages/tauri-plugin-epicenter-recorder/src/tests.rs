@@ -19,7 +19,8 @@
 //!   at it yet. A root the page did not open, a window with no binding, or a
 //!   page whose folders have shut down, is refused.
 //! - `stop` reaches only a recording the window started; no command deletes
-//!   one.
+//!   one. It answers once the WAV is finalized, before the encode, and
+//!   where the recording landed follows on the channel it was given.
 //! - `recover` repairs cut-off WAVs in such a folder and is idempotent.
 //! - A destroyed window's recording is finalized, never deleted.
 //! - A window without the plugin's permission cannot call it.
@@ -615,7 +616,12 @@ fn stop_reaches_only_a_recording_this_window_started() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
     let other = window(&fixture.app, "other");
-    let refused = invoke(&main, "stop", json!({ "id": "1" })).unwrap_err();
+    let refused = invoke(
+        &main,
+        "stop",
+        json!({ "id": "1", "placed": "__CHANNEL__:2" }),
+    )
+    .unwrap_err();
     assert_eq!(name(&refused), "NotRecording", "{refused}");
 
     std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
@@ -639,22 +645,153 @@ fn stop_reaches_only_a_recording_this_window_started() {
         !path.exists(),
         "a recording is not at its path while it records"
     );
-    let refused = invoke(&other, "stop", json!({ "id": "7" })).unwrap_err();
+    let refused = invoke(
+        &other,
+        "stop",
+        json!({ "id": "7", "placed": "__CHANNEL__:2" }),
+    )
+    .unwrap_err();
     assert_eq!(name(&refused), "NotRecording", "{refused}");
-    let stopped = invoke(&main, "stop", json!({ "id": "7" })).unwrap();
-    assert_eq!(
-        stopped,
-        json!({ "path": "recordings/a.webm", "durationMs": 1000 })
-    );
+    let stopped = invoke(
+        &main,
+        "stop",
+        json!({ "id": "7", "placed": "__CHANNEL__:2" }),
+    )
+    .unwrap();
+    assert_eq!(stopped, json!({ "durationMs": 1000 }));
+    until_settled(&fixture);
     assert_eq!(
         decoded_samples(&path),
         crate::recorder::RECORDING_RATE as usize
     );
     assert!(!staged.exists());
-    assert!(
-        recorders(&fixture).held_paths().is_empty(),
-        "settled, so recovery may reach it again"
+}
+
+/// Stop answers once the WAV is finalized, without waiting for the encode
+/// (about 24 s for an hour of speech): the microphone is free and the page
+/// can record again while it runs. Until it is placed, its WAV is pending
+/// and held from `recover`.
+#[test]
+fn stop_answers_before_the_encode_finishes() {
+    let fixture = fixture();
+    let main = window(&fixture.app, "main");
+    std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
+    let path = fixture.root.join("recordings/a.webm");
+    let staged = crate::staging::pending(&fixture.root, "recordings/a").unwrap();
+    crate::recorder::tests::hold_recording(
+        &mut recorders(&fixture),
+        &staged,
+        &fixture.root,
+        "recordings/a",
+        "7",
+        "main",
     );
+    let encode = hold_settle(&staged);
+
+    let stopped = invoke(
+        &main,
+        "stop",
+        json!({ "id": "7", "placed": "__CHANNEL__:2" }),
+    )
+    .unwrap();
+    assert_eq!(stopped, json!({ "durationMs": 1000 }));
+    assert!(!path.exists(), "answered before it was encoded and placed");
+    assert!(staged.exists());
+    assert_eq!(
+        recorders(&fixture).held_paths(),
+        std::slice::from_ref(&staged),
+        "held from recover while it settles"
+    );
+    assert!(
+        !recording(&fixture),
+        "the recorder is free for the next start"
+    );
+
+    encode.send(()).unwrap();
+    until_settled(&fixture);
+    assert_eq!(
+        decoded_samples(&path),
+        crate::recorder::RECORDING_RATE as usize
+    );
+    assert!(!staged.exists());
+}
+
+/// Where a stopped recording landed reaches the channel `stop` was given,
+/// once, after it is settled.
+#[test]
+fn the_placement_arrives_on_the_channel_stop_was_given() {
+    use std::sync::mpsc;
+    use tauri::ipc::Channel;
+
+    let fixture = fixture();
+    let staged = crate::staging::pending(&fixture.root, "a").unwrap();
+    crate::recorder::tests::hold_recording(
+        &mut recorders(&fixture),
+        &staged,
+        &fixture.root,
+        "a",
+        "7",
+        "main",
+    );
+    let finalized = recorders(&fixture).stop("7", "main").unwrap();
+    let (heard, hearing) = mpsc::channel();
+    let placed = Channel::new(move |body| {
+        heard
+            .send(body.deserialize::<Value>().expect("a JSON placement"))
+            .unwrap();
+        Ok(())
+    });
+    crate::settle_in_background(fixture.app.handle(), finalized, Some(placed));
+    let placement = hearing
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("a placement");
+    assert_eq!(placement, json!({ "kind": "placed", "path": "a.webm" }));
+    assert!(fixture.root.join("a.webm").exists());
+    assert!(recorders(&fixture).held_paths().is_empty());
+    assert!(hearing
+        .recv_timeout(std::time::Duration::from_millis(100))
+        .is_err());
+}
+
+/// Settles a test holds back, each by the WAV it settles.
+static SETTLE_GATES: std::sync::Mutex<Vec<(PathBuf, std::sync::mpsc::Receiver<()>)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Hold the settle of the WAV at `pending` before it encodes, until the
+/// answer is sent or dropped.
+fn hold_settle(pending: &Path) -> std::sync::mpsc::Sender<()> {
+    let (release, released) = std::sync::mpsc::channel();
+    SETTLE_GATES
+        .lock()
+        .unwrap()
+        .push((pending.to_path_buf(), released));
+    release
+}
+
+/// Where `settle_in_background` waits before it encodes, when a test holds
+/// that recording back (`hold_settle`).
+pub(crate) fn wait_at_settle_gate(pending: &Path) {
+    let gate = {
+        let mut gates = SETTLE_GATES
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        gates
+            .iter()
+            .position(|(held, _)| held == pending)
+            .map(|index| gates.swap_remove(index).1)
+    };
+    if let Some(gate) = gate {
+        let _ = gate.recv_timeout(std::time::Duration::from_secs(10));
+    }
+}
+
+/// Wait until no stopped recording is still settling.
+fn until_settled(fixture: &Fixture) {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !recorders(fixture).held_paths().is_empty() {
+        assert!(std::time::Instant::now() < until, "never settled");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 }
 
 /// How many 16 kHz samples the audio file at `path` decodes to, through the
@@ -698,11 +835,7 @@ fn a_destroyed_window_finalizes_its_recording() {
     crate::page_ended(fixture.app.handle(), "main");
     assert!(!recording(&fixture));
     // Settled on a thread of its own; nobody waits for it but this test.
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while !recorders(&fixture).held_paths().is_empty() {
-        assert!(std::time::Instant::now() < until, "never settled");
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    until_settled(&fixture);
     assert_eq!(
         decoded_samples(&path),
         crate::recorder::RECORDING_RATE as usize

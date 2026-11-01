@@ -34,6 +34,7 @@ import {
 	createBrowserRecorder,
 } from './browser.js';
 import { audioDurationMs } from './container.js';
+import type { Recording } from './recording.js';
 
 /** What every microphone request turns off: Safari's voice processing. */
 const UNPROCESSED = {
@@ -247,6 +248,11 @@ const store = {} as Parameters<
 /** Let queued appends land. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 
+/** Stop `recording` and answer where its audio is. */
+async function placedPath(recording: Recording) {
+	return expectOk(await expectOk(await recording.stop()).placed).path;
+}
+
 test('a recording is written into the store as it records, and heard made and finished', async () => {
 	const memory = memoryFiles();
 	const { startRecording } = createBrowserRecorder(
@@ -271,10 +277,10 @@ test('a recording is written into the store as it records, and heard made and fi
 	);
 	expect(memory.heard).toEqual(['made recordings/a.webm']);
 
-	expect(expectOk(await recording.stop())).toEqual({
-		path: 'recordings/a.webm',
-		durationMs: 1_500,
-	});
+	const stopped = expectOk(await recording.stop());
+	expect(stopped.durationMs).toBe(1_500);
+	// Written at its path as it recorded, so it is placed by the time Stop answers.
+	expect(expectOk(await stopped.placed)).toEqual({ path: 'recordings/a.webm' });
 	expect(memory.held.get('recordings/a.webm')).toEqual(
 		new Uint8Array([1, 2, 3, 9]),
 	);
@@ -309,10 +315,9 @@ test('stop answers how long the written audio plays, not how long the clock ran'
 	);
 	for (let piece = 0; piece < 3; piece++)
 		recorders.at(-1)!.piece(audio.slice(cuts[piece], cuts[piece + 1]));
-	expect(expectOk(await recording.stop())).toEqual({
-		path: 'recordings/a.m4a',
-		durationMs: 1003,
-	});
+	const stopped = expectOk(await recording.stop());
+	expect(stopped.durationMs).toBe(1003);
+	expect(expectOk(await stopped.placed)).toEqual({ path: 'recordings/a.m4a' });
 	expect(memory.held.get('recordings/a.m4a')).toEqual(audio);
 
 	const held = expectOk(await startPageRecording());
@@ -334,7 +339,7 @@ test('AAC in MP4 is recorded into <path>.m4a where the browser records it', asyn
 	const recording = expectOk(
 		await startRecording({ device: store, path: 'recordings/a' }),
 	);
-	expect(expectOk(await recording.stop()).path).toBe('recordings/a.m4a');
+	expect(await placedPath(recording)).toBe('recordings/a.m4a');
 	expect(memory.held.get('recordings/a.m4a')).toEqual(new Uint8Array([4, 5]));
 });
 
@@ -388,7 +393,7 @@ test('a store that stops taking pieces ends the recording, and stop keeps what l
 	recorders.at(-1)!.piece(new Uint8Array([2]));
 	await settle();
 	expect(endings).toEqual(['storageFailed']);
-	expect(expectOk(await recording.stop()).path).toBe('recordings/a.webm');
+	expect(await placedPath(recording)).toBe('recordings/a.webm');
 	expect(memory.held.has('recordings/a.webm')).toBe(false);
 });
 
