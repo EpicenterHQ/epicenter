@@ -20,8 +20,8 @@ export const commands = {
 	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
 	/**
 	 *  Start recording `<path>.webm` in `root` (`bound_root`), from the
-	 *  microphone whose id is `device` or the system default. Levels, and an ending nobody asked for,
-	 *  arrive on `signals`.
+	 *  microphone whose id is `device` or the system default; answers the id to
+	 *  stop it by. An ending nobody asked for arrives on `signals`.
 	 *
 	 *  The path must be a data path the shared path rule accepts, with nothing at
 	 *  `<path>.webm` yet. While it records, it is a WebM in the folder's
@@ -31,7 +31,7 @@ export const commands = {
 	 *  Microphone access is asked for before the device is resolved. A refusal
 	 *  opens nothing.
 	 */
-	start: (root: string, path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<StartedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { root, path, device, signals })),
+	start: (root: string, path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<string, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { root, path, device, signals })),
 	/**
 	 *  Stop the recording `id` this window started, finish its file, and place it
 	 *  at its path, never over a file there; answers where it is and how long it
@@ -160,9 +160,9 @@ export type RecorderError =
 { name: "Failed"; message: string };
 
 /**
- *  What the recorder tells the page that started a recording, over the channel
- *  it passed to `start`: the microphone's level while it captures, and once,
- *  if it happens, that the capture ended without being asked.
+ *  What the recorder tells a page over the channel it passed: a meter's level
+ *  while it is open (`open_meter`), and once, if it happens, that a recording's
+ *  or a meter's capture ended without being asked.
  *
  *  The channel belongs to that page alone, so nothing here names the window.
  *  Both are signals, never results: an ending carries no audio, because the
@@ -194,16 +194,6 @@ export type Recovery = {
 	 *  one of the two.
 	 */
 	unplaced: UnplacedRecording[],
-};
-
-/**
- *  What `start` answers: the id to stop the recording by, and the
- *  microphone it opened.
- */
-export type StartedRecording = {
-	id: string,
-	/**  The name of the microphone that is recording. */
-	device: string,
 };
 
 /**

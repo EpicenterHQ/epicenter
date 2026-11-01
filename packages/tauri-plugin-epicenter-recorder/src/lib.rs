@@ -186,14 +186,8 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
 /// two reasons worth stating, because both could quietly stop being true. The
 /// wait is bounded: the worker checks its command channel every loop and
 /// otherwise blocks for at most 20 ms on samples, so a stop is noticed within
-/// roughly that. And the worker's only main-thread interaction is sending the
-/// mic level over the page's channel, which posts a script to the event loop
-/// without waiting for it. That second point holds only while Tauri's
-/// `tracing` feature is off: with it on, `eval_script` switches to a variant
-/// that blocks on a reply from the main thread (`tauri-runtime-wry`), and a
-/// worker sending while the main thread joins it would deadlock. Nothing in
-/// the shells' dependency graphs enables that feature; if something ever does,
-/// move this call off the main thread.
+/// roughly that. And the worker never waits on the main thread: it sends
+/// nothing to the page (an ending is reported from a thread of its own).
 fn page_ended<R: Runtime>(app: &AppHandle<R>, window: &str) {
     let Some(recorders) = app.try_state::<Recorders<R>>() else {
         return;

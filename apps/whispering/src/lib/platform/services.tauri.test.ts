@@ -144,9 +144,6 @@ mock.module('@epicenter/recorder/tauri', () => ({
 		start: async (options: { device: unknown; path: string }) => {
 			started.push(options);
 			return Ok({
-				startedAt: 0,
-				microphone: 'USB',
-				onLevel: () => () => {},
 				onEnded: () => () => {},
 				stop: async () =>
 					Ok({ path: `${options.path}.webm`, durationMs: 1500 }),

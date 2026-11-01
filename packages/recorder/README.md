@@ -45,7 +45,6 @@ const { data: recording, error } = await recorder.start({
 	path: 'recordings/2026-10-15-0930', // no extension: the format's is added
 	input: { deviceId, label }, // optional; undefined is the system default
 });
-const unsubscribe = recording.onLevel((level) => meter.set(level));
 const { data: stopped } = await recording.stop(); // { path, durationMs }: the microphone is released, and the audio is at its path
 stopped.path; // 'recordings/2026-10-15-0930.webm' (desktop, and a browser without MP4) or '.m4a' (browser): only stop says which
 ```
@@ -106,8 +105,7 @@ A chosen microphone that is not connected is refused as `InputUnavailable`
 on both; no other microphone is opened in its place. Every failure is a
 `RecorderError`, switched on by `name`. Nothing here says whether a
 recording is running: that is the handle `recorder.start` returns, and it
-ends with the page. The handle's `microphone` is the name of the one
-recording.
+ends with the page.
 
 ## Inputs and levels on the desktop
 
@@ -127,7 +125,8 @@ await meter.close(); // the shell also closes it when the page reloads or its wi
 
 A meter's `onEnded` reports its first unexpected ending, including one received
 before the open reply or subscription. `close` retires its listeners. Each
-recording and meter owns a channel the shell sends its levels and ending on.
+recording and meter owns a channel the shell sends its ending on, and a
+meter its levels.
 There is no `allow` and no `onInputsChange`: the shell names every input
 without access, asks for access itself, and announces no changes.
 

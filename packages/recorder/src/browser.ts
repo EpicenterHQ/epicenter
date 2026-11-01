@@ -217,8 +217,6 @@ async function openCapture(
 			catch: (cause) => RecorderError.Failed({ cause }),
 		});
 	const signals = createSignals();
-	// A recording without a meter is still a recording.
-	const stopMeter = meter(stream, signals.level).data ?? (() => {});
 	let settled = false;
 	/** When capture ended on its own, if it did. */
 	let endedAt: number | undefined;
@@ -252,8 +250,6 @@ async function openCapture(
 	});
 
 	return Ok({
-		startedAt,
-		microphone: stream.getAudioTracks()[0]?.label || input?.label || '',
 		/** The type the recorder reports producing, or what was asked for. */
 		type: recorder.mimeType || requested,
 		/** Whether `finish` was called. */
@@ -264,7 +260,6 @@ async function openCapture(
 			// One that cannot stop is stopping already: `finish` settles it.
 			stopRecorder();
 		},
-		onLevel: signals.onLevel,
 		onEnded: signals.onEnded,
 		/**
 		 * Stop the recorder, wait for its last piece, release the microphone,
@@ -272,7 +267,6 @@ async function openCapture(
 		 */
 		async finish(): Promise<Result<{ durationMs: number }, RecorderError>> {
 			settled = true;
-			stopMeter();
 			signals.retire();
 			const durationMs = Math.round((endedAt ?? Date.now()) - startedAt);
 			// A recorder that cannot stop never says it stopped: do not wait for it.
@@ -370,9 +364,6 @@ const start: Recorder['start'] = async ({ device, path, input, signal }) => {
 	for (const piece of early.splice(0)) write(piece);
 
 	return Ok({
-		startedAt: started.startedAt,
-		microphone: started.microphone,
-		onLevel: started.onLevel,
 		onEnded: started.onEnded,
 		async stop() {
 			if (started.isSettled())
@@ -463,9 +454,6 @@ export const startPageRecording: StartPageRecording = async (options = {}) => {
 	if (opened.error !== null) return opened;
 	const capture = opened.data;
 	return Ok({
-		startedAt: capture.startedAt,
-		microphone: capture.microphone,
-		onLevel: capture.onLevel,
 		onEnded: capture.onEnded,
 		async stop() {
 			if (capture.isSettled())

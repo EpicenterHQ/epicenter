@@ -25,7 +25,7 @@ each piece of a recording to this browser's files instead (decision 84).
 
 | Path | What it is |
 | --- | --- |
-| `src/recorder.rs` | The CPAL pipeline: a non-blocking audio callback, a bounded queue, and a writer thread that converts to 16 kHz, encodes and writes as it captures, and sends the level. One recording at a time, owned by the window that started it. |
+| `src/recorder.rs` | The CPAL pipeline: a non-blocking audio callback, a bounded queue, and a writer thread that converts to 16 kHz, encodes and writes as it captures. One recording at a time, owned by the window that started it. |
 | `src/rate.rs` | The conversion from the microphone's rate to the recording's 16 kHz, on the writer thread. |
 | `src/opus.rs` | The encoder: 20 ms at a time, to Opus at 24 kbps, as the recording arrives. |
 | `src/webm.rs` | The WebM it is written in, a whole second at a time (`LiveWebm`), and `finish_cut_off`, which finishes a file a crash cut off from its whole seconds. |
@@ -58,8 +58,9 @@ main thread whenever a microphone may have opened or closed:
 ```
 
 Give the recording window `epicenter-recorder:default` beside
-`epicenter-folder:default`. It needs no event permission: levels arrive on
-the channel the page passes to `start`.
+`epicenter-folder:default`. It needs no event permission: a meter's levels
+and an ending arrive on the channel the page passes to `open_meter` or
+`start`.
 
 ## Commands
 
@@ -78,7 +79,7 @@ once when the command arrives.
 | `inputs()` | Lists the input devices connected now as `{ id, name, isDefault }`. Opens nothing, so it needs no microphone permission. |
 | `open_meter(device, levels)` | Opens the microphone with id `device`, or the system default, and sends its level on `levels` until `close_meter(id)`, or until the window's page reloads or the window is destroyed. Nothing is recorded. Answers the meter's `id` and the microphone's name. |
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
-| `start(root, path, device, signals)` | Records `<path>.webm` in `root`, from the microphone with id `device` or the system default, writing it in `.epicenter/recordings` until it stops. Answers the recording's `id` and the microphone's name. |
+| `start(root, path, device, signals)` | Records `<path>.webm` in `root`, from the microphone with id `device` or the system default, writing it in `.epicenter/recordings` until it stops. Answers the recording's `id`. |
 | `stop(id)` | Finishes the recording in place, places it at its path, and answers `{ path, durationMs }`. It takes the same few milliseconds for a recording of any length. A file already at the path is never replaced: the refusal says so, and where the finished recording is kept in `.epicenter/recordings`. Only the window that started it may stop it. |
 | `recover(root, under)` | Finishes every recording a cut left under `under` in `root`'s `.epicenter/recordings` from its whole seconds and places it at its path, leaving the recording still being written alone. Answers `{ recovered, unplaced }`: each recording it placed as `{ path, durationMs }`, from the length its file states, so a page never reads the audio back to measure it (a second run places none); and each one whose path holds another file as `{ path, pending }`, where `pending` is its folder-relative path under `.epicenter/recordings`. That one is never deleted and never placed beside the other file: it stays pending, finished, and is answered on every run until a person moves one of the two, so a page says where its audio is. A leftover with no whole second holds no audio and is deleted. A page runs it when it opens its folder, before it lists, plays, or transcribes a recording. |
 
@@ -94,8 +95,7 @@ once when the command arrives.
   Another is never opened in its place. `open_meter` refuses the same way.
 - `Busy`: another recording holds the host's one recorder.
 
-`signals` carries `{ kind: 'level', level }` at most twenty times a second, and
-`{ kind: 'ended', reason }` once if the capture ends on its own: the
+`signals` carries `{ kind: 'ended', reason }` once if the capture ends on its own: the
 microphone went away, permission was withdrawn, the stream failed, or the
 file could not be written. What was captured stays the owner's to `stop`.
 

@@ -7,7 +7,6 @@
 //! │  - downmix to mono   │ bound  │  - convert to 16 kHz │
 //! │  - convert to PCM16  │   ed   │  - encode to Opus    │
 //! │  - try_send, or drop │        │  - write WebM        │
-//! │                      │        │  - send mic level    │
 //! └──────────────────────┘        └──────────────────────┘
 //! ```
 //!
@@ -128,61 +127,6 @@ const CAPTURE_QUEUE_CHUNKS: usize = 200;
 
 /// How often a backlogged writer may report dropped chunks.
 const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(1);
-
-/// The least time between two levels sent to a page.
-///
-/// The owner hears its microphone's level over the channel its page passed to
-/// `start`, which reaches that page alone; the JS side never sees the PCM, so
-/// the level has to originate here. An application that draws the meter
-/// somewhere else too forwards it from there.
-///
-/// A level is sent with the first audio callback after this much time, so at
-/// most twenty a second, and fewer when the device's callbacks are long. That
-/// is smooth for a meter and keeps the channel off the IPC hot path (per
-/// Tauri's guidance to throttle high-frequency messages). Levels between
-/// sends are averaged, not dropped, so a brief loud transient still registers.
-const MIC_LEVEL_EMIT_INTERVAL: Duration = Duration::from_millis(50);
-
-/// The microphone's loudness since the last level was sent: the root mean
-/// square of every sample in between, so a brief loud transient still
-/// registers. A recording and a meter both send it, at most once per
-/// [`MIC_LEVEL_EMIT_INTERVAL`].
-pub(crate) struct Level {
-    sum_of_squares: f64,
-    samples: usize,
-    last_sent: Instant,
-}
-
-impl Level {
-    pub(crate) fn new() -> Self {
-        Self {
-            sum_of_squares: 0.0,
-            samples: 0,
-            last_sent: Instant::now(),
-        }
-    }
-
-    pub(crate) fn add(&mut self, samples: &[i16]) {
-        for &sample in samples {
-            let normalized = sample as f64 / 32_768.0;
-            self.sum_of_squares += normalized * normalized;
-        }
-        self.samples += samples.len();
-    }
-
-    /// The level to send at `now`, from 0 to 1, if one is due and anything
-    /// was heard since the last; taking it starts the next interval.
-    pub(crate) fn take(&mut self, now: Instant) -> Option<f32> {
-        if self.samples == 0 || now.duration_since(self.last_sent) < MIC_LEVEL_EMIT_INTERVAL {
-            return None;
-        }
-        let rms = (self.sum_of_squares / self.samples as f64).sqrt() as f32;
-        self.sum_of_squares = 0.0;
-        self.samples = 0;
-        self.last_sent = now;
-        Some(rms)
-    }
-}
 
 /// Worker-thread command channel.
 ///
@@ -402,16 +346,6 @@ pub(crate) struct FinishedRecording {
     pub duration_ms: u32,
 }
 
-/// What `start` answers: the id to stop the recording by, and the
-/// microphone it opened.
-#[derive(Debug, Clone, Serialize, serde::Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct StartedRecording {
-    pub id: String,
-    /// The name of the microphone that is recording.
-    pub device: String,
-}
-
 /// What `stop` answers once the recording is finished and at its path, and
 /// the microphone released: where it is and how long it plays.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize, specta::Type)]
@@ -600,7 +534,7 @@ impl Recorder {
         owner_label: String,
         signals: Channel<RecordingSignal>,
         on_ended: OnEnded,
-    ) -> Result<StartedRecording> {
+    ) -> Result<String> {
         self.require_free_slot()?;
 
         let host = cpal::default_host();
@@ -643,7 +577,6 @@ impl Recorder {
             dropped_chunks: Arc::clone(&dropped_chunks),
         };
         let on_error = capture_error_handler(Arc::clone(&on_ended), id.clone());
-        let worker_signals = signals.clone();
         let worker_id = id.clone();
 
         let worker = thread::spawn(move || {
@@ -693,7 +626,6 @@ impl Recorder {
                 CaptureContext {
                     id: &worker_id,
                     dropped_chunks: &dropped_chunks,
-                    signals: worker_signals,
                     on_ended,
                 },
             );
@@ -730,10 +662,7 @@ impl Recorder {
             cmd_tx,
             worker,
         });
-        Ok(StartedRecording {
-            id,
-            device: device_name,
-        })
+        Ok(id)
     }
 
     /// Mark the recording named by `id` as ended because its capture stopped
@@ -965,13 +894,12 @@ impl Drop for Recorder {
 
 /// Who a capture belongs to, and how to reach them.
 ///
-/// One value rather than four parameters, because none of it is about audio:
-/// it is the recording's identity and the two ways the worker speaks about it,
-/// a meter to the owner's page and a failure report to the host.
+/// One value rather than three parameters, because none of it is about
+/// audio: it is the recording's identity, what it dropped, and how the worker
+/// reports a failure to the host.
 struct CaptureContext<'a> {
     id: &'a str,
     dropped_chunks: &'a AtomicU32,
-    signals: Channel<RecordingSignal>,
     on_ended: OnEnded,
 }
 
@@ -985,9 +913,7 @@ enum CaptureOutcome {
     Unclaimed(Box<CaptureFile>),
 }
 
-/// Capture phase. Encodes mono PCM16 into the recording's file as it arrives,
-/// sending a throttled RMS level to the owner's page so its meter can reflect
-/// live mic activity.
+/// Capture phase. Encodes mono PCM16 into the recording's file as it arrives.
 ///
 /// The capture file is passed by value because whichever way this ends, it
 /// ends here: a `Stop` finalizes it, and anything else hands it back to be
@@ -1009,11 +935,9 @@ fn run_capture<S>(
     let CaptureContext {
         id,
         dropped_chunks,
-        signals,
         on_ended,
     } = context;
 
-    let mut level = Level::new();
     let mut last_drop_report = Instant::now();
 
     loop {
@@ -1053,8 +977,6 @@ fn run_capture<S>(
 
         match sample_rx.recv_timeout(Duration::from_millis(20)) {
             Ok(samples) => {
-                level.add(&samples);
-
                 if let Err(error) = capture.write(&samples) {
                     // A write that fails is terminal: the disk is full, or the
                     // volume vanished. Neither gets better by trying again, so
@@ -1072,14 +994,6 @@ fn run_capture<S>(
                     // worker.
                     thread::spawn(move || on_ended(&id, EndedReason::StorageFailed));
                     return CaptureOutcome::Unclaimed(Box::new(capture));
-                }
-
-                if let Some(level) = level.take(Instant::now()) {
-                    // Over the owner's own channel, never a broadcast: a level
-                    // is about one page's recording, and every other window is
-                    // entitled not to hear it. Not an error if the page is
-                    // hidden or gone, and never fatal.
-                    let _ = signals.send(RecordingSignal::Level { level });
                 }
             }
             Err(RecvTimeoutError::Timeout) => continue,
@@ -2032,23 +1946,6 @@ pub(crate) mod tests {
             "{refused}"
         );
         assert!(path.exists());
-    }
-
-    #[test]
-    fn a_level_is_the_rms_since_the_last_one_sent_at_most_every_interval() {
-        let mut level = Level::new();
-        let start = level.last_sent;
-        let later = start + MIC_LEVEL_EMIT_INTERVAL;
-        assert_eq!(level.take(later), None, "nothing heard, nothing sent");
-        level.add(&[16_384, -16_384]);
-        assert_eq!(level.take(start), None, "not due yet");
-        assert_eq!(level.take(later), Some(0.5));
-        level.add(&[0, 0]);
-        assert_eq!(
-            level.take(later + MIC_LEVEL_EMIT_INTERVAL),
-            Some(0.0),
-            "the next level counts only what came after the last"
-        );
     }
 
     #[test]

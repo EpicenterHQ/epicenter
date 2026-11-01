@@ -22,7 +22,7 @@ use tauri_plugin_epicenter_folder::FolderExt;
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
 use crate::meter::OpenedMeter;
-use crate::recorder::{Input, Result, StartedRecording, StoppedRecording};
+use crate::recorder::{Input, Result, StoppedRecording};
 use crate::staging::Recovery;
 use crate::{refresh_capturing, Recorders};
 
@@ -112,8 +112,8 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
 }
 
 /// Start recording `<path>.webm` in `root` (`bound_root`), from the
-/// microphone whose id is `device` or the system default. Levels, and an ending nobody asked for,
-/// arrive on `signals`.
+/// microphone whose id is `device` or the system default; answers the id to
+/// stop it by. An ending nobody asked for arrives on `signals`.
 ///
 /// The path must be a data path the shared path rule accepts, with nothing at
 /// `<path>.webm` yet. While it records, it is a WebM in the folder's
@@ -130,7 +130,7 @@ pub async fn start<R: Runtime>(
     path: String,
     device: Option<String>,
     signals: Channel<RecordingSignal>,
-) -> Result<StartedRecording> {
+) -> Result<String> {
     let app = webview.app_handle().clone();
     let owner = webview.label().to_string();
     let recorders = app.state::<Recorders<R>>();

@@ -22,7 +22,7 @@
  *   not the time between start and stop
  * - Stop releases the microphone; a second stop is `NotRecording`
  * - A start withdrawn while the browser answers releases what arrives late
- * - Levels are heard while recording
+ * - A lost microphone ends a recording
  * - A meter opens one microphone for its level only, ends when it is
  *   unplugged, and releases it on close; enabling access opens the default
  *   and releases it at once
@@ -310,7 +310,6 @@ test('a recording is written into the store as it records, and heard made and fi
 	const recording = expectOk(
 		await recorder.start({ device, path: 'recordings/a' }),
 	);
-	expect(recording.microphone).toBe('Desk Microphone');
 	expect(memory.held.has('recordings/a.webm')).toBe(false);
 
 	recorders.at(-1)!.piece(new Uint8Array([1, 2]));
@@ -529,7 +528,6 @@ test('a recording holds its lock while it records, so recovery passes it by', as
 test('a recording held in the page answers its audio, as WebM where the browser records no AAC', async () => {
 	const { tick } = browser();
 	const recording = expectOk(await startPageRecording());
-	expect(recording.microphone).toBe('Desk Microphone');
 
 	tick();
 	const stopped = expectOk(await recording.stop());
@@ -778,23 +776,15 @@ test('a recording held in the page that captured nothing is Empty', async () => 
 	expect(expectErr(await recording.stop()).name).toBe('Empty');
 });
 
-test('levels are heard while recording, and a lost microphone is an ending', async () => {
+test('a lost microphone ends a recording', async () => {
 	const { stream, track } = fakeStream('default');
 	browser({ getUserMedia: async () => stream });
 	const recording = expectOk(await startPageRecording());
-	const levels: number[] = [];
 	const endings: string[] = [];
-	recording.onLevel((level) => levels.push(level));
 	recording.onEnded((reason) => endings.push(reason));
-	await new Promise((resolve) => setTimeout(resolve, 120));
-	expect(levels.length).toBeGreaterThan(0);
-	expect(levels[0]).toBeCloseTo(0.5);
 	track.end();
 	expect(endings).toEqual(['deviceDisconnected']);
 	expectOk(await recording.stop());
-	const heard = levels.length;
-	await new Promise((resolve) => setTimeout(resolve, 120));
-	expect(levels.length).toBe(heard);
 });
 
 test('a window without a microphone, an encoder, or MP4 or WebM audio cannot record', async () => {

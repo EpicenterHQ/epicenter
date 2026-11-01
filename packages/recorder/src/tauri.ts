@@ -15,8 +15,8 @@
  * second but the last; `recorder.recover` finishes it from those and
  * places it at its path.
  *
- * Levels and an ending nobody asked for arrive on a channel this page alone
- * hears.
+ * An ending nobody asked for, and a meter's levels, arrive on a channel
+ * this page alone hears.
  *
  * The page opens no microphone of its own: the shell lists the inputs
  * (`listInputs`), reads one's level without recording (`openMeter`), and
@@ -88,7 +88,7 @@ const start: Recorder['start'] = async ({ device, path, input, signal }) => {
 		return RecorderError.Failed({ cause });
 	}
 	if (answer.error !== null) return fromNative(answer.error, input?.label);
-	const { id, device: microphone } = answer.data;
+	const id = answer.data;
 	// Withdrawn while the shell was opening the microphone: it is released,
 	// and what the shell already wrote is finalized and kept, never deleted.
 	if (signal?.aborted) {
@@ -96,12 +96,7 @@ const start: Recorder['start'] = async ({ device, path, input, signal }) => {
 		await commands.stop(id).catch(() => {});
 		return RecorderError.Cancelled();
 	}
-	const startedAt = Date.now();
-
 	return Ok({
-		startedAt,
-		microphone,
-		onLevel: signals.onLevel,
 		onEnded: signals.onEnded,
 		async stop() {
 			signals.retire();

@@ -4,7 +4,7 @@
  * Key behaviors:
  * - `start` names the path and the chosen microphone by the ID the shell
  *   listed it under, and the device's root as the shell answered it when
- *   the device opened, and passes the channel levels and endings arrive on
+ *   the device opened, and passes the channel an ending arrives on
  * - `listInputs` answers the shell's inputs, each by the ID to ask for it
  *   by and its name; `openMeter` opens one by ID, hears its levels, and
  *   closes it, and a meter withdrawn while opening is closed
@@ -57,10 +57,8 @@ const ROOT = '/Users/me/Epicenter/App';
 const device = {} as Parameters<typeof recorder.start>[0]['device'];
 roots.set(device, ROOT);
 
-const started = {
-	id: '7',
-	device: 'Desk Microphone',
-};
+/** The id the shell minted for the recording it started. */
+const started = '7';
 
 beforeEach(() => {
 	calls = [];
@@ -80,7 +78,6 @@ test('a recording starts in the device’s root and stops by the id the shell mi
 			input: { deviceId: 'coreaudio:desk-uid', label: 'Desk Microphone' },
 		}),
 	);
-	expect(recording.microphone).toBe('Desk Microphone');
 	const [start] = calls;
 	expect(start?.cmd).toBe('plugin:epicenter-recorder|start');
 	expect(start?.args).toMatchObject({
@@ -91,14 +88,9 @@ test('a recording starts in the device’s root and stops by the id the shell mi
 	expect(start?.args).not.toHaveProperty('scope');
 
 	const channel = start?.args.signals as FakeChannel<unknown>;
-	const levels: number[] = [];
 	const endings: string[] = [];
-	recording.onLevel((level) => levels.push(level));
 	recording.onEnded((reason) => endings.push(reason));
-	channel.onmessage({ kind: 'level', level: 0.25 });
-	channel.onmessage({ kind: 'level', level: null });
 	channel.onmessage({ kind: 'ended', reason: 'deviceDisconnected' });
-	expect(levels).toEqual([0.25, 0]);
 	expect(endings).toEqual(['deviceDisconnected']);
 
 	expect(expectOk(await recording.stop())).toEqual({
@@ -110,8 +102,8 @@ test('a recording starts in the device’s root and stops by the id the shell mi
 		cmd: 'plugin:epicenter-recorder|stop',
 		args: { id: '7' },
 	});
-	channel.onmessage({ kind: 'level', level: 0.9 });
-	expect(levels).toEqual([0.25, 0]);
+	recording.onEnded((reason) => endings.push(reason));
+	expect(endings).toEqual(['deviceDisconnected']);
 });
 
 test('a command that throws instead of answering is a failure, not a refusal', async () => {

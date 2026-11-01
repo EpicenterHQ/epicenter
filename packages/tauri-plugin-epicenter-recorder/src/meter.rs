@@ -2,8 +2,7 @@
 //!
 //! Nothing is recorded, written, or sent but the level. The stream is built
 //! the way a recording builds it (the same device, configuration, and
-//! callback), and its level is the one a recording sends, over the channel
-//! the page passed: `{ kind: 'level' }` at most twenty times a second (one
+//! callback), and its level goes over the channel the page passed: `{ kind: 'level' }` at most twenty times a second (one
 //! per audio callback once 50 ms have passed, so fewer when the device's
 //! callbacks are long), and `{ kind: 'ended' }` once if the stream dies on its
 //! own. The meter is
@@ -24,11 +23,64 @@ use tauri::ipc::Channel;
 
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
-use crate::recorder::{build_input_stream, input_config, resolve_device, ChunkSink, Level, Result};
+use crate::recorder::{build_input_stream, input_config, resolve_device, ChunkSink, Result};
 
 /// How many chunks may wait for the meter's worker. A meter keeps nothing, so
 /// a short queue is enough; a full one drops chunks, which costs a level.
 const METER_QUEUE_CHUNKS: usize = 20;
+
+/// The least time between two levels sent to a page.
+///
+/// The page hears the level over the channel it passed to `open_meter`,
+/// which reaches that page alone; the JS side never sees the PCM, so the
+/// level has to originate here.
+///
+/// A level is sent with the first audio callback after this much time, so at
+/// most twenty a second, and fewer when the device's callbacks are long. That
+/// is smooth for a meter and keeps the channel off the IPC hot path (per
+/// Tauri's guidance to throttle high-frequency messages). Levels between
+/// sends are averaged, not dropped, so a brief loud transient still registers.
+const MIC_LEVEL_EMIT_INTERVAL: Duration = Duration::from_millis(50);
+
+/// The microphone's loudness since the last level was sent: the root mean
+/// square of every sample in between, so a brief loud transient still
+/// registers. A meter sends it at most once per [`MIC_LEVEL_EMIT_INTERVAL`].
+struct Level {
+    sum_of_squares: f64,
+    samples: usize,
+    last_sent: Instant,
+}
+
+impl Level {
+    fn new() -> Self {
+        Self {
+            sum_of_squares: 0.0,
+            samples: 0,
+            last_sent: Instant::now(),
+        }
+    }
+
+    fn add(&mut self, samples: &[i16]) {
+        for &sample in samples {
+            let normalized = sample as f64 / 32_768.0;
+            self.sum_of_squares += normalized * normalized;
+        }
+        self.samples += samples.len();
+    }
+
+    /// The level to send at `now`, from 0 to 1, if one is due and anything
+    /// was heard since the last; taking it starts the next interval.
+    fn take(&mut self, now: Instant) -> Option<f32> {
+        if self.samples == 0 || now.duration_since(self.last_sent) < MIC_LEVEL_EMIT_INTERVAL {
+            return None;
+        }
+        let rms = (self.sum_of_squares / self.samples as f64).sqrt() as f32;
+        self.sum_of_squares = 0.0;
+        self.samples = 0;
+        self.last_sent = now;
+        Some(rms)
+    }
+}
 
 /// What `open_meter` answers: the id to close it by, and the name of the
 /// microphone it opened.
@@ -208,5 +260,27 @@ pub(crate) fn open(
         Err(error) => Err(RecorderError::failed(format!(
             "meter worker exited before reporting stream readiness: {error}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_level_is_the_rms_since_the_last_one_sent_at_most_every_interval() {
+        let mut level = Level::new();
+        let start = level.last_sent;
+        let later = start + MIC_LEVEL_EMIT_INTERVAL;
+        assert_eq!(level.take(later), None, "nothing heard, nothing sent");
+        level.add(&[16_384, -16_384]);
+        assert_eq!(level.take(start), None, "not due yet");
+        assert_eq!(level.take(later), Some(0.5));
+        level.add(&[0, 0]);
+        assert_eq!(
+            level.take(later + MIC_LEVEL_EMIT_INTERVAL),
+            Some(0.0),
+            "the next level counts only what came after the last"
+        );
     }
 }

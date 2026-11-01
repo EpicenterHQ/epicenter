@@ -100,12 +100,6 @@ export type StoppedRecording = {
  * page (`startPageRecording`) the audio itself.
  */
 export type RecordingHandle<TStopped> = {
-	/** `Date.now()` when capture began. */
-	readonly startedAt: number;
-	/** The name of the microphone that is recording. */
-	readonly microphone: string;
-	/** Hear how loud the input is, from 0 to 1, about twenty times a second. Returns the unsubscribe. */
-	onLevel(listener: (level: number) => void): () => void;
 	/** Hear that capture ended on its own, including an ending before subscription. `stop` keeps what was captured. Retired by stop. */
 	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;
 	/**
