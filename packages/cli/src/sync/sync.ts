@@ -258,17 +258,17 @@ async function step(
 const LITERAL = { GIT_LITERAL_PATHSPECS: '1' };
 
 /**
- * What a round commits: the data folder's own paths (the working directory
- * every `git` here runs in), never its unfinished writes in
- * `STATE_DIRECTORY`, whatever the folder's `.gitignore` says. The exclusion
- * matches that directory at any depth, as init's `.gitignore` line does. It
- * starts with a wildcard on purpose: `git add` fails on an exclusion that
- * names an ignored path literally (`:(exclude).epicenter` while `.gitignore`
- * lists it). It is pathspec magic, so these are never given with `LITERAL`,
+ * What a round commits, and what `epicenter status` reports changed: the
+ * data folder's own paths (the working directory `git` runs in), never its
+ * unfinished writes in `STATE_DIRECTORY`, whatever the folder's
+ * `.gitignore` says. The exclusion matches that directory at any depth, as
+ * init's `.gitignore` line does. It starts with a wildcard on purpose:
+ * `git add` fails on an exclusion that names an ignored path literally
+ * (`:(exclude).epicenter` while `.gitignore` lists it). It is pathspec magic, so these are never given with `LITERAL`,
  * and `GIT_LITERAL_PATHSPECS` from the environment is turned off for them.
  */
-const COMMITTED = ['--', '.', `:(exclude,glob)**/${STATE_DIRECTORY}/**`];
-const MAGIC = { env: { GIT_LITERAL_PATHSPECS: '0' } };
+export const COMMITTED = ['--', '.', `:(exclude,glob)**/${STATE_DIRECTORY}/**`];
+export const MAGIC = { env: { GIT_LITERAL_PATHSPECS: '0' } };
 
 /** The round itself, holding the repository's sync lock. Returns the head it ends at. */
 async function round(

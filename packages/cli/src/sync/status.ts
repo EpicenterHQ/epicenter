@@ -1,7 +1,9 @@
 /**
  * `epicenter status [<dir>]`: a thin read of the folder's Git state. It runs
- * `git status --porcelain` limited to the folder, compares `HEAD` with the
- * last fetched `origin/main`, and names whether the folder is registered.
+ * `git status --porcelain` over what sync would commit (`COMMITTED`: the
+ * folder, never its unfinished writes in `.epicenter`), compares `HEAD`
+ * with the last fetched `origin/main`, and names whether the folder is
+ * registered.
  * Without `<dir>` it reads every registered folder (`registeredStatus`).
  * It fetches nothing and writes nothing.
  */
@@ -11,6 +13,7 @@ import { realpath } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import { config, git } from './git.ts';
 import { registeredFolders, repositoryRoot } from './setup.ts';
+import { COMMITTED, MAGIC } from './sync.ts';
 
 export type FolderStatus = {
 	readonly folder: string;
@@ -64,17 +67,15 @@ export async function folderStatus(
 			config(root, 'remote.origin.url'),
 			registeredFolders(),
 			git(
-				root,
+				folder,
 				[
 					'status',
 					'--porcelain=v1',
 					'-z',
 					'--untracked-files=all',
-					'--',
-					relative(root, folder) || '.',
+					...COMMITTED,
 				],
-				// The folder's path names only itself, whatever characters it holds.
-				{ env: { GIT_LITERAL_PATHSPECS: '1' } },
+				MAGIC,
 			),
 			git(root, [
 				'rev-list',

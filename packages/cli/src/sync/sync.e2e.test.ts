@@ -865,6 +865,11 @@ describe('epicenter sync over stock git', () => {
 			expect(
 				(await git(F, 'check-ignore', '-q', '.epicenter/saves/staged')).code,
 			).toBe(1);
+			// Status reports what sync would commit, and nothing in .epicenter.
+			const { status } = JSON.parse((await cli('status', F, '--json')).stdout);
+			expect(
+				status.changes.map((change: { path: string }) => change.path).sort(),
+			).toEqual(['.gitignore', 'notes/a.md', 'notes/b.md']);
 
 			const synced = await syncJson(F);
 			expect(synced.status.status).toBe('synced');
