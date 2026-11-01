@@ -32,7 +32,7 @@
  * they call `getUserMedia`, so only a browser build reaches them.
  */
 import { deviceFiles } from '@epicenter/folder/browser';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import { audioDurationMs, repairAudio } from './container.js';
 import { openMicrophone, release } from './microphone.js';
 import {
@@ -191,26 +191,38 @@ async function openCapture(
 	);
 	if (openError !== null) return Err(openError);
 	const requested = requestedType();
-	let recorder: MediaRecorder;
-	try {
-		recorder = new MediaRecorder(
-			stream,
-			requested === undefined ? undefined : { mimeType: requested },
-		);
-	} catch (cause) {
+	const { data: recorder, error: createError } = trySync({
+		try: () =>
+			new MediaRecorder(
+				stream,
+				requested === undefined ? undefined : { mimeType: requested },
+			),
+		catch: (cause) => RecorderError.Failed({ cause }),
+	});
+	if (createError !== null) {
 		release(stream);
-		return RecorderError.Failed({ cause });
+		return Err(createError);
 	}
 	recorder.addEventListener('dataavailable', (event) => {
 		if (event.data.size > 0) onPiece(event.data);
 	});
 	const startedAt = Date.now();
-	try {
-		recorder.start(PIECE_MS);
-	} catch (cause) {
+	const { error: startError } = trySync({
+		try: () => recorder.start(PIECE_MS),
+		catch: (cause) => RecorderError.Failed({ cause }),
+	});
+	if (startError !== null) {
 		release(stream);
-		return RecorderError.Failed({ cause });
+		return Err(startError);
 	}
+	/** Stop the recorder, unless it already stopped. */
+	const stopRecorder = () =>
+		trySync({
+			try: () => {
+				if (recorder.state !== 'inactive') recorder.stop();
+			},
+			catch: (cause) => RecorderError.Failed({ cause }),
+		});
 	const levels = new Set<(level: number) => void>();
 	const endings = new Set<(reason: RecordingEndedReason) => void>();
 	const stopMeter = meter(stream, levels);
@@ -255,11 +267,8 @@ async function openCapture(
 		interrupted,
 		/** Stop the recorder early, as when storage failed: `finish` still settles it. */
 		halt() {
-			try {
-				if (recorder.state !== 'inactive') recorder.stop();
-			} catch {
-				// Already stopping.
-			}
+			// One that cannot stop is stopping already: `finish` settles it.
+			stopRecorder();
 		},
 		onLevel(listener: (level: number) => void) {
 			levels.add(listener);
@@ -284,15 +293,11 @@ async function openCapture(
 			levels.clear();
 			endings.clear();
 			const durationMs = Math.round((ended?.at ?? Date.now()) - startedAt);
-			try {
-				if (recorder.state !== 'inactive') recorder.stop();
-			} catch (cause) {
-				release(stream);
-				return RecorderError.Failed({ cause });
-			}
-			const outcome = await finished;
+			// A recorder that cannot stop never says it stopped: do not wait for it.
+			const stopped = stopRecorder();
+			const outcome = stopped.error !== null ? stopped : await finished;
 			release(stream);
-			if (outcome.error !== null) return outcome;
+			if (outcome.error !== null) return Err(outcome.error);
 			return Ok({ durationMs });
 		},
 	});
@@ -343,15 +348,25 @@ export const startRecording: StartRecording = async ({
 	let file = expected;
 	let capture: Capture | undefined;
 	let created = false;
-	let storageFailure: string | undefined;
+	/** Why pieces stopped landing: the recording ended there. */
+	let failure: RecorderError | undefined;
+	const fail = (error: RecorderError, reason: RecordingEndedReason) => {
+		failure = error;
+		capture?.interrupted(reason);
+		capture?.halt();
+	};
 	let writing = Promise.resolve();
 	/** Pieces that arrive before the file's name is settled wait for it. */
 	const early: Blob[] = [];
 	const write = (piece: Blob) => {
 		writing = writing.then(async () => {
-			if (storageFailure !== undefined) return;
-			const bytes = new Uint8Array(await piece.arrayBuffer());
-			const { data, error } = await files.append(file, bytes, {
+			if (failure !== undefined) return;
+			const { data: buffer, error: readError } = await tryAsync({
+				try: () => piece.arrayBuffer(),
+				catch: (cause) => RecorderError.Failed({ cause }),
+			});
+			if (readError !== null) return fail(readError, 'streamFailed');
+			const { data, error } = await files.append(file, new Uint8Array(buffer), {
 				create: !created,
 				announce: false,
 			});
@@ -359,13 +374,12 @@ export const startRecording: StartRecording = async ({
 				created = true;
 				return;
 			}
-			storageFailure =
+			const reason =
 				error?.message ??
 				(created
 					? `${file} was removed while it recorded`
 					: `a file is already at ${file}`);
-			capture?.interrupted('storageFailed');
-			capture?.halt();
+			fail(RecorderError.Refused({ reason }).error, 'storageFailed');
 		});
 	};
 	const opened = await openCapture({ input, signal }, (piece) =>
@@ -401,9 +415,7 @@ export const startRecording: StartRecording = async ({
 				});
 			if (finished.error !== null) return finished;
 			if (!created)
-				return storageFailure === undefined
-					? RecorderError.Empty()
-					: RecorderError.Refused({ reason: storageFailure });
+				return failure === undefined ? RecorderError.Empty() : Err(failure);
 			return Ok({
 				durationMs: (await heldMs(file)) ?? finished.data.durationMs,
 				// Written at its path as it recorded.
@@ -492,7 +504,12 @@ export const startPageRecording: StartPageRecording = async (options = {}) => {
 			if (finished.error !== null) return finished;
 			// The produced type, not the requested one: read it from the data.
 			const type = pieces[0]?.type || capture.type;
-			const bytes = new Uint8Array(await new Blob(pieces).arrayBuffer());
+			const { data: buffer, error: readError } = await tryAsync({
+				try: () => new Blob(pieces).arrayBuffer(),
+				catch: (cause) => RecorderError.Failed({ cause }),
+			});
+			if (readError !== null) return Err(readError);
+			const bytes = new Uint8Array(buffer);
 			if (bytes.byteLength === 0) return RecorderError.Empty();
 			const extension = extensionOf(type);
 			return Ok({

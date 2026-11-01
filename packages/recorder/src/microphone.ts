@@ -5,7 +5,7 @@
  * other microphone is opened in its place. Either way the browser's voice
  * processing is off (see `UNPROCESSED`).
  */
-import { Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { RecorderError, type RecordingInput } from './recording.js';
 
 /** Stop every track, which releases the microphone. */
@@ -42,29 +42,33 @@ export async function openMicrophone(
 	signal: AbortSignal | undefined,
 ): Promise<Result<MediaStream, RecorderError>> {
 	if (signal?.aborted) return RecorderError.Cancelled();
-	let stream: MediaStream;
-	try {
-		stream = await mediaDevices.getUserMedia({
-			audio:
-				input === undefined
-					? UNPROCESSED
-					: { ...UNPROCESSED, deviceId: { exact: input.deviceId } },
-		});
-	} catch (cause) {
-		if (signal?.aborted) return RecorderError.Cancelled();
-		const name = nameOf(cause);
-		if (name === 'NotAllowedError' || name === 'SecurityError')
-			return RecorderError.PermissionDenied();
-		// An exact ID the browser cannot satisfy: the microphone is not there.
-		if (
-			input !== undefined &&
-			(name === 'OverconstrainedError' || name === 'NotFoundError')
-		)
-			return RecorderError.InputUnavailable({ label: input.label });
-		if (name === 'NotFoundError')
-			return RecorderError.NoInputDevice({ reason: 'no microphone was found' });
-		return RecorderError.Failed({ cause });
-	}
+	const { data: stream, error } = await tryAsync({
+		try: () =>
+			mediaDevices.getUserMedia({
+				audio:
+					input === undefined
+						? UNPROCESSED
+						: { ...UNPROCESSED, deviceId: { exact: input.deviceId } },
+			}),
+		catch: (cause) => {
+			if (signal?.aborted) return RecorderError.Cancelled();
+			const name = nameOf(cause);
+			if (name === 'NotAllowedError' || name === 'SecurityError')
+				return RecorderError.PermissionDenied();
+			// An exact ID the browser cannot satisfy: the microphone is not there.
+			if (
+				input !== undefined &&
+				(name === 'OverconstrainedError' || name === 'NotFoundError')
+			)
+				return RecorderError.InputUnavailable({ label: input.label });
+			if (name === 'NotFoundError')
+				return RecorderError.NoInputDevice({
+					reason: 'no microphone was found',
+				});
+			return RecorderError.Failed({ cause });
+		},
+	});
+	if (error !== null) return Err(error);
 	// Withdrawn while the browser was answering: this stream has no other owner.
 	if (signal?.aborted) {
 		release(stream);

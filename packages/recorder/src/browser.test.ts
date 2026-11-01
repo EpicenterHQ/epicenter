@@ -654,6 +654,93 @@ test('a start withdrawn while the browser answers releases the late stream', asy
 	expect(track.stopped).toBe(true);
 });
 
+test('an encoder that cannot be made, started, or stopped is a failure, and the microphone is released', async () => {
+	const Base = fakeRecorderClass(() => new Uint8Array([1, 2, 3]));
+	const unmade = class extends Base {
+		constructor(stream: MediaStream, options?: MediaRecorderOptions) {
+			super(stream, options);
+			throw new Error('NotSupportedError');
+		}
+	};
+	const unstarted = class extends Base {
+		override start(): void {
+			throw new Error('InvalidStateError');
+		}
+	};
+	for (const Recorder of [unmade, unstarted]) {
+		const { stream, track } = fakeStream('default');
+		const memory = memoryFiles();
+		const { device } = browser({
+			files: memory.files,
+			getUserMedia: async () => stream,
+			Recorder,
+		});
+		expect(
+			expectErr(await startRecording({ device, path: 'recordings/a' })).name,
+		).toBe('Failed');
+		expect(track.stopped).toBe(true);
+		expect(memory.held.size).toBe(0);
+	}
+
+	// One that will not stop never says it stopped: Stop answers anyway.
+	const { stream, track } = fakeStream('default');
+	browser({
+		getUserMedia: async () => stream,
+		Recorder: class extends Base {
+			override stop(): void {
+				throw new Error('InvalidStateError');
+			}
+		},
+	});
+	const recording = expectOk(await startPageRecording());
+	expect(expectErr(await recording.stop()).name).toBe('Failed');
+	expect(track.stopped).toBe(true);
+});
+
+test('audio the page cannot read is a failure, not a thrown stop, and the microphone is still released', async () => {
+	const unreadable = new Error('NotReadableError');
+	class UnreadableBlob extends Blob {
+		override async arrayBuffer(): Promise<ArrayBuffer> {
+			throw unreadable;
+		}
+	}
+
+	// Held in the page: the whole recording is read at stop.
+	const held = fakeStream('default');
+	browser({ getUserMedia: async () => held.stream });
+	const recording = expectOk(await startPageRecording());
+	stub(globalThis, 'Blob', UnreadableBlob);
+	expect(expectErr(await recording.stop())).toMatchObject({
+		name: 'Failed',
+		cause: unreadable,
+	});
+	expect(held.track.stopped).toBe(true);
+	expect(expectErr(await recording.stop()).name).toBe('NotRecording');
+
+	// Written as it records: a piece that cannot be read ends it there.
+	const written = fakeStream('default');
+	const memory = memoryFiles();
+	const { device } = browser({
+		files: memory.files,
+		getUserMedia: async () => written.stream,
+	});
+	const writing = expectOk(
+		await startRecording({ device, path: 'recordings/a' }),
+	);
+	const endings: string[] = [];
+	writing.onEnded((reason) => endings.push(reason));
+	// Every piece is an unreadable Blob still.
+	recorders.at(-1)!.piece(new Uint8Array([1]));
+	await settle();
+	expect(endings).toEqual(['streamFailed']);
+	expect(expectErr(await writing.stop())).toMatchObject({
+		name: 'Failed',
+		cause: unreadable,
+	});
+	expect(written.track.stopped).toBe(true);
+	expect(memory.held.size).toBe(0);
+});
+
 test('a recording held in the page that captured nothing is Empty', async () => {
 	browser({ Recorder: fakeRecorderClass(() => new Uint8Array()) });
 	const recording = expectOk(await startPageRecording());

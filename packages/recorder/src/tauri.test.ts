@@ -124,6 +124,26 @@ test('a recording starts in the device’s root and stops by the id the shell mi
 	expect(expectOk(await stopped.placed)).toEqual({ path: 'recordings/a.webm' });
 });
 
+test('a command that throws instead of answering is a failure, not a refusal', async () => {
+	const recording = expectOk(
+		await startRecording({ device, path: 'recordings/a' }),
+	);
+	const lost = new Error('the shell is gone');
+	answer = () => {
+		throw lost;
+	};
+	const failed = { name: 'Failed', cause: lost };
+	expect(expectErr(await recording.stop())).toMatchObject(failed);
+	expect(
+		expectErr(await startRecording({ device, path: 'recordings/b' })),
+	).toMatchObject(failed);
+	expect(expectErr(await openMeter())).toMatchObject(failed);
+	expect(expectErr(await listInputs())).toMatchObject(failed);
+	expect(
+		expectErr(await recoverRecordings({ device, under: 'recordings' })),
+	).toMatchObject(failed);
+});
+
 test('a recording the shell could not encode is placed as its WAV, and one it could not place is an error', async () => {
 	for (const [placement, expected] of [
 		[
