@@ -23,7 +23,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { GIT_ENV, git, scratch } from '../git-http.test-support.js';
+import { GIT_ENV, git, scratch } from '../git.test-support.js';
 import { runGit } from './native-host.js';
 
 /** `runGit` in `root`, as the CLI's sync verbs run it. */

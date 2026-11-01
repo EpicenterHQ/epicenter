@@ -21,7 +21,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
-import { scratch } from '../git-http.test-support.js';
+import { scratch } from '../git.test-support.js';
 import { savesDirectory } from '../state.js';
 import { openNativeStorage } from './directory.js';
 

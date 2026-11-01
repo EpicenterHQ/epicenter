@@ -11,7 +11,7 @@ import {
 	credentialEnvironment,
 	runGit,
 } from './git/native-host.js';
-import { GIT_ENV, git, scratch } from './git-http.test-support.js';
+import { GIT_ENV, git, scratch } from './git.test-support.js';
 
 const AUTHORIZATION = basicAuthorization({
 	username: 'x-token',
