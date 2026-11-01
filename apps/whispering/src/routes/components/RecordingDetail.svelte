@@ -1,8 +1,8 @@
 <!--
-	One recording: its audio, transcripts, and notes. Its title and notes are
-	one editor of the note the lists show (`getRecordings().edit`): what was
-	typed shows until its save answers, then the note again. A recording whose note does not read shows
-	its text, to repair.
+	One recording: its audio, transcripts, and notes. Its fields are one
+	editor of the note the lists show (`getRecordings().edit`): what was typed
+	shows until its save answers, then the note again. A recording whose note
+	does not read shows its text, to repair.
 -->
 <script lang="ts">
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
@@ -72,10 +72,10 @@
 				<ArrowLeftIcon />
 			</Button>
 		{/if}
-		{#if recording.note}
+		{#if recording.exists}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={recording.title}
+				bind:value={recording.fields.title}
 				placeholder="Title"
 				aria-label="Recording title"
 			/>
@@ -96,12 +96,12 @@
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 			<NoteRepair {repair} />
 		</div>
-	{:else if recording.note === undefined}
+	{:else if !recording.exists}
 		<p class="flex-1 px-4 py-4 text-sm text-muted-foreground" role="status">This recording is no longer listed.</p>
 	{:else}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3 sm:px-4">
 			{#if audio.kind === 'here'}
-				<AudioPlayer id={own} file={audio.file} label="Audio of {recording.note.title || own}" />
+				<AudioPlayer id={own} file={audio.file} label="Audio of {recording.fields.title || own}" />
 			{:else}
 				<AudioMissing {audio} />
 			{/if}
@@ -124,7 +124,7 @@
 					<RunStatus {run} />
 				{/if}
 				{#each results as result (result.id)}
-					<TranscriptCard {result} />
+					<TranscriptCard id={result.id} />
 				{:else}
 					{#if run === undefined}
 						<p class="text-sm text-muted-foreground">No transcription yet.</p>
@@ -136,7 +136,7 @@
 				<h3 class="text-sm font-medium">Notes</h3>
 				<Textarea
 					class="min-h-28 resize-y font-sans"
-					bind:value={recording.body}
+					bind:value={recording.fields.body}
 					placeholder="Notes in Markdown, saved in the recording’s note"
 					aria-label="Notes"
 				/>
@@ -154,9 +154,9 @@
 				<Collapsible.Content class="pt-2">
 					<dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
 						<dt class="text-muted-foreground">Recorded</dt>
-						<dd>{when(recording.note.recordedAt)}</dd>
+						<dd>{when(recording.fields.recordedAt ?? '')}</dd>
 						<dt class="text-muted-foreground">Length</dt>
-						<dd>{recording.note.durationMs === undefined ? 'Not recorded' : `${(recording.note.durationMs / 1000).toFixed(1)} s`}</dd>
+						<dd>{recording.fields.durationMs === undefined ? 'Not recorded' : `${(recording.fields.durationMs / 1000).toFixed(1)} s`}</dd>
 						<dt class="text-muted-foreground">Kept in</dt>
 						<dd data-testid="kept-in">
 							{variant === 'desktop' ? 'Your data folder' : 'This browser'}

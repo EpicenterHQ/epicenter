@@ -303,6 +303,7 @@ function noteClient(
 	}
 
 	return {
+		fieldNames: collection.keys,
 		async list() {
 			const paths = await claimed(compiled, collection, wire);
 			if (paths.error !== null) return paths;

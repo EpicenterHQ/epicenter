@@ -8,7 +8,7 @@
 	import { goto } from '$app/navigation';
 	import { pathOf } from './nav-items.js';
 	import { getTranscriptions } from '$lib/files.svelte.js';
-	import { getLibrary, type TranscriptionNote } from '$lib/library.svelte.js';
+	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
 	import { confirmDelete, copyText, formatTime } from './file-actions.js';
@@ -21,16 +21,21 @@
 	 * beside the player. Its text is the body of the transcript's own note,
 	 * saved as it is typed.
 	 */
-	let { result }: { result: TranscriptionNote } = $props();
+	let {
+		id: shownId,
+	}: {
+		/** The transcript's id. The list keys each card by it. */
+		id: string;
+	} = $props();
 	const whispering = getWhispering();
 	const library = getLibrary();
 	// The list keys each card by its note; what is typed is sent to that one.
 	// svelte-ignore state_referenced_locally
-	const id = result.id;
+	const id = shownId;
 
-	/** The text now: as typed until its save answers, else as the note holds it. */
+	/** The transcript's fields, its text included: as typed until its save answers, else as the note holds them. */
 	const transcript = getTranscriptions().edit({ id });
-	const text = $derived(transcript.body ?? result.body);
+	const text = $derived(transcript.fields.body ?? '');
 
 	const outputs = $derived(library.outputsFor(id));
 	const runs = $derived(library.runsOn(id));
@@ -55,22 +60,22 @@
 <article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result">
 	<Textarea
 		class="min-h-32 resize-y font-sans"
-		bind:value={() => text, (value) => (transcript.body = value)}
+		bind:value={() => text, (value) => (transcript.fields.body = value)}
 		placeholder="This transcript has no text."
-		aria-label="Transcript of {formatTime(result.createdAt) || result.id}"
+		aria-label="Transcript of {formatTime(transcript.fields.createdAt) || id}"
 		data-testid="transcript-text"
 	/>
 	<UnsavedEdit edit={transcript} />
 	<footer class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-		<span>{formatTime(result.createdAt) || 'Unknown time'} · {result.model}</span>
+		<span>{formatTime(transcript.fields.createdAt) || 'Unknown time'} · {transcript.fields.model}</span>
 		<span class="ml-auto flex items-center gap-1">
-			<Button size="xs" variant="outline" disabled={!text?.trim()} onclick={() => void copyText(text ?? '', 'the transcript')} data-testid="copy-transcript">
+			<Button size="xs" variant="outline" disabled={!text.trim()} onclick={() => void copyText(text, 'the transcript')} data-testid="copy-transcript">
 				Copy
 			</Button>
 			<DropdownMenu.Root>
 				<DropdownMenu.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} size="xs" variant="outline" disabled={!text?.trim()} data-testid="transform">
+						<Button {...props} size="xs" variant="outline" disabled={!text.trim()} data-testid="transform">
 							{#if transforming}<Spinner class="size-3" />{:else}<WandSparklesIcon />{/if}
 							Transform
 						</Button>

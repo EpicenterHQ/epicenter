@@ -76,16 +76,16 @@
 			<UnsavedEdit edit={todo} />
 		</div>
 	{/if}
-	{#if todo.note}
+	{#if todo.exists}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
-			<Checkbox aria-label="Done" bind:checked={todo.done} />
+			<Checkbox aria-label="Done" bind:checked={todo.fields.done} />
 			<div class="min-w-0 flex-1 space-y-2">
 				<Input
 					class="text-base font-medium"
 					placeholder="Title"
 					aria-label="Title"
-					bind:value={todo.title}
+					bind:value={todo.fields.title}
 				/>
 			</div>
 		</div>
@@ -94,10 +94,10 @@
 				class="min-h-0 flex-1 field-sizing-fixed resize-none"
 				placeholder="Notes in Markdown"
 				aria-label="Notes"
-				bind:value={todo.body}
+				bind:value={todo.fields.body}
 			/>
 		</div>
-		{@render fileBar(labelOf(todo.note))}
+		{@render fileBar(labelOf({ id, title: todo.fields.title ?? '' }))}
 	{:else if invalid}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}

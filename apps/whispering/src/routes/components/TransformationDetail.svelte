@@ -51,10 +51,10 @@
 	const repair = $derived(library.transformationRepairs.find((item) => item.id === own));
 
 	/** The model as typed until its save answers, else as the note holds it. */
-	const modelText = $derived(recipe.model ?? '');
+	const modelText = $derived(recipe.fields.model ?? '');
 	/** The recipe as its fields show it, typing included. */
 	const shown = $derived<RecipeRow | undefined>(
-		recipe.note ? { title: recipe.title ?? '', model: modelText.trim() || null, body: recipe.body ?? '' } : undefined,
+		recipe.exists ? { title: recipe.fields.title ?? '', model: modelText.trim() || null, body: recipe.fields.body ?? '' } : undefined,
 	);
 	/** The one decision about this recipe, as it is shown; Run decides again from the same recipe. */
 	const resolved = $derived(whispering.resolve(shown));
@@ -109,7 +109,7 @@
 	let blockedReason = $state<HTMLElement | null>(null);
 	/** Why Run is unavailable, in the order a person would fix it, or undefined when it can run. */
 	const blocked = $derived.by(() => {
-		if (recipe.note === undefined) return 'This transformation is not listed.';
+		if (!recipe.exists) return 'This transformation is not listed.';
 		// The request sends this recipe, so decide by what is shown.
 		if (resolved.kind === 'blocked') return resolved.reason;
 		if (ui.applySource === 'pasted') {
@@ -122,7 +122,7 @@
 		return undefined;
 	});
 	/** What a person fixes when Whispering's decision is what blocks Run. */
-	const fix = $derived(recipe.note !== undefined && resolved.kind === 'blocked' ? resolved.fix : undefined);
+	const fix = $derived(recipe.exists && resolved.kind === 'blocked' ? resolved.fix : undefined);
 
 	async function run() {
 		// The run sends the recipe as shown; its result is kept when the answer arrives.
@@ -188,10 +188,10 @@
 				<ArrowLeftIcon />
 			</Button>
 		{/if}
-		{#if recipe.note}
+		{#if recipe.exists}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={recipe.title}
+				bind:value={recipe.fields.title}
 				placeholder="Title"
 				aria-label="Transformation title"
 				data-testid="transformation-title"
@@ -208,7 +208,7 @@
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 			<NoteRepair {repair} />
 		</div>
-	{:else if recipe.note === undefined}
+	{:else if !recipe.exists}
 		<p class="flex-1 px-4 py-4 text-sm text-muted-foreground" role="status">This transformation is no longer listed.</p>
 	{:else}
 	<Tabs.Root bind:value={() => tab, selectTab} class="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4">
@@ -225,11 +225,11 @@
 			<div class="flex flex-col gap-4 py-1">
 				<Field.Field>
 					<Field.Label for="transformation-prompt">Instructions</Field.Label>
-					{#if recipe.note}
+					{#if recipe.exists}
 						<Textarea
 							id="transformation-prompt"
 							class="min-h-36 resize-y font-sans"
-							bind:value={recipe.body}
+							bind:value={recipe.fields.body}
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"
 						/>
@@ -253,10 +253,10 @@
 					<Collapsible.Content class="flex flex-col gap-4 pt-2">
 						<Field.Field>
 							<Field.Label for="transformation-model">Model (optional)</Field.Label>
-							{#if recipe.note}
+							{#if recipe.exists}
 								<Input
 									id="transformation-model"
-									bind:value={() => modelText, (value) => (recipe.model = value.trim() === '' ? null : value)}
+									bind:value={() => modelText, (value) => (recipe.fields.model = value.trim() === '' ? null : value)}
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
 									autocomplete="off"
 									spellcheck={false}
@@ -412,7 +412,7 @@
 
 	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 		<span><code class="font-mono">transformations/{own}.md</code></span>
-		{#if recipe.note !== undefined}
+		{#if recipe.exists}
 			<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => confirmDelete(library, { collection: 'transformations', id: own })} data-testid="delete-transformation">
 				Delete transformation
 			</Button>

@@ -9,6 +9,6 @@
 	const edit = notes.edit({ id });
 </script>
 
-{#if edit.note}
-	<NoteEditor body={edit.body ?? ''} onEdit={(text) => (edit.body = text)} />
+{#if edit.exists}
+	<NoteEditor body={edit.fields.body ?? ''} onEdit={(text) => (edit.fields.body = text)} />
 {/if}

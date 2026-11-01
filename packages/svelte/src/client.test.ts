@@ -20,14 +20,15 @@
  *   since the last that landed, so typing never clashes with itself; another
  *   writer's change to a typed field surfaces and the typing stays
  * - `edit` shows the newest typing until its own save answers: an older
- *   answer, a discard, or teardown never brings back what was replaced;
- *   its `note` is the note as shown, following what landed and a delete
+ *   answer, a discard, or teardown never brings back what was replaced
+ * - `edit`'s `fields` are the contract's fields and the body, apart from
+ *   its controls, and `exists` says whether a note that reads is listed
  * - A write through the adapter, or a keystroke in `edit`, is out for the
  *   leave guard at once, until it answers
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -420,13 +421,13 @@ test('edit sends one save at a time, the newest carrying every field typed since
 
 	const release = Promise.withResolvers<void>();
 	gate.open = release.promise;
-	todo.title = 'Oat';
+	todo.fields.title = 'Oat';
 	await until(() => gate.updates === 1);
 	// Typed while the first save is out: one save after it carries them all.
-	for (const typed of ['Oat ', 'Oat m', 'Oat milk']) todo.title = typed;
-	todo.body = 'Two.\n';
-	todo.done = true;
-	expect(todo.title).toBe('Oat milk');
+	for (const typed of ['Oat ', 'Oat m', 'Oat milk']) todo.fields.title = typed;
+	todo.fields.body = 'Two.\n';
+	todo.fields.done = true;
+	expect(todo.fields.title).toBe('Oat milk');
 	release.resolve();
 	expectOk(await todo.landed());
 	expect(todo.error).toBeNull();
@@ -437,7 +438,7 @@ test('edit sends one save at a time, the newest carrying every field typed since
 	expect(gate.updates).toBe(2);
 	flushSync();
 	expect(todo.typed).toBeNull();
-	expect(todo.title).toBe('Oat milk');
+	expect(todo.fields.title).toBe('Oat milk');
 
 	await host.unmount();
 	shown.stop();
@@ -454,7 +455,7 @@ test('a keystroke in edit is saving, and out for the leave guard, at once until 
 	const host = setup(() => files.todos.edit({ id: 'a' }));
 	const todo = host.made;
 	expect(todo.saving).toBe(false);
-	todo.title = 'Oat milk';
+	todo.fields.title = 'Oat milk';
 	expect(todo.saving).toBe(true);
 	expect(isSaving()).toBe(true);
 	expectOk(await todo.landed());
@@ -489,7 +490,7 @@ test('edit carries typing over another writer’s change to other fields, and su
 	// Another writer edits the body while the title's save is on its way.
 	let release = Promise.withResolvers<void>();
 	gate.open = release.promise;
-	todo.title = 'Oat milk';
+	todo.fields.title = 'Oat milk';
 	expectOk(
 		await other.todos.update(
 			{ id: 'a' },
@@ -508,7 +509,7 @@ test('edit carries typing over another writer’s change to other fields, and su
 	const before = expectOk(await other.todos.get({ id: 'a' }));
 	release = Promise.withResolvers<void>();
 	gate.open = release.promise;
-	todo.body = 'Four.\n';
+	todo.fields.body = 'Four.\n';
 	expectOk(
 		await other.todos.update(
 			{ id: 'a' },
@@ -520,7 +521,7 @@ test('edit carries typing over another writer’s change to other fields, and su
 	const clash = await todo.landed();
 	expect(clash.error?.name).toBe('Conflict');
 	expect(todo.error?.name).toBe('Conflict');
-	expect(todo.body).toBe('Four.\n');
+	expect(todo.fields.body).toBe('Four.\n');
 	expect(await text('todos/a.md')).toContain('Five.\n');
 
 	// Saving again, having been told, applies over theirs.
@@ -553,10 +554,10 @@ test('a field typed while another field’s save is out still surfaces another w
 
 	const release = Promise.withResolvers<void>();
 	gate.open = release.promise;
-	todo.title = 'Oat milk';
+	todo.fields.title = 'Oat milk';
 	await until(() => gate.updates === 1);
 	// The body's typing begins over 'Two.', then another writer changes it.
-	todo.body = 'Mine.\n';
+	todo.fields.body = 'Mine.\n';
 	expectOk(
 		await other.todos.update(
 			{ id: 'a' },
@@ -567,7 +568,7 @@ test('a field typed while another field’s save is out still surfaces another w
 	release.resolve();
 	const clash = await todo.landed();
 	expect(clash.error?.name).toBe('Conflict');
-	expect(todo.body).toBe('Mine.\n');
+	expect(todo.fields.body).toBe('Mine.\n');
 	expect(await text('todos/a.md')).toBe(
 		'---\ntitle: Oat milk\ndone: false\n---\nTheirs.\n',
 	);
@@ -598,65 +599,114 @@ test('edit shows the newest typing until its own save answers; discard shows the
 	const host = setup(() => files.todos.edit({ id: 'a' }));
 	const todo = host.made;
 
-	todo.title = 'Oat';
+	todo.fields.title = 'Oat';
 	await until(() => gates.length === 1);
-	todo.title = 'Oat milk';
+	todo.fields.title = 'Oat milk';
 	// The older save lands; its answer does not replace the newer typing.
 	gates[0]?.resolve();
 	await until(() => gates.length === 2);
-	expect(todo.title).toBe('Oat milk');
+	expect(todo.fields.title).toBe('Oat milk');
 	expect(todo.saving).toBe(true);
 
 	// Discarding shows the note again; the save already out still lands.
 	todo.discard();
-	expect(todo.title).toBe('Oat');
+	expect(todo.fields.title).toBe('Oat');
 	gates[1]?.resolve();
 	expectOk(await todo.landed());
 	await until(() => !todo.saving);
 	expect(todo.error).toBeNull();
-	await until(() => todo.title === 'Oat milk');
+	await until(() => todo.fields.title === 'Oat milk');
 
 	// Once the component is gone, typing writes nothing.
 	await host.unmount();
-	todo.title = 'Late';
+	todo.fields.title = 'Late';
 	expectOk(await todo.landed());
 	expect(gates).toHaveLength(2);
 	shown.stop();
 });
 
-test('edit’s note is the note as shown: the version that landed, not the typing, and undefined once it is deleted', async () => {
-	const { open } = await folder();
+test('edit’s exists is whether a note that reads is listed at its path: not before the listing, nor once deleted, nor when it does not read', async () => {
+	const { open, root } = await folder();
 	const device = await open();
-	const created = expectOk(
-		await device.todos.create({ id: 'a', title: 'Milk', done: false }),
+	await mkdir(join(root, 'todos'));
+	// Written as another program would: macOS reports no deletion of a file
+	// that was hard-linked, which is how this client creates one.
+	await writeFile(
+		join(root, 'todos/a.md'),
+		'---\ntitle: Milk\ndone: false\n---\n',
 	);
+	await writeFile(join(root, 'todos/b.md'), '---\ntitle: [\n---\n');
 	const files = fromClient(device);
-	const host = setup(() => files.todos.edit({ id: 'a' }));
-	const todo = host.made;
-	const seen = follow(() => todo.note);
-	await until(() => seen.values.at(-1)?.title === 'Milk');
-	expect(todo.note?.version).toBe(created.version);
+	const host = setup(() => ({
+		listed: files.todos.edit({ id: 'a' }),
+		unread: files.todos.edit({ id: 'b' }),
+	}));
+	const { listed, unread } = host.made;
+	expect(listed.exists).toBe(false);
 
-	// Typing shows in the field; the note stays as shown until its save lands.
-	todo.title = 'Oat milk';
-	expect(todo.title).toBe('Oat milk');
-	expect(todo.note?.title).toBe('Milk');
-	expectOk(await todo.landed());
-	flushSync();
-	const landed = expectOk(await device.todos.get({ id: 'a' }));
-	expect(todo.note?.title).toBe('Oat milk');
-	expect(todo.note?.version).toBe(landed.version);
-	expect(landed.version).not.toBe(created.version);
+	const seen = follow(() => ({ listed: listed.exists, unread: unread.exists }));
+	await until(() => seen.values.at(-1)?.listed === true);
+	expect(files.todos.invalid.map(({ id }) => id)).toEqual(['b']);
+	expect(unread.exists).toBe(false);
+	expect(unread.fields.title).toBeUndefined();
 
-	// Another program deletes it: the note reads as gone.
+	// Another program deletes it: the editor says it is gone.
+	const shown = expectOk(await device.todos.get({ id: 'a' }));
 	expectOk(
-		await (await open()).todos.delete({ id: 'a' }, { over: landed.version }),
+		await (await open()).todos.delete({ id: 'a' }, { over: shown.version }),
 	);
-	await until(() => seen.values.at(-1) === undefined);
-	expect(todo.note).toBeUndefined();
+	await until(() => seen.values.at(-1)?.listed === false);
+	expect(listed.fields.title).toBeUndefined();
 
 	seen.stop();
 	await host.unmount();
+});
+
+test('edit’s fields are the declared fields and the body, so a field named like a control is a field', async () => {
+	const { open } = await folder();
+	const files = fromClient(await open());
+	const host = setup(() => files.todos.edit({ id: 'a' }));
+	expect(Object.keys(host.made.fields)).toEqual(['title', 'done', 'body']);
+	await host.unmount();
+
+	const controls = defineContract({
+		name: 'controls',
+		collections: {
+			notes: {
+				path: 'notes/{id}.md',
+				fields: {
+					error: { type: 'string' },
+					exists: { type: 'string' },
+					note: { type: 'string' },
+				},
+			},
+		},
+	});
+	const root = await mkdtemp(join(tmpdir(), 'epicenter-svelte-controls-'));
+	folders.push(root);
+	const device = unwrap(await openDevice(controls, { path: root }));
+	expectOk(await device.notes.create({ id: 'a' }));
+	const notes = fromClient(device).notes;
+	expect(notes.fieldNames).toEqual(['error', 'exists', 'note']);
+	const named = setup(() => notes.edit({ id: 'a' }));
+	const edit = named.made;
+	expect(Object.keys(edit.fields)).toEqual(['error', 'exists', 'note', 'body']);
+	const seen = follow(() => edit.exists);
+	await until(() => seen.values.at(-1) === true);
+
+	edit.fields.error = 'Not an error';
+	edit.fields.note = 'A field';
+	expect(edit.fields.error).toBe('Not an error');
+	expect(edit.error).toBeNull();
+	expectOk(await edit.landed());
+	expect(await readFile(join(root, 'notes/a.md'), 'utf8')).toBe(
+		'---\nerror: Not an error\nnote: A field\n---\n',
+	);
+	expect(edit.exists).toBe(true);
+	expect(edit.fields.exists).toBeUndefined();
+
+	seen.stop();
+	await named.unmount();
 });
 
 test('edit with create makes the note on the first save, then updates it; one made elsewhere first is saved over', async () => {
@@ -679,13 +729,13 @@ test('edit with create makes the note on the first save, then updates it; one ma
 	const create = () => ({ title: 'Draft', done: false });
 	const host = setup(() => files.todos.edit({ id: 'a' }, { create }));
 	const draft = host.made;
-	for (const typed of ['H', 'Hi', 'Hi there']) draft.body = typed;
+	for (const typed of ['H', 'Hi', 'Hi there']) draft.fields.body = typed;
 	expectOk(await draft.landed());
 	expect(await text('todos/a.md')).toBe(
 		'---\ntitle: Draft\ndone: false\n---\nHi there',
 	);
 	expect(creates).toBe(1);
-	draft.body = 'Hi there!';
+	draft.fields.body = 'Hi there!';
 	expectOk(await draft.landed());
 	expect(await text('todos/a.md')).toBe(
 		'---\ntitle: Draft\ndone: false\n---\nHi there!',
@@ -698,7 +748,7 @@ test('edit with create makes the note on the first save, then updates it; one ma
 		await (await open()).todos.create({ id: 'b', title: 'Theirs', done: true }),
 	);
 	const late = setup(() => files.todos.edit({ id: 'b' }, { create }));
-	late.made.body = 'Mine';
+	late.made.fields.body = 'Mine';
 	expectOk(await late.made.landed());
 	expect(await text('todos/b.md')).toBe(
 		'---\ntitle: Theirs\ndone: true\n---\nMine',

@@ -127,12 +127,12 @@ in place, and a task's `[ ]` as a checkbox that toggles the one character
 inside it; the line holding the cursor shows its syntax. Images and tables
 show as plain Markdown.
 
-The open note's title and body are one editor of its note
+The open note's title, body, folder and pin are one editor of its note
 (`getNotes().edit({ id })`, `@epicenter/svelte/client`): saves go one at a
-time, the newest carrying both when both were typed, each made over what the
-person saw when they began typing. Another writer's change to other keys is
-carried over; their change to a typed key (the title, or the body) is a
-conflict: the editor keeps what was typed and shows
+time, the newest carrying every field changed since the last that landed,
+each made over what the person saw when they began typing. Another writer's
+change to other keys is carried over; their change to a key changed here
+(the title, the body, the folder or the pin) is a conflict: the editor keeps what was typed and shows
 **Not saved** with Save again (which saves over theirs), Discard and Copy. A
 change from elsewhere to the body while nothing is waiting is applied to the
 open editor as the smallest edits, outside Undo, so the cursor stays.
@@ -142,8 +142,8 @@ a conflict block into the note. The editor shows each block as a card with
 Keep this, Keep that and Keep both; choosing is one edit, and Undo brings the
 block back.
 
-The folder and pin are commands: each saves at once and says so if it could
-not.
+In the list, a note's folder and pin are commands: each saves at once and
+says so if it could not.
 
 ## Run it
 

@@ -37,20 +37,20 @@
 	});
 	/** The file at this capture's path, when it does not read as a capture. */
 	const broken = $derived(list.invalid.find((file) => file.id === args.id));
-	/** The capture (`edit.note`), its body showing what was typed until its save answers. */
+	/** The capture, its body showing what was typed until its save answers. */
 	const edit = list.edit(args);
 	const actions = createCaptureActions({
 		get value() {
-			return edit.body ?? '';
+			return edit.fields.body ?? '';
 		},
-		set: (value: string) => (edit.body = value),
+		set: (value: string) => (edit.fields.body = value),
 	});
 	/** Opened right after Add: focus goes to Add a thought. */
 	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');
-	const reading = $derived(edit.note && captureBody.decode(edit.body ?? ''));
+	const reading = $derived(edit.exists ? captureBody.decode(edit.fields.body ?? '') : undefined);
 	const text = $derived(reading?.data?.text ?? '');
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
-	const capturedAt = $derived(instantOf(edit.note?.capturedAt));
+	const capturedAt = $derived(instantOf(edit.fields.capturedAt));
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 	/** A thought typed and not added yet. */
@@ -101,7 +101,8 @@
 	/** The capture's file text once the typed body has landed, or undefined when it is gone. */
 	async function landedText() {
 		if ((await edit.landed()).error !== null || !active) return undefined;
-		const saved = edit.note;
+		// The saved note, not the editor's fields: what the file holds.
+		const saved = list.get(args);
 		if (saved === undefined) return undefined;
 		const written = captureText(saved);
 		return written.error === null ? { saved, text: written.data } : undefined;

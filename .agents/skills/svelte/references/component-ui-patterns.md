@@ -232,8 +232,9 @@ The root sets each collection a page reads in its own context
 
 The view that shows a note makes one editor of it during setup
 (`const todo = getTodos().edit({ id })`) from `@epicenter/svelte/client`,
-and reads the note itself from it (`todo.note`, undefined while it is not
-listed or does not read) rather than a second `get` or a prop. Bind its fields (`bind:value={todo.title}`, `bind:checked={todo.done}`) and
+gates on `todo.exists`, and reads every value through `todo.fields` rather
+than a second `get` or a prop. Bind its fields
+(`bind:value={todo.fields.title}`, `bind:checked={todo.fields.done}`) and
 render `<UnsavedEdit edit={todo} />` for inline failure, retry, discard, and
 Copy. A control outside the open note's view, such as a list row's toggle,
 writes with `update`, computing toggles from the value shown. Keep

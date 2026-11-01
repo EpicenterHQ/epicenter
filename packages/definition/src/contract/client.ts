@@ -159,6 +159,8 @@ export type InvalidNoteOf<TCollection extends Collection> = Flat<
 export type Subscribe = (listener: () => void) => () => void;
 
 export type NoteClient<TCollection extends Collection> = {
+	/** The fields the contract declares, in its order: the front matter's, without `body`. */
+	fieldNames: readonly (keyof FieldsOf<TCollection> & string)[];
 	/**
 	 * Every note the collection holds. A note at one of its paths whose front
 	 * matter does not parse or fit the contract is listed in `invalid`, with

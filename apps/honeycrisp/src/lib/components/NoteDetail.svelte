@@ -1,15 +1,14 @@
 <!--
-	The open note: its title and body as one immediate editor (`notes.edit`),
-	its folder and pin as commands, and Delete. The body is CodeMirror over
-	the Markdown text itself. A note at its path that does not read shows its
-	text and why, to repair (`replace`) or delete.
+	The open note as one immediate editor (`notes.edit`): its title, body,
+	folder and pin, and Delete. The body is CodeMirror over the Markdown text
+	itself. A note at its path that does not read shows its text and why, to
+	repair (`replace`) or delete.
 -->
 <script lang="ts">
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
-	import { toast } from '@epicenter/ui/sonner';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import NoteEditor from '$lib/editor/NoteEditor.svelte';
 	import { byName, folderLabel, getFolders, getHoneycrisp, getNotes, noteLabel, notePath } from '$lib/honeycrisp.svelte.js';
@@ -32,11 +31,6 @@
 	/** A folder's option value. No folder is the empty value, so a folder id never is. */
 	const optionOf = (folderId: string | undefined) => (folderId === undefined ? '' : `folder:${folderId}`);
 	const folderOf = (option: string) => (option === '' ? undefined : option.slice('folder:'.length));
-
-	async function set(action: string, patch: { folderId?: string; pinned?: boolean }) {
-		const { error } = await notes.update({ id }, patch);
-		if (error !== null) toast.error(`Could not ${action}`, { description: error.message });
-	}
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
@@ -45,21 +39,19 @@
 			<UnsavedEdit {edit} />
 		</div>
 	{/if}
-	{#if edit.note}
-		{@const note = edit.note}
-		{@const folderId = note.folderId}
+	{#if edit.exists}
+		{@const folderId = edit.fields.folderId}
 		<div class="flex flex-wrap items-center gap-2 border-b px-3 py-2">
 			<Input
 				class="min-w-40 flex-1 text-base font-medium"
-				placeholder={noteLabel({ title: undefined, body: note.body })}
+				placeholder={noteLabel({ title: undefined, body: edit.fields.body ?? '' })}
 				aria-label="Title"
-				bind:value={edit.title}
+				bind:value={edit.fields.title}
 			/>
 			<select
 				class="h-9 max-w-40 rounded-md border bg-background px-2 text-sm"
 				aria-label="Folder"
-				value={optionOf(folderId)}
-				onchange={(event) => void set('move the note', { folderId: folderOf(event.currentTarget.value) })}
+				bind:value={() => optionOf(folderId), (option) => (edit.fields.folderId = folderOf(option))}
 			>
 				<option value="">No folder</option>
 				{#each folders.items.toSorted(byName) as folder (folder.id)}
@@ -70,18 +62,18 @@
 				{/if}
 			</select>
 			<Button
-				variant={note.pinned ? 'secondary' : 'ghost'}
+				variant={edit.fields.pinned ? 'secondary' : 'ghost'}
 				size="icon-sm"
-				aria-label={note.pinned ? 'Unpin' : 'Pin'}
-				aria-pressed={note.pinned ?? false}
-				tooltip={note.pinned ? 'Unpin' : 'Pin'}
-				onclick={() => void set('pin the note', { pinned: !note.pinned })}
+				aria-label={edit.fields.pinned ? 'Unpin' : 'Pin'}
+				aria-pressed={edit.fields.pinned ?? false}
+				tooltip={edit.fields.pinned ? 'Unpin' : 'Pin'}
+				onclick={() => (edit.fields.pinned = !edit.fields.pinned)}
 			>
-				<PinIcon class={note.pinned ? 'fill-current' : ''} />
+				<PinIcon class={edit.fields.pinned ? 'fill-current' : ''} />
 			</Button>
 		</div>
 		<div class="min-h-0 flex-1">
-			<NoteEditor body={edit.body ?? ''} onEdit={(text) => (edit.body = text)} autofocus={isNew} />
+			<NoteEditor body={edit.fields.body ?? ''} onEdit={(text) => (edit.fields.body = text)} autofocus={isNew} />
 		</div>
 		<div class="flex shrink-0 items-center gap-2 border-t px-4 py-2">
 			<span class="min-w-0 truncate font-mono text-xs text-muted-foreground" data-testid="file-path">{notePath(id)}</span>
@@ -89,7 +81,7 @@
 				class="ml-auto"
 				size="sm"
 				variant="ghost-destructive"
-				onclick={() => confirmDeleteNote(app, { id, label: noteLabel(note) })}
+				onclick={() => confirmDeleteNote(app, { id, label: noteLabel({ title: edit.fields.title, body: edit.fields.body ?? '' }) })}
 			>
 				Delete
 			</Button>

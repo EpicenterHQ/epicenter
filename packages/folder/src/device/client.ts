@@ -177,6 +177,7 @@ function noteClient(
 	}
 
 	return {
+		fieldNames: collection.keys,
 		async list() {
 			const { data: paths, error } = await claimed(compiled, collection, store);
 			if (error !== null) return { data: null, error };

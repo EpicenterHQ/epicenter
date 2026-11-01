@@ -29,9 +29,10 @@ for the layout and page flow, and verify it against the code.
 
 ## Editing
 
-- Text a person types (the title, the body) goes through the open note's one
-  editor (`getNotes().edit({ id })`), with `<UnsavedEdit>` beside it. Commands
-  (folder, pin, delete) call the notes' `update` or `delete` and say when they
+- The open note's title, body, folder and pin go through its one editor
+  (`getNotes().edit({ id })`, every value read and bound through
+  `edit.fields`), with `<UnsavedEdit>` beside it. The list's commands (folder,
+  pin) and Delete call the notes' `update` or `delete` and say when they
   fail.
 - `NoteEditor.svelte` owns CodeMirror's state for as long as it is mounted:
   its mount reads nothing reactive, and a body that changes from elsewhere is

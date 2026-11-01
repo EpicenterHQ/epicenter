@@ -20,7 +20,7 @@
 
 	// The parent keys each card by the word's id.
 	// svelte-ignore state_referenced_locally
-	const note = getEntryList().edit({ id: entry.id });
+	const word = getEntryList().edit({ id: entry.id });
 </script>
 
 <article class={cn('rounded-lg border p-4', chosen && 'border-primary bg-accent/30')} data-id={entry.id}>
@@ -28,8 +28,8 @@
 		<Label class="min-h-11 min-w-0 flex-1 items-start text-base leading-relaxed select-text"><Checkbox class="mt-1 shrink-0" aria-label="Choose {entry.text} for chat" checked={chosen} disabled={!canChoose} onCheckedChange={onToggle} /><span class="min-w-0 flex-1 wrap-anywhere">{entry.text}</span></Label>
 		<Button size="sm" variant="ghost-destructive" class="shrink-0" onclick={() => confirmDelete(entries, entry)}>Delete</Button>
 	</div>
-	<Textarea class="min-h-20 max-h-48 overflow-y-auto" aria-label="Your note for {entry.text}" placeholder="Your note" bind:value={note.body} />
-	<UnsavedEdit edit={note} />
+	<Textarea class="min-h-20 max-h-48 overflow-y-auto" aria-label="Your note for {entry.text}" placeholder="Your note" bind:value={word.fields.body} />
+	<UnsavedEdit edit={word} />
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
 		{#each STAGES as option}<Button size="sm" variant={entry.stage === option ? 'default' : 'outline'} aria-pressed={entry.stage === option} onclick={() => void changeStage(entries, entry.id, option)}>{STAGE_LABELS[option]}</Button>{/each}
 	</div>

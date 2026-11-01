@@ -30,7 +30,7 @@
 	const reply = drafts.edit({ id: draftId }, {
 		create: () => ({ chatId, profile: backend.profile, mode: backend.mode }),
 	});
-	const typed = () => reply.body ?? '';
+	const typed = () => reply.fields.body ?? '';
 	const pending = $derived(attempt?.state === 'sending');
 	let message = $state('');
 	const send = createMutation(() => ({
@@ -84,7 +84,7 @@
 		</section>
 	{:else}
 		<label for="reply" class="sr-only">Message</label>
-		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} bind:value={reply.body} />
+		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} bind:value={reply.fields.body} />
 		<div class="flex items-center justify-end gap-3">
 			<Button disabled={send.isPending || recover.isPending || pending || !!brokenAttempt || !typed().trim()} onclick={() => send.mutate({ text: typed(), previousAttemptId: attempt?.attemptId })}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
 		</div>

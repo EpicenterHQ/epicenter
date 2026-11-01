@@ -17,9 +17,11 @@ reads. A write puts what landed into what shows before it resolves. A note `upda
 writer's change to other fields, a `Conflict` when they changed the same
 one, after which the adapter shows theirs and a second save applies over it.
 `notes.edit(args)` is one note as an immediate editor, one save at a time,
-made over what the person saw when the typing began, and the view's read of
-that note: `note` is the note as shown, undefined while it is not listed or
-does not read.
+made over what the person saw when the typing began. Its `fields` hold one
+accessor per field the contract declares (the collection's `fieldNames`) and
+`body`, each showing what was typed until its save answers, then the note;
+`exists` says whether a note that reads is listed at its path (false while
+it is missing, deleted or does not read).
 
 The root, wherever it opens the client (the desktop root, the local web
 startup, or the online root), wraps it once and sets one typed context per
@@ -49,23 +51,29 @@ A list reads the collection from its context:
 {#each todos.invalid as file (file.path)}<pre>{file.text}</pre>{/each}
 ```
 
-The view of one open note makes one editor of it during setup, and reads the
-note from it rather than a second `todos.get({ id })` or a prop:
+The view of one open note makes one editor of it during setup, gates on
+`exists`, and reads and binds every value through `fields`, rather than a
+second `todos.get({ id })` or a prop:
 
 ```svelte
 <script lang="ts">
   const todo = getTodos().edit({ id }); // one editor per open note
 </script>
 
-{#if todo.note}
-  <Input bind:value={todo.title} />
-  <Textarea bind:value={todo.body} />
-  <Checkbox bind:checked={todo.done} />
+{#if todo.exists}
+  <Input bind:value={todo.fields.title} />
+  <Textarea bind:value={todo.fields.body} />
+  <Checkbox bind:checked={todo.fields.done} />
   <UnsavedEdit edit={todo} />
 {:else}
   <p>This todo is no longer here.</p>
 {/if}
 ```
+
+`fields` stays live for the editor's life, so a view may take it once
+(`const { fields } = todo`). A view that needs the saved note beside what is
+typed (its version, or the text a save left on disk) reads it with
+`todos.get({ id })`.
 
 An editor that holds a whole-note draft saves it with
 `files.todos.replace({ id }, draft, { over })`, where `over` is the version

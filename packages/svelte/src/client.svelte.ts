@@ -23,9 +23,11 @@
  *   then the adapter shows theirs, so saving again applies over it.
  *
  * `notes.edit(args)` is one note as an immediate editor (`NoteEdit`), for
- * the component that shows it: its fields to bind, and the note as shown
- * (`note`) to read. `get` stays for lists, and `update` for code that is
- * not typing.
+ * the component that shows it: its fields to read and bind (`fields`, one
+ * accessor per declared field and `body`, from the collection's
+ * `fieldNames`), and whether the note is there (`exists`). `get` stays for
+ * lists and for the saved note beside the typing, and `update` for code
+ * that is not typing.
  *
  * Every write is held for the page's leave guard (`@epicenter/svelte/leave-guard`)
  * from the call until it answers.
@@ -43,10 +45,10 @@
  * 	const todo = todos.edit({ id });
  * </script>
  *
- * {#if todo.note}
- * 	<Input bind:value={todo.title} />
- * 	<Textarea bind:value={todo.body} />
- * 	<Checkbox bind:checked={todo.done} />
+ * {#if todo.exists}
+ * 	<Input bind:value={todo.fields.title} />
+ * 	<Textarea bind:value={todo.fields.body} />
+ * 	<Checkbox bind:checked={todo.fields.done} />
  * 	<UnsavedEdit edit={todo} />
  * {:else}
  * 	<p>This todo is no longer here.</p>
@@ -83,13 +85,17 @@ type Base<TCollection extends Collection> = {
 	version: Version;
 } & NotePatch<TCollection>;
 
-/** What an editor of one note (`edit`) does besides its fields. */
-type EditControls<TCollection extends Collection> = {
-	/**
-	 * The note as shown, without what was typed: the version that landed or
-	 * was last listed. Undefined while it is not listed or does not read.
-	 */
-	readonly note: NoteOf<TCollection> | undefined;
+/**
+ * One note as an immediate editor. `fields` holds each declared field and
+ * `body`: each shows what was typed until its save answers, then the note,
+ * and setting one saves it. The rest says whether the note is there and how
+ * its saves stand.
+ */
+export type NoteEdit<TCollection extends Collection> = {
+	/** The note's fields and body to read and bind; one accessor each, live for the editor's life. */
+	readonly fields: NotePatch<TCollection>;
+	/** Whether a note that reads is listed at the editor's path; false while missing, deleted or not reading. */
+	readonly exists: boolean;
 	/** Why the newest save failed; null while none has. What was typed stays. */
 	readonly error: ClientError | null;
 	/** Whether a save is out: from the keystroke until it answers. */
@@ -104,22 +110,10 @@ type EditControls<TCollection extends Collection> = {
 	landed(): Promise<Result<void, ClientError>>;
 };
 
-/**
- * One note as an immediate editor: each of its fields, `body` included,
- * shows what was typed until its save answers, then the note; setting one
- * saves it. `note` is the note itself as shown, for what the view reads
- * beside the fields. A field named like a control (`note`, `error`,
- * `saving`…) is not one.
- */
-export type NoteEdit<TCollection extends Collection> = {
-	[K in Exclude<
-		keyof NotePatch<TCollection>,
-		keyof EditControls<TCollection>
-	>]: NotePatch<TCollection>[K];
-} & EditControls<TCollection>;
-
 /** A note collection as Svelte state. */
 export type ReactiveNotes<TCollection extends Collection> = {
+	/** The fields the contract declares, in its order: an editor's `fields` are these and `body`. */
+	fieldNames: NoteClient<TCollection>['fieldNames'];
 	/** The notes as last listed (and written here since); empty until the first listing. */
 	readonly items: readonly NoteOf<TCollection>[];
 	/** The notes that do not read, with their text. */
@@ -522,10 +516,24 @@ function fromCollection(collection: Raw) {
 			send();
 		}
 
-		const controls = {
-			get note() {
+		/** Each field and the body: what was typed until its save answers, else the note as shown. */
+		const fields = {};
+		for (const field of [...(notes?.fieldNames ?? []), 'body'])
+			Object.defineProperty(fields, field, {
+				enumerable: true,
+				get() {
+					if (typed !== null && field in typed) return typed[field];
+					track();
+					return shown(args)?.[field];
+				},
+				set: (value: unknown) => set(field, value),
+			});
+
+		return {
+			fields,
+			get exists() {
 				track();
-				return shown(args);
+				return shown(args) !== undefined;
 			},
 			get error() {
 				return error;
@@ -558,25 +566,10 @@ function fromCollection(collection: Raw) {
 				return Ok(undefined);
 			},
 		};
-		// The client does not carry its contract, so the fields are any name
-		// the controls do not take.
-		return new Proxy(controls, {
-			get(target, key, receiver) {
-				if (typeof key === 'symbol' || key in target)
-					return Reflect.get(target, key, receiver);
-				if (typed !== null && key in typed) return typed[key];
-				track();
-				return shown(args)?.[key];
-			},
-			set(target, key, value) {
-				if (typeof key === 'symbol' || key in target) return false;
-				set(key, value);
-				return true;
-			},
-		});
 	}
 
 	const adapted = {
+		...(notes && { fieldNames: notes.fieldNames }),
 		get items() {
 			track();
 			return items;

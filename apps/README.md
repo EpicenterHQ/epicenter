@@ -97,7 +97,8 @@ UI components read a collection from its context (`getTodos()`), sort with
 the app's own order, and read and write through `fromClient` state: tracked
 `items`, `invalid` (notes that do not read, with their text), and writes
 that pass the version shown. The component that shows a note makes one
-editor of it (`todos.edit({ id })`) and binds its fields. See [Todos](todos/README.md),
+editor of it (`todos.edit({ id })`), gates on `exists`, and binds its
+`fields`. See [Todos](todos/README.md),
 [Capture](capture/README.md) and the
 [Svelte package](../packages/svelte/README.md).
 
