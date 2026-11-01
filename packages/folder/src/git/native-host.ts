@@ -81,12 +81,6 @@ export function credentialEnvironment({
 	};
 }
 
-/** How a computer without `git` gets one. */
-export type GitInstall =
-	| 'command-line-tools'
-	| 'git-for-windows'
-	| 'package-manager';
-
 /**
  * Inherited variables that would point Git at another repository, index, or
  * object store: the names `git rev-parse --local-env-vars` lists, plus the
@@ -104,7 +98,6 @@ const REPOSITORY_ENV =
 
 /** No usable `git` was found on this computer (ADR-0559). */
 export class GitMissingError extends Error {
-	readonly install = gitInstall();
 	constructor() {
 		super(
 			process.platform === 'darwin'
@@ -115,13 +108,6 @@ export class GitMissingError extends Error {
 		);
 		this.name = 'GitMissingError';
 	}
-}
-
-/** How this computer gets a `git`. */
-function gitInstall(): GitInstall {
-	if (process.platform === 'darwin') return 'command-line-tools';
-	if (process.platform === 'win32') return 'git-for-windows';
-	return 'package-manager';
 }
 
 /** Whether `program` runs as `git` (`git --version` exits 0). */
