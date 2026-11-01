@@ -48,7 +48,7 @@ if (audio.error === null)
 Every note it writes is in house style, the contract's keys first. Every
 update and delete carries the version (sha256) its writer read, and lands
 only while the file still holds it (`Conflict` otherwise); `create` never
-replaces a file (`Occupied`). In the browser, one dedicated Worker owns the
+replaces a file (`Occupied`). No write lands over whatever is there. In the browser, one dedicated Worker owns the
 origin's private file system, with a Web Lock per path; a browser that gives
 the page no private storage still opens, and each call answers `Unavailable`
 with a `DeviceError.StorageRefused` cause, so an app keeps working in memory.

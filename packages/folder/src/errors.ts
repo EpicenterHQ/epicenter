@@ -100,8 +100,7 @@ export type OpenDeviceError = InferErrors<typeof OpenDeviceError>;
  * Internal: the Bun directory host checked what a staged file's rename or a
  * removal expected at its path, found something else, and changed nothing. `found`
  * says what: a file with other bytes (`actualSha256`, or `undefined` when no
- * file is there), something where nothing was expected, or nothing where a
- * file was. File storage answers it as a `'stale'` put, never as
+ * file is there), or something where nothing was expected. File storage answers it as a `'stale'` put, never as
  * `Unconfirmed`.
  */
 export class UnexpectedTarget extends Error {
@@ -109,15 +108,12 @@ export class UnexpectedTarget extends Error {
 		readonly path: string,
 		readonly found:
 			| { readonly name: 'Conflict'; readonly actualSha256: string | undefined }
-			| { readonly name: 'Exists' }
-			| { readonly name: 'NotFound' },
+			| { readonly name: 'Exists' },
 	) {
 		super(
 			found.name === 'Conflict'
 				? `'${path}' does not hold the bytes the change expected`
-				: found.name === 'Exists'
-					? `'${path}' is already occupied`
-					: `No file exists at '${path}'`,
+				: `'${path}' is already occupied`,
 		);
 		this.name = 'UnexpectedTarget';
 	}

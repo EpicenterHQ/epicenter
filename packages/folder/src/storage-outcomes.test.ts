@@ -40,11 +40,7 @@ type Case = {
 		readonly method: 'read' | 'put' | 'list';
 		readonly path?: string;
 		readonly bytes?: string | null;
-		readonly expected?:
-			| 'absent'
-			| 'present'
-			| 'any'
-			| { readonly sha256Of: string };
+		readonly expected?: 'absent' | { readonly sha256Of: string };
 	};
 	readonly expect:
 		| { readonly value: unknown }
@@ -183,7 +179,11 @@ test('a save across a mount point fails as Io, saying so, and leaves nothing beh
 			},
 		});
 		const error = expectErr(
-			await storage.put('mounted/a.md', new TextEncoder().encode('x'), 'any'),
+			await storage.put(
+				'mounted/a.md',
+				new TextEncoder().encode('x'),
+				'absent',
+			),
 		);
 		expect(error.name).toBe('Io');
 		expect(error.message).toContain(

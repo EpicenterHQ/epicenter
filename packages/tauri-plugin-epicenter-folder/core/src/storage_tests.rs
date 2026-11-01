@@ -58,18 +58,17 @@ fn b(bytes: &[u8]) -> Option<&[u8]> {
 #[test]
 fn an_expectation_is_parsed_by_its_own_spelling() {
     let hash = sha256(b"x");
-    assert_eq!(Expectation::parse("any"), Ok(Expectation::Any));
     assert_eq!(Expectation::parse("absent"), Ok(Expectation::Absent));
-    assert_eq!(Expectation::parse("present"), Ok(Expectation::Present));
     assert_eq!(
         Expectation::parse(&format!("sha256:{hash}")),
         Ok(Expectation::Sha256(hash.clone()))
     );
     for refused in [
         hash.clone(),
-        "sha256:any".to_string(),
+        "sha256:absent".to_string(),
         format!("sha256:{}", hash.to_uppercase()),
-        "ANY".to_string(),
+        "any".to_string(),
+        "present".to_string(),
         String::new(),
     ] {
         assert!(Expectation::parse(&refused).is_err(), "{refused:?}");
@@ -82,7 +81,7 @@ fn list_and_read_report_the_same_stamp_and_a_write_changes_it() {
     let initial = list(&root).unwrap()[0].stamp.clone();
     assert_eq!(read(&root, "note.txt").unwrap().stamp, initial);
 
-    let landed = super::put(&root, "note.txt", Some(b"new"), &Expectation::Any).unwrap();
+    let landed = put(&root, "note.txt", b(b"new"), Some(&sha256(b"old"))).unwrap();
     assert_eq!(landed, PutOutcome::Landed);
     let published = list(&root).unwrap()[0].stamp.clone();
     assert_ne!(published, initial);
@@ -90,7 +89,7 @@ fn list_and_read_report_the_same_stamp_and_a_write_changes_it() {
 }
 
 /// What most cases here expect: the file whose SHA-256 is `if_match`, or
-/// nothing for `None`. The expectation vectors cover `Any` and `Present`.
+/// nothing for `None`.
 fn witness(if_match: Option<&str>) -> Expectation {
     if_match.map_or(Expectation::Absent, |hash| {
         Expectation::Sha256(hash.to_string())
@@ -945,8 +944,9 @@ fn of_writers_replacing_one_version_at_once_exactly_one_lands() {
 #[test]
 fn a_path_holds_no_turn_once_its_puts_finish() {
     let (_temp, root) = folder("storage-turns", &[]);
-    racing_puts(&root, "a.md", 4, &Expectation::Any);
-    super::put(&root, "a.md", None, &Expectation::Any).unwrap();
+    racing_puts(&root, "a.md", 4, &Expectation::Absent);
+    let landed = fs::read(root.join("a.md")).unwrap();
+    put(&root, "a.md", None, Some(&sha256(&landed))).unwrap();
     let busy = BUSY.lock().unwrap();
     assert!(!busy.iter().any(|path| path.starts_with(&root)), "{busy:?}");
 }

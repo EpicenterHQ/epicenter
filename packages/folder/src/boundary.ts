@@ -6,18 +6,17 @@
  * a Tauri window's device store calls its commands (`device/tauri-store.ts`).
  *
  * `put` is the one change: one file's bytes, or its removal, landing only
- * while the path holds what the caller expects (`Expectation`), which may be
- * anything at all. It lands whole: a reader,
+ * while the path holds the version its caller read (`Expectation`), or
+ * nothing for a create. It lands whole: a reader,
  * and a crash, see the old file or the new one, never part of either, and a
  * new file never appears empty first. The host checks the expectation right
  * before the change, with no lock between the two: a save another program
  * lands in that instant can be replaced, and Git history is the backstop
  * (ADR-0568).
  *
- * A name that only some disks can hold (`pathProblem`) is never created.
- * An existing one may be replaced or removed, and a write expecting `'any'`
- * there lands only while the file is still there, checked where it lands;
- * otherwise it is `InvalidPath`. A `HEAD` segment is never written.
+ * A name that only some disks can hold (`pathProblem`) is never created:
+ * an existing one may be replaced or removed over the version read, and a
+ * create of one is `InvalidPath`. A `HEAD` segment is never written.
  *
  * Where and under what names a new file is staged is here once, and the
  * desktop shell's own staging matches it.
@@ -26,15 +25,11 @@ import type { Result } from 'wellcrafted/result';
 import type { FileError } from './errors.js';
 
 /**
- * What a change expects at its path when it lands: nothing there, a file, a
- * file whose bytes hash to `sha256`, or whatever is there. A host checks it
- * where the change lands, right before the change.
+ * What a change expects at its path when it lands, the version its caller
+ * read: nothing there (a create), or a file whose bytes hash to `sha256`. A
+ * host checks it where the change lands, right before the change.
  */
-export type Expectation =
-	| 'absent'
-	| 'present'
-	| { readonly sha256: string }
-	| 'any';
+export type Expectation = 'absent' | { readonly sha256: string };
 
 export type FileRead = {
 	readonly bytes: Uint8Array;
@@ -66,8 +61,7 @@ export type FolderStorage = {
 	/**
 	 * Publish `bytes` at `path`, or remove its file for `null`, only while
 	 * the path holds what `expected` says. `'stale'` when it does not, and
-	 * nothing changed; `'any'` is never stale. Removing nothing that may be
-	 * absent has landed. Missing parent directories are made for a new file.
+	 * nothing changed. Removing nothing that expects nothing has landed. Missing parent directories are made for a new file.
 	 * The bytes land whole. The host checks the condition where the change
 	 * lands, right before it. A reply that was lost is `Unconfirmed`.
 	 */

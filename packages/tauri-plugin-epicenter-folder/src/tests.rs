@@ -565,7 +565,7 @@ fn text(value: &Value) -> String {
         .unwrap_or_else(|| value.to_string())
 }
 
-/// Write a file over whatever is there, as a page that just read it does.
+/// Write a file over the version there, as a page that just read it does.
 fn write(
     fixture: &Fixture,
     window: &WebviewWindow<MockRuntime>,
@@ -984,29 +984,19 @@ fn a_save_lands_only_on_what_the_page_expected() {
     assert_eq!(staged(&fixture), Vec::<String>::new());
 }
 
-/// "Whatever is there" is its own word on the wire, never a hash: a put
-/// expecting `any` replaces a file and makes a new one, and a bare hash, or
-/// `any` dressed as one, is refused before anything changes.
+/// A put names the version it read, `absent` or a tagged hash, on the wire:
+/// a bare hash, a keyword dressed as one, or a word for "whatever is there"
+/// is refused before anything changes.
 #[test]
-fn a_save_expecting_anything_says_so_and_a_hash_is_tagged() {
-    let (fixture, main) = opened("expected-any");
-    let any = |path: &str, bytes: &[u8]| {
-        let mut headers = put_headers(&main, path, false, None);
-        headers.insert("expected", encoded("any"));
-        request(
-            &main,
-            "put_folder_file",
-            InvokeBody::Raw(bytes.to_vec()),
-            headers,
-        )
-    };
-    assert_eq!(any("a.md", b"new\n").unwrap(), "landed");
-    assert_eq!(any("a.md", b"again\n").unwrap(), "landed");
-    assert_eq!(
-        std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
-        "again\n"
-    );
-    for refused in [sha256(b"again\n"), "sha256:any".to_string()] {
+fn a_save_names_the_version_it_read_and_a_hash_is_tagged() {
+    let (fixture, main) = opened("expected-version");
+    assert_eq!(put(&main, "a.md", Some(b"new\n"), None).unwrap(), "landed");
+    for refused in [
+        sha256(b"new\n"),
+        "sha256:absent".to_string(),
+        "any".to_string(),
+        "present".to_string(),
+    ] {
         let mut headers = put_headers(&main, "a.md", false, None);
         headers.insert("expected", encoded(&refused));
         let answer = request(
@@ -1021,7 +1011,7 @@ fn a_save_expecting_anything_says_so_and_a_hash_is_tagged() {
     }
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
-        "again\n"
+        "new\n"
     );
 }
 

@@ -85,6 +85,4 @@ test('a write sends each expectation in its own spelling: absent, any, or a tagg
 	);
 	expect(putHeaders?.expected).toBe('sha256:exact-hash');
 	expect(putHeaders?.remove).toBe('true');
-	expectOk(await store().write('a.md', new Uint8Array([1]), 'any'));
-	expect(putHeaders?.expected).toBe('any');
 });

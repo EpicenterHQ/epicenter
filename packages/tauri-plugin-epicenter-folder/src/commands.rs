@@ -285,14 +285,15 @@ pub async fn read_folder_file<R: Runtime>(
 /// The bytes are the request's raw body, so file content crosses IPC as it
 /// is rather than as a JSON array of numbers. Percent-encoded headers carry
 /// the rest: `path`, `root` (as every command takes it), `remove`
-/// (`true` to remove the file, when the body is ignored), and `expected`, what the page expects there (`any`, `absent`,
-/// `present`, or `sha256:` and the SHA-256 of the file: `storage::Expectation`). A JSON
+/// (`true` to remove the file, when the body is ignored), and `expected`, the version the
+/// page read there (`absent` for a create, or `sha256:` and the SHA-256 of the file:
+/// `storage::Expectation`). A JSON
 /// array of bytes is accepted as well: Tauri
 /// sends one when its custom-protocol IPC failed and it fell back to
 /// `postMessage`. Any other body is refused.
 ///
-/// The check runs right before the change, with no lock between them
-/// (`storage::put`). tauri-specta cannot type a raw request, so the generated
+/// The check runs right before the change; within this process, puts of one
+/// path take turns from the check to the change (`storage::put`). tauri-specta cannot type a raw request, so the generated
 /// bindings leave this command out and `device/tauri-store.ts` invokes it by name;
 /// `init` dispatches it beside the typed commands.
 #[tauri::command]

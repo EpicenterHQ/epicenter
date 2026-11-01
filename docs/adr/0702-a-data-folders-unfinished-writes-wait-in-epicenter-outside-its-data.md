@@ -111,10 +111,12 @@ the write lands. Within one process, writes to one path take turns, and a
 create lands only where nothing is; across processes, a replacement's
 check-to-rename gap is accepted.** A version is the SHA-256 of a
 file's bytes on a device and the Git blob id on `main` in a repository. A
-write expects `absent`, a version (`{ sha256 }`), or `any` (`Expectation` in
-`packages/folder/src/boundary.ts` and in the folder core's `storage.rs`); a
-store answers `stale` when the file no longer matches, and the client answers
-`Conflict { current }`.
+write expects `absent` for a create or the version it read (`{ sha256 }`),
+and nothing else (`Expectation` in `packages/folder/src/boundary.ts` and in
+the folder core's `storage.rs`): there is no unconditional write, and an
+existing name only some disks hold is replaced or removed over its version
+like any other. A store answers `stale` when the file no longer matches, and
+the client answers `Conflict { current }`.
 
 | Store | Check, then land |
 | --- | --- |
@@ -223,6 +225,11 @@ Opus in WebM at its path after.**
 - **A second "not data" rule naming `.epicenter`** (`isOwnDirectory`,
   `check_namespace`): two rules that had to agree in every host, where every
   hidden path was already outside the contract.
+- **A second, unconditional mode (`any`, with `present` behind it for an
+  existing nonportable name):** it was offered for a cache, but no production
+  write used it; every caller had a version to name or was creating. Keeping
+  it meant every host carried a write that could replace a file its caller
+  never read.
 - **Callers that know where unfinished bytes go:** each new caller would
   spell `.epicenter` again, which `check:state-paths` now refuses.
 - **Staging outside the folder** (beside it, or in AppData): a rename from

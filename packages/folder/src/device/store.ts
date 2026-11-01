@@ -16,12 +16,11 @@ import type { ChangeListener } from '../changes.js';
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
 /**
- * What a device write expects at its path: nothing (`'absent'`), the bytes
- * whose sha256 is `sha256`, the version its writer read, or anything
- * (`'any'`, for a cache: never stale, and nothing is read first). Each case
- * is its own shape, so a version can never be read as a keyword.
+ * What a device write expects at its path, the version its writer read:
+ * nothing (`'absent'`, a create), or the bytes whose sha256 is `sha256`.
+ * Each case is its own shape, so a version can never be read as a keyword.
  */
-export type DeviceExpectation = 'absent' | 'any' | { readonly sha256: Version };
+export type DeviceExpectation = 'absent' | { readonly sha256: Version };
 
 export type DeviceStore = {
 	/**

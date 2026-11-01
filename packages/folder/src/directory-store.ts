@@ -180,9 +180,7 @@ export function createDirectoryStorage({
 		if (error !== null) return Err(error);
 		if (bytes === null) {
 			if (found.kind !== 'file')
-				return Ok(
-					expected === 'absent' || expected === 'any' ? 'landed' : 'stale',
-				);
+				return Ok(expected === 'absent' ? 'landed' : 'stale');
 			if (expected === 'absent') return Ok('stale');
 			try {
 				await files.remove(absolute(path), { expected });
@@ -289,19 +287,12 @@ export function createDirectoryStorage({
 					(bytes !== null && expected === 'absent'))
 			)
 				return refused;
-			const checked =
-				refused && bytes !== null && expected === 'any' ? 'present' : expected;
 			const owned = bytes === null ? null : new Uint8Array(bytes);
-			let result: Result<PutOutcome, FileError>;
 			try {
-				result = await change(path, owned, checked);
+				return await change(path, owned, expected);
 			} catch (cause) {
-				result = FileError.Io({ path, operation: 'write', cause });
+				return FileError.Io({ path, operation: 'write', cause });
 			}
-			// The nonportable file went before this write landed, which cannot make it.
-			if (refused && checked !== expected && result.data === 'stale')
-				return refused;
-			return result;
 		},
 	};
 }

@@ -329,30 +329,23 @@ fn stamp_of(metadata: &fs::Metadata) -> io::Result<String> {
     Ok(stamp)
 }
 
-/// What a `put` expects at its path when it lands: `Expectation` in
-/// `boundary.ts`. `Any` is never stale.
+/// What a `put` expects at its path when it lands, the version its writer
+/// read: `Expectation` in `boundary.ts`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expectation {
-    /// Nothing at all is there.
+    /// Nothing at all is there: a create.
     Absent,
-    /// A regular file is there, whatever its bytes.
-    Present,
     /// A regular file whose bytes have this lowercase hexadecimal SHA-256.
     Sha256(String),
-    /// Whatever is there.
-    Any,
 }
 
 impl Expectation {
-    /// The page's `expected` header: `any`, `absent`, `present`, or
-    /// `sha256:` and a lowercase hexadecimal SHA-256. Each case has its own
-    /// spelling, so a hash is never read as a keyword, nor a keyword as a
-    /// hash.
+    /// The page's `expected` header: `absent`, or `sha256:` and a lowercase
+    /// hexadecimal SHA-256. Each case has its own spelling, so a hash is
+    /// never read as a keyword, nor a keyword as a hash.
     pub fn parse(value: &str) -> Result<Self, String> {
         match value {
-            "any" => Ok(Self::Any),
             "absent" => Ok(Self::Absent),
-            "present" => Ok(Self::Present),
             _ => match value.strip_prefix("sha256:") {
                 Some(hash)
                     if hash.len() == 64
@@ -363,7 +356,7 @@ impl Expectation {
                     Ok(Self::Sha256(hash.to_string()))
                 }
                 _ => Err(format!(
-                    "expected is {value:?}, not any, absent, present, or sha256: and a SHA-256"
+                    "expected is {value:?}, not absent, or sha256: and a SHA-256"
                 )),
             },
         }
@@ -659,9 +652,6 @@ fn file_sha256(target: &Path) -> io::Result<String> {
 
 /// Whether `target` holds what a put expects.
 fn holds(target: &Path, expected: &Expectation) -> io::Result<bool> {
-    if *expected == Expectation::Any {
-        return Ok(true);
-    }
     let found = match fs::symlink_metadata(target) {
         Ok(metadata) => Some(metadata),
         Err(cause) if cause.kind() == ErrorKind::NotFound => None,
@@ -669,7 +659,6 @@ fn holds(target: &Path, expected: &Expectation) -> io::Result<bool> {
     };
     match (expected, found) {
         (Expectation::Absent, found) => Ok(found.is_none()),
-        (Expectation::Present, Some(metadata)) => Ok(metadata.is_file()),
         (Expectation::Sha256(hash), Some(metadata)) if metadata.is_file() => {
             Ok(file_sha256(target)? == *hash)
         }
@@ -934,14 +923,12 @@ fn keep_mode(target: &Path, staged: &Path) -> io::Result<()> {
 
 /// Publish `bytes` at `path`, or remove its file for `None`, only while the
 /// path holds what `expected` says. `Stale` when it does not, and nothing
-/// changed; `Any` is never stale, and removing nothing that may be absent
-/// has landed.
+/// changed; removing nothing that expects nothing has landed.
 ///
 /// A new file must satisfy the portable rule (`path_problem`). An existing
-/// nonportable name may be replaced or removed, never made: a write
-/// expecting `Any` there lands only while a file is there, and is
-/// `InvalidPath` otherwise. HEAD can make a plain directory a Git
-/// repository, so it stays private even when it exists.
+/// nonportable name may be replaced or removed over the version read, never
+/// made: a create of one is `InvalidPath`. HEAD can make a plain directory a
+/// Git repository, so it stays private even when it exists.
 ///
 /// A write refuses what cannot land before staging anything, stages the
 /// bytes, then walks the path again (no link, every name stored as asked, as
@@ -961,8 +948,7 @@ pub fn put(
     bytes: Option<&[u8]>,
     expected: &Expectation,
 ) -> Result<PutOutcome, StorageError> {
-    let nonportable = admit(path).err();
-    if let Some(refused) = &nonportable {
+    if let Err(refused) = admit(path) {
         if let Some(reason) = readable_path_problem(path).or_else(|| {
             path.split('/')
                 .any(|part| part.eq_ignore_ascii_case("head"))
@@ -976,13 +962,9 @@ pub fn put(
             });
         }
         if bytes.is_some() && *expected == Expectation::Absent {
-            return Err(refused.clone());
+            return Err(refused);
         }
     }
-    // A write that may make a nonportable name must find its file there.
-    let requires_file = nonportable.is_some() && bytes.is_some() && *expected == Expectation::Any;
-    let present = Expectation::Present;
-    let expected = if requires_file { &present } else { expected };
     let operation = if bytes.is_some() { "write" } else { "remove" };
     let failed = |cause: &dyn std::fmt::Display| io_error(path, operation, cause);
     // Where the change may land, or why it cannot.
@@ -999,13 +981,11 @@ pub fn put(
     let Some(bytes) = bytes else {
         let _turn = Turn::take(&target);
         if !matches!(landing()?, Found::File { .. }) {
-            return Ok(
-                if matches!(expected, Expectation::Absent | Expectation::Any) {
-                    PutOutcome::Landed
-                } else {
-                    PutOutcome::Stale
-                },
-            );
+            return Ok(if *expected == Expectation::Absent {
+                PutOutcome::Landed
+            } else {
+                PutOutcome::Stale
+            });
         }
         if !holds(&target, expected).map_err(|cause| failed(&cause))? {
             return Ok(PutOutcome::Stale);
@@ -1017,11 +997,6 @@ pub fn put(
     let found = landing()?;
     if let Found::UnderFile { ancestor } = found {
         return Err(StorageError::NotADirectory { path: ancestor });
-    }
-    if let Some(refused) = nonportable.as_ref().filter(|_| requires_file) {
-        if !matches!(found, Found::File { .. }) {
-            return Err(refused.clone());
-        }
     }
     let (scratch, mut file) = create_scratch(root).map_err(|message| failed(&message))?;
     let unstaged = |cause: io::Error| {
@@ -1042,10 +1017,7 @@ pub fn put(
             return Err(StorageError::NotADirectory { path: ancestor });
         }
         if !holds(&target, expected).map_err(|cause| failed(&cause))? {
-            return match &nonportable {
-                Some(refused) if requires_file => Err(refused.clone()),
-                _ => Ok(PutOutcome::Stale),
-            };
+            return Ok(PutOutcome::Stale);
         }
         keep_mode(&target, &scratch).map_err(|cause| failed(&cause))?;
         let made = make_parents(root, &names[..names.len() - 1]).map_err(|cause| failed(&cause))?;

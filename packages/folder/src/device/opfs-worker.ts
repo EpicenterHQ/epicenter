@@ -301,26 +301,22 @@ async function write(
 ) {
 	segmentsOf(path);
 	return navigator.locks.request(`epicenter-device:${path}`, async () => {
-		// `'any'` (a cache) holds whatever is there, so nothing is read.
-		const current = expected === 'any' ? null : await read(path);
+		const current = await read(path);
 		const holds =
-			expected === 'any' ||
-			(expected === 'absent'
+			expected === 'absent'
 				? current === null
-				: current?.version === expected.sha256);
+				: current?.version === expected.sha256;
 		if (!holds) return 'stale';
 		if (bytes === null) {
 			const found = await fileAt(path);
 			if (found !== null) await found.parent.removeEntry(found.name);
 			return 'landed';
 		}
-		if (current !== null || expected === 'any') {
+		if (current !== null) {
 			const found = await fileAt(path);
-			if (found !== null) {
-				await writeWhole(found.handle, bytes);
-				return 'landed';
-			}
-			if (current !== null) return 'stale';
+			if (found === null) return 'stale';
+			await writeWhole(found.handle, bytes);
+			return 'landed';
 		}
 		await createWhole(path, bytes);
 		return 'landed';

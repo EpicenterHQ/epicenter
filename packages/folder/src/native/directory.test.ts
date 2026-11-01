@@ -35,8 +35,9 @@ test('two processes putting one file each land whole, the last one winning', asy
 	const root = await scratch('native-put-race-');
 	try {
 		await writeFile(join(root, 'log.txt'), '');
-		// Each process replaces the file with a whole value of its own and
-		// reads it back: a reader never sees part of one put, or a mix.
+		// Each process replaces the file over the version it read with a
+		// whole value of its own, and reads it back: a reader never sees part
+		// of one put, or a mix. A put another landed over first is stale.
 		const writer = (id: number) =>
 			Bun.spawn(
 				[
@@ -48,7 +49,9 @@ test('two processes putting one file each land whole, the last one winning', asy
 					const storage = await openNativeStorage(root);
 					for (let line = 0; line < Number(rounds); line++) {
 						const bytes = new TextEncoder().encode(('p${id}-' + line + '\\n').repeat(64));
-						const put = await storage.put('log.txt', bytes, 'any');
+						const before = await storage.read('log.txt');
+						if (before.error !== null) throw new Error(JSON.stringify(before.error));
+						const put = await storage.put('log.txt', bytes, { sha256: before.data.sha256 });
 						if (put.error !== null) throw new Error(JSON.stringify(put.error));
 						const read = await storage.read('log.txt');
 						if (read.error !== null) throw new Error(JSON.stringify(read.error));
@@ -176,9 +179,9 @@ test('a put keeps its staging inside the folder and makes nothing beside it', as
 	try {
 		await mkdir(root);
 		const storage = await openNativeStorage(root);
-		expect(expectOk(await storage.put('todos/a.md', text('milk'), 'any'))).toBe(
-			'landed',
-		);
+		expect(
+			expectOk(await storage.put('todos/a.md', text('milk'), 'absent')),
+		).toBe('landed');
 		expect(await readdir(parent)).toEqual(['notes']);
 		expect((await readdir(root)).sort()).toEqual(['.epicenter', 'todos']);
 		expect(await readdir(savesDirectory(root))).toEqual([]);
@@ -198,7 +201,7 @@ test('a link at .epicenter is never followed: a put is refused and nothing lands
 		await mkdir(elsewhere);
 		await symlink(elsewhere, join(root, '.epicenter'));
 		const storage = await openNativeStorage(root);
-		const { error } = await storage.put('a.md', text('mine'), 'any');
+		const { error } = await storage.put('a.md', text('mine'), 'absent');
 		expect(error).not.toBeNull();
 		expect(await readdir(elsewhere)).toEqual([]);
 		expect(await readdir(root)).toEqual(['.epicenter']);

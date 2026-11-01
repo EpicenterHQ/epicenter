@@ -73,7 +73,6 @@ const kindOf = (entry: {
 
 /** Reject with `UnexpectedTarget` unless `path` holds what `expected` says. */
 async function check(path: string, expected: Expectation): Promise<void> {
-	if (expected === 'any') return;
 	const found = await lstat(path).catch((cause: { code?: string }) => {
 		if (cause.code === 'ENOENT') return undefined;
 		throw cause;
@@ -81,12 +80,6 @@ async function check(path: string, expected: Expectation): Promise<void> {
 	if (expected === 'absent') {
 		if (found !== undefined)
 			throw new UnexpectedTarget(path, { name: 'Exists' });
-		return;
-	}
-	if (expected === 'present') {
-		if (found === undefined)
-			throw new UnexpectedTarget(path, { name: 'NotFound' });
-		if (!found.isFile()) throw new Error(`'${path}' is not a file`);
 		return;
 	}
 	if (!found?.isFile())

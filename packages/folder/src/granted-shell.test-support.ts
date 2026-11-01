@@ -302,7 +302,7 @@ export function createGrantedShell(
 			// As `storage::Expectation::parse` reads it: a keyword, or a tagged hash.
 			const hash = /^sha256:([0-9a-f]{64})$/.exec(expected)?.[1];
 			const parsed =
-				expected === 'any' || expected === 'absent' || expected === 'present'
+				expected === 'absent'
 					? expected
 					: hash !== undefined
 						? { sha256: hash }
@@ -312,7 +312,7 @@ export function createGrantedShell(
 					name: 'Io',
 					path,
 					operation: 'write',
-					message: `expected is ${JSON.stringify(expected)}, not any, absent, present, or sha256: and a SHA-256`,
+					message: `expected is ${JSON.stringify(expected)}, not absent, or sha256: and a SHA-256`,
 				} satisfies StorageError;
 			const outcome = await answered(
 				storageFor(args).put(
