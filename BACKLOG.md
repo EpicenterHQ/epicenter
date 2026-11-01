@@ -182,6 +182,11 @@ another chat and does not create an implementation assignment.
 - Scope: Audio capacity and provider limits need separate evidence. No live
   account changes, deployment, or transfer of personal files is authorized here.
 
+### Measure OPFS startup at thousands of notes
+
+- Measure the OPFS store's startup at thousands of notes, and add a parsed-row
+  cache only if it is slow ([evidence](packages/folder/evidence/two-worlds-and-storage-shape/RESULTS.md)).
+
 ## Remaining app acceptance
 
 ### Keep AI connection rows and machine keys consistent
