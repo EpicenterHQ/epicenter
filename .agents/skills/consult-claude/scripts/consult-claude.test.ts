@@ -194,7 +194,8 @@ test('both accounts share a sanitized environment across new and resumed consult
 			expect(result.stdout + result.stderr).not.toContain('secret-');
 		}
 	}
-});
+	// Twelve launches, each a real `bun` process, outrun the default 5 s.
+}, 30_000);
 
 test('wrong identity, billing method, provider, missing subscription and invalid status stop before prompt', () => {
 	using fixture = setup();
