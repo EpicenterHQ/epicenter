@@ -20,8 +20,6 @@ use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 mod macos_menu;
 mod scheme;
 
-pub mod audio;
-
 pub mod transcription;
 use transcription::{
     download_model, get_active_model, get_unload_policy, list_models, reveal_model,

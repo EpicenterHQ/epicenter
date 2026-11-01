@@ -1259,7 +1259,6 @@ version = "0.0.1"
 dependencies = [
  "accessibility-sys",
  "anyhow",
- "audiopus",
  "base64 0.22.1",
  "core-foundation 0.9.4",
  "core-foundation-sys",
@@ -1267,20 +1266,17 @@ dependencies = [
  "dunce",
  "enigo",
  "hf-hub",
- "hound",
  "libc",
  "log",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "percent-encoding",
- "rubato",
  "serde",
  "serde_json",
  "sha2",
  "specta",
  "specta-typescript",
- "symphonia",
  "tauri",
  "tauri-build",
  "tauri-nspanel",
@@ -1288,6 +1284,7 @@ dependencies = [
  "tauri-plugin-deep-link",
  "tauri-plugin-dialog",
  "tauri-plugin-epicenter-folder",
+ "tauri-plugin-epicenter-transcription",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-log",
  "tauri-plugin-opener",
@@ -2059,12 +2056,6 @@ dependencies = [
  "ureq",
  "windows-sys 0.61.2",
 ]
-
-[[package]]
-name = "hound"
-version = "3.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62adaabb884c94955b19907d60019f4e145d091c75345379e70d1ee696f7854f"
 
 [[package]]
 name = "html5ever"
@@ -5286,6 +5277,33 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-opener",
  "tauri-specta",
+]
+
+[[package]]
+name = "tauri-plugin-epicenter-transcription"
+version = "0.0.1"
+dependencies = [
+ "audiopus",
+ "epicenter-folder-core",
+ "hf-hub",
+ "libc",
+ "log",
+ "plist",
+ "rubato",
+ "serde",
+ "serde_json",
+ "specta",
+ "specta-typescript",
+ "symphonia",
+ "tauri",
+ "tauri-plugin",
+ "tauri-plugin-epicenter-folder",
+ "tauri-plugin-opener",
+ "tauri-specta",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "transcribe-cpp",
 ]
 
 [[package]]

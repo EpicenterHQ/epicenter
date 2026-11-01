@@ -1,12 +1,8 @@
 # Audio decoder test fixtures
 
-> These fixtures belong to the Epicenter host's Rust audio decoder, not to the
-> standalone Whispering app in this directory, which decodes no audio. For
-> Whispering's own repeatable capture audio, see "Fixture audio" in
-> [README.md](../README.md).
-
-Fixtures live at `apps/epicenter/src-tauri/tests/fixtures/` and are
-consumed by `apps/epicenter/src-tauri/tests/decode_fixtures.rs`.
+These fixtures belong to the transcription plugin's audio decoder
+(`audio::decode_to_pcm16k_mono`), which the standalone apps and the Epicenter
+app share. They are consumed by `../decode_fixtures.rs`.
 
 Each file is a 2-second 440 Hz mono sine wave at 0.5 amplitude. The audio
 content is identical; only the container/codec differs. They exercise the

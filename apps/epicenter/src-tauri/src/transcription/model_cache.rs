@@ -214,11 +214,10 @@ impl ModelCache {
                 "Native transcription model is not installed: {model_id}"
             ))
         })?;
-        let samples = crate::audio::decode_to_pcm16k_mono(&bytes).map_err(|error| {
-            TranscriptionError::AudioReadError {
+        let samples = tauri_plugin_epicenter_transcription::audio::decode_to_pcm16k_mono(&bytes)
+            .map_err(|error| TranscriptionError::AudioReadError {
                 message: error.to_string(),
-            }
-        })?;
+            })?;
         if samples.is_empty() {
             return Ok(TranscriptionOutcome::EmptyAudio);
         }

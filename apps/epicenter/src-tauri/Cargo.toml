@@ -47,20 +47,20 @@ tauri = { version = "2.12", features = ["test"] }
 dunce = "1"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+# Its audio decoder only (`audio::decode_to_pcm16k_mono`); the plugin itself is
+# not installed.
+tauri-plugin-epicenter-transcription = { path = "../../../packages/tauri-plugin-epicenter-transcription" }
 anyhow = "1"
 base64 = "0.22"
 enigo = { version = "0.5.0", optional = true }
 hf-hub = { version = "0.5", features = ["tokio"] }
-hound = "3.5"
 log = "0.4"
 percent-encoding = "2"
-rubato = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 specta = "=2.0.0-rc.26"
 specta-typescript = "=0.0.13"
-symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4"] }
 tauri = { version = "2.12", features = ["macos-private-api", "image-png", "tray-icon"] }
 tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }
 tauri-plugin-clipboard-manager = { version = "2", optional = true }
@@ -74,7 +74,6 @@ thiserror = "2.0.12"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1.41"
 transcribe-cpp = { version = "0.1.0", default-features = false }
-audiopus = "0.3.0-rc.0"
 
 [target.'cfg(unix)'.dependencies]
 # Ends a window's `epicenter` children with their process groups (`history.rs`).
