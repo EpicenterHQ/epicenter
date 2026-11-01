@@ -183,7 +183,7 @@ missing.
 | `bun test packages/capture` | The contract and the body codec. |
 | `bun run --cwd apps/capture typecheck` | App, scripts, and end-to-end types. |
 | `bun run --cwd apps/capture test` | The contract's fit, the store and mounted components over a stand-in client (a folder client in a temporary directory), and both builds' seams. |
-| `cargo test -p capture -p epicenter-standalone` | The desktop shell: its capability, the data folder (default, chosen, missing, refused), guarded Quit. |
+| `cargo test -p capture -p epicenter-standalone` | The desktop shell: its capability, the data folder (default, chosen, missing, refused), auxiliary windows closing with the primary. |
 | `bun x playwright test -c apps/capture/playwright.config.ts` | End to end in Chromium and WebKit (below). |
 
 The end-to-end suite (`e2e/capture.spec.ts`, on the shared stack in

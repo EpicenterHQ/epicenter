@@ -25,9 +25,11 @@
 //! The folder plugin refuses the places no app keeps its files in
 //! (`scope::Refusals`).
 //!
-//! On macOS, the menu's Quit and Cmd-Q request the primary window's ordinary
-//! close, so the page's leave guard answers. This crate installs no close,
-//! destroy, or exit handler that waits. Auxiliary windows an app makes are
+//! Quit is the default menu's, and quits; a window closes at once. This crate
+//! installs no close, destroy, or exit handler that waits for a page. Every
+//! plugin still hears the window's `Destroyed` and the app's `Exit` (AppKit's
+//! Quit reaches `Exit` without `ExitRequested`), which is where the recorder
+//! finishes a recording in progress. Auxiliary windows an app makes are
 //! destroyed with the primary, never another primary.
 
 use std::path::{Path, PathBuf};
@@ -49,11 +51,11 @@ pub struct StandaloneApp {
 }
 
 /// Builder with the file-system scope (`tauri-plugin-fs`, no commands
-/// granted), its persistence, the folder plugin, the dialog plugin, setup
-/// that opens the app's window, and (macOS) guarded Quit. Add app-specific
-/// plugins and commands, then call `.run(tauri::generate_context!())`.
+/// granted), its persistence, the folder plugin, the dialog plugin, and setup
+/// that opens the app's window. Add app-specific plugins and commands, then
+/// call `.run(tauri::generate_context!())`.
 pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
-    let builder = tauri::Builder::default()
+    tauri::Builder::default()
         // The fs scope must exist before persisted-scope restores into it.
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_persisted_scope::init())
@@ -89,16 +91,7 @@ pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
                 quit_with(&handle, app, error);
             }
             Ok(())
-        });
-    // AppKit's predefined Quit terminates without asking the page. Request
-    // the ordinary guarded window close instead.
-    #[cfg(target_os = "macos")]
-    let builder = builder.menu(quit_menu).on_menu_event(move |handle, event| {
-        if event.id().as_ref() == "quit" {
-            request_quit(handle, app);
-        }
-    });
-    builder
+        })
 }
 
 /// `~/Epicenter/<productName>`: the data folder a page opens when its
@@ -166,23 +159,6 @@ fn quit_with<R: Runtime>(handle: &AppHandle<R>, app: StandaloneApp, message: Str
         .show(move |_| exit.exit(1));
 }
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn request_quit<R: Runtime>(handle: &AppHandle<R>, app: StandaloneApp) {
-    let windows = handle.webview_windows();
-    let Some(label) = primary_label(app.page, windows.keys().map(String::as_str)) else {
-        handle.exit(0);
-        return;
-    };
-    if let Err(error) = windows[label].close() {
-        handle
-            .dialog()
-            .message(format!("The window could not close. Try again.\n\n{error}"))
-            .title(format!("{} stayed open", app.title))
-            .kind(MessageDialogKind::Error)
-            .show(|_| {});
-    }
-}
-
 /// The primary is identified by the page prefix, regardless of map iteration order.
 fn primary_label<'a>(page: &str, labels: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
     let prefix = format!("{page}:");
@@ -204,34 +180,6 @@ fn auxiliary_windows<'a>(
         .filter(|label| primary_label(page, [*label]).is_none())
         .map(str::to_owned)
         .collect()
-}
-
-#[cfg(target_os = "macos")]
-fn quit_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R>> {
-    use tauri::menu::{Menu, MenuItem};
-
-    let menu = Menu::default(app)?;
-    let application = menu
-        .items()?
-        .first()
-        .and_then(|item| item.as_submenu())
-        .cloned()
-        .ok_or_else(|| std::io::Error::other("default application menu is missing"))?;
-    let quit = application
-        .items()?
-        .last()
-        .and_then(|item| item.as_predefined_menuitem())
-        .cloned()
-        .ok_or_else(|| std::io::Error::other("default Quit item is missing"))?;
-    application.remove(&quit)?;
-    application.append(&MenuItem::with_id(
-        app,
-        "quit",
-        quit.text()?,
-        true,
-        Some("Cmd+Q"),
-    )?)?;
-    Ok(menu)
 }
 
 #[cfg(test)]
@@ -472,25 +420,6 @@ mod tests {
         assert!(!handle
             .fs_scope()
             .is_allowed(default.with_file_name("Elsewhere")));
-    }
-
-    #[test]
-    fn quit_with_an_open_window_does_not_exit() {
-        let fixture = fixture();
-        let window = fixture.start();
-        // MockRuntime's exit panics, so reaching the assertion proves Quit
-        // took the open-window branch.
-        request_quit(fixture.app.handle(), NOTES);
-        assert!(fixture.app.folders().bound(window.label()).is_ok());
-    }
-
-    #[test]
-    fn quit_selects_the_primary_after_an_auxiliary_and_exits_without_one() {
-        assert_eq!(
-            primary_label("notes", ["settings", "notes:folder"]),
-            Some("notes:folder")
-        );
-        assert_eq!(primary_label("notes", ["settings", "todos:folder"]), None);
     }
 
     #[test]
