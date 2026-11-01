@@ -156,7 +156,10 @@ test('a take is on the record screen, not in the library, until Stop answers wit
 	expect(whispering.recorder.phase).toBe('idle');
 	await eventually(() => library.entries.length === 1);
 	expect(library.entries[0]).toMatchObject({ durationMs: 1500 });
-	expect(library.audioOf(library.entries[0]!.id).kind).toBe('here');
+	// The audio is its own listing, which can answer after the recordings'
+	// (`listing` until then), so wait for it rather than race it.
+	const { id } = library.entries[0]!;
+	await eventually(() => library.audioOf(id).kind === 'here');
 	expect(whispering.recorderError).toBeUndefined();
 });
 
