@@ -93,7 +93,8 @@ let staged = 0;
 /**
  * A new staged file's name: its creation time and a per-process counter in
  * base 36, around this process's engine id. Only ASCII letters, digits, and
- * `-`, which the desktop shell admits.
+ * `-`, which the desktop shell admits. The OPFS worker, which imports
+ * nothing, names its own the same way (`stagedName`).
  */
 export const scratchName = () => {
 	engine ??= crypto.randomUUID().replaceAll('-', '');

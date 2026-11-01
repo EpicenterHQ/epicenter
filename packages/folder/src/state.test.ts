@@ -11,11 +11,17 @@
  * - The directory and its `saves` part match the shared layout
  * - `savesDirectory` builds the shared layout's path
  * - The OPFS worker stages where `savesDirectory` says
+ * - The OPFS worker names and ages its staged files as every host does
  */
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SAVES as WORKER_SAVES } from './device/opfs-worker.js';
+import { isStaleScratch } from './boundary.js';
+import {
+	isStaleSave,
+	stagedName,
+	SAVES as WORKER_SAVES,
+} from './device/opfs-worker.js';
 import { SAVES, STATE_DIRECTORY, savesDirectory } from './state.js';
 
 /** The layout `state.rs` reads too. */
@@ -43,4 +49,25 @@ test('savesDirectory builds the shared layout', () => {
 
 test('the OPFS worker stages in the shared layout', () => {
 	expect(WORKER_SAVES.join('/')).toBe(layout.savesDirectory);
+});
+
+test('the OPFS worker names and ages its staged files as every host does', () => {
+	const hour = 60 * 60 * 1000;
+	const name = stagedName();
+	const made = Number.parseInt(name.slice(0, name.indexOf('-')), 36);
+	for (const now of [made + hour, made + hour + 1]) {
+		expect(isStaleSave(name, now)).toBe(isStaleScratch(name, now));
+	}
+	expect(isStaleScratch(name, made + hour + 1)).toBe(true);
+	const engine = '0123456789abcdef0123456789abcdef';
+	for (const foreign of [
+		'notes.md',
+		'a',
+		`${made.toString(36)}-${crypto.randomUUID()}`,
+		`${made.toString(36)}-${engine}`,
+		`${made.toString(36)}-${engine}-0-1`,
+	]) {
+		expect(isStaleSave(foreign, Number.MAX_SAFE_INTEGER)).toBe(false);
+		expect(isStaleScratch(foreign, Number.MAX_SAFE_INTEGER)).toBe(false);
+	}
 });

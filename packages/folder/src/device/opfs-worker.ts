@@ -86,8 +86,39 @@ type AccessibleFile = FileSystemFileHandle & {
  * copy, which `state.test.ts` holds to the shared layout.
  */
 export const SAVES = ['.epicenter', 'saves'];
+
+/** This worker's id in the names it stages under, made at the first stage. */
+let engine: string | undefined;
+let staged = 0;
+
+/**
+ * A new staged file's name, in the grammar every host stages under
+ * (`scratchName` in `boundary.ts`, `scratch_name` in the folder core): its
+ * creation time and a per-worker counter in base 36, around this worker's
+ * id. A copy, since this file imports nothing; `state.test.ts` holds it to
+ * `isStaleScratch`.
+ */
+export const stagedName = () => {
+	engine ??= crypto.randomUUID().replaceAll('-', '');
+	return `${Date.now().toString(36)}-${engine}-${(staged++).toString(36)}`;
+};
+
 /** How old a staged file must be before it is swept: its writer stopped. */
 const STALE_SAVE_MS = 60 * 60 * 1000;
+
+const STAGED_NAME = /^([0-9a-z]+)-[0-9a-f]{32}-[0-9a-z]+$/;
+
+/**
+ * Whether the staged file `name` was made more than `STALE_SAVE_MS` before
+ * `now`, as `isStaleScratch` in `boundary.ts` reads it. A name no host made
+ * is never stale.
+ */
+export function isStaleSave(name: string, now: number): boolean {
+	const time = STAGED_NAME.exec(name)?.[1];
+	if (time === undefined) return false;
+	const created = Number.parseInt(time, 36);
+	return Number.isSafeInteger(created) && now - created > STALE_SAVE_MS;
+}
 
 /** `getDirectory()` refused: this browser gives the page no private storage. */
 class Refused extends Error {}
@@ -303,13 +334,13 @@ async function createWhole(path: string, bytes: Uint8Array) {
 	const directory = await root();
 	const parent = (await directoryAt(directory, segments, true))!;
 	const saves = (await directoryAt(directory, SAVES, true))!;
-	const stagedName = `${Date.now().toString(36)}-${crypto.randomUUID()}`;
-	const staged = await saves.getFileHandle(stagedName, { create: true });
+	const stagedAs = stagedName();
+	const file = await saves.getFileHandle(stagedAs, { create: true });
 	try {
-		await writeWhole(staged, bytes);
-		await (staged as MovableFile).move(parent, name);
+		await writeWhole(file, bytes);
+		await (file as MovableFile).move(parent, name);
 	} catch (cause) {
-		await saves.removeEntry(stagedName).catch(() => {});
+		await saves.removeEntry(stagedAs).catch(() => {});
 		throw cause;
 	}
 }
@@ -354,14 +385,16 @@ async function writeWhole(handle: FileSystemFileHandle, bytes: Uint8Array) {
 	await writable.close();
 }
 
-/** Remove staged files a stopped write left an hour or more ago. */
+/**
+ * Remove the staged files a stopped write left an hour or more ago: files
+ * with a staged name (`isStaleSave`), nothing else.
+ */
 async function sweepSaves(directory: FileSystemDirectoryHandle) {
 	const saves = await directoryAt(directory, SAVES, false);
 	if (saves === null) return;
 	const now = Date.now();
 	for await (const [name, handle] of (saves as Directory).entries()) {
-		const created = Number.parseInt(name.split('-')[0] ?? '', 36);
-		if (handle.kind === 'file' && now - created > STALE_SAVE_MS)
+		if (handle.kind === 'file' && isStaleSave(name, now))
 			await saves.removeEntry(name).catch(() => {});
 	}
 }
