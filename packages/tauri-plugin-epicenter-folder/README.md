@@ -34,11 +34,8 @@ This crate has no JavaScript package of its own. A page reaches it through
 
 ## Binding a window's folder
 
-Install the folder plugin once alongside `tauri_plugin_dialog::init()`.
-The folder plugin uses the dialog plugin for its native confirmation after a
-second unanswered window-close request; omitting it makes that path panic.
-A shell decides which directory a window edits in
-trusted Rust and resolves it. The shared opener chooses its identity and binds
+Install the folder plugin once. A shell decides which directory a window
+edits in trusted Rust and resolves it. The shared opener chooses its identity and binds
 the directory before building the WebView:
 
 ```rust
@@ -46,7 +43,6 @@ use tauri::{Manager, WebviewUrl};
 use tauri_plugin_epicenter_folder::{Directory, FolderExt};
 
 tauri::Builder::default()
-    .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_epicenter_folder::init())
     .setup(|app| {
         let directory = Directory::create(&app.path().app_data_dir()?)?;
@@ -184,15 +180,9 @@ may pass through a link (`/tmp` is `/private/tmp` on macOS); the page
 remembers the canonical path (`pickDataFolder` in `@epicenter/folder/tauri`),
 so a folder is one setting however it was picked.
 
-The page registers one private close channel with `subscribe_close`; it
-releases that registration with `unsubscribe_close`. On window close, Rust
-sends the request to the page. The page's leave guard (`holdWindowClose` in
-`@epicenter/svelte/leave-guard`) waits for its writes, then calls
-`destroy_bound_window` with its subscription token; Rust destroys only
-that window. A second close while the page waits asks natively whether to
-close anyway. Keeping the window open lets the first wait finish and close it.
-A page reload clears
-the old channel and token, so an old page cannot close its successor.
+A bound window closes like any other window: nothing waits for its page. A
+write still out then is lost, a small, rare loss at the edge (ADR-0702's test
+for every protection); what landed is in the folder.
 
 Every open also removes the staged files in the root's `.epicenter/saves`
 that a stopped save left more than an hour ago

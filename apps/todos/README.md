@@ -89,9 +89,9 @@ The page is the same UI as the web, built as the desktop variant
 inference calls, and Epicenter syncs the folder. Its header says whether
 Epicenter syncs the folder, offers **Sync with Epicenter** until it does
 (`syncWithEpicenter({ path, contract })`, the contract at `APPS.TODOS.url`'s
-`contract.json`), and holds **Choose data folder…** in the status details.
-Closing the window or quitting waits for saves (the leave guard), and so
-does Choose data folder….
+`contract.json`), and holds **Choose data folder…** in the status details,
+which waits for saves before it switches. Closing the window or quitting
+does not wait.
 
 The variant is chosen at build time through the `#platform/root` seam, as
 [the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant)

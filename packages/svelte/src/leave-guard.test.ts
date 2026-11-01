@@ -6,22 +6,13 @@
  *   landed or refused, and `whenSaved` answers once none is
  * - Leaving the page asks only while a write is out, and not once the guard
  *   is released
- * - On desktop, closing the window waits for the writes out, then closes
  */
 import './svelte-dom.test-support.js';
-import { afterEach, expect, test } from 'bun:test';
-import {
-	desktop,
-	nativeWindow,
-	requestClose,
-	untilListening,
-} from './tauri-window.test-support.js';
+import { expect, test } from 'bun:test';
 
 const { guardLeave, holdLeave, isSaving, whenSaved } = await import(
 	'./leave-guard.js'
 );
-
-afterEach(() => nativeWindow.reset());
 
 /** Whether leaving the page now would ask first. */
 function leavingAsks() {
@@ -73,22 +64,4 @@ test('leaving the page asks only while a write is out, until the guard is releas
 	expect(leavingAsks()).toBe(false);
 	again.resolve();
 	await stillOut;
-});
-
-test('on desktop, closing the window waits for the writes out, then closes', async () => {
-	desktop(true);
-	const release = guardLeave();
-	await untilListening();
-
-	const write = Promise.withResolvers<void>();
-	const out = holdLeave(write.promise);
-	const closing = requestClose();
-	await Bun.sleep(10);
-	expect(nativeWindow.destroyed).toBe(0);
-
-	write.resolve();
-	await out;
-	await closing;
-	expect(nativeWindow.destroyed).toBe(1);
-	release();
 });

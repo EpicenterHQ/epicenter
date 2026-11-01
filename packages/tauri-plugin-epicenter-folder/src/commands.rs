@@ -20,11 +20,10 @@ use epicenter_folder_core::admission::resolved;
 use epicenter_folder_core::root::{prepare_directory, PrepareError};
 use epicenter_folder_core::storage::{self, ListedFile, PutOutcome, StorageError};
 use tauri::ipc::Channel;
-use tauri::{Manager, Runtime, Webview, WebviewWindow};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri::{Manager, Runtime, Webview};
 
 use crate::scope::admit;
-use crate::{folders::CloseAnswer, Directory, FolderChanged, Folders, WindowError};
+use crate::{Directory, FolderChanged, Folders, WindowError};
 
 /// Run blocking work off the window thread.
 async fn blocking<T: Send + 'static>(
@@ -116,109 +115,6 @@ pub async fn resolve_folder<R: Runtime>(
         |message| Err(WindowError::Unavailable { message }),
     )
     .await
-}
-
-/// Let this bound window answer its own native close requests.
-#[tauri::command]
-#[specta::specta]
-pub fn subscribe_close<R: Runtime>(
-    window: WebviewWindow<R>,
-    on_close: Channel<()>,
-) -> Result<u32, WindowError> {
-    window
-        .state::<Folders>()
-        .subscribe_close(window.label(), on_close)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn unsubscribe_close<R: Runtime>(window: WebviewWindow<R>, token: u32) {
-    window
-        .state::<Folders>()
-        .unsubscribe_close(window.label(), token);
-}
-
-/// The caller can destroy only its own bound window after its writes drain.
-#[tauri::command]
-#[specta::specta]
-pub async fn destroy_bound_window<R: Runtime>(
-    window: WebviewWindow<R>,
-    token: u32,
-) -> Result<bool, String> {
-    match window
-        .state::<Folders>()
-        .begin_close_answer(window.label(), token)
-    {
-        CloseAnswer::Ignore => return Ok(false),
-        CloseAnswer::WaitForPrompt => return Ok(true),
-        CloseAnswer::Destroy => {}
-    }
-    tauri::async_runtime::spawn_blocking(move || {
-        let result = destroy_if_current(window.clone(), token);
-        window
-            .state::<Folders>()
-            .finish_close_request(window.label(), token);
-        result
-    })
-    .await
-    .map_err(|error| error.to_string())?
-}
-
-/// An unanswered page cannot trap its window. A second close asks natively.
-pub(crate) fn confirm_unanswered_close<R: Runtime>(window: WebviewWindow<R>, token: u32) {
-    tauri::async_runtime::spawn_blocking(move || {
-        let confirmed = window
-            .dialog()
-            .message("Some changes are still saving. Close the window anyway?")
-            .title("Close window?")
-            .kind(MessageDialogKind::Warning)
-            .buttons(MessageDialogButtons::OkCancelCustom(
-                "Close anyway".into(),
-                "Keep waiting".into(),
-            ))
-            .blocking_show();
-        let result =
-            if window
-                .state::<Folders>()
-                .finish_native_prompt(window.label(), token, confirmed)
-            {
-                destroy_if_current(window.clone(), token)
-            } else {
-                Ok(false)
-            };
-        if result != Ok(false) {
-            window
-                .state::<Folders>()
-                .finish_close_request(window.label(), token);
-        }
-        if let Err(error) = result {
-            log::warn!("The unanswered window could not close: {error}");
-        }
-    });
-}
-
-fn destroy_if_current<R: Runtime>(window: WebviewWindow<R>, token: u32) -> Result<bool, String> {
-    let (send, receive) = std::sync::mpsc::sync_channel(1);
-    let dispatch = window.clone();
-    window
-        .run_on_main_thread(move || {
-            // Navigation and close subscription changes also arrive on this
-            // thread. A retired page cannot dispatch destruction afterward.
-            let result = if !dispatch
-                .state::<Folders>()
-                .owns_close(dispatch.label(), token)
-            {
-                Ok(false)
-            } else {
-                dispatch
-                    .destroy()
-                    .map(|_| true)
-                    .map_err(|error| error.to_string())
-            };
-            let _ = send.send(result);
-        })
-        .map_err(|error| error.to_string())?;
-    receive.recv().map_err(|error| error.to_string())?
 }
 
 /// The root the page named among the calling window's, cloned for this

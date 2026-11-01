@@ -37,9 +37,9 @@ over its path after checking that version.
 
 A Svelte page reads a client through `fromClient` and binds a text input to
 `fieldEdit`, which shows typed text until its save answers and keeps it with
-an inline error after a failed save. The page's leave guard holds a browser
-unload, or a desktop window's close, while a write is out. In-memory edits do
-not survive a crash.
+an inline error after a failed save. The page's leave guard asks before a
+browser unload while a write is out; a desktop window closes at once.
+In-memory edits do not survive a crash or a close.
 
 Git exchange is separate from opening and local saving. The `epicenter`
 CLI retains history commands, while current product pages offer no Save

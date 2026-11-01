@@ -6,9 +6,6 @@ Open the folder the shell bound to this window, and other folders (and resolve t
 
 - `allow-open-folder`
 - `allow-resolve-folder`
-- `allow-subscribe-close`
-- `allow-unsubscribe-close`
-- `allow-destroy-bound-window`
 - `allow-list-folder`
 - `allow-read-folder-file`
 - `allow-put-folder-file`
@@ -23,32 +20,6 @@ Open the folder the shell bound to this window, and other folders (and resolve t
 <th>Description</th>
 </tr>
 
-
-<tr>
-<td>
-
-`epicenter-folder:allow-destroy-bound-window`
-
-</td>
-<td>
-
-Enables the destroy_bound_window command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-destroy-bound-window`
-
-</td>
-<td>
-
-Denies the destroy_bound_window command without any pre-configured scope.
-
-</td>
-</tr>
 
 <tr>
 <td>
@@ -183,32 +154,6 @@ Denies the resolve_folder command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-subscribe-close`
-
-</td>
-<td>
-
-Enables the subscribe_close command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-subscribe-close`
-
-</td>
-<td>
-
-Denies the subscribe_close command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `epicenter-folder:allow-sync-with-epicenter`
 
 </td>
@@ -254,32 +199,6 @@ Enables the synced_with_epicenter command without any pre-configured scope.
 <td>
 
 Denies the synced_with_epicenter command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:allow-unsubscribe-close`
-
-</td>
-<td>
-
-Enables the unsubscribe_close command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-unsubscribe-close`
-
-</td>
-<td>
-
-Denies the unsubscribe_close command without any pre-configured scope.
 
 </td>
 </tr>

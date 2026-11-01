@@ -24,7 +24,6 @@ percent-encoding = "2"
 serde_json = "1"
 sha2 = "0.10"
 tauri = "2.12"
-tauri-plugin-dialog = "2"
 # Its runtime file-system scope (the dialog's grants, persisted by
 # `tauri-plugin-persisted-scope`) decides which roots a page may open.
 tauri-plugin-fs = "2.7"

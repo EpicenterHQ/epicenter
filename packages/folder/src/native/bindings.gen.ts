@@ -26,11 +26,6 @@ export const commands = {
 	 *  `open_folder` answers them; nothing is opened, watched or made.
 	 */
 	resolveFolder: (root: string) => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|resolve_folder", { root })),
-	/**  Let this bound window answer its own native close requests. */
-	subscribeClose: (onClose: Channel<null>) => typedError<number, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|subscribe_close", { onClose })),
-	unsubscribeClose: (token: number) => __TAURI_INVOKE<void>("plugin:epicenter-folder|unsubscribe_close", { token }),
-	/**  The caller can destroy only its own bound window after its writes drain. */
-	destroyBoundWindow: (token: number) => typedError<boolean, string>(__TAURI_INVOKE("plugin:epicenter-folder|destroy_bound_window", { token })),
 	/**
 	 *  Every file below the root `root`, `.git` aside, hidden ones included,
 	 *  none of them followed (`storage::list`).

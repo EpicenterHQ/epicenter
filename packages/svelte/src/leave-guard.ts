@@ -1,7 +1,9 @@
 /**
  * `@epicenter/svelte/leave-guard`: leaving a page is unsure while a write is
- * out. A browser asks "Leave site?"; a desktop window waits for the writes,
- * then closes (closing again while it waits asks natively).
+ * out, so a browser asks "Leave site?" (online, a write can take a while to
+ * land). Closing a desktop window does not ask the page: the window closes at
+ * once, and a local write still out then is a small, rare loss at the edge
+ * (ADR-0702's test for every protection).
  *
  * Every write through `fromClient` and `fieldEdit` is held from
  * the moment it is asked for, so a keystroke counts before its save starts.
@@ -18,11 +20,6 @@
  * </script>
  * ```
  */
-import { createLogger } from 'wellcrafted/logger';
-import { holdWindowClose } from './window-close.js';
-
-const log = createLogger('svelte/leave-guard');
-
 /** Writes handed over and not yet settled, in this page. */
 let out = 0;
 /** Waiting for `out` to reach zero. */
@@ -49,32 +46,11 @@ export function whenSaved(): Promise<void> {
 	return saved.promise;
 }
 
-/**
- * Ask before the page is left while a write is out, and on desktop hold the
- * window's close until the writes settle. Answers the release.
- */
+/** Ask before the page is left while a write is out. Answers the release. */
 export function guardLeave(): () => void {
 	const beforeUnload = (event: Event) => {
 		if (isSaving()) event.preventDefault();
 	};
 	window.addEventListener('beforeunload', beforeUnload);
-	let released = false;
-	let releaseWindow: (() => void) | undefined;
-	holdWindowClose(whenSaved).then(
-		(release) => {
-			if (released) release();
-			else releaseWindow = release;
-		},
-		(cause: unknown) => {
-			log.error(
-				new Error('Closing this window will not wait for saves', { cause }),
-			);
-		},
-	);
-	return () => {
-		if (released) return;
-		released = true;
-		window.removeEventListener('beforeunload', beforeUnload);
-		releaseWindow?.();
-	};
+	return () => window.removeEventListener('beforeunload', beforeUnload);
 }

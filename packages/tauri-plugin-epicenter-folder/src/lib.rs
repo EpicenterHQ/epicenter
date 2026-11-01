@@ -53,7 +53,6 @@ mod watch;
 mod windows;
 
 pub use command_names::COMMANDS;
-use folders::CloseRequest;
 pub use folders::{BindError, Folders, WindowError};
 pub use watch::FolderChanged;
 pub use windows::{folder_window_label, FolderExt, OpenWindowError};
@@ -72,9 +71,6 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
         .commands(tauri_specta::collect_commands![
             commands::open_folder::<tauri::Wry>,
             commands::resolve_folder::<tauri::Wry>,
-            commands::subscribe_close::<tauri::Wry>,
-            commands::unsubscribe_close::<tauri::Wry>,
-            commands::destroy_bound_window::<tauri::Wry>,
             commands::list_folder::<tauri::Wry>,
             epicenter::sync_with_epicenter::<tauri::Wry>,
             epicenter::synced_with_epicenter::<tauri::Wry>,
@@ -89,8 +85,8 @@ fn raw_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + 
     tauri::generate_handler![commands::put_folder_file, commands::read_folder_file]
 }
 
-/// Register alongside `tauri_plugin_dialog::init()`: a second unanswered
-/// window-close request asks for native confirmation through that plugin.
+/// Install once per shell. A bound window closes like any other window:
+/// nothing waits for its page.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     let contract = specta_builder::<R>();
     let typed = contract.invoke_handler();
@@ -110,22 +106,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             }
         })
         .on_event(|app, event| match event {
-            RunEvent::WindowEvent {
-                label,
-                event: WindowEvent::CloseRequested { api, .. },
-                ..
-            } => match app.folders().request_close(label) {
-                CloseRequest::Unhandled => {}
-                CloseRequest::Sent | CloseRequest::Waiting => api.prevent_close(),
-                CloseRequest::ConfirmNatively(token) => {
-                    api.prevent_close();
-                    if let Some(window) = app.get_webview_window(label) {
-                        commands::confirm_unanswered_close(window, token);
-                    } else {
-                        app.folders().finish_close_request(label, token);
-                    }
-                }
-            },
             // A destroyed window's label may be built again, on any folder.
             RunEvent::WindowEvent {
                 label,

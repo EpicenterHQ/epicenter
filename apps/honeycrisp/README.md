@@ -103,9 +103,9 @@ makes no inference calls, and Epicenter syncs the folder. Its header says
 (asked again each time the window gains focus), offers **Sync with
 Epicenter** until it does (`syncWithEpicenter({ path, contract })`, the
 contract at `APPS.HONEYCRISP.url`'s `contract.json`), and holds the folder's
-path and **Choose data folder…** in the status details. Closing the window or
-quitting waits for saves, a note's body still being typed included (the
-leave guard), and so does Choose data folder….
+path and **Choose data folder…** in the status details, which waits for
+saves, a note's body still being typed included, before it switches. Closing
+the window or quitting does not wait.
 
 The variant is chosen at build time through the `#platform/root` seam, as
 [the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant)

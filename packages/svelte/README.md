@@ -113,10 +113,11 @@ app root installs the guard once:
 </script>
 ```
 
-While a write is out, leaving the page asks "Leave site?", and a desktop
-window waits for the writes before it closes (closing again while it waits
-asks natively). A write made on a client directly, such as a capture of
-several files, is held with `holdLeave(write)`.
+While a write is out, leaving the page asks "Leave site?": online, a write
+can take a while to land. A desktop window does not ask the page and closes
+at once; a local write still out then is a small, rare loss. A write made on
+a client directly, such as a capture of several files, is held with
+`holdLeave(write)`.
 
 ## Keep typed text in an edit
 

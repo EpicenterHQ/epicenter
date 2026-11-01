@@ -9,9 +9,6 @@ description = "Open the folder the shell bound to this window, and other folders
 permissions = [
   "allow-open-folder",
   "allow-resolve-folder",
-  "allow-subscribe-close",
-  "allow-unsubscribe-close",
-  "allow-destroy-bound-window",
   "allow-list-folder",
   "allow-read-folder-file",
   "allow-put-folder-file",

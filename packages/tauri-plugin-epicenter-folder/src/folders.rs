@@ -11,12 +11,10 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
 use specta::Type;
-use tauri::ipc::Channel;
 
 use crate::watch::{FolderChanged, FolderWatch};
 use crate::Directory;
@@ -25,7 +23,6 @@ use crate::Directory;
 #[derive(Default)]
 pub struct Folders {
     state: Mutex<State>,
-    next_close: AtomicU32,
 }
 
 #[derive(Default)]
@@ -42,7 +39,6 @@ struct Binding {
     identity: Arc<()>,
     retiring: bool,
     observation: u64,
-    close: Option<CloseSubscription>,
 }
 
 /// A root a page opened: its directory, its one watch, and the page's
@@ -55,35 +51,6 @@ struct OpenedRoot {
 }
 
 type Report = Arc<Mutex<Option<Box<dyn Fn(FolderChanged) + Send>>>>;
-
-struct CloseSubscription {
-    token: u32,
-    channel: Channel<()>,
-    phase: ClosePhase,
-}
-
-enum ClosePhase {
-    Idle,
-    Sent,
-    Answering,
-    Prompting,
-    Ready,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum CloseAnswer {
-    Ignore,
-    Destroy,
-    WaitForPrompt,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum CloseRequest {
-    Unhandled,
-    Sent,
-    Waiting,
-    ConfirmNatively(u32),
-}
 
 impl Folders {
     fn state(&self) -> MutexGuard<'_, State> {
@@ -112,7 +79,6 @@ impl Folders {
                 identity: Arc::new(()),
                 retiring: false,
                 observation: 0,
-                close: None,
             },
         );
         Ok(())
@@ -204,55 +170,16 @@ impl Folders {
         Ok((binding.directory.clone(), binding.observation))
     }
 
-    /// The page's close recipient is replaceable across reloads, like its watch recipient.
-    pub(crate) fn subscribe_close(
-        &self,
-        label: &str,
-        channel: Channel<()>,
-    ) -> Result<u32, WindowError> {
-        let token = self.next_close.fetch_add(1, Ordering::Relaxed);
-        let previous = {
-            let mut state = self.state();
-            if state.stopped {
-                return Err(WindowError::ShuttingDown);
-            }
-            let binding = state.bindings.get_mut(label).ok_or(WindowError::NotBound)?;
-            if binding.retiring {
-                return Err(WindowError::NotBound);
-            }
-            binding.close.replace(CloseSubscription {
-                token,
-                channel,
-                phase: ClosePhase::Idle,
-            })
-        };
-        drop(previous);
-        Ok(token)
-    }
-
-    pub(crate) fn unsubscribe_close(&self, label: &str, token: u32) {
-        let old = {
-            let mut state = self.state();
-            state.bindings.get_mut(label).and_then(|binding| {
-                (binding
-                    .close
-                    .as_ref()
-                    .is_some_and(|close| close.token == token))
-                .then(|| binding.close.take())
-                .flatten()
-            })
-        };
-        drop(old);
-    }
-
+    /// A page started loading in the window: the previous page's recipients
+    /// hear nothing more, and its unfinished opens install no watch.
     pub(crate) fn page_started(&self, label: &str) {
-        let old = {
+        let old: Vec<_> = {
             let mut state = self.state();
             let Some(binding) = state.bindings.get_mut(label) else {
                 return;
             };
             binding.observation = binding.observation.wrapping_add(1);
-            let reports: Vec<_> = binding
+            binding
                 .opened
                 .values()
                 .filter_map(|opened| {
@@ -262,111 +189,9 @@ impl Folders {
                         .unwrap_or_else(|poisoned| poisoned.into_inner())
                         .take()
                 })
-                .collect();
-            (binding.close.take(), reports)
+                .collect()
         };
         drop(old);
-    }
-
-    /// Deliver once. A second unanswered request gets a native escape hatch.
-    pub(crate) fn request_close(&self, label: &str) -> CloseRequest {
-        let (token, channel) = {
-            let mut state = self.state();
-            let Some(close) = state
-                .bindings
-                .get_mut(label)
-                .filter(|binding| !binding.retiring)
-                .and_then(|binding| binding.close.as_mut())
-            else {
-                return CloseRequest::Unhandled;
-            };
-            match close.phase {
-                ClosePhase::Answering | ClosePhase::Prompting | ClosePhase::Ready => {
-                    return CloseRequest::Waiting;
-                }
-                ClosePhase::Sent => {
-                    close.phase = ClosePhase::Prompting;
-                    return CloseRequest::ConfirmNatively(close.token);
-                }
-                ClosePhase::Idle => close.phase = ClosePhase::Sent,
-            }
-            (close.token, close.channel.clone())
-        };
-        if channel.send(()).is_ok() {
-            CloseRequest::Sent
-        } else {
-            self.finish_close_request(label, token);
-            CloseRequest::Unhandled
-        }
-    }
-
-    pub(crate) fn begin_close_answer(&self, label: &str, token: u32) -> CloseAnswer {
-        let mut state = self.state();
-        let Some(close) = state
-            .bindings
-            .get_mut(label)
-            .filter(|binding| !binding.retiring)
-            .and_then(|binding| binding.close.as_mut())
-        else {
-            return CloseAnswer::Ignore;
-        };
-        if close.token != token {
-            return CloseAnswer::Ignore;
-        }
-        match close.phase {
-            ClosePhase::Idle => CloseAnswer::Ignore,
-            ClosePhase::Sent => {
-                close.phase = ClosePhase::Answering;
-                CloseAnswer::Destroy
-            }
-            ClosePhase::Prompting => {
-                close.phase = ClosePhase::Ready;
-                CloseAnswer::WaitForPrompt
-            }
-            ClosePhase::Answering | ClosePhase::Ready => CloseAnswer::Ignore,
-        }
-    }
-
-    /// A canceled question resumes waiting for the page's already-sent answer.
-    pub(crate) fn finish_native_prompt(&self, label: &str, token: u32, confirmed: bool) -> bool {
-        let mut state = self.state();
-        let Some(close) = state
-            .bindings
-            .get_mut(label)
-            .and_then(|binding| binding.close.as_mut())
-            .filter(|close| close.token == token)
-        else {
-            return false;
-        };
-        if confirmed || matches!(close.phase, ClosePhase::Ready) {
-            close.phase = ClosePhase::Answering;
-            true
-        } else {
-            close.phase = ClosePhase::Sent;
-            false
-        }
-    }
-
-    pub(crate) fn finish_close_request(&self, label: &str, token: u32) {
-        let mut state = self.state();
-        if let Some(close) = state
-            .bindings
-            .get_mut(label)
-            .and_then(|binding| binding.close.as_mut())
-            .filter(|close| close.token == token)
-        {
-            close.phase = ClosePhase::Idle;
-        }
-    }
-
-    pub(crate) fn owns_close(&self, label: &str, token: u32) -> bool {
-        self.state().bindings.get(label).is_some_and(|binding| {
-            !binding.retiring
-                && binding
-                    .close
-                    .as_ref()
-                    .is_some_and(|close| close.token == token)
-        })
     }
 
     /// Start at most one watch for `directory`, a root the page opened, and
@@ -549,110 +374,6 @@ mod tests {
         mpsc,
     };
     use std::time::{Duration, Instant};
-
-    #[test]
-    fn a_replaced_close_subscription_cannot_destroy_or_unsubscribe_its_successor() {
-        use tauri::ipc::{Channel, InvokeResponseBody};
-
-        let root = tempfile::tempdir().unwrap();
-        let directory = Directory::existing(root.path()).unwrap();
-        let folders = Folders::default();
-        folders.bind("main", directory).unwrap();
-        let old = folders
-            .subscribe_close("main", Channel::new(|_: InvokeResponseBody| Ok(())))
-            .unwrap();
-        let next = folders
-            .subscribe_close("main", Channel::new(|_: InvokeResponseBody| Ok(())))
-            .unwrap();
-        folders.unsubscribe_close("main", old);
-        assert!(!folders.owns_close("main", old));
-        assert!(folders.owns_close("main", next));
-        assert_eq!(folders.request_close("main"), CloseRequest::Sent);
-        folders.page_started("main");
-        assert!(!folders.owns_close("main", next));
-        assert_eq!(folders.request_close("main"), CloseRequest::Unhandled);
-    }
-
-    #[test]
-    fn a_page_cannot_destroy_an_idle_window() {
-        use tauri::ipc::{Channel, InvokeResponseBody};
-
-        let root = tempfile::tempdir().unwrap();
-        let folders = Folders::default();
-        folders
-            .bind("main", Directory::existing(root.path()).unwrap())
-            .unwrap();
-        let token = folders
-            .subscribe_close("main", Channel::new(|_: InvokeResponseBody| Ok(())))
-            .unwrap();
-
-        assert_eq!(
-            folders.begin_close_answer("main", token),
-            CloseAnswer::Ignore
-        );
-        assert_eq!(folders.request_close("main"), CloseRequest::Sent);
-        assert_eq!(
-            folders.begin_close_answer("main", token),
-            CloseAnswer::Destroy
-        );
-    }
-
-    #[test]
-    fn a_second_unanswered_close_needs_confirmation_but_a_page_answer_stays_single() {
-        use tauri::ipc::{Channel, InvokeResponseBody};
-
-        let root = tempfile::tempdir().unwrap();
-        let directory = Directory::existing(root.path()).unwrap();
-        let folders = Folders::default();
-        folders.bind("main", directory).unwrap();
-        let token = folders
-            .subscribe_close("main", Channel::new(|_: InvokeResponseBody| Ok(())))
-            .unwrap();
-        assert_eq!(folders.request_close("main"), CloseRequest::Sent);
-        assert_eq!(
-            folders.request_close("main"),
-            CloseRequest::ConfirmNatively(token)
-        );
-        assert_eq!(folders.request_close("main"), CloseRequest::Waiting);
-        assert_eq!(
-            folders.begin_close_answer("main", token),
-            CloseAnswer::WaitForPrompt
-        );
-        assert!(folders.finish_native_prompt("main", token, false));
-        folders.finish_close_request("main", token);
-        assert_eq!(folders.request_close("main"), CloseRequest::Sent);
-        assert_eq!(
-            folders.begin_close_answer("main", token),
-            CloseAnswer::Destroy
-        );
-        assert_eq!(folders.request_close("main"), CloseRequest::Waiting);
-        folders.finish_close_request("main", token);
-        assert_eq!(folders.request_close("main"), CloseRequest::Sent);
-    }
-
-    #[test]
-    fn keep_waiting_preserves_the_page_answer() {
-        use tauri::ipc::{Channel, InvokeResponseBody};
-
-        let root = tempfile::tempdir().unwrap();
-        let folders = Folders::default();
-        folders
-            .bind("main", Directory::existing(root.path()).unwrap())
-            .unwrap();
-        let token = folders
-            .subscribe_close("main", Channel::new(|_: InvokeResponseBody| Ok(())))
-            .unwrap();
-        assert_eq!(folders.request_close("main"), CloseRequest::Sent);
-        assert_eq!(
-            folders.request_close("main"),
-            CloseRequest::ConfirmNatively(token)
-        );
-        assert!(!folders.finish_native_prompt("main", token, false));
-        assert_eq!(
-            folders.begin_close_answer("main", token),
-            CloseAnswer::Destroy
-        );
-    }
 
     #[test]
     fn native_setup_failure_releases_its_callback_outside_the_global_lock() {
