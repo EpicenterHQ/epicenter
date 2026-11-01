@@ -314,8 +314,12 @@ Quit quits, with no question: no Epicenter window holds unsaved input. The
 Folders and Settings windows run `epicenter` commands, and apps are separate
 programs (ADR-0701). The app menu's Quit, Cmd-Q (routed through `app.exit` by
 `src-tauri/src/macos_menu.rs`), and tray Quit all exit through Tauri's exit
-lifecycle, which stops the sync service. A downloaded update asks on its own
-whether to install and restart (see [Releasing](RELEASING.md)).
+lifecycle, which stops the sync service, then through the transcription
+plugin's `run`, which on macOS ends the process without C++ static
+finalizers, so quitting with Settings' model loaded cannot race ggml-metal's.
+A downloaded update asks on its own whether to install and restart (see
+[Releasing](RELEASING.md)); it restarts by `request_restart`, which that same
+path relaunches.
 
 - **An account change restarts nothing.** The account is the CLI's desktop
   grant (ADR-0556); a page that uses it reads it again when its window

@@ -255,7 +255,7 @@ pub fn run() {
     #[cfg(all(target_os = "macos", feature = "dictation"))]
     let builder = builder.plugin(tauri_nspanel::init());
 
-    scheme::register(builder)
+    let app = scheme::register(builder)
         // A page that reloads or navigates, and a closed window, end the
         // `epicenter` children that page started (ADR-0559).
         .on_page_load(|webview, payload| {
@@ -324,13 +324,16 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("failed to build Epicenter")
-        .run(|app, event| match event {
-            RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Folders),
-            // No task is left to stop the service's child, so signal it now.
-            RunEvent::Exit => synced_folders::stop_service(app),
-            _ => {}
-        });
+        .expect("failed to build Epicenter");
+    // Exits without C++ static finalizers on macOS, which can race Settings'
+    // resident model (the transcription plugin's README). Quit and the
+    // updater's `request_restart` end through it.
+    tauri_plugin_epicenter_transcription::run(app, |app, event| match event {
+        RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Folders),
+        // No task is left to stop the service's child, so signal it now.
+        RunEvent::Exit => synced_folders::stop_service(app),
+        _ => {}
+    });
 }
 
 fn open_forwarded_deep_links(app: &DesktopAppHandle, arguments: &[String]) {
