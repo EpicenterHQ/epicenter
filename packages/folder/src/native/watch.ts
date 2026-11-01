@@ -1,28 +1,24 @@
-/** Storage observations are path hints, never saved bytes or publication receipts. */
+/**
+ * A Bun process's hints of what changed in a directory: Node's recursive
+ * watcher, its names made relative to the root. A hidden path never hints.
+ */
 import { watch } from 'node:fs';
 import { isAbsolute, relative, sep } from 'node:path';
 import { isHiddenPath } from '@epicenter/definition/contract';
-import { callObserver } from '../observer.js';
+import type { ChangeListener, ChangeSource } from '../changes.js';
 import { readablePath } from '../paths.js';
 
-export type FolderObservation = readonly string[] | null;
-
-/** One folder-wide subscription, owned and released by the opened Folder. */
-export type FolderWatch = (
-	listener: (paths: FolderObservation) => void,
-) => () => void;
-
 /**
- * Watch an admitted root recursively. Events only invalidate source; the owner
- * reads paths that a reader or accepted input holds. Root replacement recovery
- * is platform dependent and unsupported; neither inode retention nor reattachment
- * is guaranteed. A terminal watcher error invalidates once without restarting.
+ * Watch the directory at `root` recursively. A hint names one changed path,
+ * or is null when the watcher cannot say which (no name, a name it cannot
+ * read, or its error, which it does not recover from). Replacing the
+ * root itself is not followed. Nothing is heard once the source stops.
  */
-export function watchDirectory(root: string): FolderWatch {
+export function watchDirectory(root: string): ChangeSource {
 	return (listener) => {
 		let closed = false;
-		const report = (paths: FolderObservation) => {
-			if (!closed) callObserver('folder observation', listener, paths);
+		const report: ChangeListener = (paths) => {
+			if (!closed) listener(paths);
 		};
 		const watcher = watch(
 			root,
