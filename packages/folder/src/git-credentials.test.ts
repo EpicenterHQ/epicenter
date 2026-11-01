@@ -1,22 +1,15 @@
 /**
- * The runner sends a credential as one `Authorization` header to exactly its
- * remote, through Git configuration in the environment, never in the
- * arguments; it follows no redirect for that remote and sends a credential
- * only to an `https` remote.
+ * The runner sends a token as one `Authorization: Bearer` header to exactly
+ * its remote, through Git configuration in the environment, never in the
+ * arguments; it follows no redirect for that remote and sends a token only
+ * to an `https` remote.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
-import {
-	basicAuthorization,
-	credentialEnvironment,
-	runGit,
-} from './git/native-host.js';
+import { credentialEnvironment, runGit } from './git/native-host.js';
 import { GIT_ENV, git, scratch } from './git.test-support.js';
 
-const AUTHORIZATION = basicAuthorization({
-	username: 'x-token',
-	password: 's3cret',
-});
+const TOKEN = 's3cret.token-value';
 
 const originalEnv = { ...process.env };
 beforeAll(() => {
@@ -38,14 +31,12 @@ const createGitRunner =
 	(args: string[], options: Parameters<typeof runGit>[1] = {}) =>
 		runGit(args, { cwd: root, ...options });
 
-test('a credential becomes URL-scoped Git configuration and nothing else', () => {
+test('a token becomes one URL-scoped Bearer header in Git configuration, and nothing else', () => {
 	const remote = 'https://api.example.test/git/todos.git';
-	expect(
-		credentialEnvironment({ url: remote, authorization: AUTHORIZATION }),
-	).toEqual({
+	expect(credentialEnvironment({ url: remote, token: TOKEN })).toEqual({
 		GIT_CONFIG_COUNT: '4',
 		GIT_CONFIG_KEY_0: `http.${remote}.extraHeader`,
-		GIT_CONFIG_VALUE_0: `Authorization: ${AUTHORIZATION}`,
+		GIT_CONFIG_VALUE_0: `Authorization: Bearer ${TOKEN}`,
 		GIT_CONFIG_KEY_1: 'http.followRedirects',
 		GIT_CONFIG_VALUE_1: 'false',
 		GIT_CONFIG_KEY_2: `http.${remote}.followRedirects`,
@@ -53,16 +44,8 @@ test('a credential becomes URL-scoped Git configuration and nothing else', () =>
 		GIT_CONFIG_KEY_3: 'credential.helper',
 		GIT_CONFIG_VALUE_3: '',
 	});
-	for (const authorization of [
-		'',
-		'Token abc',
-		'Basic ',
-		'Basic abc def',
-		'Basic abc\r\nX-Other: 1',
-	])
-		expect(() =>
-			credentialEnvironment({ url: remote, authorization }),
-		).toThrow();
+	for (const token of ['', 'abc def', 'abc\r\nX-Other: 1', 'caf\u00e9'])
+		expect(() => credentialEnvironment({ url: remote, token })).toThrow();
 });
 
 test('a credential refuses redirects even where the repository allows them for that remote', async () => {
@@ -77,7 +60,7 @@ test('a credential refuses redirects even where the repository allows them for t
 			'true',
 		);
 		const scoped = await run(ask, {
-			credential: { url: remote, authorization: AUTHORIZATION },
+			credential: { url: remote, token: TOKEN },
 		});
 		expect(new TextDecoder().decode(scoped.stdout).trim()).toBe('false');
 	} finally {
@@ -98,7 +81,7 @@ test('a credential is never sent to a remote that is not https', async () => {
 		])
 			await expect(
 				run(['ls-remote', url], {
-					credential: { url, authorization: AUTHORIZATION },
+					credential: { url, token: TOKEN },
 				}),
 			).rejects.toThrow('a token is sent only to an https remote');
 	} finally {

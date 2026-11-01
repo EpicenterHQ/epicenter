@@ -8,9 +8,10 @@
  * folder synced, 1 a round to run again (a lock, the network, the remote
  * still moving), 2 a folder stopped for a person or agent.
  *
- * A hosted remote on this deployment's Git origin gets the grant's token as
- * a header on each transfer (`hostedCredentials`); any other remote uses
- * the person's own Git credentials.
+ * A hosted `https` remote on this deployment's Git origin gets the grant's
+ * token as a Bearer header on each transfer (`hostedCredentials`); any other
+ * remote uses the person's own Git credentials. Init writes no credential
+ * into a clone.
  */
 
 import { existsSync, type FSWatcher, watch as watchDirectory } from 'node:fs';
@@ -24,43 +25,22 @@ import { isHiddenPath } from '@epicenter/definition/contract';
 import { resolveAppPaths } from '../app-paths.ts';
 import type { GrantKind } from '../auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
-import type { RemoteCredential } from './git.ts';
+import type { CredentialFor } from './git.ts';
 import { mergeDriver } from './merge-driver.ts';
-import { type InitOptions, Refused, registeredFolders } from './setup.ts';
+import { Refused, registeredFolders } from './setup.ts';
 import type { FolderStatus } from './status.ts';
 import type { SyncResult } from './sync.ts';
 
 type Options = Record<string, string | true>;
 
 /** The grant's token for a remote on this deployment's Git origin; none for any other. */
-function credentialFor(grant: GrantKind) {
-	return async (url: string): Promise<RemoteCredential | undefined> => {
-		if (!url.startsWith('https://')) return undefined;
-		const [{ authContext }, { hostedCredentials }, { basicAuthorization }] =
-			await Promise.all([
-				import('../auth.ts'),
-				import('../repository-commands.ts'),
-				import('@epicenter/folder/bun'),
-			]);
-		const credential = await hostedCredentials(authContext(), grant)(
-			url,
-			AbortSignal.timeout(60_000),
-		);
-		return credential && { url, authorization: basicAuthorization(credential) };
-	};
-}
-
-/** What init sets in each clone: the grant's credential and the deployment's helper. */
-async function initOptions(grant: GrantKind): Promise<InitOptions> {
-	const { gitHelperOrigin, resolveDeployment, shellQuote } = await import(
-		'../auth.ts'
-	);
-	return {
-		credential: credentialFor(grant),
-		helper: {
-			origin: gitHelperOrigin(resolveDeployment()),
-			command: `!${shellQuote(resolveAppPaths().commandLink)} auth git-credential`,
-		},
+function credentialFor(grant: GrantKind): CredentialFor {
+	return async (url) => {
+		const [{ authContext }, { hostedCredentials }] = await Promise.all([
+			import('../auth.ts'),
+			import('../repository-commands.ts'),
+		]);
+		return hostedCredentials(authContext(), grant)(url);
 	};
 }
 
@@ -93,7 +73,7 @@ export async function initCommand(
 	const { init } = await import('./setup.ts');
 	try {
 		const initialized = await init(dir ?? '.', {
-			...(await initOptions(grant)),
+			credential: credentialFor(grant),
 			allowEnclosing: options['enclosing-ok'] === true,
 		});
 		reportSetup('init', initialized, json);
@@ -144,7 +124,9 @@ export async function cloneCommand(
 		);
 	const target = resolve(dir ?? join(resolveAppPaths().folderDir, named.name));
 	try {
-		const cloned = await clone(named, target, await initOptions(grant));
+		const cloned = await clone(named, target, {
+			credential: credentialFor(grant),
+		});
 		reportSetup('cloned', { url: named.url, ...cloned }, json);
 		return EXIT.ok;
 	} catch (error) {

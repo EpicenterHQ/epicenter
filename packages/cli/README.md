@@ -69,8 +69,12 @@ owner's 12-character id (`epicenter repos` lists them).
   The server answers a name nobody holds as an empty repository, so the
   first sync's fetch finds nothing to take, and its push creates the
   repository. Any `git` the CLI runs against one of the deployment's hosted
-  repositories carries the grant's token as a header (an `https` remote
-  only; an `http` one, as a local server, uses the helper).
+  repositories, a clone, fetch, or push and their LFS transfers, carries the
+  grant's token as one `Authorization: Bearer` header, in Git's
+  configuration through its environment and never in an argument (an
+  `https` remote only; an `http` one, as a local server, uses the helper).
+  `credentials.e2e.test.ts` holds this to an `https` stand-in that refuses
+  any request without the token.
 - `epicenter clone <namespace>/<name> [<dir>]` clones into `<dir>`, by default
   `~/Epicenter/<name>`, then runs `init` there. A URL or a local path is
   cloned as given.
@@ -118,8 +122,8 @@ with real `git add`, so Git LFS's filters run.
   Then `merge.epicenter.driver`, the command link (`~/.local/bin/
   epicenter merge-driver %O %A %B %P`, the link `install-command` keeps);
   `git lfs install --local`;
-  `git lfs pull` for files checked out as pointers; the deployment's
-  credential helper per clone; and the folder in the global, multi-valued
+  `git lfs pull` for files checked out as pointers; and the folder in the
+  global, multi-valued
   `epicenter.folder`. A folder inside another repository is refused unless
   `--enclosing-ok` is passed, and the adopted repository is recorded as
   `epicenter.root` in its local configuration.

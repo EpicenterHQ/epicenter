@@ -8,12 +8,12 @@
  *
  * The credential is an access token for the deployment's Git audience, from
  * the grant the command runs under (`--desktop` selects the desktop app's).
- * Every `git` this binary runs itself, a clone or a sync's fetch and push,
- * gets it as a header, outside every argument, and only for an `https`
- * remote (`hostedCredentials`), so a refresh always runs in this process and
- * never in a `git` it started (ADR-0565). A person's own `git` gets it from
- * the credential helper, which `epicenter auth login` writes globally and
- * `epicenter init` per clone.
+ * Every `git` this binary runs itself, a clone, a sync's fetch and push, and
+ * their LFS transfers, gets it as one Bearer header, outside every argument,
+ * and only for an `https` remote (`hostedCredentials`), so a refresh always
+ * runs in this process and never in a `git` it started (ADR-0565). A
+ * person's own `git` gets it from the credential helper, which only
+ * `epicenter auth login` writes, globally.
  */
 
 import {
@@ -28,7 +28,6 @@ import {
 	type RepositoryPath,
 	repositoryGrantsUrl,
 } from '@epicenter/constants/repositories';
-import type { GitCredentials } from '@epicenter/folder/bun';
 import {
 	type AuthContext,
 	accessToken,
@@ -36,7 +35,7 @@ import {
 	type GrantKind,
 } from './auth.ts';
 import { EXIT, fail, writeJson, writeOut } from './output.ts';
-import { config } from './sync/git.ts';
+import { type CredentialFor, config } from './sync/git.ts';
 
 /**
  * The credential for a remote of this deployment's hosted Git, asked for by
@@ -49,7 +48,7 @@ import { config } from './sync/git.ts';
 export function hostedCredentials(
 	ctx: AuthContext,
 	grant: GrantKind,
-): GitCredentials {
+): CredentialFor {
 	return async (url) => {
 		if (
 			!url.startsWith('https://') ||
@@ -62,7 +61,7 @@ export function hostedCredentials(
 			ctx.deployment.audiences.git,
 		);
 		if (error !== null) throw new Error(error.message);
-		return { username: 'epicenter', password: data.token };
+		return { url, token: data.token };
 	};
 }
 

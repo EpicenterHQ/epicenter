@@ -1,8 +1,8 @@
 /**
  * The `git` the sync verbs run: `runGit` from `@epicenter/folder/bun` (the
  * system `git` that `locateGit` finds, no hooks, no fsmonitor, no `ext` or
- * `fd` transports, and an `Authorization` header sent only to its `https`
- * remote), with text output and a working directory.
+ * `fd` transports, and a Bearer token sent only to its `https` remote), with
+ * text output and a working directory.
  *
  * Hooks never run here, so Git LFS's `pre-push` hook does not either: sync
  * runs `git lfs push` itself before it pushes. The clean and smudge filters
@@ -10,7 +10,7 @@
  * restore LFS pointers.
  */
 
-import { runGit } from '@epicenter/folder/bun';
+import { type GitCredential, runGit } from '@epicenter/folder/bun';
 
 export type Ran = {
 	code: number;
@@ -20,16 +20,16 @@ export type Ran = {
 	bytes: Uint8Array;
 };
 
-/** An `Authorization` header for exactly one remote URL. */
-export type RemoteCredential = {
-	readonly url: string;
-	readonly authorization: string;
-};
+/**
+ * The token for a remote, asked for by its URL as each transfer starts:
+ * `undefined` sends none, so Git uses the person's own sign-in.
+ */
+export type CredentialFor = (url: string) => Promise<GitCredential | undefined>;
 
 export type GitOptions = {
 	readonly env?: Readonly<Record<string, string>>;
 	readonly input?: string | Uint8Array;
-	readonly credential?: RemoteCredential;
+	readonly credential?: GitCredential;
 };
 
 /** Run `git` in `cwd`, never throwing on its exit code. */

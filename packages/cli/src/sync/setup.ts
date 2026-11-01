@@ -20,7 +20,7 @@ import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import { resolveAppPaths } from '../app-paths.ts';
-import { config, configAll, git, must, type RemoteCredential } from './git.ts';
+import { type CredentialFor, config, configAll, git, must } from './git.ts';
 import { REPOSITORY_IGNORE, withEpicenterBlock } from './managed-block.ts';
 
 /** Init would adopt a repository the folder sits inside, and was not told to. */
@@ -87,10 +87,8 @@ export async function identity(cwd: string): Promise<Record<string, string>> {
 export type InitOptions = {
 	/** Adopt a repository the folder sits inside (`--enclosing-ok`). */
 	readonly allowEnclosing?: boolean;
-	/** The credential for a remote, asked for by its URL, to pull LFS bytes. */
-	readonly credential?: (url: string) => Promise<RemoteCredential | undefined>;
-	/** `credential.<origin>.helper` to set per clone, when a deployment has one. */
-	readonly helper?: { readonly origin: string; readonly command: string };
+	/** The token for a remote, asked for by its URL, to pull LFS bytes. */
+	readonly credential?: CredentialFor;
 };
 
 export type Initialized = {
@@ -105,7 +103,7 @@ export type Initialized = {
 /** Set up or repair `input` for Epicenter sync. Throws `Refused` for an enclosing repository. */
 export async function init(
 	input: string,
-	{ allowEnclosing = false, credential, helper }: InitOptions = {},
+	{ allowEnclosing = false, credential }: InitOptions = {},
 ): Promise<Initialized> {
 	await mkdir(resolve(input), { recursive: true });
 	const folder = await realpath(resolve(input));
@@ -251,23 +249,7 @@ export async function init(
 		else warnings.push(`git lfs pull failed: ${pulled.stderr.trim()}`);
 	}
 
-	// 6. The Epicenter credential helper for this deployment's Git, per clone.
-	if (helper !== undefined) {
-		const key = `credential.${helper.origin}.helper`;
-		const values = await configAll(folder, key);
-		if (
-			values.length !== 2 ||
-			values[0] !== '' ||
-			values[1] !== helper.command
-		) {
-			// An empty helper first clears the ones a broader configuration set.
-			await must(folder, ['config', '--local', '--replace-all', key, '']);
-			await must(folder, ['config', '--local', '--add', key, helper.command]);
-			changed.push(`${key} set`);
-		}
-	}
-
-	// 7. Registration.
+	// 6. Registration.
 	if (!(await registeredFolders()).includes(folder)) {
 		await must(undefined, [
 			'config',

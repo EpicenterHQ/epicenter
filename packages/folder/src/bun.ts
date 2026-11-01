@@ -5,9 +5,8 @@
  */
 
 export {
-	basicAuthorization,
 	endGitCommands,
-	type GitCredentials,
+	type GitCredential,
 	runGit,
 } from './git/native-host.js';
 export { STATE_DIRECTORY } from './state.js';

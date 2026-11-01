@@ -876,8 +876,7 @@ export async function gitCredential(
 }
 
 /** One argument for `sh`, single-quoted. */
-export const shellQuote = (value: string) =>
-	`'${value.replaceAll("'", `'\\''`)}'`;
+const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
 /**
  * Where Git looks for the helper of the deployment's Git audience: the
@@ -887,7 +886,7 @@ export const shellQuote = (value: string) =>
  * `http://localhost:8788/git`) is never asked for LFS. The helper still
  * answers only for the audience (`isGitAudience`).
  */
-export const gitHelperOrigin = (deployment: Deployment) =>
+const gitHelperOrigin = (deployment: Deployment) =>
 	new URL(deployment.audiences.git).origin;
 
 /**

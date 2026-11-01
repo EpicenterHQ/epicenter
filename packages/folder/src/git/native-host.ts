@@ -2,9 +2,10 @@
  * The system `git` in Bun and Node, for the `epicenter` CLI (ADR-0559): found
  * without the xcrun shim, run with one set of safety rules (no hooks, no
  * fsmonitor, no `ext` or `fd` transport, no inherited repository
- * variables), and given a credential only as an `Authorization` header for
- * its own `https` remote. `epicenter init`, `sync`, and `clone` run every
- * `git` through `runGit`; the shell runs none.
+ * variables), and given a credential only as one `Authorization: Bearer`
+ * header for its own `https` remote, in its environment and never its
+ * arguments. `epicenter init`, `sync`, and `clone` run every `git` through
+ * `runGit`; the shell runs none.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
@@ -33,38 +34,44 @@ export type GitRun = (
 		allowFailure?: boolean;
 		env?: Readonly<Record<string, string>>;
 		/**
-		 * An `Authorization` header for a push or fetch, sent only to `url`,
-		 * which is the remote the command names. The host passes it to Git
-		 * outside its arguments.
+		 * A token for a clone, fetch, push, or LFS transfer, sent only to
+		 * `url`, which is the remote the command names. The host passes it to
+		 * Git outside its arguments.
 		 */
-		credential?: GitAuthorization;
+		credential?: GitCredential;
 	},
 ) => Promise<{ code: number | null; stdout: Uint8Array; stderr: string }>;
 
-/** One `Authorization` header value, for exactly one URL. */
-type GitAuthorization = {
+/**
+ * An access token for exactly one remote URL, sent as
+ * `Authorization: Bearer <token>`. The folder keeps nothing of it: not in
+ * `origin`, its files, or its Git configuration.
+ */
+export type GitCredential = {
 	readonly url: string;
-	readonly authorization: string;
+	readonly token: string;
 };
 
 /**
  * The Git configuration that sends `credential`'s header to its URL alone,
  * follows no redirect, and asks no credential helper, as environment
- * variables, so the header never appears in a process list. Redirects are
- * refused for the URL too: Git prefers a URL-specific
+ * variables, so the token never appears in a process list. Git LFS reads
+ * the same configuration, and sends the header to the remote's LFS API and
+ * the transfers under it, but not to a presigned URL elsewhere. Redirects
+ * are refused for the URL too: Git prefers a URL-specific
  * `http.<url>.followRedirects` from any other configuration over a plain
  * `http.followRedirects`.
  */
 export function credentialEnvironment({
 	url,
-	authorization,
-}: GitAuthorization): Record<string, string> {
-	if (!/^(Basic|Bearer) [\x21-\x7e]+$/.test(authorization))
-		throw new Error('A Git credential must be one Basic or Bearer header');
+	token,
+}: GitCredential): Record<string, string> {
+	if (!/^[\x21-\x7e]+$/.test(token))
+		throw new Error('A Git token must be one run of visible ASCII');
 	return {
 		GIT_CONFIG_COUNT: '4',
 		GIT_CONFIG_KEY_0: `http.${url}.extraHeader`,
-		GIT_CONFIG_VALUE_0: `Authorization: ${authorization}`,
+		GIT_CONFIG_VALUE_0: `Authorization: Bearer ${token}`,
 		GIT_CONFIG_KEY_1: 'http.followRedirects',
 		GIT_CONFIG_VALUE_1: 'false',
 		GIT_CONFIG_KEY_2: `http.${url}.followRedirects`,
@@ -72,31 +79,6 @@ export function credentialEnvironment({
 		GIT_CONFIG_KEY_3: 'credential.helper',
 		GIT_CONFIG_VALUE_3: '',
 	};
-}
-
-/** A username and password for one remote. A token is the password. */
-export type GitCredential = {
-	readonly username: string;
-	readonly password: string;
-};
-
-/**
- * Asked right before each push and fetch, with the exact URL Git is about to
- * reach. `undefined` sends no credential; a throw refuses the transfer. The
- * folder keeps nothing it returns: not in `origin`, its files, or its Git
- * configuration.
- */
-export type GitCredentials = (
-	url: string,
-	signal: AbortSignal,
-) => Promise<GitCredential | undefined>;
-
-/** The `Authorization` value for `credential`: HTTP Basic, UTF-8. */
-export function basicAuthorization({ username, password }: GitCredential) {
-	const bytes = new TextEncoder().encode(`${username}:${password}`);
-	let binary = '';
-	for (const byte of bytes) binary += String.fromCharCode(byte);
-	return `Basic ${btoa(binary)}`;
 }
 
 /** How a computer without `git` gets one. */

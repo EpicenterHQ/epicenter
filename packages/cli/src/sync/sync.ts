@@ -41,15 +41,15 @@ import {
 	lfsOid,
 	parsePointer,
 } from '@epicenter/definition/merge';
-import { STATE_DIRECTORY } from '@epicenter/folder/bun';
+import { type GitCredential, STATE_DIRECTORY } from '@epicenter/folder/bun';
 import { resolveAppPaths } from '../app-paths.ts';
 import { holdingFileLock, NothingChanged } from '../file-lock.ts';
 import {
+	type CredentialFor,
 	config,
 	type GitOptions,
 	git,
 	must,
-	type RemoteCredential,
 } from './git.ts';
 import { driverCommand, identity, repositoryRoot } from './setup.ts';
 
@@ -121,8 +121,8 @@ export type SyncResult = {
 };
 
 export type SyncOptions = {
-	/** The credential for the remote, asked for by its URL. */
-	readonly credential?: (url: string) => Promise<RemoteCredential | undefined>;
+	/** The token for the remote, asked for by its URL. */
+	readonly credential?: CredentialFor;
 };
 
 class Stop extends Error {
@@ -406,7 +406,7 @@ async function round(
 /** Check, then merge the fetched remote main, settling what Git leaves unmerged. */
 async function mergeRemote(
 	root: string,
-	auth: RemoteCredential | undefined,
+	auth: GitCredential | undefined,
 	who: Record<string, string>,
 	notes: string[],
 ) {
@@ -448,7 +448,7 @@ async function mergeRemote(
 async function merge(
 	root: string,
 	firstContact: boolean,
-	auth: RemoteCredential | undefined,
+	auth: GitCredential | undefined,
 	who: Record<string, string>,
 	notes: string[],
 ) {
@@ -499,7 +499,7 @@ async function merge(
  */
 async function settleUnmerged(
 	root: string,
-	auth: RemoteCredential | undefined,
+	auth: GitCredential | undefined,
 	notes: string[],
 ) {
 	const left: string[] = [];
