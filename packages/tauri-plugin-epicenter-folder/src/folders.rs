@@ -448,7 +448,10 @@ mod tests {
             Err(BindError::Bound { .. })
         ));
         release.send(()).unwrap();
-        stopping.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Unbinding drops the watch, and notify's macOS destructor joins its
+        // watcher thread: 1.4 to 6.5 s while the rest of this suite watches
+        // too, well under a second alone.
+        stopping.recv_timeout(Duration::from_secs(30)).unwrap();
         thread.join().unwrap();
 
         folders.bind("main", new.clone()).unwrap();
