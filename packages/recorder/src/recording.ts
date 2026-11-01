@@ -167,24 +167,16 @@ export type StartRecording = (
 
 /**
  * Repair the recordings under a directory that a quit, a crash, or a closed
- * tab cut off, leaving any recording still being written alone. Answers each
- * recording it repaired (in a browser) or repaired and moved to its path (on
- * the desktop), with how long it plays, so nobody reads the audio back to
- * measure it; a second run answers none.
+ * tab cut off, leaving any recording still being written alone. Answers,
+ * with how long each plays so nobody reads the audio back to measure it, on
+ * the desktop each recording it repaired and moved to its path (a second run
+ * answers none), and in a browser every recording no tab is writing,
+ * repaired or already whole, since a recording at its path is otherwise
+ * indistinguishable from one another tab is still writing.
  */
 export type RecoverRecordings = (
 	options: RecoverRecordingsOptions,
 ) => Promise<Result<RecoveredRecording[], RecorderError>>;
-
-/**
- * Of the recordings at `paths` (store-relative, no extension), those that
- * hold no audio and that nothing is recording: what a tab closed before its
- * first piece left. Only a browser can say so; the desktop keeps a recording
- * outside its path until it stops.
- */
-export type SilentRecordings = (
-	options: RecordingDevice & { readonly paths: readonly string[] },
-) => Promise<Result<string[], RecorderError>>;
 
 export const RecorderError = defineErrors({
 	/** This window cannot record: no microphone access, or no encoder. */

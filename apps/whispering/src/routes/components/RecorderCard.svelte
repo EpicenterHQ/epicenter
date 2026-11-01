@@ -12,8 +12,11 @@
 
 	/**
 	 * The home page's recorder: the microphone is the control that starts and
-	 * stops, with one line under it for what is happening. Three small controls
-	 * sit at its lower right on wide windows and below the hint on narrow ones.
+	 * stops, with one line under it for what is happening, a stopped take
+	 * still being saved included: it reaches the library once its audio is
+	 * placed (on the desktop the shell encodes it after Stop). Three small
+	 * controls sit at its lower right on wide windows and below the hint on
+	 * narrow ones.
 	 * Fixture mode adds its warning under them. Where the files cannot be
 	 * read (a private window keeps none) the banner above says recording is
 	 * off, so no hint invites a click.
@@ -24,7 +27,7 @@
 	const active = $derived(whispering.recorder.phase === 'recording');
 	const pending = $derived(whispering.recorder.phase === 'starting' || whispering.recorder.phase === 'stopping');
 	const label = $derived(
-		{ idle: 'Start recording', starting: 'Starting…', recording: 'Stop recording', stopping: 'Finishing…' }[whispering.recorder.phase],
+		{ idle: 'Start recording', starting: 'Starting…', recording: 'Stop recording', stopping: 'Stopping…' }[whispering.recorder.phase],
 	);
 
 	/**
@@ -98,7 +101,9 @@
 		{:else if whispering.recorder.phase === 'starting'}
 			Starting…
 		{:else if whispering.recorder.phase === 'stopping'}
-			Saving the audio…
+			Stopping…
+		{:else if whispering.finishing > 0}
+			<span class="flex items-center gap-2" data-testid="recorder-finishing"><Spinner class="size-3.5" />Finishing…</span>
 		{:else if !library.error}
 			Click to record. Click again to save.
 		{/if}

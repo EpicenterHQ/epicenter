@@ -41,7 +41,7 @@
 	{:else if whispering.recorder.phase !== 'idle'}
 		<span class="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground" role="status">
 			<Spinner class="size-3.5" />
-			{whispering.recorder.phase === 'starting' ? 'Starting…' : 'Finishing…'}
+			{whispering.recorder.phase === 'starting' ? 'Starting…' : 'Stopping…'}
 		</span>
 	{:else if !onHome}
 		<Button variant="ghost" size="icon-sm" tooltip="Start recording" aria-label="Start recording" onclick={() => void whispering.startRecording()} data-testid="header-start-recording">

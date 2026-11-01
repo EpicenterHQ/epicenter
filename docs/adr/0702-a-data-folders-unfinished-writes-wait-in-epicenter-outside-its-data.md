@@ -172,7 +172,7 @@ Opus in WebM at its path after.**
 - In a browser, `@epicenter/recorder/browser` appends each MediaRecorder piece
   to `<path>.m4a` or `<path>.webm` in the origin's private files, and
   `recoverRecordings` cuts a file a closed tab left back to its last whole
-  piece.
+  piece and answers every recording no tab is writing, cut or already whole.
 
 ## Consequences
 

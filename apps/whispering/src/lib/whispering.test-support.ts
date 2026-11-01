@@ -33,7 +33,7 @@ export async function createTestWhispering({
 	const { fromClient } = await import('@epicenter/svelte/client');
 	const library = createLibrary({
 		whispering,
-		files: filesOf(client, fromClient(client), () => whispering.recordingId),
+		files: filesOf(client, fromClient(client)),
 	});
 	const followed = follow(() => [
 		library.entries,

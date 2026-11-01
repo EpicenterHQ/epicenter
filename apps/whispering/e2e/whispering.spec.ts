@@ -11,9 +11,9 @@
  *    transcript are edited, it is transcribed over a custom endpoint (a
  *    stub), one is deleted with its files, and all of it survives a reload.
  * 2. A recording is written into this browser's files as it records: its
- *    note is there from the start and its audio file grows while it runs. A
- *    reload mid-recording keeps what was written, and the next start
- *    completes the note's length from the audio (decision 84).
+ *    audio file grows while it runs, and its note waits for Stop. A reload
+ *    mid-recording keeps what was written, and the next start gives it its
+ *    note, its length read from the audio (decision 84).
  * 3. Offline, recording and editing still work, and survive a reload.
  * 4. Transcription over the Epicenter account needs a sign-in; signed in, it
  *    sends the account's API token (to a stub) and keeps the transcript
@@ -320,33 +320,34 @@ test('1. on this browser, a recording is kept as its audio and note, edited, tra
 	);
 });
 
-test('2. a recording is written into this browser’s files as it records, and a reload mid-recording keeps it', async () => {
+test('2. a recording is written into this browser’s files as it records, and a reload mid-recording keeps it and gives it its note', async () => {
 	await page.goto(app);
 	const before = await recordingIds();
+	const filesBefore = await pathsUnder('recordings/');
 	await page.getByTestId('start-recording').click();
 	await expect(page.getByTestId('stop-recording')).toBeVisible();
-	// Its note is made when it starts.
-	await expect
-		.poll(async () => (await recordingIds()).length)
-		.toBe(before.length + 1);
-	const id = (await recordingIds()).find((id) => !before.includes(id))!;
-	expect(await opfsText(page, `recordings/${id}.md`)).not.toMatch(
-		/^durationMs:/m,
-	);
-
 	// Its audio appears within a piece (about a second), then grows.
+	const newAudio = async () =>
+		(await pathsUnder('recordings/')).filter(
+			(path) => !path.endsWith('.md') && !filesBefore.includes(path),
+		);
+	await expect.poll(async () => (await newAudio()).length).toBe(1);
+	const [audioPath] = await newAudio();
+	expect(audioPath).toMatch(/\.(m4a|webm)$/);
+	const id = audioPath!.slice('recordings/'.length).replace(/\.[^.]+$/, '');
 	await expect
 		.poll(async () => (await audioFileOf(id))?.size ?? 0)
 		.toBeGreaterThan(0);
 	const first = (await audioFileOf(id))!;
-	expect(first.name).toMatch(/\.(m4a|webm)$/);
 	await expect
 		.poll(async () => (await audioFileOf(id))?.size ?? 0, { timeout: 10_000 })
 		.toBeGreaterThan(first.size);
 	const grown = (await audioFileOf(id))!.size;
+	// Its note waits for Stop.
+	expect(await recordingIds()).toEqual(before);
 
 	// A reload while it records ends the page; what was written stays, and
-	// the next start completes the note from the audio.
+	// the next start gives it its note, its length read from the audio.
 	await page.reload();
 	await expect(page.getByTestId('start-recording')).toBeVisible();
 	await expect

@@ -13,7 +13,6 @@
  * - Recovery cuts a file a closed tab left half-written back to its last
  *   whole piece, answers how long it plays, and leaves a recording another
  *   tab is writing alone
- * - A recording with no audio that no tab holds is silent
  * - A recording held in the page answers its audio at stop, named by the
  *   type the browser produced: AAC in MP4 (`m4a`), else Opus in WebM (`webm`)
  * - A chosen microphone that cannot be opened exactly is refused, never
@@ -412,7 +411,7 @@ test('a recording that captured nothing writes nothing and is Empty', async () =
 	expect(memory.held.size).toBe(0);
 });
 
-test('recovery cuts a file a closed tab left half-written, answers its length, and leaves one a tab is writing', async () => {
+test('recovery cuts a file a closed tab left half-written, answers every recording no tab is writing with its length, and leaves one a tab is writing', async () => {
 	const whole = new Uint8Array(
 		await Bun.file(
 			new URL('./fixtures/chromium.m4a', import.meta.url),
@@ -437,11 +436,16 @@ test('recovery cuts a file a closed tab left half-written, answers its length, a
 		await recoverRecordings({ device: store, under: 'recordings' }),
 	);
 	const repaired = memory.held.get('recordings/cut.m4a')!;
-	// Each answers how long its repaired file plays, read from that file.
+	// Each answers how long its file plays, read from that file once
+	// repaired; a whole one is answered as it is.
 	expect(recovered).toEqual([
 		{
 			path: 'recordings/cut.m4a',
 			durationMs: audioDurationMs(repaired, 'm4a') ?? null,
+		},
+		{
+			path: 'recordings/whole.m4a',
+			durationMs: audioDurationMs(whole, 'm4a') ?? null,
 		},
 	]);
 	expect(recovered[0]?.durationMs).toBeGreaterThan(0);
@@ -454,9 +458,11 @@ test('recovery cuts a file a closed tab left half-written, answers its length, a
 	expect(locks.held).toEqual(
 		new Set(['epicenter-recording:recordings/writing.m4a']),
 	);
+	// A second run repairs nothing more, and answers the same recordings.
 	expect(
 		expectOk(await recoverRecordings({ device: store, under: 'recordings' })),
-	).toEqual([]);
+	).toEqual(recovered);
+	expect(memory.held.get('recordings/cut.m4a')).toEqual(repaired);
 });
 
 test('a recording holds its lock while it records, so recovery passes it by', async () => {
@@ -670,32 +676,4 @@ test('an ending reaches every listener when the first listener stops the browser
 	expect(endings).toEqual(['deviceDisconnected']);
 	expect(stopping).toBeDefined();
 	expectOk(await stopping!);
-});
-
-test('a recording with no audio is silent, unless a tab still holds its lock', async () => {
-	const memory = memoryFiles({ 'recordings/kept.m4a': new Uint8Array([1]) });
-	const locks = memoryLocks();
-	const { startRecording, silentRecordings } = createBrowserRecorder(
-		environment({ filesOf: () => memory.files, locks }),
-	);
-	// Another tab started `starting` and is waiting on its first piece.
-	const starting = expectOk(
-		await startRecording({ device: store, path: 'recordings/starting' }),
-	);
-	expect(memory.held.has('recordings/starting.webm')).toBe(false);
-
-	expect(
-		expectOk(
-			await silentRecordings({
-				device: store,
-				paths: ['recordings/kept', 'recordings/starting', 'recordings/gone'],
-			}),
-		),
-	).toEqual(['recordings/gone']);
-	// Asking released every lock it took.
-	await settle();
-	expect([...locks.held]).toEqual([
-		'epicenter-recording:recordings/starting.webm',
-	]);
-	await starting.stop();
 });

@@ -320,7 +320,7 @@ test('what the keychain holds and does not read is never taken for nothing', asy
 	expect(keychain.get('connections')).toBe('not json');
 });
 
-test('the shell’s microphone records recordings/<id> into the data folder’s device and repairs by ids', async () => {
+test('the shell’s microphone records recordings/<id> into the data folder’s device, and recovery answers every finished recording by id', async () => {
 	const { capture } = createServices(dataFolder);
 	expect(expectOk(await capture.inputs!.list()).devices).toEqual([
 		{ deviceId: 'coreaudio:usb', label: 'USB' },
@@ -334,10 +334,19 @@ test('the shell’s microphone records recordings/<id> into the data folder’s 
 			signal: undefined,
 		},
 	]);
-	expect(expectOk(await recording.stop())).toEqual({ durationMs: 1500 });
-	expect(expectOk(await capture.recover())).toEqual([
+	const stopped = expectOk(await recording.stop());
+	expect(stopped.durationMs).toBe(1500);
+	expect(expectOk(await stopped.placed)).toEqual({ unencoded: undefined });
+	// A cut-off recording waits outside its path, so the shell always looks,
+	// and audio at its path that no note names is finished.
+	expect(expectOk(await capture.recover([]))).toEqual([
 		{ id: 'a', durationMs: 1500 },
 		{ id: 'b-recovered', durationMs: null },
 	]);
 	expect(started.at(-1)).toEqual({ device: dataFolder, under: 'recordings' });
+	expect(expectOk(await capture.recover(['a', 'left']))).toEqual([
+		{ id: 'a', durationMs: 1500 },
+		{ id: 'b-recovered', durationMs: null },
+		{ id: 'left', durationMs: null },
+	]);
 });

@@ -167,4 +167,7 @@ is decided at `stop` (`<path>.webm`, or `<path>.wav` when the encoder refuses
 it, which `stop` reports as a failure), so a path answered at `start` could
 be wrong. `stop` answers where the audio is, and `recoverRecordings` where it
 placed each recording it finished. ADR-0702 since has `stop` answer before the
-encode, and where the audio is follows as `placed`.
+encode, and where the audio is follows as `placed`. Whispering writes a
+recording's note once, when `placed` resolves, and its next start gives
+audio no note names a note of its own, the one way a cut-off recording is
+completed.

@@ -323,7 +323,6 @@ export async function transcribeRows(
 		else if (status === 'transcribed') skip('It already has a transcript.');
 		else if (audio?.kind === 'ambiguous')
 			skip('More than one audio file has its id. Keep one.');
-		else if (audio?.kind === 'recording') skip('It is still recording.');
 		else if (audio?.kind !== 'here') skip('Its audio cannot be read here.');
 		else {
 			const refused = await whispering.transcribe(id);

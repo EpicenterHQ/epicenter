@@ -38,11 +38,12 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   and its library once; route changes and sign-in keep them. Keep product
   state out of module-level variables. `dispose` refuses new work and late
   replies and waits for nothing; a recording under way ends with the page.
-- **A recording is kept at Stop as two writes in the web app:** its audio,
-  then its note, so a note never names audio that is not there. On the
-  desktop the shell writes the audio from the first sample, so the note is
-  made at Start, its length written at Stop, and a cut-off recording is
-  completed on the next launch (`folder-recordings.ts`). Its note holds facts only:
+- **A recording's note is written once, after Stop, when its audio is at
+  its path** (on the desktop, once the shell has encoded it), so a note
+  never names audio that is not there and the library never lists a take in
+  progress. Audio a quit, a crash, or a closed tab left without a note gets
+  one on the next start (`folder-recordings.ts`); do not add another path
+  that writes a recording's note. Its note holds facts only:
   never add a status, pending, or interrupted field. Store no audio path in
   a note: the audio is `recordings/<id>.<ext>`; refuse ambiguous matches. A
   recording the browser cannot keep stays in the page to save again or

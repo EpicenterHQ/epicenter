@@ -50,8 +50,7 @@ file with a sync access handle.
 | Format | Opus in WebM, mono, 24 kbps, from 16 kHz PCM (about 10.5 MB an hour of speech; the WAV is 115 MB) | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | The header is rewritten about once a second | Each piece is appended as it arrives; the store's listeners hear the file made and finished, not every piece |
 | Quit, crash, closed window or tab | Audio kept up to the cut | Every piece already written is kept |
-| `recoverRecordings` | Rewrites the header of a WAV a quit cut short, then encodes and places it as `stop` does, never over a file there (beside it, as `<name>-recovered.webm`, when the path is taken). Answers each `{ path, durationMs }` placed, the length from the WAV's samples, which the WebM plays exactly | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for its file). Answers each `{ path, durationMs }` cut, the length read from the file repaired |
-| `silentRecordings` | None: the desktop keeps a recording outside its path until it stops | Of the paths asked about, those with no audio file whose Web Lock no tab holds: what a tab closed before its first piece left |
+| `recoverRecordings` | Rewrites the header of a WAV a quit cut short, then encodes and places it as `stop` does, never over a file there (beside it, as `<name>-recovered.webm`, when the path is taken). Answers each `{ path, durationMs }` placed, the length from the WAV's samples, which the WebM plays exactly | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for its file). Answers `{ path, durationMs }` for every recording no tab is writing, cut or already whole, the length read from the file, so an app can tell a cut-off recording from one another tab is recording |
 | Refused before the microphone opens | The folder or path may not be written, or a file is there | This browser keeps no files here (a private window), or a file is there |
 | Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
 | Voice processing | None: cpal reads the device as it hears | Off: echo cancellation, noise suppression, and gain control are asked off, since Safari's take about 2 s to start and MediaRecorder drops that time |
@@ -60,9 +59,9 @@ file with a sync access handle.
 
 `audioDurationMs(bytes, ext)` reads how long a `wav`, `m4a`, or `webm` the
 recorder wrote plays, from its own bytes (a desktop `webm`'s stated Duration,
-exact to the sample), so an app can complete a note whose audio is at its
-path without a length that `recoverRecordings` did not answer: a recording
-the shell placed when its page left, or a stop whose answer was lost. A store that stops taking pieces mid-recording ends it
+exact to the sample), so an app can measure audio at its path that
+`recoverRecordings` did not answer a length for: a recording the shell
+placed after its page left, or one whose `placed` nobody heard. A store that stops taking pieces mid-recording ends it
 as `storageFailed`; stop keeps what landed.
 
 A page whose store is not in this browser (an online variant, which writes to

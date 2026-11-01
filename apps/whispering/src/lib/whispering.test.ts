@@ -4,13 +4,13 @@
  * in for OPFS). Nothing here uploads or syncs (ADR-0700).
  *
  * Key behaviors:
- * - A recording's note is made when it starts and its audio is written into
- *   the files as it records; Stop completes the note with its length
- * - While it records, a recording's audio is not played, sent, or deleted
- * - A recording the files cannot take does not start, or leaves no note
- * - A Stop that fails to put its audio in place keeps the note, which the
- *   next start completes
- * - A start completes the length of a recording a closed tab cut off
+ * - A recording's audio is written into the files as it records, and its
+ *   note, with its length, once its audio is at its path after Stop
+ * - A take is on the record screen until its audio is placed, not in the
+ *   library, and the next take can start meanwhile
+ * - A recording the files cannot take leaves no note
+ * - Audio no note names (a note not written, a placement that failed, a
+ *   closed tab) gets its note from the next start's recovery
  * - A result is kept when its answer arrives, even if the pages have since
  *   closed
  * - Deleting a recording deletes its transcripts, their results, and its
@@ -25,7 +25,7 @@ import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { Err, Ok } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type CaptureDevice, CaptureError, toneWav } from './capture.js';
 import {
@@ -61,12 +61,8 @@ async function record({
 	const before = library.entries.length;
 	await whispering.startRecording();
 	await whispering.stopRecording();
-	// The note is listed from the start, and its length once Stop completes it.
-	await eventually(
-		() =>
-			library.entries.length === before + 1 &&
-			library.entries[0]!.durationMs !== undefined,
-	);
+	// The note is written once, with its length, at Stop.
+	await eventually(() => library.entries.length === before + 1);
 	return library.entries[0]!;
 }
 
@@ -82,7 +78,7 @@ const notesIn = async (root: string, collection: string) =>
 		(name) => name.endsWith('.md'),
 	);
 
-test('a recording’s note is made when it starts, its audio written beside it, and its length at Stop', async () => {
+test('a recording’s audio is written as it records, and its note, with its length, once at Stop', async () => {
 	const opened = await fixture();
 	const { test, library } = opened;
 	const writes: string[] = [];
@@ -100,7 +96,7 @@ test('a recording’s note is made when it starts, its audio written beside it, 
 
 	const recording = await record(opened);
 
-	expect(writes).toEqual(['note', 'audio']);
+	expect(writes).toEqual(['audio', 'note']);
 	expect(recording).toMatchObject({ capture: 'fixture' });
 	expect(recording.durationMs).toBe(1000);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
@@ -114,52 +110,73 @@ test('a recording’s note is made when it starts, its audio written beside it, 
 	expect(headerLine(library).label).toBe('On this browser');
 });
 
-test('while it records, a recording’s audio is recording: not played, sent, or deleted until it stops', async () => {
-	const opened = await fixture();
-	const { test, whispering, library } = opened;
+test('a take is on the record screen, not in the library, until its audio is placed; the next can start meanwhile', async () => {
+	const test = await openTestServices();
+	cleanups.push(test.remove);
+	// The desktop's shape: Stop answers once the WAV is finalized, and the
+	// shell places the audio later.
+	const placements: ReturnType<
+		typeof deferred<Result<{ unencoded?: string }, CaptureError>>
+	>[] = [];
+	const capture: CaptureDevice = {
+		...test.services.capture,
+		async start({ id }) {
+			return Ok({
+				startedAt: 0,
+				onEnded: () => () => {},
+				async stop() {
+					const placement =
+						deferred<Result<{ unencoded?: string }, CaptureError>>();
+					placements.push(placement);
+					return Ok({
+						durationMs: 1500,
+						placed: placement.promise.then(async (placed) => {
+							await put(
+								join(test.root, 'device'),
+								`recordings/${id}.webm`,
+								'placed by the shell',
+							);
+							return placed;
+						}),
+					});
+				},
+			});
+		},
+	};
+	const { whispering, library } = await openTestWhispering({
+		services: { ...test.services, capture },
+		client: test.device,
+	});
+	cleanups.push(() => whispering.dispose());
+
 	await whispering.startRecording();
 	expect(whispering.recorder.phase).toBe('recording');
-	await eventually(() => library.entries.length === 1);
-	const { id } = library.entries[0]!;
-
-	// The fixture writes its audio at Stop, as the desktop moves its WAV
-	// into place then: nothing is at the recording's path yet.
-	expect(library.audioOf(id)).toEqual({ kind: 'recording' });
-	expect(await library.readAudio(id)).toEqual(
-		Err('This recording is still recording. Stop it first.'),
-	);
-	expect(await library.transcribe(id)).toBe(
-		'This recording is still recording. Stop it, then transcribe.',
-	);
-	expect(library.transcriptionRun(id)).toBeUndefined();
-	expect(test.transcribed).toHaveLength(0);
-	expect(library.deletionFor({ collection: 'recordings', id })).toEqual(
-		Err('This recording is still recording. Stop it first.'),
-	);
-
-	await whispering.stopRecording();
-	await eventually(() => library.audioOf(id).kind === 'here');
-});
-
-test('a recording whose note cannot be made does not start, and nothing is written', async () => {
-	const { test, whispering, library } = await fixture();
-	test.device.recordings.create = async () =>
-		Err({
-			name: 'Unavailable',
-			message: 'This browser gives the page no private file storage',
-			cause: null,
-		}) as never;
-
-	await whispering.startRecording();
-
-	expect(whispering.recorder.phase).toBe('idle');
-	expect(whispering.recorderError).toBe(
-		'The recording could not start: This browser gives the page no private file storage',
-	);
 	expect(library.entries).toHaveLength(0);
-	expect(
-		await readdir(join(test.root, 'device', 'recordings')).catch(() => []),
-	).toEqual([]);
+	const stopping = whispering.stopRecording();
+	await eventually(() => whispering.finishing === 1);
+	expect(whispering.recorder.phase).toBe('idle');
+	expect(library.entries).toHaveLength(0);
+
+	// The microphone is free while the first is still being placed.
+	await whispering.startRecording();
+	expect(whispering.recorder.phase).toBe('recording');
+	const second = whispering.stopRecording();
+	await eventually(() => whispering.finishing === 2);
+
+	placements[0]!.resolve(Ok({}));
+	await stopping;
+	await eventually(() => library.entries.length === 1);
+	expect(library.entries[0]).toMatchObject({ durationMs: 1500 });
+	expect(library.audioOf(library.entries[0]!.id).kind).toBe('here');
+	expect(whispering.finishing).toBe(1);
+
+	placements[1]!.resolve(Ok({ unencoded: 'the encoder refused it' }));
+	await second;
+	await eventually(() => library.entries.length === 2);
+	expect(whispering.finishing).toBe(0);
+	expect(whispering.recorderError).toBe(
+		'The recording could not be encoded (the encoder refused it), so it was kept as a WAV.',
+	);
 });
 
 test('a recording whose audio the files do not take leaves no note behind', async () => {
@@ -178,16 +195,59 @@ test('a recording whose audio the files do not take leaves no note behind', asyn
 	expect(whispering.recorderError).toBe(
 		'The recording could not be saved: The disk is full',
 	);
-	await eventually(() => library.entries.length === 0);
-	expect(await readdir(join(test.root, 'device', 'recordings'))).toEqual([]);
+	expect(library.entries).toHaveLength(0);
+	expect(
+		await readdir(join(test.root, 'device', 'recordings')).catch(() => []),
+	).toEqual([]);
 });
 
-test('a Stop that fails to put its audio in place keeps the note, and the next start completes it', async () => {
+/** A capture that answers every audio file no note names as whole, as the desktop's does. */
+const namesUnnamed = async (unnamed: readonly string[]) =>
+	Ok(unnamed.map((id) => ({ id, durationMs: null })));
+
+test('a recording whose note is not written at Stop gets one from the next start, its length read from its audio', async () => {
 	const test = await openTestServices();
 	cleanups.push(test.remove);
-	let staged: Uint8Array | undefined;
-	// The desktop's shape: the audio waits outside its path, Stop fails to
-	// move it there, and the next start's recover does.
+	const createNote = test.device.recordings.create;
+	test.device.recordings.create = async () =>
+		Err({
+			name: 'Unavailable',
+			message: 'The disk is full',
+			cause: null,
+		}) as never;
+	const first = await openTestWhispering({
+		services: test.services,
+		client: test.device,
+	});
+	await first.whispering.startRecording();
+	await first.whispering.stopRecording();
+	expect(first.whispering.recorderError).toBe(
+		'The recording was kept, but its note could not be written: The disk is full',
+	);
+	expect(first.library.entries).toHaveLength(0);
+	first.close();
+
+	test.device.recordings.create = createNote;
+	const services = {
+		...test.services,
+		capture: { ...test.services.capture, recover: namesUnnamed },
+	};
+	const next = await openTestWhispering({ services, client: test.device });
+	cleanups.push(next.close);
+	await eventually(() => next.library.entries.length === 1);
+	expect(next.library.entries[0]).toMatchObject({
+		title: 'Recovered recording',
+		durationMs: 1000,
+	});
+	expect(next.whispering.recorderError).toBeUndefined();
+});
+
+test('a recording the shell could not place gets its note when the next start places it', async () => {
+	const test = await openTestServices();
+	cleanups.push(test.remove);
+	let staged: { id: string; bytes: Uint8Array } | undefined;
+	// The desktop's shape: the audio waits outside its path, its placement
+	// fails, and the next start's recover places it.
 	const capture: CaptureDevice = {
 		...test.services.capture,
 		async start({ id }) {
@@ -195,21 +255,28 @@ test('a Stop that fails to put its audio in place keeps the note, and the next s
 				startedAt: 0,
 				onEnded: () => () => {},
 				async stop() {
-					staged = toneWav({ seconds: 1 });
-					return CaptureError.Failed({
-						cause: new Error(
-							`recordings/${id}.wav could not be moved into place`,
+					staged = { id, bytes: toneWav({ seconds: 1 }) };
+					return Ok({
+						durationMs: 1000,
+						placed: Promise.resolve(
+							CaptureError.Failed({
+								cause: new Error(
+									`recordings/${id}.webm could not be moved into place`,
+								),
+							}),
 						),
 					});
 				},
 			});
 		},
 		async recover() {
-			const id = (await readdir(join(test.root, 'device', 'recordings')))
-				.find((name) => name.endsWith('.md'))!
-				.slice(0, -3);
-			await put(join(test.root, 'device'), `recordings/${id}.wav`, staged!);
-			return Ok([{ id, durationMs: 1000 }]);
+			if (staged === undefined) return Ok([]);
+			await put(
+				join(test.root, 'device'),
+				`recordings/${staged.id}.wav`,
+				staged.bytes,
+			);
+			return Ok([{ id: staged.id, durationMs: 1000 }]);
 		},
 	};
 	const services = { ...test.services, capture };
@@ -219,18 +286,20 @@ test('a Stop that fails to put its audio in place keeps the note, and the next s
 	expect(first.whispering.recorderError).toContain(
 		'could not be moved into place',
 	);
-	await eventually(() => first.library.entries.length === 1);
-	expect(first.library.entries[0]!.durationMs).toBeUndefined();
+	expect(first.library.entries).toHaveLength(0);
 	first.close();
 
 	const next = await openTestWhispering({ services, client: test.device });
 	cleanups.push(next.close);
-	await eventually(() => next.library.entries[0]?.durationMs !== undefined);
-	expect(next.library.entries[0]!.durationMs).toBe(1000);
+	await eventually(() => next.library.entries.length === 1);
+	expect(next.library.entries[0]).toMatchObject({
+		id: staged!.id,
+		durationMs: 1000,
+	});
 	expect(next.whispering.recorderError).toBeUndefined();
 });
 
-test('a start completes the length of a recording a closed tab cut off, from its audio', async () => {
+test('a start gives a recording a closed tab cut off its note, its length read from its audio', async () => {
 	const test = await openTestServices();
 	cleanups.push(test.remove);
 	const id = '2026-10-31T09-30-00-000Z-cutoffaa';
@@ -243,19 +312,20 @@ test('a start completes the length of a recording a closed tab cut off, from its
 		).arrayBuffer(),
 	);
 	await put(join(test.root, 'device'), `recordings/${id}.m4a`, audio);
-	await put(
-		join(test.root, 'device'),
-		`recordings/${id}.md`,
-		'---\ntitle: Cut off\nrecordedAt: 2026-10-31T09:30:00.000Z\ncapture: microphone\n---\n',
-	);
-	const opened = await openTestWhispering({
-		services: test.services,
-		client: test.device,
-	});
+	const services = {
+		...test.services,
+		capture: { ...test.services.capture, recover: namesUnnamed },
+	};
+	const opened = await openTestWhispering({ services, client: test.device });
 	cleanups.push(opened.close);
 
-	await eventually(() => opened.library.entries[0]?.durationMs !== undefined);
-	expect(opened.library.entries[0]).toMatchObject({ id, durationMs: 960 });
+	await eventually(() => opened.library.entries.length === 1);
+	expect(opened.library.entries[0]).toMatchObject({
+		id,
+		title: 'Recovered recording',
+		recordedAt: '2026-10-31T09:30:00.000Z',
+		durationMs: 960,
+	});
 	expect(opened.whispering.recorderError).toBeUndefined();
 });
 
@@ -285,8 +355,8 @@ test('a cut-off recording whose repair fails is said, and left for the next star
 	cleanups.push(test.remove);
 	await put(
 		join(test.root, 'device'),
-		'recordings/2026-10-31T09-30-00-000Z-cutoffaa.md',
-		'---\ntitle: Cut off\nrecordedAt: 2026-10-31T09:30:00.000Z\ncapture: microphone\n---\n',
+		'recordings/2026-10-31T09-30-00-000Z-cutoffaa.m4a',
+		'a closed tab left it',
 	);
 	test.services.capture.recover = async () =>
 		Err({
@@ -303,6 +373,7 @@ test('a cut-off recording whose repair fails is said, and left for the next star
 	expect(opened.whispering.recorderError).toBe(
 		'Recordings a quit or a crash cut off could not be completed: The recording could not be captured: the disk is full',
 	);
+	expect(opened.library.entries).toHaveLength(0);
 });
 
 test('a transcription sends the recording’s audio and keeps its transcript beside it', async () => {

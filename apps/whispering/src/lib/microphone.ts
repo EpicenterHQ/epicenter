@@ -16,7 +16,6 @@ import type { Client } from '@epicenter/definition/contract';
 import type {
 	RecorderError,
 	RecoverRecordings,
-	SilentRecordings,
 	StartRecording,
 } from '@epicenter/recorder';
 import { Err, Ok } from 'wellcrafted/result';
@@ -59,8 +58,14 @@ export function captureErrorOf(error: RecorderError): CaptureError {
 export type Recorder = {
 	readonly startRecording: StartRecording;
 	readonly recoverRecordings: RecoverRecordings;
-	/** A browser's: which recordings hold no audio and are not being recorded. */
-	readonly silentRecordings?: SilentRecordings;
+	/**
+	 * Whether a recording reaches its path only whole, once it has stopped:
+	 * the desktop shell's, which records outside its path. A cut-off one is
+	 * then found only by recovering, and audio at its path is finished. A
+	 * browser's is written at its path as it records, where another tab may
+	 * still be writing it.
+	 */
+	readonly placesWhole?: boolean;
 };
 
 export function createMicrophoneDevice({
@@ -81,21 +86,10 @@ export function createMicrophoneDevice({
 	/** What the person is told this session records from. */
 	label?: string;
 }): CaptureDevice {
-	const { silentRecordings } = recorder;
 	return {
 		source,
 		label,
 		inputs,
-		...(silentRecordings && {
-			async silent(ids: readonly string[]) {
-				const { data, error } = await silentRecordings({
-					device,
-					paths: ids.map((id) => `${DIRECTORY}/${id}`),
-				});
-				if (error !== null) return Err(captureErrorOf(error));
-				return Ok(data.map((path) => path.slice(DIRECTORY.length + 1)));
-			},
-		}),
 		async start({ id, input, signal }) {
 			const { data: recording, error } = await recorder.startRecording({
 				device,
@@ -111,30 +105,39 @@ export function createMicrophoneDevice({
 				async stop() {
 					const { data, error: stopError } = await recording.stop();
 					if (stopError !== null) return Err(captureErrorOf(stopError));
-					const placed = await data.placed;
-					if (placed.error !== null) return Err(captureErrorOf(placed.error));
-					if (placed.data.unencoded !== undefined)
-						return CaptureError.Failed({
-							cause: new Error(
-								`the recording could not be encoded (${placed.data.unencoded}), so it was kept as ${placed.data.path}`,
-							),
-						});
-					return Ok({ durationMs: data.durationMs });
+					return Ok({
+						durationMs: data.durationMs,
+						placed: data.placed.then(({ data: placed, error }) =>
+							error !== null
+								? Err(captureErrorOf(error))
+								: Ok({ unencoded: placed.unencoded }),
+						),
+					});
 				},
 			});
 		},
-		async recover() {
+		async recover(unnamed) {
+			// In a browser a cut-off recording is at its path, among `unnamed`.
+			if (unnamed.length === 0 && !recorder.placesWhole) return Ok([]);
 			const { data, error } = await recorder.recoverRecordings({
 				device,
 				under: DIRECTORY,
 			});
 			if (error !== null) return Err(captureErrorOf(error));
-			return Ok(
-				data.map(({ path, durationMs }) => ({
-					id: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
-					durationMs,
-				})),
-			);
+			const repaired = data.map(({ path, durationMs }) => ({
+				id: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
+				durationMs,
+			}));
+			if (!recorder.placesWhole) return Ok(repaired);
+			// Audio at its path is finished: one placed after its page left,
+			// or one whose note was never written.
+			const answered = new Set(repaired.map(({ id }) => id));
+			return Ok([
+				...repaired,
+				...unnamed
+					.filter((id) => !answered.has(id))
+					.map((id) => ({ id, durationMs: null })),
+			]);
 		},
 	};
 }

@@ -161,7 +161,7 @@ function scriptedMicrophone(
 				onEnded: () => () => {},
 				async stop() {
 					release();
-					return Ok({ durationMs: 1000 });
+					return Ok({ durationMs: 1000, placed: Promise.resolve(Ok({})) });
 				},
 			});
 		},

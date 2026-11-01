@@ -1,11 +1,12 @@
 /**
  * Audio capture for one recording at a time. Every capture writes the
- * recording's audio into Whispering's store as it records, at the path the
- * recording's id names (`recordings/<id>.<ext>`), so a quit, a crash, or a
- * closed tab keeps everything up to the cut (decision 84): on the desktop
- * the shell writes a WAV from the first sample, in a browser each piece is
- * appended to this browser's files as it arrives. Stop answers how long its
- * audio plays, and `recover` repairs the audio a cut left half-written.
+ * recording's audio into Whispering's store as it records, so a quit, a
+ * crash, or a closed tab keeps everything up to the cut (decision 84): on
+ * the desktop the shell writes a WAV from the first sample outside the
+ * recording's path, in a browser each piece is appended to this browser's
+ * files at its path (`recordings/<id>.<ext>`) as it arrives. Stop answers
+ * how long its audio plays and, once the audio is at its path, where; and
+ * `recover` repairs the audio a cut left half-written.
  *
  * The microphone device (`microphone.ts`) records with `@epicenter/recorder`,
  * whose entry the build's platform leaf imports. A fixture device stands in
@@ -69,11 +70,24 @@ export type Capture = {
 	readonly startedAt: number;
 	/** Hear capture end unexpectedly; stop still keeps what was captured. Retired by stop. */
 	onEnded: RecordingHandle<unknown>['onEnded'];
+	/** Finish the file and release the microphone. */
+	stop(): Promise<Result<StoppedCapture, CaptureError>>;
+};
+
+/** A recording whose capture has finished. */
+export type StoppedCapture = {
+	/** How long its audio plays. */
+	readonly durationMs: number;
 	/**
-	 * Finish the file and release the microphone. Answers how long its audio
-	 * plays; the audio is already in the files.
+	 * Resolves once its audio is at its path (`recordings/<id>.<ext>`): at
+	 * once in a browser, on the desktop once the shell has encoded and
+	 * placed it, after Stop answered. `unencoded` says why the desktop kept a
+	 * WAV. An error is audio left outside its path, which the next start's
+	 * `recover` places. Never rejects.
 	 */
-	stop(): Promise<Result<{ readonly durationMs: number }, CaptureError>>;
+	readonly placed: Promise<
+		Result<{ readonly unencoded?: string }, CaptureError>
+	>;
 };
 
 /** A microphone the person chose by name. Kept on this device, never in Whispering's files. */
@@ -160,23 +174,22 @@ export type CaptureDevice = {
 	start(options: CaptureStart): Promise<Result<Capture, CaptureError>>;
 	/**
 	 * Repair the audio of recordings a quit, a crash, or a closed tab cut
-	 * off, so each reads to its last whole piece. Answers each recording
-	 * repaired, by id, with how long its audio plays (null when it does not
-	 * read), so nothing reads the audio back to measure it.
+	 * off, and answer each recording whose audio is whole at its path and
+	 * may have no note, by id, with how long it plays (null: read it to
+	 * measure). `unnamed` is the audio at its path no note names. In a
+	 * browser that is the only place a cut-off recording can be, and one
+	 * another tab is still writing is left out; on the desktop a cut-off
+	 * recording waits outside its path, so it is always looked for, and audio
+	 * reaches its path only whole.
 	 */
-	recover(): Promise<
+	recover(
+		unnamed: readonly string[],
+	): Promise<
 		Result<
 			{ readonly id: string; readonly durationMs: number | null }[],
 			CaptureError
 		>
 	>;
-	/**
-	 * Of `ids`, the recordings that hold no audio and that nothing is
-	 * recording: what a tab closed before its first piece left. Absent where
-	 * that cannot be known: the desktop keeps a recording outside its path
-	 * until it stops.
-	 */
-	silent?(ids: readonly string[]): Promise<Result<string[], CaptureError>>;
 };
 
 export type FixtureAudio = {
@@ -233,6 +246,7 @@ export function createFixtureDevice({
 						durationMs:
 							audioDurationMs(fixture.bytes, ext) ??
 							Math.round(performance.now() - startedAt),
+						placed: Promise.resolve(Ok({})),
 					});
 				},
 			});

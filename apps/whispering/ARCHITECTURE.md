@@ -98,34 +98,36 @@ piece (about a second) to `recordings/<id>.m4a` or `.webm` in this browser's
 files as it arrives. On the desktop it is the shell's microphone
 (`platform/microphone.tauri.ts`, over `@epicenter/recorder/tauri`), which
 writes a WAV from the first sample in the folder's `.epicenter/recordings`
-and, when it stops, encodes it to Opus in WebM at `recordings/<id>.webm`
-(`recordings/<id>.wav` when the encoder refuses it). Until its Stop has
-finished, a recording's audio reads as `recording` (`files.svelte.ts`): its
-row says "Recording…", and it is not played, transcribed, or deleted.
+and, after it stops, encodes it to Opus in WebM at `recordings/<id>.webm`
+(`recordings/<id>.wav` when the encoder refuses it).
 
-Start makes the recording's note first (`client.recordings.create`: `title`
-from the start time, `recordedAt`, `capture`), then opens the chosen
-microphone; a microphone that does not open takes the note with it. Stop
-releases the microphone and writes `durationMs`, how long the audio
-written plays, into the note over the version it reads then
-(`folder-recordings.ts`). A recording that wrote no audio (the store
-refused it, or nothing was captured) leaves no note; a Stop that fails
-otherwise keeps it, since the desktop may still hold the audio in
-`.epicenter/recordings`.
+A recording has no note while it records: the record screen
+(`RecorderCard.svelte`) shows the take. Stop releases the microphone and
+answers how long the audio plays; the note (`title` from the start time,
+`recordedAt`, `capture`, `durationMs`) is written once, when the audio is
+at its path (`keepRecording` in `folder-recordings.ts`), so the library
+gains the row then and every note names audio that is there. In a browser
+that is at once. On the desktop the shell encodes after Stop answered
+(about 24 s for an hour of speech): the record screen says "Finishing…"
+(`whispering.finishing`) meanwhile, and the next recording can start. A
+recording that wrote no audio (the store refused it, or nothing was
+captured), or whose audio could not be placed, leaves no note.
 Recording never waits on the network. Where the browser keeps no files (a
-private window) the note cannot be made, so recording is refused before
-any microphone opens. When a start finds a note with no length beside its
-audio (what a quit, a crash, or a closed tab cut off), it first repairs the
-audio (`capture.recover()`: a WAV header on the desktop, then the encode
-Stop would have done; an `m4a` or `webm`
-cut back to its last whole piece in a browser, skipping one another tab is
-still writing) and then completes the note from it (`audioDurationMs`).
-Nothing is read for repair when nothing was cut off. On the desktop a
-leftover whose path is taken is placed beside it as `<id>-recovered.webm`,
-and audio the repair placed that no note names is given a note
-("Recovered recording"). In a browser a note whose recording holds no audio
-and that no tab is recording (a tab closed before its first piece) is
-settled at a length of 0, once.
+private window) the recorder refuses before any microphone opens.
+
+A quit, a crash, or a closed tab leaves audio that no note names. Each
+start first gives it one (`finishCutOffRecordings`), the only path by which
+a cut-off recording reaches the library: `capture.recover(unnamed)` repairs
+it (a WAV header on the desktop, then the encode Stop would have done,
+placed beside a taken path as `<id>-recovered.webm`; an `m4a` or `webm` cut
+back to its last whole piece in a browser, skipping one another tab is
+still writing) and answers each recording whose audio is whole at its path,
+and each one no note names gets a note titled "Recovered recording", its
+length the one recovery answered or read from the audio
+(`audioDurationMs`). In a browser nothing is read for repair unless some
+audio has no note; on the desktop, where a cut-off recording waits outside
+its path, recovery always looks, and audio at its path is finished (one
+the shell placed after its page left, or whose note was never written).
 
 The microphone choice, its test, and Enable microphones belong to
 `microphone-input.svelte.ts`: one owner of at most one open microphone,

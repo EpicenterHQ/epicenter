@@ -45,7 +45,7 @@
 	// svelte-ignore state_referenced_locally
 	const library = createLibrary({
 		whispering,
-		files: filesOf(client, files, () => whispering.recordingId),
+		files: filesOf(client, files),
 	});
 	setLibrary(library);
 	// Leaving waits for nothing; a recording under way ends with the page.

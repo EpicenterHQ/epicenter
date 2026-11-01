@@ -41,7 +41,6 @@ import {
 	type RecordingStart,
 	type RecoveredRecording,
 	type RecoverRecordings,
-	type SilentRecordings,
 	type StartRecording,
 } from './recording.js';
 
@@ -512,15 +511,17 @@ export function createBrowserRecorder(
 
 	/**
 	 * Cut each `m4a` and `webm` recording directly under `under` back to its
-	 * last whole piece, skipping any a tab is still writing, and answer how
-	 * long each repaired one plays.
+	 * last whole piece, skipping any a tab is still writing, and answer every
+	 * one no tab is writing, repaired or already whole, with how long it
+	 * plays: an app tells a cut-off recording from one still recording in
+	 * another tab only by this answer.
 	 */
 	const recoverRecordings: RecoverRecordings = async ({ device, under }) => {
 		const files = environment.filesOf(device);
 		const listed = await files.list();
 		if (listed.error !== null)
 			return RecorderError.Failed({ cause: listed.error });
-		const repaired: RecoveredRecording[] = [];
+		const recovered: RecoveredRecording[] = [];
 		for (const { path } of listed.data) {
 			const name = path.slice(under.length + 1);
 			if (!path.startsWith(`${under}/`) || name.includes('/')) continue;
@@ -535,14 +536,21 @@ export function createBrowserRecorder(
 					return RecorderError.Failed({ cause: read.error });
 				if (read.data === null) continue;
 				const whole = repairAudio(read.data.bytes, ext);
-				if (whole === undefined) continue;
+				// Already whole, or not audio that reads.
+				if (whole === undefined) {
+					recovered.push({
+						path,
+						durationMs: audioDurationMs(read.data.bytes, ext) ?? null,
+					});
+					continue;
+				}
 				const written = await files.write(path, whole, {
 					sha256: read.data.version,
 				});
 				if (written.error !== null)
 					return RecorderError.Failed({ cause: written.error });
 				if (written.data === 'landed')
-					repaired.push({
+					recovered.push({
 						path,
 						durationMs: audioDurationMs(whole, ext) ?? null,
 					});
@@ -550,39 +558,7 @@ export function createBrowserRecorder(
 				releaseLock();
 			}
 		}
-		return Ok(repaired);
-	};
-
-	/**
-	 * Of `paths`, those with no audio file under any extension a browser
-	 * records, and whose Web Lock no tab holds. A recording's tab takes its
-	 * lock before the microphone opens and keeps it until it stops, so one
-	 * waiting on its first piece is never called silent.
-	 */
-	const silentRecordings: SilentRecordings = async ({ device, paths }) => {
-		const files = environment.filesOf(device);
-		const listed = await files.list();
-		if (listed.error !== null)
-			return RecorderError.Failed({ cause: listed.error });
-		const present = new Set(listed.data.map(({ path }) => path));
-		const extensions = [
-			...new Set(Object.values(EXTENSIONS).map(({ extension }) => extension)),
-		];
-		const silent: string[] = [];
-		for (const path of paths) {
-			const candidates = extensions.map((extension) => `${path}.${extension}`);
-			if (candidates.some((candidate) => present.has(candidate))) continue;
-			const released: (() => void)[] = [];
-			let writing = false;
-			for (const candidate of candidates) {
-				const release = await hold(environment.locks, lockOf(candidate));
-				if (release === null) writing = true;
-				else released.push(release);
-			}
-			for (const release of released) release();
-			if (!writing) silent.push(path);
-		}
-		return Ok(silent);
+		return Ok(recovered);
 	};
 
 	/** Record in the page; `stop` answers the audio, and nothing is written. */
@@ -624,7 +600,6 @@ export function createBrowserRecorder(
 	return {
 		startRecording,
 		recoverRecordings,
-		silentRecordings,
 		startPageRecording,
 	};
 }
@@ -639,10 +614,6 @@ export const startRecording: StartRecording = (options) =>
 /** Repair the recordings under `under` in `device` that a closed tab cut off. */
 export const recoverRecordings: RecoverRecordings = (options) =>
 	createBrowserRecorder().recoverRecordings(options);
-
-/** Of the recordings at `paths` in `device`, those with no audio that no tab is recording. */
-export const silentRecordings: SilentRecordings = (options) =>
-	createBrowserRecorder().silentRecordings(options);
 
 /** Record from `input` (or the system default) in this tab; `stop` answers the audio. */
 export const startPageRecording: StartPageRecording = (options) =>

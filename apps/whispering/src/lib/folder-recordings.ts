@@ -1,16 +1,17 @@
 /**
- * Recordings written into Whispering's files as they record (ADR-0543,
- * decision 84): on the desktop the shell's WAV from the first sample, kept in
- * the folder's `.epicenter/recordings` until it stops and then encoded to
- * `recordings/<id>.webm`; in a browser each piece appended to its file as it
- * arrives. The note is made when recording starts, so the files always name
- * what they hold, and completed with the length when it stops. A recording
- * a quit, a crash, or a closed tab cut off has a note without a length; the
- * capture device repairs its audio and, on the desktop, encodes it and
- * places it at its path (`CaptureDevice.recover`), answering how long it
- * plays; the next start completes its note with that length. A Stop that fails keeps the note
- * unless nothing was written, so audio the desktop could not place, or
- * placed as a WAV its encoder refused, is named by the next start.
+ * A recording's note (ADR-0543, decision 84). Its audio is written into
+ * Whispering's files as it records: on the desktop the shell's WAV from the
+ * first sample, outside its path in the folder's `.epicenter/recordings`
+ * until it stops and is encoded to `recordings/<id>.webm`; in a browser each
+ * piece appended to its file at its path as it arrives. The note is written
+ * once, when the audio is at its path after Stop (`keepRecording`), so a
+ * note always names audio that is there and holds its length.
+ *
+ * A quit, a crash, or a closed tab leaves audio no note names: at its path
+ * in a browser, outside it on the desktop. The next start repairs it
+ * (`CaptureDevice.recover`, which on the desktop also encodes and places it)
+ * and gives each such recording its note (`finishCutOffRecordings`), the
+ * only path by which a cut-off recording reaches the library.
  */
 import type { Client } from '@epicenter/definition/contract';
 import { audioDurationMs } from '@epicenter/recorder';
@@ -18,58 +19,31 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { CaptureDevice, CaptureSource } from './capture.js';
 import type { Whispering } from './contract.js';
 
-/** A recording's note as it is made at Start: no length yet. */
-export type StartedRecording = {
+/** A recording's note, as it is written once its audio is at its path. */
+export type KeptRecording = {
 	readonly id: string;
 	readonly title: string;
 	readonly recordedAt: string;
 	readonly capture: CaptureSource;
+	/** Undefined only for recovered audio whose length does not read. */
+	readonly durationMs?: number;
 };
 
-/** Make the note of a recording that is starting. */
-export async function beginRecording(
+/** Write the note of a recording whose audio is at its path. */
+export async function keepRecording(
 	device: Client<Whispering>,
-	note: StartedRecording,
+	{ durationMs, ...note }: KeptRecording,
 ): Promise<Result<void, string>> {
-	const created = await device.recordings.create(note);
+	const created = await device.recordings.create(
+		durationMs === undefined
+			? note
+			: { ...note, durationMs: Math.max(0, Math.round(durationMs)) },
+	);
 	return created.error === null ? Ok(undefined) : Err(created.error.message);
 }
 
-/**
- * Write recording `id`'s length into its note, over the version read now
- * (the title may have been edited while it recorded). A note deleted in
- * the meantime is not made again: the audio stays in the folder.
- */
-export async function completeRecording(
-	device: Client<Whispering>,
-	id: string,
-	durationMs: number,
-): Promise<Result<void, string>> {
-	for (let attempt = 0; attempt < 3; attempt++) {
-		const read = await device.recordings.get({ id });
-		if (read.error !== null)
-			return Err(
-				read.error.name === 'NotFound'
-					? 'This recording’s note was deleted while it recorded. Its audio is still there.'
-					: read.error.message,
-			);
-		if (read.data.durationMs === durationMs) return Ok(undefined);
-		const updated = await device.recordings.update(
-			{ id },
-			{ durationMs: Math.max(0, Math.round(durationMs)) },
-			{ over: read.data.version },
-		);
-		if (updated.error === null) return Ok(undefined);
-		// Edited between the read and the write: read again.
-		if (updated.error.name !== 'Conflict') return Err(updated.error.message);
-	}
-	return Err(
-		'This recording’s note kept changing, so its length was not written.',
-	);
-}
-
 /** The extensions recordings are written under: Opus in WebM on the desktop (WAV when it could not encode one), AAC in MP4 or Opus in WebM in a browser. */
-const RECORDED = ['wav', 'm4a', 'webm'] as const;
+const RECORDED: readonly string[] = ['wav', 'm4a', 'webm'];
 
 /** When a recording whose id `timeId` made was started, or now for any other id. */
 function recordedAtOf(id: string): string {
@@ -83,105 +57,66 @@ function recordedAtOf(id: string): string {
 }
 
 /**
- * Complete every recording whose note has no length once its audio
- * (`<id>.<ext>`) is there: what a quit, a crash, or a closed tab cut off.
- * A recording `recover` repaired is completed with the length it answered;
- * only audio already at its path (a recording the shell placed when its
- * page left, or a Stop whose length was never written) is read to measure.
- * The capture device's `recover` runs first, and only when some note has
- * no length: on the desktop it is what encodes a cut-off recording from
- * `.epicenter/recordings` and places it at its path (or beside it,
- * `<id>-recovered`, when the path is taken), so its audio is not there
- * before it runs; in a
- * browser it reads every recording's audio, which no start should pay for
- * when nothing was cut off. Run it before anything records.
+ * Give every recording a quit, a crash, or a closed tab cut off its note.
+ * The capture device's `recover` repairs what was cut off (on the desktop it
+ * also encodes it and places it at its path, or beside it as
+ * `<id>-recovered` when the path is taken) and answers each recording whose
+ * audio is whole at its path, with the length it read; any of those no note
+ * names is given one, its length measured from its audio when `recover` did
+ * not answer one. Audio whose length does not read is still given a note,
+ * without a length, so no recording is kept where the library does not
+ * list it. Run it before anything records.
  *
- * Audio `recover` placed that no note names is given one, so no recording
- * is kept where the library does not list it. A note whose recording the
- * device calls silent (`silent`: a tab closed before its first piece) is
- * settled with a length of 0 once, so it does not send the next start
- * through recovery again. Any other note with no audio, or whose audio does
- * not read, is left as it is.
- *
- * Answers the ids completed. `Unavailable` is the files refusing to be
+ * Answers the ids given a note. `Unavailable` is the files refusing to be
  * listed at all, which the library's own listing reports too.
  */
 export async function finishCutOffRecordings(
 	device: Client<Whispering>,
-	capture: Pick<CaptureDevice, 'recover' | 'silent'>,
+	capture: Pick<CaptureDevice, 'recover'>,
 ): Promise<
 	Result<string[], { name: 'Unavailable' | 'RepairFailed'; message: string }>
 > {
-	const listed = await device.recordings.list();
-	if (listed.error !== null) return Err(listed.error);
-	const unfinished = listed.data.items
-		.filter((note) => note.durationMs === undefined)
-		.map((note) => note.id);
-	if (unfinished.length === 0) return Ok([]);
-	const repaired = await capture.recover();
-	if (repaired.error !== null)
-		return Err({ name: 'RepairFailed', message: repaired.error.message });
-	const named = new Set([
-		...listed.data.items.map((note) => note.id),
-		...listed.data.invalid.map((note) => note.id),
-	]);
-	/** How long each recording `recover` repaired plays, when its audio read. */
-	const measured = new Map<string, number>();
-	for (const { id, durationMs } of repaired.data) {
-		if (durationMs !== null) measured.set(id, durationMs);
+	const notes = await device.recordings.list();
+	if (notes.error !== null) return Err(notes.error);
+	const audio = await device.audio.list();
+	if (audio.error !== null) return Err(audio.error);
+	const named = new Set(
+		[...notes.data.items, ...notes.data.invalid].map((note) => note.id),
+	);
+	const unnamed = [
+		...new Set(
+			audio.data.items
+				.filter((file) => RECORDED.includes(file.ext) && !named.has(file.id))
+				.map((file) => file.id),
+		),
+	];
+	const whole = await capture.recover(unnamed);
+	if (whole.error !== null)
+		return Err({ name: 'RepairFailed', message: whole.error.message });
+	const made: string[] = [];
+	for (const { id, durationMs } of whole.data) {
 		if (named.has(id)) continue;
-		const made = await beginRecording(device, {
+		named.add(id);
+		const kept = await keepRecording(device, {
 			id,
 			title: 'Recovered recording',
 			recordedAt: recordedAtOf(id),
 			capture: 'microphone',
+			durationMs: durationMs ?? (await measured(device, id)),
 		});
-		if (made.error === null) unfinished.push(id);
+		if (kept.error === null) made.push(id);
 	}
-	const finished: string[] = [];
-	const silent: string[] = [];
-	for (const id of unfinished) {
-		const known = measured.get(id);
-		if (known !== undefined) {
-			const completed = await completeRecording(device, id, known);
-			if (completed.error === null) finished.push(id);
-			continue;
-		}
-		let heard = false;
-		for (const ext of RECORDED) {
-			const audio = await device.audio.get({ id, ext });
-			if (audio.error !== null) continue;
-			heard = true;
-			const durationMs = audioDurationMs(audio.data.bytes, ext);
-			if (durationMs === undefined) break;
-			const completed = await completeRecording(device, id, durationMs);
-			if (completed.error === null) finished.push(id);
-			break;
-		}
-		if (!heard) silent.push(id);
-	}
-	if (silent.length > 0 && capture.silent !== undefined) {
-		const settled = await capture.silent(silent);
-		for (const id of settled.data ?? []) {
-			const completed = await completeRecording(device, id, 0);
-			if (completed.error === null) finished.push(id);
-		}
-	}
-	return Ok(finished);
+	return Ok(made);
 }
 
-/**
- * Remove the note of a recording that did not start (the microphone was
- * refused or not there), so the files name no recording they do not hold.
- * Audio already written is never removed here.
- */
-export async function abandonRecording(
+/** How long recording `id`'s audio plays, read from its bytes. */
+async function measured(
 	device: Client<Whispering>,
 	id: string,
-): Promise<void> {
-	const read = await device.recordings.get({ id });
-	if (read.error !== null) return;
-	const audio = await device.audio.list();
-	if (audio.data?.items.some((file) => file.id === id)) return;
-	await device.recordings.delete({ id }, { over: read.data.version });
+): Promise<number | undefined> {
+	for (const ext of RECORDED) {
+		const audio = await device.audio.get({ id, ext });
+		if (audio.error === null) return audioDurationMs(audio.data.bytes, ext);
+	}
+	return undefined;
 }

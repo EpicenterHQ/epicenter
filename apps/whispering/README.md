@@ -41,9 +41,9 @@ without an account and works offline. Nothing syncs, uploads, or moves to a
 repository, and there is no other view
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
-- A recording is kept as it records: its note at Start, its audio written
-  beside it a piece at a time, its length at Stop (see
-  [Recording](#recording)). Recording never waits on the network.
+- A recording is kept as it records: its audio written a piece at a time,
+  its note with its length at Stop (see [Recording](#recording)).
+  Recording never waits on the network.
 - Transcripts, transformations, and their results are kept beside it when
   they are made.
 - Changes another tab makes show without a reload.
@@ -92,14 +92,15 @@ and Settings (the two connections and the optional sign-in).
 
 ### Recording
 
-Press the microphone on Home to start and again to stop. A note titled
-with the time is kept in this browser when it starts, and the audio is
-written beside it as it records, about a second at a time (AAC in `.m4a`,
-else Opus in `.webm`); Stop writes the length into the note. A refresh, a
-crash, or a closed tab keeps what was recorded up to the cut: the next start
-cuts a half-written file back to its last whole second and completes the
-note from the audio. A browser that keeps no files for the site (a private
-window) cannot record; the app says why before any microphone opens.
+Press the microphone on Home to start and again to stop. The audio is
+written into this browser's files as it records, about a second at a time
+(AAC in `.m4a`, else Opus in `.webm`); Stop keeps a note beside it titled
+with the time and holding its length, and the recording appears in the
+list. A refresh, a crash, or a closed tab keeps what was recorded up to the
+cut: the next start cuts a half-written file back to its last whole second
+and gives it a note ("Recovered recording") with the length of what was
+written. A browser that keeps no files for the site (a private window)
+cannot record; the app says why before any microphone opens.
 
 ### Recordings
 
@@ -219,8 +220,9 @@ the `epicenter` CLI, and the app built against that API on
 (audio and note land in OPFS and nothing else does), edits a title and a
 transcript, transcribes over a stubbed custom endpoint, and deletes a
 recording, then reloads; it watches a recording's audio file appear and
-grow in OPFS while it records, reloads mid-recording, and sees the next
-start complete the note's length from what was written; offline, it records
+grow in OPFS while it records, with no note yet, reloads mid-recording, and
+sees the next start give it a note with the length of what was written;
+offline, it records
 and edits; it shows the
 Safari line in Settings in WebKit and not in Chromium, and the
 Epicenter account route refused until sign-in, then, signed in, sending the
@@ -285,13 +287,14 @@ whose desktop leaf went missing.
 
 - **Recording** goes through the shell's microphone
   (`tauri-plugin-epicenter-recorder`), which writes a recording into the
-  data folder from the first sample and encodes it to
-  `recordings/<id>.webm` when it stops. The call is the web build's,
-  `startRecording({ device, path })` from `@epicenter/recorder`, imported
-  from `/tauri` here and `/browser` there (decision 84). The note is made at
-  Start and gets its length at Stop (`folder-recordings.ts`); a recording a
-  quit or a crash cut off is repaired on the next launch and its length
-  written from the audio. The recorder names the data folder to the shell by
+  data folder from the first sample and, after Stop answers, encodes it to
+  `recordings/<id>.webm` (about 24 s for an hour of speech; Home says
+  "Finishing…" meanwhile, and the next recording can start). The call is the
+  web build's, `startRecording({ device, path })` from `@epicenter/recorder`,
+  imported from `/tauri` here and `/browser` there (decision 84). The note,
+  with its length, is written once the audio is at its path
+  (`folder-recordings.ts`); a recording a quit or a crash cut off is encoded
+  and placed on the next launch and given its note there. The recorder names the data folder to the shell by
   the root the shell answered when the page opened it (`rootOf` from
   `@epicenter/folder/tauri`); the shell refuses any root the window did not
   open.
