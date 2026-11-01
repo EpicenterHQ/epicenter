@@ -354,7 +354,7 @@ each point below is in the Decision above.
   decisions 91 to 93's `StartupError`, `Roots.svelte` and roots holder.
   Setting context after an `await` throws in Svelte 5.56.3, so the root the
   pages read is set by a component rendered after both roots open. Errors
-  are `OpenDeviceError` from `@epicenter/folder`, and `Recovery` is one
+  are `OpenDeviceError` from `@epicenter/folder/tauri`, and `Recovery` is one
   exhaustive switch.
 - **Flat settings notes (decision 86).** Keeps decision 83's layering
   (defaults, then synced, then this computer) per note, and supersedes

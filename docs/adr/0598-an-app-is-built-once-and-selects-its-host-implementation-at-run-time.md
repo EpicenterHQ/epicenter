@@ -44,7 +44,7 @@ Keeping two builds in step takes:
 `@epicenter/folder` already selects at run time: its root entry calls
 `isTauri()` when `openFolder` runs, loads only the adapter it chose, and
 gives a desktop page whose folder cannot open that refusal, never browser
-storage (`packages/folder/src/index.ts`). ADR-0403 requires the same of
+storage (`889db4757f:packages/folder/src/index.ts`). ADR-0403 requires the same of
 every selector: "a broken host service does not silently fall back to
 browser storage."
 

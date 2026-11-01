@@ -14,7 +14,7 @@
 
 ## Context
 
-An app opens a data folder with `openFolder` (`packages/folder/src/index.ts`),
+An app opens a data folder with `openFolder` (`889db4757f:packages/folder/src/index.ts`),
 which picks the desktop or the browser adapter and validates every table
 read and write against the app's definition
 ([ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md)).
