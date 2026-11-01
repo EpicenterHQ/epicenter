@@ -70,10 +70,13 @@ and `~/Epicenter Dev`. A nonempty absolute `EPICENTER_DATA_DIR` or
 `EPICENTER_FOLDER_DIR` overrides either.
 
 `admission::check_sync_directory`, which Epicenter runs before
-`epicenter init`, refuses a hidden directory or one inside a hidden directory
-(`paths::is_hidden_path`; another folder's `.epicenter` among them), a
-directory inside, equal to, or holding application data, and the library root
-or a directory holding it, so the folders in it never become one repository.
+`epicenter init`, refuses a directory when any segment of its canonical path
+is `.git` or `.epicenter` (`state::DIRECTORY`), in any case
+(`admission::is_reserved_directory`): those belong to Git and to another
+folder's unfinished writes. Any other hidden directory, `~/.notes` among them,
+may be a folder. It also refuses a directory inside, equal to, or holding
+application data, and the library root or a directory holding it, so the
+folders in it never become one repository.
 Containment compares canonical paths and directory identity, so a linked
 parent or another spelling of a protected directory is no route around it.
 
@@ -154,9 +157,9 @@ create })`), the way a standalone app opens its data folder beside its
 AppData root. The plugin keeps no grant list of its own: Tauri decides.
 
 1. `Refused { root, reason }` for a place no app keeps its files in
-   (`scope::Refusals`): the top of a disk, the home folder, a hidden folder
-   or anything inside one (a `.git`, another folder's `.epicenter`), the
-   same rule as the hub's sync admission (`admission::is_hidden_directory`),
+   (`scope::Refusals`): the top of a disk, the home folder, anything inside
+   a `.git` or `.epicenter` folder, the same rule as the hub's sync
+   admission (`admission::is_reserved_directory`),
    anything inside or around Epicenter's own settings, and
    anything holding the app's own data directory.
 2. `NotGranted { root }` unless Tauri's runtime file-system scope allows

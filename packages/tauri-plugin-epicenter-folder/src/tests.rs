@@ -737,9 +737,10 @@ fn a_root_the_scope_allows_opens_and_is_reached_by_its_path() {
 }
 
 /// An allowed root that is not there is `Missing` and is made only when the
-/// page asks (the default data folder); a refused one (a hidden folder, a
-/// relative path) never opens or is made, whatever the scope allows; and an
-/// allowed root that is gone is not made again.
+/// page asks (the default data folder); a refused one (inside a `.git` or
+/// `.epicenter` folder, a relative path) never opens or is made, whatever the
+/// scope allows; another hidden folder opens; and an allowed root that is
+/// gone is not made again.
 #[test]
 fn a_missing_root_is_made_only_when_asked_and_a_refused_one_never_opens() {
     let fixture = fixture("missing-root");
@@ -768,12 +769,12 @@ fn a_missing_root_is_made_only_when_asked_and_a_refused_one_never_opens() {
     let refused = open_root(&main, &git, false).unwrap_err();
     assert_eq!(refused["name"], "Refused");
     assert!(
-        text(&refused["reason"]).contains("a hidden folder"),
+        text(&refused["reason"]).contains("inside a .git or .epicenter folder"),
         "{refused}"
     );
-    // Any hidden folder, as the hub's sync admission refuses it, and it is
-    // never made.
-    let state = repository.join(".epicenter");
+    // Another folder's unfinished writes, as the hub's sync admission
+    // refuses them, and they are never made.
+    let state = repository.join(".epicenter/recordings");
     fixture
         .app
         .fs_scope()
@@ -782,6 +783,17 @@ fn a_missing_root_is_made_only_when_asked_and_a_refused_one_never_opens() {
     let refused = open_root(&main, &state, true).unwrap_err();
     assert_eq!(refused["name"], "Refused");
     assert!(!state.exists());
+    // Any other hidden folder is a root like any other.
+    let hidden = repository.with_file_name(".notes");
+    fixture
+        .app
+        .fs_scope()
+        .allow_directory(&hidden, true)
+        .unwrap();
+    assert_eq!(
+        open_root(&main, &hidden, true).unwrap(),
+        hidden.to_str().unwrap()
+    );
     assert!(
         text(&open_root(&main, Path::new("relative"), true).unwrap_err()["reason"])
             .contains("not a full path")

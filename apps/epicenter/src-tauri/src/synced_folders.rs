@@ -786,8 +786,8 @@ pub async fn forget_synced_folder(webview: Webview, path: String) -> Result<(), 
 }
 
 /// The directory at `path` when it is a real folder that may be one
-/// (`admission::check_sync_directory`): not hidden, and holding none of
-/// Epicenter's own files.
+/// (`admission::check_sync_directory`): not inside a `.git` or `.epicenter`
+/// folder, and holding none of Epicenter's own files.
 fn admit(paths: &DesktopPaths, path: &str) -> Result<Directory, String> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == ErrorKind::NotFound => {
@@ -1079,8 +1079,7 @@ mod tests {
 
     #[test]
     fn epicenters_own_folders_are_never_set_up_for_sync() {
-        // Not `tempdir()`, whose hidden name would refuse every folder in it.
-        let temp = tempfile::Builder::new().prefix("synced").tempdir().unwrap();
+        let temp = tempfile::tempdir().unwrap();
         let root = dunce::canonicalize(temp.path()).unwrap();
         let paths = DesktopPaths {
             data_dir: root.join("data"),
@@ -1089,11 +1088,14 @@ mod tests {
         let notes = paths.folder_dir.join("notes");
         fs::create_dir_all(&notes).unwrap();
         fs::create_dir_all(&paths.data_dir).unwrap();
-        // Any folder's unfinished writes, like anything hidden.
+        // Any folder's unfinished writes, and Git's state.
         let saves = root.join("elsewhere/.epicenter/saves");
         fs::create_dir_all(&saves).unwrap();
+        let git = root.join("elsewhere/.git/objects");
+        fs::create_dir_all(&git).unwrap();
         for refused in [
             saves,
+            git,
             paths.folder_dir.clone(),
             paths.data_dir.clone(),
             root.clone(),
@@ -1104,6 +1106,10 @@ mod tests {
             );
         }
         assert!(admit(&paths, &notes.to_string_lossy()).is_ok());
+        // Any other hidden folder may be one.
+        let hidden = root.join("home/.notes");
+        fs::create_dir_all(&hidden).unwrap();
+        assert!(admit(&paths, &hidden.to_string_lossy()).is_ok());
         fs::write(root.join("file"), "").unwrap();
         assert!(admit(&paths, &root.join("file").to_string_lossy()).is_err());
     }

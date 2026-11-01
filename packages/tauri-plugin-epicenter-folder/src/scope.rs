@@ -10,14 +10,16 @@
 //! scope, and its windows reach only their own directories.
 //!
 //! Even an allowed root is refused when it is a place no app keeps its files
-//! in (`Refusals`): the top of a disk, the home folder, a hidden folder or
-//! anything inside one (a `.git`, another folder's `.epicenter`), as the
-//! hub's sync admission refuses it, Epicenter's own settings, or a folder
-//! holding the app's own data directory.
+//! in (`Refusals`): the top of a disk, the home folder, anything inside a
+//! `.git` or `.epicenter` folder (Git's state, another folder's unfinished
+//! writes), as the hub's sync admission refuses it, Epicenter's own
+//! settings, or a folder holding the app's own data directory. Any other
+//! hidden folder, `~/.notes` among them, may be a root.
 
 use std::path::{Path, PathBuf};
 
-use epicenter_folder_core::admission::{is_hidden_directory, resolved};
+use epicenter_folder_core::admission::{is_reserved_directory, resolved};
+use epicenter_folder_core::state;
 use tauri::{Manager, Runtime, Webview};
 use tauri_plugin_fs::FsExt;
 
@@ -108,9 +110,10 @@ impl Refusals {
                 "{shown} is your home folder; choose a folder inside it."
             ));
         }
-        if is_hidden_directory(&candidate) {
+        if is_reserved_directory(&candidate) {
             return Some(format!(
-                "{shown} is a hidden folder or inside one, which holds no folder's data."
+                "{shown} is inside a .git or {} folder, which belong to Git and to Epicenter.",
+                state::DIRECTORY
             ));
         }
         for own in &self.epicenter_own {
@@ -132,8 +135,7 @@ mod tests {
 
     #[test]
     fn unsafe_folders_are_refused_each_in_one_line() {
-        // Not `tempdir()`'s own name, `.tmp...`, which is hidden.
-        let temp = tempfile::Builder::new().prefix("scope").tempdir().unwrap();
+        let temp = tempfile::tempdir().unwrap();
         let base = std::fs::canonicalize(temp.path()).unwrap();
         let home = base.join("home");
         let support = home.join("Library/Application Support");
@@ -160,11 +162,22 @@ mod tests {
                 support.join("so.epicenter.notes"),
                 "this app's own settings",
             ),
-            (repository.join(".git"), "a hidden folder"),
-            (repository.join(".git/objects"), "a hidden folder"),
-            (repository.join(".GIT"), "a hidden folder"),
-            (repository.join(".epicenter/saves"), "a hidden folder"),
-            (home.join(".config/notes"), "a hidden folder"),
+            (
+                repository.join(".git"),
+                "inside a .git or .epicenter folder",
+            ),
+            (
+                repository.join(".git/objects"),
+                "inside a .git or .epicenter folder",
+            ),
+            (
+                repository.join(".GIT"),
+                "inside a .git or .epicenter folder",
+            ),
+            (
+                repository.join(".epicenter/recordings/y"),
+                "inside a .git or .epicenter folder",
+            ),
             (PathBuf::from("relative/Notes"), "not a full path"),
         ] {
             let refusal = refusals
@@ -173,11 +186,14 @@ mod tests {
             assert!(refusal.contains(why), "{refusal}");
             assert!(!refusal.contains('\n'), "{refusal}");
         }
-        // The default place, any ordinary folder, and a repository's working
-        // tree are accepted.
+        // The default place, any ordinary folder, any other hidden folder,
+        // and a repository's working tree are accepted.
         for accepted in [
             home.join("Epicenter/Notes"),
             home.join("Documents/Notes"),
+            home.join(".notes"),
+            home.join(".config/notes"),
+            repository.join(".github"),
             repository,
         ] {
             assert_eq!(refusals.refusal(&accepted), None, "{}", accepted.display());

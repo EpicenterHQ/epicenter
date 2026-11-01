@@ -45,10 +45,22 @@ only rule for what is not data:
   Bun's `native/watch.ts`, and `epicenter sync --watch`.
 - Listings still list hidden files, leaving out only `.git` at the root
   (`storage::list`, `directory-store.ts`); whoever reads a listing skips them.
-- The Epicenter app refuses a hidden directory, or a directory inside one, as
-  a folder to sync (`admission::check_sync_directory`).
 - `epicenter sync` commits a hidden path when Git's rules let it, as it
   commits `.gitattributes` and `.gitignore`, and never commits `.epicenter`.
+
+**A data folder can be any directory, except inside a `.git` or `.epicenter`
+directory, which belong to Git and to Epicenter.** The Epicenter app, before
+it sets a folder up for sync (`admission::check_sync_directory`), and an app
+window, before it opens a root (`scope::Refusals` in the folder plugin),
+refuse a directory when any segment of its canonical path is `.git` or
+`state::DIRECTORY`, in any case (`admission::is_reserved_directory`): a disk
+that ignores case keeps a directory made as `.GIT` under that name, and Git
+takes it for its own. `x/.git/y` and `x/.epicenter/recordings/y` are refused;
+`~/.notes` is a folder. This names where a folder's root cannot be, not what
+inside a folder is data, which the hidden-path rule alone decides. The
+Epicenter app's checks that a folder is not inside, equal to, or holding its
+application data or the library root (`~/Epicenter`), and `epicenter init`'s
+refusal of a folder inside another repository, stay.
 
 **State that is not data lives where its lifetime puts it.**
 
@@ -239,7 +251,11 @@ one word both landed.
   sweep walked the whole folder.
 - **A second "not data" rule naming `.epicenter`** (`isOwnDirectory`,
   `check_namespace`): two rules that had to agree in every host, where every
-  hidden path was already outside the contract.
+  hidden path was already outside the contract. Admission names `.epicenter`
+  for another question, where a folder's root cannot be.
+- **Refusing every hidden directory as a folder** (`is_hidden_directory`):
+  one rule for data and for roots, but it refused `~/.notes`, a folder a
+  person chose, to keep out only `.git` and `.epicenter`.
 - **A second, unconditional mode (`any`, with `present` behind it for an
   existing nonportable name):** it was offered for a cache, but no production
   write used it; every caller had a version to name or was creating. Keeping
