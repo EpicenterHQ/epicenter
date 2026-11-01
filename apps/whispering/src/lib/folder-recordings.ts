@@ -14,10 +14,12 @@
  * it) and gives each such recording its note (`finishCutOffRecordings`), the
  * only path by which a cut-off recording reaches the library. On the
  * desktop nothing else can read a cut-off recording first: it is at no data
- * path until recovery has finished it.
+ * path until recovery has finished it. One whose path another file took
+ * stays outside it, finished, and is said on every start until a person
+ * moves one of the two; nothing deletes it.
  */
 import type { Client } from '@epicenter/definition/contract';
-import { audioDurationMs } from '@epicenter/recorder';
+import { audioDurationMs, type UnplacedRecording } from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { CaptureDevice } from './capture.js';
 import type { Whispering } from './contract.js';
@@ -68,14 +70,19 @@ function recordedAtOf(id: string): string {
  * without a length, so no recording is kept where the library does not
  * list it. Run it before anything records.
  *
- * Answers the ids given a note. `Unavailable` is the files refusing to be
- * listed at all, which the library's own listing reports too.
+ * Answers the ids given a note (`noted`), and each recording `recover` kept
+ * outside its path because another file is there (`unplaced`), for the
+ * caller to say. `Unavailable` is the files refusing to be listed at all,
+ * which the library's own listing reports too.
  */
 export async function finishCutOffRecordings(
 	device: Client<Whispering>,
 	capture: Pick<CaptureDevice, 'recover'>,
 ): Promise<
-	Result<string[], { name: 'Unavailable' | 'RepairFailed'; message: string }>
+	Result<
+		{ noted: string[]; unplaced: readonly UnplacedRecording[] },
+		{ name: 'Unavailable' | 'RepairFailed'; message: string }
+	>
 > {
 	const notes = await device.recordings.list();
 	if (notes.error !== null) return Err(notes.error);
@@ -91,11 +98,11 @@ export async function finishCutOffRecordings(
 				.map((file) => file.id),
 		),
 	];
-	const whole = await capture.recover(unnamed);
-	if (whole.error !== null)
-		return Err({ name: 'RepairFailed', message: whole.error.message });
-	const made: string[] = [];
-	for (const { id, durationMs } of whole.data) {
+	const recovered = await capture.recover(unnamed);
+	if (recovered.error !== null)
+		return Err({ name: 'RepairFailed', message: recovered.error.message });
+	const noted: string[] = [];
+	for (const { id, durationMs } of recovered.data.whole) {
 		if (named.has(id)) continue;
 		named.add(id);
 		const kept = await keepRecording(device, {
@@ -104,9 +111,9 @@ export async function finishCutOffRecordings(
 			recordedAt: recordedAtOf(id),
 			durationMs: durationMs ?? (await measured(device, id)),
 		});
-		if (kept.error === null) made.push(id);
+		if (kept.error === null) noted.push(id);
 	}
-	return Ok(made);
+	return Ok({ noted, unplaced: recovered.data.unplaced });
 }
 
 /** How long recording `id`'s audio plays, read from its bytes. */

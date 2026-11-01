@@ -201,15 +201,23 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 	expect(calls[1]?.args.id).toBe('7');
 });
 
-test('recover names the directory in the device’s root, and answers what it repaired with its length', async () => {
-	const recovered = [
-		{ path: 'recordings/a.webm', durationMs: 1250 },
-		{ path: 'recordings/b.webm', durationMs: 3000 },
-	];
-	answer = () => recovered;
+test('recover names the directory in the device’s root, and answers what it repaired with its length and what it left unplaced', async () => {
+	const recovery = {
+		recovered: [
+			{ path: 'recordings/a.webm', durationMs: 1250 },
+			{ path: 'recordings/b.webm', durationMs: 3000 },
+		],
+		unplaced: [
+			{
+				path: 'recordings/c.webm',
+				pending: '.epicenter/recordings/recordings/c.webm',
+			},
+		],
+	};
+	answer = () => recovery;
 	expect(
 		expectOk(await recoverRecordings({ device, under: 'recordings' })),
-	).toEqual(recovered);
+	).toEqual(recovery);
 	expect(calls).toEqual([
 		{
 			cmd: 'plugin:epicenter-recorder|recover',

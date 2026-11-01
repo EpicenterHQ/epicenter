@@ -159,8 +159,9 @@ export const startRecording: StartRecording = async ({
 /**
  * Finish every recording a quit or a crash left in the folder's
  * `.epicenter/recordings` under `under` from its whole seconds, and place
- * it at its path. Answers each one placed, with how long it plays. Run it
- * before anything lists, plays, or transcribes a recording.
+ * it at its path. Answers each one placed, with how long it plays, and each
+ * one left there because another file is at its path. Run it before
+ * anything lists, plays, or transcribes a recording.
  */
 export const recoverRecordings: RecoverRecordings = async ({
 	device,

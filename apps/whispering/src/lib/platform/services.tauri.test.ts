@@ -151,10 +151,18 @@ mock.module('@epicenter/recorder/tauri', () => ({
 	},
 	recoverRecordings: async (options: { device: unknown; under: string }) => {
 		started.push(options);
-		return Ok([
-			{ path: `${options.under}/a.webm`, durationMs: 1500 },
-			{ path: `${options.under}/b.webm`, durationMs: 2500 },
-		]);
+		return Ok({
+			recovered: [
+				{ path: `${options.under}/a.webm`, durationMs: 1500 },
+				{ path: `${options.under}/b.webm`, durationMs: 2500 },
+			],
+			unplaced: [
+				{
+					path: `${options.under}/c.webm`,
+					pending: `.epicenter/recordings/${options.under}/c.webm`,
+				},
+			],
+		});
 	},
 }));
 
@@ -333,14 +341,28 @@ test('the shell’s microphone records recordings/<id> into the data folder’s 
 	expect(expectOk(await recording.stop())).toEqual({ durationMs: 1500 });
 	// A cut-off recording waits outside its path, so the shell always looks,
 	// and audio at its path that no note names is finished.
-	expect(expectOk(await capture.recover([]))).toEqual([
-		{ id: 'a', durationMs: 1500 },
-		{ id: 'b', durationMs: 2500 },
-	]);
+	// One kept outside its path, because another file is there, is answered
+	// as it is, with where its audio is.
+	const unplaced = [
+		{
+			path: 'recordings/c.webm',
+			pending: '.epicenter/recordings/recordings/c.webm',
+		},
+	];
+	expect(expectOk(await capture.recover([]))).toEqual({
+		whole: [
+			{ id: 'a', durationMs: 1500 },
+			{ id: 'b', durationMs: 2500 },
+		],
+		unplaced,
+	});
 	expect(started.at(-1)).toEqual({ device: dataFolder, under: 'recordings' });
-	expect(expectOk(await capture.recover(['a', 'left']))).toEqual([
-		{ id: 'a', durationMs: 1500 },
-		{ id: 'b', durationMs: 2500 },
-		{ id: 'left', durationMs: null },
-	]);
+	expect(expectOk(await capture.recover(['a', 'left']))).toEqual({
+		whole: [
+			{ id: 'a', durationMs: 1500 },
+			{ id: 'b', durationMs: 2500 },
+			{ id: 'left', durationMs: null },
+		],
+		unplaced,
+	});
 });

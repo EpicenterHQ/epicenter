@@ -97,7 +97,7 @@ export function createFixtureDevice({
 				},
 			});
 		},
-		recover: async () => Ok([]),
+		recover: async () => Ok({ whole: [], unplaced: [] }),
 	};
 }
 

@@ -152,7 +152,8 @@ export function createWhispering({
 		captureState = { phase: 'idle' };
 		if (disposed) return;
 		// Nothing is in the library yet, so a failure leaves nothing to undo:
-		// whatever audio was written, the next start gives it its note.
+		// whatever audio was written, the next start gives it its note, or
+		// says where it is kept when another file took its path.
 		if (error !== null) {
 			recorderError = error.message;
 			return;
@@ -174,16 +175,29 @@ export function createWhispering({
 	 * each such recording its note. Nothing records here yet, and a
 	 * recording another tab is still writing is left alone. What cannot be
 	 * completed is said and left for the next start; it never stops
-	 * Whispering from starting. Files that cannot be listed at all (a
-	 * private window keeps none) are not said here: the banner over every
-	 * page says it, from the library's own listing.
+	 * Whispering from starting. A recording kept outside its path because
+	 * another file is there is said with where its audio is, on every start
+	 * until a person moves one of the two. Files that cannot be listed at
+	 * all (a private window keeps none) are not said here: the banner over
+	 * every page says it, from the library's own listing.
 	 */
 	async function completeCutOffRecordings() {
-		const { error } = await holdLeave(
+		const { data, error } = await holdLeave(
 			finishCutOffRecordings(client, services.capture),
 		);
-		if (error === null || error.name === 'Unavailable' || disposed) return;
-		recorderError = `Recordings a quit or a crash cut off could not be completed: ${error.message}`;
+		if (disposed) return;
+		if (error !== null) {
+			if (error.name !== 'Unavailable')
+				recorderError = `Recordings a quit or a crash cut off could not be completed: ${error.message}`;
+			return;
+		}
+		if (data.unplaced.length > 0)
+			recorderError = `A recording is kept outside the library, because another file is at its path: ${data.unplaced
+				.map(
+					({ path, pending }) =>
+						`its audio is at ${pending} in this folder, and ${path} is another file`,
+				)
+				.join('; ')}. Move the other file, and the next start adds it.`;
 	}
 
 	async function saveConnection(

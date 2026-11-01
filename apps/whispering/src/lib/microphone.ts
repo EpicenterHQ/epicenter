@@ -117,26 +117,31 @@ export function createMicrophoneDevice({
 		},
 		async recover(unnamed) {
 			// In a browser a cut-off recording is at its path, among `unnamed`.
-			if (unnamed.length === 0 && !recorder.placesWhole) return Ok([]);
+			if (unnamed.length === 0 && !recorder.placesWhole)
+				return Ok({ whole: [], unplaced: [] });
 			const { data, error } = await recorder.recoverRecordings({
 				device,
 				under: DIRECTORY,
 			});
 			if (error !== null) return Err(error);
-			const repaired = data.map(({ path, durationMs }) => ({
+			const { unplaced } = data;
+			const repaired = data.recovered.map(({ path, durationMs }) => ({
 				id: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
 				durationMs,
 			}));
-			if (!recorder.placesWhole) return Ok(repaired);
+			if (!recorder.placesWhole) return Ok({ whole: repaired, unplaced });
 			// Audio at its path is finished: one placed after its page left,
 			// or one whose note was never written.
 			const answered = new Set(repaired.map(({ id }) => id));
-			return Ok([
-				...repaired,
-				...unnamed
-					.filter((id) => !answered.has(id))
-					.map((id) => ({ id, durationMs: null })),
-			]);
+			return Ok({
+				whole: [
+					...repaired,
+					...unnamed
+						.filter((id) => !answered.has(id))
+						.map((id) => ({ id, durationMs: null })),
+				],
+				unplaced,
+			});
 		},
 	};
 }

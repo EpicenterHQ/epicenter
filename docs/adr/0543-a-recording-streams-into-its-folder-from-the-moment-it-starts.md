@@ -187,8 +187,9 @@ recording of any length, and answers `{ path, durationMs }`; nothing
 follows it, so `placed` and Whispering's "Finishing…" are gone. A crash
 loses at most the second held in memory, which recovery cannot have, and
 `recoverRecordings` finishes what reached the disk from its whole seconds
-and places it; a leftover whose path is already taken was placed before
-the cut, and is deleted. Recovery no longer encodes, so nothing needs one
+and places it; a leftover whose path holds another file is kept where it
+is, finished, and answered among `unplaced` with where its audio is, never
+deleted (ADR-0702). Recovery no longer encodes, so nothing needs one
 recording to encode to the same bytes twice, and a recording is never
 placed beside a taken path. There is no WAV to fall back on: an encoder
 that cannot start fails the recording at Start. A cut-off file reads wrong

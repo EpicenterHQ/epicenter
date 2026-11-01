@@ -904,7 +904,8 @@ impl Recorder {
 /// End a recording and keep it: tell the worker to finish the file, join it
 /// so the cpal stream is released, and place the file at its path. A file
 /// that could not be finished or placed stays in `.epicenter/recordings`,
-/// where the next `recover` finishes and places it.
+/// where the next `recover` finishes and places it, or, when another file
+/// took its path, answers where it is.
 ///
 /// The slot is unavailable for the whole round trip, because the caller's
 /// `&mut Recorder` comes from the one recorder mutex and nothing else can
@@ -943,7 +944,8 @@ fn finish(active: HeldRecording) -> Result<StoppedRecording> {
     let path = crate::staging::place_recording(&active.root, &finished.path, &active.stem)
         .map_err(|error| match error {
             crate::staging::PlaceError::Taken(path) => RecorderError::refused(format!(
-                "a file is already at {path}, so the recording was not placed there"
+                "another file is already at {path}, so the recording was not placed there; it is kept, finished, at {}",
+                active.path.display()
             )),
             crate::staging::PlaceError::Failed(error) => kept(error),
         })?;
@@ -1764,28 +1766,54 @@ pub(crate) mod tests {
     }
 
     /// A file something made at the recording's path meanwhile is never
-    /// replaced: the refusal says so, and the finished recording stays
-    /// where it was recorded.
+    /// replaced: the refusal says so and where the recording is kept, and
+    /// `recover` leaves it there, finished, and answers where it is.
     #[test]
     fn a_stop_never_replaces_a_file_at_its_path() {
-        let root = folder_root();
+        let directory = folder_root();
+        let root = std::fs::canonicalize(directory.path()).unwrap();
+        let kept = crate::staging::pending(&root, "recordings/1").unwrap();
         let mut recorder = Recorder::new();
-        recording_owned_by(&mut recorder, &root, "1", "app-notes");
-        std::fs::write(root.path().join("1.webm"), b"theirs").unwrap();
+        hold_recording(
+            &mut recorder,
+            &kept,
+            &root,
+            "recordings/1",
+            "1",
+            "app-notes",
+        );
+        std::fs::create_dir_all(root.join("recordings")).unwrap();
+        std::fs::write(root.join("recordings/1.webm"), b"theirs").unwrap();
+
         let refused = recorder.stop("1", "app-notes").unwrap_err();
         assert_eq!(error_name(&refused), "Refused");
         assert!(
-            refused.to_string().contains("already at 1.webm"),
+            refused.to_string().contains(&format!(
+                "already at recordings/1.webm, so the recording was not placed there; it is kept, finished, at {}",
+                kept.display()
+            )),
             "{refused}"
         );
-        assert_eq!(
-            std::fs::read(root.path().join("1.webm")).unwrap(),
-            b"theirs"
-        );
-        assert_eq!(samples_in(&staged_in(&root, "1")), TEST_RATE as usize);
         recorder
             .require_free_slot()
             .expect("the slot is free either way");
+
+        for _ in 0..2 {
+            let recovery = crate::staging::recover(&root, "recordings", |_| false).unwrap();
+            assert!(recovery.recovered.is_empty());
+            assert_eq!(
+                recovery.unplaced,
+                [crate::staging::UnplacedRecording {
+                    path: "recordings/1.webm".to_string(),
+                    pending: epicenter_folder_core::state::recording("recordings/1"),
+                }]
+            );
+            assert_eq!(samples_in(&kept), TEST_RATE as usize);
+            assert_eq!(
+                std::fs::read(root.join("recordings/1.webm")).unwrap(),
+                b"theirs"
+            );
+        }
     }
 
     /// A destroyed window can never claim its recording, so the host finalizes

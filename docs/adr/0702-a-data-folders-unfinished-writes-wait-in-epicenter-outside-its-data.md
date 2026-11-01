@@ -192,7 +192,8 @@ folder's `.epicenter` is always at that folder's root.
   `<path>.webm` without replacing anything there, and answers
   `{ path, durationMs }`. This is the same few milliseconds for a recording
   of any length: nothing is encoded at Stop. A file it cannot place stays
-  in `.epicenter/recordings`, and `stop` says why. `start` answers no path.
+  in `.epicenter/recordings`, and `stop` says why and where it is kept.
+  `start` answers no path.
 - A quit or a crash loses at most the second held in memory and the
   encoder's 6.5 ms lookahead. `recoverRecordings({ device, under })` is the
   gate: a page runs it when it opens its folder, before it lists, plays, or
@@ -201,11 +202,18 @@ folder's `.epicenter` is always at that folder's root.
   finished. It finishes each leftover under `.epicenter/recordings/<under>`
   from its whole seconds, dropping a torn one at its end, and places it as
   `stop` does; a file whose Segment states its size is left as it is, so a
-  second run writes nothing. A leftover whose path already holds a file is
-  deleted, never placed beside it: a recording is finished before it is
-  placed, so a leftover there was placed before the cut. A leftover holding
-  no whole second holds no audio and is deleted too. It answers
-  `{ path, durationMs }` for each placed, from the length its file states.
+  second run writes nothing. A whole recording is never deleted by
+  inference: a leftover whose path holds another file stays pending,
+  finished, and is never placed beside it, because nothing can tell that
+  file is this recording rather than another one that took its path (a
+  move cut off between linking the path and removing the pending name is
+  the same file at both, one device and inode, which `storage::place`
+  finishes and counts as placed). A leftover holding no whole second holds
+  no audio and is deleted. It answers `recovered`, `{ path, durationMs }`
+  for each placed, from the length its file states, and `unplaced`,
+  `{ path, pending }` for each left pending, on every run until a person
+  moves one of the two; an app says where that audio is (Whispering's
+  start does), at `pending` under `.epicenter/recordings`.
 - A disk that fills ends the capture (`storageFailed`): the second that did
   not fit is cut back off the file, and `stop` finishes what reached it, or,
   when even that does not fit, says so and leaves the file for recovery.
@@ -297,3 +305,10 @@ one word both landed.
   writes back into the file every second and recovery must read torn
   Clusters. Holding each second until it is whole loses at most that
   second, a small, rare loss the test above accepts.
+- **Deleting a recovered recording whose path holds a file** (built in
+  `796087b737`): a recording is finished before it is placed, so a leftover
+  there was taken for one placed before the cut. A move cut off that way is
+  the same file at both names, which `storage::place` already counts as
+  placed; any other file there is not known to be this recording, so the
+  deletion could lose a whole recording. Keeping it pending and saying
+  where it is costs one list in `recover`'s answer.

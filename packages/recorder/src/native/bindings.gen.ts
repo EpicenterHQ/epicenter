@@ -44,13 +44,15 @@ export const commands = {
 	/**
 	 *  Finish and place every recording under `under` in `root` (`bound_root`)
 	 *  that a quit or a crash left in the folder's `.epicenter/recordings`, and
-	 *  return each one's folder-relative path and how long it plays
-	 *  (`durationMs`, so a page never reads the audio back to measure it). A
-	 *  page runs it before it lists, plays, or transcribes a recording. The
-	 *  recording still being written is left alone. Running it again changes
-	 *  nothing.
+	 *  answer each one placed (`recovered`), by folder-relative path with how
+	 *  long it plays (`durationMs`, so a page never reads the audio back to
+	 *  measure it), and each one left there because another file is at its
+	 *  path (`unplaced`), with where its audio is. A page runs it before it
+	 *  lists, plays, or transcribes a recording, and says what is unplaced. The
+	 *  recording still being written is left alone. Running it again places
+	 *  nothing more.
 	 */
-	recover: (root: string, under: string) => typedError<RecoveredRecording[], RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { root, under })),
+	recover: (root: string, under: string) => typedError<Recovery, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { root, under })),
 };
 
 /* Types */
@@ -182,6 +184,18 @@ export type RecoveredRecording = {
 	durationMs: number,
 };
 
+/**  What `recover` did with the recordings a quit or a crash left pending. */
+export type Recovery = {
+	/**  Each recording finished and placed at its path, by path. */
+	recovered: RecoveredRecording[],
+	/**
+	 *  Each recording finished but left pending, because another file is at
+	 *  its path, by path. Its audio stays where it is until a person moves
+	 *  one of the two.
+	 */
+	unplaced: UnplacedRecording[],
+};
+
 /**
  *  What `start` answers: the id to stop the recording by, and the
  *  microphone it opened.
@@ -200,6 +214,17 @@ export type StoppedRecording = {
 	/**  Its folder-relative path: the path the page named plus `.webm`. */
 	path: string,
 	durationMs: number,
+};
+
+/**  A recording `recover` did not place, because another file is at its path. */
+export type UnplacedRecording = {
+	/**  The folder-relative path it was not placed at: another file is there. */
+	path: string,
+	/**
+	 *  Where its audio is: its folder-relative path under
+	 *  `.epicenter/recordings` (`state::recording`), finished.
+	 */
+	pending: string,
 };
 
 /* Tauri Specta runtime */

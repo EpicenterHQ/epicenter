@@ -23,7 +23,7 @@ use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
 use crate::meter::OpenedMeter;
 use crate::recorder::{Input, Result, StartedRecording, StoppedRecording};
-use crate::staging::RecoveredRecording;
+use crate::staging::Recovery;
 use crate::{refresh_capturing, Recorders};
 
 /// The directory `root` names, read once for this operation: the directory
@@ -205,18 +205,20 @@ pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<Stopped
 
 /// Finish and place every recording under `under` in `root` (`bound_root`)
 /// that a quit or a crash left in the folder's `.epicenter/recordings`, and
-/// return each one's folder-relative path and how long it plays
-/// (`durationMs`, so a page never reads the audio back to measure it). A
-/// page runs it before it lists, plays, or transcribes a recording. The
-/// recording still being written is left alone. Running it again changes
-/// nothing.
+/// answer each one placed (`recovered`), by folder-relative path with how
+/// long it plays (`durationMs`, so a page never reads the audio back to
+/// measure it), and each one left there because another file is at its
+/// path (`unplaced`), with where its audio is. A page runs it before it
+/// lists, plays, or transcribes a recording, and says what is unplaced. The
+/// recording still being written is left alone. Running it again places
+/// nothing more.
 #[tauri::command]
 #[specta::specta]
 pub async fn recover<R: Runtime>(
     webview: Webview<R>,
     root: PathBuf,
     under: String,
-) -> Result<Vec<RecoveredRecording>> {
+) -> Result<Recovery> {
     let root = bound_root(&webview, &root)?;
     let app = webview.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {

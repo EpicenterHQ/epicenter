@@ -475,7 +475,7 @@ export const recoverRecordings: RecoverRecordings = async ({
 			releaseLock();
 		}
 	}
-	return Ok(recovered);
+	return Ok({ recovered, unplaced: [] });
 };
 
 /**

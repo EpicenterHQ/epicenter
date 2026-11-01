@@ -137,6 +137,27 @@ export type RecoveredRecording = {
 	readonly durationMs: number | null;
 };
 
+/**
+ * A recording `recoverRecordings` finished but did not place, because
+ * another file is at its path. Its audio is kept, finished, at `pending`
+ * until a person moves one of the two; nothing deletes it. Only the desktop
+ * has one: a browser recording is written at its path.
+ */
+export type UnplacedRecording = {
+	/** The store-relative path it was not placed at: another file is there. */
+	readonly path: string;
+	/** Where its audio is, store-relative, under `.epicenter/recordings`. */
+	readonly pending: string;
+};
+
+/** What `recoverRecordings` did. */
+export type Recovery = {
+	/** Each recording repaired, or whole, at its path. */
+	readonly recovered: readonly RecoveredRecording[];
+	/** Each recording left outside its path, because another file is there. */
+	readonly unplaced: readonly UnplacedRecording[];
+};
+
 export type RecoverRecordingsOptions = RecordingDevice & {
 	/** The store-relative directory recordings are kept in, such as `recordings`. */
 	readonly under: string;
@@ -168,16 +189,19 @@ export type StartRecording = (
 
 /**
  * Repair the recordings under a directory that a quit, a crash, or a closed
- * tab cut off, leaving any recording still being written alone. Answers,
- * with how long each plays so nobody reads the audio back to measure it, on
- * the desktop each recording it repaired and moved to its path (a second run
- * answers none), and in a browser every recording no tab is writing,
- * repaired or already whole, since a recording at its path is otherwise
- * indistinguishable from one another tab is still writing.
+ * tab cut off, leaving any recording still being written alone. Answers
+ * `recovered`, with how long each plays so nobody reads the audio back to
+ * measure it: on the desktop each recording it repaired and moved to its
+ * path (a second run answers none), and in a browser every recording no tab
+ * is writing, repaired or already whole, since a recording at its path is
+ * otherwise indistinguishable from one another tab is still writing. On
+ * the desktop it also answers `unplaced`, every time it runs, each
+ * recording it left outside its path because another file is there, which
+ * an app says to the person.
  */
 export type RecoverRecordings = (
 	options: RecoverRecordingsOptions,
-) => Promise<Result<RecoveredRecording[], RecorderError>>;
+) => Promise<Result<Recovery, RecorderError>>;
 
 export const RecorderError = defineErrors({
 	/** This window cannot record: no microphone access, or no encoder. */

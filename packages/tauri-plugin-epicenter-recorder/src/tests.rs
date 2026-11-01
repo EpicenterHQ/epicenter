@@ -517,7 +517,7 @@ fn start_and_recover_reach_only_a_folder_the_calling_window_opened() {
             json!({ "root": elsewhere, "under": "recordings" })
         )
         .unwrap(),
-        json!([])
+        json!({ "recovered": [], "unplaced": [] })
     );
     let unopened = fixture.root.parent().unwrap().join("unopened");
     std::fs::create_dir_all(&unopened).unwrap();
@@ -549,7 +549,7 @@ fn start_and_recover_reach_only_a_folder_the_calling_window_opened() {
             json!({ "root": fixture.root, "under": "recordings" })
         )
         .unwrap(),
-        json!([])
+        json!({ "recovered": [], "unplaced": [] })
     );
     fixture.app.folders().shutdown();
     let refused = start(&main, &fixture.root, "recordings/a").unwrap_err();
@@ -719,9 +719,10 @@ fn recover_places_cut_off_recordings_in_the_bound_folder() {
             json!({ "root": fixture.root, "under": "recordings" }),
         )
     };
+    let nothing = json!({ "recovered": [], "unplaced": [] });
     assert_eq!(
         recover().unwrap(),
-        json!([]),
+        nothing,
         "a folder without recordings has nothing to recover"
     );
 
@@ -744,12 +745,15 @@ fn recover_places_cut_off_recordings_in_the_bound_folder() {
     // encoder's 6.5 ms delay.
     assert_eq!(
         recover().unwrap(),
-        json!([{ "path": "recordings/a.webm", "durationMs": 1994 }])
+        json!({
+            "recovered": [{ "path": "recordings/a.webm", "durationMs": 1994 }],
+            "unplaced": [],
+        })
     );
     assert_eq!(decoded_samples(&path), 32_000 - 104);
     assert!(!staged.exists());
     assert!(live.exists(), "a live recording is its writer's");
-    assert_eq!(recover().unwrap(), json!([]));
+    assert_eq!(recover().unwrap(), nothing);
     let refused = invoke(
         &main,
         "recover",

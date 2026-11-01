@@ -478,9 +478,10 @@ test('recovery cuts a file a closed tab left half-written, answers every recordi
 	const { device } = browser({ files: memory.files, locks });
 	locks.held.add('epicenter-recording:recordings/writing');
 
-	const recovered = expectOk(
+	const { recovered, unplaced } = expectOk(
 		await recoverRecordings({ device, under: 'recordings' }),
 	);
+	expect(unplaced).toEqual([]);
 	const repaired = memory.held.get('recordings/cut.m4a')!;
 	// Each answers how long its file plays, read from that file once
 	// repaired; a whole one is answered as it is.
@@ -507,7 +508,7 @@ test('recovery cuts a file a closed tab left half-written, answers every recordi
 	// A second run repairs nothing more, and answers the same recordings.
 	expect(
 		expectOk(await recoverRecordings({ device, under: 'recordings' })),
-	).toEqual(recovered);
+	).toEqual({ recovered, unplaced: [] });
 	expect(memory.held.get('recordings/cut.m4a')).toEqual(repaired);
 });
 
@@ -596,12 +597,14 @@ test('a recording whose file takes a type it did not ask for still holds its loc
 	await settle();
 	expect(memory.held.get('recordings/a.m4a')).toEqual(new Uint8Array([1]));
 	expect(
-		expectOk(await recoverRecordings({ device, under: 'recordings' })),
+		expectOk(await recoverRecordings({ device, under: 'recordings' }))
+			.recovered,
 	).toEqual([]);
 	expect(await placedPath(recording)).toBe('recordings/a.m4a');
 	await settle();
 	expect(
-		expectOk(await recoverRecordings({ device, under: 'recordings' })),
+		expectOk(await recoverRecordings({ device, under: 'recordings' }))
+			.recovered,
 	).toEqual([{ path: 'recordings/a.m4a', durationMs: null }]);
 });
 

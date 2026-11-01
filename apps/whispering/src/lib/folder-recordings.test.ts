@@ -45,12 +45,15 @@ const kept = (id: string, durationMs = 1000) => ({
 const desktopRecover =
 	(placed: { id: string; durationMs: number | null }[]) =>
 	async (unnamed: readonly string[]) =>
-		Ok([
-			...placed,
-			...unnamed
-				.filter((id) => !placed.some((recovered) => recovered.id === id))
-				.map((id) => ({ id, durationMs: null })),
-		]);
+		Ok({
+			whole: [
+				...placed,
+				...unnamed
+					.filter((id) => !placed.some((recovered) => recovered.id === id))
+					.map((id) => ({ id, durationMs: null })),
+			],
+			unplaced: [],
+		});
 
 test('Stop writes the note once, with its length, beside its audio', async () => {
 	const { path, device } = await folder();
@@ -82,7 +85,7 @@ test('the next launch gives a cut-off recording its note, with the length recove
 	expectOk(await keepRecording(device, kept('done')));
 
 	expect(
-		expectOk(await finishCutOffRecordings(device, { recover })).sort(),
+		expectOk(await finishCutOffRecordings(device, { recover })).noted.sort(),
 	).toEqual(['cut', 'left']);
 	expect(expectOk(await device.recordings.get({ id: 'cut' }))).toMatchObject({
 		title: 'Recovered recording',
@@ -95,9 +98,9 @@ test('the next launch gives a cut-off recording its note, with the length recove
 		'Standup',
 	);
 	// Each has its note now, so the next launch makes none.
-	expect(expectOk(await finishCutOffRecordings(device, { recover }))).toEqual(
-		[],
-	);
+	expect(
+		expectOk(await finishCutOffRecordings(device, { recover })).noted,
+	).toEqual([]);
 });
 
 test('audio whose length does not read is still given a note, without a length', async () => {
@@ -106,7 +109,7 @@ test('audio whose length does not read is still given a note, without a length',
 	expect(
 		expectOk(
 			await finishCutOffRecordings(device, { recover: desktopRecover([]) }),
-		),
+		).noted,
 	).toEqual(['odd']);
 	expect(
 		expectOk(await device.recordings.get({ id: 'odd' })).durationMs,
@@ -120,10 +123,13 @@ test('in a browser, recovery reads the audio only when some has no note, and nam
 	// leaving out `writing`, whose Web Lock another tab holds while it records.
 	const recoverRecordings: RecoverRecordings = async () => {
 		repairs++;
-		return Ok([
-			{ path: 'recordings/cut.webm', durationMs: 1500 },
-			{ path: 'recordings/done.webm', durationMs: 1000 },
-		]);
+		return Ok({
+			recovered: [
+				{ path: 'recordings/cut.webm', durationMs: 1500 },
+				{ path: 'recordings/done.webm', durationMs: 1000 },
+			],
+			unplaced: [],
+		});
 	};
 	const capture = createMicrophoneDevice({
 		device,
@@ -137,14 +143,17 @@ test('in a browser, recovery reads the audio only when some has no note, and nam
 	});
 	await writeFile(join(path, 'recordings/done.webm'), 'kept');
 	expectOk(await keepRecording(device, kept('done')));
-	expect(expectOk(await finishCutOffRecordings(device, capture))).toEqual([]);
+	expect(expectOk(await finishCutOffRecordings(device, capture))).toEqual({
+		noted: [],
+		unplaced: [],
+	});
 	expect(repairs).toBe(0);
 
 	await writeFile(join(path, 'recordings/cut.webm'), 'a closed tab left it');
 	await writeFile(join(path, 'recordings/writing.webm'), 'still recording');
-	expect(expectOk(await finishCutOffRecordings(device, capture))).toEqual([
-		'cut',
-	]);
+	expect(expectOk(await finishCutOffRecordings(device, capture)).noted).toEqual(
+		['cut'],
+	);
 	expect(repairs).toBe(1);
 	expect(expectOk(await device.recordings.get({ id: 'cut' })).durationMs).toBe(
 		1500,

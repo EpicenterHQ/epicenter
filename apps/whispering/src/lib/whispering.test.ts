@@ -184,7 +184,10 @@ test('a recording whose audio the files do not take leaves no note behind', asyn
 
 /** A capture that answers every audio file no note names as whole, as the desktop's does. */
 const namesUnnamed = async (unnamed: readonly string[]) =>
-	Ok(unnamed.map((id) => ({ id, durationMs: null })));
+	Ok({
+		whole: unnamed.map((id) => ({ id, durationMs: null })),
+		unplaced: [],
+	});
 
 test('a recording whose note is not written at Stop gets one from the next start, its length read from its audio', async () => {
 	const test = await openTestServices();
@@ -246,13 +249,16 @@ test('a recording the shell could not place gets its note when the next start pl
 			});
 		},
 		async recover() {
-			if (staged === undefined) return Ok([]);
+			if (staged === undefined) return Ok({ whole: [], unplaced: [] });
 			await put(
 				join(test.root, 'device'),
 				`recordings/${staged.id}.wav`,
 				staged.bytes,
 			);
-			return Ok([{ id: staged.id, durationMs: 1000 }]);
+			return Ok({
+				whole: [{ id: staged.id, durationMs: 1000 }],
+				unplaced: [],
+			});
 		},
 	};
 	const services = { ...test.services, capture };
@@ -296,9 +302,10 @@ test('a start answers only once the cut-off recordings are complete and listed',
 				'recordings/2026-10-31T09-30-00-000Z-cutoffaa.wav',
 				toneWav({ seconds: 2 }),
 			);
-			return Ok([
-				{ id: '2026-10-31T09-30-00-000Z-cutoffaa', durationMs: 2000 },
-			]);
+			return Ok({
+				whole: [{ id: '2026-10-31T09-30-00-000Z-cutoffaa', durationMs: 2000 }],
+				unplaced: [],
+			});
 		},
 	};
 	const opened = await createTestWhispering({
@@ -396,6 +403,32 @@ test('a cut-off recording whose repair fails is said, and left for the next star
 
 	expect(opened.whispering.recorderError).toBe(
 		'Recordings a quit or a crash cut off could not be completed: The recording could not be captured: the disk is full',
+	);
+	expect(opened.library.entries).toHaveLength(0);
+});
+
+test('a recording kept outside its path, because another file is there, is said with where its audio is, and gets no note', async () => {
+	const test = await openTestServices();
+	cleanups.push(test.remove);
+	test.services.capture.recover = async () =>
+		Ok({
+			whole: [],
+			unplaced: [
+				{
+					path: 'recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm',
+					pending:
+						'.epicenter/recordings/recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm',
+				},
+			],
+		});
+	const opened = await openTestWhispering({
+		services: test.services,
+		client: test.device,
+	});
+	cleanups.push(opened.close);
+
+	expect(opened.whispering.recorderError).toBe(
+		'A recording is kept outside the library, because another file is at its path: its audio is at .epicenter/recordings/recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm in this folder, and recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm is another file. Move the other file, and the next start adds it.',
 	);
 	expect(opened.library.entries).toHaveLength(0);
 });

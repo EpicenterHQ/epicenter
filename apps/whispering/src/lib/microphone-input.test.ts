@@ -162,7 +162,7 @@ function scriptedMicrophone(
 				},
 			});
 		},
-		recover: async () => Ok([]),
+		recover: async () => Ok({ whole: [], unplaced: [] }),
 	};
 	return {
 		device,
