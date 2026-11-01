@@ -77,10 +77,10 @@ permanent root.
 ## Two Signals, And Which One Fires
 
 - `table.subscribe` fires when a table's SHAPE changes: a row added, removed,
-  or its scalar fields edited. It does NOT fire for an edit inside a row's
+  or its value fields edited. It does NOT fire for an edit inside a row's
   rich content, so a list does not wake at typing frequency.
 - `table.watch(rowId, field, listener)` fires for edits inside one rich field
-  of one row, local or remote. It is the only way to hear prose.
+  of one row, local or remote. It is the only way to hear text typed into a row.
 
 The split follows the library. Delivery routes off `transaction.changed`, which
 Yjs fills with the types a transaction modified directly, so a keystroke in a

@@ -45,6 +45,7 @@ or replacing editing witnesses unconditionally is detectable.
 ## Cases
 
 Eight source fixtures cover ordinary Markdown, comments, quote style, key order,
+<!-- vocab-check: ignore-next-line ("block scalar" is YAML's own term) -->
 unknown fields, anchors and aliases, a block scalar, BOM and CRLF, closed broken
 YAML, an unclosed opener, and headerless prose. Actions include named assignments
 and removals, nested values, a field named `body`, a key named `__proto__`, schema
