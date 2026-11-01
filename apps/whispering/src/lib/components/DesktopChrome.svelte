@@ -26,7 +26,7 @@
 	const whispering = getWhispering();
 
 	const kept = $derived<StatusLine>(
-		sync.state === 'synced' ? { label: 'Synced by Epicenter', tone: 'good' } : { label: 'On this computer', tone: 'neutral' },
+		sync.synced ? { label: 'Synced by Epicenter', tone: 'good' } : { label: 'On this computer', tone: 'neutral' },
 	);
 	const status = $derived(headerStatus({ unwrittenAnswers }, kept));
 
@@ -43,7 +43,7 @@
 		<span class="font-medium" data-testid="status-where">This computer</span>
 		<span class="mt-0.5 block break-all text-xs text-muted-foreground" data-testid="status-folder">{sync.path}</span>
 		<span class="mt-0.5 block text-xs text-muted-foreground">
-			{#if sync.state === 'synced'}
+			{#if sync.synced}
 				Epicenter keeps its history and syncs it.
 			{:else}
 				A Markdown note per recording beside its audio. Sync with Epicenter to keep their history and use them elsewhere.

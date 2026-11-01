@@ -40,9 +40,6 @@ import {
 } from './settings.js';
 import { openDevice } from './tauri.js';
 
-/** Whether Epicenter syncs the folder, as far as the window can tell. */
-export type FolderSync = 'synced' | 'not-synced' | 'unknown';
-
 /** What became of a request the shell answers: done, or why not. */
 export type FolderRequest = { ok: true } | { ok: false; message: string };
 
@@ -91,9 +88,7 @@ export async function openDataFolder<TContract extends Contract>(
 }
 
 /** `~/Epicenter/<productName>`: the data folder `settings.md` names none of. */
-export async function defaultDataFolder(): Promise<
-	Result<string, OpenDeviceError>
-> {
+async function defaultDataFolder(): Promise<Result<string, OpenDeviceError>> {
 	try {
 		return Ok(await join(await homeDir(), 'Epicenter', await getName()));
 	} catch (cause) {

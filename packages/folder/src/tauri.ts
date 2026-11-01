@@ -16,9 +16,7 @@ import { commands, type FolderChanged } from './native/bindings.gen.js';
 import { deviceRefusal } from './native/open-refusal.js';
 
 export {
-	defaultDataFolder,
 	type FolderRequest,
-	type FolderSync,
 	openAppData,
 	openDataFolder,
 	pickDataFolder,

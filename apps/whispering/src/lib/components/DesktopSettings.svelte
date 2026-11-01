@@ -61,10 +61,10 @@
 
 <section class="flex flex-col gap-2 text-xs" data-testid="desktop-folder">
 	<p class="text-sm font-medium">Data folder</p>
-	<p class="break-all text-muted-foreground" data-testid="desktop-folder-path">{sync.path ?? ''}</p>
+	<p class="break-all text-muted-foreground" data-testid="desktop-folder-path">{sync.path}</p>
 	<p class="text-muted-foreground">
 		Plain files: a Markdown note per recording beside its audio. Whispering never syncs them;
-		{#if sync.state === 'synced'}Epicenter syncs this folder.{:else}Epicenter can, when you ask it to.{/if}
+		{#if sync.synced}Epicenter syncs this folder.{:else}Epicenter can, when you ask it to.{/if}
 	</p>
 	<div class="flex flex-wrap items-center gap-2">
 		<Button size="sm" variant="outline" disabled={sync.asking || recording} onclick={() => sync.chooseDataFolder()} data-testid="choose-data-folder">Choose data folder…</Button>

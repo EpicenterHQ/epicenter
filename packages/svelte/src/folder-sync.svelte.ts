@@ -1,7 +1,8 @@
 /**
  * A standalone desktop app's data folder in its page (decisions 81, 88 to
- * 94): its path, whether Epicenter syncs it, asked again whenever the window
- * comes back (Epicenter may set it up meanwhile), "Sync with Epicenter", and
+ * 94): its path as the shell opened it (`rootOf`), whether Epicenter syncs
+ * it, asked again whenever the window comes back (Epicenter may set it up
+ * meanwhile), "Sync with Epicenter", and
  * "Choose data folder…", which waits for saves, lets the person pick a folder
  * in the native picker (which allows it), remembers it in the AppData
  * `settings.md`, and reloads the page over it, its files where they are.
@@ -10,18 +11,18 @@
  * the components under it; the header reads it with `getFolderSync()`.
  *
  * ```svelte
- * setFolderSync(folderSync({ appData, contract: CONTRACT_URL }));
+ * setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL }));
  * const sync = getFolderSync();
  * <FolderSyncActions {sync} />
  * <Button onclick={sync.chooseDataFolder}>Choose data folder…</Button>
  * ```
  */
+import type { Client, Contract } from '@epicenter/definition/contract';
 import {
-	defaultDataFolder,
 	type FolderRequest,
 	type FolderSettings,
-	type FolderSync,
 	pickDataFolder,
+	rootOf,
 	syncedWithEpicenter,
 	syncWithEpicenter,
 } from '@epicenter/folder/tauri';
@@ -31,34 +32,28 @@ import { whenSaved } from './leave-guard.js';
 
 /**
  * Call while a component initializes; it listens for the window's focus for
- * that component's life. `contract` is the URL the app's contract is
- * published at (an app constant: deployment, not data).
+ * that component's life. `device` is the data folder's client, `appData`
+ * the AppData root's that names it, and `contract` the URL the app's
+ * contract is published at (an app constant: deployment, not data).
  */
 export function folderSync({
 	appData,
+	device,
 	contract,
 }: {
 	appData: FolderSettings;
+	device: Client<Contract>;
 	contract: string;
 }) {
-	let path = $state<string>();
-	let state = $state<FolderSync>('unknown');
+	const path = rootOf(device);
+	let synced = $state(false);
 	let request = $state<{ tone: 'requested' | 'failed'; message: string }>();
 	let asking = $state(false);
 
-	/** The data folder the window opened: the one `settings.md` names, or the default. */
-	async function opened(): Promise<string | undefined> {
-		const settings = await appData.settings.get({});
-		if (settings.data?.folder !== undefined) return settings.data.folder;
-		const fallback = await defaultDataFolder();
-		return fallback.error === null ? fallback.data : undefined;
-	}
-
+	/** Ask the shell again; a folder it cannot answer for counts as not synced. */
 	async function check() {
-		path ??= await opened();
-		if (path === undefined) return;
-		const { data, error } = await syncedWithEpicenter({ path });
-		state = error !== null ? 'unknown' : data ? 'synced' : 'not-synced';
+		const { data } = await syncedWithEpicenter({ path });
+		synced = data === true;
 	}
 
 	async function ask(action: () => Promise<FolderRequest>, requested?: string) {
@@ -77,13 +72,11 @@ export function folderSync({
 	});
 
 	return {
-		/** The data folder's path, once read. */
-		get path() {
-			return path;
-		},
+		/** The data folder's path, as the shell opened it. */
+		path,
 		/** Whether Epicenter syncs the folder, as of the window's last focus. */
-		get state() {
-			return state;
+		get synced() {
+			return synced;
 		},
 		/** The last request's answer, to show beside the button, if any. */
 		get request() {
@@ -95,10 +88,7 @@ export function folderSync({
 		},
 		syncWithEpicenter() {
 			void ask(async () => {
-				const at = path ?? (await opened());
-				if (at === undefined)
-					return { ok: false, message: 'The data folder is not known yet.' };
-				const { error } = await syncWithEpicenter({ path: at, contract });
+				const { error } = await syncWithEpicenter({ path, contract });
 				return error === null
 					? { ok: true }
 					: { ok: false, message: error.message };

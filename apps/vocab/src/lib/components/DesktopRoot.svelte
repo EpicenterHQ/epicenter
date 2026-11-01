@@ -26,7 +26,7 @@
 	// svelte-ignore state_referenced_locally
 	setDevice(fromClient(device));
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ appData, contract: CONTRACT_URL }));
+	setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL }));
 </script>
 
 {#key auth.state.account}

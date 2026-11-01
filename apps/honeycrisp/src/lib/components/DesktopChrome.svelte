@@ -20,7 +20,7 @@
 
 	const status = $derived.by((): StatusLine => {
 		if (unreadable !== null) return { label: 'Not readable here', detail: unreadable.message, tone: 'error' };
-		if (sync.state === 'synced') return { label: 'Synced by Epicenter', tone: 'good' };
+		if (sync.synced) return { label: 'Synced by Epicenter', tone: 'good' };
 		return { label: 'On this computer', tone: 'neutral' };
 	});
 </script>
@@ -30,7 +30,7 @@
 		<span class="font-medium" data-testid="status-where">This computer</span>
 		<span class="mt-0.5 block break-all text-xs text-muted-foreground" data-testid="status-folder">{sync.path}</span>
 		<span class="mt-0.5 block text-xs text-muted-foreground">
-			{#if sync.state === 'synced'}
+			{#if sync.synced}
 				Epicenter keeps its history and syncs it.
 			{:else}
 				Plain Markdown files. Sync with Epicenter to keep their history and use them elsewhere.

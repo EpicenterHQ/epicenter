@@ -20,7 +20,7 @@
 	const status = $derived.by((): StatusLine => {
 		if (list.error !== null)
 			return { label: 'Not readable here', detail: list.error.message, tone: 'error' };
-		if (sync.state === 'synced') return { label: 'Synced by Epicenter', tone: 'good' };
+		if (sync.synced) return { label: 'Synced by Epicenter', tone: 'good' };
 		return { label: 'On this computer', tone: 'neutral' };
 	});
 </script>
@@ -30,7 +30,7 @@
 		<span class="font-medium" data-testid="status-where">This computer</span>
 		<span class="mt-0.5 block break-all text-xs text-muted-foreground">
 			{sync.path}.
-			{#if sync.state === 'synced'}
+			{#if sync.synced}
 				Epicenter syncs it to your repository.
 			{:else}
 				Sync with Epicenter to keep it in your repository too.

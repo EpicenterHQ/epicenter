@@ -18,6 +18,6 @@
 		{sync.request.message}
 	</p>
 {/if}
-{#if sync.state !== 'synced'}
+{#if !sync.synced}
 	<Button variant="outline" size="sm" disabled={sync.asking} onclick={() => sync.syncWithEpicenter()}>Sync with Epicenter</Button>
 {/if}

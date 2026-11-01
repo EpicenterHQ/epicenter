@@ -37,7 +37,7 @@
 
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ appData, contract: CONTRACT_URL }));
+	setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL }));
 	// svelte-ignore state_referenced_locally
 	const files = fromClient(device);
 	// svelte-ignore state_referenced_locally

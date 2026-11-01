@@ -91,7 +91,7 @@ folder:
 </DesktopStartup>
 
 <!-- DesktopRoot.svelte: setAppData(fromClient(appData)), setDevice(fromClient(device)),
-     setFolderSync(folderSync({ appData, contract: CONTRACT_URL })) -->
+     setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL })) -->
 <!-- The header -->
 <FolderSyncActions sync={getFolderSync()} /> <!-- Sync with Epicenter until it does -->
 <Button onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
