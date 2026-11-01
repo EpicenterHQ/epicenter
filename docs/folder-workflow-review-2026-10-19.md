@@ -234,7 +234,7 @@ remain open. Native fixed defaults can be created again at launch; the
 first-use distinction discussed here is not delivered across launches.
 
 Production binds one directory per native window under ADR-0647. On macOS,
-[ADR-0651](adr/0651-macos-tabs-group-existing-folder-windows.md) groups those
+ADR-0651 (since deleted: Epicenter opens no folder windows, ADR-0701) grouped those
 ordinary windows as native tabs, retaining their page and directory lifetime. Live bindings and unsaved input
 are runtime state. They belong in neither the folder-location file nor
 portable saved views.

@@ -4,14 +4,15 @@
 - **Date:** 2026-10-22
 - **Amends:** [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) at requiring `sqlite/<name>.sqlite` for app databases. The named database capability puts `<name>.sqlite` directly in the app-owned private root; this does not restore the retired source installer or define another asset lifecycle.
 - **Relates:** [ADR-0701](0701-apps-run-as-separate-programs.md) makes each app its own desktop program, so no host holds an app's database; [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) keeps authored Folders shared and app-managed state in each shell's AppData; [ADR-0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) defines database admission, deletion, SQL operations, and connection lifetime; [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) gives Epicenter and standalone apps independent releases.
-- **Unbuilt:** `openDeviceDatabase` and `deleteDeviceDatabase`, native per-installation bindings, browser SQLite storage, and production connection cleanup. The existing `openFolder` already uses the browser origin or native window binding. SQLite adapters remain fictional-data prototypes.
+- **Unbuilt:** `openDeviceDatabase` and `deleteDeviceDatabase`, native per-installation bindings, browser SQLite storage, and production connection cleanup. The existing `openDevice` already opens the browser origin's private file system or a desktop app's data folder. SQLite adapters remain fictional-data prototypes.
 
 ## Context
 
-Apps currently call `openFolder({ tables })`. The browser opens its existing
-IndexedDB Folder; a native window opens the authored directory its shell bound
-before the page loaded. Neither app call supplies an app identifier or path.
-Several programs can open the same directory.
+Apps open their files with `openDevice(contract)`. In the browser it opens
+the origin's private file system; a standalone desktop app opens its data
+folder with `openDataFolder(contract, { appData })`, the folder its own
+`settings.md` names or `~/Epicenter/<productName>`. Neither call supplies an
+app identifier. Several programs can open the same directory.
 
 An application's private database has a different owner: the installed product
 that updates its schema. One app has several installations: its desktop and
@@ -61,7 +62,7 @@ database catalog.
 | Runtime | Private database root | Authored Folder |
 | --- | --- | --- |
 | Native app | That product's own AppData directory, for example `<OS AppData>/so.epicenter.todos/state.sqlite` | Its data folder (ADR-0701) |
-| Browser app | This app's origin-local database storage; exact SQLite backend remains undecided | Its existing origin-local IndexedDB Folder |
+| Browser app | This app's origin-local database storage; exact SQLite backend remains undecided | Its origin's private file system (`openDevice` from `@epicenter/folder/browser`) |
 | Native CLI or tool | A private root chosen explicitly by the tool's composition boundary | A directory chosen explicitly by the tool |
 
 These are logical examples; the runtime resolves the platform-specific AppData
