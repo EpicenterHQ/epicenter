@@ -37,6 +37,14 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary: 'set up or repair a data folder for sync, and register it',
 	},
 	{
+		path: ['connect'],
+		args: '<dir> <namespace>/<name> | ~/<name> | <url>',
+		minArgs: 2,
+		maxArgs: 2,
+		options: [{ name: 'enclosing-ok' }],
+		summary: 'set origin for an initialized folder',
+	},
+	{
 		path: ['sync'],
 		args: '[<dir>]',
 		minArgs: 0,

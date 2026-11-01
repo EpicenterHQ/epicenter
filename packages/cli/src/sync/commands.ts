@@ -1,5 +1,5 @@
 /**
- * The handlers for `init`, `sync`, `clone`, `forget`, `status`, and the
+ * The handlers for `init`, `connect`, `sync`, `clone`, `forget`, `status`, and the
  * hidden `merge-driver` (decision 39): output and exit codes over the
  * verbs in this directory.
  *
@@ -17,6 +17,7 @@
 import { existsSync, type FSWatcher, watch as watchDirectory } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 import {
+	isRepositoryName,
 	parseRepositoryPath,
 	parseRepositoryUrl,
 	repositoryUrl,
@@ -85,6 +86,38 @@ export async function initCommand(
 	}
 }
 
+/** `epicenter connect <dir> <namespace>/<name> | <url> | <path>`. */
+export async function connectCommand(
+	dir: string,
+	source: string,
+	options: Options,
+	json: boolean,
+	grant: GrantKind,
+) {
+	const named = await repositorySource(source, grant);
+	if (named === undefined)
+		return fail(
+			`'${source}' is neither <namespace>/<name>, '~/name', nor a URL. Quote '~/name' or use file:// for a local repository.`,
+			json,
+		);
+	const { connect } = await import('./connect.ts');
+	try {
+		const result = await connect(dir, named.url, {
+			allowEnclosing: options['enclosing-ok'] === true,
+		});
+		if (json) writeJson({ connect: result });
+		else
+			writeOut(
+				`${result.folder}: ${result.changed ? `origin = ${result.url}` : 'origin already set'}`,
+			);
+		return EXIT.ok;
+	} catch (error) {
+		if (error instanceof Refused)
+			return fail(`refused: ${error.message}`, json);
+		throw error;
+	}
+}
+
 /** `epicenter forget [<dir>]`. */
 export async function forgetCommand(dir: string | undefined, json: boolean) {
 	const { forget } = await import('./setup.ts');
@@ -99,24 +132,8 @@ export async function cloneCommand(
 	json: boolean,
 	grant: GrantKind,
 ) {
-	const [{ clone, localSource }, { resolveDeployment }] = await Promise.all([
-		import('./clone.ts'),
-		import('../auth.ts'),
-	]);
-	const git = resolveDeployment().audiences.git;
-	const hosted = parseRepositoryPath(source);
-	const named =
-		localSource(source) ??
-		(hosted !== undefined
-			? { url: repositoryUrl(git, hosted), name: hosted.name }
-			: URL.canParse(source)
-				? {
-						url: source,
-						name:
-							parseRepositoryUrl(git, source)?.name ??
-							basename(new URL(source).pathname, '.git'),
-					}
-				: undefined);
+	const { clone } = await import('./clone.ts');
+	const named = await repositorySource(source);
 	if (named === undefined)
 		return fail(
 			`'${source}' is neither <namespace>/<name>, a URL, nor a path to a repository`,
@@ -134,13 +151,51 @@ export async function cloneCommand(
 	}
 }
 
+/** The repository spelling shared by clone and connect. */
+async function repositorySource(source: string, grant?: GrantKind) {
+	const [{ localSource }, { resolveDeployment }] = await Promise.all([
+		import('./clone.ts'),
+		import('../auth.ts'),
+	]);
+	const git = resolveDeployment().audiences.git;
+	const hosted = parseRepositoryPath(source);
+	const personalName = /^~\/(.+)$/.exec(source)?.[1];
+	if (
+		personalName !== undefined &&
+		grant !== undefined &&
+		isRepositoryName(personalName)
+	) {
+		const { personalNamespace } = await import('../repository-commands.ts');
+		return {
+			url: repositoryUrl(git, {
+				namespace: await personalNamespace(grant),
+				name: personalName,
+			}),
+			name: personalName,
+		};
+	}
+	return (
+		(grant === undefined ? localSource(source) : undefined) ??
+		(hosted !== undefined
+			? { url: repositoryUrl(git, hosted), name: hosted.name }
+			: URL.canParse(source)
+				? {
+						url: source,
+						name:
+							parseRepositoryUrl(git, source)?.name ??
+							basename(new URL(source).pathname, '.git'),
+					}
+				: undefined)
+	);
+}
+
 /**
  * `epicenter status [<dir>]`: one folder, or without `<dir>` every
  * registered one, like `sync`. A registered folder that cannot be read
  * reports `{ folder, problem }` instead of failing the rest.
  */
 export async function statusCommand(dir: string | undefined, json: boolean) {
-	const { folderStatus, registeredStatus } = await import('./status.ts');
+	const { registeredStatus } = await import('./status.ts');
 	if (dir === undefined) {
 		const folders = await registeredFolders();
 		if (folders.length === 0 && !json)
@@ -153,13 +208,9 @@ export async function statusCommand(dir: string | undefined, json: boolean) {
 		}
 		return EXIT.ok;
 	}
-	const status = await folderStatus(dir);
-	if (status === null)
-		return fail(
-			`${resolve(dir)} is not in a Git repository; run epicenter init`,
-			json,
-		);
+	const status = await registeredStatus(dir);
 	if (json) writeJson({ status });
+	else if ('problem' in status) writeOut(`${status.folder}: ${status.problem}`);
 	else writeStatus(status);
 	return EXIT.ok;
 }
@@ -169,13 +220,13 @@ function writeStatus(status: FolderStatus) {
 		[
 			`${status.folder} on ${status.branch ?? 'a detached HEAD'} at ${status.head?.slice(0, 7) ?? 'no commit yet'}`,
 			status.adopted && status.registered
-				? 'Registered for sync.'
+				? 'Registered for local history and sync.'
 				: `Not synced: run epicenter init ${status.folder}.`,
 			status.changes.length === 0
 				? 'No changes since the last sync.'
 				: `${status.changes.length} changed since the last sync:\n${status.changes.map((c) => `  ${c.status} ${c.path}`).join('\n')}`,
 			status.remote === null
-				? 'No remote.'
+				? 'No origin; commits stay on this computer.'
 				: `Remote ${status.remote}${status.ahead === null ? ': not fetched yet' : `: ${status.ahead} ahead, ${status.behind} behind as of the last sync`}.`,
 		].join('\n'),
 	);
@@ -194,7 +245,9 @@ function reportSync(result: SyncResult, json: boolean) {
 	}
 	for (const note of result.notes) writeOut(`${result.folder}: ${note}`);
 	if (result.status === 'synced')
-		writeOut(`${result.folder}: in sync at ${result.head?.slice(0, 7)}`);
+		writeOut(
+			`${result.folder}: ${result.notes.includes('no remote: committed locally') ? 'saved locally' : 'in sync'} at ${result.head?.slice(0, 7)}`,
+		);
 	else
 		writeErr(
 			`${result.folder}: ${result.status === 'retry' ? 'not synced, run again' : 'stopped'}: ${result.message}`,

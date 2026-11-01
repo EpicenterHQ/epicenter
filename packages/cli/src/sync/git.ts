@@ -80,3 +80,9 @@ export async function configAll(
 	const ran = await git(cwd, ['config', scope, '--null', '--get-all', key]);
 	return ran.code === 0 ? ran.stdout.split('\0').slice(0, -1) : [];
 }
+
+/** The effective destination Git would push origin to, including pushurl and rewrites. */
+export async function originPushUrl(root: string): Promise<string | null> {
+	const ran = await git(root, ['remote', 'get-url', '--push', 'origin']);
+	return ran.code === 0 ? ran.stdout.trim() : null;
+}

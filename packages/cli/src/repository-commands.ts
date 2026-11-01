@@ -111,6 +111,21 @@ async function request<T>(
 	return { data: (await response.json()) as T, error: null };
 }
 
+/** Resolve `~/name` to the signed-in person's stable namespace id. */
+export async function personalNamespace(grant: GrantKind): Promise<string> {
+	const ctx = authContext();
+	const { data, error } = await request<RepositoryListing>(
+		ctx,
+		grant,
+		`${ctx.deployment.origin}/api/repos`,
+	);
+	if (error !== null) throw new Error(error);
+	const own = data.namespaces.find((namespace) => namespace.personal);
+	if (own === undefined)
+		throw new Error('This account has no personal repository namespace.');
+	return own.id;
+}
+
 /** `epicenter repos`: the caller's repositories by namespace. */
 export async function repos(json: boolean, grant: GrantKind) {
 	const ctx = authContext();

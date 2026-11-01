@@ -1097,4 +1097,84 @@ describe('epicenter sync over stock git', () => {
 		},
 		LONG,
 	);
+
+	test('connect adds origin once, refuses retargeting, and sync refuses a non-main branch', async () => {
+		const dir = join(BOX, 'connect-folder');
+		const bare = join(BOX, 'connect-remote.git');
+		const other = join(BOX, 'other-remote.git');
+		mkdirSync(dir, { recursive: true });
+		await git(BOX, 'init', '-q', '--bare', '-b', 'main', bare);
+		await git(BOX, 'init', '-q', '--bare', '-b', 'main', other);
+		const url = `file://${bare}`;
+		expect((await cli('status', dir, '--json')).stdout).toContain(
+			'not in a Git repository',
+		);
+		expect((await cli('connect', dir, url)).code).toBe(2);
+		expect((await init(dir)).code).toBe(0);
+		await git(dir, 'config', 'remote.origin.pushurl', `file://${other}`);
+		expect((await cli('connect', dir, url)).code).toBe(2);
+		expect(
+			(await git(dir, 'config', '--get', 'remote.origin.url')).code,
+		).not.toBe(0);
+		await git(dir, 'config', '--unset-all', 'remote.origin.pushurl');
+		expect((await cli('connect', dir, url)).code).toBe(0);
+		expect(await quiet(dir, 'config', '--get', 'remote.origin.url')).toBe(url);
+		expect((await cli('connect', dir, url)).out).toContain(
+			'origin already set',
+		);
+		await git(dir, 'config', '--unset-all', 'remote.origin.fetch');
+		expect((await cli('connect', dir, url)).code).toBe(0);
+		expect(await quiet(dir, 'config', '--get', 'remote.origin.fetch')).toBe(
+			'+refs/heads/*:refs/remotes/origin/*',
+		);
+		expect((await cli('connect', dir, `file://${other}`)).code).toBe(2);
+		await git(dir, 'config', 'lfs.url', lfs.url);
+		expect((await syncJson(dir)).status.status).toBe('synced');
+		expect(await quiet(bare, 'rev-parse', 'main')).toBe(await head(dir));
+		await git(dir, 'config', 'remote.origin.pushurl', `file://${other}`);
+		expect((await syncJson(dir)).status.message).toContain('different URL');
+		expect(
+			(await git(other, 'rev-parse', '-q', '--verify', 'main')).code,
+		).not.toBe(0);
+		await git(dir, 'config', '--unset-all', 'remote.origin.pushurl');
+		await git(dir, 'remote', 'remove', 'origin');
+		expect((await cli('connect', dir, `file://${other}`)).code).toBe(0);
+		expect(
+			(
+				await git(
+					dir,
+					'rev-parse',
+					'-q',
+					'--verify',
+					'refs/epicenter/last-seen',
+				)
+			).code,
+		).not.toBe(0);
+
+		await git(dir, 'branch', '-m', 'feature');
+		write(dir, 'draft.md', '---\ntitle: Draft\n---\n');
+		const before = await head(dir);
+		const stopped = await syncJson(dir);
+		expect(stopped.code).toBe(2);
+		expect(stopped.status.message).toContain('syncs only main');
+		expect(await head(dir)).toBe(before);
+		const attributes = read(dir, '.gitattributes');
+		expect((await init(dir)).code).toBe(2);
+		expect(read(dir, '.gitattributes')).toBe(attributes);
+	});
+
+	test('a conflicting Git control file stops instead of becoming a conflict copy', async () => {
+		for (const dir of [A, B])
+			expect((await syncJson(dir)).status.status).toBe('synced');
+		write(A, '.gitignore', 'local rules\n');
+		write(B, '.gitignore', 'other rules\n');
+		expect((await syncJson(A)).status.status).toBe('synced');
+		const stopped = await syncJson(B);
+		expect(stopped.status.status).toBe('stopped');
+		expect(stopped.status.message).toContain('.gitignore');
+		expect(await quiet(B, 'ls-files', '-u', '--', '.gitignore')).not.toBe('');
+		expect(
+			(await quiet(B, 'ls-files', '--', '*conflict*')).includes('.gitignore'),
+		).toBe(false);
+	});
 });

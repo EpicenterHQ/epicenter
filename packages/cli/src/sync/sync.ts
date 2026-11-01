@@ -50,7 +50,9 @@ import {
 	type GitOptions,
 	git,
 	must,
+	originPushUrl,
 } from './git.ts';
+import { repositoryProblem } from './repository-state.ts';
 import { driverCommand, identity, repositoryRoot } from './setup.ts';
 
 const LAST_SEEN = 'refs/epicenter/last-seen';
@@ -277,32 +279,8 @@ async function round(
 	{ credential }: SyncOptions,
 	notes: string[],
 ): Promise<string> {
-	// Never commit over an unfinished merge, rebase, or unmerged entries.
-	for (const state of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'])
-		if (await has(root, state))
-			throw new Stop(
-				`${state} exists: a merge is in progress. Finish or abort it, then sync.`,
-				'stopped',
-			);
-	for (const name of ['rebase-merge', 'rebase-apply'])
-		if (
-			existsSync(
-				resolve(
-					root,
-					(await must(root, ['rev-parse', '--git-path', name])).trim(),
-				),
-			)
-		)
-			throw new Stop(
-				'a rebase is in progress. Finish or abort it, then sync.',
-				'stopped',
-			);
-	const conflicted = await unmerged(root);
-	if (conflicted.size > 0)
-		throw new Stop(
-			`unmerged entries exist (${[...conflicted.keys()].join(', ')}). Resolve them, then sync.`,
-			'stopped',
-		);
+	const problem = await repositoryProblem(root);
+	if (problem !== null) throw new Stop(problem, 'stopped');
 	// Without the driver and the LFS filters, git add would store raw bytes and notes would merge by line.
 	if (
 		(await config(folder, 'merge.epicenter.driver')) !== driverCommand() ||
@@ -315,11 +293,6 @@ async function round(
 	if (!existsSync(resolveAppPaths().commandLink))
 		throw new Stop(
 			`${resolveAppPaths().commandLink}, the merge driver's command, is missing. Run epicenter install-command, then sync.`,
-			'stopped',
-		);
-	if ((await git(root, ['symbolic-ref', '-q', 'HEAD'])).code !== 0)
-		throw new Stop(
-			'HEAD is detached. Check out a branch, then sync.',
 			'stopped',
 		);
 	await refuseIfLocked(root);
@@ -352,6 +325,11 @@ async function round(
 		notes.push('no remote: committed locally');
 		return sha(root, 'HEAD');
 	}
+	if ((await originPushUrl(root)) !== url)
+		throw new Stop(
+			'origin pushes to a different URL than it fetches. Inspect git remote -v before syncing.',
+			'stopped',
+		);
 	const auth = await credential?.(url);
 	for (let attempt = 1; ; attempt++) {
 		const fetched = await git(root, ['fetch', '-q', 'origin'], {
@@ -495,7 +473,8 @@ async function merge(
  * a delete, keeping the side that edited; a file both sides replaced or
  * created that is not a note keeps the remote's (the earlier arrival) at its
  * path and lands the local one beside it as `<stem> (conflict <hash7>)<ext>`
- * (decision 44). Anything else stops with Git's conflict state in place.
+ * (decision 44). Git control files and anything else these rules cannot
+ * settle stop with Git's conflict state in place.
  */
 async function settleUnmerged(
 	root: string,
@@ -505,6 +484,14 @@ async function settleUnmerged(
 	const left: string[] = [];
 	const literal = { env: LITERAL, credential: auth };
 	for (const [path, stages] of await unmerged(root)) {
+		if (
+			['.gitignore', '.gitattributes', '.lfsconfig'].includes(
+				path.split('/').at(-1) ?? '',
+			)
+		) {
+			left.push(path);
+			continue;
+		}
 		const base = stages.has(1);
 		const ours = stages.get(2);
 		const theirs = stages.get(3);

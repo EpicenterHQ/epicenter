@@ -15,7 +15,7 @@ is deleted. ADR-0611 describes the planned reduction.
 bun run epicenter check path/to/contract.json path/to/folder   # from the repository root
 ```
 
-`init`, `clone`, `sync`, `status`, and `forget` keep a data folder's history
+`init`, `connect`, `clone`, `sync`, `status`, and `forget` keep a data folder's history
 with stock `git` and `git-lfs`
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
 
@@ -28,7 +28,7 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 --cwd apps/epicenter build:sidecar`); see
 [the epicenter binary](../../apps/epicenter/README.md#the-epicenter-binary).
 Its [Folders window](../../apps/epicenter/README.md#the-folders-window) is a
-front end over `status`, `init`, `clone`, `sync`, `forget`, `share`, and
+front end over `status`, `init`, `connect`, `clone`, `sync`, `forget`, `share`, and
 `unshare`, and the app runs `sync --watch` for as long as it runs.
 
 ## Commands
@@ -38,6 +38,7 @@ front end over `status`, `init`, `clone`, `sync`, `forget`, `share`, and
 | `epicenter check <contract> [<dir>]` | built | `checkFiles` in `@epicenter/folder/node` |
 | `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
 | `epicenter init [<dir>] [--enclosing-ok]` | built | `src/sync/setup.ts` |
+| `epicenter connect <dir> <namespace>/<name> \| '~/<name>' \| <url> [--enclosing-ok]` | built | `src/sync/connect.ts` |
 | `epicenter sync [<dir>] [--watch]` | built | `src/sync/sync.ts` |
 | `epicenter status [<dir>]` | built | `src/sync/status.ts` |
 | `epicenter clone <namespace>/<name> \| <url> \| <path> [<dir>]` | built | `src/sync/clone.ts` |
@@ -65,7 +66,11 @@ A hosted folder's remote is `<git origin>/<namespace>/<name>.git`
 cloud and `<origin>/git` for any other deployment, and `<namespace>` is the
 owner's 12-character id (`epicenter repos` lists them).
 
-- A folder connects with plain `git remote add origin <url>`.
+- `epicenter connect <dir> <namespace>/<name>` attaches an origin to an
+  initialized folder. Use `'~/<name>'` for your own namespace, or a Git URL;
+  `file://` works for a local repository. Plain `git remote add origin <url>`
+  remains possible. Connecting does not run a sync round. The desktop's
+  background service may start one as soon as it sees the new origin.
   The server answers a name nobody holds as an empty repository, so the
   first sync's fetch finds nothing to take, and its push creates the
   repository. Any `git` the CLI runs against one of the deployment's hosted
@@ -102,7 +107,7 @@ in-memory keychain with a signed-in grant through `EPICENTER_TEST_SECRETS`'s
 
 ## Sync
 
-`init`, `sync`, `clone`, `forget`, `status`, and the hidden `merge-driver`
+`init`, `connect`, `sync`, `clone`, `forget`, `status`, and the hidden `merge-driver`
 live in `src/sync/` and run the system `git` through `runGit` in
 `@epicenter/folder/bun`, which runs no hooks. `epicenter sync` is the only
 desktop committer: apps write files, and sync commits them
@@ -130,7 +135,15 @@ with real `git add`, so Git LFS's filters run.
   global, multi-valued
   `epicenter.folder`. A folder inside another repository is refused unless
   `--enclosing-ok` is passed, and the adopted repository is recorded as
-  `epicenter.root` in its local configuration.
+  `epicenter.root` in its local configuration. Init refuses an unfinished Git
+  operation, unmerged entries, or a branch other than `main` before changing
+  the control files.
+- `connect <dir> <repository>` adds Git `origin` to an enrolled folder. It
+  leaves an existing matching origin alone and refuses a different one.
+  `--enclosing-ok` is required again when the folder sits inside a larger
+  repository, because sync transfers that whole repository. The first sync
+  fetches and merges remote `main` before pushing; without an origin, sync
+  still commits local changes.
 - `sync [<dir>]` runs one round per folder, or for every registered folder
   without `<dir>`. Rounds of one repository take turns on
   `<git dir>/epicenter-sync.lock` (`holdingFileLock`). A round refuses a

@@ -26,6 +26,7 @@ import { resolveAppPaths } from '../app-paths.ts';
 import { canonicalPath, isReservedDirectory } from './admission.ts';
 import { type CredentialFor, config, configAll, git, must } from './git.ts';
 import { REPOSITORY_IGNORE, withEpicenterBlock } from './managed-block.ts';
+import { repositoryProblem } from './repository-state.ts';
 
 /**
  * Init would adopt a repository the folder sits inside, and was not told
@@ -151,6 +152,12 @@ export async function init(
 		changed.push('git init');
 	}
 	const root = (await repositoryRoot(folder)) as string;
+	const problem = await repositoryProblem(root);
+	if (problem !== null) throw new Refused(problem);
+	if (root !== folder)
+		warnings.push(
+			`sync fetches, merges, and pushes the whole repository at ${root}; it commits only ${folder}.`,
+		);
 	if ((await config(folder, 'epicenter.root')) !== root) {
 		await must(folder, ['config', '--local', 'epicenter.root', root]);
 		changed.push(`epicenter.root = ${root}`);

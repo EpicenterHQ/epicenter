@@ -42,6 +42,14 @@ const HANDLERS: Record<string, Run> = {
 		),
 	init: async ({ positionals: [dir], options, json, grant }) =>
 		(await import('./sync/commands.ts')).initCommand(dir, options, json, grant),
+	connect: async ({ positionals: [dir, source], options, json, grant }) =>
+		(await import('./sync/commands.ts')).connectCommand(
+			dir as string,
+			source as string,
+			options,
+			json,
+			grant,
+		),
 	sync: async ({ positionals: [dir], options, json, grant }) =>
 		(await import('./sync/commands.ts')).syncCommand(dir, options, json, grant),
 	status: async ({ positionals: [dir], json }) =>
@@ -128,7 +136,7 @@ nothing. Takes no --json.`,
 the last sync, whether it is registered, and its remote with how far ahead
 and behind it was at the last fetch. Reads only: it fetches nothing and
 writes nothing. With --json, {"status": {...}}. <dir> defaults to the current
-directory. Exits 0, or 2 when the folder is not in a repository.`,
+directory. A folder not yet in a repository reports its problem. Exits 0.`,
 	clone: `Clones <namespace>/<name> from this deployment's Git origin, any other URL
 with your own Git credentials, or a repository by its path, into <dir>, by
 default ~/Epicenter/<name>. Then runs init there, which pulls the LFS bytes
@@ -139,11 +147,18 @@ what it changed: git init when it is not in a repository; Epicenter's block in
 the folder's committed .gitattributes (notes merge by Epicenter's rules,
 every other file except dotfiles is Git LFS); the merge driver and the LFS
 filters and hooks in this clone; the LFS bytes for files checked out as
-pointers; this deployment's credential helper in this clone; and the folder in
+pointers; and the folder in
 the global epicenter.folder list. A folder inside another repository is
 refused, because sync pulls and pushes that whole repository; --enclosing-ok
 adopts it on purpose (sync still commits only the folder). Exits 0, or 2 when
 refused.`,
+	connect: `Adds origin to a folder already set up by epicenter init. The repository
+can be <namespace>/<name>, the signed-in person's '~/name' (quote it so the
+shell does not expand ~), or a URL such as file:// for a local repository.
+An existing origin with the same URL needs no change; a different origin is
+refused. An enclosing repository needs --enclosing-ok because sync transfers
+the entire repository. This command does not run sync, but the desktop's
+background sync service may fetch and push once origin is configured.`,
 	forget: `Takes <dir> (default: the current directory) out of the global
 epicenter.folder list, and makes sync refuse it until init runs again. Its
 files, repository, and history stay.`,

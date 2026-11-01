@@ -8,6 +8,7 @@
 - **Not yet live:** R2 LFS in production. `apps/api/wrangler.jsonc` binds the `epicenter-lfs` bucket, but the presigning key pair has not reached a deployed `api` version, and no LFS upload and download has run against production. Both wait for this branch to merge and for authorization to deploy (see [Revisions](#revisions)).
 - **Revised:** 2026-10-31 for decisions 77 to 98 (see [Revisions](#revisions)).
 - **Amended:** 2026-11-01 at window Close ([Records this changes](#records-this-changes), ADR-0663's row): a desktop window no longer waits for the writes its page has out, and Quit quits. A window closes at once; `guardLeave` keeps only the browser's "Leave site?" while a write is out, since an online write can take a while to land. The wait guarded only a write out in the instant of closing, at the cost of a close protocol in Rust and TypeScript (`subscribe_close`, `unsubscribe_close`, `destroy_bound_window`, a native "Close anyway?" question, and a custom macOS Quit that closed the primary window), so it failed [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)'s test for every protection. A recording in progress is still finished when its window is destroyed or the app exits, and a cut-off one is completed by recovery at the next start. This also withdraws the wait [ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)'s 2026-10-20 amendment put on window close, and Quit from what [ADR-0701](0701-apps-run-as-separate-programs.md)'s 2026-10-31 revision says `epicenter-standalone` shares.
+- **Amended:** 2026-11-01 at remote setup: `epicenter connect <dir> <repository>` wraps `git remote add origin` for an initialized folder, so the desktop can offer the same explicit action. Plain Git remains valid. This replaces ADR-0558's rejected-command rationale after `sync --to` was removed; `sync` still owns every commit and transfer.
 
 ## Context
 
@@ -195,6 +196,7 @@ under a merge and `%B` under a rebase.
 
 ```txt
 epicenter init [<dir>] [--enclosing-ok]   set up or repair; register for sync
+epicenter connect <dir> <repository>       add origin to an initialized folder
 epicenter clone <ns>/<name> [<dir>]       git clone, then init
 epicenter sync [<dir>] [--watch]          commit, fetch, merge, git lfs push, push
 epicenter status [<dir>]
@@ -205,7 +207,7 @@ epicenter merge-driver %O %A %B %P        hidden; Git runs it
 ```
 
 `sync` exits 0 when synced, 1 to run again, and 2 when stopped for a person or
-an agent. A folder links to a repository with plain
+an agent. A folder links to a repository with `epicenter connect` or plain
 `git remote add origin <url>`; the first push creates the repository.
 
 **Desktop Git features may assume an agent; the web assumes nothing.** A
