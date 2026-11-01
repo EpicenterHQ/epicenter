@@ -4,7 +4,7 @@
 - **Date:** 2026-10-16
 - **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the full desktop app platform; only a local built-app runner over chosen data repositories remains, without source installation, build approvals, or general native services.
 - **Amends:** [ADR-0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md) at its Bun row's "saves from separate processes do not" and "in Bun, only saves within one process wait for each other": Bun's saves and the shell's checked renames take turns under one save lock per folder, `.<name>.epicenter-save-lock`.
-- **Amended by:** [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) at "`RootLock` stays the one-shell-per-folder lock": `RootLock` is deleted, and a second shell takes turns under the save lock like the CLI.
+- **Amended by:** [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) at "`RootLock` stays the one-shell-per-folder lock": `RootLock` is deleted, and a second shell takes turns under the save lock like the CLI; [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) at the save lock and every amendment below: no writer takes a lock, `.epicenter` holds only `saves/` and `recordings/`, and a new file is placed (`storage::place`).
 - **Relates:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the `epicenter` CLI writes folders the app may hold open), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge that settles commits).
 - **Unbuilt:** a test of `epicenter sync` and a page saving one file in the same folder at once, with neither save lost.
 
@@ -68,6 +68,8 @@ files and `casBranch`, and ADR-0551's merges settle the rest.
 
 ## Amendment, 2026-10-31: the save lock lives in the folder's `.epicenter`, and sync takes it
 
+The lock described here is deleted; [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule that replaced it.
+
 Commit `1e66c2134b` moved the save lock from `.<name>.epicenter-save-lock`
 beside the folder to `<root>/.epicenter/save-lock`, and the directory a save
 stages its bytes in to `<root>/.epicenter/scratch`, so saving makes nothing
@@ -94,6 +96,8 @@ bytes of `git lfs pull` without it.
 
 ## Amendment, 2026-11-01: the save lock is deleted
 
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
+
 The save lock described above, and the 2026-10-31 amendment's use of it by
 `epicenter sync`, are gone. No writer takes `.epicenter/save-lock`: the
 folder plugin's `lock.rs` (`SaveLock`, `Directory::publishing`, and its
@@ -117,6 +121,8 @@ and recordings in progress). The CLI keeps its own file lock
 serializing sync rounds of one repository.
 
 ## Amendment, 2026-11-01: `.epicenter` holds only unfinished writes, in `saves/` and `recordings/`
+
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
 
 A file in `.epicenter/` is on its way somewhere: it finishes (moves to its
 real path), or the next open recovers or removes it. Each part is named for
@@ -156,6 +162,8 @@ inside the folder fails saying it cannot cross a mount point, since a rename
 from `saves/` cannot reach it, and nothing is copied instead.
 
 ## Amendment, 2026-11-01: a new file is placed, never renamed over what appeared
+
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
 
 The race the save-lock deletion accepted, another save landing between the
 version check and the rename, no longer applies to a desktop save of a new

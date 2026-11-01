@@ -89,15 +89,15 @@ Every device opener is async and returns a `Result` whose error is an
 | Opener | Entry | Where | A version is |
 | --- | --- | --- | --- |
 | `openDevice(contract)` | `@epicenter/folder/browser` | the origin's OPFS, through one Worker, a Web Lock per path | sha256 of the bytes |
-| `openDevice(contract, { path })` | `@epicenter/folder/node` (Bun) | a directory, under the save lock | sha256 of the bytes |
-| `openDevice(contract, { path?, create? })` | `@epicenter/folder/tauri` | the directory the shell bound to the window, or an absolute path Tauri's file-system scope allows, under the save lock | sha256 of the bytes |
+| `openDevice(contract, { path })` | `@epicenter/folder/node` (Bun) | a directory | sha256 of the bytes |
+| `openDevice(contract, { path, create? })` | `@epicenter/folder/tauri` | the root at the absolute path `path`: the directory the shell bound to the window, or a folder Tauri's file-system scope allows | sha256 of the bytes |
 | `openRemote(contract, { account })` | `@epicenter/folder/remote` | `<git audience>/~/<contract name>.git`, every request through `account.fetch` | the Git blob id on `main` |
 
 **A recording is written into the variant's store as it records.**
 `startRecording({ device, path })` and `recoverRecordings({ device, under })`
 are the same calls from `@epicenter/recorder/tauri`, where the shell writes
 a WAV from the first sample and encodes it to Opus in WebM at `<path>.webm`
-in the data folder when it stops (ADR-0543's last amendment), and from
+in the data folder when it stops ([ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)), and from
 `@epicenter/recorder/browser`, which appends each MediaRecorder piece (about
 a second) to `<path>.m4a` or `.webm` in this browser's files. The app's
 `#platform` seam imports one. A quit, a crash, or a closed tab keeps the

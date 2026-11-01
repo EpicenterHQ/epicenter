@@ -5,7 +5,7 @@
 - **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the full desktop app platform; only a local built-app runner over chosen data repositories remains, without source installation, build approvals, or general native services.
 - **Amends:** [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) at "`RootLock` stays the one-shell-per-folder lock": `RootLock` and `.<name>.epicenter-lock` are deleted, and a second shell takes turns under the save lock like the CLI.
 - **Amends:** [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "a second scope on one root is refused `Busy`" and its consequence "The cross-process lock stays, one per folder": two scopes on one root share its publishing mutex, and a second Epicenter process shares its save lock.
-- **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at "two scopes on one root": one name reaches a root, and the mutex stays per canonical root.
+- **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at "two scopes on one root": one name reaches a root, and the mutex stays per canonical root; [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) at every writer taking turns under the save lock, and every amendment below: no writer takes a lock, and each save is checked against the version its writer read right before it lands.
 
 ## Context
 
@@ -72,6 +72,8 @@ refuses a second shell or a second scope.**
 
 ## Amendment, 2026-10-31: the save lock is in `.epicenter`, and sync is a writer under it
 
+The lock described here is deleted; [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule that replaced it.
+
 Commit `1e66c2134b` moved the save lock to `<root>/.epicenter/save-lock` and
 the staging directory to `<root>/.epicenter/scratch`; no file named
 `.<name>.epicenter-*` is made beside the folder. `.epicenter` is made `0700`,
@@ -86,6 +88,8 @@ against what the merge wrote.
 
 ## Amendment, 2026-11-01: no writer takes a save lock
 
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
+
 The save lock is deleted
 ([ADR-0562's amendment](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md#amendment-2026-11-01-the-save-lock-is-deleted)).
 Writers no longer take turns: each save is checked against the version its
@@ -96,6 +100,8 @@ took the lock, and Git history keeps what sync committed. `epicenter sync`
 merges without taking any folder's lock.
 
 ## Amendment, 2026-11-01: saves stage in `.epicenter/saves`
+
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
 
 The staging directory the 2026-10-31 amendment names, `.epicenter/scratch`,
 is `.epicenter/saves`, and `.epicenter` is now listed like any hidden path

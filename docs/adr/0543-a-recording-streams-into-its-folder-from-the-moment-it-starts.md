@@ -4,7 +4,7 @@
 - **Date:** 2026-10-15
 - **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the full desktop app platform; only a local built-app runner over chosen data repositories remains, without source installation, build approvals, or general native services.
 - **Amended:** 2026-10-16, at "One interface, chosen by host": the bare `@epicenter/recorder` no longer chooses by `isTauri()`. It is the recording contract alone, and a build imports `/tauri` or `/browser` (Whispering through `#platform/workspace`), because the runtime branch was reached only by the type checker and tests while builds aliased it away.
-- **Amended by:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at "`recordings/<name>.wav`": the audio is written to `audio/<name>.wav`, and rows stay in `recordings/`.
+- **Amended by:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at "`recordings/<name>.wav`": the audio is written to `audio/<name>.wav`, and rows stay in `recordings/`; [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) at where a desktop recording is written while it records and how it reaches its path, and the 2026-11-01 amendments below: a WAV in `.epicenter/recordings` placed as Opus in WebM at stop, under a root that is always an absolute path.
 - **Unbuilt:** a real desktop run: the microphone permission prompt, a recording through the shell's recorder, and a quit mid-recording leaving a playable WAV once `recoverRecordings` runs.
 
 ## Context
@@ -74,6 +74,8 @@ running is the live handle; whether it has audio is whether `audioPath` exists.
 
 ## Amendment, 2026-11-01: a desktop recording is written in `.epicenter` until it stops
 
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states where a desktop recording is written and how it is placed; `.epicenter/recording/` below became `.epicenter/recordings/`.
+
 The desktop recorder still writes from the first sample, but into the
 folder's own `.epicenter/recording/<path>.wav`, which no listing shows, no
 watcher reports, and `epicenter init`'s `.gitignore` keeps out of history.
@@ -86,6 +88,8 @@ data path. The browser recorder is unchanged: it appends to its file at its
 path in this browser's private storage, which nothing syncs.
 
 ## Amendment, 2026-11-01: a stopped desktop recording is Opus in WebM
+
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states where the WAV and its encode live and how the result is placed; the encoding and the container below stand.
 
 While it records, a desktop recording is still the WAV in
 `.epicenter/recording/<path>.wav`, so a quit or a crash keeps every sample
@@ -116,6 +120,8 @@ recorder is unchanged.
 
 ## Amendment, 2026-11-01: a recording in progress is in `.epicenter/recordings`
 
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
+
 The WAV the two amendments above place in `.epicenter/recording/<path>.wav`
 is written to `.epicenter/recordings/<path>.wav`, and its encode to a
 scratch file in `.epicenter/saves`. The folder's sweep never reads
@@ -126,6 +132,8 @@ once a second wakes no sync round. [ADR-0562's amendment](0562-the-cli-and-the-s
 gives the layout.
 
 ## Amendment, 2026-11-01: a desktop recording always names its folder
+
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
 
 `start` and `recover` take the root the recording is in as a required
 absolute path, the one the folder plugin answered when the page opened the
@@ -139,6 +147,8 @@ are gone.
 
 ## Amendment, 2026-11-01: recovery answers each recording's length
 
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
+
 `recoverRecordings` answers each recording it repaired as `{ path,
 durationMs }`, as `stop` answers one. On the desktop the length is the
 repaired WAV's samples over their rate, which the WebM encoded from it plays
@@ -149,6 +159,8 @@ path: a recording the shell placed when its page left, or a stop whose
 answer was lost.
 
 ## Amendment, 2026-11-01: a recording's path is known when it stops
+
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
 
 A started recording no longer answers a path: on the desktop its extension
 is decided at `stop` (`<path>.webm`, or `<path>.wav` when the encoder refuses
