@@ -35,17 +35,18 @@ and a same-field `Conflict` keeps the typed text for retry (overwrite) or
 discard (take theirs). Native storage stages one whole file and renames it
 over its path after checking that version.
 
-A Svelte page reads a client through `fromClient` and binds a text input to
-`fieldEdit`, which shows typed text until its save answers and keeps it with
+A Svelte page reads a client through `fromClient`, and the component that
+shows a note makes one editor of it (`notes.edit({ id })`) and binds its
+fields. The editor shows typed text until its save answers and keeps it with
 an inline error after a failed save. The page's leave guard asks before a
 browser unload while a write is out; a desktop window closes at once.
 In-memory edits do not survive a crash or a close.
 
 Git exchange is separate from opening and local saving. The `epicenter`
-CLI retains history commands, while current product pages offer no Save
-version, Connect, or Sync action. The CLI's `epicenter.json` remains an
-optional authored schema and local-exclusion policy for its own tools;
-application opening does not publish one. The web never syncs. Account
+CLI syncs a folder, and Epicenter's Folders window runs it (Sync now,
+Connect, background sync); an app page offers only "Set up in Epicenter".
+A folder holds no `epicenter.json`: `epicenter check` and `epicenter format`
+take an app's contract by URL or file path. The web never syncs. Account
 access and inference have their own lifetimes.
 
 ## Desktop launch and directory assignment
@@ -67,10 +68,10 @@ person chose another, which Tauri's file-system scope must allow
 ([ADR-0701](adr/0701-apps-run-as-separate-programs.md)).
 
 Each window owns its clients and the edits of its mounted editors. The
-shell owns directory permission and atomic file publication. Native window
-Close waits for writes in flight before destruction. A failed destroy leaves
-the page available for another close attempt. Application Quit remains a
-shell operation.
+shell owns directory permission and atomic file publication. A window closes
+at once and Quit quits, without waiting for the page: a local write still in
+flight then is a small, rare loss at the edge
+([ADR-0702](adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).
 
 ## What to check next
 
