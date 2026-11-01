@@ -1265,6 +1265,7 @@ dependencies = [
  "core-graphics 0.22.3",
  "dunce",
  "enigo",
+ "epicenter-transcription-build",
  "libc",
  "log",
  "objc2",
@@ -1309,6 +1310,10 @@ dependencies = [
  "specta",
  "tempfile",
 ]
+
+[[package]]
+name = "epicenter-transcription-build"
+version = "0.0.1"
 
 [[package]]
 name = "equivalent"

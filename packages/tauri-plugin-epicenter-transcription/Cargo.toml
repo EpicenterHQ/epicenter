@@ -38,6 +38,9 @@ ogg = "0.9"
 tauri = { version = "2.12", features = ["test"] }
 
 [target.'cfg(all(windows, target_arch = "x86_64"))'.dependencies]
+# ggml-vulkan requires SPIRV-Headers' CMake package. The Vulkan SDK provides
+# the loader but not that package, so Windows x64 builders must install
+# `spirv-headers` through vcpkg and add its prefix to CMAKE_PREFIX_PATH.
 transcribe-cpp = { version = "0.1.0", default-features = false, features = ["dynamic-backends", "vulkan"] }
 
 [target.'cfg(all(windows, target_arch = "aarch64"))'.dependencies]

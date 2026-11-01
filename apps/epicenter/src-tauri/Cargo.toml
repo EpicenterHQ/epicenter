@@ -14,6 +14,7 @@ name = "epicenter_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+epicenter-transcription-build = { path = "../../../packages/epicenter-transcription-build" }
 tauri-build = { version = "2.6", features = [] }
 
 [features]
@@ -69,6 +70,8 @@ tauri-plugin-opener = "2.5"
 tauri-plugin-updater = "=2.14.0"
 tempfile = "3.8"
 tokio = { version = "1", features = ["full"] }
+# A direct dependency gives this final app's build script the
+# DEP_TRANSCRIBE_CPP_* metadata `epicenter_transcription_build` reads.
 transcribe-cpp = { version = "0.1.0", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
@@ -77,15 +80,6 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", optional = true, features = ["Media_Control", "Foundation", "Foundation_Collections", "Win32_System_Com"] }
-
-[target.'cfg(all(windows, target_arch = "x86_64"))'.dependencies]
-# ggml-vulkan requires SPIRV-Headers' CMake package. The Vulkan SDK provides
-# the loader but not that package, so Windows x64 builders must install
-# `spirv-headers` through vcpkg and add its prefix to CMAKE_PREFIX_PATH.
-transcribe-cpp = { version = "0.1.0", default-features = false, features = ["dynamic-backends", "vulkan"] }
-
-[target.'cfg(all(windows, target_arch = "aarch64"))'.dependencies]
-transcribe-cpp = { version = "0.1.0", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 accessibility-sys = { version = "0.1.3", optional = true }
@@ -96,10 +90,8 @@ objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem"] }
 objc2-foundation = { version = "0.3", optional = true, default-features = false, features = ["std", "NSString", "NSData", "NSArray"] }
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6", optional = true }
-transcribe-cpp = { version = "0.1.0", default-features = false, features = ["metal"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-transcribe-cpp = { version = "0.1.0", default-features = false, features = ["dynamic-backends", "vulkan"] }
 zbus = { version = "5", optional = true, default-features = false, features = ["tokio"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
