@@ -265,42 +265,6 @@ one clause where the pass spends two sentences. One preferred version does not
 show that a saved draft's wording should usually stand; it shows that sounding
 more conversational is not what makes a pass sound like him.
 
-## Sharpen Without Assuming Shorter Is Better
-
-From *Read Your Skills Like Writing*, October 22, 2026. Braden asked to commit
-the initial draft, then make it "a bit sharper and less repetitive, while
-keeping the concrete workflow of how I evaluate and edit my skills."
-Writing-voice and page-writing were already loaded in the conversation; the
-agent did not load a separate sharpening skill for the revision.
-
-**Committed opening, preferred as part of the earlier version**
-
-> I think it's important to actually read your AI skills. Open the file and look
-> at the text. It's okay if you don't fully understand everything in the skill
-> yet, but you should nevertheless read it.
-
-**Revised opening, part of the rejected pass**
-
-> Read your AI skills. Open the file and look at the text, even if you don't
-> fully understand it yet.
-
-The revision also folded away the paragraph "But the most important thing is
-that I want to literally see the prose of the skill itself. I want to read the
-actual words," placing that point in a shorter ending. Braden responded:
-
-> Honestly, I don't think that this really was the right way. I feel like the
-> older version felt better.
-
-He asked whether the revision was "a little bit too sharp." He preferred the
-earlier version overall; he did not identify individual changes as the reason.
-The imperative opening changes the stance, and folding the prose paragraph
-into the ending removes a separate beat of emphasis. These are editorial
-diagnoses to test, not his stated explanation or a controlled comparison of
-skill instructions. Together with the centralization example above, this
-reaction supports judging precision, stance, and rhythm in the actual passage:
-neither a more conversational pass nor a more compressed pass automatically
-improves the voice.
-
 ## Let the Reader Hear the Person Thinking
 
 From a Vault page session on October 27, 2026, about being Chinese American in

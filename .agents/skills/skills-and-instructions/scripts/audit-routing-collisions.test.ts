@@ -100,15 +100,15 @@ test('a phrase every mention routes away is reported as unowned', () => {
 });
 
 test('an always-on claimant is reported without changing stdout or the exit code', () => {
-	// `AGENTS.md` gives "independent review" to adversarial-review while
-	// consult-claude claims the phrase in its description, so the
+	// `AGENTS.md` routes "clean break" to post-implementation-review while
+	// rethink claims the phrase in its description, so the
 	// documented verdict says clean routing while two surfaces actually claim
 	// it. Reporting that on stderr is the whole point; changing the exit code
 	// would break the contract composition-audit.md documents.
-	const { code, out, err } = run('independent review');
+	const { code, out, err } = run('clean break');
 
 	expect(code).toBe(0);
-	expect(out).toBe('independent review -> consult-claude/SKILL.md\n');
+	expect(out).toBe('clean break -> rethink/SKILL.md\n');
 	expect(err).toContain('AGENTS.md');
 	expect(err).toContain('loads before any description');
 });

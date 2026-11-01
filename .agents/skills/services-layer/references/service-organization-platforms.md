@@ -38,6 +38,11 @@ imported by the desktop leaf directly, never through a seam. A capability
 only one build has is an optional member of the contract
 (`connections.useLocal?`), not a second seam.
 
+Each leaf exports the same names with the same declared shape, so a consumer
+sees one contract whichever leaf the build selects. Check
+`package.json#imports` for the current seam list rather than copying it when
+adding or moving a service.
+
 ## A smaller seam for one capability
 
 When only one capability differs, give it its own seam rather than a

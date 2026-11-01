@@ -7,6 +7,13 @@ metadata:
 ---
 
 # Yjs 14 CRDT Patterns
+
+The Yjs store and its sync were removed in `9f75a9bd51` (`packages/data` is
+gone, and no package depends on `@y/y`); apps keep their data as files in a
+folder through `@epicenter/folder`. The `packages/data` paths below name where
+the store lived; read them from Git history, and treat this skill as the
+design record for any Yjs work that returns.
+
 ## Reference Repositories
 
 - [Yjs](https://github.com/yjs/yjs): CRDT framework for shared editing and offline-first data

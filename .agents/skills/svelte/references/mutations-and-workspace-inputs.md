@@ -190,8 +190,12 @@ For when a single-use handler should be inlined at its call site versus kept as 
 
 # Commit-on-Blur for Workspace String Fields
 
-This section describes Y.Map-backed value fields. It does not govern note
-editors: `fieldEdit` saves as the person types and owns accepted input.
+This section is for a field whose blur is its submission. It does not govern
+note editors: `fieldEdit` saves as the person types and owns accepted input.
+The Yjs-backed workspace tables and `FlushEditsOnHide` it describes were
+removed with the Yjs store; the pattern remains the convention for a field
+that commits on blur, such as Honeycrisp's folder rename.
+
 An onblur commit is an explicit submission event with the DOM holding unfinished
 input. See [immediate editing and explicit submission](input-ownership.md).
 

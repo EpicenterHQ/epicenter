@@ -4,9 +4,6 @@ These illustrations make the progression and particular conversational
 judgments available for examination. They are not measured runs or records of
 the user's preferences. The complete reading-list example has been reviewed;
 the existing examples that follow are being reviewed individually for retention.
-Focused excerpts that begin with a vision or concrete proposal assume the
-intent has already been explicitly agreed. A new dialectic begins with that
-intent exchange, as the complete examples show.
 
 ## Reading list: intent, vision, and concrete form
 

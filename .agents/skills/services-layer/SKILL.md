@@ -76,7 +76,9 @@ throwing platform or library calls with the `error-handling` skill.
 Do not fake a Result for an infallible in-memory action or a cleanup. Errors
 belong to the layer that understands the failure: pass lower-layer tagged
 errors through (`TranscriptionError`, `RecorderError`), and define a
-service-local variant only for a failure the service owns.
+service-local variant only for a failure the service owns. Use
+`error-handling` for variant shape, message rules, adaptation, and
+propagation.
 
 ## Direct Object Or Factory
 

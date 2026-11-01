@@ -9,10 +9,11 @@ false constraint.
 
 Use these source owners as starting points, then trace their callers and tests:
 
-- [Folder files](../../../../packages/folder/README.md): identify the paths,
-  file kinds, and declaration (`epicenter.json`) a folder stores. Files are the
-  durable record: renaming a table directory or a stem can detach existing files
-  even when the new code still writes successfully. Do not infer permission to
+- [Folder files](../../../../packages/folder/README.md) and
+  [file contracts](../../../../packages/definition/README.md): identify the
+  paths and file kinds an app's contract stores. Files are the durable record:
+  renaming a contract path or a stem can detach existing files even when the
+  new code still writes successfully. Do not infer permission to
   delete old files from a change to the current layout.
 - [Server repositories](../../../../packages/server/src/repositories.ts) and
   [routes](../../../../packages/server/src/routes): trace durable authority

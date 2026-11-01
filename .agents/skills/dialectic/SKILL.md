@@ -22,14 +22,19 @@ is reaching for.
 
 Standalone dialectic begins with the user's explicit request. Within an
 existing task, another active skill may invoke this method when its guidance
-calls for it. Keep that use within the task the user requested.
+calls for it. Keep that use within the task the user requested; its purpose,
+artifacts, and authorization remain in place. Standalone exploration can end
+with shared understanding, without requiring an implementation or destination
+artifact.
 
 Begin with an explicit articulation of the intent: what the user wants to
-accomplish and what a successful result would make possible. Put that reading
-in a blockquote and invite correction. Keep the first exchange focused on
-settling it, and wait for the user to recognize it as right before proposing
-visions, candidate solutions, or implementation plans. This gives the user a
-chance to change the question before the proposals narrow its answers.
+accomplish and what a successful result would make possible. Draw on their
+words and available context to offer one clear reading in a blockquote, with
+enough reasoning to make your interpretation open to examination, and invite
+correction. Keep the first exchange focused on settling it, and wait for the
+user to recognize it as right before proposing visions, candidate solutions,
+or implementation plans. This gives the user a chance to change the question
+before the proposals narrow its answers.
 
 Carry forward intent already explicitly agreed in the conversation: briefly
 state it and proceed from that agreement. A request to use dialectic starts
@@ -37,16 +42,18 @@ this process; it does not itself confirm the agent's interpretation of the
 intent. Reopen the intent when a correction changes what success means.
 
 At each stage, offer a distinct proposal the user can examine, starting
-with the first attempt. Put articulations of intent and vision in
-blockquotes, with explanation and questions outside them. Show other
-proposed work in the form that lets the user judge it directly. Give
-enough context for the proposal to be understood on its own, and bold
-the parts that need particular attention.
+with the first attempt. Once intent is agreed, show what the user needs to
+examine next: a vision when the direction needs judgment, proposed work when
+its form needs judgment, or an example of its use when the consequences need
+to become visible. Connect these contributions when that helps. Put
+articulations of intent and vision in blockquotes, with explanation and
+questions outside them, and show other work in the form that lets the user
+judge it directly. Give enough context for each proposal to be understood on
+its own, and bold the parts that need particular attention.
 
-Develop each proposal together through attempts and responses. Use
-corrections to revise what remains unresolved, and carry forward what
-the user recognizes. Preserve selected wording and combine recognized
-parts into a coherent next attempt.
+Develop each proposal through attempts and responses. Keep the proposal and the invitation to respond visibly separate. Offer a few short, open invitations: what feels right or wrong, how the user would express it in their own words, and what else comes to mind. Numbering can make these easier to respond to. Follow whichever part they take up; use focused questions when a specific uncertainty needs resolving.
+
+Re-articulating the thought can help the user discover what they mean. Accumulate the phrases, distinctions, examples, and corrections they contribute, letting these shape the next proposal and invitation. Carry recognized parts forward so the user need not identify them again, preserve selected wording exactly, and compose the next attempt yourself. Recognition of one part settles that part.
 
 Wait for the user to explicitly recognize the proposal as right before
 advancing to work that depends on it. Establish that shared understanding
@@ -54,56 +61,35 @@ between the major stages and when developing substantial pieces within
 them. Recognition settles what the user actually examined. Return to an
 earlier understanding when later discoveries change its premise.
 
-Once intent is agreed, develop the discussion through what the user needs to
-examine next. Show a vision when the direction needs judgment, proposed work
-when its form needs judgment, or an example of its use when the consequences
-need to become visible. Connect these contributions when that helps, carrying
-the agreed intent forward and letting the user's response develop the work.
-
-Use this method within the ongoing task; its purpose, artifacts, and
-authorization remain in place. Standalone exploration needs no destination
-artifact.
-
 ## Clarify the intent
 
-Draw on the user's words and available context to articulate what they
-are reaching for and why it matters. Offer one clear reading they can
-recognize, correct, or develop, with enough reasoning to make your
-interpretation open to examination.
-
-Reconsider the framing itself. When the user brings a proposed solution,
-explore what they want it to accomplish. Use their examples and reactions
-to examine assumptions about the purpose, scope, or problem being
-addressed. Ground your interpretation in what they have expressed, and
-make your inferences available for correction.
+Reconsider the framing itself as you form that reading. When the user
+brings a proposed solution, explore what they want it to accomplish. Use
+their examples and reactions to examine assumptions about the purpose,
+scope, or problem being addressed.
 
 Treat a felt mismatch as a substantive starting point. The user may
 recognize that something feels wrong while struggling to explain why.
 Use the concrete situation to propose the expectation, relationship,
-or assumption that might account for their reaction. Explain what led
-you to that reading and make it available for correction. Develop the
-model together through their responses; an initial explanation remains
-a proposal to examine.
+or assumption that might account for their reaction. Develop the model
+together through their responses; an initial explanation remains a
+proposal to examine.
 
 When drawing lessons from an experience, distinguish what happened from
 your explanation of why it helped. Examine the evidence for that explanation
 before turning it into a general rule.
 
-Develop the unresolved thought through concrete attempts and focused
-questions. An example or exploratory proposal may help reveal what the
-user means. Ask questions whose answers could change your understanding,
-and use each response to develop the next attempt. The conversation may
-clarify a thought the user already held or discover one neither
-participant had fully formed. Aim for a shared articulation strong enough
-to guide the vision.
+An example or exploratory proposal may help reveal what the user means.
+The conversation may clarify a thought the user already held or discover
+one neither participant had fully formed. Aim for a shared articulation
+strong enough to guide the vision.
 
 ## Develop the vision
 
 Starting from the shared intent, imagine the strongest coherent way to
 fulfill it. Reconsider the relevant whole as if that intent had been
-understood from the beginning. Explore what becomes possible when
-existing forms, boundaries, and assumptions are open to change, informed
-by evidence and real constraints.
+understood from the beginning, and explore what becomes possible when
+existing forms, boundaries, and assumptions are open to change.
 
 Make that vision tangible enough for the user to judge. Show what they
 would experience, understand, or be able to do through a concrete
@@ -114,32 +100,28 @@ discussion.
 
 Compare distinct possibilities when their differences help resolve the
 direction. Recommend one when you have grounds, and explain the judgment
-behind it. Use the user's responses to develop a coherent vision specific
-enough to guide the structure and details. If exploring the vision changes
-our understanding of the intent, return to that understanding together.
+behind it. Aim for a coherent vision specific enough to guide the
+structure and details.
 
 ## Work backward into concrete form
 
 Work backward from the shared vision to the structure, decisions, and
-details needed to realize it. Reconsider the relevant whole, deriving
-its form from the intent and vision. Examine which existing parts
-support that direction and which need to change.
+details needed to realize it. Examine which existing parts support that
+direction and which need to change.
 
 Develop the work in coherent pieces the user can judge. Choose the
 scope of each attempt around a consequential question or decision.
 Show the actual wording, design, interface, or code, with enough context
 to reveal how it works. When revising, show the current and proposed
-versions together so the user can examine what changes. Let the vision
-guide the whole while reviewing pieces at the user's pace.
+versions together so the user can examine
+what changes. Let the vision guide the whole while reviewing pieces at
+the user's pace.
 
 Carry settled choices into the authorized work. Check facts and behavior
 you can establish, distinguish illustrative proposals from actual
 results, and show rendered work when appearance or movement matters.
 Read or examine the assembled whole against the intent and vision;
-individual pieces may reveal a problem when brought together. Use that
-discovery to revisit the relevant decision. Standalone exploration can
-end with shared understanding, without requiring an implementation or
-destination artifact.
+individual pieces may reveal a problem when brought together.
 
 ## References
 

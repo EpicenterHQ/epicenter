@@ -21,8 +21,8 @@ render-time snapshot back into the owner or merge it with outside changes in
 the control.
 
 A checkbox, select, or button writes through the collection directly. A failed
-save stays with its editor, shown beside it by `<UnsavedEdit>`. Codecs transform representations; they do not become another current-content
-owner.
+save stays with its editor, shown beside it by `<UnsavedEdit>`. Codecs
+transform representations; they do not become another current-content owner.
 
 ## Explicit submission
 

@@ -34,29 +34,27 @@ The monorepo uses consistent script naming conventions.
 
 Start apps from the repo root, not by cd-ing into the app. Root
 `bun dev:<app>` runs every process the app needs; for apps that talk to the
-hosted API (todos, vocab, and the
+hosted API (epicenter, vocab, and the
 api dashboard), it also starts `@epicenter/api` on `localhost:8787` via
 `bun run --filter`. Root `bun dev:<app>:ui` runs the app's frontend
-alone when that split exists; for Tauri apps, it maps to the package's
-`dev:web`. `bun dev:api` runs just the backend. Local Books, Local Mail, and
-Super Chat have their own multi-process flows documented in their READMEs;
-they have no root `dev:*` target.
+alone when that split exists; for desktop apps, it maps to the package's
+web `dev` or `dev:ui`. `bun dev:api` runs just the backend. Local Books has no root
+`dev:*` target.
 
 Inside a single package, the conventions are:
 
 Non-Tauri apps use a single `dev` script that runs the underlying tool
-directly (`vite dev`, `astro dev`, `wrangler dev`). Tauri desktop apps
-with their own shell have two dev surfaces and name them
-explicitly: `dev` launches the desktop shell (aliasing `dev:desktop`), and
-`dev:web` runs Vite alone, which each app's `tauri.conf.json` invokes as its
-`beforeDevCommand`. The suffix convention applies primarily to database
+directly (`vite dev`, `astro dev`, `wrangler dev`). Desktop apps keep that
+`dev` (and `dev:ui`) as the web build and name the desktop shell
+`dev:desktop`; the Epicenter app has no web build, so its `dev` aliases
+`dev:desktop`. The suffix convention applies primarily to database
 commands:
 
 | Script | Meaning |
 | --- | --- |
 | `dev` | The default local workflow. May still require Infisical login for app secrets (e.g. API keys), but only ever talks to local infrastructure at runtime. |
-| `dev:web` | Tauri apps: the Vite dev server alone, no desktop shell. Invoked by `tauri.conf.json` as `beforeDevCommand`. |
-| `dev:desktop` | Tauri apps: launches the native desktop app (`tauri dev`). `dev` aliases this. |
+| `dev:ui` | Desktop apps: the Vite dev server alone, no desktop shell. |
+| `dev:desktop` | Desktop apps: launches the native desktop app (`tauri dev` with the app's `tauri.dev.conf.json`). The Epicenter app's `dev` aliases this. |
 | `db:*:local` | Runs against local Postgres. Works without Infisical login. |
 | `db:*:remote` | Wraps with `infisical run --env=prod`. Production data; treat as admin. |
 
