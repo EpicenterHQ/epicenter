@@ -1,11 +1,16 @@
 # Standalone desktop verification
 
-> **Historical record.** Whispering has no desktop build now: Epicenter no
-> longer hosts it ([ADR-0701](../../../docs/adr/0701-apps-run-as-separate-programs.md)),
-> and the hosted design is archived at the tag `archive/app-hosting`. The dated
-> sections below are evidence from the desktop builds, the standalone shell and
-> then Whispering inside Epicenter, kept as they were checked. None of them
-> describes the current browser build.
+> **Historical record.** Whispering's desktop build is now its own program on
+> `epicenter-standalone`, not an app Epicenter hosts
+> ([ADR-0701](../../../docs/adr/0701-apps-run-as-separate-programs.md)), and the
+> hosted design is archived at the tag `archive/app-hosting`. The dated
+> sections below are evidence from the earlier desktop builds, the first
+> standalone shell and then Whispering inside Epicenter, kept as they were
+> checked. None of them describes the current builds.
+>
+> The close questions recorded below (the Close sheet and Close Anyway) were
+> deleted on November 1, 2026 with the close guard (`3e419ce89e`): a desktop
+> window now closes at once, and Quit quits.
 
 ## Closing and quitting inside Epicenter (October 21, 2026)
 

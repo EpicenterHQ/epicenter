@@ -6,6 +6,10 @@
 > answer arrives rather than when it starts, and none of the folder machinery
 > named below exists. The README describes current behavior; ARCHITECTURE
 > describes the structure.
+>
+> The close guard a held answer is said to hold below was deleted on
+> November 1, 2026 (`3e419ce89e`): a desktop window closes at once, and a
+> browser asks "Leave site?" only while a write is out.
 
 Execution notes for one slice. On October 17, 2026 the clean break deleted three
 things this record describes: the recipe `endpoint` constraint, the `kv.json`
