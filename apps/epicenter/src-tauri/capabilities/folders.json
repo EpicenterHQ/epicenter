@@ -12,6 +12,7 @@
 		"allow-accept-folder-setup",
 		"allow-dismiss-folder-setup",
 		"allow-clone-synced-folder",
+		"allow-connect-synced-folder",
 		"allow-sync-folder-now",
 		"allow-forget-synced-folder",
 		"allow-folder-sharing",

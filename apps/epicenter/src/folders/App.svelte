@@ -40,6 +40,8 @@
 
 	let cloning = $state(false);
 	let cloneSource = $state('');
+	let connecting = $state.raw<SyncedFolder | undefined>(undefined);
+	let connectSource = $state('');
 	let sharing = $state.raw<SyncedFolder | undefined>(undefined);
 
 	/** One listing at a time; changes that arrive meanwhile list once more after it. */
@@ -140,11 +142,7 @@
 				<Button
 					size="sm"
 					disabled={adding !== undefined}
-					onclick={async () =>
-						warn(
-							(await act('Setting up the folder…', () => commands.addSyncedFolder()))
-								?.warnings,
-						)}
+					onclick={() => void act('Choosing a folder…', () => commands.addSyncedFolder())}
 				>
 					Add folder
 				</Button>
@@ -201,7 +199,7 @@
 					{#each listing.setups as setup (setup.path)}
 						<Item.Root variant="outline" size="sm">
 							<Item.Content class="min-w-0">
-								<Item.Title>Sync {folderName(setup.path)}?</Item.Title>
+								<Item.Title>Set up {folderName(setup.path)}?</Item.Title>
 								<Item.Description class="truncate" title={setup.path}>
 									{setup.path}
 								</Item.Description>
@@ -210,11 +208,27 @@
 										For {setup.contract}
 									</p>
 								{/if}
+								{#if setup.found?.remote}
+									<p class="break-all text-xs text-muted-foreground">Already linked to {setup.found.remote}. Setting up allows Epicenter to sync with it.</p>
+								{:else if setup.found?.adopted}
+									<p class="text-xs text-muted-foreground">Epicenter already keeps this folder's local history. Set up repairs it.</p>
+								{:else}
+									<p class="text-xs text-muted-foreground">Epicenter will keep local history. You can connect a repository afterward.</p>
+								{/if}
+								{#if setup.found && setup.found.repository !== setup.found.folder}
+									<p class="text-xs text-muted-foreground">Inside repository {setup.found.repository}. Sync would transfer the whole repository.</p>
+								{/if}
+								{#if setup.found && setup.found.branch !== 'main'}
+									<p class="text-xs text-destructive">{setup.found.branch === null ? 'Detached HEAD' : `On branch ${setup.found.branch}`}; switch to main before setting up.</p>
+								{/if}
+								{#if setup.problem === 'not on disk'}
+									<p class="text-xs text-destructive">Folder is missing from disk.</p>
+								{/if}
 							</Item.Content>
 							<Item.Actions>
 								<Button
 									size="sm"
-									disabled={adding !== undefined}
+									disabled={adding !== undefined || setup.problem === 'not on disk' || (setup.found !== null && (setup.found.branch !== 'main' || (setup.found.repository !== setup.found.folder && !setup.found.adopted)))}
 									onclick={async () =>
 										warn(
 											(
@@ -224,7 +238,7 @@
 											)?.warnings,
 										)}
 								>
-									Set up
+									{setup.found?.remote ? 'Set up and sync' : 'Set up'}
 								</Button>
 								<Button
 									size="sm"
@@ -256,7 +270,7 @@
 						<Empty.Title>No folders sync yet</Empty.Title>
 						<Empty.Description>
 							Add a folder on this computer, or clone one of your repositories. Epicenter
-							commits, merges, and pushes it in the background.
+							commits local changes and exchanges them when a repository is connected.
 						</Empty.Description>
 					</Empty.Header>
 				</Empty.Root>
@@ -272,6 +286,10 @@
 									commands.syncFolderNow(folder.path),
 								)}
 							onShare={() => (sharing = folder)}
+								onConnect={() => {
+								connecting = folder;
+								connectSource = '';
+							}}
 							onForget={() =>
 								confirmationDialog.open({
 									title: `Stop syncing ${folder.name}?`,
@@ -319,6 +337,40 @@
 			/>
 			<Dialog.Footer>
 				<Button type="submit" disabled={cloneSource.trim() === ''}>Clone</Button>
+			</Dialog.Footer>
+		</form>
+	</Dialog.Content>
+</Dialog.Root>
+
+<Dialog.Root open={connecting !== undefined} onOpenChange={(open) => { if (!open) connecting = undefined; }}>
+	<Dialog.Content class="sm:max-w-md">
+		<Dialog.Header>
+			<Dialog.Title>Connect {connecting?.name} to a repository</Dialog.Title>
+			<Dialog.Description>
+				Epicenter will fetch, merge, and push this folder in the background after you connect it.
+			</Dialog.Description>
+		</Dialog.Header>
+		<form
+			class="flex flex-col gap-3"
+			onsubmit={async (event) => {
+				event.preventDefault();
+				const folder = connecting;
+				const source = connectSource.trim();
+				if (folder === undefined || source === '') return;
+				connecting = undefined;
+				await act({ folder: folder.path, what: 'Connecting…' }, () =>
+					commands.connectSyncedFolder(folder.path, source),
+				);
+			}}
+		>
+			<Input
+				aria-label="Repository"
+				placeholder="'~/name', owner/name, or a URL"
+				bind:value={connectSource}
+				required
+			/>
+			<Dialog.Footer>
+				<Button type="submit" disabled={connectSource.trim() === ''}>Connect</Button>
 			</Dialog.Footer>
 		</form>
 	</Dialog.Content>

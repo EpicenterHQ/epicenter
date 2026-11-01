@@ -104,6 +104,7 @@ macro_rules! shell_commands {
             synced_folders::accept_folder_setup,
             synced_folders::dismiss_folder_setup,
             synced_folders::clone_synced_folder,
+            synced_folders::connect_synced_folder,
             synced_folders::sync_folder_now,
             synced_folders::forget_synced_folder,
             synced_folders::folder_sharing,
@@ -879,12 +880,13 @@ mod tests {
     /// other window may do any of it.
     #[test]
     fn the_folders_window_manages_synced_folders_without_folder_commands() {
-        const FOLDERS_ONLY: [&str; 11] = [
+        const FOLDERS_ONLY: [&str; 12] = [
             "allow-synced-folders",
             "allow-add-synced-folder",
             "allow-accept-folder-setup",
             "allow-dismiss-folder-setup",
             "allow-clone-synced-folder",
+            "allow-connect-synced-folder",
             "allow-sync-folder-now",
             "allow-forget-synced-folder",
             "allow-folder-sharing",

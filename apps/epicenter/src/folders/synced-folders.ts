@@ -42,21 +42,30 @@ export function describeSync(folder: SyncedFolder, now: number): SyncLine {
 			detail: null,
 		};
 	const last = folder.last;
-	if (last === null)
-		return {
-			tone: 'waiting',
-			label: 'Waiting for the first sync',
-			detail: null,
-		};
-	if (last.status !== 'synced')
+	if (last !== null && last.status !== 'synced')
 		return {
 			tone: last.status,
 			label: ROUND[last.status],
 			detail: last.message ?? null,
 		};
+	if (folder.remote !== null && folder.ahead === null)
+		return {
+			tone: 'waiting',
+			label: `Not synced with ${remoteName(folder.remote)} yet`,
+			detail: null,
+		};
+	if (last === null)
+		return {
+			tone: 'waiting',
+			label:
+				folder.remote === null
+					? 'Waiting for the first local save'
+					: 'Waiting for the first sync',
+			detail: null,
+		};
 	return {
 		tone: 'synced',
-		label: `Synced ${ago(last.endedAt ?? now, now)}`,
+		label: `${folder.remote === null ? 'Saved on this computer' : 'Synced'} ${ago(last.endedAt ?? now, now)}`,
 		detail:
 			folder.changes === 0
 				? null

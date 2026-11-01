@@ -44,14 +44,10 @@ export const commands = {
 	/**  The folders the CLI registered, each with its last round. */
 	syncedFolders: () => typedError<SyncedFolderListing, CliError>(__TAURI_INVOKE("synced_folders")),
 	/**
-	 *  Choose a folder with the native picker and set it up for sync: `None`
+	 *  Choose a folder with the native picker and queue a setup preview: `None`
 	 *  when the person cancelled.
 	 */
-	addSyncedFolder: () => typedError<{
-	folder: string,
-	changed?: string[],
-	warnings?: string[],
-} | null, CliError>(__TAURI_INVOKE("add_synced_folder")),
+	addSyncedFolder: () => typedError<string | null, CliError>(__TAURI_INVOKE("add_synced_folder")),
 	/**
 	 *  Set up the folder an `epicenter://init` link asked for. A refusal keeps
 	 *  the request, so the person can read why and dismiss it.
@@ -64,6 +60,8 @@ export const commands = {
 	 *  into the library folder, set up and registered.
 	 */
 	cloneSyncedFolder: (source: string) => typedError<FolderSetUp, CliError>(__TAURI_INVOKE("clone_synced_folder", { source })),
+	/**  Attach an enrolled folder to an origin through the CLI. */
+	connectSyncedFolder: (path: string, source: string) => typedError<null, CliError>(__TAURI_INVOKE("connect_synced_folder", { path, source })),
 	/**  One round of `epicenter sync <path>` now, kept as the folder's last. */
 	syncFolderNow: (path: string) => typedError<SyncRound, CliError>(__TAURI_INVOKE("sync_folder_now", { path })),
 	/**  `epicenter forget <path>`: stop syncing it, leaving its files and history. */
@@ -250,6 +248,15 @@ export type DownloadProgress = {
 	totalBytes: number | null,
 };
 
+/**  Git state shown before a person accepts a setup request. */
+export type FolderFound = {
+	folder: string,
+	repository: string,
+	branch: string | null,
+	remote: string | null,
+	adopted: boolean,
+};
+
 /**  What `epicenter init` or `clone` did. */
 export type FolderSetUp = {
 	folder: string,
@@ -257,14 +264,11 @@ export type FolderSetUp = {
 	warnings?: string[],
 };
 
-/**  A folder an `epicenter://init` link asked to sync. */
-export type FolderSetup = {
+export type FolderSetupPreview = {
 	path: string,
-	/**
-	 *  The contract the link named, shown to the person. `epicenter init`
-	 *  takes no contract yet (decision 64).
-	 */
 	contract: string | null,
+	found: FolderFound | null,
+	problem: string | null,
 };
 
 export type GrantLevel = "read" | "write";
@@ -358,7 +362,7 @@ export type SyncedFolder = {
 export type SyncedFolderListing = {
 	folders: SyncedFolder[],
 	service: SyncService,
-	setups: FolderSetup[],
+	setups: FolderSetupPreview[],
 };
 
 /**

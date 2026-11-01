@@ -16,6 +16,7 @@
 		busy,
 		onSync,
 		onShare,
+		onConnect,
 		onForget,
 	}: {
 		folder: SyncedFolder;
@@ -24,6 +25,7 @@
 		busy: string | undefined;
 		onSync: () => void;
 		onShare: () => void;
+		onConnect: () => void;
 		onForget: () => void;
 	} = $props();
 
@@ -42,7 +44,7 @@
 	<Item.Content class="min-w-0">
 		<Item.Title class="w-full min-w-0">
 			<span class="truncate">{folder.name}</span>
-			<span class="truncate text-xs font-normal text-muted-foreground">
+			<span class="truncate text-xs font-normal text-muted-foreground" title={folder.remote ?? undefined}>
 				{remoteName(folder.remote)}
 			</span>
 		</Item.Title>
@@ -84,6 +86,9 @@
 				{/snippet}
 			</DropdownMenu.Trigger>
 			<DropdownMenu.Content align="end">
+				{#if folder.remote === null && folder.problem === null}
+					<DropdownMenu.Item onclick={onConnect}>Connect to a repository…</DropdownMenu.Item>
+				{/if}
 				<DropdownMenu.Item disabled={folder.remote === null} onclick={onShare}>
 					Sharing…
 				</DropdownMenu.Item>

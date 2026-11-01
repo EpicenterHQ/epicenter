@@ -73,6 +73,15 @@ describe('describeSync', () => {
 		});
 	});
 
+	test('a local round says saved, while a newly attached origin waits for remote sync', () => {
+		expect(
+			describeSync(folder({ remote: null, last: round() }), NOW).label,
+		).toBe('Saved on this computer 2 min ago');
+		expect(
+			describeSync(folder({ ahead: null, last: round() }), NOW).label,
+		).toBe('Not synced with me/notes yet');
+	});
+
 	test('changes made since a synced round are not synced yet', () => {
 		expect(
 			describeSync(folder({ last: round(), changes: 3 }), NOW).detail,

@@ -209,8 +209,8 @@ capability, `folders.json`, grants no folder plugin command.
 the global Git configuration's `epicenter.folder`, and joins each line with
 that folder's last round of `epicenter sync --json`. A row shows the folder's
 name, where it syncs to (the `origin`'s `<owner>/<name>`, or "This computer
-only" when it has none), and its last round in the CLI's own words: synced, with any changes
-not yet synced; will try again; or stopped, with the CLI's message. A
+only" when it has none), and its last round: synced with a remote, saved
+locally without one, waiting, retrying, or stopped. A
 registered folder the CLI cannot read shows why: missing from disk, not a Git
 repository, or a repository `epicenter init` has not adopted. The shell keeps
 rounds and requests in memory for this run and saves nothing.
@@ -238,12 +238,14 @@ however the app ends, and `sync --watch --desktop` stops when it does.
 
 ### Folder actions
 
-Every action runs one CLI command with `--json --desktop`,
-then the window lists again:
+Actions use the same CLI verbs as a person at a terminal. The window lists
+again after each one:
 
 | Action | Command | CLI call |
 | --- | --- | --- |
-| **Add folder** | `add_synced_folder` | The native folder picker, shown and answered in Rust, then `epicenter init <dir>` |
+| **Add folder** | `add_synced_folder` | The native folder picker queues a setup preview; it changes no repository |
+| **Set up** | `accept_folder_setup(path)` | `epicenter init <dir>` after the preview |
+| **Connect to a repository…** | `connect_synced_folder(path, source)` | `epicenter connect <dir> <source>`; the watcher then syncs |
 | **Clone** | `clone_synced_folder(source)` | `epicenter clone <owner>/<name>` or `epicenter clone <url>`, into the Epicenter folder |
 | **Sync now** | `sync_folder_now(path)` | `epicenter sync <dir>`, kept as the folder's last round |
 | **Stop syncing…** | `forget_synced_folder(path)` | `epicenter forget <dir>`, after a confirmation; files and history stay |
@@ -257,7 +259,8 @@ Before `epicenter init`, a folder that already exists must be a real
 directory holding none of Epicenter's own files, so neither the records nor
 the library root becomes a repository.
 `init` and `clone` report warnings, such as a missing command link, beside the
-list. **Sharing…** is offered for a folder with a remote.
+list. **Connect to a repository…** is offered for a folder without a remote;
+**Sharing…** is offered for one with a remote.
 
 ### Requests to sync a folder
 
@@ -269,7 +272,8 @@ separator, and the contract must be an `https:` or `http:` URL or an absolute
 path (`parse_init_link`). Any other link is ignored.
 
 Receiving the link only queues the request, once per path, and shows the
-Folders window. The window shows the path and, when given, the contract.
+Folders window. **Add folder** uses the same queue. The window shows the
+path, any contract, and existing Git branch and origin before setup.
 **Set up** (`accept_folder_setup`) runs `epicenter init <dir>`; a failure keeps
 the request so the person can read why and dismiss it. **Dismiss**
 (`dismiss_folder_setup`) drops it without reading the folder. The contract is

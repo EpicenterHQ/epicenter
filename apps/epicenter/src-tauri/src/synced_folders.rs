@@ -8,9 +8,10 @@
 //!   long as the app runs. Each round it prints `{"sync": {...}}` per folder;
 //!   the last round of each folder is kept here and the Folders window hears
 //!   `SYNCED_FOLDERS_CHANGED`.
-//! - Adding a folder is the native picker, then `epicenter init <dir>`;
-//!   cloning is `epicenter clone`; forgetting is `epicenter forget`; sharing
-//!   is `epicenter share` and `unshare`. Each change to the set of folders
+//! - Adding a folder queues a preview after the native picker; accepting
+//!   runs `epicenter init <dir>`. Connecting runs `epicenter connect`;
+//!   cloning runs `epicenter clone`; forgetting runs `epicenter forget`.
+//!   Each change to the set of folders
 //!   restarts the service, so `--watch` watches the new set. The run it
 //!   replaces finishes the round under way before it exits (`cli::STOP_GRACE`),
 //!   and the new run's round waits for it on the repository's sync lock, so
@@ -124,13 +125,33 @@ pub struct FolderSetup {
     pub contract: Option<String>,
 }
 
+/// Git state shown before a person accepts a setup request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderFound {
+    pub folder: String,
+    pub repository: String,
+    pub branch: Option<String>,
+    pub remote: Option<String>,
+    pub adopted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderSetupPreview {
+    pub path: String,
+    pub contract: Option<String>,
+    pub found: Option<FolderFound>,
+    pub problem: Option<String>,
+}
+
 /// What the Folders window shows.
 #[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncedFolderListing {
     pub folders: Vec<SyncedFolder>,
     pub service: SyncService,
-    pub setups: Vec<FolderSetup>,
+    pub setups: Vec<FolderSetupPreview>,
 }
 
 /// What `epicenter init` or `clone` did.
@@ -225,7 +246,16 @@ impl SyncedFolders {
                 .map(|line| line.synced(state.rounds.get(line.folder()).cloned()))
                 .collect(),
             service: state.service.state.clone(),
-            setups: state.setups.clone(),
+            setups: state
+                .setups
+                .iter()
+                .map(|setup| FolderSetupPreview {
+                    path: setup.path.clone(),
+                    contract: setup.contract.clone(),
+                    found: None,
+                    problem: None,
+                })
+                .collect(),
         }
     }
 
@@ -317,6 +347,8 @@ enum StatusLine {
 #[derive(Debug, Clone, Deserialize)]
 struct FolderStatus {
     folder: String,
+    repository: String,
+    branch: Option<String>,
     adopted: bool,
     changes: Vec<serde_json::Value>,
     remote: Option<String>,
@@ -638,7 +670,28 @@ pub async fn synced_folders(webview: Webview) -> Result<SyncedFolderListing, Cli
         )));
     }
     let statuses = parse_status_lines(&lines)?;
-    Ok(webview.state::<SyncedFolders>().listing(&statuses))
+    let mut listing = webview.state::<SyncedFolders>().listing(&statuses);
+    for setup in &mut listing.setups {
+        let reply: serde_json::Value = cli::window_invocation(&webview)?
+            .desktop()
+            .answer(&["status", &setup.path, "--json"], None)
+            .await?;
+        let line = serde_json::to_string(&reply).map_err(|error| cli::failed(error.to_string()))?;
+        match parse_status_lines(&[line])?.pop() {
+            Some(StatusLine::Problem { problem, .. }) => setup.problem = Some(problem),
+            Some(StatusLine::Status(status)) => {
+                setup.found = Some(FolderFound {
+                    folder: status.folder,
+                    repository: status.repository,
+                    branch: status.branch,
+                    remote: status.remote,
+                    adopted: status.adopted,
+                })
+            }
+            None => return Err(cli::failed("epicenter status returned no setup preview")),
+        }
+    }
+    Ok(listing)
 }
 
 /// Run `epicenter init <path>`, then restart the service.
@@ -663,11 +716,11 @@ async fn init<R: Runtime>(webview: &Webview<R>, path: &str) -> Result<FolderSetU
     Ok(reply.init)
 }
 
-/// Choose a folder with the native picker and set it up for sync: `None`
+/// Choose a folder with the native picker and queue a setup preview: `None`
 /// when the person cancelled.
 #[tauri::command]
 #[specta::specta]
-pub async fn add_synced_folder(webview: Webview) -> Result<Option<FolderSetUp>, CliError> {
+pub async fn add_synced_folder(webview: Webview) -> Result<Option<String>, CliError> {
     let app = webview.app_handle().clone();
     let picked = tauri::async_runtime::spawn_blocking(move || {
         let folder_dir = app.state::<DesktopPaths>().folder_dir.clone();
@@ -691,7 +744,14 @@ pub async fn add_synced_folder(webview: Webview) -> Result<Option<FolderSetUp>, 
             message: format!("{path} is not a plainly spelled folder path."),
         });
     }
-    init(&webview, &path).await.map(Some)
+    admit(&webview.state::<DesktopPaths>(), &path)
+        .map_err(|message| CliError::Refused { message })?;
+    webview.state::<SyncedFolders>().request(FolderSetup {
+        path: path.clone(),
+        contract: None,
+    });
+    changed(webview.app_handle());
+    Ok(Some(path))
 }
 
 /// Set up the folder an `epicenter://init` link asked for. A refusal keeps
@@ -741,6 +801,24 @@ pub async fn clone_synced_folder(
         .await?;
     start_service(webview.app_handle());
     Ok(reply.cloned)
+}
+
+/// Attach an enrolled folder to an origin through the CLI.
+#[tauri::command]
+#[specta::specta]
+pub async fn connect_synced_folder(
+    webview: Webview,
+    path: String,
+    source: String,
+) -> Result<(), CliError> {
+    let path = webview.state::<SyncedFolders>().member(&path)?;
+    let source = argument(&source, "repository")?;
+    let _: serde_json::Value = cli::window_invocation(&webview)?
+        .desktop()
+        .answer(&["connect", &path, &source, "--json"], None)
+        .await?;
+    start_service(webview.app_handle());
+    Ok(())
 }
 
 /// One round of `epicenter sync <path>` now, kept as the folder's last.

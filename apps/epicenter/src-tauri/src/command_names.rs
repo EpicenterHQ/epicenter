@@ -17,6 +17,7 @@ pub const COMMANDS: &[&str] = &[
     "accept_folder_setup",
     "dismiss_folder_setup",
     "clone_synced_folder",
+    "connect_synced_folder",
     "sync_folder_now",
     "forget_synced_folder",
     "folder_sharing",

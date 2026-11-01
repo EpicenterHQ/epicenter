@@ -9,6 +9,7 @@
  * - Each row says its round in the CLI's words; Sync now runs one round and
  *   says so while it runs
  * - A request is set up or dismissed by its path
+ * - Local folders can connect; setup shows an existing origin and blocks a non-main branch
  * - A stopped service is said, with a way to start it again
  */
 import { describe, expect, mock, test } from 'bun:test';
@@ -63,6 +64,10 @@ describe.skipIf(!browser)('folders window', async () => {
 				calls.push(`setup:${path}`);
 				listing = { ...listing, setups: [] };
 				return ok({ folder: path, changed: [], warnings: ['no command link'] });
+			},
+			connectSyncedFolder: async (path: string, source: string) => {
+				calls.push(`connect:${path}:${source}`);
+				return ok(null);
 			},
 			dismissFolderSetup: async (path: string) => {
 				calls.push(`dismiss:${path}`);
@@ -210,6 +215,8 @@ describe.skipIf(!browser)('folders window', async () => {
 		const request = {
 			path: '/Users/me/Recorder',
 			contract: 'https://recorder.example/contract.json',
+			found: null,
+			problem: null,
 		};
 		listing = { folders: [], service: { state: 'running' }, setups: [request] };
 		const window = await open();
@@ -219,7 +226,7 @@ describe.skipIf(!browser)('folders window', async () => {
 			const card = window.target.querySelector(
 				'[aria-label="Requests to sync folders"]',
 			) as HTMLElement;
-			expect(card.textContent).toContain('Sync Recorder?');
+			expect(card.textContent).toContain('Set up Recorder?');
 			expect(card.textContent).toContain(request.path);
 			expect(card.textContent).toContain(request.contract);
 			window.button(card, 'Set up').click();
@@ -246,6 +253,77 @@ describe.skipIf(!browser)('folders window', async () => {
 				`setup:${request.path}`,
 				`dismiss:${request.path}`,
 			]);
+		} finally {
+			await window.close();
+		}
+	});
+
+	test('a local folder can choose a repository to connect', async () => {
+		calls.length = 0;
+		listing = {
+			folders: [{ ...folder('local', round()), remote: null }],
+			service: { state: 'running' },
+			setups: [],
+		};
+		const window = await open();
+		try {
+			subscribed(() => {});
+			await settle();
+			window.button(window.row('local'), 'More').click();
+			await settle();
+			const item = [...document.querySelectorAll('[role="menuitem"]')].find(
+				(item) => item.textContent?.includes('Connect to a repository'),
+			) as HTMLElement;
+			expect(item).toBeDefined();
+			item.click();
+			await settle();
+			const input = document.querySelector(
+				'input[aria-label="Repository"]',
+			) as HTMLInputElement;
+			expect(input).toBeDefined();
+			input.value = '~/local';
+			input.dispatchEvent(new Event('input', { bubbles: true }));
+			await settle();
+			window.button(document, 'Connect').click();
+			await settle();
+			expect(calls).toEqual(['connect:/f/local:~/local']);
+		} finally {
+			await window.close();
+		}
+	});
+
+	test('setup previews an existing origin and blocks a non-main branch', async () => {
+		const path = '/Users/me/Notes';
+		listing = {
+			folders: [],
+			service: { state: 'running' },
+			setups: [
+				{
+					path,
+					contract: null,
+					problem: null,
+					found: {
+						folder: path,
+						repository: path,
+						branch: 'feature',
+						remote: 'https://git.epicenter.so/me/notes.git',
+						adopted: false,
+					},
+				},
+			],
+		};
+		const window = await open();
+		try {
+			subscribed(() => {});
+			await settle();
+			const card = window.target.querySelector(
+				'[aria-label="Requests to sync folders"]',
+			) as HTMLElement;
+			expect(card.textContent).toContain(
+				'Already linked to https://git.epicenter.so/me/notes.git',
+			);
+			expect(card.textContent).toContain('On branch feature');
+			expect(window.button(card, 'Set up and sync').disabled).toBe(true);
 		} finally {
 			await window.close();
 		}
