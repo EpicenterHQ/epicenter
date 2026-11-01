@@ -14,7 +14,7 @@ against. Any program that writes the layout is a valid writer.
 | Path | What it is |
 | --- | --- |
 | `recordings/<id>.md` | A recording: `title`, `recordedAt`, `durationMs` in front matter, your notes in the body. |
-| `recordings/<id>.<ext>` | Its audio: `m4a` (AAC) or `webm` (Opus) from a browser, `webm` (Opus) from a desktop, or `wav` when a desktop could not encode one. |
+| `recordings/<id>.<ext>` | Its audio: `m4a` (AAC) or `webm` (Opus) from a browser, `webm` (Opus) from a desktop. |
 | `transcriptions/<id>.md` | A transcript: the `recordingId` it was made from, `createdAt`, `model`, `endpoint`; the transcript is the body. |
 | `transformations/<id>.md` | A transformation: a `title` and an optional `model` (`null` uses the text connection's); its instructions are the body. |
 | `transformation_runs/<id>.md` | A transformation applied to a transcript: what it came from, when, the model and endpoint, and the exact `prompt` and `input` sent; the answer is the body. |
@@ -276,15 +276,15 @@ build-time seams:
 whose desktop leaf went missing.
 
 - **Recording** goes through the shell's microphone
-  (`tauri-plugin-epicenter-recorder`), which writes a recording into the
-  data folder from the first sample and, after Stop answers, encodes it to
-  `recordings/<id>.webm` (about 24 s for an hour of speech; Home says
-  "Finishing…" meanwhile, and the next recording can start). The call is the
-  web build's, `startRecording({ device, path })` from `@epicenter/recorder`,
-  imported from `/tauri` here and `/browser` there (decision 84). The note,
-  with its length, is written once the audio is at its path
-  (`folder-recordings.ts`); a recording a quit or a crash cut off is encoded
-  and placed on the next launch and given its note there. The recorder names the data folder to the shell by
+  (`tauri-plugin-epicenter-recorder`), which encodes a recording to Opus
+  in WebM in the data folder from the first sample and places it at
+  `recordings/<id>.webm` when Stop answers, in the same few milliseconds
+  for a recording of any length. The call is the web build's,
+  `startRecording({ device, path })` from `@epicenter/recorder`, imported
+  from `/tauri` here and `/browser` there (decision 84). The note, with its
+  length, is written once Stop has answered (`folder-recordings.ts`); a
+  recording a quit or a crash cut off is finished and placed on the next
+  launch, before any page shows, and given its note there. The recorder names the data folder to the shell by
   the root the shell answered when the page opened it (`rootOf` from
   `@epicenter/folder/tauri`); the shell refuses any root the window did not
   open.

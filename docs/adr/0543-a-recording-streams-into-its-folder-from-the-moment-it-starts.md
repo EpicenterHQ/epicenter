@@ -4,8 +4,8 @@
 - **Date:** 2026-10-15
 - **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the full desktop app platform; only a local built-app runner over chosen data repositories remains, without source installation, build approvals, or general native services.
 - **Amended:** 2026-10-16, at "One interface, chosen by host": the bare `@epicenter/recorder` no longer chooses by `isTauri()`. It is the recording contract alone, and a build imports `/tauri` or `/browser` (Whispering through `#platform/workspace`), because the runtime branch was reached only by the type checker and tests while builds aliased it away.
-- **Amended by:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at "`recordings/<name>.wav`": the audio is written to `audio/<name>.wav`, and rows stay in `recordings/`; [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) at where a desktop recording is written while it records and how it reaches its path, and the 2026-11-01 amendments below: a WAV in `.epicenter/recordings` placed as Opus in WebM at stop, under a root that is always an absolute path.
-- **Unbuilt:** a real desktop run: the microphone permission prompt, a recording through the shell's recorder, and a quit mid-recording leaving a playable WAV once `recoverRecordings` runs.
+- **Amended by:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at "`recordings/<name>.wav`": the audio is written to `audio/<name>.wav`, and rows stay in `recordings/`; [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) at where a desktop recording is written while it records and how it reaches its path, and the 2026-11-01 amendments below: Opus in WebM from the first sample in `.epicenter/recordings`, finished and placed at stop, under a root that is always an absolute path.
+- **Unbuilt:** a real desktop run: the microphone permission prompt, a recording through the shell's recorder, and a quit mid-recording leaving a playable recording once `recoverRecordings` runs.
 
 ## Context
 
@@ -89,7 +89,7 @@ path in this browser's private storage, which nothing syncs.
 
 ## Amendment, 2026-11-01: a stopped desktop recording is Opus in WebM
 
-[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states where the WAV and its encode live and how the result is placed; the encoding and the container below stand.
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states where the WAV and its encode live and how the result is placed; the encoding and the container below stand. The last amendment below replaces the WAV and the encode at `stop`: the recording is Opus in WebM from its first sample.
 
 While it records, a desktop recording is still the WAV in
 `.epicenter/recording/<path>.wav`, so a quit or a crash keeps every sample
@@ -171,3 +171,26 @@ encode, and where the audio is follows as `placed`. Whispering writes a
 recording's note once, when `placed` resolves, and its next start gives
 audio no note names a note of its own, the one way a cut-off recording is
 completed.
+
+## Amendment, 2026-11-01: a desktop recording is Opus in WebM from its first sample
+
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
+
+The shell no longer writes a WAV. It encodes each 20 ms to Opus as it is
+captured, with the encoder and the container of the amendment above, and
+writes `.epicenter/recordings/<path>.webm` a second at a time: each
+one-second Cluster is written whole, with its size, once the next packet
+does not fit, so the file is always whole seconds. `stop` finishes it in
+place (the last second, the Cues, the Duration, and last the Segment's
+size) and places it at `<path>.webm`, in the same few milliseconds for a
+recording of any length, and answers `{ path, durationMs }`; nothing
+follows it, so `placed` and Whispering's "Finishing…" are gone. A crash
+loses at most the second held in memory, which recovery cannot have, and
+`recoverRecordings` finishes what reached the disk from its whole seconds
+and places it; a leftover whose path is already taken was placed before
+the cut, and is deleted. Recovery no longer encodes, so nothing needs one
+recording to encode to the same bytes twice, and a recording is never
+placed beside a taken path. There is no WAV to fall back on: an encoder
+that cannot start fails the recording at Start. A cut-off file reads wrong
+until it is finished, so recovery runs before an app lists, plays, or
+transcribes a recording.

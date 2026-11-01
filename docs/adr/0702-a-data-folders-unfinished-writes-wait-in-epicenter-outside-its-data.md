@@ -77,11 +77,11 @@ there finishes at its real path, or the next open recovers or removes it.
 
 ```txt
 <root>/.epicenter/
-├── saves/        a save's bytes before their rename, and a stopped recording's
-│                 encode before it is placed; always safe to delete when no app runs
+├── saves/        a save's bytes before their rename; always safe to delete
+│                 when no app runs
 └── recordings/   a desktop recording from its first sample, at its own path
-                  (<stem>.wav), until stop or recovery; may hold audio until the
-                  app opens once
+                  (<stem>.webm), until stop or recovery; may hold audio until
+                  the app opens once
 ```
 
 - One module per language spells the layout:
@@ -100,7 +100,7 @@ there finishes at its real path, or the next open recovers or removes it.
   a grant they chose, files other programs make there inherit it, and
   Epicenter's inherit it too. Either directory is refused when it is a link
   or not a directory.
-- A recording's WAV is created with `create_new` under `recordings/`, so
+- A recording's file is created with `create_new` under `recordings/`, so
   nothing already at its name is written through.
 - Opening a folder removes, from `saves/` alone, regular files with a stager's
   scratch name more than an hour old (`storage::sweep_scratch`,
@@ -176,26 +176,39 @@ recorder, and transcription plugins takes the root `open_folder` answered
 (`rootOf(device)`); none falls back to the window's own directory. So a
 folder's `.epicenter` is always at that folder's root.
 
-**A desktop recording is a WAV in `.epicenter/recordings` until it stops, and
-Opus in WebM at its path after.**
+**A desktop recording is Opus in WebM from its first sample: in
+`.epicenter/recordings` until it stops, at its path after.**
 
-- `startRecording({ device, path })` refuses when `<path>.webm` or
-  `<path>.wav` exists, then creates `.epicenter/recordings/<path>.wav` before
-  the microphone opens and writes it from the first sample.
-- `stop` finalizes the WAV and answers `{ durationMs, placed }` without
-  waiting for the encode (about 24 s for an hour of speech). The shell then
-  encodes it once to Opus in WebM, in a scratch file in `saves/`, on a thread
-  of its own, places that at `<path>.webm`, and then removes the WAV; until
-  then the WAV is held from recovery. `placed` resolves with `{ path }` once
-  it is there. When encoding fails, the WAV itself is placed at `<path>.wav`
-  and `placed` says why (`unencoded`); when it cannot be placed, `placed` is
-  an error and the WAV stays for recovery. A quit during the encode leaves
-  the WAV, which recovery encodes again. `start` answers no path.
-- After a quit or a crash, `recoverRecordings({ device, under })` repairs each
-  WAV under `.epicenter/recordings/<under>` and settles it the same way,
-  placing it at `<stem>-recovered[-n]` beside a taken path. It answers
-  `{ path, durationMs }` for each, with `durationMs` null for a leftover that
-  is not a WAV.
+- `startRecording({ device, path })` refuses when `<path>.webm` exists, then
+  creates `.epicenter/recordings/<path>.webm` before the microphone opens.
+  The shell encodes each 20 ms as it is captured and writes the file a
+  second at a time: each one-second Cluster is held in memory until it is
+  whole, then written with its size in one write, so the file is always
+  whole seconds and nothing in it is written back while it records. Its
+  length (the Segment's size, the Duration, the Cues) stays unstated.
+- `stop` finishes the file in place (the last second, its padding trimmed,
+  the Cues, the Duration, and last the Segment's size, flushed to the disk
+  first, so a stated size marks a finished file), places it at
+  `<path>.webm` without replacing anything there, and answers
+  `{ path, durationMs }`. This is the same few milliseconds for a recording
+  of any length: nothing is encoded at Stop. A file it cannot place stays
+  in `.epicenter/recordings`, and `stop` says why. `start` answers no path.
+- A quit or a crash loses at most the second held in memory and the
+  encoder's 6.5 ms lookahead. `recoverRecordings({ device, under })` is the
+  gate: a page runs it when it opens its folder, before it lists, plays, or
+  transcribes a recording, because a cut-off file reads wrong (no length in
+  a player, a torn block in the transcription decoder) until it is
+  finished. It finishes each leftover under `.epicenter/recordings/<under>`
+  from its whole seconds, dropping a torn one at its end, and places it as
+  `stop` does; a file whose Segment states its size is left as it is, so a
+  second run writes nothing. A leftover whose path already holds a file is
+  deleted, never placed beside it: a recording is finished before it is
+  placed, so a leftover there was placed before the cut. A leftover holding
+  no whole second holds no audio and is deleted too. It answers
+  `{ path, durationMs }` for each placed, from the length its file states.
+- A disk that fills ends the capture (`storageFailed`): the second that did
+  not fit is cut back off the file, and `stop` finishes what reached it, or,
+  when even that does not fit, says so and leaves the file for recovery.
 - In a browser, `@epicenter/recorder/browser` appends each MediaRecorder piece
   to `<path>.m4a` or `<path>.webm` in the origin's private files, and
   `recoverRecordings` cuts a file a closed tab left back to its last whole
@@ -237,7 +250,12 @@ one word both landed.
 - Deleting `.epicenter` while no app runs can lose a cut-off recording;
   deleting `saves/` alone loses nothing.
 - `epicenter sync` never commits a half-written recording, and its watch is
-  not woken by a recording's header rewrite, about once a second.
+  not woken by a recording's writes, about once a second.
+- A desktop recording costs its CPU while it records (about half a second of
+  one core a minute of audio) instead of at Stop, and a crash loses up to
+  about a second where a WAV lost at most its last buffered quarter second.
+  There is no WAV to fall back on: an encoder that cannot start fails the
+  recording at Start.
 
 ## Considered alternatives
 
@@ -266,3 +284,16 @@ one word both landed.
 - **Staging outside the folder** (beside it, or in AppData): a rename from
   another file system is not one step, and saving made files outside the
   folder.
+- **A WAV while it records, encoded to WebM at Stop** (built in `84320e900a`,
+  `8ac9e0e143` and `e5c7a8803a`, replaced since): a crash lost at most a quarter second,
+  and a WAV the encoder refused could be kept as it was, but Stop took
+  about 24 s for an hour of speech, so the page answered first and said
+  "Finishing…" while a thread encoded; recovery repaired a header and
+  encoded again, and a taken path got a `-recovered` copy, which needed the
+  encode to be byte-for-byte repeatable.
+- **Writing each packet as it is encoded** (a Cluster of unknown size,
+  sized once it is full, with recovery keeping a torn Cluster's whole
+  blocks): a crash would lose only the encoder's 6.5 ms lookahead, but it
+  writes back into the file every second and recovery must read torn
+  Clusters. Holding each second until it is whole loses at most that
+  second, a small, rare loss the test above accepts.

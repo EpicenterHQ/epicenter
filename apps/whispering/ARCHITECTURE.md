@@ -95,37 +95,42 @@ recorder asks for AAC in MP4 first and Opus in WebM second, and appends each
 piece (about a second) to `recordings/<id>.m4a` or `.webm` in this browser's
 files as it arrives. On the desktop it is the shell's microphone
 (`platform/microphone.tauri.ts`, over `@epicenter/recorder/tauri`), which
-writes a WAV from the first sample in the folder's `.epicenter/recordings`
-and, after it stops, encodes it to Opus in WebM at `recordings/<id>.webm`
-(`recordings/<id>.wav` when the encoder refuses it).
+encodes Opus into a WebM from the first sample in the folder's
+`.epicenter/recordings`, a second at a time, and at Stop finishes it and
+places it at `recordings/<id>.webm`.
 
 A recording has no note while it records: the record screen
 (`RecorderCard.svelte`) shows the take. Stop releases the microphone and
-answers how long the audio plays; the note (`title` from the start time,
-`recordedAt`, `capture`, `durationMs`) is written once, when the audio is
-at its path (`keepRecording` in `folder-recordings.ts`), so the library
-gains the row then and every note names audio that is there. In a browser
-that is at once. On the desktop the shell encodes after Stop answered
-(about 24 s for an hour of speech): the record screen says "Finishing…"
-(`whispering.finishing`) meanwhile, and the next recording can start. A
-recording that wrote no audio (the store refused it, or nothing was
-captured), or whose audio could not be placed, leaves no note.
+answers once the audio is at its path, with how long it plays; the note
+(`title` from the start time, `recordedAt`, `capture`, `durationMs`) is
+written then (`keepRecording` in `folder-recordings.ts`), so the library
+gains the row then and every note names audio that is there. On the
+desktop Stop finishes the file and places it in the same few milliseconds
+for a recording of any length, so nothing waits after Stop. A recording
+that wrote no audio (the store refused it, or nothing was captured), or
+whose audio could not be placed, leaves no note.
 Recording never waits on the network. Where the browser keeps no files (a
 private window) the recorder refuses before any microphone opens.
 
 A quit, a crash, or a closed tab leaves audio that no note names. Each
 start first gives it one (`finishCutOffRecordings`), the only path by which
 a cut-off recording reaches the library: `capture.recover(unnamed)` repairs
-it (a WAV header on the desktop, then the encode Stop would have done,
-placed beside a taken path as `<id>-recovered.webm`; an `m4a` or `webm` cut
-back to its last whole piece in a browser, skipping one another tab is
-still writing) and answers each recording whose audio is whole at its path,
+it (on the desktop finished from its whole seconds, as Stop would have,
+and placed at its path, or deleted when its path already holds the file
+placed before the cut; an `m4a` or `webm` cut back to its last whole piece
+in a browser, skipping one another tab is still writing) and answers each
+recording whose audio is whole at its path,
 and each one no note names gets a note titled "Recovered recording", its
 length the one recovery answered or read from the audio
 (`audioDurationMs`). In a browser nothing is read for repair unless some
 audio has no note; on the desktop, where a cut-off recording waits outside
 its path, recovery always looks, and audio at its path is finished (one
 the shell placed after its page left, or whose note was never written).
+Starting runs this before the app shows any page (`WhisperingApp` awaits
+`whispering.start()`), and a desktop cut-off recording is at no data path
+until recovery has finished it, so nothing lists, plays, or transcribes one
+first: such a file reads wrong (no length in a player, a torn block in the
+transcription decoder) until it is finished.
 
 The microphone choice, its test, and Enable microphones belong to
 `microphone-input.svelte.ts`: one owner of at most one open microphone,

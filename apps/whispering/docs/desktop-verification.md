@@ -250,11 +250,12 @@ Not done, and needed before this can be called accepted on the desktop:
   invoke the owner at all: that Tauri's IPC is reachable under the page's
   content security policy, and that the owner's events arrive.
 - Record, play, transcribe, transform, quit, and reopen against a disposable
-  folder. Confirm the microphone permission prompt, that the WAV in
-  `.epicenter/recordings/recordings/<id>.wav` grows while recording, that
-  Stop leaves `recordings/<id>.webm` and no WAV, and that quitting
-  mid-recording leaves a WAV that becomes a `.webm` playing to the cut once
-  the folder reopens and `recoverRecordings` runs.
+  folder. Confirm the microphone permission prompt, that
+  `.epicenter/recordings/recordings/<id>.webm` grows about once a second
+  while recording, that Stop leaves `recordings/<id>.webm` at once and
+  nothing in `.epicenter/recordings`, and that quitting mid-recording leaves
+  a file that becomes `recordings/<id>.webm`, playing to within a second of
+  the cut, once the folder reopens and `recoverRecordings` runs.
 - Exercise both debug recording-write failures in the window, confirming an
   obstructed row leaves the recording running with its audio saved and no
   row, with the folder's own message for the row.
