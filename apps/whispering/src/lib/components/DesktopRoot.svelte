@@ -1,8 +1,8 @@
 <!--
 	The desktop window's root over its two open roots, each wrapped once for
 	Svelte here. It sets the folder's sync for the header and Settings
-	(`setFolderSync`): its path, whether Epicenter syncs it, Sync with
-	Epicenter, and Choose data folder…, which remembers the choice in the
+	(`setFolderSync`): its path, whether Epicenter manages local history,
+	Set up in Epicenter, and Choose data folder…, which remembers the choice in the
 	AppData root's `settings.md`. It holds the global shortcut that
 	`shortcuts.md` resolves to, from both roots (`setGlobalShortcut`). The
 	app over the folder is `children`, given the data folder wrapped here,

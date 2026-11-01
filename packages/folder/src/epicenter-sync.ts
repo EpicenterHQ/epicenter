@@ -56,9 +56,10 @@ export async function syncWithEpicenter({
 }
 
 /**
- * Whether Epicenter syncs the folder at `path`: true once `epicenter init`
- * set it up (its `.git/config` names it as `epicenter.root`). Asks again
- * each call, since that can happen while the app is open.
+ * Whether Epicenter has adopted the folder at `path` for local history:
+ * true once `epicenter init` set `epicenter.root`. The historical method
+ * name does not imply that an origin exists or that a remote sync succeeded.
+ * Asks again each call, since setup can happen while the app is open.
  */
 export async function syncedWithEpicenter({
 	path,

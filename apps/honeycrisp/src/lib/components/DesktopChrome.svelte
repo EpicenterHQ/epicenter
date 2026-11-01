@@ -1,6 +1,6 @@
 <!--
 	The desktop window's header account of its store: Honeycrisp's folder on
-	this computer, whether Epicenter syncs it, Sync with Epicenter until it
+	this computer, whether Epicenter manages it, Set up in Epicenter until it
 	does, and Choose data folder… (decisions 81 and 88). It never signs in.
 -->
 <script lang="ts">
@@ -20,7 +20,7 @@
 
 	const status = $derived.by((): StatusLine => {
 		if (unreadable !== null) return { label: 'Not readable here', detail: unreadable.message, tone: 'error' };
-		if (sync.synced) return { label: 'Synced by Epicenter', tone: 'good' };
+		if (sync.managed) return { label: 'Kept by Epicenter', tone: 'good' };
 		return { label: 'On this computer', tone: 'neutral' };
 	});
 </script>
@@ -30,10 +30,10 @@
 		<span class="font-medium" data-testid="status-where">This computer</span>
 		<span class="mt-0.5 block break-all text-xs text-muted-foreground" data-testid="status-folder">{sync.path}</span>
 		<span class="mt-0.5 block text-xs text-muted-foreground">
-			{#if sync.synced}
-				Epicenter keeps its history and syncs it.
+			{#if sync.managed}
+				Epicenter keeps its local history. Connect a repository there to use it on other devices.
 			{:else}
-				Plain Markdown files. Sync with Epicenter to keep their history and use them elsewhere.
+				Plain Markdown files. Set up Epicenter to keep their history, then connect a repository to use them elsewhere.
 			{/if}
 		</span>
 	</StatusRow>

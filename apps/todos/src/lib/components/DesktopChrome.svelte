@@ -1,6 +1,6 @@
 <!--
 	The desktop window's header account of its store: Todos' folder on this
-	computer, whether Epicenter syncs it, Sync with Epicenter until it does,
+	computer, whether Epicenter manages it, Set up in Epicenter until it does,
 	and Choose data folder… (decisions 81 and 88). It never signs in.
 -->
 <script lang="ts">
@@ -20,7 +20,7 @@
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
 		if (unreadable !== null) return { label: 'Not readable here', detail: unreadable.message, tone: 'error' };
-		if (sync.synced) return { label: 'Synced by Epicenter', tone: 'good' };
+		if (sync.managed) return { label: 'Kept by Epicenter', tone: 'good' };
 		return { label: 'On this computer', tone: 'neutral' };
 	});
 </script>
@@ -30,10 +30,10 @@
 		<span class="font-medium" data-testid="status-where">This computer</span>
 		<span class="mt-0.5 block break-all text-xs text-muted-foreground">
 			{sync.path}.
-			{#if sync.synced}
-				Epicenter syncs it to your repository.
+			{#if sync.managed}
+				Epicenter keeps its local history. Connect a repository in Epicenter to use it on other devices.
 			{:else}
-				Sync with Epicenter to keep it in your repository too.
+				Set it up in Epicenter to keep its history and connect a repository.
 			{/if}
 		</span>
 	</StatusRow>

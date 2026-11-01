@@ -86,8 +86,8 @@ are, and remembers it. The todos stay when the app is removed.
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
 (`openDataFolder(todos, { appData })`) with no sign-in: Todos makes no
-inference calls, and Epicenter syncs the folder. Its header says whether
-Epicenter syncs the folder, offers **Sync with Epicenter** until it does
+inference calls, and Epicenter can keep the folder's local history. Its header
+says whether Epicenter manages the folder, offers **Set up in Epicenter** until it does
 (`syncWithEpicenter({ path, contract })`, the contract at `APPS.TODOS.url`'s
 `contract.json`), and holds **Choose data folder…** in the status details,
 which waits for saves before it switches. Closing the window or quitting
@@ -139,7 +139,7 @@ client of their own; only the variant's root chooses the store.
 | `src/lib/contract.ts` | The contract. |
 | `src/lib/todos.ts` | A todo's file, label and order (open first, then done, each oldest first), and the list's context. |
 | `src/lib/components/OnlineRoot.svelte`, `Online.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account (`setRepo`); the header's status and account. |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the roots set for every page (`setAppData`, `setDevice`); the header's sync status, Sync with Epicenter, and Choose data folder…. |
+| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the roots set for every page (`setAppData`, `setDevice`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
 | `src/lib/folder.tauri.ts` | The desktop window's settings contract, typed contexts (`getAppData`, `getDevice`), and where the contract is published. |
 | `src/lib/components/TodosApp.svelte` | The header, the list, and the open todo, over the todos it is given. |
 

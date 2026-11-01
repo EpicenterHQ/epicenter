@@ -93,7 +93,7 @@ folder:
 <!-- DesktopRoot.svelte: setAppData(fromClient(appData)), setDevice(fromClient(device)),
      setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL })) -->
 <!-- The header -->
-<FolderSyncActions sync={getFolderSync()} /> <!-- Sync with Epicenter until it does -->
+<FolderSyncActions sync={getFolderSync()} /> <!-- Set up in Epicenter until it manages local history -->
 <Button onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
 ```
 

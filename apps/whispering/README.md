@@ -258,8 +258,8 @@ person picks, and persisted-scope keeps it. A folder that is missing, not allowe
 shows the recovery screen (`@epicenter/svelte/desktop-startup`), never another
 folder silently. **Choose data folder…**, in the status details and in
 Settings, opens another folder with its files where they are and remembers
-it. Epicenter syncs the folder once the person presses **Sync with
-Epicenter**; Whispering never syncs it.
+it. **Set up in Epicenter** enrolls the folder for local history; connecting a
+repository there enables transfer. Whispering never syncs it itself.
 
 The pages are the web app's, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), with what differs behind

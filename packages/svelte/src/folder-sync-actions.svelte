@@ -1,6 +1,6 @@
 <!--
 	A desktop app's header actions for its folder: the last request's answer,
-	and "Sync with Epicenter" until Epicenter syncs the folder.
+	and "Set up in Epicenter" until Epicenter manages the folder.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -18,6 +18,6 @@
 		{sync.request.message}
 	</p>
 {/if}
-{#if !sync.synced}
-	<Button variant="outline" size="sm" disabled={sync.asking} onclick={() => sync.syncWithEpicenter()}>Sync with Epicenter</Button>
+{#if !sync.managed}
+	<Button variant="outline" size="sm" disabled={sync.asking} onclick={() => sync.requestSetup()}>Set up in Epicenter</Button>
 {/if}

@@ -1,8 +1,8 @@
 /**
  * A standalone desktop app's data folder in its page (decisions 81, 88 to
- * 94): its path as the shell opened it (`rootOf`), whether Epicenter syncs
+ * 94): its path as the shell opened it (`rootOf`), whether Epicenter manages
  * it, asked again whenever the window comes back (Epicenter may set it up
- * meanwhile), "Sync with Epicenter", and
+ * meanwhile), "Set up in Epicenter", and
  * "Choose data folder…", which waits for saves, lets the person pick a folder
  * in the native picker (which allows it), remembers it in the AppData
  * `settings.md`, and reloads the page over it, its files where they are.
@@ -46,14 +46,14 @@ export function folderSync({
 	contract: string;
 }) {
 	const path = rootOf(device);
-	let synced = $state(false);
+	let managed = $state(false);
 	let request = $state<{ tone: 'requested' | 'failed'; message: string }>();
 	let asking = $state(false);
 
-	/** Ask the shell again; a folder it cannot answer for counts as not synced. */
+	/** Ask the shell again; the native predicate reads Epicenter enrollment. */
 	async function check() {
 		const { data } = await syncedWithEpicenter({ path });
-		synced = data === true;
+		managed = data === true;
 	}
 
 	async function ask(action: () => Promise<FolderRequest>, requested?: string) {
@@ -74,9 +74,9 @@ export function folderSync({
 	return {
 		/** The data folder's path, as the shell opened it. */
 		path,
-		/** Whether Epicenter syncs the folder, as of the window's last focus. */
-		get synced() {
-			return synced;
+		/** Whether Epicenter manages local history, as of the last focus. */
+		get managed() {
+			return managed;
 		},
 		/** The last request's answer, to show beside the button, if any. */
 		get request() {
@@ -86,13 +86,13 @@ export function folderSync({
 		get asking() {
 			return asking;
 		},
-		syncWithEpicenter() {
+		requestSetup() {
 			void ask(async () => {
 				const { error } = await syncWithEpicenter({ path, contract });
 				return error === null
 					? { ok: true }
 					: { ok: false, message: error.message };
-			}, 'Asked your computer to open Epicenter. If it is installed, choose where to sync there.');
+			}, 'Asked your computer to open Epicenter. Set up the folder there, then connect a repository to use it on other devices.');
 		},
 		/** "Choose data folder…": this window's saves land first; the page reloads over the folder picked. */
 		chooseDataFolder() {

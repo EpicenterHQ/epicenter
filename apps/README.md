@@ -115,8 +115,8 @@ the person chose with "Choose data folder…", remembered as `folder` in the
 `settings.md` of the app's AppData directory. There is no first-run
 question. A development build's `productName` is "<App> Dev", so it keeps
 `~/Epicenter/<App> Dev` and an AppData of its own. A folder that cannot open
-shows a recovery screen, never another folder silently. Epicenter syncs the
-folder once the person presses Sync with Epicenter.
+shows a recovery screen, never another folder silently. **Set up in Epicenter**
+enrolls it for local history; connecting a repository there enables transfer.
 
 | App | Surfaces | Desktop folder | Contract |
 | --- | --- | --- | --- |

@@ -18,7 +18,7 @@ export type Variant = 'online' | 'desktop';
  * repository, signed in, on the web; the folder Capture keeps its files in
  * on the desktop, or its recovery screen. `store()` is that store, as the
  * pages read it. `Chrome` is the header's account of it: where the captures
- * are, and what can be done about it (sign out, or Sync with Epicenter).
+ * are, and what can be done about it (sign out, or Set up in Epicenter).
  */
 export type Platform = {
 	Startup: Component<{ children: Snippet }>;

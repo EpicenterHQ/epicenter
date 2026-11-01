@@ -119,7 +119,7 @@ a new root that sets its own store, and a header that says what it is.
 | `src/routes/(app)/+layout.svelte` | The variant's `Startup` (`#platform/root`), under a `<svelte:boundary>` whose `pending` is the UI kit's spinner. |
 | `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account. |
 | `src/lib/components/Online.svelte` | The repository (`setRepo`), per account. |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the roots set for every page (`setAppData`, `setDevice`); the header's sync status, Sync with Epicenter, and Choose data folder…. |
+| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the roots set for every page (`setAppData`, `setDevice`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
 | `src/lib/folder.tauri.ts` | The desktop window's typed contexts (`getAppData`, `getDevice`) and where the contract is published. |
 | `src/routes/(app)/+page.svelte` | Capture over the store's captures. |
 | `src/lib/components/CaptureApp.svelte` | The header and the page it shows, over the captures it is given. |
@@ -158,8 +158,8 @@ removed.
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
 (`openDataFolder(capture, { appData })`) with no sign-in: Capture makes no
-inference calls, and Epicenter syncs the folder. Its header says whether
-Epicenter syncs the folder, offers **Sync with Epicenter** until it does
+inference calls, and Epicenter can keep the folder's local history. Its header
+says whether Epicenter manages the folder, offers **Set up in Epicenter** until it does
 (`syncWithEpicenter({ path, contract })`, the contract at `APPS.CAPTURE.url`'s
 `contract.json`), and holds **Choose data folder…** in the status details,
 which waits for saves before it switches. Closing the window or quitting does

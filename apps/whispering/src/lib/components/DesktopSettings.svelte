@@ -1,6 +1,6 @@
 <!--
 	Settings only the desktop app has: the data folder Whispering keeps its
-	recordings in (where it is, Choose data folder…, Sync with Epicenter),
+	recordings in (where it is, Choose data folder…, Set up in Epicenter),
 	the models that transcribe on this computer, and the global shortcut.
 -->
 <script lang="ts">
@@ -64,7 +64,7 @@
 	<p class="break-all text-muted-foreground" data-testid="desktop-folder-path">{sync.path}</p>
 	<p class="text-muted-foreground">
 		Plain files: a Markdown note per recording beside its audio. Whispering never syncs them;
-		{#if sync.synced}Epicenter syncs this folder.{:else}Epicenter can, when you ask it to.{/if}
+		{#if sync.managed}Epicenter keeps this folder's local history.{:else}Epicenter can keep its history when you ask it to.{/if}
 	</p>
 	<div class="flex flex-wrap items-center gap-2">
 		<Button size="sm" variant="outline" disabled={sync.asking || recording} onclick={() => sync.chooseDataFolder()} data-testid="choose-data-folder">Choose data folder…</Button>

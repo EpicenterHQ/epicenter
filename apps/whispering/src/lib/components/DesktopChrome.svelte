@@ -1,6 +1,6 @@
 <!--
 	The desktop window's header account of its store: the data folder on
-	this computer, whether Epicenter syncs it, Sync with Epicenter until it
+	this computer, whether Epicenter manages it, Set up in Epicenter until it
 	does, and Choose data folder… (decisions 81 and 88). Whispering never
 	syncs anything itself. The global shortcut lives here too: a press
 	starts a recording, or stops the one under way, from any app, as the
@@ -26,7 +26,7 @@
 	const whispering = getWhispering();
 
 	const kept = $derived<StatusLine>(
-		sync.synced ? { label: 'Synced by Epicenter', tone: 'good' } : { label: 'On this computer', tone: 'neutral' },
+		sync.managed ? { label: 'Kept by Epicenter', tone: 'good' } : { label: 'On this computer', tone: 'neutral' },
 	);
 	const status = $derived(headerStatus({ unwrittenAnswers }, kept));
 
@@ -43,10 +43,10 @@
 		<span class="font-medium" data-testid="status-where">This computer</span>
 		<span class="mt-0.5 block break-all text-xs text-muted-foreground" data-testid="status-folder">{sync.path}</span>
 		<span class="mt-0.5 block text-xs text-muted-foreground">
-			{#if sync.synced}
-				Epicenter keeps its history and syncs it.
+			{#if sync.managed}
+				Epicenter keeps its local history. Connect a repository there to use it on other devices.
 			{:else}
-				A Markdown note per recording beside its audio. Sync with Epicenter to keep their history and use them elsewhere.
+				A Markdown note per recording beside its audio. Set up Epicenter to keep their history, then connect a repository to use them elsewhere.
 			{/if}
 		</span>
 	</StatusRow>

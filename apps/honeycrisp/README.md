@@ -98,10 +98,10 @@ removed.
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
 (`openDataFolder(honeycrisp, { appData })`) with no sign-in: Honeycrisp
-makes no inference calls, and Epicenter syncs the folder. Its header says
-"On this computer", or "Synced by Epicenter" once Epicenter syncs the folder
-(asked again each time the window gains focus), offers **Sync with
-Epicenter** until it does (`syncWithEpicenter({ path, contract })`, the
+makes no inference calls, and Epicenter can keep the folder's local history.
+Its header says "On this computer" or "Kept by Epicenter" once the folder is
+enrolled (asked again each time the window gains focus), offers **Set up in
+Epicenter** until then (`syncWithEpicenter({ path, contract })`, the
 contract at `APPS.HONEYCRISP.url`'s `contract.json`), and holds the folder's
 path and **Choose data folder…** in the status details, which waits for
 saves, a note's body still being typed included, before it switches. Closing
@@ -191,7 +191,7 @@ that sets its own store, and a header that says what it is.
 | `src/routes/(app)/+layout.svelte` | The variant's `Startup` (`#platform/root`), under a `<svelte:boundary>` whose `pending` is the UI kit's spinner. |
 | `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte`, `SignInCallback.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account; the end of sign-in. |
 | `src/lib/components/Online.svelte` | The repository (`setRepo`), per account. |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the roots set for every page (`setAppData`, `setDevice`); the header's sync status, Sync with Epicenter, and Choose data folder…. |
+| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the roots set for every page (`setAppData`, `setDevice`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
 | `src/lib/folder.tauri.ts` | The desktop window's typed contexts (`getAppData`, `getDevice`) and where the contract is published. |
 | `src/routes/(app)/+page.svelte` | `HoneycrispApp` over `store()` (`#platform/root`), the store's client. |
 | `src/lib/honeycrisp.svelte.ts` | The orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections, over the client it is given. |
