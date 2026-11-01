@@ -92,6 +92,7 @@ export function pathProblem(path: unknown): string | null {
 		path.length > 1024 ||
 		path.startsWith('/') ||
 		path.endsWith('/') ||
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this refuses
 		/[\0-\x1f\\]/.test(path) ||
 		path
 			.split('/')
