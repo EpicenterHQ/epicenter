@@ -55,7 +55,6 @@ export const FileError = defineErrors({
 		operation,
 		cause,
 	}),
-	Closed: () => ({ message: 'The folder is closed' }),
 });
 export type FileError = InferErrors<typeof FileError>;
 

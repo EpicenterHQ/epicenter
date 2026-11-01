@@ -81,8 +81,6 @@ function storageError(error: FileError): StorageError {
 				operation: error.operation,
 				message: describe(error.cause),
 			};
-		case 'Closed':
-			throw new Error('the shell never answers Closed');
 	}
 }
 
