@@ -11,8 +11,8 @@
  * The raw commands carry bytes the generated bindings cannot type: a read
  * answers the stamp and the bytes as one `ArrayBuffer`, split at the first
  * NUL, and a write sends its bytes as the request body, with the path and
- * its expectation in headers (`any`, `absent`, or `sha256:` and the hash, so
- * a hash and a keyword never share one spelling).
+ * its expectation in headers (`absent`, or `sha256:` and the hash, so a hash
+ * and the keyword never share one spelling).
  *
  * Whatever the shell refuses, or a call that never reached it, is
  * `Unavailable`. Tauri 2 sends a call again when its custom-protocol request

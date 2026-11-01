@@ -200,8 +200,8 @@ fn transcribe_file_reaches_a_named_root_only_when_the_window_opened_it() {
     std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
     std::fs::write(fixture.root.join("recordings/a.wav"), b"not audio").unwrap();
 
-    // The window's own folder, named by its path, is reached: the unknown
-    // model is what refuses.
+    // The directory the shell bound to the window, named by its path, is
+    // reached: the unknown model is what refuses.
     let refused =
         transcribe_in(&main, fixture.root.to_str().unwrap(), "recordings/a.wav").unwrap_err();
     assert_eq!(name(&refused), "LocalRouteUnavailable", "{refused}");

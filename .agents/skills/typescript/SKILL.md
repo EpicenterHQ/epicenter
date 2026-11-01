@@ -17,7 +17,7 @@ Project-wide TypeScript conventions compose with narrower skills such as `arktyp
 - Compose types upward from a named base: extend with `Base & Extra`, never subtract-and-replace with `Omit<Base, 'k'> & { k: U }`. An `Omit<...> &` in a type you author is structural override; it is the tell that a smaller base wants a name. To narrow a surface, return that base rather than `Omit`-ing a member away. See [project conventions](references/project-conventions.md).
 - Use `type`, not `interface`.
 - Use `readonly` only for arrays and maps, unless matching an upstream type exactly.
-- Treat acronyms as normal words in camelCase: `parseUrl`, `defineTable`, `readJson`, `customerId`.
+- Treat acronyms as normal words in camelCase: `parseUrl`, `defineKv`, `readJson`, `customerId`.
 - Use `.js` extensions in relative imports. Do not use extensionless or `.ts` relative imports.
 - Export symbols at their declarations. Reserve `export { ... } from ...` for barrel files.
 - In React/TSX, prefer named function components with explicit props parameters over `React.FC`/`FunctionComponent`; only type component values when you are storing them in a registry or passing them as data.

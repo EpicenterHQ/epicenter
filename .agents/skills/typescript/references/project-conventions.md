@@ -134,7 +134,7 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   ```typescript
   // Correct - acronyms as words
   parseUrl();
-  defineTable();
+  defineKv();
   readJson();
   customerId;
   httpClient;

@@ -8,8 +8,8 @@
  * Key behaviors:
  * - A listing and a read keep the shell's stamps, and every call names the
  *   root
- * - A write sends its expectation in its own spelling: absent, any, or a
- *   tagged hash
+ * - A write sends its expectation in its own spelling: absent or a tagged
+ *   hash
  * - A read the shell answers `NotFound` is no file
  */
 import { afterEach, expect, mock, test } from 'bun:test';
@@ -71,7 +71,7 @@ test('a listing and a read keep the shell stamps, and each names the root', asyn
 	expect(expectOk(await store().read('notes/missing.md'))).toBeNull();
 });
 
-test('a write sends each expectation in its own spelling: absent, any, or a tagged hash', async () => {
+test('a write sends each expectation in its own spelling: absent or a tagged hash', async () => {
 	expect(
 		expectOk(await store().write('a.md', new Uint8Array([1]), 'absent')),
 	).toBe('landed');

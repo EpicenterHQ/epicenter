@@ -74,8 +74,8 @@ export const commands = {
 	/**
 	 *  Transcribe the audio file at the folder-relative data path `path` (such as
 	 *  `recordings/20261031T101500123.wav`) in `root`, with the exact catalog
-	 *  model `model_id`. `root` is the calling window's own folder or a folder
-	 *  its page opened, by the exact path the shell answered it with; any other
+	 *  model `model_id`. `root` is the directory the shell bound to the calling
+	 *  window or a folder its page opened, by the exact path the shell answered it with; any other
 	 *  root is refused, whatever it holds.
 	 *
 	 *  A root the window did not open, a path the folder rule refuses, and a
