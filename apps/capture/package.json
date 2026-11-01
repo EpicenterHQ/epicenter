@@ -25,7 +25,8 @@
 		"contract": "bun scripts/write-contract.ts",
 		"prepare": "svelte-kit sync || echo ''",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json && tsc -p tsconfig.scripts.json",
-		"test": "bun test --isolate --path-ignore-patterns='**/*.mounted.test.ts' --conditions=browser --conditions=svelte src && bun run test:mounted",
+		"test": "bun run test:unit; failed=$?; bun run test:mounted && exit $failed",
+		"test:unit": "bun test --isolate --path-ignore-patterns='**/*.mounted.test.ts' --conditions=browser --conditions=svelte src",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte src/lib/components",
 		"test:e2e": "playwright test -c playwright.config.ts"
 	},
