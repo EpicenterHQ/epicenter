@@ -13,7 +13,6 @@ pub mod admission;
 pub mod directory;
 pub mod page_files;
 pub mod paths;
-pub mod root;
 pub mod state;
 pub mod storage;
 

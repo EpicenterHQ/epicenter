@@ -1,14 +1,25 @@
 //! An existing, canonical directory.
 //!
 //! The shell prepares a fixed default or resolves a chosen directory before
-//! binding it to a window. An admitted operation retains its own clone, so
-//! later window destruction or label reuse cannot redirect its work.
+//! binding it to a window: a real directory, not a link to one, created
+//! first only for a default, and resolved once. An admitted operation
+//! retains its own clone, so later window destruction or label reuse cannot
+//! redirect its work.
+//!
+//! What `.git` is, if anything, does not matter here, as it does not to the
+//! Bun store (`device/node-store.ts` in `@epicenter/folder`): no `.git`, a
+//! `.git` file or link (a linked worktree or submodule), and a repository
+//! all open and save alike, since a save stages in the root's `.epicenter`
+//! and the shell runs no Git. Git state that would send history writes
+//! elsewhere is the `epicenter` CLI's to refuse, before each history
+//! operation (`gitLayoutProblem` in `@epicenter/folder`), as is whether a
+//! data folder may get a repository of its own (`enclosingRepository`).
 
 use std::fmt;
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-use crate::root::{prepare_directory, resolve_root, PrepareError};
 
 /// An existing directory, resolved once to its canonical root.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,14 +38,59 @@ impl Directory {
         Self::open(path, true)
     }
 
+    /// `path` as a real directory, created first with its parents when
+    /// `create` is set. Its parent may be a link a person chose; `path`
+    /// itself must be a directory, not a link to one, so the folder never
+    /// resolves outside where the shell put it.
+    ///
+    /// On Windows the root is a plain drive or share path (`C:\notes`), not
+    /// the `\\?\C:\notes` form `fs::canonicalize` gives: a page's paths,
+    /// joined with `/`, are resolved under it, and under `\\?\` Windows reads
+    /// `/` as part of a name, not a separator. `dunce` keeps the `\\?\` form
+    /// only for a path that cannot be written without it.
     fn open(path: &Path, create: bool) -> Result<Self, DirectoryError> {
-        prepare_directory(path, create).map_err(|error| match error {
-            PrepareError::Missing => DirectoryError::Missing {
-                path: path.to_path_buf(),
-            },
-            PrepareError::Failed(message) => DirectoryError::Unavailable { message },
+        let unavailable = |message: String| DirectoryError::Unavailable { message };
+        if create {
+            let made = path
+                .parent()
+                .map_or(Ok(()), fs::create_dir_all)
+                .and_then(|()| match fs::create_dir(path) {
+                    Err(cause) if cause.kind() == ErrorKind::AlreadyExists => Ok(()),
+                    result => result,
+                });
+            made.map_err(|cause| {
+                unavailable(format!(
+                    "The folder directory '{}' could not be created: {cause}",
+                    path.display()
+                ))
+            })?;
+        }
+        let kind = match fs::symlink_metadata(path) {
+            Ok(stats) => stats.file_type(),
+            Err(cause) if cause.kind() == ErrorKind::NotFound => {
+                return Err(DirectoryError::Missing {
+                    path: path.to_path_buf(),
+                })
+            }
+            Err(cause) => {
+                return Err(unavailable(format!(
+                    "The folder directory '{}' could not be inspected: {cause}",
+                    path.display()
+                )))
+            }
+        };
+        if kind.is_symlink() || !kind.is_dir() {
+            return Err(unavailable(format!(
+                "The folder directory '{}' is a link or not a directory, so it was not opened",
+                path.display()
+            )));
+        }
+        let root = dunce::canonicalize(path).map_err(|cause| {
+            unavailable(format!(
+                "The native folder root '{}' could not be resolved: {cause}",
+                path.display()
+            ))
         })?;
-        let root = resolve_root(path).map_err(|message| DirectoryError::Unavailable { message })?;
         Ok(Self(Arc::new(root)))
     }
 

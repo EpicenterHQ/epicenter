@@ -17,13 +17,12 @@
 use std::path::{Path, PathBuf};
 
 use epicenter_folder_core::admission::resolved;
-use epicenter_folder_core::root::{prepare_directory, PrepareError};
 use epicenter_folder_core::storage::{self, ListedFile, PutOutcome, StorageError};
 use tauri::ipc::Channel;
 use tauri::{Manager, Runtime, Webview};
 
 use crate::scope::admit;
-use crate::{Directory, FolderChanged, Folders, WindowError};
+use crate::{Directory, DirectoryError, FolderChanged, Folders, WindowError};
 
 /// Run blocking work off the window thread.
 async fn blocking<T: Send + 'static>(
@@ -78,9 +77,9 @@ pub async fn open_folder<R: Runtime>(
                 admit(&webview, &root, create)?
             };
             let root = directory.root();
-            prepare_directory(root, false).map_err(|error| match error {
-                PrepareError::Missing => WindowError::Missing,
-                PrepareError::Failed(message) => WindowError::Unavailable { message },
+            Directory::existing(root).map_err(|error| match error {
+                DirectoryError::Missing { .. } => WindowError::Missing,
+                DirectoryError::Unavailable { message } => WindowError::Unavailable { message },
             })?;
             storage::sweep_stale_scratch(root);
             app.state::<Folders>()
