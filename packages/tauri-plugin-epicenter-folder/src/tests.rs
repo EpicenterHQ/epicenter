@@ -274,6 +274,52 @@ fn one_watch_belongs_to_each_binding_and_unbind_or_shutdown_stops_it() {
     );
 }
 
+/// A note the folder made, never edited, then deleted by another program is
+/// reported gone. macOS's FSEvents never reports removing a file that ever
+/// had a second name, so a create by hard link would leave it listed.
+#[test]
+fn a_note_the_folder_made_and_another_program_deletes_is_reported_gone() {
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    let (fixture, main) = opened("made-then-deleted");
+    let directory = Directory::existing(&fixture.root).unwrap();
+    let (send, receive) = mpsc::channel();
+    fixture
+        .app
+        .folders()
+        .watch_current("main", &directory, move |event| {
+            let _ = send.send(event);
+        })
+        .unwrap();
+    let names_made = |change: &crate::FolderChanged| {
+        change
+            .paths
+            .as_ref()
+            .is_none_or(|paths| paths.iter().any(|path| path == "made.md"))
+    };
+    let observed = |within: Duration| {
+        let until = Instant::now() + within;
+        while let Ok(change) = receive.recv_timeout(until.saturating_duration_since(Instant::now()))
+        {
+            if names_made(&change) {
+                return true;
+            }
+        }
+        false
+    };
+
+    assert_eq!(put(&main, "made.md", Some(b"new"), None).unwrap(), "landed");
+    assert!(observed(Duration::from_secs(5)), "the create is observed");
+    // FSEvents may deliver the create in more than one batch.
+    std::thread::sleep(Duration::from_millis(500));
+    while receive.try_recv().is_ok() {}
+
+    std::fs::remove_file(fixture.root.join("made.md")).unwrap();
+    assert!(observed(Duration::from_secs(5)), "the deletion is observed");
+    fixture.app.folders().shutdown();
+}
+
 const BINDINGS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../folder/src/native/bindings.gen.ts"

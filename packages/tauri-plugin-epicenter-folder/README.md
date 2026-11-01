@@ -292,11 +292,13 @@ same directory, lands in that instant can be replaced
 ([ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).
 A put expecting nothing at its path (`absent`) is the exception: it is
 placed (`storage::place`, which the recorder places each recording with
-too), a hard link to the path that fails when any entry has the name, then
-the staged name removed. Whatever appeared there after the check stays, and
-the put answers `{ kind: "stale" }`. Where the disk has no hard links (FAT,
-exFAT, some network shares) it is renamed only while nothing is there, a
-check a racing writer can still beat.
+too), a rename that fails when any entry has the name (`renamex_np` on
+macOS, `renameat2` on Linux, `MoveFileExW` on Windows). Whatever appeared
+there after the check stays, and the put answers `{ kind: "stale" }`. Where
+the disk refuses that rename, it is a hard link to the path, which also
+fails when the name is taken, then the staged name removed; where the disk
+has no hard links either (exFAT on macOS) it is renamed only while nothing is
+there, a check a racing writer can still beat.
 A directory another writer pruned while the put staged is made again; the
 root itself never is. The cost is a read and hash of the destination when
 `expected` names a hash. A path that holds something else changes nothing and answers

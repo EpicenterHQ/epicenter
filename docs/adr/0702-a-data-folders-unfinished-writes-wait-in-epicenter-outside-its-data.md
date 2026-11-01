@@ -140,7 +140,7 @@ the client answers `Conflict { current }`.
 | Store | Check, then land |
 | --- | --- |
 | Desktop folder, replacing or removing a file (`storage::put`, Bun's `device/node-store.ts`) | stage in `.epicenter/saves`; taking the path's turn in this process, check the path, rename over it or remove it |
-| Desktop folder, a new file (the shell and Bun) | stage; taking the path's turn, place by a hard link (`storage::place`, `place` in `device/node-store.ts`) |
+| Desktop folder, a new file (the shell and Bun) | stage; taking the path's turn, place by an exclusive rename in the shell (`storage::place`) and a hard link in Bun (`place` in `device/node-store.ts`) |
 | Browser (OPFS) | one Worker, holding a Web Lock named for the path (`epicenter-device:<path>`) across the check and the write |
 | Repository (`openRemote`) | read, compare with `over`, send the write with that base; the server settles it against `main` and moves `main` by compare-and-swap |
 
@@ -159,15 +159,27 @@ replaced, and Git history is the backstop: what `epicenter sync` committed
 stays in history. No writer takes a save lock, `epicenter sync` included.
 
 **One function places a staged file only where nothing is.**
-`storage::place` in the folder core makes a hard link at the target, which
-the system refuses when any entry has the name, then removes the staged name.
-A link a cut-off placement already made is the same file at both names and
-counts as placed. Where the disk has no hard links (FAT, exFAT, some network
-shares), the file is renamed only while nothing is at the target. `put` uses
-it for a write expecting `absent`, answering `stale` when something appeared
-after the check, and the recorder uses it for every recording it places. The
-Bun store places a new file the same way, so of writers creating one path, in
-one process or several, exactly one lands.
+`storage::place` in the folder core renames the staged file to the target by
+a rename the system refuses when any entry has the name: `renamex_np` with
+`RENAME_EXCL` on macOS, `renameat2` with `RENAME_NOREPLACE` on Linux,
+`MoveFileExW` without `MOVEFILE_REPLACE_EXISTING` on Windows. A crash leaves
+the file at one name, staged or placed. Where the disk refuses that rename
+(exFAT on macOS, a file system without the flag on Linux) or the platform has
+none, it makes a hard link at the target, which
+the system also refuses when the name is taken, then removes the staged name;
+a link a cut-off placement already made is the same file at both names and
+counts as placed. Where the disk has no hard links either (exFAT on macOS has
+neither), the file is renamed only while nothing is at the target. `put` uses it for a
+write expecting `absent`, answering `stale` when something appeared after the
+check, and the recorder uses it for every recording it places. The Bun store
+places a new file by the hard link, as `node:fs` has no exclusive rename, so
+of writers creating one path, in one process or several, exactly one lands.
+
+A file that ever had a second name is one macOS's FSEvents never reports
+deleting, so a note the shell created by a hard link and another program
+then deleted would stay listed; that is why the shell renames. A note the
+Bun store created has the same limit; that host serves the CLI and scripts,
+and `epicenter sync` stages the deletion on its next round.
 
 **A save across a mount point fails.** A target on another file system than
 `.epicenter` (a mount point inside the folder) is one no rename or hard link

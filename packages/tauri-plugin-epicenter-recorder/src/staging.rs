@@ -102,8 +102,7 @@ pub enum PlaceError {
 /// Move the finished recording at `pending` to `<stem>.webm` in `root`,
 /// making its missing directories, each checked as a data path, and answer
 /// that folder-relative path. Something already at the path is never
-/// replaced. A move a crash cut off between linking the path and removing
-/// the pending name is finished (`storage::place`). A path across a mount
+/// replaced (`storage::place`). A path across a mount
 /// point inside the folder is refused (`rename_failure`), and the file
 /// stays.
 pub fn place_recording(root: &Path, pending: &Path, stem: &str) -> Result<String, PlaceError> {
@@ -181,10 +180,7 @@ pub struct UnplacedRecording {
 /// placed, by path, with how long it plays. A missing directory has nothing
 /// to recover. Running it again changes nothing.
 ///
-/// A leftover that is the file already at its path, one device and inode
-/// (a move a crash cut off between linking the path and removing the
-/// pending name), loses only its pending name: `storage::place` finishes
-/// the move, and it is answered as placed. A leftover that holds no whole
+/// A leftover that holds no whole
 /// second holds no audio, and is deleted. A leftover whose path holds
 /// another file is never deleted and never placed beside it: nothing here
 /// can know the two are one recording, so it stays pending, finished, and
@@ -340,9 +336,8 @@ mod tests {
 
     /// A leftover whose path holds another file is never deleted and never
     /// placed beside it: it stays pending, finished, and is answered with
-    /// where its audio is, on every run. When the file there is the leftover
-    /// itself, the move is finished and answered. One that holds no whole
-    /// second holds no audio, and is deleted.
+    /// where its audio is, on every run. One that holds no whole second
+    /// holds no audio, and is deleted.
     #[test]
     fn a_leftover_is_deleted_only_when_it_holds_no_audio() {
         let directory = tempfile::tempdir().unwrap();
@@ -353,12 +348,6 @@ mod tests {
         fs::write(root.join("recordings/taken.webm"), b"theirs").unwrap();
         let empty = pending(&root, "recordings/empty").unwrap();
         cut_off(&empty, 0.5);
-        // A move cut off between linking its path and removing its pending
-        // name: the same file at both.
-        let linked = pending(&root, "recordings/linked").unwrap();
-        cut_off(&linked, 2.5);
-        finish_cut_off(&linked).unwrap();
-        fs::hard_link(&linked, root.join("recordings/linked.webm")).unwrap();
 
         let unplaced = UnplacedRecording {
             path: "recordings/taken.webm".to_string(),
@@ -367,7 +356,7 @@ mod tests {
         assert_eq!(
             recover(&root, "recordings", |_| false).unwrap(),
             Recovery {
-                recovered: vec![recovered("recordings/linked.webm", kept_ms(2.5))],
+                recovered: vec![],
                 unplaced: vec![unplaced.clone()],
             }
         );
@@ -379,11 +368,6 @@ mod tests {
         );
         assert!(!empty.exists());
         assert!(!root.join("recordings/empty.webm").exists());
-        assert!(!linked.exists());
-        assert_eq!(
-            decoded(&root.join("recordings/linked.webm")),
-            2 * 16_000 - 104
-        );
 
         let finished = fs::read(&taken).unwrap();
         assert_eq!(

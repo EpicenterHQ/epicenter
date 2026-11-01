@@ -12,7 +12,8 @@
 //! - Of puts racing in one process, over one version or creating one path,
 //!   exactly one lands; a path holds no turn once its puts finish.
 //! - A staged file is placed only where nothing is (`place`): whatever
-//!   appeared after a check stays, a move cut off after its link is placed,
+//!   appeared after a check stays, by the exclusive rename and by the hard
+//!   link it falls back to; a link move cut off after its link is placed;
 //!   and a move across a mount point says so.
 //! - A put stages inside the root, in `.epicenter/saves`, makes nothing
 //!   next to the root, and makes and changes nothing in `.git`: a folder with
@@ -707,12 +708,19 @@ fn staged_and_target(label: &str) -> (TempDir, PathBuf, PathBuf) {
     (temp, staged, root.join("a.md"))
 }
 
+/// `place`, and the hard link it falls back to where the disk has no
+/// exclusive rename, each named for a failure message.
+const PLACES: [(&str, fn(&Path, &Path) -> io::Result<()>); 2] =
+    [("place", place), ("place_by_link", place_by_link)];
+
 #[test]
 fn a_placed_file_appears_whole_and_its_staged_name_is_gone() {
-    let (_temp, staged, target) = staged_and_target("place-whole");
-    place(&staged, &target).unwrap();
-    assert_eq!(fs::read(&target).unwrap(), b"mine");
-    assert!(!staged.exists());
+    for (name, place) in PLACES {
+        let (_temp, staged, target) = staged_and_target("place-whole");
+        place(&staged, &target).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"mine", "{name}");
+        assert!(!staged.exists(), "{name}");
+    }
 }
 
 /// What a caller found absent can be taken before it places: a file, a
@@ -720,58 +728,65 @@ fn a_placed_file_appears_whole_and_its_staged_name_is_gone() {
 /// and the staged file stays for the caller to remove or place elsewhere.
 #[test]
 fn what_appeared_after_the_check_is_never_replaced() {
-    let (temp, staged, target) = staged_and_target("place-taken");
-    assert!(holds(&target, &Expectation::Absent).unwrap());
-    fs::write(&target, b"theirs").unwrap();
-    assert_eq!(
-        place(&staged, &target).unwrap_err().kind(),
-        ErrorKind::AlreadyExists
-    );
-    assert_eq!(fs::read(&target).unwrap(), b"theirs");
-    assert_eq!(fs::read(&staged).unwrap(), b"mine");
-
-    fs::remove_file(&target).unwrap();
-    fs::create_dir(&target).unwrap();
-    assert!(place(&staged, &target).is_err());
-    assert!(target.is_dir());
-    fs::remove_dir(&target).unwrap();
-
-    #[cfg(unix)]
-    {
-        let elsewhere = temp.folder("elsewhere").join("b.md");
-        std::os::unix::fs::symlink(&elsewhere, &target).unwrap();
+    for (name, place) in PLACES {
+        let (temp, staged, target) = staged_and_target("place-taken");
+        assert!(holds(&target, &Expectation::Absent).unwrap());
+        fs::write(&target, b"theirs").unwrap();
         assert_eq!(
             place(&staged, &target).unwrap_err().kind(),
-            ErrorKind::AlreadyExists
+            ErrorKind::AlreadyExists,
+            "{name}"
         );
-        assert!(!elsewhere.exists(), "a link is not written through");
+        assert_eq!(fs::read(&target).unwrap(), b"theirs", "{name}");
+        assert_eq!(fs::read(&staged).unwrap(), b"mine", "{name}");
+
+        fs::remove_file(&target).unwrap();
+        fs::create_dir(&target).unwrap();
+        assert!(place(&staged, &target).is_err(), "{name}");
+        assert!(target.is_dir(), "{name}");
+        fs::remove_dir(&target).unwrap();
+
+        #[cfg(unix)]
+        {
+            let elsewhere = temp.folder("elsewhere").join("b.md");
+            std::os::unix::fs::symlink(&elsewhere, &target).unwrap();
+            assert_eq!(
+                place(&staged, &target).unwrap_err().kind(),
+                ErrorKind::AlreadyExists,
+                "{name}"
+            );
+            assert!(!elsewhere.exists(), "{name}: a link is not written through");
+        }
+        #[cfg(not(unix))]
+        let _ = temp;
+        assert_eq!(fs::read(&staged).unwrap(), b"mine", "{name}");
     }
-    #[cfg(not(unix))]
-    let _ = temp;
-    assert_eq!(fs::read(&staged).unwrap(), b"mine");
 }
 
-/// A move cut off after its link and before it removed the staged name
-/// left one file at both names: placing it again finishes the move.
+/// A hard-link move cut off after its link and before it removed the staged
+/// name left one file at both names: placing it again finishes the move.
 #[cfg(unix)]
 #[test]
-fn a_move_cut_off_after_its_link_counts_as_placed() {
+fn a_link_move_cut_off_after_its_link_counts_as_placed() {
     let (_temp, staged, target) = staged_and_target("place-cut-off");
     fs::hard_link(&staged, &target).unwrap();
-    place(&staged, &target).unwrap();
+    place_by_link(&staged, &target).unwrap();
     assert_eq!(fs::read(&target).unwrap(), b"mine");
     assert!(!staged.exists());
 }
 
 #[test]
 fn a_staged_file_that_is_gone_is_not_placed() {
-    let (_temp, staged, target) = staged_and_target("place-gone");
-    fs::remove_file(&staged).unwrap();
-    assert_eq!(
-        place(&staged, &target).unwrap_err().kind(),
-        ErrorKind::NotFound
-    );
-    assert!(!target.exists());
+    for (name, place) in PLACES {
+        let (_temp, staged, target) = staged_and_target("place-gone");
+        fs::remove_file(&staged).unwrap();
+        assert_eq!(
+            place(&staged, &target).unwrap_err().kind(),
+            ErrorKind::NotFound,
+            "{name}"
+        );
+        assert!(!target.exists(), "{name}");
+    }
 }
 
 /// Run `writers` puts of `path` at once, each its own bytes over

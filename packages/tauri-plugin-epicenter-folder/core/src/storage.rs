@@ -678,23 +678,41 @@ pub fn rename_failure(path: &str, cause: &io::Error) -> String {
 
 /// Move the staged file at `staged` to `target` only where nothing is,
 /// never replacing anything there, whatever appeared since a caller looked:
-/// a hard link to `target`, which the system refuses when any entry has the
-/// name, then the staged name removed. A file is never half there: the link
-/// makes the whole file appear at once.
+/// a rename the system refuses when any entry has the name
+/// (`rename_exclusive`), so the whole file appears at once, at one name.
 ///
-/// `AlreadyExists` when something is at `target`; the staged file stays. A
-/// link an earlier move made before it was cut off, before it removed the
-/// staged name, is this file at both names and counts as placed. Another
-/// file system (`CrossesDevices`, which `rename_failure` words), and a
-/// staged file or a target directory that is not there (`NotFound`), fail
-/// as they are. Where the disk has no hard links
-/// (FAT, exFAT, some network shares), the file is renamed only while nothing
-/// is at `target`: there a writer racing that one check can be replaced.
+/// `AlreadyExists` when something is at `target`; the staged file stays.
+/// Another file system (`CrossesDevices`, which `rename_failure` words),
+/// and a staged file or a target directory that is not there (`NotFound`),
+/// fail as they are. A crash leaves the file at one of its two names: still
+/// staged, for its caller to place again or the sweep to remove, or placed.
+///
+/// Where the disk refuses that rename (`unsupported`: exFAT on macOS, which
+/// FAT and APFS are not; a file system without the flag on Linux) or the
+/// platform has none, the file is placed by a hard link instead
+/// (`place_by_link`).
 ///
 /// `put` places a save that expects nothing at its path, and the recorder
 /// places each recording, so neither replaces a file that appeared after
 /// its check.
 pub fn place(staged: &Path, target: &Path) -> io::Result<()> {
+    match rename_exclusive(staged, target) {
+        Err(cause) if unsupported(&cause) => place_by_link(staged, target),
+        moved => moved,
+    }
+}
+
+/// `place` where there is no exclusive rename: a hard link to `target`,
+/// which the system also refuses when any entry has the name, then the
+/// staged name removed. The file once had two names, so on macOS a watcher
+/// is never told when it is deleted until it is saved again (FSEvents does
+/// not report removing a file that had a second name), which is why this is
+/// only the fallback. A link an earlier move made before it was cut off,
+/// before it removed the staged name, is this file at both names and
+/// counts as placed. Where the disk has no hard links either (exFAT on
+/// macOS has neither), the file is renamed only while nothing is at
+/// `target`: there a writer racing that one check can be replaced.
+fn place_by_link(staged: &Path, target: &Path) -> io::Result<()> {
     match fs::hard_link(staged, target) {
         Ok(()) => {}
         Err(cause) if cause.kind() == ErrorKind::AlreadyExists => {
@@ -721,6 +739,83 @@ pub fn place(staged: &Path, target: &Path) -> io::Result<()> {
         }
     }
     fs::remove_file(staged)
+}
+
+/// Rename `from` to `to` unless an entry has that name, in one call the
+/// system makes atomic: `renamex_np` with `RENAME_EXCL` on macOS,
+/// `renameat2` with `RENAME_NOREPLACE` on Linux. The disk may refuse the
+/// flag (`unsupported`).
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn rename_exclusive(from: &Path, to: &Path) -> io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let terminated =
+        |path: &Path| CString::new(path.as_os_str().as_bytes()).map_err(io::Error::from);
+    let (from, to) = (terminated(from)?, terminated(to)?);
+    // SAFETY: both are NUL-terminated paths that outlive the call.
+    #[cfg(target_os = "macos")]
+    let status = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) };
+    // SAFETY: as above; `AT_FDCWD` resolves the absolute paths as they are.
+    #[cfg(target_os = "linux")]
+    let status = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// `rename_exclusive` on Windows: `MoveFileExW` without
+/// `MOVEFILE_REPLACE_EXISTING`, which never replaces an entry and never
+/// copies across volumes.
+#[cfg(windows)]
+fn rename_exclusive(from: &Path, to: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+    let wide = |path: &Path| {
+        path.as_os_str()
+            .encode_wide()
+            .chain([0])
+            .collect::<Vec<u16>>()
+    };
+    let (from, to) = (wide(from), wide(to));
+    // SAFETY: both are NUL-terminated paths that outlive the call.
+    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) } != 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// `rename_exclusive` on a platform without one.
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn rename_exclusive(_: &Path, _: &Path) -> io::Result<()> {
+    Err(ErrorKind::Unsupported.into())
+}
+
+/// Whether `rename_exclusive` failed because this disk or platform has no
+/// exclusive rename, not because of the paths: Linux answers `EINVAL` for a
+/// file system without the flag and `ENOSYS` for a kernel without the call,
+/// macOS `ENOTSUP`.
+fn unsupported(cause: &io::Error) -> bool {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let refused = [libc::EINVAL, libc::ENOSYS, libc::ENOTSUP, libc::EOPNOTSUPP]
+        .map(Some)
+        .contains(&cause.raw_os_error());
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let refused = false;
+    refused || cause.kind() == ErrorKind::Unsupported
 }
 
 /// Whether `a` and `b` are one file: one device and inode, neither followed

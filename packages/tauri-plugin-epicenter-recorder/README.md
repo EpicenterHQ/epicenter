@@ -80,7 +80,7 @@ once when the command arrives.
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
 | `start(root, path, device, signals)` | Records `<path>.webm` in `root`, from the microphone with id `device` or the system default, writing it in `.epicenter/recordings` until it stops. Answers the recording's `id` and the microphone's name. |
 | `stop(id)` | Finishes the recording in place, places it at its path, and answers `{ path, durationMs }`. It takes the same few milliseconds for a recording of any length. A file already at the path is never replaced: the refusal says so, and where the finished recording is kept in `.epicenter/recordings`. Only the window that started it may stop it. |
-| `recover(root, under)` | Finishes every recording a cut left under `under` in `root`'s `.epicenter/recordings` from its whole seconds and places it at its path, leaving the recording still being written alone. Answers `{ recovered, unplaced }`: each recording it placed as `{ path, durationMs }`, from the length its file states, so a page never reads the audio back to measure it (a second run places none); and each one whose path holds another file as `{ path, pending }`, where `pending` is its folder-relative path under `.epicenter/recordings`. That one is never deleted and never placed beside the other file: it stays pending, finished, and is answered on every run until a person moves one of the two, so a page says where its audio is. A leftover that is the file already at its path (one device and inode: a move cut off before its pending name went) loses only that name. A leftover with no whole second holds no audio and is deleted. A page runs it when it opens its folder, before it lists, plays, or transcribes a recording. |
+| `recover(root, under)` | Finishes every recording a cut left under `under` in `root`'s `.epicenter/recordings` from its whole seconds and places it at its path, leaving the recording still being written alone. Answers `{ recovered, unplaced }`: each recording it placed as `{ path, durationMs }`, from the length its file states, so a page never reads the audio back to measure it (a second run places none); and each one whose path holds another file as `{ path, pending }`, where `pending` is its folder-relative path under `.epicenter/recordings`. That one is never deleted and never placed beside the other file: it stays pending, finished, and is answered on every run until a person moves one of the two, so a page says where its audio is. A leftover with no whole second holds no audio and is deleted. A page runs it when it opens its folder, before it lists, plays, or transcribes a recording. |
 
 `start` refuses before it opens anything:
 
@@ -131,12 +131,10 @@ the exact length:
 packet's padding trimmed (DiscardPadding), then the Cues, the Duration, and
 last the Segment's size, each flushed to the disk first, so a file whose
 Segment states its size is finished. It then places the file at
-`<path>.webm` without replacing anything there: a hard link to the path,
-which fails when a name is already there, then the pending name removed
-(`storage::place` in the folder core, the one placement a save expecting
-nothing at its path uses too). A move cut off between the two is finished
-by the next one. Where the disk has no hard links it is renamed only while
-nothing is at the path. A path below a mount point inside the folder is on
+`<path>.webm` without replacing anything there: a rename that fails when
+a name is already there (`storage::place` in the folder core, the one
+placement a save expecting nothing at its path uses too), or, where the
+disk has no such rename, a hard link then the pending name removed. A path below a mount point inside the folder is on
 another file system: placing there fails saying it cannot save across a
 mount point, nothing is copied, and the file stays in
 `.epicenter/recordings`. All of it takes the same few milliseconds for a

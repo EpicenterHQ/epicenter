@@ -20,3 +20,8 @@ same-file = "1"
 # Hashes a publishing rename's destination against the page's expectation.
 sha2 = "0.10"
 specta = { version = "=2.0.0-rc.26", features = ["derive"] }
+
+# `place` creates a file by an exclusive rename: `renamex_np` on macOS,
+# `renameat2` on Linux.
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+libc = "0.2"

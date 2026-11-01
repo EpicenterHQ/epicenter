@@ -83,6 +83,13 @@ const holds = (version: string | undefined, expected: DeviceExpectation) =>
  * hard links (FAT, exFAT, some network shares), the path is checked, then
  * renamed onto, and a writer in another process racing that check can be
  * replaced.
+ *
+ * `node:fs` has no exclusive rename, which the desktop shell places with
+ * (`storage::place`). A file made here had two names for a moment, so on
+ * macOS a watcher is never told when it is deleted before it is saved
+ * again: FSEvents does not report removing a file that ever had a second
+ * name. This host serves the CLI and scripts, which do not watch for long;
+ * `epicenter sync` stages every deletion with the rest of its round.
  */
 async function place(staged: string, target: string) {
 	try {
