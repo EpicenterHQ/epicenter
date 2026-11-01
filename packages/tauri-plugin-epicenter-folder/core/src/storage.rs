@@ -28,13 +28,16 @@
 //! saved and `.epicenter`, and never touches `.git`, whatever is there.
 //!
 //! The version check (what the path holds, against what the page read)
-//! runs right before the rename or the removal, with no lock across the
-//! two: another program that saves in that instant can be overwritten. A
-//! save that expects nothing at its path is the exception: it is placed
-//! (`place`), which never replaces what appeared there after the check, and
-//! is `Stale` instead. The recorder places its recordings the same way.
-//! External editors never took a lock anyway, and Git history keeps every
-//! version sync committed (ADR-0562, ADR-0568). On Unix no other account can read
+//! runs right before the rename or the removal. Within this process, puts
+//! of one path take turns from the check to the rename or removal (`Turn`),
+//! so two saves over one version never both land. Across processes no lock
+//! spans the two: another program that saves in that instant can be
+//! overwritten. A save that expects nothing at its path is placed
+//! (`place`), which never replaces what appeared there after the check,
+//! whoever made it, and is `Stale` instead. The recorder places its
+//! recordings the same way. External editors never took a lock anyway, and
+//! Git history keeps every version sync committed (ADR-0568, ADR-0702). On
+//! Unix no other account can read
 //! staged bytes, before publication or after a stopped save: `saves/` and
 //! `.epicenter` are `0700` before anything is staged (`make_private`), and
 //! each staged file is `0600` before its first byte. On macOS each also has
@@ -52,11 +55,12 @@
 //! A link another program swaps in between the check and the change is not
 //! defended against; a page cannot make one.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
 use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
@@ -825,6 +829,37 @@ fn same_file(a: &Path, b: &Path) -> io::Result<bool> {
     }
 }
 
+/// The paths a put in this process is changing now, each from its check to
+/// its rename or removal. A path is here only while a put holds its turn.
+static BUSY: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
+/// Signalled whenever a put's turn ends.
+static FREED: Condvar = Condvar::new();
+
+/// A put's turn at its path: no other put in this process changes the path
+/// until it drops. Across processes nothing waits; see `put`.
+struct Turn(PathBuf);
+
+impl Turn {
+    /// Wait until no other put in this process holds `target`, then hold it.
+    fn take(target: &Path) -> Self {
+        let mut busy = BUSY.lock().unwrap_or_else(PoisonError::into_inner);
+        while busy.contains(target) {
+            busy = FREED.wait(busy).unwrap_or_else(PoisonError::into_inner);
+        }
+        busy.insert(target.to_path_buf());
+        Self(target.to_path_buf())
+    }
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        BUSY.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.0);
+        FREED.notify_all();
+    }
+}
+
 /// Why a put cannot land on what `find` found at `path`, if it cannot.
 fn put_refusal(path: &str, found: &Found) -> Option<StorageError> {
     match found {
@@ -911,10 +946,13 @@ fn keep_mode(target: &Path, staged: &Path) -> io::Result<()> {
 /// A write refuses what cannot land before staging anything, stages the
 /// bytes, then walks the path again (no link, every name stored as asked, as
 /// `find` checks), checks what the path holds, makes a new file's missing
-/// parent directories, and renames the staged bytes over the path. Nothing
-/// holds the path between that check and the rename. A write expecting
-/// `Absent` is placed instead (`place`): something that appeared after the
-/// check is never replaced, and the put is `Stale`. On every answer but
+/// parent directories, and renames the staged bytes over the path. Within
+/// this process, puts of one path take turns from that walk to the rename
+/// or removal (`Turn`), so of two expecting one version exactly one lands.
+/// Across processes nothing holds the path between the check and the
+/// rename. A write expecting `Absent` is placed instead (`place`): something
+/// that appeared after the check, in any process, is never replaced, and
+/// the put is `Stale`. On every answer but
 /// `Landed` nothing of the put is left: not the staged file, and not a
 /// directory it made.
 pub fn put(
@@ -959,6 +997,7 @@ pub fn put(
     let names: Vec<&str> = path.split('/').collect();
 
     let Some(bytes) = bytes else {
+        let _turn = Turn::take(&target);
         if !matches!(landing()?, Found::File { .. }) {
             return Ok(
                 if matches!(expected, Expectation::Absent | Expectation::Any) {
@@ -997,6 +1036,7 @@ pub fn put(
         return Err(error);
     }
     let published = (|| -> Result<PutOutcome, StorageError> {
+        let _turn = Turn::take(&target);
         // Staging took time: walk and check again right before the rename.
         if let Found::UnderFile { ancestor } = landing()? {
             return Err(StorageError::NotADirectory { path: ancestor });

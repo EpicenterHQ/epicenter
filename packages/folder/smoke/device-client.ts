@@ -191,6 +191,36 @@ const smoke = {
 		return created.error?.name ?? 'landed';
 	},
 	/**
+	 * Two updates of `id` over one version, then two creates of one new
+	 * path, each pair racing within this page: the Worker's per-path Web
+	 * Lock lets exactly one of each land.
+	 */
+	async raceInOnePage(id: string) {
+		const created = await device.recordings.create({ id, title: 'Read' });
+		if (created.error !== null) return { error: created.error.message };
+		const over = created.data.version;
+		const updates = await Promise.all(
+			['A', 'B'].map(async (title) => {
+				const updated = await device.recordings.update(
+					{ id },
+					{ title },
+					{ over },
+				);
+				return updated.error?.name ?? 'landed';
+			}),
+		);
+		const creates = await Promise.all(
+			['A', 'B'].map(async (title) => {
+				const made = await device.recordings.create({
+					id: `${id}-new`,
+					title,
+				});
+				return made.error?.name ?? 'landed';
+			}),
+		);
+		return { updates, creates };
+	},
+	/**
 	 * Delete `count` notes while listing over and over, as another tab may
 	 * delete while this page lists: every listing must answer.
 	 */

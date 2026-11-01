@@ -9,6 +9,8 @@
 //! - A put lands only on what the page expected and is otherwise `Stale`,
 //!   changing nothing; `None` bytes remove the file; no staged file outlives
 //!   a put.
+//! - Of puts racing in one process, over one version or creating one path,
+//!   exactly one lands; a path holds no turn once its puts finish.
 //! - A staged file is placed only where nothing is (`place`): whatever
 //!   appeared after a check stays, a move cut off after its link is placed,
 //!   and a move across a mount point says so.
@@ -875,6 +877,78 @@ fn a_staged_file_that_is_gone_is_not_placed() {
         ErrorKind::NotFound
     );
     assert!(!target.exists());
+}
+
+/// Run `writers` puts of `path` at once, each its own bytes over
+/// `expected`, and answer each one's outcome.
+fn racing_puts(root: &Path, path: &str, writers: usize, expected: &Expectation) -> Vec<PutOutcome> {
+    let start = std::sync::Barrier::new(writers);
+    std::thread::scope(|scope| {
+        let puts: Vec<_> = (0..writers)
+            .map(|writer| {
+                let start = &start;
+                scope.spawn(move || {
+                    let bytes = format!("writer {writer}");
+                    start.wait();
+                    super::put(root, path, Some(bytes.as_bytes()), expected).unwrap()
+                })
+            })
+            .collect();
+        puts.into_iter().map(|put| put.join().unwrap()).collect()
+    })
+}
+
+fn landed_once(outcomes: &[PutOutcome]) -> bool {
+    outcomes
+        .iter()
+        .filter(|outcome| **outcome == PutOutcome::Landed)
+        .count()
+        == 1
+        && outcomes
+            .iter()
+            .all(|outcome| matches!(outcome, PutOutcome::Landed | PutOutcome::Stale))
+}
+
+/// Of writers creating one path at once, exactly one lands, and the file
+/// holds its bytes whole.
+#[test]
+fn of_writers_creating_one_path_at_once_exactly_one_lands() {
+    let (_temp, root) = folder("storage-create-race", &[]);
+    for round in 0..40 {
+        let path = format!("words/{round}.md");
+        let outcomes = racing_puts(&root, &path, 8, &Expectation::Absent);
+        assert!(landed_once(&outcomes), "round {round}: {outcomes:?}");
+        assert!(fs::read_to_string(root.join(&path))
+            .unwrap()
+            .starts_with("writer "));
+    }
+    assert_eq!(staged(&root), Vec::<String>::new());
+}
+
+/// Within one process, writers replacing one version at once take turns
+/// from the check to the rename: exactly one lands, and the rest are stale.
+#[test]
+fn of_writers_replacing_one_version_at_once_exactly_one_lands() {
+    let (_temp, root) = folder("storage-replace-race", &[]);
+    for round in 0..40 {
+        let read = format!("read {round}");
+        fs::write(root.join("note.md"), &read).unwrap();
+        let expected = Expectation::Sha256(sha256(read.as_bytes()));
+        let outcomes = racing_puts(&root, "note.md", 8, &expected);
+        assert!(landed_once(&outcomes), "round {round}: {outcomes:?}");
+    }
+    assert_eq!(staged(&root), Vec::<String>::new());
+}
+
+/// A path's turn ends with its put: a path no put is changing holds none,
+/// so the turns kept never outgrow the puts running.
+#[test]
+fn a_path_holds_no_turn_once_its_puts_finish() {
+    let (_temp, root) = folder("storage-turns", &[]);
+    racing_puts(&root, "a.md", 4, &Expectation::Any);
+    super::put(&root, "a.md", None, &Expectation::Any).unwrap();
+    let busy = BUSY.lock().unwrap();
+    assert!(!busy.iter().any(|path| path.starts_with(&root)), "{busy:?}");
 }
 
 /// A `saves` directory that is a link is never followed: nothing is staged

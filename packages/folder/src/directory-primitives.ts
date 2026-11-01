@@ -57,7 +57,9 @@ export type DirectoryPrimitives = {
 	 * Rename `from` to `to`, replacing a file at `to`, if `to` holds what
 	 * `expected` says. Otherwise reject with `UnexpectedTarget` and change
 	 * nothing; `from` stays. A regular file it replaces passes its permission
-	 * bits to `from` first, so it stays private or executable.
+	 * bits to `from` first, so it stays private or executable. Expecting
+	 * `absent`, it never replaces anything, whatever appeared after the
+	 * check: of two renames to one new path, exactly one lands.
 	 */
 	rename(from: string, to: string, expected: Expectation): Promise<void>;
 	/**

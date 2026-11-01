@@ -14,6 +14,7 @@
  * 3. Two tabs racing an update over one version: one lands, one `Conflict`.
  *    Two tabs racing a create of one path: one lands, one `Occupied`. The
  *    Web Lock per path is what serializes them across the tabs' Workers.
+ *    Two writes racing within one tab take turns under the same lock.
  * 4. A write in one tab reaches the other tab's listeners (the Worker's
  *    broadcast), and the writing tab's own listeners before it resolves.
  * 5. A listing taken while files are being deleted answers, without the
@@ -161,6 +162,16 @@ try {
 				`racing creates: ${creates}`,
 			);
 			steps.push(`two tabs racing: updates ${updates}, creates ${creates}`);
+			const oneTab = await a.evaluate(() => deviceSmoke.raceInOnePage('same'));
+			check(
+				!('error' in oneTab) &&
+					[...oneTab.updates].sort().join() === 'Conflict,landed' &&
+					[...oneTab.creates].sort().join() === 'Occupied,landed',
+				`racing in one tab: ${JSON.stringify(oneTab)}`,
+			);
+			steps.push(
+				`one tab racing: updates ${oneTab.updates}, creates ${oneTab.creates}`,
+			);
 
 			const racing = await a.evaluate(() => deviceSmoke.listDuringDeletes(40));
 			check(
@@ -206,7 +217,7 @@ try {
 			await a.waitForFunction(() => globalThis.deviceSmoke !== undefined);
 			const reloaded = await a.evaluate(() => deviceSmoke.read('r1'));
 			check(
-				Array.isArray(reloaded.notes) && reloaded.notes.length === 3,
+				Array.isArray(reloaded.notes) && reloaded.notes.length === 5,
 				`after reload: ${JSON.stringify(reloaded.notes)}`,
 			);
 			await context.close();

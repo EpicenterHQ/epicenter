@@ -3,9 +3,13 @@
  * any host that can reach the disk itself.
  *
  * A rename or removal checks what it expects at its path and then changes
- * it: two steps, with nothing holding the path between them, as in the
- * desktop shell. Another program can change the path in that instant; Git
- * history is the backstop (ADR-0568).
+ * it. Within this process, changes to one path take turns across those two
+ * steps (`createPathTurns`), so of two writers expecting one version exactly
+ * one lands. A new file is placed by a hard link, which the file system
+ * refuses when anything has the name, so of writers creating one path in any
+ * process exactly one lands. Across processes nothing holds a path between
+ * a replacement's check and its rename: another program can change it in
+ * that instant, and Git history is the backstop (ADR-0568, ADR-0702).
  *
  * On Unix a private directory is `0700` and a private file `0600`, so no
  * other account reads what is staged in one. On macOS each also has no
@@ -18,6 +22,7 @@ import { constants } from 'node:fs';
 import {
 	chmod,
 	type FileHandle,
+	link,
 	lstat,
 	mkdir,
 	open,
@@ -35,6 +40,7 @@ import type { Expectation } from './boundary.js';
 import type { DirectoryPrimitives, EntryKind } from './directory-primitives.js';
 import { UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
+import { createPathTurns } from './path-turns.js';
 
 type StampStats = {
 	readonly size: bigint;
@@ -91,6 +97,34 @@ async function check(path: string, expected: Expectation): Promise<void> {
 	const actualSha256 = await hashBytes(new Uint8Array(await readFile(path)));
 	if (actualSha256 !== expected.sha256)
 		throw new UnexpectedTarget(path, { name: 'Conflict', actualSha256 });
+}
+
+/** This process's writers to each path, taking turns from check to change. */
+const turns = createPathTurns();
+
+/**
+ * Move `from` to `to` only while nothing is at `to`: a hard link, which the
+ * file system refuses when any entry has the name, then `from` removed, so
+ * of writers creating one path in any process exactly one lands. A `from`
+ * that cannot be removed is a second name of the file that landed, which
+ * the open sweep removes. Another file system (`EXDEV`) and a missing
+ * `from` or parent fail as they are. Where the disk has no hard links (FAT,
+ * exFAT, some network shares), the path is checked, then renamed onto: a
+ * writer in another process racing that check can be replaced. The desktop
+ * shell's `place` is the same move.
+ */
+async function place(from: string, to: string): Promise<void> {
+	try {
+		await link(from, to);
+	} catch (cause) {
+		const code = (cause as { code?: string }).code;
+		if (code === 'EEXIST') throw new UnexpectedTarget(to, { name: 'Exists' });
+		if (code === 'EXDEV' || code === 'ENOENT') throw cause;
+		await check(to, 'absent');
+		await rename(from, to);
+		return;
+	}
+	await rm(from).catch(() => {});
 }
 
 /** Whether this platform has Unix permission bits. */
@@ -269,16 +303,21 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 			await file.close();
 		}
 	},
-	async rename(from, to, expected) {
-		await check(to, expected);
-		await keepMode(to, from);
-		await rename(from, to);
+	rename(from, to, expected) {
+		return turns.run(to, async () => {
+			if (expected === 'absent') return place(from, to);
+			await check(to, expected);
+			await keepMode(to, from);
+			await rename(from, to);
+		});
 	},
-	async remove(path, options) {
-		if (options?.expected !== undefined) await check(path, options.expected);
-		if (options?.recursive) await rm(path, { recursive: true });
-		else if ((await lstat(path)).isDirectory()) await rmdir(path);
-		else await rm(path);
+	remove(path, options) {
+		return turns.run(path, async () => {
+			if (options?.expected !== undefined) await check(path, options.expected);
+			if (options?.recursive) await rm(path, { recursive: true });
+			else if ((await lstat(path)).isDirectory()) await rmdir(path);
+			else await rm(path);
+		});
 	},
 	async mkdir(path, options) {
 		if (options?.private) await privateDirectory(path);

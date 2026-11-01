@@ -107,7 +107,9 @@ there finishes at its real path, or the next open recovers or removes it.
   origin's private files and moves it to its path.
 
 **Every write names the version it read, and the store checks it right before
-the write lands, with no lock across the two.** A version is the SHA-256 of a
+the write lands. Within one process, writes to one path take turns, and a
+create lands only where nothing is; across processes, a replacement's
+check-to-rename gap is accepted.** A version is the SHA-256 of a
 file's bytes on a device and the Git blob id on `main` in a repository. A
 write expects `absent`, a version (`{ sha256 }`), or `any` (`Expectation` in
 `packages/folder/src/boundary.ts` and in the folder core's `storage.rs`); a
@@ -116,16 +118,24 @@ store answers `stale` when the file no longer matches, and the client answers
 
 | Store | Check, then land |
 | --- | --- |
-| Desktop folder, replacing or removing a file (`storage::put`, `directory-store.ts`) | stage in `.epicenter/saves`, walk and check the path, rename over it or remove it |
-| Desktop folder in the shell, a new file | stage, check, then `storage::place` |
-| Desktop folder in Bun, a new file | stage, check, rename |
+| Desktop folder, replacing or removing a file (`storage::put`, `directory-store.ts`) | stage in `.epicenter/saves`; taking the path's turn in this process, walk and check the path, rename over it or remove it |
+| Desktop folder, a new file (the shell and Bun) | stage; taking the path's turn, check, then place by a hard link (`storage::place`, `place` in `directory-node.ts`) |
 | Browser (OPFS) | one Worker, holding a Web Lock named for the path (`epicenter-device:<path>`) across the check and the write |
 | Repository (`openRemote`) | read, compare with `over`, send the write with that base; the server settles it against `main` and moves `main` by compare-and-swap |
 
-Nothing holds a desktop path between the check and the rename. Another save
-landing in that instant can be replaced, and Git history is the backstop:
-what `epicenter sync` committed stays in history. No writer takes a save lock,
-`epicenter sync` included.
+Within one process, a desktop path's writes take turns from the check to the
+rename or removal: a per-path queue in Bun (`createPathTurns`, used by
+`directory-node.ts`) and a per-path turn in the shell (`Turn` in the folder
+core's `storage.rs`), each held only across the check and the change and
+gone once the path is idle. It costs nothing across processes and makes the
+check exact within one: of two writers over one version, one lands and the
+other is `stale`. The save lock this replaces gave the same turns inside a
+process (`lockTurns`); without them, two Vocab adds of one word both landed,
+and a note edit and a stage change over one version replaced each other.
+Across processes nothing holds a desktop path between a replacement's check
+and its rename. Another program's save landing in that instant can be
+replaced, and Git history is the backstop: what `epicenter sync` committed
+stays in history. No writer takes a save lock, `epicenter sync` included.
 
 **One function places a staged file only where nothing is.**
 `storage::place` in the folder core makes a hard link at the target, which
@@ -134,7 +144,9 @@ A link a cut-off placement already made is the same file at both names and
 counts as placed. Where the disk has no hard links (FAT, exFAT, some network
 shares), the file is renamed only while nothing is at the target. `put` uses
 it for a write expecting `absent`, answering `stale` when something appeared
-after the check, and the recorder uses it for every recording it places.
+after the check, and the recorder uses it for every recording it places. The
+Bun host places a new file the same way, so of writers creating one path, in
+one process or several, exactly one lands.
 
 **A save across a mount point fails.** A target on another file system than
 `.epicenter` (a mount point inside the folder) is one no rename or hard link
@@ -180,11 +192,12 @@ Opus in WebM at its path after.**
   `rusqlite` dependency, and Bun's `holdingSaveLock` are gone. The CLI keeps
   one file lock (`packages/cli/src/file-lock.ts`) for sign-in refreshes and
   for one sync round at a time per repository.
-- Two writers replacing one file in the same instant can both land, the later
-  replacing the earlier, whether both are Epicenter's or one is an editor.
-- A new file the shell saves never replaces one that appeared after its check.
-  The Bun host still checks, then renames a new file, so a file another
-  writer makes in that instant can be replaced.
+- Two writers in different processes replacing one file in the same instant
+  can both land, the later replacing the earlier, whether both are
+  Epicenter's or one is an editor. Within one process they take turns, and
+  the second is `stale`.
+- A new file never replaces one that appeared after its check, in the shell
+  or in Bun, whoever made it.
 - A file below a mount point inside a folder cannot be saved.
 - On Windows, `.epicenter` and `saves/` have the access their parent passes
   on, and a placement cut off between its link and its removal is not

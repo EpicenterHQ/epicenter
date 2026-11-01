@@ -143,10 +143,13 @@ and write them as
 [ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)
 decides. A save stages its bytes in the folder's `.epicenter/saves` and
 renames them over the path right after checking the version its writer read.
-No lock spans the check and the rename; Git history is the backstop. In
-Tauri a new file is placed instead (`storage::place`), so it never replaces
-a file that appeared after the check; the Bun host still renames it. A save
-below a mount point inside the folder fails saying it cannot cross one.
+Within one process, writes to one path take turns, and a create lands only
+where nothing is; across processes, a replacement's check-to-rename gap is
+accepted, and Git history is the backstop. A new file is placed by a hard
+link (`storage::place` in Tauri, `place` in `directory-node.ts`), which never
+replaces a file that appeared after the check, so of writers creating one
+path in any process exactly one lands. A save below a mount point inside the
+folder fails saying it cannot cross one.
 Nothing is made beside the directory, and paths and links are checked
 before writes.
 

@@ -119,9 +119,12 @@ Bindings are runtime resources, not a persisted list of folder choices.
 Several windows may be bound to one directory. Each page runs its own engine over the
 directory. Each save is checked against the version its page read right
 before its rename (see Storage). A save that another writer overtook is
-answered `stale`; the page reads again and merges. No lock spans the check
-and the rename, so two saves racing in that instant can both land, the later
-replacing the earlier; Git history is the backstop
+answered `stale`; the page reads again and merges. Windows of one app are
+one process, whose puts of one path take turns from the check to the
+rename, so of two saves over one version exactly one lands. Across
+processes no lock spans the check and the rename, so two saves racing in
+that instant can both land, the later replacing the earlier; Git history is
+the backstop
 ([ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).
 
 A shell must also give the window the plugin's commands in a capability:
@@ -294,9 +297,11 @@ across a mount point (`storage::rename_failure`), with nothing copied. Then
 the put walks the path again (no link, every name stored as asked), checks
 what the path holds, and only then makes the path's missing parent
 directories and renames the staged file over it. A removal walks, checks,
-and removes. Nothing holds the path between the check and the change, in
-the shell or in a Bun process opening the same directory: a save another
-writer lands in that instant can be replaced
+and removes. Within the shell's process, puts of one path take turns from
+that walk to the rename or removal, so none lands between another's check
+and its change. Across processes nothing holds the path between the check
+and the change: a save another program, such as a Bun process opening the
+same directory, lands in that instant can be replaced
 ([ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).
 A put expecting nothing at its path (`absent`) is the exception: it is
 placed (`storage::place`, which the recorder places each recording with
@@ -400,9 +405,11 @@ file or the new one. A late change is refused as `ShuttingDown` and writes nothi
 - A link another program swaps in between a check and the read or change
   that follows is not defended against; a page cannot make one. A put
   checks the path for links again right before its rename.
-- The expectation is checked right before the rename, with no lock between
-  them. A writer that changes a path in that instant is not seen, and its
-  save can be replaced; Git history keeps what sync committed.
+- The expectation is checked right before the rename. Within the shell's
+  process, puts of one path take turns across the two; across processes no
+  lock spans them. A writer in another process that changes a path in that
+  instant is not seen, and its save can be replaced; Git history keeps what
+  sync committed.
 - A compromised page keeps the powers the engine needs: it can move the
   branch, reset the index, and change or delete any data path. Each is
   visible and repairable from the reflog and the remote.

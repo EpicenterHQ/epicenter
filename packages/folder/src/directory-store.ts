@@ -8,10 +8,13 @@
  * renamed over the path, carrying what the change expects there
  * (`Expectation`), which the host checks right before the rename, and
  * keeping the mode of a file it replaces: another program sees the old file
- * or the new one, never part of either, and never an empty file first. No
- * lock spans the check and the rename, so a save another program lands in
- * that instant can be replaced; Git history keeps what sync committed
- * (ADR-0568). A removal carries its expectation too. A host that refuses one
+ * or the new one, never part of either, and never an empty file first.
+ * Within one process, writes to one path take turns from the check to the
+ * rename, and a create lands only where nothing is, in any process. Across
+ * processes no lock spans a replacement's check and its rename, so a save
+ * another program lands in that instant can be replaced; Git history keeps
+ * what sync committed (ADR-0568, ADR-0702). A removal carries its
+ * expectation too. A host that refuses one
  * changed nothing, and the change is `stale`. A path on another file system
  * than `saves` (a mount point inside the folder) is one no rename reaches,
  * and nothing is copied instead: that save is `Io`, saying it cannot cross
