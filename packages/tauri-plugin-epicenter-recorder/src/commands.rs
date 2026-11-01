@@ -26,9 +26,9 @@ use crate::recorder::{Input, Result, StartedRecording, StoppedRecording};
 use crate::wav::RecoveredRecording;
 use crate::{refresh_capturing, Recorders};
 
-/// The directory `root` names, read once for this operation: the window's
-/// own folder or a root its page opened (`open_folder`), by the exact path
-/// the shell answered. Any other root is refused, and a window closed and
+/// The directory `root` names, read once for this operation: the directory
+/// the shell bound to the window or a root its page opened (`open_folder`),
+/// by the exact path the shell answered. Any other root is refused, and a window closed and
 /// replaced under the same label meanwhile does not redirect it.
 fn bound_root<R: Runtime>(webview: &Webview<R>, root: &Path) -> Result<PathBuf> {
     webview
@@ -111,9 +111,8 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
     result
 }
 
-/// Start recording `<path>.webm` in `root` (the window's own folder or a
-/// root its page opened), from the microphone whose id is
-/// `device` or the system default. Levels, and an ending nobody asked for,
+/// Start recording `<path>.webm` in `root` (`bound_root`), from the
+/// microphone whose id is `device` or the system default. Levels, and an ending nobody asked for,
 /// arrive on `signals`.
 ///
 /// The path must be a data path the shared path rule accepts, with nothing at
@@ -207,11 +206,11 @@ pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<Stopped
     settled.map_err(|error| RecorderError::failed(error.to_string()))?
 }
 
-/// Repair every recording under `under` in `root` (the window's own folder
-/// or a root its page opened) that a quit or a crash left in the folder's
-/// `.epicenter/recordings`, encode each and place it at its path, and return
-/// each one's folder-relative path and how long it plays (`durationMs`, so a
-/// page never reads the audio back to measure it). The recording still being
+/// Repair every recording under `under` in `root` (`bound_root`) that a
+/// quit or a crash left in the folder's `.epicenter/recordings`, encode each
+/// and place it at its path, and return each one's folder-relative path and
+/// how long it plays (`durationMs`, so a page never reads the audio back to
+/// measure it). The recording still being
 /// written, and those a stop is still settling, are left alone. Running it
 /// again changes nothing.
 #[tauri::command]

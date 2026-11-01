@@ -33,9 +33,9 @@ export {
 
 /**
  * The typed client of `contract` over the root at the absolute path `path`,
- * once the desktop shell opened it and started watching it: the window's
- * own folder (the AppData root the shell bound before the window existed),
- * or any folder Tauri's runtime file-system scope allows, which the
+ * once the desktop shell opened it and started watching it: the directory
+ * the shell bound to the window before it existed (its AppData root), or
+ * any folder Tauri's runtime file-system scope allows, which the
  * standalone shell does for the app's default data folder at startup and the
  * folder picker (`pickDataFolder`) does for the folder a person picks.
  * `create` makes a missing root (only a default should be made); otherwise a

@@ -19,9 +19,8 @@ export const commands = {
 	/**  Close the meter `id` this window opened, releasing its microphone. */
 	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
 	/**
-	 *  Start recording `<path>.webm` in `root` (the window's own folder or a
-	 *  root its page opened), from the microphone whose id is
-	 *  `device` or the system default. Levels, and an ending nobody asked for,
+	 *  Start recording `<path>.webm` in `root` (`bound_root`), from the
+	 *  microphone whose id is `device` or the system default. Levels, and an ending nobody asked for,
 	 *  arrive on `signals`.
 	 *
 	 *  The path must be a data path the shared path rule accepts, with nothing at
@@ -40,11 +39,11 @@ export const commands = {
 	 */
 	stop: (id: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop", { id })),
 	/**
-	 *  Repair every recording under `under` in `root` (the window's own folder
-	 *  or a root its page opened) that a quit or a crash left in the folder's
-	 *  `.epicenter/recordings`, encode each and place it at its path, and return
-	 *  each one's folder-relative path and how long it plays (`durationMs`, so a
-	 *  page never reads the audio back to measure it). The recording still being
+	 *  Repair every recording under `under` in `root` (`bound_root`) that a
+	 *  quit or a crash left in the folder's `.epicenter/recordings`, encode each
+	 *  and place it at its path, and return each one's folder-relative path and
+	 *  how long it plays (`durationMs`, so a page never reads the audio back to
+	 *  measure it). The recording still being
 	 *  written, and those a stop is still settling, are left alone. Running it
 	 *  again changes nothing.
 	 */

@@ -218,7 +218,7 @@ test('a path opens a root the shell allows; any other is NotGranted, a missing o
 	expect(await readFile(join(other, 'notes/a.md'), 'utf8')).toContain(
 		'title: There',
 	);
-	// The window's own folder, named by its path, is the bound directory.
+	// The directory the shell bound to the window opens by its path too.
 	const here = unwrap(await openDevice(notes, { path: shell.root }));
 	expect(rootOf(here)).toBe(shell.root);
 	expectOk(await here.notes.create({ id: 'b', title: 'Here' }));

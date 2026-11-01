@@ -14,8 +14,8 @@
 //! - Without microphone access no meter or recording resolves a device;
 //!   listing asks for nothing.
 //! - Permission granted after page departure resolves no device for that page.
-//! - `start` records only into the calling window's own folder or a root its
-//!   page opened, at a data path the shared path rule accepts, with nothing
+//! - `start` records only into the directory the shell bound to the calling
+//!   window or a root its page opened, at a data path the shared path rule accepts, with nothing
 //!   at it yet. A root the page did not open, a window with no binding, or a
 //!   page whose folders have shut down, is refused.
 //! - `stop` reaches only a recording the window started; no command deletes
