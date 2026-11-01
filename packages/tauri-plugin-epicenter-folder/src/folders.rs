@@ -29,6 +29,10 @@ pub struct Folders {
 struct State {
     bindings: HashMap<String, Binding>,
     stopped: bool,
+    /// The last observation number handed out, by any binding: one number
+    /// names one page of one binding, even a binding made again under its
+    /// label.
+    observations: u64,
 }
 
 struct Binding {
@@ -36,8 +40,9 @@ struct Binding {
     /// Every root a page opened, by its canonical path: the primary when it
     /// was opened, and each other root `open_folder` admitted.
     opened: HashMap<PathBuf, OpenedRoot>,
-    identity: Arc<()>,
     retiring: bool,
+    /// The current page's observation number (`State::observations`), or 0
+    /// before a page reserved one.
     observation: u64,
 }
 
@@ -76,7 +81,6 @@ impl Folders {
             Binding {
                 directory,
                 opened: HashMap::new(),
-                identity: Arc::new(()),
                 retiring: false,
                 observation: 0,
             },
@@ -162,12 +166,14 @@ impl Folders {
         if state.stopped {
             return Err(WindowError::ShuttingDown);
         }
+        state.observations += 1;
+        let observation = state.observations;
         let binding = state.bindings.get_mut(label).ok_or(WindowError::NotBound)?;
         if binding.retiring {
             return Err(WindowError::NotBound);
         }
-        binding.observation = binding.observation.wrapping_add(1);
-        Ok((binding.directory.clone(), binding.observation))
+        binding.observation = observation;
+        Ok((binding.directory.clone(), observation))
     }
 
     /// A page started loading in the window: the previous page's recipients
@@ -175,10 +181,12 @@ impl Folders {
     pub(crate) fn page_started(&self, label: &str) {
         let old: Vec<_> = {
             let mut state = self.state();
+            state.observations += 1;
+            let observation = state.observations;
             let Some(binding) = state.bindings.get_mut(label) else {
                 return;
             };
-            binding.observation = binding.observation.wrapping_add(1);
+            binding.observation = observation;
             binding
                 .opened
                 .values()
@@ -212,7 +220,7 @@ impl Folders {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .replace(next.take().expect("the new recipient"))
         };
-        let identity = {
+        {
             let state = self.state();
             if state.stopped {
                 return Err(WindowError::ShuttingDown);
@@ -227,8 +235,7 @@ impl Folders {
                 drop(previous);
                 return Ok(());
             }
-            binding.identity.clone()
-        };
+        }
         // Native recursive setup can walk a large tree. It must never hold the
         // global bindings lock, and remains inactive until installed below.
         let recipient: Report = Arc::new(Mutex::new(None));
@@ -253,11 +260,7 @@ impl Folders {
                 Err(WindowError::ShuttingDown)
             } else {
                 match state.bindings.get_mut(label) {
-                    Some(binding)
-                        if !binding.retiring
-                            && binding.observation == observation
-                            && Arc::ptr_eq(&binding.identity, &identity) =>
-                    {
+                    Some(binding) if !binding.retiring && binding.observation == observation => {
                         if let Some(opened) = binding.opened.get(&root) {
                             Ok(replace(&opened.report, &mut next_report))
                         } else {
