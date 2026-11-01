@@ -16,12 +16,12 @@ binding into a helper left callers responsible for the ordering.
 
 A shell calls `FolderExt::open_folder_window(application, directory, url,
 configure)`. The plugin derives the native label from the application key and
-canonical directory. It serializes lookup, binding, configuration of Tauri's
-actual builder, and construction on the main thread. Reopening the same pair
-reveals the existing window after checking its complete binding. Shutdown
-refuses reuse as well as new construction. Configuration and build failures
-roll back the binding; presentation failures retain the live window's binding.
-The plugin's destruction event removes it.
+canonical directory. It serializes binding, configuration of Tauri's actual
+builder, and construction on the main thread. A shell opens each pair once, at
+setup: opening a pair already bound is refused, and a label that is already
+another window is never adopted. Shutdown refuses new windows. Configuration
+and build failures roll back the binding; presentation failures retain the
+live window's binding. The plugin's destruction event removes it.
 
 The shell still admits the directory and configures its page.
 `epicenter-standalone`, the shell every app's desktop program runs on, makes
@@ -41,6 +41,11 @@ a window after construction would let a page run before its binding existed.
 Caller-owned label generation and reveal/build callbacks would preserve the
 coordination this API removes.
 
+Reopening a pair already bound could reveal its existing window after checking
+the window's complete binding. That served a shell that opened folder windows
+on demand. Since ADR-0701 each program opens its one window at setup, so a
+second open of the same pair is a mistake to refuse, not a request to honor.
+
 ## Consequences
 
 Shells no longer hash labels or coordinate binding with construction. The
@@ -50,6 +55,6 @@ identity. The existing window-to-directory map remains the storage command's
 authority and the owner of shared root watches.
 
 The plugin's tests (`windows.rs`) verify identity by application and
-canonical root, separate runtimes, refusing a live label bound to another
-directory, rollback of configuration and build failures, and refusal after
+canonical root and that a pair opens once, separate runtimes, never adopting a
+live label, rollback of configuration and build failures, and refusal after
 shutdown.
