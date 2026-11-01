@@ -87,14 +87,14 @@ test('a recording a closed tab left as audio alone gets its note, its length rea
 				id: whole,
 				title: 'Whole',
 				recordedAt: '2026-10-31T08:00:00.000Z',
-				durationMs: 1047,
+				durationMs: 1003,
 			}),
 		);
 
 		expect(unwrap(await finishCutOffRecordings(device))).toEqual([cut]);
 		expect(unwrap(await device.recordings.get({ id: cut }))).toMatchObject({
 			recordedAt: '2026-10-31T09:30:00.000Z',
-			durationMs: 1047,
+			durationMs: 1003,
 		});
 		expect(unwrap(await finishCutOffRecordings(device))).toEqual([]);
 	} finally {
