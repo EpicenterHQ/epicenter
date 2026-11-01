@@ -8,7 +8,8 @@
  * crash, or a closed tab keeps every piece already written, and
  * `recoverRecordings` cuts a file a closed tab left half-written back to its
  * last whole piece. While a recording runs this tab holds a Web Lock named
- * for its file, so recovery in another tab leaves it alone.
+ * for its path without the extension, so recovery in another tab leaves its
+ * file alone whatever extension the browser's type gave it.
  *
  * `startPageRecording` holds the audio in the page instead and `stop`
  * answers it, for a page whose store is not in this browser (an online
@@ -17,8 +18,9 @@
  * AAC in MP4 is asked for first (`.m4a`), since a recording lands in folders
  * that native players open, then Opus in WebM (`.webm`). Never bare
  * `audio/mp4`, whose codec differs by engine. The extension is read from what
- * the recorder reports, not from the request: engines differ in what they
- * honor. Both engines hand each piece of MP4 over as a whole fragment.
+ * the recorder reports, not from the request (`extensionOf`): engines differ
+ * in what they honor. Both engines hand each piece of MP4 over as a whole
+ * fragment.
  *
  * A chosen microphone is asked for by its exact ID. When the browser cannot
  * open exactly that one, the answer is a refusal: no other microphone is
@@ -52,31 +54,22 @@ export {
 } from './vad-recorder.js';
 
 /** What a browser recording asks `MediaRecorder` for, in order (decision 56). */
-export const RECORDING_TYPES = [
+const RECORDING_TYPES = [
 	'audio/mp4;codecs=mp4a.40.2',
 	'audio/webm;codecs=opus',
 ] as const;
 
-/** The container of a produced type, by the extension its file is named with. */
-const EXTENSIONS: Record<string, { extension: string; mimeType: string }> = {
-	'audio/mp4': { extension: 'm4a', mimeType: 'audio/mp4' },
-	'video/mp4': { extension: 'm4a', mimeType: 'audio/mp4' },
-	'audio/webm': { extension: 'webm', mimeType: 'audio/webm' },
-	'video/webm': { extension: 'webm', mimeType: 'audio/webm' },
-	'audio/ogg': { extension: 'ogg', mimeType: 'audio/ogg' },
-};
-
 /**
- * The file extension and plain MIME type of what a recorder produced, read
- * from its type (`audio/mp4; codecs=mp4a.40.2` is `m4a`). WebM when the
- * browser names no type, as a recorder left to its default records WebM.
+ * The extension a recording's file is named with, from the type a recorder
+ * produced however the engine spells it (`audio/mp4; codecs=mp4a.40.2` is
+ * `m4a`). WebM when the browser names no type or one not listed here, as a
+ * recorder left to its default records WebM.
  */
-export function containerOf(type: string): {
-	extension: string;
-	mimeType: string;
-} {
-	const base = type.split(';')[0]?.trim().toLowerCase() ?? '';
-	return EXTENSIONS[base] ?? EXTENSIONS['audio/webm']!;
+function extensionOf(type: string): 'm4a' | 'webm' | 'ogg' {
+	const container = type.split(';')[0]?.trim().toLowerCase();
+	if (container === 'audio/mp4' || container === 'video/mp4') return 'm4a';
+	if (container === 'audio/ogg') return 'ogg';
+	return 'webm';
 }
 
 /** A recording held in the page, finished: its audio, and how long it plays. */
@@ -84,8 +77,6 @@ export type RecordedAudio = {
 	readonly bytes: Uint8Array;
 	/** `m4a` or `webm` (or `ogg`), from the type the browser produced. */
 	readonly extension: string;
-	/** The produced container's MIME type, without codecs. */
-	readonly mimeType: string;
 	readonly durationMs: number;
 };
 
@@ -100,7 +91,11 @@ export type StartPageRecording = (
 const LEVEL_INTERVAL_MS = 50;
 /** How much audio each piece `MediaRecorder` hands over holds: what a cut can lose. */
 const PIECE_MS = 1000;
-/** The Web Lock a tab holds while it writes the recording at `path`. */
+/**
+ * The Web Lock a tab holds while it writes the recording at `path`, the
+ * path a start is given, without an extension: the file's extension is the
+ * type the recorder produced, known only once it runs.
+ */
 const lockOf = (path: string) => `epicenter-recording:${path}`;
 
 /**
@@ -318,10 +313,9 @@ export const startRecording: StartRecording = async ({
 	signal,
 }) => {
 	const files = deviceFiles(device);
-	const expected = `${path}.${
-		containerOf((typeof MediaRecorder !== 'undefined' && requestedType()) || '')
-			.extension
-	}`;
+	const expected = `${path}.${extensionOf(
+		(typeof MediaRecorder !== 'undefined' && requestedType()) || '',
+	)}`;
 	const there = await files.read(expected);
 	if (there.error !== null)
 		return RecorderError.Refused({ reason: there.error.message });
@@ -329,10 +323,10 @@ export const startRecording: StartRecording = async ({
 		return RecorderError.Refused({
 			reason: `a file is already at ${expected}`,
 		});
-	const releaseLock = await hold(lockOf(expected));
+	const releaseLock = await hold(lockOf(path));
 	if (releaseLock === null)
 		return RecorderError.Busy({
-			reason: `another tab is recording into ${expected}`,
+			reason: `another tab is recording into ${path}`,
 		});
 
 	/**
@@ -383,7 +377,7 @@ export const startRecording: StartRecording = async ({
 	}
 	const started = opened.data;
 	capture = started;
-	file = `${path}.${containerOf(started.type).extension}`;
+	file = `${path}.${extensionOf(started.type)}`;
 	for (const piece of early.splice(0)) write(piece);
 
 	return Ok({
@@ -441,7 +435,7 @@ export const recoverRecordings: RecoverRecordings = async ({
 		if (!path.startsWith(`${under}/`) || name.includes('/')) continue;
 		const ext = name.slice(name.lastIndexOf('.') + 1);
 		if (ext !== 'm4a' && ext !== 'webm') continue;
-		const releaseLock = await hold(lockOf(path));
+		const releaseLock = await hold(lockOf(path.slice(0, -ext.length - 1)));
 		// A tab is writing it now.
 		if (releaseLock === null) continue;
 		try {
@@ -500,13 +494,12 @@ export const startPageRecording: StartPageRecording = async (options = {}) => {
 			const type = pieces[0]?.type || capture.type;
 			const bytes = new Uint8Array(await new Blob(pieces).arrayBuffer());
 			if (bytes.byteLength === 0) return RecorderError.Empty();
-			const container = containerOf(type);
+			const extension = extensionOf(type);
 			return Ok({
 				bytes,
-				...container,
+				extension,
 				durationMs:
-					audioDurationMs(bytes, container.extension) ??
-					finished.data.durationMs,
+					audioDurationMs(bytes, extension) ?? finished.data.durationMs,
 			});
 		},
 	});

@@ -41,8 +41,9 @@ mock.module('@epicenter/folder/browser', () => ({
 		return files;
 	},
 }));
-const { containerOf, recoverRecordings, startPageRecording, startRecording } =
-	await import('./browser.js');
+const { recoverRecordings, startPageRecording, startRecording } = await import(
+	'./browser.js'
+);
 
 /** What every microphone request turns off: Safari's voice processing. */
 const UNPROCESSED = {
@@ -86,10 +87,14 @@ function fakeStream(deviceId: string, label = 'Desk Microphone') {
 /** The fake recorders made, newest last, to hand over pieces while they record. */
 const recorders: { piece(bytes: Uint8Array): void }[] = [];
 
-/** A MediaRecorder that records the `supported` types and produces `produced` when it stops. */
+/**
+ * A MediaRecorder that records the `supported` types and produces `produced`
+ * when it stops. Asked for no type, it reports `defaultType`.
+ */
 function fakeRecorderClass(
 	produced: () => Uint8Array,
 	supported: readonly string[] = ['audio/webm;codecs=opus'],
+	defaultType = '',
 ) {
 	return class FakeRecorder {
 		static isTypeSupported(type: string) {
@@ -105,7 +110,7 @@ function fakeRecorderClass(
 						if (this.state !== 'inactive') this.stop();
 					}),
 				);
-			this.mimeType = options?.mimeType ?? '';
+			this.mimeType = options?.mimeType ?? defaultType;
 			recorders.push(this);
 		}
 		/** Hand over a piece while recording, as the browser does each second. */
@@ -462,7 +467,7 @@ test('recovery cuts a file a closed tab left half-written, answers every recordi
 	});
 	const locks = memoryLocks();
 	const { device } = browser({ files: memory.files, locks });
-	locks.held.add('epicenter-recording:recordings/writing.m4a');
+	locks.held.add('epicenter-recording:recordings/writing');
 
 	const recovered = expectOk(
 		await recoverRecordings({ device, under: 'recordings' }),
@@ -488,7 +493,7 @@ test('recovery cuts a file a closed tab left half-written, answers every recordi
 	expect(memory.held.get('recordings/old/cut.m4a')).toEqual(cut);
 	await settle();
 	expect(locks.held).toEqual(
-		new Set(['epicenter-recording:recordings/writing.m4a']),
+		new Set(['epicenter-recording:recordings/writing']),
 	);
 	// A second run repairs nothing more, and answers the same recordings.
 	expect(
@@ -503,9 +508,7 @@ test('a recording holds its lock while it records, so recovery passes it by', as
 	const recording = expectOk(
 		await startRecording({ device, path: 'recordings/a' }),
 	);
-	expect(locks.held).toEqual(
-		new Set(['epicenter-recording:recordings/a.webm']),
-	);
+	expect(locks.held).toEqual(new Set(['epicenter-recording:recordings/a']));
 	const again = expectErr(
 		await startRecording({ device, path: 'recordings/a' }),
 	);
@@ -525,7 +528,6 @@ test('a recording held in the page answers its audio, as WebM where the browser 
 	expect(stopped).toEqual({
 		bytes: new Uint8Array([1, 2, 3]),
 		extension: 'webm',
-		mimeType: 'audio/webm',
 		durationMs: 1_500,
 	});
 	expect(expectErr(await recording.stop()).name).toBe('NotRecording');
@@ -539,20 +541,59 @@ test('AAC in MP4 is asked for first, and held in the page as m4a', async () => {
 		),
 	});
 	const recording = expectOk(await startPageRecording());
-	expect(expectOk(await recording.stop())).toMatchObject({
-		extension: 'm4a',
-		mimeType: 'audio/mp4',
-	});
+	expect(expectOk(await recording.stop()).extension).toBe('m4a');
 });
 
-test('the extension follows the type produced, however the engine spells it', () => {
-	expect(containerOf('audio/mp4; codecs=mp4a.40.2')).toEqual({
-		extension: 'm4a',
-		mimeType: 'audio/mp4',
+test('a browser left to its default names the file by the type it reports, however it spells it', async () => {
+	for (const [reported, extension] of [
+		[' Audio/OGG ; codecs=opus', 'ogg'],
+		['video/mp4;codecs=mp4a.40.2', 'm4a'],
+		['audio/webm', 'webm'],
+		['', 'webm'],
+		['audio/unknown', 'webm'],
+	] as const) {
+		const memory = memoryFiles();
+		const { device } = browser({
+			files: memory.files,
+			Recorder: fakeRecorderClass(() => new Uint8Array([1]), [], reported),
+		});
+		const recording = expectOk(
+			await startRecording({ device, path: 'recordings/a' }),
+		);
+		expect(await placedPath(recording)).toBe(`recordings/a.${extension}`);
+		expect([...memory.held.keys()]).toEqual([`recordings/a.${extension}`]);
+
+		browser({
+			Recorder: fakeRecorderClass(() => new Uint8Array([1]), [], reported),
+		});
+		const held = expectOk(await startPageRecording());
+		expect(expectOk(await held.stop()).extension).toBe(extension);
+	}
+});
+
+test('a recording whose file takes a type it did not ask for still holds its lock, so recovery passes it by', async () => {
+	const memory = memoryFiles();
+	const locks = memoryLocks();
+	const { device } = browser({
+		files: memory.files,
+		locks,
+		// Asked for nothing it supports, the browser records MP4 by default.
+		Recorder: fakeRecorderClass(() => new Uint8Array([9]), [], 'audio/mp4'),
 	});
-	expect(containerOf('audio/webm;codecs=opus').extension).toBe('webm');
-	expect(containerOf('audio/ogg;codecs=opus').extension).toBe('ogg');
-	expect(containerOf('').extension).toBe('webm');
+	const recording = expectOk(
+		await startRecording({ device, path: 'recordings/a' }),
+	);
+	recorders.at(-1)!.piece(new Uint8Array([1]));
+	await settle();
+	expect(memory.held.get('recordings/a.m4a')).toEqual(new Uint8Array([1]));
+	expect(
+		expectOk(await recoverRecordings({ device, under: 'recordings' })),
+	).toEqual([]);
+	expect(await placedPath(recording)).toBe('recordings/a.m4a');
+	await settle();
+	expect(
+		expectOk(await recoverRecordings({ device, under: 'recordings' })),
+	).toEqual([{ path: 'recordings/a.m4a', durationMs: null }]);
 });
 
 test('a chosen microphone is asked for exactly, and refused rather than replaced', async () => {

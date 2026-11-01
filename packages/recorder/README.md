@@ -50,7 +50,7 @@ file with a sync access handle.
 | Format | Opus in WebM, mono, 24 kbps, from 16 kHz PCM (about 10.5 MB an hour of speech; the WAV is 115 MB) | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | The header is rewritten about once a second | Each piece is appended as it arrives; the store's listeners hear the file made and finished, not every piece |
 | Quit, crash, closed window or tab | Audio kept up to the cut | Every piece already written is kept |
-| `recoverRecordings` | Rewrites the header of a WAV a quit cut short, then encodes and places it as `stop` does, never over a file there (beside it, as `<name>-recovered.webm`, when the path is taken). Answers each `{ path, durationMs }` placed, the length from the WAV's samples, which the WebM plays exactly | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for its file). Answers `{ path, durationMs }` for every recording no tab is writing, cut or already whole, the length read from the file, so an app can tell a cut-off recording from one another tab is recording |
+| `recoverRecordings` | Rewrites the header of a WAV a quit cut short, then encodes and places it as `stop` does, never over a file there (beside it, as `<name>-recovered.webm`, when the path is taken). Answers each `{ path, durationMs }` placed, the length from the WAV's samples, which the WebM plays exactly | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for the recording's path, whatever extension its file took). Answers `{ path, durationMs }` for every recording no tab is writing, cut or already whole, the length read from the file, so an app can tell a cut-off recording from one another tab is recording |
 | Refused before the microphone opens | The folder or path may not be written, or a file is there | This browser keeps no files here (a private window), or a file is there |
 | Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
 | Voice processing | None: cpal reads the device as it hears | Off: echo cancellation, noise suppression, and gain control are asked off, since Safari's take about 2 s to start and MediaRecorder drops that time |
@@ -73,7 +73,7 @@ import { startPageRecording } from '@epicenter/recorder/browser';
 
 const { data: recording } = await startPageRecording({ input });
 const { data: audio } = await recording.stop();
-// { bytes, extension: 'm4a' | 'webm', mimeType, durationMs }
+// { bytes, extension: 'm4a' | 'webm', durationMs }
 ```
 
 AAC in MP4 is asked for first (`audio/mp4;codecs=mp4a.40.2`, saved as `.m4a`),
