@@ -29,12 +29,11 @@
 //! installs no close, destroy, or exit handler that waits for a page. Every
 //! plugin still hears the window's `Destroyed` and the app's `Exit` (AppKit's
 //! Quit reaches `Exit` without `ExitRequested`), which is where the recorder
-//! finishes a recording in progress. Auxiliary windows an app makes are
-//! destroyed with the primary, never another primary.
+//! finishes a recording in progress.
 
 use std::path::{Path, PathBuf};
 
-use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_epicenter_folder::{Directory, FolderExt};
 use tauri_plugin_fs::FsExt;
@@ -62,22 +61,6 @@ pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
         .plugin(tauri_plugin_epicenter_folder::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(app)
-        // Tauri appends window-event handlers, so an app's own cannot replace this rule.
-        .on_window_event(move |window, event| {
-            if !matches!(event, WindowEvent::Destroyed) {
-                return;
-            }
-            let handle = window.app_handle();
-            for label in auxiliary_windows(
-                app.page,
-                window.label(),
-                handle.webview_windows().keys().map(String::as_str),
-            ) {
-                if let Some(auxiliary) = handle.get_webview_window(&label) {
-                    let _ = auxiliary.destroy();
-                }
-            }
-        })
         .setup(move |application| {
             let handle = application.handle().clone();
             let started = allow_default_folder(&handle).and_then(|()| {
@@ -157,29 +140,6 @@ fn quit_with<R: Runtime>(handle: &AppHandle<R>, app: StandaloneApp, message: Str
         .kind(MessageDialogKind::Error)
         .buttons(MessageDialogButtons::OkCustom("Quit".into()))
         .show(move |_| exit.exit(1));
-}
-
-/// The primary is identified by the page prefix, regardless of map iteration order.
-fn primary_label<'a>(page: &str, labels: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
-    let prefix = format!("{page}:");
-    labels.into_iter().find(|label| label.starts_with(&prefix))
-}
-
-/// The windows to destroy with `destroyed`: when it is a primary, every
-/// window that is not one. A primary that replaced it (a moved folder) stays.
-fn auxiliary_windows<'a>(
-    page: &str,
-    destroyed: &str,
-    labels: impl IntoIterator<Item = &'a str>,
-) -> Vec<String> {
-    if primary_label(page, [destroyed]).is_none() {
-        return Vec::new();
-    }
-    labels
-        .into_iter()
-        .filter(|label| primary_label(page, [*label]).is_none())
-        .map(str::to_owned)
-        .collect()
 }
 
 #[cfg(test)]
@@ -420,14 +380,5 @@ mod tests {
         assert!(!handle
             .fs_scope()
             .is_allowed(default.with_file_name("Elsewhere")));
-    }
-
-    #[test]
-    fn only_primary_destruction_destroys_auxiliaries_and_never_another_primary() {
-        assert_eq!(
-            auxiliary_windows("notes", "notes:a", ["settings", "notes:a", "notes:b"]),
-            ["settings"]
-        );
-        assert!(auxiliary_windows("notes", "settings", ["notes:a"]).is_empty());
     }
 }

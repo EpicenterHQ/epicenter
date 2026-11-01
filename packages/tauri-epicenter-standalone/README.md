@@ -65,10 +65,8 @@ const device = await openDataFolder(capture, { appData: appData.data }); // the 
 Quit quits (on macOS, the default menu's Quit and Cmd-Q), and a window closes
 at once: nothing waits for the page. Every plugin still hears the window's
 `Destroyed` and the app's `Exit`, where the recorder finishes a recording in
-progress. Destroying the primary destroys any auxiliary
-windows the app made, never another primary. WebView files live in the app's
-cache directory, outside both roots. A startup failure shows one dialog with
-only Quit.
+progress. WebView files live in the app's cache directory, outside both
+roots. A startup failure shows one dialog with only Quit.
 
 ```rust
 const CAPTURE: StandaloneApp = StandaloneApp {
