@@ -36,6 +36,7 @@ import {
 	type RecordingSignal,
 } from './native/bindings.gen.js';
 import {
+	type OpenMeter,
 	type PlacedRecording,
 	RecorderError,
 	type RecordingEndedReason,
@@ -210,31 +211,12 @@ export async function listInputs(): Promise<Result<Input[], RecorderError>> {
 	}
 }
 
-/** A microphone open for its level only: nothing is recorded or written. */
-export type Meter = {
-	/** The name of the microphone that is open. */
-	readonly microphone: string;
-	/** Hear how loud the input is, from 0 to 1, at most twenty times a second. Returns the unsubscribe. */
-	onLevel(listener: (level: number) => void): () => void;
-	/** Hear the first unexpected ending, including one before subscription. Retired by close. */
-	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;
-	/** Release the microphone. */
-	close(): Promise<void>;
-};
-
 /**
  * Open `input`, or the system default, for its level until `close`. The
  * shell also closes it when this page reloads or its window closes. A chosen
  * input that is not connected is refused, never replaced.
  */
-export async function openMeter({
-	input,
-	signal,
-}: {
-	input?: { readonly deviceId: string; readonly label: string };
-	/** Withdraws the request. A meter that opens afterward is closed. */
-	signal?: AbortSignal;
-} = {}): Promise<Result<Meter, RecorderError>> {
+export const openMeter: OpenMeter = async ({ input, signal } = {}) => {
 	if (signal?.aborted) return RecorderError.Cancelled();
 	const signals = createRecordingSignals();
 	let answer: Awaited<ReturnType<typeof commands.openMeter>>;
@@ -259,4 +241,4 @@ export async function openMeter({
 		onEnded: signals.onEnded,
 		close,
 	});
-}
+};

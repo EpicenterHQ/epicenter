@@ -23,6 +23,9 @@
  * - Stop releases the microphone; a second stop is `NotRecording`
  * - A start withdrawn while the browser answers releases what arrives late
  * - Levels are heard while recording
+ * - A meter opens one microphone for its level only, ends when it is
+ *   unplugged, and releases it on close; enabling access opens the default
+ *   and releases it at once
  */
 import { afterEach, expect, mock, setSystemTime, test } from 'bun:test';
 import type { Client, Contract } from '@epicenter/definition/contract';
@@ -41,9 +44,13 @@ mock.module('@epicenter/folder/browser', () => ({
 		return files;
 	},
 }));
-const { recoverRecordings, startPageRecording, startRecording } = await import(
-	'./browser.js'
-);
+const {
+	allowMicrophone,
+	openMeter,
+	recoverRecordings,
+	startPageRecording,
+	startRecording,
+} = await import('./browser.js');
 
 /** What every microphone request turns off: Safari's voice processing. */
 const UNPROCESSED = {
@@ -809,4 +816,54 @@ test('an ending reaches every listener when the first listener stops the browser
 	expect(endings).toEqual(['deviceDisconnected']);
 	expect(stopping).toBeDefined();
 	expectOk(await stopping!);
+});
+
+test('a meter opens exactly the chosen microphone for its level, ends when it is unplugged, and releases it on close', async () => {
+	const asked: MediaStreamConstraints[] = [];
+	const { stream, track } = fakeStream('usb-1', 'USB Mic');
+	browser({
+		async getUserMedia(constraints) {
+			asked.push(constraints);
+			return stream;
+		},
+	});
+	const meter = expectOk(
+		await openMeter({ input: { deviceId: 'usb-1', label: 'USB Mic' } }),
+	);
+	expect(asked).toEqual([
+		{ audio: { ...UNPROCESSED, deviceId: { exact: 'usb-1' } } },
+	]);
+	expect(meter.microphone).toBe('USB Mic');
+	const levels: number[] = [];
+	meter.onLevel((level) => levels.push(level));
+	await new Promise((resolve) => setTimeout(resolve, 120));
+	expect(levels[0]).toBeCloseTo(0.5);
+
+	track.end();
+	const endings: string[] = [];
+	meter.onEnded((reason) => endings.push(reason));
+	expect(endings).toEqual(['deviceDisconnected']);
+	await meter.close();
+	expect(track.stopped).toBe(true);
+	const heard = levels.length;
+	await new Promise((resolve) => setTimeout(resolve, 120));
+	expect(levels.length).toBe(heard);
+});
+
+test('enabling access opens the default microphone and releases it at once, and a window that cannot measure audio has no meter', async () => {
+	const asked: MediaStreamConstraints[] = [];
+	const { stream, track } = fakeStream('default');
+	browser({
+		async getUserMedia(constraints) {
+			asked.push(constraints);
+			return stream;
+		},
+	});
+	expectOk(await allowMicrophone());
+	expect(asked).toEqual([{ audio: UNPROCESSED }]);
+	expect(track.stopped).toBe(true);
+
+	stub(globalThis, 'AudioContext', undefined);
+	expect(expectErr(await openMeter()).name).toBe('Unavailable');
+	expect(asked).toHaveLength(1);
 });

@@ -161,6 +161,26 @@ export type RecoverRecordingsOptions = RecordingDevice & {
 	readonly under: string;
 };
 
+/** A microphone open for its level only: nothing is recorded or written. */
+export type Meter = {
+	/** The name of the microphone that is open. */
+	readonly microphone: string;
+	/** Hear how loud the input is, from 0 to 1, at most twenty times a second. Returns the unsubscribe. */
+	onLevel(listener: (level: number) => void): () => void;
+	/** Hear the first unexpected ending, including one before subscription. Retired by close. */
+	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;
+	/** Release the microphone. */
+	close(): Promise<void>;
+};
+
+/**
+ * Open `input`, or the system default, for its level until `close`. A
+ * chosen input that is not connected is refused, never replaced.
+ */
+export type OpenMeter = (
+	options?: RecordingStart,
+) => Promise<Result<Meter, RecorderError>>;
+
 export type StartRecording = (
 	options: StartRecordingOptions,
 ) => Promise<Result<Recording, RecorderError>>;
@@ -187,7 +207,7 @@ export const RecorderError = defineErrors({
 	/** The system or the browser refused microphone access. */
 	PermissionDenied: () => ({
 		message:
-			'Microphone access was denied. Allow it in your system or browser settings, then try again.',
+			'Microphone access was denied. Allow microphone access in System Settings, under Privacy and Security, or in this browser’s site settings, then try again.',
 	}),
 	/** No microphone is connected, or the system default cannot record. */
 	NoInputDevice: ({ reason }: { reason: string }) => ({

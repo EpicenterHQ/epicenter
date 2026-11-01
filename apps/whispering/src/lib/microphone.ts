@@ -13,44 +13,59 @@
  * microphone is opened in its place.
  */
 import type { Client } from '@epicenter/definition/contract';
-import type {
+import {
+	type Meter,
 	RecorderError,
-	RecoverRecordings,
-	StartRecording,
+	type RecordingEndedReason,
+	type RecoverRecordings,
+	type StartRecording,
 } from '@epicenter/recorder';
 import { Err, Ok } from 'wellcrafted/result';
-import {
-	type CaptureDevice,
-	CaptureError,
-	type MicrophoneInputs,
+import type {
+	CaptureDevice,
+	MicrophoneInputs,
+	MicrophoneMeter,
 } from './capture.js';
 import type { Whispering } from './contract.js';
 
 /** Where recordings are written. */
 const DIRECTORY = 'recordings';
 
-/** A recorder's refusal, in the words a capture reports. */
-export function captureErrorOf(error: RecorderError): CaptureError {
-	switch (error.name) {
-		case 'Unavailable':
-			return CaptureError.Unavailable({ reason: error.reason }).error;
-		case 'NoInputDevice':
-			return CaptureError.Unavailable({ reason: error.reason }).error;
-		case 'PermissionDenied':
-			return CaptureError.PermissionDenied().error;
-		case 'InputUnavailable':
-			return CaptureError.InputUnavailable({ label: error.label }).error;
-		case 'Cancelled':
-			return CaptureError.Cancelled().error;
-		case 'Empty':
-			return CaptureError.Empty().error;
-		case 'Refused':
-			return CaptureError.Refused({ reason: error.reason }).error;
-		case 'Busy':
-		case 'NotRecording':
-		case 'Failed':
-			return CaptureError.Failed({ cause: new Error(error.message) }).error;
-	}
+/** Why a microphone stopped on its own, said as a refusal to open it would be. */
+const endedError = (reason: RecordingEndedReason, label: string) =>
+	reason === 'permissionRevoked'
+		? RecorderError.PermissionDenied().error
+		: reason === 'deviceDisconnected'
+			? RecorderError.InputUnavailable({ label }).error
+			: RecorderError.Failed({
+					cause: new Error(`The microphone stopped (${reason}).`),
+				}).error;
+
+/**
+ * A recorder's level-only `Meter` (`openMeter` from either entry) as the
+ * input test reads it: the latest level on demand, and an ending as the
+ * error it means.
+ */
+export function microphoneMeterOf(meter: Meter): MicrophoneMeter {
+	const label = meter.microphone || 'System default';
+	let level = 0;
+	const stopLevels = meter.onLevel((next) => {
+		level = next;
+	});
+	let stopped = false;
+	return {
+		label,
+		level: () => (stopped ? 0 : level),
+		onEnded(listener) {
+			return meter.onEnded((reason) => listener(endedError(reason, label)));
+		},
+		stop() {
+			if (stopped) return;
+			stopped = true;
+			stopLevels();
+			void meter.close();
+		},
+	};
 }
 
 /** The recorder a microphone device records with: `@epicenter/recorder/browser`'s or `/tauri`'s. */
@@ -88,20 +103,18 @@ export function createMicrophoneDevice({
 				input,
 				signal,
 			});
-			if (error !== null) return Err(captureErrorOf(error));
+			if (error !== null) return Err(error);
 			const startedAt = performance.now();
 			return Ok({
 				startedAt,
 				onEnded: recording.onEnded,
 				async stop() {
 					const { data, error: stopError } = await recording.stop();
-					if (stopError !== null) return Err(captureErrorOf(stopError));
+					if (stopError !== null) return Err(stopError);
 					return Ok({
 						durationMs: data.durationMs,
 						placed: data.placed.then(({ data: placed, error }) =>
-							error !== null
-								? Err(captureErrorOf(error))
-								: Ok({ unencoded: placed.unencoded }),
+							error !== null ? Err(error) : Ok({ unencoded: placed.unencoded }),
 						),
 					});
 				},
@@ -114,7 +127,7 @@ export function createMicrophoneDevice({
 				device,
 				under: DIRECTORY,
 			});
-			if (error !== null) return Err(captureErrorOf(error));
+			if (error !== null) return Err(error);
 			const repaired = data.map(({ path, durationMs }) => ({
 				id: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
 				durationMs,

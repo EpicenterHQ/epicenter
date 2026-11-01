@@ -36,6 +36,7 @@ import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import { audioDurationMs, repairAudio } from './container.js';
 import { openMicrophone, release } from './microphone.js';
 import {
+	type OpenMeter,
 	RecorderError,
 	type RecordingEndedReason,
 	type RecordingHandle,
@@ -105,8 +106,11 @@ const lockOf = (path: string) => `epicenter-recording:${path}`;
 function meter(
 	stream: MediaStream,
 	listeners: ReadonlySet<(level: number) => void>,
-): () => void {
-	if (typeof AudioContext === 'undefined') return () => {};
+): Result<() => void, RecorderError> {
+	if (typeof AudioContext === 'undefined')
+		return RecorderError.Unavailable({
+			reason: 'this window cannot measure audio',
+		});
 	let context: AudioContext | undefined;
 	try {
 		context = new AudioContext();
@@ -125,15 +129,14 @@ function meter(
 			for (const listener of listeners) listener(level);
 		}, LEVEL_INTERVAL_MS);
 		const graph = context;
-		return () => {
+		return Ok(() => {
 			clearInterval(timer);
 			source.disconnect();
 			void graph.close().catch(() => {});
-		};
-	} catch {
-		// A recording without a meter is still a recording.
+		});
+	} catch (cause) {
 		void context?.close().catch(() => {});
-		return () => {};
+		return RecorderError.Failed({ cause });
 	}
 }
 
@@ -174,18 +177,11 @@ async function openCapture(
 	{ input, signal }: RecordingStart,
 	onPiece: (piece: Blob) => void,
 ) {
-	const mediaDevices =
-		typeof navigator === 'undefined' ? undefined : navigator.mediaDevices;
-	if (mediaDevices?.getUserMedia === undefined)
-		return RecorderError.Unavailable({
-			reason: 'this window has no microphone access',
-		});
 	if (typeof MediaRecorder === 'undefined')
 		return RecorderError.Unavailable({
 			reason: 'this window cannot encode audio',
 		});
 	const { data: stream, error: openError } = await openMicrophone(
-		mediaDevices,
 		input,
 		signal,
 	);
@@ -225,7 +221,8 @@ async function openCapture(
 		});
 	const levels = new Set<(level: number) => void>();
 	const endings = new Set<(reason: RecordingEndedReason) => void>();
-	const stopMeter = meter(stream, levels);
+	// A recording without a meter is still a recording.
+	const stopMeter = meter(stream, levels).data ?? (() => {});
 	let settled = false;
 	let ended: { reason: RecordingEndedReason; at: number } | undefined;
 	function interrupted(reason: RecordingEndedReason) {
@@ -521,3 +518,79 @@ export const startPageRecording: StartPageRecording = async (options = {}) => {
 		},
 	});
 };
+
+/**
+ * Open `input`, or the system default, for its level until `close`:
+ * nothing is recorded or written. A chosen input that is not connected is
+ * refused, never replaced, and one that is unplugged ends the meter
+ * (`deviceDisconnected`).
+ */
+export const openMeter: OpenMeter = async ({ input, signal } = {}) => {
+	if (typeof AudioContext === 'undefined')
+		return RecorderError.Unavailable({
+			reason: 'this window cannot measure audio',
+		});
+	const { data: stream, error: openError } = await openMicrophone(
+		input,
+		signal,
+	);
+	if (openError !== null) return Err(openError);
+	const levels = new Set<(level: number) => void>();
+	const { data: stopMeter, error: meterError } = meter(stream, levels);
+	if (meterError !== null) {
+		release(stream);
+		return Err(meterError);
+	}
+	const endings = new Set<(reason: RecordingEndedReason) => void>();
+	let ended: RecordingEndedReason | undefined;
+	let closed = false;
+	const track = stream.getAudioTracks()[0];
+	// The track ends when its microphone is unplugged or access is withdrawn.
+	const onTrackEnded = () => {
+		if (closed || ended !== undefined) return;
+		ended = 'deviceDisconnected';
+		for (const listener of [...endings]) listener(ended);
+	};
+	track?.addEventListener('ended', onTrackEnded);
+	return Ok({
+		microphone: track?.label || input?.label || '',
+		onLevel(listener) {
+			if (closed) return () => {};
+			levels.add(listener);
+			return () => levels.delete(listener);
+		},
+		onEnded(listener) {
+			if (closed) return () => {};
+			if (ended !== undefined) {
+				listener(ended);
+				return () => {};
+			}
+			endings.add(listener);
+			return () => endings.delete(listener);
+		},
+		async close() {
+			if (closed) return;
+			closed = true;
+			levels.clear();
+			endings.clear();
+			stopMeter();
+			release(stream);
+		},
+	});
+};
+
+/**
+ * Ask for microphone access, so the browser lists inputs by name: the
+ * system default microphone is opened and released at once, and nothing is
+ * recorded or measured.
+ */
+export async function allowMicrophone({
+	signal,
+}: Pick<RecordingStart, 'signal'> = {}): Promise<
+	Result<undefined, RecorderError>
+> {
+	const { data: stream, error } = await openMicrophone(undefined, signal);
+	if (error !== null) return Err(error);
+	release(stream);
+	return Ok(undefined);
+}

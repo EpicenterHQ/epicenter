@@ -21,9 +21,9 @@
  * release is released when it arrives. A test reads a level and nothing
  * else: no audio is recorded, sent, or saved.
  */
+import type { RecorderError } from '@epicenter/recorder';
 import type {
 	CaptureDevice,
-	CaptureError,
 	MicrophoneMeter,
 	MicrophonePreference,
 } from './capture.js';
@@ -54,6 +54,12 @@ export type InputTest =
 
 /** How often the level is read while a test runs. */
 const LEVEL_MS = 80;
+
+/**
+ * How full the level bar is for an input's level (its RMS, 0 to 1). Speech
+ * sits low on a linear scale; the root spreads it over the bar.
+ */
+const shown = (level: number) => Math.min(1, Math.sqrt(level) * 1.5);
 
 const RECORDING =
 	'A recording is using the microphone. Stop it before changing or testing the input.';
@@ -95,7 +101,7 @@ export function createMicrophoneInput({
 		  };
 	let acquisition = $state.raw<Acquisition>();
 
-	function report(error: CaptureError | null) {
+	function report(error: RecorderError | null) {
 		// A withdrawn request is not a failure to show.
 		if (error?.name === 'Cancelled') return;
 		problem = error?.message;
@@ -220,7 +226,7 @@ export function createMicrophoneInput({
 				return { phase: 'running', label: acquisition.meter.label };
 			return { phase: acquisition?.kind === 'opening' ? 'opening' : 'idle' };
 		},
-		/** The level of the running test, from 0 to 1. */
+		/** How full the running test's level bar is, from 0 to 1. */
 		get level() {
 			return level;
 		},
@@ -317,7 +323,7 @@ export function createMicrophoneInput({
 				controller: attempt.controller,
 				meter: opened,
 				timer: setInterval(() => {
-					level = opened.level();
+					level = shown(opened.level());
 				}, LEVEL_MS),
 			};
 			acquisition = running;
@@ -340,7 +346,7 @@ export function createMicrophoneInput({
 			if (error !== null) problem = error.message;
 		},
 		/** A recording could not open the microphone: say whether access was the reason. */
-		noteRecordingError(error: CaptureError) {
+		noteRecordingError(error: RecorderError) {
 			if (error.name === 'PermissionDenied') denied = true;
 		},
 		/**

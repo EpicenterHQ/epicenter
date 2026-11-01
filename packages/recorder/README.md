@@ -118,6 +118,16 @@ the same across launches and reconnections. Listing needs no microphone
 permission; the shell's recorder asks macOS for it before it opens a meter
 or records, and a denial is `PermissionDenied`.
 
+## Levels in a browser
+
+`@epicenter/recorder/browser` has the same `openMeter`, over the page's own
+microphone, and `allowMicrophone`, which opens the default microphone and
+releases it at once so the browser lists inputs by name. Recording, a
+meter, enabling access, and voice activity detection all open a microphone
+the same way (`microphone.ts`): exactly the chosen input, with the browser's
+voice processing off, and released by whoever opened it. Listing inputs is
+the browser's own `enumerateDevices`.
+
 ## Voice activity detection
 
 It calls `getUserMedia`, so it is in the browser entry; a desktop build

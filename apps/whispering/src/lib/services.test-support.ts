@@ -16,14 +16,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Client } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
-import { audioDurationMs } from '@epicenter/recorder';
+import { audioDurationMs, RecorderError } from '@epicenter/recorder';
 import { Err, Ok, unwrap } from 'wellcrafted/result';
 import { extensionOf } from './audio-format.js';
-import {
-	type CaptureDevice,
-	CaptureError,
-	type MicrophoneInputs,
-} from './capture.js';
+import type { CaptureDevice, MicrophoneInputs } from './capture.js';
 import {
 	applyConnectionChange,
 	type ConnectionsInfo,
@@ -46,7 +42,7 @@ export type FixtureAudio = {
 export const NO_INPUTS: MicrophoneInputs = {
 	list: async () => Ok({ devices: [] }),
 	meter: async () =>
-		CaptureError.Unavailable({ reason: 'no microphone is behind this test' }),
+		RecorderError.Unavailable({ reason: 'no microphone is behind this test' }),
 	onChange: () => () => {},
 };
 
@@ -76,22 +72,22 @@ export function createFixtureDevice({
 				startedAt,
 				onEnded: () => () => {},
 				async stop() {
-					if (stopped) return CaptureError.Empty();
+					if (stopped) return RecorderError.Empty();
 					stopped = true;
 					let fixture: FixtureAudio;
 					try {
 						fixture = await load();
 					} catch (cause) {
-						return CaptureError.Failed({ cause });
+						return RecorderError.Failed({ cause });
 					}
-					if (fixture.bytes.byteLength === 0) return CaptureError.Empty();
+					if (fixture.bytes.byteLength === 0) return RecorderError.Empty();
 					const written = await device.audio.create({
 						id,
 						ext,
 						bytes: fixture.bytes,
 					});
 					if (written.error !== null)
-						return CaptureError.Refused({ reason: written.error.message });
+						return RecorderError.Refused({ reason: written.error.message });
 					return Ok({
 						// The fixture's own length when it can be read, not the wait before Stop.
 						durationMs:

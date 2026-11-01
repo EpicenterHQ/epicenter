@@ -37,10 +37,15 @@ const UNPROCESSED = {
  * chosen. The caller owns the stream it is given and must release it.
  */
 export async function openMicrophone(
-	mediaDevices: Pick<MediaDevices, 'getUserMedia'>,
 	input: RecordingInput | undefined,
 	signal: AbortSignal | undefined,
 ): Promise<Result<MediaStream, RecorderError>> {
+	const mediaDevices =
+		typeof navigator === 'undefined' ? undefined : navigator.mediaDevices;
+	if (mediaDevices?.getUserMedia === undefined)
+		return RecorderError.Unavailable({
+			reason: 'this window has no microphone access',
+		});
 	if (signal?.aborted) return RecorderError.Cancelled();
 	const { data: stream, error } = await tryAsync({
 		try: () =>

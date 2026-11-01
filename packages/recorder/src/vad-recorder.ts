@@ -6,7 +6,7 @@ import {
 } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { openMicrophone, release } from './microphone.js';
-import { RecorderError, type RecordingInput } from './recording.js';
+import type { RecorderError, RecordingInput } from './recording.js';
 
 const VadRecorderError = defineErrors({
 	AlreadyActive: () => ({
@@ -117,12 +117,7 @@ export function createVadRecorder({
 			_starting = true;
 
 			try {
-				if (navigator.mediaDevices?.getUserMedia === undefined)
-					return RecorderError.Unavailable({
-						reason: 'this window has no microphone access',
-					});
 				const { data: stream, error: openError } = await openMicrophone(
-					navigator.mediaDevices,
 					input,
 					undefined,
 				);

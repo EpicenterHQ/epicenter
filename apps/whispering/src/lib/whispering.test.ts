@@ -25,9 +25,10 @@ import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { RecorderError } from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { type CaptureDevice, CaptureError } from './capture.js';
+import type { CaptureDevice } from './capture.js';
 import {
 	deferred,
 	eventually,
@@ -116,7 +117,7 @@ test('a take is on the record screen, not in the library, until its audio is pla
 	// The desktop's shape: Stop answers once the WAV is finalized, and the
 	// shell places the audio later.
 	const placements: ReturnType<
-		typeof deferred<Result<{ unencoded?: string }, CaptureError>>
+		typeof deferred<Result<{ unencoded?: string }, RecorderError>>
 	>[] = [];
 	const capture: CaptureDevice = {
 		...test.services.capture,
@@ -126,7 +127,7 @@ test('a take is on the record screen, not in the library, until its audio is pla
 				onEnded: () => () => {},
 				async stop() {
 					const placement =
-						deferred<Result<{ unencoded?: string }, CaptureError>>();
+						deferred<Result<{ unencoded?: string }, RecorderError>>();
 					placements.push(placement);
 					return Ok({
 						durationMs: 1500,
@@ -193,7 +194,7 @@ test('a recording whose audio the files do not take leaves no note behind', asyn
 	await whispering.stopRecording();
 
 	expect(whispering.recorderError).toBe(
-		'The recording could not be saved: The disk is full',
+		'The recording could not be saved there: The disk is full',
 	);
 	expect(library.entries).toHaveLength(0);
 	expect(
@@ -259,7 +260,7 @@ test('a recording the shell could not place gets its note when the next start pl
 					return Ok({
 						durationMs: 1000,
 						placed: Promise.resolve(
-							CaptureError.Failed({
+							RecorderError.Failed({
 								cause: new Error(
 									`recordings/${id}.webm could not be moved into place`,
 								),

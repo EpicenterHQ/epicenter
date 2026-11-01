@@ -13,7 +13,6 @@
  * one that is not connected is refused, never replaced.
  */
 import type { Client } from '@epicenter/definition/contract';
-import type { RecordingEndedReason } from '@epicenter/recorder';
 import {
 	listInputs,
 	openMeter,
@@ -21,58 +20,23 @@ import {
 	startRecording,
 } from '@epicenter/recorder/tauri';
 import { Err, Ok } from 'wellcrafted/result';
-import {
-	type CaptureDevice,
-	CaptureError,
-	type MicrophoneInputs,
-} from '../capture.js';
+import type { CaptureDevice, MicrophoneInputs } from '../capture.js';
 import type { Whispering } from '../contract.js';
-import { captureErrorOf, createMicrophoneDevice } from '../microphone.js';
-
-const endedError = (reason: RecordingEndedReason, label: string) =>
-	reason === 'permissionRevoked'
-		? CaptureError.PermissionDenied().error
-		: reason === 'deviceDisconnected'
-			? CaptureError.InputUnavailable({ label }).error
-			: CaptureError.Failed({
-					cause: new Error(`The microphone stopped (${reason}).`),
-				}).error;
+import { createMicrophoneDevice, microphoneMeterOf } from '../microphone.js';
 
 function inputsOf(): MicrophoneInputs {
 	return {
 		async list() {
 			const { data, error } = await listInputs();
-			if (error !== null) return Err(captureErrorOf(error));
+			if (error !== null) return Err(error);
 			return Ok({
 				devices: data.map(({ id, name }) => ({ deviceId: id, label: name })),
 			});
 		},
 		async meter(input, signal) {
-			const { data: meter, error } = await openMeter({
-				input,
-				signal,
-			});
-			if (error !== null) return Err(captureErrorOf(error));
-			let level = 0;
-			const stopLevels = meter.onLevel((next) => {
-				level = next;
-			});
-			let stopped = false;
-			return Ok({
-				label: meter.microphone,
-				level: () => (stopped ? 0 : level),
-				onEnded(listener) {
-					return meter.onEnded((reason) =>
-						listener(endedError(reason, meter.microphone)),
-					);
-				},
-				stop() {
-					if (stopped) return;
-					stopped = true;
-					stopLevels();
-					void meter.close();
-				},
-			});
+			const { data: meter, error } = await openMeter({ input, signal });
+			if (error !== null) return Err(error);
+			return Ok(microphoneMeterOf(meter));
 		},
 		// The shell does not announce inputs connected or removed; listing
 		// again is always offered.

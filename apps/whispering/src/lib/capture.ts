@@ -9,50 +9,11 @@
  * `recover` repairs the audio a cut left half-written.
  *
  * The microphone device (`microphone.ts`) records with `@epicenter/recorder`,
- * whose entry the build's platform leaf imports.
+ * whose entry the build's platform leaf imports, and every failure here is
+ * that package's `RecorderError`.
  */
-import type { RecordingHandle } from '@epicenter/recorder';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import type { RecorderError, RecordingHandle } from '@epicenter/recorder';
 import type { Result } from 'wellcrafted/result';
-
-export const CaptureError = defineErrors({
-	Unavailable: ({ reason }: { reason: string }) => ({
-		message: `Recording is not available here: ${reason}`,
-		reason,
-	}),
-	PermissionDenied: () => ({
-		message:
-			'Microphone access was denied. Allow microphone access in System Settings, under Privacy and Security, or in this browser’s site settings, then try again.',
-	}),
-	/**
-	 * The microphone the person chose cannot be opened. Nothing was captured
-	 * from any other microphone in its place.
-	 */
-	InputUnavailable: ({ label }: { label: string }) => ({
-		message: `${label === '' ? 'The chosen microphone' : `“${label}”`} is not available, and no other microphone was used in its place. Connect it, or choose another input.`,
-		label,
-	}),
-	/**
-	 * The request was withdrawn. A microphone that answered late was released;
-	 * on the desktop what a late recording had written was kept.
-	 */
-	Cancelled: () => ({
-		message: 'The request was withdrawn before it finished.',
-	}),
-	Failed: ({ cause }: { cause: unknown }) => ({
-		message: `The recording could not be captured: ${cause instanceof Error ? cause.message : String(cause)}`,
-		cause,
-	}),
-	Empty: () => ({
-		message: 'The recording contained no audio.',
-	}),
-	/** Whispering's files may not be written there: a private window keeps none. */
-	Refused: ({ reason }: { reason: string }) => ({
-		message: `The recording could not be saved: ${reason}`,
-		reason,
-	}),
-});
-export type CaptureError = InferErrors<typeof CaptureError>;
 
 /** A recording being written into Whispering's files. */
 export type Capture = {
@@ -61,7 +22,7 @@ export type Capture = {
 	/** Hear capture end unexpectedly; stop still keeps what was captured. Retired by stop. */
 	onEnded: RecordingHandle<unknown>['onEnded'];
 	/** Finish the file and release the microphone. */
-	stop(): Promise<Result<StoppedCapture, CaptureError>>;
+	stop(): Promise<Result<StoppedCapture, RecorderError>>;
 };
 
 /** A recording whose capture has finished. */
@@ -76,7 +37,7 @@ export type StoppedCapture = {
 	 * `recover` places. Never rejects.
 	 */
 	readonly placed: Promise<
-		Result<{ readonly unencoded?: string }, CaptureError>
+		Result<{ readonly unencoded?: string }, RecorderError>
 	>;
 };
 
@@ -109,7 +70,7 @@ export type MicrophoneMeter = {
 	 * Hear that the microphone stopped on its own, such as when it was
 	 * unplugged or access was withdrawn, and why. Returns the unsubscribe.
 	 */
-	onEnded(listener: (error: CaptureError) => void): () => void;
+	onEnded(listener: (error: RecorderError) => void): () => void;
 	/** Release the microphone. */
 	stop(): void;
 };
@@ -120,24 +81,24 @@ export type MicrophoneInputs = {
 	 * The inputs connected now. This never asks for access: without it a
 	 * WebView lists nothing by name.
 	 */
-	list(): Promise<Result<MicrophoneListing, CaptureError>>;
+	list(): Promise<Result<MicrophoneListing, RecorderError>>;
 	/**
 	 * Ask for microphone access so inputs are listed by name. This opens the
 	 * system default microphone and releases it at once; nothing is recorded.
 	 * Only a WebView has it: in Epicenter the shell asks for access itself
 	 * before it opens a microphone, and lists names without it.
 	 */
-	allow?(signal?: AbortSignal): Promise<Result<undefined, CaptureError>>;
+	allow?(signal?: AbortSignal): Promise<Result<undefined, RecorderError>>;
 	/**
 	 * Open the system's microphone privacy settings, where access that was
 	 * denied is allowed again. Absent where the page cannot open them.
 	 */
-	openSettings?(): Promise<Result<undefined, CaptureError>>;
+	openSettings?(): Promise<Result<undefined, RecorderError>>;
 	/** Open `input`, or the system default, for a level reading only. */
 	meter(
 		input: MicrophonePreference | undefined,
 		signal?: AbortSignal,
-	): Promise<Result<MicrophoneMeter, CaptureError>>;
+	): Promise<Result<MicrophoneMeter, RecorderError>>;
 	/**
 	 * Hear that inputs were connected or removed. Not every platform says so,
 	 * which is why listing again is always offered.
@@ -157,7 +118,7 @@ export type CaptureStart = {
 /** What records each recording into Whispering's files: the build's services choose one. */
 export type CaptureDevice = {
 	readonly inputs: MicrophoneInputs;
-	start(options: CaptureStart): Promise<Result<Capture, CaptureError>>;
+	start(options: CaptureStart): Promise<Result<Capture, RecorderError>>;
 	/**
 	 * Repair the audio of recordings a quit, a crash, or a closed tab cut
 	 * off, and answer each recording whose audio is whole at its path and
@@ -173,7 +134,7 @@ export type CaptureDevice = {
 	): Promise<
 		Result<
 			{ readonly id: string; readonly durationMs: number | null }[],
-			CaptureError
+			RecorderError
 		>
 	>;
 };

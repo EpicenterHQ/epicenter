@@ -33,15 +33,15 @@ import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { RecorderError } from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import {
-	type Capture,
-	type CaptureDevice,
-	CaptureError,
-	type CaptureStart,
-	type MicrophoneMeter,
-	type MicrophonePreference,
+import type {
+	Capture,
+	CaptureDevice,
+	CaptureStart,
+	MicrophoneMeter,
+	MicrophonePreference,
 } from './capture.js';
 
 import type { MicrophonePreferences } from './microphone-preference.js';
@@ -74,7 +74,7 @@ function scriptedMicrophone(
 	const open = { meters: 0, captures: 0 };
 	const changeListeners = new Set<() => void>();
 	/** Whoever hears the open meter's microphone stop on its own. */
-	const meterEndings = new Set<(error: CaptureError) => void>();
+	const meterEndings = new Set<(error: RecorderError) => void>();
 	/** Set to hold the next meter or start until the test lets it answer. */
 	const gate: { next?: Promise<void> } = {};
 	const state = { connected, named: true, denied: false };
@@ -86,14 +86,14 @@ function scriptedMicrophone(
 		const held = gate.next;
 		gate.next = undefined;
 		await held;
-		if (state.denied) return CaptureError.PermissionDenied();
+		if (state.denied) return RecorderError.PermissionDenied();
 		if (
 			input !== undefined &&
 			!state.connected.some((device) => device.deviceId === input.deviceId)
 		)
-			return CaptureError.InputUnavailable({ label: input.label });
+			return RecorderError.InputUnavailable({ label: input.label });
 		// As the real device does: a microphone that opens after the withdrawal is released, never handed over.
-		if (signal?.aborted) return CaptureError.Cancelled();
+		if (signal?.aborted) return RecorderError.Cancelled();
 		return Ok(undefined);
 	}
 
@@ -118,7 +118,7 @@ function scriptedMicrophone(
 			async meter(
 				input,
 				signal,
-			): Promise<Result<MicrophoneMeter, CaptureError>> {
+			): Promise<Result<MicrophoneMeter, RecorderError>> {
 				calls.meter.push(input);
 				const { error: openError } = await opening(input, signal);
 				if (openError !== null) return Err(openError);
@@ -143,7 +143,7 @@ function scriptedMicrophone(
 				return () => changeListeners.delete(listener);
 			},
 		},
-		async start(options): Promise<Result<Capture, CaptureError>> {
+		async start(options): Promise<Result<Capture, RecorderError>> {
 			calls.start.push(options);
 			const { error: openError } = await opening(options.input, options.signal);
 			if (openError !== null) return Err(openError);
@@ -844,7 +844,7 @@ test('a test whose microphone stops on its own ends and says why', async () => {
 	expect(input.test.phase).toBe('running');
 
 	for (const listener of microphone.meterEndings)
-		listener(CaptureError.InputUnavailable({ label: 'USB Microphone' }).error);
+		listener(RecorderError.InputUnavailable({ label: 'USB Microphone' }).error);
 
 	expect(input.test).toEqual({ phase: 'idle' });
 	expect(input.problem).toContain('“USB Microphone” is not available');
@@ -883,7 +883,7 @@ test('a meter that has ended before subscription leaves no polling timer alive',
 					...opened,
 					onEnded(listener) {
 						listener(
-							CaptureError.InputUnavailable({ label: 'USB Microphone' }).error,
+							RecorderError.InputUnavailable({ label: 'USB Microphone' }).error,
 						);
 						return () => {};
 					},
