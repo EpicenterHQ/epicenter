@@ -44,6 +44,7 @@ import {
 	type SecretStore,
 } from './secrets.ts';
 import { finishBeforeExit } from './stop.ts';
+import { shellQuote } from './sync/git.ts';
 
 /** Which of the CLI's two sign-ins a command uses. */
 export type GrantKind = 'device' | 'desktop';
@@ -874,9 +875,6 @@ export async function gitCredential(
 		].join('\n'),
 	);
 }
-
-/** One argument for `sh`, single-quoted. */
-const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
 /**
  * Where Git looks for the helper of the deployment's Git audience: the

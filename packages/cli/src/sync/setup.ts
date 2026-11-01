@@ -24,7 +24,14 @@ import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import { resolveAppPaths } from '../app-paths.ts';
 import { canonicalPath, isReservedDirectory } from './admission.ts';
-import { type CredentialFor, config, configAll, git, must } from './git.ts';
+import {
+	type CredentialFor,
+	config,
+	configAll,
+	git,
+	must,
+	shellQuote,
+} from './git.ts';
 import { REPOSITORY_IGNORE, withEpicenterBlock } from './managed-block.ts';
 import { repositoryProblem } from './repository-state.ts';
 
@@ -46,9 +53,6 @@ export async function refuseReservedDirectory(input: string): Promise<void> {
 			`${canonical} is inside a .git or ${STATE_DIRECTORY} folder, which belong to Git and to Epicenter, so it cannot be a data folder.`,
 		);
 }
-
-/** One argument for `sh`, single-quoted. */
-const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
 /**
  * The merge driver Git runs for `*.md` (decision 42): the per-user command

@@ -12,6 +12,13 @@
 
 import { type GitCredential, runGit } from '@epicenter/folder/bun';
 
+/**
+ * One argument for `sh`, single-quoted: Git runs a configured command (a
+ * `!` credential helper, a merge driver) through the shell.
+ */
+export const shellQuote = (value: string) =>
+	`'${value.replaceAll("'", `'\\''`)}'`;
+
 export type Ran = {
 	code: number;
 	stdout: string;
