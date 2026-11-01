@@ -131,7 +131,7 @@ test.each(vectors.cases.map((vector) => [vector.name, vector] as const))(
 							bytes === null ? null : encode(bytes),
 							expected,
 						);
-						return put.error === null ? { data: put.data.kind } : put;
+						return put.error === null ? { data: put.data } : put;
 					}
 					case 'list': {
 						const listed = await storage.list();

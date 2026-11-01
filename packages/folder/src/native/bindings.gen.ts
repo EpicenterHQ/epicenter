@@ -67,7 +67,7 @@ export type ListedFile = {
  *  What a `put` did: changed the file, or found the path holding something
  *  other than what the page expected and changed nothing.
  */
-export type PutOutcome = { kind: "landed"; stamp: string | null } | { kind: "stale" };
+export type PutOutcome = "landed" | "stale";
 
 /**
  *  Why a storage call answered no. The names and fields are the page's

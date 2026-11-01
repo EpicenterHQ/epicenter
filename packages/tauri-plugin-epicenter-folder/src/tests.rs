@@ -531,7 +531,6 @@ fn put(
         InvokeBody::Raw(bytes.unwrap_or_default().to_vec()),
         put_headers(window, path, bytes.is_none(), if_match),
     )
-    .map(|outcome| outcome["kind"].clone())
 }
 
 /// The headers of a put in the root bound to `window` expecting the file
@@ -989,8 +988,8 @@ fn a_save_expecting_anything_says_so_and_a_hash_is_tagged() {
             headers,
         )
     };
-    assert_eq!(any("a.md", b"new\n").unwrap()["kind"], "landed");
-    assert_eq!(any("a.md", b"again\n").unwrap()["kind"], "landed");
+    assert_eq!(any("a.md", b"new\n").unwrap(), "landed");
+    assert_eq!(any("a.md", b"again\n").unwrap(), "landed");
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
         "again\n"
@@ -1341,10 +1340,7 @@ fn admitted_work_keeps_its_root_after_the_label_is_reused() {
         &epicenter_folder_core::storage::Expectation::Absent,
     )
     .unwrap();
-    assert!(matches!(
-        landed,
-        epicenter_folder_core::storage::PutOutcome::Landed { stamp: Some(_) }
-    ));
+    assert_eq!(landed, epicenter_folder_core::storage::PutOutcome::Landed);
     assert_eq!(std::fs::read(fixture.root.join("a.md")).unwrap(), b"first");
     assert!(!other.join("a.md").exists());
 }

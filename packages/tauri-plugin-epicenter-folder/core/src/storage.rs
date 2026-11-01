@@ -293,10 +293,10 @@ pub enum StorageError {
 
 /// What a `put` did: changed the file, or found the path holding something
 /// other than what the page expected and changed nothing.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "lowercase")]
 pub enum PutOutcome {
-    Landed { stamp: Option<String> },
+    Landed,
     Stale,
 }
 
@@ -962,7 +962,7 @@ pub fn put(
         if !matches!(landing()?, Found::File { .. }) {
             return Ok(
                 if matches!(expected, Expectation::Absent | Expectation::Any) {
-                    PutOutcome::Landed { stamp: None }
+                    PutOutcome::Landed
                 } else {
                     PutOutcome::Stale
                 },
@@ -972,7 +972,7 @@ pub fn put(
             return Ok(PutOutcome::Stale);
         }
         fs::remove_file(&target).map_err(|cause| failed(&cause))?;
-        return Ok(PutOutcome::Landed { stamp: None });
+        return Ok(PutOutcome::Landed);
     };
 
     let found = landing()?;
@@ -996,14 +996,6 @@ pub fn put(
         let _ = fs::remove_file(&scratch);
         return Err(error);
     }
-    let staged_stamp = match file.metadata().and_then(|metadata| stamp_of(&metadata)) {
-        Ok(stamp) => stamp,
-        Err(cause) => {
-            drop(file);
-            let _ = fs::remove_file(&scratch);
-            return Err(unstaged(cause));
-        }
-    };
     let published = (|| -> Result<PutOutcome, StorageError> {
         // Staging took time: walk and check again right before the rename.
         if let Found::UnderFile { ancestor } = landing()? {
@@ -1031,17 +1023,10 @@ pub fn put(
             }
             return Err(failed(&rename_failure(path, &cause)));
         }
-        let after_rename = file
-            .metadata()
-            .ok()
-            .and_then(|metadata| stamp_of(&metadata).ok());
-        let stamp = after_rename
-            .filter(|stamp| *stamp == staged_stamp)
-            .unwrap_or(staged_stamp);
-        Ok(PutOutcome::Landed { stamp: Some(stamp) })
+        Ok(PutOutcome::Landed)
     })();
     drop(file);
-    if !matches!(published, Ok(PutOutcome::Landed { .. })) {
+    if !matches!(published, Ok(PutOutcome::Landed)) {
         let _ = fs::remove_file(&scratch);
     }
     published

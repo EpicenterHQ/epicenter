@@ -271,18 +271,8 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 	},
 	async rename(from, to, expected) {
 		await check(to, expected);
-		const staged = await open(from, constants.O_RDONLY);
-		try {
-			await keepMode(to, from);
-			const published = stampOf(await staged.stat({ bigint: true }));
-			await rename(from, to);
-			const afterRename = await staged
-				.stat({ bigint: true })
-				.then(stampOf, () => undefined);
-			return published === afterRename ? afterRename : published;
-		} finally {
-			await staged.close();
-		}
+		await keepMode(to, from);
+		await rename(from, to);
 	},
 	async remove(path, options) {
 		if (options?.expected !== undefined) await check(path, options.expected);

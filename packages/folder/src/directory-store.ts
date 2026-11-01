@@ -178,18 +178,16 @@ export function createDirectoryStorage({
 		if (bytes === null) {
 			if (found.kind !== 'file')
 				return Ok(
-					expected === 'absent' || expected === 'any'
-						? { kind: 'landed', stamp: null }
-						: { kind: 'stale' },
+					expected === 'absent' || expected === 'any' ? 'landed' : 'stale',
 				);
-			if (expected === 'absent') return Ok({ kind: 'stale' });
+			if (expected === 'absent') return Ok('stale');
 			try {
 				await files.remove(absolute(path), { expected });
 			} catch (cause) {
-				if (cause instanceof UnexpectedTarget) return Ok({ kind: 'stale' });
+				if (cause instanceof UnexpectedTarget) return Ok('stale');
 				return FileError.Unconfirmed({ path, operation: 'remove', cause });
 			}
-			return Ok({ kind: 'landed', stamp: null });
+			return Ok('landed');
 		}
 		if (found.kind === 'underFile')
 			return FileError.NotADirectory({ path: found.ancestor });
@@ -228,12 +226,11 @@ export function createDirectoryStorage({
 			await abandon();
 			return FileError.Io({ path, operation: 'write', cause });
 		}
-		let stamp: string;
 		try {
-			stamp = await files.rename(scratch, absolute(path), expected);
+			await files.rename(scratch, absolute(path), expected);
 		} catch (cause) {
 			await abandon();
-			if (cause instanceof UnexpectedTarget) return Ok({ kind: 'stale' });
+			if (cause instanceof UnexpectedTarget) return Ok('stale');
 			if (crossesMountPoint(cause))
 				return FileError.Io({
 					path,
@@ -242,7 +239,7 @@ export function createDirectoryStorage({
 				});
 			return FileError.Unconfirmed({ path, operation: 'write', cause });
 		}
-		return Ok({ kind: 'landed', stamp });
+		return Ok('landed');
 	}
 
 	return {
@@ -299,7 +296,7 @@ export function createDirectoryStorage({
 				result = FileError.Io({ path, operation: 'write', cause });
 			}
 			// The nonportable file went before this write landed, which cannot make it.
-			if (refused && checked !== expected && result.data?.kind === 'stale')
+			if (refused && checked !== expected && result.data === 'stale')
 				return refused;
 			return result;
 		},

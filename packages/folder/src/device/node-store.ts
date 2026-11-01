@@ -92,7 +92,7 @@ export function nodeStore(
 			const put = await files.put(path, bytes, expected);
 			if (put.error !== null)
 				return ClientError.Unavailable({ cause: put.error });
-			return Ok(put.data.kind);
+			return Ok(put.data);
 		},
 		watch: changes.watch,
 	};

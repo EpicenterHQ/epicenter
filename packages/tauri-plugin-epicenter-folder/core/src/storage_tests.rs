@@ -75,24 +75,16 @@ fn an_expectation_is_parsed_by_its_own_spelling() {
 }
 
 #[test]
-fn list_read_and_put_report_the_observed_file_stamp() {
+fn list_and_read_report_the_same_stamp_and_a_write_changes_it() {
     let (_temp, root) = folder("storage-stamp", &[("note.txt", b"old")]);
     let initial = list(&root).unwrap()[0].stamp.clone();
     assert_eq!(read(&root, "note.txt").unwrap().stamp, initial);
 
     let landed = super::put(&root, "note.txt", Some(b"new"), &Expectation::Any).unwrap();
-    let PutOutcome::Landed {
-        stamp: Some(published),
-    } = landed
-    else {
-        panic!("the put did not report its published file");
-    };
+    assert_eq!(landed, PutOutcome::Landed);
+    let published = list(&root).unwrap()[0].stamp.clone();
     assert_ne!(published, initial);
-    assert_eq!(list(&root).unwrap()[0].stamp, published);
     assert_eq!(read(&root, "note.txt").unwrap().stamp, published);
-
-    let removed = super::put(&root, "note.txt", None, &Expectation::Any).unwrap();
-    assert_eq!(removed, PutOutcome::Landed { stamp: None });
 }
 
 /// What most cases here expect: the file whose SHA-256 is `if_match`, or
@@ -110,10 +102,7 @@ fn put(
     bytes: Option<&[u8]>,
     if_match: Option<&str>,
 ) -> Result<PutOutcome, StorageError> {
-    super::put(root, path, bytes, &witness(if_match)).map(|outcome| match outcome {
-        PutOutcome::Landed { .. } => PutOutcome::Landed { stamp: None },
-        stale => stale,
-    })
+    super::put(root, path, bytes, &witness(if_match))
 }
 
 /// The directory saves stage in inside `root`.
@@ -226,12 +215,12 @@ fn existing_nonportable_names_can_be_repaired_with_a_witness() {
     let witness = sha256(b"colon");
     assert_eq!(
         put(&root, "notes/a: b.md", b(b"repaired"), Some(&witness)).unwrap(),
-        PutOutcome::Landed { stamp: None }
+        PutOutcome::Landed
     );
     assert_eq!(read(&root, "notes/a: b.md").unwrap().bytes, b"repaired");
     assert_eq!(
         put(&root, "notes/a: b.md", None, Some(&sha256(b"repaired"))).unwrap(),
-        PutOutcome::Landed { stamp: None }
+        PutOutcome::Landed
     );
     assert_eq!(
         read(&root, "notes/a: b.md"),
@@ -339,7 +328,7 @@ fn a_put_lands_only_on_what_the_page_expected() {
     // A new file, and its missing parent, land where nothing was.
     assert_eq!(
         put(&root, "todos/a.md", b(b"first"), None),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(&a).unwrap(), b"first");
     // A create over the file is stale, and so is another hash.
@@ -355,7 +344,7 @@ fn a_put_lands_only_on_what_the_page_expected() {
     // The hash of what is there lands.
     assert_eq!(
         put(&root, "todos/a.md", b(b"second"), Some(&sha256(b"first"))),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(&a).unwrap(), b"second");
     // A guarded replacement of a missing file is stale.
@@ -373,14 +362,11 @@ fn a_put_lands_only_on_what_the_page_expected() {
     assert!(a.exists());
     assert_eq!(
         put(&root, "todos/a.md", None, Some(&sha256(b"second"))),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     assert!(!a.exists());
     // Nothing there is what a removal expecting nothing wants.
-    assert_eq!(
-        put(&root, "todos/a.md", None, None),
-        Ok(PutOutcome::Landed { stamp: None })
-    );
+    assert_eq!(put(&root, "todos/a.md", None, None), Ok(PutOutcome::Landed));
     assert_eq!(
         put(&root, "todos/a.md", None, Some(&sha256(b"second"))),
         Ok(PutOutcome::Stale)
@@ -406,7 +392,7 @@ fn a_put_is_refused_where_no_file_can_be() {
     // A removal below a file finds nothing there.
     assert_eq!(
         put(&root, "todos/a.md/b.md", None, None),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     for refused in [".git/config", "HEAD", "todos/a.md.", ""] {
         assert!(
@@ -438,15 +424,15 @@ fn a_folder_with_no_git_saves_and_stages_inside_the_root() {
     assert_eq!(saves(&root), root.join(".epicenter/saves"));
     assert_eq!(
         put(&root, "todos/a.md", b(b"milk"), None),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     assert_eq!(
         put(&root, "todos/a.md", b(b"eggs"), Some(&sha256(b"milk"))),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     assert_eq!(
         put(&root, "readme.txt", None, Some(&sha256(b"plain\n"))),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"eggs");
     assert_eq!(names(&root), [".epicenter", "todos"]);
@@ -464,7 +450,7 @@ fn a_git_file_or_link_is_left_as_it_is_and_saves_land() {
     let (_temp, root) = folder("storage-git-file", &[(".git", gitdir)]);
     assert_eq!(
         put(&root, "todos/a.md", b(b"milk"), None),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(root.join(".git")).unwrap(), gitdir);
     assert_eq!(names(&root), [".epicenter", ".git", "todos"]);
@@ -476,7 +462,7 @@ fn a_git_file_or_link_is_left_as_it_is_and_saves_land() {
         std::os::unix::fs::symlink(&repository, root.join(".git")).unwrap();
         assert_eq!(
             put(&root, "todos/a.md", b(b"milk"), None),
-            Ok(PutOutcome::Landed { stamp: None })
+            Ok(PutOutcome::Landed)
         );
         assert!(fs::symlink_metadata(root.join(".git"))
             .unwrap()
@@ -500,7 +486,7 @@ fn a_hard_link_is_replaced_not_written_through() {
     fs::hard_link(&outside, root.join("todos/a.md")).unwrap();
     assert_eq!(
         put(&root, "todos/a.md", b(b"mine"), Some(&sha256(b"theirs"))),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(&outside).unwrap(), b"theirs");
     assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"mine");
@@ -540,7 +526,7 @@ fn replacing_a_file_keeps_its_permission_bits() {
     ] {
         assert_eq!(
             put(&root, path, b(new), Some(&sha256(old))),
-            Ok(PutOutcome::Landed { stamp: None })
+            Ok(PutOutcome::Landed)
         );
         assert_eq!(fs::read(root.join(path)).unwrap(), new);
         assert_eq!(mode(&root.join(path)), bits, "{path}");
@@ -548,7 +534,7 @@ fn replacing_a_file_keeps_its_permission_bits() {
     // A new file keeps the staged file's mode: its owner's alone.
     assert_eq!(
         put(&root, "fresh.md", b(b"new"), None),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     assert_eq!(mode(&root.join("fresh.md")), 0o600);
     assert!(staged(&root).is_empty());
@@ -568,7 +554,7 @@ fn an_open_saves_directory_is_made_private_before_staging() {
 
     assert_eq!(
         put(&root, "shared.md", b(b"new"), Some(&sha256(b"old"))),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(root.join("shared.md")).unwrap(), b"new");
     assert_eq!(mode(&root.join("shared.md")), 0o644);
@@ -582,10 +568,7 @@ fn an_open_saves_directory_is_made_private_before_staging() {
 fn a_new_saves_directory_is_private() {
     use std::os::unix::fs::PermissionsExt;
     let (_temp, root) = folder("storage-private-new", &[]);
-    assert_eq!(
-        put(&root, "a.md", b(b"a"), None),
-        Ok(PutOutcome::Landed { stamp: None })
-    );
+    assert_eq!(put(&root, "a.md", b(b"a"), None), Ok(PutOutcome::Landed));
     let made = fs::symlink_metadata(saves(&root)).unwrap();
     assert_eq!(made.permissions().mode() & 0o777, 0o700);
 }
@@ -649,7 +632,7 @@ fn staged_bytes_keep_no_acl_the_parent_passes_on() {
 
     assert_eq!(
         put(&root, "fresh.md", b(b"secret"), None),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(root.join("fresh.md")).unwrap(), b"secret");
     assert_eq!(
@@ -927,7 +910,7 @@ fn a_linked_saves_directory_is_not_swept_or_staged_in() {
     // A removal stages nothing, so it still lands.
     assert_eq!(
         put(&root, "a.md", None, Some(&sha256(b"accepted"))),
-        Ok(PutOutcome::Landed { stamp: None })
+        Ok(PutOutcome::Landed)
     );
 }
 
@@ -1047,7 +1030,7 @@ fn storage_follows_the_shared_outcomes() {
                 super::put(&root, path, bytes.as_deref().map(str::as_bytes), &expected).map(
                     |outcome| {
                         json!(match outcome {
-                            PutOutcome::Landed { .. } => "landed",
+                            PutOutcome::Landed => "landed",
                             PutOutcome::Stale => "stale",
                         })
                     },

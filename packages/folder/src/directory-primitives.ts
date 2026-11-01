@@ -59,7 +59,7 @@ export type DirectoryPrimitives = {
 	 * nothing; `from` stays. A regular file it replaces passes its permission
 	 * bits to `from` first, so it stays private or executable.
 	 */
-	rename(from: string, to: string, expected: Expectation): Promise<string>;
+	rename(from: string, to: string, expected: Expectation): Promise<void>;
 	/**
 	 * Remove a file, an empty directory, or with `recursive` a whole tree. With
 	 * `expected`, only if `path` holds what it says; otherwise reject with

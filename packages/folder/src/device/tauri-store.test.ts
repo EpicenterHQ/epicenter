@@ -44,7 +44,7 @@ mock.module('@tauri-apps/api/core', () => ({
 		}
 		if (command === 'plugin:epicenter-folder|put_folder_file') {
 			putHeaders = options?.headers;
-			return { kind: 'landed', stamp: 'v1:1:2:3:4' };
+			return 'landed';
 		}
 		throw new Error(`Unexpected command ${command}`);
 	},

@@ -82,7 +82,7 @@ test('a put keeps its staging inside the folder and makes nothing beside it', as
 		await mkdir(root);
 		const storage = await openNativeStorage(root);
 		expect(
-			expectOk(await storage.put('todos/a.md', text('milk'), 'any')).kind,
+			expectOk(await storage.put('todos/a.md', text('milk'), 'any')),
 		).toBe('landed');
 		expect(await readdir(parent)).toEqual(['notes']);
 		expect((await readdir(root)).sort()).toEqual(['.epicenter', 'todos']);

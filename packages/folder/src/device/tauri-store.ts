@@ -95,7 +95,7 @@ export function tauriStore({
 					bytes === null ? new Uint8Array() : new Uint8Array(bytes),
 					{ headers },
 				);
-				return Ok(outcome.kind);
+				return Ok(outcome);
 			} catch (cause) {
 				return unavailable(cause);
 			}

@@ -42,9 +42,7 @@ export type FileRead = {
 	readonly stamp: string;
 };
 
-export type PutOutcome =
-	| { readonly kind: 'landed'; readonly stamp: string | null }
-	| { readonly kind: 'stale' };
+export type PutOutcome = 'landed' | 'stale';
 
 /**
  * One entry of a listing: anything that is not a directory, including files
