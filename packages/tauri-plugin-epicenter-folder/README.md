@@ -283,12 +283,11 @@ A put of bytes writes the bytes to a new file in the root's
 nothing changes. On Unix `saves` is `0700` before
 anything is staged in it: made so, or tightened through the opened directory
 when it is open to others, and a put that cannot make it so is `Io`.
-Each staged file is `0600` before its first byte, so no other account reads
-a save that has not landed or one that stopped. On macOS an access control
-entry lets other accounts past those bits, and a parent can pass one on
-(`everyone allow read`), so `saves` and each staged file have
-every entry removed through the open descriptor before anything is staged or
-written; a put that cannot remove them is `Io`. Replacing a file keeps its
+Each staged file is `0600` before its first byte, so the permission bits
+keep a save that has not landed, or one that stopped, from other accounts.
+An access control entry the folder passes on (`everyone allow read`) is
+kept: it is a grant the person made on their folder, and a file another
+program makes there inherits it too. Replacing a file keeps its
 permission bits; a new file is `0600`. Windows has no such bits: there
 `saves` has the access its parent passes on. `saves` is on the root's own
 file system, so the rename is one step; a path below a mount point inside

@@ -37,12 +37,12 @@
 //! whoever made it, and is `Stale` instead. The recorder places its
 //! recordings the same way. External editors never took a lock anyway, and
 //! Git history keeps every version sync committed (ADR-0568, ADR-0702). On
-//! Unix no other account can read
-//! staged bytes, before publication or after a stopped save: `saves/` and
-//! `.epicenter` are `0700` before anything is staged (`make_private`), and
-//! each staged file is `0600` before its first byte. On macOS each also has
-//! no access control entry (`without_acl`), such as an `everyone allow read`
-//! the parent passes on, or the save is refused first. Replacing an existing
+//! Unix the permission bits keep staged bytes from other accounts, before
+//! publication or after a stopped save: `saves/` and `.epicenter` are
+//! `0700` before anything is staged (`make_private`), and each staged file
+//! is `0600` before its first byte. An access control entry the folder
+//! passes on is kept: it is a grant the person made on their folder, and a
+//! file another program makes there inherits it too. Replacing an existing
 //! regular file keeps its permission bits (`keep_mode`); a new file is
 //! `0600`. A staged file a stopped save left behind is removed once it is an
 //! hour old (`sweep_scratch`).
@@ -151,9 +151,8 @@ fn prepare_saves(root: &Path) -> Result<PathBuf, String> {
     Ok(saves)
 }
 
-/// Leave the directory at `path` readable only by this account (`0700`,
-/// with no access control entry: `without_acl`), or answer why it cannot
-/// be: it was made `0755`, or its parent passes on an entry. The
+/// Leave the directory at `path` with permission bits for this account
+/// alone (`0700`), or answer why it cannot be: it was made `0755`. The
 /// mode is read and changed through the open directory, which must be the
 /// entry `symlink_metadata` saw. A swapped link may be opened, but its
 /// different identity is refused before permissions change. A directory
@@ -187,79 +186,11 @@ fn make_private(path: &Path) -> Result<(), String> {
             Err(cause) => return Err(refused(&cause)),
         }
     }
-    without_acl(&directory).map_err(|cause| refused(&cause))
+    Ok(())
 }
 
 #[cfg(not(unix))]
 fn make_private(_path: &Path) -> Result<(), String> {
-    Ok(())
-}
-
-/// On macOS, remove every access control entry on the open `file`, or
-/// answer why it cannot be done. Mode bits do not limit an entry: one a
-/// parent passes on, such as `everyone allow read`, lets other accounts
-/// read a `0600` file. The entries are read and removed through the open
-/// file, so they are its own. Other systems need nothing here: a Linux
-/// default ACL is masked by the group bits of a `0700` or `0600` mode.
-#[cfg(target_os = "macos")]
-fn without_acl(file: &fs::File) -> io::Result<()> {
-    use std::ffi::{c_int, c_void};
-    use std::os::unix::io::AsRawFd;
-    // `<sys/acl.h>`, in libSystem.
-    const ACL_TYPE_EXTENDED: c_int = 0x0000_0100;
-    const ACL_FIRST_ENTRY: c_int = 0;
-    extern "C" {
-        fn acl_get_fd_np(fd: c_int, kind: c_int) -> *mut c_void;
-        fn acl_get_entry(acl: *mut c_void, entry_id: c_int, entry: *mut *mut c_void) -> c_int;
-        fn acl_init(count: c_int) -> *mut c_void;
-        fn acl_set_fd_np(fd: c_int, acl: *mut c_void, kind: c_int) -> c_int;
-        fn acl_free(object: *mut c_void) -> c_int;
-    }
-    let fd = file.as_raw_fd();
-    let has_entries = || -> io::Result<bool> {
-        // SAFETY: `fd` is open for as long as `file` is borrowed, and the
-        // list returned is freed once, after its last use.
-        unsafe {
-            let acl = acl_get_fd_np(fd, ACL_TYPE_EXTENDED);
-            if acl.is_null() {
-                let cause = io::Error::last_os_error();
-                return match cause.kind() {
-                    ErrorKind::NotFound => Ok(false),
-                    _ => Err(cause),
-                };
-            }
-            let mut entry = std::ptr::null_mut();
-            let found = acl_get_entry(acl, ACL_FIRST_ENTRY, &mut entry) == 0;
-            acl_free(acl);
-            Ok(found)
-        }
-    };
-    if !has_entries()? {
-        return Ok(());
-    }
-    // SAFETY: as above; the empty list is freed once, after it is set.
-    unsafe {
-        let empty = acl_init(0);
-        if empty.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        let set = acl_set_fd_np(fd, empty, ACL_TYPE_EXTENDED);
-        let cause = io::Error::last_os_error();
-        acl_free(empty);
-        if set != 0 {
-            return Err(cause);
-        }
-    }
-    if has_entries()? {
-        return Err(io::Error::other(
-            "an access control list still lets other accounts open it",
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
-fn without_acl(_file: &fs::File) -> io::Result<()> {
     Ok(())
 }
 
@@ -716,9 +647,8 @@ fn now_ms() -> u64 {
 /// is a scratch name (`scratch_name`), so one a stopped writer leaves
 /// behind is removed once stale (`sweep_scratch`). It is made with
 /// `create_new`, so nothing already at the name is written through, and
-/// `0600` with no access control entry `saves/` passed on, so no other
-/// account can read it before its first byte. Whoever made it renames or
-/// removes it.
+/// `0600`, so the permission bits keep it from other accounts before its
+/// first byte. Whoever made it renames or removes it.
 pub fn create_scratch(root: &Path) -> Result<(PathBuf, fs::File), String> {
     let scratch = prepare_saves(root)?.join(scratch_name(now_ms()));
     let mut options = fs::OpenOptions::new();
@@ -728,14 +658,6 @@ pub fn create_scratch(root: &Path) -> Result<(PathBuf, fs::File), String> {
     let file = options
         .open(&scratch)
         .map_err(|cause| format!("'{}' could not be staged: {cause}", scratch.display()))?;
-    if let Err(cause) = without_acl(&file) {
-        drop(file);
-        let _ = fs::remove_file(&scratch);
-        return Err(format!(
-            "'{}' could not be made private to this account, so nothing was written to it: {cause}",
-            scratch.display()
-        ));
-    }
     Ok((scratch, file))
 }
 

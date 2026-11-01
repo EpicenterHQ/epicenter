@@ -20,11 +20,9 @@
 //! - A `saves` directory, or the `.epicenter` holding it, that is a link or
 //!   not a directory refuses a put as `Io`, and the file at the path stays
 //!   as it was.
-//! - On Unix staged bytes are this account's alone: `saves` is
-//!   `0700`, an open one is tightened first, and each
-//!   staged file is `0600`. A replaced file keeps its mode; a new one is
-//!   `0600`. On macOS neither keeps an access control entry the parent
-//!   passes on, and one that cannot be removed refuses the put before anything is staged.
+//! - On Unix staged bytes have permission bits for this account alone:
+//!   `saves` is `0700`, an open one is tightened first, and each staged
+//!   file is `0600`. A replaced file keeps its mode; a new one is `0600`.
 //! - A directory is made with its ancestors and removed only when empty.
 //! - Staged files an hour old are swept, and nothing younger or foreign: no
 //!   other file, no directory, no link, and nothing in `recordings`.
@@ -572,108 +570,6 @@ fn a_new_saves_directory_is_private() {
     assert_eq!(put(&root, "a.md", b(b"a"), None), Ok(PutOutcome::Landed));
     let made = fs::symlink_metadata(saves(&root)).unwrap();
     assert_eq!(made.permissions().mode() & 0o777, 0o700);
-}
-
-/// The access control entries `ls` lists on `path`, which it does not
-/// follow: one line each after the entry's own.
-#[cfg(target_os = "macos")]
-fn acl(path: &Path) -> Vec<String> {
-    let listed = std::process::Command::new("/bin/ls")
-        .arg("-ldeq")
-        .arg(path)
-        .env("LC_ALL", "C")
-        .output()
-        .unwrap();
-    assert!(listed.status.success(), "{listed:?}");
-    String::from_utf8(listed.stdout)
-        .unwrap()
-        .lines()
-        .skip(1)
-        .filter(|line| {
-            line.trim_start()
-                .split_once(": ")
-                .is_some_and(|(index, _)| index.bytes().all(|byte| byte.is_ascii_digit()))
-        })
-        .map(str::to_string)
-        .collect()
-}
-
-/// Give `directory` an entry that lets every account list and read what is
-/// made in it from now on, as a shared parent can.
-#[cfg(target_os = "macos")]
-fn share_with_everyone(directory: &Path) {
-    let status = std::process::Command::new("/bin/chmod")
-        .args([
-            "+a",
-            "everyone allow list,search,read,file_inherit,directory_inherit",
-        ])
-        .arg(directory)
-        .status()
-        .unwrap();
-    assert!(status.success());
-}
-
-/// A parent that passes `everyone allow read` on makes a `0700` `saves`
-/// directory and a `0600` staged file readable by every account. Neither
-/// keeps the entry: a new file, which is its staged file renamed, lands
-/// `0600` with no entry, and `saves` has none.
-#[cfg(target_os = "macos")]
-#[test]
-fn staged_bytes_keep_no_acl_the_parent_passes_on() {
-    use std::os::unix::fs::PermissionsExt;
-    let mode = |path: &Path| fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777;
-    let (_temp, root) = folder("storage-private-acl", &[]);
-    share_with_everyone(&root);
-    // The root passes it on, as it would to `.epicenter` and its `saves`.
-    let probe = root.join("probe");
-    fs::create_dir(&probe).unwrap();
-    assert!(acl(&probe)
-        .iter()
-        .any(|entry| entry.contains("everyone inherited allow")));
-
-    assert_eq!(
-        put(&root, "fresh.md", b(b"secret"), None),
-        Ok(PutOutcome::Landed)
-    );
-    assert_eq!(fs::read(root.join("fresh.md")).unwrap(), b"secret");
-    assert_eq!(
-        (mode(&root.join("fresh.md")), acl(&root.join("fresh.md"))),
-        (0o600, vec![])
-    );
-    assert_eq!((mode(&saves(&root)), acl(&saves(&root))), (0o700, vec![]));
-    assert!(staged(&root).is_empty());
-}
-
-/// A `saves` directory whose entry cannot be removed (here it is locked
-/// with the user immutable flag) refuses a put as `Io` before anything is
-/// staged, and the file at the path stays as it was.
-#[cfg(target_os = "macos")]
-#[test]
-fn a_saves_directory_whose_acl_stays_refuses_a_put() {
-    use std::os::unix::fs::PermissionsExt;
-    let chflags = |flag: &str, path: &Path| {
-        let status = std::process::Command::new("/usr/bin/chflags")
-            .arg(flag)
-            .arg(path)
-            .status()
-            .unwrap();
-        assert!(status.success());
-    };
-    let (_temp, root) = folder("storage-acl-stays", &[("a.md", b"accepted")]);
-    share_with_everyone(&root);
-    let saves = saves(&root);
-    fs::create_dir_all(&saves).unwrap();
-    fs::set_permissions(&saves, fs::Permissions::from_mode(0o700)).unwrap();
-    chflags("uchg", &saves);
-    let refused = put(&root, "a.md", b(b"mine"), Some(&sha256(b"accepted")));
-    chflags("nouchg", &saves);
-    let Err(StorageError::Io { message, .. }) = &refused else {
-        panic!("{refused:?}");
-    };
-    assert!(message.contains("could not be made private"), "{message}");
-    assert_eq!(fs::read(root.join("a.md")).unwrap(), b"accepted");
-    assert!(staged(&root).is_empty());
-    assert!(!acl(&saves).is_empty());
 }
 
 #[test]

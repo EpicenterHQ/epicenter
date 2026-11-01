@@ -81,12 +81,12 @@ there finishes at its real path, or the next open recovers or removes it.
   gets its own part there, never from its caller.
 - On Unix, before anything is staged, `.epicenter` and `saves/` are made, or
   tightened, to `0700`, and each staged file is created with `create_new` at
-  `0600`. On macOS each also loses every access control entry, so an
-  `everyone allow read` its parent passes on reaches nothing; a save that
-  cannot remove one is refused (`make_private`, `without_acl`, and
-  `create_scratch` in the folder core's `storage.rs`; `privateDirectory` and
-  `withoutAcl` in `packages/folder/src/directory-node.ts`). Either directory
-  is refused when it is a link or not a directory.
+  `0600` (`make_private` and `create_scratch` in the folder core's
+  `storage.rs`; `privateDirectory` in `packages/folder/src/directory-node.ts`).
+  An inheritable access control entry on the person's folder is kept: it is
+  a grant they chose, files other programs make there inherit it, and
+  Epicenter's inherit it too. Either directory is refused when it is a link
+  or not a directory.
 - A recording's WAV is created with `create_new` under `recordings/`, so
   nothing already at its name is written through.
 - Opening a folder removes, from `saves/` alone, regular files with a stager's
@@ -218,10 +218,10 @@ Opus in WebM at its path after.**
   took it, so it kept a promise that editors, scripts, agents, and `git` broke.
 - **Unfinished files as hidden siblings, `.<name>.epicenter-pending`** (built
   in `2acea42bf5`, reverted in `6096cad46b`): it could save below a mount
-  point, but it gave up the `0700` directory, so for a few microseconds an
-  account holding an inheritable access entry on a data directory could open
-  a staged file; Windows Explorer showed every unfinished file; and the sweep
-  walked the whole folder.
+  point, but it gave up the `0700` directory, so for a few microseconds
+  another account could open a staged file the mode bits would otherwise
+  have kept from it; Windows Explorer showed every unfinished file; and the
+  sweep walked the whole folder.
 - **A second "not data" rule naming `.epicenter`** (`isOwnDirectory`,
   `check_namespace`): two rules that had to agree in every host, where every
   hidden path was already outside the contract.
