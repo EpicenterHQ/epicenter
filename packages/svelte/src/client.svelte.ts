@@ -71,6 +71,34 @@ type Base<TCollection extends Collection> = {
 	version: Version;
 } & NotePatch<TCollection>;
 
+/** What an editor of one note (`edit`) does besides its fields. */
+type EditControls<TCollection extends Collection> = {
+	/** Why the newest save failed; null while none has. What was typed stays. */
+	readonly error: ClientError | null;
+	/** Whether a save is out: from the keystroke until it answers. */
+	readonly saving: boolean;
+	/** What was typed and is not yet shown as saved, by field; null while the editor shows the note. */
+	readonly typed: NotePatch<TCollection> | null;
+	/** Send what was typed again, over the note as shown now. */
+	retry(): void;
+	/** Show the note again, dropping what was typed; a save already out still lands. */
+	discard(): void;
+	/** Answers once the newest typed value's save does: at once when nothing typed is waiting. */
+	landed(): Promise<Result<void, ClientError>>;
+};
+
+/**
+ * One note as an immediate editor: each of its fields, `body` included,
+ * shows what was typed until its save answers, then the note; setting one
+ * saves it. A field named like a control (`error`, `saving`…) is not one.
+ */
+export type NoteEdit<TCollection extends Collection> = {
+	[K in Exclude<
+		keyof NotePatch<TCollection>,
+		keyof EditControls<TCollection>
+	>]: NotePatch<TCollection>[K];
+} & EditControls<TCollection>;
+
 /** A note collection as Svelte state. */
 export type ReactiveNotes<TCollection extends Collection> = {
 	/** The notes as last listed (and written here since); empty until the first listing. */
@@ -108,6 +136,34 @@ export type ReactiveNotes<TCollection extends Collection> = {
 	delete(
 		args: PlaceholdersOf<TCollection>,
 	): ReturnType<NoteClient<TCollection>['delete']>;
+	/**
+	 * The note `args` names as an immediate editor (`NoteEdit`), for the
+	 * component that shows it. Call it during component setup: once the
+	 * component is gone, typing and answers are ignored.
+	 *
+	 * Saves go one at a time, and only the newest waiting is sent, carrying
+	 * every field typed since the last save that landed; only the newest
+	 * save's answer is shown. Each is made over the note as shown when this
+	 * run of typing began (each field as shown when its own typing began),
+	 * then over the editor's own last save that landed, so the editor never
+	 * clashes with itself, another writer's change to fields not typed is
+	 * carried over, and their change to a typed field surfaces as a
+	 * `Conflict` (the adapter then shows theirs) with the typed text kept.
+	 * Saving again after that (`retry`, or typing on) applies over theirs.
+	 * Each keystroke is held for the page's leave guard (`holdLeave`) from
+	 * the moment it is typed until its save answers.
+	 *
+	 * With `create`, the note need not exist yet: a save while none is shown
+	 * creates it, with `create()`'s fields and what was typed (a draft that
+	 * starts with its first keystroke). When another writer created it first
+	 * (`Occupied`), what was typed is written over theirs as an ordinary save.
+	 */
+	edit(
+		args: PlaceholdersOf<TCollection>,
+		options?: {
+			create?: () => FieldsOf<TCollection> & { body?: string };
+		},
+	): NoteEdit<TCollection>;
 };
 
 /** A file collection as Svelte state: its entries, without bytes (read those with the client's `get`). */
@@ -347,6 +403,164 @@ function fromCollection(collection: Raw) {
 		},
 	};
 
+	/** The note `args` names as an immediate editor; see `ReactiveNotes['edit']`. */
+	function edit(args: Args, options: { create?: () => Args } = {}) {
+		type Saved = Result<unknown, ClientError>;
+		/** What was typed and not yet shown as saved, by field; none shows the note. */
+		let typed = $state.raw<Args | null>(null);
+		let error = $state<ClientError | null>(null);
+		/** Keystrokes whose save has not answered. */
+		let sending = $state(0);
+		/** The fields typed since the last save that landed: what the next save sends. */
+		let pending: Args = {};
+		/**
+		 * What this run of typing is made over: the version shown when it
+		 * began, and each typed field as shown when its typing began. None
+		 * between runs.
+		 */
+		let base: Entry | undefined;
+		/** The newest keystroke's number: only its save is sent, and only its answer shown. */
+		let newest = 0;
+		/** The newest keystroke's save, answered once what it shows is shown. */
+		let latest: Promise<Saved> = Promise.resolve(Ok(undefined));
+		/** The saves, one at a time. */
+		let running: Promise<unknown> = Promise.resolve();
+		let active = true;
+		onDestroy(() => {
+			active = false;
+		});
+
+		/** Write `patch`: a new note when none is there to write over and `create` says how. */
+		async function write(patch: Args): Promise<Saved> {
+			if (options.create && base === undefined && !shown(args)) {
+				const created = await writes.create({
+					...options.create(),
+					...args,
+					...patch,
+				});
+				if (created.error?.name !== 'Occupied') return created;
+			}
+			return writes.update(args, patch, base ? { base } : {});
+		}
+
+		/**
+		 * After an older save of `patch` landed as `saved`, what the next save is
+		 * made over: `saved`, unless a field still waiting changed under it since
+		 * its typing began, which the next save must then surface as a clash.
+		 */
+		function after(saved: Entry, patch: Args): Entry {
+			if (base === undefined) return saved;
+			const was = base;
+			const moved = Object.keys(pending).some(
+				(field) => !(field in patch) && !sameValue(saved[field], was[field]),
+			);
+			if (!moved) return saved;
+			return {
+				...was,
+				...Object.fromEntries(
+					Object.keys(patch).map((field) => [field, saved[field]]),
+				),
+			};
+		}
+
+		function send() {
+			const ticket = ++newest;
+			base ??= shown(args);
+			const saved = running.then(async (): Promise<Saved> => {
+				// A newer keystroke is waiting: its save carries this one's typing.
+				if (ticket !== newest) return Ok(undefined);
+				const patch = { ...pending };
+				if (Object.keys(patch).length === 0) return Ok(undefined);
+				const written = await write(patch);
+				if (written.error === null) {
+					for (const [field, value] of Object.entries(patch))
+						if (sameValue(pending[field], value)) delete pending[field];
+					base =
+						ticket === newest
+							? undefined
+							: after(written.data as Entry, patch);
+				} else if (written.error.name === 'Conflict') base = undefined;
+				return written;
+			});
+			running = saved.catch(() => {});
+			sending++;
+			latest = holdLeave(saved)
+				.finally(() => {
+					sending--;
+				})
+				.then((result) => {
+					// Shown unless a newer keystroke, a discard, or teardown has moved on.
+					if (active && ticket === newest && typed !== null) {
+						if (result.error === null) typed = null;
+						else error = result.error;
+					}
+					return result;
+				});
+		}
+
+		function set(field: string, value: unknown) {
+			if (!active) return;
+			if (!(field in pending)) {
+				const note = shown(args);
+				if (note !== undefined)
+					base = { ...(base ?? note), [field]: note[field] };
+			}
+			pending[field] = value;
+			typed = { ...typed, [field]: value };
+			error = null;
+			send();
+		}
+
+		const controls = {
+			get error() {
+				return error;
+			},
+			get saving() {
+				return sending > 0;
+			},
+			get typed() {
+				return typed;
+			},
+			retry() {
+				if (!active || typed === null) return;
+				error = null;
+				send();
+			},
+			discard() {
+				if (!active) return;
+				typed = null;
+				error = null;
+				base = undefined;
+				pending = {};
+			},
+			async landed(): Promise<Result<void, ClientError>> {
+				while (active && typed !== null) {
+					const ticket = newest;
+					const result = await latest;
+					if (ticket !== newest) continue;
+					return result.error === null ? Ok(undefined) : Err(result.error);
+				}
+				return Ok(undefined);
+			},
+		};
+		// The client does not carry its contract, so the fields are any name
+		// the controls do not take.
+		return new Proxy(controls, {
+			get(target, key, receiver) {
+				if (typeof key === 'symbol' || key in target)
+					return Reflect.get(target, key, receiver);
+				if (typed !== null && key in typed) return typed[key];
+				track();
+				return shown(args)?.[key];
+			},
+			set(target, key, value) {
+				if (typeof key === 'symbol' || key in target) return false;
+				set(key, value);
+				return true;
+			},
+		});
+	}
+
 	const adapted = {
 		get items() {
 			track();
@@ -374,6 +588,7 @@ function fromCollection(collection: Raw) {
 		replace: (args: Args, text: string, options?: { over?: Version }) =>
 			holdLeave(writes.replace(args, text, options)),
 		delete: (args: Args) => holdLeave(writes.delete(args)),
+		edit,
 	};
 	unheld.set(adapted, writes);
 	return adapted;
