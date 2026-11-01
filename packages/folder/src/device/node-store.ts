@@ -22,7 +22,9 @@
  *   only some disks hold (`pathProblem`) is never made; an existing one is
  *   replaced or removed over its version like any other.
  * - A listing is every regular file below the directory, `.git` at its root
- *   aside, hidden ones included for its reader to skip (`isHiddenPath`).
+ *   aside, hidden ones included for its reader to skip (`isHiddenPath`). A
+ *   file or directory removed while it lists is not listed; only the
+ *   directory itself missing fails it.
  *
  * A save a crash stopped leaves its staged file in `saves/`, hidden, never
  * committed, and safe to delete; the desktop shell sweeps it at its next
@@ -157,11 +159,13 @@ export function nodeStore(root: string): DeviceStore {
 					const path = prefix + entry.name;
 					const at = join(directory, entry.name);
 					if (entry.isDirectory()) {
-						if (path !== '.git') await visit(at, `${path}/`);
+						if (path !== '.git')
+							await visit(at, `${path}/`).catch((cause) => {
+								if (codeOf(cause) !== 'ENOENT') throw cause;
+							});
 						continue;
 					}
 					if (!entry.isFile()) continue;
-					// A file removed since the directory was read is not listed.
 					const stats = await lstat(at, { bigint: true }).catch(
 						() => undefined,
 					);

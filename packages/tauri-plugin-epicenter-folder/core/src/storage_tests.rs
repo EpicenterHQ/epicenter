@@ -1078,3 +1078,48 @@ fn listing_tolerates_subdirectories_removed_during_its_walk_but_not_a_missing_ro
     fs::remove_dir_all(&root).unwrap();
     assert!(list(&root).is_err());
 }
+
+thread_local! {
+    /// A directory the walk finds removed after opening it, as macOS's
+    /// `readdir` reports one removed mid-read: `ENOENT` from the entries.
+    /// That race is the kernel's, too narrow to make on purpose.
+    static REMOVED_MID_READ: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// When `directory` is the one to remove mid-read, removes it and answers
+/// what reading its entries then answers.
+pub(super) fn removed_mid_read(directory: &Path) -> Option<io::Error> {
+    REMOVED_MID_READ.with_borrow_mut(|removing| {
+        if removing.as_deref() != Some(directory) {
+            return None;
+        }
+        removing.take();
+        fs::remove_dir_all(directory).unwrap();
+        Some(io::Error::from(ErrorKind::NotFound))
+    })
+}
+
+#[test]
+fn a_subdirectory_removed_mid_read_is_unlisted_and_a_root_removed_mid_read_is_an_error() {
+    let (_temp, root) = folder(
+        "listing-removed-mid-read",
+        &[("keep.md", b"kept"), ("gone/note.md", b"gone")],
+    );
+    REMOVED_MID_READ.set(Some(root.join("gone")));
+    let listing = list(&root).unwrap();
+    assert_eq!(
+        listing
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>(),
+        ["keep.md"]
+    );
+    assert!(!root.join("gone").exists());
+
+    REMOVED_MID_READ.set(Some(root.clone()));
+    assert!(matches!(
+        list(&root),
+        Err(StorageError::Io { path, operation, .. }) if path.is_empty() && operation == "list"
+    ));
+}

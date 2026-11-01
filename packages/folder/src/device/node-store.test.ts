@@ -11,6 +11,8 @@
  * - A name only some disks hold is never made, and an existing one is
  *   replaced over its version
  * - A save across a mount point fails saying so, and leaves nothing behind
+ * - A directory removed during a listing is not listed; a root removed
+ *   fails the listing
  */
 import { expect, mock, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
@@ -27,10 +29,19 @@ const crossed = () =>
 			code: 'EXDEV',
 		}),
 	);
+/** A directory removed just before the next read of its entries. */
+let removedBeforeReading: string | undefined;
 // A copy, since mocking the module updates the namespace imported above.
 const real = { ...fs };
 mock.module('node:fs/promises', () => ({
 	...real,
+	readdir: async (...args: Parameters<typeof fs.readdir>) => {
+		if (args[0] === removedBeforeReading) {
+			removedBeforeReading = undefined;
+			await real.rm(args[0], { recursive: true });
+		}
+		return real.readdir(...args);
+	},
 	link: (...args: Parameters<typeof fs.link>) =>
 		crossDevice ? crossed() : real.link(...args),
 	rename: (...args: Parameters<typeof fs.rename>) =>
@@ -259,6 +270,25 @@ test('a save across a mount point fails saying so, and leaves nothing behind', a
 		expect(await readdir(join(root, 'mounted'))).toEqual([]);
 	} finally {
 		crossDevice = false;
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('a directory removed during a listing is not listed; a root removed fails the listing', async () => {
+	const root = await scratch('node-store-list-removed-');
+	try {
+		await writeFile(join(root, 'keep.md'), 'kept');
+		await mkdir(join(root, 'gone'));
+		await writeFile(join(root, 'gone/note.md'), 'gone');
+		const store = nodeStore(root);
+		removedBeforeReading = join(root, 'gone');
+		const listed = expectOk(await store.list());
+		expect(listed.map(({ path }) => path)).toEqual(['keep.md']);
+
+		removedBeforeReading = root;
+		expectErr(await store.list());
+	} finally {
+		removedBeforeReading = undefined;
 		await rm(root, { recursive: true, force: true });
 	}
 });

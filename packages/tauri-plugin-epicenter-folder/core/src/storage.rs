@@ -479,16 +479,15 @@ fn spelled_by_listing(root: &Path, names: &[&str]) -> io::Result<bool> {
 /// Every file below `root`, `.git` at the root aside, without following a
 /// link. Hidden files are listed, unfinished writes in `.epicenter`
 /// included; whoever reads the listing skips them (`isHiddenPath`). A name
-/// that is not text is left out.
+/// that is not text is left out. A directory below the root removed during
+/// the walk is not listed: opening it, or reading its entries (macOS's
+/// `readdir` answers `ENOENT` for one removed mid-read), says it is not
+/// found. Only the root missing fails the listing that way.
 pub fn list(root: &Path) -> Result<Vec<ListedFile>, StorageError> {
     fn visit(directory: &Path, prefix: &str, listing: &mut Vec<ListedFile>) -> io::Result<()> {
-        let entries = match fs::read_dir(directory) {
-            Err(cause) if !prefix.is_empty() && cause.kind() == ErrorKind::NotFound => {
-                return Ok(())
-            }
-            result => result?,
-        };
-        for entry in entries {
+        for entry in fs::read_dir(directory)? {
+            #[cfg(test)]
+            let entry = tests::removed_mid_read(directory).map_or(entry, Err);
             let entry = entry?;
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
@@ -499,7 +498,10 @@ pub fn list(root: &Path) -> Result<Vec<ListedFile>, StorageError> {
             let path = format!("{prefix}{name}");
             let at = entry.path();
             if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                visit(&at, &format!("{path}/"), listing)?;
+                match visit(&at, &format!("{path}/"), listing) {
+                    Err(cause) if cause.kind() == ErrorKind::NotFound => {}
+                    result => result?,
+                }
                 continue;
             }
             match fs::symlink_metadata(&at) {
