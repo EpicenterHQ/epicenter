@@ -89,6 +89,7 @@ test('--help lists every command but the hidden ones, and --json describes them'
 		'check',
 		'format',
 		'init',
+		'connect',
 		'sync',
 		'status',
 		'clone',
