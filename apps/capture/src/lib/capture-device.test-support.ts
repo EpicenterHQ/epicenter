@@ -46,10 +46,13 @@ async function put(root: string, path: string, data: string | Uint8Array) {
 	await writeFile(join(root, path), data);
 }
 
-/** Wait for `check`, flushing Svelte's effects between looks. */
+/**
+ * Wait for `check`, flushing Svelte's effects between looks. The wait ends
+ * before bun's 5 s per test, so one that runs out fails here, saying so.
+ */
 export async function until(
 	check: () => boolean | Promise<boolean>,
-	timeout = 5000,
+	timeout = 4000,
 ) {
 	const end = Date.now() + timeout;
 	flushSync();

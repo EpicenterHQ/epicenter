@@ -72,7 +72,9 @@ no word of what (read again to see). The device hears every write through
 it before the write resolves, and outside
 writes as they come: other tabs through the Worker's `epicenter-device`
 broadcast channel, the shell's watcher in Tauri, a recursive watch in Bun.
-A remote hears its own writes the same way, and other writers' by reading
+Bun's watch starts listening some time after it is made, so it stages a
+probe in `.epicenter/saves` until it hears one, then tells its listeners to
+read again: a change made while it started is not lost. A remote hears its own writes the same way, and other writers' by reading
 `main` (`GET <repo>.git/epicenter/head`) every three seconds while anything
 listens, until the notify Durable Object replaces the poll. A listener can
 run when nothing it shows changed, never for a hidden path.

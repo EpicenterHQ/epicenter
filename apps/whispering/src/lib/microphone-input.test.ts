@@ -303,8 +303,11 @@ test('a choice is saved on this device, not in its files, and a new session star
 	await first.input.select(USB);
 
 	expect(device.store.saved).toEqual(USB);
+	// Nothing but the engine's own `.epicenter`, which its watcher stages in.
 	expect(
-		await readdir(join(first.root, 'device')).catch(() => [] as string[]),
+		(
+			await readdir(join(first.root, 'device')).catch(() => [] as string[])
+		).filter((name) => name !== '.epicenter'),
 	).toEqual([]);
 	const second = await open({ device });
 	expect(second.input.choice).toEqual(USB);

@@ -348,6 +348,10 @@ test("a collection's listeners hear its writes before they resolve, and only its
 	const heard: string[] = [];
 	const stopNotes = device.recordings.subscribe(() => heard.push('notes'));
 	const stopAudio = device.audio.subscribe(() => heard.push('audio'));
+	// The watcher says once that it is live, to every collection.
+	for (let turn = 0; turn < 300 && !heard.includes('audio'); turn++)
+		await Bun.sleep(10);
+	heard.length = 0;
 	const note = expectOk(
 		await device.recordings.create({ id: 'a', title: 'One' }),
 	);
@@ -379,7 +383,9 @@ test('a write by another program to the folder reaches listeners; a hidden path 
 	expectOk(await device.recordings.list());
 	let heard = 0;
 	const stop = device.recordings.subscribe(() => heard++);
-	await Bun.sleep(50);
+	// The watcher says once that it is live.
+	for (let turn = 0; turn < 300 && heard === 0; turn++) await Bun.sleep(10);
+	heard = 0;
 	await put('.obsidian/workspace.json', '{}');
 	await Bun.sleep(150);
 	expect(heard).toBe(0);
