@@ -5,8 +5,8 @@
 //! ┌──────────────────────┐  chan  ┌──────────────────────┐
 //! │ build_input_stream   │ ─────▶ │ run_capture          │
 //! │  - downmix to mono   │ bound  │  - convert to 16 kHz │
-//! │  - convert to PCM16  │   ed   │  - hound WavWriter   │
-//! │  - try_send, or drop │        │  - pad short clips   │
+//! │  - convert to PCM16  │   ed   │  - encode to Opus    │
+//! │  - try_send, or drop │        │  - write WebM        │
 //! │                      │        │  - send mic level    │
 //! └──────────────────────┘        └──────────────────────┘
 //! ```
@@ -16,34 +16,28 @@
 //! `try_send`. A full channel drops the chunk, which is the only outcome that
 //! keeps a stalled disk from stalling the audio thread.
 //!
-//! The worker writes those chunks straight into the recording's WAV as they
-//! arrive, so memory is flat in the recording's length rather than
-//! proportional to it. An hour-long meeting costs the same resident audio as a
-//! four-second dictation: one bounded queue and one `BufWriter`. That is the
-//! whole reason this path exists, and it is why there is no separate long-form
+//! The worker encodes those chunks to Opus as they arrive and writes them
+//! into the recording's WebM (`opus`, `webm`), so memory is flat in the
+//! recording's length rather than proportional to it. An hour-long meeting
+//! costs the same resident audio as a four-second dictation: one bounded
+//! queue and the second of packets the writer holds. That is the whole
+//! reason this path exists, and it is why there is no separate long-form
 //! mode for an application to select.
 //!
 //! # A recording is a file from the first sample
 //!
-//! The WAV is created in the folder's `.epicenter/recordings` when the
-//! recording starts and appended to in place (ADR-0543). Its header is
-//! brought up to date about once a second and exactly when `stop` finalizes
-//! it, so a process that ends mid-recording leaves every sample that reached
-//! the file behind a header that undercounts at most the last second;
-//! `wav::recover` rewrites such a header from the file's length the next time
-//! the folder opens. Once capture has begun, nothing here deletes the file.
+//! The WebM is created in the folder's `.epicenter/recordings` when the
+//! recording starts, and each second of it is written there whole as soon as
+//! it is encoded (ADR-0543), so a process that ends mid-recording leaves
+//! every second but the last behind a head that does not yet state its
+//! length; `staging::recover` finishes such a file the next time the folder
+//! opens. Once capture has begun, nothing here deletes a file that holds
+//! audio.
 //!
-//! A finalized recording is [`Finalized`]: its WAV, still pending. Settling
-//! it encodes it to Opus in WebM and places that at its path
-//! (`staging::settle`), which takes about 0.4 s a minute of speech in a
-//! release build on an Apple-silicon Mac (24 s for an hour), so it runs on a
-//! thread of its own after the recorder lock is released: `stop` answers as
-//! soon as the WAV is finalized, and where the recording landed
-//! ([`Placement`]) follows on the channel the page gave `stop`. Until it is
-//! done its WAV is named by [`Recorder::held_paths`], so `recover` does not
-//! settle it a second time. Exit finalizes and does not encode: a WAV still
-//! pending, an encode cut off included, is settled when the folder next
-//! opens.
+//! `stop` finishes the file in place, which is the same few milliseconds
+//! for a recording of any length (the last second, the Cues, and its
+//! length), places it at its path (`staging::place_recording`), and answers
+//! where it is. Exit and a page that leaves do the same.
 //!
 //! # The microphone keeps its rate; the file is 16 kHz
 //!
@@ -52,9 +46,8 @@
 //! device's nominal rate for every process using it, and it stays set after
 //! the stream closes, so a call in progress on the same microphone would go
 //! silent. The writer converts each chunk to 16 kHz mono PCM16 instead
-//! ([`crate::rate`]): the rate local transcription reads, and a third of the
-//! bytes a 48 kHz file would send to a cloud transcription endpoint, whose
-//! upload caps are in megabytes.
+//! ([`crate::rate`]): the rate local transcription reads, and the rate the
+//! encoder is tuned for in voice.
 //!
 //! # One recorder, owned by the window that started it
 //!
@@ -72,10 +65,11 @@
 //! # An ended recording is still the owner's to claim
 //!
 //! Capture can stop without anyone asking: the microphone is unplugged, a
-//! permission is withdrawn, the stream dies. That releases the *device*, not the
-//! *recording*. [`Recorder::end_capture`] marks the recording ended, drops the
-//! cpal stream, and leaves everything else exactly where it was: the slot stays
-//! occupied and the file stays as capture left it.
+//! permission is withdrawn, the stream dies, the disk fills. That releases
+//! the *device*, not the *recording*. [`Recorder::end_capture`] marks the
+//! recording ended, drops the cpal stream, and leaves everything else
+//! exactly where it was: the slot stays occupied and the file stays as
+//! capture left it.
 //!
 //! That is the whole interruption design. There is no pending-interruption
 //! inbox, no acknowledgement, no restore call, and no second channel that pushes
@@ -93,12 +87,10 @@
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, Stream};
-use hound::{SampleFormat as WavSampleFormat, WavSpec, WavWriter};
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -110,7 +102,9 @@ use tauri::ipc::Channel;
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
 use crate::meter::Meter;
+use crate::opus::{OpusRecording, TO_48K};
 use crate::rate::RateConverter;
+use crate::webm::{finish_cut_off, CutOff, Storage};
 
 /// Recorder result type. Errors cross the IPC boundary as the internally
 /// tagged `RecorderError` enum (`{ name, message }`) so the JS side switches
@@ -121,22 +115,6 @@ pub type Result<T> = std::result::Result<T, RecorderError>;
 /// at: the rate local transcription reads, so it reads a recording without
 /// converting it again.
 pub(crate) const RECORDING_RATE: u32 = 16_000;
-
-/// Bytes one PCM16 sample occupies in the recording's file.
-const BYTES_PER_SAMPLE: u32 = 2;
-
-/// The most audio bytes one WAV can describe.
-///
-/// RIFF states its sizes in 32 bits, and `hound` counts written bytes in a `u32`
-/// it increments without checking, so a recording long enough to overflow it
-/// would silently wrap the header rather than fail. The writer refuses first.
-/// `36` is the header those bytes are added to (`update_header` in hound 3.5.1
-/// computes `data_len_offset + 4 - 8`, which is 36 for the PCM `fmt ` chunk this
-/// spec produces).
-///
-/// At 16 kHz mono PCM16 the ceiling is about 37 hours, well past any meeting
-/// this path is meant to carry, so it is a guard rail rather than a mode.
-const MAX_WAV_DATA_BYTES: u32 = u32::MAX - 36;
 
 /// How many callback chunks may wait for the writer.
 ///
@@ -150,30 +128,6 @@ const CAPTURE_QUEUE_CHUNKS: usize = 200;
 
 /// How often a backlogged writer may report dropped chunks.
 const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(1);
-
-/// How often the header is brought up to the samples written so far.
-///
-/// The file is the recording while it runs: a commit, a copy, or a player
-/// reading it mid-recording reads what the header states, and so does a quit
-/// that cuts the recording off before `recover` repairs it. Each update is one
-/// seek and two small writes; once a second keeps what a reader misses to at
-/// most that second.
-const HEADER_UPDATE_INTERVAL: Duration = Duration::from_secs(1);
-
-/// Whether appending `samples` more would take the file past what a WAV header
-/// can describe.
-///
-/// Widened to `u64` for the arithmetic, because the whole point is that the
-/// 32-bit answer is the one that lies.
-fn would_exceed_wav_limit(written_samples: u32, samples: usize) -> bool {
-    // Saturating throughout: every way this arithmetic can wrap produces a
-    // smaller number, which is the one direction that would answer "there is
-    // room" for a chunk there is no room for.
-    (written_samples as u64)
-        .saturating_add(samples as u64)
-        .saturating_mul(BYTES_PER_SAMPLE as u64)
-        > MAX_WAV_DATA_BYTES as u64
-}
 
 /// The least time between two levels sent to a page.
 ///
@@ -242,75 +196,64 @@ enum RecorderCmd {
     EndCapture,
 }
 
-/// The WAV one capture is writing into, at its path in the folder.
+/// The recording one capture is writing, at its place in the folder's
+/// `.epicenter/recordings`.
 ///
 /// Owned entirely by the worker thread, which is what lets the writer stay
 /// unsynchronized: nothing else in this process writes the file, so there is
-/// no lock between the audio path and the bytes.
-struct CaptureFile {
+/// no lock between the audio path and the bytes. `S` is the file, or in a
+/// test one whose disk fills.
+struct CaptureFile<S: Storage = File> {
     path: PathBuf,
-    /// `None` only after finalization, so the writer can be consumed by value
-    /// without leaving a half-alive one behind.
-    writer: Option<WavWriter<BufWriter<File>>>,
+    /// `None` only after it is finished or dropped, so it can be consumed by
+    /// value without leaving a half-alive one behind.
+    recording: Option<OpusRecording<S>>,
     /// From the microphone's rate to [`RECORDING_RATE`]; `None` when they are
     /// the same, and after the stream's tail is written.
     converter: Option<Box<RateConverter>>,
     write_failed: bool,
 }
 
-impl CaptureFile {
-    /// Start the WAV for a recording about to start, in the file just created
-    /// for it.
+impl<S: Storage> CaptureFile<S> {
+    /// Start the recording about to start, in the file just created for it
+    /// at `path`.
     ///
-    /// Mono PCM16 at [`RECORDING_RATE`], from samples at `device_rate`. Mono
+    /// Mono at [`RECORDING_RATE`], from samples at `device_rate`. Mono
     /// because a dictation microphone is one voice and the transcriber
-    /// downmixes anyway; PCM16 because it halves the file against f32 at a
-    /// noise floor two orders of magnitude below anything a microphone
-    /// produces.
-    fn open(path: PathBuf, file: File, device_rate: u32) -> Result<Self> {
+    /// downmixes anyway.
+    fn open(path: PathBuf, file: S, device_rate: u32) -> Result<Self> {
         let converter = if device_rate == RECORDING_RATE {
-            None
+            Ok(None)
         } else {
-            match RateConverter::new(device_rate, RECORDING_RATE) {
-                Ok(converter) => Some(Box::new(converter)),
-                Err(error) => {
-                    if let Err(cleanup) = remove_recording(&path) {
-                        warn!("{cleanup}");
-                    }
-                    return Err(error);
-                }
-            }
+            RateConverter::new(device_rate, RECORDING_RATE)
+                .map(|converter| Some(Box::new(converter)))
         };
-        let spec = WavSpec {
-            channels: 1,
-            sample_rate: RECORDING_RATE,
-            bits_per_sample: 16,
-            sample_format: WavSampleFormat::Int,
-        };
-        match WavWriter::new(BufWriter::new(file), spec) {
-            Ok(writer) => Ok(Self {
+        let opened = converter.and_then(|converter| {
+            OpusRecording::new(file)
+                .map(|recording| (converter, recording))
+                .map_err(|error| {
+                    RecorderError::failed(format!("start {}: {error}", path.display()))
+                })
+        });
+        match opened {
+            Ok((converter, recording)) => Ok(Self {
                 path,
-                writer: Some(writer),
+                recording: Some(recording),
                 converter,
                 write_failed: false,
             }),
-            // A file nothing can write a header to is debris, not a recording
+            // A file nothing can be recorded into is debris, not a recording
             // waiting to happen.
             Err(error) => {
                 if let Err(cleanup) = remove_recording(&path) {
                     warn!("{cleanup}");
                 }
-                Err(RecorderError::failed(format!(
-                    "open wav writer {}: {error}",
-                    path.display()
-                )))
+                Err(error)
             }
         }
     }
 
     /// Append one callback's worth of mono PCM16 at the microphone's rate.
-    ///
-    /// The worker buffers samples; only Stop finalizes the WAV header.
     fn write(&mut self, samples: &[i16]) -> Result<()> {
         let result = match self.converter.as_mut() {
             Some(converter) => converter
@@ -339,36 +282,10 @@ impl CaptureFile {
     }
 
     fn write_samples(&mut self, samples: &[i16]) -> Result<()> {
-        let Some(writer) = self.writer.as_mut() else {
+        let Some(recording) = self.recording.as_mut() else {
             return Err(RecorderError::failed("the recording is already finalized"));
         };
-        if would_exceed_wav_limit(writer.len(), samples.len()) {
-            return Err(RecorderError::failed(
-                "the recording reached the longest audio a WAV file can describe",
-            ));
-        }
-        for &sample in samples {
-            writer
-                .write_sample(sample)
-                .map_err(|error| RecorderError::failed(format!("write the recording: {error}")))?;
-        }
-        Ok(())
-    }
-
-    /// State the samples written so far in the header, and flush them.
-    ///
-    /// A failure here is a failure to write, and ends the capture as one.
-    fn update_header(&mut self) -> Result<()> {
-        let Some(writer) = self.writer.as_mut() else {
-            return Err(RecorderError::failed("the recording is already finalized"));
-        };
-        let updated = writer.flush().map_err(|error| {
-            RecorderError::failed(format!("update the recording's header: {error}"))
-        });
-        if updated.is_err() {
-            self.write_failed = true;
-        }
-        updated
+        recording.write(samples).map_err(RecorderError::failed)
     }
 
     /// Pad a sub-second recording with silence to 1.25 seconds.
@@ -382,54 +299,52 @@ impl CaptureFile {
     fn pad_if_short(&mut self) -> Result<()> {
         // Straight from the writer's own count, so the padding decision can
         // never disagree with the file.
-        let captured = self.writer.as_ref().map_or(0, |writer| writer.len());
-        if captured == 0 || captured >= RECORDING_RATE {
+        let captured = self
+            .recording
+            .as_ref()
+            .map_or(0, |recording| recording.samples());
+        let short = u64::from(RECORDING_RATE);
+        if captured == 0 || captured >= short {
             return Ok(());
         }
-        let target = RECORDING_RATE + RECORDING_RATE / 4;
+        let target = short + short / 4;
         let padding = vec![0i16; (target - captured) as usize];
         self.write_samples(&padding)
     }
 
-    /// Finalize the WAV in place and report how long it is.
+    /// Finish the file in place and report how long it plays.
     ///
-    /// A capture whose writes failed keeps the prefix that reached the file:
-    /// its header is rewritten from the file's length, as `wav::recover` would
-    /// on the next open, rather than from a count the failed writer can no
-    /// longer vouch for. Nothing here deletes the file.
+    /// A capture whose writes failed keeps what reached the file: its whole
+    /// seconds are finished as `staging::recover` would on the next open
+    /// (`webm::finish_cut_off`). Nothing here deletes the file; one that
+    /// cannot be finished now, as on a disk still full, stays for the next
+    /// open.
     fn finish(mut self) -> Result<FinishedRecording> {
-        let finalized = if self.write_failed {
+        let finished = if self.write_failed {
             Err(RecorderError::failed(
                 "the recording could not be written to the end",
             ))
         } else {
-            self.finalize_wav()
+            self.finish_recording()
         };
-        let duration_ms = match finalized {
-            // Exact duration of what was written: the file's own sample count
-            // over the rate it was captured at. Bounded by the RIFF ceiling the
-            // writer enforces, so it always fits in `u32`.
-            Ok(sample_count) => {
-                (sample_count as f64 / RECORDING_RATE as f64 * 1000.0).round() as u32
-            }
+        let duration_ms = match finished {
+            Ok(samples) => ms(samples * TO_48K),
             Err(error) => {
-                // Dropped before the repair, so a buffered tail lands first.
-                drop(self.writer.take());
+                drop(self.recording.take());
                 warn!(
-                    "Recording {} did not finalize cleanly: {error}",
+                    "Recording {} did not finish cleanly: {error}",
                     self.path.display()
                 );
-                match crate::wav::repair(&self.path) {
-                    Ok(Some(repaired)) => repaired.duration_ms,
-                    Ok(None) => {
+                match finish_cut_off(&self.path) {
+                    Ok(CutOff::Finished { played } | CutOff::Recovered { played }) => ms(played),
+                    Ok(CutOff::Empty) => {
                         return Err(RecorderError::failed(format!(
-                            "{error}; {} is not a WAV whose header can be repaired",
-                            self.path.display()
+                            "{error}; nothing of it reached the disk"
                         )))
                     }
-                    Err(repair) => {
+                    Err(finishing) => {
                         return Err(RecorderError::failed(format!(
-                            "{error}; its header could not be repaired: {repair}"
+                            "{error}; what was written could not be finished: {finishing}"
                         )))
                     }
                 }
@@ -441,34 +356,27 @@ impl CaptureFile {
         })
     }
 
-    fn finalize_wav(&mut self) -> Result<u32> {
+    /// The tail, the padding, and the file's end, answering how many samples
+    /// play.
+    fn finish_recording(&mut self) -> Result<u64> {
         self.write_tail()?;
         self.pad_if_short()?;
-        let Some(writer) = self.writer.take() else {
+        let Some(recording) = self.recording.take() else {
             return Err(RecorderError::failed("the recording is already finalized"));
         };
-        // Read before `finalize` consumes the writer. This is the count hound
-        // will stamp into the header, and it counts only samples the writer
-        // accepted.
-        let sample_count = writer.len();
-        // Checked, never left to `Drop`. hound patches the header on drop too,
-        // but a drop cannot report that the patch failed, and an unreported
-        // failure here is a header that undercounts the recording. A
-        // successful `finalize` also flushes, so every counted byte is on disk
-        // by the time this returns.
-        writer
-            .finalize()
-            .map_err(|error| RecorderError::failed(format!("finalize the recording: {error}")))?;
-        Ok(sample_count)
+        recording.finish().map_err(RecorderError::failed)
     }
 
-    /// Delete a file whose stream never started, without finalizing it.
-    ///
-    /// Drop the encoder first so it cannot patch a WAV after the file is gone.
+    /// Delete a file whose stream never started, without finishing it.
     fn discard(mut self) -> Result<()> {
-        drop(self.writer.take());
+        drop(self.recording.take());
         remove_recording(&self.path)
     }
+}
+
+/// Samples at 48 kHz in milliseconds, to the nearest.
+fn ms(samples_48k: u64) -> u32 {
+    ((samples_48k + 24) / 48) as u32
 }
 
 /// Remove a recording's file, which only a capture that never started does.
@@ -484,62 +392,18 @@ fn remove_recording(path: &Path) -> Result<()> {
     }
 }
 
-/// A capture's WAV, finalized: its file and how long it is.
+/// A capture's file, finished: where it is and how long it plays.
 ///
 /// The capture behind it is closed: its microphone is released, its worker has
-/// exited, and its bytes are complete on disk behind a header that states them.
+/// exited, and its file states its length.
 #[derive(Debug)]
 pub(crate) struct FinishedRecording {
     pub path: PathBuf,
     pub duration_ms: u32,
 }
 
-/// A stopped recording whose WAV is finalized and not yet in its place:
-/// `settle` encodes it and places it.
-#[derive(Debug)]
-pub struct Finalized {
-    /// The WAV, in the folder's `.epicenter/recordings`.
-    pub pending: PathBuf,
-    root: PathBuf,
-    /// Its folder-relative path without an extension, as the page named it.
-    stem: String,
-    pub duration_ms: u32,
-}
-
-impl Finalized {
-    /// Encode the recording, place it at `<stem>.webm`, and answer where it
-    /// is. A WAV that cannot be encoded is placed itself, at `<stem>.wav`. A
-    /// recording that cannot be placed, because another file took its path
-    /// meanwhile or the disk refused it, stays pending, for the next
-    /// `recover` to place beside it.
-    pub fn settle(&self) -> Placement {
-        match crate::staging::settle(
-            &self.root,
-            &self.pending,
-            &self.stem,
-            crate::staging::WhenTaken::Refuse,
-        ) {
-            Ok(settled) => match settled.unencoded {
-                None => Placement::Placed { path: settled.path },
-                Some(reason) => Placement::Unencoded {
-                    path: settled.path,
-                    reason,
-                },
-            },
-            Err(error) => Placement::Pending {
-                reason: format!(
-                    "{} could not be moved into place ({error}); it is kept in {} until the folder is opened again",
-                    self.stem,
-                    self.pending.display()
-                ),
-            },
-        }
-    }
-}
-
 /// What `start` answers: the id to stop the recording by, and the
-/// microphone it opened. Where the recording lands is decided after it
-/// stops (`Placement`).
+/// microphone it opened.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StartedRecording {
@@ -548,28 +412,14 @@ pub struct StartedRecording {
     pub device: String,
 }
 
-/// What `stop` answers once the WAV is finalized and the microphone
-/// released: how long the recording plays. Where it lands arrives later, on
-/// the channel `stop` was given (`Placement`).
-#[derive(Debug, Clone, Serialize, serde::Deserialize, specta::Type)]
+/// What `stop` answers once the recording is finished and at its path, and
+/// the microphone released: where it is and how long it plays.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StoppedRecording {
+    /// Its folder-relative path: the path the page named plus `.webm`.
+    pub path: String,
     pub duration_ms: u32,
-}
-
-/// Where a stopped recording landed, sent once on the channel `stop` was
-/// given, when its encode and placement have finished.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize, specta::Type)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum Placement {
-    /// Encoded and placed at `path`, the path the page named plus `.webm`.
-    Placed { path: String },
-    /// The encoder refused it, so its WAV was placed at `path`, the path the
-    /// page named plus `.wav`, and why.
-    Unencoded { path: String, reason: String },
-    /// Not placed: another file took its path, or the disk refused. It stays
-    /// in `.epicenter/recordings`, where the next `recover` places it.
-    Pending { reason: String },
 }
 
 /// What the recorder calls when capture ends on its own, with the recording's
@@ -587,10 +437,10 @@ struct HeldRecording {
     id: String,
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
-    /// The recording's WAV while it records, absolute, in the folder's
+    /// The recording's file while it records, absolute, in the folder's
     /// `.epicenter/recordings`, which `recover` leaves alone.
     path: PathBuf,
-    /// The folder it is settled into once it stops.
+    /// The folder it is placed in once it stops.
     root: PathBuf,
     /// Its folder-relative path there without an extension, as the page
     /// named it.
@@ -626,8 +476,6 @@ pub struct Recorder {
     /// Any number may be open, beside a recording or not: a meter holds no
     /// slot and writes nothing.
     meters: HashMap<String, (String, Meter)>,
-    /// The WAVs of recordings stopped and still settling (`settled`).
-    settling: Vec<PathBuf>,
 }
 
 /// Ids are unique for the life of the process, so a stale `stop` never names
@@ -655,7 +503,7 @@ impl Recorder {
     /// count the next page.
     /// Also answers whether it closed any meter, which changes whether a
     /// microphone is open.
-    pub fn page_ended(&mut self, owner: &str) -> (Option<Finalized>, bool) {
+    pub fn page_ended(&mut self, owner: &str) -> (Option<StoppedRecording>, bool) {
         *self.pages.entry(owner.to_string()).or_default() += 1;
         let meters = self.meters.len();
         self.meters
@@ -732,10 +580,10 @@ impl Recorder {
     /// person did not choose is not what they asked for. `None` is the system
     /// default.
     ///
-    /// `pending` is the checked absolute path the WAV is written to while it
-    /// records, in the folder's `.epicenter/recordings`; `root` is the folder
-    /// it is settled into when it stops, and `stem` its folder-relative path
-    /// there without an extension, as the page named it. The file is created
+    /// `pending` is the checked absolute path the recording is written to
+    /// while it records, in the folder's `.epicenter/recordings`; `root` is
+    /// the folder it is placed in when it stops, and `stem` its
+    /// folder-relative path there without an extension, as the page named it. The file is created
     /// only after the device and its configuration resolve, and never over
     /// anything already there.
     ///
@@ -850,7 +698,7 @@ impl Recorder {
                 },
             );
             if let CaptureOutcome::Unclaimed(capture) = outcome {
-                await_resolution(capture, &cmd_rx);
+                await_resolution(*capture, &cmd_rx);
             }
         });
 
@@ -919,42 +767,35 @@ impl Recorder {
         Some(active.signals.clone())
     }
 
-    /// Stop the recording named by `id` and finalize its WAV, for the caller
-    /// to settle (`Finalized::settle`) and then report `settled`. Restricted
-    /// to the window that started it.
+    /// Stop the recording named by `id`, finish its file, and place it at its
+    /// path. Restricted to the window that started it.
     ///
     /// Works the same whether capture is still running or already ended. That is
     /// the point of holding an ended recording: `stop` is the one finalizing
     /// path, so the audio captured before a microphone died is reached by the
     /// same call as the audio captured before the person let go of the button.
-    pub fn stop(&mut self, id: &str, caller_label: &str) -> Result<Finalized> {
+    pub fn stop(&mut self, id: &str, caller_label: &str) -> Result<StoppedRecording> {
         self.require_owned(id, caller_label)?;
         let active = self.active.take().expect("ownership was just verified");
-        let finalized = finish(active)?;
-        self.settling.push(finalized.pending.clone());
-        Ok(finalized)
-    }
-
-    /// The stopped recording whose WAV is at `pending` is settled, or failed
-    /// to be: `recover` may take it from here.
-    pub fn settled(&mut self, pending: &Path) {
-        self.settling.retain(|settling| settling != pending);
+        finish(active)
     }
 
     /// Finalize the held recording if `owner_label` owns it. The host's own
     /// path, used when the owner's page is gone: nobody can stop the recording
     /// now, so holding the single recorder slot for it would wedge every other
     /// window, and deleting it would lose what the person said.
-    pub fn finish_owned_by(&mut self, owner_label: &str) -> Option<Finalized> {
+    pub fn finish_owned_by(&mut self, owner_label: &str) -> Option<StoppedRecording> {
         let active = self
             .active
             .take_if(|active| active.owner_label == owner_label)?;
         let id = active.id.clone();
         match finish(active) {
-            Ok(finalized) => {
-                info!("Recording {id} finalized because its page is gone");
-                self.settling.push(finalized.pending.clone());
-                Some(finalized)
+            Ok(stopped) => {
+                info!(
+                    "Recording {id} finalized at {} because its page is gone",
+                    stopped.path
+                );
+                Some(stopped)
             }
             Err(error) => {
                 warn!("Recording {id} could not be finalized after its page left: {error}");
@@ -963,14 +804,16 @@ impl Recorder {
         }
     }
 
-    /// Refuse further capture and finalize held audio for the app's exit. It
-    /// is not settled: the next `recover` encodes and places it. Calling this
-    /// again is harmless; cancelling Quit never calls it.
+    /// Refuse further capture and finalize held audio for the app's exit, as
+    /// a stop does. Calling this again is harmless; cancelling Quit never
+    /// calls it.
     pub fn shutdown(&mut self) {
         self.stopped = true;
         self.meters.clear();
         if let Some(active) = self.active.take() {
-            let _ = finish(active);
+            if let Err(error) = finish(active) {
+                warn!("The recording held at exit could not be finalized: {error}");
+            }
         }
     }
 
@@ -999,14 +842,10 @@ impl Recorder {
             .is_some_and(|active| active.ended_reason.is_none())
     }
 
-    /// The WAVs `recover` must leave alone: the held recording's, which its
-    /// worker still writes, and those of stopped recordings still settling.
-    pub fn held_paths(&self) -> Vec<PathBuf> {
-        self.active
-            .iter()
-            .map(|active| active.path.clone())
-            .chain(self.settling.iter().cloned())
-            .collect()
+    /// The file `recover` must leave alone: the held recording's, which its
+    /// worker still writes.
+    pub fn held_path(&self) -> Option<&Path> {
+        self.active.as_ref().map(|active| active.path.as_path())
     }
 
     /// The one admission rule, in one place: the slot must be empty.
@@ -1062,18 +901,19 @@ impl Recorder {
     }
 }
 
-/// End a recording and keep it: tell the worker to finalize the WAV, and
-/// join it so the cpal stream is released. A WAV that could not be
-/// finalized stays in `.epicenter/recordings`, where the next `recover`
-/// repairs and settles it.
+/// End a recording and keep it: tell the worker to finish the file, join it
+/// so the cpal stream is released, and place the file at its path. A file
+/// that could not be finished or placed stays in `.epicenter/recordings`,
+/// where the next `recover` finishes and places it.
 ///
 /// The slot is unavailable for the whole round trip, because the caller's
 /// `&mut Recorder` comes from the one recorder mutex and nothing else can
 /// acquire it until this returns. That is load-bearing: the worker is still
 /// holding an open cpal stream until it answers, and a `start` that slipped in
 /// beforehand would open a second microphone against a recorder that is
-/// supposed to have exactly one.
-fn finish(active: HeldRecording) -> Result<Finalized> {
+/// supposed to have exactly one. The whole of it takes the same few
+/// milliseconds for a recording of any length.
+fn finish(active: HeldRecording) -> Result<StoppedRecording> {
     let (reply_tx, reply_rx) = mpsc::channel();
     let finished = match active.cmd_tx.send(RecorderCmd::Stop(reply_tx)) {
         Ok(()) => reply_rx
@@ -1093,16 +933,22 @@ fn finish(active: HeldRecording) -> Result<Finalized> {
     // answers, and joining is what makes "the microphone is released" true
     // by the time the slot is observably free.
     let _ = active.worker.join();
-    let finished = finished.map_err(|error| {
+    let kept = |error: String| {
         RecorderError::failed(format!(
             "{error}; the recording is kept in {} until the folder is opened again",
             active.path.display()
         ))
-    })?;
-    Ok(Finalized {
-        pending: finished.path,
-        root: active.root,
-        stem: active.stem,
+    };
+    let finished = finished.map_err(|error| kept(error.to_string()))?;
+    let path = crate::staging::place_recording(&active.root, &finished.path, &active.stem)
+        .map_err(|error| match error {
+            crate::staging::PlaceError::Taken(path) => RecorderError::refused(format!(
+                "a file is already at {path}, so the recording was not placed there"
+            )),
+            crate::staging::PlaceError::Failed(error) => kept(error),
+        })?;
+    Ok(StoppedRecording {
+        path,
         duration_ms: finished.duration_ms,
     })
 }
@@ -1134,10 +980,10 @@ enum CaptureOutcome {
     Resolved,
     /// Capture ended with the recording still unclaimed. The file is as
     /// capture left it and its owner may still stop it.
-    Unclaimed(CaptureFile),
+    Unclaimed(Box<CaptureFile>),
 }
 
-/// Capture phase. Writes mono PCM16 into the recording's WAV as it arrives,
+/// Capture phase. Encodes mono PCM16 into the recording's file as it arrives,
 /// sending a throttled RMS level to the owner's page so its meter can reflect
 /// live mic activity.
 ///
@@ -1167,7 +1013,6 @@ fn run_capture<S>(
 
     let mut level = Level::new();
     let mut last_drop_report = Instant::now();
-    let mut last_header_update = Instant::now();
 
     loop {
         // Command channel has priority. Stop should respond fast even
@@ -1184,7 +1029,7 @@ fn run_capture<S>(
             Ok(RecorderCmd::EndCapture) => {
                 close_capture_and_drain(stream, &mut capture, &sample_rx);
                 report_dropped_chunks(dropped_chunks, id);
-                return CaptureOutcome::Unclaimed(capture);
+                return CaptureOutcome::Unclaimed(Box::new(capture));
             }
             // The command sender is gone without a stop, so nobody is left to
             // claim this recording. It is kept, finalized.
@@ -1208,19 +1053,11 @@ fn run_capture<S>(
             Ok(samples) => {
                 level.add(&samples);
 
-                let written = capture.write(&samples).and_then(|()| {
-                    if last_header_update.elapsed() < HEADER_UPDATE_INTERVAL {
-                        return Ok(());
-                    }
-                    last_header_update = Instant::now();
-                    capture.update_header()
-                });
-                if let Err(error) = written {
-                    // A write that fails is terminal: the disk is full, the
-                    // volume vanished, or the recording hit the size a WAV can
-                    // describe. None of those get better by trying again, so the
-                    // capture ends here and the recording keeps whatever prefix
-                    // reached the file.
+                if let Err(error) = capture.write(&samples) {
+                    // A write that fails is terminal: the disk is full, or the
+                    // volume vanished. Neither gets better by trying again, so
+                    // the capture ends here and the recording keeps every whole
+                    // second that reached the file.
                     error!("Recording {id} could not write its capture: {error}");
                     // Closed without draining: the writes that would consume the
                     // queue are the writes that are failing.
@@ -1232,7 +1069,7 @@ fn run_capture<S>(
                     // may be holding that lock while waiting on this very
                     // worker.
                     thread::spawn(move || on_ended(&id, EndedReason::StorageFailed));
-                    return CaptureOutcome::Unclaimed(capture);
+                    return CaptureOutcome::Unclaimed(Box::new(capture));
                 }
 
                 if let Some(level) = level.take(Instant::now()) {
@@ -1250,7 +1087,7 @@ fn run_capture<S>(
             // reachable: keeping the recording claimable is the safe direction.
             Err(RecvTimeoutError::Disconnected) => {
                 drop(stream);
-                return CaptureOutcome::Unclaimed(capture);
+                return CaptureOutcome::Unclaimed(Box::new(capture));
             }
         }
     }
@@ -1588,7 +1425,6 @@ fn downmix_i16(interleaved: &[i16], channels: usize) -> Vec<i16> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use hound::WavReader;
     use tempfile::TempDir;
 
     /// The rate these tests hand the writer, the recording's own, so what a
@@ -1605,7 +1441,7 @@ pub(crate) mod tests {
     #[ignore = "opens the physical default microphone for a second; run only for explicit native acceptance"]
     fn physical_microphone_writes_its_recording_in_place_and_reopens() {
         let root = folder_root();
-        for name in ["first.wav", "second.wav"] {
+        for name in ["first.webm", "second.webm"] {
             let (device, name_of_device) = resolve_device(&cpal::default_host(), None).unwrap();
             let config = input_config(&device).unwrap();
             let rate = config.sample_rate();
@@ -1650,8 +1486,7 @@ pub(crate) mod tests {
             }
             close_capture_and_drain(stream, &mut capture, &rx);
             let finished = capture.finish().unwrap();
-            let reader = WavReader::open(&finished.path).unwrap();
-            let samples = reader.len();
+            let samples = samples_in(&finished.path);
             let rms = (sum_of_squares / captured.max(1) as f64).sqrt();
             eprintln!(
                 "NATIVE_CAPTURE_RESULT device={name_of_device}, rate={rate}, captured={captured}, rms={rms:.5}, duration_ms={}, samples={samples}",
@@ -1665,7 +1500,6 @@ pub(crate) mod tests {
                 "the microphone delivered {captured} samples at {rate} Hz in 1.5 s"
             );
             assert!(finished.duration_ms >= 1_300, "{} ms", finished.duration_ms);
-            assert_eq!(reader.spec().sample_rate, RECORDING_RATE);
             assert!(rms > MIN_LIVE_RMS, "the input was silent: rms {rms}");
             // Opening the microphone left its rate alone, for every other app.
             let after = input_config(&device).unwrap().sample_rate();
@@ -1719,14 +1553,15 @@ pub(crate) mod tests {
     ///
     /// The stand-in worker is the real [`await_resolution`], parked on a real
     /// capture in a temporary folder. That is exactly the state a worker is in
-    /// once its capture has ended, so `stop` here finalizes an actual WAV
-    /// rather than a mock of one, and a dropped recorder cannot hang its join:
-    /// `await_resolution` returns on `Stop` and on a dropped channel.
+    /// once its capture has ended, so `stop` here finishes and places an
+    /// actual recording rather than a mock of one, and a dropped recorder
+    /// cannot hang its join: `await_resolution` returns on `Stop` and on a
+    /// dropped channel.
     fn recording_owned_by(recorder: &mut Recorder, root: &TempDir, id: &str, owner_label: &str) {
         std::fs::create_dir_all(root.path().join("staging")).unwrap();
         hold_recording(
             recorder,
-            &staged_in(root, &format!("{id}.wav")),
+            &staged_in(root, id),
             root.path(),
             id,
             id,
@@ -1734,13 +1569,13 @@ pub(crate) mod tests {
         );
     }
 
-    /// Where `recording_owned_by` writes the recording `name` while it is held.
-    fn staged_in(root: &TempDir, name: &str) -> PathBuf {
-        root.path().join("staging").join(name)
+    /// Where `recording_owned_by` writes the recording `id` while it is held.
+    fn staged_in(root: &TempDir, id: &str) -> PathBuf {
+        root.path().join("staging").join(format!("{id}.webm"))
     }
 
     /// Hold a one-second recording written at `staged` for `owner_label`, to
-    /// be settled at `stem` in `root` when it stops, as `start` would have,
+    /// be placed at `stem` in `root` when it stops, as `start` would have,
     /// without a microphone. The plugin's own tests use it too.
     pub(crate) fn hold_recording(
         recorder: &mut Recorder,
@@ -1787,48 +1622,46 @@ pub(crate) mod tests {
         }
     }
 
-    /// The samples the WAV at `path` says it holds, read back with hound.
-    fn samples_in(path: &Path) -> u32 {
-        WavReader::open(path).expect("a readable WAV").len()
+    /// The samples the finished recording at `path` plays, read back through
+    /// the decoder transcription reads it with.
+    fn samples_in(path: &Path) -> usize {
+        tauri_plugin_epicenter_transcription::audio::decode_to_pcm16k_mono(
+            &std::fs::read(path).expect("a recording"),
+        )
+        .expect("a recording that decodes")
+        .len()
     }
 
     #[test]
     fn a_fresh_recorder_is_idle_and_owns_nothing() {
         let recorder = Recorder::new();
         assert!(!recorder.is_capturing());
-        assert!(recorder.held_paths().is_empty());
+        assert!(recorder.held_path().is_none());
         recorder
             .require_free_slot()
             .expect("an idle recorder admits a start");
     }
 
-    /// The point of writing in place: what a capture wrote is the recording's
-    /// file before anyone stops it, and a stop only states its sizes.
+    /// The point of writing as it records: every whole second a capture
+    /// wrote is in the recording's file before anyone stops it, and a stop
+    /// adds the last and states its length.
     #[test]
     fn a_recording_is_its_file_from_the_first_sample() {
         let root = folder_root();
-        let mut capture = capture_holding(&root, "a.wav", &tone(TEST_RATE, 1));
-        capture.update_header().unwrap();
-        let path = root.path().join("a.wav");
-        assert_eq!(
-            std::fs::metadata(&path).unwrap().len(),
-            44 + TEST_RATE as u64 * 2,
-            "every sample written is already in the file"
-        );
-        assert_eq!(
-            samples_in(&path),
-            TEST_RATE,
-            "an update states the sizes so far"
-        );
+        let capture = capture_holding(&root, "a.webm", &tone(TEST_RATE, 3));
+        let path = root.path().join("a.webm");
+        let before = std::fs::metadata(&path).unwrap().len();
+        assert!(before > 4_000, "two whole seconds are already in the file");
         let finished = capture.finish().unwrap();
         assert_eq!(finished.path, path);
-        assert_eq!(finished.duration_ms, 1_000);
-        assert_eq!(samples_in(&path), TEST_RATE);
+        assert_eq!(finished.duration_ms, 3_000);
+        assert_eq!(samples_in(&path), 3 * TEST_RATE as usize);
     }
 
     /// A page that reloads or closes cannot stop its recording, so the host
-    /// finalizes it: the audio is kept and the slot is free. The page count
-    /// moves on, which is what refuses a `start` the departed page sent late.
+    /// finishes and places it: the audio is kept and the slot is free. The
+    /// page count moves on, which is what refuses a `start` the departed page
+    /// sent late.
     #[test]
     fn a_departed_page_finalizes_its_recording_and_counts_the_next_page() {
         let root = folder_root();
@@ -1843,17 +1676,20 @@ pub(crate) mod tests {
         );
         assert_eq!(recorder.page("app-notes"), page);
 
-        let finalized = recorder
+        let stopped = recorder
             .page_ended("app-notes")
             .0
             .expect("the departed page's recording is finalized");
-        assert_eq!(finalized.duration_ms, 1_000);
-        assert_eq!(samples_in(&staged_in(&root, "1.wav")), TEST_RATE);
         assert_eq!(
-            recorder.held_paths(),
-            [staged_in(&root, "1.wav")],
-            "settling, so recovery leaves it alone"
+            stopped,
+            StoppedRecording {
+                path: "1.webm".to_string(),
+                duration_ms: 1_000
+            }
         );
+        assert_eq!(samples_in(&root.path().join("1.webm")), TEST_RATE as usize);
+        assert!(!staged_in(&root, "1").exists());
+        assert!(recorder.held_path().is_none());
         assert_ne!(recorder.page("app-notes"), page);
         recorder
             .require_free_slot()
@@ -1866,7 +1702,7 @@ pub(crate) mod tests {
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
         drop(recorder);
-        assert_eq!(samples_in(&staged_in(&root, "1.wav")), TEST_RATE);
+        assert_eq!(samples_in(&root.path().join("1.webm")), TEST_RATE as usize);
     }
 
     #[test]
@@ -1882,7 +1718,7 @@ pub(crate) mod tests {
 
         // The refusal left the owner's recording completely untouched.
         assert!(recorder.is_capturing());
-        assert!(staged_in(&root, "1.wav").exists());
+        assert!(staged_in(&root, "1").exists());
         assert!(!root.path().join("1.webm").exists());
     }
 
@@ -1899,34 +1735,27 @@ pub(crate) mod tests {
         assert!(recorder.is_capturing());
     }
 
+    /// Stop answers once the recording is finished and at its path.
     #[test]
-    fn a_stopped_recording_is_settled_at_its_path_as_webm() {
+    fn a_stopped_recording_is_at_its_path_when_stop_answers() {
         let root = folder_root();
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
 
-        let finalized = recorder.stop("1", "app-notes").unwrap();
-        assert_eq!(samples_in(&finalized.pending), TEST_RATE);
+        let stopped = recorder.stop("1", "app-notes").unwrap();
         assert_eq!(
-            recorder.held_paths(),
-            std::slice::from_ref(&finalized.pending)
-        );
-        recorder
-            .require_free_slot()
-            .expect("the slot is free before the recording is encoded");
-        assert_eq!(
-            finalized.settle(),
-            Placement::Placed {
-                path: "1.webm".to_string()
+            stopped,
+            StoppedRecording {
+                path: "1.webm".to_string(),
+                duration_ms: 1_000
             }
         );
-        recorder.settled(&finalized.pending);
-        assert_eq!(finalized.duration_ms, 1_000);
-        assert!(std::fs::read(root.path().join("1.webm"))
-            .unwrap()
-            .starts_with(&[0x1A, 0x45, 0xDF, 0xA3]));
-        assert!(!finalized.pending.exists(), "moved, not copied");
-        assert!(recorder.held_paths().is_empty());
+        assert_eq!(samples_in(&root.path().join("1.webm")), TEST_RATE as usize);
+        assert!(!staged_in(&root, "1").exists(), "moved, not copied");
+        assert!(recorder.held_path().is_none());
+        recorder
+            .require_free_slot()
+            .expect("the slot is free once it is placed");
 
         let again = recorder
             .stop("1", "app-notes")
@@ -1935,61 +1764,28 @@ pub(crate) mod tests {
     }
 
     /// A file something made at the recording's path meanwhile is never
-    /// replaced: the placement says so, and the recording stays pending, for
-    /// `recover` to place beside it. Nothing of the encode is left.
+    /// replaced: the refusal says so, and the finished recording stays
+    /// where it was recorded.
     #[test]
     fn a_stop_never_replaces_a_file_at_its_path() {
         let root = folder_root();
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
         std::fs::write(root.path().join("1.webm"), b"theirs").unwrap();
-        let finalized = recorder.stop("1", "app-notes").unwrap();
-        let refused = finalized.settle();
+        let refused = recorder.stop("1", "app-notes").unwrap_err();
+        assert_eq!(error_name(&refused), "Refused");
         assert!(
-            matches!(&refused, Placement::Pending { reason } if reason.contains("already at 1.webm")),
-            "{refused:?}"
+            refused.to_string().contains("already at 1.webm"),
+            "{refused}"
         );
         assert_eq!(
             std::fs::read(root.path().join("1.webm")).unwrap(),
             b"theirs"
         );
-        assert_eq!(samples_in(&finalized.pending), TEST_RATE);
-        let scratch = epicenter_folder_core::state::saves(root.path());
-        assert_eq!(std::fs::read_dir(scratch).unwrap().count(), 0);
-    }
-
-    /// No audio is lost to the encoder: a recording it refuses is placed as
-    /// the WAV it is, and the placement says so.
-    #[test]
-    fn a_recording_that_cannot_be_encoded_is_placed_as_its_wav() {
-        let root = folder_root();
-        let mut recorder = Recorder::new();
-        recording_owned_by(&mut recorder, &root, "1", "app-notes");
-        let finalized = recorder.stop("1", "app-notes").unwrap();
-        // A WAV at a rate no recording is written at stands in for any
-        // reason the encoder refuses.
-        let mut writer = WavWriter::create(
-            &finalized.pending,
-            WavSpec {
-                channels: 2,
-                sample_rate: 44_100,
-                bits_per_sample: 16,
-                sample_format: WavSampleFormat::Int,
-            },
-        )
-        .unwrap();
-        writer.write_sample(1i16).unwrap();
-        writer.write_sample(1i16).unwrap();
-        writer.finalize().unwrap();
-        let bytes = std::fs::read(&finalized.pending).unwrap();
-
-        let Placement::Unencoded { path, .. } = finalized.settle() else {
-            panic!("expected the WAV to be placed unencoded");
-        };
-        assert_eq!(path, "1.wav");
-        assert_eq!(std::fs::read(root.path().join("1.wav")).unwrap(), bytes);
-        assert!(!root.path().join("1.webm").exists());
-        assert!(!finalized.pending.exists());
+        assert_eq!(samples_in(&staged_in(&root, "1")), TEST_RATE as usize);
+        recorder
+            .require_free_slot()
+            .expect("the slot is free either way");
     }
 
     /// A destroyed window can never claim its recording, so the host finalizes
@@ -2003,7 +1799,7 @@ pub(crate) mod tests {
         recorder.end_capture("1", EndedReason::StreamFailed);
 
         assert!(recorder.finish_owned_by("app-notes").is_some());
-        assert_eq!(samples_in(&staged_in(&root, "1.wav")), TEST_RATE);
+        assert_eq!(samples_in(&root.path().join("1.webm")), TEST_RATE as usize);
         recorder
             .require_free_slot()
             .expect("the slot is free once the owner is gone");
@@ -2086,7 +1882,7 @@ pub(crate) mod tests {
             .stop("1", "app-notes")
             .expect("an ended recording is still the owner's to stop");
         assert_eq!(stopped.duration_ms, 1_000, "the captured second survived");
-        assert_eq!(samples_in(&stopped.pending), TEST_RATE);
+        assert_eq!(samples_in(&root.path().join("1.webm")), TEST_RATE as usize);
 
         // And stopping resolved it, so the slot is free again.
         recorder
@@ -2149,39 +1945,64 @@ pub(crate) mod tests {
         assert_eq!(error_name(&error), "NotRecording");
     }
 
-    /// `recover` must not rewrite the file a live recording is writing.
+    /// `recover` must not finish the file a live recording is writing.
     #[test]
     fn the_held_recording_names_its_file() {
         let root = folder_root();
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
-        assert_eq!(recorder.held_paths(), [staged_in(&root, "1.wav")]);
+        assert_eq!(recorder.held_path(), Some(staged_in(&root, "1").as_path()));
     }
 
-    /// A write that fails keeps the prefix that reached the file. The header
-    /// is rewritten from the file's length, so the recording reads as what was
-    /// written rather than as a count the failed writer kept.
+    /// A disk that fills mid-recording ends the capture, and Stop answers
+    /// with every whole second that reached the file, finished.
     #[test]
-    fn a_failed_write_keeps_the_prefix_that_reached_the_file() {
+    fn a_full_disk_stops_with_what_reached_the_file() {
+        use crate::webm::tests::FullDisk;
         let root = folder_root();
-        let mut capture = capture_holding(&root, "a.wav", &tone(TEST_RATE, 1));
-        capture.write_failed = true;
-        let finished = capture.finish().expect("the prefix is a recording");
-        assert_eq!(finished.duration_ms, 1_000);
-        assert_eq!(samples_in(&root.path().join("a.wav")), TEST_RATE);
+        let path = root.path().join("a.webm");
+        let disk = FullDisk {
+            file: File::create(&path).unwrap(),
+            room: 8_000,
+        };
+        let mut capture = CaptureFile::open(path.clone(), disk, TEST_RATE).unwrap();
+        let error = tone(TEST_RATE, 10)
+            .chunks(441)
+            .find_map(|chunk| capture.write(chunk).err())
+            .expect("the disk filled");
+        assert!(
+            error.to_string().contains("No space left on device"),
+            "{error}"
+        );
+        let finished = capture.finish().expect("what reached the file is kept");
+        let kept = samples_in(&path);
+        assert!(kept >= TEST_RATE as usize, "{kept} samples");
+        assert_eq!(
+            finished.duration_ms as usize,
+            (kept * 1_000 + 8_000) / 16_000
+        );
     }
 
-    /// A capture whose writes never reached the file has nothing to repair.
+    /// A capture whose writes never reached the file has nothing to finish.
     /// Stop says so, and the file is still not deleted.
     #[test]
     fn a_capture_that_wrote_nothing_fails_its_stop_and_leaves_the_file() {
+        use crate::webm::tests::FullDisk;
         let root = folder_root();
-        let path = root.path().join("a.wav");
-        std::fs::write(&path, []).unwrap();
-        let file = File::open(&path).unwrap();
-        let mut capture = CaptureFile::open(path.clone(), file, TEST_RATE).unwrap();
-        assert!(capture.write(&tone(TEST_RATE, 1)).is_err());
-        assert!(capture.finish().is_err());
+        let path = root.path().join("a.webm");
+        let disk = FullDisk {
+            file: File::create(&path).unwrap(),
+            room: 400,
+        };
+        let mut capture = CaptureFile::open(path.clone(), disk, TEST_RATE).unwrap();
+        assert!(capture.write(&tone(TEST_RATE, 2)).is_err());
+        let refused = capture.finish().unwrap_err();
+        assert!(
+            refused
+                .to_string()
+                .contains("nothing of it reached the disk"),
+            "{refused}"
+        );
         assert!(path.exists());
     }
 
@@ -2254,12 +2075,13 @@ pub(crate) mod tests {
     fn short_clips_are_padded_and_empty_ones_are_left_alone() {
         let root = folder_root();
 
-        let short = capture_holding(&root, "a.wav", &[64; 100])
+        let short = capture_holding(&root, "a.webm", &[64; 100])
             .finish()
             .expect("finish a short clip");
         assert_eq!(short.duration_ms, 1_250);
+        assert_eq!(samples_in(&short.path), 20_000);
 
-        let empty = capture_holding(&root, "b.wav", &[])
+        let empty = capture_holding(&root, "b.webm", &[])
             .finish()
             .expect("finish an empty clip");
         assert_eq!(
@@ -2268,7 +2090,7 @@ pub(crate) mod tests {
         );
 
         // Anything at or over a second is kept exactly as captured.
-        let long = capture_holding(&root, "c.wav", &tone(TEST_RATE, 2))
+        let long = capture_holding(&root, "c.webm", &tone(TEST_RATE, 2))
             .finish()
             .expect("finish a long clip");
         assert_eq!(long.duration_ms, 2_000);
@@ -2279,7 +2101,7 @@ pub(crate) mod tests {
     #[test]
     fn a_capture_from_a_device_at_another_rate_is_written_at_the_recording_rate() {
         let root = folder_root();
-        let path = root.path().join("a.wav");
+        let path = root.path().join("a.webm");
         let file = File::options()
             .write(true)
             .create_new(true)
@@ -2291,57 +2113,7 @@ pub(crate) mod tests {
         }
         let finished = capture.finish().unwrap();
         assert_eq!(finished.duration_ms, 2_000);
-        let reader = WavReader::open(&path).unwrap();
-        assert_eq!(reader.spec().sample_rate, RECORDING_RATE);
-        assert_eq!(reader.len(), 2 * RECORDING_RATE);
-    }
-
-    /// A finished recording is a canonical PCM WAV at the recording's rate,
-    /// whose samples are the ones written.
-    #[test]
-    fn a_finished_capture_is_a_canonical_wav_of_what_was_written() {
-        let root = folder_root();
-        let finished = capture_holding(&root, "a.wav", &tone(TEST_RATE, 1))
-            .finish()
-            .expect("finish the capture");
-        assert_eq!(finished.duration_ms, 1_000);
-
-        let bytes = std::fs::read(&finished.path).expect("read the recording");
-        // 44-byte canonical PCM header plus one second of 16 kHz mono PCM16.
-        assert_eq!(bytes.len(), 44 + (TEST_RATE as usize * 2));
-
-        let reader = WavReader::open(&finished.path).unwrap();
-        assert_eq!(reader.spec().sample_rate, TEST_RATE);
-        assert_eq!(reader.spec().channels, 1);
-        let samples: Vec<i16> = reader
-            .into_samples()
-            .map(|sample| sample.unwrap())
-            .collect();
-        assert_eq!(samples, tone(TEST_RATE, 1));
-    }
-
-    /// RIFF describes its sizes in 32 bits and hound increments its byte counter
-    /// without checking, so a recording long enough to overflow it would wrap
-    /// the header into describing a few bytes instead of four gigabytes. The
-    /// writer refuses first, which turns a corrupt file into a typed failure.
-    ///
-    /// Asserted as arithmetic. Reaching the boundary for real means writing four
-    /// gigabytes, which a test suite may not do, and the boundary is the whole
-    /// thing being checked.
-    #[test]
-    fn a_capture_refuses_to_exceed_what_a_wav_can_describe() {
-        let limit = MAX_WAV_DATA_BYTES / BYTES_PER_SAMPLE;
-
-        assert!(!would_exceed_wav_limit(0, limit as usize));
-        assert!(would_exceed_wav_limit(0, limit as usize + 1));
-        assert!(!would_exceed_wav_limit(limit - 1, 1));
-        assert!(would_exceed_wav_limit(limit, 1));
-        // A ridiculous chunk cannot wrap its way back under the ceiling.
-        assert!(would_exceed_wav_limit(limit, usize::MAX));
-
-        // Over twelve hours of mono capture, so this caps a runaway recording
-        // rather than interrupting a meeting.
-        assert!(limit / TEST_RATE > 12 * 3_600);
+        assert_eq!(samples_in(&path), 2 * RECORDING_RATE as usize);
     }
 
     /// A stand-in for the cpal stream that delivers one last chunk as it closes.
@@ -2376,7 +2148,7 @@ pub(crate) mod tests {
     #[test]
     fn a_stop_writes_every_chunk_handed_over_including_during_the_close() {
         let root = folder_root();
-        let mut capture = capture_holding(&root, "a.wav", &[]);
+        let mut capture = capture_holding(&root, "a.webm", &[]);
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
 
         // Three quarters of a second the callback delivered but the writer never
@@ -2427,7 +2199,7 @@ pub(crate) mod tests {
     #[test]
     fn the_drain_waits_out_a_sender_that_outlives_the_stream_handle() {
         let root = folder_root();
-        let mut capture = capture_holding(&root, "a.wav", &[]);
+        let mut capture = capture_holding(&root, "a.webm", &[]);
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
 
         // A second holder of the sender, standing in for cpal's monitor thread:
@@ -2458,7 +2230,7 @@ pub(crate) mod tests {
     #[test]
     fn the_drain_gives_up_on_a_capture_stream_that_never_closes() {
         let root = folder_root();
-        let mut capture = capture_holding(&root, "a.wav", &tone(TEST_RATE, 2));
+        let mut capture = capture_holding(&root, "a.webm", &tone(TEST_RATE, 2));
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
 
         let wedged = sample_tx.clone();
@@ -2501,6 +2273,6 @@ pub(crate) mod tests {
             .require_free_slot()
             .expect("a stopped recording releases the slot");
         assert_eq!(stopped.duration_ms, 1_000);
-        assert!(std::fs::metadata(&stopped.pending).unwrap().len() > 44);
+        assert!(root.path().join(&stopped.path).exists());
     }
 }

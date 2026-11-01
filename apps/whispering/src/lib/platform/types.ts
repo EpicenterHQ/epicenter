@@ -74,7 +74,7 @@ export type PlatformAuth = ReactiveAuthClient<AuthClient>;
 export type WhisperingServices = {
 	/**
 	 * What this app records from, writing each recording into the store as
-	 * it records: the desktop a WAV in the data folder from the first sample,
+	 * it records: the desktop Opus in WebM in the data folder from the first sample,
 	 * a browser each piece into this browser's files. Fixed when the services
 	 * are constructed.
 	 */

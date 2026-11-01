@@ -2,21 +2,18 @@
  * Recording in the desktop app, through `tauri-plugin-epicenter-recorder`
  * (ADR-0543, decision 84).
  *
- * The shell's recorder writes a WAV from the first sample into the
- * `device`'s folder's own `.epicenter/recordings`, a hidden path no watcher
- * reports and sync never commits, its header updated about once a second.
- * The folder is
- * named to the shell by the root it answered when the page opened the device
- * (`rootOf` from `@epicenter/folder/tauri`). `stop` finalizes it and answers;
- * the shell then encodes it to Opus in WebM and places that at
- * `<path>.webm`, never over a file there, so the recording appears at its
- * path whole, and `placed` says where. (A WAV the encoder refuses is placed
- * at `<path>.wav` instead, and `placed` says why.) When the page reloads
- * or its window closes, the shell finalizes and places the recording
- * itself: the audio is kept. A
- * process that ends before then leaves the WAV in `.epicenter/recordings`
- * with a header that undercounts the last second; `recoverRecordings`
- * rewrites it from the file's length, encodes it, and places it at its path.
+ * The shell's recorder encodes the microphone to Opus from the first sample
+ * and writes it, a second at a time, into a WebM in the `device`'s folder's
+ * own `.epicenter/recordings`, a hidden path no watcher reports and sync
+ * never commits. The folder is named to the shell by the root it answered
+ * when the page opened the device (`rootOf` from `@epicenter/folder/tauri`).
+ * `stop` finishes it in place and places it at `<path>.webm`, never over a
+ * file there, so the recording appears at its path whole, and answers where
+ * it is. When the page reloads or its window closes, the shell finishes and
+ * places the recording itself: the audio is kept. A process that ends
+ * before then leaves the file in `.epicenter/recordings` with every whole
+ * second but the last; `recoverRecordings` finishes it from those and
+ * places it at its path.
  *
  * Levels and an ending nobody asked for arrive on a channel this page alone
  * hears.
@@ -32,12 +29,10 @@ import {
 	commands,
 	type Input,
 	type RecorderError as NativeRecorderError,
-	type Placement,
 	type RecordingSignal,
 } from './native/bindings.gen.js';
 import {
 	type OpenMeter,
-	type PlacedRecording,
 	RecorderError,
 	type RecordingEndedReason,
 	type RecoverRecordings,
@@ -68,20 +63,6 @@ function fromNative(error: NativeRecorderError, label = '') {
 			// A reply that is not one of the shell's refusals: an older shell, or
 			// a command it does not have.
 			return RecorderError.Failed({ cause: error satisfies never });
-	}
-}
-
-/** Where the shell placed a stopped recording, as this package says it. */
-function placedOf(
-	placement: Placement,
-): Result<PlacedRecording, RecorderError> {
-	switch (placement.kind) {
-		case 'placed':
-			return Ok({ path: placement.path });
-		case 'unencoded':
-			return Ok({ path: placement.path, unencoded: placement.reason });
-		case 'pending':
-			return RecorderError.Failed({ cause: placement.reason });
 	}
 }
 
@@ -152,7 +133,7 @@ export const startRecording: StartRecording = async ({
 	// and what the shell already wrote is finalized and kept, never deleted.
 	if (signal?.aborted) {
 		signals.retire();
-		await commands.stop(id, new Channel()).catch(() => {});
+		await commands.stop(id).catch(() => {});
 		return RecorderError.Cancelled();
 	}
 	const startedAt = Date.now();
@@ -164,16 +145,10 @@ export const startRecording: StartRecording = async ({
 		onEnded: signals.onEnded,
 		async stop() {
 			signals.retire();
-			const placement = new Channel<Placement>();
-			const placed = new Promise<Result<PlacedRecording, RecorderError>>(
-				(resolve) => {
-					placement.onmessage = (message) => resolve(placedOf(message));
-				},
-			);
 			try {
-				const { data, error } = await commands.stop(id, placement);
+				const { data, error } = await commands.stop(id);
 				if (error !== null) return fromNative(error);
-				return Ok({ durationMs: data.durationMs, placed });
+				return Ok(data);
 			} catch (cause) {
 				return RecorderError.Failed({ cause });
 			}
@@ -182,10 +157,10 @@ export const startRecording: StartRecording = async ({
 };
 
 /**
- * Repair every WAV a quit or a crash left in the folder's
- * `.epicenter/recordings` under `under`, encode each, and place it at its
- * path (or beside it, `<name>-recovered.webm`, when the path is taken).
- * Answers each one placed, with how long it plays from its WAV's samples.
+ * Finish every recording a quit or a crash left in the folder's
+ * `.epicenter/recordings` under `under` from its whole seconds, and place
+ * it at its path. Answers each one placed, with how long it plays. Run it
+ * before anything lists, plays, or transcribes a recording.
  */
 export const recoverRecordings: RecoverRecordings = async ({
 	device,

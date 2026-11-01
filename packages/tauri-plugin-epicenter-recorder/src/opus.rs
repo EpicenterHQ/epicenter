@@ -1,28 +1,20 @@
-//! Encoding a stopped recording's WAV to Opus, kept in WebM (`webm.rs`).
+//! Encoding a recording to Opus as it records, kept in WebM (`webm.rs`).
 //!
 //! Voice at 24 kbps, variable rate, in 20 ms packets: about 10.5 MB an
-//! hour of speech against the WAV's 115 MB, and the same words to a
-//! transcriber. The WAV is read 20 ms at a time and every packet is written
-//! as it is made, so an hour costs the memory a second does. libopus is the
-//! copy `audiopus_sys` bundles, built from source (`.cargo/config.toml`), not
-//! whatever a package manager installed, and it encodes the same WAV to the
-//! same bytes every time, which recovery relies on to tell a recording it
-//! already placed.
+//! hour of speech, and the same words to a transcriber. Each 20 ms is
+//! encoded as soon as it is captured, so Stop encodes only the last few
+//! milliseconds. libopus is the copy `audiopus_sys` bundles, built from
+//! source (`.cargo/config.toml`), not whatever a package manager installed.
 //!
 //! Opus delays what it encodes by its lookahead, which the file states as
 //! the pre-skip a decoder drops, and its last packet is padded to a whole
-//! 20 ms, which the file trims. What plays is the WAV's samples exactly.
-
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::Path;
+//! 20 ms, which the file trims. What plays is the samples written, exactly.
 
 use audiopus::coder::Encoder;
 use audiopus::{Application, Bitrate, Channels, SampleRate};
-use hound::{SampleFormat, WavReader};
 
 use crate::recorder::RECORDING_RATE;
-use crate::webm::{OpusWebm, FRAME_48K, OPUS_RATE};
+use crate::webm::{LiveWebm, Storage, FRAME_48K, OPUS_RATE};
 
 /// Bits a second the encoder aims at; it spends fewer on silence.
 const BITRATE: i32 = 24_000;
@@ -30,97 +22,107 @@ const BITRATE: i32 = 24_000;
 const FRAME: usize = (RECORDING_RATE / 50) as usize;
 /// More than a 20 ms packet can hold at any rate libopus allows.
 const MAX_PACKET: usize = 1_500;
+/// Samples at 48 kHz per sample at the recording's rate.
+pub const TO_48K: u64 = OPUS_RATE / RECORDING_RATE as u64;
 
-/// Encode the 16 kHz mono PCM16 WAV at `wav` into `out` as Opus in WebM, and
-/// flush it to the disk. Answers how many samples it holds; a WAV in any
-/// other format is refused, and so is anything the encoder or the disk
-/// refuses. `out` is left as far as it got.
-pub fn encode(wav: &Path, out: File) -> Result<u64, String> {
-    let reader = WavReader::open(wav).map_err(|error| format!("read the recording: {error}"))?;
-    let spec = reader.spec();
-    if (
-        spec.channels,
-        spec.sample_rate,
-        spec.bits_per_sample,
-        spec.sample_format,
-    ) != (1, RECORDING_RATE, 16, SampleFormat::Int)
-    {
-        return Err(format!(
-            "the recording is {} channels of {}-bit audio at {} Hz, not mono 16-bit at {RECORDING_RATE} Hz",
-            spec.channels, spec.bits_per_sample, spec.sample_rate
-        ));
-    }
-    let mut encoder = Encoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip)
-        .map_err(|error| format!("start the encoder: {error}"))?;
-    encoder
-        .set_bitrate(Bitrate::BitsPerSecond(BITRATE))
-        .map_err(|error| format!("set the bitrate: {error}"))?;
-    let to_48k = OPUS_RATE / u64::from(RECORDING_RATE);
-    let pre_skip = u64::from(
+/// A recording of 16 kHz mono PCM16, encoded and written into WebM as it
+/// arrives. `write` the samples, then `finish`.
+pub struct OpusRecording<S: Storage> {
+    encoder: Encoder,
+    webm: LiveWebm<S>,
+    /// Samples waiting for a whole packet.
+    frame: Vec<i16>,
+    /// Samples written so far, those waiting included.
+    samples: u64,
+    /// The encoder's lookahead, at 48 kHz.
+    pre_skip: u64,
+}
+
+impl<S: Storage> OpusRecording<S> {
+    /// Start the encoder and write the file's head into `out`.
+    pub fn new(out: S) -> Result<Self, String> {
+        let mut encoder = Encoder::new(SampleRate::Hz16000, Channels::Mono, Application::Voip)
+            .map_err(|error| format!("start the encoder: {error}"))?;
         encoder
-            .lookahead()
-            .map_err(|error| format!("read the encoder's lookahead: {error}"))?,
-    ) * to_48k;
-    let written = |error: std::io::Error| format!("write the encoded recording: {error}");
-    let mut webm = OpusWebm::new(
-        BufWriter::new(out),
-        u16::try_from(pre_skip).map_err(|_| format!("a pre-skip of {pre_skip} samples"))?,
-        RECORDING_RATE,
-    )
-    .map_err(written)?;
+            .set_bitrate(Bitrate::BitsPerSecond(BITRATE))
+            .map_err(|error| format!("set the bitrate: {error}"))?;
+        let pre_skip = u64::from(
+            encoder
+                .lookahead()
+                .map_err(|error| format!("read the encoder's lookahead: {error}"))?,
+        ) * TO_48K;
+        let webm = LiveWebm::new(
+            out,
+            u16::try_from(pre_skip).map_err(|_| format!("a pre-skip of {pre_skip} samples"))?,
+            RECORDING_RATE,
+        )
+        .map_err(written)?;
+        Ok(Self {
+            encoder,
+            webm,
+            frame: Vec::with_capacity(FRAME),
+            samples: 0,
+            pre_skip,
+        })
+    }
 
-    let mut samples = reader.into_samples::<i16>();
-    let mut frame = [0i16; FRAME];
-    let mut packet = [0u8; MAX_PACKET];
-    let mut read = 0u64;
-    let mut packets = 0u64;
-    let mut ended = false;
-    // Past the WAV's end, silence until every sample has left the
-    // encoder's lookahead.
-    while !ended || packets * FRAME_48K < pre_skip + read * to_48k {
-        let mut filled = 0;
-        while !ended && filled < FRAME {
-            match samples.next() {
-                Some(sample) => {
-                    frame[filled] =
-                        sample.map_err(|error| format!("read the recording: {error}"))?;
-                    filled += 1;
-                }
-                None => ended = true,
+    /// Encode `samples`, each whole 20 ms as it fills.
+    pub fn write(&mut self, samples: &[i16]) -> Result<(), String> {
+        let mut rest = samples;
+        while !rest.is_empty() {
+            let take = (FRAME - self.frame.len()).min(rest.len());
+            self.frame.extend_from_slice(&rest[..take]);
+            self.samples += take as u64;
+            rest = &rest[take..];
+            if self.frame.len() == FRAME {
+                self.encode_frame()?;
             }
         }
-        frame[filled..].fill(0);
-        read += filled as u64;
-        if ended && filled == 0 && packets * FRAME_48K >= pre_skip + read * to_48k {
-            break;
-        }
-        let length = encoder
-            .encode(&frame, &mut packet)
-            .map_err(|error| format!("encode the recording: {error}"))?;
-        webm.push(&packet[..length]).map_err(written)?;
-        packets += 1;
+        Ok(())
     }
-    let out = webm.finish(read * to_48k).map_err(written)?;
-    let file = out
-        .into_inner()
-        .map_err(|error| written(error.into_error()))?;
-    file.sync_all().map_err(written)?;
-    Ok(read)
+
+    /// Samples written so far.
+    pub fn samples(&self) -> u64 {
+        self.samples
+    }
+
+    /// Encode what is left, then silence until every sample has left the
+    /// encoder's lookahead, and finish the file. Answers how many samples
+    /// play. On an error the file holds every whole second written before,
+    /// for `webm::finish_cut_off`.
+    pub fn finish(mut self) -> Result<u64, String> {
+        let wanted = self.pre_skip + self.samples * TO_48K;
+        while !self.frame.is_empty() || self.webm.packets() * FRAME_48K < wanted {
+            self.frame.resize(FRAME, 0);
+            self.encode_frame()?;
+        }
+        self.webm.finish(self.samples * TO_48K).map_err(written)?;
+        Ok(self.samples)
+    }
+
+    fn encode_frame(&mut self) -> Result<(), String> {
+        let mut packet = [0u8; MAX_PACKET];
+        let length = self
+            .encoder
+            .encode(&self.frame, &mut packet)
+            .map_err(|error| format!("encode the recording: {error}"))?;
+        self.webm.push(&packet[..length]).map_err(written)?;
+        self.frame.clear();
+        Ok(())
+    }
+}
+
+/// A write the disk refused, said as a failure to write the recording.
+fn written(error: std::io::Error) -> String {
+    format!("write the recording: {error}")
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use hound::{WavSpec, WavWriter};
-
-    fn spec(sample_rate: u32) -> WavSpec {
-        WavSpec {
-            channels: 1,
-            sample_rate,
-            bits_per_sample: 16,
-            sample_format: SampleFormat::Int,
-        }
-    }
+    use crate::webm::{finish_cut_off, CutOff, CLUSTER_PACKETS};
+    use std::fs::File;
+    use std::path::Path;
 
     /// `count` samples at 16 kHz of `sound`, a function of time in seconds.
     fn samples(count: usize, sound: impl Fn(f32) -> f32) -> Vec<i16> {
@@ -143,23 +145,14 @@ mod tests {
         })
     }
 
-    fn write_wav(path: &Path, samples: &[i16]) {
-        let mut writer = WavWriter::create(path, spec(RECORDING_RATE)).unwrap();
-        for &sample in samples {
-            writer.write_sample(sample).unwrap();
+    /// Record `samples` into a new file at `path`, in pieces of `piece`, as
+    /// a microphone hands them over, and finish it.
+    fn record(path: &Path, samples: &[i16], piece: usize) -> u64 {
+        let mut recording = OpusRecording::new(File::create(path).unwrap()).unwrap();
+        for chunk in samples.chunks(piece) {
+            recording.write(chunk).unwrap();
         }
-        writer.finalize().unwrap();
-    }
-
-    /// Encode `samples` and answer the file's bytes.
-    fn encoded(samples: &[i16]) -> Vec<u8> {
-        let directory = tempfile::tempdir().unwrap();
-        let wav = directory.path().join("a.wav");
-        let webm = directory.path().join("a.webm");
-        write_wav(&wav, samples);
-        let read = encode(&wav, File::create(&webm).unwrap()).unwrap();
-        assert_eq!(read, samples.len() as u64);
-        std::fs::read(webm).unwrap()
+        recording.finish().unwrap()
     }
 
     /// The decoder transcription reads a recording with.
@@ -167,11 +160,15 @@ mod tests {
         tauri_plugin_epicenter_transcription::audio::decode_to_pcm16k_mono(webm).unwrap()
     }
 
+    fn as_f32(samples: &[i16]) -> Vec<f32> {
+        samples.iter().map(|&s| f32::from(s) / 32_768.0).collect()
+    }
+
     /// How alike `a` and `b` are with `b` moved `lag` samples later, from 1
     /// (the same, louder or softer) down; their ends are left out.
     fn likeness(a: &[f32], b: &[f32], lag: i64) -> f64 {
         let (mut ab, mut aa, mut bb) = (0f64, 0f64, 0f64);
-        for index in 1_000..a.len() - 1_000 {
+        for index in 1_000..a.len().min(b.len()) - 1_000 {
             let (x, y) = (
                 f64::from(a[index]),
                 f64::from(b[(index as i64 + lag) as usize]),
@@ -183,28 +180,43 @@ mod tests {
         ab / (aa.sqrt() * bb.sqrt())
     }
 
-    /// Every sample encoded is decoded, in its place: the pre-skip comes off
-    /// the front and the padding off the end.
-    #[test]
-    fn a_recording_decodes_to_every_sample_it_was_encoded_from_in_place() {
-        // Not a whole number of packets, so the last one is padded.
-        let samples = sweep(3 * RECORDING_RATE as usize + 17);
-        let original: Vec<f32> = samples.iter().map(|&s| f32::from(s) / 32_768.0).collect();
-        let decoded = decoded(&encoded(&samples));
-        assert_eq!(decoded.len(), samples.len());
-
-        let best = (-40..=40)
+    /// Where `decoded` lines up best with `original`, within 40 samples.
+    fn best_lag(original: &[f32], decoded: &[f32]) -> i64 {
+        (-40..=40)
             .max_by(|&a, &b| {
-                likeness(&original, &decoded, a).total_cmp(&likeness(&original, &decoded, b))
+                likeness(original, decoded, a).total_cmp(&likeness(original, decoded, b))
             })
-            .unwrap();
-        assert_eq!(best, 0, "decoded {best} samples late");
+            .unwrap()
+    }
+
+    /// Every sample written is decoded, in its place: the pre-skip comes
+    /// off the front and the padding off the end.
+    #[test]
+    fn a_recording_decodes_to_every_sample_written_in_place() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("a.webm");
+        // Not a whole number of packets, in pieces that are not either.
+        let samples = sweep(3 * RECORDING_RATE as usize + 17);
+        assert_eq!(record(&path, &samples, 441), samples.len() as u64);
+        let decoded = decoded(&std::fs::read(&path).unwrap());
+        assert_eq!(decoded.len(), samples.len());
+        let original = as_f32(&samples);
+        assert_eq!(best_lag(&original, &decoded), 0);
         assert!(likeness(&original, &decoded, 0) > 0.95);
+        assert_eq!(
+            finish_cut_off(&path).unwrap(),
+            CutOff::Finished {
+                played: samples.len() as u64 * TO_48K
+            }
+        );
     }
 
     #[test]
     fn a_tone_keeps_its_pitch() {
-        let decoded = decoded(&encoded(&tone(2 * RECORDING_RATE as usize)));
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("a.webm");
+        record(&path, &tone(2 * RECORDING_RATE as usize), 160);
+        let decoded = decoded(&std::fs::read(&path).unwrap());
         // 440 Hz: as many rising zero crossings a second.
         let rising = decoded[RECORDING_RATE as usize / 2..3 * RECORDING_RATE as usize / 2]
             .windows(2)
@@ -213,58 +225,238 @@ mod tests {
         assert!((438..=442).contains(&rising), "{rising} Hz");
     }
 
-    /// Recovery tells a recording already placed by its bytes.
-    #[test]
-    fn the_same_wav_encodes_to_the_same_bytes() {
-        let samples = tone(RECORDING_RATE as usize * 2);
-        assert_eq!(encoded(&samples), encoded(&samples));
-    }
-
     #[test]
     fn a_recording_that_holds_nothing_is_a_file_that_plays_nothing() {
-        assert!(decoded(&encoded(&[])).is_empty());
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("a.webm");
+        assert_eq!(record(&path, &[], 1), 0);
+        assert!(decoded(&std::fs::read(&path).unwrap()).is_empty());
     }
 
+    /// Cut off at random bytes, a recording is finished from its whole
+    /// seconds, decodes to exactly the samples it says it plays, each in
+    /// its place, and a second recovery writes nothing.
     #[test]
-    fn a_wav_in_another_format_is_refused() {
+    fn a_recording_cut_off_at_random_bytes_decodes_exactly_once_recovered() {
         let directory = tempfile::tempdir().unwrap();
-        let wav = directory.path().join("a.wav");
-        let mut writer = WavWriter::create(&wav, spec(48_000)).unwrap();
-        writer.write_sample(0i16).unwrap();
-        writer.finalize().unwrap();
-        let refused = encode(&wav, File::create(directory.path().join("a.webm")).unwrap());
-        assert!(refused.unwrap_err().contains("48000 Hz"));
-        std::fs::write(&wav, b"not audio").unwrap();
-        assert!(encode(&wav, File::create(directory.path().join("b.webm")).unwrap()).is_err());
-    }
-
-    /// An hour streams through: the WAV is read and the file written 20 ms
-    /// at a time. Prints the sizes and how long it took; run it under
-    /// `/usr/bin/time -l` for the most memory it held.
-    #[test]
-    #[ignore = "encodes an hour of audio; run with --release --ignored to measure"]
-    fn an_hour_streams_through_the_encoder() {
-        let directory = tempfile::tempdir().unwrap();
-        let wav = directory.path().join("hour.wav");
-        let mut writer = WavWriter::create(&wav, spec(RECORDING_RATE)).unwrap();
-        let second = tone(RECORDING_RATE as usize);
-        for _ in 0..3_600 {
-            for &sample in &second {
-                writer.write_sample(sample).unwrap();
+        let samples = sweep(6 * RECORDING_RATE as usize);
+        let original = as_f32(&samples);
+        let whole = directory.path().join("whole.webm");
+        let mut recording = OpusRecording::new(File::create(&whole).unwrap()).unwrap();
+        recording.write(&samples).unwrap();
+        // Dropped unfinished: the file as a crash leaves it.
+        drop(recording);
+        let bytes = std::fs::read(&whole).unwrap();
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        for round in 0..16 {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            let cut = (seed % bytes.len() as u64) as usize;
+            let path = directory.path().join(format!("{round}.webm"));
+            std::fs::write(&path, &bytes[..cut]).unwrap();
+            let played = match finish_cut_off(&path).unwrap() {
+                CutOff::Recovered { played } => played,
+                CutOff::Empty => {
+                    assert_eq!(std::fs::read(&path).unwrap(), &bytes[..cut]);
+                    continue;
+                }
+                finished => panic!("cut at {cut}: {finished:?}"),
+            };
+            let recovered = std::fs::read(&path).unwrap();
+            let decoded = decoded(&recovered);
+            assert_eq!(decoded.len() as u64 * TO_48K, played, "cut at {cut}");
+            if decoded.len() > 3_000 {
+                assert_eq!(best_lag(&original, &decoded), 0, "cut at {cut}");
             }
+            assert_eq!(finish_cut_off(&path).unwrap(), CutOff::Finished { played });
+            assert_eq!(std::fs::read(&path).unwrap(), recovered);
         }
-        writer.finalize().unwrap();
-        let webm = directory.path().join("hour.webm");
-        let started = std::time::Instant::now();
-        let read = encode(&wav, File::create(&webm).unwrap()).unwrap();
-        let elapsed = started.elapsed();
-        let bytes = std::fs::metadata(&webm).unwrap().len();
-        eprintln!(
-            "ENCODED_HOUR samples={read} wav_bytes={} webm_bytes={bytes} seconds={:.2} seconds_per_minute={:.4}",
-            std::fs::metadata(&wav).unwrap().len(),
-            elapsed.as_secs_f64(),
-            elapsed.as_secs_f64() / 60.0,
+    }
+
+    /// A disk that fills mid-recording ends it with a clear error, keeps
+    /// every whole second before, and those decode exactly once finished.
+    #[test]
+    fn a_full_disk_ends_a_recording_with_what_was_written() {
+        use crate::webm::tests::FullDisk;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("a.webm");
+        let mut recording = OpusRecording::new(FullDisk {
+            file: File::create(&path).unwrap(),
+            room: 9_000,
+        })
+        .unwrap();
+        let samples = sweep(10 * RECORDING_RATE as usize);
+        let error = samples
+            .chunks(160)
+            .find_map(|chunk| recording.write(chunk).err())
+            .expect("the disk filled");
+        assert!(
+            error.starts_with("write the recording: No space left on device"),
+            "{error}"
         );
-        assert_eq!(read, 3_600 * u64::from(RECORDING_RATE));
+        drop(recording);
+        let CutOff::Recovered { played } = finish_cut_off(&path).unwrap() else {
+            panic!("expected the whole seconds to be finished");
+        };
+        let decoded = decoded(&std::fs::read(&path).unwrap());
+        assert_eq!(decoded.len() as u64 * TO_48K, played);
+        assert!(played > OPUS_RATE, "{played}");
+        assert_eq!(best_lag(&as_f32(&samples), &decoded), 0);
+    }
+
+    /// What the kill test's child runs: record a sweep of the samples the
+    /// parent names into the file it names, say how many were written, and
+    /// wait to be killed with the last second held. Does nothing unless a
+    /// parent named a file.
+    #[test]
+    #[ignore = "run by the kill test, in a process of its own"]
+    fn records_until_killed() {
+        let Some(path) = std::env::var_os("RECORDER_KILL_TEST_FILE") else {
+            return;
+        };
+        let fed: usize = std::env::var("RECORDER_KILL_TEST_SAMPLES")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let mut recording = OpusRecording::new(File::create(path).unwrap()).unwrap();
+        for chunk in sweep(fed).chunks(FRAME) {
+            recording.write(chunk).unwrap();
+        }
+        println!("fed {}", recording.samples());
+        loop {
+            std::thread::park();
+        }
+    }
+
+    /// A process killed mid-recording (SIGKILL: nothing of it runs after)
+    /// loses at most the second it held and the encoder's lookahead. Its
+    /// file is finished from the whole seconds on the disk, which decode
+    /// exactly, in place.
+    #[cfg(unix)]
+    #[test]
+    fn a_recording_killed_mid_way_keeps_all_but_its_last_second() {
+        use std::io::BufRead;
+        use std::process::{Command, Stdio};
+        let directory = tempfile::tempdir().unwrap();
+        let pre_skip = OpusRecording::new(std::io::Cursor::new(Vec::new()))
+            .unwrap()
+            .pre_skip;
+        let lookahead = (pre_skip / TO_48K) as usize;
+        let mut most = 0;
+        for (round, seconds) in [0.7f64, 1.3, 2.02, 4.98, 7.5].into_iter().enumerate() {
+            let path = directory.path().join(format!("{round}.webm"));
+            let fed = (seconds * f64::from(RECORDING_RATE)) as usize / FRAME * FRAME;
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "opus::tests::records_until_killed",
+                    "--ignored",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env("RECORDER_KILL_TEST_FILE", &path)
+                .env("RECORDER_KILL_TEST_SAMPLES", fed.to_string())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            // libtest writes the test's name on the same line first.
+            let stdout = child.stdout.take().unwrap();
+            let (heard, hearing) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let said = std::io::BufReader::new(stdout)
+                    .lines()
+                    .map_while(Result::ok)
+                    .find_map(|line| line.rsplit_once("fed ").map(|(_, fed)| fed.to_string()));
+                let _ = heard.send(said);
+            });
+            let said = hearing
+                .recv_timeout(std::time::Duration::from_secs(60))
+                .ok()
+                .flatten();
+            child.kill().unwrap();
+            child.wait().unwrap();
+            assert_eq!(said, Some(fed.to_string()), "{seconds} s");
+
+            // Every packet written before the held second, less the
+            // encoder's delay.
+            let packets = fed / FRAME;
+            let on_disk = (packets - 1) / CLUSTER_PACKETS * CLUSTER_PACKETS;
+            let kept = (on_disk * FRAME).saturating_sub(lookahead);
+            let found = finish_cut_off(&path).unwrap();
+            let lost = fed - kept;
+            most = most.max(lost);
+            assert!(
+                lost <= CLUSTER_PACKETS * FRAME + lookahead,
+                "{seconds} s: lost {lost} samples"
+            );
+            if kept == 0 {
+                assert_eq!(found, CutOff::Empty, "{seconds} s");
+                continue;
+            }
+            assert_eq!(
+                found,
+                CutOff::Recovered {
+                    played: kept as u64 * TO_48K
+                },
+                "{seconds} s"
+            );
+            let decoded = decoded(&std::fs::read(&path).unwrap());
+            assert_eq!(decoded.len(), kept, "{seconds} s");
+            assert_eq!(best_lag(&as_f32(&sweep(fed)), &decoded), 0, "{seconds} s");
+        }
+        eprintln!(
+            "KILLED_MOST_LOST_MS {:.1}",
+            most as f64 * 1_000.0 / f64::from(RECORDING_RATE)
+        );
+    }
+
+    /// An hour streams through: the bytes it takes, and how long Stop takes
+    /// once it has. `RECORDER_MEASURE_WAV` names a 16 kHz mono PCM16 WAV to
+    /// record instead of a synthetic sweep. Run it in release with
+    /// `--ignored --nocapture`.
+    #[test]
+    #[ignore = "records an hour of audio; run with --release --ignored to measure"]
+    fn an_hour_records_live() {
+        let samples: Vec<i16> = match std::env::var_os("RECORDER_MEASURE_WAV") {
+            Some(path) => {
+                let bytes = std::fs::read(path).unwrap();
+                let data = bytes
+                    .windows(4)
+                    .position(|window| window == b"data")
+                    .unwrap()
+                    + 8;
+                bytes[data..]
+                    .chunks_exact(2)
+                    .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+                    .collect()
+            }
+            None => sweep(RECORDING_RATE as usize * 60).repeat(60),
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("hour.webm");
+        let mut recording = OpusRecording::new(File::create(&path).unwrap()).unwrap();
+        let started = std::time::Instant::now();
+        for chunk in samples.chunks(480) {
+            recording.write(chunk).unwrap();
+        }
+        let recorded = started.elapsed();
+        let stopping = std::time::Instant::now();
+        let written = recording.finish().unwrap();
+        let stop = stopping.elapsed();
+        let bytes = std::fs::metadata(&path).unwrap().len();
+        let seconds = written as f64 / f64::from(RECORDING_RATE);
+        eprintln!(
+            "RECORDED_LIVE seconds={seconds:.3} bytes={bytes} bytes_per_hour={:.0} encode_s_per_audio_minute={:.4} stop_ms={:.2}",
+            bytes as f64 * 3_600.0 / seconds,
+            recorded.as_secs_f64() / (seconds / 60.0),
+            stop.as_secs_f64() * 1_000.0,
+        );
+        assert_eq!(written, samples.len() as u64);
+        assert_eq!(
+            decoded(&std::fs::read(&path).unwrap()).len() as u64,
+            written
+        );
     }
 }

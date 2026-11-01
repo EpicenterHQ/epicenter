@@ -1,17 +1,20 @@
 /**
  * A recording's note (ADR-0543, decision 84). Its audio is written into
- * Whispering's files as it records: on the desktop the shell's WAV from the
- * first sample, outside its path in the folder's `.epicenter/recordings`
- * until it stops and is encoded to `recordings/<id>.webm`; in a browser each
- * piece appended to its file at its path as it arrives. The note is written
- * once, when the audio is at its path after Stop (`keepRecording`), so a
- * note always names audio that is there and holds its length.
+ * Whispering's files as it records: on the desktop the shell's Opus in WebM
+ * from the first sample, outside its path in the folder's
+ * `.epicenter/recordings` until Stop finishes it and places it at
+ * `recordings/<id>.webm`; in a browser each piece appended to its file at
+ * its path as it arrives. The note is written once, when Stop has answered
+ * and the audio is at its path (`keepRecording`), so a note always names
+ * audio that is there and holds its length.
  *
  * A quit, a crash, or a closed tab leaves audio no note names: at its path
  * in a browser, outside it on the desktop. The next start repairs it
- * (`CaptureDevice.recover`, which on the desktop also encodes and places it)
- * and gives each such recording its note (`finishCutOffRecordings`), the
- * only path by which a cut-off recording reaches the library.
+ * (`CaptureDevice.recover`, which on the desktop also finishes and places
+ * it) and gives each such recording its note (`finishCutOffRecordings`), the
+ * only path by which a cut-off recording reaches the library. On the
+ * desktop nothing else can read a cut-off recording first: it is at no data
+ * path until recovery has finished it.
  */
 import type { Client } from '@epicenter/definition/contract';
 import { audioDurationMs } from '@epicenter/recorder';
@@ -41,7 +44,7 @@ export async function keepRecording(
 	return created.error === null ? Ok(undefined) : Err(created.error.message);
 }
 
-/** The extensions recordings are written under: Opus in WebM on the desktop (WAV when it could not encode one), AAC in MP4 or Opus in WebM in a browser. */
+/** The extensions a recording's audio is kept under: Opus in WebM on the desktop, AAC in MP4 or Opus in WebM in a browser, and WAV. */
 const RECORDED: readonly string[] = ['wav', 'm4a', 'webm'];
 
 /** When a recording whose id `timeId` made was started, or now for any other id. */
@@ -58,9 +61,8 @@ function recordedAtOf(id: string): string {
 /**
  * Give every recording a quit, a crash, or a closed tab cut off its note.
  * The capture device's `recover` repairs what was cut off (on the desktop it
- * also encodes it and places it at its path, or beside it as
- * `<id>-recovered` when the path is taken) and answers each recording whose
- * audio is whole at its path, with the length it read; any of those no note
+ * also finishes it and places it at its path) and answers each recording
+ * whose audio is whole at its path, with the length it read; any of those no note
  * names is given one, its length measured from its audio when `recover` did
  * not answer one. Audio whose length does not read is still given a note,
  * without a length, so no recording is kept where the library does not

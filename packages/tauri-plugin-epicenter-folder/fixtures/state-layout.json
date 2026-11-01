@@ -5,10 +5,10 @@
 	"recordings": "recordings",
 	"savesDirectory": ".epicenter/saves",
 	"recordingPaths": [
-		{ "stem": "a", "path": ".epicenter/recordings/a.wav" },
+		{ "stem": "a", "path": ".epicenter/recordings/a.webm" },
 		{
 			"stem": "recordings/2026/a",
-			"path": ".epicenter/recordings/recordings/2026/a.wav"
+			"path": ".epicenter/recordings/recordings/2026/a.webm"
 		}
 	]
 }

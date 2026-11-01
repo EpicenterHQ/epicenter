@@ -4,9 +4,8 @@
 //! real path), or the next open recovers or removes it. Each kind of
 //! unfinished write has a part named for the operation that owns it:
 //!
-//! - `saves/`: a save's bytes waiting to be renamed over its target, and a
-//!   stopped recording being encoded before it is placed. Always safe to
-//!   delete when no app runs; opening a folder removes stale ones
+//! - `saves/`: a save's bytes waiting to be renamed over its target. Always
+//!   safe to delete when no app runs; opening a folder removes stale ones
 //!   (`storage::sweep_scratch`).
 //! - `recordings/<target path>`: a desktop recording, from its first sample
 //!   until it stops or the next open recovers it. It may hold audio until
@@ -44,9 +43,9 @@ pub fn saves(root: &Path) -> PathBuf {
 
 /// The folder-relative path the recording of the folder-relative `stem`
 /// (its path without an extension) is written to while it records:
-/// `.epicenter/recordings/<stem>.wav`.
+/// `.epicenter/recordings/<stem>.webm`.
 pub fn recording(stem: &str) -> String {
-    format!("{}.wav", recordings_under(stem))
+    format!("{}.webm", recordings_under(stem))
 }
 
 /// The folder-relative directory the recordings in progress under the

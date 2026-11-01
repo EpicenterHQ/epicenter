@@ -111,12 +111,7 @@ export function createMicrophoneDevice({
 				async stop() {
 					const { data, error: stopError } = await recording.stop();
 					if (stopError !== null) return Err(stopError);
-					return Ok({
-						durationMs: data.durationMs,
-						placed: data.placed.then(({ data: placed, error }) =>
-							error !== null ? Err(error) : Ok({ unencoded: placed.unencoded }),
-						),
-					});
+					return Ok({ durationMs: data.durationMs });
 				},
 			});
 		},

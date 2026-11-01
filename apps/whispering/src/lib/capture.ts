@@ -2,11 +2,11 @@
  * Audio capture for one recording at a time. Every capture writes the
  * recording's audio into Whispering's store as it records, so a quit, a
  * crash, or a closed tab keeps everything up to the cut (decision 84): on
- * the desktop the shell writes a WAV from the first sample outside the
- * recording's path, in a browser each piece is appended to this browser's
- * files at its path (`recordings/<id>.<ext>`) as it arrives. Stop answers
- * how long its audio plays and, once the audio is at its path, where; and
- * `recover` repairs the audio a cut left half-written.
+ * the desktop the shell writes Opus in WebM from the first sample outside
+ * the recording's path and places it there at Stop, in a browser each piece
+ * is appended to this browser's files at its path (`recordings/<id>.<ext>`)
+ * as it arrives. Stop answers once the audio is at its path, with how long
+ * it plays; and `recover` repairs the audio a cut left half-written.
  *
  * The microphone device (`microphone.ts`) records with `@epicenter/recorder`,
  * whose entry the build's platform leaf imports, and every failure here is
@@ -21,24 +21,14 @@ export type Capture = {
 	readonly startedAt: number;
 	/** Hear capture end unexpectedly; stop still keeps what was captured. Retired by stop. */
 	onEnded: RecordingHandle<unknown>['onEnded'];
-	/** Finish the file and release the microphone. */
+	/** Finish the file at its path and release the microphone. */
 	stop(): Promise<Result<StoppedCapture, RecorderError>>;
 };
 
-/** A recording whose capture has finished. */
+/** A recording whose capture has finished, its audio at its path (`recordings/<id>.<ext>`). */
 export type StoppedCapture = {
 	/** How long its audio plays. */
 	readonly durationMs: number;
-	/**
-	 * Resolves once its audio is at its path (`recordings/<id>.<ext>`): at
-	 * once in a browser, on the desktop once the shell has encoded and
-	 * placed it, after Stop answered. `unencoded` says why the desktop kept a
-	 * WAV. An error is audio left outside its path, which the next start's
-	 * `recover` places. Never rejects.
-	 */
-	readonly placed: Promise<
-		Result<{ readonly unencoded?: string }, RecorderError>
-	>;
 };
 
 /** A microphone the person chose by name. Kept on this device, never in Whispering's files. */

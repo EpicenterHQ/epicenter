@@ -100,35 +100,6 @@ test('the next launch gives a cut-off recording its note, with the length recove
 	);
 });
 
-test('audio recovery placed beside a taken path is given a note of its own', async () => {
-	const { path, device } = await folder();
-	const id = '2026-10-31T09-30-00-000Z-cutoffaa';
-	await writeFile(join(path, `recordings/${id}.wav`), toneWav({ seconds: 1 }));
-	expectOk(await keepRecording(device, kept(id)));
-	// Something else took the recording's path, so the desktop's recover
-	// places the leftover beside it (`wav::recover`).
-	const recover = async (unnamed: readonly string[]) => {
-		await writeFile(
-			join(path, `recordings/${id}-recovered.webm`),
-			'encoded audio',
-		);
-		return desktopRecover([{ id: `${id}-recovered`, durationMs: 2000 }])(
-			unnamed,
-		);
-	};
-
-	expect(expectOk(await finishCutOffRecordings(device, { recover }))).toEqual([
-		`${id}-recovered`,
-	]);
-	expect(
-		expectOk(await device.recordings.get({ id: `${id}-recovered` })),
-	).toMatchObject({
-		title: 'Recovered recording',
-		recordedAt: '2026-10-31T09:30:00.000Z',
-		durationMs: 2000,
-	});
-});
-
 test('audio whose length does not read is still given a note, without a length', async () => {
 	const { path, device } = await folder();
 	await writeFile(join(path, 'recordings/odd.wav'), 'not a WAV');

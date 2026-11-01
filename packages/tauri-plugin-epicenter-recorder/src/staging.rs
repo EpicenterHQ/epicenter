@@ -1,28 +1,22 @@
-//! Where a recording is written while it records, and how it reaches its own
-//! path.
+//! Where a recording is written while it records, how it reaches its own
+//! path, and how one a crash cut off gets there.
 //!
-//! A recording in progress is a WAV among the folder's unfinished writes,
-//! at `.epicenter/recordings/<its folder-relative path>.wav` (`pending`,
+//! A recording in progress is a WebM among the folder's unfinished writes,
+//! at `.epicenter/recordings/<its folder-relative path>.webm` (`pending`,
 //! from `state::recording`): a hidden path, which no watcher reports and
-//! `epicenter sync` never commits, so nothing reads a half-written recording
-//! as the folder's audio.
+//! `epicenter sync` never commits, so nothing reads a recording at a data
+//! path before it is finished.
 //!
-//! When it stops, `settle` encodes the WAV to Opus in WebM (`opus::encode`)
-//! in a scratch file in the folder's `.epicenter/saves` (`encode_scratch`),
-//! places that at `<path>.webm` without replacing anything there (the
-//! folder core's `storage::place`, which a save expecting nothing at its
-//! path uses too), and only then removes the WAV. A stop whose path
-//! something took meanwhile leaves the WAV; recovery places what it settles
-//! beside a taken path (`sweep`). A quit or a crash before then leaves the
-//! WAV, which `wav::recover` repairs and settles the same way the next time
-//! the folder opens, and at most a scratch file, which the folder removes
-//! once it is an hour old (`storage::sweep_scratch`, which never reads
-//! `recordings/`). A WAV that cannot be encoded is placed itself, at
-//! `<path>.wav`: no audio is lost to an encoder.
+//! Once it is finished in place, `place_recording` places it at
+//! `<path>.webm` without replacing anything there (the folder core's
+//! `storage::place`, which a save expecting nothing at its path uses too).
+//! A quit or a crash before then leaves the pending file, which `recover`
+//! finishes and places the next time the folder opens. A page calls it
+//! before it lists, plays, or transcribes a recording (ADR-0542), and a
+//! file it places is finished first, so nothing reads a cut-off one.
 //!
-//! Where these files are is `pending`, `pending_under`, and
-//! `encode_scratch`, each from the folder core's `state`; nothing else here
-//! names a directory.
+//! Where these files are is `pending` and `pending_under`, each from the
+//! folder core's `state`; nothing else here names a directory.
 
 use std::fs;
 use std::io;
@@ -31,9 +25,10 @@ use std::path::{Path, PathBuf};
 use epicenter_folder_core::page_files;
 use epicenter_folder_core::paths::path_problem;
 use epicenter_folder_core::state;
-use epicenter_folder_core::storage::{
-    create_scratch, place, prepare_state_directory, rename_failure,
-};
+use epicenter_folder_core::storage::{place, prepare_state_directory, rename_failure};
+use serde::Serialize;
+
+use crate::webm::{finish_cut_off, CutOff, OPUS_RATE};
 
 /// The checked full path the recording of the folder-relative `stem` (its
 /// path without an extension) is written to while it records, in `root`
@@ -51,10 +46,10 @@ pub fn pending(root: &Path, stem: &str) -> Result<PathBuf, String> {
 }
 
 /// Every recording a quit or a crash left pending under the folder-relative
-/// directory `under` in `root`: each WAV's full path and the stem it is the
+/// directory `under` in `root`: each file's full path and the stem it is the
 /// recording of. A link is never followed, and only paths the shared path
 /// rule accepts are visited. Nothing pending is nothing.
-pub fn pending_under(root: &Path, under: &str) -> Result<Vec<(PathBuf, String)>, String> {
+fn pending_under(root: &Path, under: &str) -> Result<Vec<(PathBuf, String)>, String> {
     let directory = page_files::data_path(root, &state::recordings_under(under))?;
     let mut found = Vec::new();
     let mut directories: Vec<(PathBuf, String)> = vec![(directory, under.to_string())];
@@ -83,109 +78,48 @@ pub fn pending_under(root: &Path, under: &str) -> Result<Vec<(PathBuf, String)>,
                 continue;
             }
             let stem = child
-                .rsplit_once('.')
-                .filter(|(_, extension)| extension.eq_ignore_ascii_case("wav"))
-                .map(|(stem, _)| stem.to_string());
+                .strip_suffix(".webm")
+                .filter(|stem| !stem.ends_with('/'));
             if let (true, Some(stem)) = (metadata.is_file(), stem) {
-                found.push((path, stem));
+                found.push((path, stem.to_string()));
             }
         }
     }
     Ok(found)
 }
 
-/// A new scratch file in `root`'s `.epicenter/saves` to encode a recording
-/// into: on the folder's own file system, so it can be linked to its path,
-/// and named so that one a crash leaves behind is removed once stale.
-fn encode_scratch(root: &Path) -> Result<(PathBuf, fs::File), String> {
-    create_scratch(root)
-}
-
-/// What `settle` does when another file holds the recording's path.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WhenTaken {
-    /// Fail, leaving the WAV pending: a stop, whose page named the path.
-    Refuse,
-    /// Place it at the first free `<stem>-recovered[-n]` name beside it:
-    /// recovery, so nothing stays pending forever.
-    PlaceBeside,
-}
-
-/// Where `settle` put a recording.
+/// Why `place_recording` did not place a recording.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Settled {
-    /// The folder-relative path of its audio.
-    pub path: String,
-    /// False when a file with the same bytes was already there, which the
-    /// recording is a copy of: nothing new was placed.
-    pub placed: bool,
-    /// Why it is a WAV, when it could not be encoded.
-    pub unencoded: Option<String>,
+pub enum PlaceError {
+    /// Another file is at the folder-relative path.
+    Taken(String),
+    /// The path is refused, or the disk refused.
+    Failed(String),
 }
 
-/// Turn the finalized WAV at `pending`, the recording of `stem` in `root`,
-/// into its file in the folder: Opus in WebM at `<stem>.webm`, then remove
-/// the WAV. A WAV that cannot be encoded is placed itself, at `<stem>.wav`.
-/// A path another file holds is never replaced (`when_taken`); one holding
-/// the same bytes is this recording, placed by a settle cut off before it
-/// removed the WAV, and the WAV is only removed.
-///
-/// On an error the WAV is where it was, for the next `wav::recover`.
-pub fn settle(
-    root: &Path,
-    pending: &Path,
-    stem: &str,
-    when_taken: WhenTaken,
-) -> Result<Settled, String> {
-    let wav = format!("{stem}.wav");
-    if same_bytes(pending, &page_files::data_path(root, &wav)?).unwrap_or(false) {
-        remove(pending)?;
-        return Ok(Settled {
-            path: wav,
-            placed: false,
-            unencoded: None,
-        });
+/// Move the finished recording at `pending` to `<stem>.webm` in `root`,
+/// making its missing directories, each checked as a data path, and answer
+/// that folder-relative path. Something already at the path is never
+/// replaced. A move a crash cut off between linking the path and removing
+/// the pending name is finished (`storage::place`). A path across a mount
+/// point inside the folder is refused (`rename_failure`), and the file
+/// stays.
+pub fn place_recording(root: &Path, pending: &Path, stem: &str) -> Result<String, PlaceError> {
+    let relative = format!("{stem}.webm");
+    if let Some((parent, _)) = relative.rsplit_once('/') {
+        page_files::mkdir(root, &root.join(parent)).map_err(PlaceError::Failed)?;
     }
-    // A scratch file that cannot be made is an encode that cannot run: the
-    // WAV is placed either way, so a recording is never stranded pending.
-    let encoded =
-        encode_scratch(root).and_then(|(scratch, file)| match crate::opus::encode(pending, file) {
-            Ok(_) => Ok(scratch),
-            Err(reason) => {
-                let _ = fs::remove_file(&scratch);
-                Err(reason)
-            }
-        });
-    let scratch = match encoded {
-        Ok(scratch) => scratch,
-        Err(reason) => {
-            let (path, placed) = sweep(root, pending, &wav, when_taken)?;
-            return Ok(Settled {
-                path,
-                placed,
-                unencoded: Some(reason),
-            });
+    let target = page_files::data_path(root, &relative).map_err(PlaceError::Failed)?;
+    match place(pending, &target) {
+        Ok(()) => {
+            sync_directory_of(&target);
+            Ok(relative)
         }
-    };
-    let (path, placed) = match sweep(root, &scratch, &format!("{stem}.webm"), when_taken) {
-        Ok(swept) => swept,
-        Err(error) => {
-            let _ = fs::remove_file(&scratch);
-            return Err(error);
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            Err(PlaceError::Taken(relative))
         }
-    };
-    // Its new name reaches the disk before the WAV's goes.
-    sync_directory_of(&root.join(&path));
-    // The recording is in place; a WAV left behind encodes to the same
-    // bytes, so the next recovery removes it as a copy.
-    if let Err(error) = remove(pending) {
-        log::warn!("{path} is in place, but its WAV was not removed: {error}");
+        Err(error) => Err(PlaceError::Failed(rename_failure(&relative, &error))),
     }
-    Ok(Settled {
-        path,
-        placed,
-        unencoded: None,
-    })
 }
 
 /// Flush the directory holding `path` to the disk, so a name just made in
@@ -202,77 +136,268 @@ fn sync_directory_of(path: &Path) {
     let _ = path;
 }
 
-/// Remove the file at `path`; one already gone is not a failure.
-fn remove(path: &Path) -> Result<(), String> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!("remove {}: {error}", path.display())),
-    }
+/// A recording `recover` placed: where its audio is, and how long it plays.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveredRecording {
+    /// Its folder-relative path: the path its page named plus `.webm`.
+    pub path: String,
+    /// How long it plays, to the nearest millisecond, as its file states.
+    pub duration_ms: u32,
 }
 
-/// How many `-recovered` names `sweep` tries beside a taken path.
-const RECOVERED_NAMES: usize = 100;
-
-/// Move the file at `staged` to the folder-relative `relative` in `root`,
-/// making its missing directories, each checked as a data path, and answer
-/// where it is and whether it was placed. When something is at `relative`
-/// already, it is never replaced: a staged file with the same bytes is a
-/// copy of it and is removed (not placed); anything else is refused, or for
-/// `PlaceBeside` goes to the first free `<stem>-recovered.<ext>`,
-/// `<stem>-recovered-2.<ext>`, and so on, so no recording is stranded in
-/// `.epicenter`, which sync never commits. A path across a mount point
-/// inside the folder is refused (`rename_failure`), and the file stays.
-fn sweep(
+/// Finish and place every recording a quit or a crash left pending under
+/// `under` in the folder at `root` (`pending_under`), skipping the one
+/// `held` names: the file a live recording is still writing. `held` is
+/// asked about each file once it is listed, right before it is touched, so
+/// a recording that started after this began is never taken for a
+/// leftover. Each is finished in place from its whole seconds
+/// (`webm::finish_cut_off`) and placed at its path. Returns each recording
+/// placed, by path, with how long it plays. A missing directory has nothing
+/// to recover. Running it again changes nothing.
+///
+/// A leftover whose path already holds a file is deleted, not placed: a
+/// recording is finished before it is placed, so a leftover there is one a
+/// crash cut off after it was placed. A leftover that holds no whole second
+/// holds no audio, and is deleted too.
+///
+/// `under` is checked as a data path is (`page_files::data_path`). A file
+/// that cannot be finished or placed is reported and left where it is, so
+/// one bad file does not hide the rest.
+pub fn recover(
     root: &Path,
-    staged: &Path,
-    relative: &str,
-    when_taken: WhenTaken,
-) -> Result<(String, bool), String> {
-    let (parent, name) = relative.rsplit_once('/').unwrap_or(("", relative));
-    if !parent.is_empty() {
-        page_files::mkdir(root, &root.join(parent))?;
-    }
-    let (stem, extension) = name.rsplit_once('.').unwrap_or((name, ""));
-    let beside = match when_taken {
-        WhenTaken::Refuse => 0,
-        WhenTaken::PlaceBeside => RECOVERED_NAMES,
-    };
-    for attempt in 0..=beside {
-        let candidate = match attempt {
-            0 => name.to_string(),
-            1 => format!("{stem}-recovered.{extension}"),
-            n => format!("{stem}-recovered-{n}.{extension}"),
-        };
-        let candidate = if parent.is_empty() {
-            candidate
-        } else {
-            format!("{parent}/{candidate}")
-        };
-        let target = page_files::data_path(root, &candidate)?;
-        match place(staged, &target) {
-            Ok(()) => return Ok((candidate, true)),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                if same_bytes(staged, &target).map_err(|error| error.to_string())? {
-                    fs::remove_file(staged).map_err(|error| error.to_string())?;
-                    return Ok((candidate, false));
-                }
+    under: &str,
+    held: impl Fn(&Path) -> bool,
+) -> Result<Vec<RecoveredRecording>, String> {
+    page_files::data_path(root, under)?;
+    let mut placed = Vec::new();
+    for (pending, stem) in pending_under(root, under)? {
+        if held(&pending) {
+            continue;
+        }
+        let played = match finish_cut_off(&pending) {
+            Ok(CutOff::Finished { played } | CutOff::Recovered { played }) => played,
+            Ok(CutOff::Empty) => {
+                log::info!("Removed the recording of {stem}: no audio reached it");
+                remove(&pending);
+                continue;
             }
-            Err(error) => return Err(rename_failure(&candidate, &error)),
+            // Stopped and placed since it was listed.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                log::warn!("Could not finish the recording of {stem}: {error}");
+                continue;
+            }
+        };
+        match place_recording(root, &pending, &stem) {
+            Ok(path) => {
+                log::info!("Recovered the recording of {stem} at {path}");
+                placed.push(RecoveredRecording {
+                    path,
+                    duration_ms: ((played * 1_000 + OPUS_RATE / 2) / OPUS_RATE) as u32,
+                });
+            }
+            Err(PlaceError::Taken(path)) => {
+                log::info!("Removed the recording of {stem}: {path} is already placed");
+                remove(&pending);
+            }
+            Err(PlaceError::Failed(error)) => {
+                log::warn!("Could not place the recording of {stem}: {error}")
+            }
         }
     }
-    Err(match when_taken {
-        WhenTaken::Refuse => format!("a file is already at {relative}"),
-        WhenTaken::PlaceBeside => {
-            format!("{relative} and the next {RECOVERED_NAMES} names beside it are taken")
-        }
-    })
+    placed.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(placed)
 }
 
-/// Whether the files at `a` and `b` hold the same bytes.
-fn same_bytes(a: &Path, b: &Path) -> io::Result<bool> {
-    if fs::metadata(a)?.len() != fs::metadata(b)?.len() {
-        return Ok(false);
+/// Remove the file at `path`; one already gone is not a failure.
+fn remove(path: &Path) {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => log::warn!("{} was not removed: {error}", path.display()),
     }
-    Ok(fs::read(a)? == fs::read(b)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::opus::OpusRecording;
+
+    /// The 16 kHz samples of a recording cut off after `seconds`, rounded to
+    /// whole 20 ms packets, written at `path` and left as a crash leaves it.
+    fn cut_off(path: &Path, seconds: f64) {
+        let mut recording = OpusRecording::new(fs::File::create(path).unwrap()).unwrap();
+        let samples = (seconds * 16_000.0) as usize / 320 * 320;
+        recording.write(&vec![1_000i16; samples]).unwrap();
+    }
+
+    /// What a cut-off recording of `seconds` plays once recovered, in
+    /// milliseconds: its whole seconds before the one held, less the
+    /// encoder's 6.5 ms delay.
+    fn kept_ms(seconds: f64) -> u32 {
+        let packets = (seconds * 50.0) as u64;
+        let whole = (packets - 1) / 50 * 50;
+        (((whole * 960 - 312) * 1_000 + 24_000) / 48_000) as u32
+    }
+
+    fn recovered(path: &str, duration_ms: u32) -> RecoveredRecording {
+        RecoveredRecording {
+            path: path.to_string(),
+            duration_ms,
+        }
+    }
+
+    /// The samples the transcription decoder reads from the file at `path`.
+    fn decoded(path: &Path) -> usize {
+        tauri_plugin_epicenter_transcription::audio::decode_to_pcm16k_mono(&fs::read(path).unwrap())
+            .unwrap()
+            .len()
+    }
+
+    #[test]
+    fn recover_finishes_and_places_what_a_cut_left_pending_and_nothing_else() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(directory.path()).unwrap();
+        let pending = root.join(state::recordings_under("recordings"));
+        fs::create_dir_all(pending.join("2026")).unwrap();
+        fs::create_dir_all(root.join("recordings")).unwrap();
+        cut_off(&pending.join("a.webm"), 2.5);
+        cut_off(&pending.join("2026/b.webm"), 3.1);
+        cut_off(&pending.join("live.webm"), 2.5);
+        fs::write(pending.join("notes.txt"), b"not a recording").unwrap();
+        cut_off(&root.join("recordings/placed.webm"), 2.5);
+        let placed_bytes = fs::read(root.join("recordings/placed.webm")).unwrap();
+
+        let live = pending.join("live.webm");
+        let live_bytes = fs::read(&live).unwrap();
+        let placed = recover(&root, "recordings", |path| path == live).unwrap();
+        assert_eq!(
+            placed,
+            [
+                recovered("recordings/2026/b.webm", kept_ms(3.1)),
+                recovered("recordings/a.webm", kept_ms(2.5)),
+            ]
+        );
+        // 2.5 s cut off keeps its first two seconds, less the delay.
+        assert_eq!(kept_ms(2.5), 1_994);
+        assert_eq!(decoded(&root.join("recordings/a.webm")), 2 * 16_000 - 104);
+        assert!(!pending.join("a.webm").exists(), "moved, not copied");
+        assert!(!pending.join("2026/b.webm").exists());
+        assert_eq!(
+            fs::read(&live).unwrap(),
+            live_bytes,
+            "a live recording is its writer's"
+        );
+        assert_eq!(
+            fs::read(pending.join("notes.txt")).unwrap(),
+            b"not a recording"
+        );
+        assert_eq!(
+            fs::read(root.join("recordings/placed.webm")).unwrap(),
+            placed_bytes,
+            "a file already at its path is not the recorder's to change"
+        );
+
+        assert!(recover(&root, "recordings", |path| path == live)
+            .unwrap()
+            .is_empty());
+        assert!(recover(&root, "nothing-here", |_| false)
+            .unwrap()
+            .is_empty());
+    }
+
+    /// A recording is finished before it is placed, so a leftover whose
+    /// path holds a file was placed and cut off before its pending name
+    /// went: it is deleted, never placed beside. When the file there is the
+    /// leftover itself, the move is finished and answered. One that holds no
+    /// whole second holds no audio, and is deleted too.
+    #[test]
+    fn a_leftover_whose_path_is_taken_or_that_holds_no_audio_is_deleted() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(directory.path()).unwrap();
+        let taken = pending(&root, "recordings/taken").unwrap();
+        cut_off(&taken, 2.5);
+        fs::create_dir_all(root.join("recordings")).unwrap();
+        fs::write(root.join("recordings/taken.webm"), b"placed").unwrap();
+        let empty = pending(&root, "recordings/empty").unwrap();
+        cut_off(&empty, 0.5);
+        // A move cut off between linking its path and removing its pending
+        // name: the same file at both.
+        let linked = pending(&root, "recordings/linked").unwrap();
+        cut_off(&linked, 2.5);
+        finish_cut_off(&linked).unwrap();
+        fs::hard_link(&linked, root.join("recordings/linked.webm")).unwrap();
+
+        assert_eq!(
+            recover(&root, "recordings", |_| false).unwrap(),
+            [recovered("recordings/linked.webm", kept_ms(2.5))]
+        );
+        assert!(!taken.exists());
+        assert!(!empty.exists());
+        assert!(!linked.exists());
+        assert_eq!(
+            fs::read(root.join("recordings/taken.webm")).unwrap(),
+            b"placed"
+        );
+        assert!(!root.join("recordings/empty.webm").exists());
+        assert_eq!(
+            decoded(&root.join("recordings/linked.webm")),
+            2 * 16_000 - 104
+        );
+    }
+
+    #[test]
+    fn recover_refuses_a_directory_the_path_rule_refuses() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(directory.path()).unwrap();
+        for under in [".git", "../outside", "a/HEAD", ""] {
+            assert!(recover(&root, under, |_| false).is_err(), "{under:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recover_never_follows_a_link() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(directory.path()).unwrap().join("folder");
+        let outside = fs::canonicalize(directory.path()).unwrap().join("outside");
+        let pending = root.join(state::recordings_under("recordings"));
+        fs::create_dir_all(&pending).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        cut_off(&outside.join("x.webm"), 2.5);
+        let bytes = fs::read(outside.join("x.webm")).unwrap();
+        std::os::unix::fs::symlink(outside.join("x.webm"), pending.join("x.webm")).unwrap();
+        std::os::unix::fs::symlink(&outside, pending.join("linked")).unwrap();
+        assert!(recover(&root, "recordings", |_| false).unwrap().is_empty());
+        assert_eq!(fs::read(outside.join("x.webm")).unwrap(), bytes);
+        assert!(!root.join("recordings").exists());
+
+        std::os::unix::fs::symlink(&outside, root.join("linked-recordings")).unwrap();
+        assert!(recover(&root, "linked-recordings", |_| false).is_err());
+    }
+
+    #[test]
+    fn a_recording_is_placed_only_where_nothing_is() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(directory.path()).unwrap();
+        let first = pending(&root, "recordings/2026/a").unwrap();
+        fs::write(&first, b"finished").unwrap();
+        assert_eq!(
+            place_recording(&root, &first, "recordings/2026/a"),
+            Ok("recordings/2026/a.webm".to_string())
+        );
+        assert!(!first.exists());
+        let second = pending(&root, "recordings/2026/a").unwrap();
+        fs::write(&second, b"another").unwrap();
+        assert_eq!(
+            place_recording(&root, &second, "recordings/2026/a"),
+            Err(PlaceError::Taken("recordings/2026/a.webm".to_string()))
+        );
+        assert_eq!(
+            fs::read(root.join("recordings/2026/a.webm")).unwrap(),
+            b"finished"
+        );
+        assert!(second.exists());
+    }
 }

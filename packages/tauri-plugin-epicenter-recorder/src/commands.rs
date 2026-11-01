@@ -22,8 +22,8 @@ use tauri_plugin_epicenter_folder::FolderExt;
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
 use crate::meter::OpenedMeter;
-use crate::recorder::{Input, Placement, Result, StartedRecording, StoppedRecording};
-use crate::wav::RecoveredRecording;
+use crate::recorder::{Input, Result, StartedRecording, StoppedRecording};
+use crate::staging::RecoveredRecording;
 use crate::{refresh_capturing, Recorders};
 
 /// The directory `root` names, read once for this operation: the directory
@@ -116,10 +116,10 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
 /// arrive on `signals`.
 ///
 /// The path must be a data path the shared path rule accepts, with nothing at
-/// `<path>.webm` or `<path>.wav` yet. While it records, it is a WAV in the
-/// folder's `.epicenter/recordings` (`staging::pending`), with nothing there yet
-/// either; once `stop` finalizes it, it is encoded and placed at its path.
-/// Missing directories on the way are made.
+/// `<path>.webm` yet. While it records, it is a WebM in the folder's
+/// `.epicenter/recordings` (`staging::pending`), with nothing there yet
+/// either, written a second at a time; `stop` finishes it and places it at
+/// its path. Missing directories on the way are made.
 /// Microphone access is asked for before the device is resolved. A refusal
 /// opens nothing.
 #[tauri::command]
@@ -143,15 +143,13 @@ pub async fn start<R: Runtime>(
     if let Some(problem) = path_problem(&path) {
         return Err(RecorderError::refused(format!("{path:?}: {problem}")));
     }
-    // Where it lands, and where it lands if it cannot be encoded.
-    for extension in ["webm", "wav"] {
-        let relative = format!("{path}.{extension}");
-        let target = page_files::data_path(&root, &relative).map_err(RecorderError::refused)?;
-        if std::fs::symlink_metadata(&target).is_ok() {
-            return Err(RecorderError::refused(format!(
-                "a file is already at {relative}"
-            )));
-        }
+    // Where it lands.
+    let relative = format!("{path}.webm");
+    let target = page_files::data_path(&root, &relative).map_err(RecorderError::refused)?;
+    if std::fs::symlink_metadata(&target).is_ok() {
+        return Err(RecorderError::refused(format!(
+            "a file is already at {relative}"
+        )));
     }
     if let Some((parent, _)) = path.rsplit_once('/') {
         page_files::mkdir(&root, &root.join(parent)).map_err(RecorderError::refused)?;
@@ -187,39 +185,31 @@ pub async fn start<R: Runtime>(
     Ok(started)
 }
 
-/// Stop the recording `id` this window started and finalize its WAV, then
-/// answer how long it plays, without waiting for the encode: it is encoded
-/// and placed at its path on a thread of its own (`settle_in_background`),
-/// after the microphone is released and the recorder is free, and where it
-/// landed arrives on `placed`, once.
+/// Stop the recording `id` this window started, finish its file, and place it
+/// at its path, never over a file there; answers where it is and how long it
+/// plays. Finishing writes the last second, the Cues, and the length, so it
+/// takes the same few milliseconds for a recording of any length. A file
+/// that cannot be placed stays in `.epicenter/recordings`, and the refusal
+/// says why.
 #[tauri::command]
 #[specta::specta]
-pub async fn stop<R: Runtime>(
-    webview: Webview<R>,
-    id: String,
-    placed: Channel<Placement>,
-) -> Result<StoppedRecording> {
+pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<StoppedRecording> {
     let app = webview.app_handle().clone();
-    let finalized = app
+    let stopped = app
         .state::<Recorders<R>>()
         .lock()
         .stop(&id, webview.label());
     refresh_capturing(&app);
-    let finalized = finalized?;
-    let stopped = StoppedRecording {
-        duration_ms: finalized.duration_ms,
-    };
-    crate::settle_in_background(&app, finalized, Some(placed));
-    Ok(stopped)
+    stopped
 }
 
-/// Repair every recording under `under` in `root` (`bound_root`) that a
-/// quit or a crash left in the folder's `.epicenter/recordings`, encode each
-/// and place it at its path, and return each one's folder-relative path and
-/// how long it plays (`durationMs`, so a page never reads the audio back to
-/// measure it). The recording still being
-/// written, and those a stop is still settling, are left alone. Running it
-/// again changes nothing.
+/// Finish and place every recording under `under` in `root` (`bound_root`)
+/// that a quit or a crash left in the folder's `.epicenter/recordings`, and
+/// return each one's folder-relative path and how long it plays
+/// (`durationMs`, so a page never reads the audio back to measure it). A
+/// page runs it before it lists, plays, or transcribes a recording. The
+/// recording still being written is left alone. Running it again changes
+/// nothing.
 #[tauri::command]
 #[specta::specta]
 pub async fn recover<R: Runtime>(
@@ -231,16 +221,11 @@ pub async fn recover<R: Runtime>(
     let app = webview.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {
         // Asked per file, under the recorder lock: a `start` holds that lock
-        // from creating its WAV until the recording is held, so a WAV listed
-        // here and live is always named.
-        let held = |path: &std::path::Path| {
-            app.state::<Recorders<R>>()
-                .lock()
-                .held_paths()
-                .iter()
-                .any(|held| held == path)
-        };
-        crate::wav::recover(&root, &under, held).map_err(RecorderError::refused)
+        // from creating its file until the recording is held, so a file
+        // listed here and live is always named.
+        let held =
+            |path: &std::path::Path| app.state::<Recorders<R>>().lock().held_path() == Some(path);
+        crate::staging::recover(&root, &under, held).map_err(RecorderError::refused)
     })
     .await
     .map_err(|error| RecorderError::failed(error.to_string()))?

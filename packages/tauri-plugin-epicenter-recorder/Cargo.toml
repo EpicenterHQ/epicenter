@@ -18,8 +18,7 @@ tauri-plugin = { version = "2", features = ["build"] }
 epicenter-folder-core = { path = "../tauri-plugin-epicenter-folder/core" }
 tauri-plugin-epicenter-folder = { path = "../tauri-plugin-epicenter-folder" }
 cpal = "0.18.1"
-hound = "3.5"
-# Encodes a stopped recording to Opus (`opus.rs`); the same libopus the
+# Encodes a recording to Opus as it records (`opus.rs`); the same libopus the
 # transcription plugin decodes with, built from source (`.cargo/config.toml`).
 audiopus = "0.3.0-rc.0"
 # Converts the microphone's own rate to the recording's 16 kHz; the shell's decoder uses the same crate.

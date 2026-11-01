@@ -18,19 +18,18 @@
 //!
 //! To record, a page names a folder-relative path in a root its page opened
 //! or the directory the shell bound to its window (`root`, by the exact path
-//! the folder plugin answered); any other root is refused. `start` creates the WAV in the
-//! folder's `.epicenter/recordings` and appends mono PCM16 to it as the
-//! microphone captures; `stop` finalizes its header and answers, and then, on
-//! a thread of its own, the recording is encoded to Opus in WebM (`opus`,
-//! `webm`) and placed at `<path>.webm`, never over a file there (`staging`),
-//! and the WAV removed; where it landed arrives on the channel the page gave
-//! `stop`. A WAV that cannot be encoded is placed itself, at `<path>.wav`. A half-written recording is never at a
-//! data path, so sync never commits one. Nothing deletes a recording's audio
-//! once capture has begun. When the page that started a recording reloads,
-//! or its window is destroyed, the recording is finalized and placed for it.
-//! A recording adds no Close or Quit warning. `recover` repairs the header of
-//! any WAV a quit or crash left in `.epicenter/recordings` and settles it as a
-//! stop does, which a page calls when it opens its folder.
+//! the folder plugin answered); any other root is refused. `start` creates a
+//! WebM in the folder's `.epicenter/recordings` and encodes the microphone
+//! into it as Opus as it captures, writing it a second at a time (`opus`,
+//! `webm`); `stop` finishes it in place, places it at `<path>.webm`, never
+//! over a file there (`staging`), and answers where it is. A recording is
+//! never at a data path until it is finished, so sync never commits a
+//! half-written one. Nothing deletes a recording's audio once capture has
+//! begun. When the page that started a recording reloads, or its window is
+//! destroyed, or the app exits, the recording is finished and placed for it.
+//! A recording adds no Close or Quit warning. `recover` finishes and places
+//! any recording a quit or crash left in `.epicenter/recordings`, which a page
+//! calls when it opens its folder, before it reads any recording.
 //!
 //! There is one recorder per host and at most one recording at a time; a
 //! second `start` from any window is refused `Busy`.
@@ -38,7 +37,6 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use log::warn;
-use tauri::ipc::Channel;
 use tauri::plugin::TauriPlugin;
 use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, RunEvent, Runtime, WindowEvent};
@@ -53,7 +51,6 @@ pub mod permission;
 mod rate;
 pub mod recorder;
 mod staging;
-pub mod wav;
 mod webm;
 
 pub use command_names::COMMANDS;
@@ -147,8 +144,8 @@ impl<R: Runtime> Builder<R> {
                     event: WindowEvent::Destroyed,
                     ..
                 } => page_ended(app, label),
-                // Finalized, so the file is whole without waiting for the
-                // next `recover`.
+                // Finished and placed, so the recording is at its path
+                // without waiting for the next `recover`.
                 RunEvent::Exit => {
                     if let Some(recorders) = app.try_state::<Recorders<R>>() {
                         recorders.lock().shutdown();
@@ -181,9 +178,9 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
 }
 
 /// The page `window` showed is gone: a new one started loading, or the window
-/// was destroyed. Whatever it was recording is finalized, since it can no
-/// longer be stopped, and a `start` that page sent and that has not yet run
-/// is refused.
+/// was destroyed. Whatever it was recording is finished and placed, since it
+/// can no longer be stopped, and a `start` that page sent and that has not
+/// yet run is refused.
 ///
 /// This runs on the main thread and joins the capture worker, which is safe for
 /// two reasons worth stating, because both could quietly stop being true. The
@@ -205,47 +202,6 @@ fn page_ended<R: Runtime>(app: &AppHandle<R>, window: &str) {
     if finalized.is_some() || meters_closed {
         refresh_capturing(app);
     }
-    // Nobody is left to hear where it lands.
-    if let Some(finalized) = finalized {
-        settle_in_background(app, finalized, None);
-    }
-}
-
-/// Encode and place a finalized recording on a thread of its own, so the
-/// caller (a `stop`, or a page that ended) answers without waiting for it,
-/// and tell `placed` where it landed, once. Its WAV stays named by
-/// `held_paths` until then, and is released for `recover` even if settling
-/// panics. A quit before it finishes leaves the WAV pending, which the next
-/// `recover` settles.
-pub(crate) fn settle_in_background<R: Runtime>(
-    app: &AppHandle<R>,
-    finalized: recorder::Finalized,
-    placed: Option<Channel<recorder::Placement>>,
-) {
-    let app = app.clone();
-    std::thread::spawn(move || {
-        #[cfg(test)]
-        tests::wait_at_settle_gate(&finalized.pending);
-        let placement =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| finalized.settle()))
-                .unwrap_or_else(|_| recorder::Placement::Pending {
-                    reason: format!(
-                        "settling panicked; it is kept in {} until the folder is opened again",
-                        finalized.pending.display()
-                    ),
-                });
-        if let Some(recorders) = app.try_state::<Recorders<R>>() {
-            recorders.lock().settled(&finalized.pending);
-        }
-        if !matches!(placement, recorder::Placement::Placed { .. }) {
-            warn!("A stopped recording was not encoded and placed: {placement:?}");
-        }
-        if let Some(placed) = placed {
-            if let Err(error) = placed.send(placement) {
-                warn!("Failed to tell the page where its recording landed: {error}");
-            }
-        }
-    });
 }
 
 /// Bring the shell's recording indicator up to date with the recorder.

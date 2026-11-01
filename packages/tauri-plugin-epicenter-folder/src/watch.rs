@@ -195,7 +195,7 @@ mod tests {
         let root = Path::new("/folder");
         for path in [
             ".epicenter",
-            ".epicenter/recordings/notes/a.wav",
+            ".epicenter/recordings/notes/a.webm",
             ".epicenter/saves",
             ".epicenter/saves/lz0-0123456789abcdef0123456789abcdef-1",
             ".DS_Store",

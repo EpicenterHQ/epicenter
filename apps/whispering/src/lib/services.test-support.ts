@@ -93,7 +93,6 @@ export function createFixtureDevice({
 						durationMs:
 							audioDurationMs(fixture.bytes, ext) ??
 							Math.round(performance.now() - startedAt),
-						placed: Promise.resolve(Ok({})),
 					});
 				},
 			});

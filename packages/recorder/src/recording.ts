@@ -9,12 +9,11 @@
  * (`@epicenter/recorder/tauri` or `@epicenter/recorder/browser`), chosen by
  * the app's `#platform` seam, never at run time:
  *
- * - On the desktop the shell's recorder appends PCM from the first sample
- *   to a WAV in the data folder's `.epicenter/recordings`, updating the header
- *   about once a second; Stop answers once the WAV is finalized, and the
- *   shell then encodes it to Opus in WebM at `<path>.webm`; recovery rewrites
- *   a header a cut left short and encodes and places the file the same way,
- *   an encode a quit cut off included.
+ * - On the desktop the shell's recorder encodes the microphone to Opus from
+ *   the first sample and writes it, a second at a time, into a WebM in the
+ *   data folder's `.epicenter/recordings`; Stop finishes it in place and
+ *   places it at `<path>.webm`; recovery finishes one a cut left from its
+ *   whole seconds and places it the same way.
  * - In a browser the page appends each piece `MediaRecorder` hands over,
  *   about once a second, to `<path>.m4a` (or `.webm`) in this browser's
  *   private files; recovery cuts a file back to its last whole piece.
@@ -70,8 +69,7 @@ export type StartRecordingOptions = RecordingStart &
 		/**
 		 * Store-relative, without an extension, such as
 		 * `recordings/2026-10-15-0930`: the extension is the format's (`webm`
-		 * on the desktop, `wav` if it could not be encoded; `m4a` or `webm` in
-		 * a browser). Nothing may be there.
+		 * on the desktop; `m4a` or `webm` in a browser). Nothing may be there.
 		 */
 		readonly path: string;
 	};
@@ -83,32 +81,16 @@ export type RecordingEndedReason =
 	| 'streamFailed'
 	| 'storageFailed';
 
+/** A stopped recording: its audio, at its path when `stop` answers. */
 export type StoppedRecording = {
+	/** The store-relative path of the audio file, extension included. */
+	readonly path: string;
 	/**
 	 * How long the file plays: on the desktop its samples over their rate, in
 	 * a browser read from the file written (an engine drops the first moments
 	 * of a recording, so the time between Start and Stop is longer).
 	 */
 	readonly durationMs: number;
-	/**
-	 * Where its audio is once it is at its path: at once in a browser, which
-	 * wrote it there as it recorded; on the desktop once the shell has encoded
-	 * and placed it, which runs after `stop` answers (about 24 s for an hour
-	 * of speech). Never rejects. An error is audio the shell could not place,
-	 * kept outside its path until `recoverRecordings` places it.
-	 */
-	readonly placed: Promise<Result<PlacedRecording, RecorderError>>;
-};
-
-/** A stopped recording's audio, at its path. */
-export type PlacedRecording = {
-	/** The store-relative path of the audio file. */
-	readonly path: string;
-	/**
-	 * Why it is not in the format asked for: on the desktop the encoder
-	 * refused it, so the WAV itself was placed, at `<path>.wav`.
-	 */
-	readonly unencoded?: string;
 };
 
 /**
@@ -126,11 +108,11 @@ export type RecordingHandle<TStopped> = {
 	/** Hear that capture ended on its own, including an ending before subscription. `stop` keeps what was captured. Retired by stop. */
 	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;
 	/**
-	 * Finish the recording and release the microphone; answers before the
-	 * desktop has encoded it (`StoppedRecording.placed`). Nothing deletes a
-	 * recording: one its page leaves without stopping is finalized by the
-	 * shell on the desktop, and in a browser is the pieces already written,
-	 * which `recoverRecordings` repairs.
+	 * Finish the recording and release the microphone; answers once its
+	 * file is finished at its path. Nothing deletes a recording: one its
+	 * page leaves without stopping is finished and placed by the shell on
+	 * the desktop, and in a browser is the pieces already written, which
+	 * `recoverRecordings` repairs.
 	 */
 	stop(): Promise<Result<TStopped, RecorderError>>;
 };
@@ -138,9 +120,8 @@ export type RecordingHandle<TStopped> = {
 /**
  * A recording written into the store as it records: in a browser at
  * `<path>.<ext>`, on the desktop in the folder's `.epicenter/recordings`
- * until, after `stop`, it is encoded to `<path>.webm`. Where its audio is,
- * extension included, is `stop`'s `placed`: on the desktop a recording the
- * encoder refuses is placed at `<path>.wav`, and `placed` says why.
+ * until `stop` places it at `<path>.webm`. Where its audio is, extension
+ * included, is what `stop` answers.
  */
 export type Recording = RecordingHandle<StoppedRecording>;
 
@@ -149,9 +130,9 @@ export type RecoveredRecording = {
 	/** The store-relative path of its audio file. */
 	readonly path: string;
 	/**
-	 * How long it plays, as `stop` would have answered: on the desktop its
-	 * samples over their rate, in a browser read from the file repaired. Null
-	 * when its audio does not read as the format it is named for.
+	 * How long it plays, as `stop` would have answered: on the desktop as
+	 * its finished file states, in a browser read from the file repaired.
+	 * Null when its audio does not read as the format it is named for.
 	 */
 	readonly durationMs: number | null;
 };

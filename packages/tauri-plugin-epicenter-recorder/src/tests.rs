@@ -19,10 +19,10 @@
 //!   at it yet. A root the page did not open, a window with no binding, or a
 //!   page whose folders have shut down, is refused.
 //! - `stop` reaches only a recording the window started; no command deletes
-//!   one. It answers once the WAV is finalized, before the encode, and
-//!   where the recording landed follows on the channel it was given.
-//! - `recover` repairs cut-off WAVs in such a folder and is idempotent.
-//! - A destroyed window's recording is finalized, never deleted.
+//!   one. It answers once the recording is finished and at its path.
+//! - `recover` finishes and places cut-off recordings in such a folder, and
+//!   is idempotent.
+//! - A destroyed window's recording is finished and placed, never deleted.
 //! - A window without the plugin's permission cannot call it.
 
 use std::path::{Path, PathBuf};
@@ -589,11 +589,11 @@ fn start_never_records_over_a_file_already_there() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
     std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
-    std::fs::write(fixture.root.join("recordings/a.wav"), b"kept").unwrap();
+    std::fs::write(fixture.root.join("recordings/a.webm"), b"kept").unwrap();
     let refused = start(&main, &fixture.root, "recordings/a").unwrap_err();
     assert_eq!(name(&refused), "Refused", "{refused}");
     assert_eq!(
-        std::fs::read(fixture.root.join("recordings/a.wav")).unwrap(),
+        std::fs::read(fixture.root.join("recordings/a.webm")).unwrap(),
         b"kept"
     );
 }
@@ -616,12 +616,7 @@ fn stop_reaches_only_a_recording_this_window_started() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
     let other = window(&fixture.app, "other");
-    let refused = invoke(
-        &main,
-        "stop",
-        json!({ "id": "1", "placed": "__CHANNEL__:2" }),
-    )
-    .unwrap_err();
+    let refused = invoke(&main, "stop", json!({ "id": "1" })).unwrap_err();
     assert_eq!(name(&refused), "NotRecording", "{refused}");
 
     std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
@@ -634,7 +629,7 @@ fn stop_reaches_only_a_recording_this_window_started() {
             .join(epicenter_folder_core::state::recording("recordings/a"))
     );
     crate::recorder::tests::hold_recording(
-        &mut fixture.app.state::<Recorders<MockRuntime>>().lock(),
+        &mut recorders(&fixture),
         &staged,
         &fixture.root,
         "recordings/a",
@@ -645,153 +640,23 @@ fn stop_reaches_only_a_recording_this_window_started() {
         !path.exists(),
         "a recording is not at its path while it records"
     );
-    let refused = invoke(
-        &other,
-        "stop",
-        json!({ "id": "7", "placed": "__CHANNEL__:2" }),
-    )
-    .unwrap_err();
+    let refused = invoke(&other, "stop", json!({ "id": "7" })).unwrap_err();
     assert_eq!(name(&refused), "NotRecording", "{refused}");
-    let stopped = invoke(
-        &main,
-        "stop",
-        json!({ "id": "7", "placed": "__CHANNEL__:2" }),
-    )
-    .unwrap();
-    assert_eq!(stopped, json!({ "durationMs": 1000 }));
-    until_settled(&fixture);
+    let stopped = invoke(&main, "stop", json!({ "id": "7" })).unwrap();
+    assert_eq!(
+        stopped,
+        json!({ "path": "recordings/a.webm", "durationMs": 1000 })
+    );
+    // At its path, finished, when Stop answers.
     assert_eq!(
         decoded_samples(&path),
         crate::recorder::RECORDING_RATE as usize
     );
     assert!(!staged.exists());
-}
-
-/// Stop answers once the WAV is finalized, without waiting for the encode
-/// (about 24 s for an hour of speech): the microphone is free and the page
-/// can record again while it runs. Until it is placed, its WAV is pending
-/// and held from `recover`.
-#[test]
-fn stop_answers_before_the_encode_finishes() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
-    let path = fixture.root.join("recordings/a.webm");
-    let staged = crate::staging::pending(&fixture.root, "recordings/a").unwrap();
-    crate::recorder::tests::hold_recording(
-        &mut recorders(&fixture),
-        &staged,
-        &fixture.root,
-        "recordings/a",
-        "7",
-        "main",
-    );
-    let encode = hold_settle(&staged);
-
-    let stopped = invoke(
-        &main,
-        "stop",
-        json!({ "id": "7", "placed": "__CHANNEL__:2" }),
-    )
-    .unwrap();
-    assert_eq!(stopped, json!({ "durationMs": 1000 }));
-    assert!(!path.exists(), "answered before it was encoded and placed");
-    assert!(staged.exists());
-    assert_eq!(
-        recorders(&fixture).held_paths(),
-        std::slice::from_ref(&staged),
-        "held from recover while it settles"
-    );
     assert!(
         !recording(&fixture),
         "the recorder is free for the next start"
     );
-
-    encode.send(()).unwrap();
-    until_settled(&fixture);
-    assert_eq!(
-        decoded_samples(&path),
-        crate::recorder::RECORDING_RATE as usize
-    );
-    assert!(!staged.exists());
-}
-
-/// Where a stopped recording landed reaches the channel `stop` was given,
-/// once, after it is settled.
-#[test]
-fn the_placement_arrives_on_the_channel_stop_was_given() {
-    use std::sync::mpsc;
-    use tauri::ipc::Channel;
-
-    let fixture = fixture();
-    let staged = crate::staging::pending(&fixture.root, "a").unwrap();
-    crate::recorder::tests::hold_recording(
-        &mut recorders(&fixture),
-        &staged,
-        &fixture.root,
-        "a",
-        "7",
-        "main",
-    );
-    let finalized = recorders(&fixture).stop("7", "main").unwrap();
-    let (heard, hearing) = mpsc::channel();
-    let placed = Channel::new(move |body| {
-        heard
-            .send(body.deserialize::<Value>().expect("a JSON placement"))
-            .unwrap();
-        Ok(())
-    });
-    crate::settle_in_background(fixture.app.handle(), finalized, Some(placed));
-    let placement = hearing
-        .recv_timeout(std::time::Duration::from_secs(10))
-        .expect("a placement");
-    assert_eq!(placement, json!({ "kind": "placed", "path": "a.webm" }));
-    assert!(fixture.root.join("a.webm").exists());
-    assert!(recorders(&fixture).held_paths().is_empty());
-    assert!(hearing
-        .recv_timeout(std::time::Duration::from_millis(100))
-        .is_err());
-}
-
-/// Settles a test holds back, each by the WAV it settles.
-static SETTLE_GATES: std::sync::Mutex<Vec<(PathBuf, std::sync::mpsc::Receiver<()>)>> =
-    std::sync::Mutex::new(Vec::new());
-
-/// Hold the settle of the WAV at `pending` before it encodes, until the
-/// answer is sent or dropped.
-fn hold_settle(pending: &Path) -> std::sync::mpsc::Sender<()> {
-    let (release, released) = std::sync::mpsc::channel();
-    SETTLE_GATES
-        .lock()
-        .unwrap()
-        .push((pending.to_path_buf(), released));
-    release
-}
-
-/// Where `settle_in_background` waits before it encodes, when a test holds
-/// that recording back (`hold_settle`).
-pub(crate) fn wait_at_settle_gate(pending: &Path) {
-    let gate = {
-        let mut gates = SETTLE_GATES
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        gates
-            .iter()
-            .position(|(held, _)| held == pending)
-            .map(|index| gates.swap_remove(index).1)
-    };
-    if let Some(gate) = gate {
-        let _ = gate.recv_timeout(std::time::Duration::from_secs(10));
-    }
-}
-
-/// Wait until no stopped recording is still settling.
-fn until_settled(fixture: &Fixture) {
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while !recorders(fixture).held_paths().is_empty() {
-        assert!(std::time::Instant::now() < until, "never settled");
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
 }
 
 /// How many 16 kHz samples the audio file at `path` decodes to, through the
@@ -809,14 +674,15 @@ fn recorders(fixture: &Fixture) -> std::sync::MutexGuard<'_, crate::recorder::Re
 }
 
 /// What the plugin does when a window is destroyed: its page can no longer
-/// stop the recording, so it is finalized for it and the slot is free.
+/// stop the recording, so it is finished and placed for it and the slot is
+/// free.
 #[test]
 fn a_destroyed_window_finalizes_its_recording() {
     let fixture = fixture();
     let path = fixture.root.join("a.webm");
     let staged = crate::staging::pending(&fixture.root, "a").unwrap();
     crate::recorder::tests::hold_recording(
-        &mut fixture.app.state::<Recorders<MockRuntime>>().lock(),
+        &mut recorders(&fixture),
         &staged,
         &fixture.root,
         "a",
@@ -825,17 +691,12 @@ fn a_destroyed_window_finalizes_its_recording() {
     );
     assert!(recording(&fixture));
     crate::page_ended(fixture.app.handle(), "other");
-    assert_eq!(
-        recorders(&fixture).held_paths(),
-        std::slice::from_ref(&staged)
-    );
     // Another window going leaves this one recording.
     assert!(recording(&fixture));
+    assert_eq!(recorders(&fixture).held_path(), Some(staged.as_path()));
 
     crate::page_ended(fixture.app.handle(), "main");
     assert!(!recording(&fixture));
-    // Settled on a thread of its own; nobody waits for it but this test.
-    until_settled(&fixture);
     assert_eq!(
         decoded_samples(&path),
         crate::recorder::RECORDING_RATE as usize
@@ -843,58 +704,52 @@ fn a_destroyed_window_finalizes_its_recording() {
     assert!(!staged.exists());
 }
 
+/// What a quit or a crash leaves: the recording's file in
+/// `.epicenter/recordings`, its whole seconds written and its length not
+/// yet stated. `recover` finishes and places it, and leaves the one a live
+/// recording is writing.
 #[test]
 fn recover_places_cut_off_recordings_in_the_bound_folder() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
-    assert_eq!(
+    let recover = || {
         invoke(
             &main,
             "recover",
-            json!({ "root": fixture.root, "under": "recordings" })
+            json!({ "root": fixture.root, "under": "recordings" }),
         )
-        .unwrap(),
+    };
+    assert_eq!(
+        recover().unwrap(),
         json!([]),
-        "a folder without recordings has nothing to repair"
+        "a folder without recordings has nothing to recover"
     );
 
     let staged = crate::staging::pending(&fixture.root, "recordings/a").unwrap();
     let path = fixture.root.join("recordings/a.webm");
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: 16_000,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-    hound::WavWriter::create(&staged, spec)
-        .unwrap()
-        .finalize()
-        .unwrap();
-    {
-        use std::io::Write;
-        let mut file = std::fs::File::options().append(true).open(&staged).unwrap();
-        file.write_all(&[1u8; 3_200]).unwrap();
-    }
-    assert_eq!(
-        invoke(
-            &main,
-            "recover",
-            json!({ "root": fixture.root, "under": "recordings" })
-        )
-        .unwrap(),
-        json!([{ "path": "recordings/a.webm", "durationMs": 100 }])
+    let mut cut_off =
+        crate::opus::OpusRecording::new(std::fs::File::create(&staged).unwrap()).unwrap();
+    cut_off.write(&vec![1_000i16; 40_000]).unwrap();
+    drop(cut_off);
+    let live = crate::staging::pending(&fixture.root, "recordings/live").unwrap();
+    crate::recorder::tests::hold_recording(
+        &mut recorders(&fixture),
+        &live,
+        &fixture.root,
+        "recordings/live",
+        "7",
+        "main",
     );
-    assert_eq!(decoded_samples(&path), 1_600);
+    // Two and a half seconds cut off keep their first two, less the
+    // encoder's 6.5 ms delay.
+    assert_eq!(
+        recover().unwrap(),
+        json!([{ "path": "recordings/a.webm", "durationMs": 1994 }])
+    );
+    assert_eq!(decoded_samples(&path), 32_000 - 104);
     assert!(!staged.exists());
-    assert_eq!(
-        invoke(
-            &main,
-            "recover",
-            json!({ "root": fixture.root, "under": "recordings" })
-        )
-        .unwrap(),
-        json!([])
-    );
+    assert!(live.exists(), "a live recording is its writer's");
+    assert_eq!(recover().unwrap(), json!([]));
     let refused = invoke(
         &main,
         "recover",

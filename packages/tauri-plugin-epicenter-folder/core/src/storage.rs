@@ -642,14 +642,13 @@ fn now_ms() -> u64 {
 }
 
 /// A new, empty file in `.epicenter/saves` inside `root`, for bytes that
-/// are renamed or linked to their path once whole: `put` stages each save
-/// in one, and the recorder encodes a stopped recording into one. Its name
-/// is a scratch name (`scratch_name`), so one a stopped writer leaves
+/// are renamed to their path once whole: `put` stages each save in one. Its
+/// name is a scratch name (`scratch_name`), so one a stopped writer leaves
 /// behind is removed once stale (`sweep_scratch`). It is made with
 /// `create_new`, so nothing already at the name is written through, and
 /// `0600`, so the permission bits keep it from other accounts before its
 /// first byte. Whoever made it renames or removes it.
-pub fn create_scratch(root: &Path) -> Result<(PathBuf, fs::File), String> {
+fn create_scratch(root: &Path) -> Result<(PathBuf, fs::File), String> {
     let scratch = prepare_saves(root)?.join(scratch_name(now_ms()));
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);

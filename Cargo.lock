@@ -5217,7 +5217,6 @@ dependencies = [
  "block2",
  "cpal",
  "epicenter-folder-core",
- "hound",
  "log",
  "objc2",
  "objc2-av-foundation",

@@ -3,11 +3,11 @@
  * (`tauri-plugin-epicenter-recorder`, ADR-0571), never the WebView's. The
  * shell lists the inputs by name without asking for access, reads one's
  * level without recording, and records into the data folder from the first
- * sample, as `recordings/<id>.webm` once it stops and the shell has encoded
- * it (ADR-0702), through `@epicenter/recorder/tauri`, the same recording API
- * a browser build imports from `/browser`. A quit, a crash, or a closed
- * window keeps the audio up to the cut, and `recover` repairs its header on
- * the next launch.
+ * sample, as Opus in WebM placed at `recordings/<id>.webm` when it stops
+ * (ADR-0702), through `@epicenter/recorder/tauri`, the same recording API a
+ * browser build imports from `/browser`. A quit, a crash, or a closed
+ * window keeps the audio up to about its last second, which `recover`
+ * finishes and places on the next launch, before anything reads it.
  *
  * A chosen microphone is asked for by the id the shell listed it under;
  * one that is not connected is refused, never replaced.

@@ -5,8 +5,7 @@
  * real path), or the next open recovers or removes it. Each kind of
  * unfinished write has a part named for the operation that owns it:
  *
- * - `saves/`: a save's bytes waiting to be renamed over its target, and a
- *   stopped desktop recording being encoded before it is placed. Always
+ * - `saves/`: a save's bytes waiting to be renamed over its target. Always
  *   safe to delete when no app runs; opening a folder removes stale ones
  *   (`sweepStaleScratch`).
  * - `recordings/<target path>`: a desktop recording, from its first sample

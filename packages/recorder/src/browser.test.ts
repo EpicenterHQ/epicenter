@@ -300,7 +300,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 /** Stop `recording` and answer where its audio is. */
 async function placedPath(recording: Recording) {
-	return expectOk(await expectOk(await recording.stop()).placed).path;
+	return expectOk(await recording.stop()).path;
 }
 
 test('a recording is written into the store as it records, and heard made and finished', async () => {
@@ -326,10 +326,11 @@ test('a recording is written into the store as it records, and heard made and fi
 	expect(memory.heard).toEqual(['made recordings/a.webm']);
 
 	tick();
-	const stopped = expectOk(await recording.stop());
-	expect(stopped.durationMs).toBe(1_500);
-	// Written at its path as it recorded, so it is placed by the time Stop answers.
-	expect(expectOk(await stopped.placed)).toEqual({ path: 'recordings/a.webm' });
+	// Written at its path as it recorded, so it is there when Stop answers.
+	expect(expectOk(await recording.stop())).toEqual({
+		path: 'recordings/a.webm',
+		durationMs: 1_500,
+	});
 	expect(memory.held.get('recordings/a.webm')).toEqual(
 		new Uint8Array([1, 2, 3, 9]),
 	);
@@ -363,9 +364,10 @@ test('stop answers how long the written audio plays, not how long the clock ran'
 	for (let piece = 0; piece < 3; piece++)
 		recorders.at(-1)!.piece(audio.slice(cuts[piece], cuts[piece + 1]));
 	tick();
-	const stopped = expectOk(await recording.stop());
-	expect(stopped.durationMs).toBe(1003);
-	expect(expectOk(await stopped.placed)).toEqual({ path: 'recordings/a.m4a' });
+	expect(expectOk(await recording.stop())).toEqual({
+		path: 'recordings/a.m4a',
+		durationMs: 1003,
+	});
 	expect(memory.held.get('recordings/a.m4a')).toEqual(audio);
 
 	const held = expectOk(await startPageRecording());

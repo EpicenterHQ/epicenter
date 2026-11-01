@@ -414,9 +414,9 @@ export const startRecording: StartRecording = async ({
 			if (!created)
 				return failure === undefined ? RecorderError.Empty() : Err(failure);
 			return Ok({
-				durationMs: (await heldMs(file)) ?? finished.data.durationMs,
 				// Written at its path as it recorded.
-				placed: Promise.resolve(Ok({ path: file })),
+				path: file,
+				durationMs: (await heldMs(file)) ?? finished.data.durationMs,
 			});
 		},
 	});

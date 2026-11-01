@@ -24,30 +24,31 @@ export const commands = {
 	 *  arrive on `signals`.
 	 *
 	 *  The path must be a data path the shared path rule accepts, with nothing at
-	 *  `<path>.webm` or `<path>.wav` yet. While it records, it is a WAV in the
-	 *  folder's `.epicenter/recordings` (`staging::pending`), with nothing there yet
-	 *  either; once `stop` finalizes it, it is encoded and placed at its path.
-	 *  Missing directories on the way are made.
+	 *  `<path>.webm` yet. While it records, it is a WebM in the folder's
+	 *  `.epicenter/recordings` (`staging::pending`), with nothing there yet
+	 *  either, written a second at a time; `stop` finishes it and places it at
+	 *  its path. Missing directories on the way are made.
 	 *  Microphone access is asked for before the device is resolved. A refusal
 	 *  opens nothing.
 	 */
 	start: (root: string, path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<StartedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { root, path, device, signals })),
 	/**
-	 *  Stop the recording `id` this window started and finalize its WAV, then
-	 *  answer how long it plays, without waiting for the encode: it is encoded
-	 *  and placed at its path on a thread of its own (`settle_in_background`),
-	 *  after the microphone is released and the recorder is free, and where it
-	 *  landed arrives on `placed`, once.
+	 *  Stop the recording `id` this window started, finish its file, and place it
+	 *  at its path, never over a file there; answers where it is and how long it
+	 *  plays. Finishing writes the last second, the Cues, and the length, so it
+	 *  takes the same few milliseconds for a recording of any length. A file
+	 *  that cannot be placed stays in `.epicenter/recordings`, and the refusal
+	 *  says why.
 	 */
-	stop: (id: string, placed: Channel<Placement>) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop", { id, placed })),
+	stop: (id: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop", { id })),
 	/**
-	 *  Repair every recording under `under` in `root` (`bound_root`) that a
-	 *  quit or a crash left in the folder's `.epicenter/recordings`, encode each
-	 *  and place it at its path, and return each one's folder-relative path and
-	 *  how long it plays (`durationMs`, so a page never reads the audio back to
-	 *  measure it). The recording still being
-	 *  written, and those a stop is still settling, are left alone. Running it
-	 *  again changes nothing.
+	 *  Finish and place every recording under `under` in `root` (`bound_root`)
+	 *  that a quit or a crash left in the folder's `.epicenter/recordings`, and
+	 *  return each one's folder-relative path and how long it plays
+	 *  (`durationMs`, so a page never reads the audio back to measure it). A
+	 *  page runs it before it lists, plays, or transcribes a recording. The
+	 *  recording still being written is left alone. Running it again changes
+	 *  nothing.
 	 */
 	recover: (root: string, under: string) => typedError<RecoveredRecording[], RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { root, under })),
 };
@@ -82,12 +83,11 @@ export type EndedReason =
  */
 "streamFailed" |
 /**
- *  The recording's file could not be written any further: the disk filled, its
- *  volume went away, or the recording reached the longest audio a WAV can
- *  describe (about 12 hours of mono capture).
+ *  The recording's file could not be written any further: the disk filled,
+ *  or its volume went away.
  *
  *  Kept apart from `StreamFailed` because the microphone is fine and the
- *  remedy is on the machine, not the hardware. The three storage causes are
+ *  remedy is on the machine, not the hardware. The two storage causes are
  *  *not* kept apart from each other: whichever one it was, the recording is
  *  capped at what already reached disk and the next step is the same, so a
  *  finer split would be a decorative name on a message string.
@@ -112,24 +112,6 @@ export type OpenedMeter = {
 	id: string,
 	device: string,
 };
-
-/**
- *  Where a stopped recording landed, sent once on the channel `stop` was
- *  given, when its encode and placement have finished.
- */
-export type Placement =
-/**  Encoded and placed at `path`, the path the page named plus `.webm`. */
-{ kind: "placed"; path: string } |
-/**
- *  The encoder refused it, so its WAV was placed at `path`, the path the
- *  page named plus `.wav`, and why.
- */
-{ kind: "unencoded"; path: string; reason: string } |
-/**
- *  Not placed: another file took its path, or the disk refused. It stays
- *  in `.epicenter/recordings`, where the next `recover` places it.
- */
-{ kind: "pending"; reason: string };
 
 export type RecorderError =
 /**
@@ -194,24 +176,15 @@ export type RecordingSignal =
 
 /**  A recording `recover` placed: where its audio is, and how long it plays. */
 export type RecoveredRecording = {
-	/**
-	 *  Its folder-relative path: `<path>.webm`, `<path>.wav` when it could
-	 *  not be encoded, or a `-recovered` name beside a taken one.
-	 */
+	/**  Its folder-relative path: the path its page named plus `.webm`. */
 	path: string,
-	/**
-	 *  Its samples over their rate in milliseconds, read from the WAV's
-	 *  repaired header, which the WebM encoded from it plays exactly. Absent
-	 *  (`null`) when the leftover was not a WAV this can size, which is
-	 *  placed as it is.
-	 */
-	durationMs: number | null,
+	/**  How long it plays, to the nearest millisecond, as its file states. */
+	durationMs: number,
 };
 
 /**
  *  What `start` answers: the id to stop the recording by, and the
- *  microphone it opened. Where the recording lands is decided after it
- *  stops (`Placement`).
+ *  microphone it opened.
  */
 export type StartedRecording = {
 	id: string,
@@ -220,11 +193,12 @@ export type StartedRecording = {
 };
 
 /**
- *  What `stop` answers once the WAV is finalized and the microphone
- *  released: how long the recording plays. Where it lands arrives later, on
- *  the channel `stop` was given (`Placement`).
+ *  What `stop` answers once the recording is finished and at its path, and
+ *  the microphone released: where it is and how long it plays.
  */
 export type StoppedRecording = {
+	/**  Its folder-relative path: the path the page named plus `.webm`. */
+	path: string,
 	durationMs: number,
 };
 

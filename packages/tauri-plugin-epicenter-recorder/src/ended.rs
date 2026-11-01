@@ -52,12 +52,11 @@ pub enum EndedReason {
     /// One variant rather than five, because the person does the same thing
     /// about all of them.
     StreamFailed,
-    /// The recording's file could not be written any further: the disk filled, its
-    /// volume went away, or the recording reached the longest audio a WAV can
-    /// describe (about 12 hours of mono capture).
+    /// The recording's file could not be written any further: the disk filled,
+    /// or its volume went away.
     ///
     /// Kept apart from `StreamFailed` because the microphone is fine and the
-    /// remedy is on the machine, not the hardware. The three storage causes are
+    /// remedy is on the machine, not the hardware. The two storage causes are
     /// *not* kept apart from each other: whichever one it was, the recording is
     /// capped at what already reached disk and the next step is the same, so a
     /// finer split would be a decorative name on a message string.

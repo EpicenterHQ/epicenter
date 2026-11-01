@@ -5,9 +5,8 @@
  *
  * Key behaviors:
  * - A recording's audio is written into the files as it records, and its
- *   note, with its length, once its audio is at its path after Stop
- * - A take is on the record screen until its audio is placed, not in the
- *   library, and the next take can start meanwhile
+ *   note, with its length, once Stop has answered with its audio at its path
+ * - A take is on the record screen until Stop answers, not in the library
  * - A recording the files cannot take leaves no note
  * - Audio no note names (a note not written, a placement that failed, a
  *   closed tab) gets its note from the next start's recovery
@@ -26,7 +25,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { RecorderError } from '@epicenter/recorder';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { CaptureDevice } from './capture.js';
 import {
@@ -111,14 +110,11 @@ test('a recording’s audio is written as it records, and its note, with its len
 	expect(headerLine(library).label).toBe('On this browser');
 });
 
-test('a take is on the record screen, not in the library, until its audio is placed; the next can start meanwhile', async () => {
+test('a take is on the record screen, not in the library, until Stop answers with its audio at its path', async () => {
 	const test = await openTestServices();
 	cleanups.push(test.remove);
-	// The desktop's shape: Stop answers once the WAV is finalized, and the
-	// shell places the audio later.
-	const placements: ReturnType<
-		typeof deferred<Result<{ unencoded?: string }, RecorderError>>
-	>[] = [];
+	// The desktop's shape: Stop finishes the audio and places it, then answers.
+	const stopping = deferred<void>();
 	const capture: CaptureDevice = {
 		...test.services.capture,
 		async start({ id }) {
@@ -126,20 +122,13 @@ test('a take is on the record screen, not in the library, until its audio is pla
 				startedAt: 0,
 				onEnded: () => () => {},
 				async stop() {
-					const placement =
-						deferred<Result<{ unencoded?: string }, RecorderError>>();
-					placements.push(placement);
-					return Ok({
-						durationMs: 1500,
-						placed: placement.promise.then(async (placed) => {
-							await put(
-								join(test.root, 'device'),
-								`recordings/${id}.webm`,
-								'placed by the shell',
-							);
-							return placed;
-						}),
-					});
+					await stopping.promise;
+					await put(
+						join(test.root, 'device'),
+						`recordings/${id}.webm`,
+						'placed by the shell',
+					);
+					return Ok({ durationMs: 1500 });
 				},
 			});
 		},
@@ -153,31 +142,17 @@ test('a take is on the record screen, not in the library, until its audio is pla
 	await whispering.startRecording();
 	expect(whispering.recorder.phase).toBe('recording');
 	expect(library.entries).toHaveLength(0);
-	const stopping = whispering.stopRecording();
-	await eventually(() => whispering.finishing === 1);
-	expect(whispering.recorder.phase).toBe('idle');
+	const stopped = whispering.stopRecording();
+	expect(whispering.recorder.phase).toBe('stopping');
 	expect(library.entries).toHaveLength(0);
 
-	// The microphone is free while the first is still being placed.
-	await whispering.startRecording();
-	expect(whispering.recorder.phase).toBe('recording');
-	const second = whispering.stopRecording();
-	await eventually(() => whispering.finishing === 2);
-
-	placements[0]!.resolve(Ok({}));
-	await stopping;
+	stopping.resolve();
+	await stopped;
+	expect(whispering.recorder.phase).toBe('idle');
 	await eventually(() => library.entries.length === 1);
 	expect(library.entries[0]).toMatchObject({ durationMs: 1500 });
 	expect(library.audioOf(library.entries[0]!.id).kind).toBe('here');
-	expect(whispering.finishing).toBe(1);
-
-	placements[1]!.resolve(Ok({ unencoded: 'the encoder refused it' }));
-	await second;
-	await eventually(() => library.entries.length === 2);
-	expect(whispering.finishing).toBe(0);
-	expect(whispering.recorderError).toBe(
-		'The recording could not be encoded (the encoder refused it), so it was kept as a WAV.',
-	);
+	expect(whispering.recorderError).toBeUndefined();
 });
 
 test('a recording whose audio the files do not take leaves no note behind', async () => {
@@ -247,8 +222,8 @@ test('a recording the shell could not place gets its note when the next start pl
 	const test = await openTestServices();
 	cleanups.push(test.remove);
 	let staged: { id: string; bytes: Uint8Array } | undefined;
-	// The desktop's shape: the audio waits outside its path, its placement
-	// fails, and the next start's recover places it.
+	// The desktop's shape: the audio waits outside its path, Stop cannot
+	// place it, and the next start's recover does.
 	const capture: CaptureDevice = {
 		...test.services.capture,
 		async start({ id }) {
@@ -257,14 +232,9 @@ test('a recording the shell could not place gets its note when the next start pl
 				onEnded: () => () => {},
 				async stop() {
 					staged = { id, bytes: toneWav({ seconds: 1 }) };
-					return Ok({
-						durationMs: 1000,
-						placed: Promise.resolve(
-							RecorderError.Failed({
-								cause: new Error(
-									`recordings/${id}.webm could not be moved into place`,
-								),
-							}),
+					return RecorderError.Failed({
+						cause: new Error(
+							`recordings/${id}.webm could not be moved into place`,
 						),
 					});
 				},

@@ -101,8 +101,6 @@
 			Starting…
 		{:else if whispering.recorder.phase === 'stopping'}
 			Stopping…
-		{:else if whispering.finishing > 0}
-			<span class="flex items-center gap-2" data-testid="recorder-finishing"><Spinner class="size-3.5" />Finishing…</span>
 		{:else if !library.error}
 			Click to record. Click again to save.
 		{/if}

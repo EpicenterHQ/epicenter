@@ -5,13 +5,12 @@
  * variant root chose (`#platform/root`'s `Startup`).
  *
  * A recording is written into the client's files as it records (decision
- * 84): the desktop shell writes a WAV into the data folder from the first
+ * 84): the desktop shell encodes it into the data folder from the first
  * sample, a browser appends each piece to this browser's files as it
- * arrives. Its note is written once its audio is at its path after Stop
- * (`folder-recordings.ts`): at once in a browser, on the desktop once the
- * shell has encoded it, which runs after Stop answers, so the next recording
- * can start meanwhile. A start first gives a note to what a quit, a crash,
- * or a closed tab cut off. Where the client keeps no files (a private
+ * arrives. Stop answers once its audio is at its path, and its note is
+ * written then (`folder-recordings.ts`). Starting first completes what a
+ * quit, a crash, or a closed tab cut off and gives it a note, before any
+ * page lists, plays, or transcribes a recording. Where the client keeps no files (a private
  * window), the browser's recorder refuses before any microphone opens.
  * Recording never waits on the network, and nothing kept here ever moves
  * (ADR-0700).
@@ -109,13 +108,8 @@ export function createWhispering({
 		| { phase: 'recording'; at: Date; take: Take }
 		| { phase: 'stopping' };
 	let captureState = $state.raw<CaptureState>({ phase: 'idle' });
-	/**
-	 * The last Stop until it has finished, its note written included, though
-	 * the microphone is free sooner.
-	 */
+	/** The last Stop until it has finished, its note written included. */
 	let finishing: Promise<void> | undefined;
-	/** Stopped recordings whose audio is not yet at its path, so not yet in the library. */
-	let placing = $state(0);
 	let recorderError = $state<string | undefined>();
 
 	const input = createMicrophoneInput({
@@ -127,11 +121,9 @@ export function createWhispering({
 	// --- recording ----------------------------------------------------------
 
 	/**
-	 * Stop: release the microphone, then, once the recording's audio is at
-	 * its path, write its note. The microphone is free, and a new recording
-	 * can start, as soon as Stop answers; the shell may still be encoding
-	 * this one. Once closed, nothing more is done here: what was written
-	 * stays, and the next start gives it its note.
+	 * Stop: release the microphone and finish the audio at its path, then
+	 * write its note. Once closed, nothing more is done here: what was
+	 * written stays, and the next start gives it its note.
 	 */
 	function finishRecording(): Promise<void> {
 		const current = captureState;
@@ -165,16 +157,6 @@ export function createWhispering({
 			recorderError = error.message;
 			return;
 		}
-		placing++;
-		const placed = await stopped.placed;
-		placing--;
-		if (disposed) return;
-		if (placed.error !== null) {
-			recorderError = placed.error.message;
-			return;
-		}
-		if (placed.data.unencoded !== undefined)
-			recorderError = `The recording could not be encoded (${placed.data.unencoded}), so it was kept as a WAV.`;
 		const kept = await holdLeave(
 			keepRecording(client, {
 				id: take.id,
@@ -279,7 +261,9 @@ export function createWhispering({
 		},
 		/**
 		 * Read the connections and the saved microphone choice, and complete
-		 * the recordings a quit, a crash, or a closed tab cut off.
+		 * the recordings a quit, a crash, or a closed tab cut off. The app
+		 * shows its pages once this has answered, so nothing lists, plays, or
+		 * transcribes a recording before it is complete.
 		 */
 		start(): Promise<void> {
 			starting ??= (async () => {
@@ -318,14 +302,6 @@ export function createWhispering({
 		},
 		get recorderError() {
 			return recorderError;
-		},
-		/**
-		 * How many stopped recordings are still being placed, so not yet in
-		 * the library: on the desktop the shell encodes each after its Stop
-		 * answered (about 24 s for an hour of speech).
-		 */
-		get finishing() {
-			return placing;
 		},
 		/**
 		 * Start a recording from the chosen microphone. Its audio is written
@@ -372,7 +348,7 @@ export function createWhispering({
 				void finishRecording();
 			});
 		},
-		/** Stop: the microphone is released, and the recording's note written once its audio is placed. */
+		/** Stop: the microphone is released, the audio finished at its path, and its note written. */
 		stopRecording: finishRecording,
 
 		// ------------------------------------------------------------------

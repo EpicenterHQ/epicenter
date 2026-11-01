@@ -8,10 +8,8 @@
  * - `listInputs` answers the shell's inputs; `openMeter` opens one by ID,
  *   hears its levels, and closes it, and a meter withdrawn while opening is
  *   closed
- * - `stop` names the recording the shell minted, answers its length once
- *   the shell finalized it, and stops hearing the channel; where the shell
- *   placed it (or why it did not) follows on the channel `stop` gave, once
- *   the encode has finished
+ * - `stop` names the recording the shell minted, answers where the shell
+ *   placed it and its length, and stops hearing the channel
  * - The shell's refusals arrive as this package's errors, by name
  * - A start withdrawn while the shell opened the microphone is stopped:
  *   released, with what the shell wrote kept
@@ -71,7 +69,7 @@ beforeEach(() => {
 		cmd === 'plugin:epicenter-recorder|start'
 			? started
 			: cmd === 'plugin:epicenter-recorder|stop'
-				? { durationMs: 1250 }
+				? { path: 'recordings/a.webm', durationMs: 1250 }
 				: null;
 });
 
@@ -104,24 +102,17 @@ test('a recording starts in the device’s root and stops by the id the shell mi
 	expect(levels).toEqual([0.25, 0]);
 	expect(endings).toEqual(['deviceDisconnected']);
 
-	const stopped = expectOk(await recording.stop());
-	expect(stopped.durationMs).toBe(1250);
+	expect(expectOk(await recording.stop())).toEqual({
+		path: 'recordings/a.webm',
+		durationMs: 1250,
+	});
 	const stop = calls.at(-1) as Call;
-	expect(stop.cmd).toBe('plugin:epicenter-recorder|stop');
-	expect(stop.args.id).toBe('7');
+	expect(stop).toEqual({
+		cmd: 'plugin:epicenter-recorder|stop',
+		args: { id: '7' },
+	});
 	channel.onmessage({ kind: 'level', level: 0.9 });
 	expect(levels).toEqual([0.25, 0]);
-
-	// Stop answered before the shell placed it: that follows on its channel.
-	let placed: unknown;
-	void stopped.placed.then((answer) => (placed = answer));
-	await Promise.resolve();
-	expect(placed).toBeUndefined();
-	(stop.args.placed as FakeChannel<unknown>).onmessage({
-		kind: 'placed',
-		path: 'recordings/a.webm',
-	});
-	expect(expectOk(await stopped.placed)).toEqual({ path: 'recordings/a.webm' });
 });
 
 test('a command that throws instead of answering is a failure, not a refusal', async () => {
@@ -142,34 +133,6 @@ test('a command that throws instead of answering is a failure, not a refusal', a
 	expect(
 		expectErr(await recoverRecordings({ device, under: 'recordings' })),
 	).toMatchObject(failed);
-});
-
-test('a recording the shell could not encode is placed as its WAV, and one it could not place is an error', async () => {
-	for (const [placement, expected] of [
-		[
-			{ kind: 'unencoded', path: 'recordings/a.wav', reason: 'no encoder' },
-			{ data: { path: 'recordings/a.wav', unencoded: 'no encoder' } },
-		],
-		[
-			{ kind: 'pending', reason: 'a file is already at recordings/a.webm' },
-			{
-				error: {
-					name: 'Failed',
-					cause: 'a file is already at recordings/a.webm',
-				},
-			},
-		],
-	] as const) {
-		calls = [];
-		const recording = expectOk(
-			await startRecording({ device, path: 'recordings/a' }),
-		);
-		const stopped = expectOk(await recording.stop());
-		((calls.at(-1) as Call).args.placed as FakeChannel<unknown>).onmessage(
-			placement,
-		);
-		expect(await stopped.placed).toMatchObject(expected);
-	}
 });
 
 test('the system default is asked for by naming no microphone', async () => {
@@ -241,7 +204,7 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 test('recover names the directory in the device’s root, and answers what it repaired with its length', async () => {
 	const recovered = [
 		{ path: 'recordings/a.webm', durationMs: 1250 },
-		{ path: 'recordings/b.wav', durationMs: null },
+		{ path: 'recordings/b.webm', durationMs: 3000 },
 	];
 	answer = () => recovered;
 	expect(
