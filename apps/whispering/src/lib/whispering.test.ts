@@ -9,7 +9,8 @@
  * - A take is on the record screen until Stop answers, not in the library
  * - A recording the files cannot take leaves no note
  * - Audio no note names (a note not written, a placement that failed, a
- *   closed tab) gets its note from the next start's recovery
+ *   closed tab) gets its note from the next start's recovery, which
+ *   finishes before the start answers, so before any page reads a recording
  * - A result is kept when its answer arrives, even if the pages have since
  *   closed
  * - Deleting a recording deletes its transcripts, their results, and its
@@ -35,7 +36,11 @@ import {
 	type TestServicesOptions,
 	toneWav,
 } from './services.test-support.js';
-import { headerLine, openTestWhispering } from './whispering.test-support.js';
+import {
+	createTestWhispering,
+	headerLine,
+	openTestWhispering,
+} from './whispering.test-support.js';
 
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -268,6 +273,54 @@ test('a recording the shell could not place gets its note when the next start pl
 		durationMs: 1000,
 	});
 	expect(next.whispering.recorderError).toBeUndefined();
+});
+
+/**
+ * Recovery is the gate: a desktop recording a quit cut off is unreadable
+ * until it is finished, so starting completes it and gives it its note
+ * before it answers, and the app shows no page (no list, no player, no
+ * transcription) until starting has answered.
+ */
+test('a start answers only once the cut-off recordings are complete and listed', async () => {
+	const test = await openTestServices();
+	cleanups.push(test.remove);
+	const recovering = deferred<void>();
+	let asked = false;
+	const capture: CaptureDevice = {
+		...test.services.capture,
+		async recover() {
+			asked = true;
+			await recovering.promise;
+			await put(
+				join(test.root, 'device'),
+				'recordings/2026-10-31T09-30-00-000Z-cutoffaa.wav',
+				toneWav({ seconds: 2 }),
+			);
+			return Ok([
+				{ id: '2026-10-31T09-30-00-000Z-cutoffaa', durationMs: 2000 },
+			]);
+		},
+	};
+	const opened = await createTestWhispering({
+		services: { ...test.services, capture },
+		client: test.device,
+	});
+	cleanups.push(opened.close);
+	let started = false;
+	const starting = opened.whispering.start().then(() => {
+		started = true;
+	});
+	await eventually(() => asked);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	expect(started).toBe(false);
+
+	recovering.resolve();
+	await starting;
+	expect(
+		(await test.device.recordings.list()).data?.items.map(({ id }) => id),
+	).toEqual(['2026-10-31T09-30-00-000Z-cutoffaa']);
+	await eventually(() => opened.library.entries.length === 1);
+	expect(opened.library.entries[0]).toMatchObject({ durationMs: 2000 });
 });
 
 test('a start gives a recording a closed tab cut off its note, its length read from its audio', async () => {
