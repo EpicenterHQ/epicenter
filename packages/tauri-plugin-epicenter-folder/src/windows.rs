@@ -71,7 +71,7 @@ pub trait FolderExt<R: Runtime>: Manager<R> {
 impl<R: Runtime, T: Manager<R>> FolderExt<R> for T {}
 
 /// The label that `open_folder_window` will reserve before building its WebView.
-pub fn folder_window_label(application: &str, root: &Path) -> String {
+fn folder_window_label(application: &str, root: &Path) -> String {
     let digest = Sha256::digest(root.as_os_str().as_encoded_bytes());
     let hex: String = digest[..16]
         .iter()

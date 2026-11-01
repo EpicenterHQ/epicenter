@@ -54,7 +54,7 @@ mod windows;
 pub use command_names::COMMANDS;
 pub use folders::{BindError, Folders, WindowError};
 pub use watch::FolderChanged;
-pub use windows::{folder_window_label, FolderExt, OpenWindowError};
+pub use windows::{FolderExt, OpenWindowError};
 
 const PLUGIN_NAME: &str = "epicenter-folder";
 
