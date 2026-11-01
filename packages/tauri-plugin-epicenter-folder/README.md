@@ -88,14 +88,12 @@ writes elsewhere is the `epicenter` CLI's to refuse, before each history
 operation.
 
 `FolderExt::open_folder_window(application, directory, url, configure)` opens
-one window per application key and canonical root. A standalone app supplies
-its page name (`"todos"`); the plugin computes
-`<key>:<digest>` internally.
-Opening the same pair reveals its existing window without configuring it
-again. Different apps can open the same root in separate windows. Labels are
-local to a Tauri runtime, so two apps' windows do not collide.
-A digest match alone never grants access: reuse also requires the existing
-window's complete directory binding to match.
+one window per application key and canonical root, once, at setup. A
+standalone app supplies its page name (`"todos"`); the plugin computes
+`<key>:<digest>` internally. Opening a pair already bound is refused, and a
+label that is already another window is never adopted. Different apps can
+open the same root in separate windows. Labels are local to a Tauri runtime,
+so two apps' windows do not collide.
 
 The opener runs lookup, binding, configuration, and construction on Tauri's
 main thread. Call it from setup or a blocking worker, never an async executor
@@ -103,12 +101,11 @@ thread. `configure` receives Tauri's actual builder and must preserve that
 builder's application and window identity. It may set the title, navigation,
 size, or native tab identifier. A configuration or construction failure
 releases the binding; a presentation failure retains the live window and its
-binding so another open can reveal it. Destruction removes the binding.
-Shutdown refuses both new windows and reuse.
+binding. Destruction removes the binding. Shutdown refuses new windows.
 
 `Folders::bind_while_building(label, directory, build)` binds a window
 whose label the caller owns before construction and rolls back a failed
-build; callers own that window's identity and reuse. Apps use
+build; callers own that window's identity. Apps use
 `open_folder_window`.
 
 Bindings are runtime resources, not a persisted list of folder choices.
