@@ -54,12 +54,7 @@ function findGit(): string {
 
 /** Git configuration every command here runs with. */
 function safety(noHooks: string): string[] {
-	return [
-		'-c',
-		`core.hooksPath=${noHooks}`,
-		'-c',
-		'core.fsmonitor=false',
-	];
+	return ['-c', `core.hooksPath=${noHooks}`, '-c', 'core.fsmonitor=false'];
 }
 
 /** An environment that inherits nothing from this process but `PATH`. */

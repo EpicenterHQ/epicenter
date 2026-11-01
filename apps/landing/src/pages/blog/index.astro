@@ -27,27 +27,27 @@ const posts = (await getCollection('blog')).sort(
 			<section>
 				<ul class="space-y-12">
 					{posts.map((post) => (
-							<li>
-								<article>
-									<time class="text-gray-500 text-sm">
-										{post.data.pubDate.toLocaleDateString('en-US', {
-											year: 'numeric',
-											month: 'long',
-											day: 'numeric',
-										})}
-									</time>
-									<h2 class="mt-2 mb-3 font-semibold text-2xl text-gray-900">
-										<a
-											href={`/blog/${post.id}/`}
-											class="transition-colors hover:text-gray-600"
-										>
-											{post.data.title}
-										</a>
-									</h2>
-									<p class="text-gray-600">{post.data.description}</p>
-								</article>
-							</li>
-						))}
+						<li>
+							<article>
+								<time class="text-gray-500 text-sm">
+									{post.data.pubDate.toLocaleDateString('en-US', {
+										year: 'numeric',
+										month: 'long',
+										day: 'numeric',
+									})}
+								</time>
+								<h2 class="mt-2 mb-3 font-semibold text-2xl text-gray-900">
+									<a
+										href={`/blog/${post.id}/`}
+										class="transition-colors hover:text-gray-600"
+									>
+										{post.data.title}
+									</a>
+								</h2>
+								<p class="text-gray-600">{post.data.description}</p>
+							</article>
+						</li>
+					))}
 				</ul>
 			</section>
 		</div>

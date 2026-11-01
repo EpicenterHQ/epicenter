@@ -140,7 +140,10 @@ export function settle(
 	if (base === null) {
 		const parsed = parseRowSource(current);
 		const order = keys ?? (parsed.error === null ? parsed.data.keyOrder : []);
-		if (written(current, false, order).text === written(incoming, false, order).text)
+		if (
+			written(current, false, order).text ===
+			written(incoming, false, order).text
+		)
 			return { text: current, blocks: false };
 	}
 	// Two creates: another note.

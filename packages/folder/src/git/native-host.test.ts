@@ -15,13 +15,7 @@
  *   `git-remote-http` waiting on a server that never answers
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import {
-	chmod,
-	mkdir,
-	readFile,
-	rm,
-	writeFile,
-} from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { GIT_ENV, git, scratch } from '../git.test-support.js';
 import { runGit } from './native-host.js';

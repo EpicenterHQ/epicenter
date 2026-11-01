@@ -6,7 +6,9 @@ export function cacheSite(scope, { base, build, files, version }) {
 	const staticFiles = new Set([...build, ...files]);
 
 	scope.addEventListener('install', (event) => {
-		event.waitUntil(caches.open(name).then((cache) => cache.addAll([home, ...staticFiles])));
+		event.waitUntil(
+			caches.open(name).then((cache) => cache.addAll([home, ...staticFiles])),
+		);
 	});
 
 	scope.addEventListener('activate', (event) => {
