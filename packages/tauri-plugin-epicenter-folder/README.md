@@ -122,7 +122,7 @@ before its rename (see Storage). A save that another writer overtook is
 answered `stale`; the page reads again and merges. No lock spans the check
 and the rename, so two saves racing in that instant can both land, the later
 replacing the earlier; Git history is the backstop
-([ADR-0568](../../docs/adr/0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md)).
+([ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).
 
 A shell must also give the window the plugin's commands in a capability:
 `{ "windows": ["todos:*"], "permissions": ["epicenter-folder:default"] }`.
@@ -295,7 +295,7 @@ directories and renames the staged file over it. A removal walks, checks,
 and removes. Nothing holds the path between the check and the change, in
 the shell or in a Bun process opening the same directory: a save another
 writer lands in that instant can be replaced
-([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
+([ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).
 A put expecting nothing at its path (`absent`) is the exception: it is
 placed (`storage::place`, which the recorder places each recording with
 too), a hard link to the path that fails when any entry has the name, then
