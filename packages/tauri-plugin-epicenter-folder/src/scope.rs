@@ -10,13 +10,14 @@
 //! scope, and its windows reach only their own directories.
 //!
 //! Even an allowed root is refused when it is a place no app keeps its files
-//! in (`Refusals`): the top of a disk, the home folder, a `.git` folder,
-//! Epicenter's own settings, or a folder holding the app's own data
-//! directory.
+//! in (`Refusals`): the top of a disk, the home folder, a hidden folder or
+//! anything inside one (a `.git`, another folder's `.epicenter`), as the
+//! hub's sync admission refuses it, Epicenter's own settings, or a folder
+//! holding the app's own data directory.
 
 use std::path::{Path, PathBuf};
 
-use epicenter_folder_core::admission::resolved;
+use epicenter_folder_core::admission::{is_hidden_directory, resolved};
 use tauri::{Manager, Runtime, Webview};
 use tauri_plugin_fs::FsExt;
 
@@ -107,12 +108,9 @@ impl Refusals {
                 "{shown} is your home folder; choose a folder inside it."
             ));
         }
-        if candidate
-            .components()
-            .any(|part| part.as_os_str() == ".git")
-        {
+        if is_hidden_directory(&candidate) {
             return Some(format!(
-                "{shown} is inside a Git repository's own .git folder."
+                "{shown} is a hidden folder or inside one, which holds no folder's data."
             ));
         }
         for own in &self.epicenter_own {
@@ -134,7 +132,8 @@ mod tests {
 
     #[test]
     fn unsafe_folders_are_refused_each_in_one_line() {
-        let temp = tempfile::tempdir().unwrap();
+        // Not `tempdir()`'s own name, `.tmp...`, which is hidden.
+        let temp = tempfile::Builder::new().prefix("scope").tempdir().unwrap();
         let base = std::fs::canonicalize(temp.path()).unwrap();
         let home = base.join("home");
         let support = home.join("Library/Application Support");
@@ -161,8 +160,11 @@ mod tests {
                 support.join("so.epicenter.notes"),
                 "this app's own settings",
             ),
-            (repository.join(".git"), "own .git folder"),
-            (repository.join(".git/objects"), "own .git folder"),
+            (repository.join(".git"), "a hidden folder"),
+            (repository.join(".git/objects"), "a hidden folder"),
+            (repository.join(".GIT"), "a hidden folder"),
+            (repository.join(".epicenter/saves"), "a hidden folder"),
+            (home.join(".config/notes"), "a hidden folder"),
             (PathBuf::from("relative/Notes"), "not a full path"),
         ] {
             let refusal = refusals

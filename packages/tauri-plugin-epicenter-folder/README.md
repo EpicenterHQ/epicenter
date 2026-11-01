@@ -151,8 +151,10 @@ create })`), the way a standalone app opens its data folder beside its
 AppData root. The plugin keeps no grant list of its own: Tauri decides.
 
 1. `Refused { root, reason }` for a place no app keeps its files in
-   (`scope::Refusals`): the top of a disk, the home folder, anything inside a
-   `.git` folder, anything inside or around Epicenter's own settings, and
+   (`scope::Refusals`): the top of a disk, the home folder, a hidden folder
+   or anything inside one (a `.git`, another folder's `.epicenter`), the
+   same rule as the hub's sync admission (`admission::is_hidden_directory`),
+   anything inside or around Epicenter's own settings, and
    anything holding the app's own data directory.
 2. `NotGranted { root }` unless Tauri's runtime file-system scope allows
    the path (`tauri-plugin-fs`'s `FsExt::fs_scope`, which a deny wins

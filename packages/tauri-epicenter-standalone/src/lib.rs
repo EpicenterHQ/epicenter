@@ -284,7 +284,12 @@ mod tests {
     }
 
     fn fixture() -> Fixture {
-        let temp = tempfile::tempdir().unwrap();
+        // Not `tempdir()`'s own name, `.tmp...`: a hidden folder is never a
+        // root.
+        let temp = tempfile::Builder::new()
+            .prefix("standalone")
+            .tempdir()
+            .unwrap();
         let base = fs::canonicalize(temp.path()).unwrap();
         let mut context = mock_context(noop_assets());
         for command in tauri_plugin_epicenter_folder::COMMANDS {

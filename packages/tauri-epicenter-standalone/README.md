@@ -46,8 +46,9 @@ allowed (`plugins.fs.scopeDroppedPaths: false`). Even an allowed folder is
 refused when no app should keep its files there (the folder plugin's
 `scope::Refusals`): the top of a disk, the home folder itself, anything
 inside or around Epicenter's own settings, anything around the
-app's own settings, anything inside a repository's `.git` folder, and a
-relative path.
+app's own settings, a hidden folder or anything inside one (a `.git`,
+another folder's `.epicenter`), as Epicenter's sync admission refuses it,
+and a relative path.
 
 The page's startup awaits the two roots in order, under its layout's
 `<svelte:boundary>`; a root that does not open shows the recovery screen,

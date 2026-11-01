@@ -34,15 +34,18 @@ pub fn check_sync_directory(
     Ok(())
 }
 
-/// A hidden directory, or anything in one, is never a folder: what is
-/// below a hidden path is no folder's data. That includes another folder's
-/// `.epicenter`, whose unfinished writes that folder recovers and removes,
-/// and its `.git`.
-fn check_visible(root: &Path) -> Result<(), String> {
-    if root
-        .components()
+/// Whether `root` is a hidden directory or one inside a hidden directory,
+/// and so never a folder: what is below a hidden path is no folder's data.
+/// That includes another folder's `.epicenter`, whose unfinished writes that
+/// folder recovers and removes, and its `.git`. The hub's sync admission
+/// and an app window's roots (`scope::Refusals` in the plugin) both ask it.
+pub fn is_hidden_directory(root: &Path) -> bool {
+    root.components()
         .any(|component| is_hidden_path(&component.as_os_str().to_string_lossy()))
-    {
+}
+
+fn check_visible(root: &Path) -> Result<(), String> {
+    if is_hidden_directory(root) {
         return Err(
             "A hidden folder, or one inside a hidden folder, cannot be opened as a folder.".into(),
         );
