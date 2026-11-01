@@ -21,7 +21,8 @@
 //! A run that ends early, because its listener refused a line, its page
 //! ended, or its future was dropped, asks the child to stop and kills it
 //! only after [`STOP_GRACE`], so a refresh the child already sent reaches
-//! the keychain (ADR-0565).
+//! the keychain (ADR-0565) and a sync round it began, its merge included,
+//! finishes.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -44,9 +45,12 @@ use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 const STDERR_TAIL_BYTES: usize = 64 * 1024;
 
 /// How long a child asked to stop has before it is killed with its process
-/// group. The CLI waits at most two seconds for a refresh it sent to reach
-/// the keychain before it exits (ADR-0565), so this is longer.
-pub(crate) const STOP_GRACE: Duration = Duration::from_secs(3);
+/// group. The CLI bounds its own stop (`packages/cli/src/stop.ts`): it
+/// waits at most two seconds for a refresh it sent to reach the keychain
+/// (ADR-0565) and a minute for a sync round it began, so a merge is never
+/// cut off, then exits. This is longer than both; a child with nothing
+/// unfinished exits at once.
+pub(crate) const STOP_GRACE: Duration = Duration::from_secs(65);
 
 /// A child this run owns until it is waited for. Dropped before then, because
 /// its listener refused a line, its page ended, or its future was dropped,
@@ -995,6 +999,31 @@ process.exitCode = 1;
         }
         assert!(finished, "the child was killed before it finished");
         let _ = fs::remove_dir_all(dir);
+    }
+
+    /// The shell kills a child it asked to stop only after the longest grace
+    /// the CLI gives its own unfinished work (`stop.ts`). Restarting the sync
+    /// service stops its child: one killed sooner than its round's grace
+    /// would be cut off in a merge, leaving Git's index lock or a merge in
+    /// progress for every later round to stop on.
+    #[test]
+    fn the_stop_grace_outlasts_every_grace_the_cli_gives_its_work() {
+        let stop = include_str!("../../../../packages/cli/src/stop.ts");
+        for name in ["STOP_GRACE_MS", "ROUND_GRACE_MS"] {
+            let prefix = format!("export const {name} = ");
+            let millis: u64 = stop
+                .lines()
+                .find_map(|line| line.strip_prefix(&prefix))
+                .unwrap_or_else(|| panic!("stop.ts declares no {name}"))
+                .trim_end_matches(';')
+                .replace('_', "")
+                .parse()
+                .unwrap_or_else(|error| panic!("{name} is not a number: {error}"));
+            assert!(
+                STOP_GRACE > Duration::from_millis(millis),
+                "STOP_GRACE ({STOP_GRACE:?}) must outlast {name} ({millis} ms)"
+            );
+        }
     }
 
     #[tokio::test]

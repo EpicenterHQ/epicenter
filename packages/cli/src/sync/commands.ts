@@ -208,13 +208,23 @@ export async function syncCommand(
 	json: boolean,
 	grant: GrantKind,
 ) {
-	const [{ syncFolder }, { endGitCommands }, { onStop, stopWhenStdinCloses }] =
-		await Promise.all([
-			import('./sync.ts'),
-			import('@epicenter/folder/bun'),
-			import('../stop.ts'),
-		]);
-	// When the shell ends this process, every git it started ends too (ADR-0559).
+	const [
+		{ syncFolder },
+		{ endGitCommands },
+		{
+			finishBeforeExit,
+			isStopping,
+			onStop,
+			ROUND_GRACE_MS,
+			stopWhenStdinCloses,
+		},
+	] = await Promise.all([
+		import('./sync.ts'),
+		import('@epicenter/folder/bun'),
+		import('../stop.ts'),
+	]);
+	// A stop lets the folder's round under way finish and begins no other, so
+	// a merge is never cut off; then every git still running ends (ADR-0559).
 	onStop(endGitCommands);
 	const credential = credentialFor(grant);
 	const folders = async () =>
@@ -222,9 +232,13 @@ export async function syncCommand(
 	const roundOf = async () => {
 		let exit: number = EXIT.ok;
 		for (const folder of await folders()) {
-			const result = await syncFolder(folder, { credential });
-			reportSync(result, json);
-			exit = Math.max(exit, EXIT_OF[result.status]);
+			if (isStopping()) break;
+			const status = await finishBeforeExit(async () => {
+				const result = await syncFolder(folder, { credential });
+				reportSync(result, json);
+				return result.status;
+			}, ROUND_GRACE_MS);
+			exit = Math.max(exit, EXIT_OF[status]);
 		}
 		return exit;
 	};
@@ -240,8 +254,9 @@ export async function syncCommand(
 		options.interval === undefined ? 30 : Number(options.interval);
 	if (!(interval > 0))
 		return fail('--interval takes a number of seconds above 0', json);
-	// The desktop app holds stdin open while it lives, so its watch cannot
-	// outlive it however it ends. A person's watch may run with stdin closed.
+	// The desktop app holds stdin open while it lives, so its watch outlives
+	// it, however it ends, by at most the round it finishes. A person's watch
+	// may run with stdin closed.
 	if (grant === 'desktop') stopWhenStdinCloses();
 	return watch(folders, roundOf, interval);
 }
@@ -249,10 +264,11 @@ export async function syncCommand(
 /**
  * Run a round now, then again whenever a watched folder changes (half a
  * second after the first change) or `interval` seconds pass, until a stop
- * signal ends the process. A change to a hidden path (`isHiddenPath`: `.git`,
- * and every unfinished write in `.epicenter`, such as a recording whose
- * header is rewritten about once a second, which a round never commits), and
- * one made while a round runs, does not start one.
+ * signal ends the process once the round under way has finished. A change
+ * to a hidden path (`isHiddenPath`: `.git`, and every unfinished write in
+ * `.epicenter`, such as a recording whose header is rewritten about once a
+ * second, which a round never commits), and one made while a round runs,
+ * does not start one.
  */
 async function watch(
 	folders: () => Promise<string[]>,

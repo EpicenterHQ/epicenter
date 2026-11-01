@@ -11,7 +11,10 @@
 //! - Adding a folder is the native picker, then `epicenter init <dir>`;
 //!   cloning is `epicenter clone`; forgetting is `epicenter forget`; sharing
 //!   is `epicenter share` and `unshare`. Each change to the set of folders
-//!   restarts the service, so `--watch` watches the new set.
+//!   restarts the service, so `--watch` watches the new set. The run it
+//!   replaces finishes the round under way before it exits (`cli::STOP_GRACE`),
+//!   and the new run's round waits for it on the repository's sync lock, so
+//!   a restart never cuts off a merge.
 //! - `epicenter://init?path=<dir>[&contract=<url>]` queues the folder for the
 //!   person to set up; a web page can fire the link, so it never runs `init`
 //!   unasked.
@@ -518,9 +521,9 @@ pub(crate) fn receive(app: &DesktopAppHandle, setup: FolderSetup) {
     changed(app);
 }
 
-/// Start `epicenter sync --watch --json` for this app, ending a run already
-/// going. It starts again after it exits, until it exits quickly
-/// [`QUICK_EXITS`] times in a row.
+/// Start `epicenter sync --watch --json` for this app, asking a run already
+/// going to stop once its round finishes. It starts again after it exits,
+/// until it exits quickly [`QUICK_EXITS`] times in a row.
 pub(crate) fn start_service<R: Runtime>(app: &AppHandle<R>) {
     let folders = app.state::<SyncedFolders>();
     let generation = folders.begin_service();
@@ -530,7 +533,8 @@ pub(crate) fn start_service<R: Runtime>(app: &AppHandle<R>) {
     tauri::async_runtime::spawn(async move { run_service(app, generation).await });
 }
 
-/// Ask the service's child to stop at once, for the app's exit.
+/// Ask the service's child to stop, for the app's exit, without waiting: it
+/// finishes the round under way, then exits.
 pub(crate) fn stop_service<R: Runtime>(app: &AppHandle<R>) {
     if let Some(folders) = app.try_state::<SyncedFolders>() {
         folders.begin_service();

@@ -24,7 +24,8 @@
  * - T7: a rewritten remote main stops sync before it merges
  * - T8: a binary both sides replaced lands as a conflict copy (decision 44)
  * - clone, status, forget, sync of every registered folder, and --watch,
- *   which a change under a hidden path never wakes
+ *   which a change under a hidden path never wakes, and which a stop signal
+ *   in the middle of a merge ends only after the round finishes
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash, randomBytes } from 'node:crypto';
@@ -63,6 +64,13 @@ const ENV: Record<string, string> = {
 };
 /** The command link Git's configuration runs (`AppPaths.commandLink`). */
 const EPICENTER = join(HOME, '.local', 'bin', 'epicenter');
+/**
+ * While this file exists, the merge driver the command link runs inside
+ * `git merge` first creates `MERGING` and waits three seconds, so a test can
+ * stop a round in the middle of its merge.
+ */
+const SLOW_MERGE = join(BOX, 'slow-merge');
+const MERGING = join(BOX, 'merging');
 
 type Ran = { code: number; out: string; stdout: string; stderr: string };
 
@@ -156,7 +164,7 @@ beforeAll(async () => {
 	// The `epicenter` on this sandbox's command link: this checkout's CLI.
 	writeFileSync(
 		EPICENTER,
-		`#!/bin/sh\nexec '${process.execPath}' '${BIN}' "$@"\n`,
+		`#!/bin/sh\nif [ "$1" = merge-driver ] && [ -e '${SLOW_MERGE}' ]; then : > '${MERGING}'; sleep 3; fi\nexec '${process.execPath}' '${BIN}' "$@"\n`,
 	);
 	chmodSync(EPICENTER, 0o755);
 	const probe = await git(BOX, 'rev-parse', '--show-toplevel');
@@ -1013,6 +1021,79 @@ describe('epicenter sync over stock git', () => {
 			expect(person.exitCode).toBeNull();
 			person.kill('SIGTERM');
 			expect(await person.exited).toBe(143);
+		},
+		LONG,
+	);
+
+	test(
+		'a stop signal in the middle of a merge lets the round finish: no merge left in progress, the merge pushed',
+		async () => {
+			for (const dir of [A, B, A])
+				expect((await syncJson(dir)).status.status).toBe('synced');
+			const PATH = 'notes/stopped.md';
+			write(A, PATH, '---\ntitle: Stopped\n---\none\n\ntwo\n');
+			expect((await syncJson(A)).status.status).toBe('synced');
+			expect((await syncJson(B)).status.status).toBe('synced');
+			// Both clones edit the note, so B's next round merges it through the driver.
+			edit(A, PATH, 'one', 'ONE');
+			edit(B, PATH, 'two', 'TWO');
+			expect((await syncJson(A)).status.status).toBe('synced');
+
+			writeFileSync(SLOW_MERGE, '');
+			// As the desktop app starts its service: its own process group,
+			// `--desktop`, and stdin held open.
+			const watching = Bun.spawn(
+				[
+					EPICENTER,
+					'sync',
+					B,
+					'--watch',
+					'--interval',
+					'600',
+					'--json',
+					'--desktop',
+				],
+				{
+					cwd: BOX,
+					env: ENV,
+					stdin: 'pipe',
+					stdout: 'pipe',
+					stderr: 'pipe',
+					detached: true,
+				},
+			);
+			try {
+				const deadline = Date.now() + 20_000;
+				while (!existsSync(MERGING)) {
+					if (Date.now() > deadline)
+						throw new Error('the round never reached its merge');
+					await Bun.sleep(50);
+				}
+				// The signal the app sends its service's process group when it
+				// restarts the service.
+				process.kill(-watching.pid, 'SIGTERM');
+				const ended = await Promise.race([
+					watching.exited,
+					Bun.sleep(30_000).then(() => 'still running' as const),
+				]);
+				expect(ended).toBe(143);
+			} finally {
+				watching.kill('SIGKILL');
+				unlinkSync(SLOW_MERGE);
+				rmSync(MERGING, { force: true });
+			}
+
+			const gitPath = async (name: string) =>
+				resolve(B, await quiet(B, 'rev-parse', '--git-path', name));
+			expect(existsSync(await gitPath('MERGE_HEAD'))).toBe(false);
+			expect(existsSync(await gitPath('index.lock'))).toBe(false);
+			expect(await quiet(B, 'status', '--porcelain')).toBe('');
+			expect(read(B, PATH)).toContain('ONE');
+			expect(read(B, PATH)).toContain('TWO');
+			expect(
+				(await quiet(B, 'rev-list', '--parents', '-n', '1', 'HEAD')).split(' '),
+			).toHaveLength(3);
+			expect(await quiet(REMOTE, 'rev-parse', 'main')).toBe(await head(B));
 		},
 		LONG,
 	);

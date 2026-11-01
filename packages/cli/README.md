@@ -148,7 +148,10 @@ with real `git add`, so Git LFS's filters run.
   change under a hidden path (`isHiddenPath`: `.git`, `.epicenter`), and
   every 30 seconds (`--interval`) until a stop signal. With `--desktop` it also
   stops, as on `SIGHUP` (exit 129), when stdin closes: the desktop app holds
-  stdin open while it lives, so the watch cannot outlive it.
+  stdin open while it lives, so the watch outlives it by at most one round.
+  A stop lets the round under way finish, for at most a minute
+  (`ROUND_GRACE_MS` in `src/stop.ts`), and begins no other, so a merge is
+  never cut off.
 - `status [<dir>]` reads `git status --porcelain` for the folder and the
   ahead and behind counts against the last fetched `origin/main`, and fetches
   and writes nothing. Without `<dir>` it reads every registered folder, like
