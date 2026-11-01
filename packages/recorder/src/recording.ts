@@ -1,11 +1,12 @@
 /**
- * The recording vocabulary both hosts share (ADR-0543, decision 84).
+ * The recording vocabulary both hosts share (ADR-0543, decision 84), and
+ * `Recorder`, the one interface both implement.
  *
  * A recording is a file in the app's store from its first moments, written
  * as it records, so a quit, a crash, or a closed tab keeps the audio up to
- * the cut (`StartRecording`, `Recording`). `recoverRecordings`, run when the
- * store opens, repairs what a cut left half-written. The same two calls
- * serve every build; which one a build runs is the entry it imports
+ * the cut (`Recorder.start`, `Recording`). `Recorder.recover`, run when the
+ * store opens, repairs what a cut left half-written. Every build calls the
+ * same `recorder`; which one a build runs is the entry it imports
  * (`@epicenter/recorder/tauri` or `@epicenter/recorder/browser`), chosen by
  * the app's `#platform` seam, never at run time:
  *
@@ -34,7 +35,7 @@ export { audioDurationMs } from './container.js';
 
 /** A microphone the person chose, asked for by its ID. */
 export type RecordingInput = {
-	/** The ID the browser lists it under, or on the desktop the ID the shell lists it under (`listInputs`). */
+	/** The ID `Recorder.listInputs` answers it under: the browser's, or on the desktop the shell's. */
 	readonly deviceId: string;
 	/** Its name, for a refusal that says which microphone is not connected. */
 	readonly label: string;
@@ -112,7 +113,7 @@ export type RecordingHandle<TStopped> = {
 	 * file is finished at its path. Nothing deletes a recording: one its
 	 * page leaves without stopping is finished and placed by the shell on
 	 * the desktop, and in a browser is the pieces already written, which
-	 * `recoverRecordings` repairs.
+	 * `recover` repairs.
 	 */
 	stop(): Promise<Result<TStopped, RecorderError>>;
 };
@@ -125,7 +126,7 @@ export type RecordingHandle<TStopped> = {
  */
 export type Recording = RecordingHandle<StoppedRecording>;
 
-/** A recording `recoverRecordings` repaired. */
+/** A recording `Recorder.recover` repaired. */
 export type RecoveredRecording = {
 	/** The store-relative path of its audio file. */
 	readonly path: string;
@@ -138,7 +139,7 @@ export type RecoveredRecording = {
 };
 
 /**
- * A recording `recoverRecordings` finished but did not place, because
+ * A recording `Recorder.recover` finished but did not place, because
  * another file is at its path. Its audio is kept, finished, at `pending`
  * until a person moves one of the two; nothing deletes it. Only the desktop
  * has one: a browser recording is written at its path.
@@ -150,7 +151,7 @@ export type UnplacedRecording = {
 	readonly pending: string;
 };
 
-/** What `recoverRecordings` did. */
+/** What `Recorder.recover` did. */
 export type Recovery = {
 	/** Each recording repaired, or whole, at its path. */
 	readonly recovered: readonly RecoveredRecording[];
@@ -175,33 +176,76 @@ export type Meter = {
 	close(): Promise<void>;
 };
 
-/**
- * Open `input`, or the system default, for its level until `close`. A
- * chosen input that is not connected is refused, never replaced.
- */
-export type OpenMeter = (
-	options?: RecordingStart,
-) => Promise<Result<Meter, RecorderError>>;
+/** The inputs connected now, as `Recorder.listInputs` answers them. */
+export type InputListing = {
+	/** Each input that can be chosen by name, by the ID to record or meter it by. */
+	readonly inputs: readonly RecordingInput[];
+	/**
+	 * Inputs exist, but the browser withholds their names until microphone
+	 * access is allowed (`Recorder.allow`). Absent on the desktop, whose
+	 * shell names every input without access.
+	 */
+	readonly namesWithheld?: boolean;
+};
 
-export type StartRecording = (
-	options: StartRecordingOptions,
-) => Promise<Result<Recording, RecorderError>>;
-
 /**
- * Repair the recordings under a directory that a quit, a crash, or a closed
- * tab cut off, leaving any recording still being written alone. Answers
- * `recovered`, with how long each plays so nobody reads the audio back to
- * measure it: on the desktop each recording it repaired and moved to its
- * path (a second run answers none), and in a browser every recording no tab
- * is writing, repaired or already whole, since a recording at its path is
- * otherwise indistinguishable from one another tab is still writing. On
- * the desktop it also answers `unplaced`, every time it runs, each
- * recording it left outside its path because another file is there, which
- * an app says to the person.
+ * What a host does with its microphones: the `recorder` that
+ * `@epicenter/recorder/tauri` and `@epicenter/recorder/browser` each export.
+ * Its functions need no `this`, so each can be passed on its own.
  */
-export type RecoverRecordings = (
-	options: RecoverRecordingsOptions,
-) => Promise<Result<Recovery, RecorderError>>;
+export type Recorder = {
+	/** Record from `input`, or the system default, into `device` at `path`. */
+	readonly start: (
+		options: StartRecordingOptions,
+	) => Promise<Result<Recording, RecorderError>>;
+	/**
+	 * Repair the recordings under a directory that a quit, a crash, or a
+	 * closed tab cut off, leaving any recording still being written alone.
+	 * Answers `recovered`, with how long each plays so nobody reads the audio
+	 * back to measure it: on the desktop each recording it repaired and moved
+	 * to its path (a second run answers none), and in a browser every
+	 * recording no tab is writing, repaired or already whole, since a
+	 * recording at its path is otherwise indistinguishable from one another
+	 * tab is still writing. On the desktop it also answers `unplaced`, every
+	 * time it runs, each recording it left outside its path because another
+	 * file is there, which an app says to the person.
+	 */
+	readonly recover: (
+		options: RecoverRecordingsOptions,
+	) => Promise<Result<Recovery, RecorderError>>;
+	/** The inputs connected now. Opens nothing, and never asks for access. */
+	readonly listInputs: () => Promise<Result<InputListing, RecorderError>>;
+	/**
+	 * Open `input`, or the system default, for its level until `close`. A
+	 * chosen input that is not connected is refused, never replaced.
+	 */
+	readonly openMeter: (
+		options?: RecordingStart,
+	) => Promise<Result<Meter, RecorderError>>;
+	/**
+	 * Ask for microphone access, so inputs are listed by name: the system
+	 * default microphone is opened and released at once, and nothing is
+	 * recorded or measured. A browser's alone: the desktop shell names inputs
+	 * without access, and asks for it itself before it opens a microphone.
+	 */
+	readonly allow?: (
+		options?: Pick<RecordingStart, 'signal'>,
+	) => Promise<Result<undefined, RecorderError>>;
+	/**
+	 * Hear inputs connected or removed; returns the unsubscribe. A browser's
+	 * alone, and not every browser says: the desktop shell announces nothing,
+	 * so listing again is always offered.
+	 */
+	readonly onInputsChange?: (listener: () => void) => () => void;
+	/**
+	 * Whether a recording reaches its path only whole, once it stops: true on
+	 * the desktop, whose shell records outside the path and places it there,
+	 * so audio at a path is finished and a cut-off one is found only by
+	 * `recover`; false in a browser, which writes at the path as it records,
+	 * where another tab may still be writing.
+	 */
+	readonly placesWhole: boolean;
+};
 
 export const RecorderError = defineErrors({
 	/** This window cannot record: no microphone access, or no encoder. */

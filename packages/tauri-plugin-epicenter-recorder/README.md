@@ -17,7 +17,7 @@ macOS a stream at another rate changes the device's rate for every app using
 it, and leaves it changed. The writer converts to 16 kHz.
 
 A page reaches it through `@epicenter/recorder/tauri`, whose
-`startRecording({ device, path })` and `recoverRecordings({ device, under })`
+`recorder.start({ device, path })` and `recorder.recover({ device, under })`
 are the same calls a browser build makes through `/browser`, which appends
 each piece of a recording to this browser's files instead (decision 84).
 

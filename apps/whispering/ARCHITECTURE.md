@@ -85,20 +85,21 @@ it through the client.
 
 ## Recording
 
-The capture device comes from the services (`#platform/services`), and
-every one writes the recording into the client's files as it records
-(decision 84), through `@epicenter/recorder`'s one API,
-`startRecording({ device, path })` and `recoverRecordings({ device, under })`
-(`microphone.ts`, `createMicrophoneDevice`). In a browser
-(`platform/browser.ts`) it is the WebView microphone
-(`webview-microphone.ts`, over `@epicenter/recorder/browser`); the
-recorder asks for AAC in MP4 first and Opus in WebM second, and appends each
-piece (about a second) to `recordings/<id>.m4a` or `.webm` in this browser's
-files as it arrives. On the desktop it is the shell's microphone
-(`platform/microphone.tauri.ts`, over `@epicenter/recorder/tauri`), which
-encodes Opus into a WebM from the first sample in the folder's
-`.epicenter/recordings`, a second at a time, and at Stop finishes it and
-places it at `recordings/<id>.webm`.
+The capture device comes from the services (`#platform/services`): one
+microphone device (`microphone.ts`, `createMicrophoneDevice`) over the
+`recorder` each build's services leaf imports, `@epicenter/recorder`'s one
+interface. It writes the recording into the client's files as it records
+(decision 84), through `recorder.start({ device, path })` and
+`recorder.recover({ device, under })`, and the microphone choice lists and
+tests inputs through the same recorder (`listInputs`, `openMeter`, and in a
+browser `allow` and `onInputsChange`). In a browser (`platform/browser.ts`,
+over `@epicenter/recorder/browser`) the recorder asks for AAC in MP4 first
+and Opus in WebM second, and appends each piece (about a second) to
+`recordings/<id>.m4a` or `.webm` in this browser's files as it arrives. On
+the desktop (`platform/services.tauri.ts`, over `@epicenter/recorder/tauri`)
+it is the shell's microphone, which encodes Opus into a WebM from the first
+sample in the folder's `.epicenter/recordings`, a second at a time, and at
+Stop finishes it and places it at `recordings/<id>.webm`.
 
 A recording has no note while it records: the record screen
 (`RecorderCard.svelte`) shows the take. Stop releases the microphone and

@@ -30,19 +30,18 @@
 import { createTestWhispering } from './whispering.test-support.js';
 
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
-import { afterEach, expect, spyOn, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { RecorderError } from '@epicenter/recorder';
+import {
+	type Meter,
+	RecorderError,
+	type RecordingEndedReason,
+	type RecordingInput,
+} from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import type {
-	Capture,
-	CaptureDevice,
-	CaptureStart,
-	MicrophoneMeter,
-	MicrophonePreference,
-} from './capture.js';
+import type { Capture, CaptureDevice, CaptureStart } from './capture.js';
 
 import type { MicrophonePreferences } from './microphone-preference.js';
 import {
@@ -60,27 +59,25 @@ afterEach(async () => {
 });
 
 /** A microphone device that counts what it was asked for and what is still open. */
-function scriptedMicrophone(
-	connected: MicrophonePreference[] = [BUILT_IN, USB],
-) {
+function scriptedMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
 	const calls = {
 		allowSignals: [] as AbortSignal[],
 		list: 0,
 		allow: 0,
-		meter: [] as (MicrophonePreference | undefined)[],
+		meter: [] as (RecordingInput | undefined)[],
 		start: [] as CaptureStart[],
 	};
 	let meterStops = 0;
 	const open = { meters: 0, captures: 0 };
 	const changeListeners = new Set<() => void>();
 	/** Whoever hears the open meter's microphone stop on its own. */
-	const meterEndings = new Set<(error: RecorderError) => void>();
+	const meterEndings = new Set<(reason: RecordingEndedReason) => void>();
 	/** Set to hold the next meter or start until the test lets it answer. */
 	const gate: { next?: Promise<void> } = {};
 	const state = { connected, named: true, denied: false };
 
 	async function opening(
-		input: MicrophonePreference | undefined,
+		input: RecordingInput | undefined,
 		signal: AbortSignal | undefined,
 	) {
 		const held = gate.next;
@@ -99,14 +96,14 @@ function scriptedMicrophone(
 
 	const device: CaptureDevice = {
 		inputs: {
-			async list() {
+			async listInputs() {
 				calls.list += 1;
 				return Ok({
-					devices: state.named ? state.connected : [],
+					inputs: state.named ? state.connected : [],
 					namesWithheld: !state.named && state.connected.length > 0,
 				});
 			},
-			async allow(signal) {
+			async allow({ signal } = {}) {
 				calls.allow += 1;
 				if (signal !== undefined) calls.allowSignals.push(signal);
 				// The default microphone opens and is released at once; a withdrawn request keeps nothing.
@@ -115,30 +112,33 @@ function scriptedMicrophone(
 				state.named = true;
 				return Ok(undefined);
 			},
-			async meter(
+			async openMeter({
 				input,
 				signal,
-			): Promise<Result<MicrophoneMeter, RecorderError>> {
+			} = {}): Promise<Result<Meter, RecorderError>> {
 				calls.meter.push(input);
 				const { error: openError } = await opening(input, signal);
 				if (openError !== null) return Err(openError);
 				open.meters += 1;
 				let stopped = false;
 				return Ok({
-					label: input?.label ?? 'System default',
-					level: () => 0.5,
+					microphone: input?.label ?? '',
+					onLevel(listener) {
+						listener(0.5);
+						return () => {};
+					},
 					onEnded(listener) {
 						meterEndings.add(listener);
 						return () => meterEndings.delete(listener);
 					},
-					stop() {
+					async close() {
 						meterStops += 1;
 						if (!stopped) open.meters -= 1;
 						stopped = true;
 					},
 				});
 			},
-			onChange(listener) {
+			onInputsChange(listener) {
 				changeListeners.add(listener);
 				return () => changeListeners.delete(listener);
 			},
@@ -177,31 +177,29 @@ function scriptedMicrophone(
 }
 
 /**
- * A microphone shaped as Epicenter's: every input named, no `allow`, and
- * access asked for by the shell when a microphone opens.
+ * A microphone shaped as the desktop shell's: every input named, no `allow`,
+ * no announced changes, and access asked for by the shell when a microphone
+ * opens.
  */
-function shellMicrophone(connected: MicrophonePreference[] = [BUILT_IN, USB]) {
+function shellMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
 	const microphone = scriptedMicrophone(connected);
 	const inputs = microphone.device.inputs;
-	if (inputs === undefined) throw new Error('A microphone has inputs');
 	microphone.device = {
 		...microphone.device,
 		inputs: {
-			async list() {
-				const { data, error } = await inputs.list();
+			async listInputs() {
+				const { data, error } = await inputs.listInputs();
 				if (error !== null) return Err(error);
-				return Ok({ devices: data.devices });
+				return Ok({ inputs: data.inputs });
 			},
-			meter: inputs.meter,
-			onChange: inputs.onChange,
-			openSettings: async () => Ok(undefined),
+			openMeter: inputs.openMeter,
 		},
 	};
 	return microphone;
 }
 
 /** Preferences kept in memory, as one device would across sessions. */
-function devicePreferences(saved?: MicrophonePreference) {
+function devicePreferences(saved?: RecordingInput) {
 	const store = { saved, writes: 0 };
 	const preferences: MicrophonePreferences = {
 		microphone: async () => store.saved,
@@ -253,7 +251,7 @@ test.each(['choice', 'failure'])(
 		const { createMicrophoneInput } = await import(
 			'./microphone-input.svelte.js'
 		);
-		const gate = Promise.withResolvers<MicrophonePreference | undefined>();
+		const gate = Promise.withResolvers<RecordingInput | undefined>();
 		const microphone = scriptedMicrophone();
 		const { preferences } = devicePreferences();
 		let reads = 0;
@@ -511,7 +509,7 @@ test('refused access is reported, and enabling lists inputs by name once it is a
 	await input.refresh();
 	expect(input.list).toEqual({
 		kind: 'listed',
-		devices: [],
+		inputs: [],
 		namesWithheld: true,
 	});
 	await input.allow();
@@ -530,7 +528,7 @@ test('refused access is reported, and enabling lists inputs by name once it is a
 	expect(input.problem).toBeUndefined();
 	expect(input.list).toEqual({
 		kind: 'listed',
-		devices: [BUILT_IN, USB],
+		inputs: [BUILT_IN, USB],
 		namesWithheld: false,
 	});
 });
@@ -547,7 +545,7 @@ test('a connected or removed input is listed again without asking for access', a
 
 	expect(input.list).toEqual({
 		kind: 'listed',
-		devices: [BUILT_IN],
+		inputs: [BUILT_IN],
 		namesWithheld: false,
 	});
 	expect(input.choiceListed).toBe(false);
@@ -616,7 +614,7 @@ test('a pending enable is not repeated, opens no test beside it, and releasing i
 	expect(microphone.calls.list).toBe(1);
 	expect(input.list).toEqual({
 		kind: 'listed',
-		devices: [],
+		inputs: [],
 		namesWithheld: true,
 	});
 });
@@ -722,7 +720,7 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 /** Preferences whose every save waits for the test to answer it. */
 function heldPreferences() {
 	const saves: {
-		microphone: MicrophonePreference | undefined;
+		microphone: RecordingInput | undefined;
 		answer: (problem?: string) => void;
 	}[] = [];
 	const preferences: MicrophonePreferences = {
@@ -839,29 +837,29 @@ test('an unreadable saved microphone reports the failure without opening a devic
 });
 
 test('a test whose microphone stops on its own ends and says why', async () => {
-	const { input, microphone } = await open();
+	const { input, microphone } = await open({ device: devicePreferences(USB) });
 	await input.startTest();
-	expect(input.test.phase).toBe('running');
+	expect(input.test).toEqual({ phase: 'running', label: 'USB Microphone' });
+	expect(input.level).toBeGreaterThan(0);
 
 	for (const listener of microphone.meterEndings)
-		listener(RecorderError.InputUnavailable({ label: 'USB Microphone' }).error);
+		listener('deviceDisconnected');
 
 	expect(input.test).toEqual({ phase: 'idle' });
 	expect(input.problem).toContain('“USB Microphone” is not available');
 	expect(microphone.open.meters).toBe(0);
 });
 
-test('in Epicenter there is no enabling, listing never clears a denial, and settings can be opened', async () => {
+test('on the desktop there is no enabling, and listing never clears a denial', async () => {
 	const microphone = shellMicrophone();
 	microphone.state.denied = true;
 	const { input } = await open({ microphone });
 
 	expect(input.canAllow).toBe(false);
-	expect(input.canOpenSettings).toBe(true);
 	await input.startTest();
 	expect(input.denied).toBe(true);
 	await input.refresh();
-	expect(input.list).toEqual({ kind: 'listed', devices: [BUILT_IN, USB] });
+	expect(input.list).toEqual({ kind: 'listed', inputs: [BUILT_IN, USB] });
 	expect(input.denied).toBe(true);
 
 	microphone.state.denied = false;
@@ -869,44 +867,33 @@ test('in Epicenter there is no enabling, listing never clears a denial, and sett
 	expect(input.denied).toBe(false);
 });
 
-test('a meter that has ended before subscription leaves no polling timer alive', async () => {
+test('a meter that has ended before subscription ends the test at once and says why', async () => {
 	const microphone = scriptedMicrophone();
-	const inputs = microphone.device.inputs!;
-	const meter = inputs.meter;
+	const inputs = microphone.device.inputs;
 	microphone.device = {
 		...microphone.device,
 		inputs: {
 			...inputs,
-			async meter(input, signal) {
-				const opened = expectOk(await meter(input, signal));
+			async openMeter(options) {
+				const opened = expectOk(await inputs.openMeter(options));
 				return Ok({
 					...opened,
 					onEnded(listener) {
-						listener(
-							RecorderError.InputUnavailable({ label: 'USB Microphone' }).error,
-						);
+						listener('deviceDisconnected');
 						return () => {};
 					},
 				});
 			},
 		},
 	};
-	const { input } = await open({ microphone });
-	const created = spyOn(globalThis, 'setInterval');
-	const cleared = spyOn(globalThis, 'clearInterval');
-	try {
-		await input.startTest();
-		expect(input.test.phase).toBe('idle');
-		expect(input.problem).toContain('USB Microphone');
-		expect(microphone.open.meters).toBe(0);
-		const alive = created.mock.results
-			.filter((r) => r.type === 'return')
-			.map((r) => r.value)
-			.filter((timer) => !cleared.mock.calls.some((args) => args[0] === timer));
-		expect(alive).toEqual([]);
-	} finally {
-		input.close();
-		created.mockRestore();
-		cleared.mockRestore();
-	}
+	const { input } = await open({
+		microphone,
+		device: devicePreferences(USB),
+	});
+	await input.startTest();
+	expect(input.test.phase).toBe('idle');
+	expect(input.level).toBe(0);
+	expect(input.problem).toContain('USB Microphone');
+	expect(microphone.open.meters).toBe(0);
+	input.close();
 });

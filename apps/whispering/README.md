@@ -280,7 +280,7 @@ whose desktop leaf went missing.
   in WebM in the data folder from the first sample and places it at
   `recordings/<id>.webm` when Stop answers, in the same few milliseconds
   for a recording of any length. The call is the web build's,
-  `startRecording({ device, path })` from `@epicenter/recorder`, imported
+  `recorder.start({ device, path })` from `@epicenter/recorder`, imported
   from `/tauri` here and `/browser` there (decision 84). The note, with its
   length, is written once Stop has answered (`folder-recordings.ts`); a
   recording a quit or a crash cut off is finished and placed on the next

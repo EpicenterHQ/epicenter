@@ -85,7 +85,7 @@ propagation.
 Default to a plain object when construction has no input or lifecycle. Use a
 factory when it owns real construction inputs or a lifecycle: Whispering's
 `createServices(client)` takes the store, and its capture device
-(`createShellMicrophone`, `createWebViewMicrophone`) owns one recording
+(`createMicrophoneDevice`, over the build's `recorder`) owns one recording
 session at a time with its stop and recovery. Do not add `create*` only to
 call it once at module load. See
 [service implementation patterns](references/service-implementation-pattern.md).

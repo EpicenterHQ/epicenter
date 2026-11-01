@@ -28,13 +28,13 @@
 
 	/** A recording keeps the microphone it opened, so the choice waits for it to end. */
 	const locked = $derived(whispering.recorder.phase !== 'idle');
-	const devices = $derived(whispering.input.list.kind === 'listed' ? whispering.input.list.devices : []);
+	const devices = $derived(whispering.input.list.kind === 'listed' ? whispering.input.list.inputs : []);
 	/** Whether the choice's own ID is listed. A listed input with the same name is not it. */
 	const listed = $derived(devices.some((device) => device.deviceId === whispering.input.choice?.deviceId));
 	/**
 	 * Nothing is listed by name. In a browser that is usually access not yet
-	 * allowed, and enabling is the one thing to do; in Epicenter, which names
-	 * every input, it means no microphone is connected.
+	 * allowed, and enabling is the one thing to do; on the desktop, whose
+	 * shell names every input, it means no microphone is connected.
 	 */
 	const unnamed = $derived(whispering.input.list.kind === 'listed' && devices.length === 0);
 	const name = $derived(whispering.input.choice === undefined ? 'System default' : whispering.input.choice.label || 'Chosen microphone');
@@ -174,11 +174,6 @@
 		{/if}
 		{#if whispering.input.problem}
 			<p class="text-xs text-destructive" role="alert" data-testid="microphone-problem">{whispering.input.problem}</p>
-		{/if}
-		{#if whispering.input.denied && whispering.input.canOpenSettings}
-			<Button size="sm" variant="outline" onclick={() => void whispering.input.openSettings()} data-testid="microphone-settings">
-				Open Microphone Settings
-			</Button>
 		{/if}
 		{#if whispering.input.preferenceProblem}
 			<p class="text-xs text-destructive" role="alert">Microphone setting: {whispering.input.preferenceProblem}</p>

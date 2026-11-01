@@ -134,35 +134,39 @@ mock.module('@epicenter/folder/tauri', () => ({
 /** What the recorder was asked to start or repair. */
 const started: unknown[] = [];
 mock.module('@epicenter/recorder/tauri', () => ({
-	listInputs: async () =>
-		Ok([{ id: 'coreaudio:usb', name: 'USB', isDefault: false }]),
-	openMeter: async () => {
-		throw new Error('not opened');
-	},
-	startRecording: async (options: { device: unknown; path: string }) => {
-		started.push(options);
-		return Ok({
-			startedAt: 0,
-			microphone: 'USB',
-			onLevel: () => () => {},
-			onEnded: () => () => {},
-			stop: async () => Ok({ path: `${options.path}.webm`, durationMs: 1500 }),
-		});
-	},
-	recoverRecordings: async (options: { device: unknown; under: string }) => {
-		started.push(options);
-		return Ok({
-			recovered: [
-				{ path: `${options.under}/a.webm`, durationMs: 1500 },
-				{ path: `${options.under}/b.webm`, durationMs: 2500 },
-			],
-			unplaced: [
-				{
-					path: `${options.under}/c.webm`,
-					pending: `.epicenter/recordings/${options.under}/c.webm`,
-				},
-			],
-		});
+	recorder: {
+		placesWhole: true,
+		listInputs: async () =>
+			Ok({ inputs: [{ deviceId: 'coreaudio:usb', label: 'USB' }] }),
+		openMeter: async () => {
+			throw new Error('not opened');
+		},
+		start: async (options: { device: unknown; path: string }) => {
+			started.push(options);
+			return Ok({
+				startedAt: 0,
+				microphone: 'USB',
+				onLevel: () => () => {},
+				onEnded: () => () => {},
+				stop: async () =>
+					Ok({ path: `${options.path}.webm`, durationMs: 1500 }),
+			});
+		},
+		recover: async (options: { device: unknown; under: string }) => {
+			started.push(options);
+			return Ok({
+				recovered: [
+					{ path: `${options.under}/a.webm`, durationMs: 1500 },
+					{ path: `${options.under}/b.webm`, durationMs: 2500 },
+				],
+				unplaced: [
+					{
+						path: `${options.under}/c.webm`,
+						pending: `.epicenter/recordings/${options.under}/c.webm`,
+					},
+				],
+			});
+		},
 	},
 }));
 
@@ -326,7 +330,7 @@ test('what the keychain holds and does not read is never taken for nothing', asy
 
 test('the shell’s microphone records recordings/<id> into the data folder’s device, and recovery answers every finished recording by id', async () => {
 	const { capture } = createServices(dataFolder);
-	expect(expectOk(await capture.inputs!.list()).devices).toEqual([
+	expect(expectOk(await capture.inputs.listInputs()).inputs).toEqual([
 		{ deviceId: 'coreaudio:usb', label: 'USB' },
 	]);
 	const recording = expectOk(await capture.start({ id: '20261031T093000000' }));

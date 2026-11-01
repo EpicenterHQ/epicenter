@@ -9,7 +9,7 @@
  *
  * Key behaviors:
  * - The web build carries the local variant: this browser's storage, the
- *   WebView microphone and the browser's sign-in, and nothing of the desktop
+ *   browser's recorder and sign-in, and nothing of the desktop
  * - The desktop build carries the window's two roots, the shell's microphone,
  *   requests and local models, and sign-in through the shell, and none of the
  *   web's leaves
@@ -59,7 +59,6 @@ const desktopLeaves = [
 	'platform/variant.tauri.ts',
 	'platform/auth.tauri.ts',
 	'platform/services.tauri.ts',
-	'platform/microphone.tauri.ts',
 	'platform/fetch.tauri.ts',
 	'platform/shortcut.tauri.svelte.ts',
 	'settings.tauri.ts',

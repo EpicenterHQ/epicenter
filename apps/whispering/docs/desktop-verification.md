@@ -260,7 +260,7 @@ Not done, and needed before this can be called accepted on the desktop:
   while recording, that Stop leaves `recordings/<id>.webm` at once and
   nothing in `.epicenter/recordings`, and that quitting mid-recording leaves
   a file that becomes `recordings/<id>.webm`, playing to within a second of
-  the cut, once the folder reopens and `recoverRecordings` runs.
+  the cut, once the folder reopens and `recorder.recover` runs.
 - Exercise both debug recording-write failures in the window, confirming an
   obstructed row leaves the recording running with its audio saved and no
   row, with the folder's own message for the row.

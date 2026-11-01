@@ -67,7 +67,7 @@ function recordedAtOf(id: string): Date | undefined {
 /**
  * Make the note of each recording whose audio a closed tab or a crash left
  * without one, its length read from the audio itself. The local variant
- * runs it when it opens, after `recoverRecordings` cut the audio back to its
+ * runs it when it opens, after `recorder.recover` cut the audio back to its
  * last whole piece. Answers the ids it finished; audio that does not read,
  * or whose id is not a recording's, is left as it is.
  */

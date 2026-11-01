@@ -10,7 +10,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDevice } from '@epicenter/folder/node';
-import type { RecoverRecordings } from '@epicenter/recorder';
+import type { Recorder } from '@epicenter/recorder';
 import { Ok, unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { whispering } from './contract.js';
@@ -121,7 +121,7 @@ test('in a browser, recovery reads the audio only when some has no note, and nam
 	let repairs = 0;
 	// The browser recorder's recovery: every recording no tab is writing,
 	// leaving out `writing`, whose Web Lock another tab holds while it records.
-	const recoverRecordings: RecoverRecordings = async () => {
+	const recover: Recorder['recover'] = async () => {
 		repairs++;
 		return Ok({
 			recovered: [
@@ -133,12 +133,13 @@ test('in a browser, recovery reads the audio only when some has no note, and nam
 	};
 	const capture = createMicrophoneDevice({
 		device,
-		inputs: NO_INPUTS,
 		recorder: {
-			startRecording: async () => {
+			...NO_INPUTS,
+			start: async () => {
 				throw new Error('nothing records here');
 			},
-			recoverRecordings,
+			recover,
+			placesWhole: false,
 		},
 	});
 	await writeFile(join(path, 'recordings/done.webm'), 'kept');

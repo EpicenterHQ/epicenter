@@ -4,22 +4,22 @@
  * It names hardware on one device, so it is neither Whispering's data nor
  * a secret, and it is never written to Whispering's files.
  */
-import type { MicrophonePreference } from './capture.js';
+import type { RecordingInput } from '@epicenter/recorder';
 
 /** The device's saved microphone choice, independent of files and capture state. */
 export type MicrophonePreferences = {
 	/** The saved microphone, or undefined for the system default. Rejects if storage cannot be read. */
-	microphone(): Promise<MicrophonePreference | undefined>;
+	microphone(): Promise<RecordingInput | undefined>;
 	/** Save the choice, or forget it with undefined. Return any storage failure as text. */
 	setMicrophone(
-		microphone: MicrophonePreference | undefined,
+		microphone: RecordingInput | undefined,
 	): Promise<string | undefined>;
 };
 
 const MICROPHONE_STORAGE = 'whispering.microphone';
 
 /** Read the saved microphone; storage and JSON failures reach the chooser. */
-function savedMicrophone(): MicrophonePreference | undefined {
+function savedMicrophone(): RecordingInput | undefined {
 	const saved: unknown = JSON.parse(
 		localStorage.getItem(MICROPHONE_STORAGE) ?? 'null',
 	);

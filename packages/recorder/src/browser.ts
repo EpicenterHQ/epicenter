@@ -1,12 +1,12 @@
 /**
  * Recording in a browser tab, with `MediaRecorder` (decision 84).
  *
- * `startRecording` writes the recording into the app's store as it records:
+ * `recorder.start` writes the recording into the app's store as it records:
  * `MediaRecorder` hands over a piece about once a second, and each is
  * appended to `<path>.<ext>` in this browser's private files the moment it
  * arrives (`deviceFiles` from `@epicenter/folder/browser`). A refresh, a
  * crash, or a closed tab keeps every piece already written, and
- * `recoverRecordings` cuts a file a closed tab left half-written back to its
+ * `recorder.recover` cuts a file a closed tab left half-written back to its
  * last whole piece. While a recording runs this tab holds a Web Lock named
  * for its path without the extension, so recovery in another tab leaves its
  * file alone whatever extension the browser's type gave it.
@@ -28,23 +28,25 @@
  * it, and a start withdrawn while the browser is still answering releases the
  * stream when it arrives.
  *
+ * Listing the inputs is the browser's own `enumerateDevices`, and lists
+ * nothing by name until microphone access is allowed (`recorder.allow`).
+ *
  * The page's microphone streams and voice activity detection are here too:
  * they call `getUserMedia`, so only a browser build reaches them.
  */
 import { deviceFiles } from '@epicenter/folder/browser';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import { audioDurationMs, repairAudio } from './container.js';
-import { openMicrophone, release } from './microphone.js';
+import { mediaDevices, openMicrophone, release } from './microphone.js';
 import {
-	type OpenMeter,
+	type Recorder,
 	RecorderError,
 	type RecordingEndedReason,
 	type RecordingHandle,
 	type RecordingStart,
 	type RecoveredRecording,
-	type RecoverRecordings,
-	type StartRecording,
 } from './recording.js';
+import { createSignals } from './signals.js';
 
 export * from './recording.js';
 export {
@@ -100,12 +102,12 @@ const PIECE_MS = 1000;
 const lockOf = (path: string) => `epicenter-recording:${path}`;
 
 /**
- * Read the input's level into `listeners` until the returned function is
+ * Read the input's level into `emit` until the returned function is
  * called. Nothing is played: the analyser is the end of the graph.
  */
 function meter(
 	stream: MediaStream,
-	listeners: ReadonlySet<(level: number) => void>,
+	emit: (level: number) => void,
 ): Result<() => void, RecorderError> {
 	if (typeof AudioContext === 'undefined')
 		return RecorderError.Unavailable({
@@ -121,12 +123,10 @@ function meter(
 		void context.resume().catch(() => {});
 		const samples = new Float32Array(analyser.fftSize);
 		const timer = setInterval(() => {
-			if (listeners.size === 0) return;
 			analyser.getFloatTimeDomainData(samples);
 			let squares = 0;
 			for (const sample of samples) squares += sample * sample;
-			const level = Math.min(1, Math.sqrt(squares / samples.length));
-			for (const listener of listeners) listener(level);
+			emit(Math.min(1, Math.sqrt(squares / samples.length)));
 		}, LEVEL_INTERVAL_MS);
 		const graph = context;
 		return Ok(() => {
@@ -219,16 +219,16 @@ async function openCapture(
 			},
 			catch: (cause) => RecorderError.Failed({ cause }),
 		});
-	const levels = new Set<(level: number) => void>();
-	const endings = new Set<(reason: RecordingEndedReason) => void>();
+	const signals = createSignals();
 	// A recording without a meter is still a recording.
-	const stopMeter = meter(stream, levels).data ?? (() => {});
+	const stopMeter = meter(stream, signals.level).data ?? (() => {});
 	let settled = false;
-	let ended: { reason: RecordingEndedReason; at: number } | undefined;
+	/** When capture ended on its own, if it did. */
+	let endedAt: number | undefined;
 	function interrupted(reason: RecordingEndedReason) {
-		if (settled || ended !== undefined) return;
-		ended = { reason, at: Date.now() };
-		for (const listener of [...endings]) listener(reason);
+		if (settled || endedAt !== undefined) return;
+		endedAt = Date.now();
+		signals.end(reason);
 	}
 	// Keep the first ending even when no consumer has subscribed yet.
 	for (const track of stream.getAudioTracks())
@@ -267,19 +267,8 @@ async function openCapture(
 			// One that cannot stop is stopping already: `finish` settles it.
 			stopRecorder();
 		},
-		onLevel(listener: (level: number) => void) {
-			levels.add(listener);
-			return () => levels.delete(listener);
-		},
-		onEnded(listener: (reason: RecordingEndedReason) => void) {
-			if (settled) return () => {};
-			if (ended !== undefined) {
-				listener(ended.reason);
-				return () => {};
-			}
-			endings.add(listener);
-			return () => endings.delete(listener);
-		},
+		onLevel: signals.onLevel,
+		onEnded: signals.onEnded,
 		/**
 		 * Stop the recorder, wait for its last piece, release the microphone,
 		 * and answer how long it recorded (to its ending, if it ended first).
@@ -287,9 +276,8 @@ async function openCapture(
 		async finish(): Promise<Result<{ durationMs: number }, RecorderError>> {
 			settled = true;
 			stopMeter();
-			levels.clear();
-			endings.clear();
-			const durationMs = Math.round((ended?.at ?? Date.now()) - startedAt);
+			signals.retire();
+			const durationMs = Math.round((endedAt ?? Date.now()) - startedAt);
 			// A recorder that cannot stop never says it stopped: do not wait for it.
 			const stopped = stopRecorder();
 			const outcome = stopped.error !== null ? stopped : await finished;
@@ -308,12 +296,7 @@ type Capture = NonNullable<Awaited<ReturnType<typeof openCapture>>['data']>;
  * before any microphone opens when the store keeps no files here (a private
  * window) or a file is already at the path.
  */
-export const startRecording: StartRecording = async ({
-	device,
-	path,
-	input,
-	signal,
-}) => {
+const start: Recorder['start'] = async ({ device, path, input, signal }) => {
 	const files = deviceFiles(device);
 	const expected = `${path}.${extensionOf(
 		(typeof MediaRecorder !== 'undefined' && requestedType()) || '',
@@ -430,10 +413,7 @@ export const startRecording: StartRecording = async ({
  * plays: an app tells a cut-off recording from one still recording in
  * another tab only by this answer.
  */
-export const recoverRecordings: RecoverRecordings = async ({
-	device,
-	under,
-}) => {
+const recover: Recorder['recover'] = async ({ device, under }) => {
 	const files = deviceFiles(device);
 	const listed = await files.list();
 	if (listed.error !== null)
@@ -525,7 +505,7 @@ export const startPageRecording: StartPageRecording = async (options = {}) => {
  * refused, never replaced, and one that is unplugged ends the meter
  * (`deviceDisconnected`).
  */
-export const openMeter: OpenMeter = async ({ input, signal } = {}) => {
+const openMeter: Recorder['openMeter'] = async ({ input, signal } = {}) => {
 	if (typeof AudioContext === 'undefined')
 		return RecorderError.Unavailable({
 			reason: 'this window cannot measure audio',
@@ -535,44 +515,24 @@ export const openMeter: OpenMeter = async ({ input, signal } = {}) => {
 		signal,
 	);
 	if (openError !== null) return Err(openError);
-	const levels = new Set<(level: number) => void>();
-	const { data: stopMeter, error: meterError } = meter(stream, levels);
+	const signals = createSignals();
+	const { data: stopMeter, error: meterError } = meter(stream, signals.level);
 	if (meterError !== null) {
 		release(stream);
 		return Err(meterError);
 	}
-	const endings = new Set<(reason: RecordingEndedReason) => void>();
-	let ended: RecordingEndedReason | undefined;
-	let closed = false;
 	const track = stream.getAudioTracks()[0];
 	// The track ends when its microphone is unplugged or access is withdrawn.
-	const onTrackEnded = () => {
-		if (closed || ended !== undefined) return;
-		ended = 'deviceDisconnected';
-		for (const listener of [...endings]) listener(ended);
-	};
-	track?.addEventListener('ended', onTrackEnded);
+	track?.addEventListener('ended', () => signals.end('deviceDisconnected'));
+	let closed = false;
 	return Ok({
 		microphone: track?.label || input?.label || '',
-		onLevel(listener) {
-			if (closed) return () => {};
-			levels.add(listener);
-			return () => levels.delete(listener);
-		},
-		onEnded(listener) {
-			if (closed) return () => {};
-			if (ended !== undefined) {
-				listener(ended);
-				return () => {};
-			}
-			endings.add(listener);
-			return () => endings.delete(listener);
-		},
+		onLevel: signals.onLevel,
+		onEnded: signals.onEnded,
 		async close() {
 			if (closed) return;
 			closed = true;
-			levels.clear();
-			endings.clear();
+			signals.retire();
 			stopMeter();
 			release(stream);
 		},
@@ -584,13 +544,66 @@ export const openMeter: OpenMeter = async ({ input, signal } = {}) => {
  * system default microphone is opened and released at once, and nothing is
  * recorded or measured.
  */
-export async function allowMicrophone({
-	signal,
-}: Pick<RecordingStart, 'signal'> = {}): Promise<
-	Result<undefined, RecorderError>
-> {
+const allow: NonNullable<Recorder['allow']> = async ({ signal } = {}) => {
 	const { data: stream, error } = await openMicrophone(undefined, signal);
 	if (error !== null) return Err(error);
 	release(stream);
 	return Ok(undefined);
-}
+};
+
+/**
+ * IDs a browser lists for "whatever the system uses". They are not a
+ * microphone to choose by name: no input, the system default, covers them.
+ */
+const SYSTEM_ALIASES = new Set(['default', 'communications']);
+
+/**
+ * The audio inputs the browser lists now, by name, leaving out its system
+ * aliases. Opens nothing and never asks for access: until access is
+ * allowed a browser names none, which `namesWithheld` says.
+ */
+const listInputs: Recorder['listInputs'] = async () => {
+	const devices = mediaDevices();
+	if (devices?.enumerateDevices === undefined)
+		return RecorderError.Unavailable({
+			reason: 'this window has no microphone access',
+		});
+	const { data: found, error } = await tryAsync({
+		try: () => devices.enumerateDevices(),
+		catch: (cause) => RecorderError.Failed({ cause }),
+	});
+	if (error !== null) return Err(error);
+	const audioInputs = found.filter((device) => device.kind === 'audioinput');
+	return Ok({
+		inputs: audioInputs
+			.filter(
+				(device) =>
+					device.deviceId !== '' &&
+					device.label !== '' &&
+					!SYSTEM_ALIASES.has(device.deviceId),
+			)
+			.map(({ deviceId, label }) => ({ deviceId, label })),
+		namesWithheld:
+			audioInputs.length > 0 &&
+			audioInputs.every((device) => device.label === ''),
+	});
+};
+
+/** Hear inputs connected or removed, where the browser announces it. */
+const onInputsChange: NonNullable<Recorder['onInputsChange']> = (listener) => {
+	const devices = mediaDevices();
+	if (devices?.addEventListener === undefined) return () => {};
+	devices.addEventListener('devicechange', listener);
+	return () => devices.removeEventListener('devicechange', listener);
+};
+
+/** This tab's microphones, read from the browser at each call. */
+export const recorder = {
+	start,
+	recover,
+	listInputs,
+	openMeter,
+	allow,
+	onInputsChange,
+	placesWhole: false,
+} satisfies Recorder;

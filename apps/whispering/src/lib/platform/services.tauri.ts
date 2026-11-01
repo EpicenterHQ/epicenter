@@ -2,8 +2,12 @@
  * Whispering's services in its desktop app: `#platform/services` under the
  * `tauri` condition, over the data folder the window opened.
  *
- * - Capture is the shell's microphone, which writes each recording into the
- *   data folder from its first sample (`microphone.tauri.ts`).
+ * - Capture is the shell's microphone (`recorder` from
+ *   `@epicenter/recorder/tauri`, ADR-0571), which writes each recording into
+ *   the data folder from its first sample, as Opus in WebM placed at
+ *   `recordings/<id>.webm` when it stops; a quit, a crash, or a closed window
+ *   keeps the audio up to about its last second, which recovery finishes and
+ *   places on the next launch.
  * - Connections and their keys are kept in this computer's keychain through
  *   the shell (`keychain` from `@epicenter/auth/tauri`), one entry for both
  *   connections, never in Whispering's files and never in the WebView's
@@ -24,6 +28,7 @@ import {
 	HOSTED_TRANSCRIPTION_MODEL,
 } from '@epicenter/constants/ai-providers';
 import { rootOf } from '@epicenter/folder/tauri';
+import { recorder } from '@epicenter/recorder/tauri';
 import { commands as localModels } from '@epicenter/transcription-native';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -38,6 +43,7 @@ import {
 	readStoredConnection,
 	type StoredConnection,
 } from '../connections.js';
+import { createMicrophoneDevice } from '../microphone.js';
 import { localPreferences } from '../microphone-preference.js';
 import {
 	TranscriptionError,
@@ -46,7 +52,6 @@ import {
 import { transformOverConnection } from '../transformation.js';
 import { authReady, getAuth } from './auth.tauri.js';
 import { shellFetch } from './fetch.tauri.js';
-import { createShellMicrophone } from './microphone.tauri.js';
 import type { CreateServices } from './types.js';
 
 /** The keychain entry holding both connections, keys included, as one JSON object. */
@@ -265,7 +270,7 @@ async function transcribeHere(
 export const createServices: CreateServices = (client) => {
 	const root = rootOf(client);
 	return {
-		capture: createShellMicrophone(client),
+		capture: createMicrophoneDevice({ device: client, recorder }),
 		async transcribe(request) {
 			let route: Awaited<ReturnType<typeof routeOf>>;
 			try {

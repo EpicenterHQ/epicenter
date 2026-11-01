@@ -26,6 +26,9 @@
  * - A meter opens one microphone for its level only, ends when it is
  *   unplugged, and releases it on close; enabling access opens the default
  *   and releases it at once
+ * - Listing opens nothing, names the audio inputs without the system
+ *   aliases, and says when the browser withholds their names; inputs
+ *   connected or removed are heard until the listener is removed
  */
 import { afterEach, expect, mock, setSystemTime, test } from 'bun:test';
 import type { Client, Contract } from '@epicenter/definition/contract';
@@ -44,13 +47,7 @@ mock.module('@epicenter/folder/browser', () => ({
 		return files;
 	},
 }));
-const {
-	allowMicrophone,
-	openMeter,
-	recoverRecordings,
-	startPageRecording,
-	startRecording,
-} = await import('./browser.js');
+const { recorder, startPageRecording } = await import('./browser.js');
 
 /** What every microphone request turns off: Safari's voice processing. */
 const UNPROCESSED = {
@@ -310,7 +307,7 @@ test('a recording is written into the store as it records, and heard made and fi
 		Recorder: fakeRecorderClass(() => new Uint8Array([9])),
 	});
 	const recording = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	expect(recording.microphone).toBe('Desk Microphone');
 	expect(memory.held.has('recordings/a.webm')).toBe(false);
@@ -359,7 +356,7 @@ test('stop answers how long the written audio plays, not how long the clock ran'
 		),
 	});
 	const recording = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	for (let piece = 0; piece < 3; piece++)
 		recorders.at(-1)!.piece(audio.slice(cuts[piece], cuts[piece + 1]));
@@ -386,7 +383,7 @@ test('AAC in MP4 is recorded into <path>.m4a where the browser records it', asyn
 		),
 	});
 	const recording = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	expect(await placedPath(recording)).toBe('recordings/a.m4a');
 	expect(memory.held.get('recordings/a.m4a')).toEqual(new Uint8Array([4, 5]));
@@ -403,7 +400,7 @@ test('a store that keeps no files here, or a file at the path, is refused before
 		'This browser gives the page no private file storage',
 	);
 	const refused = expectErr(
-		await startRecording({
+		await recorder.start({
 			device: browser({ files: privateWindow.files, getUserMedia }).device,
 			path: 'recordings/a',
 		}),
@@ -415,7 +412,7 @@ test('a store that keeps no files here, or a file at the path, is refused before
 
 	const taken = memoryFiles({ 'recordings/a.webm': new Uint8Array([7]) });
 	const occupied = expectErr(
-		await startRecording({
+		await recorder.start({
 			device: browser({ files: taken.files, getUserMedia }).device,
 			path: 'recordings/a',
 		}),
@@ -432,7 +429,7 @@ test('a store that stops taking pieces ends the recording, and stop keeps what l
 		Recorder: fakeRecorderClass(() => new Uint8Array([9])),
 	});
 	const recording = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	const endings: string[] = [];
 	recording.onEnded((reason) => endings.push(reason));
@@ -453,7 +450,7 @@ test('a recording that captured nothing writes nothing and is Empty', async () =
 		Recorder: fakeRecorderClass(() => new Uint8Array()),
 	});
 	const recording = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	expect(expectErr(await recording.stop()).name).toBe('Empty');
 	expect(memory.held.size).toBe(0);
@@ -479,7 +476,7 @@ test('recovery cuts a file a closed tab left half-written, answers every recordi
 	locks.held.add('epicenter-recording:recordings/writing');
 
 	const { recovered, unplaced } = expectOk(
-		await recoverRecordings({ device, under: 'recordings' }),
+		await recorder.recover({ device, under: 'recordings' }),
 	);
 	expect(unplaced).toEqual([]);
 	const repaired = memory.held.get('recordings/cut.m4a')!;
@@ -507,7 +504,7 @@ test('recovery cuts a file a closed tab left half-written, answers every recordi
 	);
 	// A second run repairs nothing more, and answers the same recordings.
 	expect(
-		expectOk(await recoverRecordings({ device, under: 'recordings' })),
+		expectOk(await recorder.recover({ device, under: 'recordings' })),
 	).toEqual({ recovered, unplaced: [] });
 	expect(memory.held.get('recordings/cut.m4a')).toEqual(repaired);
 });
@@ -516,11 +513,11 @@ test('a recording holds its lock while it records, so recovery passes it by', as
 	const locks = memoryLocks();
 	const { device } = browser({ locks });
 	const recording = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	expect(locks.held).toEqual(new Set(['epicenter-recording:recordings/a']));
 	const again = expectErr(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	expect(again.name).toBe('Busy');
 	expectOk(await recording.stop());
@@ -568,7 +565,7 @@ test('a browser left to its default names the file by the type it reports, howev
 			Recorder: fakeRecorderClass(() => new Uint8Array([1]), [], reported),
 		});
 		const recording = expectOk(
-			await startRecording({ device, path: 'recordings/a' }),
+			await recorder.start({ device, path: 'recordings/a' }),
 		);
 		expect(await placedPath(recording)).toBe(`recordings/a.${extension}`);
 		expect([...memory.held.keys()]).toEqual([`recordings/a.${extension}`]);
@@ -591,20 +588,18 @@ test('a recording whose file takes a type it did not ask for still holds its loc
 		Recorder: fakeRecorderClass(() => new Uint8Array([9]), [], 'audio/mp4'),
 	});
 	const recording = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	recorders.at(-1)!.piece(new Uint8Array([1]));
 	await settle();
 	expect(memory.held.get('recordings/a.m4a')).toEqual(new Uint8Array([1]));
 	expect(
-		expectOk(await recoverRecordings({ device, under: 'recordings' }))
-			.recovered,
+		expectOk(await recorder.recover({ device, under: 'recordings' })).recovered,
 	).toEqual([]);
 	expect(await placedPath(recording)).toBe('recordings/a.m4a');
 	await settle();
 	expect(
-		expectOk(await recoverRecordings({ device, under: 'recordings' }))
-			.recovered,
+		expectOk(await recorder.recover({ device, under: 'recordings' })).recovered,
 	).toEqual([{ path: 'recordings/a.m4a', durationMs: null }]);
 });
 
@@ -633,13 +628,22 @@ test('a chosen microphone is asked for exactly, and refused rather than replaced
 	expect(other.track.stopped).toBe(true);
 });
 
-test('a denied permission is its own refusal', async () => {
-	browser({
-		async getUserMedia() {
-			throw Object.assign(new Error('no'), { name: 'NotAllowedError' });
-		},
-	});
-	expect(expectErr(await startPageRecording()).name).toBe('PermissionDenied');
+test('refused access and a missing default microphone are refusals of their own, for recording, enabling, and a meter', async () => {
+	for (const [thrown, expected] of [
+		['NotAllowedError', 'PermissionDenied'],
+		['SecurityError', 'PermissionDenied'],
+		['NotFoundError', 'NoInputDevice'],
+		['NotReadableError', 'Failed'],
+	] as const) {
+		browser({
+			async getUserMedia() {
+				throw Object.assign(new Error('no'), { name: thrown });
+			},
+		});
+		expect(expectErr(await startPageRecording()).name).toBe(expected);
+		expect(expectErr(await recorder.allow()).name).toBe(expected);
+		expect(expectErr(await recorder.openMeter()).name).toBe(expected);
+	}
 });
 
 test('stop releases the microphone, and a second stop is NotRecording', async () => {
@@ -651,19 +655,23 @@ test('stop releases the microphone, and a second stop is NotRecording', async ()
 	expect(expectErr(await recording.stop()).name).toBe('NotRecording');
 });
 
-test('a start withdrawn while the browser answers releases the late stream', async () => {
-	const { stream, track } = fakeStream('default');
-	const controller = new AbortController();
-	browser({
-		async getUserMedia() {
-			controller.abort();
-			return stream;
-		},
-	});
-	expect(
-		expectErr(await startPageRecording({ signal: controller.signal })).name,
-	).toBe('Cancelled');
-	expect(track.stopped).toBe(true);
+test('a start, a meter, or enabling withdrawn while the browser answers releases the late stream', async () => {
+	for (const request of [
+		(signal: AbortSignal) => startPageRecording({ signal }),
+		(signal: AbortSignal) => recorder.openMeter({ signal }),
+		(signal: AbortSignal) => recorder.allow({ signal }),
+	]) {
+		const { stream, track } = fakeStream('default');
+		const controller = new AbortController();
+		browser({
+			async getUserMedia() {
+				controller.abort();
+				return stream;
+			},
+		});
+		expect(expectErr(await request(controller.signal)).name).toBe('Cancelled');
+		expect(track.stopped).toBe(true);
+	}
 });
 
 test('an encoder that cannot be made, started, or stopped is a failure, and the microphone is released', async () => {
@@ -688,7 +696,7 @@ test('an encoder that cannot be made, started, or stopped is a failure, and the 
 			Recorder,
 		});
 		expect(
-			expectErr(await startRecording({ device, path: 'recordings/a' })).name,
+			expectErr(await recorder.start({ device, path: 'recordings/a' })).name,
 		).toBe('Failed');
 		expect(track.stopped).toBe(true);
 		expect(memory.held.size).toBe(0);
@@ -737,7 +745,7 @@ test('audio the page cannot read is a failure, not a thrown stop, and the microp
 		getUserMedia: async () => written.stream,
 	});
 	const writing = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	const endings: string[] = [];
 	writing.onEnded((reason) => endings.push(reason));
@@ -833,7 +841,9 @@ test('a meter opens exactly the chosen microphone for its level, ends when it is
 		},
 	});
 	const meter = expectOk(
-		await openMeter({ input: { deviceId: 'usb-1', label: 'USB Mic' } }),
+		await recorder.openMeter({
+			input: { deviceId: 'usb-1', label: 'USB Mic' },
+		}),
 	);
 	expect(asked).toEqual([
 		{ audio: { ...UNPROCESSED, deviceId: { exact: 'usb-1' } } },
@@ -864,11 +874,76 @@ test('enabling access opens the default microphone and releases it at once, and 
 			return stream;
 		},
 	});
-	expectOk(await allowMicrophone());
+	expectOk(await recorder.allow());
 	expect(asked).toEqual([{ audio: UNPROCESSED }]);
 	expect(track.stopped).toBe(true);
 
 	stub(globalThis, 'AudioContext', undefined);
-	expect(expectErr(await openMeter()).name).toBe('Unavailable');
+	expect(expectErr(await recorder.openMeter()).name).toBe('Unavailable');
 	expect(asked).toHaveLength(1);
+});
+
+/** A browser listing `devices`, with the listeners it tells of a change. */
+function listing(devices: { kind: string; deviceId: string; label: string }[]) {
+	const asked: MediaStreamConstraints[] = [];
+	const changeListeners = new Set<() => void>();
+	stub(navigator, 'mediaDevices', {
+		async getUserMedia(constraints: MediaStreamConstraints) {
+			asked.push(constraints);
+			return fakeStream('default').stream;
+		},
+		enumerateDevices: async () => devices,
+		addEventListener: (_type: string, listener: () => void) =>
+			changeListeners.add(listener),
+		removeEventListener: (_type: string, listener: () => void) =>
+			changeListeners.delete(listener),
+	});
+	return { asked, changeListeners };
+}
+
+test('listing opens no microphone, names the audio inputs, and leaves out the system aliases', async () => {
+	const { asked } = listing([
+		{ kind: 'audioinput', deviceId: 'default', label: 'Default - Desk' },
+		{ kind: 'audioinput', deviceId: 'communications', label: 'Comms - Desk' },
+		{ kind: 'audioinput', deviceId: 'desk', label: 'Desk Microphone' },
+		{ kind: 'audioinput', deviceId: 'usb-1', label: 'USB Mic' },
+		{ kind: 'audiooutput', deviceId: 'speakers', label: 'Speakers' },
+	]);
+	expect(expectOk(await recorder.listInputs())).toEqual({
+		inputs: [
+			{ deviceId: 'desk', label: 'Desk Microphone' },
+			{ deviceId: 'usb-1', label: 'USB Mic' },
+		],
+		namesWithheld: false,
+	});
+	expect(asked).toEqual([]);
+});
+
+test('before access is allowed, withheld names are said and nothing is listed by name', async () => {
+	listing([{ kind: 'audioinput', deviceId: '', label: '' }]);
+	expect(expectOk(await recorder.listInputs())).toEqual({
+		inputs: [],
+		namesWithheld: true,
+	});
+	listing([{ kind: 'audiooutput', deviceId: 'speakers', label: 'Speakers' }]);
+	expect(expectOk(await recorder.listInputs())).toEqual({
+		inputs: [],
+		namesWithheld: false,
+	});
+});
+
+test('inputs connected or removed are heard until the listener is removed, and a window without microphone access lists nothing', async () => {
+	const { changeListeners } = listing([]);
+	let heard = 0;
+	const stop = recorder.onInputsChange(() => (heard += 1));
+	for (const listener of changeListeners) listener();
+	stop();
+	expect(heard).toBe(1);
+	expect(changeListeners.size).toBe(0);
+
+	stub(navigator, 'mediaDevices', undefined);
+	expect(expectErr(await recorder.listInputs()).name).toBe('Unavailable');
+	expect(expectErr(await recorder.allow()).name).toBe('Unavailable');
+	// Nothing to hear about, and nothing to undo.
+	recorder.onInputsChange(() => {})();
 });

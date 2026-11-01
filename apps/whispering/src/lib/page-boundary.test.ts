@@ -107,22 +107,20 @@ test('the store is opened once, by each variant’s startup; nothing opens a rep
 });
 
 test('a microphone is reached only through its build’s recorder entry', () => {
-	// The WebView microphone reaches the browser's recorder, the shell's
-	// microphone the desktop's. Shared code names the bare specifier, which
-	// is the recording contract alone.
+	// Each build's services leaf hands its recorder to the one microphone
+	// device. Shared code names the bare specifier, which is the recording
+	// contract alone.
 	expect(
 		importers((specifier) => specifier === '@epicenter/recorder/tauri'),
 	).toEqual([
-		'lib/platform/microphone.tauri.ts imports @epicenter/recorder/tauri',
-	]);
-	expect(callers('createShellMicrophone')).toEqual([
-		'lib/platform/services.tauri.ts',
+		'lib/platform/services.tauri.ts imports @epicenter/recorder/tauri',
 	]);
 	expect(
 		importers((specifier) => specifier === '@epicenter/recorder/browser'),
-	).toEqual(['lib/webview-microphone.ts imports @epicenter/recorder/browser']);
-	expect(callers('createWebViewMicrophone')).toEqual([
+	).toEqual(['lib/platform/browser.ts imports @epicenter/recorder/browser']);
+	expect(callers('createMicrophoneDevice')).toEqual([
 		'lib/platform/browser.ts',
+		'lib/platform/services.tauri.ts',
 	]);
 });
 

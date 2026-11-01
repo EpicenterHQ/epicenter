@@ -7,6 +7,7 @@ import {
 	AI_MODELS,
 	HOSTED_TRANSCRIPTION_MODEL,
 } from '@epicenter/constants/ai-providers';
+import { recorder } from '@epicenter/recorder/browser';
 import { Err, Ok } from 'wellcrafted/result';
 import {
 	applyConnectionChange,
@@ -18,6 +19,7 @@ import {
 	readStoredConnection,
 	type StoredConnection,
 } from '../connections.js';
+import { createMicrophoneDevice } from '../microphone.js';
 import { localPreferences } from '../microphone-preference.js';
 import { sentences } from '../sentences.js';
 import { transcribeOverConnection } from '../transcription.js';
@@ -25,7 +27,6 @@ import {
 	TransformationError,
 	transformOverConnection,
 } from '../transformation.js';
-import { createWebViewMicrophone } from '../webview-microphone.js';
 import { getAuth } from './auth.js';
 import type { CreateServices } from './types.js';
 
@@ -152,7 +153,7 @@ const describe = (cause: unknown) =>
 
 /** Whispering's services in a browser tab: `#platform/services`. */
 export const createServices: CreateServices = (client) => ({
-	capture: createWebViewMicrophone(client),
+	capture: createMicrophoneDevice({ device: client, recorder }),
 	transcribe: (request) => {
 		let selected: ReturnType<typeof route>;
 		return transcribeOverConnection(

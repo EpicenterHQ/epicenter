@@ -12,7 +12,7 @@
  * it is. When the page reloads or its window closes, the shell finishes and
  * places the recording itself: the audio is kept. A process that ends
  * before then leaves the file in `.epicenter/recordings` with every whole
- * second but the last; `recoverRecordings` finishes it from those and
+ * second but the last; `recorder.recover` finishes it from those and
  * places it at its path.
  *
  * Levels and an ending nobody asked for arrive on a channel this page alone
@@ -20,27 +20,22 @@
  *
  * The page opens no microphone of its own: the shell lists the inputs
  * (`listInputs`), reads one's level without recording (`openMeter`), and
- * records from one, each named by the id the shell lists it under.
+ * records from one, each named by the id the shell lists it under. It has
+ * no `allow` and no `onInputsChange`: the shell names every input without
+ * microphone access, asks for access itself, and announces no changes.
  */
 import { rootOf } from '@epicenter/folder/tauri';
 import { Channel } from '@tauri-apps/api/core';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import {
 	commands,
-	type Input,
 	type RecorderError as NativeRecorderError,
 	type RecordingSignal,
 } from './native/bindings.gen.js';
-import {
-	type OpenMeter,
-	RecorderError,
-	type RecordingEndedReason,
-	type RecoverRecordings,
-	type StartRecording,
-} from './recording.js';
+import { type Recorder, RecorderError } from './recording.js';
+import { createSignals } from './signals.js';
 
 export * from './recording.js';
-export type { Input };
 
 /** A refusal from the shell, as this package names it. */
 function fromNative(error: NativeRecorderError, label = '') {
@@ -66,56 +61,21 @@ function fromNative(error: NativeRecorderError, label = '') {
 	}
 }
 
-/** One native channel owns its listeners and first ending until retired. */
-function createRecordingSignals() {
-	const levels = new Set<(level: number) => void>();
-	const endings = new Set<(reason: RecordingEndedReason) => void>();
-	let ended: RecordingEndedReason | undefined;
-	let retired = false;
+/** A capture's signals, fed by the channel the shell sends them on. */
+function nativeSignals() {
+	const signals = createSignals();
 	const channel = new Channel<RecordingSignal>();
 	channel.onmessage = (message) => {
-		if (retired) return;
-		if (message.kind === 'level') {
-			for (const listener of levels) listener(message.level ?? 0);
-		} else if (ended === undefined) {
-			const reason = message.reason;
-			ended = reason;
-			for (const listener of [...endings]) listener(reason);
-		}
+		if (message.kind === 'level') signals.level(message.level ?? 0);
+		else signals.end(message.reason);
 	};
-	return {
-		channel,
-		onLevel(listener: (level: number) => void) {
-			if (retired) return () => {};
-			levels.add(listener);
-			return () => levels.delete(listener);
-		},
-		onEnded(listener: (reason: RecordingEndedReason) => void) {
-			if (retired) return () => {};
-			if (ended !== undefined) {
-				listener(ended);
-				return () => {};
-			}
-			endings.add(listener);
-			return () => endings.delete(listener);
-		},
-		retire() {
-			retired = true;
-			levels.clear();
-			endings.clear();
-		},
-	};
+	return { ...signals, channel };
 }
 
 /** Record into `device`'s folder from the first sample, landing at `<path>.webm` when it stops. */
-export const startRecording: StartRecording = async ({
-	device,
-	path,
-	input,
-	signal,
-}) => {
+const start: Recorder['start'] = async ({ device, path, input, signal }) => {
 	if (signal?.aborted) return RecorderError.Cancelled();
-	const signals = createRecordingSignals();
+	const signals = nativeSignals();
 	let answer: Awaited<ReturnType<typeof commands.start>>;
 	try {
 		answer = await commands.start(
@@ -163,10 +123,7 @@ export const startRecording: StartRecording = async ({
  * one left there because another file is at its path. Run it before
  * anything lists, plays, or transcribes a recording.
  */
-export const recoverRecordings: RecoverRecordings = async ({
-	device,
-	under,
-}) => {
+const recover: Recorder['recover'] = async ({ device, under }) => {
 	try {
 		const { data, error } = await commands.recover(rootOf(device), under);
 		if (error !== null) return fromNative(error);
@@ -176,25 +133,27 @@ export const recoverRecordings: RecoverRecordings = async ({
 	}
 };
 
-/** The microphones connected now, each with the id to record or meter it by. Opens nothing. */
-export async function listInputs(): Promise<Result<Input[], RecorderError>> {
+/** The microphones connected now, each by the id the shell lists it under. Opens nothing. */
+const listInputs: Recorder['listInputs'] = async () => {
 	try {
 		const { data, error } = await commands.inputs();
 		if (error !== null) return fromNative(error);
-		return Ok(data);
+		return Ok({
+			inputs: data.map(({ id, name }) => ({ deviceId: id, label: name })),
+		});
 	} catch (cause) {
 		return RecorderError.Failed({ cause });
 	}
-}
+};
 
 /**
  * Open `input`, or the system default, for its level until `close`. The
  * shell also closes it when this page reloads or its window closes. A chosen
  * input that is not connected is refused, never replaced.
  */
-export const openMeter: OpenMeter = async ({ input, signal } = {}) => {
+const openMeter: Recorder['openMeter'] = async ({ input, signal } = {}) => {
 	if (signal?.aborted) return RecorderError.Cancelled();
-	const signals = createRecordingSignals();
+	const signals = nativeSignals();
 	let answer: Awaited<ReturnType<typeof commands.openMeter>>;
 	try {
 		answer = await commands.openMeter(input?.deviceId ?? null, signals.channel);
@@ -218,3 +177,12 @@ export const openMeter: OpenMeter = async ({ input, signal } = {}) => {
 		close,
 	});
 };
+
+/** The shell's microphones, recording into the data folder the page opened. */
+export const recorder = {
+	start,
+	recover,
+	listInputs,
+	openMeter,
+	placesWhole: true,
+} satisfies Recorder;

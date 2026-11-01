@@ -8,11 +8,11 @@ to the other ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-cont
   browser's private files (OPFS, `openDevice`), for good. It needs no
   account and offers no sign-in, works offline, and never uploads. A
   recording is written into those files as it records
-  (`startRecording({ device, path })` from `@epicenter/recorder/browser`,
+  (`recorder.start({ device, path })` from `@epicenter/recorder/browser`,
   decision 84): each piece of audio, about a second, is appended to its file
   as it arrives, and its note follows at Stop. When the page opens, a
   recording a closed tab cut off is cut back to its last whole piece
-  (`recoverRecordings`) and given its note, its length read from the audio.
+  (`recorder.recover`) and given its note, its length read from the audio.
 - **Online** (`/online`, the online variant): the person's repository,
   `<handle>/recorder-demo`, through Epicenter (`openRemote`), behind a
   sign-in. A recording is held in the page while it records

@@ -12,8 +12,8 @@
 import type { Client } from '@epicenter/definition/contract';
 import {
 	type RecorderError,
+	recorder,
 	startPageRecording,
-	startRecording,
 } from '@epicenter/recorder/browser';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Recorder } from '../contract.ts';
@@ -35,7 +35,7 @@ export type Record = (id: string) => Promise<Result<Take, RecorderError>>;
 /** Record into `device`, this browser's files, as it records. */
 export function recordInto(device: Client<Recorder>): Record {
 	return async (id) => {
-		const started = await startRecording({
+		const started = await recorder.start({
 			device,
 			path: `recordings/${id}`,
 		});

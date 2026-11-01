@@ -12,7 +12,7 @@
 	import { closeDevice } from '@epicenter/folder/browser';
 	import { guardLeave } from '@epicenter/svelte/leave-guard';
 	import { onDestroy, onMount } from 'svelte';
-	import { recoverRecordings } from '@epicenter/recorder/browser';
+	import { recorder } from '@epicenter/recorder/browser';
 	import Header from './Header.svelte';
 	import Recorder from './Recorder.svelte';
 	import type { Recorder as RecorderContract } from './contract.ts';
@@ -29,7 +29,7 @@
 	/** Why what a closed tab cut off could not be finished, if it could not. */
 	let cutOff = $state<string | null>(null);
 	onMount(async () => {
-		const repaired = await recoverRecordings({ device, under: 'recordings' });
+		const repaired = await recorder.recover({ device, under: 'recordings' });
 		// Files this browser will not list (a private window): the list says so.
 		if (repaired.error !== null) return;
 		const finished = await finishCutOffRecordings(device);

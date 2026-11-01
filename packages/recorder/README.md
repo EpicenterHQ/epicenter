@@ -8,24 +8,39 @@ detection.
 A recording is a file in the app's store from its first moments, written as
 it records, so a quit, a crash, or a closed tab keeps the audio up to the cut
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md),
-decision 84). Every build calls the same two functions, from the entry its
-`#platform` seam imports; nothing chooses at run time, so the type checker,
-tests, and every bundler resolve each specifier to the same file:
+decision 84). Each entry exports one `recorder`, both satisfying the bare
+entry's `Recorder` interface, and every build calls it the same way, from
+the entry its `#platform` seam imports; nothing chooses at run time, so the
+type checker, tests, and every bundler resolve each specifier to the same
+file:
 
 ```txt
-@epicenter/recorder           the shared vocabulary: types, RecorderError, audioDurationMs; no implementation
-  /tauri    → tauri-plugin-epicenter-recorder: the shell writes Opus in WebM under .epicenter/recordings from the first sample, and places it at <path>.webm at stop
-  /browser  → MediaRecorder: each piece appended to <path>.m4a (or .webm) in this browser's files; streams and VAD
+@epicenter/recorder           the shared vocabulary: Recorder, the types, RecorderError, audioDurationMs; no implementation
+  /tauri    → recorder over tauri-plugin-epicenter-recorder: the shell writes Opus in WebM under .epicenter/recordings from the first sample, and places it at <path>.webm at stop
+  /browser  → recorder over MediaRecorder: each piece appended to <path>.m4a (or .webm) in this browser's files; startPageRecording and VAD
   /vad-assets → the VAD runtime files, for a build's static copy
 ```
+
+| `Recorder` | What it does |
+| --- | --- |
+| `start({ device, path, input?, signal? })` | Record into the store as it records; the handle's `stop` answers `{ path, durationMs }` |
+| `recover({ device, under })` | Repair recordings a quit, a crash, or a closed tab cut off: `{ recovered, unplaced }` |
+| `listInputs()` | The inputs connected now, `{ inputs: [{ deviceId, label }], namesWithheld? }`. Opens nothing and never asks for access |
+| `openMeter({ input?, signal? })` | Open one input for its level only, until `close` |
+| `allow?({ signal? })` | Browser only: ask for access so inputs are listed by name, releasing the default microphone at once |
+| `onInputsChange?(listener)` | Browser only: hear inputs connected or removed. The desktop shell announces nothing |
+| `placesWhole` | `true` on the desktop, where a recording reaches its path only whole once it stops; `false` in a browser, which writes at the path as it records |
+
+The functions need no `this`, so an app passes the whole `recorder`, or any
+one of them, on its own.
 
 ```ts
 // From '@epicenter/recorder/tauri' in a desktop build, '@epicenter/recorder/browser' in a web one:
 // the module behind the app's #platform seam imports one, and the call is the same.
-import { recoverRecordings, startRecording } from '@epicenter/recorder/browser';
+import { recorder } from '@epicenter/recorder/browser';
 
-await recoverRecordings({ device, under: 'recordings' }); // when the store opens, before anything records
-const { data: recording, error } = await startRecording({
+await recorder.recover({ device, under: 'recordings' }); // when the store opens, before anything records
+const { data: recording, error } = await recorder.start({
 	device, // the client openDevice returned: the data folder, or this browser's files
 	path: 'recordings/2026-10-15-0930', // no extension: the format's is added
 	input: { deviceId, label }, // optional; undefined is the system default
@@ -49,9 +64,9 @@ file with a sync access handle.
 | Format | Opus in WebM, mono, 24 kbps, from 16 kHz PCM (about 10.5 MB an hour of speech) | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | Each whole second is written as it is encoded | Each piece is appended as it arrives; the store's listeners hear the file made and finished, not every piece |
 | Quit, crash, closed window or tab | Audio kept up to about the last second | Every piece already written is kept |
-| `recoverRecordings` | Finishes a recording a quit cut off from its whole seconds and places it as `stop` does. Answers `recovered`, each `{ path, durationMs }` placed, from the length its file states, and `unplaced`, each `{ path, pending }` whose path holds another file: that recording is never deleted, stays finished at `pending` under `.epicenter/recordings`, and is answered on every run until a person moves one of the two, so an app says where it is. Run it before anything lists, plays, or transcribes a recording: a cut-off file reads wrong until it is finished | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for the recording's path, whatever extension its file took). Answers `recovered`, `{ path, durationMs }` for every recording no tab is writing, cut or already whole, the length read from the file, so an app can tell a cut-off recording from one another tab is recording; `unplaced` is always empty |
+| `recover` | Finishes a recording a quit cut off from its whole seconds and places it as `stop` does. Answers `recovered`, each `{ path, durationMs }` placed, from the length its file states, and `unplaced`, each `{ path, pending }` whose path holds another file: that recording is never deleted, stays finished at `pending` under `.epicenter/recordings`, and is answered on every run until a person moves one of the two, so an app says where it is. Run it before anything lists, plays, or transcribes a recording: a cut-off file reads wrong until it is finished | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for the recording's path, whatever extension its file took). Answers `recovered`, `{ path, durationMs }` for every recording no tab is writing, cut or already whole, the length read from the file, so an app can tell a cut-off recording from one another tab is recording; `unplaced` is always empty |
 | Refused before the microphone opens | The folder or path may not be written, or a file is there | This browser keeps no files here (a private window), or a file is there |
-| Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
+| Chosen microphone | Asked for by the shell's ID, as `listInputs` answers it (`input.deviceId`) | Asked for by the browser's ID, as `listInputs` answers it (`input.deviceId`) |
 | Voice processing | None: cpal reads the device as it hears | Off: echo cancellation, noise suppression, and gain control are asked off, since Safari's take about 2 s to start and MediaRecorder drops that time |
 | `signal` aborted after the microphone opened | Stopped: the recording is finished and kept | Released; nothing was written |
 | `durationMs` at `stop` | The samples written over the rate, which the file's Duration states too | Read from the file written; the time between start and stop only when its bytes do not read. An engine drops the first moments of a recording (Safari about 0.3 s), so the clock says more than the audio holds |
@@ -59,7 +74,7 @@ file with a sync access handle.
 `audioDurationMs(bytes, ext)` reads how long a `wav`, `m4a`, or `webm` the
 recorder wrote plays, from its own bytes (a desktop `webm`'s stated Duration,
 exact to the sample), so an app can measure audio at its path that
-`recoverRecordings` did not answer a length for: a recording the shell
+`recover` did not answer a length for: a recording the shell
 placed after its page left, or one whose `stop` answer nobody heard. A store that stops taking pieces mid-recording ends it
 as `storageFailed`; stop keeps what landed.
 
@@ -82,13 +97,15 @@ in place of those globals.
 
 `onEnded` reports the first unexpected ending, including one received before
 subscription. Stop still claims what was captured and retires the listeners.
+Every recording and meter, on either host, keeps its listeners the same way
+(`signals.ts`).
 Nothing deletes a recording. In a browser, final encoder output is collected
 even if the browser already stopped after its microphone tracks ended.
 
 A chosen microphone that is not connected is refused as `InputUnavailable`
 on both; no other microphone is opened in its place. Every failure is a
 `RecorderError`, switched on by `name`. Nothing here says whether a
-recording is running: that is the handle `startRecording` returns, and it
+recording is running: that is the handle `recorder.start` returns, and it
 ends with the page. The handle's `microphone` is the name of the one
 recording.
 
@@ -99,10 +116,10 @@ A desktop page opens no microphone of its own
 `@epicenter/recorder/tauri` asks the shell for the inputs and for a level:
 
 ```ts
-import { listInputs, openMeter } from '@epicenter/recorder/tauri';
+import { recorder } from '@epicenter/recorder/tauri';
 
-const { data: inputs } = await listInputs(); // [{ id, name, isDefault }]
-const { data: meter } = await openMeter({ input: { deviceId: inputs[0].id, label: inputs[0].name } });
+const { data: listing } = await recorder.listInputs(); // { inputs: [{ deviceId, label }] }
+const { data: meter } = await recorder.openMeter({ input: listing.inputs[0] });
 meter.microphone; // its name
 meter.onLevel((rms) => bar.set(rms)); // at most twenty times a second
 await meter.close(); // the shell also closes it when the page reloads or its window closes
@@ -110,22 +127,28 @@ await meter.close(); // the shell also closes it when the page reloads or its wi
 
 A meter's `onEnded` reports its first unexpected ending, including one received
 before the open reply or subscription. `close` retires its listeners. Each
-recording and meter owns a channel with the same notification lifetime.
+recording and meter owns a channel the shell sends its levels and ending on.
+There is no `allow` and no `onInputsChange`: the shell names every input
+without access, asks for access itself, and announces no changes.
 
 The ID is cpal's device ID (`coreaudio:<device UID>` on macOS), which stays
 the same across launches and reconnections. Listing needs no microphone
 permission; the shell's recorder asks macOS for it before it opens a meter
 or records, and a denial is `PermissionDenied`.
 
-## Levels in a browser
+## Inputs and levels in a browser
 
-`@epicenter/recorder/browser` has the same `openMeter`, over the page's own
-microphone, and `allowMicrophone`, which opens the default microphone and
-releases it at once so the browser lists inputs by name. Recording, a
-meter, enabling access, and voice activity detection all open a microphone
-the same way (`microphone.ts`): exactly the chosen input, with the browser's
-voice processing off, and released by whoever opened it. Listing inputs is
-the browser's own `enumerateDevices`.
+`@epicenter/recorder/browser`'s `recorder` has the same `listInputs` and
+`openMeter`, over the page's own microphone, and two the desktop has no use
+for: `allow`, which opens the default microphone and releases it at once so
+the browser lists inputs by name, and `onInputsChange`, the browser's
+`devicechange`. `listInputs` is the browser's own `enumerateDevices`,
+without the system aliases (`default`, `communications`), which no input
+stands for; until access is allowed it names nothing and says
+`namesWithheld`. Recording, a meter, enabling access, and voice activity
+detection all open a microphone the same way (`microphone.ts`): exactly the
+chosen input, with the browser's voice processing off, and released by
+whoever opened it.
 
 ## Voice activity detection
 

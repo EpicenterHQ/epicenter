@@ -5,9 +5,9 @@
  * - `start` names the path and the chosen microphone by the ID the shell
  *   listed it under, and the device's root as the shell answered it when
  *   the device opened, and passes the channel levels and endings arrive on
- * - `listInputs` answers the shell's inputs; `openMeter` opens one by ID,
- *   hears its levels, and closes it, and a meter withdrawn while opening is
- *   closed
+ * - `listInputs` answers the shell's inputs, each by the ID to ask for it
+ *   by and its name; `openMeter` opens one by ID, hears its levels, and
+ *   closes it, and a meter withdrawn while opening is closed
  * - `stop` names the recording the shell minted, answers where the shell
  *   placed it and its length, and stops hearing the channel
  * - The shell's refusals arrive as this package's errors, by name
@@ -50,12 +50,11 @@ mock.module('@epicenter/folder/tauri', () => ({
 	},
 }));
 
-const { listInputs, openMeter, startRecording, recoverRecordings } =
-	await import('./tauri.js');
+const { recorder } = await import('./tauri.js');
 
 const ROOT = '/Users/me/Epicenter/App';
 /** The data folder the page opened by its path. */
-const device = {} as Parameters<typeof startRecording>[0]['device'];
+const device = {} as Parameters<typeof recorder.start>[0]['device'];
 roots.set(device, ROOT);
 
 const started = {
@@ -75,7 +74,7 @@ beforeEach(() => {
 
 test('a recording starts in the device’s root and stops by the id the shell minted', async () => {
 	const recording = expectOk(
-		await startRecording({
+		await recorder.start({
 			device,
 			path: 'recordings/a',
 			input: { deviceId: 'coreaudio:desk-uid', label: 'Desk Microphone' },
@@ -117,7 +116,7 @@ test('a recording starts in the device’s root and stops by the id the shell mi
 
 test('a command that throws instead of answering is a failure, not a refusal', async () => {
 	const recording = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	const lost = new Error('the shell is gone');
 	answer = () => {
@@ -126,23 +125,23 @@ test('a command that throws instead of answering is a failure, not a refusal', a
 	const failed = { name: 'Failed', cause: lost };
 	expect(expectErr(await recording.stop())).toMatchObject(failed);
 	expect(
-		expectErr(await startRecording({ device, path: 'recordings/b' })),
+		expectErr(await recorder.start({ device, path: 'recordings/b' })),
 	).toMatchObject(failed);
-	expect(expectErr(await openMeter())).toMatchObject(failed);
-	expect(expectErr(await listInputs())).toMatchObject(failed);
+	expect(expectErr(await recorder.openMeter())).toMatchObject(failed);
+	expect(expectErr(await recorder.listInputs())).toMatchObject(failed);
 	expect(
-		expectErr(await recoverRecordings({ device, under: 'recordings' })),
+		expectErr(await recorder.recover({ device, under: 'recordings' })),
 	).toMatchObject(failed);
 });
 
 test('the system default is asked for by naming no microphone', async () => {
-	expectOk(await startRecording({ device, path: 'recordings/a' }));
+	expectOk(await recorder.start({ device, path: 'recordings/a' }));
 	expect(calls[0]?.args.device).toBeNull();
 });
 
 test('a stop the shell refuses arrives by name', async () => {
 	const recording = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	answer = () => {
 		throw { name: 'NotRecording', message: 'already stopped' };
@@ -166,7 +165,7 @@ test('the shell refusing a start is the matching error, with the chosen label', 
 			throw { name, message: 'held' };
 		};
 		const refused = expectErr(
-			await startRecording({
+			await recorder.start({
 				device,
 				path: 'recordings/a',
 				input: { deviceId: 'x', label: 'USB Mic' },
@@ -187,7 +186,7 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 	};
 	expect(
 		expectErr(
-			await startRecording({
+			await recorder.start({
 				device,
 				path: 'recordings/a',
 				signal: controller.signal,
@@ -216,7 +215,7 @@ test('recover names the directory in the device’s root, and answers what it re
 	};
 	answer = () => recovery;
 	expect(
-		expectOk(await recoverRecordings({ device, under: 'recordings' })),
+		expectOk(await recorder.recover({ device, under: 'recordings' })),
 	).toEqual(recovery);
 	expect(calls).toEqual([
 		{
@@ -229,13 +228,12 @@ test('recover names the directory in the device’s root, and answers what it re
 test('a device with no root records and recovers nothing, and the shell is never asked', async () => {
 	const unopened = {} as typeof device;
 	expect(
-		expectErr(await startRecording({ device: unopened, path: 'recordings/a' }))
+		expectErr(await recorder.start({ device: unopened, path: 'recordings/a' }))
 			.name,
 	).toBe('Failed');
 	expect(
-		expectErr(
-			await recoverRecordings({ device: unopened, under: 'recordings' }),
-		).name,
+		expectErr(await recorder.recover({ device: unopened, under: 'recordings' }))
+			.name,
 	).toBe('Failed');
 	expect(calls).toEqual([]);
 });
@@ -245,7 +243,7 @@ test('a reply that is none of the shell’s refusals is a failure, not an answer
 		throw 'no such command plugin:epicenter-recorder|recover';
 	};
 	expect(
-		expectErr(await recoverRecordings({ device, under: 'recordings' })),
+		expectErr(await recorder.recover({ device, under: 'recordings' })),
 	).toMatchObject({
 		name: 'Failed',
 		cause: 'no such command plugin:epicenter-recorder|recover',
@@ -257,7 +255,9 @@ test('the inputs are the shell’s, each with the ID to ask for it by', async ()
 		{ id: 'coreaudio:desk-uid', name: 'Desk Microphone', isDefault: true },
 	];
 	answer = () => inputs;
-	expect(expectOk(await listInputs())).toEqual(inputs);
+	expect(expectOk(await recorder.listInputs())).toEqual({
+		inputs: [{ deviceId: 'coreaudio:desk-uid', label: 'Desk Microphone' }],
+	});
 	expect(calls).toEqual([
 		{ cmd: 'plugin:epicenter-recorder|inputs', args: {} },
 	]);
@@ -269,7 +269,7 @@ test('a meter opens the chosen microphone by ID, hears its level, and closes', a
 			? { id: '9', device: 'Desk Microphone' }
 			: null;
 	const meter = expectOk(
-		await openMeter({
+		await recorder.openMeter({
 			input: { deviceId: 'coreaudio:desk-uid', label: 'Desk Microphone' },
 		}),
 	);
@@ -296,9 +296,9 @@ test('a meter withdrawn while the shell opened it is closed, and a refusal arriv
 		controller.abort();
 		return { id: '9', device: 'Desk Microphone' };
 	};
-	expect(expectErr(await openMeter({ signal: controller.signal })).name).toBe(
-		'Cancelled',
-	);
+	expect(
+		expectErr(await recorder.openMeter({ signal: controller.signal })).name,
+	).toBe('Cancelled');
 	expect(calls.map(({ cmd }) => cmd)).toEqual([
 		'plugin:epicenter-recorder|open_meter',
 		'plugin:epicenter-recorder|close_meter',
@@ -308,7 +308,9 @@ test('a meter withdrawn while the shell opened it is closed, and a refusal arriv
 		throw { name: 'InputUnavailable', message: 'gone' };
 	};
 	expect(
-		expectErr(await openMeter({ input: { deviceId: 'x', label: 'USB Mic' } })),
+		expectErr(
+			await recorder.openMeter({ input: { deviceId: 'x', label: 'USB Mic' } }),
+		),
 	).toMatchObject({ name: 'InputUnavailable', label: 'USB Mic' });
 });
 
@@ -324,7 +326,7 @@ test('an ending received before start answers reaches its subscriber once and re
 		return { durationMs: 1250 };
 	};
 	const recording = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	const endings: string[] = [];
 	recording.onEnded((reason) => endings.push(reason));
@@ -340,7 +342,7 @@ test('an ending received before start answers reaches its subscriber once and re
 
 test('an ending reaches every listener when the first listener stops the native recorder', async () => {
 	const recording = expectOk(
-		await startRecording({ device, path: 'recordings/a' }),
+		await recorder.start({ device, path: 'recordings/a' }),
 	);
 	let stopping: ReturnType<typeof recording.stop> | undefined;
 	const endings: string[] = [];
@@ -368,7 +370,7 @@ test('a meter ending before its open reply is delivered once and retired on clos
 		}
 		return null;
 	};
-	const meter = expectOk(await openMeter());
+	const meter = expectOk(await recorder.openMeter());
 	const heard: string[] = [];
 	meter.onEnded((reason) => heard.push(reason));
 	const channel = calls[0]?.args.levels as FakeChannel<unknown>;

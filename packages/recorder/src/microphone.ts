@@ -8,6 +8,10 @@
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { RecorderError, type RecordingInput } from './recording.js';
 
+/** The page's media devices, or undefined in a window with no microphone access. */
+export const mediaDevices = () =>
+	typeof navigator === 'undefined' ? undefined : navigator.mediaDevices;
+
 /** Stop every track, which releases the microphone. */
 export const release = (stream: MediaStream) => {
 	for (const track of stream.getTracks()) track.stop();
@@ -40,16 +44,15 @@ export async function openMicrophone(
 	input: RecordingInput | undefined,
 	signal: AbortSignal | undefined,
 ): Promise<Result<MediaStream, RecorderError>> {
-	const mediaDevices =
-		typeof navigator === 'undefined' ? undefined : navigator.mediaDevices;
-	if (mediaDevices?.getUserMedia === undefined)
+	const devices = mediaDevices();
+	if (devices?.getUserMedia === undefined)
 		return RecorderError.Unavailable({
 			reason: 'this window has no microphone access',
 		});
 	if (signal?.aborted) return RecorderError.Cancelled();
 	const { data: stream, error } = await tryAsync({
 		try: () =>
-			mediaDevices.getUserMedia({
+			devices.getUserMedia({
 				audio:
 					input === undefined
 						? UNPROCESSED

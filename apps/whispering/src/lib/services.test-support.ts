@@ -19,7 +19,7 @@ import { openDevice } from '@epicenter/folder/node';
 import { audioDurationMs, RecorderError } from '@epicenter/recorder';
 import { Err, Ok, unwrap } from 'wellcrafted/result';
 import { extensionOf } from './audio-format.js';
-import type { CaptureDevice, MicrophoneInputs } from './capture.js';
+import type { CaptureDevice } from './capture.js';
 import {
 	applyConnectionChange,
 	type ConnectionsInfo,
@@ -39,11 +39,10 @@ export type FixtureAudio = {
 };
 
 /** Inputs with no microphone behind them: nothing is listed, and a test is refused. */
-export const NO_INPUTS: MicrophoneInputs = {
-	list: async () => Ok({ devices: [] }),
-	meter: async () =>
+export const NO_INPUTS: CaptureDevice['inputs'] = {
+	listInputs: async () => Ok({ inputs: [] }),
+	openMeter: async () =>
 		RecorderError.Unavailable({ reason: 'no microphone is behind this test' }),
-	onChange: () => () => {},
 };
 
 /**

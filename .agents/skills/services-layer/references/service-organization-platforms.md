@@ -13,8 +13,7 @@ src/lib/platform/
 |-- types.ts              WhisperingServices, CreateServices (the contract)
 |-- browser.ts            #platform/services in the web build
 |-- services.tauri.ts     #platform/services in the desktop build
-|-- microphone.tauri.ts   the shell's microphone, imported only by desktop leaves
-`-- fetch.tauri.ts        shellFetch over send_request, likewise
+`-- fetch.tauri.ts        shellFetch over send_request, imported only by desktop leaves
 ```
 
 ```jsonc
@@ -33,7 +32,7 @@ export const createServices: CreateServices = (client) => ({ capture, transcribe
 ```
 
 Shared code imports `createServices` from `#platform/services` once, where
-the app is assembled. A desktop-only helper (`microphone.tauri.ts`) is
+the app is assembled. A desktop-only helper (`fetch.tauri.ts`) is
 imported by the desktop leaf directly, never through a seam. A capability
 only one build has is an optional member of the contract
 (`connections.useLocal?`), not a second seam.
