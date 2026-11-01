@@ -11,6 +11,7 @@ import type {
 	NoteOf,
 	Version,
 } from '@epicenter/definition/contract';
+import { timeOf } from '@epicenter/definition/ids';
 import { audioDurationMs } from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Recorder } from '../contract.ts';
@@ -53,17 +54,6 @@ export function recordingsOf(listing: Listing): RecordingRow[] {
 	);
 }
 
-/** When the recording `id` (a `timeId`) was made, or undefined for an id that is not one. */
-function recordedAtOf(id: string): Date | undefined {
-	const match = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z-/.exec(
-		id,
-	);
-	if (match === null) return undefined;
-	const [, day, hours, minutes, seconds, millis] = match;
-	const at = new Date(`${day}T${hours}:${minutes}:${seconds}.${millis}Z`);
-	return Number.isNaN(at.getTime()) ? undefined : at;
-}
-
 /**
  * Make the note of each recording whose audio a closed tab or a crash left
  * without one, its length read from the audio itself. The local variant
@@ -86,7 +76,7 @@ export async function finishCutOffRecordings(
 	);
 	const finished: string[] = [];
 	for (const { id, ext } of audio.data.items) {
-		const recordedAt = recordedAtOf(id);
+		const recordedAt = timeOf(id);
 		if (named.has(id) || recordedAt === undefined) continue;
 		const read = await device.audio.get({ id, ext });
 		if (read.error !== null) continue;

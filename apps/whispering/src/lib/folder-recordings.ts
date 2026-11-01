@@ -19,6 +19,7 @@
  * moves one of the two; nothing deletes it.
  */
 import type { Client } from '@epicenter/definition/contract';
+import { timeOf } from '@epicenter/definition/ids';
 import { audioDurationMs, type UnplacedRecording } from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { CaptureDevice } from './capture.js';
@@ -48,17 +49,6 @@ export async function keepRecording(
 
 /** The extensions a recording's audio is kept under: Opus in WebM on the desktop, AAC in MP4 or Opus in WebM in a browser, and WAV. */
 const RECORDED: readonly string[] = ['wav', 'm4a', 'webm'];
-
-/** When a recording whose id `timeId` made was started, or now for any other id. */
-function recordedAtOf(id: string): string {
-	const stamp = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/.exec(
-		id,
-	);
-	const at = stamp
-		? new Date(`${stamp[1]}T${stamp[2]}:${stamp[3]}:${stamp[4]}.${stamp[5]}Z`)
-		: new Date(Number.NaN);
-	return (Number.isNaN(at.getTime()) ? new Date() : at).toISOString();
-}
 
 /**
  * Give every recording a quit, a crash, or a closed tab cut off its note.
@@ -108,7 +98,7 @@ export async function finishCutOffRecordings(
 		const kept = await keepRecording(device, {
 			id,
 			title: 'Recovered recording',
-			recordedAt: recordedAtOf(id),
+			recordedAt: (timeOf(id) ?? new Date()).toISOString(),
 			durationMs: durationMs ?? (await measured(device, id)),
 		});
 		if (kept.error === null) noted.push(id);

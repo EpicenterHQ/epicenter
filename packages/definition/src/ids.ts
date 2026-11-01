@@ -4,7 +4,8 @@
  * A contract never mints a file's name (decision 5): `create` takes every
  * placeholder from its caller. These are the two names a caller usually
  * wants. `timeId()` sorts by when it was made, which suits captures and
- * recordings; `nanoid()` is a short random name.
+ * recordings, and `timeOf()` reads that moment back; `nanoid()` is a short
+ * random name.
  */
 import { customAlphabet } from 'nanoid';
 
@@ -30,4 +31,23 @@ export function timeId(at: Date = new Date()): string {
 		.replace(/\.(\d{3})Z$/, '-$1Z')
 		.replaceAll(':', '-');
 	return `${stamp}-${random()}`;
+}
+
+/**
+ * The moment the `timeId` `id` was made, or undefined for a name it did not
+ * make: a recording's audio a crash left without a note still says when it
+ * started.
+ *
+ * @example
+ * ```ts
+ * timeOf('2026-10-30T22-41-05-123Z-k3x9a2f8'); // 2026-10-30T22:41:05.123Z
+ * ```
+ */
+export function timeOf(id: string): Date | undefined {
+	const stamp =
+		/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z(?:-|$)/.exec(id);
+	if (stamp === null) return undefined;
+	const [, day, hours, minutes, seconds, millis] = stamp;
+	const at = new Date(`${day}T${hours}:${minutes}:${seconds}.${millis}Z`);
+	return Number.isNaN(at.getTime()) ? undefined : at;
 }

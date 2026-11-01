@@ -5,11 +5,11 @@
  * listing shows, and it must fit every path segment a contract uses.
  *
  * Key behaviors:
- * - Ids sort by the moment they were made
+ * - Ids sort by the moment they were made, which `timeOf` reads back
  * - An id holds no `.`, `:`, `/` or uppercase random part, so it splits cleanly in `{id}.{ext}`
  */
 import { expect, test } from 'bun:test';
-import { nanoid, timeId } from './ids.js';
+import { nanoid, timeId, timeOf } from './ids.js';
 
 test('timeId sorts by the moment it was made', () => {
 	const moments = [
@@ -30,4 +30,16 @@ test('timeId holds nothing a path segment or {id}.{ext} would split on', () => {
 	}
 	expect(timeId()).not.toBe(timeId());
 	expect(nanoid()).toHaveLength(21);
+});
+
+test('timeOf reads back the moment a timeId was made, and nothing from another name', () => {
+	const at = new Date('2026-10-30T22:41:05.123Z');
+	expect(timeOf(timeId(at))).toEqual(at);
+	expect(timeOf('2026-10-30T22-41-05-123Z')).toEqual(at);
+	for (const other of [
+		'standup',
+		nanoid(),
+		'2026-13-40T99-99-99-999Z-k3x9a2f8',
+	])
+		expect(timeOf(other)).toBeUndefined();
 });
