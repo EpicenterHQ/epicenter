@@ -37,9 +37,6 @@ export function holdLeave<T>(write: Promise<T>): Promise<T> {
 	});
 }
 
-/** Whether a write is out in this page now. */
-export const isSaving = () => out > 0;
-
 /** Answers once no write is out (at once when none is). */
 export function whenSaved(): Promise<void> {
 	if (out === 0) return Promise.resolve();
@@ -50,7 +47,7 @@ export function whenSaved(): Promise<void> {
 /** Ask before the page is left while a write is out. Answers the release. */
 export function guardLeave(): () => void {
 	const beforeUnload = (event: Event) => {
-		if (isSaving()) event.preventDefault();
+		if (out > 0) event.preventDefault();
 	};
 	window.addEventListener('beforeunload', beforeUnload);
 	return () => window.removeEventListener('beforeunload', beforeUnload);

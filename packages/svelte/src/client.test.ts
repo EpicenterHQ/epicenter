@@ -42,7 +42,7 @@ import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
 const { fromClient } = await import('./client.svelte.js');
-const { isSaving, whenSaved } = await import('./leave-guard.js');
+const { guardLeave, whenSaved } = await import('./leave-guard.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: InitHost } = await import('./fixtures/InitHost.svelte');
@@ -60,6 +60,16 @@ const todos = defineContract({
 });
 type Todos = typeof todos;
 type TodoNotes = NoteClient<Todos['collections']['todos']>;
+
+// The page's leave guard, which every write through the adapter holds.
+guardLeave();
+
+/** Whether leaving the page now would ask first: a write is out. */
+function leavingAsks() {
+	const leaving = new Event('beforeunload', { cancelable: true });
+	window.dispatchEvent(leaving);
+	return leaving.defaultPrevented;
+}
 
 const folders: string[] = [];
 afterEach(async () => {
@@ -383,10 +393,10 @@ test('a write through the adapter is saving at once until it answers', async () 
 	await until(() => shown.values.at(-1) !== undefined);
 
 	const updating = files.todos.update({ id: 'a' }, { done: true });
-	expect(isSaving()).toBe(true);
+	expect(leavingAsks()).toBe(true);
 	expectOk(await updating);
 	await whenSaved();
-	expect(isSaving()).toBe(false);
+	expect(leavingAsks()).toBe(false);
 	shown.stop();
 });
 
@@ -459,7 +469,7 @@ test('a keystroke in edit is saving, and out for the leave guard, at once until 
 	expect(todo.saving).toBe(false);
 	todo.fields.title = 'Oat milk';
 	expect(todo.saving).toBe(true);
-	expect(isSaving()).toBe(true);
+	expect(leavingAsks()).toBe(true);
 	expectOk(await todo.landed());
 	await whenSaved();
 	expect(todo.saving).toBe(false);

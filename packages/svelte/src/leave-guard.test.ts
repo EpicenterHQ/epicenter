@@ -10,9 +10,7 @@
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
 
-const { guardLeave, holdLeave, isSaving, whenSaved } = await import(
-	'./leave-guard.js'
-);
+const { guardLeave, holdLeave, whenSaved } = await import('./leave-guard.js');
 
 /** Whether leaving the page now would ask first. */
 function leavingAsks() {
@@ -22,14 +20,15 @@ function leavingAsks() {
 }
 
 test('a write is out from the moment it is handed over until it settles, landed or refused', async () => {
+	const release = guardLeave();
 	const first = Promise.withResolvers<string>();
 	const second = Promise.withResolvers<string>();
-	expect(isSaving()).toBe(false);
+	expect(leavingAsks()).toBe(false);
 	await whenSaved();
 
 	const landing = holdLeave(first.promise);
 	const refused = holdLeave(second.promise);
-	expect(isSaving()).toBe(true);
+	expect(leavingAsks()).toBe(true);
 	let saved = false;
 	void whenSaved().then(() => {
 		saved = true;
@@ -37,14 +36,15 @@ test('a write is out from the moment it is handed over until it settles, landed 
 
 	first.resolve('landed');
 	expect(await landing).toBe('landed');
-	expect(isSaving()).toBe(true);
+	expect(leavingAsks()).toBe(true);
 	expect(saved).toBe(false);
 
 	second.reject(new Error('refused'));
 	await expect(refused).rejects.toThrow('refused');
 	await whenSaved();
 	expect(saved).toBe(true);
-	expect(isSaving()).toBe(false);
+	expect(leavingAsks()).toBe(false);
+	release();
 });
 
 test('leaving the page asks only while a write is out, until the guard is released', async () => {
