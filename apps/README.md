@@ -64,24 +64,19 @@ variant's `Startup` under a boundary:
 </svelte:boundary>
 ```
 
-The desktop `Startup` awaits the app's two roots, its AppData and its data
-folder, and renders the shared recovery screen (`@epicenter/svelte/recovery`)
-when one does not open:
+The desktop `Startup` hands the shared `DesktopStartup`
+(`@epicenter/svelte/desktop-startup`) what differs: the app's name, its
+AppData contract and its data folder's contract. `DesktopStartup` awaits the
+two roots, AppData then the data folder, and shows the shared recovery
+screen when one does not open:
 
 ```svelte
-<!-- apps/capture/src/lib/components/Startup.svelte, abridged -->
-<script lang="ts">
-  const appData = $derived(await again(attempt, () => openAppData(captureSettings)));
-  const device = $derived(appData.error === null ? await openDataFolder(capture, { appData: appData.data }) : null);
-</script>
-
-{#if appData.error !== null}
-  <Recovery app="Capture" error={appData.error} {retry} />
-{:else if device?.error}
-  <Recovery app="Capture" error={device.error} appData={appData.data} {retry} />
-{:else if device !== null}
-  <DesktopRoot appData={appData.data} device={device.data}>{@render children()}</DesktopRoot>
-{/if}
+<!-- apps/capture/src/lib/components/Startup.svelte -->
+<DesktopStartup app="Capture" settings={captureSettings} contract={capture}>
+  {#snippet children(appData, device)}
+    <DesktopRoot {appData} {device}>{@render pages()}</DesktopRoot>
+  {/snippet}
+</DesktopStartup>
 ```
 
 An online root is the signed-in layout, which opens the repository per

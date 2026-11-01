@@ -91,11 +91,10 @@ describe('the variant root decides the one store', () => {
 		expect(leaf).toMatch(/getRepo<Vocab>\(\)/);
 	});
 
-	test('on the desktop, Startup opens the AppData root, then the data folder', async () => {
+	test('on the desktop, Startup opens the AppData root, then the data folder, with the sign-in answer', async () => {
 		const startup = await Bun.file(join(components, 'Startup.svelte')).text();
-		expect(startup).toMatch(/openAppData\(vocabSettings\)/);
 		expect(startup).toMatch(
-			/openDataFolder\(vocab, \{ appData: appData\.data \}\)/,
+			/<DesktopStartup app="Vocab" settings=\{vocabSettings\} contract=\{vocab\} ready=\{authReady\}>/,
 		);
 	});
 

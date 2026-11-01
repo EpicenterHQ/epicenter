@@ -90,8 +90,10 @@ test('the page imports no Node, Bun, or Tauri module', () => {
 
 test('the store is opened once, by each variant’s startup; nothing opens a repository', () => {
 	expect(callers('openDevice')).toEqual(['lib/components/LocalStartup.svelte']);
-	expect(callers('openDataFolder')).toEqual([
-		'lib/components/DesktopStartup.svelte',
+	expect(
+		importers((specifier) => specifier === '@epicenter/svelte/desktop-startup'),
+	).toEqual([
+		'lib/components/DesktopStartup.svelte imports @epicenter/svelte/desktop-startup',
 	]);
 	expect(
 		importers((specifier) => specifier === '@epicenter/folder/browser'),
@@ -142,11 +144,11 @@ test('the services are reached through the seam alone', () => {
 	]);
 });
 
-/** What only the desktop's leaves use of `@epicenter/svelte`: the data folder's sync and recovery screen. */
+/** What only the desktop's leaves use of `@epicenter/svelte`: the data folder's sync, and the startup with its recovery screen. */
 const DESKTOP_SVELTE = [
+	'@epicenter/svelte/desktop-startup',
 	'@epicenter/svelte/folder-sync',
 	'@epicenter/svelte/folder-sync-actions',
-	'@epicenter/svelte/recovery',
 ];
 
 test('the page imports no Yjs store, sync, history, or store module', () => {
@@ -255,7 +257,7 @@ test('the app group has every page, and every page reads its library from contex
 		expect(
 			files.find((file) => file.path === `lib/components/${startup}.svelte`)
 				?.text,
-		).toMatch(/\{@render (children|outer)\(device\.data, files\)\}/);
+		).toMatch(/\{@render (children|outer)\(device(\.data)?, files\)\}/);
 	for (const callback of [
 		'routes/auth/callback/+page.svelte',
 		'lib/components/SignInCallback.svelte',

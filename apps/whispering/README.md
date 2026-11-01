@@ -263,7 +263,7 @@ missing, or the chosen folder (`openAppData(whisperingSettings)`, then
 `openDataFolder`). Tauri decides which folders the window may open: the
 shell allows the default at startup, the native picker allows a folder the
 person picks, and persisted-scope keeps it. A folder that is missing, not allowed, or refused
-shows the recovery screen (`@epicenter/svelte/recovery`), never another
+shows the recovery screen (`@epicenter/svelte/desktop-startup`), never another
 folder silently. **Choose data folder…**, in the status details and in
 Settings, opens another folder with its files where they are and remembers
 it. Epicenter syncs the folder once the person presses **Sync with

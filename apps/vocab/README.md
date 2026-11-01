@@ -44,7 +44,7 @@ src/routes/auth/callback/+page.svelte     Callback from #platform/root: the web 
 src/routes/(app)/+layout.svelte           <svelte:boundary> (spinner) around Startup from #platform/root
   lib/components/OnlineRoot.svelte        web: signed out, a sign-in; signed in, {#key account}
     lib/components/Online.svelte          setRepo(fromClient(openRemote(vocab, { account }))), one per account
-  lib/components/Startup.svelte           desktop: await openAppData(vocabSettings), openDataFolder(vocab); Recovery
+  lib/components/Startup.svelte           desktop: DesktopStartup (vocabSettings, vocab, authReady), then DesktopRoot
     lib/components/DesktopRoot.svelte     setAppData/setDevice(fromClient(...)), setFolderSync
 src/routes/(app)/+page.svelte             VocabApp over store() (#platform/root)
 src/routes/components/VocabApp.svelte     the header (Chrome from #platform/root), Words, and Chat

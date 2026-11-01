@@ -139,7 +139,7 @@ client of their own; only the variant's root chooses the store.
 | `src/lib/contract.ts` | The contract. |
 | `src/lib/todos.ts` | A todo's file, label and order (open first, then done, each oldest first), and the list's context. |
 | `src/lib/components/OnlineRoot.svelte`, `Online.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account (`setRepo`); the header's status and account. |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/recovery`); the roots set for every page (`setAppData`, `setDevice`); the header's sync status, Sync with Epicenter, and Choose data folder…. |
+| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the roots set for every page (`setAppData`, `setDevice`); the header's sync status, Sync with Epicenter, and Choose data folder…. |
 | `src/lib/folder.tauri.ts` | The desktop window's settings contract, typed contexts (`getAppData`, `getDevice`), and where the contract is published. |
 | `src/lib/components/TodosApp.svelte` | The header, the list, and the open todo, over the todos it is given. |
 

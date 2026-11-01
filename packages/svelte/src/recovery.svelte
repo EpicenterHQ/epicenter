@@ -4,15 +4,8 @@
 	and Retry is all it offers. With it, the data folder did not open: each
 	`OpenDeviceError` case says what happened and offers what fixes it, each
 	action writing or clearing `folder` in the AppData `settings.md` and then
-	retrying. It never opens another folder on its own.
-
-	```svelte
-	{#if appData.error}
-		<Recovery app="Capture" error={appData.error} {retry} />
-	{:else if device.error}
-		<Recovery app="Capture" error={device.error} appData={appData.data} {retry} />
-	{/if}
-	```
+	retrying. It never opens another folder on its own. `DesktopStartup`
+	shows it.
 -->
 <script lang="ts">
 	import {
