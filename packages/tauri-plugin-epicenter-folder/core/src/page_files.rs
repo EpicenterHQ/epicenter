@@ -13,9 +13,9 @@
 //! (`state::saves`), never in `.git`. A link another program swaps
 //! in between the check and the change is not defended against.
 //!
-//! `storage` builds a page's changes on these; a writer beside the page,
-//! such as the recorder appending to its audio in place, names its data
-//! path through `data_path`.
+//! Writers beside the page name their data paths through `data_path`: the
+//! recorder placing a recording, and transcription reading one. A page's
+//! own saves are `storage`'s, which checks its paths itself.
 
 use std::fs;
 use std::path::{Path, PathBuf};

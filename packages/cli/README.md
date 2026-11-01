@@ -208,8 +208,9 @@ tests never touch the real one.
 ~/.local/bin/epicenter   -> the compiled binary
 ```
 
-The one Git configuration the CLI writes, the credential helper, names that
-link by its absolute path (`AppPaths.commandLink`), whether the CLI runs from
+Every command the CLI configures Git to run (the credential helper `auth
+login` sets, and each folder's merge driver) names that link by its absolute
+path (`AppPaths.commandLink`), whether the CLI runs from
 the bundle, the link, or source, so moving the app does not break it past its
 next launch and a development run
 never writes a checkout into the global configuration. A release build runs

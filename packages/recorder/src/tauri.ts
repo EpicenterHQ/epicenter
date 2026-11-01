@@ -55,8 +55,8 @@ function fromNative(error: NativeRecorderError, label = '') {
 		case 'Failed':
 			return RecorderError.Failed({ cause: error.message });
 		default:
-			// A reply that is not one of the shell's refusals: an older shell, or
-			// a command it does not have.
+			// A reply that is not one of the shell's refusals: Tauri's own, such
+			// as a command this window has no permission for.
 			return RecorderError.Failed({ cause: error satisfies never });
 	}
 }
