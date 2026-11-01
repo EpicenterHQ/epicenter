@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-22
 - **Related proposal:** [Folder grouping by pin, library membership, and recency](0679-the-launcher-groups-folders-by-pin-library-membership-then-recency.md) proposes replacing bookmarks with explicit pins and automatic opening history. Pins, recent history, and grouped presentation are not implemented; this record's directory identity and opening checks remain relevant.
-- **Amended by:** [ADR-0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) removes selected homes as a listing source while retaining library children and bookmarks in the current implementation.
+- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at the launcher's sources: Epicenter lists only the folders it syncs; library children, bookmarks, and selected homes are not listed. (ADR-0672, deleted, had first removed selected homes.)
 - **Amends:** [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md)'s root-only listing, [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md)'s separate remembered-folder surface, and [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md)'s discovery experience.
 
 ## Context

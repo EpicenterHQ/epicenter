@@ -858,9 +858,9 @@ When you add an ADR, add its row here.
 | [0644](0644-the-shell-assigns-a-native-windows-default-folder.md) | The shell assigns a native window's default folder | Accepted (amends 0636; amended by 0647 and 0660); amended by 0701 |
 | [0646](0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md) | A native app hands Epicenter a directory path, and the person accepts it | Accepted (amended by 0647) |
 | [0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) | A native window edits one directory bound before it exists | Accepted (amends 0531 and 0644; amended by 0660 at the standalone default); amended by 0701 |
-| [0648](0648-a-folders-saved-views-live-in-its-optional-epicenter-json.md) | A folder's saved views live in its optional epicenter.json | Proposed (amends 0632; amended by 0700) |
 | [0649](0649-folders-json-selects-this-machines-folder-locations.md) | Folders.json selects this machine's folder locations | Proposed (amends 0539, 0641, and 0647) |
 | [0650](0650-a-browsers-current-folder-is-one-immutable-tree.md) | A browser's current folder is one immutable tree | Proposed (amends 0628) |
+| [0652](0652-the-folder-plugin-opens-one-window-per-app-and-directory.md) | The folder plugin opens one window per app and directory | Proposed (amends 0647) |
 | [0653](0653-ignore-rules-select-git-source-without-a-declaration-policy.md) | Ignore rules select Git source without a declaration policy | Proposed |
 | [0654](0654-visible-folder-queries-refresh-without-native-watchers.md) | Visible folder queries refresh without native watchers | Superseded by 0700 (0689 rejected) |
 | [0655](0655-product-root-components-use-the-app-name-and-app-suffix.md) | Product root components use the app name and App suffix | Accepted |
@@ -876,18 +876,17 @@ When you add an ADR, add its row here.
 | [0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md) | A file edit's ready buffer contains its unsaved state | Superseded by 0668 |
 | [0668](0668-one-folder-owned-source-orders-file-publications.md) | One Folder-owned source orders file publications | Superseded by 0700 (0689 rejected) |
 | [0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) | Folder actions track lifetime without reserving paths | Superseded by 0700 (0689 rejected) |
-| [0670](0670-native-shells-share-explicit-machine-local-app-homes.md) | Native shells share explicit machine-local app homes | Accepted (amends 0649 and 0660) |
-| [0671](0671-the-launcher-lists-directories-from-all-current-references.md) | The launcher lists directories from all current references | Accepted (amends 0537, 0641, and 0670) |
-| [0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) | Native app defaults are fixed reverse-DNS children of one library | Proposed (amends 0670 and 0671) |
+| [0670](0670-native-shells-share-explicit-machine-local-app-homes.md) | Native shells share explicit machine-local app homes | Accepted (amends 0649 and 0660); amended by 0701 |
+| [0671](0671-the-launcher-lists-directories-from-all-current-references.md) | The launcher lists directories from all current references | Accepted (amends 0537, 0641, and 0670); amended by 0701 |
 | [0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) | A SQLite handle owns one connection until asynchronous disposal | Proposed (named SQLite open/delete; would amend 0201; production lifecycle and disposal unbuilt) |
 | [0674](0674-standalone-apps-release-independently-from-one-monorepo.md) | Standalone apps release independently from one monorepo | Accepted; amended by 0701 |
 | [0676](0676-structured-edits-share-the-acquired-working-document.md) | Structured edits share the acquired working document | Superseded by 0688 |
 | [0677](0677-one-source-repository-can-provide-many-desktop-apps.md) | One source repository can provide many desktop apps | Superseded by 0701 (apps run as separate programs) |
-| [0678](0678-app-storage-openers-use-runtime-bound-scopes.md) | App databases open within runtime-bound scopes | Proposed (separate installation roots; flat dotted database names; would amend 0314; production unbuilt); amended by 0701 |
+| [0678](0678-app-storage-openers-use-runtime-bound-scopes.md) | App databases open within runtime-bound scopes | Proposed (separate installation roots; flat dotted database names; would amend 0314; production unbuilt) |
 | [0679](0679-the-launcher-groups-folders-by-pin-library-membership-then-recency.md) | The launcher groups folders by pin, library membership, then recency | Proposed (implemented; amends 0641 and 0671) |
 | [0680](0680-rust-serves-each-installed-app-from-a-pinned-build-on-its-own-origin.md) | Rust serves each installed app from a pinned build on its own origin | Superseded by 0701 (apps run as separate programs) |
 | [0681](0681-portable-capability-packages-follow-the-resource-they-own.md) | Portable capability packages follow the resource they own | Proposed (`@epicenter/sqlite` and `@epicenter/secrets` as separate homes; no umbrella runtime package) |
-| [0682](0682-secrets-use-one-persistent-api-and-a-shared-tauri-plugin.md) | Secrets use one persistent API and a shared Tauri plugin | Proposed (localStorage browser adapter; reusable native plugin and Specta bindings unbuilt) |
+| [0682](0682-secrets-use-one-persistent-api-and-a-shared-tauri-plugin.md) | Secrets use one persistent API, kept in the account crate's keychain on the desktop | Proposed (`@epicenter/secrets`, its localStorage adapter, and its Tauri adapter over `epicenter-account`'s keychain unbuilt) |
 | [0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) | Hosted requests use a resource-bound Account fetch | Accepted (desktop caller removed by 0701) |
 | [0684](0684-browser-folders-submit-frozen-file-changes-instead-of-running-git.md) | Browser folders submit frozen file changes instead of running Git | Rejected 2026-10-30 (the web never syncs; ADR-0700) |
 | [0685](0685-hosted-git-records-browser-publication-receipts-in-a-protected-ref.md) | Hosted Git records browser publication receipts in a protected ref | Rejected 2026-10-30 (the web never syncs; ADR-0700) |
@@ -897,6 +896,6 @@ When you add an ADR, add its row here.
 | [0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) | An edit shows what you typed; the queue carries it; the folder shows what landed | Rejected 2026-11-01 (writes are conditional on the version read; ADR-0700) |
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Superseded by 0701 (apps run as separate programs) |
-| [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Accepted 2026-11-01 (supersedes 0545, 0622, 0623, and 0628, and the 13 Folder engine records 0689 had; amends 26 records; per-repository grants, `@epicenter/secrets`, the notify Durable Object, and `epicenter init --contract` unbuilt) |
-| [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Accepted 2026-11-01 (supersedes 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0647, 0652, 0663, 0672, 0674, 0678, 0682, and 0683; standalone Todos and a native Capture or Honeycrisp client unbuilt; archive tag `archive/app-hosting`) |
+| [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Accepted 2026-11-01 (supersedes 0545, 0622, 0623, and 0628, and the 13 Folder engine records 0689 had; amends 25 records; per-repository grants, `@epicenter/secrets`, the notify Durable Object, and `epicenter init --contract` unbuilt) |
+| [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Accepted 2026-11-01 (supersedes 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0647, 0663, 0670, 0671, 0674, and 0683; standalone Todos and a native Capture or Honeycrisp client unbuilt; archive tag `archive/app-hosting`) |
 | [0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) | A data folder's unfinished writes wait in `.epicenter`, outside its data | Accepted (amends 0543, 0551, 0562, and 0568: no save lock, one hidden-path rule, `saves/` and `recordings/`, placement) |

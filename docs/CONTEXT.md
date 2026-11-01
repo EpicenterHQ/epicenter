@@ -108,8 +108,9 @@ commits unless Git ignores them. The folder's `.gitignore` files travel as
 ordinary content, and native Git also honors machine-specific excludes. Schema
 disagreements retain raw source.
 
-ADR-0648 records optional table schemas and shared saved views. Schema
-exchange and `epicenter query` are deleted (decision 72), and so is the
+A folder's `epicenter.json` once held optional table schemas and shared
+saved views (ADR-0648, deleted). Schema exchange and `epicenter query` are
+deleted (decision 72), and so is the
 desktop editor that showed grids, boards, saved views, and SQL over a folder
 (2026-11-01). Saved views already in a folder's `epicenter.json` stay there
 as ordinary text.

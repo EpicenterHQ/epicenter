@@ -1,30 +1,32 @@
-# 0682. Secrets use one persistent API and a shared Tauri plugin
+# 0682. Secrets use one persistent API, kept in the account crate's keychain on the desktop
 
 - **Status:** Proposed
 - **Date:** 2026-10-22
-- **Relates:** [Portable capability packages](0681-portable-capability-packages-follow-the-resource-they-own.md) assigns app-owned secret values to `@epicenter/secrets`; [Native authored defaults](0660-native-apps-default-authored-work-to-the-epicenter-root.md) separates authored Folders from app-managed private state.
-- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at `tauri-plugin-epicenter-secrets`: a standalone desktop app reaches the keychain through the `epicenter-account` crate (`keychain` from `@epicenter/auth/tauri`).
-- **Unbuilt:** `@epicenter/secrets`, `tauri-plugin-epicenter-secrets`, their generated bindings, native credential-store integration, and browser/desktop contract checks. The existing CLI credential flows remain separate.
+- **Relates:** [ADR-0701](0701-apps-run-as-separate-programs.md) (each app is its own desktop program; one that signs in or keeps keys registers the `epicenter-account` crate); [Portable capability packages](0681-portable-capability-packages-follow-the-resource-they-own.md) assigns app-owned secret values to `@epicenter/secrets`; [Native authored defaults](0660-native-apps-default-authored-work-to-the-epicenter-root.md) separates authored Folders from app-managed private state.
+- **Unbuilt:** `@epicenter/secrets`, its Tauri adapter over the account crate's keychain commands, and browser/desktop contract checks. The existing CLI credential flows remain separate.
 
 ## Context
 
-One application codebase must run as a website, inside Epicenter, and inside a
-standalone Tauri shell. Its credential persistence calls need the same meaning
-and TypeScript surface in each build. Connection definitions can be authored
+One application codebase runs as a website and as its own desktop program
+(ADR-0701). Its credential persistence calls need the same meaning and
+TypeScript surface in each build. Connection definitions can be authored
 Folder records and participate in Git synchronization; the credentials that
 authorize a connection need separate storage.
 
-The CLI already wraps `Bun.secrets`, but standalone shells do not need a Bun
-executable merely to persist credentials. The Folder and recorder capabilities
-demonstrate another composition: one Rust plugin crate, generated TypeScript
-bindings owned by its companion package, and shell-level registration and
-permission grants. Reusing that composition keeps desktop storage policy in
-one implementation.
+The CLI already wraps `Bun.secrets`, but a desktop program does not need a
+Bun executable merely to persist credentials. A desktop program that signs
+in or keeps keys (Whispering, Vocab) already registers the `epicenter-account`
+crate, which keeps the account's
+refresh token and the API keys a page saves in the OS keychain
+(`keychain_get` and `keychain_set`, and `keychain` from
+`@epicenter/auth/tauri`). Reusing it keeps desktop storage policy in one
+implementation.
 
 ## Decision
 
 **`@epicenter/secrets` exposes one asynchronous, persistent string-value API.
-The browser uses localStorage; both desktop shells use the same Rust plugin.**
+The browser uses localStorage; a desktop app uses the keychain through
+`epicenter-account`.**
 
 The proposed public object is `secrets`, with these operations:
 
@@ -83,37 +85,26 @@ implementation. Explicit `@epicenter/secrets/browser` and
 the other. Shared application code retains the same import and operations.
 
 Environment selection and authorization have different jobs. Inside Tauri,
-every operation uses the native plugin. A missing plugin, denied capability,
+every operation uses the account crate's keychain commands. A missing command,
+denied capability,
 unbound scope, or unavailable OS store is an error; none selects localStorage.
 Rust enforces the caller's permission and scope at runtime regardless of how
 the frontend bundle selected its adapter. Outside a browser or Tauri page, the
 portable entry refuses rather than creating a process-memory fallback.
 
-**`tauri-plugin-epicenter-secrets` is a reusable Rust dependency with a companion
-TypeScript package, following Tauri's plugin contract.** Epicenter and a
-standalone shell depend on the same crate and register it in their Tauri
-builders. Each shell grants the plugin's commands only to its intended windows.
-They do not copy the plugin implementation into app-owned command modules.
+**A desktop app reaches the keychain through `epicenter-account`.** The package's Tauri adapter uses
+its keychain commands beneath the public API. No shell copies keychain commands into app-owned
+command modules, and no second crate reaches the keychain. Desktop
+persistence requires no CLI child or Bun runtime.
 
-The plugin owns its Rust command registry, generated command permissions, and
-Specta export. `tauri-specta` generates the plugin-qualified TypeScript commands
-and payload types into the shared `@epicenter/secrets` package. Regeneration
-happens when the plugin contract changes, not separately for each consuming
-shell. The package's Tauri adapter uses those bindings beneath the public API.
-Cargo compiles the shared crate into each shell; the frontend installs its
-companion npm package. Desktop persistence requires no CLI child or Bun runtime.
-
-**The runtime binds the namespace before granting access.** Each native shell
-binds an installation scope to the window before its page loads. The secrets
-plugin consumes that shell-owned binding, the installation identity required
-by [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md); neither
-capability derives a scope from an entry name, page title, or chosen Folder. A
-page supplies an entry name, not a keychain service, application ID, or another
-installation's scope. Hosted apps have separate app-owned scopes; standalone
-and development installations have their own. Selecting a different authored
-Folder does not relocate credentials. An installed page receives no secrets
-grant by default; any later grant uses a host-issued installation scope, not a
-manifest claim. The browser adapter uses a package-owned prefix within its
+**The runtime binds the namespace before granting access.** The account
+crate scopes the keychain by the bundle identifier the program is built with,
+the installation identity [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md)
+also uses; neither capability derives a scope from an entry name, page title,
+or chosen Folder. A page supplies an entry name, not a keychain service,
+application ID, or another installation's scope. A release and a development
+build have their own identifiers, so their own scopes. Selecting a different
+authored Folder does not relocate credentials. The browser adapter uses a package-owned prefix within its
 origin's localStorage.
 As with browser SQLite in ADR-0678, one origin is one app scope: paths and
 prefixes do not isolate same-origin scripts from one another.
@@ -134,18 +125,18 @@ keep that value out of the authorized page after a read.
 
 This capability owns app secrets, not all host credentials. Existing CLI-owned
 account, AI-key, and Beeper credential flows keep their owners and service names
-until an explicit migration decision. They are not exposed through this plugin
+until an explicit migration decision. They are not exposed through this API
 merely because it can read app-owned values. Sharing a credential namespace or
 coordinating token refresh with a CLI is a separate consumer requirement.
 
 ## Consequences
 
-- The same app code persists credentials in web, hosted desktop, and standalone
-  desktop builds. Protection differs by storage backend and must be described
+- The same app code persists credentials in web and desktop builds. Protection differs by storage backend and must be described
   honestly to the person saving a credential.
-- One Rust plugin owns native platform behavior. Each shell composes that
-  capability through its dependency and permission configuration, while the
-  shared TypeScript package owns the public contract and generated bridge.
+- One Rust crate, `epicenter-account`, owns native keychain behavior. Each
+  desktop program that keeps secrets composes it through its dependency and permission
+  configuration, while the shared TypeScript package owns the public
+  contract.
 - Typed bindings keep commands and payloads aligned; Rust still validates
   untrusted input and enforces scope. Type generation does not grant authority.
 - A synced connection definition can appear on another installation without a
@@ -158,8 +149,12 @@ coordinating token refresh with a CLI is a separate consumer requirement.
 ## Considered alternatives
 
 - **Require Bun for desktop secret persistence.** The CLI can use Bun's
-  credential API, but a standalone Tauri shell would acquire another executable
+  credential API, but a desktop program would acquire another executable
   and process bridge solely for storage that Rust can reach directly.
+- **A reusable `tauri-plugin-epicenter-secrets` crate with its own generated
+  bindings.** Proposed here first. A desktop program that keeps secrets
+  already registers `epicenter-account`, which reaches the keychain for its
+  refresh token, so a second crate would duplicate it (ADR-0701).
 - **Copy secret commands into each shell.** Native policy and generated bindings
   would evolve independently despite representing the same capability.
 - **Require separate app source for browser and desktop secrets.** It repeats

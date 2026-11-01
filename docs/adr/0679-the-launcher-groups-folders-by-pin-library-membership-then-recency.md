@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-22
 - **Amends:** [ADR-0671](0671-the-launcher-lists-directories-from-all-current-references.md) at its listing sources, ungrouped presentation, and Forget bookmark action; [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) at its single remembered-path list and explicit-add workflow.
-- **Relates:** [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) retains the Folders launch window and separate Settings window. The [fixed-default policy draft](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) addresses allocation independently of this navigation proposal.
+- **Relates:** [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) retains the Folders launch window and separate Settings window.
 
 ## Context
 

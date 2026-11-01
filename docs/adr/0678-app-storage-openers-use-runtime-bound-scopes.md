@@ -2,24 +2,24 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-22
-- **Amends:** [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) at requiring `sqlite/<name>.sqlite` for hosted app databases. The named database capability puts `<name>.sqlite` directly in the app-owned private root; this does not restore the retired source installer or define another asset lifecycle.
-- **Relates:** [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) keeps authored Folders shared and app-managed state in each shell's AppData; [ADR-0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) defines database admission, deletion, SQL operations, and connection lifetime; [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) gives Epicenter and standalone apps independent releases.
+- **Amends:** [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) at requiring `sqlite/<name>.sqlite` for app databases. The named database capability puts `<name>.sqlite` directly in the app-owned private root; this does not restore the retired source installer or define another asset lifecycle.
+- **Relates:** [ADR-0701](0701-apps-run-as-separate-programs.md) makes each app its own desktop program, so no host holds an app's database; [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) keeps authored Folders shared and app-managed state in each shell's AppData; [ADR-0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) defines database admission, deletion, SQL operations, and connection lifetime; [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) gives Epicenter and standalone apps independent releases.
 - **Unbuilt:** `openDeviceDatabase` and `deleteDeviceDatabase`, native per-installation bindings, browser SQLite storage, and production connection cleanup. The existing `openFolder` already uses the browser origin or native window binding. SQLite adapters remain fictional-data prototypes.
-- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at bundled and installed app roots: Epicenter hosts no app.
 
 ## Context
 
 Apps currently call `openFolder({ tables })`. The browser opens its existing
 IndexedDB Folder; a native window opens the authored directory its shell bound
 before the page loaded. Neither app call supplies an app identifier or path.
-The Folder can be the same directory in Epicenter and a standalone shell.
+Several programs can open the same directory.
 
 An application's private database has a different owner: the installed product
-that updates its schema. Epicenter updates its bundled app pages as one product;
-standalone Todos updates independently. Sharing a database between those
-installations would make each release compatible with the other's private schema
-and migrations. Sharing authored files already requires a portable file format,
-but does not require sharing that private database.
+that updates its schema. One app has several installations: its desktop and
+browser variants, and its release and development builds, each its own program
+with its own AppData (ADR-0701). Sharing a database between installations would
+make each release compatible with the other's private schema and migrations.
+Sharing authored files already requires a portable file format, but does not
+require sharing that private database.
 
 ## Decision
 
@@ -60,64 +60,43 @@ database catalog.
 
 | Runtime | Private database root | Authored Folder |
 | --- | --- | --- |
-| Standalone native app | That product's own AppData directory, for example `<OS AppData>/so.epicenter.todos/state.sqlite` | Its selected directory, defaulting to the shared Epicenter library child |
-| App bundled in Epicenter | An app-owned child under Epicenter's AppData, for example `<OS AppData>/so.epicenter/apps/so.epicenter.todos/state.sqlite` | The directory bound to its window, which can be the same one opened standalone |
+| Native app | That product's own AppData directory, for example `<OS AppData>/so.epicenter.todos/state.sqlite` | Its data folder (ADR-0701) |
 | Browser app | This app's origin-local database storage; exact SQLite backend remains undecided | Its existing origin-local IndexedDB Folder |
 | Native CLI or tool | A private root chosen explicitly by the tool's composition boundary | A directory chosen explicitly by the tool |
 
 These are logical examples; the runtime resolves the platform-specific AppData
-base. A development installation must have its own private root. A standalone
-shell's Folder-path resolver may still use Epicenter's shared library policy;
-that resolver does not make the standalone database part of Epicenter's AppData.
+base. A development installation must have its own private root.
 
 For example, the native database layout on macOS is:
 
 ```text
 ~/Library/Application Support/
-  so.epicenter.todos/                  standalone Todos
+  so.epicenter.todos/                  Todos
     state.sqlite
     search.sqlite
-  so.epicenter/                        Epicenter host
-    apps/so.epicenter.todos/
-      state.sqlite
-      search.sqlite
-  so.epicenter.todos.dev/              standalone development
+  so.epicenter.todos.dev/              Todos's development build
     state.sqlite
-  so.epicenter.dev/                    hosted development
-    apps/so.epicenter.todos/
-      state.sqlite
 ```
 
-These files are outside the authored Folder. Both Todos installations may open
-the same `~/Epicenter/so.epicenter.todos/` without sharing a private database.
-
-The host needs `apps/<app-id>/` because it serves several apps beneath one
-AppData root. The standalone product's AppData directory already names its
-owner, so its default database can sit directly there. No `sqlite/` or
-`device/` level is required inside either app-owned root. A product can create
+These files are outside the authored Folder. An app's AppData directory
+already names its owner, so its databases sit directly there. No `sqlite/` or
+`device/` level is required inside it. A product can create
 other directories for an independently owned lifecycle, but the opener does not
 require them. AppData may also hold non-database runtime state; this decision
 does not promise that the directory contains only SQLite files. WebView caches
 and credentials follow their own platform locations.
 
-**The runtime binds identity before exposing the opener.** A standalone shell
-uses its installed product identity and own AppData root; Epicenter binds the
-hosted app's stable identifier beneath its AppData root. An installed source app,
-if later granted this capability, receives a distinct host-issued installation
-scope as proposed by ADR-0680. A browser origin is one app scope under this
+**The runtime binds identity before exposing the opener.** A native shell
+uses its installed product identity and own AppData root. A browser origin is one app scope under this
 decision; URL paths alone are not separate scopes. Missing native bindings
 refuse opening. Changing the selected Folder or signing into an account does
 not relocate a database.
 
 The native shell resolves the root when it assembles the installation binding;
-the page never invokes a path resolver. Standalone database binding must use the
-product's own AppData scope, separately from `DesktopPaths.data_dir`, whose
-existing shared scope serves library/navigation machinery. Hosted binding uses
-the admitted app identity beneath the host's configured AppData root. The
+the page never invokes a path resolver. Database binding uses the product's
+own AppData scope, never `DesktopPaths.data_dir`, which is Epicenter's own. The
 runtime may create a missing admitted private directory; creation failure must
-not select another root. A directory left by the retired source-app installer
-does not establish a database grant and must not be reused as a new hosted
-partition merely because its name matches the app ID.
+not select another root.
 
 The browser implementation need not expose literal OPFS filenames. The
 fictional-data [OPFS prototype](../../packages/folder/evidence/device-opfs/NOTES.md)
@@ -194,11 +173,11 @@ make the database file part of Folder synchronization.
 
 ## Consequences
 
-The same `openDeviceDatabase('state')` call can run in both native shells while
-resolving to different files. Each installation migrates its own private schema
-at its own release pace. Both still read and edit the same authored Folder, so
-the shared file format must remain compatible across released readers and
-writers. A private database cannot be the only place another installation must
+The same `openDeviceDatabase('state')` call runs in every installation of an
+app while resolving to different storage. Each installation migrates its own
+private schema at its own release pace. Installations that read and edit the
+same authored Folder need its file format to remain compatible across released
+readers and writers. A private database cannot be the only place another installation must
 look to understand those authored files.
 
 Each app decides whether data in AppData can be rebuilt, needs backup, or
@@ -220,7 +199,7 @@ silently chooses another database or storage engine.
 
 ## Considered alternatives
 
-- **Share one private root between standalone and hosted copies.** Reduces
+- **Share one private root between installations of one app.** Reduces
   duplicate local state, but couples independent releases to one schema and
   migration schedule. Shared authored files already supply the intended
   cross-installation work.

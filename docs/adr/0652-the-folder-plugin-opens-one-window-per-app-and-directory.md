@@ -3,18 +3,18 @@
 - **Status:** Proposed
 - **Date:** 2026-10-20
 - **Amends:** [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) at shell-owned window identity and standalone Todos's fixed label. Directory admission, binding before construction, and page storage remain unchanged.
-- **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at the Epicenter host half: Epicenter opens editor windows only; standalone Todos keeps its window rule.
+- **Relates:** [ADR-0701](0701-apps-run-as-separate-programs.md) (each app is its own desktop program; Epicenter opens no folder window).
 
 ## Context
 
-Standalone Todos and Epicenter both open a static application page over one
-native directory. Separate shell paths made Epicenter coordinate identity,
-reuse, binding, and construction, while Todos maintained a fixed label.
-Moving only binding into a helper left callers responsible for the ordering.
+Each desktop program opens a static application page over one native
+directory. Separate shell paths made each shell coordinate identity, reuse,
+binding, and construction, and Todos maintained a fixed label. Moving only
+binding into a helper left callers responsible for the ordering.
 
 ## Decision
 
-Both shells call `FolderExt::open_folder_window(application, directory, url,
+A shell calls `FolderExt::open_folder_window(application, directory, url,
 configure)`. The plugin derives the native label from the application key and
 canonical directory. It serializes lookup, binding, configuration of Tauri's
 actual builder, and construction on the main thread. Reopening the same pair
@@ -23,25 +23,23 @@ refuses reuse as well as new construction. Configuration and build failures
 roll back the binding; presentation failures retain the live window's binding.
 The plugin's destruction event removes it.
 
-The shell still admits the directory and configures its page. Standalone
-Todos creates its fixed AppData default; Epicenter creates initial defaults
-or admits an existing selected folder. Both supply the `todos` application
-key and use `todos:*` capabilities. Labels are local to a Tauri runtime.
-No page chooses a directory or receives one through its startup URL.
+The shell still admits the directory and configures its page.
+`epicenter-standalone`, the shell every app's desktop program runs on, makes
+the app's AppData settings root, opens the window bound to it under the
+app's page key, and lets the page open its data root by path (ADR-0701).
+Labels are local to a Tauri runtime. No page chooses a directory or receives
+one through its startup URL.
 
-Epicenter configures macOS native tab eligibility on the supplied builder;
-Windows and Linux retain independent windows. Tabs introduce no new binding
-owner. Settings remains a fixed `home` singleton that hides on close and uses
-`bind_while_building`; the Folders launcher has no directory binding. These
-role-based windows do not participate in app-and-directory identity.
+Epicenter opens no folder window (ADR-0701): its Settings and launcher
+windows bind no directory and do not participate in app-and-directory
+identity.
 
 ## Considered alternatives
 
 A custom builder would mirror Tauri's configuration API. A helper that bound
 a window after construction would let a page run before its binding existed.
 Caller-owned label generation and reveal/build callbacks would preserve the
-coordination this API removes. A generic singleton mode would put Settings's
-separate product lifetime into every application's opening contract.
+coordination this API removes.
 
 ## Consequences
 
@@ -51,6 +49,7 @@ Callers use setup or a blocking worker and preserve the supplied builder's
 identity. The existing window-to-directory map remains the storage command's
 authority and the owner of shared root watches.
 
-The native runtime example verifies setup and concurrent opening, tab-group
-closing through save guards, retained unfinished input, failed-save retry,
-detach/merge identity, and destruction cleanup.
+The plugin's tests (`windows.rs`) verify identity by application and
+canonical root, separate runtimes, refusing a live label bound to another
+directory, rollback of configuration and build failures, and refusal after
+shutdown.
