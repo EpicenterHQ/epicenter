@@ -161,8 +161,7 @@ over; their change to a typed field is a `Conflict`, and the typing stays. A
 failed save keeps the typed fields (`todo.typed`) and the error while the
 editor is mounted; `<UnsavedEdit edit={todo} />` from
 `@epicenter/svelte/unsaved-edit` shows it inline with Save again, Discard,
-and Copy. A field named like one of the editor's own members (`error`,
-`saving`, `typed`, `retry`, `discard`, `landed`) is not reachable through it.
+and Copy for the title and body typed.
 Code that is not typing, such as a list row's checkbox or a workflow, writes
 with `update` and handles its own returned error near the action.
 

@@ -1,6 +1,7 @@
 <!--
 	A note editor's failed save (`edit` from `@epicenter/svelte/client`): why,
-	Save again, Discard, and Copy for the text that was typed.
+	Save again, Discard, and Copy for the text that was typed: its title and
+	body. A choice (a folder, a model) or a flag is made again, not copied.
 -->
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
@@ -9,15 +10,15 @@
 	let { edit }: {
 		edit: {
 			error: { message: string } | null;
-			typed: object | null;
+			typed: { title?: unknown; body?: unknown } | null;
 			retry(): void;
 			discard(): void;
 		};
 	} = $props();
 
-	/** The text that was typed, field after field. */
+	/** The title and body that were typed, the title first. */
 	const text = $derived(
-		Object.values(edit.typed ?? {})
+		[edit.typed?.title, edit.typed?.body]
 			.filter((value): value is string => typeof value === 'string' && value !== '')
 			.join('\n\n'),
 	);
