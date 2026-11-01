@@ -142,14 +142,8 @@ mod tests {
     fn shipped_epicenter_configs_select_their_library_root() {
         let home = std::env::temp_dir().join("epicenter-home");
         for (config, name) in [
-            (
-                include_str!("../tauri.conf.json"),
-                "Epicenter",
-            ),
-            (
-                include_str!("../tauri.dev.conf.json"),
-                "Epicenter Dev",
-            ),
+            (include_str!("../tauri.conf.json"), "Epicenter"),
+            (include_str!("../tauri.dev.conf.json"), "Epicenter Dev"),
         ] {
             let config: serde_json::Value = serde_json::from_str(config).unwrap();
             let identifier = config["identifier"].as_str().unwrap();

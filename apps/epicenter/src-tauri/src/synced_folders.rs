@@ -36,10 +36,10 @@ use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime, Webview};
 use tauri_plugin_dialog::DialogExt;
-use crate::desktop_paths::DesktopPaths;
 use tauri_plugin_epicenter_folder::{admission, Directory};
 
 use crate::cli::{self, CliChildren, CliError, StartedChild};
+use crate::desktop_paths::DesktopPaths;
 use crate::{BuiltInApp, DesktopAppHandle};
 
 /// The event the Folders window hears when a folder's round, the service,
