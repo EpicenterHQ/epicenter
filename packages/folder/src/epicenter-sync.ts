@@ -7,16 +7,11 @@
  * person where to sync the folder and runs `epicenter init`. The app can also
  * ask whether Epicenter already syncs a folder.
  */
-import { isTauri } from '@tauri-apps/api/core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { commands, type SyncRequestError } from './native/bindings.gen.js';
 
 export const EpicenterSyncError = defineErrors({
-	/** Not in a desktop window, so there is no shell to ask. */
-	NotTauri: () => ({
-		message: 'Only the desktop app can ask Epicenter to sync a folder.',
-	}),
 	/** The shell refused or could not answer; `message` says why. */
 	Unavailable: ({ cause }: { cause: unknown }) => ({
 		message: describe(cause),
@@ -46,7 +41,6 @@ export async function syncWithEpicenter({
 	path: string;
 	contract: string;
 }): Promise<Result<undefined, EpicenterSyncError>> {
-	if (!isTauri()) return EpicenterSyncError.NotTauri();
 	const sent = await commands
 		.syncWithEpicenter(path, contract)
 		.catch((cause: unknown) => ({ data: null, error: cause }));
@@ -66,7 +60,6 @@ export async function syncedWithEpicenter({
 }: {
 	path: string;
 }): Promise<Result<boolean, EpicenterSyncError>> {
-	if (!isTauri()) return EpicenterSyncError.NotTauri();
 	const answer = await commands
 		.syncedWithEpicenter(path)
 		.catch((cause: unknown) => ({ data: null, error: cause }));
