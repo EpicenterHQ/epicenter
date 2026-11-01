@@ -14,7 +14,7 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
-		"./client": "./src/client.ts",
+		"./client": "./src/client.svelte.ts",
 		"./leave-guard": "./src/leave-guard.ts",
 		"./repo": "./src/repo.ts",
 		"./note-repair": "./src/note-repair.svelte",

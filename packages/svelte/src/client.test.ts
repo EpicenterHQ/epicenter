@@ -18,6 +18,8 @@
  *   a draft's `replace` over the version it began from refuses a change since
  * - `fieldEdit` sends one save at a time, so fast typing never clashes with
  *   itself, and another writer's change to the same field surfaces
+ * - `fieldEdit` shows the newest typing until its own save answers: an older
+ *   answer, a discard, or teardown never brings back what was replaced
  * - A write through the adapter, or a keystroke in `fieldEdit`, is out for
  *   the leave guard at once, until it answers
  */
@@ -36,7 +38,7 @@ import { openDevice } from '@epicenter/folder/node';
 import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
-const { fromClient, fieldEdit } = await import('./client.js');
+const { fromClient, fieldEdit } = await import('./client.svelte.js');
 const { isSaving, whenSaved } = await import('./leave-guard.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync, mount, unmount } = await import('svelte');
@@ -509,6 +511,54 @@ test('fieldEdit carries typing over another writer’s other field, and surfaces
 	expect(await text('todos/a.md')).toContain('Four.\n');
 
 	await host.unmount();
+	shown.stop();
+});
+
+test('fieldEdit shows the newest typing until its own save answers; discard shows the note, and teardown stops typing', async () => {
+	const { open } = await folder();
+	const device = await open();
+	expectOk(await device.todos.create({ id: 'a', title: 'Milk', done: false }));
+	const gates: PromiseWithResolvers<void>[] = [];
+	const files = fromClient({
+		...device,
+		todos: {
+			...device.todos,
+			async update(...args: Parameters<TodoNotes['update']>) {
+				const gate = Promise.withResolvers<void>();
+				gates.push(gate);
+				await gate.promise;
+				return device.todos.update(...args);
+			},
+		},
+	} as Client<Todos>);
+	const shown = follow(() => files.todos.get({ id: 'a' }));
+	await until(() => shown.values.at(-1) !== undefined);
+	const host = setup(() => fieldEdit(files.todos, { id: 'a' }, 'title'));
+	const title = host.made;
+
+	title.value = 'Oat';
+	await until(() => gates.length === 1);
+	title.value = 'Oat milk';
+	// The older save lands; its answer does not replace the newer typing.
+	gates[0]?.resolve();
+	await until(() => gates.length === 2);
+	expect(title.value).toBe('Oat milk');
+	expect(title.saving).toBe(true);
+
+	// Discarding shows the note again; the save already out still lands.
+	title.discard();
+	expect(title.value).toBe('Oat');
+	gates[1]?.resolve();
+	expectOk(await title.landed());
+	await until(() => !title.saving);
+	expect(title.error).toBeNull();
+	await until(() => title.value === 'Oat milk');
+
+	// Once the component is gone, typing writes nothing.
+	await host.unmount();
+	title.value = 'Late';
+	expectOk(await title.landed());
+	expect(gates).toHaveLength(2);
 	shown.stop();
 });
 

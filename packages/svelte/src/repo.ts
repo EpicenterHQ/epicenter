@@ -21,7 +21,7 @@
  */
 import type { Contract } from '@epicenter/definition/contract';
 import { getContext, hasContext, setContext } from 'svelte';
-import type { ReactiveClient } from './client.js';
+import type { ReactiveClient } from './client.svelte.js';
 
 const REPO = Symbol('epicenter.repo');
 

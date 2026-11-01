@@ -58,10 +58,10 @@ import {
 	type Version,
 } from '@epicenter/definition/contract';
 import { sameValue } from '@epicenter/definition/note';
+import { onDestroy } from 'svelte';
 import { createSubscriber } from 'svelte/reactivity';
 import type { InferError } from 'wellcrafted/error';
-import { Ok, type Result } from 'wellcrafted/result';
-import { edit } from './edit.svelte.js';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { holdLeave } from './leave-guard.js';
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
@@ -140,6 +140,12 @@ export type ReactiveClient<TContract extends Contract> = {
 
 /** Each client's adapter, so a client is bridged once however many components ask. */
 const adapters = new WeakMap<object, unknown>();
+
+/**
+ * Each adapted collection's writes before the leave guard holds them, for
+ * `fieldEdit`, which holds each keystroke itself from the moment it is typed.
+ */
+const unheld = new WeakMap<object, unknown>();
 
 /** Bridge a contract's client into Svelte's graph: the same state for the same client. */
 export function fromClient<TContract extends Contract>(
@@ -341,7 +347,7 @@ function fromCollection(collection: Raw) {
 		},
 	};
 
-	return {
+	const adapted = {
 		get items() {
 			track();
 			return items;
@@ -369,25 +375,31 @@ function fromCollection(collection: Raw) {
 			holdLeave(writes.replace(args, text, options)),
 		delete: (args: Args) => holdLeave(writes.delete(args)),
 	};
+	unheld.set(adapted, writes);
+	return adapted;
 }
 
 /**
- * One field of a note (`'body'` included) as an immediate editor (`edit`):
- * `value` shows what was typed until its save answers, then the note.
+ * One field of a note (`'body'` included) as an immediate editor: `value`
+ * shows what was typed until that value's save answers, then the note.
+ * Each keystroke is `saving`, and held for the page's leave guard
+ * (`holdLeave`), from the moment it is typed until its save answers.
  *
- * Saves go one at a time, and only the newest value waiting is sent. Each is
- * made over what the person saw when this run of typing began, then over
- * their own last value that landed, so the editor never clashes with itself,
- * another writer's change to other fields is carried over, and their change
- * to this field surfaces as a `Conflict` (the adapter then shows theirs).
- * Saving again after that (`retry`, or typing on) applies over theirs.
+ * Saves go one at a time, and only the newest value waiting is sent; only
+ * the newest value's answer is shown. Each is made over what the person saw
+ * when this run of typing began, then over their own last value that
+ * landed, so the editor never clashes with itself, another writer's change
+ * to other fields is carried over, and their change to this field surfaces
+ * as a `Conflict` (the adapter then shows theirs). Saving again after that
+ * (`retry`, or typing on) applies over theirs.
  *
  * With `create`, the note need not exist yet: a save while none is shown
  * creates it, with `create()`'s fields and the typed value (a draft that
  * starts with its first keystroke). When another writer created it first
  * (`Occupied`), the value is written over theirs as an ordinary save.
  *
- * Call it during component setup, like `edit`.
+ * Call it during component setup: once the component is gone, typing and
+ * answers are ignored.
  */
 export function fieldEdit<
 	TCollection extends Collection,
@@ -401,70 +413,122 @@ export function fieldEdit<
 	} = {},
 ) {
 	type Value = NotePatch<TCollection>[TField];
+	type Saved = Result<unknown, ClientError>;
+	/** The adapter's writes, which this editor holds per keystroke itself. */
+	// SAFETY: an adapter's unheld writes are the very functions its own
+	// `create` and `update` hold, so they take and answer the same.
+	const writes = (unheld.get(notes) ?? notes) as Pick<
+		ReactiveNotes<TCollection>,
+		'create' | 'update'
+	>;
+	/** What was typed and not yet saved; none shows the note. */
+	let typed = $state<{ value: Value | undefined } | null>(null);
+	let error = $state<ClientError | null>(null);
+	/** Keystrokes whose save has not answered. */
+	let sending = $state(0);
 	/** What this run of typing is made over; none between runs. */
 	let base: Base<TCollection> | undefined;
+	/** The newest keystroke's number: only its value is sent, and only its answer shown. */
 	let newest = 0;
+	/** The newest keystroke's save, answered once what it shows is shown. */
+	let latest: Promise<Saved> = Promise.resolve(Ok(undefined));
+	/** The saves, one at a time. */
 	let running: Promise<unknown> = Promise.resolve();
+	let active = true;
+	onDestroy(() => {
+		active = false;
+	});
 
 	/** Write `value`: a new note when none is there to write over and `create` says how. */
-	async function write(
-		value: Value | undefined,
-	): Promise<Result<unknown, ClientError>> {
+	async function write(value: Value | undefined): Promise<Saved> {
 		const patch = { [field]: value } as NotePatch<TCollection>;
 		if (options.create && base === undefined && !notes.get(args)) {
-			const created = await notes.create({
+			const created = await writes.create({
 				...options.create(),
 				...args,
 				...patch,
 			} as Parameters<ReactiveNotes<TCollection>['create']>[0]);
 			if (created.error?.name !== 'Occupied') return created;
 		}
-		return notes.update(args, patch, base ? { base } : {});
+		return writes.update(args, patch, base ? { base } : {});
 	}
 
-	const editor = edit(
-		() =>
-			notes.get(args)?.[field as keyof NoteOf<TCollection>] as
-				| Value
-				| undefined,
-		(value: Value | undefined) => {
-			const ticket = ++newest;
-			base ??= notes.get(args);
-			const saved = running.then(async () => {
-				// A newer value is waiting: it is the one to send.
-				if (ticket !== newest) return Ok(undefined);
-				const written = await write(value);
-				if (written.error === null)
-					base =
-						ticket === newest ? undefined : (written.data as Base<TCollection>);
-				else if (written.error.name === 'Conflict') base = undefined;
-				return written;
+	function send(value: Value | undefined) {
+		const ticket = ++newest;
+		base ??= notes.get(args);
+		const saved = running.then(async () => {
+			// A newer value is waiting: it is the one to send.
+			if (ticket !== newest) return Ok(undefined);
+			const written = await write(value);
+			if (written.error === null)
+				base =
+					ticket === newest ? undefined : (written.data as Base<TCollection>);
+			else if (written.error.name === 'Conflict') base = undefined;
+			return written;
+		});
+		running = saved.catch(() => {});
+		sending++;
+		latest = holdLeave(saved)
+			.finally(() => {
+				sending--;
+			})
+			.then((result) => {
+				// Shown unless a newer keystroke, a discard, or teardown has moved on.
+				if (active && ticket === newest && typed !== null) {
+					if (result.error === null) typed = null;
+					else error = result.error;
+				}
+				return result;
 			});
-			running = saved.catch(() => {});
-			return saved;
-		},
-	);
+	}
+
+	function set(value: Value | undefined) {
+		if (!active) return;
+		typed = { value };
+		error = null;
+		send(value);
+	}
 
 	return {
 		get value() {
-			return editor.value;
+			return typed === null
+				? (notes.get(args)?.[field as keyof NoteOf<TCollection>] as
+						| Value
+						| undefined)
+				: typed.value;
 		},
 		set value(value: Value | undefined) {
-			editor.value = value;
+			set(value);
 		},
 		get error() {
-			return editor.error;
+			return error;
 		},
 		/** Whether a save is out: from the keystroke until it answers. */
 		get saving() {
-			return editor.saving;
+			return sending > 0;
 		},
-		set: editor.set,
-		landed: editor.landed,
-		retry: editor.retry,
+		set,
+		/** Answers once the newest typed value's save does: at once when nothing typed is waiting. */
+		async landed(): Promise<Result<void, ClientError>> {
+			while (active && typed !== null) {
+				const ticket = newest;
+				const result = await latest;
+				if (ticket !== newest) continue;
+				return result.error === null ? Ok(undefined) : Err(result.error);
+			}
+			return Ok(undefined);
+		},
+		retry() {
+			if (!active || typed === null) return;
+			error = null;
+			send(typed.value);
+		},
+		/** Show the note again, dropping what was typed; a save already out still lands. */
 		discard() {
+			if (!active) return;
+			typed = null;
+			error = null;
 			base = undefined;
-			editor.discard();
 		},
 	};
 }
