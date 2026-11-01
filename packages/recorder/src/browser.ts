@@ -29,8 +29,7 @@
  * The page's microphone streams and voice activity detection are here too:
  * they call `getUserMedia`, so only a browser build reaches them.
  */
-import type { Client, Contract } from '@epicenter/definition/contract';
-import { type DeviceFiles, deviceFiles } from '@epicenter/folder/browser';
+import { deviceFiles } from '@epicenter/folder/browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioDurationMs, repairAudio } from './container.js';
 import { openMicrophone, release } from './microphone.js';
@@ -51,67 +50,6 @@ export {
 	type VadRecorder,
 	type VadRecorderError,
 } from './vad-recorder.js';
-
-/** The level reading a recording needs from an audio graph. */
-type LevelContext = {
-	createMediaStreamSource(stream: MediaStream): {
-		connect(node: unknown): unknown;
-		disconnect(): void;
-	};
-	createAnalyser(): {
-		fftSize: number;
-		getFloatTimeDomainData(samples: Float32Array<ArrayBuffer>): void;
-	};
-	resume(): Promise<void>;
-	close(): Promise<void>;
-};
-
-/** What of the browser a recording uses. Tests supply their own. */
-export type BrowserEnvironment = {
-	readonly mediaDevices: Pick<MediaDevices, 'getUserMedia'> | undefined;
-	readonly Recorder:
-		| {
-				new (
-					stream: MediaStream,
-					options?: MediaRecorderOptions,
-				): MediaRecorder;
-				isTypeSupported(type: string): boolean;
-		  }
-		| undefined;
-	/** Undefined where the browser cannot measure audio: levels are then never heard. */
-	readonly createLevelContext: (() => LevelContext) | undefined;
-	readonly now: () => number;
-	/** The files of the store a recording is written into, by path. */
-	readonly filesOf: (device: Client<Contract>) => DeviceFiles;
-	/**
-	 * Web Locks, which keep recovery off a recording another tab is still
-	 * writing. Undefined where the browser has none: recovery then trusts
-	 * that no other tab records.
-	 */
-	readonly locks: Pick<LockManager, 'request'> | undefined;
-};
-
-/** The browser's own microphone, encoder, audio graph, clock, files, and locks. */
-export function browserEnvironment(): BrowserEnvironment {
-	return {
-		mediaDevices:
-			typeof navigator === 'undefined' ||
-			navigator.mediaDevices?.getUserMedia === undefined
-				? undefined
-				: navigator.mediaDevices,
-		Recorder: typeof MediaRecorder === 'undefined' ? undefined : MediaRecorder,
-		createLevelContext:
-			typeof AudioContext === 'undefined'
-				? undefined
-				: () => new AudioContext(),
-		now: () => Date.now(),
-		filesOf: deviceFiles,
-		locks:
-			typeof navigator === 'undefined' || navigator.locks === undefined
-				? undefined
-				: navigator.locks,
-	};
-}
 
 /** What a browser recording asks `MediaRecorder` for, in order (decision 56). */
 export const RECORDING_TYPES = [
@@ -170,14 +108,13 @@ const lockOf = (path: string) => `epicenter-recording:${path}`;
  * called. Nothing is played: the analyser is the end of the graph.
  */
 function meter(
-	environment: BrowserEnvironment,
 	stream: MediaStream,
 	listeners: ReadonlySet<(level: number) => void>,
 ): () => void {
-	if (environment.createLevelContext === undefined) return () => {};
-	let context: LevelContext | undefined;
+	if (typeof AudioContext === 'undefined') return () => {};
+	let context: AudioContext | undefined;
 	try {
-		context = environment.createLevelContext();
+		context = new AudioContext();
 		const source = context.createMediaStreamSource(stream);
 		const analyser = context.createAnalyser();
 		analyser.fftSize = 1024;
@@ -207,12 +144,12 @@ function meter(
 
 /**
  * Hold the Web Lock `name` until the returned function is called, or null
- * when another tab holds it. Without Web Locks there is nothing to hold.
+ * when another tab holds it. Web Locks keep recovery off a recording another
+ * tab is still writing; without them there is nothing to hold, and recovery
+ * trusts that no other tab records.
  */
-async function hold(
-	locks: BrowserEnvironment['locks'],
-	name: string,
-): Promise<(() => void) | null> {
+async function hold(name: string): Promise<(() => void) | null> {
+	const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
 	if (locks === undefined) return () => {};
 	let release!: () => void;
 	const held = new Promise<void>((resolve) => {
@@ -230,8 +167,8 @@ async function hold(
 }
 
 /** The first of `RECORDING_TYPES` the browser records, or undefined for its default. */
-const requestedType = (Recorder: NonNullable<BrowserEnvironment['Recorder']>) =>
-	RECORDING_TYPES.find((type) => Recorder.isTypeSupported(type));
+const requestedType = () =>
+	RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
 
 /**
  * Open the microphone and start `MediaRecorder` over it, handing each piece
@@ -239,16 +176,16 @@ const requestedType = (Recorder: NonNullable<BrowserEnvironment['Recorder']>) =>
  * stops the recorder, waits for its last piece, and releases it.
  */
 async function openCapture(
-	environment: BrowserEnvironment,
 	{ input, signal }: RecordingStart,
 	onPiece: (piece: Blob) => void,
 ) {
-	const { mediaDevices, Recorder } = environment;
-	if (mediaDevices === undefined)
+	const mediaDevices =
+		typeof navigator === 'undefined' ? undefined : navigator.mediaDevices;
+	if (mediaDevices?.getUserMedia === undefined)
 		return RecorderError.Unavailable({
 			reason: 'this window has no microphone access',
 		});
-	if (Recorder === undefined)
+	if (typeof MediaRecorder === 'undefined')
 		return RecorderError.Unavailable({
 			reason: 'this window cannot encode audio',
 		});
@@ -258,10 +195,10 @@ async function openCapture(
 		signal,
 	);
 	if (openError !== null) return Err(openError);
-	const requested = requestedType(Recorder);
+	const requested = requestedType();
 	let recorder: MediaRecorder;
 	try {
-		recorder = new Recorder(
+		recorder = new MediaRecorder(
 			stream,
 			requested === undefined ? undefined : { mimeType: requested },
 		);
@@ -272,7 +209,7 @@ async function openCapture(
 	recorder.addEventListener('dataavailable', (event) => {
 		if (event.data.size > 0) onPiece(event.data);
 	});
-	const startedAt = environment.now();
+	const startedAt = Date.now();
 	try {
 		recorder.start(PIECE_MS);
 	} catch (cause) {
@@ -281,12 +218,12 @@ async function openCapture(
 	}
 	const levels = new Set<(level: number) => void>();
 	const endings = new Set<(reason: RecordingEndedReason) => void>();
-	const stopMeter = meter(environment, stream, levels);
+	const stopMeter = meter(stream, levels);
 	let settled = false;
 	let ended: { reason: RecordingEndedReason; at: number } | undefined;
 	function interrupted(reason: RecordingEndedReason) {
 		if (settled || ended !== undefined) return;
-		ended = { reason, at: environment.now() };
+		ended = { reason, at: Date.now() };
 		for (const listener of [...endings]) listener(reason);
 	}
 	// Keep the first ending even when no consumer has subscribed yet.
@@ -351,9 +288,7 @@ async function openCapture(
 			stopMeter();
 			levels.clear();
 			endings.clear();
-			const durationMs = Math.round(
-				(ended?.at ?? environment.now()) - startedAt,
-			);
+			const durationMs = Math.round((ended?.at ?? Date.now()) - startedAt);
 			try {
 				if (recorder.state !== 'inactive') recorder.stop();
 			} catch (cause) {
@@ -370,229 +305,209 @@ async function openCapture(
 
 type Capture = NonNullable<Awaited<ReturnType<typeof openCapture>>['data']>;
 
-/** Recording over `environment`, the browser's own by default. */
-export function createBrowserRecorder(
-	environment: BrowserEnvironment = browserEnvironment(),
-) {
-	/**
-	 * Record into `device` at `<path>.<ext>`, appending each piece as it
-	 * arrives. Refused before any microphone opens when the store keeps no
-	 * files here (a private window) or a file is already at the path.
-	 */
-	const startRecording: StartRecording = async ({
-		device,
-		path,
-		input,
-		signal,
-	}) => {
-		const files = environment.filesOf(device);
-		const { Recorder } = environment;
-		const expected = `${path}.${
-			containerOf((Recorder && requestedType(Recorder)) ?? '').extension
-		}`;
-		const there = await files.read(expected);
-		if (there.error !== null)
-			return RecorderError.Refused({ reason: there.error.message });
-		if (there.data !== null)
-			return RecorderError.Refused({
-				reason: `a file is already at ${expected}`,
-			});
-		const releaseLock = await hold(environment.locks, lockOf(expected));
-		if (releaseLock === null)
-			return RecorderError.Busy({
-				reason: `another tab is recording into ${expected}`,
-			});
-
-		/**
-		 * How long the audio written at `path` plays, read from its bytes, or
-		 * undefined when they do not read. Not the time between Start and Stop:
-		 * an engine drops the first moments of a recording (Safari about 0.3 s).
-		 */
-		const heldMs = async (path: string) => {
-			const { data } = await files.read(path);
-			return data
-				? audioDurationMs(data.bytes, path.slice(path.lastIndexOf('.') + 1))
-				: undefined;
-		};
-		let file = expected;
-		let capture: Capture | undefined;
-		let created = false;
-		let storageFailure: string | undefined;
-		let writing = Promise.resolve();
-		/** Pieces that arrive before the file's name is settled wait for it. */
-		const early: Blob[] = [];
-		const write = (piece: Blob) => {
-			writing = writing.then(async () => {
-				if (storageFailure !== undefined) return;
-				const bytes = new Uint8Array(await piece.arrayBuffer());
-				const { data, error } = await files.append(file, bytes, {
-					create: !created,
-					announce: false,
-				});
-				if (error === null && data === 'landed') {
-					created = true;
-					return;
-				}
-				storageFailure =
-					error?.message ??
-					(created
-						? `${file} was removed while it recorded`
-						: `a file is already at ${file}`);
-				capture?.interrupted('storageFailed');
-				capture?.halt();
-			});
-		};
-		const opened = await openCapture(environment, { input, signal }, (piece) =>
-			capture === undefined ? early.push(piece) : write(piece),
-		);
-		if (opened.error !== null) {
-			releaseLock();
-			return opened;
-		}
-		const started = opened.data;
-		capture = started;
-		file = `${path}.${containerOf(started.type).extension}`;
-		for (const piece of early.splice(0)) write(piece);
-
-		return Ok({
-			startedAt: started.startedAt,
-			microphone: started.microphone,
-			onLevel: started.onLevel,
-			onEnded: started.onEnded,
-			async stop() {
-				if (started.isSettled())
-					return RecorderError.NotRecording({
-						reason: 'it was already stopped',
-					});
-				const finished = await started.finish();
-				await writing;
-				releaseLock();
-				// Every piece has landed: the store's listeners hear the whole file.
-				if (created)
-					await files.append(file, new Uint8Array(), {
-						create: false,
-						announce: true,
-					});
-				if (finished.error !== null) return finished;
-				if (!created)
-					return storageFailure === undefined
-						? RecorderError.Empty()
-						: RecorderError.Refused({ reason: storageFailure });
-				return Ok({
-					durationMs: (await heldMs(file)) ?? finished.data.durationMs,
-					// Written at its path as it recorded.
-					placed: Promise.resolve(Ok({ path: file })),
-				});
-			},
-		});
-	};
-
-	/**
-	 * Cut each `m4a` and `webm` recording directly under `under` back to its
-	 * last whole piece, skipping any a tab is still writing, and answer every
-	 * one no tab is writing, repaired or already whole, with how long it
-	 * plays: an app tells a cut-off recording from one still recording in
-	 * another tab only by this answer.
-	 */
-	const recoverRecordings: RecoverRecordings = async ({ device, under }) => {
-		const files = environment.filesOf(device);
-		const listed = await files.list();
-		if (listed.error !== null)
-			return RecorderError.Failed({ cause: listed.error });
-		const recovered: RecoveredRecording[] = [];
-		for (const { path } of listed.data) {
-			const name = path.slice(under.length + 1);
-			if (!path.startsWith(`${under}/`) || name.includes('/')) continue;
-			const ext = name.slice(name.lastIndexOf('.') + 1);
-			if (ext !== 'm4a' && ext !== 'webm') continue;
-			const releaseLock = await hold(environment.locks, lockOf(path));
-			// A tab is writing it now.
-			if (releaseLock === null) continue;
-			try {
-				const read = await files.read(path);
-				if (read.error !== null)
-					return RecorderError.Failed({ cause: read.error });
-				if (read.data === null) continue;
-				const whole = repairAudio(read.data.bytes, ext);
-				// Already whole, or not audio that reads.
-				if (whole === undefined) {
-					recovered.push({
-						path,
-						durationMs: audioDurationMs(read.data.bytes, ext) ?? null,
-					});
-					continue;
-				}
-				const written = await files.write(path, whole, {
-					sha256: read.data.version,
-				});
-				if (written.error !== null)
-					return RecorderError.Failed({ cause: written.error });
-				if (written.data === 'landed')
-					recovered.push({
-						path,
-						durationMs: audioDurationMs(whole, ext) ?? null,
-					});
-			} finally {
-				releaseLock();
-			}
-		}
-		return Ok(recovered);
-	};
-
-	/** Record in the page; `stop` answers the audio, and nothing is written. */
-	const startPageRecording: StartPageRecording = async (options = {}) => {
-		const pieces: Blob[] = [];
-		const opened = await openCapture(environment, options, (piece) =>
-			pieces.push(piece),
-		);
-		if (opened.error !== null) return opened;
-		const capture = opened.data;
-		return Ok({
-			startedAt: capture.startedAt,
-			microphone: capture.microphone,
-			onLevel: capture.onLevel,
-			onEnded: capture.onEnded,
-			async stop() {
-				if (capture.isSettled())
-					return RecorderError.NotRecording({
-						reason: 'it was already stopped',
-					});
-				const finished = await capture.finish();
-				if (finished.error !== null) return finished;
-				// The produced type, not the requested one: read it from the data.
-				const type = pieces[0]?.type || capture.type;
-				const bytes = new Uint8Array(await new Blob(pieces).arrayBuffer());
-				if (bytes.byteLength === 0) return RecorderError.Empty();
-				const container = containerOf(type);
-				return Ok({
-					bytes,
-					...container,
-					durationMs:
-						audioDurationMs(bytes, container.extension) ??
-						finished.data.durationMs,
-				});
-			},
-		});
-	};
-
-	return {
-		startRecording,
-		recoverRecordings,
-		startPageRecording,
-	};
-}
-
 /**
  * Record from `input` (or the system default) into `device` at
- * `<path>.m4a` (or `.webm`), each piece appended as it arrives.
+ * `<path>.m4a` (or `.webm`), appending each piece as it arrives. Refused
+ * before any microphone opens when the store keeps no files here (a private
+ * window) or a file is already at the path.
  */
-export const startRecording: StartRecording = (options) =>
-	createBrowserRecorder().startRecording(options);
+export const startRecording: StartRecording = async ({
+	device,
+	path,
+	input,
+	signal,
+}) => {
+	const files = deviceFiles(device);
+	const expected = `${path}.${
+		containerOf((typeof MediaRecorder !== 'undefined' && requestedType()) || '')
+			.extension
+	}`;
+	const there = await files.read(expected);
+	if (there.error !== null)
+		return RecorderError.Refused({ reason: there.error.message });
+	if (there.data !== null)
+		return RecorderError.Refused({
+			reason: `a file is already at ${expected}`,
+		});
+	const releaseLock = await hold(lockOf(expected));
+	if (releaseLock === null)
+		return RecorderError.Busy({
+			reason: `another tab is recording into ${expected}`,
+		});
 
-/** Repair the recordings under `under` in `device` that a closed tab cut off. */
-export const recoverRecordings: RecoverRecordings = (options) =>
-	createBrowserRecorder().recoverRecordings(options);
+	/**
+	 * How long the audio written at `path` plays, read from its bytes, or
+	 * undefined when they do not read. Not the time between Start and Stop:
+	 * an engine drops the first moments of a recording (Safari about 0.3 s).
+	 */
+	const heldMs = async (path: string) => {
+		const { data } = await files.read(path);
+		return data
+			? audioDurationMs(data.bytes, path.slice(path.lastIndexOf('.') + 1))
+			: undefined;
+	};
+	let file = expected;
+	let capture: Capture | undefined;
+	let created = false;
+	let storageFailure: string | undefined;
+	let writing = Promise.resolve();
+	/** Pieces that arrive before the file's name is settled wait for it. */
+	const early: Blob[] = [];
+	const write = (piece: Blob) => {
+		writing = writing.then(async () => {
+			if (storageFailure !== undefined) return;
+			const bytes = new Uint8Array(await piece.arrayBuffer());
+			const { data, error } = await files.append(file, bytes, {
+				create: !created,
+				announce: false,
+			});
+			if (error === null && data === 'landed') {
+				created = true;
+				return;
+			}
+			storageFailure =
+				error?.message ??
+				(created
+					? `${file} was removed while it recorded`
+					: `a file is already at ${file}`);
+			capture?.interrupted('storageFailed');
+			capture?.halt();
+		});
+	};
+	const opened = await openCapture({ input, signal }, (piece) =>
+		capture === undefined ? early.push(piece) : write(piece),
+	);
+	if (opened.error !== null) {
+		releaseLock();
+		return opened;
+	}
+	const started = opened.data;
+	capture = started;
+	file = `${path}.${containerOf(started.type).extension}`;
+	for (const piece of early.splice(0)) write(piece);
 
-/** Record from `input` (or the system default) in this tab; `stop` answers the audio. */
-export const startPageRecording: StartPageRecording = (options) =>
-	createBrowserRecorder().startPageRecording(options);
+	return Ok({
+		startedAt: started.startedAt,
+		microphone: started.microphone,
+		onLevel: started.onLevel,
+		onEnded: started.onEnded,
+		async stop() {
+			if (started.isSettled())
+				return RecorderError.NotRecording({
+					reason: 'it was already stopped',
+				});
+			const finished = await started.finish();
+			await writing;
+			releaseLock();
+			// Every piece has landed: the store's listeners hear the whole file.
+			if (created)
+				await files.append(file, new Uint8Array(), {
+					create: false,
+					announce: true,
+				});
+			if (finished.error !== null) return finished;
+			if (!created)
+				return storageFailure === undefined
+					? RecorderError.Empty()
+					: RecorderError.Refused({ reason: storageFailure });
+			return Ok({
+				durationMs: (await heldMs(file)) ?? finished.data.durationMs,
+				// Written at its path as it recorded.
+				placed: Promise.resolve(Ok({ path: file })),
+			});
+		},
+	});
+};
+
+/**
+ * Repair the recordings under `under` in `device` that a closed tab cut
+ * off: cut each `m4a` and `webm` recording directly under it back to its
+ * last whole piece, skipping any a tab is still writing, and answer every
+ * one no tab is writing, repaired or already whole, with how long it
+ * plays: an app tells a cut-off recording from one still recording in
+ * another tab only by this answer.
+ */
+export const recoverRecordings: RecoverRecordings = async ({
+	device,
+	under,
+}) => {
+	const files = deviceFiles(device);
+	const listed = await files.list();
+	if (listed.error !== null)
+		return RecorderError.Failed({ cause: listed.error });
+	const recovered: RecoveredRecording[] = [];
+	for (const { path } of listed.data) {
+		const name = path.slice(under.length + 1);
+		if (!path.startsWith(`${under}/`) || name.includes('/')) continue;
+		const ext = name.slice(name.lastIndexOf('.') + 1);
+		if (ext !== 'm4a' && ext !== 'webm') continue;
+		const releaseLock = await hold(lockOf(path));
+		// A tab is writing it now.
+		if (releaseLock === null) continue;
+		try {
+			const read = await files.read(path);
+			if (read.error !== null)
+				return RecorderError.Failed({ cause: read.error });
+			if (read.data === null) continue;
+			const whole = repairAudio(read.data.bytes, ext);
+			// Already whole, or not audio that reads.
+			if (whole === undefined) {
+				recovered.push({
+					path,
+					durationMs: audioDurationMs(read.data.bytes, ext) ?? null,
+				});
+				continue;
+			}
+			const written = await files.write(path, whole, {
+				sha256: read.data.version,
+			});
+			if (written.error !== null)
+				return RecorderError.Failed({ cause: written.error });
+			if (written.data === 'landed')
+				recovered.push({
+					path,
+					durationMs: audioDurationMs(whole, ext) ?? null,
+				});
+		} finally {
+			releaseLock();
+		}
+	}
+	return Ok(recovered);
+};
+
+/**
+ * Record from `input` (or the system default) in this tab; `stop` answers
+ * the audio, and nothing is written.
+ */
+export const startPageRecording: StartPageRecording = async (options = {}) => {
+	const pieces: Blob[] = [];
+	const opened = await openCapture(options, (piece) => pieces.push(piece));
+	if (opened.error !== null) return opened;
+	const capture = opened.data;
+	return Ok({
+		startedAt: capture.startedAt,
+		microphone: capture.microphone,
+		onLevel: capture.onLevel,
+		onEnded: capture.onEnded,
+		async stop() {
+			if (capture.isSettled())
+				return RecorderError.NotRecording({
+					reason: 'it was already stopped',
+				});
+			const finished = await capture.finish();
+			if (finished.error !== null) return finished;
+			// The produced type, not the requested one: read it from the data.
+			const type = pieces[0]?.type || capture.type;
+			const bytes = new Uint8Array(await new Blob(pieces).arrayBuffer());
+			if (bytes.byteLength === 0) return RecorderError.Empty();
+			const container = containerOf(type);
+			return Ok({
+				bytes,
+				...container,
+				durationMs:
+					audioDurationMs(bytes, container.extension) ??
+					finished.data.durationMs,
+			});
+		},
+	});
+};

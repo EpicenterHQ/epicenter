@@ -20,21 +20,28 @@
  * - A test's stream and audio graph are released when it stops, and a stream
  *   that arrives after the request was withdrawn is released
  */
-import { expect, test } from 'bun:test';
+import { afterEach, expect, mock, test } from 'bun:test';
 import type { Client } from '@epicenter/definition/contract';
-import {
-	type BrowserEnvironment,
-	createBrowserRecorder,
-} from '@epicenter/recorder/browser';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { CaptureDevice, CaptureStart } from './capture.js';
 import type { Whispering } from './contract.js';
 import { deferred } from './services.test-support.js';
-import {
-	createWebViewMicrophone,
-	type MicrophoneEnvironment,
-} from './webview-microphone.js';
+import type { MicrophoneEnvironment } from './webview-microphone.js';
+
+// The recorder writes into an empty store: the scripted recorder hands over no audio.
+mock.module('@epicenter/folder/browser', () => ({
+	deviceFiles: () => ({
+		list: async () => Ok([]),
+		read: async () => Ok(null),
+		write: async () => Ok('stale'),
+		append: async () => Ok('landed'),
+	}),
+}));
+const { recoverRecordings, startRecording } = await import(
+	'@epicenter/recorder/browser'
+);
+const { createWebViewMicrophone } = await import('./webview-microphone.js');
 
 /** What a recording's microphone request turns off: the browser's voice processing. */
 const UNPROCESSED = {
@@ -48,25 +55,24 @@ const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
 /** A start with the system default. The scripted recorder hands over no audio, so nothing is written. */
 const INTO: CaptureStart = { id: 'a' };
 
-/** The store recordings go into; the recorder reaches it only through `filesOf`. */
+/** The store recordings go into; the recorder reaches its files through `deviceFiles`. */
 const store = {} as Client<Whispering>;
 
-/** The browser recorder over `environment`, as the page records in a browser, into an empty store. */
-const recorderOver = (
-	environment: Pick<BrowserEnvironment, 'mediaDevices' | 'Recorder'>,
-) =>
-	createBrowserRecorder({
-		...environment,
-		createLevelContext: undefined,
-		now: () => 0,
-		filesOf: () => ({
-			list: async () => Ok([]),
-			read: async () => Ok(null),
-			write: async () => Ok('stale'),
-			append: async () => Ok('landed'),
-		}),
-		locks: undefined,
+const restorations: (() => void)[] = [];
+
+afterEach(() => {
+	for (const restore of restorations.splice(0).reverse()) restore();
+});
+
+/** Put `value` at `target[key]` until the test ends. */
+function stub(target: object, key: PropertyKey, value: unknown) {
+	const original = Object.getOwnPropertyDescriptor(target, key);
+	Object.defineProperty(target, key, { configurable: true, value });
+	restorations.push(() => {
+		if (original) Object.defineProperty(target, key, original);
+		else Reflect.deleteProperty(target, key);
 	});
+}
 
 const named = (name: string) => Object.assign(new Error(name), { name });
 
@@ -148,19 +154,23 @@ function webView({
 			changeListeners.delete(listener);
 		},
 	};
+	// The browser recorder reads the page's own: this WebView's.
+	stub(navigator, 'mediaDevices', mediaDevices);
+	stub(
+		globalThis,
+		'MediaRecorder',
+		class extends EventTarget {
+			static isTypeSupported = () => false;
+			mimeType = 'audio/webm';
+			start() {}
+			stop() {
+				this.dispatchEvent(new Event('stop'));
+			}
+		},
+	);
 	const environment: MicrophoneEnvironment = {
 		mediaDevices,
-		recorder: recorderOver({
-			mediaDevices,
-			Recorder: class extends EventTarget {
-				static isTypeSupported = () => false;
-				mimeType = 'audio/webm';
-				start() {}
-				stop() {
-					this.dispatchEvent(new Event('stop'));
-				}
-			} as unknown as BrowserEnvironment['Recorder'],
-		}),
+		recorder: { startRecording, recoverRecordings },
 		createLevelContext() {
 			const graph = { closed: false, disconnected: false };
 			graphs.push(graph);
@@ -273,7 +283,7 @@ test('a window with no microphone access says so for recording, listing, enablin
 	const device = createWebViewMicrophone(store, {
 		mediaDevices: undefined,
 		createLevelContext: undefined,
-		recorder: recorderOver({ mediaDevices: undefined, Recorder: undefined }),
+		recorder: { startRecording, recoverRecordings },
 	});
 	const inputs = inputsOf(device);
 
