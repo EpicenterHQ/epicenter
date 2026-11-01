@@ -8,8 +8,8 @@ import { audioDurationMs } from '@epicenter/recorder';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { audioMimeTypeOf } from './audio-format.js';
-import { toneWav } from './capture.js';
 import type { StoredConnection } from './connections.js';
+import { toneWav } from './services.test-support.js';
 import { transcribeOverConnection } from './transcription.js';
 
 test('a file’s extension names its playback type, ignoring case', () => {

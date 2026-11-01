@@ -22,7 +22,6 @@ import { Err, Ok } from 'wellcrafted/result';
 import {
 	type CaptureDevice,
 	CaptureError,
-	type CaptureSource,
 	type MicrophoneInputs,
 } from './capture.js';
 import type { Whispering } from './contract.js';
@@ -72,23 +71,15 @@ export function createMicrophoneDevice({
 	device,
 	inputs,
 	recorder,
-	source = 'microphone',
-	label = 'Microphone',
 }: {
 	/** Whispering's files, which every recording is written into. */
 	device: Client<Whispering>;
-	/** The inputs to choose and test; undefined for a stand-in with none. */
-	inputs: MicrophoneInputs | undefined;
-	/** Records from a microphone, or from a stand-in for one. */
+	/** The inputs to choose and test. */
+	inputs: MicrophoneInputs;
+	/** Records from the microphone. */
 	recorder: Recorder;
-	/** What the recordings it makes are marked as captured from. */
-	source?: CaptureSource;
-	/** What the person is told this session records from. */
-	label?: string;
 }): CaptureDevice {
 	return {
-		source,
-		label,
 		inputs,
 		async start({ id, input, signal }) {
 			const { data: recording, error } = await recorder.startRecording({

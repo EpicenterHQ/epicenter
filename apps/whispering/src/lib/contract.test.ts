@@ -50,7 +50,6 @@ test('the files Whispering writes fit its contract with no issues', async () => 
 			title: 'Standup',
 			recordedAt: at.toISOString(),
 			durationMs: 1500,
-			capture: 'microphone',
 		}),
 	);
 	const transcription = timeId();

@@ -18,13 +18,7 @@
  * access was allowed, so `allow` is a separate action the person takes.
  */
 import type { Client } from '@epicenter/definition/contract';
-import {
-	browserEnvironment,
-	createBrowserRecorder,
-	recoverRecordings,
-	startRecording,
-	toneMicrophone,
-} from '@epicenter/recorder/browser';
+import { recoverRecordings, startRecording } from '@epicenter/recorder/browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	type CaptureDevice,
@@ -275,26 +269,5 @@ export function createWebViewMicrophone(
 		device,
 		inputs: createInputs(environment),
 		recorder: environment.recorder,
-	});
-}
-
-/**
- * A generated tone in place of the microphone (`toneMicrophone`), recorded
- * by the browser's own recorder into `device`, so its audio is what a
- * microphone take would be (AAC or WebM, written as it records). Its
- * recordings are marked `fixture`.
- */
-export function createToneMicrophone(
-	device: Client<Whispering>,
-): CaptureDevice {
-	return createMicrophoneDevice({
-		device,
-		inputs: undefined,
-		recorder: createBrowserRecorder({
-			...browserEnvironment(),
-			mediaDevices: toneMicrophone(),
-		}),
-		source: 'fixture',
-		label: 'Fixture audio (generated tone)',
 	});
 }

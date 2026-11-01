@@ -13,7 +13,7 @@ against. Any program that writes the layout is a valid writer.
 
 | Path | What it is |
 | --- | --- |
-| `recordings/<id>.md` | A recording: `title`, `recordedAt`, `durationMs`, `capture` (`microphone` or `fixture`) in front matter, your notes in the body. |
+| `recordings/<id>.md` | A recording: `title`, `recordedAt`, `durationMs` in front matter, your notes in the body. |
 | `recordings/<id>.<ext>` | Its audio: `m4a` (AAC) or `webm` (Opus) from a browser, `webm` (Opus) from a desktop, or `wav` when a desktop could not encode one. |
 | `transcriptions/<id>.md` | A transcript: the `recordingId` it was made from, `createdAt`, `model`, `endpoint`; the transcript is the body. |
 | `transformations/<id>.md` | A transformation: a `title` and an optional `model` (`null` uses the text connection's); its instructions are the body. |
@@ -237,16 +237,6 @@ it). The earlier steps run with service workers blocked, so the routes they
 stub see every request. `bun apps/whispering/e2e/stack.ts --demo` runs the same
 stack to try by hand. It needs `initdb`, `pg_ctl`, `git`, and `git-lfs` on
 `PATH`.
-
-### Fixture audio
-
-A page opened with `?fixture=tone` records a generated 440 Hz tone through
-the browser's own recorder instead of the microphone, for browsers under test
-that have none (WebKit under Playwright). Only a development build, or one
-built with `VITE_WHISPERING_FIXTURES=1` (the end-to-end suite's), offers it.
-Recordings made this way are saved with `capture: fixture` and labelled as
-such. A fixture recording proves the save, playback, and transcription path,
-nothing about the microphone.
 
 ## The desktop app
 

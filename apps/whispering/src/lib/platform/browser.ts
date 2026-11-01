@@ -25,10 +25,7 @@ import {
 	TransformationError,
 	transformOverConnection,
 } from '../transformation.js';
-import {
-	createToneMicrophone,
-	createWebViewMicrophone,
-} from '../webview-microphone.js';
+import { createWebViewMicrophone } from '../webview-microphone.js';
 import { getAuth } from './auth.js';
 import type { CreateServices } from './types.js';
 
@@ -153,24 +150,9 @@ function route(operation: Operation) {
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
 
-/**
- * A page opened with `?fixture=tone` records a generated tone instead of the
- * microphone, for browsers under test that have none. Only a development
- * build, or one built with `VITE_WHISPERING_FIXTURES=1` (the end-to-end
- * suite's), offers it.
- */
-function wantsToneFixture(): boolean {
-	return (
-		(import.meta.env.DEV || import.meta.env.VITE_WHISPERING_FIXTURES === '1') &&
-		new URLSearchParams(location.search).get('fixture') === 'tone'
-	);
-}
-
 /** Whispering's services in a browser tab: `#platform/services`. */
 export const createServices: CreateServices = (client) => ({
-	capture: wantsToneFixture()
-		? createToneMicrophone(client)
-		: createWebViewMicrophone(client),
+	capture: createWebViewMicrophone(client),
 	transcribe: (request) => {
 		let selected: ReturnType<typeof route>;
 		return transcribeOverConnection(

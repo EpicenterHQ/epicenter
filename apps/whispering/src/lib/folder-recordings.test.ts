@@ -13,10 +13,10 @@ import { openDevice } from '@epicenter/folder/node';
 import type { RecoverRecordings } from '@epicenter/recorder';
 import { Ok, unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { toneWav } from './capture.js';
 import { whispering } from './contract.js';
 import { finishCutOffRecordings, keepRecording } from './folder-recordings.js';
 import { createMicrophoneDevice } from './microphone.js';
+import { NO_INPUTS, toneWav } from './services.test-support.js';
 
 const folders: string[] = [];
 afterEach(async () => {
@@ -35,7 +35,6 @@ const kept = (id: string, durationMs = 1000) => ({
 	id,
 	title: 'Standup',
 	recordedAt: '2026-10-31T09:30:00.000Z',
-	capture: 'microphone' as const,
 	durationMs,
 });
 
@@ -87,7 +86,6 @@ test('the next launch gives a cut-off recording its note, with the length recove
 	).toEqual(['cut', 'left']);
 	expect(expectOk(await device.recordings.get({ id: 'cut' }))).toMatchObject({
 		title: 'Recovered recording',
-		capture: 'microphone',
 		durationMs: 2000,
 	});
 	expect(expectOk(await device.recordings.get({ id: 'left' })).durationMs).toBe(
@@ -127,7 +125,6 @@ test('audio recovery placed beside a taken path is given a note of its own', asy
 	).toMatchObject({
 		title: 'Recovered recording',
 		recordedAt: '2026-10-31T09:30:00.000Z',
-		capture: 'microphone',
 		durationMs: 2000,
 	});
 });
@@ -159,7 +156,7 @@ test('in a browser, recovery reads the audio only when some has no note, and nam
 	};
 	const capture = createMicrophoneDevice({
 		device,
-		inputs: undefined,
+		inputs: NO_INPUTS,
 		recorder: {
 			startRecording: async () => {
 				throw new Error('nothing records here');

@@ -9,21 +9,11 @@
  * `recover` repairs the audio a cut left half-written.
  *
  * The microphone device (`microphone.ts`) records with `@epicenter/recorder`,
- * whose entry the build's platform leaf imports. A fixture device stands in
- * for a microphone in automation and marks the recording `fixture`, so a
- * fixture take is never stored as a microphone take. The platform adapter
- * chooses which device a session uses; nothing here falls back from one to
- * the other.
+ * whose entry the build's platform leaf imports.
  */
-import type { Client } from '@epicenter/definition/contract';
-import { audioDurationMs, type RecordingHandle } from '@epicenter/recorder';
+import type { RecordingHandle } from '@epicenter/recorder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { Ok, type Result } from 'wellcrafted/result';
-import { extensionOf } from './audio-format.js';
-import type { Whispering } from './contract.js';
-
-/** Where a recording's audio came from: a microphone, or a fixture standing in for one. */
-export type CaptureSource = 'microphone' | 'fixture';
+import type { Result } from 'wellcrafted/result';
 
 export const CaptureError = defineErrors({
 	Unavailable: ({ reason }: { reason: string }) => ({
@@ -124,7 +114,7 @@ export type MicrophoneMeter = {
 	stop(): void;
 };
 
-/** The real inputs behind a capture device. A fixture device has none. */
+/** The inputs behind a capture device. */
 export type MicrophoneInputs = {
 	/**
 	 * The inputs connected now. This never asks for access: without it a
@@ -166,11 +156,7 @@ export type CaptureStart = {
 
 /** What records each recording into Whispering's files: the build's services choose one. */
 export type CaptureDevice = {
-	readonly source: CaptureSource;
-	/** What the person is told this session records from. */
-	readonly label: string;
-	/** Undefined when this device has no real input to choose or test. */
-	readonly inputs: MicrophoneInputs | undefined;
+	readonly inputs: MicrophoneInputs;
 	start(options: CaptureStart): Promise<Result<Capture, CaptureError>>;
 	/**
 	 * Repair the audio of recordings a quit, a crash, or a closed tab cut
@@ -191,103 +177,3 @@ export type CaptureDevice = {
 		>
 	>;
 };
-
-export type FixtureAudio = {
-	readonly name: string;
-	readonly bytes: Uint8Array;
-};
-
-/**
- * A device that keeps the same fixture bytes as every recording, under the
- * fixture's own extension, written into `device` when it stops. `load` runs
- * at stop, so a missing or unreadable fixture fails that recording instead
- * of the session.
- */
-export function createFixtureDevice({
-	device,
-	name,
-	load,
-}: {
-	device: Client<Whispering>;
-	name: string;
-	load: () => Promise<FixtureAudio>;
-}): CaptureDevice {
-	const ext = extensionOf(name) || 'wav';
-	return {
-		source: 'fixture',
-		label: `Fixture audio (${name})`,
-		// No microphone is behind this device, so none is listed, asked for, or opened.
-		inputs: undefined,
-		async start({ id }) {
-			const startedAt = performance.now();
-			let stopped = false;
-			return Ok({
-				startedAt,
-				onEnded: () => () => {},
-				async stop() {
-					if (stopped) return CaptureError.Empty();
-					stopped = true;
-					let fixture: FixtureAudio;
-					try {
-						fixture = await load();
-					} catch (cause) {
-						return CaptureError.Failed({ cause });
-					}
-					if (fixture.bytes.byteLength === 0) return CaptureError.Empty();
-					const written = await device.audio.create({
-						id,
-						ext,
-						bytes: fixture.bytes,
-					});
-					if (written.error !== null)
-						return CaptureError.Refused({ reason: written.error.message });
-					return Ok({
-						// The fixture's own length when it can be read, not the wait before Stop.
-						durationMs:
-							audioDurationMs(fixture.bytes, ext) ??
-							Math.round(performance.now() - startedAt),
-						placed: Promise.resolve(Ok({})),
-					});
-				},
-			});
-		},
-		recover: async () => Ok([]),
-	};
-}
-
-/** A one-second 440 Hz mono PCM WAV, for the browser development fixture. */
-export function toneWav({
-	seconds = 1,
-	sampleRate = 16000,
-	frequency = 440,
-} = {}): Uint8Array {
-	const samples = Math.round(seconds * sampleRate);
-	const bytes = new Uint8Array(44 + samples * 2);
-	const view = new DataView(bytes.buffer);
-	const text = (offset: number, value: string) => {
-		for (let index = 0; index < value.length; index++)
-			view.setUint8(offset + index, value.charCodeAt(index));
-	};
-	text(0, 'RIFF');
-	view.setUint32(4, 36 + samples * 2, true);
-	text(8, 'WAVE');
-	text(12, 'fmt ');
-	view.setUint32(16, 16, true);
-	view.setUint16(20, 1, true);
-	view.setUint16(22, 1, true);
-	view.setUint32(24, sampleRate, true);
-	view.setUint32(28, sampleRate * 2, true);
-	view.setUint16(32, 2, true);
-	view.setUint16(34, 16, true);
-	text(36, 'data');
-	view.setUint32(40, samples * 2, true);
-	for (let index = 0; index < samples; index++)
-		view.setInt16(
-			44 + index * 2,
-			Math.round(
-				Math.sin((2 * Math.PI * frequency * index) / sampleRate) * 0x2000,
-			),
-			true,
-		);
-	return bytes;
-}

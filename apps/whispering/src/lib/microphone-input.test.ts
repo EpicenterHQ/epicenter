@@ -26,7 +26,6 @@
  *   latest choice reports whether it was saved; closing waits for none
  * - A saved choice whose ID is not listed stays the choice: an input with the
  *   same name is not taken for it, and a recording with it refuses
- * - Fixture mode has no input: nothing is listed, tested, or asked for
  */
 import { createTestWhispering } from './whispering.test-support.js';
 
@@ -99,8 +98,6 @@ function scriptedMicrophone(
 	}
 
 	const device: CaptureDevice = {
-		source: 'microphone',
-		label: 'Microphone',
 		inputs: {
 			async list() {
 				calls.list += 1;
@@ -818,40 +815,6 @@ test('closing while a choice is being saved releases the microphone at once and 
 	held.saves[1]?.answer();
 	await second;
 	expect(held.saves.map((save) => save.microphone)).toEqual([USB, BUILT_IN]);
-});
-
-test('fixture mode has no input: nothing is listed, tested, enabled, or chosen', async () => {
-	const test = await openTestServices();
-	const device = devicePreferences(USB);
-	const { whispering, library, close } = await createTestWhispering({
-		client: test.device,
-		services: {
-			...test.services,
-			preferences: device.preferences,
-		},
-	});
-	cleanups.push(async () => {
-		close();
-		await test.remove();
-	});
-	await whispering.start();
-	const input = whispering.input;
-
-	await input.refresh();
-	await input.allow();
-	await input.startTest();
-	await input.select(BUILT_IN);
-
-	expect(input.available).toBe(false);
-	expect(input.choice).toBeUndefined();
-	expect(input.list).toEqual({ kind: 'unread' });
-	expect(input.test).toEqual({ phase: 'idle' });
-	expect(device.store.writes).toBe(0);
-	// The fixture still records, and is saved as a fixture take.
-	await whispering.startRecording();
-	await whispering.stopRecording();
-	await eventually(() => library.entries.length === 1);
-	expect(library.entries[0]?.capture).toBe('fixture');
 });
 
 test('an unreadable saved microphone reports the failure without opening a device or saving a default', async () => {

@@ -64,9 +64,9 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   base URL it was prepared for.
 - **Ids are identity.** Never rename a note's file; change its title. Ids come
   from `timeId()`.
-- **Fixture audio is for tests.** `?fixture=tone` works only in a dev build or
-  one built with `VITE_WHISPERING_FIXTURES=1`, and its recordings say
-  `capture: fixture`.
+- **Every recording is a microphone take.** Tests fake the microphone in
+  their own support code (the e2e suite's `fakeMicrophone`, the unit tests'
+  fixture device); the product has no stand-in for it.
 - Use wellcrafted `Result` types instead of try-catch for expected failures.
 
 ## Checks

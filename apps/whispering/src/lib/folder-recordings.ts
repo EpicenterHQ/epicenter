@@ -16,7 +16,7 @@
 import type { Client } from '@epicenter/definition/contract';
 import { audioDurationMs } from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { CaptureDevice, CaptureSource } from './capture.js';
+import type { CaptureDevice } from './capture.js';
 import type { Whispering } from './contract.js';
 
 /** A recording's note, as it is written once its audio is at its path. */
@@ -24,7 +24,6 @@ export type KeptRecording = {
 	readonly id: string;
 	readonly title: string;
 	readonly recordedAt: string;
-	readonly capture: CaptureSource;
 	/** Undefined only for recovered audio whose length does not read. */
 	readonly durationMs?: number;
 };
@@ -101,7 +100,6 @@ export async function finishCutOffRecordings(
 			id,
 			title: 'Recovered recording',
 			recordedAt: recordedAtOf(id),
-			capture: 'microphone',
 			durationMs: durationMs ?? (await measured(device, id)),
 		});
 		if (kept.error === null) made.push(id);

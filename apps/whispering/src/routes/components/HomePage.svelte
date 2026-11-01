@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as SectionHeader from '@epicenter/ui/section-header';
 	import { toast } from '@epicenter/ui/sonner';
@@ -79,7 +78,6 @@
 			<section class="mt-8 flex flex-col gap-2 border-t pt-5" aria-label="Latest recording" data-testid="latest-recording">
 				<div class="flex items-center gap-2 text-sm">
 					<h2 class="min-w-0 flex-1 truncate font-medium">{titleOf(latest)}</h2>
-					{#if latest.capture === 'fixture'}<Badge variant="outline">Fixture</Badge>{/if}
 					<span class="shrink-0 text-xs text-muted-foreground max-sm:hidden">{formatTime(latest.recordedAt, 'short')}</span>
 				</div>
 

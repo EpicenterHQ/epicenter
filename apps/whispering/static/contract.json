@@ -16,12 +16,9 @@
 				"durationMs": {
 					"type": "number",
 					"minimum": 0
-				},
-				"capture": {
-					"enum": ["microphone", "fixture"]
 				}
 			},
-			"required": ["title", "recordedAt", "capture"]
+			"required": ["title", "recordedAt"]
 		},
 		"audio": {
 			"path": "recordings/{id}.{ext}"

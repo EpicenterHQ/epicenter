@@ -4,7 +4,6 @@
 	Settings, where the connections and the optional sign-in are.
 -->
 <script lang="ts">
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Popover from '@epicenter/ui/popover';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -27,10 +26,6 @@
 </script>
 
 <header class="flex h-12 shrink-0 items-center gap-1.5 border-b px-2 sm:gap-2 sm:px-3">
-	{#if whispering.services.capture.source === 'fixture'}
-		<Badge variant="outline" class="shrink-0 border-warning text-warning" data-testid="fixture-badge">Fixture<span class="max-sm:sr-only">&nbsp;audio</span></Badge>
-	{/if}
-
 	<!-- A live recording is visible and stoppable from every page. -->
 	{#if whispering.recorder.phase === 'recording'}
 		<Button variant="destructive" size="sm" class="shrink-0" onclick={() => void whispering.stopRecording()} data-testid="header-stop-recording">

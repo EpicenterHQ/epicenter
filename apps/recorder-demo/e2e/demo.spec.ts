@@ -46,6 +46,7 @@ import {
 import {
 	emptyOpfs,
 	epicenter,
+	fakeMicrophone,
 	goOffline,
 	opfsFiles,
 	opfsText,
@@ -54,12 +55,7 @@ import {
 	sync,
 } from '../../../packages/cli/src/app-e2e.test-support.ts';
 
-/** Which microphone a project records from: the engine's capture device, or `?fixture=tone`. */
-export type DemoOptions = { microphone: 'device' | 'tone' };
-
-const test = stackTest('RECORDER_DEMO_E2E_STATE').extend<object, DemoOptions>({
-	microphone: ['device', { option: true, scope: 'worker' }],
-});
+const test = stackTest('RECORDER_DEMO_E2E_STATE');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -85,6 +81,7 @@ test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 		profile,
 		launchOptions,
 	);
+	await fakeMicrophone(context);
 	page = context.pages()[0] ?? (await context.newPage());
 });
 
@@ -111,15 +108,6 @@ const ids = (view: Locator) =>
 	rows(view).evaluateAll((items) =>
 		items.map((item) => item.getAttribute('data-id') as string),
 	);
-
-/** `path` on the demo, recording from the tone when the project does. */
-function at(
-	stack: { app: string },
-	microphone: DemoOptions['microphone'],
-	path: string,
-) {
-	return `${stack.app}${path}${microphone === 'tone' ? '?fixture=tone' : ''}`;
-}
 
 /** Record about a second in `view`; answers the new row's id. */
 async function record(view: Locator) {
@@ -161,7 +149,6 @@ function audioOf(paths: string[], id: string) {
 
 test('1. on this browser, a recording lands in OPFS as its audio and its note, is played, renamed and deleted, and survives a reload', async ({
 	stack,
-	microphone,
 }) => {
 	const server: string[] = [];
 	const listen = (request: Request) => {
@@ -171,9 +158,9 @@ test('1. on this browser, a recording lands in OPFS as its audio and its note, i
 	try {
 		// WebKit keeps OPFS outside the profile directory, so an earlier
 		// run's files may still be there: start from an empty origin.
-		await page.goto(at(stack, microphone, '/'));
+		await page.goto(`${stack.app}/`);
 		await emptyOpfs(page);
-		await page.goto(at(stack, microphone, '/'));
+		await page.goto(`${stack.app}/`);
 		await expect(
 			ways().getByRole('link', { name: 'On this browser' }),
 		).toHaveAttribute('aria-current', 'page');
@@ -261,18 +248,17 @@ test('2. offline, the local variant still records and renames', async () => {
 test('3. online, signed in, shows the repository; a recording made and renamed there lands in it and plays from it, never in this browser', async ({
 	stack,
 	person,
-	microphone,
 }) => {
 	await ways().getByRole('link', { name: 'Online' }).click();
 	await expect(page).toHaveURL(`${stack.app}/online`);
 	await expect(signInAsked()).toBeVisible();
-	await page.goto(at(stack, microphone, '/online'));
+	await page.goto(`${stack.app}/online`);
 
 	// A signed-in session on the API; the real authorization redirect does the rest.
 	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
 	await onlineView().getByRole('button', { name: 'Sign in' }).click();
 	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
-	await expect(page).toHaveURL(at(stack, microphone, '/online'));
+	await expect(page).toHaveURL(`${stack.app}/online`);
 	await expect(ways().getByRole('link', { name: 'Online' })).toHaveAttribute(
 		'aria-current',
 		'page',
@@ -494,8 +480,10 @@ test('9. where the browser keeps no files, the local variant refuses to record a
 	test.skip(browserName !== 'webkit', 'only WebKit refuses OPFS here');
 	const ephemeral = await playwright.webkit.launch();
 	try {
-		const tab = await ephemeral.newPage();
-		await tab.goto(`${stack.app}/?fixture=tone`);
+		const tabContext = await ephemeral.newContext();
+		await fakeMicrophone(tabContext);
+		const tab = await tabContext.newPage();
+		await tab.goto(`${stack.app}/`);
 		await tab.getByRole('button', { name: 'Record' }).click();
 		const refused = tab.getByText('Could not start recording:');
 		await expect(refused).toContainText(

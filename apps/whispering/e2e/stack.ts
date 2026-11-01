@@ -2,9 +2,8 @@
  * Whispering's end-to-end environment (`runAppStack` in
  * `packages/cli/src/app-stack.test-support.ts`): a disposable Postgres, the
  * local API with temporary Git and LFS stores, a person per browser project
- * with a desktop sandbox, and Whispering built against that API (with its
- * `?fixture=tone` microphone allowed) and served by `vite preview` on its
- * registered origin, `http://localhost:1420`.
+ * with a desktop sandbox, and Whispering built against that API and served
+ * by `vite preview` on its registered origin, `http://localhost:1420`.
  *
  *   bun apps/whispering/e2e/stack.ts /tmp/state.json
  *   bun apps/whispering/e2e/stack.ts --demo
@@ -24,10 +23,7 @@ await runAppStack({
 	build: (scratch) => ({
 		command: [process.execPath, 'x', 'vite', 'build', '--logLevel', 'warn'],
 		cwd: appDir,
-		env: {
-			WHISPERING_BUILD_DIR: join(scratch, 'build'),
-			VITE_WHISPERING_FIXTURES: '1',
-		},
+		env: { WHISPERING_BUILD_DIR: join(scratch, 'build') },
 	}),
 	serve: () => ({
 		command: [process.execPath, 'x', 'vite', 'preview'],

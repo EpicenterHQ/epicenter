@@ -134,7 +134,7 @@ export function createMicrophoneInput({
 	 * stays on screen until this one answers.
 	 */
 	async function refresh() {
-		if (inputs === undefined || closed) return;
+		if (closed) return;
 		// Told about connected and removed inputs from the first listing on.
 		unwatch ??= inputs.onChange(() => void refresh());
 		const sequence = ++listSequence;
@@ -185,8 +185,6 @@ export function createMicrophoneInput({
 	}
 
 	return {
-		/** False in fixture mode: there is no real input to choose, list, or test. */
-		available: inputs !== undefined,
 		/** The chosen microphone, or undefined for the system default. */
 		get choice() {
 			return choice;
@@ -202,9 +200,9 @@ export function createMicrophoneInput({
 			return acquisition?.kind === 'allow';
 		},
 		/** Whether access can be asked for here: a WebView's, never Epicenter's, which asks itself. */
-		canAllow: inputs?.allow !== undefined,
+		canAllow: inputs.allow !== undefined,
 		/** Whether the system's microphone privacy settings can be opened from here. */
-		canOpenSettings: inputs?.openSettings !== undefined,
+		canOpenSettings: inputs.openSettings !== undefined,
 		/**
 		 * Whether the chosen microphone's ID is among those listed. Undefined
 		 * while that cannot be told: nothing is listed by name yet, which is also
@@ -240,7 +238,7 @@ export function createMicrophoneInput({
 
 		/** Read the saved choice. Opens no microphone and lists nothing. */
 		async load() {
-			if (inputs === undefined || closed) return;
+			if (closed) return;
 			try {
 				const saved = await preferences.microphone();
 				if (closed) return;
@@ -257,7 +255,7 @@ export function createMicrophoneInput({
 		 * `canAllow`.
 		 */
 		async allow() {
-			const allow = inputs?.allow;
+			const allow = inputs.allow;
 			if (allow === undefined || closed || !mayOpen()) return;
 			problem = undefined;
 			const attempt: Acquisition = {
@@ -280,7 +278,7 @@ export function createMicrophoneInput({
 		 * system default. A test under way is of the previous choice, so it ends.
 		 */
 		async select(next: MicrophonePreference | undefined) {
-			if (inputs === undefined || closed) return;
+			if (closed) return;
 			if (recording()) {
 				problem = RECORDING;
 				return;
@@ -292,7 +290,7 @@ export function createMicrophoneInput({
 		},
 		/** Open the chosen microphone and read its level until released. */
 		async startTest() {
-			if (inputs === undefined || closed || !mayOpen()) return;
+			if (closed || !mayOpen()) return;
 			problem = undefined;
 			const attempt: Acquisition = {
 				kind: 'opening',
@@ -336,7 +334,7 @@ export function createMicrophoneInput({
 		release,
 		/** Open the system's microphone privacy settings, where a denial is undone. */
 		async openSettings() {
-			const openSettings = inputs?.openSettings;
+			const openSettings = inputs.openSettings;
 			if (openSettings === undefined || closed) return;
 			const { error } = await openSettings.call(inputs);
 			if (error !== null) problem = error.message;

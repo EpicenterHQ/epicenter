@@ -8,17 +8,12 @@
  *   only the note waits for Stop (the contract requires its length).
  * - The online variant's store is the repository, written when a recording
  *   stops, so it holds the audio in the page until then (`recordInPage`).
- *
- * Under `?fixture=tone` both record a 440 Hz oscillator instead of the
- * microphone, for browsers under test that have no fake capture device
- * (WebKit under Playwright).
  */
 import type { Client } from '@epicenter/definition/contract';
 import {
-	browserEnvironment,
-	createBrowserRecorder,
 	type RecorderError,
-	toneMicrophone,
+	startPageRecording,
+	startRecording,
 } from '@epicenter/recorder/browser';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Recorder } from '../contract.ts';
@@ -37,20 +32,10 @@ export type Take = {
 /** Start recording `id`. */
 export type Record = (id: string) => Promise<Result<Take, RecorderError>>;
 
-/** The browser's recorder, over the tone under `?fixture=tone`. */
-function recorder() {
-	const tone = new URL(location.href).searchParams.get('fixture') === 'tone';
-	return createBrowserRecorder(
-		tone
-			? { ...browserEnvironment(), mediaDevices: toneMicrophone() }
-			: browserEnvironment(),
-	);
-}
-
 /** Record into `device`, this browser's files, as it records. */
 export function recordInto(device: Client<Recorder>): Record {
 	return async (id) => {
-		const started = await recorder().startRecording({
+		const started = await startRecording({
 			device,
 			path: `recordings/${id}`,
 		});
@@ -77,7 +62,7 @@ export function recordInto(device: Client<Recorder>): Record {
 
 /** Record in the page; Stop answers the audio for the store to take. */
 export const recordInPage: Record = async () => {
-	const started = await recorder().startPageRecording();
+	const started = await startPageRecording();
 	if (started.error !== null) return started;
 	const recording = started.data;
 	return Ok({

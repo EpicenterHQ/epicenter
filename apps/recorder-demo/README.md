@@ -83,8 +83,6 @@ server it signs in to is `VITE_EPICENTER_SERVER` at build time, or
 API instead of `demo`, follow "Running the server" and "Hosted Git" in `apps/api`'s
 README and build or start the app with `VITE_EPICENTER_SERVER` set to it.
 
-`?fixture=tone` records a 440 Hz oscillator instead of the microphone.
-
 `/online?repository=<owner handle>/recorder-demo` opens a repository another
 person shared with the signed-in account (`epicenter share`) instead of the
 account's own.
@@ -135,7 +133,8 @@ lands on a second save; `epicenter share` with a second person, whose own
 signed-in browser shows and plays the recording. Back on this browser,
 signing in and out moved nothing. In WebKit a last step opens an ephemeral
 context, which refuses OPFS as Safari's private windows do: Record says it
-cannot start, and nothing is held in the page. Chromium records from its fake capture device and WebKit
-from the tone; both use persistent profiles, the only kind in which WebKit
+cannot start, and nothing is held in the page. Both engines record from a
+generated tone the suite installs as the page's microphone (`fakeMicrophone`);
+both use persistent profiles, the only kind in which WebKit
 opens OPFS. WebKit keeps OPFS outside the profile directory, so the first
 step empties the origin's files before it records.

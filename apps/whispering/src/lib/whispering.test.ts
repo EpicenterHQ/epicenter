@@ -27,12 +27,13 @@ import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { type CaptureDevice, CaptureError, toneWav } from './capture.js';
+import { type CaptureDevice, CaptureError } from './capture.js';
 import {
 	deferred,
 	eventually,
 	openTestServices,
 	type TestServicesOptions,
+	toneWav,
 } from './services.test-support.js';
 import { headerLine, openTestWhispering } from './whispering.test-support.js';
 
@@ -97,7 +98,6 @@ test('a recording’s audio is written as it records, and its note, with its len
 	const recording = await record(opened);
 
 	expect(writes).toEqual(['audio', 'note']);
-	expect(recording).toMatchObject({ capture: 'fixture' });
 	expect(recording.durationMs).toBe(1000);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
 	expect(library.audioOf(recording.id)).toMatchObject({
@@ -588,7 +588,7 @@ test('a note that does not read is listed for repair, and replaced as text', asy
 		(
 			await library.replace(
 				{ collection: 'recordings', id },
-				'---\ntitle: Fixed\nrecordedAt: 2026-10-31T09:30:00.000Z\ncapture: microphone\n---\nnotes\n',
+				'---\ntitle: Fixed\nrecordedAt: 2026-10-31T09:30:00.000Z\n---\nnotes\n',
 			)
 		).error,
 	).toBeNull();

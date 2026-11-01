@@ -357,7 +357,6 @@
 										>
 											{row.title}
 										</button>
-										{#if row.note.capture === 'fixture'}<Badge variant="outline" class="shrink-0">Fixture</Badge>{/if}
 										{#if row.audio.kind === 'absent'}<Badge variant="outline" class="shrink-0" data-testid="row-audio-absent">No audio</Badge>{/if}
 										{#if row.audio.kind === 'ambiguous'}<Badge variant="outline" class="shrink-0">Multiple audio files</Badge>{/if}
 									</span>

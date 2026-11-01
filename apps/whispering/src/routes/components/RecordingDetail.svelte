@@ -7,7 +7,6 @@
 <script lang="ts">
 	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -163,14 +162,6 @@
 						<dd>{when(note.recordedAt)}</dd>
 						<dt class="text-muted-foreground">Length</dt>
 						<dd>{note.durationMs === undefined ? 'Not recorded' : `${(note.durationMs / 1000).toFixed(1)} s`}</dd>
-						<dt class="text-muted-foreground">Captured from</dt>
-						<dd>
-							{#if note.capture === 'fixture'}
-								<Badge variant="outline">Fixture audio, not a microphone take</Badge>
-							{:else}
-								Microphone
-							{/if}
-						</dd>
 						<dt class="text-muted-foreground">Kept in</dt>
 						<dd data-testid="kept-in">
 							{variant === 'desktop' ? 'Your data folder' : 'This browser'}

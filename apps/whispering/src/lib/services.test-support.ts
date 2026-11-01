@@ -1,7 +1,7 @@
 /**
- * Services for tests: this browser's files, a fixture capture device, and
- * stubbed endpoints. Nothing here reaches a network, a microphone, or a
- * provider.
+ * Services for tests: this browser's files, a fixture capture device that
+ * keeps a generated tone as every recording, and stubbed endpoints. Nothing
+ * here reaches a network, a microphone, or a provider.
  *
  * The files are the contract's client over a real directory
  * (`@epicenter/folder/node`), as the browser's OPFS holds them, at the same
@@ -14,9 +14,16 @@ import { mock } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Client } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
+import { audioDurationMs } from '@epicenter/recorder';
 import { Err, Ok, unwrap } from 'wellcrafted/result';
-import { createFixtureDevice, toneWav } from './capture.js';
+import { extensionOf } from './audio-format.js';
+import {
+	type CaptureDevice,
+	CaptureError,
+	type MicrophoneInputs,
+} from './capture.js';
 import {
 	applyConnectionChange,
 	type ConnectionsInfo,
@@ -25,10 +32,116 @@ import {
 	type Operation,
 	type StoredConnection,
 } from './connections.js';
-import { whispering } from './contract.js';
+import { type Whispering, whispering } from './contract.js';
 import type { WhisperingServices } from './platform/types.js';
 import { TranscriptionError } from './transcription.js';
 import { TransformationError } from './transformation.js';
+
+export type FixtureAudio = {
+	readonly name: string;
+	readonly bytes: Uint8Array;
+};
+
+/** Inputs with no microphone behind them: nothing is listed, and a test is refused. */
+export const NO_INPUTS: MicrophoneInputs = {
+	list: async () => Ok({ devices: [] }),
+	meter: async () =>
+		CaptureError.Unavailable({ reason: 'no microphone is behind this test' }),
+	onChange: () => () => {},
+};
+
+/**
+ * A capture device that keeps the same fixture bytes as every recording,
+ * under the fixture's own extension, written into `device` when it stops,
+ * over `NO_INPUTS`. `load` runs
+ * at stop, so a missing or unreadable fixture fails that recording instead
+ * of the session.
+ */
+export function createFixtureDevice({
+	device,
+	name,
+	load,
+}: {
+	device: Client<Whispering>;
+	name: string;
+	load: () => Promise<FixtureAudio>;
+}): CaptureDevice {
+	const ext = extensionOf(name) || 'wav';
+	return {
+		inputs: NO_INPUTS,
+		async start({ id }) {
+			const startedAt = performance.now();
+			let stopped = false;
+			return Ok({
+				startedAt,
+				onEnded: () => () => {},
+				async stop() {
+					if (stopped) return CaptureError.Empty();
+					stopped = true;
+					let fixture: FixtureAudio;
+					try {
+						fixture = await load();
+					} catch (cause) {
+						return CaptureError.Failed({ cause });
+					}
+					if (fixture.bytes.byteLength === 0) return CaptureError.Empty();
+					const written = await device.audio.create({
+						id,
+						ext,
+						bytes: fixture.bytes,
+					});
+					if (written.error !== null)
+						return CaptureError.Refused({ reason: written.error.message });
+					return Ok({
+						// The fixture's own length when it can be read, not the wait before Stop.
+						durationMs:
+							audioDurationMs(fixture.bytes, ext) ??
+							Math.round(performance.now() - startedAt),
+						placed: Promise.resolve(Ok({})),
+					});
+				},
+			});
+		},
+		recover: async () => Ok([]),
+	};
+}
+
+/** A 440 Hz mono PCM WAV, one second long unless asked otherwise. */
+export function toneWav({
+	seconds = 1,
+	sampleRate = 16000,
+	frequency = 440,
+} = {}): Uint8Array {
+	const samples = Math.round(seconds * sampleRate);
+	const bytes = new Uint8Array(44 + samples * 2);
+	const view = new DataView(bytes.buffer);
+	const text = (offset: number, value: string) => {
+		for (let index = 0; index < value.length; index++)
+			view.setUint8(offset + index, value.charCodeAt(index));
+	};
+	text(0, 'RIFF');
+	view.setUint32(4, 36 + samples * 2, true);
+	text(8, 'WAVE');
+	text(12, 'fmt ');
+	view.setUint32(16, 16, true);
+	view.setUint16(20, 1, true);
+	view.setUint16(22, 1, true);
+	view.setUint32(24, sampleRate, true);
+	view.setUint32(28, sampleRate * 2, true);
+	view.setUint16(32, 2, true);
+	view.setUint16(34, 16, true);
+	text(36, 'data');
+	view.setUint32(40, samples * 2, true);
+	for (let index = 0; index < samples; index++)
+		view.setInt16(
+			44 + index * 2,
+			Math.round(
+				Math.sin((2 * Math.PI * frequency * index) / sampleRate) * 0x2000,
+			),
+			true,
+		);
+	return bytes;
+}
 
 type TransformRequest = Parameters<WhisperingServices['transform']>[0];
 type TranscribeRequest = Parameters<WhisperingServices['transcribe']>[0];

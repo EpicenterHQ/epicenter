@@ -33,21 +33,14 @@ import { type BrowserContext, expect, type Page } from 'playwright/test';
 import {
 	emptyOpfs,
 	epicenter,
+	fakeMicrophone,
 	goOffline,
 	opfsFiles,
 	opfsText,
 	stackTest,
 } from '../../../packages/cli/src/app-e2e.test-support.ts';
 
-/** Which microphone a project records from: the engine's capture device, or `?fixture=tone`. */
-export type WhisperingOptions = { microphone: 'device' | 'tone' };
-
-const test = stackTest('WHISPERING_E2E_STATE').extend<
-	object,
-	WhisperingOptions
->({
-	microphone: ['device', { option: true, scope: 'worker' }],
-});
+const test = stackTest('WHISPERING_E2E_STATE');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -76,6 +69,7 @@ test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 		// the routes these steps stub; the last step reopens without this.
 		serviceWorkers: 'block',
 	});
+	await fakeMicrophone(context);
 	await context.route(`${TRANSCRIBE}/**`, (route) => {
 		transcribed += 1;
 		return route.fulfill({
@@ -225,9 +219,8 @@ async function settings() {
 
 test('1. on this browser, a recording is kept as its audio and note, edited, transcribed and deleted, with no account', async ({
 	stack,
-	microphone,
 }) => {
-	app = `${stack.app}/${microphone === 'tone' ? '?fixture=tone' : ''}`;
+	app = `${stack.app}/`;
 	// WebKit keeps OPFS outside the profile directory: start from an empty origin.
 	await page.goto(app);
 	await emptyOpfs(page);
@@ -269,12 +262,6 @@ test('1. on this browser, a recording is kept as its audio and note, edited, tra
 	// Not empty: the sha256 of no bytes.
 	expect(files[audioPath]).not.toBe(
 		'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-	);
-	expect(await opfsText(page, `recordings/${kept}.md`)).toMatch(
-		new RegExp(
-			`^capture: ${microphone === 'tone' ? 'fixture' : 'microphone'}$`,
-			'm',
-		),
 	);
 
 	await pageLink('Recordings').click();
@@ -359,8 +346,8 @@ test('2. a recording is written into this browser’s files as it records, and a
 });
 
 test('3. offline, recording and editing still work, and survive a reload', async () => {
-	// Online, load both pages this step moves between (with the fixture
-	// microphone the URL asks for); offline, nothing more can load.
+	// Online, load both pages this step moves between; offline, nothing
+	// more can load.
 	await page.goto(app);
 	await pageLink('Recordings').click();
 	await expect(row(kept)).toBeVisible();
@@ -546,17 +533,16 @@ test('7. where the browser keeps no files, one banner says recording is off', as
 	playwright,
 	browserName,
 	stack,
-	microphone,
 }) => {
 	// Chromium gives every context private files; WebKit refuses an
 	// ephemeral one, as Safari refuses a private window.
 	test.skip(browserName !== 'webkit', 'only WebKit refuses private files');
 	const browser = await playwright.webkit.launch();
 	try {
-		const ephemeral = await (await browser.newContext()).newPage();
-		await ephemeral.goto(
-			`${stack.app}/${microphone === 'tone' ? '?fixture=tone' : ''}`,
-		);
+		const ephemeralContext = await browser.newContext();
+		await fakeMicrophone(ephemeralContext);
+		const ephemeral = await ephemeralContext.newPage();
+		await ephemeral.goto(`${stack.app}/`);
 		const banner = ephemeral.getByTestId('device-unavailable');
 		await expect(banner).toContainText(
 			'(e.g. out of memory). Recording is off, since there is nowhere to keep it.',

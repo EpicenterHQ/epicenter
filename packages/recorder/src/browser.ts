@@ -113,28 +113,6 @@ export function browserEnvironment(): BrowserEnvironment {
 	};
 }
 
-/**
- * A generated 440 Hz tone in place of the microphone, for browsers under
- * test that have no fake capture device (WebKit under Playwright). It needs
- * no permission; stopping the recording's tracks stops the tone.
- */
-export function toneMicrophone(): Pick<MediaDevices, 'getUserMedia'> {
-	return {
-		async getUserMedia() {
-			const context = new AudioContext();
-			const oscillator = context.createOscillator();
-			oscillator.frequency.value = 440;
-			const destination = context.createMediaStreamDestination();
-			oscillator.connect(destination);
-			oscillator.start();
-			const { stream } = destination;
-			for (const track of stream.getTracks())
-				track.addEventListener('ended', () => void context.close());
-			return stream;
-		},
-	};
-}
-
 /** What a browser recording asks `MediaRecorder` for, in order (decision 56). */
 export const RECORDING_TYPES = [
 	'audio/mp4;codecs=mp4a.40.2',

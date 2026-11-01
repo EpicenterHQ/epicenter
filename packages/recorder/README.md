@@ -79,9 +79,7 @@ const { data: audio } = await recording.stop();
 AAC in MP4 is asked for first (`audio/mp4;codecs=mp4a.40.2`, saved as `.m4a`),
 then Opus in WebM (`.webm`). `browserEnvironment()` is the browser's own
 microphone, encoder, audio graph, clock, files, and locks;
-`createBrowserRecorder(environment)` records over another, such as
-`toneMicrophone()`, a generated tone in place of the microphone for browsers
-under test that have none.
+`createBrowserRecorder(environment)` records over another.
 
 `onEnded` reports the first unexpected ending, including one received before
 subscription. Stop still claims what was captured and retires the listeners.

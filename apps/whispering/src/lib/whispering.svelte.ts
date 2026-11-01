@@ -180,7 +180,6 @@ export function createWhispering({
 				id: take.id,
 				title: defaultTitle(at),
 				recordedAt: at.toISOString(),
-				capture: services.capture.source,
 				durationMs: stopped.durationMs,
 			}),
 		);

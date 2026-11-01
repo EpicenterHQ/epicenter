@@ -263,3 +263,36 @@ export async function goOffline(context: BrowserContext) {
 	await context.route(offline, disconnect);
 	return () => context.unroute(offline, disconnect);
 }
+
+/**
+ * Give every page of `context` a microphone that hears a generated 440 Hz
+ * tone: `getUserMedia` answers an oscillator through a
+ * `MediaStreamDestination`, in every engine alike (WebKit under Playwright
+ * has no fake capture device). It asks for no permission, and stopping the
+ * stream's tracks stops its tone. Call it before the first page loads.
+ */
+export function fakeMicrophone(context: BrowserContext) {
+	return context.addInitScript(() => {
+		const getUserMedia = async () => {
+			const audio = new AudioContext();
+			const oscillator = audio.createOscillator();
+			oscillator.frequency.value = 440;
+			const destination = audio.createMediaStreamDestination();
+			oscillator.connect(destination);
+			oscillator.start();
+			await audio.resume().catch(() => {});
+			const { stream } = destination;
+			for (const track of stream.getTracks()) {
+				const stop = track.stop.bind(track);
+				track.stop = () => {
+					stop();
+					void audio.close();
+				};
+			}
+			return stream;
+		};
+		// On the prototype: WebKit drops an own property the script sets on
+		// `navigator.mediaDevices` before the page runs.
+		MediaDevices.prototype.getUserMedia = getUserMedia;
+	});
+}

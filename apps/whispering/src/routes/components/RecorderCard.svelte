@@ -16,10 +16,9 @@
 	 * still being saved included: it reaches the library once its audio is
 	 * placed (on the desktop the shell encodes it after Stop). Three small
 	 * controls sit at its lower right on wide windows and below the hint on
-	 * narrow ones.
-	 * Fixture mode adds its warning under them. Where the files cannot be
-	 * read (a private window keeps none) the banner above says recording is
-	 * off, so no hint invites a click.
+	 * narrow ones. Where the files cannot be read (a private window keeps
+	 * none) the banner above says recording is off, so no hint invites a
+	 * click.
 	 */
 	const whispering = getWhispering();
 	const library = getLibrary();
@@ -126,12 +125,6 @@
 
 <!-- Always mounted so the start of a recording is announced. The clock stays outside it: it changes every second. -->
 <span class="sr-only" role="status">{active ? 'Recording' : ''}</span>
-
-{#if whispering.services.capture.source === 'fixture'}
-	<p class="text-center text-xs text-balance text-warning" data-testid="fixture-notice">
-		Fixture mode: recordings use {whispering.services.capture.label}. The microphone is not used.
-	</p>
-{/if}
 
 {#if whispering.recorderError}
 	<p class="text-center text-sm text-destructive" role="alert" data-testid="recorder-error">{whispering.recorderError}</p>

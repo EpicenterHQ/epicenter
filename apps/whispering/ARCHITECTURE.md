@@ -90,9 +90,7 @@ every one writes the recording into the client's files as it records
 `startRecording({ device, path })` and `recoverRecordings({ device, under })`
 (`microphone.ts`, `createMicrophoneDevice`). In a browser
 (`platform/browser.ts`) it is the WebView microphone
-(`webview-microphone.ts`, over `@epicenter/recorder/browser`) or, under
-`?fixture=tone` in a dev build or one built with
-`VITE_WHISPERING_FIXTURES=1`, a generated tone recorded the same way; the
+(`webview-microphone.ts`, over `@epicenter/recorder/browser`); the
 recorder asks for AAC in MP4 first and Opus in WebM second, and appends each
 piece (about a second) to `recordings/<id>.m4a` or `.webm` in this browser's
 files as it arrives. On the desktop it is the shell's microphone
