@@ -39,7 +39,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Notify;
 
-use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
+use crate::desktop_paths::DesktopPaths;
 
 /// How much of the child's stderr a result keeps: the end, where the reason is.
 const STDERR_TAIL_BYTES: usize = 64 * 1024;

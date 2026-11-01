@@ -1,8 +1,8 @@
 /**
  * Where the Epicenter app keeps what the CLI reads and writes on this
- * machine, by the shared native rule (`DesktopPaths::resolve` in
- * `packages/tauri-plugin-epicenter-folder/src/defaults.rs`), so the CLI in a terminal and
- * the CLI the app runs read and write the same places.
+ * machine, by the app's own rule (`DesktopPaths::resolve` in
+ * `apps/epicenter/src-tauri/src/desktop_paths.rs`), so the CLI in a terminal
+ * and the CLI the app runs read and write the same places.
  *
  * ```txt
  * <folderDir>/<name>/                        a data folder `epicenter clone` makes by default

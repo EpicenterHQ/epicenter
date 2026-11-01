@@ -60,14 +60,8 @@ The apps on [`epicenter-standalone`](../tauri-epicenter-standalone/README.md)
 (Capture, Honeycrisp, Todos, Vocab, Whispering) bind their window to their
 AppData root this way, and keep their data folder at
 `~/Epicenter/<productName>`, allowed in Tauri's file-system scope at startup
-(see Other roots). They use neither the library nor `DesktopPaths`, which
-are Epicenter's own.
-
-`defaults::DesktopPaths::resolve(app)` resolves Epicenter's machine-local
-application data directory and the library root once at startup: release
-uses `so.epicenter` and `~/Epicenter`; development uses `so.epicenter.dev`
-and `~/Epicenter Dev`. A nonempty absolute `EPICENTER_DATA_DIR` or
-`EPICENTER_FOLDER_DIR` overrides either.
+(see Other roots). Epicenter's own application data and library root are
+the app's (`DesktopPaths` in `apps/epicenter/src-tauri`).
 
 `admission::check_sync_directory`, which Epicenter runs before
 `epicenter init`, refuses a directory when any segment of its canonical path

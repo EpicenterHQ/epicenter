@@ -2,7 +2,8 @@
 //! the shell resolves once at startup and passes to every `epicenter`
 //! command it runs. Window binding and explicitly chosen directories do not
 //! depend on them. The apps on `epicenter-standalone` use neither: each
-//! keeps its data folder at `~/Epicenter/<productName>`.
+//! keeps its data folder at `~/Epicenter/<productName>`. A terminal's
+//! `epicenter` follows the same rule (`packages/cli/src/app-paths.ts`).
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -142,11 +143,11 @@ mod tests {
         let home = std::env::temp_dir().join("epicenter-home");
         for (config, name) in [
             (
-                include_str!("../../../apps/epicenter/src-tauri/tauri.conf.json"),
+                include_str!("../tauri.conf.json"),
                 "Epicenter",
             ),
             (
-                include_str!("../../../apps/epicenter/src-tauri/tauri.dev.conf.json"),
+                include_str!("../tauri.dev.conf.json"),
                 "Epicenter Dev",
             ),
         ] {

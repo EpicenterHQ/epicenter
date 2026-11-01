@@ -14,8 +14,9 @@ use tauri_plugin_opener::OpenerExt;
 mod command_names;
 
 mod cli;
+mod desktop_paths;
 mod synced_folders;
-use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
+use crate::desktop_paths::DesktopPaths;
 #[cfg(target_os = "macos")]
 mod macos_menu;
 mod scheme;

@@ -45,7 +45,6 @@ pub use epicenter_folder_core::storage::{PutOutcome, StorageError};
 
 mod command_names;
 mod commands;
-pub mod defaults;
 pub mod epicenter;
 mod folders;
 pub mod scope;

@@ -109,7 +109,7 @@ Development uses `so.epicenter.dev` for data and settings.
 Production's library, the authored folder root, is `~/Epicenter`; development's
 is `~/Epicenter Dev`. `EPICENTER_FOLDER_DIR` overrides the library at startup
 and must be absolute; changing it opens another library and moves no files.
-Native locations live in `tauri_plugin_epicenter_folder::defaults::DesktopPaths`.
+Native locations live in `DesktopPaths` (`src-tauri/src/desktop_paths.rs`).
 Epicenter writes nothing into the library itself; the standalone apps keep
 their data at `~/Epicenter/<productName>`.
 The shell resolves both directories once and sets `EPICENTER_DATA_DIR` and
