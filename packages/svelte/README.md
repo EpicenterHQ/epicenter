@@ -115,7 +115,7 @@ folder:
 
 ```svelte
 <!-- The app's Startup.svelte, under <svelte:boundary> -->
-<DesktopStartup app="Capture" settings={captureSettings} contract={capture}>
+<DesktopStartup app="Capture" settings={desktopSettings} contract={capture}>
   {#snippet children(appData, device)}
     <DesktopRoot {appData} {device}>…</DesktopRoot>
   {/snippet}

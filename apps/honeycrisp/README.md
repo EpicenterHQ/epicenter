@@ -79,12 +79,12 @@ bun build:honeycrisp:desktop   # a local, unsigned macOS app bundle
 Its Tauri shell (`src-tauri/`, on the shared
 [`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
 crate) starts the window on Honeycrisp's AppData root, whose `settings.md`
-(`honeycrispSettings` in `src/lib/folder.tauri.ts`, machine-local, never
+(`desktopSettings` from `@epicenter/folder/tauri`, machine-local, never
 synced) names a data folder only when the
 person chose one. There is no first-run question: the page opens
 `~/Epicenter/Honeycrisp` (`~/Epicenter/Honeycrisp Dev` under `tauri.dev.conf.json`,
 whose `productName` is `Honeycrisp Dev`), made when missing, or the chosen
-folder (`openAppData(honeycrispSettings)`, then `openDataFolder`). Tauri decides which folders
+folder (`openAppData(desktopSettings)`, then `openDataFolder`). Tauri decides which folders
 the window may open: the shell allows the default at startup, the native
 picker allows a folder the person picks, and persisted-scope keeps that
 across launches. A `folder` written into `settings.md` by hand opens as not
@@ -173,7 +173,7 @@ routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
     Online.svelte              {#key account}: setNotes/setFolders(fromClient(openRemote(honeycrisp, { account })))
-  Startup.svelte               desktop: await openAppData(honeycrispSettings), openDataFolder(); Recovery
+  Startup.svelte               desktop: DesktopStartup over desktopSettings and the contract
     DesktopRoot.svelte         setNotes/setFolders(fromClient(device)), setFolderSync
 routes/(app)/+page.svelte      HoneycrispApp over the notes and folders the root set
   HoneycrispApp.svelte         header (Chrome from #platform/root), folders, notes, the open note
@@ -195,7 +195,7 @@ that sets its own store, and a header that says what it is.
 | `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte`, `SignInCallback.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account; the end of sign-in. |
 | `src/lib/components/Online.svelte` | The repository per account, its notes and folders set for every page (`setNotes`, `setFolders`). |
 | `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's notes and folders set for every page (`setNotes`, `setFolders`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
-| `src/lib/folder.tauri.ts` | The desktop window's settings contract, and where the contract is published. |
+| `src/lib/folder.tauri.ts` | Where the contract is published, which the desktop window's sync names. |
 | `src/routes/(app)/+page.svelte` | `HoneycrispApp`, over the notes and folders the root set. |
 | `src/lib/honeycrisp.svelte.ts` | The notes' and folders' contexts, the orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections. |
 | `src/lib/editor/` | The CodeMirror note editor: the binding that writes local edits and follows changes from elsewhere, live preview, conflict cards. It knows nothing of the app's UI or storage. |

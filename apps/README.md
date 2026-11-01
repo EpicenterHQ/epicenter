@@ -72,7 +72,7 @@ screen when one does not open:
 
 ```svelte
 <!-- apps/capture/src/lib/components/Startup.svelte -->
-<DesktopStartup app="Capture" settings={captureSettings} contract={capture}>
+<DesktopStartup app="Capture" settings={desktopSettings} contract={capture}>
   {#snippet children(appData, device)}
     <DesktopRoot {appData} {device}>{@render pages()}</DesktopRoot>
   {/snippet}

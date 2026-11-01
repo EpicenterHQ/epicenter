@@ -16,7 +16,7 @@
  * opens as `NotGranted` until the person picks it.
  *
  * ```ts
- * const appData = await openAppData(captureSettings);
+ * const appData = await openAppData(desktopSettings);
  * if (appData.error !== null) return appData;
  * const device = await openDataFolder(capture, { appData: appData.data });
  * ```

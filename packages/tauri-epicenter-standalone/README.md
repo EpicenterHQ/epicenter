@@ -55,7 +55,7 @@ The page's startup awaits the two roots in order, under its layout's
 whose actions write or clear `folder` and open the roots again:
 
 ```ts
-const appData = await openAppData(captureSettings); // the app's own settings contract
+const appData = await openAppData(desktopSettings); // or the app's own settings contract
 if (appData.error !== null) return appData; // "could not open its own settings": Retry
 const device = await openDataFolder(capture, { appData: appData.data }); // the default is made when missing
 ```

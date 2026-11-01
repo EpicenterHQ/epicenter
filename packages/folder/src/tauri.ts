@@ -24,6 +24,8 @@ export {
 export { syncedWithEpicenter, syncWithEpicenter } from './epicenter-sync.js';
 export { OpenDeviceError } from './errors.js';
 export {
+	type DesktopSettings,
+	desktopSettings,
 	type FolderSettings,
 	rememberFolder,
 	type SettingsContract,

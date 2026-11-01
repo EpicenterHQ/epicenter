@@ -15,20 +15,19 @@
  * Only the page reads and writes these notes, through the contract's
  * client; the desktop shell never parses them.
  *
+ * An app with no settings of its own opens its AppData root with
+ * `desktopSettings`; one with more notes declares its own contract with
+ * this `settings.md` among them (`SettingsContract`).
+ *
  * ```ts
- * const captureSettings = defineContract({
- * 	name: 'capture-settings',
- * 	collections: {
- * 		settings: { path: 'settings.md', fields: { folder: { type: 'string' } } },
- * 	},
- * });
- * const appData = await openAppData(captureSettings);
+ * const appData = await openAppData(desktopSettings);
  * ```
  */
-import type {
-	ClientError,
-	Contract,
-	NoteClient,
+import {
+	type ClientError,
+	type Contract,
+	defineContract,
+	type NoteClient,
 } from '@epicenter/definition/contract';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
@@ -46,6 +45,21 @@ type FolderNote = {
 export type SettingsContract = Contract & {
 	readonly collections: { readonly settings: FolderNote };
 };
+
+/**
+ * The settings contract of an app that keeps no settings of its own on
+ * this computer: `settings.md`, whose only key is `folder`.
+ */
+export const desktopSettings = defineContract({
+	name: 'desktop-settings',
+	description:
+		"A desktop app's settings on this computer: `folder` is the data folder it opens.",
+	collections: {
+		settings: { path: 'settings.md', fields: { folder: { type: 'string' } } },
+	},
+});
+
+export type DesktopSettings = typeof desktopSettings;
 
 /** What reads and writes `folder`: the `settings` note of any app's settings client. */
 export type FolderSettings = { readonly settings: NoteClient<FolderNote> };
