@@ -4,6 +4,9 @@
  * driver, pulls the LFS bytes the clone checked out as pointers, and
  * registers the folder for sync.
  *
+ * A target inside a `.git` or `.epicenter` directory is refused before
+ * anything is cloned, by init's own rule (`refuseReservedDirectory`).
+ *
  * The clone skips LFS's smudge filter even where a person installed it
  * globally, so the bytes always come from init's one `git lfs pull`, with
  * the same credential as the clone. The committed `.gitattributes` is kept
@@ -13,7 +16,12 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { basename, isAbsolute, resolve } from 'node:path';
 import { git } from './git.ts';
-import { type Initialized, type InitOptions, init } from './setup.ts';
+import {
+	type Initialized,
+	type InitOptions,
+	init,
+	refuseReservedDirectory,
+} from './setup.ts';
 
 export type CloneSource = {
 	/** What `git clone` is given: a URL or an absolute path. */
@@ -41,6 +49,7 @@ export async function clone(
 ): Promise<Initialized> {
 	if (name === '') throw new Error(`'${url}' names no repository`);
 	const target = resolve(dir);
+	await refuseReservedDirectory(target);
 	if (existsSync(target) && readdirSync(target).length > 0)
 		throw new Error(`${target} already exists and is not empty`);
 	const cloned = await git(

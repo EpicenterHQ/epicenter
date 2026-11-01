@@ -26,6 +26,7 @@ allow (see Other roots). No command falls back to the bound directory.
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows, and which are hidden. `core/src/paths.rs` and `paths.test.ts` in `@epicenter/folder` both read it. |
 | `fixtures/state-layout.json` | Where unfinished writes live: `.epicenter`, `saves`, `recordings`, and the paths built from them. `core/src/state.rs` and `state.test.ts` in `@epicenter/folder` both read it. |
+| `fixtures/reserved-directories.json` | Canonical paths no folder can be at, because a segment is `.git` or `.epicenter` in any case, and paths that may be folders. `core/src/admission.rs` and `admission.test.ts` in the CLI both read it. |
 | `fixtures/storage-outcomes.json` | Storage calls and what each answers. `core/src/storage_tests.rs` runs them over the shell's storage and `storage-outcomes.test.ts` in `@epicenter/folder` over the Bun directory storage, so both give the same outcomes. |
 
 This crate has no JavaScript package of its own. A page reaches it through

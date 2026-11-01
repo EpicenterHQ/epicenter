@@ -3,7 +3,9 @@
  * Epicenter's history, or take it out (decisions 36, 39, 41).
  *
  * `init` is set-up-or-repair and idempotent: each step checks first, changes
- * only what is missing or wrong, and says what it changed. A folder inside
+ * only what is missing or wrong, and says what it changed. A folder inside a
+ * `.git` or `.epicenter` directory is refused before anything is made
+ * (`refuseReservedDirectory`). A folder inside
  * another repository's working tree is refused unless the caller passes
  * `allowEnclosing` (`--enclosing-ok`): spike 7's first run adopted
  * `~/.claude` that way and committed its credentials. The repository init
@@ -19,12 +21,30 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
+import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import { resolveAppPaths } from '../app-paths.ts';
+import { canonicalPath, isReservedDirectory } from './admission.ts';
 import { type CredentialFor, config, configAll, git, must } from './git.ts';
 import { REPOSITORY_IGNORE, withEpicenterBlock } from './managed-block.ts';
 
-/** Init would adopt a repository the folder sits inside, and was not told to. */
+/**
+ * Init would adopt a repository the folder sits inside, and was not told
+ * to, or the folder is inside a `.git` or `.epicenter` directory.
+ */
 export class Refused extends Error {}
+
+/**
+ * Throw `Refused` when the directory at `input`, canonical, is inside a
+ * `.git` or `.epicenter` directory (`isReservedDirectory`), before anything
+ * is made there.
+ */
+export async function refuseReservedDirectory(input: string): Promise<void> {
+	const canonical = await canonicalPath(input);
+	if (isReservedDirectory(canonical))
+		throw new Refused(
+			`${canonical} is inside a .git or ${STATE_DIRECTORY} folder, which belong to Git and to Epicenter, so it cannot be a data folder.`,
+		);
+}
 
 /** One argument for `sh`, single-quoted. */
 const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
@@ -100,11 +120,16 @@ export type Initialized = {
 	readonly warnings: string[];
 };
 
-/** Set up or repair `input` for Epicenter sync. Throws `Refused` for an enclosing repository. */
+/**
+ * Set up or repair `input` for Epicenter sync. Throws `Refused` for a
+ * folder inside a `.git` or `.epicenter` directory, and for an enclosing
+ * repository.
+ */
 export async function init(
 	input: string,
 	{ allowEnclosing = false, credential }: InitOptions = {},
 ): Promise<Initialized> {
+	await refuseReservedDirectory(input);
 	await mkdir(resolve(input), { recursive: true });
 	const folder = await realpath(resolve(input));
 	const changed: string[] = [];

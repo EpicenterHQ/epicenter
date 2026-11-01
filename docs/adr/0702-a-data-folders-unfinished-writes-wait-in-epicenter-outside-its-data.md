@@ -52,7 +52,10 @@ directory, which belong to Git and to Epicenter.** The Epicenter app, before
 it sets a folder up for sync (`admission::check_sync_directory`), and an app
 window, before it opens a root (`scope::Refusals` in the folder plugin),
 refuse a directory when any segment of its canonical path is `.git` or
-`state::DIRECTORY`, in any case (`admission::is_reserved_directory`): a disk
+`state::DIRECTORY`, in any case (`admission::is_reserved_directory`), and
+`epicenter init` and `epicenter clone` refuse by the same rule before they
+make anything (`isReservedDirectory` in the CLI, with `STATE_DIRECTORY`;
+`fixtures/reserved-directories.json` holds both languages to it): a disk
 that ignores case keeps a directory made as `.GIT` under that name, and Git
 takes it for its own. `x/.git/y` and `x/.epicenter/recordings/y` are refused;
 `~/.notes` is a folder. This names where a folder's root cannot be, not what

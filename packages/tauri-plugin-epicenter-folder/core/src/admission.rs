@@ -51,7 +51,9 @@ pub fn check_sync_directory(
 /// folder. Case is ignored because a canonical path keeps a name as it was
 /// made, and on a disk that ignores case Git and Epicenter take a directory
 /// made as `.GIT` or `.Epicenter` for their own. The hub's sync admission and
-/// an app window's roots (`scope::Refusals` in the plugin) both ask it.
+/// an app window's roots (`scope::Refusals` in the plugin) both ask it, and
+/// `epicenter init` asks the same rule in TypeScript (`admission.ts` in the
+/// CLI), held to it by `fixtures/reserved-directories.json`.
 pub fn is_reserved_directory(root: &Path) -> bool {
     root.components().any(|component| {
         let name = component.as_os_str().to_string_lossy();
@@ -148,6 +150,28 @@ mod tests {
                 check_sync_directory(&data, &library, &accepted).is_ok(),
                 "{accepted:?}"
             );
+        }
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ReservedDirectories {
+        reserved: Vec<String>,
+        refused: Vec<String>,
+        allowed: Vec<String>,
+    }
+
+    /// The rule `epicenter init` asks too (`admission.ts` in the CLI): both
+    /// read `fixtures/reserved-directories.json`.
+    #[test]
+    fn the_reserved_directories_are_the_shared_fixtures() {
+        let fixture: ReservedDirectories =
+            serde_json::from_str(include_str!("../../fixtures/reserved-directories.json")).unwrap();
+        assert_eq!(RESERVED.to_vec(), fixture.reserved);
+        for path in &fixture.refused {
+            assert!(is_reserved_directory(Path::new(path)), "{path}");
+        }
+        for path in &fixture.allowed {
+            assert!(!is_reserved_directory(Path::new(path)), "{path}");
         }
     }
 

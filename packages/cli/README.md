@@ -108,7 +108,11 @@ live in `src/sync/` and run the system `git` through `runGit` in
 desktop committer: apps write files, and sync commits them
 with real `git add`, so Git LFS's filters run.
 
-- `init [<dir>]` sets up or repairs a data folder and says what it changed:
+- `init [<dir>]` sets up or repairs a data folder and says what it changed.
+  It first refuses a folder inside a `.git` or `.epicenter` directory, by
+  any segment of its canonical path in any case, the folder core's
+  admission rule (`src/sync/admission.ts`, held to the folder plugin's
+  `fixtures/reserved-directories.json`); `~/.notes` is a folder. Then
   `git init` when needed; Epicenter's blocks in the folder's committed
   `.gitattributes` and `.gitignore` (`src/sync/managed-block.ts`). The
   attributes block is `REPOSITORY_ATTRIBUTES` from
