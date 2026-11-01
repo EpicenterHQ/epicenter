@@ -217,11 +217,6 @@ async function indexLock(cwd: string): Promise<string | null> {
 	return `another program holds ${path} (taken ${age}s ago); nothing was changed. Run sync again; if it is still there and no git is running, delete it.`;
 }
 
-async function refuseIfLocked(cwd: string) {
-	const locked = await indexLock(cwd);
-	if (locked !== null) throw new Stop(locked, 'retry');
-}
-
 type Stage = { mode: string; sha: string };
 
 /** Unmerged index entries by path (relative to `root`): stage 1 base, 2 ours, 3 theirs. */
@@ -295,8 +290,6 @@ async function round(
 			`${resolveAppPaths().commandLink}, the merge driver's command, is missing. Run epicenter install-command, then sync.`,
 			'stopped',
 		);
-	await refuseIfLocked(root);
-
 	// Commit what the apps wrote in this folder, through the filters, and
 	// nothing else: never an unfinished write.
 	const who = await identity(root);
@@ -430,7 +423,6 @@ async function merge(
 	who: Record<string, string>,
 	notes: string[],
 ) {
-	await refuseIfLocked(root);
 	// First contact joins two histories that each began on their own (decision 20).
 	const merged = await git(
 		root,
