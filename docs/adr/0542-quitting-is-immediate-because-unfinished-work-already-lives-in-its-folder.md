@@ -4,6 +4,7 @@
 - **Date:** 2026-10-15
 - **Amended:** 2026-10-20, individual desktop window close waits for local drafts and retains unsent input.
 - **Amended by:** [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md) for application Quit, window close, and browser departure. The file-first recovery decisions below remain.
+- **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at window close, 2026-11-01: a desktop window closes at once, as Quit does; the 2026-10-20 amendment's wait is withdrawn.
 
 ## Context
 
