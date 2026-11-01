@@ -1,12 +1,12 @@
-//! A desktop page's folder storage: one function per method of the folder
-//! engine's `FolderStorage` (`packages/folder/src/boundary.ts`), each one IPC
-//! command (ADR-0581).
+//! A desktop page's folder storage: one function per method of the page's
+//! device store (`DeviceStore` in `packages/folder/src/device/store.ts`),
+//! each one IPC command (ADR-0581). This is the strict folder host: the Bun
+//! store (`device/node-store.ts`) is a plain store over `node:fs`, and only
+//! this one answers the edge cases below (`storage_outcomes.json`).
 //!
 //! A page names folder-relative paths. New paths pass `paths::path_problem`;
 //! a save may replace or remove an existing structurally safe name that only
-//! some disks hold, but never make one. Every path
-//! is literal, as in the Bun
-//! directory storage (`directory-store.ts`), whose outcomes these match:
+//! some disks hold, but never make one. Every path is literal:
 //!
 //! - a symbolic link is never followed, and a path through one is refused;
 //! - on a disk that ignores case or Unicode normalization, `plan.md` can
@@ -21,7 +21,7 @@
 //!   reports it, and sync never commits it.
 //!
 //! `put` is the one change of a file. Its bytes are staged in a new file in
-//! `.epicenter/saves` inside the root (`state::saves`), where the Bun host
+//! `.epicenter/saves` inside the root (`state::saves`), where the Bun store
 //! stages too, and renamed over the path, so a reader and a crash see the
 //! old file or the new one, and a new file never appears empty. Saving needs
 //! no Git: it makes nothing beside the root, nothing in it but the files
@@ -195,16 +195,15 @@ fn make_private(_path: &Path) -> Result<(), String> {
 }
 
 /// How old a staged file must be before `sweep_scratch` removes it, in
-/// milliseconds: `STALE_SCRATCH_MS` in `boundary.ts`. A save renames or
+/// milliseconds. A save renames or
 /// removes its staged file right after writing it, so one this old was left
 /// by a save that stopped. Younger ones may belong to a save still running
 /// in another process.
 const STALE_SCRATCH_MS: u64 = 60 * 60 * 1000;
 
-/// Why a storage call answered no. The names and fields are the page's
-/// `FileError` (`packages/folder/src/errors.ts`), less the ones only the page
-/// can know: whether a reply was lost (`Unconfirmed`) and whether the folder
-/// is closed.
+/// Why a storage call answered no. The page's store (`device/tauri-store.ts`)
+/// reads `NotFound` as no file there and any other as `Unavailable`; the
+/// names say why to a person reading it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "name")]
 pub enum StorageError {
@@ -261,7 +260,7 @@ fn stamp_of(metadata: &fs::Metadata) -> io::Result<String> {
 }
 
 /// What a `put` expects at its path when it lands, the version its writer
-/// read: `Expectation` in `boundary.ts`.
+/// read: `DeviceExpectation` in `packages/folder/src/device/store.ts`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expectation {
     /// Nothing at all is there: a create.
@@ -294,9 +293,8 @@ impl Expectation {
     }
 }
 
-/// One file in a listing: `ListedFile` in `boundary.ts`. Anything that is
-/// not a directory is a file here, a link or a special entry included, none
-/// of them followed.
+/// One file in a listing. Anything that is not a directory is a file here,
+/// a link or a special entry included, none of them followed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 pub struct ListedFile {
     pub path: String,
@@ -346,7 +344,7 @@ fn absent(target: &Path) -> bool {
     matches!(fs::symlink_metadata(target), Err(cause) if cause.kind() == ErrorKind::NotFound)
 }
 
-/// What a literal folder path names on disk: `Found` in `directory-store.ts`.
+/// What a literal folder path names on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Found {
     File {
@@ -597,10 +595,11 @@ fn holds(target: &Path, expected: &Expectation) -> io::Result<bool> {
     }
 }
 
-/// A name for a new staged file, as `scratchName` in `boundary.ts` makes
-/// one: its creation time in milliseconds and a per-process counter in base
-/// 36, around this process's id, so `sweep_scratch` and the Bun host read
-/// its age alike.
+/// A name for a new staged file, as `scratchName` in
+/// `packages/folder/src/state.ts` makes one: its creation time in
+/// milliseconds and a per-process counter in base 36, around this process's
+/// id, so `sweep_scratch` reads its age, and sweeps what a stopped save of
+/// the Bun store left too.
 fn scratch_name(now_ms: u64) -> String {
     static ENGINE: OnceLock<String> = OnceLock::new();
     static STAGED: AtomicU64 = AtomicU64::new(0);
@@ -966,8 +965,7 @@ pub fn put(
 }
 
 /// Whether the staged file `name` was made more than an hour before
-/// `now_ms`: `isStaleScratch` in `boundary.ts`. A name no host made is
-/// never stale.
+/// `now_ms`. A name no host made is never stale.
 pub fn is_stale_scratch(name: &str, now_ms: u64) -> bool {
     let parts: Vec<&str> = name.split('-').collect();
     let [time, engine, count] = parts.as_slice() else {

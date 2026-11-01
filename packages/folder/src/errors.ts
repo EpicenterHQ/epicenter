@@ -1,62 +1,10 @@
 /**
- * Operation failures: opening a contract's client (`OpenDeviceError`), and
- * the directory storage the device stores and the CLI's tools use
- * (`FileError`).
+ * Why opening a contract's client failed (`OpenDeviceError`).
  *
  * Library messages state the failure precisely; the application decides what
  * a person is told.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-
-export const FileError = defineErrors({
-	InvalidPath: ({ path, reason }: { path: string; reason: string }) => ({
-		message: `The path '${path}' is not usable: ${reason}`,
-		path,
-		reason,
-	}),
-	/** The addressed file is absent. */
-	NotFound: ({ path }: { path: string }) => ({
-		message: `No file exists at '${path}'`,
-		path,
-	}),
-	NotAFile: ({ path }: { path: string }) => ({
-		message: `'${path}' is a directory, not a file`,
-		path,
-	}),
-	NotADirectory: ({ path }: { path: string }) => ({
-		message: `'${path}' is a file, not a directory`,
-		path,
-	}),
-	Io: ({
-		path,
-		operation,
-		cause,
-	}: {
-		path: string;
-		operation: string;
-		cause: unknown;
-	}) => ({
-		message: `Could not ${operation} '${path}': ${describe(cause)}`,
-		path,
-		operation,
-		cause,
-	}),
-	Unconfirmed: ({
-		path,
-		operation,
-		cause,
-	}: {
-		path: string;
-		operation: string;
-		cause: unknown;
-	}) => ({
-		message: `The folder host did not confirm ${operation} '${path}'; the operation may have completed: ${describe(cause)}`,
-		path,
-		operation,
-		cause,
-	}),
-});
-export type FileError = InferErrors<typeof FileError>;
 
 /**
  * Why `openDevice` opened no client, on every platform. A desktop data
@@ -96,30 +44,7 @@ export const OpenDeviceError = defineErrors({
 });
 export type OpenDeviceError = InferErrors<typeof OpenDeviceError>;
 
-/**
- * Internal: the Bun directory host checked what a staged file's rename or a
- * removal expected at its path, found something else, and changed nothing. `found`
- * says what: a file with other bytes (`actualSha256`, or `undefined` when no
- * file is there), or something where nothing was expected. File storage answers it as a `'stale'` put, never as
- * `Unconfirmed`.
- */
-export class UnexpectedTarget extends Error {
-	constructor(
-		readonly path: string,
-		readonly found:
-			| { readonly name: 'Conflict'; readonly actualSha256: string | undefined }
-			| { readonly name: 'Exists' },
-	) {
-		super(
-			found.name === 'Conflict'
-				? `'${path}' does not hold the bytes the change expected`
-				: `'${path}' is already occupied`,
-		);
-		this.name = 'UnexpectedTarget';
-	}
-}
-
-export function describe(cause: unknown): string {
+function describe(cause: unknown): string {
 	if (cause instanceof Error) return cause.message;
 	if (
 		typeof cause === 'object' &&

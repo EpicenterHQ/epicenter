@@ -27,7 +27,10 @@ allow (see Other roots). No command falls back to the bound directory.
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows, and which are hidden. `core/src/paths.rs` and `paths.test.ts` in `@epicenter/folder` both read it. |
 | `fixtures/state-layout.json` | Where unfinished writes live: `.epicenter`, `saves`, `recordings`, and the paths built from them. `core/src/state.rs` and `state.test.ts` in `@epicenter/folder` both read it. |
 | `fixtures/reserved-directories.json` | Canonical paths no folder can be at, because a segment is `.git` or `.epicenter` in any case, and paths that may be folders. `core/src/admission.rs` and `admission.test.ts` in the CLI both read it. |
-| `fixtures/storage-outcomes.json` | Storage calls and what each answers. `core/src/storage_tests.rs` runs them over the shell's storage and `storage-outcomes.test.ts` in `@epicenter/folder` over the Bun directory storage, so both give the same outcomes. |
+| `core/src/storage_outcomes.json` | Storage calls and what each answers, which `core/src/storage_tests.rs` runs over the shell's storage. Only the shell answers these edge cases; the Bun store in `@epicenter/folder` is a plain store. |
+
+The files in `fixtures/` are the rules both languages decide by, so each is
+read by a Rust test and a TypeScript test.
 
 This crate has no JavaScript package of its own. A page reaches it through
 `@epicenter/folder` (or `@epicenter/folder/tauri`).
@@ -187,8 +190,9 @@ for every protection); what landed is in the folder.
 Every open also removes the staged files in the root's `.epicenter/saves`
 that a stopped save left more than an hour ago
 (`storage::sweep_scratch`), by the creation time in the name the stager gave
-it, the same rule as `isStaleScratch` in `@epicenter/folder`. Younger ones
-may belong to a save still running in another process. Only regular files
+it (`scratchName` in `@epicenter/folder` names its own saves the same way,
+so a save a stopped Bun process left is removed too). Younger ones may
+belong to a save still running in another process. Only regular files
 with a name a stager made are removed: any other file, a directory, or a link
 stays, a `saves` that is a link or not a directory is not read, and
 `.epicenter/recordings` is never read at all.
@@ -199,15 +203,16 @@ meanwhile cannot redirect work already admitted.
 
 ## Storage
 
-A page's folder storage (`FolderStorage` in `@epicenter/folder`'s
-`boundary.ts`) is these commands, one per method, each one IPC call
+A page's folder storage (`DeviceStore` in `@epicenter/folder`'s
+`device/store.ts`, through `device/tauri-store.ts`) is these commands, one
+per method, each one IPC call
 ([ADR-0581](../../docs/adr/0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md)):
 
 | Method | Command | Answers |
 | --- | --- | --- |
 | `list()` | `list_folder()` | `{ path, stamp }[]`, every file, `.git` aside; hidden files, `.epicenter`'s included, are listed for the reader to skip |
 | `read(path)` | `read_folder_file(path)` | the stamp, a zero byte, then the file bytes, raw |
-| `put(path, bytes, expected)` | `put_folder_file`, raw body and headers | `{ kind: "landed", stamp: string \| null }` or `{ kind: "stale" }` |
+| `write(path, bytes, expected)` | `put_folder_file`, raw body and headers | `"landed"` or `"stale"` |
 
 A command from a window with no binding, or after shutdown, is `Io` naming
 `NotBound` or `ShuttingDown`, and changes nothing.
@@ -222,9 +227,8 @@ reserved or control character. Leading dots are ordinary. The shell keeps no
 list of a folder's files; which data paths a folder has is the page's
 business. `.git` at the root is never listed and never named.
 
-`storage.rs` resolves every path literally, with the outcomes of the Bun
-directory storage (`directory-store.ts`), held to one vector file both run
-(`fixtures/storage-outcomes.json`):
+`storage.rs` is the strict folder host. It resolves every path literally,
+as its vectors (`core/src/storage_outcomes.json`) show:
 
 - No link is followed. A path through a link, or naming one, is
   `InvalidPath`; a listing reports a link as a file.
@@ -237,11 +241,10 @@ directory storage (`directory-store.ts`), held to one vector file both run
 - A file where a directory should be is `NotADirectory` naming it, and a
   directory where a file should be is `NotAFile`.
 
-A refusal or a failure is a `StorageError`, named and shaped as the page's
-`FileError`: `InvalidPath`, `NotFound`, `NotAFile`, `NotADirectory`, or
-`Io` with the operation and the system's message. A
-failure the shell reports changed nothing. Only the page can tell that a
-reply was lost, which it reports as `Unconfirmed`.
+A refusal or a failure is a `StorageError`: `InvalidPath`, `NotFound`,
+`NotAFile`, `NotADirectory`, or `Io` with the operation and the system's
+message. A failure the shell reports changed nothing. The page reads
+`NotFound` as no file there and any other as `Unavailable`.
 
 ### A put
 

@@ -146,12 +146,20 @@ renames them over the path right after checking the version its writer read.
 Within one process, writes to one path take turns, and a create lands only
 where nothing is; across processes, a replacement's check-to-rename gap is
 accepted, and Git history is the backstop. A new file is placed by a hard
-link (`storage::place` in Tauri, `place` in `directory-node.ts`), which never
-replaces a file that appeared after the check, so of writers creating one
-path in any process exactly one lands. A save below a mount point inside the
-folder fails saying it cannot cross one.
-Nothing is made beside the directory, and paths and links are checked
-before writes.
+link, which never replaces a file that appeared after the check, so of
+writers creating one path in any process exactly one lands. A save below a
+mount point inside the folder fails saying it cannot cross one. Nothing is
+made beside the directory, a path that leaves it or names `.git` is refused,
+and a name only some disks hold is never made.
+
+The desktop shell (`storage.rs` in `tauri-plugin-epicenter-folder`) is the
+strict host: it also refuses links and names stored under another spelling,
+tightens an existing `.epicenter` to this account and refuses one that is a
+link, and sweeps stale saves at each open. Bun's
+store (`src/device/node-store.ts`) is a plain store over `node:fs` for the
+CLI's `check` and `format`, scripts and tests: it writes only paths it
+listed or a contract made, so those edge cases do not reach it, and a save
+a stopped Bun process left waits for the shell's sweep.
 
 `.epicenter` holds only unfinished writes: `saves/`, safe to delete when no
 app runs, and `recordings/`, a desktop recording until it stops or is
@@ -164,8 +172,8 @@ reports it, listings show it for their readers to skip, and `epicenter sync`
 never commits it. A native watcher reports outside changes, and a client's
 listeners hear them. Watching is best effort.
 Native listings compare opaque stamps made from file size, modification time,
-and file identity where available. Reads and saves return the stamp of the
-file they observed or published; checked writes compare content hashes.
+and file identity where available; a read returns the stamp of the file it
+read, and checked writes compare content hashes.
 
 History is not the client's: a folder gains Git only when `epicenter init`
 registers it, and `epicenter sync` (in `@epicenter/cli`) is its only
@@ -178,7 +186,7 @@ committer, over the system `git` this package's `runGit` runs.
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts`, `node.ts`, `remote.ts` | Public entries. |
 | `src/device/` | `openDevice`: the contract client, its Bun, OPFS and Tauri stores, and `check`/`format`. |
 | `src/remote/` | `openRemote` and its wire to the server. |
-| `src/native/`, `directory-store.ts`, `boundary.ts` | Directory storage, watches, and bindings. |
+| `src/native/`, `paths.ts`, `state.ts`, `path-turns.ts` | Watches, the shell's bindings, the path rule, where unfinished writes live, and per-path turns. |
 | `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
 | `evidence/`, `smoke/` | Recorded experiments, the closure check, and browser smoke runs. |
 

@@ -49,9 +49,8 @@ export type FolderChanged = {
 };
 
 /**
- *  One file in a listing: `ListedFile` in `boundary.ts`. Anything that is
- *  not a directory is a file here, a link or a special entry included, none
- *  of them followed.
+ *  One file in a listing. Anything that is not a directory is a file here,
+ *  a link or a special entry included, none of them followed.
  */
 export type ListedFile = {
 	path: string,
@@ -65,10 +64,9 @@ export type ListedFile = {
 export type PutOutcome = "landed" | "stale";
 
 /**
- *  Why a storage call answered no. The names and fields are the page's
- *  `FileError` (`packages/folder/src/errors.ts`), less the ones only the page
- *  can know: whether a reply was lost (`Unconfirmed`) and whether the folder
- *  is closed.
+ *  Why a storage call answered no. The page's store (`device/tauri-store.ts`)
+ *  reads `NotFound` as no file there and any other as `Unavailable`; the
+ *  names say why to a person reading it.
  */
 export type StorageError =
 /**

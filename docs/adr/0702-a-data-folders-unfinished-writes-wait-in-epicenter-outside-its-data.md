@@ -43,7 +43,8 @@ only rule for what is not data:
 - No watcher reports a change under one: the folder plugin's `watch.rs`,
   Bun's `native/watch.ts`, and `epicenter sync --watch`.
 - Listings still list hidden files, leaving out only `.git` at the root
-  (`storage::list`, `directory-store.ts`); whoever reads a listing skips them.
+  (`storage::list`, and Bun's `device/node-store.ts`); whoever reads a
+  listing skips them.
 - `epicenter sync` commits a hidden path when Git's rules let it, as it
   commits `.gitattributes` and `.gitignore`, and never commits `.epicenter`.
 
@@ -94,20 +95,23 @@ there finishes at its real path, or the next open recovers or removes it.
   `bun run check:state-paths` (`scripts/check-state-paths.ts`) fails when
   other production code spells `.epicenter`. A new kind of unfinished write
   gets its own part there, never from its caller.
-- On Unix, before anything is staged, `.epicenter` and `saves/` are made, or
-  tightened, to `0700`, and each staged file is created with `create_new` at
-  `0600` (`make_private` and `create_scratch` in the folder core's
-  `storage.rs`; `privateDirectory` in `packages/folder/src/directory-node.ts`).
-  An inheritable access control entry on the person's folder is kept: it is
-  a grant they chose, files other programs make there inherit it, and
-  Epicenter's inherit it too. Either directory is refused when it is a link
-  or not a directory.
+- On Unix, before anything is staged, the desktop shell makes `.epicenter`
+  and `saves/`, or tightens them, to `0700`, and creates each staged file
+  with `create_new` at `0600` (`make_private` and `create_scratch` in the
+  folder core's `storage.rs`). An inheritable access control entry on the
+  person's folder is kept: it is a grant they chose, files other programs
+  make there inherit it, and Epicenter's inherit it too. Either directory is
+  refused when it is a link or not a directory. The Bun store makes them
+  `0700` and stages at `0600` when it creates them, and neither tightens nor
+  refuses one already there.
 - A recording's file is created with `create_new` under `recordings/`, so
   nothing already at its name is written through.
-- Opening a folder removes, from `saves/` alone, regular files with a stager's
-  scratch name more than an hour old (`storage::sweep_scratch`,
-  `sweepStaleScratch`). Nothing sweeps `recordings/`; only `recoverRecordings`
-  finishes what a quit or a crash left there.
+- The desktop shell's open removes, from `saves/` alone, regular files with
+  a stager's scratch name more than an hour old (`storage::sweep_scratch`).
+  The Bun store sweeps nothing; it names its saves in the same grammar
+  (`scratchName` in `packages/folder/src/state.ts`), so what a stopped Bun
+  process left goes at the shell's next open. Nothing sweeps `recordings/`;
+  only `recoverRecordings` finishes what a quit or a crash left there.
 - `epicenter init` writes `.epicenter/` into `.gitignore` (`REPOSITORY_IGNORE`),
   and `epicenter sync` excludes it itself, whatever `.gitignore` says: `git add`,
   `git diff --cached`, and `git commit` take
@@ -127,22 +131,22 @@ create lands only where nothing is; across processes, a replacement's
 check-to-rename gap is accepted.** A version is the SHA-256 of a
 file's bytes on a device and the Git blob id on `main` in a repository. A
 write expects `absent` for a create or the version it read (`{ sha256 }`),
-and nothing else (`Expectation` in `packages/folder/src/boundary.ts` and in
-the folder core's `storage.rs`): there is no unconditional write, and an
+and nothing else (`DeviceExpectation` in `packages/folder/src/device/store.ts`
+and `Expectation` in the folder core's `storage.rs`): there is no unconditional write, and an
 existing name only some disks hold is replaced or removed over its version
 like any other. A store answers `stale` when the file no longer matches, and
 the client answers `Conflict { current }`.
 
 | Store | Check, then land |
 | --- | --- |
-| Desktop folder, replacing or removing a file (`storage::put`, `directory-store.ts`) | stage in `.epicenter/saves`; taking the path's turn in this process, walk and check the path, rename over it or remove it |
-| Desktop folder, a new file (the shell and Bun) | stage; taking the path's turn, check, then place by a hard link (`storage::place`, `place` in `directory-node.ts`) |
+| Desktop folder, replacing or removing a file (`storage::put`, Bun's `device/node-store.ts`) | stage in `.epicenter/saves`; taking the path's turn in this process, check the path, rename over it or remove it |
+| Desktop folder, a new file (the shell and Bun) | stage; taking the path's turn, place by a hard link (`storage::place`, `place` in `device/node-store.ts`) |
 | Browser (OPFS) | one Worker, holding a Web Lock named for the path (`epicenter-device:<path>`) across the check and the write |
 | Repository (`openRemote`) | read, compare with `over`, send the write with that base; the server settles it against `main` and moves `main` by compare-and-swap |
 
 Within one process, a desktop path's writes take turns from the check to the
 rename or removal: a per-path queue in Bun (`createPathTurns`, used by
-`directory-node.ts`) and a per-path turn in the shell (`Turn` in the folder
+`device/node-store.ts`) and a per-path turn in the shell (`Turn` in the folder
 core's `storage.rs`), each held only across the check and the change and
 gone once the path is idle. It costs nothing across processes and makes the
 check exact within one: of two writers over one version, one lands and the
@@ -162,14 +166,28 @@ counts as placed. Where the disk has no hard links (FAT, exFAT, some network
 shares), the file is renamed only while nothing is at the target. `put` uses
 it for a write expecting `absent`, answering `stale` when something appeared
 after the check, and the recorder uses it for every recording it places. The
-Bun host places a new file the same way, so of writers creating one path, in
+Bun store places a new file the same way, so of writers creating one path, in
 one process or several, exactly one lands.
 
 **A save across a mount point fails.** A target on another file system than
 `.epicenter` (a mount point inside the folder) is one no rename or hard link
 from `saves/` reaches (`EXDEV`). The save fails saying it cannot save across a
-mount point (`storage::rename_failure`, and the Bun host), and nothing is
+mount point (`storage::rename_failure`, and the Bun store), and nothing is
 copied.
+
+**The desktop shell is the strict folder host; the Bun store is plain.**
+The folder core's `storage.rs` walks each path literally: it refuses a path
+through a link, a name stored under another spelling on a disk that ignores
+case, and a file where a directory should be, and its vectors
+(`packages/tauri-plugin-epicenter-folder/core/src/storage_outcomes.json`)
+are its own tests. The Bun store
+(`device/node-store.ts`), which serves `epicenter check` and `epicenter
+format`, scripts, and tests, keeps only what this decision needs of every
+host: the version check on every write, the exclusive create, the per-path
+turns, staging in `.epicenter/saves`, the mount point refusal, the path rule
+(`pathProblem`, never making a nonportable name), and listings that leave
+hidden files to their reader. It writes only paths it listed or a contract
+made, so the shell's edge cases do not reach it.
 
 **A desktop root is always an absolute path.** `openDevice(contract, { path,
 create? })` from `@epicenter/folder/tauri` requires `path`, and the shell's
@@ -254,6 +272,9 @@ one word both landed.
 - On Windows, `.epicenter` and `saves/` have the access their parent passes
   on, and a placement cut off between its link and its removal is not
   recognized as placed: `place` answers that the path is taken.
+- A Bun process saving through a link, onto a case variant of a name, or
+  into an `.epicenter` another account can read is not refused, and its
+  stopped saves wait for the desktop shell's next open to be swept.
 - Folders written before these changes are not migrated: an old `scratch/`,
   `recording/`, or `save-lock` stays where it is, and nothing recovers a WAV
   left in `.epicenter/recording/`.
@@ -289,6 +310,11 @@ one word both landed.
   write used it; every caller had a version to name or was creating. Keeping
   it meant every host carried a write that could replace a file its caller
   never read.
+- **Holding the Bun store to every outcome of the shell's** (a second
+  literal path walker, `FileError`, and one vector file both hosts ran): it
+  kept a Bun process answering a link or a case variant exactly as the
+  desktop does, for callers that never write such a path, at the cost of a
+  second strict host to keep in step.
 - **Callers that know where unfinished bytes go:** each new caller would
   spell `.epicenter` again, which `check:state-paths` now refuses.
 - **Staging outside the folder** (beside it, or in AppData): a rename from

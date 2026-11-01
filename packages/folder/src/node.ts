@@ -1,8 +1,7 @@
 /**
  * `@epicenter/folder/node`: a contract's typed client over a directory on
  * this computer (decision 7), and the checks `epicenter check` and
- * `epicenter format` run. It runs in Bun: a write takes the directory's save
- * lock, which the desktop shell shares, through `bun:sqlite`.
+ * `epicenter format` run, in Bun or Node (`device/node-store.ts`).
  *
  * The directory holds the contract's files at the contract's paths, the
  * same layout a desktop folder and the browser's private storage hold.
@@ -43,7 +42,7 @@ export async function openDevice<TContract extends Contract>(
 	} catch (cause) {
 		return OpenDeviceError.Unreadable({ folder: path, cause });
 	}
-	return Ok(createDeviceClient(contract, nodeStore(path, { create: true })));
+	return Ok(createDeviceClient(contract, nodeStore(path)));
 }
 
 /**
@@ -52,7 +51,7 @@ export async function openDevice<TContract extends Contract>(
  * problem in path order. A contract that is not well formed is the error.
  */
 export function checkFiles(contract: unknown, { path }: { path: string }) {
-	return checkStore(contract, nodeStore(path, { create: false }));
+	return checkStore(contract, nodeStore(path));
 }
 
 /**
@@ -60,5 +59,5 @@ export function checkFiles(contract: unknown, { path }: { path: string }) {
  * style: `{ formatted, unchanged, refused }`.
  */
 export function formatNotes(contract: unknown, { path }: { path: string }) {
-	return formatStore(contract, nodeStore(path, { create: false }));
+	return formatStore(contract, nodeStore(path));
 }

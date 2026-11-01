@@ -93,10 +93,10 @@ let staged = 0;
 
 /**
  * A new staged file's name, in the grammar every host stages under
- * (`scratchName` in `boundary.ts`, `scratch_name` in the folder core): its
+ * (`scratchName` in `state.ts`, `scratch_name` in the folder core): its
  * creation time and a per-worker counter in base 36, around this worker's
- * id. A copy, since this file imports nothing; `state.test.ts` holds it to
- * `isStaleScratch`.
+ * id. A copy, since this file imports nothing; `state.test.ts` holds both
+ * to `isStaleSave`.
  */
 export const stagedName = () => {
 	engine ??= crypto.randomUUID().replaceAll('-', '');
@@ -110,8 +110,8 @@ const STAGED_NAME = /^([0-9a-z]+)-[0-9a-f]{32}-[0-9a-z]+$/;
 
 /**
  * Whether the staged file `name` was made more than `STALE_SAVE_MS` before
- * `now`, as `isStaleScratch` in `boundary.ts` reads it. A name no host made
- * is never stale.
+ * `now`, as the folder core's `is_stale_scratch` reads it. A name no host
+ * made is never stale.
  */
 export function isStaleSave(name: string, now: number): boolean {
 	const time = STAGED_NAME.exec(name)?.[1];

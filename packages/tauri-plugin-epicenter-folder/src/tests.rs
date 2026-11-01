@@ -31,7 +31,7 @@
 //! - A put takes its bytes as a raw body and its arguments as
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
 //!   fallback, is accepted too. A file read returns its bytes raw. A
-//!   refusal is a `StorageError` naming the page's `FileError`.
+//!   refusal is a `StorageError`.
 //! - Binding adds nothing to the app's access control, so an app that
 //!   already scopes another permission opens and reads as any other does.
 //! - After shutdown, a late change and a late bind are refused.

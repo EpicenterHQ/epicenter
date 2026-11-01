@@ -11,18 +11,23 @@
  * - The directory and its `saves` part match the shared layout
  * - `savesDirectory` builds the shared layout's path
  * - The OPFS worker stages where `savesDirectory` says
- * - The OPFS worker names and ages its staged files as every host does
+ * - Staged names carry their age in one grammar: the OPFS worker's and
+ *   Bun's (which the desktop shell sweeps)
  */
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isStaleScratch } from './boundary.js';
 import {
 	isStaleSave,
 	stagedName,
 	SAVES as WORKER_SAVES,
 } from './device/opfs-worker.js';
-import { SAVES, STATE_DIRECTORY, savesDirectory } from './state.js';
+import {
+	SAVES,
+	STATE_DIRECTORY,
+	savesDirectory,
+	scratchName,
+} from './state.js';
 
 /** The layout `state.rs` reads too. */
 const layout = JSON.parse(
@@ -51,23 +56,21 @@ test('the OPFS worker stages in the shared layout', () => {
 	expect(WORKER_SAVES.join('/')).toBe(layout.savesDirectory);
 });
 
-test('the OPFS worker names and ages its staged files as every host does', () => {
+test('staged names carry their age, in one grammar: the OPFS worker ages its own, and Bun names its own alike', () => {
 	const hour = 60 * 60 * 1000;
-	const name = stagedName();
-	const made = Number.parseInt(name.slice(0, name.indexOf('-')), 36);
-	for (const now of [made + hour, made + hour + 1]) {
-		expect(isStaleSave(name, now)).toBe(isStaleScratch(name, now));
+	for (const name of [stagedName(), scratchName()]) {
+		const made = Number.parseInt(name.slice(0, name.indexOf('-')), 36);
+		expect(isStaleSave(name, made + hour)).toBe(false);
+		expect(isStaleSave(name, made + hour + 1)).toBe(true);
 	}
-	expect(isStaleScratch(name, made + hour + 1)).toBe(true);
 	const engine = '0123456789abcdef0123456789abcdef';
+	const made = Date.now().toString(36);
 	for (const foreign of [
 		'notes.md',
 		'a',
-		`${made.toString(36)}-${crypto.randomUUID()}`,
-		`${made.toString(36)}-${engine}`,
-		`${made.toString(36)}-${engine}-0-1`,
-	]) {
+		`${made}-${crypto.randomUUID()}`,
+		`${made}-${engine}`,
+		`${made}-${engine}-0-1`,
+	])
 		expect(isStaleSave(foreign, Number.MAX_SAFE_INTEGER)).toBe(false);
-		expect(isStaleScratch(foreign, Number.MAX_SAFE_INTEGER)).toBe(false);
-	}
 });

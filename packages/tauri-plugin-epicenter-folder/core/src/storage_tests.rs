@@ -947,13 +947,12 @@ fn a_put_that_does_not_land_leaves_no_new_directory() {
     assert!(staged(&root).is_empty());
 }
 
-/// The vectors `storage-outcomes.test.ts` in `@epicenter/folder` runs over
-/// the Bun directory storage, run here over the shell's.
+/// Storage calls and what each answers (`storage_outcomes.json`), over the
+/// shell's storage.
 #[test]
-fn storage_follows_the_shared_outcomes() {
+fn storage_follows_the_outcome_vectors() {
     use serde_json::{json, Value};
-    let vectors: Value =
-        serde_json::from_str(include_str!("../../fixtures/storage-outcomes.json")).unwrap();
+    let vectors: Value = serde_json::from_str(include_str!("storage_outcomes.json")).unwrap();
     let cases = vectors["cases"].as_array().unwrap();
     assert!(cases.len() >= 30, "the fixture holds the cases");
     let text = |value: &Value| value.as_str().map(str::to_string);

@@ -5,7 +5,7 @@
 - **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the full desktop app platform; only a local built-app runner over chosen data repositories remains, without source installation, build approvals, or general native services.
 - **Amends:** [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) at the consequence "Files a folder's `.gitignore` ignores, such as Whispering's audio (ADR-0592), and changes not yet committed are gone once a page deletes them, since a storage deletion keeps no copy": on the desktop a deleted file goes to the macOS Trash, and in a browser tab a deletion stays permanent.
 - **Relates:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (installing trusts the author fully), [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) (principle 4: mistakes are left to Git), [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) (what a folder ignores).
-- **Unbuilt:** all of it: `storage::put` with no bytes moving the file to the Trash instead of `fs::remove_file` (`packages/tauri-plugin-epicenter-folder/core/src/storage.rs:658` at `e9027cc744`), and the Bun opener's file removal (`remove` in `packages/folder/src/directory-node.ts:108-113`, called from `packages/folder/src/directory-store.ts:192`) doing the same on macOS.
+- **Unbuilt:** all of it: `storage::put` with no bytes moving the file to the Trash instead of `fs::remove_file` (`packages/tauri-plugin-epicenter-folder/core/src/storage.rs:658` at `e9027cc744`), and the Bun opener's file removal (`remove` in `e9027cc744:packages/folder/src/directory-node.ts:108-113`, called from `e9027cc744:packages/folder/src/directory-store.ts:192`) doing the same on macOS.
 
 ## Context
 
@@ -13,7 +13,7 @@ A desktop page deletes a file through the shell's storage command:
 `storage::put` with no bytes (`packages/tauri-plugin-epicenter-folder/core/src/storage.rs:618`)
 checks that the file still holds what the page expects and calls
 `fs::remove_file` (`:658`). The CLI's Bun opener, which agents run, removes
-a file with `rm` (`remove` in `packages/folder/src/directory-node.ts:108-113`).
+a file with `rm` (`remove` in `e9027cc744:packages/folder/src/directory-node.ts:108-113`).
 Neither keeps a copy. Git restores a committed file; a file a folder's
 `.gitignore` ignores, such as Whispering's audio (ADR-0592), and any
 uncommitted change are gone.

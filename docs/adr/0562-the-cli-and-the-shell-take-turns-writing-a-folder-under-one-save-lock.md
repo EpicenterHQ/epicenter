@@ -76,7 +76,7 @@ stages its bytes in to `<root>/.epicenter/scratch`, so saving makes nothing
 outside the folder. Both hosts make `.epicenter` and `scratch` `0700` when
 missing, refuse either, and the lock file, when it is a symbolic link or not
 the expected kind (`holdingFolderLock` and `takeFileLock` in
-`packages/folder/src/native/directory.ts`, `privateDirectory` in
+`3b5ba8be2a:packages/folder/src/native/directory.ts`, `privateDirectory` in
 `directory-node.ts`; `prepare_state_directory` in the folder plugin's
 `storage.rs`, `verify` in `lock.rs`), and neither lists `.epicenter`
 (`isOwnDirectory` in `directory-store.ts`, `storage.rs`) or reports it from
@@ -106,7 +106,7 @@ on it, and sync's per-folder locks around its merge were deleted.
 
 What stays is the version check. Every store still checks a save against the
 SHA-256 of what its writer read (`Expectation` in
-`packages/folder/src/boundary.ts`, `storage::put` in the folder plugin),
+`3b5ba8be2a:packages/folder/src/boundary.ts`, `storage::put` in the folder plugin),
 right before the rename or removal, and answers `stale` when the file
 changed. What is given up is only the instant between that check and the
 rename: another save landing exactly then can be replaced. That race is

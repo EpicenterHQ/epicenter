@@ -3,8 +3,8 @@
 //! The shell names a folder's directory before it binds it to a window. It
 //! makes sure it is a real directory, creating a fixed default when it is
 //! missing (`prepare_directory`), and resolves it once (`resolve_root`). What `.git` is, if anything, does not matter here, as
-//! it does not to the Bun host (`localRoot` in `@epicenter/folder`'s
-//! `native/directory.ts`): no `.git`, a `.git` file or link (a linked
+//! it does not to the Bun store (`device/node-store.ts` in
+//! `@epicenter/folder`): no `.git`, a `.git` file or link (a linked
 //! worktree or submodule), and a repository all open and save alike, since
 //! a save stages in the root's `.epicenter` and the shell runs no Git. Git state that
 //! would send history writes elsewhere is the `epicenter` CLI's to refuse,
