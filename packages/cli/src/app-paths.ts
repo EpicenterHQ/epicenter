@@ -5,7 +5,7 @@
  * and the CLI the app runs read and write the same places.
  *
  * ```txt
- * <folderDir>/<name>/                        a data folder `epicenter clone` makes by default
+ * <folderDir>/<site-derived path>/           a data folder `epicenter clone` makes by default
  * <dataDir>/auth/<grant>.lock                the lock a grant refreshes under (auth.ts)
  * ~/.local/bin/epicenter                     the link Git's configuration runs (install-command.ts)
  * ```

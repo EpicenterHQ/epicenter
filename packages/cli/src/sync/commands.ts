@@ -16,7 +16,7 @@
 
 import { type FSWatcher, watch as watchDirectory } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import { basename, join, resolve, sep } from 'node:path';
+import { basename, resolve, sep } from 'node:path';
 import {
 	isRepositoryName,
 	parseRepositoryPath,
@@ -24,7 +24,6 @@ import {
 	repositoryUrl,
 } from '@epicenter/constants/repositories';
 import { isHiddenPath } from '@epicenter/definition/contract';
-import { resolveAppPaths } from '../app-paths.ts';
 import type { GrantKind } from '../auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
 import type { CredentialFor } from './git.ts';
@@ -135,13 +134,25 @@ export async function cloneCommand(
 			`'${source}' is neither <namespace>/<name>, a URL, nor a path to a repository`,
 			json,
 		);
-	const target = resolve(dir ?? join(resolveAppPaths().folderDir, named.name));
 	try {
-		const cloned = await clone(named, target, {
+		const cloned = await clone(named, dir, {
 			credential: credentialFor(grant),
 		});
 		reportSetup('cloned', { url: named.url, ...cloned }, json);
-		return EXIT.ok;
+		if (!json) {
+			if (cloned.alreadyCloned)
+				writeOut(`${cloned.folder}: already cloned from ${named.url}`);
+			if (cloned.naming) writeOut(`${cloned.folder}: ${cloned.naming}`);
+			for (const note of cloned.sync?.notes ?? [])
+				writeOut(`${cloned.folder}: ${note}`);
+			if (cloned.sync?.message)
+				writeErr(`${cloned.folder}: ${cloned.sync.message}`);
+		}
+		return cloned.sync?.status === 'stopped'
+			? EXIT.unusable
+			: cloned.sync?.status === 'retry'
+				? EXIT.finding
+				: EXIT.ok;
 	} catch (error) {
 		return fail(error instanceof Error ? error.message : String(error), json);
 	}
