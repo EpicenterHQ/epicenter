@@ -112,7 +112,7 @@ Three places, each with one job:
   vocab/  capture/  …              Epicenter's apps: names without a dot
   bradenwong.com/                  an owner's folder: a name with a dot
     zhongwen/                      that owner's apps
-  notes -> ~/Documents/Vault       a folder that lives elsewhere: a link inside the root
+  Obsidian Vault -> ~/Documents/Vault   your own folder: a name no app can have (it has a space)
 
 ~/.epicenter/                      Epicenter's machinery: hidden, never synced, read by every program
   session.lock                     held while refreshing the sign-in
@@ -221,6 +221,28 @@ the browser.
   each send is journaled on the device (ADR-0704). There is no browser variant.
 - **Epicenter** gets a synced folder, `~/Epicenter/epicenter`, only when it has
   something worth syncing.
+
+## Planned
+
+Agreed direction, built after the folder work:
+
+- **Restore from your account.** On a second Mac, Epicenter offers "Restore
+  Whispering": it clones the repository to the app's path, or joins a folder
+  already there.
+- **Export all my data.** One archive of every folder and document Epicenter
+  can reach, following links and including attached files, with a list of
+  browser-only data it cannot reach.
+- **Git ships with the engine.** `~/.epicenter/bin` holds `git` and `git-lfs`
+  beside `epicenter`, so a first sync never asks for Apple's developer tools.
+- **Sync runs under a login agent,** so quitting the Epicenter app does not
+  stop sync.
+- **Machine sign-in is tested before it is built.** A short experiment checks
+  whether separately signed apps can share one keychain item without macOS
+  prompting; if not, the engine is the only reader and apps ask it for
+  tokens ([ADR-0720](adr/0720-you-sign-in-a-machine-not-an-app.md)).
+- **Your own folders take names no app can have,** such as one with a space
+  (`Obsidian Vault`): names without a dot belong to Epicenter's apps, and
+  names with a dot to owners.
 
 ## What Epicenter refuses
 
