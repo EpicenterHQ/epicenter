@@ -91,14 +91,10 @@ enough to compose it.
 Bring a concrete attempt the author can recognize, correct, or develop; they
 should have something worthwhile to respond to before they can say exactly
 what is missing. During conversational development, keep the passage and the
-invitation to respond visibly separate. A useful presentation is **There's a
-passage taking shape**, followed by a blockquote, then **Your turn** with a few
-short, numbered invitations. Begin with phrasing: "Which phrases do you really
-like, like, or dislike?" Then open space for their own expression: "How would
-you say this in your own words?" and "What else comes to mind when you read
-it?" The author chooses which part to respond to and talks about it
-naturally; they need not complete the set. Follow their response before
-bringing another set.
+invitation to respond visibly separate. Ask what would most help the next
+composition: which wording sounds like them, whether a consequential reading
+is right, or what feels missing. When the draft gives them enough to react to,
+let it stand without adding a set of questions.
 
 Saying the thought again in their own words is often how the author works out
 what they mean, and a rough "It's more like..." can give the writing its next
