@@ -39,17 +39,21 @@ const asciiLower = (name: string) =>
 	name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 
 /**
- * Whether some segment of `canonical`, a canonical path (`canonicalPath`),
- * is `.git` or `.epicenter`, in any ASCII case: a canonical path keeps a
- * name as it was made, and on a disk that ignores case Git and Epicenter
- * take a directory made as `.GIT` or `.Epicenter` for their own.
+ * The first `.git` or `.epicenter` segment in `canonical`, as written. A
+ * canonical path keeps the spelling on disk, while Git and Epicenter also
+ * reserve names such as `.GIT` and `.Epicenter` on case-insensitive disks.
  */
-export function isReservedDirectory(canonical: string): boolean {
+export function reservedSegment(canonical: string): string | undefined {
 	return canonical
 		.split(/[\\/]/)
-		.some((segment) =>
+		.find((segment) =>
 			RESERVED_DIRECTORIES.some((reserved) => asciiLower(segment) === reserved),
 		);
+}
+
+/** Whether `canonical` is in a reserved Git or Epicenter directory. */
+export function isReservedDirectory(canonical: string): boolean {
+	return reservedSegment(canonical) !== undefined;
 }
 
 /**

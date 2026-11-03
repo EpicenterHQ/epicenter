@@ -15,6 +15,8 @@
  *   written, so a link is no route around the rule
  * - `epicenter init` refuses `x/.git/y` and `x/.EPICENTER/y` before it makes
  *   anything, and sets up `~/.notes`
+ * - Init names the protected path that caused a refusal and installs local
+ *   LFS filters and hooks when git-lfs is available
  */
 import { afterAll, expect, test } from 'bun:test';
 import {
@@ -27,7 +29,7 @@ import {
 	symlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, win32 } from 'node:path';
+import { dirname, join, win32 } from 'node:path';
 import { epicenterDataRoot } from '@epicenter/constants/app-data';
 import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import {
@@ -146,6 +148,9 @@ test('both library roots are refused in either environment', async () => {
 			const target = join(BOX, 'home', name);
 			const result = await init(target, environment);
 			expect(result.code).toBe(2);
+			expect(result.out).toContain(
+				`${target} is your ${name} library folder; choose a folder inside it.`,
+			);
 			expect(existsSync(target)).toBe(false);
 		}
 }, 60_000);
@@ -159,6 +164,9 @@ test('both application data directories are refused in either environment', asyn
 			);
 			const result = await init(target, environment);
 			expect(result.code).toBe(2);
+			expect(result.out).toContain(
+				`${target} is Epicenter's application data folder; choose a different folder.`,
+			);
 			expect(existsSync(target)).toBe(false);
 		}
 }, 60_000);
@@ -171,6 +179,9 @@ test('a refused init inside an enclosing repository leaves no directory', async 
 	const target = join(parent, 'new', 'folder');
 	const refused = await init(target);
 	expect(refused.code).toBe(2);
+	expect(refused.out).toContain(
+		`${target} is inside the Git repository ${parent}; choose a folder outside it.`,
+	);
 	expect(existsSync(join(parent, 'new'))).toBe(false);
 }, 60_000);
 
@@ -189,7 +200,7 @@ test('init refuses a folder inside .git or .epicenter before it makes anything, 
 		const refused = await init(dir);
 		expect(refused.code).toBe(2);
 		expect(refused.out).toContain(
-			`refused: ${join(BOX, dir)} is inside a .git or .epicenter folder, which belong to Git and to Epicenter, so it cannot be a data folder.`,
+			`refused: ${join(BOX, dir)} is in a ${dir.split('/')[1]} directory; choose a folder outside it.`,
 		);
 		expect(existsSync(join(BOX, dir))).toBe(false);
 	}
@@ -202,15 +213,71 @@ test('init checks a linked target against home and application data', async () =
 	const home = join(BOX, 'home');
 	mkdirSync(home, { recursive: true });
 	mkdirSync(join(BOX, 'data'), { recursive: true });
-	for (const [target, name] of [
-		[home, 'home-link'],
-		[join(BOX, 'data'), 'data-link'],
+	for (const [target, name, reason] of [
+		[home, 'home-link', 'is your home folder'],
+		[join(BOX, 'data'), 'data-link', "is Epicenter's application data folder"],
 	] as const) {
 		const link = join(BOX, name);
 		symlinkSync(target, link);
 		const refused = await init(link);
 		expect(refused.code).toBe(2);
-		expect(refused.out).toContain('refused:');
+		expect(refused.out).toContain(`refused: ${target} ${reason}`);
 		expect(existsSync(join(target, '.git'))).toBe(false);
 	}
 }, 60_000);
+
+test('init names home and application data for related paths', async () => {
+	const ancestor = await init(BOX);
+	expect(ancestor.code).toBe(2);
+	expect(ancestor.out).toContain(`${BOX} contains your home folder`);
+	expect(existsSync(join(BOX, '.git'))).toBe(false);
+
+	const data = join(BOX, 'data');
+	const inside = await init(join(data, 'child'));
+	expect(inside.code).toBe(2);
+	expect(inside.out).toContain(
+		`is inside Epicenter's application data folder ${data}`,
+	);
+	const dataParent = dirname(
+		epicenterDataRoot(
+			{ env: {}, platform: process.platform, homeDir: join(BOX, 'home') },
+			'so.epicenter',
+		),
+	);
+	const containing = await init(dataParent);
+	expect(containing.code).toBe(2);
+	expect(containing.out).toContain(
+		`${dataParent} contains Epicenter's application data folder`,
+	);
+}, 60_000);
+
+const lfsTest =
+	Bun.spawnSync(['git', 'lfs', 'version']).exitCode === 0 ? test : test.skip;
+lfsTest(
+	'init installs local LFS filters and hooks when git-lfs is available',
+	async () => {
+		const folder = join(BOX, 'lfs-folder');
+		const result = await init(folder);
+		expect(result.code).toBe(0);
+		expect(result.out).toContain('git lfs install --local');
+		expect(result.out).not.toContain('(missing:');
+		for (const key of ['clean', 'smudge', 'process', 'required']) {
+			const configured = Bun.spawnSync(
+				['git', 'config', '--local', '--get', `filter.lfs.${key}`],
+				{ cwd: folder },
+			);
+			expect(configured.exitCode).toBe(0);
+			expect(configured.stdout.toString().trim()).not.toBe('');
+		}
+		for (const hook of [
+			'pre-push',
+			'post-checkout',
+			'post-commit',
+			'post-merge',
+		])
+			expect(
+				readFileSync(join(folder, '.git', 'hooks', hook), 'utf8'),
+			).toContain('git lfs');
+	},
+	60_000,
+);

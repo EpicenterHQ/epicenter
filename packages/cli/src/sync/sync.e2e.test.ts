@@ -332,7 +332,7 @@ describe('epicenter sync over stock git', () => {
 
 			const refused = await init(DATA);
 			expect(refused.code).toBe(2);
-			expect(refused.out).toContain('inside the existing repository');
+			expect(refused.out).toContain('inside the Git repository');
 			expect(existsSync(join(DATA, '.gitattributes'))).toBe(false);
 			const unadopted = await sync(DATA);
 			expect(unadopted.code).toBe(2);
@@ -665,9 +665,7 @@ describe('epicenter sync over stock git', () => {
 
 			const repaired = await init(C);
 			expect(repaired.out).toContain('merge.epicenter.driver set');
-			expect(repaired.out).toContain(
-				'git lfs install --local (missing: filter.lfs.clean, filter.lfs.smudge, filter.lfs.process, filter.lfs.required, hooks/pre-push, hooks/post-checkout, hooks/post-commit, hooks/post-merge)',
-			);
+			expect(repaired.out).toContain('git lfs install --local');
 			expect(repaired.out).not.toMatch(/attributes|registered|lfs pull/);
 			expect((await init(C)).out).toContain('nothing to do');
 			expect((await sync(C)).code).toBe(0);

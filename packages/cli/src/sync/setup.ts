@@ -22,13 +22,8 @@ import {
 	epicenterDataRoot,
 } from '@epicenter/constants/app-data';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
-import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import { resolveAppPaths } from '../app-paths.ts';
-import {
-	canonicalPath,
-	containsPath,
-	isReservedDirectory,
-} from './admission.ts';
+import { canonicalPath, containsPath, reservedSegment } from './admission.ts';
 import {
 	type CredentialFor,
 	config,
@@ -41,7 +36,7 @@ import { REPOSITORY_IGNORE, withEpicenterBlock } from './managed-block.ts';
 import { repositoryProblem } from './repository-state.ts';
 
 /**
- * The folder is inside protected state or another repository.
+ * The folder is protected state, a library root, home, or inside another repository.
  */
 export class Refused extends Error {}
 
@@ -50,12 +45,32 @@ export class Refused extends Error {}
  */
 export async function refuseReservedDirectory(input: string): Promise<void> {
 	const canonical = await canonicalPath(input);
-	if (isReservedDirectory(canonical))
+	const reserved = reservedSegment(canonical);
+	if (reserved !== undefined)
 		throw new Refused(
-			`${canonical} is inside a .git or ${STATE_DIRECTORY} folder, which belong to Git and to Epicenter, so it cannot be a data folder.`,
+			`${canonical} is in a ${reserved} directory; choose a folder outside it.`,
 		);
 	const paths = resolveAppPaths();
-	const home = resolve(paths.folderDir, '..');
+	const home = await canonicalPath(resolve(paths.folderDir, '..'));
+	if (canonical === home)
+		throw new Refused(
+			`${canonical} is your home folder; choose a folder inside it, such as ~/Epicenter/<name>.`,
+		);
+	if (containsPath(canonical, home))
+		throw new Refused(
+			`${canonical} contains your home folder; choose a folder inside ~/Epicenter instead.`,
+		);
+	for (const name of ['Epicenter', 'Epicenter Dev']) {
+		const library = await canonicalPath(join(home, name));
+		if (canonical === library)
+			throw new Refused(
+				`${canonical} is your ${name} library folder; choose a folder inside it.`,
+			);
+		if (containsPath(canonical, library))
+			throw new Refused(
+				`${canonical} contains your ${name} library folder; choose a folder inside ${library} instead.`,
+			);
+	}
 	const platformEnv = { ...process.env, EPICENTER_DATA_DIR: undefined };
 	const dataDirs = [
 		paths.dataDir,
@@ -70,14 +85,17 @@ export async function refuseReservedDirectory(input: string): Promise<void> {
 	];
 	for (const directory of dataDirs) {
 		const data = await canonicalPath(directory);
-		if (containsPath(canonical, data) || containsPath(data, canonical))
-			throw new Refused(`${canonical} overlaps Epicenter's application data.`);
-	}
-	for (const name of ['Epicenter', 'Epicenter Dev']) {
-		const library = await canonicalPath(join(home, name));
-		if (containsPath(canonical, library))
+		if (canonical === data)
 			throw new Refused(
-				`${canonical} holds every Epicenter folder, so it cannot be one.`,
+				`${canonical} is Epicenter's application data folder; choose a different folder.`,
+			);
+		if (containsPath(data, canonical))
+			throw new Refused(
+				`${canonical} is inside Epicenter's application data folder ${data}; choose a different folder.`,
+			);
+		if (containsPath(canonical, data))
+			throw new Refused(
+				`${canonical} contains Epicenter's application data folder ${data}; choose a different folder.`,
 			);
 	}
 }
@@ -186,9 +204,14 @@ export async function init(
 		const enclosing = await repositoryRoot(await realpath(parent));
 		if (enclosing !== null)
 			throw new Refused(
-				`${folder} is inside the existing repository ${enclosing}. Move it outside that repository, then run epicenter init ${folder} again.`,
+				`${folder} is inside the Git repository ${enclosing}; choose a folder outside it.`,
 			);
 	}
+	const lfs = await git(undefined, ['lfs', 'version']);
+	if (lfs.code !== 0)
+		throw new Error(
+			'Git LFS is unavailable; install git-lfs, check that git lfs version works, then retry this command.',
+		);
 	await mkdir(folder, { recursive: true });
 	const target = await realpath(folder);
 	const changed: string[] = [];
@@ -198,7 +221,7 @@ export async function init(
 	const top = await repositoryRoot(target);
 	if (top !== null && top !== target)
 		throw new Refused(
-			`${folder} is inside the existing repository ${top}. Move it outside that repository, then run epicenter init ${folder} again.`,
+			`${folder} is inside the Git repository ${top}; choose a folder outside it.`,
 		);
 	if (top === null) {
 		await must(target, ['init', '-q', '-b', 'main']);
@@ -288,10 +311,6 @@ export async function init(
 	for (const key of LFS_CONFIG)
 		if ((await config(target, key)) === null) missingConfig.push(key);
 	if (missingHooks.length > 0 || missingConfig.length > 0) {
-		const missing = [
-			...missingConfig,
-			...missingHooks.map((h) => `hooks/${h}`),
-		];
 		// The runner points `core.hooksPath` nowhere; LFS installs into the repository's own.
 		const installed = await git(target, [
 			'-c',
@@ -300,18 +319,32 @@ export async function init(
 			'install',
 			'--local',
 		]);
-		if (installed.code === 0)
-			changed.push(`git lfs install --local (missing: ${missing.join(', ')})`);
+		if (installed.code === 0) changed.push('git lfs install --local');
 		else {
 			// A hook of the person's own stands where LFS's would go: keep it, set the filters.
 			await must(target, ['lfs', 'install', '--local', '--skip-repo']);
-			changed.push(
-				`git lfs install --local --skip-repo (missing: ${missing.join(', ')})`,
-			);
+			if (missingConfig.length > 0)
+				changed.push('git lfs install --local --skip-repo');
 			warnings.push(
-				`LFS hooks were not installed, so a plain git push may not upload LFS bytes (epicenter sync does): ${installed.stderr.trim()}`,
+				`LFS hooks are incomplete, so a plain git push may not upload LFS bytes; run git lfs install --local --manual to add LFS to your hooks: ${installed.stderr.trim()}`,
 			);
 		}
+		for (const key of LFS_CONFIG)
+			if ((await config(target, key)) === null)
+				throw new Error(
+					`Git LFS did not set ${key}; run epicenter init again after checking git-lfs.`,
+				);
+		if (installed.code === 0)
+			for (const hook of LFS_HOOKS) {
+				const file = join(hooks, hook);
+				if (
+					!existsSync(file) ||
+					!(await readFile(file, 'utf8')).includes('git lfs')
+				)
+					throw new Error(
+						`Git LFS did not install hooks/${hook}; run epicenter init again after checking git-lfs.`,
+					);
+			}
 	}
 
 	// 5. Files checked out as pointers (a clone made without LFS) get their bytes.
