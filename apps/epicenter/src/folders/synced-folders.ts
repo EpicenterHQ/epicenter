@@ -25,7 +25,9 @@ export type SyncLine = {
 /** The CLI's reasons a synced folder cannot be read, as a row says them. */
 const PROBLEMS: Record<string, string> = {
 	'not on disk': 'Missing from disk',
+	unreadable: 'Cannot read this folder',
 	'not in a Git repository': 'Not a Git repository',
+	'join pending': 'Join pending. Run sync on this folder to publish it.',
 	'its repository is not set up for sync': 'Not set up for sync',
 };
 
@@ -38,8 +40,8 @@ export function describeSync(folder: SyncedFolder, now: number): SyncLine {
 	if (folder.problem !== null)
 		return {
 			tone: 'problem',
-			label: PROBLEMS[folder.problem] ?? folder.problem,
-			detail: null,
+			label: 'Unavailable',
+			detail: PROBLEMS[folder.problem] ?? folder.problem,
 		};
 	const last = folder.last;
 	if (last !== null && last.status !== 'synced')

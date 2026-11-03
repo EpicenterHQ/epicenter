@@ -7,6 +7,8 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	readlinkSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from 'node:fs';
@@ -162,6 +164,10 @@ test('explicit directory wins over the site-derived folder name', async () => {
 		const target = join(f.box, 'chosen');
 		expect((await f.cli('clone', source, target)).code).toBe(0);
 		expect(existsSync(join(target, 'AGENTS.md'))).toBe(true);
+		expect(readlinkSync(join(f.library, 'chosen'))).toBe(realpathSync(target));
+		expect(
+			JSON.parse((await f.cli('status', '--json')).stdout).status.folder,
+		).toBe(join(f.library, 'chosen'));
 		expect(existsSync(join(f.library, 'whispering'))).toBe(false);
 	} finally {
 		f.cleanup();
@@ -200,7 +206,12 @@ test('clone joins an app-created folder and merges local and remote notes', asyn
 			).stdout.trim(),
 		).toBe(before);
 		expect((await f.cli('sync')).code).toBe(0);
-		expect((await f.cli('status', '--json')).stdout).toBe('');
+		expect(
+			JSON.parse((await f.cli('status', '--json')).stdout).status,
+		).toMatchObject({
+			folder: target,
+			problem: 'join pending',
+		});
 		expect(
 			(
 				await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')

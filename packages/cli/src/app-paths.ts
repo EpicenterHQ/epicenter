@@ -16,7 +16,7 @@
  */
 
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import {
 	EPICENTER_BUNDLE_IDENTIFIER,
 	epicenterDataRoot,
@@ -50,8 +50,17 @@ function directory(
 export function resolveAppPaths(
 	env: Environment = process.env,
 	home: string = homedir(),
+	executable: string = process.execPath,
 ): AppPaths {
-	const environment = env.EPICENTER_ENVIRONMENT || 'production';
+	const devEngine = join(
+		home,
+		'.epicenter-dev',
+		'bin',
+		process.platform === 'win32' ? 'epicenter.exe' : 'epicenter',
+	);
+	const environment =
+		env.EPICENTER_ENVIRONMENT ||
+		(resolve(executable) === devEngine ? 'development' : 'production');
 	if (environment !== 'production' && environment !== 'development')
 		throw new Error(`Unknown EPICENTER_ENVIRONMENT: '${environment}'.`);
 	return {

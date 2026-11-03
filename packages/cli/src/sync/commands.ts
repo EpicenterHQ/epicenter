@@ -26,7 +26,7 @@ import {
 import { isHiddenPath } from '@epicenter/definition/contract';
 import type { GrantKind } from '../auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
-import { syncedFolders } from './discovery.ts';
+import { type DiscoveredFolder, discoveredFolders } from './discovery.ts';
 import type { CredentialFor } from './git.ts';
 import { mergeDriver } from './merge-driver.ts';
 import { Refused } from './setup.ts';
@@ -218,22 +218,27 @@ async function repositorySource(source: string, grant?: GrantKind) {
 export async function statusCommand(dir: string | undefined, json: boolean) {
 	const { folderStatusOrProblem } = await import('./status.ts');
 	if (dir === undefined) {
-		const folders = await syncedFolders();
+		const folders = await discoveredFolders();
 		if (folders.length === 0 && !json)
 			writeErr(
 				'No synced folder found in the Epicenter library; run epicenter init <dir>.',
 			);
-		for (const folder of folders) {
-			const status = await folderStatusOrProblem(folder);
+		for (const { folder, problem } of folders) {
+			const status =
+				problem === undefined
+					? await folderStatusOrProblem(folder)
+					: { folder, problem };
 			if (json) writeJson({ status });
-			else if ('problem' in status) writeOut(`${folder}: ${status.problem}`);
+			else if ('problem' in status)
+				writeOut(`${folder}: unavailable: ${status.problem}`);
 			else writeStatus(status);
 		}
 		return EXIT.ok;
 	}
 	const status = await folderStatusOrProblem(dir);
 	if (json) writeJson({ status });
-	else if ('problem' in status) writeOut(`${status.folder}: ${status.problem}`);
+	else if ('problem' in status)
+		writeOut(`${status.folder}: unavailable: ${status.problem}`);
 	else writeStatus(status);
 	return EXIT.ok;
 }
@@ -303,12 +308,20 @@ export async function syncCommand(
 	// a merge is never cut off; then every git still running ends (ADR-0559).
 	onStop(endGitCommands);
 	const credential = credentialFor(grant);
-	const folders = async () =>
-		dir === undefined ? syncedFolders() : [resolve(dir)];
-	const roundOf = async () => {
+	const folders = async (): Promise<DiscoveredFolder[]> =>
+		dir === undefined ? discoveredFolders() : [{ folder: resolve(dir) }];
+	const roundOf = async (entries: DiscoveredFolder[]) => {
 		let exit: number = EXIT.ok;
-		for (const folder of await folders()) {
+		for (const { folder, problem } of entries) {
 			if (isStopping()) break;
+			if (problem !== undefined) {
+				if (json)
+					writeJson({
+						sync: { folder, status: 'stopped', notes: [], message: problem },
+					});
+				else writeErr(`${folder}: unavailable: ${problem}`);
+				continue;
+			}
 			const status = await finishBeforeExit(async () => {
 				const result = await syncFolder(folder, {
 					credential,
@@ -334,20 +347,29 @@ export async function syncCommand(
 				}
 				reportSync(result, json);
 				return result.status;
-			}, ROUND_GRACE_MS);
+			}, ROUND_GRACE_MS).catch((error: unknown) => {
+				const message = error instanceof Error ? error.message : String(error);
+				if (json)
+					writeJson({
+						sync: { folder, status: 'stopped', notes: [], message },
+					});
+				else writeErr(`${folder}: unavailable: ${message}`);
+				return 'stopped' as const;
+			});
 			exit = Math.max(exit, EXIT_OF[status]);
 		}
 		return exit;
 	};
 
 	if (options.watch !== true) {
-		if ((await folders()).length === 0) {
+		const entries = await folders();
+		if (entries.length === 0) {
 			writeErr(
 				'No synced folder found in the Epicenter library; run epicenter init <dir>.',
 			);
 			return EXIT.ok;
 		}
-		return roundOf();
+		return roundOf(entries);
 	}
 	const interval =
 		options.interval === undefined ? 30 : Number(options.interval);
@@ -370,15 +392,18 @@ export async function syncCommand(
  * does not start one.
  */
 async function watch(
-	folders: () => Promise<string[]>,
-	roundOf: () => Promise<number>,
+	folders: () => Promise<DiscoveredFolder[]>,
+	roundOf: (entries: DiscoveredFolder[]) => Promise<number>,
 	interval: number,
 ): Promise<never> {
 	const watchers = new Map<string, { target: string; watcher: FSWatcher }>();
 	let busy = false;
 	let wake = () => {};
 	for (;;) {
-		const currentFolders = await folders();
+		const entries = await folders();
+		const currentFolders = entries
+			.filter((entry) => entry.problem === undefined)
+			.map((entry) => entry.folder);
 		for (const [folder, entry] of watchers) {
 			if (currentFolders.includes(folder)) continue;
 			entry.watcher.close();
@@ -391,9 +416,8 @@ async function watch(
 			current?.watcher.close();
 			watchers.delete(folder);
 			if (target !== null)
-				watchers.set(folder, {
-					target,
-					watcher: watchDirectory(
+				try {
+					const watcher = watchDirectory(
 						target,
 						{ recursive: true },
 						(_event, name) => {
@@ -403,11 +427,25 @@ async function watch(
 							if (busy || isHiddenPath(path)) return;
 							wake();
 						},
-					),
-				});
+					);
+					watcher.on('error', (error) => {
+						watcher.close();
+						if (watchers.get(folder)?.watcher === watcher)
+							watchers.delete(folder);
+						writeErr(`${folder}: unavailable: ${error.message}`);
+					});
+					watchers.set(folder, {
+						target,
+						watcher,
+					});
+				} catch (error) {
+					writeErr(
+						`${folder}: unavailable: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
 		}
 		busy = true;
-		await roundOf();
+		await roundOf(entries);
 		busy = false;
 		await new Promise<void>((done) => {
 			const timer = setTimeout(done, interval * 1000);

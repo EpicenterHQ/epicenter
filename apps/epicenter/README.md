@@ -49,7 +49,7 @@ Cargo package, `epicenter`. The app installs it as `~/.epicenter/bin/epicenter`.
 
 The one binary has these uses:
 
-- The shell's narrow CLI runner (`src-tauri/src/cli.rs`) runs it for a page's
+- The shell's narrow CLI runner (`src-tauri/src/cli.rs`) runs its bundled copy for a page's
   fixed commands. A page has no generic exec: each command maps to one
   `epicenter` invocation, writes stdin on its own task, and reads each stdout
   line. Development installs the sidecar in `~/.epicenter-dev/bin/epicenter`.
@@ -70,10 +70,11 @@ The one binary has these uses:
   cached access tokens are in the CLI's keychain entry; no token reaches a
   page or Rust.
 
-At launch, the app copies its bundled CLI into `~/.epicenter/bin/epicenter`,
-or `~/.epicenter-dev/bin/epicenter` for a development build. Git's merge
-driver and credential helper use that absolute path. Run the binary at that
-path in a terminal.
+After launch, the app installs its bundled CLI into `~/.epicenter/bin/epicenter`,
+or `~/.epicenter-dev/bin/epicenter` for a development build, only when its
+version is newer than the installed version. Installation runs outside setup.
+Git's saved merge driver and credential helper use that path. Run it there in
+a terminal.
 
 ## Configure the server
 
@@ -102,14 +103,16 @@ path and must be absolute.
 Development uses `so.epicenter.dev` for data and settings.
 Production's library, the authored folder root, is `~/Epicenter`; development's
 is `~/Epicenter Dev`. Native locations live in `DesktopPaths`
-(`src-tauri/src/desktop_paths.rs`). Epicenter writes nothing into the library
-itself. Each standalone app derives its folder beneath that root from the host
+(`src-tauri/src/desktop_paths.rs`). The shell stores no folder list in the
+library; the CLI may add links there. Each standalone app derives its folder
+beneath that root from the host
 of its site: `whispering.epicenter.so` uses `whispering`, and
 `zhongwen.bradenwong.com` uses `bradenwong.com/zhongwen`.
 The shell resolves its data directory and library root once, then sets
 `EPICENTER_DATA_DIR` and `EPICENTER_ENVIRONMENT` on every `epicenter` command
 it runs. The CLI derives the same library root. A terminal command defaults
-to production unless `EPICENTER_ENVIRONMENT` selects development
+to production unless it runs from the installed development engine or
+`EPICENTER_ENVIRONMENT` selects development
 (`packages/cli/src/app-paths.ts`).
 
 Files split by what they cost to lose (ADR-0539):
@@ -127,8 +130,10 @@ selects or remembers them. Release and development data remain separate.
 
 Epicenter finds synced folders under `~/Epicenter`, or `~/Epicenter Dev` in
 development. A folder elsewhere is linked inside that library. The CLI scans
-the library root and one level of owner folders, selecting each repository
-whose local Git configuration has `epicenter.synced = true`. Neither
+the library root and one level of owner folders. Init links a folder outside
+those depths into the library before recording consent in its local Git config.
+The scan also reports dead links, unreadable candidates, repositories that
+cannot be read, and pending joins. Neither
 application-data directory holds a folder list.
 
 Overrides select an explicit location, so pointing both builds at the same
@@ -208,7 +213,7 @@ that folder's last round of `epicenter sync --json`. A row shows the folder's
 name, where it syncs to (the `origin`'s `<owner>/<name>`, or "This computer
 only" when it has none), and its last round: synced with a remote, saved
 locally without one, waiting, retrying, or stopped. A folder requested for setup shows why it cannot be read, if applicable.
-The scan omits missing folders and repositories without sync consent. The shell keeps
+Unavailable candidates remain rows with their reasons. The shell keeps
 rounds and requests in memory for this run and saves nothing.
 
 The window lists again when the shell emits

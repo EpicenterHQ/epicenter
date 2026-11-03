@@ -239,11 +239,6 @@ async function joinExisting(
 		throw new Error(
 			`${target} has ${await localFileCount(target)} local file(s) that would join ${url}. Pass --join to join this folder.`,
 		);
-	const engine = resolveAppPaths().engine;
-	if (!existsSync(engine))
-		throw new Error(
-			`cannot join ${target} with ${url}: ${engine} is missing. Install Epicenter to provide the engine.`,
-		);
 	const setup = await prepareFolder(target, options);
 	await must(target, ['config', '--local', 'epicenter.joinPending', 'true']);
 	if ((await config(target, 'epicenter.synced')) === 'true')

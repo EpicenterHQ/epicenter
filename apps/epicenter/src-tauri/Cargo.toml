@@ -57,6 +57,7 @@ enigo = { version = "0.5.0", optional = true }
 log = "0.4"
 percent-encoding = "2"
 serde = { version = "1", features = ["derive"] }
+semver = "1"
 serde_json = "1"
 sha2 = "0.10"
 specta = "=2.0.0-rc.26"

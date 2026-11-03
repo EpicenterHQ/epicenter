@@ -10,6 +10,8 @@
  * restore LFS pointers.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { resolve } from 'node:path';
 import { type GitCredential, runGit } from '@epicenter/folder/bun';
 
 /**
@@ -18,6 +20,17 @@ import { type GitCredential, runGit } from '@epicenter/folder/bun';
  */
 export const shellQuote = (value: string) =>
 	`'${value.replaceAll("'", `'\\''`)}'`;
+
+const syncDriver = new AsyncLocalStorage<string>();
+
+/** Each Git child of a sync round uses this CLI's merge driver. */
+export async function withSyncDriver<T>(work: () => Promise<T>): Promise<T> {
+	const source = process.argv[1]?.endsWith('.ts')
+		? ` ${shellQuote(resolve(process.argv[1]))}`
+		: '';
+	const command = `${shellQuote(process.execPath)}${source} merge-driver %O %A %B %P`;
+	return syncDriver.run(command, work);
+}
 
 export type Ran = {
 	code: number;
@@ -45,7 +58,13 @@ export async function git(
 	args: readonly string[],
 	options: GitOptions = {},
 ): Promise<Ran> {
-	const ran = await runGit(args, { cwd, allowFailure: true, ...options });
+	const driver = syncDriver.getStore();
+	const ran = await runGit(
+		driver === undefined
+			? args
+			: ['-c', `merge.epicenter.driver=${driver}`, ...args],
+		{ cwd, allowFailure: true, ...options },
+	);
 	return {
 		code: ran.code ?? 1,
 		stdout: new TextDecoder().decode(ran.stdout),

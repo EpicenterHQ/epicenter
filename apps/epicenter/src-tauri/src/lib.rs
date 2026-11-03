@@ -279,13 +279,16 @@ pub fn run() {
             macos_menu::install(app.handle()).context("install native app menu")?;
 
             let desktop_paths = DesktopPaths::resolve(app.handle()).map_err(anyhow::Error::msg)?;
-            // The app works without the engine; sync and sign-in report it missing.
-            if let Err(error) = cli::install_bundled_engine(&desktop_paths) {
-                log::error!(
-                    "install the engine at {}: {error}",
-                    desktop_paths.engine.display()
-                );
-            }
+            let install_paths = desktop_paths.clone();
+            let version = app.package_info().version.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Err(error) = cli::install_bundled_engine(&install_paths, &version) {
+                    log::error!(
+                        "install the engine at {}: {error}",
+                        install_paths.engine.display()
+                    );
+                }
+            });
             // Every window's page comes from the scheme, which reads it.
             app.manage(scheme::Pages(
                 scheme::pages_dir(app.handle()).context("locate packaged pages")?,

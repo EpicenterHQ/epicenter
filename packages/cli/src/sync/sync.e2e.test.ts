@@ -71,6 +71,7 @@ const EPICENTER = join(HOME, '.epicenter', 'bin', 'epicenter');
  */
 const SLOW_MERGE = join(BOX, 'slow-merge');
 const MERGING = join(BOX, 'merging');
+const TEST_ENTRY = join(BOX, 'engine.ts');
 
 type Ran = { code: number; out: string; stdout: string; stderr: string };
 
@@ -159,10 +160,21 @@ beforeAll(async () => {
 		ENV.GIT_CONFIG_GLOBAL as string,
 		'[user]\n\tname = sandbox\n\temail = sandbox@example.invalid\n[init]\n\tdefaultBranch = main\n[advice]\n\tdetachedHead = false\n',
 	);
-	// The sandbox engine runs this checkout's CLI.
+	// Source mode sends Git back through this entry, so a merge uses the
+	// same code as the sync process. The pause makes the stop test observable.
+	writeFileSync(
+		TEST_ENTRY,
+		`import { existsSync, writeFileSync } from 'node:fs';
+if (Bun.argv[2] === 'merge-driver' && existsSync(${JSON.stringify(SLOW_MERGE)})) {
+  writeFileSync(${JSON.stringify(MERGING)}, '');
+  await Bun.sleep(3000);
+}
+await import(${JSON.stringify(BIN)});
+`,
+	);
 	writeFileSync(
 		EPICENTER,
-		`#!/bin/sh\nif [ "$1" = merge-driver ] && [ -e '${SLOW_MERGE}' ]; then : > '${MERGING}'; sleep 3; fi\nexec '${process.execPath}' '${BIN}' "$@"\n`,
+		`#!/bin/sh\nexec '${process.execPath}' '${TEST_ENTRY}' "$@"\n`,
 	);
 	chmodSync(EPICENTER, 0o755);
 	const probe = await git(BOX, 'rev-parse', '--show-toplevel');
@@ -571,11 +583,12 @@ describe('epicenter sync over stock git', () => {
 			const refused = await sync(C);
 			expect(refused.code).toBe(2);
 			expect(refused.out).toContain('not set up');
+			expect(refused.out).toContain('repaired merge.epicenter.driver');
 			expect(await head(C)).toBe(unsetUp);
 			expect(await quiet(C, 'ls-files', '--', 'media/raw.webm')).toBe('');
 
 			const repaired = await init(C);
-			expect(repaired.out).toContain('merge.epicenter.driver set');
+			expect(repaired.out).not.toContain('merge.epicenter.driver set');
 			expect(repaired.out).toContain('git lfs install --local');
 			expect(repaired.out).not.toMatch(/attributes|epicenter.synced|lfs pull/);
 			expect((await init(C)).out).toContain('nothing to do');
@@ -587,6 +600,22 @@ describe('epicenter sync over stock git', () => {
 					await quiet(REMOTE, 'cat-file', '-p', 'main:media/raw.webm')
 				).startsWith('version https://git-lfs'),
 			).toBe(true);
+			await git(
+				C,
+				'config',
+				'--local',
+				'merge.epicenter.driver',
+				"'~/.local/bin/epicenter' merge-driver %O %A %B %P",
+			);
+			const upgraded = await sync(C);
+			expect(upgraded.code).toBe(0);
+			expect(upgraded.out).toContain('repaired merge.epicenter.driver');
+			expect(
+				await quiet(C, 'config', '--local', '--get', 'merge.epicenter.driver'),
+			).toBe(`'${EPICENTER}' merge-driver %O %A %B %P`);
+			expect((await sync(C)).out).not.toContain(
+				'repaired merge.epicenter.driver',
+			);
 			await sync(B);
 		},
 		LONG,
@@ -807,17 +836,24 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'sync without a path scans synced library folders; forget clears consent',
+		'sync without a path skips unavailable candidates; forget clears consent',
 		async () => {
 			const all = await cli('sync', '--json');
 			const lines = all.stdout
 				.trim()
 				.split('\n')
 				.map((line) => JSON.parse(line).sync as SyncLine);
-			expect(lines.map((line) => line.folder).sort()).toEqual(
-				[A, B, C, join(HOME, 'Epicenter', 'D')].sort(),
-			);
-			expect(lines.filter((line) => line.status !== 'synced')).toEqual([]);
+			expect(
+				lines
+					.filter((line) => line.status === 'synced')
+					.map((line) => line.folder)
+					.sort(),
+			).toEqual([A, B, C, join(HOME, 'Epicenter', 'D')].sort());
+			expect(
+				lines
+					.filter((line) => line.status !== 'synced')
+					.every((line) => line.message !== undefined),
+			).toBe(true);
 			expect(all.code).toBe(0);
 			expect(
 				await quiet(REMOTE, 'cat-file', '-t', 'main:notes/unsynced.md'),
@@ -836,7 +872,7 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'status without a path omits removed and unsynced folders',
+		'status without a path reports unsynced repositories and omits removed folders',
 		async () => {
 			const M = join(HOME, 'Epicenter', 'M');
 			mkdirSync(M);
@@ -848,12 +884,16 @@ describe('epicenter sync over stock git', () => {
 				.trim()
 				.split('\n')
 				.map((line) => JSON.parse(line).status);
-			expect(lines.map((line) => line.folder).sort()).toEqual(
-				[A, B, join(HOME, 'Epicenter', 'D')].sort(),
+			expect(
+				lines
+					.filter((line) => !('problem' in line))
+					.map((line) => line.folder)
+					.sort(),
+			).toEqual([A, B, join(HOME, 'Epicenter', 'D')].sort());
+			expect(lines.find((line) => line.folder === C)?.problem).toBe(
+				'its repository is not set up for sync',
 			);
-			expect(lines.some((line) => line.folder === C || line.folder === M)).toBe(
-				false,
-			);
+			expect(lines.some((line) => line.folder === M)).toBe(false);
 		},
 		LONG,
 	);

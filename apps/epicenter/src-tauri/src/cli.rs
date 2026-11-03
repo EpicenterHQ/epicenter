@@ -2,11 +2,11 @@
 //!
 //! A page calls a fixed command here, never a generic exec. Each command maps
 //! to one fixed `epicenter` invocation with typed arguments, runs the binary
-//! installed in the machine home. It streams what it prints on stdout, one
+//! bundled beside the shell. It streams what it prints on stdout, one
 //! JSON value per line, to the page's `Channel`. Secrets and bodies cross on stdin, never in
 //! arguments.
 //!
-//! Every command starts the CLI through one [`Invocation`]: the installed
+//! Every command starts the CLI through one [`Invocation`]: the bundled
 //! program, the deployment this shell is configured for in
 //! `EPICENTER_API_URL`, its data directory in `EPICENTER_DATA_DIR`, and its
 //! environment in `EPICENTER_ENVIRONMENT`. The CLI names the same deployment
@@ -32,6 +32,7 @@ use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::ipc::Channel;
@@ -199,6 +200,10 @@ pub struct Program {
 fn bundled_binary() -> Result<PathBuf, String> {
     let executable = std::env::current_exe()
         .map_err(|error| format!("the Epicenter executable could not be found: {error}"))?;
+    bundled_binary_beside(&executable)
+}
+
+fn bundled_binary_beside(executable: &std::path::Path) -> Result<PathBuf, String> {
     let directory = executable
         .parent()
         .ok_or("the Epicenter executable has no parent directory")?;
@@ -209,19 +214,31 @@ fn bundled_binary() -> Result<PathBuf, String> {
     }))
 }
 
-/// Copy the bundled sidecar into the machine home. The staged file is in the
-/// destination directory, so replacing a running engine keeps the old process
-/// alive while new calls open the complete replacement.
+/// Install a newer bundled sidecar for terminal and plain Git use.
 pub(crate) fn install_engine(
     source: &std::path::Path,
     destination: &std::path::Path,
+    bundled_version: &Version,
 ) -> Result<(), String> {
     let parent = destination
         .parent()
         .ok_or("the engine path has no parent")?;
     fs::create_dir_all(parent).map_err(|error| format!("create {}: {error}", parent.display()))?;
-    if same_contents(source, destination) {
-        return Ok(());
+    let stamp = destination.with_file_name(format!(
+        "{}.version",
+        destination
+            .file_name()
+            .ok_or("the engine path has no name")?
+            .to_string_lossy()
+    ));
+    if destination.exists() {
+        if let Ok(installed) = fs::read_to_string(&stamp) {
+            if let Ok(version) = Version::parse(installed.trim()) {
+                if version >= *bundled_version {
+                    return Ok(());
+                }
+            }
+        }
     }
     let staged = parent.join(format!(
         ".epicenter-{}-{}.tmp",
@@ -231,35 +248,30 @@ pub(crate) fn install_engine(
             .map_err(|error| error.to_string())?
             .as_nanos()
     ));
+    let staged_stamp = staged.with_extension("version");
     let result = (|| {
         fs::copy(source, &staged).map_err(|error| format!("copy {}: {error}", source.display()))?;
         replace_engine(&staged, destination)
-            .map_err(|error| format!("install {}: {error}", destination.display()))
+            .map_err(|error| format!("install {}: {error}", destination.display()))?;
+        fs::write(&staged_stamp, bundled_version.to_string())
+            .map_err(|error| format!("write {}: {error}", staged_stamp.display()))?;
+        replace_stamp(&staged_stamp, &stamp)
+            .map_err(|error| format!("install {}: {error}", stamp.display()))
     })();
     if result.is_err() {
         let _ = fs::remove_file(&staged);
+        let _ = fs::remove_file(&staged_stamp);
     }
     result
 }
 
-/// Whether `destination` already holds `source`'s bytes. Sizes are compared
-/// first, so a release that changed the engine reads neither file.
-fn same_contents(source: &std::path::Path, destination: &std::path::Path) -> bool {
-    match (fs::metadata(source), fs::metadata(destination)) {
-        (Ok(a), Ok(b)) if a.len() == b.len() => {
-            matches!((fs::read(source), fs::read(destination)), (Ok(a), Ok(b)) if a == b)
-        }
-        _ => false,
-    }
-}
-
 #[cfg(not(windows))]
-fn replace_engine(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+fn replace_stamp(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
     fs::rename(staged, destination)
 }
 
 #[cfg(windows)]
-fn replace_engine(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+fn replace_stamp(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
         MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
@@ -270,7 +282,6 @@ fn replace_engine(staged: &std::path::Path, destination: &std::path::Path) -> st
             .chain(std::iter::once(0))
             .collect::<Vec<_>>()
     };
-    // SAFETY: both paths are null-terminated UTF-16 strings valid for this call.
     let moved = unsafe {
         MoveFileExW(
             wide(staged).as_ptr(),
@@ -283,6 +294,27 @@ fn replace_engine(staged: &std::path::Path, destination: &std::path::Path) -> st
     } else {
         Ok(())
     }
+}
+
+#[cfg(not(windows))]
+fn replace_engine(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+    fs::rename(staged, destination)
+}
+
+#[cfg(windows)]
+fn replace_engine(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+    let mut old = destination.with_file_name("epicenter.old.exe");
+    if old.exists() && fs::remove_file(&old).is_err() {
+        old = staged.with_extension("old.exe");
+    }
+    if destination.exists() {
+        fs::rename(destination, &old)?;
+    }
+    if let Err(error) = fs::rename(staged, destination) {
+        let _ = fs::rename(&old, destination);
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// How a run ended. `code` is the CLI's exit code (ADR-0520): 0 done, 1 a
@@ -481,7 +513,7 @@ pub(crate) fn invocation<R: Runtime>(app: &AppHandle<R>) -> Result<Invocation, C
         .ok_or_else(|| failed("the shell's directories are not resolved yet"))?;
     Ok(Invocation::new(
         Program {
-            program: paths.engine.clone(),
+            program: bundled_binary().map_err(failed)?,
             prefix: Vec::new(),
         },
         &crate::deployment_origin().map_err(failed)?,
@@ -642,8 +674,11 @@ async fn run_child(
     }
 }
 
-pub(crate) fn install_bundled_engine(paths: &DesktopPaths) -> Result<(), String> {
-    install_engine(&bundled_binary()?, &paths.engine)
+pub(crate) fn install_bundled_engine(
+    paths: &DesktopPaths,
+    version: &Version,
+) -> Result<(), String> {
+    install_engine(&bundled_binary()?, &paths.engine, version)
 }
 
 // ---------------------------------------------------------------------------
@@ -828,23 +863,40 @@ mod tests {
     }
 
     #[test]
-    fn installing_engine_replaces_the_complete_binary() {
+    fn installing_engine_only_promotes_newer_versions() {
         let dir = scratch("engine");
         let source = dir.join("bundled");
         let destination = dir.join(".epicenter/bin/epicenter");
         fs::write(&source, "first").unwrap();
-        install_engine(&source, &destination).unwrap();
+        install_engine(&source, &destination, &Version::parse("1.0.0").unwrap()).unwrap();
         assert_eq!(fs::read_to_string(&destination).unwrap(), "first");
         fs::write(&source, "second").unwrap();
-        install_engine(&source, &destination).unwrap();
+        install_engine(&source, &destination, &Version::parse("1.0.0").unwrap()).unwrap();
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "first");
+        install_engine(&source, &destination, &Version::parse("0.9.0").unwrap()).unwrap();
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "first");
+        install_engine(&source, &destination, &Version::parse("1.1.0").unwrap()).unwrap();
         assert_eq!(fs::read_to_string(&destination).unwrap(), "second");
         fs::remove_file(&source).unwrap();
-        assert!(install_engine(&source, &destination).is_err());
+        assert!(install_engine(&source, &destination, &Version::parse("1.2.0").unwrap()).is_err());
         assert_eq!(fs::read_to_string(&destination).unwrap(), "second");
         assert_eq!(
             fs::read_dir(destination.parent().unwrap()).unwrap().count(),
-            1
+            2
         );
+    }
+
+    #[test]
+    fn shell_commands_use_the_bundled_sidecar_path() {
+        let dir = scratch("bundled");
+        let shell = dir.join("epicenter-shell");
+        let expected = dir.join(if cfg!(windows) {
+            "epicenter-cli.exe"
+        } else {
+            "epicenter-cli"
+        });
+        assert_eq!(bundled_binary_beside(&shell).unwrap(), expected);
+        assert_ne!(expected, paths_in(&dir).engine);
     }
 
     /// A child that prints a megabyte and a 300 KB line before it reads any

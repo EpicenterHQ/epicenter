@@ -139,8 +139,9 @@ with real `git add`, so Git LFS's filters run.
   `git lfs install --local`;
   `git lfs pull` for files checked out as pointers. A folder inside another
   repository is refused. Its own repository records `epicenter.synced = true`
-  in local configuration. A folder kept elsewhere needs a link inside the
-  library. Init refuses an unfinished Git
+  in local configuration. Init creates a link by folder name in the library
+  when the scan cannot reach the folder, and refuses an occupied link path
+  before recording consent. Init refuses an unfinished Git
   operation, unmerged entries, or a branch other than `main` before changing
   the control files.
 - `connect <dir> <repository>` adds Git `origin` to an enrolled folder. It
@@ -152,7 +153,9 @@ with real `git add`, so Git LFS's filters run.
   `<git dir>/epicenter-sync.lock` (`holdingFileLock`). A round refuses a repository
   without `epicenter.synced = true`, a subfolder of another repository, an
   unfinished merge or rebase, unmerged
-  entries, or a clone without the driver and LFS filters; stages and commits
+  entries, or a clone without LFS filters. It repairs a stale saved merge
+  driver and gives every Git call in the round its running merge driver;
+  then it stages and commits
   only the folder's own paths, never `.epicenter` (the folder's unfinished
   writes, excluded by pathspec whatever `.gitignore` says); fetches `origin`; stops if the remote `main`
   no longer contains `refs/epicenter/last-seen` (an owner rewrote `main`);
@@ -176,10 +179,10 @@ with real `git add`, so Git LFS's filters run.
 - `status [<dir>]` reads `git status --porcelain` for the folder and the
   ahead and behind counts against the last fetched `origin/main`, and fetches
   and writes nothing. Without `<dir>` it scans the environment's library root and one owner level, like
-  `sync`; with `--json` it prints one `{"status": {...}}` line per found folder,
-  in path order. An explicit folder it cannot read is
-  `{"status": {"folder", "problem"}}`, where `problem` is `not on disk` or
-  `not in a Git repository`. With no synced folder found it prints nothing
+  `sync`; with `--json` it prints one `{"status": {...}}` line per candidate,
+  in path order. Dead links, unreadable folders, repositories Git cannot
+  read, and pending joins carry `{"folder", "problem"}`. Sync without a
+  path skips these candidates with one note each. With no candidate found it prints nothing
   (and says so on stderr without `--json`) and exits 0. The desktop app's Folders window lists its folders from this.
 - `forget [<dir>]` unsets local `epicenter.synced` and `epicenter.joinPending`.
 - `merge-driver` runs `settle` on a note: the later arrival at the server
@@ -203,11 +206,11 @@ so. `EPICENTER_TEST_SECRETS` replaces the keychain with in-memory stores,
 the sign-ins' seeded from its `$auth` member and every other one empty, so
 tests never touch the real one.
 
-Every command the CLI configures Git to run (the credential helper `auth
-login` sets, and each folder's merge driver) names the installed engine by
-its absolute path (`AppPaths.engine`). Epicenter copies its bundled sidecar
-to that path at launch, replacing the previous engine atomically. A terminal
-can run it by its absolute path.
+Every command the CLI configures Git to run (the credential helper and each
+folder's saved merge driver) names the installed engine by its absolute path
+(`AppPaths.engine`). The shell runs its own bundled sidecar. After launch,
+it installs that sidecar for terminal and Git use only when its version is
+newer than the installed one.
 
 ## Signing in
 
@@ -233,8 +236,8 @@ request. Each sign-in records a random generation; token refresh keeps it
 unchanged. The device
 login also sets, in Git's global configuration, an empty
 `credential.<git audience>.helper` and then `!'<home>/.epicenter/bin/epicenter'
-auth git-credential`, so no broader helper is asked to store the token. Only
-`auth login` writes it.
+auth git-credential`, so no broader helper is asked to store the token.
+Sign-in and sync check and repair this saved helper.
 
 `auth token [--resource <url>]` prints an access token for the API or the
 Git audience. A cached token is reused until five minutes before it
@@ -261,8 +264,8 @@ reaches its permitted deployment paths with a token for the audience it names.
 The CLI reads and writes where the desktop shell does
 (`src/app-paths.ts`). The shell sets `EPICENTER_DATA_DIR` for sign-in locks
 and `EPICENTER_ENVIRONMENT` for the library root when it runs the CLI.
-A terminal command defaults to the production root unless its environment
-selects development. The library root is fixed at `~/Epicenter` or
+A terminal command defaults to the production root unless it is the installed
+development engine or `EPICENTER_ENVIRONMENT` selects development. The library root is fixed at `~/Epicenter` or
 `~/Epicenter Dev`.
 
 ## Merging with plain Git

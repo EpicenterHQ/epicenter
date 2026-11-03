@@ -600,4 +600,37 @@ test("login makes this CLI Git's helper for the deployment's Git origin in the g
 		`!'${join(home, '.epicenter/bin/epicenter')}' auth git-credential`,
 		'',
 	]);
+	const key = `credential.${new URL(audiences.git).origin}.helper`;
+	expect(
+		Bun.spawnSync(
+			[
+				'git',
+				'config',
+				'--file',
+				join(home, '.gitconfig'),
+				'--replace-all',
+				key,
+				"!'/old/epicenter' auth git-credential",
+			],
+			{ env },
+		).exitCode,
+	).toBe(0);
+	expect(
+		(
+			await configureGitHelper(
+				machine(),
+				[join(home, '.epicenter/bin/epicenter')],
+				env,
+			)
+		).error,
+	).toBeNull();
+	const repaired = Bun.spawnSync(
+		['git', 'config', '--file', join(home, '.gitconfig'), '--get-all', key],
+		{ env },
+	);
+	expect(repaired.stdout.toString().split('\n')).toEqual([
+		'',
+		`!'${join(home, '.epicenter/bin/epicenter')}' auth git-credential`,
+		'',
+	]);
 });

@@ -12,8 +12,15 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import {
+	lstat,
+	mkdir,
+	readFile,
+	realpath,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
 import {
 	EPICENTER_BUNDLE_IDENTIFIER,
 	epicenterDataRoot,
@@ -171,7 +178,39 @@ export async function init(
 	return prepared;
 }
 
-/** Set up Git and LFS without adding a pending join to the sync scan. */
+/** Give the scan a stable library path before local consent is recorded. */
+async function ensureDiscoverable(
+	target: string,
+	changed: string[],
+	name = basename(target),
+): Promise<void> {
+	const { discoveredFolders } = await import('./discovery.ts');
+	for (const entry of await discoveredFolders()) {
+		if ((await realpath(entry.folder).catch(() => null)) === target) return;
+	}
+	const library = resolveAppPaths().folderDir;
+	const link = join(library, name);
+	const existing = await lstat(link).catch((error: unknown) => {
+		if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
+			return null;
+		throw error;
+	});
+	if (existing !== null) {
+		if ((await realpath(link).catch(() => null)) === target) return;
+		throw new Refused(
+			`${target} cannot be linked at ${link}: that library name is already taken.`,
+		);
+	}
+	await mkdir(library, { recursive: true });
+	await symlink(
+		target,
+		link,
+		process.platform === 'win32' ? 'junction' : 'dir',
+	);
+	changed.push(`linked at ${link}`);
+}
+
+/** Set up Git and LFS, and make the folder reachable before a join can be pending. */
 export async function prepareFolder(
 	input: string,
 	{ credential }: InitOptions = {},
@@ -194,6 +233,14 @@ export async function prepareFolder(
 		);
 	await mkdir(folder, { recursive: true });
 	const target = await realpath(folder);
+	const { discoveredFolders } = await import('./discovery.ts');
+	for (const entry of await discoveredFolders()) {
+		const child = await realpath(entry.folder).catch(() => null);
+		if (child !== null && child !== target && containsPath(target, child))
+			throw new Refused(
+				`${folder} contains the repository ${entry.folder}; choose that repository instead.`,
+			);
+	}
 	const changed: string[] = [];
 	const warnings: string[] = [];
 
@@ -338,6 +385,7 @@ export async function prepareFolder(
 		else warnings.push(`git lfs pull failed: ${pulled.stderr.trim()}`);
 	}
 
+	await ensureDiscoverable(target, changed, basename(folder));
 	return { folder, repository: root, changed, warnings };
 }
 

@@ -85,6 +85,8 @@ test('--help lists every command but the hidden ones, and --json describes them'
 	])
 		expect(help.stdout).toContain(usage);
 	expect(help.stdout).not.toContain('--desktop');
+	expect(run('init', '--help').stdout).toContain('epicenter.synced = true');
+	expect(run('forget', '--help').stdout).toContain('own Git config');
 	const described = JSON.parse(run('--help', '--json').stdout).commands;
 	expect(described.map((c: { command: string }) => c.command)).toEqual([
 		'check',

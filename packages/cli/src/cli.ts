@@ -130,8 +130,9 @@ nothing. Takes no --json.`,
 	status: `Prints the folder's branch and commit, the files under it that changed since
 the last sync, whether it is set up for sync, and its remote with how far ahead
 and behind it was at the last fetch. Reads only: it fetches nothing and
-writes nothing. With --json, {"status": {...}}. <dir> defaults to the current
-directory. A folder not yet in a repository reports its problem. Exits 0.`,
+writes nothing. Without <dir>, scans the environment's library root and one
+owner level, reporting unavailable candidates with their reasons. With --json,
+prints one {"status": {...}} per candidate. Exits 0.`,
 	clone: `Clones <namespace>/<name> from this deployment's Git origin, any other URL
 with your own Git credentials, or a repository by its path. By default the
 destination comes from the cloned AGENTS.md contract under ~/Epicenter.
@@ -145,7 +146,9 @@ the folder's committed .gitattributes (notes merge by Epicenter's rules,
 every other file except dotfiles is Git LFS); the merge driver and the LFS
 filters and hooks in this clone; the LFS bytes for files checked out as
 pointers; and the folder in
-the environment's global folder list. A folder inside another repository is
+the folder's own Git config (epicenter.synced = true). If the folder is outside
+the environment's library, init links it there by folder name so discovery finds it.
+A folder inside another repository is
 refused, because sync pulls and pushes that whole repository. Exits 0, or 2 when
 refused.`,
 	connect: `Adds origin to a folder already set up by epicenter init. The repository
@@ -154,8 +157,8 @@ shell does not expand ~), or a URL such as file:// for a local repository.
 An existing origin with the same URL needs no change; a different origin is
 refused. This command does not run sync, but the desktop's
 background sync service may fetch and push once origin is configured.`,
-	forget: `Takes <dir> (default: the current directory) out of the environment's
-global folder list, and makes sync refuse it until init runs again. Its
+	forget: `Clears sync consent in <dir>'s own Git config (default: the current
+directory), so sync refuses it until init runs again. Its
 files, repository, and history stay.`,
 	repos: `Lists the repositories of every namespace this sign-in may reach: the
 personal namespace first, then each group by title, as <namespace>/<name>.

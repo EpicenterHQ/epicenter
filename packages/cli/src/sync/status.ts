@@ -8,8 +8,7 @@
  * It fetches nothing and writes nothing.
  */
 
-import { existsSync } from 'node:fs';
-import { realpath } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import { config, git } from './git.ts';
 import { repositoryRoot } from './setup.ts';
@@ -35,20 +34,50 @@ export type FolderStatus = {
 /** A folder whose status cannot be read, and why. */
 export type FolderProblem = {
 	readonly folder: string;
-	readonly problem: 'not on disk' | 'not in a Git repository';
+	readonly problem: string;
 };
 
 /** The status of a folder, or the reason it has none. */
 export async function folderStatusOrProblem(
 	folder: string,
 ): Promise<FolderStatus | FolderProblem> {
-	if (!existsSync(folder)) return { folder, problem: 'not on disk' };
-	return (
-		(await folderStatus(folder)) ?? {
+	try {
+		await stat(folder);
+	} catch (error) {
+		const code =
+			error instanceof Error && 'code' in error ? error.code : undefined;
+		return {
 			folder,
-			problem: 'not in a Git repository',
-		}
-	);
+			problem:
+				code === 'ENOENT'
+					? 'not on disk'
+					: code === 'EACCES' || code === 'EPERM'
+						? 'unreadable'
+						: error instanceof Error
+							? error.message
+							: String(error),
+		};
+	}
+	try {
+		return (
+			(await folderStatus(folder)) ?? {
+				folder,
+				problem: 'not in a Git repository',
+			}
+		);
+	} catch (error) {
+		const code =
+			error instanceof Error && 'code' in error ? error.code : undefined;
+		return {
+			folder,
+			problem:
+				code === 'EACCES' || code === 'EPERM'
+					? 'unreadable'
+					: error instanceof Error
+						? error.message
+						: String(error),
+		};
+	}
 }
 
 /** The status of the folder at `input`, or null when it is not in a repository. */
@@ -76,6 +105,12 @@ export async function folderStatus(
 			'HEAD...refs/remotes/origin/main',
 		]),
 	]);
+	if (porcelain.code !== 0)
+		throw new Error(
+			/permission denied|operation not permitted/i.test(porcelain.stderr)
+				? 'unreadable'
+				: 'not in a Git repository',
+		);
 	const changes: { status: string; path: string }[] = [];
 	const entries = porcelain.stdout.split('\0');
 	for (let i = 0; i < entries.length; i++) {

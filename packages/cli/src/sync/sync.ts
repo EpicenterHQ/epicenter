@@ -50,6 +50,7 @@ import {
 	git,
 	must,
 	originPushUrl,
+	withSyncDriver,
 } from './git.ts';
 import { repositoryProblem } from './repository-state.ts';
 import { driverCommand, identity, repositoryRoot } from './setup.ts';
@@ -144,73 +145,76 @@ export async function syncFolder(
 	input: string,
 	options: SyncOptions = {},
 ): Promise<SyncResult> {
-	const notes: string[] = [];
-	const folder = resolve(input);
-	let target = folder;
-	try {
-		if (!existsSync(folder) || !statSync(folder).isDirectory())
-			throw new Stop(
-				`${folder} does not exist. Run epicenter forget ${folder} if it is gone for good.`,
-				'stopped',
+	return withSyncDriver(async () => {
+		const notes: string[] = [];
+		const folder = resolve(input);
+		let target = folder;
+		try {
+			if (!existsSync(folder) || !statSync(folder).isDirectory())
+				throw new Stop(
+					`${folder} does not exist. Run epicenter forget ${folder} if it is gone for good.`,
+					'stopped',
+				);
+			target = await realpath(folder);
+			const root = await repositoryRoot(target);
+			if (root === null)
+				throw new Stop(
+					`${folder} is not in a Git repository. Run epicenter init ${folder}.`,
+					'stopped',
+				);
+			// A boolean in an enclosing repository's config cannot authorize its subfolder.
+			const pending =
+				(await config(target, 'epicenter.joinPending')) === 'true';
+			if (
+				root !== target ||
+				((await config(target, 'epicenter.synced')) !== 'true' &&
+					!(pending && options.allowPending === true))
+			)
+				throw new Stop(
+					`${folder} is not its own synced repository. Run epicenter init ${folder} again.`,
+					'stopped',
+				);
+			if (pending && options.publish !== false && options.allowPending !== true)
+				throw new Stop(
+					`${folder} is waiting to publish local files. Run epicenter sync ${folder} explicitly.`,
+					'stopped',
+				);
+			const common = resolve(
+				target,
+				(await must(target, ['rev-parse', '--git-common-dir'])).trim(),
 			);
-		target = await realpath(folder);
-		const root = await repositoryRoot(target);
-		if (root === null)
-			throw new Stop(
-				`${folder} is not in a Git repository. Run epicenter init ${folder}.`,
-				'stopped',
-			);
-		// A boolean in an enclosing repository's config cannot authorize its subfolder.
-		const pending = (await config(target, 'epicenter.joinPending')) === 'true';
-		if (
-			root !== target ||
-			((await config(target, 'epicenter.synced')) !== 'true' &&
-				!(pending && options.allowPending === true))
-		)
-			throw new Stop(
-				`${folder} is not its own synced repository. Run epicenter init ${folder} again.`,
-				'stopped',
-			);
-		if (pending && options.publish !== false && options.allowPending !== true)
-			throw new Stop(
-				`${folder} is waiting to publish local files. Run epicenter sync ${folder} explicitly.`,
-				'stopped',
-			);
-		const common = resolve(
-			target,
-			(await must(target, ['rev-parse', '--git-common-dir'])).trim(),
-		);
-		const head = await holdingFileLock(
-			join(common, 'epicenter-sync.lock'),
-			{
-				waitMs: TURN_WAIT_MS,
-				held: `another epicenter sync of ${root} ran for more than ${TURN_WAIT_MS / 1000} seconds; nothing was changed.`,
-			},
-			() => round(target, root, options, notes),
-		).catch((cause: unknown) => {
-			if (cause instanceof Stop) throw cause;
-			// The lock could not be taken: another round is still running.
-			if (cause instanceof NothingChanged)
-				throw new Stop(cause.message, 'retry');
-			throw cause;
-		});
-		return { folder, status: 'synced', head, notes };
-	} catch (cause) {
-		if (!(cause instanceof Stop)) throw cause;
-		const head = await git(target, [
-			'rev-parse',
-			'-q',
-			'--verify',
-			'HEAD',
-		]).catch(() => undefined);
-		return {
-			folder,
-			status: cause.status,
-			...(head?.code === 0 ? { head: head.stdout.trim() } : {}),
-			notes,
-			message: cause.message,
-		};
-	}
+			const head = await holdingFileLock(
+				join(common, 'epicenter-sync.lock'),
+				{
+					waitMs: TURN_WAIT_MS,
+					held: `another epicenter sync of ${root} ran for more than ${TURN_WAIT_MS / 1000} seconds; nothing was changed.`,
+				},
+				() => round(target, root, options, notes),
+			).catch((cause: unknown) => {
+				if (cause instanceof Stop) throw cause;
+				// The lock could not be taken: another round is still running.
+				if (cause instanceof NothingChanged)
+					throw new Stop(cause.message, 'retry');
+				throw cause;
+			});
+			return { folder, status: 'synced', head, notes };
+		} catch (cause) {
+			if (!(cause instanceof Stop)) throw cause;
+			const head = await git(target, [
+				'rev-parse',
+				'-q',
+				'--verify',
+				'HEAD',
+			]).catch(() => undefined);
+			return {
+				folder,
+				status: cause.status,
+				...(head?.code === 0 ? { head: head.stdout.trim() } : {}),
+				notes,
+				message: cause.message,
+			};
+		}
+	});
 }
 
 const has = async (cwd: string, ref: string) =>
@@ -289,18 +293,30 @@ async function round(
 ): Promise<string> {
 	const problem = await repositoryProblem(root);
 	if (problem !== null) throw new Stop(problem, 'stopped');
-	// Without the driver and the LFS filters, git add would store raw bytes and notes would merge by line.
-	if (
-		(await config(folder, 'merge.epicenter.driver')) !== driverCommand() ||
-		(await config(folder, 'filter.lfs.process')) === null
-	)
-		throw new Stop(
-			`this clone is not set up (merge driver or LFS filters missing). Run epicenter init ${folder}, then sync.`,
-			'stopped',
+	if ((await config(folder, 'merge.epicenter.driver')) !== driverCommand()) {
+		await step(
+			folder,
+			['config', '--local', 'merge.epicenter.driver', driverCommand()],
+			'repair merge driver',
 		);
-	if (!existsSync(resolveAppPaths().engine))
+		notes.push('repaired merge.epicenter.driver');
+	}
+	try {
+		const { authContext, configureGitHelper } = await import('../auth.ts');
+		const helper = await configureGitHelper(authContext(), [
+			resolveAppPaths().engine,
+		]);
+		if (helper.error !== null)
+			notes.push(`credential helper could not be repaired: ${helper.error}`);
+	} catch (error) {
+		notes.push(
+			`credential helper could not be checked: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+	// LFS filters must be installed before git add can store pointers.
+	if ((await config(folder, 'filter.lfs.process')) === null)
 		throw new Stop(
-			`${resolveAppPaths().engine}, the merge driver's command, is missing. Install Epicenter to provide the engine.`,
+			`this clone is not set up (LFS filters missing). Run epicenter init ${folder}, then sync.`,
 			'stopped',
 		);
 	// Commit what the apps wrote in this folder, through the filters, and

@@ -45,15 +45,19 @@ describe('describeSync', () => {
 	test('a folder that cannot be read says why, whatever its last round', () => {
 		expect(
 			describeSync(folder({ problem: 'not on disk', last: round() }), NOW),
-		).toEqual({ tone: 'problem', label: 'Missing from disk', detail: null });
+		).toEqual({
+			tone: 'problem',
+			label: 'Unavailable',
+			detail: 'Missing from disk',
+		});
 		expect(
-			describeSync(folder({ problem: 'not in a Git repository' }), NOW).label,
+			describeSync(folder({ problem: 'not in a Git repository' }), NOW).detail,
 		).toBe('Not a Git repository');
 		expect(
 			describeSync(
 				folder({ problem: 'its repository is not set up for sync' }),
 				NOW,
-			).label,
+			).detail,
 		).toBe('Not set up for sync');
 	});
 

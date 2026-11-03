@@ -1,5 +1,15 @@
+/** Discovery tests: scan depth, realpath dedupe, and unavailable candidates. */
 import { afterAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readlinkSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -57,8 +67,32 @@ async function status(environment: string) {
 		.filter(Boolean)
 		.map(
 			(line) =>
-				(JSON.parse(line) as { status: { folder: string } }).status.folder,
+				(JSON.parse(line) as { status: { folder: string; problem?: string } })
+					.status,
 		);
+}
+
+async function cli(...args: string[]) {
+	const child = Bun.spawn(['bun', bin, ...args], {
+		cwd: box,
+		env: {
+			PATH: process.env.PATH ?? '/usr/bin:/bin',
+			HOME: home,
+			GIT_CONFIG_GLOBAL: join(home, '.gitconfig'),
+			GIT_CONFIG_NOSYSTEM: '1',
+			GIT_CEILING_DIRECTORIES: box,
+			EPICENTER_ENVIRONMENT: 'production',
+			EPICENTER_DATA_DIR: join(box, 'data'),
+		},
+		stdout: 'pipe',
+		stderr: 'pipe',
+	});
+	const [stdout, stderr, code] = await Promise.all([
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+		child.exited,
+	]);
+	return { stdout, stderr, code };
 }
 
 test('scan finds app and owner folders, follows app links, and stays in its environment', async () => {
@@ -81,10 +115,138 @@ test('scan finds app and owner folders, follows app links, and stays in its envi
 	symlinkSync(whispering, join(library, 'zz-alias'));
 	const dev = join(home, 'Epicenter Dev', 'development');
 	repository(dev);
-	expect(await status('production')).toEqual([
+	expect((await status('production')).map((entry) => entry.folder)).toEqual([
 		join(home, 'Epicenter', 'bradenwong.com', 'zhongwen'),
+		join(home, 'Epicenter', 'ignored'),
 		join(home, 'Epicenter', 'linked'),
 		join(home, 'Epicenter', 'whispering'),
 	]);
-	expect(await status('development')).toEqual([dev]);
+	expect(
+		(await status('production')).find((entry) =>
+			entry.folder.endsWith('ignored'),
+		)?.problem,
+	).toBe('its repository is not set up for sync');
+	expect((await status('development')).map((entry) => entry.folder)).toEqual([
+		dev,
+	]);
 });
+
+test('dead links and pending joins remain rows while plain owner directories stay out', async () => {
+	const dead = join(library, 'dead');
+	symlinkSync(join(box, 'missing'), dead);
+	const pending = join(library, 'pending');
+	repository(pending, false);
+	git(pending, 'config', '--local', 'epicenter.joinPending', 'true');
+	mkdirSync(join(library, 'plain', 'empty'), { recursive: true });
+	const broken = join(library, 'broken-git');
+	mkdirSync(broken);
+	writeFileSync(join(broken, '.git'), 'bad gitdir');
+	const plainTarget = join(box, 'plain-link-target');
+	mkdirSync(plainTarget);
+	symlinkSync(plainTarget, join(library, 'plain-link-a'));
+	symlinkSync(plainTarget, join(library, 'plain-link-b'));
+	const rows = await status('production');
+	expect(
+		rows.find((row) => row.folder === join(home, 'Epicenter', 'dead'))?.problem,
+	).toBe('not on disk');
+	expect(
+		rows.find((row) => row.folder === join(home, 'Epicenter', 'pending'))
+			?.problem,
+	).toBe('join pending');
+	expect(
+		rows.find((row) => row.folder === join(home, 'Epicenter', 'broken-git'))
+			?.problem,
+	).toBe('not in a Git repository');
+	expect(rows.some((row) => row.folder.includes('/plain/'))).toBe(false);
+	expect(rows.filter((row) => row.folder.includes('plain-link-')).length).toBe(
+		1,
+	);
+});
+
+test('init links an outside folder and refuses a taken library name before consent', async () => {
+	const external = join(box, 'external', 'new-notes');
+	const enrolled = await cli('init', external, '--json');
+	expect(enrolled.code, enrolled.stderr).toBe(0);
+	expect(readlinkSync(join(library, 'new-notes'))).toBe(realpathSync(external));
+	expect(
+		(await status('production')).some(
+			(row) =>
+				row.folder === join(home, 'Epicenter', 'new-notes') &&
+				row.problem === undefined,
+		),
+	).toBe(true);
+	expect((await cli('sync', external, '--json')).code).toBe(0);
+
+	const taken = join(library, 'taken');
+	mkdirSync(taken);
+	const outside = join(box, 'external', 'taken');
+	const refused = await cli('init', outside, '--json');
+	expect(refused.code).toBe(2);
+	expect(refused.stdout).toContain(outside);
+	expect(refused.stdout).toContain(join(home, 'Epicenter', 'taken'));
+	const read = Bun.spawnSync(
+		['git', 'config', '--local', '--get', 'epicenter.synced'],
+		{ cwd: outside },
+	);
+	expect(read.exitCode).not.toBe(0);
+});
+
+test('init keeps an owner-level link when it already reaches the folder', async () => {
+	const target = join(box, 'owner-target');
+	repository(target, false);
+	git(target, 'symbolic-ref', 'HEAD', 'refs/heads/main');
+	const owner = join(library, 'another-owner');
+	mkdirSync(owner);
+	symlinkSync(target, join(owner, 'notes'));
+	const enrolled = await cli('init', target, '--json');
+	expect(enrolled.code, enrolled.stderr).toBe(0);
+	expect(
+		(await status('production')).some(
+			(row) =>
+				row.folder === join(home, 'Epicenter', 'another-owner', 'notes') &&
+				row.problem === undefined,
+		),
+	).toBe(true);
+	expect(existsSync(join(library, 'owner-target'))).toBe(false);
+});
+
+test('init links a repository that sits deeper than the scan', async () => {
+	const deep = join(library, 'plain', 'deeper', 'deep-app');
+	const enrolled = await cli('init', deep, '--json');
+	expect(enrolled.code, enrolled.stderr).toBe(0);
+	expect(readlinkSync(join(library, 'deep-app'))).toBe(realpathSync(deep));
+	expect(
+		(await status('production')).some(
+			(row) =>
+				row.folder === join(home, 'Epicenter', 'deep-app') &&
+				row.problem === undefined,
+		),
+	).toBe(true);
+});
+
+test('a dead link does not end sync watch', async () => {
+	const child = Bun.spawn(
+		['bun', bin, 'sync', '--watch', '--interval', '1', '--json'],
+		{
+			cwd: box,
+			env: {
+				PATH: process.env.PATH ?? '/usr/bin:/bin',
+				HOME: home,
+				GIT_CONFIG_GLOBAL: join(home, '.gitconfig'),
+				GIT_CONFIG_NOSYSTEM: '1',
+				GIT_CEILING_DIRECTORIES: box,
+				EPICENTER_ENVIRONMENT: 'production',
+				EPICENTER_DATA_DIR: join(box, 'data'),
+			},
+			stdout: 'ignore',
+			stderr: 'ignore',
+		},
+	);
+	try {
+		await Bun.sleep(2500);
+		expect(child.exitCode).toBeNull();
+	} finally {
+		child.kill('SIGKILL');
+		await child.exited;
+	}
+}, 10_000);

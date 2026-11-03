@@ -905,17 +905,27 @@ export async function configureGitHelper(
 	const { runGit } = await import('@epicenter/folder/bun');
 	const run = async (args: string[]) => {
 		try {
-			const { code, stderr } = await runGit(['config', '--global', ...args], {
-				environment: env,
-				allowFailure: true,
-			});
-			return code === 0 ? null : stderr.trim() || `git exited ${code}`;
+			const { code, stdout, stderr } = await runGit(
+				['config', '--global', ...args],
+				{
+					environment: env,
+					allowFailure: true,
+				},
+			);
+			return {
+				code,
+				stdout: new TextDecoder().decode(stdout),
+				error: code === 0 ? null : stderr.trim() || `git exited ${code}`,
+			};
 		} catch (cause) {
-			return describe(cause);
+			return { code: 1, stdout: '', error: describe(cause) };
 		}
 	};
+	const current = await run(['--null', '--get-all', key]);
+	if (current.code === 0 && current.stdout === `\0${helper}\0`)
+		return Ok(helper);
 	const failed =
-		(await run(['--replace-all', key, ''])) ??
-		(await run(['--add', key, helper]));
+		(await run(['--replace-all', key, ''])).error ??
+		(await run(['--add', key, helper])).error;
 	return failed === null ? Ok(helper) : Err(failed);
 }
