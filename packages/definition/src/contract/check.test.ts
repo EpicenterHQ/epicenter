@@ -43,6 +43,7 @@ test('a folder that fits has no issues, and hidden paths are skipped', () => {
 				{ path: 'recordings/a.webm' },
 				{ path: 'recordings/b.md' },
 				{ path: '.gitattributes' },
+				{ path: 'AGENTS.md', text: 'This is the folder note.' },
 				{ path: '.obsidian/workspace.json' },
 				{ path: 'recordings/.trash/x.md', text: 'not checked' },
 			]),

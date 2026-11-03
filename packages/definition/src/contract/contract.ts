@@ -174,6 +174,7 @@ function compiledContract(name: string, collections: CompiledCollection[]) {
 			collection: CompiledCollection;
 			params: Record<string, string>;
 		} | null {
+			if (path === 'AGENTS.md') return null;
 			const kind = isNotePath(path) ? 'note' : 'file';
 			for (const collection of collections) {
 				if (collection.kind !== kind) continue;
@@ -208,6 +209,8 @@ function compileCollection(
 		return refuse(`collection '${name}' has no path`);
 	const template = compileTemplate(path);
 	if (template.error !== null) return refuse(template.error.message);
+	if (match(template.data, 'AGENTS.md') !== null)
+		return refuse(`collection '${name}' cannot claim the folder's AGENTS.md`);
 	for (const param of template.data.params)
 		if (RESERVED.has(param))
 			return refuse(`{${param}} in '${name}' is a name every value reserves`);

@@ -18,6 +18,14 @@ import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { compileContract, defineContract } from './contract.js';
 
+test('a collection cannot claim the root AGENTS.md note', () => {
+	const error = expectErr(compileContract({
+		name: 'notes',
+		collections: { notes: { path: '{id}.md' } },
+	}));
+	expect(error.reason).toContain('AGENTS.md');
+});
+
 const recorder = defineContract({
 	name: 'whispering',
 	collections: {

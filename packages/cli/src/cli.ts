@@ -30,8 +30,8 @@ const HANDLERS: Record<string, Run> = {
 	messages: async () => (await import('./messages.js')).messagesCommand(),
 	check: async ({ positionals: [contract, dir], json }) =>
 		(await import('./contract-commands.ts')).check(
-			contract as string,
-			dir ?? '.',
+			contract,
+			dir,
 			json,
 		),
 	format: async ({ positionals: [contract, dir], json }) =>
@@ -102,7 +102,8 @@ const HANDLERS: Record<string, Run> = {
 /** What `epicenter <command> --help` adds below the usage line. */
 const DETAILS: Record<string, string> = {
 	check: `Checks every file in <dir>, by default this directory, against an app's
-contract: the JSON at <contract>, a URL or a file path. Prints one line per
+contract from <dir>/AGENTS.md. The explicit <contract> argument, a URL or a
+file path, takes precedence. Prints one line per
 problem, compiler style: a path no collection of the contract names, a note
 whose front matter does not parse, or one whose fields do not fit. Hidden
 paths (.git, .DS_Store, ...) are not the contract's and are skipped. Exits 0

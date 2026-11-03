@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
+	import { APPS } from '@epicenter/constants/apps';
 	import type { ReactiveClient } from '@epicenter/svelte/client';
 	import DesktopStartup from '@epicenter/svelte/desktop-startup';
 	import type { Snippet } from 'svelte';
@@ -15,7 +16,7 @@
 	let { children: outer }: { children: Snippet<[Client<Whispering>, ReactiveClient<Whispering>]> } = $props();
 </script>
 
-<DesktopStartup app="Whispering" settings={whisperingSettings} contract={whispering}>
+<DesktopStartup app="Whispering" settings={whisperingSettings} contract={whispering} contractUrl={`${APPS.WHISPERING.url}/contract.json`}>
 	{#snippet children(appData, device)}
 		{#if appData}<DesktopRoot {appData} {device}>
 			{#snippet children(files)}

@@ -23,6 +23,7 @@ export {
 	sameValue,
 } from './canonical.js';
 export { frameRowText, joinRowText, type RowTextFrame } from './frame.js';
+export { agentsContract } from './agents-contract.js';
 
 /**
  * `text` in house style: the keys `declaredKeys` names first in that order,

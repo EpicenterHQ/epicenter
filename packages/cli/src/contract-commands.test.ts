@@ -1,11 +1,10 @@
 /**
- * `epicenter check <contract> [dir]` and `epicenter format <contract> [dir]`
- * against real directories, through fresh CLI processes, with the contract
- * as a file and as a URL (decision 35: a folder holds no `epicenter.json`).
+ * `epicenter check` and `epicenter format` against real directories, through
+ * fresh CLI processes, with the contract from an argument or AGENTS.md.
  *
  * Key behaviors:
  * - check prints one compiler-style line per problem and exits 0, 1, or 2
- * - hidden paths (.git, .epicenter) are skipped
+ * - hidden paths (.git, .epicenter) and root AGENTS.md are skipped
  * - format rewrites claimed notes in house style, leaves an unparseable one, and is idempotent
  * - a contract that cannot be read or is not well formed exits 2 and writes nothing
  */
@@ -100,6 +99,28 @@ test('check passes a folder whose files fit, skipping hidden paths', async () =>
 	});
 });
 
+test('check reads a local contract from AGENTS.md and excludes that root note', async () => {
+	const { folder, contractPath, write, run } = await setup();
+	await write('AGENTS.md', `---\n"contract": ../contract.json\ndate: 2024-01-01\n---\nMy own advice.\n`);
+	expect(run('check', folder)).toMatchObject({
+		exitCode: 0,
+		stdout: '2 files fit; 0 files do not.\n',
+	});
+	await writeFile(contractPath, JSON.stringify({ name: 'other', collections: { other: { path: 'other/{id}.md' } } }));
+	expect(run('check', folder).exitCode).toBe(1);
+	const explicit = join(folder, '..', 'explicit.json');
+	await writeFile(explicit, JSON.stringify(contract));
+	expect(run('check', explicit, folder).exitCode).toBe(0);
+});
+
+test('check reports a missing contract argument and note clearly', async () => {
+	const { folder, run } = await setup();
+	const result = run('check', folder);
+	expect(result.exitCode).toBe(2);
+	expect(result.stderr).toContain('No contract argument');
+	expect(result.stderr).toContain('AGENTS.md');
+});
+
 test('check names each problem compiler style and exits 1', async () => {
 	const { folder, contractPath, write, run } = await setup();
 	await write('recordings/b.md', '---\ntitle: B\ndurationMs: long\n---\n');
@@ -124,7 +145,7 @@ test('check names each problem compiler style and exits 1', async () => {
 });
 
 test('check takes the contract as a URL, and the folder defaults to the working directory', async () => {
-	const { folder, runAsync } = await setup();
+	const { folder, write, runAsync } = await setup();
 	const server = Bun.serve({
 		port: 0,
 		fetch: (request) =>
@@ -135,6 +156,8 @@ test('check takes the contract as a URL, and the folder defaults to the working 
 	try {
 		const url = `http://localhost:${server.port}/contract.json`;
 		expect((await runAsync('check', url, folder)).exitCode).toBe(0);
+		await write('AGENTS.md', `---\ncontract: ${url}\n---\n`);
+		expect((await runAsync('check', folder)).exitCode).toBe(0);
 		const missing = await runAsync(
 			'check',
 			`http://localhost:${server.port}/nope.json`,

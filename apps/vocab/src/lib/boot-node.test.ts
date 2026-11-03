@@ -91,7 +91,7 @@ describe('the variant root decides the one store', () => {
 	test('on the desktop, Startup opens the AppData root, then the data folder, with the sign-in answer', async () => {
 		const startup = await Bun.file(join(components, 'Startup.svelte')).text();
 		expect(startup).toMatch(
-			/<DesktopStartup app="Vocab" settings=\{vocabSettings\} contract=\{vocab\} ready=\{authReady\}>/,
+			/<DesktopStartup app="Vocab" settings=\{vocabSettings\} contract=\{vocab\} contractUrl=\{CONTRACT_URL\} ready=\{authReady\}>/,
 		);
 	});
 

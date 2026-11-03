@@ -16,8 +16,8 @@ export const COMMANDS: readonly CommandSpec[] = [
 	},
 	{
 		path: ['check'],
-		args: '<contract> [<dir>]',
-		minArgs: 1,
+		args: '[<dir> | <contract> [<dir>]]',
+		minArgs: 0,
 		maxArgs: 2,
 		summary: "report each file in a folder that does not fit an app's contract",
 	},

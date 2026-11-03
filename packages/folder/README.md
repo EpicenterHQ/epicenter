@@ -15,7 +15,7 @@ makes the client reactive with `fromClient` from
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
-| `@epicenter/folder/tauri` | `openDevice(contract, { root })` opens a root the shell named, `Data` or `AppData`; `openDataFolder(contract)` and `openAppData(settingsContract)` open each. `rootOf(device)` answers the root's name for local transcription, and `displayPath(device)` the path to show, which `open_root` answered. `syncWithEpicenter` and `syncedWithEpicenter` manage Epicenter enrollment. |
+| `@epicenter/folder/tauri` | `openDevice(contract, { root })` opens a root the shell named, `Data` or `AppData`; `openDataFolder(contract, contractUrl)` opens Data and updates its root `AGENTS.md`, while `openAppData(settingsContract)` opens AppData. `rootOf(device)` answers the root's name for local transcription, and `displayPath(device)` the path to show, which `open_root` answered. `syncWithEpicenter` and `syncedWithEpicenter` manage Epicenter enrollment. |
 | `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 
 Importing an entry does not open anything.

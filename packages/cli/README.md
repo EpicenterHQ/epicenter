@@ -35,7 +35,7 @@ front end over `status`, `init`, `connect`, `clone`, `sync`, `forget`, `share`, 
 
 | Command | Status | Wraps |
 | --- | --- | --- |
-| `epicenter check <contract> [<dir>]` | built | `checkFiles` in `@epicenter/folder/node` |
+| `epicenter check [<dir> \| <contract> [<dir>]]` | built | Reads `contract` from `<dir>/AGENTS.md` unless a contract is supplied; runs `checkFiles` in `@epicenter/folder/node` |
 | `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
 | `epicenter init [<dir>] [--enclosing-ok]` | built | `src/sync/setup.ts` |
 | `epicenter connect <dir> <namespace>/<name> \| '~/<name>' \| <url> [--enclosing-ok]` | built | `src/sync/connect.ts` |

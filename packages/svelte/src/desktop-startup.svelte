@@ -6,7 +6,7 @@
 	actions retry here; otherwise `children` renders over both clients.
 
 	```svelte
-	<DesktopStartup app="Capture" contract={capture}>
+	<DesktopStartup app="Capture" contract={capture} contractUrl={CONTRACT_URL}>
 		{#snippet children(_appData, device)}
 			<DesktopRoot {device}>{@render pages()}</DesktopRoot>
 		{/snippet}
@@ -29,6 +29,7 @@
 		app,
 		settings,
 		contract,
+		contractUrl,
 		ready,
 		children,
 	}: {
@@ -38,6 +39,8 @@
 		settings?: TSettings;
 		/** The data folder's contract. */
 		contract: TContract;
+		/** The contract published by the app's production site. */
+		contractUrl: string;
 		/** Anything else the first page waits for, such as the shell's sign-in answer. */
 		ready?: Promise<unknown>;
 		/** The app over its open roots. */
@@ -54,7 +57,7 @@
 	const appData = $derived(await again(attempt, opened));
 	const device = $derived(
 		appData === undefined || appData.error === null
-			? await again(attempt, () => openDataFolder(contract))
+			? await again(attempt, () => openDataFolder(contract, contractUrl))
 			: null,
 	);
 </script>
