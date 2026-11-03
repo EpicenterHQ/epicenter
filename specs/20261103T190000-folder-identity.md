@@ -36,23 +36,29 @@ folder is `<root>/<name>` derived from its site; whatever is at that path is
 the app's; the app creates it when nothing is there; the page reaches it by
 root name and relative path, never by absolute path.
 
-Out (later phases): `epicenter move`, the `epicenter.synced` flag replacing
-`epicenter.root`, the engine in `~/.epicenter`, machine sign-in, the merge rule,
-Epicenter scanning the root, documents, Tabs.
+Out (later phases): `epicenter move`, the engine in `~/.epicenter`, machine
+sign-in, the merge rule, Epicenter scanning the root, documents, Tabs.
 
 ## Work, in commit order
+
+Revised after the wave A review: a folder moved behind a link must stay
+syncable, and `clone` must join a folder an app already made, so both join
+phase 1; the naming fixture comes before anything that depends on it.
 
 | # | Commit | State |
 | --- | --- | --- |
 | 1 | The shell derives the data folder from the app's site | Done (`233d389069`) |
 | 2 | No stored or chosen data-folder location | Done (`a33b60d698`) |
-| 3 | Fixes from review: identity from the bundle identifier, explicit environment, dead-link error | In review |
-| 4 | Named roots: storage commands take `(root, relative path)`; delete window binding, the other-roots scope, `open_folder`, `resolve_folder`, `data_folder`, the file-system grant and `tauri-plugin-persisted-scope`; open-or-create; one refusal rule | In review |
-| 5 | The plain error screen ([Retry] [Show in Finder]) and the onboarding line | |
-| 6 | The `AGENTS.md` note written at first open | |
-| 7 | The naming rule as one fixture both Rust and TypeScript test against; `epicenter clone` names the folder from the site | |
-| 8 | A contract has no `name`; `openRemote` takes the repository name from the site | |
-| 9 | Docs sweep: `apps/epicenter/AGENTS.md`, `apps/README.md`, package READMEs | |
+| 3 | Identity from the bundle identifier, the dead-link error | Done (`458ead40fd`) |
+| 4 | Named roots; delete window binding, the scope, the path commands, persisted-scope; open-or-create; the build states its environment | Done (`08a3358c12`) |
+| 5 | Wave A review fixes: Retry re-opens the folder; no blocking open at startup; watch changes as one app event; `open_root` answers the display path; audio and sync use Data only | In progress |
+| 6 | The plain error screen ([Retry] [Show in Finder]) and the onboarding line | |
+| 7 | The naming rule as one fixture Rust and TypeScript test against; the Epicenter app and the CLI pick roots by ADR-0728 | |
+| 8 | The `AGENTS.md` note written at first open, keeping a person's own text; `epicenter check <dir>` reads its contract URL | |
+| 9 | Linked folders sync: Epicenter accepts a folder link; `epicenter.synced` replaces the path-holding `epicenter.root` | |
+| 10 | `epicenter clone` reads the cloned `AGENTS.md`, names the folder from the site, and joins an app folder already there | |
+| 11 | A contract has no `name`; `openRemote` takes the repository name from the site | |
+| 12 | Docs sweep, the wave B review, and deleting this spec | |
 
 Each commit builds, passes its own tests, and leaves every app working.
 

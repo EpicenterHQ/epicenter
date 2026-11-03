@@ -145,7 +145,9 @@ Three places, each with one job:
 - **An app reaches named roots, never paths**
   ([ADR-0725](adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md)).
   Its page asks the shell to list, read, put, and watch files by root and
-  relative path; the operating system follows links.
+  relative path. A link at or above a root is followed when it opens; a link
+  inside a root is refused
+  ([ADR-0729](adr/0729-a-link-is-followed-only-at-or-above-a-root.md)).
 - **Links do the moving.** `epicenter move whispering /Volumes/Archive` moves
   the folder and leaves a link at `~/Epicenter/whispering`; Epicenter's
   "Move…" runs the same command. Apps never move or choose a location.

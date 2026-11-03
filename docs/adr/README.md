@@ -925,3 +925,4 @@ When you add an ADR, add its row here.
 | [0726](0726-an-apps-path-is-its-claim.md) | An app's path is its claim | Accepted (amends 0721, 0725) |
 | [0727](0727-json-schema-is-the-field-language.md) | JSON Schema is the field language | Accepted (amends 0705) |
 | [0728](0728-a-build-states-its-environment.md) | A build states its environment | Accepted (amends 0712, 0721) |
+| [0729](0729-a-link-is-followed-only-at-or-above-a-root.md) | A link is followed only at or above a root | Accepted (amends 0725) |
