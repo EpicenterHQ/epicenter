@@ -13,7 +13,7 @@
  */
 
 import { realpath } from 'node:fs/promises';
-import { posix, win32, type PlatformPath } from 'node:path';
+import { type PlatformPath, posix, win32 } from 'node:path';
 import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 
 /** The directory names no folder is ever inside: Git's, and Epicenter's unfinished writes. */

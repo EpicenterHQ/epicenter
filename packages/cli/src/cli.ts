@@ -156,7 +156,7 @@ shell does not expand ~), or a URL such as file:// for a local repository.
 An existing origin with the same URL needs no change; a different origin is
 refused. This command does not run sync, but the desktop's
 background sync service may fetch and push once origin is configured.`,
-forget: `Takes <dir> (default: the current directory) out of the environment's
+	forget: `Takes <dir> (default: the current directory) out of the environment's
 global folder list, and makes sync refuse it until init runs again. Its
 files, repository, and history stay.`,
 	repos: `Lists the repositories of every namespace this sign-in may reach: the

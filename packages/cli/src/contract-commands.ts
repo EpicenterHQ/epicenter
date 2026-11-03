@@ -70,7 +70,9 @@ export async function check(
 				`${join(folder, 'AGENTS.md')} has no contract: URL or path in its front matter`,
 				json,
 			);
-		contractSource = /^https?:\/\//.test(value) ? value : resolve(folder, value);
+		contractSource = /^https?:\/\//.test(value)
+			? value
+			: resolve(folder, value);
 	}
 	const read = await readContract(contractSource);
 	if ('error' in read) return fail(read.error, json);

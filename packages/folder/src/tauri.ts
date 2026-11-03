@@ -90,12 +90,15 @@ export function displayPath(device: Client<Contract>): string {
 }
 
 /** Ask the shell to show the location it named for `root`, even if it did not open. */
-export async function revealRoot(root: Root): Promise<Result<null, RevealRootError>> {
+export async function revealRoot(
+	root: Root,
+): Promise<Result<null, RevealRootError>> {
 	try {
 		const answer = await commands.revealRoot(root);
 		if (answer.error !== null)
 			return RevealRootError.Failed({
-				cause: 'message' in answer.error ? answer.error.message : answer.error.name,
+				cause:
+					'message' in answer.error ? answer.error.message : answer.error.name,
 			});
 		return Ok(null);
 	} catch (cause) {

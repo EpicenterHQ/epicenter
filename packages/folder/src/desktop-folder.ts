@@ -5,8 +5,8 @@
  * never holds either one's path except to show it (`displayPath`).
  */
 import type { Client, Contract } from '@epicenter/definition/contract';
-import { Ok, type Result } from 'wellcrafted/result';
 import { createLogger } from 'wellcrafted/logger';
+import { Ok, type Result } from 'wellcrafted/result';
 import { withAgentsNote } from './agents-note.js';
 import { storeOf } from './device/client.js';
 import type { OpenDeviceError } from './errors.js';

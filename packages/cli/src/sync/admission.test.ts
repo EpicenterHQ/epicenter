@@ -28,8 +28,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
-import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import { epicenterDataRoot } from '@epicenter/constants/app-data';
+import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import {
 	canonicalPath,
 	containsPath,
