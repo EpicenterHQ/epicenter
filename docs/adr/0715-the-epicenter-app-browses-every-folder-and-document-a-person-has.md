@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-03
-- **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 81 ("Epicenter learns of a folder only through Sync with Epicenter's deep link"): Epicenter also lists the library root's folders; and at the 2026-11-01 revision that deleted the folder editor window ("Epicenter opens no folder's files"): Epicenter shows a folder's or document's items again; [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) at deferring the desktop data browser; [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md) at the host owning no application data: Epicenter keeps local copies of documents in its own AppData.
-- **Unbuilt:** the library-root listing; adding a folder from anywhere; the account's repository and document lists in the Folders window; generic collection views from the field vocabulary; Epicenter's local copies of documents; removing the lines in `apps/epicenter/AGENTS.md` that conflict ("Epicenter opens no folder's files", "Keep document replicas owned by application windows, never by the host").
+- **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 81 ("Epicenter learns of a folder only through Sync with Epicenter's deep link"): Epicenter also lists the library root's folders; and at the 2026-11-01 revision that deleted the folder editor window ("Epicenter opens no folder's files"): Epicenter shows a folder's or document's items again; [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) at deferring the desktop data browser.
+- **Unbuilt:** the library-root scan; adding a folder from anywhere; the account's repository and document lists in the Folders window; generic collection views from the field vocabulary; opening documents through `~/.epicenter/documents`; removing the line in `apps/epicenter/AGENTS.md` that conflicts ("Epicenter opens no folder's files").
 
 ## Context
 
@@ -31,8 +31,8 @@ different fact, and none is copied into another:
 
 | Source | Fact | Read from |
 | --- | --- | --- |
-| this machine syncs it | the folder is in `epicenter.folder` | `epicenter status --json` |
-| it is under the library root | a non-hidden child directory of `~/Epicenter` | a directory listing, never stored |
+| it is under the library root | a non-hidden child directory of `~/Epicenter`; synced when it is a repository whose local configuration carries `epicenter.root`, otherwise "Not synced" | a directory listing, never stored |
+| it is outside the root and this machine syncs it | an absolute path in `folders` | `~/.epicenter/settings.md` ([ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)) |
 | it is on the account | a repository or document the signed-in account can reach | the server's repository and document lists ([ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md)) |
 
 - **A folder under the root that is not synced shows as "Not synced".**
@@ -45,9 +45,14 @@ different fact, and none is copied into another:
   a `select` shows as a single choice, a `multiSelect` as chips. A folder's
   views read and write its files through `openDevice`; a document's views read
   and write the document.
-- **Epicenter keeps a local copy of each document it opens** in its own AppData
-  (`so.epicenter`). The copy can hold edits not yet sent, so it is a replica,
-  not a cache: deleting it can lose data.
+- **Epicenter opens a document through the machine's one local copy** at
+  `~/.epicenter/documents/<namespace>/<name>/` ([ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)), the copy the CLI and
+  document apps also use. The copy can hold edits not yet sent, so it is a
+  replica, not a cache: deleting it can lose data.
+- **Epicenter's own synced settings get a folder only when they exist.** When
+  Epicenter first has something that follows a person between machines, such
+  as its own shortcuts, it keeps it in `~/Epicenter/epicenter`, a folder like
+  any app's. Until then the folder does not exist.
 
 No new registry is stored. The three lists stay where they are, and the window
 joins them by path and by resource name each time it lists.
@@ -60,8 +65,8 @@ joins them by path and by resource name each time it lists.
 - Epicenter again runs folder-reading code and holds files open, which the
   2026-11-01 revision removed. A window bound to a folder needs the folder grant
   and recovery that ADR-0701's apps have.
-- Epicenter's AppData now holds data that can be unsynced (document replicas),
-  so it can no longer be deleted freely to reset Epicenter.
+- Epicenter's AppData stays free of data, so deleting it still only resets
+  Epicenter's windows.
 - The generic views depend on the field vocabulary carrying display information
   for each field type; an app's own views stay richer.
 

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at decision 35 ("folders hold no `epicenter.json`") and at `epicenter init --contract` in its Unbuilt line: a folder holds an `AGENTS.md` note naming its contract URL, and `init` records no contract in Git configuration.
-- **Unbuilt:** the app writing `AGENTS.md` at first open; the CLI's generated block in it; `epicenter check` and `clone` reading `contract` from it; the deep link `epicenter://init` writing the note when it is missing.
+- **Unbuilt:** the app writing `AGENTS.md` at first open; the CLI's generated block in it; `epicenter check` and Epicenter reading `contract` from it; the deep link `epicenter://init` writing the note when it is missing.
 
 ## Context
 
@@ -39,6 +39,10 @@ Anything the person writes here stays.
 
 - **`contract`** is the only field. It holds a URL, never a copy of the
   schema. The app's published `contract.json` stays the one description.
+- **The contract URL leads to the app's identity, its site's origin.** A
+  folder's name is its slug ([ADR-0710](0710-an-apps-slug-names-everything-a-program-reads.md)), which two apps may share and a
+  person may change; the origin is globally unique and survives a rename. The
+  app's site describes the app further ([ADR-0717](0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md)).
 - **The app writes the note at first open** of a folder that lacks one,
   with its own contract URL (the constant it already passes to
   `syncWithEpicenter`).
@@ -49,8 +53,9 @@ Anything the person writes here stays.
   since the `# BEGIN epicenter` lines those files use
   (`EPICENTER_BLOCK_BEGIN`) are headings in Markdown.
 - **Readers take the contract from the note.** `epicenter check` with no
-  contract argument reads it; `clone` reads it to label the folder
-  ([ADR-0710](0710-a-contracts-title-names-everything-a-person-reads.md)); Epicenter reads it to label a listed folder ([ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md)).
+  contract argument reads it; Epicenter reads it to label a listed folder
+  ([ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md)) and to find the app's site on a new device. `clone` names
+  the folder by the repository name and does not read the note.
 - **`epicenter init` records no contract in Git configuration.** The
   deep link's `contract=` writes `AGENTS.md` only when the folder has none.
 - **A folder without the note is a plain folder.** Epicenter may ask "Which

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-03
 - **Relates:** [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) (documents and their export format), [ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md) (a document's name and grants), [ADR-0286](0286-every-generation-is-minted-from-an-artifact-and-compaction-is-an-export-then-an-import.md) and [ADR-0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md) (the removed store's generations), [ADR-0220](0220-the-authority-keeps-a-snapshot-and-a-tail-and-a-deletion-becomes-real.md) (tombstone growth).
-- **Unbuilt:** all of it: the rebuild, the generation number on the server, the refusal of a stale copy, and the "Discard local copy" and "Export it as notes" actions. No workspace package imports `@y/y`; the root `package.json` pins it at `14.0.0-rc.26` through `overrides`.
+- **Unbuilt:** all of it: the rebuild, the generation number on the server, the refusal of a stale copy, and the "Discard local copy" and "Export it as notes" actions.
 
 ## Context
 
@@ -15,9 +15,11 @@ a generation came into being (ADR-0293).
 
 A Yjs document keeps deleted content as tombstones, which grow on every
 device and on the server (ADR-0220). [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) brings documents back for
-small, long-lived data, where the owner accepts that growth and wants a rare
+long-lived data, where the owner accepts that growth and wants a rare
 way to shed it. A document keeps its name and grants ([ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md)). Custom
-bodies may convert to Markdown imperfectly ([ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md)).
+bodies may convert to Markdown imperfectly ([ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md)). No workspace package
+imports `@y/y` today; the root `package.json` pins it at `14.0.0-rc.26`
+through `overrides`.
 
 ## Decision
 
@@ -40,8 +42,9 @@ structure.
 document <namespace>/<name>    generation: 1, 2, 3 …    a rebuild replaces the stored state and adds 1
 ```
 
-The name, the address, and every grant ([ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md)) stay the same. Who may
-start a rebuild, and whether anything schedules one, is open.
+The name, the address, and every grant ([ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md)) stay the same. Anyone with
+write access to the document may start a rebuild, by hand; nothing schedules
+one.
 
 **A copy from an older generation is refused.** A device presents its
 generation when it connects. On a mismatch the server sends nothing and

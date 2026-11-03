@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-03
-- **Amends:** [ADR-0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) at "a desktop app that needs the CLI runs its matched private bundled executable": an app calls the one engine the Epicenter app installs, and bundles none.
-- **Unbuilt:** the engine install and update by the Epicenter app; the bundled `git-lfs`; the `git` check at setup; an app's lookup of the installed engine; "Syncing needs Epicenter"; credential use for remotes other than Epicenter's.
+- **Amends:** [ADR-0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) at "a desktop app that needs the CLI runs its matched private bundled executable": an app calls the one engine the Epicenter app installs at `~/.epicenter/bin/epicenter`, and bundles none.
+- **Unbuilt:** the engine install and update by the Epicenter app into `~/.epicenter/bin`; the bundled `git-lfs`; the `git` check at setup; an app's call to `~/.epicenter/bin/epicenter`; "Syncing needs Epicenter"; credential use for remotes other than Epicenter's.
 
 ## Context
 
@@ -29,22 +29,24 @@ other copy must read the same way.
 **A machine has one `epicenter` engine, installed and updated by the Epicenter app.**
 
 ```txt
-Epicenter app        installs and updates   epicenter (compiled Bun CLI), git-lfs
+Epicenter app        installs and updates   ~/.epicenter/bin/epicenter (compiled Bun CLI), ~/.epicenter/bin/git-lfs
                      checks at setup        git (explains Apple's developer-tools prompt)
-                     owns                   consent screen, sync --watch, the folder list
+                     owns                   consent screen, sync --watch, `folders` in ~/.epicenter/settings.md
 Whispering, Capture, calls when present      epicenter sync <folder> --json, epicenter status --json
 other apps           otherwise shows         "Syncing needs Epicenter" and a download link
 ```
 
-- **Apps bundle no CLI.** An app looks for the installed engine. When it is
-  present, "Sync now" and the sync status are calls to it, with or without an
-  Epicenter window open.
+- **Apps bundle no CLI.** An app calls `~/.epicenter/bin/epicenter`, the one
+  place every program finds the engine ([ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)). When it is present,
+  "Sync now" and the sync status are calls to it, with or without an Epicenter
+  window open. A terminal user adds `~/.epicenter/bin` to `PATH`;
+  `install-command` and its `~/.local/bin/epicenter` symlink retire.
 - **The first sync of a folder goes through Epicenter's consent screen.** The
   app opens `epicenter://init?path=…&contract=…` (`syncWithEpicenter` in
   `packages/folder/src/epicenter-sync.ts`). If no program handles the link, the
   app shows "Syncing needs Epicenter".
-- **`git-lfs` ships with the Epicenter app** beside the engine, and the engine
-  uses that copy.
+- **`git-lfs` ships with the Epicenter app** and installs beside the engine at
+  `~/.epicenter/bin/git-lfs`; the engine uses that copy.
 - **The system `git` stays the network and history tool.** Epicenter checks for
   it during setup instead of letting Apple's prompt appear in the middle of a
   sync.
@@ -61,9 +63,9 @@ is unbuilt.
 ## Consequences
 
 - One 75 MB engine per machine instead of one per app. Apps lose that size.
-- Every app on a machine runs the same engine version, so the shared
-  `epicenter.folder` list and credentials have one reader and one writer
-  implementation.
+- Every app on a machine runs the same engine version, so `folders` in
+  `~/.epicenter/settings.md` (folders outside the root) and the credentials have one reader and one
+  writer implementation.
 - An app cannot sync without the Epicenter app installed. Local saving needs
   no engine, so this costs only sync.
 - The Epicenter app takes on installing and updating a binary plus `git-lfs`,

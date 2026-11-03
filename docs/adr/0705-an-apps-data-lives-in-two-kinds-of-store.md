@@ -4,7 +4,7 @@
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0534](0534-data-folders-are-the-only-data-model.md) at "Data folders are the one data model": a document synced through the person's account is a second store; the removal of the Yjs store's packages, its `StoreAuthority` and `GenerationsLedger` Durable Objects, and the apps built only on them stands; [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at an app's data being a layout of files: an app whose contract declares the document store keeps a document instead, and the Variants table gains document apps.
 - **Relates:** [ADR-0525](0525-a-field-is-plain-json-schema.md) (a field is plain JSON Schema), [ADR-0706](0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md) (browser variants), [ADR-0707](0707-an-app-that-needs-co-editing-is-a-document-app.md) (co-editing), [ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md) (resources), [ADR-0709](0709-a-document-is-rebuilt-into-a-fresh-generation-by-copying-its-current-state.md) (rebuild).
-- **Unbuilt:** all of the document store: the document client, its contract, the document sync service on the hosted server and the self-hosted server, the local copy on desktop and in the browser, and export and import between a document and Markdown notes; the field builders that compile one field declaration to JSON Schema, a Yjs shape, SQL columns, and UI controls (`text`, `select`, `multiSelect`, `date`, `url`, `ref`, `body`).
+- **Unbuilt:** all of the document store: the document client, its contract, the document sync service on the hosted server and the self-hosted server, the local copy on desktop (`~/.epicenter/documents/<namespace>/<name>/`, [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)) and in the browser, and export and import between a document and Markdown notes; the field builders that compile one field declaration to JSON Schema, a Yjs shape, SQL columns, and UI controls (`text`, `select`, `multiSelect`, `date`, `url`, `ref`, `body`).
 
 ## Context
 
@@ -41,9 +41,9 @@ documents. Nothing limits the count.
 | | Folder | Document |
 | --- | --- | --- |
 | Record | Markdown notes and attached files, history in Git | One Yjs document synced through the person's account |
-| Where it lives | A directory on disk, a browser's private storage, or a hosted repository | The account's server, with a local copy on each desktop and browser that opens it |
+| Where it lives | A directory on disk, a browser's private storage, or a hosted repository | The account's server, with one local copy per desktop machine in `~/.epicenter/documents` and one per browser that opens it |
 | Read | Asynchronous, from files | Synchronous, from the local copy |
-| Size | Large: thousands of notes, attached audio | Small: a few hundred saved tabs |
+| Size | Large: thousands of notes, attached audio | No cap; Tabs holds a few hundred saved tabs |
 | Edited by | Any program that writes the layout | The app, and agents through the `epicenter` CLI ([ADR-0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md)) |
 | Requires | Nothing; Git sync is optional | An account on Epicenter's server or a self-hosted Epicenter server; a plain Git host cannot hold a document |
 

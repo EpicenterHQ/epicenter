@@ -1,7 +1,8 @@
 # 0627. Every change to the data model is checked against nine principles
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md): the principles are restated for files and documents, slug names, fixed roots, one engine, and one merge rule by extension.
 - **Supersedes:** [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) (every change to the folder model is checked against ten principles): the folder model and its desktop host are replaced by repositories, tables, and browser clones, and nine principles summarize them.
 - **Amended by:** [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) at account-free local opening and optional sync in principles 1, 3, 5, and 8. [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) at principles 2 and 5: browser clones allow Git boundary metadata and a publication revision, retain bounded snapshots with temporary ancestry, and permit overlapping sync attempts that may wait for editing to settle. [ADR-0632](0632-a-lens-belongs-to-its-reader.md) at description discovery: a reader selects a schema file; files remain available without one. [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) at product scope: hosted inference is retained independently of local data and Git synchronization. [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) at principle 9: generic desktop browsing and the optional runner are deferred.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at principles 1, 2, 5, 6, 7 and 9: the file contract, the web never syncs, note merge rules with conflict blocks, and Git LFS.

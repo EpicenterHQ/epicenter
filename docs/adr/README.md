@@ -839,7 +839,7 @@ When you add an ADR, add its row here.
 | [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Each web origin keeps local data in IndexedDB | Superseded by 0700 (the web never syncs) |
 | [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | Local data reports its synchronization state | Accepted (amends 0592; amended by 0633; amended by 0700) |
 | [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app opens local data with its own schemas | Accepted (amends 0585 and 0608; amended by 0632, 0633, and 0636; amended by 0700) |
-| [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Accepted (supersedes 0590; amended by 0632, 0633, 0634, and 0635; amended by 0700) |
+| [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Superseded by 0719 (eight principles) |
 | [0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) | Browser sync uses transactions and Git updates instead of cross-tab ownership | Superseded by 0700 |
 | [0629](0629-a-local-save-refuses-a-file-directory-replacement.md) | A local save refuses a file-directory replacement | Proposed (amends 0622 and 0626) |
 | [0630](0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md) | A file save accepts exact bytes as its starting content | Superseded by 0700 (0689 rejected) |
@@ -901,3 +901,18 @@ When you add an ADR, add its row here.
 | [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Accepted 2026-11-01 (supersedes 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0647, 0663, 0670, 0671, 0674, and 0683; standalone Todos and a native Capture or Honeycrisp client unbuilt; archive tag `archive/app-hosting`; shared Quit amended by 0700: Quit is the default menu's) |
 | [0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) | A data folder's unfinished writes wait in `.epicenter`, outside its data | Accepted (amends 0543, 0551, 0562, and 0568: no save lock, one hidden-path rule, `saves/` and `recordings/`, placement) |
 | [0703](0703-a-stopped-sync-round-finishes-its-merge.md) | A stopped sync round finishes its merge | Proposed (amends 0565 at the shell's three-second kill) |
+| [0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) | An app's data lives in two kinds of store | Proposed (amends 0534 and 0700) |
+| [0706](0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md) | A browser variant runs the desktop code with weaker guarantees | Proposed |
+| [0707](0707-an-app-that-needs-co-editing-is-a-document-app.md) | An app that needs co-editing is a document app | Proposed |
+| [0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md) | A namespace holds documents beside repositories under one resource grant | Proposed (amends 0546 and 0612) |
+| [0709](0709-a-document-is-rebuilt-into-a-fresh-generation-by-copying-its-current-state.md) | A document is rebuilt into a fresh generation by copying its current state | Proposed |
+| [0710](0710-an-apps-slug-names-everything-a-program-reads.md) | An app's slug names everything a program reads | Proposed (amends 0701) |
+| [0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md) | A folder names its app's contract in a committed AGENTS.md note | Proposed (amends 0700) |
+| [0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) | An app's folder resolves against a fixed library root | Proposed (amends 0670 and 0701) |
+| [0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) | One Epicenter engine per machine syncs every app's folder | Proposed (amends 0642) |
+| [0714](0714-a-files-extension-decides-how-every-folder-merges-it.md) | A file's extension decides how every folder merges it | Proposed (amends 0700) |
+| [0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) | The Epicenter app browses every folder and document a person has | Proposed (amends 0635 and 0701) |
+| [0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md) | Agents edit a document through one-shot CLI commands | Proposed |
+| [0717](0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md) | An Epicenter app is a site that publishes a contract | Proposed |
+| [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Proposed (amends 0642 and 0700) |
+| [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Proposed (supersedes 0627) |

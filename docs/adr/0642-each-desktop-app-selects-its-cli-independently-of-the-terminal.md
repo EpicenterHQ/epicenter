@@ -4,7 +4,7 @@
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) only at the requirement that the bundled executable is also the public command: desktop apps use matched private copies; terminal installation is explicit and independently selected.
 - **Relates:** [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) (native Git through the CLI), [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) (independent services), and [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) (standalone delivery).
-- **Amended by:** [ADR-0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) at the matched private bundled executable: an app calls the one engine the Epicenter app installs, with a bundled `git-lfs`, and bundles no CLI.
+- **Amended by:** [ADR-0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) at the matched private bundled executable: an app calls the one engine the Epicenter app installs at `~/.epicenter/bin/epicenter`, with a bundled `git-lfs`, and bundles no CLI; [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) at the public command `~/.local/bin/epicenter` and `install-command`: a terminal user adds `~/.epicenter/bin` to `PATH`.
 - **Unbuilt:** standalone private-CLI packaging, explicit-only public-command installation and repair, credential-helper migration, and verification of shared preferences, saves, and any shared credential state across versions. Independent CLI distribution is separate delivery work.
 
 ## Context

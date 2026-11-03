@@ -93,6 +93,10 @@ READMEs and decision records, where they can be checked with the implementation.
 
 `docs/adr/`, `docs/CONTEXT.md`, package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
 
+`docs/vision.md` describes the intended direction. Check a change to the data
+model, storage, sync, or app identity against the principles in
+[ADR-0719](docs/adr/0719-every-change-to-the-data-model-is-checked-against-eight-principles.md).
+
 Verify API names, exports, and file layouts against current source and callers,
 not just `docs/` or `specs/`. READMEs explain the current surface; ADRs explain
 its rationale and may also name rejected alternatives.

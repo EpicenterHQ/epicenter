@@ -4,7 +4,7 @@
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) at `https://git.epicenter.so/<id>.git`, the name as a free non-unique label, the renaming of the `namespace` tables to `repository` and `repository_member`, the deletion of the `repository` table, and "No table, column, file, identifier, route, or flag says namespace": a namespace stays the owner, a resource is addressed `<namespace>/<name>`, and a name is unique within its namespace across both kinds; [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at a repository's name being unique within its namespace: the uniqueness spans the namespace's documents too.
 - **Relates:** [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) (documents as a second store), [ADR-0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) (the owner namespace), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (a sign-in grant names one repository).
-- **Unbuilt:** hosted documents; the tables that hold both kinds and their grants (a proposed shape is drawn below; the shape is not settled); `share`, `unshare`, and `epicenter repos` for documents; the document endpoint; a sign-in grant that names a document.
+- **Unbuilt:** hosted documents; the tables that hold both kinds and their grants (one way: rename `repository` to `resource` with a `kind` column of `repository` or `document` and a `unique (namespace_id, name)` constraint, and rename `repository_grant` to `resource_grant`, keeping `repository_alias` on `resource.id`; existing ids, remotes, and grants would keep working); `share`, `unshare`, and `epicenter repos` for documents; the document endpoint; a sign-in grant that names a document.
 
 ## Context
 
@@ -50,22 +50,12 @@ document     the document endpoint, addressed <namespace>/<name>   serves only k
 `epicenter repos` and the Epicenter app's list ([ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md)) print the kind
 beside every name.
 
-**One grant covers both kinds.** A proposed shape, one table for both kinds
-and one grant table:
-
-```txt
-resource         id · namespace_id · name · kind: repository | document · created_at   was repository; unique (namespace_id, name)
-resource_grant   resource_id · account_id · level: read | write                         was repository_grant
-```
-
-In that shape `repository_alias` references `resource.id`. `share <namespace>/<name>
+**One grant covers both kinds.** A grant names one resource and a level,
+`read` or `write`, whichever kind the resource is. `share <namespace>/<name>
 <handle>` and `unshare` take a resource of either kind.
 
 ## Consequences
 
-- In the proposed shape, one migration renames `repository` to `resource`, adds `kind` with every
-  existing row set to `repository`, and renames `repository_grant`. Existing
-  ids, remotes, and grants keep working.
 - A grant to `you/tabs` means the same thing whether `you/tabs` is a
   repository or a document. There is one sharing model to build, test, and
   explain.
