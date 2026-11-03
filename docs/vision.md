@@ -98,7 +98,7 @@ Three places, each with one job:
   settings.md                      folders outside ~/Epicenter that this machine syncs
   bin/epicenter                    the engine
   bin/git-lfs                      bundled with it
-  documents/<namespace>/tabs/        the one local copy of each document
+  documents/<namespace>/tabs/      the one local copy of each document
 
 <AppData>/so.epicenter.whispering/ this device, for one app: never synced
   settings.md                      this device's overrides, and `folder` once remembered
