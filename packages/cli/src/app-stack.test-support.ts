@@ -265,7 +265,6 @@ export async function runAppStack({
 				...sandboxEnv(home),
 				EPICENTER_API_URL: origin,
 				EPICENTER_DATA_DIR: join(home, 'data'),
-				EPICENTER_FOLDER_DIR: join(home, 'Epicenter'),
 				EPICENTER_TEST_SECRETS: JSON.stringify({ $auth: { [entry]: stored } }),
 			};
 			const helper = await configureGitHelper(

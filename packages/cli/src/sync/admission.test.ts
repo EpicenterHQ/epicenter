@@ -90,7 +90,6 @@ async function init(dir: string) {
 				GIT_CONFIG_NOSYSTEM: '1',
 				GIT_CEILING_DIRECTORIES: BOX,
 				EPICENTER_DATA_DIR: join(BOX, 'data'),
-				EPICENTER_FOLDER_DIR: join(BOX, 'folders'),
 			},
 			stdout: 'pipe',
 			stderr: 'pipe',

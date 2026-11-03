@@ -10,12 +10,9 @@
  * ~/.local/bin/epicenter                     the link Git's configuration runs (install-command.ts)
  * ```
  *
- * Each directory is its environment variable when set, which must be an
- * absolute path, and otherwise the release app's: `so.epicenter` under
- * macOS's `~/Library` and `~/Epicenter`. Epicenter ships for macOS only
- * (ADR-0567). The shell sets both when it runs the CLI, so a development
- * build's CLI uses `so.epicenter.dev` and `~/Epicenter Dev` as the shell
- * does. The command link is one per person, whichever build runs.
+ * The shell sets `EPICENTER_ENVIRONMENT` when it runs the CLI. A terminal
+ * invocation defaults to production. `EPICENTER_DATA_DIR` still names the
+ * shell's application data directory; no variable replaces the library root.
  */
 
 import { homedir } from 'node:os';
@@ -23,8 +20,6 @@ import { isAbsolute, join } from 'node:path';
 
 /** The release app's identifier, which names its platform directories. */
 const IDENTIFIER = 'so.epicenter';
-/** The release app's folder under the home directory. */
-const FOLDER_NAME = 'Epicenter';
 
 export type AppPaths = {
 	/** The library root: where `epicenter clone` puts a folder. */
@@ -58,13 +53,22 @@ export function resolveAppPaths(
 	env: Environment = process.env,
 	home: string = homedir(),
 ): AppPaths {
+	const environment = env.EPICENTER_ENVIRONMENT || 'production';
+	if (environment !== 'production' && environment !== 'development')
+		throw new Error(`Unknown EPICENTER_ENVIRONMENT: '${environment}'.`);
 	return {
 		// Tauri's `app_local_data_dir` on macOS.
 		dataDir: directory(env, 'EPICENTER_DATA_DIR', () =>
-			join(home, 'Library', 'Application Support', IDENTIFIER),
+			join(
+				home,
+				'Library',
+				'Application Support',
+				environment === 'development' ? `${IDENTIFIER}.dev` : IDENTIFIER,
+			),
 		),
-		folderDir: directory(env, 'EPICENTER_FOLDER_DIR', () =>
-			join(home, FOLDER_NAME),
+		folderDir: join(
+			home,
+			environment === 'development' ? 'Epicenter Dev' : 'Epicenter',
 		),
 		commandLink: join(home, '.local', 'bin', 'epicenter'),
 	};

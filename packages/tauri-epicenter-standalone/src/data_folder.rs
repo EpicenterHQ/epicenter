@@ -81,7 +81,7 @@ impl Environment {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FolderNameError {
-    /// The identifier does not reverse to a host of lowercase labels.
+    /// The identifier or host has an invalid site label.
     InvalidIdentifier(String),
     /// The host has no subdomain to name the app by.
     BareDomain(String),
@@ -94,10 +94,9 @@ pub enum FolderNameError {
 impl fmt::Display for FolderNameError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidIdentifier(identifier) => write!(
-                formatter,
-                "{identifier} is not the reversed host of an app's site"
-            ),
+            Self::InvalidIdentifier(identifier) => {
+                write!(formatter, "{identifier} has an invalid app site label")
+            }
             Self::BareDomain(identifier) => write!(
                 formatter,
                 "{identifier} names no subdomain for the app's site"
@@ -120,6 +119,17 @@ pub struct Identity {
     pub environment: Environment,
 }
 
+fn valid_labels(labels: &[&str]) -> bool {
+    labels.iter().all(|label| {
+        !label.is_empty()
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    })
+}
+
 /// `so.epicenter.whispering` in production is `whispering.epicenter.so`, and
 /// so is `so.epicenter.whispering.dev` in development. A production
 /// identifier is read whole, so `com.example.dev` is `dev.example.com`.
@@ -131,12 +141,7 @@ pub fn identity(identifier: &str, environment: Environment) -> Result<Identity, 
             .ok_or_else(|| FolderNameError::NotADevelopmentIdentifier(identifier.to_owned()))?,
     };
     let labels: Vec<_> = site.split('.').rev().collect();
-    if labels.iter().any(|label| {
-        label.is_empty()
-            || !label
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-    }) {
+    if !valid_labels(&labels) {
         return Err(FolderNameError::InvalidIdentifier(identifier.to_owned()));
     }
     if labels.len() < 3 {
@@ -152,6 +157,12 @@ pub fn identity(identifier: &str, environment: Environment) -> Result<Identity, 
 /// subdomain of `epicenter.so`, `<owner>/<label>` for any other.
 pub fn relative_path(host: &str) -> Result<PathBuf, FolderNameError> {
     let labels: Vec<_> = host.split('.').collect();
+    if !valid_labels(&labels) {
+        return Err(FolderNameError::InvalidIdentifier(host.to_owned()));
+    }
+    if labels.len() < 3 {
+        return Err(FolderNameError::BareDomain(host.to_owned()));
+    }
     for label in &labels {
         if matches!(*label, "con" | "prn" | "aux" | "nul")
             || (label.len() == 4
@@ -167,6 +178,30 @@ pub fn relative_path(host: &str) -> Result<PathBuf, FolderNameError> {
     } else {
         Ok(PathBuf::from(labels[1..].join(".")).join(first))
     }
+}
+
+/// The repository name for a site's host.
+pub fn repository_name(host: &str) -> Result<String, FolderNameError> {
+    relative_path(host)?;
+    if let Some(label) = host.strip_suffix(".epicenter.so") {
+        if !label.contains('.') {
+            return Ok(label.to_owned());
+        }
+    }
+    Ok(host.to_owned())
+}
+
+/// The app's platform identifier, with `.dev` only for a development build.
+pub fn app_data_identifier(
+    host: &str,
+    environment: Environment,
+) -> Result<String, FolderNameError> {
+    relative_path(host)?;
+    let identifier = host.split('.').rev().collect::<Vec<_>>().join(".");
+    Ok(match environment {
+        Environment::Production => identifier,
+        Environment::Development => format!("{identifier}.dev"),
+    })
 }
 
 /// The library root: `~/Epicenter`, or `~/Epicenter Dev` for a development
@@ -191,10 +226,82 @@ pub fn derive(
 
 #[cfg(test)]
 mod tests {
+    use serde::Deserialize;
     use serde_json::json;
 
     use super::Environment::{Development, Production};
     use super::*;
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct NamingCase {
+        identifier: String,
+        environment: String,
+        host: Option<String>,
+        folder: Option<String>,
+        repository: Option<String>,
+        app_data: Option<String>,
+        error: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct NamingRules {
+        cases: Vec<NamingCase>,
+        refused: Vec<NamingCase>,
+    }
+
+    #[test]
+    fn naming_follows_the_shared_fixture() {
+        let rules: NamingRules = serde_json::from_str(include_str!(
+            "../../tauri-plugin-epicenter-folder/fixtures/app-names.json"
+        ))
+        .unwrap();
+        for case in rules.cases {
+            let environment = if case.environment == "development" {
+                Development
+            } else {
+                Production
+            };
+            let named = identity(&case.identifier, environment).unwrap();
+            let host = case.host.unwrap();
+            assert_eq!(named.host, host, "{}", case.identifier);
+            assert_eq!(
+                relative_path(&host).unwrap(),
+                PathBuf::from(case.folder.unwrap())
+            );
+            assert_eq!(repository_name(&host).unwrap(), case.repository.unwrap());
+            assert_eq!(
+                app_data_identifier(&host, environment).unwrap(),
+                case.app_data.unwrap()
+            );
+            let home = Path::new("/home/person");
+            let root_name = if environment == Development {
+                "Epicenter Dev"
+            } else {
+                "Epicenter"
+            };
+            assert_eq!(
+                derive(home, &case.identifier, environment).unwrap(),
+                home.join(root_name).join(relative_path(&host).unwrap())
+            );
+        }
+        for case in rules.refused {
+            let environment = if case.environment == "development" {
+                Development
+            } else {
+                Production
+            };
+            let result = identity(&case.identifier, environment)
+                .and_then(|named| relative_path(&named.host).map(|_| named));
+            let kind = match result.unwrap_err() {
+                FolderNameError::InvalidIdentifier(_) => "invalidIdentifier",
+                FolderNameError::BareDomain(_) => "bareDomain",
+                FolderNameError::ReservedLabel(_) => "reservedLabel",
+                FolderNameError::NotADevelopmentIdentifier(_) => "notDevelopmentIdentifier",
+            };
+            assert_eq!(kind, case.error.unwrap(), "{}", case.identifier);
+        }
+    }
 
     #[test]
     fn hosts_from_bundle_identifiers() {

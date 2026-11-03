@@ -196,7 +196,6 @@ beforeAll(async () => {
 		EPICENTER_GIT: wrapper,
 		EPICENTER_API_URL: origin,
 		EPICENTER_DATA_DIR: join(BOX, 'data'),
-		EPICENTER_FOLDER_DIR: join(BOX, 'folders'),
 		EPICENTER_TEST_SECRETS: JSON.stringify({
 			$auth: {
 				[`device ${origin}`]: grant('so.epicenter.cli', TOKENS.device),

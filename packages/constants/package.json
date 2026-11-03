@@ -15,6 +15,7 @@
 		"./api-routes": "./src/api-routes.ts",
 		"./app-data": "./src/app-data.ts",
 		"./app-id": "./src/app-id.ts",
+		"./app-names": "./src/app-names.ts",
 		"./apps": "./src/apps.ts",
 		"./provider-credentials": "./src/provider-credentials.ts",
 		"./repositories": "./src/repositories.ts",

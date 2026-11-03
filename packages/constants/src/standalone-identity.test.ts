@@ -67,14 +67,14 @@ for (const app of desktopApps) {
 		const development = read(app, 'tauri.dev.conf.json');
 		const production = config.identifier;
 		expect(development.identifier).toBe(`${production}.dev`);
+		// The environment is stated, and only by the development configuration.
+		expect(environment(config)).toBeUndefined();
+		expect(environment(development)).toBe('development');
 		if (app === 'epicenter') {
 			// Epicenter is the library shell, not an app with an APPS site.
 			expect(production).toBe('so.epicenter');
 			return;
 		}
-		// The environment is stated, and only by the development configuration.
-		expect(environment(config)).toBeUndefined();
-		expect(environment(development)).toBe('development');
 		const host = production.split('.').reverse().join('.');
 		const site = sites.find((row) => row.host === host);
 		expect(site).toBeDefined();

@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 # Reads the environment from the configuration's `plugins` block.
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = "2.12"
 tauri-plugin-dialog = "2.7"

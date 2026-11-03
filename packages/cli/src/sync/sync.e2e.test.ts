@@ -60,7 +60,6 @@ const ENV: Record<string, string> = {
 	GIT_CEILING_DIRECTORIES: BOX,
 	NO_PROXY: '127.0.0.1,localhost',
 	EPICENTER_DATA_DIR: join(BOX, 'data'),
-	EPICENTER_FOLDER_DIR: join(BOX, 'folders'),
 };
 /** The command link Git's configuration runs (`AppPaths.commandLink`). */
 const EPICENTER = join(HOME, '.local', 'bin', 'epicenter');

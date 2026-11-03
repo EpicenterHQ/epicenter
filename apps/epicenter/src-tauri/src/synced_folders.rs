@@ -1162,6 +1162,7 @@ mod tests {
         let paths = DesktopPaths {
             data_dir: root.join("data"),
             folder_dir: root.join("Epicenter"),
+            environment: epicenter_standalone::data_folder::Environment::Production,
         };
         let notes = paths.folder_dir.join("notes");
         fs::create_dir_all(&notes).unwrap();
