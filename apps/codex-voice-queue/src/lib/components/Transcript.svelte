@@ -8,6 +8,7 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { tick } from 'svelte';
 	import type { VoiceQueue } from '../queue.svelte.js';
+	import { segmentTurnItems } from '../transcript.js';
 	import TranscriptItem from './TranscriptItem.svelte';
 
 	let { queue, active }: { queue: VoiceQueue; active: boolean } = $props();
@@ -82,24 +83,34 @@
 		{/if}
 		{#each queue.transcript?.data?.turns ?? [] as turn (turn.id)}
 			<section
-				class="divide-y divide-border border-b border-border pb-4"
+				class="border-b border-border pb-4"
 				aria-label="Conversation turn"
 			>
-				<div class="flex items-center gap-2 pb-2 text-xs text-muted-foreground">
-					{#if turn.status !== 'completed'}
-						<Badge variant={turn.status === 'failed' ? 'destructive' : 'outline'}>
-							{turn.status}
-						</Badge>
+				{#if turn.status !== 'completed' || turn.error}
+					<div class="flex items-center gap-2 pb-2 text-xs text-muted-foreground">
+						{#if turn.status !== 'completed'}
+							<Badge variant={turn.status === 'failed' ? 'destructive' : 'outline'}>
+								{turn.status}
+							</Badge>
+						{/if}
+						{#if turn.error}
+							<span class="text-destructive">{turn.error.message}</span>
+						{/if}
+					</div>
+				{/if}
+				{#each segmentTurnItems(turn.items) as segment, index (segment.kind === 'message' ? (segment.item.id ?? index) : (segment.items[0]?.id ?? index))}
+					{#if segment.kind === 'message'}
+						<TranscriptItem item={segment.item} />
+					{:else}
+						<details class="py-2">
+							<summary class="cursor-pointer text-xs text-muted-foreground">Activity</summary>
+							<div class="mt-2 border-l border-border pl-3">
+								{#each segment.items as item, index (item.id ?? index)}
+									<TranscriptItem {item} />
+								{/each}
+							</div>
+						</details>
 					{/if}
-					{#if turn.durationMs !== null}
-						<span>{(turn.durationMs / 1000).toFixed(1)}s</span>
-					{/if}
-					{#if turn.error}
-						<span class="text-destructive">{turn.error.message}</span>
-					{/if}
-				</div>
-				{#each turn.items as item, index (item.id ?? index)}
-					<TranscriptItem {item} />
 				{/each}
 			</section>
 		{/each}

@@ -1,6 +1,6 @@
 # Codex Voice Queue
 
-A personal review queue for local Codex conversations. Read a conversation, record a reply, and move to the next one after Codex accepts the message. A failed send keeps the text available to edit and retry.
+A personal review queue for local Codex conversations. Read a conversation, record a reply, and move to the next one after Codex accepts the message. A failed send keeps the text available to edit and retry. Transcripts show messages by default; other activity collapses into a closed "Activity" disclosure.
 
 ## How it works
 

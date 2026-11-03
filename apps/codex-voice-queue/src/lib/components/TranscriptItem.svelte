@@ -47,11 +47,8 @@
 	{:else if known.type === 'agentMessage'}
 		<div class="flex items-center gap-2 text-xs text-muted-foreground">
 			Codex
-			{#if known.phase === 'commentary'}
-				<Badge variant="outline">Commentary</Badge>
-			{/if}
 		</div>
-		<Markdown content={known.text} />
+		<Markdown content={known.text} class={known.phase === 'commentary' ? 'text-xs text-muted-foreground' : ''} />
 	{:else if known.type === 'reasoning'}
 		<details>
 			<summary class="cursor-pointer text-muted-foreground">Reasoning</summary>
@@ -60,14 +57,16 @@
 	{:else if known.type === 'commandExecution'}
 		<div class="flex flex-wrap items-center gap-2">
 			<code class="break-words [overflow-wrap:anywhere]">{known.command}</code>
-			<Badge variant="outline">
-				{known.status}{known.exitCode !== null ? ` · exit ${known.exitCode}` : ''}
-			</Badge>
+			{#if known.status !== 'completed' || (known.exitCode !== null && known.exitCode !== 0)}
+				<Badge variant="outline">
+					{known.status}{known.exitCode !== null && known.exitCode !== 0 ? ` · exit ${known.exitCode}` : ''}
+				</Badge>
+			{/if}
 		</div>
-		<p class="break-words [overflow-wrap:anywhere] font-mono text-xs text-muted-foreground">{known.cwd}</p>
 		{#if known.aggregatedOutput}
 			<details>
 				<summary class="cursor-pointer text-muted-foreground">Command output</summary>
+				<p class="break-words [overflow-wrap:anywhere] font-mono text-xs text-muted-foreground">{known.cwd}</p>
 				<pre class="max-h-96 max-w-full overflow-auto overflow-x-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] pt-2 text-xs">{known.aggregatedOutput.slice(0, 20000)}</pre>
 				{#if known.aggregatedOutput.length > 20000}
 					<p class="text-muted-foreground">Output truncated to 20000 characters.</p>
@@ -75,7 +74,7 @@
 			</details>
 		{/if}
 	{:else if known.type === 'fileChange'}
-		<Badge variant="outline">File changes · {known.status}</Badge>
+		<p class="text-xs text-muted-foreground">Edited {known.changes.length} {known.changes.length === 1 ? 'file' : 'files'}{known.status !== 'completed' ? ` · ${known.status}` : ''}</p>
 		{#each known.changes as change, index (index)}
 			<details>
 				<summary class="cursor-pointer break-words [overflow-wrap:anywhere] font-mono text-xs">{change.kind.type} {change.path}</summary>
@@ -85,9 +84,9 @@
 	{:else if known.type === 'plan'}
 		<Markdown content={known.text} />
 	{:else if known.type === 'mcpToolCall'}
-		<p class="text-muted-foreground">Tool {known.server}/{known.tool} · {known.status}</p>
+		<p class="text-muted-foreground">Tool {known.server}/{known.tool}{known.status !== 'completed' ? ` · ${known.status}` : ''}</p>
 	{:else if known.type === 'dynamicToolCall'}
-		<p class="text-muted-foreground">Tool {known.namespace ? `${known.namespace}/` : ''}{known.tool} · {known.status}</p>
+		<p class="text-muted-foreground">Tool {known.namespace ? `${known.namespace}/` : ''}{known.tool}{known.status !== 'completed' ? ` · ${known.status}` : ''}</p>
 	{:else if known.type === 'webSearch'}
 		<p class="text-muted-foreground">Web search: {known.query}</p>
 	{:else if known.type === 'contextCompaction'}
@@ -107,7 +106,7 @@
 	{:else if known.type === 'functionCallOutput'}
 		<p class="text-muted-foreground">Function output: {known.name}</p>
 	{:else if known.type === 'collabAgentToolCall'}
-		<p class="text-muted-foreground">Agent tool: {known.tool} · {known.status}</p>
+		<p class="text-muted-foreground">Agent tool: {known.tool}{known.status !== 'completed' ? ` · ${known.status}` : ''}</p>
 	{:else if known.type === 'subAgentActivity'}
 		<p class="text-muted-foreground">Agent activity: {known.kind} · {known.agentPath}</p>
 	{:else}
