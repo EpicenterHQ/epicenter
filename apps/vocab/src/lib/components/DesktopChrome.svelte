@@ -9,6 +9,7 @@
 	import { auth } from '#platform/auth';
 	import { getFolderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
+	import FolderOnboarding from '@epicenter/svelte/folder-onboarding';
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import type { StatusLine } from '@epicenter/svelte/status-line';
@@ -39,7 +40,7 @@
 	<StatusPopover summary={status} details={[{ name: 'Status', testid: 'status-files', line: status }]}>
 		<StatusRow name="Where">
 			<span class="font-medium" data-testid="status-where">This computer</span>
-			<span class="mt-0.5 block break-all text-xs text-muted-foreground" data-testid="status-folder">{sync.path}</span>
+			<FolderOnboarding noun="entries" path={sync.path} pathTestId="status-folder" />
 			<span class="mt-0.5 block text-xs text-muted-foreground">
 				{#if sync.managed}
 					Epicenter keeps its local history. Connect a repository there to use it on other devices.

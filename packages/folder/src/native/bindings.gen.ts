@@ -15,6 +15,11 @@ export const commands = {
 	 */
 	openRoot: (root: Root) => typedError<string, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|open_root", { root })),
 	/**
+	 *  Reveal the shell's named path for `root`. This also works before the root
+	 *  opens: a dangling link is selected as a link, not followed to its target.
+	 */
+	revealRoot: (root: Root) => typedError<null, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|reveal_root", { root })),
+	/**
 	 *  Every file below `root`, `.git` aside, hidden ones included, none of
 	 *  them followed (`storage::list`).
 	 */

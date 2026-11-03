@@ -66,7 +66,7 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
-const { displayPath, openAppData, openDataFolder, openDevice, rootOf } =
+const { displayPath, openAppData, openDataFolder, openDevice, revealRoot, rootOf } =
 	await import('./tauri.js');
 const { storeOf } = await import('./device/client.js');
 
@@ -328,4 +328,10 @@ test('two concurrent opens both hear a later root change', async () => {
 	expect(heard).toEqual({ first: 1, second: 1 });
 	stopFirst();
 	stopSecond();
+});
+
+test('revealRoot sends only the named root to the shell', async () => {
+	shell.calls.length = 0;
+	expectOk(await revealRoot('Data'));
+	expect(shell.calls).toEqual([{ cmd: 'reveal_root', args: { root: 'Data' } }]);
 });

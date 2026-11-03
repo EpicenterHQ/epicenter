@@ -65,6 +65,7 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
         .plugin_name(PLUGIN_NAME)
         .commands(tauri_specta::collect_commands![
             commands::open_root::<tauri::Wry>,
+            commands::reveal_root::<tauri::Wry>,
             commands::list_folder::<tauri::Wry>,
             epicenter::sync_with_epicenter::<tauri::Wry>,
             epicenter::synced_with_epicenter::<tauri::Wry>,

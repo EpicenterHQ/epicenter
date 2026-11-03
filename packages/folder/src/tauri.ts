@@ -12,7 +12,7 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { ChangeListener, ChangeSource } from './changes.js';
 import { createDeviceClient } from './device/client.js';
 import { tauriStore } from './device/tauri-store.js';
-import { OpenDeviceError } from './errors.js';
+import { OpenDeviceError, RevealRootError } from './errors.js';
 import {
 	commands,
 	type FolderEvent,
@@ -87,6 +87,20 @@ export function rootOf(device: Client<Contract>): Root {
  */
 export function displayPath(device: Client<Contract>): string {
 	return openOf(device).path;
+}
+
+/** Ask the shell to show the location it named for `root`, even if it did not open. */
+export async function revealRoot(root: Root): Promise<Result<null, RevealRootError>> {
+	try {
+		const answer = await commands.revealRoot(root);
+		if (answer.error !== null)
+			return RevealRootError.Failed({
+				cause: 'message' in answer.error ? answer.error.message : answer.error.name,
+			});
+		return Ok(null);
+	} catch (cause) {
+		return RevealRootError.Failed({ cause });
+	}
 }
 
 /** A root the shell opened: its display path and watcher's changes. */

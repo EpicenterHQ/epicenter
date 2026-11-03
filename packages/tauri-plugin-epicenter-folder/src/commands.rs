@@ -13,7 +13,10 @@
 //! windows. The folder's Git is not here: the `epicenter` CLI runs it
 //! (ADR-0559).
 
+use std::ffi::OsString;
+use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
 
 use epicenter_folder_core::storage::{self, ListedFile, PutOutcome, StorageError};
 use serde::Serialize;
@@ -104,6 +107,106 @@ pub async fn open_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<St
         },
     )
     .await
+}
+
+/// Reveal the shell's named path for `root`. This also works before the root
+/// opens: a dangling link is selected as a link, not followed to its target.
+#[tauri::command]
+#[specta::specta]
+pub async fn reveal_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<(), RootError> {
+    let path = webview.state::<Roots>().path(root)?;
+    let folder = path.display().to_string();
+    let lost_folder = folder.clone();
+    blocking(
+        move || {
+            let location = reveal_location(&path);
+            let (program, arguments) = reveal_command(location);
+            Command::new(program)
+                .args(arguments)
+                .status()
+                .and_then(|status| {
+                    if status.success() {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::other(format!(
+                            "{program} exited with {status}"
+                        )))
+                    }
+                })
+                .map_err(|cause| RootError::Unavailable {
+                    folder,
+                    message: cause.to_string(),
+                })
+        },
+        |message| {
+            Err(RootError::Unavailable {
+                folder: lost_folder,
+                message,
+            })
+        },
+    )
+    .await
+}
+
+#[cfg(test)]
+mod reveal_tests {
+    use super::*;
+
+    #[test]
+    fn reveal_arguments_keep_the_location_as_one_argument() {
+        let path = Path::new("/tmp/notes with spaces");
+        let (program, arguments) = reveal_command(path);
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            (program, arguments),
+            ("open", vec![OsString::from("-R"), path.as_os_str().into()])
+        );
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            (program, arguments),
+            (
+                "explorer",
+                vec![OsString::from("/select,"), path.as_os_str().into()]
+            )
+        );
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        assert_eq!(
+            (program, arguments),
+            ("xdg-open", vec![path.parent().unwrap().as_os_str().into()])
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_link_is_the_revealed_entry_even_above_the_root() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let link = temp.path().join("Epicenter");
+        symlink(temp.path().join("missing"), &link).unwrap();
+        assert_eq!(reveal_location(&link), link);
+        assert_eq!(reveal_location(&link.join("capture")), link);
+    }
+}
+
+/// The file manager request, with the location as one unparsed argument.
+fn reveal_command(path: &Path) -> (&'static str, Vec<OsString>) {
+    #[cfg(target_os = "macos")]
+    return ("open", vec!["-R".into(), path.as_os_str().into()]);
+    #[cfg(target_os = "windows")]
+    return ("explorer", vec!["/select,".into(), path.as_os_str().into()]);
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    return (
+        "xdg-open",
+        vec![path.parent().unwrap_or(path).as_os_str().into()],
+    );
+}
+
+/// The named entry, or the closest entry that exists without following links.
+fn reveal_location(path: &Path) -> &Path {
+    path.ancestors()
+        .find(|ancestor| std::fs::symlink_metadata(ancestor).is_ok())
+        .unwrap_or(path)
 }
 
 /// The folder `root` reached when the app opened it, for one command

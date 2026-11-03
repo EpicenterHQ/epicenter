@@ -6,6 +6,7 @@
 <script lang="ts">
 	import { getFolderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
+	import FolderOnboarding from '@epicenter/svelte/folder-onboarding';
 	import LocalModelAdministration from '@epicenter/transcription-native/local-model-administration';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -57,7 +58,7 @@
 
 <section class="flex flex-col gap-2 text-xs" data-testid="desktop-folder">
 	<p class="text-sm font-medium">Data folder</p>
-	<p class="break-all text-muted-foreground" data-testid="desktop-folder-path">{sync.path}</p>
+	<FolderOnboarding noun="recordings" path={sync.path} pathTestId="desktop-folder-path" />
 	<p class="text-muted-foreground">
 		Plain files: a Markdown note per recording beside its audio. Whispering never syncs them;
 		{#if sync.managed}Epicenter keeps this folder's local history.{:else}Epicenter can keep its history when you ask it to.{/if}

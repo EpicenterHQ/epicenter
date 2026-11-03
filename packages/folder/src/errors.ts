@@ -40,6 +40,15 @@ export const OpenDeviceError = defineErrors({
 });
 export type OpenDeviceError = InferErrors<typeof OpenDeviceError>;
 
+/** Why the desktop shell could not show a named root in the file manager. */
+export const RevealRootError = defineErrors({
+	Failed: ({ cause }: { cause: unknown }) => ({
+		message: `Could not show this folder: ${describe(cause)}`,
+		cause,
+	}),
+});
+export type RevealRootError = InferErrors<typeof RevealRootError>;
+
 function describe(cause: unknown): string {
 	if (cause instanceof Error) return cause.message;
 	if (

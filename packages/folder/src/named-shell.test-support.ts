@@ -101,6 +101,9 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 	}
 
 	const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
+		async reveal_root() {
+			return null;
+		},
 		async open_root(args) {
 			const named = args.root as Root;
 			const refused = control.refuse(named);

@@ -1,10 +1,11 @@
 ## Default Permission
 
-Open the roots the shell named (Data and AppData), show the path the shell named each at, read and change their files through the shell, and ask Epicenter to sync them.
+Open and reveal the roots the shell named (Data and AppData), show their paths, read and change their files through the shell, and ask Epicenter to sync them.
 
 #### This default permission set includes the following:
 
 - `allow-open-root`
+- `allow-reveal-root`
 - `allow-list-folder`
 - `allow-read-folder-file`
 - `allow-put-folder-file`
@@ -120,6 +121,32 @@ Enables the read_folder_file command without any pre-configured scope.
 <td>
 
 Denies the read_folder_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:allow-reveal-root`
+
+</td>
+<td>
+
+Enables the reveal_root command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-reveal-root`
+
+</td>
+<td>
+
+Denies the reveal_root command without any pre-configured scope.
 
 </td>
 </tr>
