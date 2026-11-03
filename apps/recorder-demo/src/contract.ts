@@ -3,14 +3,13 @@
  * when it was recorded and how long it is, beside its audio at the same id.
  * The audio's extension is whatever the browser recorded (`m4a` or `webm`).
  *
- * Its name makes the repository `<account>/recorder-demo` (decision 46). It
+ * The online demo explicitly opens `<account>/recorder-demo`. The contract
  * is published, unchanged, as `public/contract.json` (`bun run contract`
  * writes it), so `epicenter check <url>/contract.json <dir>` checks a clone.
  */
 import { defineContract } from '@epicenter/definition/contract';
 
 export const recorder = defineContract({
-	name: 'recorder-demo',
 	description:
 		'Voice recordings: a note per recording, and its audio beside it.',
 	collections: {

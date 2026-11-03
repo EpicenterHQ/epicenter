@@ -26,7 +26,6 @@ const command = binary
 	: [process.execPath, '--no-install', resolve(import.meta.dir, 'bin.ts')];
 
 const contract = {
-	name: 'recorder',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',
@@ -101,12 +100,18 @@ test('check passes a folder whose files fit, skipping hidden paths', async () =>
 
 test('check reads a local contract from AGENTS.md and excludes that root note', async () => {
 	const { folder, contractPath, write, run } = await setup();
-	await write('AGENTS.md', `---\n"contract": ../contract.json\ndate: 2024-01-01\n---\nMy own advice.\n`);
+	await write(
+		'AGENTS.md',
+		`---\n"contract": ../contract.json\ndate: 2024-01-01\n---\nMy own advice.\n`,
+	);
 	expect(run('check', folder)).toMatchObject({
 		exitCode: 0,
 		stdout: '2 files fit; 0 files do not.\n',
 	});
-	await writeFile(contractPath, JSON.stringify({ name: 'other', collections: { other: { path: 'other/{id}.md' } } }));
+	await writeFile(
+		contractPath,
+		JSON.stringify({ collections: { other: { path: 'other/{id}.md' } } }),
+	);
 	expect(run('check', folder).exitCode).toBe(1);
 	const explicit = join(folder, '..', 'explicit.json');
 	await writeFile(explicit, JSON.stringify(contract));
@@ -178,14 +183,11 @@ test('check takes the contract as a URL, and the folder defaults to the working 
 test('a contract that cannot be read or is not well formed, or a missing folder, exits 2 and creates nothing', async () => {
 	const { parent, folder, contractPath, run } = await setup();
 	expect(run('check', join(parent, 'none.json'), folder).exitCode).toBe(2);
-	await writeFile(contractPath, '{"name": "recorder",');
+	await writeFile(contractPath, '{"collections":');
 	const notJson = run('check', contractPath, folder, '--json');
 	expect(notJson.exitCode).toBe(2);
 	expect(JSON.parse(notJson.stdout).error).toContain('not JSON');
-	await writeFile(
-		contractPath,
-		JSON.stringify({ name: 'recorder', collections: {} }),
-	);
+	await writeFile(contractPath, JSON.stringify({ collections: {} }));
 	const malformed = run('format', contractPath, folder);
 	expect(malformed.exitCode).toBe(2);
 	expect(malformed.stderr).toContain('declares no collections');

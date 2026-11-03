@@ -14,7 +14,7 @@ makes the client reactive with `fromClient` from
 | --- | --- |
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
-| `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
+| `@epicenter/folder/remote` | `openRemote(contract, { account, site })` over the signed-in person's repository. |
 | `@epicenter/folder/tauri` | `openDevice(contract, { root })` opens a root the shell named, `Data` or `AppData`; `openDataFolder(contract, contractUrl)` opens Data and updates its root `AGENTS.md`, while `openAppData(settingsContract)` opens AppData. `rootOf(device)` answers the root's name for local transcription, and `displayPath(device)` the path to show, which `open_root` answered. `syncWithEpicenter` and `syncedWithEpicenter` manage Epicenter enrollment. |
 | `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 
@@ -85,9 +85,8 @@ whole note from text that reads and fits, in house style. `updateNote`
 `Conflict`; `fromClient` in `@epicenter/svelte/client` is the Svelte state
 over a client.
 
-`openRemote(contract, { account })` returns the same client over the
-signed-in person's repository for the app, `<git audience>/~/<contract
-name>.git`, through `account.fetch` (any `@epicenter/auth` `Account`). A
+`openRemote(contract, { account, site })` returns the same client over the
+signed-in person's repository for the app, `<git audience>/~/<name derived from site>.git`, through `account.fetch` (any `@epicenter/auth` `Account`). A
 remote version is the Git blob id on `main`, and every write is one commit.
 It keeps nothing on the device: it works online only, and stops when the
 account is retired.
@@ -95,7 +94,7 @@ account is retired.
 ```ts
 import { openRemote } from '@epicenter/folder/remote';
 
-const remote = openRemote(recorder, { account });
+const remote = openRemote(recorder, { account, site: 'https://whispering.epicenter.so' });
 const note = await remote.recordings.get({ id });
 if (note.error === null)
 	await remote.recordings.update({ id }, { title: 'Daily' }, { over: note.data.version });

@@ -19,7 +19,6 @@ import { defineContract } from './contract.js';
 import { updateNote } from './update-note.js';
 
 const todos = defineContract({
-	name: 'todos',
 	collections: {
 		todos: {
 			path: 'todos/{id}.md',

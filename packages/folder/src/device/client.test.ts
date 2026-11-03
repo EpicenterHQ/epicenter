@@ -28,7 +28,6 @@ import { createDeviceClient, storeOf } from './client.js';
 import type { DeviceStore } from './store.js';
 
 const recorder = defineContract({
-	name: 'recorder',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',

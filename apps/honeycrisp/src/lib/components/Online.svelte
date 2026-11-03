@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';
+	import { APPS } from '@epicenter/constants/apps';
 	import { openRemote } from '@epicenter/folder/remote';
 	import { fromClient } from '@epicenter/svelte/client';
 	import type { Snippet } from 'svelte';
@@ -15,7 +16,7 @@
 	const { account, children }: { account: Account; children: Snippet } = $props();
 
 	// svelte-ignore state_referenced_locally
-	const files = fromClient(openRemote(honeycrisp, { account }));
+	const files = fromClient(openRemote(honeycrisp, { account, site: APPS.HONEYCRISP.url }));
 	setNotes(files.notes);
 	setFolders(files.folders);
 </script>

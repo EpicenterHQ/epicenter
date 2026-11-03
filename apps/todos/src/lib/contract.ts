@@ -10,7 +10,6 @@
 import { defineContract } from '@epicenter/definition/contract';
 
 export const todos = defineContract({
-	name: 'todos',
 	description:
 		'Todos: a Markdown note per todo, its title and done in front matter, its notes in the body.',
 	collections: {

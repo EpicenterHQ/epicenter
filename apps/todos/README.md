@@ -109,7 +109,7 @@ routes/+layout.svelte          every page: the chrome and the leave guard
 routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: setTodos(fromClient(openRemote(todos, { account })).todos)
+    Online.svelte              {#key account}: setTodos(fromClient(openRemote(todos, { account, site: APPS.TODOS.url })).todos)
   Startup.svelte               desktop: DesktopStartup over the contract
     DesktopRoot.svelte         setTodos(fromClient(device).todos), setFolderSync
 routes/(app)/+page.svelte      TodosApp over the todos the root set (getTodos)

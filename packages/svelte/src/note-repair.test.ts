@@ -20,7 +20,6 @@ const { default: NoteRepair } = await import('./note-repair.svelte');
 const { cell } = await import('./reactive.test-support.svelte.js');
 
 const todos = defineContract({
-	name: 'todos',
 	collections: {
 		todos: {
 			path: 'todos/{id}.md',

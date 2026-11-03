@@ -22,7 +22,6 @@ import { defineContract } from '@epicenter/definition/contract';
 const text = { type: 'string' } as const;
 
 export const vocab = defineContract({
-	name: 'vocab',
 	description:
 		'Vocab: a Markdown note per saved expression (the learner’s note in its body), per tutor chat, and per finished chat message.',
 	collections: {

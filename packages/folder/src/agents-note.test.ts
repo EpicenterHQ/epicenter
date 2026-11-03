@@ -11,7 +11,6 @@ import { defineContract } from '@epicenter/definition/contract';
 import { withAgentsNote } from './agents-note.js';
 
 const contract = defineContract({
-	name: 'notes',
 	description: 'Notes and their attachments.',
 	collections: {
 		notes: { path: 'notes/{id}.md' },

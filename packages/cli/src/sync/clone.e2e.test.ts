@@ -144,7 +144,7 @@ test('implicit clone falls back when AGENTS.md or its contract key is missing', 
 	}
 }, 60_000);
 
-test('explicit directory wins over the contract name', async () => {
+test('explicit directory wins over the site-derived folder name', async () => {
 	const f = fixture();
 	try {
 		const source = await f.remote(

@@ -40,7 +40,6 @@ function compiledOf(collection: Collection): CompiledCollection {
 	const known = compiled.get(collection);
 	if (known !== undefined) return known;
 	const contract = compileContract({
-		name: 'note-text',
 		collections: { notes: collection },
 	});
 	if (contract.error !== null)

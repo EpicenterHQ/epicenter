@@ -28,7 +28,6 @@ type Equal<X, Y> =
 type Expect<T extends true> = T;
 
 const recorder = defineContract({
-	name: 'whispering',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',
@@ -172,7 +171,6 @@ export async function refusals() {
 
 /** Nested fields: an array of objects, a union of objects told apart by a `const`, and any JSON (`{}`). */
 const tutor = defineContract({
-	name: 'tutor',
 	collections: {
 		chats: {
 			path: 'chats/{id}.md',

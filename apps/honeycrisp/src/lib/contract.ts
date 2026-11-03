@@ -19,7 +19,6 @@
 import { defineContract } from '@epicenter/definition/contract';
 
 export const honeycrisp = defineContract({
-	name: 'honeycrisp',
 	description:
 		'Markdown notes: a note per file, its title, folder, pin and creation time in front matter, its text in the body; folders are notes of their own that notes name by id.',
 	collections: {

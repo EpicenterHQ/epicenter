@@ -20,7 +20,7 @@ grants capabilities, never storage.
 | --- | --- | --- |
 | Desktop | a folder on the computer | `openDataFolder` and optional `openAppData` from `@epicenter/folder/tauri` |
 | Local web | this browser's files (OPFS), for good | `openDevice(contract)` from `@epicenter/folder/browser` |
-| Online web | the person's repository, behind sign-in | `openRemote(contract, { account })` from `@epicenter/folder/remote` |
+| Online web | the person's repository, behind sign-in | `openRemote(contract, { account, site })` from `@epicenter/folder/remote` |
 
 | App | Variants |
 | --- | --- |
@@ -85,7 +85,7 @@ desktop root does over its folder:
 <!-- apps/todos/src/lib/components/Online.svelte -->
 <script lang="ts">
   const { account, children } = $props();
-  setTodos(fromClient(openRemote(todos, { account })).todos); // wrapped once, where it is made
+  setTodos(fromClient(openRemote(todos, { account, site: APPS.TODOS.url })).todos); // wrapped once, where it is made
 </script>
 
 {@render children()}

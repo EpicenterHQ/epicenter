@@ -40,7 +40,6 @@ const instant = {
 } as const;
 
 export const whispering = defineContract({
-	name: 'whispering',
 	description:
 		'Voice notes: a note per recording beside its audio, its transcripts, reusable recipes, the results of applying them, and the desktop shortcut.',
 	collections: {

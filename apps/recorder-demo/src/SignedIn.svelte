@@ -19,10 +19,10 @@
 		| `${string}/${string}`
 		| null;
 	// svelte-ignore state_referenced_locally
-	const repo = openRemote(
-		recorder,
-		shared ? { account, repository: shared } : { account },
-	);
+	const repo = openRemote(recorder, {
+		account,
+		repository: shared ?? '~/recorder-demo',
+	});
 </script>
 
 <p class="meta">

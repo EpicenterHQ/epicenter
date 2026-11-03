@@ -99,7 +99,7 @@ routes/+layout.svelte          every page: the chrome and the leave guard
 routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: setCaptureList(fromClient(openRemote(capture, { account })).captures)
+    Online.svelte              {#key account}: setCaptureList(fromClient(openRemote(capture, { account, site: APPS.CAPTURE.url })).captures)
   Startup.svelte               desktop: DesktopStartup over the contract
     DesktopRoot.svelte         setCaptureList(fromClient(device).captures), setFolderSync
 routes/(app)/+page.svelte      CaptureApp over the captures the root set (getCaptureList)

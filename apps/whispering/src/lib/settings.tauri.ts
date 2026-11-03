@@ -13,7 +13,6 @@ import { defineContract, type Version } from '@epicenter/definition/contract';
 import { whispering } from './contract.js';
 
 export const whisperingSettings = defineContract({
-	name: 'whispering-settings',
 	description:
 		"Whispering's `shortcuts.md` overrides the data folder's on this computer.",
 	collections: {

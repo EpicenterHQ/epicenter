@@ -17,7 +17,6 @@ import { checkContract } from './check.js';
 import { defineContract } from './contract.js';
 
 const recorder = defineContract({
-	name: 'whispering',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',
@@ -101,7 +100,7 @@ test('field failures are issues by field, at the line of the value', () => {
 
 test('a malformed contract is the error', () => {
 	const error = expectErr(
-		checkContract({ name: 'x', collections: { a: { path: '/a.md' } } }, []),
+		checkContract({ collections: { a: { path: '/a.md' } } }, []),
 	);
 	expect(error.name).toBe('Malformed');
 });

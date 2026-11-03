@@ -20,7 +20,6 @@ import {
 } from '@epicenter/definition/contract';
 
 export const capture = defineContract({
-	name: 'capture',
 	description:
 		'Capture: a Markdown note per capture, when it was captured in front matter, its text and then its thoughts under "## Thoughts" in the body.',
 	collections: {

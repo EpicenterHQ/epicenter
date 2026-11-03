@@ -19,7 +19,6 @@ export const CONTRACT_URL = `${APPS.VOCAB.url}/contract.json`;
  *   keychain name).
  */
 export const vocabSettings = defineContract({
-	name: 'vocab-settings',
 	description:
 		"Vocab's connected endpoints on this computer: each one's id, name, base URL and models. Their keys are in the keychain.",
 	collections: {

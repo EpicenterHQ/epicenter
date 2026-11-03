@@ -22,7 +22,6 @@ import { defineContract } from '@epicenter/definition/contract';
 const mode = { enum: ['demo', 'live'] } as const;
 
 export const messages = defineContract({
-	name: 'messages',
 	description:
 		'Messages: a Markdown note per conversation draft, and one for the latest send from it, kept on the device.',
 	collections: {

@@ -71,7 +71,6 @@ const { displayPath, openAppData, openDataFolder, openDevice, revealRoot, rootOf
 const { storeOf } = await import('./device/client.js');
 
 const notes = defineContract({
-	name: 'notes',
 	collections: {
 		notes: {
 			path: 'notes/{id}.md',
@@ -83,7 +82,6 @@ const notes = defineContract({
 
 /** A machine-local settings contract over the AppData root. */
 const notesSettings = defineContract({
-	name: 'notes-settings',
 	collections: {
 		settings: { path: 'settings.md', fields: { theme: { type: 'string' } } },
 	},

@@ -23,7 +23,10 @@ afterEach(async () => {
 async function start() {
 	const root = await mkdtemp(join(tmpdir(), 'messages-serve-'));
 	await writeFile(join(root, 'index.html'), '<p>Messages</p>');
-	await writeFile(join(root, 'contract.json'), '{"name":"messages"}');
+	await writeFile(
+		join(root, 'contract.json'),
+		'{"collections":{"messages":{"path":"messages/{id}.md"}}}',
+	);
 	const asked: unknown[] = [];
 	const server = serveMessages({
 		root,
@@ -45,7 +48,7 @@ test('the build is served, any other route gets the app, and nothing outside the
 	const { origin } = await start();
 	expect(await (await fetch(`${origin}/`)).text()).toBe('<p>Messages</p>');
 	expect(await (await fetch(`${origin}/contract.json`)).json()).toEqual({
-		name: 'messages',
+		collections: { messages: { path: 'messages/{id}.md' } },
 	});
 	expect(await (await fetch(`${origin}/chats/anything`)).text()).toBe(
 		'<p>Messages</p>',

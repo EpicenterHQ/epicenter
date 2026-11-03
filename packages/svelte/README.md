@@ -34,7 +34,7 @@ root's setup, never after an `await`:
 export const [getTodos, setTodos] = createContext<ReactiveNotes<TodoNotes>>();
 
 // The root, where the client is made
-const files = fromClient(device); // or fromClient(openRemote(todos, { account }))
+const files = fromClient(device); // or fromClient(openRemote(todos, { account, site: 'https://todos.epicenter.so' }))
 setTodos(files.todos);
 ```
 
@@ -90,7 +90,7 @@ The local variant's startup opens this browser's files
 (`await openDevice(contract)`); it works signed out and offline, and signing
 in only adds hosted capabilities. The online variant, under a signed-in
 layout, opens the person's repository through the server
-(`openRemote(contract, { account })`). Either root wraps its client once and
+(`openRemote(contract, { account, site })`). Either root wraps its client once and
 sets the same collection contexts, so the pages never know which store they
 read. A page uses one or the other, never both.
 

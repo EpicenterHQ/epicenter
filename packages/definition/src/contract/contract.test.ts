@@ -9,7 +9,7 @@
  * Key behaviors:
  * - A note path is claimed only by a note collection, any other path only by a file collection
  * - Collections of one kind that could name the same file are refused
- * - A contract's name is a lowercase slug; `$schema` and `description` are allowed beside it
+ * - A contract's name comes from its site; `$schema` and `description` are allowed
  * - Names a value reserves, placeholder and field collisions, and unknown keys are refused
  * - Field schemas follow the same portability rules as table fields
  * - `checkFields` reads `required` as JSON Schema does; `pathOf` never lets a file collection name a note
@@ -19,15 +19,15 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { compileContract, defineContract } from './contract.js';
 
 test('a collection cannot claim the root AGENTS.md note', () => {
-	const error = expectErr(compileContract({
-		name: 'notes',
-		collections: { notes: { path: '{id}.md' } },
-	}));
+	const error = expectErr(
+		compileContract({
+			collections: { notes: { path: '{id}.md' } },
+		}),
+	);
 	expect(error.reason).toContain('AGENTS.md');
 });
 
 const recorder = defineContract({
-	name: 'whispering',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',
@@ -66,22 +66,26 @@ test('a published contract compiles as the code one does', () => {
 	]);
 });
 
-test('a name is a lowercase slug, and $schema and description may sit beside it', () => {
-	for (const name of ['whispering', 'quick-capture', '2do', 'x'])
-		expectOk(compileContract({ name, collections: { a: { path: 'a.md' } } }));
+test('a contract has no name, and $schema and description may sit beside collections', () => {
 	const described = defineContract({
 		$schema: 'https://epicenter.so/schemas/contract.json',
-		name: 'whispering',
 		description: 'Recordings and their transcripts.',
 		collections: { recordings: { path: 'recordings/{id}.md' } },
 	});
-	expect(expectOk(compileContract(described)).name).toBe('whispering');
+	expectOk(compileContract(described));
+	const error = expectErr(
+		compileContract({
+			name: 'whispering',
+			collections: { recordings: { path: 'recordings/{id}.md' } },
+		}),
+	);
+	expect(error.reason).toContain("'name'");
+	expect(error.reason).toContain('name comes from its site');
 });
 
 test('two collections of one kind that can name the same file are refused', () => {
 	const error = expectErr(
 		compileContract({
-			name: 'x',
 			collections: {
 				notes: { path: 'notes/{id}.md' },
 				index: { path: 'notes/index.md' },
@@ -96,46 +100,36 @@ test('malformed contracts are refused with a reason', () => {
 	const malformed: unknown[] = [
 		null,
 		[],
-		{ name: 'x' },
-		{ name: '', collections: { a: { path: 'a.md' } } },
-		{ name: 'x', collections: {} },
-		{ name: 'x', collections: { a: { path: 'a.md' } }, kind: 'note' },
-		{ name: 'wong/whispering', collections: { a: { path: 'a.md' } } },
-		{ name: 'Whispering', collections: { a: { path: 'a.md' } } },
-		{ name: '-whispering', collections: { a: { path: 'a.md' } } },
-		{ name: 'quick capture', collections: { a: { path: 'a.md' } } },
-		{ name: 'x', $schema: 1, collections: { a: { path: 'a.md' } } },
-		{ name: 'x', description: ['x'], collections: { a: { path: 'a.md' } } },
-		{ name: 'x', collections: { 'bad-name': { path: 'a.md' } } },
-		{ name: 'x', collections: { a: { path: 'a.md', id: 'id' } } },
-		{ name: 'x', collections: { a: { path: '../a.md' } } },
-		{ name: 'x', collections: { a: { path: 'a/{body}.md' } } },
-		{ name: 'x', collections: { a: { path: 'a/{version}.{ext}' } } },
+		{},
+		{ collections: {} },
+		{ collections: { a: { path: 'a.md' } }, kind: 'note' },
+		{ $schema: 1, collections: { a: { path: 'a.md' } } },
+		{ description: ['x'], collections: { a: { path: 'a.md' } } },
+		{ collections: { 'bad-name': { path: 'a.md' } } },
+		{ collections: { a: { path: 'a.md', id: 'id' } } },
+		{ collections: { a: { path: '../a.md' } } },
+		{ collections: { a: { path: 'a/{body}.md' } } },
+		{ collections: { a: { path: 'a/{version}.{ext}' } } },
 		{
-			name: 'x',
 			collections: {
 				a: { path: 'a/{id}.md', fields: { body: { type: 'string' } } },
 			},
 		},
 		{
-			name: 'x',
 			collections: {
 				a: { path: 'a/{id}.md', fields: { id: { type: 'string' } } },
 			},
 		},
 		{
-			name: 'x',
 			collections: {
 				a: { path: 'a/{id}.webm', fields: { t: { type: 'string' } } },
 			},
 		},
-		{ name: 'x', collections: { a: { path: 'a/{id}.webm', required: [] } } },
+		{ collections: { a: { path: 'a/{id}.webm', required: [] } } },
 		{
-			name: 'x',
 			collections: { a: { path: 'a/{id}.md', fields: { t: 'string' } } },
 		},
 		{
-			name: 'x',
 			collections: {
 				a: {
 					path: 'a/{id}.md',
@@ -144,13 +138,11 @@ test('malformed contracts are refused with a reason', () => {
 			},
 		},
 		{
-			name: 'x',
 			collections: {
 				a: { path: 'a/{id}.md', fields: { t: { $ref: '#/nowhere' } } },
 			},
 		},
 		{
-			name: 'x',
 			collections: {
 				a: {
 					path: 'a/{id}.md',

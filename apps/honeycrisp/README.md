@@ -155,7 +155,7 @@ routes/+layout.svelte          every page: the chrome and the leave guard
 routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: setNotes/setFolders(fromClient(openRemote(honeycrisp, { account })))
+    Online.svelte              {#key account}: setNotes/setFolders(fromClient(openRemote(honeycrisp, { account, site: APPS.HONEYCRISP.url })))
   Startup.svelte               desktop: DesktopStartup over the contract
     DesktopRoot.svelte         setNotes/setFolders(fromClient(device)), setFolderSync
 routes/(app)/+page.svelte      HoneycrispApp over the notes and folders the root set

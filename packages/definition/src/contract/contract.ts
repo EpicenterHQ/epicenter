@@ -1,10 +1,8 @@
 /**
  * A contract: the layout of an app's files, as plain data (decisions 1 to 5).
  *
- * A contract has a `name` and `collections`. The name is the app's
- * (`whispering`), a lowercase slug, not a repository address: a repository
- * is `<account>/<name>` (decision 46). A collection has a `path`
- * template; one whose path ends in `.md` holds notes, whose front matter
+ * A contract has `collections` and optional descriptive metadata. A collection
+ * has a `path` template; one whose path ends in `.md` holds notes, whose front matter
  * `fields` are JSON Schema properties, and any other holds files (decision
  * 3). Placeholders in the path (`{id}`, `{date}`) are what a writer passes to
  * name a file; nothing is minted for it (decision 5, see `ids.ts`).
@@ -50,27 +48,18 @@ export type Collection = {
 };
 
 /**
- * An app's contract: its name and its collections, by the name the client
- * uses. `$schema` and `description` are there for the published JSON, so an
+ * An app's contract: its collections, by the name the client uses.
+ * `$schema` and `description` are there for the published JSON, so an
  * editor can validate it and a person can read what it is for.
  */
 export type Contract = {
 	readonly $schema?: string;
-	/** The app's name: a lowercase slug (`whispering`, `quick-capture`). */
-	readonly name: string;
 	readonly description?: string;
 	readonly collections: { readonly [collection: string]: Collection };
 };
 
-/** An app's name: lowercase letters, digits and `-`, starting with a letter or digit. */
-const APP_NAME = /^[a-z0-9][a-z0-9-]*$/;
 /** The keys a contract may hold. */
-const CONTRACT_KEYS = new Set([
-	'$schema',
-	'name',
-	'description',
-	'collections',
-]);
+const CONTRACT_KEYS = new Set(['$schema', 'description', 'collections']);
 
 /**
  * Write a contract with its literal types kept: the identity function, so
@@ -79,7 +68,6 @@ const CONTRACT_KEYS = new Set([
  * @example
  * ```ts
  * const recorder = defineContract({
- *   name: 'whispering',
  *   collections: {
  *     recordings: {
  *       path: 'recordings/{id}.md',
@@ -129,13 +117,9 @@ export function compileContract(
 	);
 	if (unknown.length > 0)
 		return malformed(
-			`it declares ${unknown.map((key) => `'${key}'`).join(', ')}; a contract declares $schema, name, description and collections`,
+			`it declares ${unknown.map((key) => `'${key}'`).join(', ')}; a contract declares $schema, description and collections; the app's name comes from its site`,
 		);
-	const { $schema, name, description, collections } = contract;
-	if (typeof name !== 'string' || !APP_NAME.test(name))
-		return malformed(
-			`its name ${JSON.stringify(name)} is not an app name: lowercase letters, digits and '-', such as 'whispering'`,
-		);
+	const { $schema, description, collections } = contract;
 	for (const [key, value] of [
 		['$schema', $schema],
 		['description', description],
@@ -156,12 +140,11 @@ export function compileContract(
 				return malformed(
 					`'${a.name}' (${a.template.source}) and '${b.name}' (${b.template.source}) can name the same file`,
 				);
-	return Ok(compiledContract(name, compiled));
+	return Ok(compiledContract(compiled));
 }
 
-function compiledContract(name: string, collections: CompiledCollection[]) {
+function compiledContract(collections: CompiledCollection[]) {
 	return {
-		name,
 		collections,
 		/**
 		 * The collection that names `path`, with its placeholder values, or

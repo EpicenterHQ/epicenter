@@ -3,7 +3,6 @@
 	import DesktopStartup from '../desktop-startup.svelte';
 
 	const contract = defineContract({
-		name: 'startup-test',
 		collections: {
 			notes: { path: 'notes/{id}.md', fields: { title: { type: 'string' } } },
 		},
