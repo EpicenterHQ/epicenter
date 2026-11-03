@@ -190,6 +190,8 @@ Navigation shortcuts stay inactive inside inputs, textareas, buttons, selects, a
 
 ## Limits and checks
 
+Archive & next removes a conversation from the queue through Codex's thread archive, which is reversible in Codex. The queue removes it only after Codex confirms, then selects the next visible conversation. Archive & next is disabled while Codex is working, an approval is pending, or a reply is in progress. Skip leaves the conversation unarchived.
+
 Queue order stays fixed while reviewing. Reload keeps existing positions, prepends new conversations, and drops removed ones. The queue caps at 5000 conversations. Transcript pages contain ten turns; legacy `thread/read` fallback shows only the last ten. Only a small number of transcripts remain cached in the browser.
 
 `thread/resume` pins policy for that thread in the current app-server session. Resumed threads are tracked until the process exits. The gateway prevents overlapping sends to one thread; work started in another Codex process may require handling there. Transcription is serialized with a 25 MB upload limit and a 120-second timeout per subprocess. WebSocket transport is not used.

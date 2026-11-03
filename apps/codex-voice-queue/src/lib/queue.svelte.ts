@@ -1,6 +1,7 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { type Api, ApiError } from './api.js';
 import type {
+	ArchiveResponse,
 	GatewayState,
 	Health,
 	SendResponse,
@@ -49,6 +50,8 @@ export class VoiceQueue {
 		this.project = null;
 	}
 	selectedId = $state<string | null>(null);
+	archivingId = $state<string | null>(null);
+	archiveFailedId = $state<string | null>(null);
 	loading = $state(false);
 	error = $state<string | null>(null);
 	health = $state.raw<Health | null>(null);
@@ -108,6 +111,48 @@ export class VoiceQueue {
 					this.threads.get(id)?.status.type === 'active'))
 		);
 	}
+	get canArchive() {
+		return (
+			!!this.selectedId &&
+			this.flow === 'idle' &&
+			this.archivingId === null &&
+			!this.isThreadBusy(this.selectedId) &&
+			!this.state?.approvals.some(
+				(approval) => approval.threadId === this.selectedId,
+			)
+		);
+	}
+	async archive() {
+		const id = this.selectedId;
+		if (!this.canArchive || !id || this.#disposed) return;
+		const order = this.order;
+		const title = this.threads.get(id)?.title ?? 'conversation';
+		this.archivingId = id;
+		this.archiveFailedId = null;
+		this.status = `Archiving ${title}`;
+		try {
+			await this.#api.request<ArchiveResponse>(
+				`/api/threads/${encodeURIComponent(id)}/archive`,
+				{ method: 'POST' },
+			);
+			if (this.#disposed) return;
+			this.threads.delete(id);
+			this.order = this.order.filter((item) => item !== id);
+			this.#loads.set(id, (this.#loads.get(id) ?? 0) + 1);
+			this.transcripts.delete(id);
+			this.sent.delete(id);
+			const wasSelected = this.selectedId === id;
+			const next = neighborId(order, new Set(this.visibleOrder), id, 1);
+			if (wasSelected) this.select(next ?? null);
+			this.status = `Archived ${title}${wasSelected && !next ? '. End of queue' : ''}`;
+		} catch (error) {
+			if (this.#disposed) return;
+			this.archiveFailedId = id;
+			this.status = `Could not archive: ${message(error)}`;
+		} finally {
+			this.archivingId = null;
+		}
+	}
 	async start() {
 		await Promise.all([this.reload(), this.#loadHealth(), this.poll()]);
 		if (!this.#disposed)
@@ -142,7 +187,10 @@ export class VoiceQueue {
 			for (const [id, thread] of incoming) this.threads.set(id, thread);
 			this.order = [...fresh, ...existing];
 			this.truncated = response.truncated;
-			if (!this.selectedId || !incoming.has(this.selectedId))
+			if (
+				!this.selectedId ||
+				(!incoming.has(this.selectedId) && this.selectedId !== this.archivingId)
+			)
 				this.select(this.order[0] ?? null);
 		} catch (error) {
 			this.error = message(error);
@@ -258,7 +306,7 @@ export class VoiceQueue {
 		}
 	}
 	async toggleRecord() {
-		if (this.#disposed) return;
+		if (this.archivingId !== null || this.#disposed) return;
 		if (this.flow === 'recording') {
 			await this.stopAndSend();
 			return;
@@ -324,6 +372,7 @@ export class VoiceQueue {
 	}
 	async sendText() {
 		if (
+			this.archivingId !== null ||
 			this.flow !== 'idle' ||
 			!this.selectedId ||
 			this.isBusy ||

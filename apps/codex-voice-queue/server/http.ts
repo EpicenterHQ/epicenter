@@ -191,9 +191,14 @@ export function createHandler({
 				}
 				const turns = url.pathname.match(/^\/api\/threads\/([^/]+)\/turns$/);
 				const approval = url.pathname.match(/^\/api\/approvals\/([^/]+)$/);
-				const id = turns?.[1] ?? approval?.[1];
+				const archive = url.pathname.match(
+					/^\/api\/threads\/([^/]+)\/archive$/,
+				);
+				const id = turns?.[1] ?? approval?.[1] ?? archive?.[1];
 				if (id && !/^[A-Za-z0-9_-]{1,200}$/.test(id))
 					throw new ValidationError('Invalid id');
+				if (archive && id && request.method === 'POST')
+					return json(await service.archiveThread(id));
 				if (turns && id) {
 					if (request.method === 'GET') {
 						const cursor = url.searchParams.get('cursor') ?? undefined;

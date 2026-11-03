@@ -3,6 +3,7 @@
 	import { Kbd } from '@epicenter/ui/kbd';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import Archive from '@lucide/svelte/icons/archive';
 	import Mic from '@lucide/svelte/icons/mic';
 	import Square from '@lucide/svelte/icons/square';
 	import type { VoiceQueue } from '../queue.svelte.js';
@@ -67,7 +68,7 @@
 			<Button
 				class="flex-1 md:flex-none"
 				size="lg"
-				disabled={!queue.selectedId || queue.isBusy || !queue.recognizedText.trim()}
+				disabled={!!queue.archivingId || !queue.selectedId || queue.isBusy || !queue.recognizedText.trim()}
 				onclick={() => queue.sendText()}
 			>
 				Send
@@ -76,7 +77,7 @@
 			<Button
 				class="flex-1 md:flex-none"
 				size="lg"
-				disabled={!queue.selectedId || (queue.isBusy && queue.flow !== 'recording') || (queue.flow === 'recording' && !queue.recorder.isRecording)}
+				disabled={!!queue.archivingId || !queue.selectedId || (queue.isBusy && queue.flow !== 'recording') || (queue.flow === 'recording' && !queue.recorder.isRecording)}
 				onclick={() => queue.toggleRecord()}
 			>
 				{#if queue.flow === 'recording'}
@@ -88,8 +89,18 @@
 				{/if}
 			</Button>
 		{/if}
+		<Button class="flex-1 md:flex-none" size="lg" onclick={() => queue.archive()} disabled={!queue.canArchive}>
+			{#if queue.archivingId === queue.selectedId && queue.archivingId}
+				<Spinner /> Archiving
+			{:else if queue.archiveFailedId && queue.archiveFailedId === queue.selectedId}
+				Retry archive
+			{:else}
+				<Archive /> Archive &amp; next
+			{/if}
+		</Button>
 		<Button
 			variant="outline"
+			size="lg"
 			onclick={() => queue.next()}
 			disabled={!queue.selectedId || queue.flow !== 'idle'}
 		>

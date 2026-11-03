@@ -565,3 +565,112 @@ test('drops settled receipts older than two hours', async () => {
 		clock.mockRestore();
 	}
 });
+
+test('archive clears live state and resume tracking only after confirmation', async () => {
+	const { fake, service } = setup((message) =>
+		message.method === 'turn/start' ? { turn } : { thread: thread('A', null) },
+	);
+	await service.sendText('A', 'hello', { replyId: 'first' });
+	fake.notify('turn/completed', {
+		threadId: 'A',
+		turn: { ...turn, status: 'completed' },
+	});
+	await waitFor(() => service.getState().live.A?.status === 'completed');
+	expect(await service.archiveThread('A')).toEqual({ threadId: 'A' });
+	expect(
+		fake.messages
+			.filter((message) => message.method === 'thread/archive')
+			.map((message) => message.params),
+	).toEqual([{ threadId: 'A' }]);
+	expect(service.getState().live.A).toBeUndefined();
+	await service.sendText('A', 'again', { replyId: 'second' });
+	expect(
+		fake.messages.filter((message) => message.method === 'thread/resume'),
+	).toHaveLength(2);
+});
+
+test('archive refuses a running turn, active thread, pending approval and in-flight send', async () => {
+	const { fake, service, client } = setup((message) =>
+		message.method === 'turn/start' ? { turn } : { thread: thread('A', null) },
+	);
+	await service.sendText('A', 'hello', { replyId: 'first' });
+	await expect(service.archiveThread('A')).rejects.toBeInstanceOf(BusyError);
+	fake.notify('thread/status/changed', {
+		threadId: 'B',
+		status: { type: 'active', activeFlags: [] },
+	});
+	await waitFor(
+		() => service.getState().live.B?.threadStatus?.type === 'active',
+	);
+	await expect(service.archiveThread('B')).rejects.toBeInstanceOf(BusyError);
+	fake.ask('approval', 'item/commandExecution/requestApproval', {
+		threadId: 'C',
+		turnId: 't',
+		itemId: 'i',
+	});
+	await waitFor(() => service.getState().approvals.length === 1);
+	await expect(service.archiveThread('C')).rejects.toThrow(
+		'Answer the pending approval before archiving this conversation',
+	);
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const ready = client.ensureReady.bind(client);
+	spyOn(client, 'ensureReady').mockImplementation(async () => {
+		await gate;
+		await ready();
+	});
+	const sending = service.sendText('D', 'hello', { replyId: 'other' });
+	await Promise.resolve();
+	await expect(service.archiveThread('D')).rejects.toBeInstanceOf(BusyError);
+	expect(
+		fake.messages.filter((message) => message.method === 'thread/archive'),
+	).toHaveLength(0);
+	release();
+	await sending;
+});
+
+test('failed archive releases its guard and can be retried', async () => {
+	let fail = true;
+	const { service } = setup(() => {
+		if (fail) throw new Error('archive refused');
+		return {};
+	});
+	await expect(service.archiveThread('A')).rejects.toThrow('archive refused');
+	fail = false;
+	expect(await service.archiveThread('A')).toEqual({ threadId: 'A' });
+});
+
+test('in-flight archive refuses another archive and a send', async () => {
+	let finish!: (value: unknown) => void;
+	const { fake, service } = setup(
+		() =>
+			new Promise((resolve) => {
+				finish = resolve;
+			}),
+	);
+	const archiving = service.archiveThread('A');
+	await waitFor(() =>
+		fake.messages.some((message) => message.method === 'thread/archive'),
+	);
+	await expect(service.archiveThread('A')).rejects.toBeInstanceOf(BusyError);
+	await expect(
+		service.sendText('A', 'hello', { replyId: 'first' }),
+	).rejects.toBeInstanceOf(BusyError);
+	finish({});
+	await archiving;
+});
+
+test('thread archived notification clears local live and resumed state', async () => {
+	const { fake, service } = setup((message) =>
+		message.method === 'turn/start' ? { turn } : { thread: thread('A', null) },
+	);
+	await service.sendText('A', 'hello', { replyId: 'first' });
+	fake.notify('thread/archived', { threadId: 'A' });
+	await waitFor(() => !service.getState().live.A);
+	await service.sendText('A', 'again', { replyId: 'second' });
+	expect(
+		fake.messages.filter((message) => message.method === 'thread/resume'),
+	).toHaveLength(2);
+});

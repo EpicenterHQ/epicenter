@@ -1,5 +1,6 @@
 import type {
 	ApprovalPolicy,
+	ArchiveResponse,
 	GatewayState,
 	LiveTurn,
 	Notice,
@@ -124,6 +125,7 @@ export function createCodexService({
 	const live = new Map<string, LiveTurn>();
 	const resumed = new Set<string>();
 	const sending = new Set<string>();
+	const archiving = new Set<string>();
 	const approvals = new Map<
 		string,
 		{ approval: PendingApproval; resolve: (response: ApprovalResponse) => void }
@@ -172,6 +174,12 @@ export function createCodexService({
 	client.onNotification(({ method, params }: RpcNotification) => {
 		if (!params || typeof params !== 'object') return;
 		switch (method) {
+			case 'thread/archived': {
+				const { threadId } = params as { threadId: string };
+				live.delete(threadId);
+				resumed.delete(threadId);
+				break;
+			}
 			case 'turn/started': {
 				const event = params as { threadId: string; turn: Turn };
 				turnChanged(event.threadId, event.turn);
@@ -466,6 +474,35 @@ export function createCodexService({
 				}
 			}
 		},
+		async archiveThread(threadId: string): Promise<ArchiveResponse> {
+			if (
+				live.get(threadId)?.status === 'inProgress' ||
+				live.get(threadId)?.threadStatus?.type === 'active' ||
+				sending.has(threadId) ||
+				archiving.has(threadId)
+			)
+				throw new BusyError();
+			if (
+				[...approvals.values()].some(
+					({ approval }) => approval.threadId === threadId,
+				)
+			)
+				throw new BusyError(
+					'Answer the pending approval before archiving this conversation',
+				);
+			archiving.add(threadId);
+			try {
+				await client.ensureReady();
+				await client.request('thread/archive', { threadId });
+				live.delete(threadId);
+				resumed.delete(threadId);
+				for (const key of fileChanges.keys())
+					if (key.startsWith(`${threadId}:`)) fileChanges.delete(key);
+				return { threadId };
+			} finally {
+				archiving.delete(threadId);
+			}
+		},
 		async sendText(
 			threadId: string,
 			text: string,
@@ -507,7 +544,8 @@ export function createCodexService({
 					throw new ValidationError('Text must contain 1 to 20000 characters');
 				if (
 					live.get(threadId)?.status === 'inProgress' ||
-					sending.has(threadId)
+					sending.has(threadId) ||
+					archiving.has(threadId)
 				)
 					throw new BusyError();
 				sending.add(threadId);

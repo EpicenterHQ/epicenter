@@ -109,3 +109,5 @@ export type TranscriptionResponse = {
 	durationMs: number;
 	model: string;
 };
+
+export type ArchiveResponse = { threadId: string };

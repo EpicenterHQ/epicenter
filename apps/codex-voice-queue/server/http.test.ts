@@ -389,3 +389,38 @@ test('returns app_server for RPC errors and validation for invalid body formats'
 		expect(await response.json()).toMatchObject({ code: 'validation' });
 	}
 });
+
+test('archive accepts a bodyless POST and validates ids', async () => {
+	const fake = createFakeAppServer({ onRequest: () => ({}) });
+	const handler = setup(undefined, fake);
+	const request = (id: string) =>
+		new Request(`http://localhost/api/threads/${id}/archive`, {
+			method: 'POST',
+			headers: { authorization: `Bearer ${token}` },
+		});
+	const response = await handler(request('A'));
+	expect(response.status).toBe(200);
+	expect(await response.json()).toEqual({ threadId: 'A' });
+	const invalid = await handler(request('a%20b'));
+	expect(invalid.status).toBe(400);
+	expect(await invalid.json()).toMatchObject({ code: 'validation' });
+});
+
+test('archive maps RPC failure and busy turns to gateway errors', async () => {
+	const failing = setup(
+		undefined,
+		createFakeAppServer({
+			onRequest: () => {
+				throw new Error('archive refused');
+			},
+		}),
+	);
+	const refused = await failing(post('threads/A/archive', {}));
+	expect(refused.status).toBe(502);
+	expect(await refused.json()).toMatchObject({ code: 'app_server' });
+	const busy = setup(undefined, createFakeAppServer({ onRequest: sendResult }));
+	await busy(post('threads/A/turns', { text: 'hi', replyId: 'reply_123' }));
+	const response = await busy(post('threads/A/archive', {}));
+	expect(response.status).toBe(409);
+	expect(await response.json()).toMatchObject({ code: 'busy' });
+});

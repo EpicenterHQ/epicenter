@@ -5,7 +5,9 @@
 import { expect, test } from 'bun:test';
 import { type Api, ApiError } from './api.js';
 import type {
+	ArchiveResponse,
 	GatewayState,
+	PendingApproval,
 	LiveTurn,
 	SendRequest,
 	SendResponse,
@@ -56,6 +58,11 @@ function state(entries: GatewayState['live'] = {}): GatewayState {
 function fixture() {
 	const bodies: SendRequest[] = [];
 	const reads: string[] = [];
+	const archives: string[] = [];
+	let listed: ThreadSummary[] | null = null;
+	let archive: (path: string) => Promise<ArchiveResponse> = async (path) => ({
+		threadId: path.split('/')[3] ?? '',
+	});
 	let gateway = state();
 	let transcript = turns('v1');
 	let respond: (body: SendRequest) => Promise<SendResponse> = async (body) => ({
@@ -67,6 +74,15 @@ function fixture() {
 	const api: Api = {
 		async request<T>(path: string, init?: RequestInit): Promise<T> {
 			if (path === '/api/state') return gateway as T;
+			if (path === '/api/threads')
+				return {
+					threads: listed ?? [...queue.threads.values()],
+					truncated: false,
+				} as T;
+			if (init?.method === 'POST' && path.endsWith('/archive')) {
+				archives.push(path);
+				return (await archive(path)) as T;
+			}
 			if (init?.method === 'POST') {
 				const body: SendRequest = JSON.parse(String(init.body));
 				bodies.push(body);
@@ -99,6 +115,13 @@ function fixture() {
 		queue,
 		bodies,
 		reads,
+		archives,
+		setThreads(value: ThreadSummary[]) {
+			listed = value;
+		},
+		archive(value: typeof archive) {
+			archive = value;
+		},
 		setState(value: GatewayState) {
 			gateway = value;
 		},
@@ -299,4 +322,146 @@ test('fresh replies stay blocked when Codex is already working', async () => {
 	await f.queue.sendText();
 	expect(f.bodies).toHaveLength(0);
 	expect(f.queue.selectedId).toBe('A');
+});
+
+test('archive removes A only after success and selects B', async () => {
+	const f = fixture();
+	await settle();
+	f.queue.sent.add('A');
+	await f.queue.archive();
+	expect(f.archives).toEqual(['/api/threads/A/archive']);
+	expect(f.queue.threads.has('A')).toBe(false);
+	expect(f.queue.transcripts.has('A')).toBe(false);
+	expect(f.queue.sent.has('A')).toBe(false);
+	expect(f.queue.order).toEqual(['B', 'C']);
+	expect(f.queue.selectedId).toBe('B');
+	expect(f.queue.status).toBe('Archived A');
+	expect(f.queue.archivingId).toBeNull();
+});
+
+test('archive advances to the next visible conversation', async () => {
+	const f = fixture();
+	for (const id of ['A', 'C']) {
+		const thread = f.queue.threads.get(id)!;
+		f.queue.threads.set(id, { ...thread, preview: 'visible' });
+	}
+	f.queue.query = 'visible';
+	await f.queue.archive();
+	expect(f.queue.selectedId).toBe('C');
+	expect(f.queue.order).toEqual(['B', 'C']);
+});
+
+test('archiving the last visible conversation clears selection', async () => {
+	const f = fixture();
+	f.queue.query = 'A';
+	await f.queue.archive();
+	expect(f.queue.selectedId).toBeNull();
+	expect(f.queue.status).toBe('Archived A. End of queue');
+});
+
+test('failed archive preserves the conversation and retries successfully', async () => {
+	const f = fixture();
+	f.archive(async () => {
+		throw new Error('offline');
+	});
+	await f.queue.archive();
+	expect(f.queue.selectedId).toBe('A');
+	expect(f.queue.threads.has('A')).toBe(true);
+	expect(f.queue.order).toEqual(['A', 'B', 'C']);
+	expect(f.queue.archiveFailedId).toBe('A');
+	expect(f.queue.status).toBe('Could not archive: offline');
+	expect(f.queue.archivingId).toBeNull();
+	f.archive(async () => ({ threadId: 'A' }));
+	await f.queue.archive();
+	expect(f.queue.archiveFailedId).toBeNull();
+	expect(f.queue.selectedId).toBe('B');
+	expect(f.queue.threads.has('A')).toBe(false);
+});
+
+test('selection during archive stays on C and reply actions stay blocked', async () => {
+	const f = fixture();
+	let finish!: (value: ArchiveResponse) => void;
+	f.archive(
+		() =>
+			new Promise((resolve) => {
+				finish = resolve;
+			}),
+	);
+	const archiving = f.queue.archive();
+	expect(f.queue.threads.has('A')).toBe(true);
+	expect(f.queue.archivingId).toBe('A');
+	expect(f.queue.canArchive).toBe(false);
+	f.queue.select('C');
+	await f.queue.sendText();
+	await f.queue.toggleRecord();
+	await f.queue.archive();
+	expect(f.bodies).toHaveLength(0);
+	expect(f.queue.flow).toBe('idle');
+	expect(f.archives).toHaveLength(1);
+	finish({ threadId: 'A' });
+	await archiving;
+	expect(f.queue.selectedId).toBe('C');
+	expect(f.queue.threads.has('A')).toBe(false);
+	expect(f.queue.status).toBe('Archived A');
+});
+
+const approval: PendingApproval = {
+	id: 'approval',
+	requestId: 'request',
+	method: 'item/commandExecution/requestApproval',
+	threadId: 'A',
+	turnId: 'turn',
+	itemId: 'item',
+	kind: 'command',
+	changes: null,
+	changesTruncated: false,
+	createdAt: 0,
+};
+
+test('archive is blocked by busy state, approval or reply flow', async () => {
+	const f = fixture();
+	for (const gateway of [
+		state({ A: live('inProgress') }),
+		{ ...state(), approvals: [approval] },
+	]) {
+		f.queue.state = gateway;
+		expect(f.queue.canArchive).toBe(false);
+		await f.queue.archive();
+	}
+	f.queue.state = state();
+	for (const flow of [
+		'recording',
+		'transcribing',
+		'sending',
+		'transcribeFailed',
+		'sendFailed',
+		'sendUnknown',
+		'checking',
+	] as const) {
+		f.queue.flow = flow;
+		expect(f.queue.canArchive).toBe(false);
+		await f.queue.archive();
+	}
+	expect(f.archives).toHaveLength(0);
+});
+
+test('reload missing an in-flight archive target leaves completion to select its neighbor', async () => {
+	const f = fixture();
+	let finish!: (value: ArchiveResponse) => void;
+	f.archive(
+		() =>
+			new Promise((resolve) => {
+				finish = resolve;
+			}),
+	);
+	const archiving = f.queue.archive();
+	f.setThreads(
+		[...f.queue.threads.values()].filter((thread) => thread.id !== 'A'),
+	);
+	await f.queue.reload();
+	expect(f.queue.selectedId).toBe('A');
+	finish({ threadId: 'A' });
+	await archiving;
+	expect(f.queue.selectedId).toBe('B');
+	expect(f.queue.order).toEqual(['B', 'C']);
 });
