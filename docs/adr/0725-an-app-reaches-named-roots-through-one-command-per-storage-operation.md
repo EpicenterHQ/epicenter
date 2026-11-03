@@ -5,6 +5,7 @@
 - **Supersedes:** [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) (a native window edits one directory bound before it exists): a standalone app has one window, and what it may touch belongs to the app, not to a window label.
 - **Amends:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) at "the shell grants the directory": the shell names roots instead of granting paths; [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at "the shell computes the derived path, resolves links, and grants that one path": nothing is resolved or granted, the operating system follows links, and one refusal rule remains.
 - **Unbuilt:** all of it: the `Root` names in `tauri-plugin-epicenter-folder`'s commands; `root_status` and `create_root`; deleting window binding (`src/folders.rs`, `src/windows.rs`), the other-roots scope (`src/scope.rs`), `open_folder`, `resolve_folder`, `data_folder`, the data folder's file-system grant in `tauri-epicenter-standalone`, and `tauri-plugin-persisted-scope`; `@epicenter/folder`'s desktop store calling commands by root and relative path.
+- **Amended by:** [ADR-0726](0726-an-apps-path-is-its-claim.md) at `root_status`, `create_root` and the status values: the shell states no status.
 
 ## Context
 

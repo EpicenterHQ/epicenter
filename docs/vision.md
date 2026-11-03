@@ -130,13 +130,18 @@ Three places, each with one job:
 - **Settings and shortcuts follow you.** Each is a note in the folder; an
   optional note of the same name in AppData overrides it on this device. A
   reader spreads defaults, then the folder's note, then the device's.
-- **No program stores where a folder is**
-  ([ADR-0721](adr/0721-an-apps-folder-is-derived-never-stored.md)). An app
-  shows its folder during onboarding ("Your recordings are files in
-  `~/Epicenter/whispering`"). On its first launch it creates the folder; if
-  the folder already holds files it does not recognize, it offers
-  [Show in Finder] or [Use it anyway]. Later, a missing folder shows
-  [Locate…] or [Start a new folder], never a silent empty one.
+- **An app's path is its claim**
+  ([ADR-0721](adr/0721-an-apps-folder-is-derived-never-stored.md),
+  [ADR-0726](adr/0726-an-apps-path-is-its-claim.md)). No program stores where
+  a folder is. `~/Epicenter/whispering` belongs to Whispering: it opens that
+  path, creates the folder when nothing is there, and reads and writes only
+  its contract's paths. Onboarding shows it ("Your recordings are files in
+  `~/Epicenter/whispering`"). A failure, such as a link to an unplugged
+  drive, is shown plainly with [Retry] and [Show in Finder].
+- **An app reaches named roots, never paths**
+  ([ADR-0725](adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md)).
+  Its page asks the shell to list, read, put, and watch files by root and
+  relative path; the operating system follows links.
 - **Links do the moving.** `epicenter move whispering /Volumes/Archive` moves
   the folder and leaves a link at `~/Epicenter/whispering`; Epicenter's
   "Move…" runs the same command. Apps never move or choose a location.

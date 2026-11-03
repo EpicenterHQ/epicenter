@@ -922,3 +922,4 @@ When you add an ADR, add its row here.
 | [0723](0723-an-apps-site-is-found-by-convention.md) | An app's site is found by convention | Accepted (supersedes 0717) |
 | [0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) | A browser extension keeps its data in a document | Accepted (amends 0227) |
 | [0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) | An app reaches named roots through one command per storage operation | Accepted (supersedes 0647; amends 0531, 0721) |
+| [0726](0726-an-apps-path-is-its-claim.md) | An app's path is its claim | Accepted (amends 0721, 0725) |
