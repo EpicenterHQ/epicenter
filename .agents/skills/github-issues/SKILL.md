@@ -16,7 +16,7 @@ metadata:
 - **Corporate announcements**: "We are pleased to announce..."; just say what changed.
 - **Over-explaining closed-loop fixes**: If the issue is fixed and there is no action needed from the reporter, do not make them read release-process details.
 
-Follow [writing-voice](../writing-voice/SKILL.md) for tone.
+Follow the [project writing conventions](../../../AGENTS.md#writing-conventions).
 
 ## Maintainer Respect Gate
 

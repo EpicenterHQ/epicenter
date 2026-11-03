@@ -8,7 +8,7 @@ metadata:
 
 # Specification Writing
 
-Follow [writing-voice](../writing-voice/SKILL.md) for prose sections. For ownership or flow explanations, lead with the useful model, ground it in the relevant boundary, and keep only the diagrams and prose implementation needs.
+Follow the [project writing conventions](../../../AGENTS.md#writing-conventions) for prose sections. For ownership or flow explanations, lead with the useful model, ground it in the relevant boundary, and keep only the diagrams and prose implementation needs.
 
 A specification gives an agent or maintainer the context they need to implement a feature autonomously. The goal is not to describe everything exhaustively. The goal is to show enough evidence that the direction is credible and give the implementer a concrete launch point.
 

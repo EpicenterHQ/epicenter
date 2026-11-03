@@ -8,7 +8,7 @@ metadata:
 
 # Technical Articles
 
-All articles must follow [writing-voice](../writing-voice/SKILL.md) rules. This skill owns article shape; `writing-voice` owns house voice and punctuation.
+This skill owns article shape. The [project writing conventions](../../../AGENTS.md#writing-conventions) apply throughout.
 
 ## Core Principles
 
@@ -76,7 +76,7 @@ For articles about ownership, routing, auth, billing, sync, tenancy, API shape, 
 
 1. Build the private model: ownership, boundaries, flow, good/bad examples, and durable rules.
 2. Turn that model into a public argument here: title, opening, section claims, rhythm, code, diagrams, and closing.
-3. Use [writing-voice](../writing-voice/SKILL.md) throughout as the house voice and final punctuation pass.
+3. Apply the project writing conventions throughout, then make a final punctuation pass.
 
 Do not publish the private model unchanged unless the article is intentionally notebook-style. The model is the thinking format; the article is the reader format.
 
@@ -186,11 +186,11 @@ The first version could describe anything. The second version could only describ
 
 Bullet lists and numbered lists: max 1-2 of each per article. If you need more, convert to prose or a table.
 
-Section headings: use sparingly. Not every paragraph needs a heading. Let content flow naturally between ideas using bridge sentences (see [writing-voice](../writing-voice/SKILL.md) "Connect ideas without headers").
+Section headings: use sparingly. Not every paragraph needs a heading. When one idea leads into the next, let the particulars make the connection: end on the consequence the next paragraph picks up, rather than inserting a heading or a sentence that only announces the transition. Add a heading when the reader needs a place to skim or return to.
 
 Bold text: avoid in body content. Use sparingly if needed for emphasis.
 
-No space-hyphen-space. Follow [writing-voice](../writing-voice/SKILL.md) for punctuation: no en dash characters, and em dash characters only when they earn the emphasis. In articles, still default to periods, colons, semicolons, commas, or parentheses.
+No space-hyphen-space and no en dash characters. Use em dash characters only for a real interruption. Default to periods; use colons for explanations, semicolons for closely related independent clauses, commas, and parentheses for asides.
 
 No rigid template: structure should fit the content, not the other way around. Some articles need a "Problem/Solution" flow; others just show code and explain. Don't force sections.
 

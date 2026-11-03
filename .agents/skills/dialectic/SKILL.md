@@ -120,8 +120,8 @@ unsettled experience or design, or when developing writing, an API, a skill, or
 a website. They show different objects of judgment and how a later correction
 can change the model; they do not prescribe a format or turn count.
 
-For substantial prose work, use [writing-voice](../writing-voice/SKILL.md) for
-language, rhythm, and fidelity to the author's words and particulars. Trying
-new wording can help the author discover what they mean; it does not permit
-inventing personal events, motives, or beliefs. Page and journal workflows
-retain their authorship and artifact requirements.
+When the user is authoring prose in their own voice, use their personal
+`writing-voice` skill if one is available. Otherwise, follow the destination's
+writing guidance. Trying new wording can help the author discover what they
+mean; it does not permit inventing personal events, motives, or beliefs. Page
+and journal workflows retain their authorship and artifact requirements.
