@@ -14,8 +14,8 @@ makes the client reactive with `fromClient` from
 | --- | --- |
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
-| `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
-| `@epicenter/folder/tauri` | `openDevice(contract, { path, create? })` over the root at the absolute path `path`, which the shell lets this window reach: the directory it bound to the window, or a folder Tauri's file-system scope allows. There is no default root and no folder inside one: a relative `path` is `Refused`. A standalone app opens its two roots with `openAppData(settingsContract)` (its AppData root, through the app's own settings contract, whose `settings.md` has `folder`) and `openDataFolder(contract, { appData })` (the `folder` that names, or `~/Epicenter/<productName>`, which alone is made when missing). `rootOf(device)` answers the root a client opened, as the shell answered it, for the window's other native commands (the recorder's and local transcription's `root`, which every one of them requires); it throws for a client `openDevice` from `/tauri` did not return. `pickDataFolder(appData, { title, at? })` opens the native picker, which allows the folder it answers and answers its canonical path (the shell's `resolve_folder`), so `/tmp/x` and `/private/tmp/x` are one folder, and remembers that path, or forgets `folder` when the default is picked, for both "Choose folder…" and "Allow access"; `rememberFolder(appData, folder \| undefined)` records or forgets a choice. `syncWithEpicenter({ path, contract })` asks the shell to open `epicenter://init?path=<path>&contract=<contract>` (decisions 81 and 82), and `syncedWithEpicenter({ path })` says whether `epicenter init` set that folder up (its `.git/config` names it as `epicenter.root`). |
+| `@epicenter/folder/remote` | `openRemote(contract, { account, site })` over the signed-in person's repository. |
+| `@epicenter/folder/tauri` | `openDevice(contract, { root })` opens a root the shell named, `Data` or `AppData`; `openDataFolder(contract, site)` opens Data and updates its root `AGENTS.md`, while `openAppData(settingsContract)` opens AppData. `rootOf(device)` answers the root's name for local transcription, and `displayPath(device)` the path to show, which `open_root` answered. `syncWithEpicenter` and `syncedWithEpicenter` manage Epicenter enrollment. |
 | `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 
 Importing an entry does not open anything.
@@ -25,14 +25,14 @@ Importing an entry does not open anything.
 `openDevice(contract, …)` opens the typed client an app's contract derives
 (`Client<T>` from `@epicenter/definition/contract`) over a device's files, at
 the contract's paths. It is async on every platform and answers a `Result`:
-the client, or an `OpenDeviceError` saying why nothing opened (`Missing`,
-`NotGranted`, `Refused`, `Unreadable`, `StorageUnavailable`). An app opens it
+the client, or an `OpenDeviceError` saying why nothing opened
+(`Disconnected`, `Refused`, `Unreadable`, `StorageUnavailable`). An app opens it
 once, at its startup, and hands the client down:
 
 ```ts
 import { openDevice } from '@epicenter/folder/browser'; // OPFS
 // import { openDevice } from '@epicenter/folder/node';           // a directory: openDevice(c, { path })
-// import { openDevice } from '@epicenter/folder/tauri';          // a root the window may reach
+// import { openDevice } from '@epicenter/folder/tauri';          // a root the shell named: openDevice(c, { root: 'Data' })
 
 const opened = await openDevice(recorder);
 if (opened.error !== null) return opened;
@@ -58,11 +58,10 @@ read that an append overtook reads again.
 Only a context with no Worker opens nothing (`StorageUnavailable`). In Bun
 the directory is made when missing (`Unreadable` when it cannot be). `/node` also exports `checkFiles`
 and `formatNotes`, which `epicenter check` and `epicenter format` run. In a
-Tauri window the client works over a root the shell opened for it, through
-the folder plugin's commands, each naming that root by its path, and the
-shell checks each save and watches each root a page opened. A root other than the bound directory opens only
-when Tauri's runtime file-system scope allows it (the shell's default, or a
-folder the picker allowed); see the folder plugin's README. See
+Tauri window the client works over a root the shell named, through the
+folder plugin's commands, each naming that root by name, never by path; the
+shell makes the data folder when nothing is at its path, checks each save,
+and watches each root a page opened. See the folder plugin's README, and
 `src/device/`; `bun run --cwd packages/folder smoke:device` drives the
 browser opener in Playwright Chromium and WebKit.
 
@@ -86,9 +85,8 @@ whole note from text that reads and fits, in house style. `updateNote`
 `Conflict`; `fromClient` in `@epicenter/svelte/client` is the Svelte state
 over a client.
 
-`openRemote(contract, { account })` returns the same client over the
-signed-in person's repository for the app, `<git audience>/~/<contract
-name>.git`, through `account.fetch` (any `@epicenter/auth` `Account`). A
+`openRemote(contract, { account, site })` returns the same client over the
+signed-in person's repository for the app, `<git audience>/~/<name derived from site>.git`, through `account.fetch` (any `@epicenter/auth` `Account`). A
 remote version is the Git blob id on `main`, and every write is one commit.
 It keeps nothing on the device: it works online only, and stops when the
 account is retired.
@@ -96,7 +94,7 @@ account is retired.
 ```ts
 import { openRemote } from '@epicenter/folder/remote';
 
-const remote = openRemote(recorder, { account });
+const remote = openRemote(recorder, { account, site: 'https://whispering.epicenter.so' });
 const note = await remote.recordings.get({ id });
 if (note.error === null)
 	await remote.recordings.update({ id }, { title: 'Daily' }, { over: note.data.version });
@@ -112,9 +110,8 @@ capabilities, never storage. See `src/remote/`.
 
 An app's settings are flat notes at fixed paths, one per concern
 (`settings.md`, `shortcuts.md`, …), each a collection with no placeholders
-in an ordinary `defineContract`. A desktop app has one settings contract,
-whose `settings.md` declares `folder`, and the same notes may sit in both of
-its roots: the data folder holds the synced values (its contract claims the
+in an ordinary `defineContract`. A desktop app with machine-local settings has an AppData contract. The same
+notes may sit in both of its roots: the data folder holds the synced values (its contract claims the
 notes it syncs), the AppData root this computer's sparse overrides. A
 reader resolves each note with a shallow spread, where it reads it: a key
 in the AppData note wins, then the data folder's, then the default
@@ -129,12 +126,9 @@ const shortcuts = {
 };
 ```
 
-`folder`, the data folder the person chose, is the one key only the AppData
-root holds; absent, the app opens `~/Epicenter/<productName>`.
-`rememberFolder(appData, folder | undefined)` writes or clears it, keeping
-the note's other keys. A local web app has one root, so it spreads the
-defaults and its device's note; an online web app reads its notes from the
-repository. API keys never go in a settings note: they stay in the
+The shell derives the data folder from the app's site. A local web app
+spreads defaults and its device note; an online web app reads its notes
+from the repository. API keys never go in a settings note: they stay in the
 keychain.
 
 ## Native directories

@@ -7,24 +7,22 @@
 <script lang="ts">
 	import type { Capture } from '@epicenter/capture';
 	import type { Client } from '@epicenter/definition/contract';
-	import type { DesktopSettings } from '@epicenter/folder/tauri';
 	import { fromClient } from '@epicenter/svelte/client';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
 	import type { Snippet } from 'svelte';
 	import { setCaptureList } from '../captures.svelte.js';
-	import { CONTRACT_URL } from '../folder.tauri.js';
 
 	let {
-		appData,
 		device,
+		site,
 		children,
-	}: { appData: Client<DesktopSettings>; device: Client<Capture>; children: Snippet } = $props();
+	}: { site: string; device: Client<Capture>; children: Snippet } = $props();
 
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally
 	setCaptureList(fromClient(device).captures);
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL }));
+	setFolderSync(folderSync({ device, site }));
 </script>
 
 {@render children()}

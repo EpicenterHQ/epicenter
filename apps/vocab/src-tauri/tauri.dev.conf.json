@@ -6,5 +6,10 @@
 		"security": {
 			"capabilities": ["vocab"]
 		}
+	},
+	"plugins": {
+		"epicenter-standalone": {
+			"environment": "development"
+		}
 	}
 }

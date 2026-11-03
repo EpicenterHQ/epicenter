@@ -3,17 +3,17 @@
 	over them (`DesktopRoot`).
 -->
 <script lang="ts">
-	import { desktopSettings } from '@epicenter/folder/tauri';
 	import DesktopStartup from '@epicenter/svelte/desktop-startup';
+	import { APPS } from '@epicenter/constants/apps';
 	import type { Snippet } from 'svelte';
 	import { honeycrisp } from '../contract.js';
-	import DesktopRoot from './DesktopRoot.svelte';
+		import DesktopRoot from './DesktopRoot.svelte';
 
 	let { children: pages }: { children: Snippet } = $props();
 </script>
 
-<DesktopStartup app="Honeycrisp" settings={desktopSettings} contract={honeycrisp}>
-	{#snippet children(appData, device)}
-		<DesktopRoot {appData} {device}>{@render pages()}</DesktopRoot>
+<DesktopStartup app="Honeycrisp" contract={honeycrisp} site={APPS.HONEYCRISP.url}>
+	{#snippet children(_appData, device, site)}
+		<DesktopRoot {device} {site}>{@render pages()}</DesktopRoot>
 	{/snippet}
 </DesktopStartup>

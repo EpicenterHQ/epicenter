@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import { config, git } from './git.ts';
-import { registeredFolders, repositoryRoot } from './setup.ts';
+import { registeredFolders, registrationFor, repositoryRoot } from './setup.ts';
 import { COMMITTED, MAGIC } from './sync.ts';
 
 export type FolderStatus = {
@@ -23,7 +23,7 @@ export type FolderStatus = {
 	/** The commit `HEAD` is at, or null before the first commit. */
 	readonly head: string | null;
 	readonly registered: boolean;
-	/** Whether `epicenter init` adopted the repository, so sync will run. */
+	/** Whether this folder is its own repository with sync consent. */
 	readonly adopted: boolean;
 	/** Each changed path under the folder, relative to it, with its porcelain status. */
 	readonly changes: { status: string; path: string }[];
@@ -56,18 +56,19 @@ export async function registeredStatus(
 export async function folderStatus(
 	input: string,
 ): Promise<FolderStatus | null> {
-	const folder = await realpath(resolve(input));
-	const root = await repositoryRoot(folder);
+	const folder = resolve(input);
+	const target = await realpath(folder);
+	const root = await repositoryRoot(target);
 	if (root === null) return null;
 	const [branch, head, adopted, remote, registered, porcelain, counts] =
 		await Promise.all([
 			git(root, ['symbolic-ref', '-q', '--short', 'HEAD']),
 			git(root, ['rev-parse', '-q', '--verify', 'HEAD']),
-			config(root, 'epicenter.root'),
+			config(root, 'epicenter.synced'),
 			config(root, 'remote.origin.url'),
 			registeredFolders(),
 			git(
-				folder,
+				target,
 				[
 					'status',
 					'--porcelain=v1',
@@ -93,7 +94,7 @@ export async function folderStatus(
 		// Paths are relative to the repository; the status names them relative to the folder.
 		changes.push({
 			status,
-			path: relative(folder, resolve(root, entry.slice(3))),
+			path: relative(target, resolve(root, entry.slice(3))),
 		});
 		// A rename or copy carries its old path in the next entry.
 		if (/[RC]/.test(status)) i++;
@@ -107,8 +108,8 @@ export async function folderStatus(
 		repository: root,
 		branch: branch.code === 0 ? branch.stdout.trim() : null,
 		head: head.code === 0 ? head.stdout.trim() : null,
-		registered: registered.includes(folder),
-		adopted: adopted === root,
+		registered: (await registrationFor(registered, target)) !== undefined,
+		adopted: root === target && adopted === 'true',
 		changes,
 		remote,
 		ahead: ahead ?? null,

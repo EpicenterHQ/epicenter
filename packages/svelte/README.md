@@ -34,7 +34,7 @@ root's setup, never after an `await`:
 export const [getTodos, setTodos] = createContext<ReactiveNotes<TodoNotes>>();
 
 // The root, where the client is made
-const files = fromClient(device); // or fromClient(openRemote(todos, { account }))
+const files = fromClient(device); // or fromClient(openRemote(todos, { account, site: 'https://todos.epicenter.so' }))
 setTodos(files.todos);
 ```
 
@@ -90,42 +90,27 @@ The local variant's startup opens this browser's files
 (`await openDevice(contract)`); it works signed out and offline, and signing
 in only adds hosted capabilities. The online variant, under a signed-in
 layout, opens the person's repository through the server
-(`openRemote(contract, { account })`). Either root wraps its client once and
+(`openRemote(contract, { account, site })`). Either root wraps its client once and
 sets the same collection contexts, so the pages never know which store they
 read. A page uses one or the other, never both.
 
 ### A desktop app's folder
 
-A standalone desktop app (`epicenter-standalone`) keeps the person's files
-in its data folder, `~/Epicenter/<productName>` unless the person chose
-another (decisions 88 to 97). Its startup, `DesktopStartup`
-(`@epicenter/svelte/desktop-startup`), opens the AppData root, through the
-app's own settings contract, and then the data folder before any page
-renders (one top-level `await`, under the
-layout's `<svelte:boundary>`, whose `pending` is the UI kit's spinner), and
-renders the app's desktop root over both, or `Recovery` when one does not
-open. `Recovery` switches on the `OpenDeviceError`: Allow access (the native
-picker at that folder; picking it allows it), Choose folder…, Use the
-default folder and Retry, as each case needs, each writing or clearing
-`folder` in the AppData `settings.md` and then retrying; "Retrying…" shows
-while the roots open again (`$effect.pending()`). Without `appData` (the app
-could not open its own settings) it offers only Retry. The header reads
-`getFolderSync()`, which rechecks on focus whether Epicenter syncs the
-folder:
+A standalone desktop app opens the folder its shell names from its site,
+by name: `~/Epicenter/<label>`, or `~/Epicenter Dev/<label>` in development,
+made when nothing is there. `DesktopStartup` opens machine-local AppData
+settings when the app has them, then the data folder. A failed open, such as
+a link to a drive that is not connected, shows `Recovery` with its error and
+Retry. The header shows the folder's path (`displayPath`), which no command
+takes. The header reads `getFolderSync()` and checks on focus whether
+Epicenter manages the folder.
 
 ```svelte
-<!-- The app's Startup.svelte, under <svelte:boundary> -->
-<DesktopStartup app="Capture" settings={desktopSettings} contract={capture}>
-  {#snippet children(appData, device)}
-    <DesktopRoot {appData} {device}>…</DesktopRoot>
+<DesktopStartup app="Capture" contract={capture} site={APPS.CAPTURE.url}>
+  {#snippet children(_appData, device, site)}
+    <DesktopRoot {device} {site}>…</DesktopRoot>
   {/snippet}
 </DesktopStartup>
-
-<!-- DesktopRoot.svelte: setCaptureList(fromClient(device).captures),
-     setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL })) -->
-<!-- The header -->
-<FolderSyncActions sync={getFolderSync()} /> <!-- Set up in Epicenter until it manages local history -->
-<Button onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
 ```
 
 ### Leaving while a save is out

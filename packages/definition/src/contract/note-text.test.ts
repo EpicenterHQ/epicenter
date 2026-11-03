@@ -14,7 +14,6 @@ import { defineContract } from './contract.js';
 import { noteText, readNoteText } from './note-text.js';
 
 const contract = defineContract({
-	name: 'capture',
 	collections: {
 		captures: {
 			path: 'captures/{id}.md',

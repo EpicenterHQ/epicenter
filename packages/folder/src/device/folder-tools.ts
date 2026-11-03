@@ -15,8 +15,9 @@ import { decodeNote } from '../note-codec.js';
 import type { DeviceStore } from './store.js';
 
 /**
- * Every file of `store` checked against `contract`: one issue per problem,
- * in path order. A contract that is not well formed is the error.
+ * Every contract file of `store` checked against `contract`: one issue per
+ * problem, in path order. Hidden paths and the root AGENTS.md are excluded.
+ * A contract that is not well formed is the error.
  */
 export async function checkStore(contract: unknown, store: DeviceStore) {
 	const compiled = compileContract(contract);
@@ -27,7 +28,7 @@ export async function checkStore(contract: unknown, store: DeviceStore) {
 	const unreadable: FileIssue[] = [];
 	const paths = listed
 		.map(({ path }) => path)
-		.filter((path) => !isHiddenPath(path))
+		.filter((path) => !isHiddenPath(path) && path !== 'AGENTS.md')
 		.sort();
 	for (const path of paths) {
 		if (!path.endsWith('.md')) {

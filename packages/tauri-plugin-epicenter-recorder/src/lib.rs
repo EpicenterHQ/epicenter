@@ -16,9 +16,9 @@
 //! its own. `open_meter` and `start` ask macOS for microphone access first
 //! (`permission.rs`), for every caller.
 //!
-//! To record, a page names a folder-relative path in a root its page opened
-//! or the directory the shell bound to its window (`root`, by the exact path
-//! the folder plugin answered); any other root is refused. `start` creates a
+//! To record, a page names a folder-relative path in a root it opened
+//! through the folder plugin (`root`, `Root::Data`); a root it has not
+//! opened is refused. `start` creates a
 //! WebM in the folder's `.epicenter/recordings` and encodes the microphone
 //! into it as Opus as it captures, writing it a second at a time (`opus`,
 //! `webm`); `stop` finishes it in place, places it at `<path>.webm`, never

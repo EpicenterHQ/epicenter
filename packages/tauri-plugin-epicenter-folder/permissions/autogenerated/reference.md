@@ -1,11 +1,11 @@
 ## Default Permission
 
-Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.
+Open and reveal the roots the shell named (Data and AppData), show their paths, read and change their files through the shell, and ask Epicenter to sync them.
 
 #### This default permission set includes the following:
 
-- `allow-open-folder`
-- `allow-resolve-folder`
+- `allow-open-root`
+- `allow-reveal-root`
 - `allow-list-folder`
 - `allow-read-folder-file`
 - `allow-put-folder-file`
@@ -50,12 +50,12 @@ Denies the list_folder command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-open-folder`
+`epicenter-folder:allow-open-root`
 
 </td>
 <td>
 
-Enables the open_folder command without any pre-configured scope.
+Enables the open_root command without any pre-configured scope.
 
 </td>
 </tr>
@@ -63,12 +63,12 @@ Enables the open_folder command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:deny-open-folder`
+`epicenter-folder:deny-open-root`
 
 </td>
 <td>
 
-Denies the open_folder command without any pre-configured scope.
+Denies the open_root command without any pre-configured scope.
 
 </td>
 </tr>
@@ -128,12 +128,12 @@ Denies the read_folder_file command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-resolve-folder`
+`epicenter-folder:allow-reveal-root`
 
 </td>
 <td>
 
-Enables the resolve_folder command without any pre-configured scope.
+Enables the reveal_root command without any pre-configured scope.
 
 </td>
 </tr>
@@ -141,12 +141,12 @@ Enables the resolve_folder command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:deny-resolve-folder`
+`epicenter-folder:deny-reveal-root`
 
 </td>
 <td>
 
-Denies the resolve_folder command without any pre-configured scope.
+Denies the reveal_root command without any pre-configured scope.
 
 </td>
 </tr>

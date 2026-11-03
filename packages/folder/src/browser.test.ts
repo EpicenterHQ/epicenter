@@ -8,7 +8,6 @@ test('a disposed device stops its Worker, and every later call is Unavailable', 
 	const device = unwrap(
 		await openDevice(
 			defineContract({
-				name: 'recorder',
 				collections: { audio: { path: 'recordings/{id}.{ext}' } },
 			}),
 		),

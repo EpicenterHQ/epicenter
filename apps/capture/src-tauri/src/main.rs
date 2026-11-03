@@ -1,10 +1,8 @@
 //! Capture's desktop app (`epicenter-standalone`, decisions 88 to 90): one
-//! window that starts on Capture's AppData root and opens its data folder,
-//! `~/Epicenter/Capture` unless `settings.md` names another, by path
-//! (`openDevice` from `@epicenter/folder/tauri`), when Tauri's file-system
-//! scope allows it: the capability allows the default, and the native
-//! picker allows the folder a person chooses. It asks Epicenter to sync the
-//! folder (`syncWithEpicenter`) and never signs in.
+//! window whose page opens Capture's two roots by name: its AppData root and
+//! its data folder, `~/Epicenter/capture`, which its bundle identifier names
+//! (`openDataFolder` from `@epicenter/folder/tauri`). It asks Epicenter to
+//! sync the folder (`syncWithEpicenter`) and never signs in.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -30,8 +28,10 @@ mod tests {
 
     use super::*;
 
-    /// The bundle is `so.epicenter.capture`, and its folder is named for the
-    /// app: `~/Epicenter/Capture` when the person takes the recommendation.
+    /// The bundle is `so.epicenter.capture`, which names its folder,
+    /// `~/Epicenter/capture`. The development configuration states its
+    /// environment, so its folder is `~/Epicenter Dev/capture`, and its
+    /// identifier is the production one with `.dev`.
     #[test]
     fn capture_is_its_own_app_with_a_folder_named_for_it() {
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
@@ -39,15 +39,18 @@ mod tests {
         assert_eq!(config["productName"], CAPTURE.title);
         let dev: Value = serde_json::from_str(include_str!("../tauri.dev.conf.json")).unwrap();
         assert_eq!(dev["identifier"], "so.epicenter.capture.dev");
+        // The environment is stated, never read from the identifier.
+        assert_eq!(
+            dev["plugins"]["epicenter-standalone"]["environment"],
+            "development"
+        );
+        assert!(config["plugins"]["epicenter-standalone"].is_null());
     }
 
     /// The window reaches its roots, and Epicenter's sync request and status,
-    /// through the folder plugin, finds them with Tauri's path API and the
-    /// app's name, and may pick a folder with the native dialog; nothing
-    /// else. No capability names a folder: startup allows the default. Each
-    /// configuration lists its capabilities, so nothing in `capabilities/` is
-    /// enabled implicitly, and the development configuration has its own
-    /// name, so its own default folder.
+    /// through the folder plugin, by name; nothing else. No capability names
+    /// a folder. Each configuration lists its capabilities, so nothing in
+    /// `capabilities/` is enabled implicitly.
     #[test]
     fn the_capability_grants_plugins_and_names_no_folder() {
         let capability: Value =
@@ -56,17 +59,10 @@ mod tests {
         assert_eq!(capability["local"], true);
         assert_eq!(
             capability["permissions"],
-            json!([
-                "epicenter-folder:default",
-                "dialog:allow-open",
-                "core:app:allow-name",
-                "core:path:allow-resolve-directory",
-                "core:path:allow-join"
-            ])
+            json!(["epicenter-folder:default"])
         );
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let dev: Value = serde_json::from_str(include_str!("../tauri.dev.conf.json")).unwrap();
-        assert_eq!(config["plugins"]["fs"]["scopeDroppedPaths"], false);
         for configuration in [&config, &dev] {
             assert_eq!(
                 configuration["app"]["security"]["capabilities"],

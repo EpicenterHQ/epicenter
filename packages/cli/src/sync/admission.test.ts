@@ -27,10 +27,12 @@ import {
 	symlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
+import { epicenterDataRoot } from '@epicenter/constants/app-data';
 import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import {
 	canonicalPath,
+	containsPath,
 	isReservedDirectory,
 	RESERVED_DIRECTORIES,
 } from './admission.ts';
@@ -70,6 +72,9 @@ test('a canonical path follows a link on the way and keeps a missing rest as wri
 	expect(isReservedDirectory(await canonicalPath('objects/new', BOX))).toBe(
 		true,
 	);
+	expect(
+		isReservedDirectory(await canonicalPath('missing/../objects/new', BOX)),
+	).toBe(true);
 	expect(await canonicalPath('a/./b/../c', BOX)).toBe(join(BOX, 'a/c'));
 	expect(await canonicalPath(join(BOX, 'missing/.notes'))).toBe(
 		join(BOX, 'missing/.notes'),
@@ -77,7 +82,7 @@ test('a canonical path follows a link on the way and keeps a missing rest as wri
 });
 
 /** `epicenter init <dir>` in a sandbox no repository encloses. */
-async function init(dir: string) {
+async function init(dir: string, environment = 'production') {
 	const home = join(BOX, 'home');
 	const proc = Bun.spawn(
 		['bun', join(import.meta.dir, '..', 'bin.ts'), 'init', dir],
@@ -90,7 +95,7 @@ async function init(dir: string) {
 				GIT_CONFIG_NOSYSTEM: '1',
 				GIT_CEILING_DIRECTORIES: BOX,
 				EPICENTER_DATA_DIR: join(BOX, 'data'),
-				EPICENTER_FOLDER_DIR: join(BOX, 'folders'),
+				EPICENTER_ENVIRONMENT: environment,
 			},
 			stdout: 'pipe',
 			stderr: 'pipe',
@@ -104,6 +109,81 @@ async function init(dir: string) {
 	return { code, out: `${stdout}${stderr}` };
 }
 
+test('Windows drive and backslash paths resolve with win32 semantics', async () => {
+	const missing = async (_path: string): Promise<string> => {
+		throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+	};
+	expect(
+		await canonicalPath(
+			'C:\\Users\\Ada\\Epicenter\\..\\notes',
+			'C:\\',
+			win32,
+			missing,
+		),
+	).toBe('C:\\Users\\Ada\\notes');
+	expect(
+		isReservedDirectory(
+			await canonicalPath('D:\\work\\.GIT\\objects', 'C:\\', win32, missing),
+		),
+	).toBe(true);
+	expect(containsPath('C:\\Users\\Ada', 'C:\\Users\\Ada\\notes', win32)).toBe(
+		true,
+	);
+	expect(containsPath('C:\\Users\\Ada', 'C:\\Users\\Adam\\notes', win32)).toBe(
+		false,
+	);
+	expect(containsPath('C:\\Users\\Ada', 'D:\\notes', win32)).toBe(false);
+	expect(
+		canonicalPath('C:\\blocked', 'C:\\', win32, async () => {
+			throw Object.assign(new Error('denied'), { code: 'EACCES' });
+		}),
+	).rejects.toThrow('denied');
+});
+
+test('both library roots are refused in either environment', async () => {
+	for (const environment of ['production', 'development'])
+		for (const name of ['Epicenter', 'Epicenter Dev']) {
+			const target = join(BOX, 'home', name);
+			const result = await init(target, environment);
+			expect(result.code).toBe(2);
+			expect(existsSync(target)).toBe(false);
+		}
+}, 60_000);
+
+test('both application data directories are refused in either environment', async () => {
+	for (const environment of ['production', 'development'])
+		for (const identifier of ['so.epicenter', 'so.epicenter.dev']) {
+			const target = epicenterDataRoot(
+				{ env: {}, platform: process.platform, homeDir: join(BOX, 'home') },
+				identifier,
+			);
+			const result = await init(target, environment);
+			expect(result.code).toBe(2);
+			expect(existsSync(target)).toBe(false);
+		}
+}, 60_000);
+
+test('a refused init inside an enclosing repository leaves no directory', async () => {
+	const parent = join(BOX, 'existing-repo');
+	mkdirSync(parent);
+	const git = Bun.spawnSync(['git', 'init', '-q', parent], { cwd: BOX });
+	expect(git.exitCode).toBe(0);
+	const target = join(parent, 'new', 'folder');
+	const refused = await init(target);
+	expect(refused.code).toBe(2);
+	expect(existsSync(join(parent, 'new'))).toBe(false);
+}, 60_000);
+
+test('development registration uses a separate global key', async () => {
+	const production = join(BOX, 'prod-folder');
+	const development = join(BOX, 'dev-folder');
+	expect((await init(production)).code).toBe(0);
+	expect((await init(development, 'development')).code).toBe(0);
+	const config = readFileSync(join(BOX, 'home', '.gitconfig'), 'utf8');
+	expect(config).toContain('folder = ' + production);
+	expect(config).toContain('devFolder = ' + development);
+}, 60_000);
+
 test('init refuses a folder inside .git or .epicenter before it makes anything, and sets up ~/.notes', async () => {
 	for (const dir of ['x/.git/y', 'x/.EPICENTER/y']) {
 		const refused = await init(dir);
@@ -116,4 +196,21 @@ test('init refuses a folder inside .git or .epicenter before it makes anything, 
 	const notes = await init('home/.notes');
 	expect(notes.code).toBe(0);
 	expect(existsSync(join(BOX, 'home/.notes/.git'))).toBe(true);
+}, 60_000);
+
+test('init checks a linked target against home and application data', async () => {
+	const home = join(BOX, 'home');
+	mkdirSync(home, { recursive: true });
+	mkdirSync(join(BOX, 'data'), { recursive: true });
+	for (const [target, name] of [
+		[home, 'home-link'],
+		[join(BOX, 'data'), 'data-link'],
+	] as const) {
+		const link = join(BOX, name);
+		symlinkSync(target, link);
+		const refused = await init(link);
+		expect(refused.code).toBe(2);
+		expect(refused.out).toContain('refused:');
+		expect(existsSync(join(target, '.git'))).toBe(false);
+	}
 }, 60_000);

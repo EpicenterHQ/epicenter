@@ -118,6 +118,7 @@ try {
 	if (process.argv.includes('--interactive')) {
 		const gui = join(root, 'gui');
 		await mkdir(gui);
+		await mkdir(join(root, 'home'));
 		await command([
 			'tar',
 			'-xzf',
@@ -132,8 +133,8 @@ try {
 		Bun.spawn([executable], {
 			env: {
 				...process.env,
+				HOME: join(root, 'home'),
 				EPICENTER_DATA_DIR: join(root, 'data'),
-				EPICENTER_FOLDER_DIR: join(root, 'folders'),
 			},
 			stdout: 'inherit',
 			stderr: 'inherit',

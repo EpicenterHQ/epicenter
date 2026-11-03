@@ -8,9 +8,9 @@
 //!
 //! Every command starts the CLI through one [`Invocation`]: the bundled
 //! program, the deployment this shell is configured for in
-//! `EPICENTER_API_URL`, and this shell's directories in `EPICENTER_DATA_DIR`
-//! and `EPICENTER_FOLDER_DIR`, so the CLI a command runs names the same
-//! deployment and files as the shell, whichever command it is. A command a page calls is that window's ([`CliChildren`]): its
+//! `EPICENTER_API_URL`, its data directory in `EPICENTER_DATA_DIR`, and its
+//! environment in `EPICENTER_ENVIRONMENT`. The CLI names the same deployment
+//! and files as the shell, whichever command it is. A command a page calls is that window's ([`CliChildren`]): its
 //! child ends when the page reloads or the window closes.
 //!
 //! The runner writes stdin on its own task and drains stderr on another while
@@ -310,8 +310,14 @@ impl Invocation {
                 ("EPICENTER_API_URL".into(), origin.into()),
                 ("EPICENTER_DATA_DIR".into(), paths.data_dir.clone().into()),
                 (
-                    "EPICENTER_FOLDER_DIR".into(),
-                    paths.folder_dir.clone().into(),
+                    "EPICENTER_ENVIRONMENT".into(),
+                    match paths.environment {
+                        epicenter_standalone::data_folder::Environment::Production => "production",
+                        epicenter_standalone::data_folder::Environment::Development => {
+                            "development"
+                        }
+                    }
+                    .into(),
                 ),
             ],
             desktop: false,
@@ -780,6 +786,7 @@ mod tests {
         DesktopPaths {
             data_dir: dir.join("data"),
             folder_dir: dir.join("Epicenter"),
+            environment: epicenter_standalone::data_folder::Environment::Production,
         }
     }
 
@@ -831,6 +838,7 @@ mod tests {
         let paths = DesktopPaths {
             data_dir: PathBuf::from("/support/so.epicenter"),
             folder_dir: PathBuf::from("/home/Epicenter"),
+            environment: epicenter_standalone::data_folder::Environment::Production,
         };
         let env = |code: &str| {
             Invocation::new(program.clone(), "https://api.example.test", &paths)
@@ -1041,24 +1049,25 @@ process.exitCode = 1;
     }
 
     /// Every command a page calls starts the CLI the same way: with the
-    /// shell's deployment and its two directories, and as that window's
+    /// shell's deployment, data directory, and environment, and as that window's
     /// child, which ends with its page. The child stands in for a long
     /// `epicenter sync`: it reports its environment and waits.
     #[cfg(unix)]
     #[tokio::test]
-    async fn every_invocation_names_the_shells_deployment_and_directories_and_ends_with_its_page() {
+    async fn every_invocation_names_the_shells_deployment_and_environment_and_ends_with_its_page() {
         let dir = scratch("invocation");
         let script = dir.join("child.sh");
         fs::write(
             &script,
-            "#!/bin/sh\nprintf '%s|%s|%s|%s\\n' \"$*\" \"$EPICENTER_API_URL\" \"$EPICENTER_DATA_DIR\" \"$EPICENTER_FOLDER_DIR\"\nsleep 30 &\nwait\n",
+            "#!/bin/sh\nprintf '%s|%s|%s|%s\\n' \"$*\" \"$EPICENTER_API_URL\" \"$EPICENTER_DATA_DIR\" \"$EPICENTER_ENVIRONMENT\"\nsleep 30 &\nwait\n",
         )
         .unwrap();
         let program = Program {
             program: PathBuf::from("/bin/sh"),
             prefix: vec![script.into_os_string()],
         };
-        let paths = paths_in(&dir);
+        let mut paths = paths_in(&dir);
+        paths.environment = epicenter_standalone::data_folder::Environment::Development;
         let children = CliChildren::default();
         let invocation = Invocation::new(program, "https://self.example.test", &paths)
             .desktop()
@@ -1084,7 +1093,7 @@ process.exitCode = 1;
             format!(
                 "sync notes --desktop|https://self.example.test|{}|{}",
                 paths.data_dir.display(),
-                paths.folder_dir.display()
+                "development"
             )
         );
         assert_eq!(children.running("folders"), 1);

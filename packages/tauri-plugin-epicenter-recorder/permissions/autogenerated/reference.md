@@ -1,6 +1,6 @@
 ## Default Permission
 
-List the microphones and read one's level, record from a microphone into the folder bound to this window, stop that recording, and repair recordings a quit cut off.
+List the microphones and read one's level, record into the Data root opened through the folder plugin, stop that recording, and repair recordings a quit cut off.
 
 #### This default permission set includes the following:
 

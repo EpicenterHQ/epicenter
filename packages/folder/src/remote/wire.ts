@@ -5,7 +5,7 @@
  * remote.
  *
  * The repository is `<git>/<owner>/<name>.git`, by default
- * `<git>/~/<contract name>.git` (decision 46): `~` is the signed-in person's
+ * `<git>/~/<name derived from the app's site>.git` (ADR-0722): `~` is the signed-in person's
  * own namespace, and one repository holds one app's files (decision 19), so
  * its paths are the contract's paths. Another person's repository is
  * reached under their handle, through the grant they gave this account.

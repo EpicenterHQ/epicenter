@@ -25,7 +25,7 @@
  * Its connections (where requests go, and their keys) and the chosen
  * microphone belong to a device, so they stay out of its files.
  *
- * Its name makes the repository `<account>/whispering` (decision 46) for a
+ * The app's site names its repository `~/whispering` for a
  * folder Epicenter syncs, such as the desktop app's, built later; the web
  * build keeps its files in the browser and has none. It is published,
  * unchanged, as `static/contract.json` (`bun run contract` writes it).
@@ -40,7 +40,6 @@ const instant = {
 } as const;
 
 export const whispering = defineContract({
-	name: 'whispering',
 	description:
 		'Voice notes: a note per recording beside its audio, its transcripts, reusable recipes, the results of applying them, and the desktop shortcut.',
 	collections: {

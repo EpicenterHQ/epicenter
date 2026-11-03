@@ -3,14 +3,13 @@
  * and whether it is done in front matter, its notes in the body. Todos has
  * no settings, so it has no settings note.
  *
- * Its name makes the repository `<account>/todos` (decision 46). It is
+ * The app's site names its repository `~/todos`. It is
  * published, unchanged, as `static/contract.json` (`bun run contract`
  * writes it), so `epicenter check <url>/contract.json <dir>` checks a clone.
  */
 import { defineContract } from '@epicenter/definition/contract';
 
 export const todos = defineContract({
-	name: 'todos',
 	description:
 		'Todos: a Markdown note per todo, its title and done in front matter, its notes in the body.',
 	collections: {

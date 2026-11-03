@@ -863,11 +863,11 @@ pub async fn forget_synced_folder(webview: Webview, path: String) -> Result<(), 
     Ok(())
 }
 
-/// The directory at `path` when it is a real folder that may be one
+/// The directory at `path` when it resolves to a folder that may be one
 /// (`admission::check_sync_directory`): not inside a `.git` or `.epicenter`
 /// folder, and holding none of Epicenter's own files.
 fn admit(paths: &DesktopPaths, path: &str) -> Result<Directory, String> {
-    match fs::symlink_metadata(path) {
+    match fs::metadata(path) {
         Err(error) if error.kind() == ErrorKind::NotFound => {
             return Err("This folder is not there.".to_string())
         }
@@ -875,7 +875,9 @@ fn admit(paths: &DesktopPaths, path: &str) -> Result<Directory, String> {
         Ok(stats) if !stats.is_dir() => return Err("This path is not a folder.".to_string()),
         Ok(_) => {}
     }
-    let directory = Directory::existing(Path::new(path)).map_err(|error| error.to_string())?;
+    let target = dunce::canonicalize(path)
+        .map_err(|error| format!("This folder could not be resolved: {error}"))?;
+    let directory = Directory::existing(&target).map_err(|error| error.to_string())?;
     admission::check_sync_directory(&paths.data_dir, &paths.folder_dir, directory.root())?;
     Ok(directory)
 }
@@ -1162,6 +1164,7 @@ mod tests {
         let paths = DesktopPaths {
             data_dir: root.join("data"),
             folder_dir: root.join("Epicenter"),
+            environment: epicenter_standalone::data_folder::Environment::Production,
         };
         let notes = paths.folder_dir.join("notes");
         fs::create_dir_all(&notes).unwrap();
@@ -1190,6 +1193,22 @@ mod tests {
         assert!(admit(&paths, &hidden.to_string_lossy()).is_ok());
         fs::write(root.join("file"), "").unwrap();
         assert!(admit(&paths, &root.join("file").to_string_lossy()).is_err());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let linked = paths.folder_dir.join("linked-notes");
+            symlink(&notes, &linked).unwrap();
+            assert_eq!(
+                admit(&paths, &linked.to_string_lossy()).unwrap().root(),
+                notes
+            );
+            let private = root.join("private-link");
+            symlink(&paths.data_dir, &private).unwrap();
+            assert!(admit(&paths, &private.to_string_lossy()).is_err());
+            let broken = root.join("broken-link");
+            symlink(root.join("missing"), &broken).unwrap();
+            assert!(admit(&paths, &broken.to_string_lossy()).is_err());
+        }
     }
 
     #[test]

@@ -21,9 +21,9 @@ The original capture text.
 
 ## The contract
 
-`capture` (`src/contract.ts`) is Capture's contract: the app's name,
-`capture`, which makes the person's repository `<handle>/capture`, and one
-note collection, `captures`, at `captures/{id}.md`, with required
+`capture` (`src/contract.ts`) is Capture's contract: one note collection,
+`captures`, at `captures/{id}.md`. Capture's site names the person's
+repository `<handle>/capture`. Each note requires
 `capturedAt`, an RFC 3339 date and time (`{ type: 'string', format:
 'date-time' }`). A UTC time and a time with an offset are both valid, so
 order captures by the parsed instant, never by the string. Other front matter

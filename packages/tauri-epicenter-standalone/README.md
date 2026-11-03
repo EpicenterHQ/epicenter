@@ -2,71 +2,59 @@
 
 A standalone Epicenter app is its own small Tauri program over a folder it
 owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
-shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines. Its
-TypeScript counterparts are in `@epicenter/folder/tauri`:
-`openAppData(settingsContract)` and `openDataFolder(contract, { appData })`,
-which open the window's two roots, `pickDataFolder` (the native picker,
-remembering the canonical path it answers), `rememberFolder`, `syncWithEpicenter` and `syncedWithEpicenter`. The page's UI for them is in `@epicenter/svelte`:
-`recovery` (the screen when a root does not open) and `folder-sync` with
-`folder-sync-actions` (sync state, Sync with Epicenter, Choose data
-folder…).
+shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines.
+Its TypeScript counterparts are in `@epicenter/folder/tauri`:
+`openAppData(settingsContract)` for apps with machine settings,
+`openDataFolder(contract, site)` for the data folder, and `syncWithEpicenter` and
+`syncedWithEpicenter`. The page's recovery and sync UI is in
+`@epicenter/svelte`.
 
-## Two roots per window
+## Two named roots
 
-- **The AppData root** is fixed: the operating system's application data
-  directory for the app, never synced and never chosen. Its settings notes
-  sit at its top (`settings.md`, `shortcuts.md`), read through the app's own
-  settings contract (an ordinary `defineContract` whose `settings.md` has
-  `folder`). `settings.md` holds `folder` only when the person chose a data
-  folder; any other key there, or in another note, overrides on this
-  computer the same note's value in the data folder.
-- **The data root** is the person's files: `~/Epicenter/<productName>` by
-  default, or the folder `settings.md` names. `productName` is the merged
-  Tauri configuration's: `Capture` for the shipped app, `Capture Dev` under
-  `tauri.dev.conf.json`, which also gives development its own identifier and
-  so its own AppData root. Only the data root is synced, by Epicenter, once
-  asked.
+Startup names two roots, which the page opens by name through the folder
+plugin; nothing is granted or stored
+([ADR-0725](../../docs/adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md)).
 
-Rust never reads or writes a settings note and names no path to the page.
-Startup allows the app's own default folder in Tauri's runtime file-system
-scope (`default_folder`, from `package_info().name`, what the page's
-`getName()` answers), makes the AppData root, and opens the window bound to
-it. The page finds both roots with Tauri's path API and opens them through
-the folder plugin, which opens a folder only when that scope allows it:
+- **AppData** is the operating system's application data directory, used by
+  apps with machine-local settings such as shortcuts or connections. The
+  page's first open makes it.
+- **Data** is `<library root>/<name>`. The name comes from the app's bundle
+  identifier, the reversed host of its site (`so.epicenter.whispering` is
+  `~/Epicenter/whispering`). The library root is `~/Epicenter`, or
+  `~/Epicenter Dev` in development.
 
-| Folder | Allowed by |
-| --- | --- |
-| The default `~/Epicenter/<productName>` | Startup, each launch (`fs_scope().allow_directory(default, true)`) |
-| A folder the person picked | The dialog plugin's `open`, which allows the picked folder recursively; `tauri-plugin-persisted-scope` keeps it across launches in the AppData root's `.persisted-scope` |
-| A `folder` written by hand or by an agent | Nothing: it opens as `NotGranted` until the person picks it ("Allow access") |
+The environment is stated, never guessed from the identifier. Only the
+development configuration (`tauri.dev.conf.json`, used by
+`bun dev:<app>:desktop`) states one:
 
-No capability names a folder. A grant stays after the person switches
-folders, so switching back is free. Folders dropped onto the window are not
-allowed (`plugins.fs.scopeDroppedPaths: false`). Even an allowed folder is
-refused when no app should keep its files there (the folder plugin's
-`scope::Refusals`): the top of a disk, the home folder itself, anything
-inside or around Epicenter's own settings, anything around the
-app's own settings, anything inside a `.git` or `.epicenter` folder (Git's
-state, another folder's unfinished writes), as Epicenter's sync admission
-refuses it, and a relative path. Any other hidden folder may be one.
-
-The page's startup awaits the two roots in order, under its layout's
-`<svelte:boundary>`; a root that does not open shows the recovery screen,
-whose actions write or clear `folder` and open the roots again:
-
-```ts
-const appData = await openAppData(desktopSettings); // or the app's own settings contract
-if (appData.error !== null) return appData; // "could not open its own settings": Retry
-const device = await openDataFolder(capture, { appData: appData.data }); // the default is made when missing
+```json
+"plugins": { "epicenter-standalone": { "environment": "development" } }
 ```
+
+Its identifier is the production one with `.dev` appended, and the shell
+removes that suffix in development alone, so a production site whose first
+label is `dev` keeps it. A configuration that states something else, or a
+development identifier without `.dev`, fails startup
+(`StartupError::Environment`, `StartupError::Identity`).
+
+Startup names both roots before the window opens. The page then opens Data
+off the window thread. Whatever is at its path is the app's
+([ADR-0726](../../docs/adr/0726-an-apps-path-is-its-claim.md)): the folder is
+made when nothing is there, and a link there is followed. A link whose target
+is gone makes nothing and answers `Disconnected`. A data root that resolves to
+the person's home folder, a folder holding it, or the library root itself
+answers `Refused` (`refusal`, the one refusal). The page shows either failure
+in Recovery with Retry. `open_root` also answers the named path the page shows.
 
 ## Window and Quit
 
-Quit quits (on macOS, the default menu's Quit and Cmd-Q), and a window closes
-at once: nothing waits for the page. Every plugin still hears the window's
-`Destroyed` and the app's `Exit`, where the recorder finishes a recording in
-progress. WebView files live in the app's cache directory, outside both
-roots. A startup failure shows one dialog with only Quit.
+Startup opens one plain window, `<page>:main`, which the app's capability
+selects (`<page>:*`). Quit quits (on macOS, the default menu's Quit and
+Cmd-Q), and a window closes at once: nothing waits for the page. Every
+plugin still hears the window's `Destroyed` and the app's `Exit`, where the
+recorder finishes a recording in progress. WebView files live in the app's
+cache directory, outside both roots. A configuration or window failure
+(`StartupError`) shows one dialog saying why, with only Quit.
 
 ```rust
 const CAPTURE: StandaloneApp = StandaloneApp {
@@ -78,15 +66,13 @@ const CAPTURE: StandaloneApp = StandaloneApp {
 epicenter_standalone::builder(CAPTURE).run(tauri::generate_context!())
 ```
 
-The builder registers `tauri-plugin-fs` (for its scope; no `fs:` command is
-granted), `tauri-plugin-persisted-scope` after it, the folder plugin and the
-dialog plugin. The app's capability grants `epicenter-folder:default`,
-`dialog:allow-open`, `core:app:allow-name`, `core:path:allow-resolve-directory`
-and `core:path:allow-join`, and each configuration lists it in
-`app.security.capabilities`, so nothing in `capabilities/` is enabled
-implicitly (Tauri replaces, not appends, the list a `--config` file gives).
-The folder and dialog plugins must also be direct dependencies of the app, so
-`tauri-build` finds their permissions. The crate is a member of the root
+The builder registers the folder plugin and the dialog plugin, whose only
+use is the startup failure dialog. The app's capability grants
+`epicenter-folder:default` and nothing for a folder, and each configuration
+lists it in `app.security.capabilities`, so nothing in `capabilities/` is
+enabled implicitly (Tauri replaces, not appends, the list a `--config` file
+gives). The folder plugin must also be a direct dependency of the app, so
+`tauri-build` finds its permissions. The crate is a member of the root
 Cargo workspace (`cargo test -p epicenter-standalone`).
 
 ## Making a web app's desktop variant

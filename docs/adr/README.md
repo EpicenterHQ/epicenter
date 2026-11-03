@@ -857,7 +857,7 @@ When you add an ADR, add its row here.
 | [0643](0643-the-folder-package-owns-its-local-engine.md) | The Folder package owns its local engine | Accepted (amends 0626 and 0636) |
 | [0644](0644-the-shell-assigns-a-native-windows-default-folder.md) | The shell assigns a native window's default folder | Accepted (amends 0636; amended by 0647 and 0660); amended by 0701 |
 | [0646](0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md) | A native app hands Epicenter a directory path, and the person accepts it | Accepted (amended by 0647) |
-| [0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) | A native window edits one directory bound before it exists | Accepted (amends 0531 and 0644; amended by 0660 at the standalone default); amended by 0701 |
+| [0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) | A native window edits one directory bound before it exists | Superseded by 0725 |
 | [0649](0649-folders-json-selects-this-machines-folder-locations.md) | Folders.json selects this machine's folder locations | Proposed (amends 0539, 0641, and 0647) |
 | [0650](0650-a-browsers-current-folder-is-one-immutable-tree.md) | A browser's current folder is one immutable tree | Proposed (amends 0628) |
 | [0652](0652-the-folder-plugin-opens-one-window-per-app-and-directory.md) | The folder plugin opens one window per app and directory | Proposed (amends 0647) |
@@ -917,7 +917,12 @@ When you add an ADR, add its row here.
 | [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Accepted (amends 0642 and 0700) |
 | [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Accepted (supersedes 0627) |
 | [0720](0720-you-sign-in-a-machine-not-an-app.md) | You sign in a machine, not an app | Accepted (amends 0549 and 0701) |
-| [0721](0721-an-apps-folder-is-derived-never-stored.md) | An app's folder is derived, never stored | Proposed (amends 0700, 0701, 0711, 0712, 0715, 0718) |
-| [0722](0722-an-apps-names-derive-from-its-sites-host.md) | An app's names derive from its site's host | Proposed (supersedes 0710) |
-| [0723](0723-an-apps-site-is-found-by-convention.md) | An app's site is found by convention | Proposed (supersedes 0717) |
-| [0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) | A browser extension keeps its data in a document | Proposed (amends 0227) |
+| [0721](0721-an-apps-folder-is-derived-never-stored.md) | An app's folder is derived, never stored | Accepted (amends 0700, 0701, 0711, 0712, 0715, 0718) |
+| [0722](0722-an-apps-names-derive-from-its-sites-host.md) | An app's names derive from its site's host | Accepted (supersedes 0710) |
+| [0723](0723-an-apps-site-is-found-by-convention.md) | An app's site is found by convention | Accepted (supersedes 0717) |
+| [0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) | A browser extension keeps its data in a document | Accepted (amends 0227) |
+| [0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) | An app reaches named roots through one command per storage operation | Accepted (supersedes 0647; amends 0531, 0721) |
+| [0726](0726-an-apps-path-is-its-claim.md) | An app's path is its claim | Accepted (amends 0721, 0725) |
+| [0727](0727-json-schema-is-the-field-language.md) | JSON Schema is the field language | Accepted (amends 0705) |
+| [0728](0728-a-build-states-its-environment.md) | A build states its environment | Accepted (amends 0712, 0721) |
+| [0729](0729-a-link-is-followed-only-at-or-above-a-root.md) | A link is followed only at or above a root | Accepted (amends 0725) |

@@ -307,16 +307,16 @@
           "markdownDescription": "Denies the list_folder command without any pre-configured scope."
         },
         {
-          "description": "Enables the open_folder command without any pre-configured scope.",
+          "description": "Enables the open_root command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-open-folder",
-          "markdownDescription": "Enables the open_folder command without any pre-configured scope."
+          "const": "allow-open-root",
+          "markdownDescription": "Enables the open_root command without any pre-configured scope."
         },
         {
-          "description": "Denies the open_folder command without any pre-configured scope.",
+          "description": "Denies the open_root command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-open-folder",
-          "markdownDescription": "Denies the open_folder command without any pre-configured scope."
+          "const": "deny-open-root",
+          "markdownDescription": "Denies the open_root command without any pre-configured scope."
         },
         {
           "description": "Enables the put_folder_file command without any pre-configured scope.",
@@ -343,16 +343,16 @@
           "markdownDescription": "Denies the read_folder_file command without any pre-configured scope."
         },
         {
-          "description": "Enables the resolve_folder command without any pre-configured scope.",
+          "description": "Enables the reveal_root command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-resolve-folder",
-          "markdownDescription": "Enables the resolve_folder command without any pre-configured scope."
+          "const": "allow-reveal-root",
+          "markdownDescription": "Enables the reveal_root command without any pre-configured scope."
         },
         {
-          "description": "Denies the resolve_folder command without any pre-configured scope.",
+          "description": "Denies the reveal_root command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-resolve-folder",
-          "markdownDescription": "Denies the resolve_folder command without any pre-configured scope."
+          "const": "deny-reveal-root",
+          "markdownDescription": "Denies the reveal_root command without any pre-configured scope."
         },
         {
           "description": "Enables the sync_with_epicenter command without any pre-configured scope.",
@@ -379,10 +379,10 @@
           "markdownDescription": "Denies the synced_with_epicenter command without any pre-configured scope."
         },
         {
-          "description": "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-resolve-folder`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`",
+          "description": "Open and reveal the roots the shell named (Data and AppData), show their paths, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-reveal-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-resolve-folder`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`"
+          "markdownDescription": "Open and reveal the roots the shell named (Data and AppData), show their paths, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-reveal-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`"
         }
       ]
     }

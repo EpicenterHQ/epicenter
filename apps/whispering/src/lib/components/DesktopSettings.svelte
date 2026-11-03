@@ -1,11 +1,12 @@
 <!--
 	Settings only the desktop app has: the data folder Whispering keeps its
-	recordings in (where it is, Choose data folder…, Set up in Epicenter),
+	recordings in (where it is, Set up in Epicenter),
 	the models that transcribe on this computer, and the global shortcut.
 -->
 <script lang="ts">
 	import { getFolderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
+	import FolderOnboarding from '@epicenter/svelte/folder-onboarding';
 	import LocalModelAdministration from '@epicenter/transcription-native/local-model-administration';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -13,13 +14,9 @@
 	import { Label } from '@epicenter/ui/label';
 	import { Separator } from '@epicenter/ui/separator';
 	import { acceleratorOf, getGlobalShortcut, labelOf } from '../platform/shortcut.tauri.svelte.js';
-	import { getWhispering } from '../whispering.svelte.js';
 
 	const sync = getFolderSync();
-	const whispering = getWhispering();
 	const shortcut = getGlobalShortcut();
-	/** Choosing reloads the window over the folder picked, which would end a recording. */
-	const recording = $derived(whispering.recorder.phase !== 'idle');
 
 	/** The keys the person pressed and has not saved; none shows the shortcut as resolved. */
 	let typed = $state<string>();
@@ -61,16 +58,14 @@
 
 <section class="flex flex-col gap-2 text-xs" data-testid="desktop-folder">
 	<p class="text-sm font-medium">Data folder</p>
-	<p class="break-all text-muted-foreground" data-testid="desktop-folder-path">{sync.path}</p>
+	<FolderOnboarding noun="recordings" path={sync.path} pathTestId="desktop-folder-path" />
 	<p class="text-muted-foreground">
 		Plain files: a Markdown note per recording beside its audio. Whispering never syncs them;
 		{#if sync.managed}Epicenter keeps this folder's local history.{:else}Epicenter can keep its history when you ask it to.{/if}
 	</p>
 	<div class="flex flex-wrap items-center gap-2">
-		<Button size="sm" variant="outline" disabled={sync.asking || recording} onclick={() => sync.chooseDataFolder()} data-testid="choose-data-folder">Choose data folder…</Button>
 		<FolderSyncActions {sync} />
 	</div>
-	{#if recording}<p class="text-muted-foreground">Finish recording before choosing another folder.</p>{/if}
 </section>
 <Separator />
 <section class="flex flex-col gap-2 text-xs" data-testid="desktop-models">

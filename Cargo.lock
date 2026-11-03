@@ -314,15 +314,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
-name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -500,7 +491,6 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
- "tauri-plugin-dialog",
  "tauri-plugin-epicenter-folder",
 ]
 
@@ -1337,8 +1327,6 @@ dependencies = [
  "tauri",
  "tauri-plugin-dialog",
  "tauri-plugin-epicenter-folder",
- "tauri-plugin-fs",
- "tauri-plugin-persisted-scope",
  "tempfile",
 ]
 
@@ -2014,7 +2002,6 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
- "tauri-plugin-dialog",
  "tauri-plugin-epicenter-folder",
 ]
 
@@ -5203,7 +5190,6 @@ dependencies = [
  "specta-typescript",
  "tauri",
  "tauri-plugin",
- "tauri-plugin-fs",
  "tauri-plugin-opener",
  "tauri-specta",
  "tempfile",
@@ -5322,22 +5308,6 @@ dependencies = [
  "url",
  "windows",
  "zbus",
-]
-
-[[package]]
-name = "tauri-plugin-persisted-scope"
-version = "2.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a9d32b58f619f83163f6d4083732c5e2c8a8129a0c083a5af5c705280fa3eba"
-dependencies = [
- "aho-corasick",
- "bincode",
- "log",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin-fs",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5584,7 +5554,6 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
- "tauri-plugin-dialog",
  "tauri-plugin-epicenter-folder",
 ]
 
@@ -6054,7 +6023,6 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
- "tauri-plugin-dialog",
  "tauri-plugin-epicenter-folder",
 ]
 
@@ -6334,7 +6302,6 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
- "tauri-plugin-dialog",
  "tauri-plugin-epicenter-folder",
  "tauri-plugin-epicenter-recorder",
  "tauri-plugin-epicenter-transcription",

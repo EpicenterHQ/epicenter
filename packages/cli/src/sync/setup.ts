@@ -6,24 +6,29 @@
  * only what is missing or wrong, and says what it changed. A folder inside a
  * `.git` or `.epicenter` directory is refused before anything is made
  * (`refuseReservedDirectory`). A folder inside
- * another repository's working tree is refused unless the caller passes
- * `allowEnclosing` (`--enclosing-ok`): spike 7's first run adopted
- * `~/.claude` that way and committed its credentials. The repository init
- * adopts is recorded as `epicenter.root` in its local configuration, and
- * sync refuses any repository without it.
+ * another repository's working tree is refused. Consent to sync is recorded
+ * as `epicenter.synced = true` in the folder's local repository configuration.
  *
  * Registration is like `git maintenance register`: the multi-valued
- * `epicenter.folder` in the person's global Git configuration lists the
- * folders `epicenter sync` (no path) and `sync --watch` keep in sync.
+ * `epicenter.folder` in production, or `epicenter.devFolder` in development,
+ * lists the folders `epicenter sync` (no path) and `sync --watch` keep in sync.
  */
 
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import {
+	EPICENTER_BUNDLE_IDENTIFIER,
+	epicenterDataRoot,
+} from '@epicenter/constants/app-data';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import { resolveAppPaths } from '../app-paths.ts';
-import { canonicalPath, isReservedDirectory } from './admission.ts';
+import {
+	canonicalPath,
+	containsPath,
+	isReservedDirectory,
+} from './admission.ts';
 import {
 	type CredentialFor,
 	config,
@@ -36,15 +41,12 @@ import { REPOSITORY_IGNORE, withEpicenterBlock } from './managed-block.ts';
 import { repositoryProblem } from './repository-state.ts';
 
 /**
- * Init would adopt a repository the folder sits inside, and was not told
- * to, or the folder is inside a `.git` or `.epicenter` directory.
+ * The folder is inside protected state or another repository.
  */
 export class Refused extends Error {}
 
 /**
- * Throw `Refused` when the directory at `input`, canonical, is inside a
- * `.git` or `.epicenter` directory (`isReservedDirectory`), before anything
- * is made there.
+ * Refuse protected paths after resolving links, before making anything there.
  */
 export async function refuseReservedDirectory(input: string): Promise<void> {
 	const canonical = await canonicalPath(input);
@@ -52,6 +54,32 @@ export async function refuseReservedDirectory(input: string): Promise<void> {
 		throw new Refused(
 			`${canonical} is inside a .git or ${STATE_DIRECTORY} folder, which belong to Git and to Epicenter, so it cannot be a data folder.`,
 		);
+	const paths = resolveAppPaths();
+	const home = resolve(paths.folderDir, '..');
+	const platformEnv = { ...process.env, EPICENTER_DATA_DIR: undefined };
+	const dataDirs = [
+		paths.dataDir,
+		epicenterDataRoot(
+			{ env: platformEnv, platform: process.platform, homeDir: home },
+			EPICENTER_BUNDLE_IDENTIFIER,
+		),
+		epicenterDataRoot(
+			{ env: platformEnv, platform: process.platform, homeDir: home },
+			`${EPICENTER_BUNDLE_IDENTIFIER}.dev`,
+		),
+	];
+	for (const directory of dataDirs) {
+		const data = await canonicalPath(directory);
+		if (containsPath(canonical, data) || containsPath(data, canonical))
+			throw new Refused(`${canonical} overlaps Epicenter's application data.`);
+	}
+	for (const name of ['Epicenter', 'Epicenter Dev']) {
+		const library = await canonicalPath(join(home, name));
+		if (containsPath(canonical, library))
+			throw new Refused(
+				`${canonical} holds every Epicenter folder, so it cannot be one.`,
+			);
+	}
 }
 
 /**
@@ -72,8 +100,24 @@ const LFS_CONFIG = [
 ];
 
 /** The folders registered for sync, as stored. */
+export const registrationKey = () =>
+	process.env.EPICENTER_ENVIRONMENT === 'development'
+		? 'epicenter.devFolder'
+		: 'epicenter.folder';
+
 export const registeredFolders = () =>
-	configAll(undefined, 'epicenter.folder', '--global');
+	configAll(undefined, registrationKey(), '--global');
+
+/** A registered spelling that currently points at `target`, if any. */
+export async function registrationFor(
+	registered: readonly string[],
+	target: string,
+): Promise<string | undefined> {
+	for (const entry of registered) {
+		if ((await realpath(entry).catch(() => null)) === target) return entry;
+	}
+	return undefined;
+}
 
 /** The top of the repository `folder` is in, links resolved, or null. */
 export async function repositoryRoot(folder: string): Promise<string | null> {
@@ -110,10 +154,10 @@ export async function identity(cwd: string): Promise<Record<string, string>> {
 }
 
 export type InitOptions = {
-	/** Adopt a repository the folder sits inside (`--enclosing-ok`). */
-	readonly allowEnclosing?: boolean;
 	/** The token for a remote, asked for by its URL, to pull LFS bytes. */
 	readonly credential?: CredentialFor;
+	/** A join waits for the person's next explicit sync before joining the watch list. */
+	readonly register?: boolean;
 };
 
 export type Initialized = {
@@ -132,39 +176,40 @@ export type Initialized = {
  */
 export async function init(
 	input: string,
-	{ allowEnclosing = false, credential }: InitOptions = {},
+	{ credential, register = true }: InitOptions = {},
 ): Promise<Initialized> {
 	await refuseReservedDirectory(input);
-	await mkdir(resolve(input), { recursive: true });
-	const folder = await realpath(resolve(input));
+	const folder = resolve(input);
+	if (!existsSync(folder)) {
+		let parent = dirname(folder);
+		while (!existsSync(parent)) parent = dirname(parent);
+		const enclosing = await repositoryRoot(await realpath(parent));
+		if (enclosing !== null)
+			throw new Refused(
+				`${folder} is inside the existing repository ${enclosing}. Move it outside that repository, then run epicenter init ${folder} again.`,
+			);
+	}
+	await mkdir(folder, { recursive: true });
+	const target = await realpath(folder);
 	const changed: string[] = [];
 	const warnings: string[] = [];
 
-	// 1. A repository, adopted only on purpose when it encloses the folder.
-	const top = await repositoryRoot(folder);
-	if (
-		top !== null &&
-		top !== folder &&
-		(await config(folder, 'epicenter.root')) !== top &&
-		!allowEnclosing
-	)
+	// 1. The folder must be its own repository.
+	const top = await repositoryRoot(target);
+	if (top !== null && top !== target)
 		throw new Refused(
-			`${folder} is inside the existing repository ${top}. epicenter sync would pull and push that whole repository (it commits only this folder). Pass --enclosing-ok to adopt it on purpose.`,
+			`${folder} is inside the existing repository ${top}. Move it outside that repository, then run epicenter init ${folder} again.`,
 		);
 	if (top === null) {
-		await must(folder, ['init', '-q', '-b', 'main']);
+		await must(target, ['init', '-q', '-b', 'main']);
 		changed.push('git init');
 	}
-	const root = (await repositoryRoot(folder)) as string;
+	const root = (await repositoryRoot(target)) as string;
 	const problem = await repositoryProblem(root);
 	if (problem !== null) throw new Refused(problem);
-	if (root !== folder)
-		warnings.push(
-			`sync fetches, merges, and pushes the whole repository at ${root}; it commits only ${folder}.`,
-		);
-	if ((await config(folder, 'epicenter.root')) !== root) {
-		await must(folder, ['config', '--local', 'epicenter.root', root]);
-		changed.push(`epicenter.root = ${root}`);
+	if ((await config(target, 'epicenter.synced')) !== 'true') {
+		await must(target, ['config', '--local', 'epicenter.synced', 'true']);
+		changed.push('epicenter.synced = true');
 	}
 
 	// 2. Epicenter's blocks of the folder's committed attributes and ignore rules.
@@ -173,7 +218,7 @@ export async function init(
 		['.gitignore', REPOSITORY_IGNORE],
 	] as const;
 	for (const [name, block] of managed) {
-		const path = join(folder, name);
+		const path = join(target, name);
 		const current = existsSync(path) ? await readFile(path, 'utf8') : null;
 		const wanted = withEpicenterBlock(current, block);
 		if (current !== wanted) {
@@ -183,14 +228,14 @@ export async function init(
 	}
 	const names = managed.map(([name]) => name);
 	const pending = (
-		await must(folder, ['status', '--porcelain', '--', ...names])
+		await must(target, ['status', '--porcelain', '--', ...names])
 	).trim();
 	if (pending !== '') {
 		const touched = names.filter((name) => pending.includes(name));
-		await must(folder, ['add', '--', ...touched]);
+		await must(target, ['add', '--', ...touched]);
 		// Path-limited: commits only these files, whatever else is staged.
 		await must(
-			folder,
+			target,
 			[
 				'commit',
 				'-q',
@@ -199,14 +244,14 @@ export async function init(
 				'--',
 				...touched,
 			],
-			{ env: await identity(folder) },
+			{ env: await identity(target) },
 		);
 		for (const name of touched) changed.push(`${name} committed`);
 	}
 
 	// 3. The per-clone merge driver.
-	if ((await config(folder, 'merge.epicenter.driver')) !== driverCommand()) {
-		await must(folder, [
+	if ((await config(target, 'merge.epicenter.driver')) !== driverCommand()) {
+		await must(target, [
 			'config',
 			'--local',
 			'merge.epicenter.driver',
@@ -214,8 +259,8 @@ export async function init(
 		]);
 		changed.push('merge.epicenter.driver set');
 	}
-	if ((await config(folder, 'merge.epicenter.name')) === null) {
-		await must(folder, [
+	if ((await config(target, 'merge.epicenter.name')) === null) {
+		await must(target, [
 			'config',
 			'--local',
 			'merge.epicenter.name',
@@ -229,7 +274,7 @@ export async function init(
 		);
 
 	// 4. LFS filters, and hooks for a person's own git push, local to this clone.
-	const hooks = await hooksDirectory(folder);
+	const hooks = await hooksDirectory(target);
 	const missingHooks: string[] = [];
 	for (const hook of LFS_HOOKS) {
 		const file = join(hooks, hook);
@@ -241,14 +286,14 @@ export async function init(
 	}
 	const missingConfig: string[] = [];
 	for (const key of LFS_CONFIG)
-		if ((await config(folder, key)) === null) missingConfig.push(key);
+		if ((await config(target, key)) === null) missingConfig.push(key);
 	if (missingHooks.length > 0 || missingConfig.length > 0) {
 		const missing = [
 			...missingConfig,
 			...missingHooks.map((h) => `hooks/${h}`),
 		];
 		// The runner points `core.hooksPath` nowhere; LFS installs into the repository's own.
-		const installed = await git(folder, [
+		const installed = await git(target, [
 			'-c',
 			`core.hooksPath=${hooks}`,
 			'lfs',
@@ -259,7 +304,7 @@ export async function init(
 			changed.push(`git lfs install --local (missing: ${missing.join(', ')})`);
 		else {
 			// A hook of the person's own stands where LFS's would go: keep it, set the filters.
-			await must(folder, ['lfs', 'install', '--local', '--skip-repo']);
+			await must(target, ['lfs', 'install', '--local', '--skip-repo']);
 			changed.push(
 				`git lfs install --local --skip-repo (missing: ${missing.join(', ')})`,
 			);
@@ -270,12 +315,12 @@ export async function init(
 	}
 
 	// 5. Files checked out as pointers (a clone made without LFS) get their bytes.
-	const pointers = (await git(folder, ['lfs', 'ls-files'])).stdout
+	const pointers = (await git(target, ['lfs', 'ls-files'])).stdout
 		.split('\n')
 		.filter((line) => / - /.test(line));
 	if (pointers.length > 0) {
-		const url = await config(folder, 'remote.origin.url');
-		const pulled = await git(folder, ['lfs', 'pull'], {
+		const url = await config(target, 'remote.origin.url');
+		const pulled = await git(target, ['lfs', 'pull'], {
 			credential: url === null ? undefined : await credential?.(url),
 		});
 		if (pulled.code === 0)
@@ -286,52 +331,90 @@ export async function init(
 	}
 
 	// 6. Registration.
-	if (!(await registeredFolders()).includes(folder)) {
+	if (!register) return { folder, repository: root, changed, warnings };
+	const registered = await registeredFolders();
+	const existing = await registrationFor(registered, target);
+	if (folder !== target && registered.includes(target)) {
+		if (!registered.includes(folder))
+			await must(undefined, [
+				'config',
+				'--global',
+				'--add',
+				registrationKey(),
+				folder,
+			]);
+		await must(undefined, [
+			'config',
+			'--global',
+			'--fixed-value',
+			'--unset-all',
+			registrationKey(),
+			target,
+		]);
+		changed.push(`registered link in global ${registrationKey()}`);
+	} else if (!registered.includes(folder) && existing === undefined) {
 		await must(undefined, [
 			'config',
 			'--global',
 			'--add',
-			'epicenter.folder',
+			registrationKey(),
 			folder,
 		]);
-		changed.push('registered in global epicenter.folder');
+		changed.push(`registered in global ${registrationKey()}`);
+	} else if (!registered.includes(folder) && existing !== undefined) {
+		warnings.push(`already registered as ${existing}`);
 	}
 	return { folder, repository: root, changed, warnings };
 }
 
 /**
  * Take `input` out of Epicenter's sync: unregister it, and drop
- * `epicenter.root` unless another registered folder shares its repository,
+ * `epicenter.synced` unless another registered path shares its repository,
  * so a later sync refuses it until init runs again. The files, the
  * repository, and its history stay as they are.
  */
 export async function forget(
 	input: string,
 ): Promise<{ folder: string; changed: string[] }> {
-	const folder = await realpath(resolve(input)).catch(() => resolve(input));
+	const folder = resolve(input);
+	const target = await realpath(folder).catch(() => null);
 	const changed: string[] = [];
 	const registered = await registeredFolders();
-	if (registered.includes(folder)) {
+	const exact = [...new Set(registered.filter((entry) => entry === folder))];
+	const matches =
+		exact.length > 0
+			? exact
+			: target === null
+				? []
+				: [...new Set(registered.filter((entry) => entry === target))];
+	if (matches.length === 0 && target !== null) {
+		const alias = await registrationFor(registered, target);
+		if (alias !== undefined) matches.push(alias);
+	}
+	for (const entry of matches) {
 		await must(undefined, [
 			'config',
 			'--global',
 			'--fixed-value',
 			'--unset-all',
-			'epicenter.folder',
-			folder,
+			registrationKey(),
+			entry,
 		]);
-		changed.push('unregistered from global epicenter.folder');
+		changed.push(`unregistered from global ${registrationKey()}`);
 	}
-	const root = existsSync(folder) ? await repositoryRoot(folder) : null;
-	if (root !== null && (await config(folder, 'epicenter.root')) === root) {
+	const root = target === null ? null : await repositoryRoot(target);
+	if (root !== null && root === target) {
 		const others = await Promise.all(
 			registered
-				.filter((other) => other !== folder && existsSync(other))
-				.map((other) => repositoryRoot(other)),
+				.filter((other) => !matches.includes(other) && existsSync(other))
+				.map((other) => realpath(other).catch(() => null)),
 		);
-		if (!others.includes(root)) {
-			await must(folder, ['config', '--local', '--unset', 'epicenter.root']);
-			changed.push('epicenter.root unset');
+		if (!others.includes(target)) {
+			for (const key of ['epicenter.synced', 'epicenter.joinPending']) {
+				if ((await config(target, key)) === null) continue;
+				await must(target, ['config', '--local', '--unset-all', key]);
+				changed.push(`${key} unset`);
+			}
 		}
 	}
 	return { folder, changed };

@@ -1,7 +1,7 @@
 <!--
 	The desktop window's header account of its store: Vocab's folder on this
-	computer, whether Epicenter manages it, Set up in Epicenter until it does,
-	and Choose data folder… (decisions 81 and 88), beside the account, which
+	computer, whether Epicenter manages it, and Set up in Epicenter beside
+	the account, which
 	only adds hosted tutor models and dictation. Vocab never syncs anything
 	itself.
 -->
@@ -9,6 +9,7 @@
 	import { auth } from '#platform/auth';
 	import { getFolderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
+	import FolderOnboarding from '@epicenter/svelte/folder-onboarding';
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import type { StatusLine } from '@epicenter/svelte/status-line';
@@ -39,7 +40,7 @@
 	<StatusPopover summary={status} details={[{ name: 'Status', testid: 'status-files', line: status }]}>
 		<StatusRow name="Where">
 			<span class="font-medium" data-testid="status-where">This computer</span>
-			<span class="mt-0.5 block break-all text-xs text-muted-foreground" data-testid="status-folder">{sync.path}</span>
+			<FolderOnboarding noun="entries" path={sync.path} pathTestId="status-folder" />
 			<span class="mt-0.5 block text-xs text-muted-foreground">
 				{#if sync.managed}
 					Epicenter keeps its local history. Connect a repository there to use it on other devices.
@@ -48,9 +49,6 @@
 				{/if}
 			</span>
 		</StatusRow>
-		{#snippet footer()}
-			<Button variant="outline" size="sm" disabled={sync.asking} onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
-		{/snippet}
 	</StatusPopover>
 </div>
 <div class="flex min-w-0 items-center gap-1 md:order-last md:ml-auto">

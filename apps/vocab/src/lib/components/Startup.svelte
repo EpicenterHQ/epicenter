@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
 	import DesktopStartup from '@epicenter/svelte/desktop-startup';
+	import { APPS } from '@epicenter/constants/apps';
 	import type { Snippet } from 'svelte';
 	import { authReady } from '../auth.tauri.js';
 	import { vocab } from '../contract.js';
@@ -14,8 +15,8 @@
 	let { children: pages }: { children: Snippet } = $props();
 </script>
 
-<DesktopStartup app="Vocab" settings={vocabSettings} contract={vocab} ready={authReady}>
-	{#snippet children(appData, device)}
-		<DesktopRoot {appData} {device}>{@render pages()}</DesktopRoot>
+<DesktopStartup app="Vocab" settings={vocabSettings} contract={vocab} site={APPS.VOCAB.url} ready={authReady}>
+	{#snippet children(appData, device, site)}
+		{#if appData}<DesktopRoot {appData} {device} {site}>{@render pages()}</DesktopRoot>{/if}
 	{/snippet}
 </DesktopStartup>

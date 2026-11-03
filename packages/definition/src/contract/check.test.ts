@@ -17,7 +17,6 @@ import { checkContract } from './check.js';
 import { defineContract } from './contract.js';
 
 const recorder = defineContract({
-	name: 'whispering',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',
@@ -43,6 +42,7 @@ test('a folder that fits has no issues, and hidden paths are skipped', () => {
 				{ path: 'recordings/a.webm' },
 				{ path: 'recordings/b.md' },
 				{ path: '.gitattributes' },
+				{ path: 'AGENTS.md', text: 'This is the folder note.' },
 				{ path: '.obsidian/workspace.json' },
 				{ path: 'recordings/.trash/x.md', text: 'not checked' },
 			]),
@@ -100,7 +100,7 @@ test('field failures are issues by field, at the line of the value', () => {
 
 test('a malformed contract is the error', () => {
 	const error = expectErr(
-		checkContract({ name: 'x', collections: { a: { path: '/a.md' } } }, []),
+		checkContract({ collections: { a: { path: '/a.md' } } }, []),
 	);
 	expect(error.name).toBe('Malformed');
 });

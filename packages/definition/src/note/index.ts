@@ -15,6 +15,7 @@ import {
 } from './canonical.js';
 import { frameRowText } from './frame.js';
 
+export { agentsContract } from './agents-contract.js';
 export {
 	type CanonicalDocument,
 	type CanonicalRefusal,

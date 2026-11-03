@@ -6,7 +6,7 @@
 
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 import {
 	appDataDir,
 	type DataRootSystem,
@@ -67,7 +67,7 @@ test('Windows resolves under LOCALAPPDATA even when roaming and XDG paths exist'
 				},
 			}),
 		),
-	).toBe(join('C:\\Users\\person\\AppData\\Local', 'so.epicenter'));
+	).toBe(win32.join('C:\\Users\\person\\AppData\\Local', 'so.epicenter'));
 });
 
 test('Windows refuses missing or empty LOCALAPPDATA even when APPDATA exists', () => {

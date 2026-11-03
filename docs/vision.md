@@ -80,10 +80,14 @@ a folder and a few documents. No data lives in both.
 
 What both stores share:
 
-- **One field language.** Proposed field builders (`text`, `select`,
-  `multiSelect`, `date`, `url`, `ref`, `body`) compile to JSON Schema for
-  files, a Yjs shape for documents, SQL columns for queries, and UI controls
-  for generic views. Contracts differ per store; the fields do not.
+- **One field language: JSON Schema.** A contract's fields are a written
+  subset of JSON Schema, and each reader interprets it directly: `epicenter
+  check` validates it, Epicenter's generic views pick a control per type
+  (`enum` is a dropdown), `epicenter query` picks a column per type, and a
+  document app stores each field as a key
+  ([ADR-0727](adr/0727-json-schema-is-the-field-language.md)). Helpers such as
+  `instant()` are optional shorthand that return JSON Schema. Contracts differ
+  per store; the fields do not.
 - **One export format.** Every store exports to Markdown notes with their
   attached files, and imports from them. A folder's working form is already
   that format. Moving data between stores is an export followed by an import,
@@ -112,7 +116,7 @@ Three places, each with one job:
   vocab/  capture/  …              Epicenter's apps: names without a dot
   bradenwong.com/                  an owner's folder: a name with a dot
     zhongwen/                      that owner's apps
-  notes -> ~/Documents/Vault       a folder that lives elsewhere: a link inside the root
+  Obsidian Vault -> ~/Documents/Vault   your own folder: a name no app can have (it has a space)
 
 ~/.epicenter/                      Epicenter's machinery: hidden, never synced, read by every program
   session.lock                     held while refreshing the sign-in
@@ -130,13 +134,21 @@ Three places, each with one job:
 - **Settings and shortcuts follow you.** Each is a note in the folder; an
   optional note of the same name in AppData overrides it on this device. A
   reader spreads defaults, then the folder's note, then the device's.
-- **No program stores where a folder is**
-  ([ADR-0721](adr/0721-an-apps-folder-is-derived-never-stored.md)). An app
-  shows its folder during onboarding ("Your recordings are files in
-  `~/Epicenter/whispering`"). On its first launch it creates the folder; if
-  the folder already holds files it does not recognize, it offers
-  [Show in Finder] or [Use it anyway]. Later, a missing folder shows
-  [Locate…] or [Start a new folder], never a silent empty one.
+- **An app's path is its claim**
+  ([ADR-0721](adr/0721-an-apps-folder-is-derived-never-stored.md),
+  [ADR-0726](adr/0726-an-apps-path-is-its-claim.md)). No program stores where
+  a folder is. `~/Epicenter/whispering` belongs to Whispering: it opens that
+  path, creates the folder when nothing is there, and reads and writes only
+  its contract's paths. The header's folder status shows the path and says
+  the recordings are files there; it offers Show in Finder on macOS and Show
+  folder elsewhere. A failed open, such as a link to an unplugged drive,
+  shows the error with Retry and the same file-manager action.
+- **An app reaches named roots, never paths**
+  ([ADR-0725](adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md)).
+  Its page asks the shell to list, read, put, and watch files by root and
+  relative path. A link at or above a root is followed when it opens; a link
+  inside a root is refused
+  ([ADR-0729](adr/0729-a-link-is-followed-only-at-or-above-a-root.md)).
 - **Links do the moving.** `epicenter move whispering /Volumes/Archive` moves
   the folder and leaves a link at `~/Epicenter/whispering`; Epicenter's
   "Move…" runs the same command. Apps never move or choose a location.
@@ -216,6 +228,28 @@ the browser.
   each send is journaled on the device (ADR-0704). There is no browser variant.
 - **Epicenter** gets a synced folder, `~/Epicenter/epicenter`, only when it has
   something worth syncing.
+
+## Planned
+
+Agreed direction, built after the folder work:
+
+- **Restore from your account.** On a second Mac, Epicenter offers "Restore
+  Whispering": it clones the repository to the app's path, or joins a folder
+  already there.
+- **Export all my data.** One archive of every folder and document Epicenter
+  can reach, following links and including attached files, with a list of
+  browser-only data it cannot reach.
+- **Git ships with the engine.** `~/.epicenter/bin` holds `git` and `git-lfs`
+  beside `epicenter`, so a first sync never asks for Apple's developer tools.
+- **Sync runs under a login agent,** so quitting the Epicenter app does not
+  stop sync.
+- **Machine sign-in is tested before it is built.** A short experiment checks
+  whether separately signed apps can share one keychain item without macOS
+  prompting; if not, the engine is the only reader and apps ask it for
+  tokens ([ADR-0720](adr/0720-you-sign-in-a-machine-not-an-app.md)).
+- **Your own folders take names no app can have,** such as one with a space
+  (`Obsidian Vault`): names without a dot belong to Epicenter's apps, and
+  names with a dot to owners.
 
 ## What Epicenter refuses
 

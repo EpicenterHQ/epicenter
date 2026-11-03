@@ -182,7 +182,6 @@ beforeAll(async () => {
 		GIT_CEILING_DIRECTORIES: scratch,
 		EPICENTER_API_URL: origin,
 		EPICENTER_DATA_DIR: join(scratch, 'data'),
-		EPICENTER_FOLDER_DIR: join(scratch, 'Epicenter'),
 		EPICENTER_TEST_SECRETS: JSON.stringify({ $auth: { [entry]: stored } }),
 	};
 	// What `auth login` writes. An `http` server like this one gets no token

@@ -80,6 +80,7 @@ Bun.plugin({
 			const compiled = compile(await Bun.file(path).text(), {
 				filename: path,
 				generate: 'client',
+				experimental: { async: true },
 			});
 			check(path, compiled.warnings);
 			return { contents: compiled.js.code, loader: 'js' };

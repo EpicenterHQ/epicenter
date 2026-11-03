@@ -3,8 +3,8 @@
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 96's removal of `EPICENTER_FOLDER_DIR` for standalone apps and at remembering only a chosen folder: every program uses one fixed root per environment, `EPICENTER_FOLDER_DIR` overrides it only in tests, and an app remembers the folder it first opened, always as a name under the root; [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md) at its remembered folder: an app also remembers the default after its first open.
-- **Amended by:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at the remembered `folder` value, the other-name choice after a collision, and "Open existing folder…": no location is stored, a first launch is read from AppData's absence, and apps choose no folder.
-- **Unbuilt:** `folder` values as names under the root; writing `folder` after the first open of the default; the first-open inspection and its two-choice question; the onboarding line that shows the folder; `epicenter link`; the broken-link message; the root `~/Epicenter Dev` for development builds of standalone apps; the warning for a root inside a file-syncing service; removing the refusal of "first-use persistence" from `apps/epicenter/AGENTS.md` (its refusal of collision suffixes stays).
+- **Amended by:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at the remembered `folder` value, the other-name choice after a collision, and "Open existing folder…": no location is stored, a first launch is read from AppData's absence, and apps choose no folder.; [ADR-0728](0728-a-build-states-its-environment.md) at `EPICENTER_FOLDER_DIR` for standalone apps: the standalone shell reads no such variable.
+- **Unbuilt:** a warning when the library root is inside a file-syncing service.
 
 ## Context
 

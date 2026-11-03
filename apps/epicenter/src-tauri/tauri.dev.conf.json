@@ -1,5 +1,8 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
 	"productName": "Epicenter Dev",
-	"identifier": "so.epicenter.dev"
+	"identifier": "so.epicenter.dev",
+	"plugins": {
+		"epicenter-standalone": { "environment": "development" }
+	}
 }

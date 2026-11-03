@@ -1,43 +1,41 @@
-//! The desktop shell's binding of one existing directory to each window that
-//! edits it.
+//! The desktop shell's named roots and the storage commands a page reaches
+//! them through (ADR-0725).
 //!
-//! A shell installs the plugin once. Before it builds a window's WebView, it
-//! resolves the directory that window edits in trusted Rust. The shared opener
-//! chooses the window identity and binds before construction:
+//! A shell installs the plugin once, then names each root at startup, with
+//! the rule that refuses a location it must never be:
 //!
 //! ```ignore
 //! tauri::Builder::default()
 //!     .plugin(tauri_plugin_epicenter_folder::init())
 //!     .setup(|app| {
-//!         let directory = Directory::create(&app.path().app_data_dir()?)?;
-//!         app.open_folder_window("notes", directory, url, |builder| {
-//!             Ok(builder.title("Notes"))
-//!         })?;
+//!         let roots = app.roots();
+//!         roots.name(Root::AppData, app.path().app_data_dir()?, |_| None);
+//!         roots.name(Root::Data, data_folder, refuse_home_and_library);
 //!         Ok(())
 //!     })
 //! ```
 //!
-//! The binding is the window's for its lifetime: a live label is never bound
-//! again, and the plugin removes the binding when the window is destroyed. A
-//! page names no scope or label, and names every root by the absolute path
-//! `open_folder` answered for it: its window's own directory, or one Tauri's
-//! file-system scope allows. It runs `@epicenter/folder`'s engine over that
+//! A page names a root, never a path, and holds no absolute path but the
+//! one `open_root` answers for it to show. Opening a root opens whatever is
+//! at its path, following a link there, and makes the folder when nothing is
+//! there (ADR-0726). The page runs `@epicenter/folder`'s engine over the
 //! root, whose storage is this plugin's commands, one per storage method
-//! (ADR-0581); each checks the root against the calling WebView's. The `epicenter` CLI owns Git over explicit directories
+//! (ADR-0581), each taking the root and a relative path the shared path rule
+//! keeps inside it. The `epicenter` CLI owns Git over explicit directories
 //! (ADR-0559); this plugin offers file storage.
 //!
-//! Several windows may be bound to one directory: the shell checks each save
-//! against the version its page read right before the rename, so a save
-//! another writer overtook is answered `stale` rather than silently replaced.
-//! No lock spans the check and the rename; Git history is the backstop for
-//! that instant (ADR-0562, ADR-0568). `Folders::shutdown` refuses
-//! new work without waiting for work already running (ADR-0542).
+//! The shell checks each save against the version its page read right
+//! before the rename, so a save another writer overtook is answered `stale`
+//! rather than silently replaced. No lock spans the check and the rename;
+//! Git history is the backstop for that instant (ADR-0562, ADR-0568).
+//! `Roots::shutdown` refuses new work without waiting for work already
+//! running (ADR-0542).
 //!
-//! Each opened binding owns one recursive native watch. Its private channel
-//! tells the page which paths may differ; the page owns reading those paths.
+//! Each open root owns one recursive native watch. Its app event tells pages
+//! which paths may differ; each page owns reading those paths.
 
 use tauri::plugin::TauriPlugin;
-use tauri::{Manager, RunEvent, Runtime, WindowEvent};
+use tauri::{Manager, RunEvent, Runtime};
 
 pub use epicenter_folder_core::admission;
 pub use epicenter_folder_core::directory::{Directory, DirectoryError};
@@ -46,15 +44,13 @@ pub use epicenter_folder_core::storage::{PutOutcome, StorageError};
 mod command_names;
 mod commands;
 pub mod epicenter;
-mod folders;
-pub mod scope;
+mod roots;
 mod watch;
-mod windows;
 
 pub use command_names::COMMANDS;
-pub use folders::{BindError, Folders, WindowError};
-pub use watch::FolderChanged;
-pub use windows::{FolderExt, OpenWindowError};
+pub use commands::FolderError;
+pub use roots::{Root, RootError, Roots, RootsExt};
+pub use watch::{FolderChanged, FolderEvent};
 
 const PLUGIN_NAME: &str = "epicenter-folder";
 
@@ -68,13 +64,14 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
         .plugin_name(PLUGIN_NAME)
         .commands(tauri_specta::collect_commands![
-            commands::open_folder::<tauri::Wry>,
-            commands::resolve_folder::<tauri::Wry>,
+            commands::open_root::<tauri::Wry>,
+            commands::reveal_root::<tauri::Wry>,
             commands::list_folder::<tauri::Wry>,
             epicenter::sync_with_epicenter::<tauri::Wry>,
             epicenter::synced_with_epicenter::<tauri::Wry>,
         ])
         .typ::<PutOutcome>()
+        .typ::<FolderEvent>()
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
 
@@ -84,8 +81,8 @@ fn raw_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + 
     tauri::generate_handler![commands::put_folder_file, commands::read_folder_file]
 }
 
-/// Install once per shell. A bound window closes like any other window:
-/// nothing waits for its page.
+/// Install once per shell, then name its roots (`Roots::name`). A window
+/// closes like any other window: nothing waits for its page.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     let contract = specta_builder::<R>();
     let typed = contract.invoke_handler();
@@ -96,22 +93,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             _ => typed(invoke),
         })
         .setup(move |app, _api| {
-            app.manage(Folders::default());
+            app.manage(Roots::default());
             Ok(())
         })
-        .on_page_load(|webview, payload| {
-            if payload.event() == tauri::webview::PageLoadEvent::Started {
-                webview.app_handle().folders().page_started(webview.label());
-            }
-        })
         .on_event(|app, event| match event {
-            // A destroyed window's label may be built again, on any folder.
-            RunEvent::WindowEvent {
-                label,
-                event: WindowEvent::Destroyed,
-                ..
-            } => app.folders().unbind(label),
-            RunEvent::Exit => app.folders().shutdown(),
+            RunEvent::Exit => app.roots().shutdown(),
             _ => {}
         })
         .build()

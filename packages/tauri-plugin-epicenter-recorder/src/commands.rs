@@ -4,20 +4,19 @@
 //! A microphone is named by the id `inputs` answers, never by the name a
 //! WebView gives it: on the desktop the page opens no microphone of its own.
 //!
-//! A page names the root it records into, by the absolute path the folder
-//! plugin answered when the page opened it, and a folder-relative path. The
-//! folder plugin answers whether the calling window reaches that root; the
-//! shared path rule decides whether the path is a data path. Only then is the
-//! microphone opened.
+//! A page opens the Data root through the folder plugin, then names a
+//! folder-relative path. The folder plugin
+//! answers the folder that root reached; the shared path rule decides whether
+//! the path is a data path. Only then is the microphone opened.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use epicenter_folder_core::page_files;
 use epicenter_folder_core::paths::path_problem;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime, Webview};
-use tauri_plugin_epicenter_folder::FolderExt;
+use tauri_plugin_epicenter_folder::{Root, RootsExt};
 
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
@@ -26,16 +25,15 @@ use crate::recorder::{Input, Result, StoppedRecording};
 use crate::staging::Recovery;
 use crate::{refresh_capturing, Recorders};
 
-/// The directory `root` names, read once for this operation: the directory
-/// the shell bound to the window or a root its page opened (`open_folder`),
-/// by the exact path the shell answered. Any other root is refused, and a window closed and
-/// replaced under the same label meanwhile does not redirect it.
-fn bound_root<R: Runtime>(webview: &Webview<R>, root: &Path) -> Result<PathBuf> {
+/// The folder Data reached when the app opened it (`open_root`), read
+/// once for this operation, so nothing that happens meanwhile redirects it.
+/// Data must already be open.
+fn opened_root<R: Runtime>(webview: &Webview<R>) -> Result<PathBuf> {
     webview
-        .folders()
-        .bound_root(webview.label(), root)
+        .roots()
+        .opened(Root::Data)
         .map(|directory| directory.root().to_path_buf())
-        .map_err(|refusal| RecorderError::refused(format!("{refusal:?}")))
+        .map_err(|refusal| RecorderError::refused(refusal.to_string()))
 }
 
 /// The microphones connected now, each with the id to ask for it by. Opens
@@ -111,7 +109,7 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
     result
 }
 
-/// Start recording `<path>.webm` in `root` (`bound_root`), from the
+/// Start recording `<path>.webm` in Data (`opened_root`), from the
 /// microphone whose id is `device` or the system default; answers the id to
 /// stop it by. An ending nobody asked for arrives on `signals`.
 ///
@@ -126,7 +124,6 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
 #[specta::specta]
 pub async fn start<R: Runtime>(
     webview: Webview<R>,
-    root: PathBuf,
     path: String,
     device: Option<String>,
     signals: Channel<RecordingSignal>,
@@ -138,7 +135,7 @@ pub async fn start<R: Runtime>(
     // time it would record, and nobody could stop what it started.
     let page = recorders.lock().page(&owner);
 
-    let root = bound_root(&webview, &root)?;
+    let root = opened_root(&webview)?;
     // The path the page named is checked too, so an empty one is not `.webm`.
     if let Some(problem) = path_problem(&path) {
         return Err(RecorderError::refused(format!("{path:?}: {problem}")));
@@ -203,7 +200,7 @@ pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<Stopped
     stopped
 }
 
-/// Finish and place every recording under `under` in `root` (`bound_root`)
+/// Finish and place every recording under `under` in Data (`opened_root`)
 /// that a quit or a crash left in the folder's `.epicenter/recordings`, and
 /// answer each one placed (`recovered`), by folder-relative path with how
 /// long it plays (`durationMs`, so a page never reads the audio back to
@@ -214,12 +211,8 @@ pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<Stopped
 /// nothing more.
 #[tauri::command]
 #[specta::specta]
-pub async fn recover<R: Runtime>(
-    webview: Webview<R>,
-    root: PathBuf,
-    under: String,
-) -> Result<Recovery> {
-    let root = bound_root(&webview, &root)?;
+pub async fn recover<R: Runtime>(webview: Webview<R>, under: String) -> Result<Recovery> {
+    let root = opened_root(&webview)?;
     let app = webview.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {
         // Asked per file, under the recorder lock: a `start` holds that lock

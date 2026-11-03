@@ -8,7 +8,6 @@ import { unwrap } from 'wellcrafted/result';
 import { deviceFiles, openDevice } from '../src/browser.js';
 
 const recorder = defineContract({
-	name: 'recorder',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',

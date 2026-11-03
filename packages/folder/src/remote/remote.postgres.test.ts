@@ -44,7 +44,6 @@ import { OAuthTestClient } from '../../../server/src/test-helpers/oauth-client.j
 import { openRemote } from '../remote.js';
 
 const recorder = defineContract({
-	name: 'recorder',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',
@@ -206,7 +205,10 @@ describe('the remote client', () => {
 		const bob = await signIn('shared-guest');
 		const id = timeId();
 		expectOk(
-			await openRemote(recorder, { account: alice.account }).recordings.create({
+			await openRemote(recorder, {
+				account: alice.account,
+				site: 'https://recorder.epicenter.so',
+			}).recordings.create({
 				id,
 				title: 'For Bob',
 			}),
@@ -249,7 +251,10 @@ describe('the remote client', () => {
 		// The default is still Bob's own repository.
 		expect(
 			expectOk(
-				await openRemote(recorder, { account: bob.account }).recordings.list(),
+				await openRemote(recorder, {
+					account: bob.account,
+					site: 'https://recorder.epicenter.so',
+				}).recordings.list(),
 			).items,
 		).toEqual([]);
 		expect(() =>
@@ -262,7 +267,10 @@ describe('the remote client', () => {
 
 	test('a write over a version the server no longer holds is a Conflict, and nothing lands', async () => {
 		const person = await signIn('stale');
-		const remote = openRemote(recorder, { account: person.account });
+		const remote = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
 		const id = timeId();
 		const created = expectOk(
 			await remote.recordings.create({ id, title: 'First', body: 'one\n' }),
@@ -303,7 +311,10 @@ describe('the remote client', () => {
 
 	test('a file update over a stale version is a Conflict, and its bytes stay off the server', async () => {
 		const person = await signIn('stale-file');
-		const remote = openRemote(recorder, { account: person.account });
+		const remote = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
 		const id = timeId();
 		const first = new Uint8Array([1, 2, 3]);
 		const created = expectOk(
@@ -332,7 +343,10 @@ describe('the remote client', () => {
 
 	test('create is refused where a file already is', async () => {
 		const person = await signIn('occupied');
-		const remote = openRemote(recorder, { account: person.account });
+		const remote = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
 		const id = timeId();
 		expectOk(await remote.recordings.create({ id, title: 'Mine' }));
 		expect(
@@ -343,7 +357,10 @@ describe('the remote client', () => {
 
 	test('notes are written in house style and listed with their versions', async () => {
 		const person = await signIn('house-style');
-		const remote = openRemote(recorder, { account: person.account });
+		const remote = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
 		const id = timeId();
 		const created = expectOk(
 			await remote.recordings.create({
@@ -374,7 +391,10 @@ describe('the remote client', () => {
 
 	test('a note that does not read on main is listed with its text and version, and replace repairs it', async () => {
 		const person = await signIn('repair');
-		const remote = openRemote(recorder, { account: person.account });
+		const remote = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
 		const id = timeId();
 		const broken = '---\ntitle: [unclosed\n---\nKept.\n';
 		const raw = await person.account.fetch(
@@ -430,8 +450,14 @@ describe('the remote client', () => {
 
 	test("listeners hear this client's writes at once, another writer's within a poll, and polling stops with the last listener", async () => {
 		const person = await signIn('notify');
-		const remote = openRemote(recorder, { account: person.account });
-		const other = openRemote(recorder, { account: person.account });
+		const remote = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
+		const other = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
 		const HEAD = /^GET .*\/epicenter\/head$/;
 		let notes = 0;
 		let audio = 0;
@@ -466,7 +492,10 @@ describe('the remote client', () => {
 
 	test('a retired account makes every call Unavailable, never a throw', async () => {
 		const person = await signIn('retired-reads');
-		const remote = openRemote(recorder, { account: person.account });
+		const remote = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
 		person.retire();
 		expect(expectErr(await remote.recordings.list()).name).toBe('Unavailable');
 	}, 30_000);

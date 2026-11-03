@@ -51,7 +51,9 @@ test('the CLI rejects missing or extra arguments', async () => {
 	expect(run('check').exitCode).toBe(2);
 	expect(run('check', 'contract.json', folder, 'extra').exitCode).toBe(2);
 	expect(run('validate', folder).exitCode).toBe(2);
-	expect(run('--help').stdout).toContain('epicenter check <contract> [<dir>]');
+	expect(run('--help').stdout).toContain(
+		'epicenter check [<dir> | <contract> [<dir>]]',
+	);
 });
 
 // ============================================================================

@@ -13,7 +13,7 @@
  *
  * Vocab's settings (the tutor model chosen and the endpoints connected) are
  * this device's, not the learner's data, so there is no settings note.
- * Its name makes the repository `<account>/vocab`. Published, unchanged, as
+ * The app's site names its repository `~/vocab`. Published, unchanged, as
  * `static/contract.json` (`bun run contract`), so `epicenter check
  * <url>/contract.json <dir>` checks a clone.
  */
@@ -22,7 +22,6 @@ import { defineContract } from '@epicenter/definition/contract';
 const text = { type: 'string' } as const;
 
 export const vocab = defineContract({
-	name: 'vocab',
 	description:
 		'Vocab: a Markdown note per saved expression (the learner’s note in its body), per tutor chat, and per finished chat message.',
 	collections: {

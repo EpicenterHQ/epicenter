@@ -11,15 +11,14 @@
  * folder. A note with no `title` shows its first line instead.
  *
  * Honeycrisp has no settings, so it has no settings note, and keeps no
- * other files. Its name makes the repository `<account>/honeycrisp`
- * (decision 46). It is published, unchanged, as `static/contract.json`
+ * other files. The app's site names its repository `~/honeycrisp`.
+ * It is published, unchanged, as `static/contract.json`
  * (`bun run contract` writes it), so `epicenter check <url>/contract.json
  * <dir>` checks a clone.
  */
 import { defineContract } from '@epicenter/definition/contract';
 
 export const honeycrisp = defineContract({
-	name: 'honeycrisp',
 	description:
 		'Markdown notes: a note per file, its title, folder, pin and creation time in front matter, its text in the body; folders are notes of their own that notes name by id.',
 	collections: {

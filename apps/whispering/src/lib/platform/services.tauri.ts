@@ -27,7 +27,7 @@ import {
 	AI_MODELS,
 	HOSTED_TRANSCRIPTION_MODEL,
 } from '@epicenter/constants/ai-providers';
-import { rootOf } from '@epicenter/folder/tauri';
+import { type Root, rootOf } from '@epicenter/folder/tauri';
 import { recorder } from '@epicenter/recorder/tauri';
 import { commands as localModels } from '@epicenter/transcription-native';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -223,9 +223,9 @@ async function routeOf(operation: Operation) {
 	};
 }
 
-/** Transcribe the file at `path` in the data folder `root` with local model `model`. */
+/** Transcribe the file at `path` in the data folder's root `root` with local model `model`. */
 async function transcribeHere(
-	root: string,
+	root: Root,
 	path: string | undefined,
 	model: string,
 ): Promise<Result<{ text: string }, TranscriptionError>> {

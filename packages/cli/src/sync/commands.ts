@@ -14,8 +14,9 @@
  * into a clone.
  */
 
-import { existsSync, type FSWatcher, watch as watchDirectory } from 'node:fs';
-import { basename, join, resolve, sep } from 'node:path';
+import { type FSWatcher, watch as watchDirectory } from 'node:fs';
+import { realpath } from 'node:fs/promises';
+import { basename, resolve, sep } from 'node:path';
 import {
 	isRepositoryName,
 	parseRepositoryPath,
@@ -23,7 +24,6 @@ import {
 	repositoryUrl,
 } from '@epicenter/constants/repositories';
 import { isHiddenPath } from '@epicenter/definition/contract';
-import { resolveAppPaths } from '../app-paths.ts';
 import type { GrantKind } from '../auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
 import type { CredentialFor } from './git.ts';
@@ -64,10 +64,9 @@ function reportSetup(
 		for (const warning of value.warnings ?? []) writeErr(`warning: ${warning}`);
 }
 
-/** `epicenter init [<dir>] [--enclosing-ok]`. */
+/** `epicenter init [<dir>]`. */
 export async function initCommand(
 	dir: string | undefined,
-	options: Options,
 	json: boolean,
 	grant: GrantKind,
 ) {
@@ -75,7 +74,6 @@ export async function initCommand(
 	try {
 		const initialized = await init(dir ?? '.', {
 			credential: credentialFor(grant),
-			allowEnclosing: options['enclosing-ok'] === true,
 		});
 		reportSetup('init', initialized, json);
 		return EXIT.ok;
@@ -90,7 +88,6 @@ export async function initCommand(
 export async function connectCommand(
 	dir: string,
 	source: string,
-	options: Options,
 	json: boolean,
 	grant: GrantKind,
 ) {
@@ -102,9 +99,7 @@ export async function connectCommand(
 		);
 	const { connect } = await import('./connect.ts');
 	try {
-		const result = await connect(dir, named.url, {
-			allowEnclosing: options['enclosing-ok'] === true,
-		});
+		const result = await connect(dir, named.url);
 		if (json) writeJson({ connect: result });
 		else
 			writeOut(
@@ -131,21 +126,45 @@ export async function cloneCommand(
 	dir: string | undefined,
 	json: boolean,
 	grant: GrantKind,
+	flags: Options = {},
 ) {
 	const { clone } = await import('./clone.ts');
-	const named = await repositorySource(source);
+	const named = await repositorySource(source, grant);
 	if (named === undefined)
 		return fail(
 			`'${source}' is neither <namespace>/<name>, a URL, nor a path to a repository`,
 			json,
 		);
-	const target = resolve(dir ?? join(resolveAppPaths().folderDir, named.name));
 	try {
-		const cloned = await clone(named, target, {
+		const cloned = await clone(named, dir, {
 			credential: credentialFor(grant),
+			join: flags.join === true,
+			ownsRemote: async (url) => {
+				const { resolveDeployment } = await import('../auth.ts');
+				const remote = parseRepositoryUrl(
+					resolveDeployment().audiences.git,
+					url,
+				);
+				if (remote === undefined) return false;
+				const { personalNamespace } = await import('../repository-commands.ts');
+				return remote.namespace === (await personalNamespace(grant));
+			},
 		});
 		reportSetup('cloned', { url: named.url, ...cloned }, json);
-		return EXIT.ok;
+		if (!json) {
+			if (cloned.alreadyCloned)
+				writeOut(`${cloned.folder}: already cloned from ${named.url}`);
+			if (cloned.naming) writeOut(`${cloned.folder}: ${cloned.naming}`);
+			for (const note of cloned.sync?.notes ?? [])
+				writeOut(`${cloned.folder}: ${note}`);
+			if (cloned.sync?.message)
+				writeErr(`${cloned.folder}: ${cloned.sync.message}`);
+		}
+		return cloned.sync?.status === 'stopped'
+			? EXIT.unusable
+			: cloned.sync?.status === 'retry'
+				? EXIT.finding
+				: EXIT.ok;
 	} catch (error) {
 		return fail(error instanceof Error ? error.message : String(error), json);
 	}
@@ -172,10 +191,11 @@ async function repositorySource(source: string, grant?: GrantKind) {
 				name: personalName,
 			}),
 			name: personalName,
+			accountOwned: true,
 		};
 	}
 	return (
-		(grant === undefined ? localSource(source) : undefined) ??
+		localSource(source) ??
 		(hosted !== undefined
 			? { url: repositoryUrl(git, hosted), name: hosted.name }
 			: URL.canParse(source)
@@ -287,7 +307,28 @@ export async function syncCommand(
 		for (const folder of await folders()) {
 			if (isStopping()) break;
 			const status = await finishBeforeExit(async () => {
-				const result = await syncFolder(folder, { credential });
+				const result = await syncFolder(folder, {
+					credential,
+					allowPending: dir !== undefined && options.watch !== true,
+				});
+				if (
+					dir !== undefined &&
+					options.watch !== true &&
+					result.status === 'synced'
+				) {
+					const { config } = await import('./git.ts');
+					if ((await config(dir, 'epicenter.joinPending')) === 'true') {
+						const { init } = await import('./setup.ts');
+						await init(dir, { credential });
+						const { must } = await import('./git.ts');
+						await must(dir, [
+							'config',
+							'--local',
+							'--unset-all',
+							'epicenter.joinPending',
+						]);
+					}
+				}
 				reportSync(result, json);
 				return result.status;
 			}, ROUND_GRACE_MS);
@@ -328,22 +369,32 @@ async function watch(
 	roundOf: () => Promise<number>,
 	interval: number,
 ): Promise<never> {
-	const watchers = new Map<string, FSWatcher>();
+	const watchers = new Map<string, { target: string; watcher: FSWatcher }>();
 	let busy = false;
 	let wake = () => {};
 	for (;;) {
-		for (const folder of await folders())
-			if (!watchers.has(folder) && existsSync(folder))
-				watchers.set(
-					folder,
-					watchDirectory(folder, { recursive: true }, (_event, name) => {
-						const path = String(name ?? '')
-							.split(sep)
-							.join('/');
-						if (busy || isHiddenPath(path)) return;
-						wake();
-					}),
-				);
+		for (const folder of await folders()) {
+			const target = await realpath(folder).catch(() => null);
+			const current = watchers.get(folder);
+			if (current?.target === target) continue;
+			current?.watcher.close();
+			watchers.delete(folder);
+			if (target !== null)
+				watchers.set(folder, {
+					target,
+					watcher: watchDirectory(
+						target,
+						{ recursive: true },
+						(_event, name) => {
+							const path = String(name ?? '')
+								.split(sep)
+								.join('/');
+							if (busy || isHiddenPath(path)) return;
+							wake();
+						},
+					),
+				});
+		}
 		busy = true;
 		await roundOf();
 		busy = false;

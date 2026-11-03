@@ -50,8 +50,8 @@ stopped.path; // 'recordings/2026-10-15-0930.webm' (desktop, and a browser witho
 ```
 
 `device` is the app's own store, so the audio lands beside the rest of its
-files: on the desktop the shell writes into the root it answered when the page
-opened the data folder (`rootOf(device)` from `@epicenter/folder/tauri`); in a
+files: on the desktop the shell writes into the root the page opened the
+data folder at (`rootOf(device)` from `@epicenter/folder/tauri`, `Data`); in a
 browser the page appends through `deviceFiles(device)` from
 `@epicenter/folder/browser`, whose Worker writes each piece to the end of the
 file with a sync access handle.

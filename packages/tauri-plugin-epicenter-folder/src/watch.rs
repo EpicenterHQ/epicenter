@@ -1,4 +1,4 @@
-//! A binding's filesystem watch. Notifications carry scope, never file content.
+//! An open root's filesystem watch. Notifications carry scope, never file content.
 
 use std::collections::BTreeSet;
 use std::path::{Component, Path};
@@ -8,6 +8,15 @@ use epicenter_folder_core::paths::{is_hidden_path, readable_path_problem};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use specta::Type;
+
+use crate::Root;
+
+/// One opened root's changed paths, delivered as `folder-changed`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct FolderEvent {
+    pub root: Root,
+    pub paths: Option<Vec<String>>,
+}
 
 /// Paths whose stored content may differ, or any path when scope is unknown.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -26,7 +35,7 @@ impl FolderWatch {
         report: impl Fn(FolderChanged) + Send + 'static,
     ) -> notify::Result<Self> {
         let directory = root.to_path_buf();
-        // Construction may recursively walk the filesystem before the binding
+        // Construction may recursively walk the filesystem before `Roots`
         // can install this watch. A duplicate or retired candidate emits nothing.
         let active = Arc::new(Mutex::new(false));
         let listening = active.clone();
@@ -60,8 +69,8 @@ impl FolderWatch {
 impl Drop for FolderWatch {
     fn drop(&mut self) {
         // Wait for an emitting callback, then fence later emissions before the
-        // native watcher drops. Drop outside Folders' lock: reporting may call
-        // listeners, and notify's macOS destructor joins its watcher thread.
+        // native watcher drops. Drop outside `Roots`' lock: reporting may emit
+        // an app event, and notify's macOS destructor joins its watcher thread.
         *self
             .active
             .lock()

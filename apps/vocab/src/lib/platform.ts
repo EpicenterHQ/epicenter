@@ -30,7 +30,7 @@ export type CallbackProps = { home: string };
  * and messages for the pages (`setEntryList`, `setChatList`,
  * `setMessageList`). `Chrome` is the header's account of it: where the
  * words are, and what can be done about it (sign in again, or Sync with
- * Epicenter and Choose data folder…), beside the account. `Callback` is the
+ * Epicenter), beside the account. `Callback` is the
  * page that ends a sign-in, which only the web app makes.
  */
 export type Platform = {

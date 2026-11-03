@@ -20,7 +20,7 @@
  */
 
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 
 /** Production desktop identity used by standalone CLI defaults. */
 export const EPICENTER_BUNDLE_IDENTIFIER = 'so.epicenter';
@@ -62,7 +62,9 @@ export function epicenterDataRoot(
 		platform: process.platform,
 		homeDir: homedir(),
 	},
+	identifier = EPICENTER_BUNDLE_IDENTIFIER,
 ): string {
+	const path = system.platform === 'win32' ? win32 : posix;
 	const override = system.env.EPICENTER_DATA_DIR;
 	if (override && override.length > 0) {
 		// A relative override would resolve against the working directory, so a CLI
@@ -70,19 +72,20 @@ export function epicenterDataRoot(
 		// third: the exact drift a relative `XDG_DATA_HOME` is ignored for. It is
 		// refused rather than resolved because that would read a fourth ambient
 		// input this function deliberately does not take.
-		if (!isAbsolute(override)) {
+		if (!path.isAbsolute(override)) {
 			throw new Error(
 				`EPICENTER_DATA_DIR must be an absolute path, not ${JSON.stringify(override)}.`,
 			);
 		}
 		return override;
 	}
-	return join(localDataDir(system), EPICENTER_BUNDLE_IDENTIFIER);
+	return path.join(localDataDir(system), identifier);
 }
 
 function localDataDir({ env, platform, homeDir }: DataRootSystem): string {
+	const path = platform === 'win32' ? win32 : posix;
 	if (platform === 'darwin') {
-		return join(homeDir, 'Library', 'Application Support');
+		return path.join(homeDir, 'Library', 'Application Support');
 	}
 	if (platform === 'win32') {
 		const localAppData = env.LOCALAPPDATA;
@@ -101,8 +104,8 @@ function localDataDir({ env, platform, homeDir }: DataRootSystem): string {
 	// Absolute only, matching `dirs`. A relative XDG_DATA_HOME would otherwise
 	// resolve against the working directory, so a CLI run from two places would
 	// see two roots while the desktop host saw a third.
-	if (xdg && isAbsolute(xdg)) return xdg;
-	return join(homeDir, '.local', 'share');
+	if (xdg && path.isAbsolute(xdg)) return xdg;
+	return path.join(homeDir, '.local', 'share');
 }
 
 /**

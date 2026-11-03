@@ -48,7 +48,6 @@ const { flushSync, mount, unmount } = await import('svelte');
 const { default: InitHost } = await import('./fixtures/InitHost.svelte');
 
 const todos = defineContract({
-	name: 'todos',
 	collections: {
 		todos: {
 			path: 'todos/{id}.md',
@@ -682,7 +681,6 @@ test('edit’s fields are the declared fields and the body, so a field named lik
 	await host.unmount();
 
 	const controls = defineContract({
-		name: 'controls',
 		collections: {
 			notes: {
 				path: 'notes/{id}.md',

@@ -41,8 +41,10 @@ cited records govern where a principle and a record differ.
    app keeps what lasts as notes and files in a folder, or as a document
    synced through the account. SQLite lives in AppData and is rebuilt from
    them ([ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md)).
-2. **One field language, one export format.** Field builders compile to JSON
-   Schema, a Yjs shape, SQL columns and UI controls. Markdown notes with
+2. **One field language, one export format.** The field language is a written
+   subset of JSON Schema, which each reader (`check`, generic views, `query`, a
+   document app) interprets directly
+   ([ADR-0727](0727-json-schema-is-the-field-language.md)). Markdown notes with
    attached files are every store's export, and moving data between stores is
    an export then an import
    ([ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md),
@@ -59,7 +61,7 @@ cited records govern where a principle and a record differ.
 4. **Each app has two places on a machine with the same note names.** The
    synced folder holds what follows the person; the device's AppData holds
    overrides. `settings.md` and `shortcuts.md` are read as defaults, then the
-   folder's note, then the device's (`packages/folder/src/settings.ts`).
+   folder's note, then the device's (Whispering's `shortcuts.md`, `apps/whispering/src/lib/settings.tauri.ts`).
    Epicenter's machinery is a third place, `~/.epicenter` ([ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md),
    [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)).
 5. **Find things by convention; store only the exceptions.** A program

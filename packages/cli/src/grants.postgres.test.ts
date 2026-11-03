@@ -62,7 +62,6 @@ import {
 import { createMemorySecrets } from './secrets.ts';
 
 const recorder = defineContract({
-	name: 'recorder',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',
@@ -235,7 +234,6 @@ async function machine(label: string) {
 		GIT_COMMITTER_EMAIL: `${label}@example.test`,
 		EPICENTER_API_URL: origin,
 		EPICENTER_DATA_DIR: join(home, 'data'),
-		EPICENTER_FOLDER_DIR: join(home, 'Epicenter'),
 		EPICENTER_TEST_SECRETS: JSON.stringify({ $auth: { [entry]: stored } }),
 	};
 	const helper = await configureGitHelper(
@@ -280,14 +278,21 @@ test('a family member with a grant sees the recording; write lets them edit; a r
 	const repository = `${alice.handle}/recorder` as const;
 
 	// Alice records on the web: a note and its audio, through Git LFS.
-	const mine = openRemote(recorder, { account: alice.account });
+	const mine = openRemote(recorder, {
+		account: alice.account,
+		site: 'https://recorder.epicenter.so',
+	});
 	const id = timeId();
 	const audio = crypto.getRandomValues(new Uint8Array(300_000));
 	expectOk(await mine.recordings.create({ id, title: 'Kitchen' }));
 	expectOk(await mine.audio.create({ id, ext: 'm4a', bytes: audio }));
 
 	// Before a grant, Bob reaches nothing of hers.
-	const theirs = openRemote(recorder, { account: bob.account, repository });
+	const theirs = openRemote(recorder, {
+		account: bob.account,
+		repository,
+		site: 'https://recorder.epicenter.so',
+	});
 	expect(expectErr(await theirs.recordings.list())).toMatchObject({
 		cause: { status: 403 },
 	});

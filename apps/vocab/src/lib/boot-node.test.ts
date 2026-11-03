@@ -84,14 +84,14 @@ describe('the variant root decides the one store', () => {
 		);
 		const online = await Bun.file(join(components, 'Online.svelte')).text();
 		expect(online).toMatch(
-			/const files = fromClient\(openRemote\(vocab, \{ account \}\)\);\s*setEntryList\(files\.entries\);/,
+			/const files = fromClient\(openRemote\(vocab, \{ account, site: APPS\.VOCAB\.url \}\)\);\s*setEntryList\(files\.entries\);/,
 		);
 	});
 
 	test('on the desktop, Startup opens the AppData root, then the data folder, with the sign-in answer', async () => {
 		const startup = await Bun.file(join(components, 'Startup.svelte')).text();
 		expect(startup).toMatch(
-			/<DesktopStartup app="Vocab" settings=\{vocabSettings\} contract=\{vocab\} ready=\{authReady\}>/,
+			/<DesktopStartup app="Vocab" settings=\{vocabSettings\} contract=\{vocab\} site=\{APPS.VOCAB.url\} ready=\{authReady\}>/,
 		);
 	});
 

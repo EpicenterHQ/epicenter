@@ -78,17 +78,17 @@ const POLL_MS = 3000;
 
 /**
  * The client of `contract` over `repository` (`<owner>/<name>`, by default
- * `~/<contract name>`) as `account` reaches it. A contract that is not well
+ * `~/<name derived from site>`) as `account` reaches it. A contract that is not well
  * formed, or a `repository` that names none, throws.
  */
 export function createRemoteClient<TContract extends Contract>(
 	contract: TContract,
 	account: RemoteAccount,
-	repository?: string,
+	repository: string,
 ): Client<TContract> {
 	const { data: compiled, error } = compileContract(contract);
 	if (error !== null) throw new Error(error.message, { cause: error });
-	const path = repository ?? `~/${compiled.name}`;
+	const path = repository;
 	const [owner = '', name = '', extra] = path.split('/');
 	if (
 		extra !== undefined ||

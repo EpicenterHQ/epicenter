@@ -1,22 +1,23 @@
-//! Epicenter's machine-local application data and its library root, which
-//! the shell resolves once at startup and passes to every `epicenter`
-//! command it runs. Window binding and explicitly chosen directories do not
-//! depend on them. The apps on `epicenter-standalone` use neither: each
-//! keeps its data folder at `~/Epicenter/<productName>`. A terminal's
-//! `epicenter` follows the same rule (`packages/cli/src/app-paths.ts`).
+//! Epicenter's machine-local application data and library root, resolved
+//! once at startup. The shell passes its data directory and environment to
+//! each `epicenter` command, which derives the same root. Window binding and
+//! explicitly chosen directories do not depend on them. Standalone apps use
+//! neither. A terminal's `epicenter` follows the same rule
+//! (`packages/cli/src/app-paths.ts`).
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use epicenter_standalone::data_folder::{self, Environment};
 use tauri::{AppHandle, Manager, Runtime};
 
 /// Epicenter's machine-local application data and the library root.
 #[derive(Debug, Clone)]
 pub struct DesktopPaths {
     pub data_dir: PathBuf,
-    /// The library root: `~/Epicenter`, `~/Epicenter Dev`, or
-    /// `EPICENTER_FOLDER_DIR`.
+    /// The library root: `~/Epicenter` or `~/Epicenter Dev`.
     pub folder_dir: PathBuf,
+    pub environment: Environment,
 }
 
 impl DesktopPaths {
@@ -30,11 +31,12 @@ impl DesktopPaths {
                     .map_err(|error| error.to_string())
             },
         )?;
-        let folder_dir = resolve_folder_root(
-            &app.config().identifier,
-            std::env::var_os("EPICENTER_FOLDER_DIR").as_deref(),
-            || app.path().home_dir().map_err(|error| error.to_string()),
-        )?;
+        let environment =
+            Environment::from_config(app.config().plugins.0.get(data_folder::CONFIG_KEY))
+                .map_err(|error| error.to_string())?;
+        let folder_dir = resolve_folder_root(environment, || {
+            app.path().home_dir().map_err(|error| error.to_string())
+        })?;
         for path in [&data_dir, &folder_dir] {
             path.to_str()
                 .ok_or("Desktop directories must be valid UTF-8.")?;
@@ -42,6 +44,7 @@ impl DesktopPaths {
         Ok(Self {
             data_dir,
             folder_dir,
+            environment,
         })
     }
 }
@@ -84,27 +87,13 @@ fn resolve_directory(
     }
 }
 
-/// Resolve the authored root before opening any app windows. A nonempty,
-/// absolute `EPICENTER_FOLDER_DIR` wins without looking up the home directory.
-/// Otherwise the bundle's storage environment selects `~/Epicenter` or
-/// `~/Epicenter Dev`. This computes a path and makes nothing.
+/// Resolve the authored root before opening any app windows. The configuration
+/// states the environment. This computes a path and makes nothing.
 fn resolve_folder_root(
-    identifier: &str,
-    override_value: Option<&OsStr>,
+    environment: Environment,
     home: impl FnOnce() -> Result<PathBuf, String>,
 ) -> Result<PathBuf, String> {
-    resolve_directory("EPICENTER_FOLDER_DIR", override_value, || {
-        let name = match identifier {
-            "so.epicenter" => "Epicenter",
-            "so.epicenter.dev" => "Epicenter Dev",
-            _ => {
-                return Err(format!(
-                    "No authored root for {identifier}; set EPICENTER_FOLDER_DIR explicitly"
-                ))
-            }
-        };
-        Ok(home()?.join(name))
-    })
+    Ok(data_folder::root(&home()?, environment))
 }
 
 #[cfg(test)]
@@ -141,39 +130,36 @@ mod tests {
     #[test]
     fn shipped_epicenter_configs_select_their_library_root() {
         let home = std::env::temp_dir().join("epicenter-home");
-        for (config, name) in [
-            (include_str!("../tauri.conf.json"), "Epicenter"),
-            (include_str!("../tauri.dev.conf.json"), "Epicenter Dev"),
+        for (config, name, expected) in [
+            (
+                include_str!("../tauri.conf.json"),
+                "Epicenter",
+                Environment::Production,
+            ),
+            (
+                include_str!("../tauri.dev.conf.json"),
+                "Epicenter Dev",
+                Environment::Development,
+            ),
         ] {
             let config: serde_json::Value = serde_json::from_str(config).unwrap();
-            let identifier = config["identifier"].as_str().unwrap();
-            for value in [None, Some(OsStr::new(""))] {
-                let root = resolve_folder_root(identifier, value, || Ok(home.clone())).unwrap();
-                assert_eq!(root, home.join(name));
-            }
-            let elsewhere = home.join("elsewhere");
-            let root = resolve_folder_root(identifier, Some(elsewhere.as_os_str()), || {
-                panic!("an explicit root does not need the home directory")
-            })
-            .unwrap();
-            assert_eq!(root, elsewhere);
+            let environment =
+                Environment::from_config(config["plugins"].get(data_folder::CONFIG_KEY)).unwrap();
+            assert_eq!(environment, expected);
+            assert_eq!(
+                resolve_folder_root(environment, || Ok(home.clone())).unwrap(),
+                home.join(name)
+            );
         }
     }
 
     #[test]
-    fn invalid_overrides_and_unknown_environments_fail_without_resolving_home() {
-        let no_home = || panic!("home must not be resolved");
-        let error =
-            resolve_folder_root("so.epicenter", Some(OsStr::new("relative")), no_home).unwrap_err();
-        assert!(error.contains("EPICENTER_FOLDER_DIR must be an absolute path"));
-        assert!(resolve_folder_root("unknown", None, no_home).is_err());
-        let explicit = std::env::temp_dir().join("explicit-root");
-        assert_eq!(
-            resolve_folder_root("unknown", Some(explicit.as_os_str()), no_home).unwrap(),
-            explicit
+    fn missing_home_and_unknown_environments_fail() {
+        assert!(
+            Environment::from_config(Some(&serde_json::json!({"environment": "staging"}))).is_err()
         );
         assert_eq!(
-            resolve_folder_root("so.epicenter", None, || Err("no home".to_string())),
+            resolve_folder_root(Environment::Production, || Err("no home".to_string())),
             Err("no home".to_string())
         );
     }

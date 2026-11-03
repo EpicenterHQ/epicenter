@@ -107,15 +107,15 @@ path and must be absolute.
 
 Development uses `so.epicenter.dev` for data and settings.
 Production's library, the authored folder root, is `~/Epicenter`; development's
-is `~/Epicenter Dev`. `EPICENTER_FOLDER_DIR` overrides the library at startup
-and must be absolute; changing it opens another library and moves no files.
-Native locations live in `DesktopPaths` (`src-tauri/src/desktop_paths.rs`).
-Epicenter writes nothing into the library itself; the standalone apps keep
-their data at `~/Epicenter/<productName>`.
-The shell resolves both directories once and sets `EPICENTER_DATA_DIR` and
-`EPICENTER_FOLDER_DIR` on every `epicenter` command it runs, so the CLI
-writes where the shell reads. A terminal's `epicenter` uses the same
-variables, or the release app's directories when they are unset
+is `~/Epicenter Dev`. Native locations live in `DesktopPaths`
+(`src-tauri/src/desktop_paths.rs`). Epicenter writes nothing into the library
+itself. Each standalone app derives its folder beneath that root from the host
+of its site: `whispering.epicenter.so` uses `whispering`, and
+`zhongwen.bradenwong.com` uses `bradenwong.com/zhongwen`.
+The shell resolves its data directory and library root once, then sets
+`EPICENTER_DATA_DIR` and `EPICENTER_ENVIRONMENT` on every `epicenter` command
+it runs. The CLI derives the same library root. A terminal command defaults
+to production unless `EPICENTER_ENVIRONMENT` selects development
 (`packages/cli/src/app-paths.ts`).
 
 Files split by what they cost to lose (ADR-0539):
@@ -249,7 +249,7 @@ again after each one:
 | **Add folder** | `add_synced_folder` | The native folder picker queues a setup preview; it changes no repository |
 | **Set up** | `accept_folder_setup(path)` | `epicenter init <dir>` after the preview |
 | **Connect to a repository…** | `connect_synced_folder(path, source)` | `epicenter connect <dir> <source>`; the watcher then syncs |
-| **Clone** | `clone_synced_folder(source)` | `epicenter clone <owner>/<name>` or `epicenter clone <url>`, into the Epicenter folder |
+| **Clone** | `clone_synced_folder(source)` | `epicenter clone <owner>/<name>` or `epicenter clone <url>`; the CLI derives the destination from the cloned `AGENTS.md` contract URL, or uses the repository name when it has no contract |
 | **Sync now** | `sync_folder_now(path)` | `epicenter sync <dir>`, kept as the folder's last round |
 | **Stop syncing…** | `forget_synced_folder(path)` | `epicenter forget <dir>`, after a confirmation; files and history stay |
 | **Sharing…** | `folder_sharing(path)` | `epicenter share <dir>`, listing who the repository is shared with |
@@ -290,8 +290,8 @@ the Folders window's CLI commands (`src-tauri/src/command_names.rs` lists every
 app command); and `home.json`, which alone grants sign-in and model
 administration: the transcription plugin's `epicenter-transcription:` commands
 that its shared pane (`@epicenter/transcription-native`) calls. Neither grants
-the folder plugin: no window is bound to a folder, and the shell does not
-install it, so no window is granted the transcription plugin's file
+the folder plugin: the shell does not install it, so no window is granted
+the transcription plugin's file
 transcription either. A development build selects the same two. This is wiring, not a sandbox (ADR-0179, ADR-0334).
 
 Native dictation, which no page reaches, compiles only with the `dictation`

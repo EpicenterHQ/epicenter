@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-reveal-root"
+description = "Enables the reveal_root command without any pre-configured scope."
+commands.allow = ["reveal_root"]
+
+[[permission]]
+identifier = "deny-reveal-root"
+description = "Denies the reveal_root command without any pre-configured scope."
+commands.deny = ["reveal_root"]

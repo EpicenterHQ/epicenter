@@ -1,5 +1,4 @@
 {
-	"name": "vocab",
 	"description": "Vocab: a Markdown note per saved expression (the learner’s note in its body), per tutor chat, and per finished chat message.",
 	"collections": {
 		"entries": {

@@ -67,33 +67,18 @@ bun dev:todos:desktop     # from the repository root; needs a Rust toolchain
 bun build:todos:desktop   # a local, unsigned macOS app bundle
 ```
 
-Its Tauri shell (`src-tauri/`, on the shared
-[`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
-crate) starts the window on Todos' AppData root, whose `settings.md`
-(`desktopSettings` from `@epicenter/folder/tauri`, machine-local, never synced)
-names a data folder only when the person chose one. There is no first-run
-question: the page opens `~/Epicenter/Todos` (`~/Epicenter/Todos Dev` under
-`tauri.dev.conf.json`, whose `productName` is `Todos Dev`), made when
-missing, or the chosen folder (`openAppData(desktopSettings)`, then
-`openDataFolder`). Tauri decides which folders the window may open: the
-shell allows the default at startup, the native picker allows a folder the
-person picks, and persisted-scope keeps that across launches. A `folder`
-written into `settings.md` by hand opens as not allowed until the person
-picks it. A folder that is missing, not allowed, or refused shows a recovery
-screen (Allow access, Retry, Choose folder…, Use the default folder, as the
-case needs), never another folder silently. "Choose data folder…" in the
-status details picks another folder, opens it with its files where they
-are, and remembers it. The todos stay when the app is removed.
+Its Tauri shell derives the data folder from the app's site and grants it
+to the window. The page opens `~/Epicenter/todos` (`~/Epicenter Dev/todos`
+in development), making it when missing for now. A failed open shows the
+shared recovery screen with Retry. The files remain when the app is removed.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
-(`openDataFolder(todos, { appData })`) with no sign-in: Todos makes no
+(`openDataFolder(todos)`) with no sign-in: Todos makes no
 inference calls, and Epicenter can keep the folder's local history. Its header
 says whether Epicenter manages the folder, offers **Set up in Epicenter** until it does
 (`syncWithEpicenter({ path, contract })`, the contract at `APPS.TODOS.url`'s
-`contract.json`), and holds **Choose data folder…** in the status details,
-which waits for saves before it switches. Closing the window or quitting
-does not wait.
+`contract.json`), and shows the shell's folder path in the status details. Closing the window or quitting does not wait.
 
 The variant is chosen at build time through the `#platform/root` seam, as
 [the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant)
@@ -124,8 +109,8 @@ routes/+layout.svelte          every page: the chrome and the leave guard
 routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: setTodos(fromClient(openRemote(todos, { account })).todos)
-  Startup.svelte               desktop: DesktopStartup over desktopSettings and the contract
+    Online.svelte              {#key account}: setTodos(fromClient(openRemote(todos, { account, site: APPS.TODOS.url })).todos)
+  Startup.svelte               desktop: DesktopStartup over the contract
     DesktopRoot.svelte         setTodos(fromClient(device).todos), setFolderSync
 routes/(app)/+page.svelte      TodosApp over the todos the root set (getTodos)
   TodosApp.svelte              header (Chrome from #platform/root), the list, the open todo
@@ -142,7 +127,7 @@ the store.
 | `src/lib/contract.ts` | The contract. |
 | `src/lib/todos.ts` | A todo's file, label and order (open first, then done, each oldest first), and the list's context. |
 | `src/lib/components/OnlineRoot.svelte`, `Online.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account and sets its todos (`setTodos`); the header's status and account. |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's todos set for every page (`setTodos`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
+| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's todos set for every page (`setTodos`); the header's local history status, Set up in Epicenter, and the shell's folder path. |
 | `src/lib/folder.tauri.ts` | Where the contract is published, which the desktop window's sync names. |
 | `src/lib/components/TodosApp.svelte` | The header, the list, and the open todo, over the todos the root set. |
 

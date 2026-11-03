@@ -6,5 +6,10 @@
 		"security": {
 			"capabilities": ["todos"]
 		}
+	},
+	"plugins": {
+		"epicenter-standalone": {
+			"environment": "development"
+		}
 	}
 }

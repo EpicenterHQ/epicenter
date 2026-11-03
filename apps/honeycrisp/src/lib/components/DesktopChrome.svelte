@@ -1,15 +1,15 @@
 <!--
 	The desktop window's header account of its store: Honeycrisp's folder on
 	this computer, whether Epicenter manages it, Set up in Epicenter until it
-	does, and Choose data folder… (decisions 81 and 88). It never signs in.
+	does. It never signs in.
 -->
 <script lang="ts">
 	import { getFolderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
+	import FolderOnboarding from '@epicenter/svelte/folder-onboarding';
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import type { StatusLine } from '@epicenter/svelte/status-line';
-	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import type { ChromeProps } from '../platform.js';
 
@@ -28,7 +28,7 @@
 <StatusPopover summary={status} details={[{ name: 'Status', testid: 'status-files', line: status }]}>
 	<StatusRow name="Where">
 		<span class="font-medium" data-testid="status-where">This computer</span>
-		<span class="mt-0.5 block break-all text-xs text-muted-foreground" data-testid="status-folder">{sync.path}</span>
+		<FolderOnboarding noun="notes" path={sync.path} pathTestId="status-folder" />
 		<span class="mt-0.5 block text-xs text-muted-foreground">
 			{#if sync.managed}
 				Epicenter keeps its local history. Connect a repository there to use it on other devices.
@@ -37,9 +37,6 @@
 			{/if}
 		</span>
 	</StatusRow>
-	{#snippet footer()}
-		<Button variant="outline" size="sm" disabled={sync.asking} onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
-	{/snippet}
 </StatusPopover>
 <div class="ml-auto flex min-w-0 items-center gap-1">
 	<FolderSyncActions {sync} />

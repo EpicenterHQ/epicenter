@@ -1,130 +1,152 @@
 /**
- * `@epicenter/folder/tauri`: open a directory the desktop shell lets this
- * window reach as a contract's typed client (`openDevice`). The shell
- * answers each storage command, and its watcher sends the paths that
- * changed. A standalone app opens its two roots with `openAppData` and
- * `openDataFolder`.
+ * `@epicenter/folder/tauri`: open a root the desktop shell named as a
+ * contract's typed client (`openDevice`). The page names a root (`Data` or
+ * `AppData`), never a path; the shell answers each storage command, and its
+ * watcher sends the paths that changed. A standalone app opens its two roots
+ * with `openAppData` and `openDataFolder`.
  */
 import type { Client, Contract } from '@epicenter/definition/contract';
-import { Channel, isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { ChangeListener, ChangeSource } from './changes.js';
 import { createDeviceClient } from './device/client.js';
 import { tauriStore } from './device/tauri-store.js';
-import { OpenDeviceError } from './errors.js';
-import { commands, type FolderChanged } from './native/bindings.gen.js';
-import { deviceRefusal } from './native/open-refusal.js';
+import { OpenDeviceError, RevealRootError } from './errors.js';
+import {
+	commands,
+	type FolderEvent,
+	type Root,
+} from './native/bindings.gen.js';
+import { rootRefusal } from './native/open-refusal.js';
 
 export {
 	type FolderRequest,
 	openAppData,
 	openDataFolder,
-	pickDataFolder,
 } from './desktop-folder.js';
 export { syncedWithEpicenter, syncWithEpicenter } from './epicenter-sync.js';
 export { OpenDeviceError } from './errors.js';
-export {
-	type DesktopSettings,
-	desktopSettings,
-	type FolderSettings,
-	rememberFolder,
-	type SettingsContract,
-} from './settings.js';
+export type { Root } from './native/bindings.gen.js';
 
 /**
- * The typed client of `contract` over the root at the absolute path `path`,
- * once the desktop shell opened it and started watching it: the directory
- * the shell bound to the window before it existed (its AppData root), or
- * any folder Tauri's runtime file-system scope allows, which the
- * standalone shell does for the app's default data folder at startup and the
- * folder picker (`pickDataFolder`) does for the folder a person picks.
- * `create` makes a missing root (only a default should be made); otherwise a
- * missing one is `Missing`. A relative `path` names no root: the shell
- * refuses it (`Refused`).
+ * The typed client of `contract` over the root the shell named `root`, once
+ * the shell opened it and started watching it. The shell opens whatever is
+ * at the root's path, following a link there, and makes the folder when
+ * nothing is there; a link whose target is gone is `Disconnected`, and
+ * nothing is made.
  *
  * An `Err` says why nothing opened (`OpenDeviceError`); a contract that is
  * not well formed throws.
  *
  * ```ts
- * const device = await openDevice(notes, { path: '/Users/me/Notes' });
+ * const device = await openDevice(notes, { root: 'Data' });
  * if (device.error !== null) return device;
  * ```
  */
 export async function openDevice<TContract extends Contract>(
 	contract: TContract,
-	{ path, create = false }: { path: string; create?: boolean },
+	{ root }: { root: Root },
 ): Promise<Result<Client<TContract>, OpenDeviceError>> {
 	if (!isTauri())
 		return OpenDeviceError.StorageUnavailable({
 			cause: 'openDevice from /tauri runs only in a Tauri window',
 		});
-	const opened = await openRoot(path, create);
-	if (opened.error !== null) return deviceRefusal(opened.error.cause, path);
-	const { root, watch } = opened.data;
+	const opened = await openRoot(root);
+	if (opened.error !== null) return rootRefusal(opened.error.cause);
+	const { path, watch } = opened.data;
 	const device = createDeviceClient(contract, tauriStore({ root, watch }));
-	roots.set(device, root);
+	opens.set(device, { root, path });
 	return Ok(device);
 }
 
-/** The root each client opened, as the shell answered it. */
-const roots = new WeakMap<object, string>();
+/** The root each client opened, and the path the shell answered for it. */
+const opens = new WeakMap<object, { root: Root; path: string }>();
 
-/**
- * The root `device` was opened at, exactly as the shell answered it (its
- * canonical path): what the window's other native commands take to reach
- * the same folder, such as the recorder's and local transcription's `root`.
- * Throws for a client `openDevice` from `/tauri` did not return.
- */
-export function rootOf(device: Client<Contract>): string {
-	const root = roots.get(device);
-	if (root === undefined)
+/** What `openDevice` from `/tauri` recorded for `device`, or a throw. */
+function openOf(device: Client<Contract>) {
+	const open = opens.get(device);
+	if (open === undefined)
 		throw new Error('expected a client openDevice from /tauri returned');
-	return root;
+	return open;
 }
 
-/** A root the shell opened: its canonical path, and its watcher's changes. */
-type OpenedRoot = { root: string; watch: ChangeSource };
-
-/** Why the shell opened no root: its `WindowError`, or what Tauri rejected with. */
-type NotOpened = { cause: unknown };
+/**
+ * The root `device` was opened at, by name: what the window's other native
+ * commands take to reach the same folder. Throws for a client `openDevice`
+ * from `/tauri` did not return.
+ */
+export function rootOf(device: Client<Contract>): Root {
+	return openOf(device).root;
+}
 
 /**
- * Who hears each root's watcher, by the root's canonical path. The shell
- * sends a root's changes to the last channel opened for it, so every
- * channel opened for a root tells the same listeners, and every handle over
- * the root hears them whichever opened last.
+ * The path of `device`'s root as the shell named it
+ * (`/Users/me/Epicenter/whispering`), to show a person. No command takes
+ * it. Throws for a client `openDevice` from `/tauri` did not return.
  */
-const listeners = new Map<string, Set<ChangeListener>>();
+export function displayPath(device: Client<Contract>): string {
+	return openOf(device).path;
+}
+
+/** Ask the shell to show the location it named for `root`, even if it did not open. */
+export async function revealRoot(
+	root: Root,
+): Promise<Result<null, RevealRootError>> {
+	try {
+		const answer = await commands.revealRoot(root);
+		if (answer.error !== null)
+			return RevealRootError.Failed({
+				cause:
+					'message' in answer.error ? answer.error.message : answer.error.name,
+			});
+		return Ok(null);
+	} catch (cause) {
+		return RevealRootError.Failed({ cause });
+	}
+}
+
+/** A root the shell opened: its display path and watcher's changes. */
+type OpenedRoot = { path: string; watch: ChangeSource };
+
+/** Why the shell opened no root: its `RootError`, or what Tauri rejected with. */
+type NotOpened = { cause: unknown };
 
 /**
  * Ask the shell to open `root` and watch it: each call asks again, so a
  * folder that came back opens, and one that went is refused.
  */
-async function openRoot(
-	root: string,
-	create: boolean,
-): Promise<Result<OpenedRoot, NotOpened>> {
-	let heard: Set<ChangeListener> | undefined;
-	const channel = new Channel<FolderChanged>();
-	channel.onmessage = ({ paths }) => {
-		for (const listener of heard ?? []) listener(paths);
-	};
-	let opened: Awaited<ReturnType<typeof commands.openFolder>>;
+async function openRoot(root: Root): Promise<Result<OpenedRoot, NotOpened>> {
+	const listeners = new Set<ChangeListener>();
+	let unlisten: () => void;
 	try {
-		opened = await commands.openFolder(root, create, channel);
+		// Keep a successful open's event listener for the page's lifetime: a
+		// client may subscribe again after its last collection listener stops.
+		unlisten = await listen<FolderEvent>('folder-changed', ({ payload }) => {
+			if (payload.root !== root) return;
+			for (const listener of listeners) listener(payload.paths);
+		});
 	} catch (cause) {
 		return Err({ cause });
 	}
-	if (opened.error !== null) return Err({ cause: opened.error });
-	const answered = opened.data;
-	const known = listeners.get(answered) ?? new Set<ChangeListener>();
-	listeners.set(answered, known);
-	heard = known;
+	let opened: Awaited<ReturnType<typeof commands.openRoot>>;
+	try {
+		opened = await commands.openRoot(root);
+	} catch (cause) {
+		unlisten();
+		return Err({ cause });
+	}
+	if (opened.error !== null) {
+		unlisten();
+		return Err({ cause: opened.error });
+	}
 	return Ok({
-		root: answered,
+		path: opened.data,
 		watch(listener) {
-			known.add(listener);
-			return () => known.delete(listener);
+			listeners.add(listener);
+			return () => {
+				listeners.delete(listener);
+			};
 		},
 	});
 }

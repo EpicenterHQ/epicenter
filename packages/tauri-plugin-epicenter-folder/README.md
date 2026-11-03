@@ -1,28 +1,23 @@
 # tauri-plugin-epicenter-folder
 
-The desktop shell's side of an Epicenter folder: it binds one existing
-directory to each window that edits files, before the window exists, and is
-that window's folder storage, one command per storage method, under checks
-the page cannot get around. It runs no `git`: the folder's history runs in the
-`epicenter` CLI, which a shell starts for a page over the directory bound to
-its window
+The desktop shell's side of an Epicenter folder: the roots an app reaches,
+which the shell names at startup, and the app's folder storage over them,
+one command per storage method, under checks the page cannot get around. It
+runs no `git`: the folder's history runs in the `epicenter` CLI
 ([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
 
 The page opens the folder itself, with `@epicenter/folder`'s engine
 ([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
-It names no scope or window, and every command names its root by the
-absolute path `open_folder` answered: the directory bound to the calling
-WebView's label
-([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)),
-or another root the page opened, which Tauri's runtime file-system scope must
-allow (see Other roots). No command falls back to the bound directory.
+It names a root, `Data` or `AppData`, never a path, and holds no absolute
+path but the one `open_root` answers for it to show
+([ADR-0725](../../docs/adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md)).
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
 | `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the shared path rule and hidden-path rule (`paths.rs`), where unfinished writes live (`state.rs`), the page's storage (`storage.rs`), and which directories may be set up for sync (`admission.rs`). No Tauri. |
-| `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), which roots a page may open (`scope.rs`), and storage commands. |
+| `src/` | The Tauri plugin: the named roots and their watches (`roots.rs`), and the commands over them. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows, and which are hidden. `core/src/paths.rs` and `paths.test.ts` in `@epicenter/folder` both read it. |
 | `fixtures/state-layout.json` | Where unfinished writes live: `.epicenter`, `saves`, `recordings`, and the paths built from them. `core/src/state.rs` and `state.test.ts` in `@epicenter/folder` both read it. |
@@ -35,33 +30,36 @@ read by a Rust test and a TypeScript test.
 This crate has no JavaScript package of its own. A page reaches it through
 `@epicenter/folder` (or `@epicenter/folder/tauri`).
 
-## Binding a window's folder
+## Naming roots
 
-Install the folder plugin once. A shell decides which directory a window
-edits in trusted Rust and resolves it. The shared opener chooses its identity and binds
-the directory before building the WebView:
+Install the folder plugin once, then name each root at startup with its
+path and the rule that refuses a location it must never be:
 
 ```rust
-use tauri::{Manager, WebviewUrl};
-use tauri_plugin_epicenter_folder::{Directory, FolderExt};
+use tauri::Manager;
+use tauri_plugin_epicenter_folder::{Root, RootsExt};
 
 tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_folder::init())
     .setup(|app| {
-        let directory = Directory::create(&app.path().app_data_dir()?)?;
-        app.open_folder_window("notes", directory, WebviewUrl::default(), |builder| {
-            Ok(builder.title("Notes"))
-        })?;
+        let roots = app.roots();
+        roots.name(Root::AppData, app.path().app_data_dir()?, |_| None);
+        roots.name(Root::Data, data_folder, |location| refusal(location));
         Ok(())
     })
 ```
 
 The apps on [`epicenter-standalone`](../tauri-epicenter-standalone/README.md)
-(Capture, Honeycrisp, Todos, Vocab, Whispering) bind their window to their
-AppData root this way, and keep their data folder at
-`~/Epicenter/<productName>`, allowed in Tauri's file-system scope at startup
-(see Other roots). Epicenter's own application data and library root are
-the app's (`DesktopPaths` in `apps/epicenter/src-tauri`).
+(Capture, Honeycrisp, Todos, Vocab, Whispering) name their AppData root and
+their data folder, `<library root>/<site-derived path>`, this way. Their
+pages open the named Data root after the window opens; that crate holds the one
+refusal (the home folder, a folder holding it, or the library root).
+Nothing is granted: a capability lets a window call the plugin, and the
+roots are the app's, so every window of the app reaches the same ones.
+
+A shell gives its window the plugin's commands in a capability:
+`{ "windows": ["todos:*"], "permissions": ["epicenter-folder:default", "core:event:allow-listen", "core:event:allow-unlisten"] }`.
+It grants no `fs` command and names no folder.
 
 `admission::check_sync_directory`, which Epicenter runs before
 `epicenter init`, refuses a directory when any segment of its canonical path
@@ -73,110 +71,45 @@ application data, and the library root or a directory holding it, so the
 folders in it never become one repository.
 Containment compares canonical paths and directory identity, so a linked
 parent or another spelling of a protected directory is no route around it.
-
-`Directory::create(path)` prepares a directory the shell computed,
-creating it and its parents when missing and retaining its canonical root.
-`Directory::existing(path)` resolves a directory a person selected without
-creating anything: a missing one is `Missing`, a file or a link is
-`Unavailable`, and nothing is made. The directory itself must be a real
-directory, never a link; its parent may be a link a person chose. What `.git`
-is, if anything, does not matter, as it does not to the Bun host
+`Directory` is the canonical directory value both use. What `.git` is, if
+anything, does not matter to storage, as it does not to the Bun host
 (`@epicenter/folder/bun`): a directory with no `.git`, with a `.git` file or
 link (a linked worktree or submodule), or with a repository opens and saves
 alike, and the shell never changes `.git`. Git state that would send history
 writes elsewhere is the `epicenter` CLI's to refuse, before each history
 operation.
 
-`FolderExt::open_folder_window(application, directory, url, configure)` opens
-one window per application key and canonical root, once, at setup. A
-standalone app supplies its page name (`"todos"`); the plugin computes
-`<key>:<digest>` internally. Opening a pair already bound is refused, and a
-label that is already another window is never adopted. Different apps can
-open the same root in separate windows. Labels are local to a Tauri runtime,
-so two apps' windows do not collide.
-
-The opener runs lookup, binding, configuration, and construction on Tauri's
-main thread. Call it from setup or a blocking worker, never an async executor
-thread. `configure` receives Tauri's actual builder and must preserve that
-builder's application and window identity. It may set the title, navigation,
-size, or native tab identifier. A configuration or construction failure
-releases the binding; a presentation failure retains the live window and its
-binding. Destruction removes the binding. Shutdown refuses new windows.
-
-`Folders::bind_while_building(label, directory, build)` binds a window
-whose label the caller owns before construction and rolls back a failed
-build; callers own that window's identity. Apps use
-`open_folder_window`.
-
-Bindings are runtime resources, not a persisted list of folder choices.
-
-Several windows may be bound to one directory. Each page runs its own engine over the
-directory. Each save is checked against the version its page read right
-before its rename (see Storage). A save that another writer overtook is
-answered `stale`; the page reads again and merges. Windows of one app are
-one process, whose puts of one path take turns from the check to the
-rename, so of two saves over one version exactly one lands. Across
-processes no lock spans the check and the rename, so two saves racing in
-that instant can both land, the later replacing the earlier; Git history is
-the backstop
-([ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).
-
-A shell must also give the window the plugin's commands in a capability:
-`{ "windows": ["todos:*"], "permissions": ["epicenter-folder:default"] }`.
-That is all a window over its own directory needs; it grants no `fs`
-command. The capability only lets a window call the plugin. Which directory
-it reaches is its binding, plus any other root Tauri's scope allows it to
-open (Other roots).
-
 ## Opening
 
-The page's `@epicenter/folder` adapter calls `open_folder` with a private
-change channel and the root's absolute path; for the window's own directory,
-any path that resolves to it. A window with no binding is refused `NotBound`, a bound
-directory that is gone `Missing`, and one that cannot be inspected
-`Unavailable`; the window's own directory is never made again here, since
-making it belongs to the shell's launch. After shutdown the answer is
-`ShuttingDown`. The first successful open of a root starts one recursive
-watcher for it; subsequent opens replace its channel while reusing the
-watcher. Watch setup failure is `Unavailable`. `open_folder` answers the
-root's canonical path, by which the page names it from then on.
+The page's `@epicenter/folder` adapter listens for `folder-changed` before it
+calls `open_root(root)`. Whatever is at the root's path is the app's
+([ADR-0726](../../docs/adr/0726-an-apps-path-is-its-claim.md)):
 
-### Other roots
+1. `Disconnected { folder, target }` when the path, or a folder above it,
+   is a link whose target is not there, as on a drive that is not
+   connected. Nothing is made.
+2. `Refused { folder, reason }` when the location the path resolves to is
+   one the shell's rule refuses, asked before anything is made and again
+   once the folder is there.
+3. The folder is made, with its parents, when nothing is there; a file
+   there is `Unavailable`.
 
-A page may open another root by its absolute path (`open_folder({ root,
-create })`), the way a standalone app opens its data folder beside its
-AppData root. The plugin keeps no grant list of its own: Tauri decides.
+A link at the path is followed when the root opens, and the root works in
+the folder it reached until it opens again. Each call looks again, so Retry
+finds a folder that came back. A root the shell did not name is
+`NotNamed`, and after shutdown the answer is `ShuttingDown`. `open_root`
+answers the path the shell named the root at, as a person reads it
+(`/Users/me/Epicenter/whispering`, not where a link there leads). The page
+shows this path; storage commands still take only a root name and relative path.
 
-1. `Refused { root, reason }` for a place no app keeps its files in
-   (`scope::Refusals`): the top of a disk, the home folder, anything inside
-   a `.git` or `.epicenter` folder, the same rule as the hub's sync
-   admission (`admission::is_reserved_directory`),
-   anything inside or around Epicenter's own settings, and
-   anything holding the app's own data directory.
-2. `NotGranted { root }` unless Tauri's runtime file-system scope allows
-   the path (`tauri-plugin-fs`'s `FsExt::fs_scope`, which a deny wins
-   over): a shell allows its app's default folder there at startup, the
-   dialog plugin's `open` allows the folder a person picks, and
-   `tauri-plugin-persisted-scope` keeps those across launches. No capability
-   names a folder, and an app without `tauri-plugin-fs` reaches only its
-   windows' own directories.
-3. `Missing` when it is not there, unless `create`, which makes it and its
-   missing parents.
+Opening starts one recursive watch per root. Changes are app events carrying
+`{ root, paths }`, so every page listening for that root hears them. A page
+reloads and drops its JavaScript listener. Watch setup failure is
+`Unavailable`.
 
-An opened root stays reachable by its path, and watched, until the window
-closes; switching between roots a page opened costs nothing. A storage
-command naming a root the page has not opened is `NotGranted`.
-
-`resolve_folder({ root })` answers the canonical path of a root the page
-could open, with the same refusals in the same order, and opens, watches and
-makes nothing. The folder picker answers the path the person reached, which
-may pass through a link (`/tmp` is `/private/tmp` on macOS); the page
-remembers the canonical path (`pickDataFolder` in `@epicenter/folder/tauri`),
-so a folder is one setting however it was picked.
-
-A bound window closes like any other window: nothing waits for its page. A
-write still out then is lost, a small, rare loss at the edge (ADR-0702's test
-for every protection); what landed is in the folder.
+A window closes like any other window: nothing waits for its page. A write
+still out then is lost, a small, rare loss at the edge (ADR-0702's test for
+every protection); what landed is in the folder.
 
 Every open also removes the staged files in the root's `.epicenter/saves`
 that a stopped save left more than an hour ago
@@ -188,9 +121,16 @@ with a name a stager made are removed: any other file, a directory, or a link
 stays, a `saves` that is a link or not a directory is not read, and
 `.epicenter/recordings` is never read at all.
 
-Each command clones the window's `Directory` when it arrives and works in
-that root until it ends. A window closed and replaced under the same label
-meanwhile cannot redirect work already admitted.
+Each command clones the root's `Directory` when it arrives and works in that
+folder until it ends, so nothing that happens meanwhile redirects work
+already admitted. Several pages, or other programs, may write one folder:
+each save is checked against the version its page read right before its
+rename (see Storage), and a save another writer overtook is answered
+`stale`; the page reads again and merges. Within the app's process, puts of
+one path take turns from the check to the rename, so of two saves over one
+version exactly one lands. Across processes no lock spans the check and the
+rename; Git history is the backstop
+([ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).
 
 ## Storage
 
@@ -201,12 +141,18 @@ per method, each one IPC call
 
 | Method | Command | Answers |
 | --- | --- | --- |
-| `list()` | `list_folder()` | `{ path, stamp }[]`, every file, `.git` aside; hidden files, `.epicenter`'s included, are listed for the reader to skip |
-| `read(path)` | `read_folder_file(path)` | the stamp, a zero byte, then the file bytes, raw |
+| `list()` | `list_folder(root)` | `{ path, stamp }[]`, every file, `.git` aside; hidden files, `.epicenter`'s included, are listed for the reader to skip |
+| `read(path)` | `read_folder_file(root, path)` | the stamp, a zero byte, then the file bytes, raw |
 | `write(path, bytes, expected)` | `put_folder_file`, raw body and headers | `"landed"` or `"stale"` |
 
-A command from a window with no binding, or after shutdown, is `Io` naming
-`NotBound` or `ShuttingDown`, and changes nothing.
+A storage command answers a `FolderError`: a `RootError` when its root
+cannot be used, and a `StorageError` (below) when the operation refuses or
+fails; the two never share a `name`. A root whose path, or a folder above
+it, is a link whose target is gone is `Disconnected { folder, target }`,
+whether it never opened (as after a startup that found the drive gone) or
+the drive went away after it did. A root the app has not opened is
+`NotOpen`, one the shell did not name `NotNamed`, and any command after
+shutdown `ShuttingDown`. None of them changes anything.
 
 Paths are folder-relative with `/`, and must pass the shared path rule
 (`paths::path_problem`, the same rule as `pathProblem` in
@@ -232,7 +178,7 @@ as its vectors (`core/src/storage_outcomes.json`) show:
 - A file where a directory should be is `NotADirectory` naming it, and a
   directory where a file should be is `NotAFile`.
 
-A refusal or a failure is a `StorageError`: `InvalidPath`, `NotFound`,
+A storage refusal or failure is a `StorageError`: `InvalidPath`, `NotFound`,
 `NotAFile`, `NotADirectory`, or `Io` with the operation and the system's
 message. A failure the shell reports changed nothing. The page reads
 `NotFound` as no file there and any other as `Unavailable`.
@@ -243,7 +189,8 @@ message. A failure the shell reports changed nothing. The page reads
 only while the path holds what the page expects. It takes the bytes as the
 request's raw body, so content crosses IPC as it is rather than as a JSON
 array of numbers. Its arguments are headers, each percent-encoded: `path`,
-`remove` (`true` to remove the file, when the body is ignored), and
+`root` (`Data` or `AppData`), `remove` (`true` to remove the file, when the
+body is ignored), and
 `expected`, the version the page read there: `absent` for a create, or
 `sha256:` and the lowercase SHA-256 of the file (`storage::Expectation`).
 There is no unconditional put. Each case has its own spelling, so a hash is
@@ -318,7 +265,7 @@ rather than writing through it. A recording, by
 `tauri-plugin-epicenter-recorder`, grows in `.epicenter/recordings` and is
 placed at its path whole
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
-It asks `app.folders().bound(window)` for the calling window's directory,
+It asks `app.roots().opened(Root::Data)` for the folder the app opened,
 checks the path with `page_files::data_path` (the same rule and link check
 as a put), and creates the file with `create_new`. A directory is removed
 only when empty; nothing removes a tree whole. The page writes no Git
@@ -352,26 +299,21 @@ history command. Git's checks live in the CLI's runner,
 
 ## Changes outside the page
 
-Each root a window opened owns one `notify::RecommendedWatcher` over it,
-recursively, without following symbolic links. It sends typed `FolderChanged`
-hints to the calling WebView's private channel. Its `paths` are root-relative hints, including
-directory hints that cover descendants; `null` means any path may differ.
-Rename notifications retain both paths when the operating system supplies them.
-Read/open access events and every hidden path (`paths::is_hidden_path`:
-Git's state, `.epicenter`'s unfinished writes) are ignored; close-after-write
-events remain observations. A native rescan, unknown
-scope, or watch error emits `null`; no file is read or hashed by the callback.
+Each open root owns one `notify::RecommendedWatcher` over it, recursively,
+without following symbolic links. It emits a typed `folder-changed` app event
+with `root` and root-relative `paths`. Directory hints cover descendants;
+`null` means any path may differ. Rename notifications retain both paths when
+the operating system supplies them. Read/open access events and hidden paths
+(`paths::is_hidden_path`, including Git state and unfinished writes) are
+ignored. A rescan, unknown scope, or watch error emits `null`; the callback
+reads no file content.
 
-`@epicenter/folder/tauri` opens the native watch with its private channel,
-then constructs and returns its passive Folder. No reader or cached source
-exists before listening, so hints need no startup replay.
-The owner rereads sources held by readers or accepted input. An observation,
-including an echo of an own write, never acknowledges a save or initiates a
-write. Each handle retires its channel on close; the binding releases the
-watch on destruction or shutdown, outside the bindings mutex. Native setup also
-runs outside that mutex; a candidate remains inactive until installed on the
-same binding. Teardown fences in-flight callbacks before reusing a window label.
-No resource identifier or filesystem permission is exposed to the page.
+`@epicenter/folder/tauri` starts listening before it opens the root. The page
+rereads sources held by readers or accepted input. An observation never
+acknowledges a save or initiates a write. The watch stops at shutdown, outside
+the roots' mutex. Native setup also runs outside that mutex; a candidate
+remains inactive until installed on the same open root. No resource identifier
+or filesystem permission is exposed to the page.
 
 Delivery is best effort. Root replacement recovery is unsupported and platform
 dependent; neither original-inode retention nor reattachment is guaranteed.
@@ -380,10 +322,9 @@ No polling fallback or file-content replica is kept here.
 
 ## Shutdown
 
-Every put and directory change holds a clone of its window's directory while
+Every put and directory change holds a clone of its root's directory while
 it runs; a read holds one too. When the app exits, or the shell calls
-`app.folders().shutdown()`, the plugin refuses new binds, opens, reads, and
-work. It waits for no admitted storage operation. Watch release fences any
+`app.roots().shutdown()`, the plugin refuses new opens, reads, and work. It waits for no admitted storage operation. Watch release fences any
 notification currently emitting, without waiting for page reads or saves
 ([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
 Every save is an atomic rename, so a change cut off at exit leaves the old
@@ -394,6 +335,8 @@ file or the new one. A late change is refused as `ShuttingDown` and writes nothi
 - A link another program swaps in between a check and the read or change
   that follows is not defended against; a page cannot make one. A put
   checks the path for links again right before its rename.
+- A compromised page can read and write anything under its own roots; the
+  path rule bounds it to them.
 - The expectation is checked right before the rename. Within the shell's
   process, puts of one path take turns across the two; across processes no
   lock spans them. A writer in another process that changes a path in that

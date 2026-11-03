@@ -13,10 +13,26 @@
  */
 
 import { realpath } from 'node:fs/promises';
+import { type PlatformPath, posix, win32 } from 'node:path';
 import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 
 /** The directory names no folder is ever inside: Git's, and Epicenter's unfinished writes. */
 export const RESERVED_DIRECTORIES = ['.git', STATE_DIRECTORY] as const;
+
+/** Whether a canonical path is at or below another, using the host path rules. */
+export function containsPath(
+	holder: string,
+	inner: string,
+	paths: PlatformPath = process.platform === 'win32' ? win32 : posix,
+): boolean {
+	const rel = paths.relative(holder, inner);
+	return (
+		rel === '' ||
+		(rel !== '..' &&
+			!rel.startsWith(`..${paths.sep}`) &&
+			!paths.isAbsolute(rel))
+	);
+}
 
 /** `name` with its ASCII letters lowercased, as Rust's `eq_ignore_ascii_case` compares. */
 const asciiLower = (name: string) =>
@@ -43,23 +59,35 @@ export function isReservedDirectory(canonical: string): boolean {
  * followed, so it is no route around the rule.
  */
 export async function canonicalPath(
-	path: string,
+	input: string,
 	cwd = process.cwd(),
+	paths: PlatformPath = process.platform === 'win32' ? win32 : posix,
+	resolveLink: (path: string) => Promise<string> = realpath,
 ): Promise<string> {
-	const absolute = path.startsWith('/') ? path : `${cwd}/${path}`;
-	let result = '';
-	for (const segment of absolute.split('/')) {
+	const absolute = paths.isAbsolute(input)
+		? input
+		: `${cwd}${paths.sep}${input}`;
+	const root = paths.parse(absolute).root;
+	let result = root;
+	for (const segment of absolute.slice(root.length).split(paths.sep)) {
 		if (segment === '' || segment === '.') continue;
 		if (segment === '..') {
-			result = result.slice(0, Math.max(0, result.lastIndexOf('/')));
+			result = paths.dirname(result);
 			continue;
 		}
-		result = `${result}/${segment}`;
+		result = paths.join(result, segment);
 		try {
-			result = await realpath(result);
-		} catch {
-			// Missing: kept as written, and so is everything under it.
+			result = await resolveLink(result);
+		} catch (error) {
+			if (
+				error instanceof Error &&
+				'code' in error &&
+				error.code === 'ENOENT'
+			) {
+				continue;
+			}
+			throw error;
 		}
 	}
-	return result === '' ? '/' : result;
+	return result;
 }

@@ -4,7 +4,7 @@
  * the body (`document.ts` reads them). Capture has no settings, so it has no
  * settings note, and no other files.
  *
- * Its name makes the repository `<account>/capture` (decision 46). The app
+ * The app's site names its repository `~/capture`. The app
  * publishes it, unchanged, as `apps/capture/static/contract.json`, so
  * `epicenter check <url>/contract.json <dir>` checks a clone.
  *
@@ -20,7 +20,6 @@ import {
 } from '@epicenter/definition/contract';
 
 export const capture = defineContract({
-	name: 'capture',
 	description:
 		'Capture: a Markdown note per capture, when it was captured in front matter, its text and then its thoughts under "## Thoughts" in the body.',
 	collections: {

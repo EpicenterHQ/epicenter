@@ -26,7 +26,6 @@ import { checkContract, defineContract } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
 
 const recorder = defineContract({
-  name: 'whispering',
   collections: {
     recordings: {
       path: 'recordings/{id}.md',
@@ -44,9 +43,8 @@ await device.recordings.create({ id: timeId(), title: 'Standup' });
 checkContract(recorder, [{ path: 'recordings/a.md', text: '---\ntitle: 1\n---\n' }]);
 ```
 
-A contract's `name` is the app's, a lowercase slug (`whispering`), not a
-repository address: the repository is `<account>/<name>`. `$schema` and
-`description` may sit beside it in the published JSON.
+A contract describes the app's collections. The app's site names its repository.
+`$schema` and `description` may sit beside `collections` in published JSON.
 
 A collection whose path ends in `.md` holds notes: front matter `fields` as
 JSON Schema properties, with JSON Schema's own `required`, plus a body. Any

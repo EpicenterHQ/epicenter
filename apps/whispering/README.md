@@ -245,21 +245,13 @@ bun dev:whispering:desktop     # from the repository root; needs a Rust toolchai
 bun build:whispering:desktop   # a local, unsigned macOS app bundle
 ```
 
-Its Tauri shell (`src-tauri/`, on the shared
-[`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
-crate) starts the window on Whispering's AppData root, whose `settings.md`
-(machine-local, never synced) names a data folder only when the person chose
-one. There is no first-run question: the page opens `~/Epicenter/Whispering`
-(`~/Epicenter/Whispering Dev` under `tauri.dev.conf.json`), made when
-missing, or the chosen folder (`openAppData(whisperingSettings)`, then
-`openDataFolder`). Tauri decides which folders the window may open: the
-shell allows the default at startup, the native picker allows a folder the
-person picks, and persisted-scope keeps it. A folder that is missing, not allowed, or refused
-shows the recovery screen (`@epicenter/svelte/desktop-startup`), never another
-folder silently. **Choose data folder…**, in the status details and in
-Settings, opens another folder with its files where they are and remembers
-it. **Set up in Epicenter** enrolls the folder for local history; connecting a
-repository there enables transfer. Whispering never syncs it itself.
+Its Tauri shell derives and grants `~/Epicenter/whispering`, or
+`~/Epicenter Dev/whispering` in development. The page opens this folder,
+making it when missing for now. Whispering opens its AppData root for shortcut
+overrides. A failed open shows the shared recovery screen with Retry. The
+status details and Settings show the shell's folder path. **Set up in
+Epicenter** enrolls the folder for local history; connecting a repository
+there enables transfer. Whispering never syncs it itself.
 
 The pages are the web app's, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), with what differs behind
@@ -285,9 +277,8 @@ whose desktop leaf went missing.
   length, is written once Stop has answered (`folder-recordings.ts`); a
   recording a quit or a crash cut off is finished and placed on the next
   launch, before any page shows, and given its note there. The recorder names the data folder to the shell by
-  the root the shell answered when the page opened it (`rootOf` from
-  `@epicenter/folder/tauri`); the shell refuses any root the window did not
-  open.
+  its root's name (`rootOf` from `@epicenter/folder/tauri`); the shell
+  refuses a root the page did not open.
 - **Transcription** goes to a custom endpoint, sent from Rust
   (`send_request`, `src-tauri/src/http.rs`, so no endpoint needs CORS), to
   Epicenter's hosted API through the account's relay (`account_fetch`, whose

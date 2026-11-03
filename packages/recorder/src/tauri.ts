@@ -5,8 +5,7 @@
  * The shell's recorder encodes the microphone to Opus from the first sample
  * and writes it, a second at a time, into a WebM in the `device`'s folder's
  * own `.epicenter/recordings`, a hidden path no watcher reports and sync
- * never commits. The folder is named to the shell by the root it answered
- * when the page opened the device (`rootOf` from `@epicenter/folder/tauri`).
+ * never commits. The shell always records into the open Data root.
  * `stop` finishes it in place and places it at `<path>.webm`, never over a
  * file there, so the recording appears at its path whole, and answers where
  * it is. When the page reloads or its window closes, the shell finishes and
@@ -24,7 +23,6 @@
  * no `allow` and no `onInputsChange`: the shell names every input without
  * microphone access, asks for access itself, and announces no changes.
  */
-import { rootOf } from '@epicenter/folder/tauri';
 import { Channel } from '@tauri-apps/api/core';
 import { Ok } from 'wellcrafted/result';
 import {
@@ -73,13 +71,12 @@ function nativeSignals() {
 }
 
 /** Record into `device`'s folder from the first sample, landing at `<path>.webm` when it stops. */
-const start: Recorder['start'] = async ({ device, path, input, signal }) => {
+const start: Recorder['start'] = async ({ path, input, signal }) => {
 	if (signal?.aborted) return RecorderError.Cancelled();
 	const signals = nativeSignals();
 	let answer: Awaited<ReturnType<typeof commands.start>>;
 	try {
 		answer = await commands.start(
-			rootOf(device),
 			path,
 			input?.deviceId ?? null,
 			signals.channel,
@@ -118,9 +115,9 @@ const start: Recorder['start'] = async ({ device, path, input, signal }) => {
  * one left there because another file is at its path. Run it before
  * anything lists, plays, or transcribes a recording.
  */
-const recover: Recorder['recover'] = async ({ device, under }) => {
+const recover: Recorder['recover'] = async ({ under }) => {
 	try {
-		const { data, error } = await commands.recover(rootOf(device), under);
+		const { data, error } = await commands.recover(under);
 		if (error !== null) return fromNative(error);
 		return Ok(data);
 	} catch (cause) {

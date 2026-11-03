@@ -24,7 +24,6 @@ import { checkContract } from './check.js';
 import { compileContract, defineContract } from './contract.js';
 
 const tutor = defineContract({
-	name: 'tutor',
 	collections: {
 		chats: {
 			path: 'chats/{id}.md',

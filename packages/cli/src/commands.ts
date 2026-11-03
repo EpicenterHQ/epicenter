@@ -16,8 +16,8 @@ export const COMMANDS: readonly CommandSpec[] = [
 	},
 	{
 		path: ['check'],
-		args: '<contract> [<dir>]',
-		minArgs: 1,
+		args: '[<dir> | <contract> [<dir>]]',
+		minArgs: 0,
 		maxArgs: 2,
 		summary: "report each file in a folder that does not fit an app's contract",
 	},
@@ -33,7 +33,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '[<dir>]',
 		minArgs: 0,
 		maxArgs: 1,
-		options: [{ name: 'enclosing-ok' }],
 		summary: 'set up or repair a data folder for sync, and register it',
 	},
 	{
@@ -41,7 +40,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<dir> <namespace>/<name> | ~/<name> | <url>',
 		minArgs: 2,
 		maxArgs: 2,
-		options: [{ name: 'enclosing-ok' }],
 		summary: 'set origin for an initialized folder',
 	},
 	{
@@ -70,8 +68,9 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<namespace>/<name> | <url> | <path> [<dir>]',
 		minArgs: 1,
 		maxArgs: 2,
+		options: [{ name: 'join' }],
 		summary:
-			'clone, set up, and register a folder, by default ~/Epicenter/<name>',
+			'clone into the app folder derived from AGENTS.md; use --join for other occupied folders',
 	},
 	{
 		path: ['forget'],

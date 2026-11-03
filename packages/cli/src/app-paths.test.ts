@@ -2,9 +2,8 @@
  * Where the CLI reads and writes, by the desktop shell's rule.
  *
  * Key behaviors:
- * - An absolute override wins, and an empty one is unset
- * - Without overrides, the release app's directories
- * - A relative override is refused
+ * - The stated environment selects the root
+ * - Only the application data directory accepts an absolute override
  */
 import { expect, test } from 'bun:test';
 import { resolveAppPaths } from './app-paths.ts';
@@ -19,15 +18,26 @@ test("without overrides, the release app's directories", () => {
 	});
 });
 
-test('an absolute override wins, and an empty one is unset', () => {
+test('development uses its own root and application data directory', () => {
 	expect(
-		resolveAppPaths(
-			{ EPICENTER_DATA_DIR: '/d', EPICENTER_FOLDER_DIR: '/f' },
-			home,
-		),
+		resolveAppPaths({ EPICENTER_ENVIRONMENT: 'development' }, home),
 	).toEqual({
+		dataDir: '/home/me/Library/Application Support/so.epicenter.dev',
+		folderDir: '/home/me/Epicenter Dev',
+		commandLink: '/home/me/.local/bin/epicenter',
+	});
+	expect(resolveAppPaths({ EPICENTER_ENVIRONMENT: '' }, home).folderDir).toBe(
+		'/home/me/Epicenter',
+	);
+	expect(
+		resolveAppPaths({ EPICENTER_FOLDER_DIR: '/ignored' }, home).folderDir,
+	).toBe('/home/me/Epicenter');
+});
+
+test('the application data override wins, and an empty one is unset', () => {
+	expect(resolveAppPaths({ EPICENTER_DATA_DIR: '/d' }, home)).toEqual({
 		dataDir: '/d',
-		folderDir: '/f',
+		folderDir: '/home/me/Epicenter',
 		commandLink: '/home/me/.local/bin/epicenter',
 	});
 	expect(resolveAppPaths({ EPICENTER_DATA_DIR: '' }, home).dataDir).toBe(
@@ -35,8 +45,11 @@ test('an absolute override wins, and an empty one is unset', () => {
 	);
 });
 
-test('a relative override is refused', () => {
+test('a relative application data override and an unknown environment are refused', () => {
 	expect(() =>
-		resolveAppPaths({ EPICENTER_FOLDER_DIR: 'relative' }, home),
-	).toThrow('EPICENTER_FOLDER_DIR must be an absolute path');
+		resolveAppPaths({ EPICENTER_DATA_DIR: 'relative' }, home),
+	).toThrow('EPICENTER_DATA_DIR must be an absolute path');
+	expect(() =>
+		resolveAppPaths({ EPICENTER_ENVIRONMENT: 'staging' }, home),
+	).toThrow('Unknown EPICENTER_ENVIRONMENT');
 });

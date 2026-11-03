@@ -9,16 +9,16 @@ import { folderStatus } from './status.ts';
 export async function connect(
 	input: string,
 	url: string,
-	{ allowEnclosing = false }: { allowEnclosing?: boolean } = {},
+	allowUnregistered = false,
 ) {
 	const status = await folderStatus(input);
-	if (status === null || !status.adopted || !status.registered)
+	if (
+		status === null ||
+		!status.adopted ||
+		(!allowUnregistered && !status.registered)
+	)
 		throw new Refused(
 			`${input} is not registered for sync. Run epicenter init ${input} first.`,
-		);
-	if (status.repository !== status.folder && !allowEnclosing)
-		throw new Refused(
-			`${status.folder} is inside ${status.repository}. Sync would fetch, merge, and push that whole repository. Pass --enclosing-ok if that is intentional.`,
 		);
 	const common = resolve(
 		status.repository,
