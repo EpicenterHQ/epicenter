@@ -140,13 +140,17 @@ recordings stay in the browser.
 ## Open questions
 
 - Whether Tasks and Timebox stay folders.
-- The size cap for documents, and the size above which a text file goes to LFS.
+- The size above which a text file goes to LFS.
 - How app actions and plugins run, when synced batches apply, and how a
   person's own versions of actions survive an app update.
 - End-to-end encryption for documents.
 
 ## Later
 
+- Document sync. Documents have no size cap. The sync service may reuse parts
+  of the Yjs sync removed in `9f75a9bd51`, such as its update protocol and
+  authentication; its store, generations ledger, and one-document-per-database
+  design do not return.
 - Embeddings. Nothing stores them yet; whether they sync or are recomputed on
   each device is decided when an app needs them.
 - `epicenter checkout` and `epicenter apply`, so agents can edit a document as
