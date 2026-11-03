@@ -3,7 +3,7 @@
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at "the environment comes from the bundle identifier's `.dev` suffix": the build's Tauri configuration states it; [ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) at `EPICENTER_FOLDER_DIR` as a test override for standalone apps: the standalone shell reads no such variable.
-- **Unbuilt:** the same statement in the Epicenter app and the CLI, which still pick their roots in `resolve_folder_root` (`apps/epicenter/src-tauri/src/desktop_paths.rs`) and `resolveAppPaths` (`packages/cli/src/app-paths.ts`).
+- **Unbuilt:** none.
 
 ## Context
 

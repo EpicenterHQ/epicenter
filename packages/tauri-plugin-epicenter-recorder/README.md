@@ -38,7 +38,7 @@ each piece of a recording to this browser's files instead (decision 84).
 
 ## Installing it in a shell
 
-Install it beside `tauri-plugin-epicenter-folder`, which binds each window's folder:
+Install it beside `tauri-plugin-epicenter-folder`, which holds the app's named roots:
 
 ```rust
 tauri::Builder::default()
@@ -82,8 +82,7 @@ AppData is open. The folder Data reached is read once when the command arrives.
 
 `start` refuses before it opens anything:
 
-- `Refused`: the shell bound no folder to the window, the page did not open
-  `root`, the path is not a data path
+- `Refused`: the page did not open the Data root, the path is not a data path
   the shared path rule accepts (`page_files::data_path` in the folder
   plugin's core, no link on the way), or a file is already at `<path>.webm`
   or at its place in `.epicenter/recordings`.

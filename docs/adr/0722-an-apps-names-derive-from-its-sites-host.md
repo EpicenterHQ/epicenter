@@ -4,7 +4,7 @@
 - **Date:** 2026-11-03
 - **Supersedes:** [ADR-0710](0710-an-apps-slug-names-everything-a-program-reads.md) (an app's slug names everything a program reads): a slug is not unique across owners, so the folder, repository and AppData names come from the host of the app's site instead.
 - **Relates:** [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (an app is identified by its origin); [ADR-0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md) (a folder's `AGENTS.md` names its contract URL); [ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) (fixed roots); [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) (an app's folder is derived, never stored); [ADR-0723](0723-an-apps-site-is-found-by-convention.md) (an app's site is found by convention).
-- **Unbuilt:** deriving the folder, repository and AppData names from the host in `defaultDataFolder` and the standalone shell's `default_folder`; owner folders under `~/Epicenter`; the scan reading one level into owner folders; removing `name` and `APP_NAME` from the contract (`packages/definition/src/contract/contract.ts`) and from each app's `contract.json`, and deriving the repository name `openRemote` uses from the site; refusing hosts whose labels are Windows reserved names; `epicenter clone` placing a third-party repository in its owner folder.
+- **Unbuilt:** the Epicenter app scanning the library root, including one level into owner folders.
 
 ## Context
 

@@ -25,7 +25,7 @@ The decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in-code-on-th
 | Name | Meaning |
 | --- | --- |
 | Epicenter | The toolkit and optional hosted services. It does not name one person's body of data. |
-| Local dataset | The local data selected by an app, with identity independent of account, remote URL, or hosted repository ID. Say "local data" in ordinary explanations. |
+| Local dataset | The local data an app opens, with identity independent of account, remote URL, or hosted repository ID. Say "local data" in ordinary explanations. |
 | Client | The typed client a contract derives (`Client<T>`), opened over a device's files (`openDevice`) or the signed-in person's repository (`openRemote`). A caller may open several. |
 | Directory | A physical filesystem location. In ordinary explanations, folder can name a disk directory; qualify a browser folder when its private storage matters. |
 | Remembered path | An optional machine-local shortcut shared by Epicenter desktop and CLI. It grants no access and does not configure where a standalone app saves. |
@@ -51,13 +51,14 @@ local web (this browser's files, for good), and online web (the repository
 through the server, online only). Nothing moves between stores, and signing
 in grants capabilities, never storage ([ADR-0700](adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
-Only a variant's root chooses its store. A desktop app on
-`epicenter-standalone` opens two roots in its root startup component:
-`openAppData(settings)`, the app's operating-system AppData directory
-(machine-local, never synced), then `openDataFolder(contract, { appData })`,
-the `folder` its `settings.md` names or `~/Epicenter/<productName>` by
-default. Only the default is made when missing; a root that cannot open shows
-a recovery screen, never another folder, and there is no first-run question
+Only a variant's root chooses its store. A desktop shell on
+`epicenter-standalone` names Data and AppData. Its root startup component
+opens machine-local AppData with `openAppData(settings)` when the app has a
+settings contract, then opens Data with `openDataFolder(contract, contractUrl)`.
+The shell names Data from the host of the app's site under `~/Epicenter`
+(`~/Epicenter Dev` in development). It makes the folder when nothing is at
+that path. A root that cannot open shows a recovery screen with Retry and a
+file-manager action; the app does not ask a first-run question
 ([ADR-0701](adr/0701-apps-run-as-separate-programs.md)). A local web variant
 awaits `openDevice(contract)` over the origin's private file system; an
 online web variant opens the repository with `openRemote`.
@@ -220,7 +221,7 @@ additional current APIs.
 
 | Source | Names and current behavior |
 | --- | --- |
-| `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser`, `openDevice(contract, { path })` from `/node`, `openDevice(contract, { root })` from `/tauri` (a root the shell named, `Data` or `AppData`), and `openRemote(contract, { account })` from `/remote`, over a contract from `@epicenter/definition/contract`. |
+| `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser`, `openDevice(contract, { path })` from `/node`, `openDevice(contract, { root })` from `/tauri` (a root the shell named, `Data` or `AppData`), and `openRemote(contract, { account, site })` from `/remote`, over a contract from `@epicenter/definition/contract`. |
 | CLI | Implemented commands include `auth`, `check`, `format`, `init`, `sync`, `clone`, `forget`, `status`, `repos`, `share`, and `unshare`. External-schema flags and CLI `open` remain deferred. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 

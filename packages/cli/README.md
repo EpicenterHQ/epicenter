@@ -80,8 +80,11 @@ owner's 12-character id (`epicenter repos` lists them).
   `https` remote only; an `http` one, as a local server, uses the helper).
   `credentials.e2e.test.ts` holds this to an `https` stand-in that refuses
   any request without the token.
-- `epicenter clone <namespace>/<name> [<dir>]` clones into `<dir>`, by default
-  `~/Epicenter/<name>`, then runs `init` there. A URL or a local path is
+- `epicenter clone <namespace>/<name> [<dir>]` clones into `<dir>` when given.
+  Without it, the CLI reads the cloned `AGENTS.md` contract URL and derives
+  a path under `~/Epicenter` from the app's site. If the note or its contract
+  key is missing, it uses the repository name. It joins a folder already at
+  the destination when its remote is compatible. A URL or local path is
   cloned as given.
 - `epicenter repos` lists the repositories of every namespace the sign-in may
   reach, the personal one first. With `--json`:
@@ -270,9 +273,11 @@ reaches its permitted deployment paths with a token for the audience it names.
 ## Directories
 
 The CLI reads and writes where the desktop shell does
-(`src/app-paths.ts`): `EPICENTER_DATA_DIR` for the sign-in locks and
-`EPICENTER_FOLDER_DIR` for the Epicenter folder, which the shell sets when it
-runs the CLI, or the release app's directories when they are unset.
+(`src/app-paths.ts`). The shell sets `EPICENTER_DATA_DIR` for sign-in locks
+and `EPICENTER_ENVIRONMENT` for the library root when it runs the CLI.
+A terminal command defaults to the production root unless its environment
+selects development. The library root is fixed at `~/Epicenter` or
+`~/Epicenter Dev`.
 
 ## Merging with plain Git
 

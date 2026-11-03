@@ -5,7 +5,7 @@ owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
 shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines.
 Its TypeScript counterparts are in `@epicenter/folder/tauri`:
 `openAppData(settingsContract)` for apps with machine settings,
-`openDataFolder(contract)` for the data folder, and `syncWithEpicenter` and
+`openDataFolder(contract, contractUrl)` for the data folder, and `syncWithEpicenter` and
 `syncedWithEpicenter`. The page's recovery and sync UI is in
 `@epicenter/svelte`.
 

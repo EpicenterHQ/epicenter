@@ -51,8 +51,8 @@ tauri::Builder::default()
 
 The apps on [`epicenter-standalone`](../tauri-epicenter-standalone/README.md)
 (Capture, Honeycrisp, Todos, Vocab, Whispering) name their AppData root and
-their data folder, `<library root>/<name>`, this way, and open the data
-folder (`Roots::open`) before their window exists; that crate holds the one
+their data folder, `<library root>/<site-derived path>`, this way. Their
+pages open the named Data root after the window opens; that crate holds the one
 refusal (the home folder, a folder holding it, or the library root).
 Nothing is granted: a capability lets a window call the plugin, and the
 roots are the app's, so every window of the app reaches the same ones.

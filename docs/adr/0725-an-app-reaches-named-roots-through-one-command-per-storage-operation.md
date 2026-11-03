@@ -4,7 +4,7 @@
 - **Date:** 2026-11-03
 - **Supersedes:** [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) (a native window edits one directory bound before it exists): a standalone app has one window, and what it may touch belongs to the app, not to a window label.
 - **Amends:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) at "the shell grants the directory": the shell names roots instead of granting paths; [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at "the shell computes the derived path, resolves links, and grants that one path": nothing is resolved or granted, the operating system follows links, and one refusal rule remains.
-- **Unbuilt:** none. `root_status` and `create_root` are not built (ADR-0726): `open_root` opens the root's path and makes the folder when nothing is there.
+- **Unbuilt:** none.
 - **Amended by:** [ADR-0726](0726-an-apps-path-is-its-claim.md) at `root_status`, `create_root` and the status values: the shell states no status.; [ADR-0729](0729-a-link-is-followed-only-at-or-above-a-root.md) at links: a root is resolved once when it opens, and a link inside it is refused.
 
 ## Context

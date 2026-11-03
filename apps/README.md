@@ -64,13 +64,13 @@ variant's `Startup` under a boundary:
 </svelte:boundary>
 ```
 
-The desktop `Startup` hands the shared `DesktopStartup` the app's name
-and data contract. Apps with machine-local settings also pass their AppData
-contract. `DesktopStartup` opens the derived folder and shows recovery
-when a root does not open:
+The desktop `Startup` hands the shared `DesktopStartup` the app's name,
+data contract, and published contract URL. Apps with machine-local settings
+also pass their AppData contract. `DesktopStartup` opens the derived folder
+and shows recovery when a root does not open:
 
 ```svelte
-<DesktopStartup app="Capture" contract={capture}>
+<DesktopStartup app="Capture" contract={capture} contractUrl={CONTRACT_URL}>
   {#snippet children(_appData, device)}
     <DesktopRoot {device}>{@render pages()}</DesktopRoot>
   {/snippet}

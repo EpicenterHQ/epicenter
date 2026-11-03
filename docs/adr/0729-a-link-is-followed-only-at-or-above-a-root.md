@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) at "Nothing is canonicalized … `root.join(path)` is opened as is": a root is resolved once when it opens, and a link inside it is refused.
+- **Unbuilt:** none.
 
 ## Context
 

@@ -107,8 +107,8 @@ There is no default grant. Every permission is prefixed
 | Administration | `get_active_model`, `set_active_model` | `allow-get-active-model`, `allow-set-active-model` |
 | Administration | `get_unload_policy`, `set_unload_policy` | `allow-get-unload-policy`, `allow-set-unload-policy` |
 
-`transcribe_file` also needs the folder plugin installed and the window bound;
-it does not need any `epicenter-folder` permission.
+`transcribe_file` also needs the folder plugin installed and its Data root
+opened. It does not need any `epicenter-folder` permission.
 
 ## TypeScript package
 

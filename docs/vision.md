@@ -139,9 +139,10 @@ Three places, each with one job:
   [ADR-0726](adr/0726-an-apps-path-is-its-claim.md)). No program stores where
   a folder is. `~/Epicenter/whispering` belongs to Whispering: it opens that
   path, creates the folder when nothing is there, and reads and writes only
-  its contract's paths. Onboarding shows it ("Your recordings are files in
-  `~/Epicenter/whispering`"). A failure, such as a link to an unplugged
-  drive, is shown plainly with [Retry] and [Show in Finder].
+  its contract's paths. The header's folder status shows the path and says
+  the recordings are files there; it offers Show in Finder on macOS and Show
+  folder elsewhere. A failed open, such as a link to an unplugged drive,
+  shows the error with Retry and the same file-manager action.
 - **An app reaches named roots, never paths**
   ([ADR-0725](adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md)).
   Its page asks the shell to list, read, put, and watch files by root and
