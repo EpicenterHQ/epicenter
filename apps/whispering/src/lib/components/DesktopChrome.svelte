@@ -1,7 +1,7 @@
 <!--
 	The desktop window's header account of its store: the data folder on
 	this computer, whether Epicenter manages it, Set up in Epicenter until it
-	does, and Choose data folder… (decisions 81 and 88). Whispering never
+	does. Whispering never
 	syncs anything itself. The global shortcut lives here too: a press
 	starts a recording, or stops the one under way, from any app, as the
 	header's button does.
@@ -12,7 +12,6 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
-	import { Button } from '@epicenter/ui/button';
 	import { onMount } from 'svelte';
 	import { onShortcut } from '../platform/shortcut.tauri.svelte.js';
 	import type { ChromeProps } from '../platform/types.js';
@@ -50,8 +49,5 @@
 			{/if}
 		</span>
 	</StatusRow>
-	{#snippet footer()}
-		<Button variant="outline" size="sm" disabled={sync.asking || whispering.recorder.phase !== 'idle'} onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
-	{/snippet}
 </StatusPopover>
 <FolderSyncActions {sync} />

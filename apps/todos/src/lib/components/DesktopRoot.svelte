@@ -6,7 +6,6 @@
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
-	import type { DesktopSettings } from '@epicenter/folder/tauri';
 	import { fromClient } from '@epicenter/svelte/client';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
 	import type { Snippet } from 'svelte';
@@ -15,16 +14,15 @@
 	import { setTodos } from '../todos.js';
 
 	let {
-		appData,
 		device,
 		children,
-	}: { appData: Client<DesktopSettings>; device: Client<Todos>; children: Snippet } = $props();
+	}: { device: Client<Todos>; children: Snippet } = $props();
 
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally
 	setTodos(fromClient(device).todos);
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL }));
+	setFolderSync(folderSync({ device, contract: CONTRACT_URL }));
 </script>
 
 {@render children()}

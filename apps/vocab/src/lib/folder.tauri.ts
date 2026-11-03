@@ -13,8 +13,6 @@ export const CONTRACT_URL = `${APPS.VOCAB.url}/contract.json`;
  * Vocab's settings notes on this computer (decisions 86 to 89), at the top
  * of the AppData root and never synced:
  *
- * - `settings.md`: `folder`, the data folder this computer opens, absent
- *   for the default.
  * - `connections.md`: the connected endpoints in the learner's order, each
  *   one's id, name, base URL and models, never a key (`connections.tauri.ts`
  *   keeps each key in the keychain under the connection's id, so an id is a
@@ -23,9 +21,8 @@ export const CONTRACT_URL = `${APPS.VOCAB.url}/contract.json`;
 export const vocabSettings = defineContract({
 	name: 'vocab-settings',
 	description:
-		"Vocab's settings on this computer, never synced: `folder` is the data folder it opens, and the connected endpoints are each one's id, name, base URL and models. Their keys are in the keychain.",
+		"Vocab's connected endpoints on this computer: each one's id, name, base URL and models. Their keys are in the keychain.",
 	collections: {
-		settings: { path: 'settings.md', fields: { folder: { type: 'string' } } },
 		connections: {
 			path: 'connections.md',
 			fields: {

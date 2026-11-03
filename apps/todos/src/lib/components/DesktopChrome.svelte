@@ -1,7 +1,7 @@
 <!--
 	The desktop window's header account of its store: Todos' folder on this
-	computer, whether Epicenter manages it, Set up in Epicenter until it does,
-	and Choose data folder… (decisions 81 and 88). It never signs in.
+	computer, whether Epicenter manages it, and Set up in Epicenter until it
+	does. It never signs in.
 -->
 <script lang="ts">
 	import { getFolderSync } from '@epicenter/svelte/folder-sync';
@@ -9,7 +9,6 @@
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import type { StatusLine } from '@epicenter/svelte/status-line';
-	import { Button } from '@epicenter/ui/button';
 	import type { ChromeProps } from '../platform.js';
 
 	let { unreadable, pendingNewTodo }: ChromeProps = $props();
@@ -37,9 +36,6 @@
 			{/if}
 		</span>
 	</StatusRow>
-	{#snippet footer()}
-		<Button variant="outline" size="sm" disabled={sync.asking} onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
-	{/snippet}
 </StatusPopover>
 <div class="ml-auto flex min-w-0 items-center gap-2">
 	<FolderSyncActions {sync} />

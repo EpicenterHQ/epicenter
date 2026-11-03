@@ -245,21 +245,13 @@ bun dev:whispering:desktop     # from the repository root; needs a Rust toolchai
 bun build:whispering:desktop   # a local, unsigned macOS app bundle
 ```
 
-Its Tauri shell (`src-tauri/`, on the shared
-[`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
-crate) starts the window on Whispering's AppData root, whose `settings.md`
-(machine-local, never synced) names a data folder only when the person chose
-one. There is no first-run question: the page opens `~/Epicenter/Whispering`
-(`~/Epicenter/Whispering Dev` under `tauri.dev.conf.json`), made when
-missing, or the chosen folder (`openAppData(whisperingSettings)`, then
-`openDataFolder`). Tauri decides which folders the window may open: the
-shell allows the default at startup, the native picker allows a folder the
-person picks, and persisted-scope keeps it. A folder that is missing, not allowed, or refused
-shows the recovery screen (`@epicenter/svelte/desktop-startup`), never another
-folder silently. **Choose data folder…**, in the status details and in
-Settings, opens another folder with its files where they are and remembers
-it. **Set up in Epicenter** enrolls the folder for local history; connecting a
-repository there enables transfer. Whispering never syncs it itself.
+Its Tauri shell derives and grants `~/Epicenter/whispering`, or
+`~/Epicenter Dev/whispering` in development. The page opens this folder,
+making it when missing for now. Whispering opens its AppData root for shortcut
+overrides. A failed open shows the shared recovery screen with Retry. The
+status details and Settings show the shell's folder path. **Set up in
+Epicenter** enrolls the folder for local history; connecting a repository
+there enables transfer. Whispering never syncs it itself.
 
 The pages are the web app's, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), with what differs behind

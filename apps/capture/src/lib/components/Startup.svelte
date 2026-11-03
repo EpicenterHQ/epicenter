@@ -3,7 +3,6 @@
 	over them (`DesktopRoot`).
 -->
 <script lang="ts">
-	import { desktopSettings } from '@epicenter/folder/tauri';
 	import DesktopStartup from '@epicenter/svelte/desktop-startup';
 	import type { Snippet } from 'svelte';
 	import { capture } from '@epicenter/capture';
@@ -12,8 +11,8 @@
 	let { children: pages }: { children: Snippet } = $props();
 </script>
 
-<DesktopStartup app="Capture" settings={desktopSettings} contract={capture}>
-	{#snippet children(appData, device)}
-		<DesktopRoot {appData} {device}>{@render pages()}</DesktopRoot>
+<DesktopStartup app="Capture" contract={capture}>
+	{#snippet children(_appData, device)}
+		<DesktopRoot {device}>{@render pages()}</DesktopRoot>
 	{/snippet}
 </DesktopStartup>

@@ -16,6 +16,6 @@
 
 <DesktopStartup app="Vocab" settings={vocabSettings} contract={vocab} ready={authReady}>
 	{#snippet children(appData, device)}
-		<DesktopRoot {appData} {device}>{@render pages()}</DesktopRoot>
+		{#if appData}<DesktopRoot {appData} {device}>{@render pages()}</DesktopRoot>{/if}
 	{/snippet}
 </DesktopStartup>

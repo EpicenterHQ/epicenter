@@ -18,7 +18,7 @@ grants capabilities, never storage.
 
 | Variant | Store | Opened with |
 | --- | --- | --- |
-| Desktop | a folder on the computer | `openAppData` and `openDataFolder` from `@epicenter/folder/tauri` |
+| Desktop | a folder on the computer | `openDataFolder` and optional `openAppData` from `@epicenter/folder/tauri` |
 | Local web | this browser's files (OPFS), for good | `openDevice(contract)` from `@epicenter/folder/browser` |
 | Online web | the person's repository, behind sign-in | `openRemote(contract, { account })` from `@epicenter/folder/remote` |
 
@@ -64,17 +64,15 @@ variant's `Startup` under a boundary:
 </svelte:boundary>
 ```
 
-The desktop `Startup` hands the shared `DesktopStartup`
-(`@epicenter/svelte/desktop-startup`) what differs: the app's name, its
-AppData contract and its data folder's contract. `DesktopStartup` awaits the
-two roots, AppData then the data folder, and shows the shared recovery
-screen when one does not open:
+The desktop `Startup` hands the shared `DesktopStartup` the app's name
+and data contract. Apps with machine-local settings also pass their AppData
+contract. `DesktopStartup` opens the derived folder and shows recovery
+when a root does not open:
 
 ```svelte
-<!-- apps/capture/src/lib/components/Startup.svelte -->
-<DesktopStartup app="Capture" settings={desktopSettings} contract={capture}>
-  {#snippet children(appData, device)}
-    <DesktopRoot {appData} {device}>{@render pages()}</DesktopRoot>
+<DesktopStartup app="Capture" contract={capture}>
+  {#snippet children(_appData, device)}
+    <DesktopRoot {device}>{@render pages()}</DesktopRoot>
   {/snippet}
 </DesktopStartup>
 ```
@@ -112,23 +110,21 @@ and test commands.
 
 ## Where each app's files live
 
-A desktop app on `epicenter-standalone` keeps its data folder at
-`~/Epicenter/<productName>` by default, made when missing, or at the folder
-the person chose with "Choose data folder…", remembered as `folder` in the
-`settings.md` of the app's AppData directory. There is no first-run
-question. A development build's `productName` is "<App> Dev", so it keeps
-`~/Epicenter/<App> Dev` and an AppData of its own. A folder that cannot open
-shows a recovery screen, never another folder silently. **Set up in Epicenter**
-enrolls it for local history; connecting a repository there enables transfer.
+A desktop app on `epicenter-standalone` opens the folder its shell derives
+from its site: `~/Epicenter/<label>` for Epicenter apps and
+`~/Epicenter/<owner>/<label>` for other apps. Development builds use
+`~/Epicenter Dev` as the root. The folder is made when missing for now.
+A failed open shows a recovery screen with Retry. **Set up in Epicenter**
+enrolls the folder for local history; connecting a repository there enables transfer.
 
 | App | Surfaces | Desktop folder | Contract |
 | --- | --- | --- | --- |
 | Epicenter | Folders, Settings | none | none |
-| [Todos](todos/README.md) | online web; desktop | `~/Epicenter/Todos` | `todos`: `todos` |
-| [Capture](capture/README.md) | online web; desktop | `~/Epicenter/Capture` | `capture`: `captures` |
-| [Honeycrisp](honeycrisp/README.md) | online web; desktop | `~/Epicenter/Honeycrisp` | `honeycrisp`: `notes`, `folders` |
-| [Vocab](vocab/README.md) | online web; desktop | `~/Epicenter/Vocab` | `vocab`: `entries`, `chats`, `messages` |
-| [Whispering](whispering/README.md) | local web; desktop | `~/Epicenter/Whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
+| [Todos](todos/README.md) | online web; desktop | `~/Epicenter/todos` | `todos`: `todos` |
+| [Capture](capture/README.md) | online web; desktop | `~/Epicenter/capture` | `capture`: `captures` |
+| [Honeycrisp](honeycrisp/README.md) | online web; desktop | `~/Epicenter/honeycrisp` | `honeycrisp`: `notes`, `folders` |
+| [Vocab](vocab/README.md) | online web; desktop | `~/Epicenter/vocab` | `vocab`: `entries`, `chats`, `messages` |
+| [Whispering](whispering/README.md) | local web; desktop | `~/Epicenter/whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
 | [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: the origin's OPFS | `messages`: `drafts`, `attempts` |
 | [Recorder demo](recorder-demo/README.md) | local web; online web | none | `recorder-demo`: `recordings`, `audio` |
 

@@ -2,63 +2,19 @@
 
 A standalone Epicenter app is its own small Tauri program over a folder it
 owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
-shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines. Its
-TypeScript counterparts are in `@epicenter/folder/tauri`:
-`openAppData(settingsContract)` and `openDataFolder(contract, { appData })`,
-which open the window's two roots, `pickDataFolder` (the native picker,
-remembering the canonical path it answers), `rememberFolder`, `syncWithEpicenter` and `syncedWithEpicenter`. The page's UI for them is in `@epicenter/svelte`:
-`recovery` (the screen when a root does not open) and `folder-sync` with
-`folder-sync-actions` (sync state, Sync with Epicenter, Choose data
-folder…).
+shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines.
+Its TypeScript counterparts are in `@epicenter/folder/tauri`:
+`openAppData(settingsContract)` for apps with machine settings,
+`openDataFolder(contract)` for the shell's derived folder, and
+`syncWithEpicenter` and `syncedWithEpicenter`. The page's recovery and
+sync UI is in `@epicenter/svelte`.
 
 ## Two roots per window
 
-- **The AppData root** is fixed: the operating system's application data
-  directory for the app, never synced and never chosen. Its settings notes
-  sit at its top (`settings.md`, `shortcuts.md`), read through the app's own
-  settings contract (an ordinary `defineContract` whose `settings.md` has
-  `folder`). `settings.md` holds `folder` only when the person chose a data
-  folder; any other key there, or in another note, overrides on this
-  computer the same note's value in the data folder.
-- **The data root** is the person's files: `~/Epicenter/<productName>` by
-  default, or the folder `settings.md` names. `productName` is the merged
-  Tauri configuration's: `Capture` for the shipped app, `Capture Dev` under
-  `tauri.dev.conf.json`, which also gives development its own identifier and
-  so its own AppData root. Only the data root is synced, by Epicenter, once
-  asked.
-
-Rust never reads or writes a settings note and names no path to the page.
-Startup allows the app's own default folder in Tauri's runtime file-system
-scope (`default_folder`, from `package_info().name`, what the page's
-`getName()` answers), makes the AppData root, and opens the window bound to
-it. The page finds both roots with Tauri's path API and opens them through
-the folder plugin, which opens a folder only when that scope allows it:
-
-| Folder | Allowed by |
-| --- | --- |
-| The default `~/Epicenter/<productName>` | Startup, each launch (`fs_scope().allow_directory(default, true)`) |
-| A folder the person picked | The dialog plugin's `open`, which allows the picked folder recursively; `tauri-plugin-persisted-scope` keeps it across launches in the AppData root's `.persisted-scope` |
-| A `folder` written by hand or by an agent | Nothing: it opens as `NotGranted` until the person picks it ("Allow access") |
-
-No capability names a folder. A grant stays after the person switches
-folders, so switching back is free. Folders dropped onto the window are not
-allowed (`plugins.fs.scopeDroppedPaths: false`). Even an allowed folder is
-refused when no app should keep its files there (the folder plugin's
-`scope::Refusals`): the top of a disk, the home folder itself, anything
-inside or around Epicenter's own settings, anything around the
-app's own settings, anything inside a `.git` or `.epicenter` folder (Git's
-state, another folder's unfinished writes), as Epicenter's sync admission
-refuses it, and a relative path. Any other hidden folder may be one.
-
-The page's startup awaits the two roots in order, under its layout's
-`<svelte:boundary>`; a root that does not open shows the recovery screen,
-whose actions write or clear `folder` and open the roots again:
-
-```ts
-const appData = await openAppData(desktopSettings); // or the app's own settings contract
-if (appData.error !== null) return appData; // "could not open its own settings": Retry
-const device = await openDataFolder(capture, { appData: appData.data }); // the default is made when missing
-```
+- **The AppData root** is the operating system's application data directory,
+  used by apps with machine-local settings such as shortcuts or connections.
+- **The data root** is derived by the shell from the app's site under
+  `~/Epicenter`, or `~/Epicenter Dev` for development builds.
 
 ## Window and Quit
 

@@ -2,8 +2,6 @@
  * Whispering's settings notes on the desktop (decisions 86 to 89). The
  * AppData root holds this computer's, never synced:
  *
- * - `settings.md`: `folder`, the data folder this computer opens, absent
- *   for the default.
  * - `shortcuts.md`: this computer's override of the data folder's
  *   `shortcuts.md` (the contract's `shortcuts`), key by key.
  *
@@ -17,9 +15,8 @@ import { whispering } from './contract.js';
 export const whisperingSettings = defineContract({
 	name: 'whispering-settings',
 	description:
-		"Whispering's settings notes on this computer: `folder` is the data folder it opens; `shortcuts.md` overrides the data folder's.",
+		"Whispering's `shortcuts.md` overrides the data folder's on this computer.",
 	collections: {
-		settings: { path: 'settings.md', fields: { folder: { type: 'string' } } },
 		shortcuts: whispering.collections.shortcuts,
 	},
 });

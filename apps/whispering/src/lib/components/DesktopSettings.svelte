@@ -1,6 +1,6 @@
 <!--
 	Settings only the desktop app has: the data folder Whispering keeps its
-	recordings in (where it is, Choose data folder…, Set up in Epicenter),
+	recordings in (where it is, Set up in Epicenter),
 	the models that transcribe on this computer, and the global shortcut.
 -->
 <script lang="ts">
@@ -13,13 +13,9 @@
 	import { Label } from '@epicenter/ui/label';
 	import { Separator } from '@epicenter/ui/separator';
 	import { acceleratorOf, getGlobalShortcut, labelOf } from '../platform/shortcut.tauri.svelte.js';
-	import { getWhispering } from '../whispering.svelte.js';
 
 	const sync = getFolderSync();
-	const whispering = getWhispering();
 	const shortcut = getGlobalShortcut();
-	/** Choosing reloads the window over the folder picked, which would end a recording. */
-	const recording = $derived(whispering.recorder.phase !== 'idle');
 
 	/** The keys the person pressed and has not saved; none shows the shortcut as resolved. */
 	let typed = $state<string>();
@@ -67,10 +63,8 @@
 		{#if sync.managed}Epicenter keeps this folder's local history.{:else}Epicenter can keep its history when you ask it to.{/if}
 	</p>
 	<div class="flex flex-wrap items-center gap-2">
-		<Button size="sm" variant="outline" disabled={sync.asking || recording} onclick={() => sync.chooseDataFolder()} data-testid="choose-data-folder">Choose data folder…</Button>
 		<FolderSyncActions {sync} />
 	</div>
-	{#if recording}<p class="text-muted-foreground">Finish recording before choosing another folder.</p>{/if}
 </section>
 <Separator />
 <section class="flex flex-col gap-2 text-xs" data-testid="desktop-models">

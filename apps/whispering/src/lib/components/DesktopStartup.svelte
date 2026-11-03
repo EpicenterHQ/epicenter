@@ -17,10 +17,10 @@
 
 <DesktopStartup app="Whispering" settings={whisperingSettings} contract={whispering}>
 	{#snippet children(appData, device)}
-		<DesktopRoot {appData} {device}>
+		{#if appData}<DesktopRoot {appData} {device}>
 			{#snippet children(files)}
 				{@render outer(device, files)}
 			{/snippet}
-		</DesktopRoot>
+		</DesktopRoot>{/if}
 	{/snippet}
 </DesktopStartup>

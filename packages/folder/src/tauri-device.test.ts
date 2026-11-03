@@ -15,14 +15,10 @@
  * - A storage refusal is `Unavailable`; a page outside Tauri opens nothing
  * - The shell's watcher reaches a collection's listeners, and every handle
  *   over a root hears it whichever opened last
- * - The data folder is the one `settings.md` names, or the path the shell
- *   derives from the site, which alone is made when missing
- * - The folder picker answers the folder picked by its canonical path, or
- *   null when cancelled; picking remembers that path in `settings.md`, or
- *   forgets `folder` when it is the default, however either was spelled
+ * - The data folder is the path the shell derives from the site and is made when missing
  */
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
-import { mkdir, readFile, realpath, rm, symlink } from 'node:fs/promises';
+import { readFile, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
 import { unwrap } from 'wellcrafted/result';
@@ -35,12 +31,8 @@ import {
 
 let shell: GrantedShell;
 let inTauri = true;
-/** The home directory Tauri answers and the data folder the shell answers. */
-let home = '/home';
+/** The data folder the shell answers. */
 let dataFolder = '/home/Epicenter/notes';
-/** What the folder picker answers next, and what it was asked. */
-let picked: string | null = null;
-const pickerAsked: unknown[] = [];
 
 type Channel = { onmessage?: (change: { paths: string[] | null }) => void };
 
@@ -53,10 +45,6 @@ mock.module('@tauri-apps/api/core', () => ({
 		body?: Record<string, unknown> | Uint8Array,
 		options?: { headers?: Record<string, string> },
 	) => {
-		if (cmd === 'plugin:dialog|open') {
-			pickerAsked.push((body as { options: unknown }).options);
-			return Promise.resolve(picked);
-		}
 		if (cmd === 'plugin:epicenter-folder|data_folder')
 			return Promise.resolve(dataFolder);
 		return shell.invoke(cmd, body, options);
@@ -64,7 +52,6 @@ mock.module('@tauri-apps/api/core', () => ({
 }));
 mock.module('@tauri-apps/api/path', () => ({
 	appDataDir: async () => shell.root,
-	homeDir: async () => home,
 	join: async (...parts: string[]) => join(...parts),
 }));
 
@@ -72,11 +59,8 @@ const {
 	openAppData,
 	openDataFolder,
 	openDevice,
-	pickDataFolder,
-	rememberFolder,
 	rootOf,
 } = await import('./tauri.js');
-const { chooseFolder } = await import('./desktop-folder.js');
 const { storeOf } = await import('./device/client.js');
 
 const notes = defineContract({
@@ -90,11 +74,11 @@ const notes = defineContract({
 	},
 });
 
-/** The app's settings contract over its AppData root: `settings.md` with `folder`. */
+/** A machine-local settings contract over the AppData root. */
 const notesSettings = defineContract({
 	name: 'notes-settings',
 	collections: {
-		settings: { path: 'settings.md', fields: { folder: { type: 'string' } } },
+		settings: { path: 'settings.md', fields: { theme: { type: 'string' } } },
 	},
 });
 
@@ -102,9 +86,7 @@ const removed: string[] = [];
 beforeEach(async () => {
 	shell = createGrantedShell(await grantedDirectory('tauri-device-'));
 	inTauri = true;
-	picked = null;
 	dataFolder = '/home/Epicenter/notes';
-	pickerAsked.length = 0;
 });
 
 afterEach(async () => {
@@ -295,116 +277,18 @@ test('each root hears only its own watcher', async () => {
 	stopThere();
 });
 
-test('the data folder comes from the shell when settings.md names none, made when missing', async () => {
-	home = await allowed('tauri-device-home-');
-	const fallback = join(home, 'Epicenter Dev', 'notes');
+test('AppData opens an app-owned settings contract', async () => {
+	const appData = unwrap(await openAppData(notesSettings));
+	expectOk(await appData.settings.create({ theme: 'dark' }));
+	expect(await readFile(join(shell.root, 'settings.md'), 'utf8')).toContain('theme: dark');
+});
+
+test('the data folder comes from the shell and is made when missing', async () => {
+	const fallback = join(await allowed('tauri-device-home-'), 'Epicenter Dev', 'notes');
 	dataFolder = fallback;
 	shell = createGrantedShell(shell.root, { grants: [fallback] });
-	const appData = unwrap(await openAppData(notesSettings));
-	const device = unwrap(await openDataFolder(notes, { appData }));
+	const device = unwrap(await openDataFolder(notes));
 	expectOk(await device.notes.create({ id: 'a', title: 'Default' }));
-	expect(await readFile(join(fallback, 'notes/a.md'), 'utf8')).toContain(
-		'title: Default',
-	);
+	expect(await readFile(join(fallback, 'notes/a.md'), 'utf8')).toContain('title: Default');
 	expect(shell.opened.at(-1)?.root).toBe(fallback);
-});
-
-test('a folder settings.md names opens as it is: never made, and NotGranted until picked', async () => {
-	home = await allowed('tauri-device-home-');
-	const chosen = await allowed('tauri-device-chosen-');
-	const gone = join(chosen, 'gone');
-	const appData = unwrap(await openAppData(notesSettings));
-	expectOk(await rememberFolder(appData, chosen));
-	// Written by hand or an agent: the shell's scope does not allow it.
-	expect(expectErr(await openDataFolder(notes, { appData }))).toMatchObject({
-		name: 'NotGranted',
-		folder: chosen,
-	});
-	// "Allow access": the picker at that path; picking it allows it, as the
-	// dialog plugin allows what it answers.
-	shell = createGrantedShell(shell.root, { grants: [chosen, gone] });
-	picked = chosen;
-	expect(
-		unwrap(await chooseFolder({ title: 'Allow access', at: chosen })),
-	).toBe(chosen);
-	expect(pickerAsked.at(-1)).toMatchObject({
-		directory: true,
-		recursive: true,
-		defaultPath: chosen,
-	});
-	unwrap(await openDataFolder(notes, { appData }));
-	// A chosen folder that is gone is Missing, never made again.
-	expectOk(await rememberFolder(appData, gone));
-	expect(expectErr(await openDataFolder(notes, { appData }))).toMatchObject({
-		name: 'Missing',
-		folder: gone,
-	});
-	expect(await readFile(join(shell.root, 'settings.md'), 'utf8')).toContain(
-		`folder: ${JSON.stringify(gone)}`,
-	);
-});
-
-test('a cancelled picker answers null', async () => {
-	picked = null;
-	expect(unwrap(await chooseFolder({ title: 'Choose folder' }))).toBeNull();
-});
-
-test('a folder picked through a link is remembered by its one canonical path', async () => {
-	home = await allowed('tauri-device-home-');
-	const chosen = await allowed('tauri-device-chosen-');
-	const alias = join(await allowed('tauri-device-link-'), 'alias');
-	await symlink(chosen, alias);
-	const appData = unwrap(await openAppData(notesSettings));
-	// The picker allows the path it answered, as the dialog plugin does.
-	shell = createGrantedShell(shell.root, { grants: [alias] });
-	picked = alias;
-	expect(
-		unwrap(await pickDataFolder(appData, { title: 'Choose data folder' })),
-	).toBe(true);
-	expect(unwrap(await appData.settings.get({})).folder).toBe(chosen);
-	// "Allow access" at the remembered path answers the same spelling.
-	picked = alias;
-	expect(
-		unwrap(await chooseFolder({ title: 'Allow access', at: chosen })),
-	).toBe(chosen);
-	// A cancelled pick remembers nothing new.
-	picked = null;
-	expect(
-		unwrap(await pickDataFolder(appData, { title: 'Choose data folder' })),
-	).toBe(false);
-	expect(unwrap(await appData.settings.get({})).folder).toBe(chosen);
-});
-
-test('the default folder is forgotten when picked, however its path is spelled', async () => {
-	// Home reached through a link, as a temporary HOME under /tmp is
-	// /private/tmp on macOS: the default is named through the link and the
-	// picker answers the real path.
-	const real = await allowed('tauri-device-real-home-');
-	home = join(await allowed('tauri-device-link-'), 'home');
-	await symlink(real, home);
-	const fallback = join(home, 'Epicenter', 'Notes');
-	dataFolder = fallback;
-	await mkdir(join(real, 'Epicenter', 'Notes'), { recursive: true });
-	const appData = unwrap(await openAppData(notesSettings));
-	expectOk(await rememberFolder(appData, '/elsewhere'));
-	shell = createGrantedShell(shell.root, {
-		grants: [fallback, join(real, 'Epicenter', 'Notes')],
-	});
-	picked = join(real, 'Epicenter', 'Notes');
-	expect(
-		unwrap(await pickDataFolder(appData, { title: 'Choose data folder' })),
-	).toBe(true);
-	expect(unwrap(await appData.settings.get({})).folder).toBeUndefined();
-});
-
-test('a picked folder the shell will not open is refused before it is remembered', async () => {
-	home = await allowed('tauri-device-home-');
-	const appData = unwrap(await openAppData(notesSettings));
-	picked = await allowed('tauri-device-ungranted-');
-	expect(
-		expectErr(await pickDataFolder(appData, { title: 'Choose data folder' })),
-	).toMatchObject({ name: 'NotGranted', folder: picked });
-	expect(expectErr(await appData.settings.get({}))).toMatchObject({
-		name: 'NotFound',
-	});
 });

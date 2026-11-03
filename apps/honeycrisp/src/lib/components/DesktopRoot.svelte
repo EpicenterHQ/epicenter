@@ -7,7 +7,6 @@
 <script lang="ts">
 	import type { Honeycrisp } from '../contract.js';
 	import type { Client } from '@epicenter/definition/contract';
-	import type { DesktopSettings } from '@epicenter/folder/tauri';
 	import { fromClient } from '@epicenter/svelte/client';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
 	import type { Snippet } from 'svelte';
@@ -15,10 +14,9 @@
 	import { setFolders, setNotes } from '../honeycrisp.svelte.js';
 
 	let {
-		appData,
 		device,
 		children,
-	}: { appData: Client<DesktopSettings>; device: Client<Honeycrisp>; children: Snippet } = $props();
+	}: { device: Client<Honeycrisp>; children: Snippet } = $props();
 
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally
@@ -26,7 +24,7 @@
 	setNotes(files.notes);
 	setFolders(files.folders);
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL }));
+	setFolderSync(folderSync({ device, contract: CONTRACT_URL }));
 </script>
 
 {@render children()}

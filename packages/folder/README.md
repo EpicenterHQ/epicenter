@@ -15,7 +15,7 @@ makes the client reactive with `fromClient` from
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
-| `@epicenter/folder/tauri` | `openDevice(contract, { path, create? })` over the root at the absolute path `path`, which the shell lets this window reach: the directory it bound to the window, or a folder Tauri's file-system scope allows. There is no default root and no folder inside one: a relative `path` is `Refused`. A standalone app opens its two roots with `openAppData(settingsContract)` (its AppData root, through the app's own settings contract, whose `settings.md` has `folder`) and `openDataFolder(contract, { appData })` (the `folder` that names, or `~/Epicenter/<productName>`, which alone is made when missing). `rootOf(device)` answers the root a client opened, as the shell answered it, for the window's other native commands (the recorder's and local transcription's `root`, which every one of them requires); it throws for a client `openDevice` from `/tauri` did not return. `pickDataFolder(appData, { title, at? })` opens the native picker, which allows the folder it answers and answers its canonical path (the shell's `resolve_folder`), so `/tmp/x` and `/private/tmp/x` are one folder, and remembers that path, or forgets `folder` when the default is picked, for both "Choose folder…" and "Allow access"; `rememberFolder(appData, folder \| undefined)` records or forgets a choice. `syncWithEpicenter({ path, contract })` asks the shell to open `epicenter://init?path=<path>&contract=<contract>` (decisions 81 and 82), and `syncedWithEpicenter({ path })` says whether `epicenter init` set that folder up (its `.git/config` names it as `epicenter.root`). |
+| `@epicenter/folder/tauri` | `openDevice(contract, { path, create? })` opens a root the shell grants. `openAppData(settingsContract)` opens machine-local settings when an app has them. `openDataFolder(contract)` asks the shell for its derived path and makes it when missing. `rootOf(device)` answers the canonical root the shell opened. `syncWithEpicenter` and `syncedWithEpicenter` manage Epicenter enrollment. |
 | `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 
 Importing an entry does not open anything.
@@ -61,8 +61,7 @@ and `formatNotes`, which `epicenter check` and `epicenter format` run. In a
 Tauri window the client works over a root the shell opened for it, through
 the folder plugin's commands, each naming that root by its path, and the
 shell checks each save and watches each root a page opened. A root other than the bound directory opens only
-when Tauri's runtime file-system scope allows it (the shell's default, or a
-folder the picker allowed); see the folder plugin's README. See
+when Tauri's runtime file-system scope allows it (the shell's derived folder); see the folder plugin's README. See
 `src/device/`; `bun run --cwd packages/folder smoke:device` drives the
 browser opener in Playwright Chromium and WebKit.
 
@@ -112,9 +111,8 @@ capabilities, never storage. See `src/remote/`.
 
 An app's settings are flat notes at fixed paths, one per concern
 (`settings.md`, `shortcuts.md`, …), each a collection with no placeholders
-in an ordinary `defineContract`. A desktop app has one settings contract,
-whose `settings.md` declares `folder`, and the same notes may sit in both of
-its roots: the data folder holds the synced values (its contract claims the
+in an ordinary `defineContract`. A desktop app with machine-local settings has an AppData contract. The same
+notes may sit in both of its roots: the data folder holds the synced values (its contract claims the
 notes it syncs), the AppData root this computer's sparse overrides. A
 reader resolves each note with a shallow spread, where it reads it: a key
 in the AppData note wins, then the data folder's, then the default
@@ -129,12 +127,9 @@ const shortcuts = {
 };
 ```
 
-`folder`, the data folder the person chose, is the one key only the AppData
-root holds; absent, the app opens `~/Epicenter/<productName>`.
-`rememberFolder(appData, folder | undefined)` writes or clears it, keeping
-the note's other keys. A local web app has one root, so it spreads the
-defaults and its device's note; an online web app reads its notes from the
-repository. API keys never go in a settings note: they stay in the
+The shell derives the data folder from the app's site. A local web app
+spreads defaults and its device note; an online web app reads its notes
+from the repository. API keys never go in a settings note: they stay in the
 keychain.
 
 ## Native directories

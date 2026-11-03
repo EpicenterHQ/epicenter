@@ -59,7 +59,8 @@ tauri::Builder::default()
 The apps on [`epicenter-standalone`](../tauri-epicenter-standalone/README.md)
 (Capture, Honeycrisp, Todos, Vocab, Whispering) bind their window to their
 AppData root this way, and keep their data folder at
-`~/Epicenter/<productName>`, allowed in Tauri's file-system scope at startup
+the shell-derived path under `~/Epicenter` or `~/Epicenter Dev`,
+allowed in Tauri's file-system scope at startup
 (see Other roots). Epicenter's own application data and library root are
 the app's (`DesktopPaths` in `apps/epicenter/src-tauri`).
 
@@ -170,9 +171,8 @@ command naming a root the page has not opened is `NotGranted`.
 `resolve_folder({ root })` answers the canonical path of a root the page
 could open, with the same refusals in the same order, and opens, watches and
 makes nothing. The folder picker answers the path the person reached, which
-may pass through a link (`/tmp` is `/private/tmp` on macOS); the page
-remembers the canonical path (`pickDataFolder` in `@epicenter/folder/tauri`),
-so a folder is one setting however it was picked.
+may pass through a link (`/tmp` is `/private/tmp` on macOS); the shell
+answers its canonical path.
 
 A bound window closes like any other window: nothing waits for its page. A
 write still out then is lost, a small, rare loss at the edge (ADR-0702's test

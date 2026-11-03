@@ -1,7 +1,7 @@
 <!--
 	The desktop window's header account of its store: Honeycrisp's folder on
 	this computer, whether Epicenter manages it, Set up in Epicenter until it
-	does, and Choose data folder… (decisions 81 and 88). It never signs in.
+	does. It never signs in.
 -->
 <script lang="ts">
 	import { getFolderSync } from '@epicenter/svelte/folder-sync';
@@ -9,7 +9,6 @@
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import type { StatusLine } from '@epicenter/svelte/status-line';
-	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import type { ChromeProps } from '../platform.js';
 
@@ -37,9 +36,6 @@
 			{/if}
 		</span>
 	</StatusRow>
-	{#snippet footer()}
-		<Button variant="outline" size="sm" disabled={sync.asking} onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
-	{/snippet}
 </StatusPopover>
 <div class="ml-auto flex min-w-0 items-center gap-1">
 	<FolderSyncActions {sync} />

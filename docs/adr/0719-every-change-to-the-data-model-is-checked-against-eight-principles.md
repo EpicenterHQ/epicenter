@@ -59,7 +59,7 @@ cited records govern where a principle and a record differ.
 4. **Each app has two places on a machine with the same note names.** The
    synced folder holds what follows the person; the device's AppData holds
    overrides. `settings.md` and `shortcuts.md` are read as defaults, then the
-   folder's note, then the device's (`packages/folder/src/settings.ts`).
+   folder's note, then the device's (Whispering's `shortcuts.md`, `apps/whispering/src/lib/settings.tauri.ts`).
    Epicenter's machinery is a third place, `~/.epicenter` ([ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md),
    [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)).
 5. **Find things by convention; store only the exceptions.** A program

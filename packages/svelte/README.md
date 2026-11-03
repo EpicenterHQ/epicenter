@@ -96,36 +96,19 @@ read. A page uses one or the other, never both.
 
 ### A desktop app's folder
 
-A standalone desktop app (`epicenter-standalone`) keeps the person's files
-in its data folder, `~/Epicenter/<productName>` unless the person chose
-another (decisions 88 to 97). Its startup, `DesktopStartup`
-(`@epicenter/svelte/desktop-startup`), opens the AppData root, through the
-app's own settings contract, and then the data folder before any page
-renders (one top-level `await`, under the
-layout's `<svelte:boundary>`, whose `pending` is the UI kit's spinner), and
-renders the app's desktop root over both, or `Recovery` when one does not
-open. `Recovery` switches on the `OpenDeviceError`: Allow access (the native
-picker at that folder; picking it allows it), Choose folder…, Use the
-default folder and Retry, as each case needs, each writing or clearing
-`folder` in the AppData `settings.md` and then retrying; "Retrying…" shows
-while the roots open again (`$effect.pending()`). Without `appData` (the app
-could not open its own settings) it offers only Retry. The header reads
-`getFolderSync()`, which rechecks on focus whether Epicenter syncs the
-folder:
+A standalone desktop app opens the folder derived by its shell from its site:
+`~/Epicenter/<label>`, or `~/Epicenter Dev/<label>` in development.
+`DesktopStartup` opens machine-local AppData settings when the app has them,
+then opens the derived folder. A failed open shows `Recovery` with its error
+and Retry. The header reads `getFolderSync()` and checks on focus whether
+Epicenter manages the folder.
 
 ```svelte
-<!-- The app's Startup.svelte, under <svelte:boundary> -->
-<DesktopStartup app="Capture" settings={desktopSettings} contract={capture}>
-  {#snippet children(appData, device)}
-    <DesktopRoot {appData} {device}>…</DesktopRoot>
+<DesktopStartup app="Capture" contract={capture}>
+  {#snippet children(_appData, device)}
+    <DesktopRoot {device}>…</DesktopRoot>
   {/snippet}
 </DesktopStartup>
-
-<!-- DesktopRoot.svelte: setCaptureList(fromClient(device).captures),
-     setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL })) -->
-<!-- The header -->
-<FolderSyncActions sync={getFolderSync()} /> <!-- Set up in Epicenter until it manages local history -->
-<Button onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
 ```
 
 ### Leaving while a save is out

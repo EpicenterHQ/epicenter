@@ -19,17 +19,9 @@ export {
 	type FolderRequest,
 	openAppData,
 	openDataFolder,
-	pickDataFolder,
 } from './desktop-folder.js';
 export { syncedWithEpicenter, syncWithEpicenter } from './epicenter-sync.js';
 export { OpenDeviceError } from './errors.js';
-export {
-	type DesktopSettings,
-	desktopSettings,
-	type FolderSettings,
-	rememberFolder,
-	type SettingsContract,
-} from './settings.js';
 
 /**
  * The typed client of `contract` over the root at the absolute path `path`,
@@ -37,7 +29,7 @@ export {
  * the shell bound to the window before it existed (its AppData root), or
  * any folder Tauri's runtime file-system scope allows, which the
  * standalone shell does for the app's default data folder at startup and the
- * folder picker (`pickDataFolder`) does for the folder a person picks.
+ * folder picker does for other folders.
  * `create` makes a missing root (only a default should be made); otherwise a
  * missing one is `Missing`. A relative `path` names no root: the shell
  * refuses it (`Refused`).

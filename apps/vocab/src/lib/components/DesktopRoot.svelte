@@ -29,7 +29,7 @@
 	setChatList(files.chats);
 	setMessageList(files.messages);
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL }));
+	setFolderSync(folderSync({ device, contract: CONTRACT_URL }));
 </script>
 
 {#key auth.state.account}

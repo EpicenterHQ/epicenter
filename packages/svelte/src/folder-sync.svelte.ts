@@ -1,47 +1,26 @@
 /**
- * A standalone desktop app's data folder in its page (decisions 81, 88 to
- * 94): its path as the shell opened it (`rootOf`), whether Epicenter manages
- * it, asked again whenever the window comes back (Epicenter may set it up
- * meanwhile), "Set up in Epicenter", and
- * "Choose data folder…", which waits for saves, lets the person pick a folder
- * in the native picker (which allows it), remembers it in the AppData
- * `settings.md`, and reloads the page over it, its files where they are.
- *
- * The app's desktop root makes it once the roots are open and sets it for
- * the components under it; the header reads it with `getFolderSync()`.
- *
- * ```svelte
- * setFolderSync(folderSync({ appData, device, contract: CONTRACT_URL }));
- * const sync = getFolderSync();
- * <FolderSyncActions {sync} />
- * <Button onclick={sync.chooseDataFolder}>Choose data folder…</Button>
- * ```
+ * The open data folder's path and Epicenter sync status in a desktop page.
+ * The shell answers the path; focus refreshes whether Epicenter manages it.
  */
 import type { Client, Contract } from '@epicenter/definition/contract';
 import {
 	type FolderRequest,
-	type FolderSettings,
-	pickDataFolder,
 	rootOf,
 	syncedWithEpicenter,
 	syncWithEpicenter,
 } from '@epicenter/folder/tauri';
 import { createContext } from 'svelte';
 import { on } from 'svelte/events';
-import { whenSaved } from './leave-guard.js';
 
 /**
  * Call while a component initializes; it listens for the window's focus for
- * that component's life. `device` is the data folder's client, `appData`
- * the AppData root's that names it, and `contract` the URL the app's
- * contract is published at (an app constant: deployment, not data).
+ * that component's life. `device` is the data folder's client, and
+ * `contract` is the URL the app's contract is published at (an app constant: deployment, not data).
  */
 export function folderSync({
-	appData,
 	device,
 	contract,
 }: {
-	appData: FolderSettings;
 	device: Client<Contract>;
 	contract: string;
 }) {
@@ -93,20 +72,6 @@ export function folderSync({
 					? { ok: true }
 					: { ok: false, message: error.message };
 			}, 'Asked your computer to open Epicenter. Set up the folder there, then connect a repository to use it on other devices.');
-		},
-		/** "Choose data folder…": this window's saves land first; the page reloads over the folder picked. */
-		chooseDataFolder() {
-			void ask(async () => {
-				await whenSaved();
-				const picked = await pickDataFolder(appData, {
-					title: 'Choose the data folder',
-					at: path,
-				});
-				if (picked.error !== null)
-					return { ok: false, message: picked.error.message };
-				if (picked.data) window.location.reload();
-				return { ok: true };
-			});
 		},
 	};
 }

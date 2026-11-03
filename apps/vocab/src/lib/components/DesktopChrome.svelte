@@ -1,7 +1,7 @@
 <!--
 	The desktop window's header account of its store: Vocab's folder on this
-	computer, whether Epicenter manages it, Set up in Epicenter until it does,
-	and Choose data folder… (decisions 81 and 88), beside the account, which
+	computer, whether Epicenter manages it, and Set up in Epicenter beside
+	the account, which
 	only adds hosted tutor models and dictation. Vocab never syncs anything
 	itself.
 -->
@@ -48,9 +48,6 @@
 				{/if}
 			</span>
 		</StatusRow>
-		{#snippet footer()}
-			<Button variant="outline" size="sm" disabled={sync.asking} onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
-		{/snippet}
 	</StatusPopover>
 </div>
 <div class="flex min-w-0 items-center gap-1 md:order-last md:ml-auto">

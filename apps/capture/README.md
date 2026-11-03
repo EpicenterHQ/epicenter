@@ -100,7 +100,7 @@ routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
     Online.svelte              {#key account}: setCaptureList(fromClient(openRemote(capture, { account })).captures)
-  Startup.svelte               desktop: DesktopStartup over desktopSettings and the contract
+  Startup.svelte               desktop: DesktopStartup over the contract
     DesktopRoot.svelte         setCaptureList(fromClient(device).captures), setFolderSync
 routes/(app)/+page.svelte      CaptureApp over the captures the root set (getCaptureList)
   CaptureApp.svelte            header (Chrome from #platform/root), then
@@ -119,7 +119,7 @@ a new root that sets its own store, and a header that says what it is.
 | `src/routes/(app)/+layout.svelte` | The variant's `Startup` (`#platform/root`), under a `<svelte:boundary>` whose `pending` is the UI kit's spinner. |
 | `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account. |
 | `src/lib/components/Online.svelte` | The repository per account, its captures set for every page (`setCaptureList`). |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's captures set for every page (`setCaptureList`); the header's local history status, Set up in Epicenter, and Choose data folder…. |
+| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's captures set for every page (`setCaptureList`); the header's local history status, Set up in Epicenter, and the shell's folder path. |
 | `src/lib/folder.tauri.ts` | Where the contract is published, which the desktop window's sync names. |
 | `src/routes/(app)/+page.svelte` | Capture over the store's captures. |
 | `src/lib/components/CaptureApp.svelte` | The header and the page it shows, over the captures the root set. |
@@ -136,34 +136,19 @@ bun dev:capture:desktop     # from the repository root; needs a Rust toolchain
 bun build:capture:desktop   # a local, unsigned macOS app bundle
 ```
 
-Its Tauri shell (`src-tauri/`, on the shared
-[`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
-crate) starts the window on Capture's AppData root, whose `settings.md`
-(`desktopSettings` from `@epicenter/folder/tauri`, machine-local, never
-synced) names a data folder only when the
-person chose one. There is no first-run question: the page opens
-`~/Epicenter/Capture` (`~/Epicenter/Capture Dev` under `tauri.dev.conf.json`,
-whose `productName` is `Capture Dev`), made when missing, or the chosen
-folder (`openAppData(desktopSettings)`, then `openDataFolder`). Tauri decides which folders
-the window may open: the shell allows the default at startup, the native
-picker allows a folder the person picks, and persisted-scope keeps that
-across launches. A `folder` written into `settings.md` by hand opens as not
-allowed until the person picks it. A folder that is missing, not allowed, or
-refused shows a recovery screen (Allow access, Retry, Choose folder…, Use the
-default folder, as the case needs), never another folder silently. "Choose
-data folder…" in the status details picks another folder, opens it with its
-files where they are, and remembers it. The captures stay when the app is
-removed.
+Its Tauri shell derives the data folder from the app's site and grants it
+to the window. The page opens `~/Epicenter/capture` (`~/Epicenter Dev/capture`
+in development), making it when missing for now. A failed open shows the
+shared recovery screen with Retry. The files remain when the app is removed.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
-(`openDataFolder(capture, { appData })`) with no sign-in: Capture makes no
+(`openDataFolder(capture)`) with no sign-in: Capture makes no
 inference calls, and Epicenter can keep the folder's local history. Its header
 says whether Epicenter manages the folder, offers **Set up in Epicenter** until it does
 (`syncWithEpicenter({ path, contract })`, the contract at `APPS.CAPTURE.url`'s
-`contract.json`), and holds **Choose data folder…** in the status details,
-which waits for saves before it switches. Closing the window or quitting does
-not wait.
+`contract.json`), and shows the shell's folder path in the status details.
+Closing the window or quitting does not wait.
 
 The variant is chosen at build time through `#platform/*` seams, as
 [the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant)
@@ -183,7 +168,7 @@ missing.
 | `bun test packages/capture` | The contract and the body codec. |
 | `bun run --cwd apps/capture typecheck` | App, scripts, and end-to-end types. |
 | `bun run --cwd apps/capture test` | The contract's fit, the store and mounted components over a stand-in client (a folder client in a temporary directory), and both builds' seams. |
-| `cargo test -p capture -p epicenter-standalone` | The desktop shell: its capability, the data folder (default, chosen, missing, refused). |
+| `cargo test -p capture -p epicenter-standalone` | The desktop shell: its capability, the derived data folder and opening refusals. |
 | `bun x playwright test -c apps/capture/playwright.config.ts` | End to end in Chromium and WebKit (below). |
 
 The end-to-end suite (`e2e/capture.spec.ts`, on the shared stack in
