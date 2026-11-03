@@ -1,7 +1,8 @@
 # 0647. A native window edits one directory bound before it exists
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-20
+- **Superseded by:** [ADR-0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md): an app reaches named roots through one command per storage operation; no window is bound to a directory.
 - **Amended by:** [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) at standalone Todos's fixed default directory: it uses the same Epicenter-root child as hosted Todos. Window binding and directory admission remain.
 - **Amended by:** [ADR-0652](0652-the-folder-plugin-opens-one-window-per-app-and-directory.md) at shell-owned identity and standalone Todos's fixed label: both shells use the plugin's app-and-directory opener.
 - **Amended by:** [ADR-0649](0649-folders-json-selects-this-machines-folder-locations.md) at Settings' fixed records path and name-based protected-root descriptions: `folders.json` selects the records location independently of its name. Window binding and admission checks remain.
