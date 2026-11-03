@@ -917,7 +917,7 @@ When you add an ADR, add its row here.
 | [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Accepted (amends 0642 and 0700) |
 | [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Accepted (supersedes 0627) |
 | [0720](0720-you-sign-in-a-machine-not-an-app.md) | You sign in a machine, not an app | Accepted (amends 0549 and 0701) |
-| [0721](0721-an-apps-folder-is-derived-never-stored.md) | An app's folder is derived, never stored | Proposed (amends 0700, 0701, 0711, 0712, 0715, 0718) |
-| [0722](0722-an-apps-names-derive-from-its-sites-host.md) | An app's names derive from its site's host | Proposed (supersedes 0710) |
-| [0723](0723-an-apps-site-is-found-by-convention.md) | An app's site is found by convention | Proposed (supersedes 0717) |
-| [0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) | A browser extension keeps its data in a document | Proposed (amends 0227) |
+| [0721](0721-an-apps-folder-is-derived-never-stored.md) | An app's folder is derived, never stored | Accepted (amends 0700, 0701, 0711, 0712, 0715, 0718) |
+| [0722](0722-an-apps-names-derive-from-its-sites-host.md) | An app's names derive from its site's host | Accepted (supersedes 0710) |
+| [0723](0723-an-apps-site-is-found-by-convention.md) | An app's site is found by convention | Accepted (supersedes 0717) |
+| [0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) | A browser extension keeps its data in a document | Accepted (amends 0227) |

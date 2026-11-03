@@ -1,6 +1,6 @@
 # 0724. A browser extension keeps its data in a document
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md) at "The Chrome extension runtime is refused": a browser extension may run when its data is a document, and Tabs is the first.
 - **Unbuilt:** all of it: `apps/tabs` and its WXT build; the document sync service it reaches ([ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md)); connecting a local document to the account on sign-in; the extension's grant on its origin.
