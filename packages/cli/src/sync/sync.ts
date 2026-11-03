@@ -300,9 +300,9 @@ async function round(
 			`this clone is not set up (merge driver or LFS filters missing). Run epicenter init ${folder}, then sync.`,
 			'stopped',
 		);
-	if (!existsSync(resolveAppPaths().commandLink))
+	if (!existsSync(resolveAppPaths().engine))
 		throw new Stop(
-			`${resolveAppPaths().commandLink}, the merge driver's command, is missing. Run epicenter install-command, then sync.`,
+			`${resolveAppPaths().engine}, the merge driver's command, is missing. Install Epicenter to provide the engine.`,
 			'stopped',
 		);
 	// Commit what the apps wrote in this folder, through the filters, and

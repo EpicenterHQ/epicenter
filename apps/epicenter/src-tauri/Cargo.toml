@@ -80,6 +80,7 @@ transcribe-cpp = { version = "0.1.0", default-features = false }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 windows = { version = "0.62", optional = true, features = ["Media_Control", "Foundation", "Foundation_Collections", "Win32_System_Com"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

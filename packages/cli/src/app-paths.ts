@@ -7,7 +7,7 @@
  * ```txt
  * <folderDir>/<site-derived path>/           a data folder `epicenter clone` makes by default
  * <dataDir>/auth/<grant>.lock                the lock a grant refreshes under (auth.ts)
- * ~/.local/bin/epicenter                     the link Git's configuration runs (install-command.ts)
+ * ~/.epicenter/bin/epicenter                 the engine Git's configuration runs
  * ```
  *
  * The shell sets `EPICENTER_ENVIRONMENT` when it runs the CLI. A terminal
@@ -27,11 +27,8 @@ export type AppPaths = {
 	readonly folderDir: string;
 	/** Machine state worth keeping, including sign-in locks. */
 	readonly dataDir: string;
-	/**
-	 * The `epicenter` every Git configuration Epicenter writes runs, and a
-	 * terminal finds on `PATH`: a link to the binary the app bundles.
-	 */
-	readonly commandLink: string;
+	/** The engine every Git configuration Epicenter writes runs. */
+	readonly engine: string;
 };
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -70,6 +67,11 @@ export function resolveAppPaths(
 			home,
 			environment === 'development' ? 'Epicenter Dev' : 'Epicenter',
 		),
-		commandLink: join(home, '.local', 'bin', 'epicenter'),
+		engine: join(
+			home,
+			environment === 'development' ? '.epicenter-dev' : '.epicenter',
+			'bin',
+			process.platform === 'win32' ? 'epicenter.exe' : 'epicenter',
+		),
 	};
 }

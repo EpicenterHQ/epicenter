@@ -84,7 +84,6 @@ test('--help lists every command but the hidden ones, and --json describes them'
 		'epicenter auth git-credential get | store | erase',
 	])
 		expect(help.stdout).toContain(usage);
-	expect(help.stdout).not.toContain('install-command');
 	expect(help.stdout).not.toContain('--desktop');
 	const described = JSON.parse(run('--help', '--json').stdout).commands;
 	expect(described.map((c: { command: string }) => c.command)).toEqual([
@@ -189,12 +188,4 @@ test('auth commands on a machine with no sign-in: status says so, and the rest r
 		expect(
 			run(['auth', 'git-credential', action], 'protocol=http\n\n').exitCode,
 		).toBe(0);
-});
-
-test('install-command refuses to link a CLI that runs from source', async () => {
-	if (binary) return;
-	const { run } = await setup();
-	const result = run('install-command', '--json');
-	expect(result.exitCode).toBe(2);
-	expect(JSON.parse(result.stdout).error).toContain('runs from source');
 });

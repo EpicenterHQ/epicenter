@@ -204,8 +204,8 @@ beforeAll(async () => {
 		}),
 	};
 	writeFileSync(env.GIT_CONFIG_GLOBAL as string, '');
-	// The command link the merge driver runs: this checkout's CLI.
-	const link = join(HOME, '.local', 'bin', 'epicenter');
+	// The engine the merge driver runs: this checkout's CLI.
+	const link = join(HOME, '.epicenter', 'bin', 'epicenter');
 	mkdirSync(join(link, '..'), { recursive: true });
 	writeFileSync(
 		link,

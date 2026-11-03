@@ -6,8 +6,7 @@ them. See [shared vocabulary](../../docs/CONTEXT.md).
 
 The `epicenter` command. Each command is a thin wrapper over a function in a
 shared package; the CLI parses, prints, and picks the exit code, and holds no
-logic a page or the browser also needs (ADR-0556). Desktop-only work, such as
-`install-command`, lives in the CLI's own modules. The
+logic a page or the browser also needs (ADR-0556). The
 implemented command surface retains ADR-0558's `auth` group; its `app` group
 is deleted. ADR-0611 describes the planned reduction.
 
@@ -20,9 +19,11 @@ with stock `git` and `git-lfs`
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
 
 ```sh
-epicenter clone <namespace>/recorder-demo ~/Epicenter/recorder-demo
-epicenter sync ~/Epicenter/recorder-demo   # 0 synced, 1 run again, 2 stopped
+~/.epicenter/bin/epicenter clone <namespace>/recorder-demo ~/Epicenter/recorder-demo
+~/.epicenter/bin/epicenter sync ~/Epicenter/recorder-demo   # 0 synced, 1 run again, 2 stopped
 ```
+
+The development engine is at `~/.epicenter-dev/bin/epicenter`.
 
 The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 --cwd apps/epicenter build:sidecar`); see
@@ -53,10 +54,8 @@ front end over `status`, `init`, `connect`, `clone`, `sync`, `forget`, `share`, 
 | `epicenter auth token [--resource <url>]` | built | `src/auth.ts` |
 | `epicenter auth git-credential get \| store \| erase` | built | `src/auth.ts` |
 | `epicenter messages` | built, hidden | Local Beeper operations on stdin; token in the device keychain |
-| `epicenter install-command` | built, hidden | `src/install-command.ts` |
 
-`messages`, `install-command`,
-`merge-driver`, `sync --interval`, and `--desktop` are left out of `--help`:
+`messages`, `merge-driver`, `sync --interval`, and `--desktop` are left out of `--help`:
 the desktop app or Git runs them.
 
 ## Hosted repositories
@@ -135,8 +134,8 @@ with real `git add`, so Git LFS's filters run.
   `managed-block.ts`: `.DS_Store` and `.epicenter/` (a device's unfinished
   writes) are never committed, and sync leaves `.epicenter/` out itself
   even when `.gitignore` does not name it.
-  Then `merge.epicenter.driver`, the command link (`~/.local/bin/
-  epicenter merge-driver %O %A %B %P`, the link `install-command` keeps);
+  Then `merge.epicenter.driver`, the absolute engine command
+  (`~/.epicenter/bin/epicenter merge-driver %O %A %B %P`);
   `git lfs install --local`;
   `git lfs pull` for files checked out as pointers; and the folder in the
   global, multi-valued `epicenter.folder` in production or
@@ -208,25 +207,11 @@ so. `EPICENTER_TEST_SECRETS` replaces the keychain with in-memory stores,
 the sign-ins' seeded from its `$auth` member and every other one empty, so
 tests never touch the real one.
 
-`install-command` is ADR-0558's hidden command. It keeps one link
-(ADR-0566, ADR-0567), and never needs `sudo`:
-
-```txt
-~/.local/bin/epicenter   -> the compiled binary
-```
-
 Every command the CLI configures Git to run (the credential helper `auth
-login` sets, and each folder's merge driver) names that link by its absolute
-path (`AppPaths.commandLink`), whether the CLI runs from
-the bundle, the link, or source, so moving the app does not break it past its
-next launch and a development run
-never writes a checkout into the global configuration. A release build runs
-`install-command --json` at every launch. A binary under macOS's App
-Translocation (`/private/var/folders/.../AppTranslocation/`) leaves the link
-as it is and says so, and a regular file at the link's path is refused. Run
-from source under `bun`, it refuses, since it would link `bun` itself. A
-terminal finds `epicenter` once `~/.local/bin` is on `PATH`: add
-`export PATH="$HOME/.local/bin:$PATH"` to your shell profile once.
+login` sets, and each folder's merge driver) names the installed engine by
+its absolute path (`AppPaths.engine`). Epicenter copies its bundled sidecar
+to that path at launch, replacing the previous engine atomically. A terminal
+can run it by its absolute path.
 
 ## Signing in
 
@@ -251,7 +236,7 @@ from the server's userinfo, which `auth status` reports without a network
 request. Each sign-in records a random generation; token refresh keeps it
 unchanged. The device
 login also sets, in Git's global configuration, an empty
-`credential.<git audience>.helper` and then `!'<home>/.local/bin/epicenter'
+`credential.<git audience>.helper` and then `!'<home>/.epicenter/bin/epicenter'
 auth git-credential`, so no broader helper is asked to store the token. Only
 `auth login` writes it.
 
@@ -323,10 +308,9 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/parse.ts` | The hand-written parser. |
 | `src/contract-commands.ts` | `check` and `format` against an app's contract, over `@epicenter/folder/node`. |
 | `src/sync/` | `init`, `sync`, `status`, `clone`, `forget`, and the merge driver, over the system `git`. |
-| `src/install-command.ts` | `install-command`: the one link Git's configuration runs. |
 | `src/stop.ts` | The one stop-signal handler: cleanups at once, then unfinished refreshes, then exit. |
 | `src/repository-commands.ts` | `repos`, and the token `sync` and `clone` send to the deployment's Git. |
-| `src/app-paths.ts` | Where the Epicenter folder, the sign-in locks, and the command link live, by the shell's rule. |
+| `src/app-paths.ts` | Where the Epicenter folder, the sign-in locks, and the engine live, by the shell's rule. |
 | `src/auth.ts` | The two grants: device and desktop sign-in, the one refresh, status, sign-out, and Git's credential helper. |
 | `src/auth-commands.ts` | `auth login`, `logout`, `status`, `token`, and `git-credential`, printing what `src/auth.ts` returns. |
 | `src/secrets.ts` | The keychain through `Bun.secrets`, by service, or the test stores. |

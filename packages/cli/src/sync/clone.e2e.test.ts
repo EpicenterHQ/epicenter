@@ -21,8 +21,8 @@ function fixture() {
 	const box = mkdtempSync(join(tmpdir(), 'epicenter-clone-e2e-'));
 	const home = join(box, 'home');
 	const library = join(home, 'Epicenter');
-	const command = join(home, '.local', 'bin', 'epicenter');
-	mkdirSync(join(home, '.local', 'bin'), { recursive: true });
+	const command = join(home, '.epicenter', 'bin', 'epicenter');
+	mkdirSync(join(home, '.epicenter', 'bin'), { recursive: true });
 	writeFileSync(
 		join(home, '.gitconfig'),
 		'[user]\n\tname = sandbox\n\temail = sandbox@example.invalid\n[init]\n\tdefaultBranch = main\n',

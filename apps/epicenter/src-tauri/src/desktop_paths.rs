@@ -17,6 +17,8 @@ pub struct DesktopPaths {
     pub data_dir: PathBuf,
     /// The library root: `~/Epicenter` or `~/Epicenter Dev`.
     pub folder_dir: PathBuf,
+    /// The engine shared by this environment's apps and Git configuration.
+    pub engine: PathBuf,
     pub environment: Environment,
 }
 
@@ -34,19 +36,32 @@ impl DesktopPaths {
         let environment =
             Environment::from_config(app.config().plugins.0.get(data_folder::CONFIG_KEY))
                 .map_err(|error| error.to_string())?;
-        let folder_dir = resolve_folder_root(environment, || {
-            app.path().home_dir().map_err(|error| error.to_string())
-        })?;
-        for path in [&data_dir, &folder_dir] {
+        let home = app.path().home_dir().map_err(|error| error.to_string())?;
+        let folder_dir = resolve_folder_root(environment, || Ok(home.clone()))?;
+        let engine = engine_path(&home, environment);
+        for path in [&data_dir, &folder_dir, &engine] {
             path.to_str()
                 .ok_or("Desktop directories must be valid UTF-8.")?;
         }
         Ok(Self {
             data_dir,
             folder_dir,
+            engine,
             environment,
         })
     }
+}
+
+fn engine_path(home: &Path, environment: Environment) -> PathBuf {
+    let machine_home = match environment {
+        Environment::Production => ".epicenter",
+        Environment::Development => ".epicenter-dev",
+    };
+    home.join(machine_home).join("bin").join(if cfg!(windows) {
+        "epicenter.exe"
+    } else {
+        "epicenter"
+    })
 }
 
 fn resolve_data_dir(
@@ -149,6 +164,20 @@ mod tests {
             assert_eq!(
                 resolve_folder_root(environment, || Ok(home.clone())).unwrap(),
                 home.join(name)
+            );
+            assert_eq!(
+                engine_path(&home, environment),
+                home.join(if environment == Environment::Production {
+                    ".epicenter"
+                } else {
+                    ".epicenter-dev"
+                })
+                .join("bin")
+                .join(if cfg!(windows) {
+                    "epicenter.exe"
+                } else {
+                    "epicenter"
+                })
             );
         }
     }

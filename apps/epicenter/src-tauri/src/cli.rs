@@ -2,11 +2,11 @@
 //!
 //! A page calls a fixed command here, never a generic exec. Each command maps
 //! to one fixed `epicenter` invocation with typed arguments, runs the binary
-//! the app bundles, and streams what it prints on stdout, one JSON value per
-//! line, to the page's `Channel`. Secrets and bodies cross on stdin, never in
+//! installed in the machine home. It streams what it prints on stdout, one
+//! JSON value per line, to the page's `Channel`. Secrets and bodies cross on stdin, never in
 //! arguments.
 //!
-//! Every command starts the CLI through one [`Invocation`]: the bundled
+//! Every command starts the CLI through one [`Invocation`]: the installed
 //! program, the deployment this shell is configured for in
 //! `EPICENTER_API_URL`, its data directory in `EPICENTER_DATA_DIR`, and its
 //! environment in `EPICENTER_ENVIRONMENT`. The CLI names the same deployment
@@ -26,6 +26,7 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::fs;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
@@ -192,32 +193,96 @@ pub struct Program {
     pub prefix: Vec<OsString>,
 }
 
-/// The binary a release bundles beside the shell's executable, named
+/// The binary the app bundles beside the shell's executable, named
 /// `epicenter-cli` because Tauri refuses a sidecar named like the Cargo
 /// package.
-#[cfg(not(debug_assertions))]
-pub(crate) fn bundled_program() -> Result<Program, String> {
+fn bundled_binary() -> Result<PathBuf, String> {
     let executable = std::env::current_exe()
         .map_err(|error| format!("the Epicenter executable could not be found: {error}"))?;
     let directory = executable
         .parent()
         .ok_or("the Epicenter executable has no parent directory")?;
-    Ok(Program {
-        program: directory.join("epicenter-cli"),
-        prefix: Vec::new(),
-    })
+    Ok(directory.join(if cfg!(windows) {
+        "epicenter-cli.exe"
+    } else {
+        "epicenter-cli"
+    }))
 }
 
-/// A development run uses the CLI's source under the `bun` on `PATH`, as the
-/// development host does, so a change needs no rebuild.
-#[cfg(debug_assertions)]
-pub(crate) fn bundled_program() -> Result<Program, String> {
-    let entry =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../packages/cli/src/bin.ts");
-    Ok(Program {
-        program: PathBuf::from("bun"),
-        prefix: vec!["--no-install".into(), entry.into_os_string()],
-    })
+/// Copy the bundled sidecar into the machine home. The staged file is in the
+/// destination directory, so replacing a running engine keeps the old process
+/// alive while new calls open the complete replacement.
+pub(crate) fn install_engine(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+) -> Result<(), String> {
+    let parent = destination
+        .parent()
+        .ok_or("the engine path has no parent")?;
+    fs::create_dir_all(parent).map_err(|error| format!("create {}: {error}", parent.display()))?;
+    if same_contents(source, destination) {
+        return Ok(());
+    }
+    let staged = parent.join(format!(
+        ".epicenter-{}-{}.tmp",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_nanos()
+    ));
+    let result = (|| {
+        fs::copy(source, &staged).map_err(|error| format!("copy {}: {error}", source.display()))?;
+        replace_engine(&staged, destination)
+            .map_err(|error| format!("install {}: {error}", destination.display()))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&staged);
+    }
+    result
+}
+
+/// Whether `destination` already holds `source`'s bytes. Sizes are compared
+/// first, so a release that changed the engine reads neither file.
+fn same_contents(source: &std::path::Path, destination: &std::path::Path) -> bool {
+    match (fs::metadata(source), fs::metadata(destination)) {
+        (Ok(a), Ok(b)) if a.len() == b.len() => {
+            matches!((fs::read(source), fs::read(destination)), (Ok(a), Ok(b)) if a == b)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_engine(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+    fs::rename(staged, destination)
+}
+
+#[cfg(windows)]
+fn replace_engine(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+    let wide = |path: &std::path::Path| {
+        path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>()
+    };
+    // SAFETY: both paths are null-terminated UTF-16 strings valid for this call.
+    let moved = unsafe {
+        MoveFileExW(
+            wide(staged).as_ptr(),
+            wide(destination).as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 /// How a run ended. `code` is the CLI's exit code (ADR-0520): 0 done, 1 a
@@ -348,13 +413,6 @@ impl Invocation {
         self
     }
 
-    /// One more variable in the child's environment.
-    #[cfg(test)]
-    pub(crate) fn env(mut self, name: &str, value: impl Into<OsString>) -> Self {
-        self.env.push((name.into(), value.into()));
-        self
-    }
-
     /// The run belongs to `window`'s page, and ends with it.
     pub(crate) fn owned_by(mut self, children: &CliChildren, window: &str) -> Self {
         self.owner = Some((children.clone(), window.to_string()));
@@ -422,7 +480,10 @@ pub(crate) fn invocation<R: Runtime>(app: &AppHandle<R>) -> Result<Invocation, C
         .try_state::<DesktopPaths>()
         .ok_or_else(|| failed("the shell's directories are not resolved yet"))?;
     Ok(Invocation::new(
-        bundled_program().map_err(failed)?,
+        Program {
+            program: paths.engine.clone(),
+            prefix: Vec::new(),
+        },
         &crate::deployment_origin().map_err(failed)?,
         &paths,
     ))
@@ -581,56 +642,8 @@ async fn run_child(
     }
 }
 
-/// The arguments for the launch call: point `~/.local/bin/epicenter`, the
-/// path every Git configuration Epicenter writes runs (ADR-0566, ADR-0567),
-/// at the binary this launch bundles. It never needs an administrator.
-fn command_link_args() -> Vec<OsString> {
-    vec!["install-command".into(), "--json".into()]
-}
-
-/// Run `epicenter install-command --json`. A run that does not
-/// exit 0, such as one from an App Translocation copy, is an error naming
-/// what the CLI printed.
-pub(crate) async fn refresh_command_link(invocation: &Invocation) -> Result<(), String> {
-    let mut printed = Vec::new();
-    let exit = invocation
-        .run(&command_link_args(), None, |line| {
-            printed.push(line);
-            Ok(())
-        })
-        .await
-        .map_err(|error| format!("{error:?}"))?;
-    if exit.code == 0 {
-        return Ok(());
-    }
-    Err(format!(
-        "exit {}: {} {}",
-        exit.code,
-        printed.join(" "),
-        exit.stderr.trim()
-    ))
-}
-
-/// The launch call, in the background so a launch never waits on it, with
-/// this shell's `paths`, which the app does not manage yet. A development
-/// build runs the CLI from source, which has no binary to link, so it
-/// leaves the link to the release build.
-pub(crate) fn spawn_command_link_refresh(paths: &DesktopPaths) {
-    if cfg!(debug_assertions) {
-        return;
-    }
-    let invocation = bundled_program().and_then(|program| {
-        crate::deployment_origin().map(|origin| Invocation::new(program, &origin, paths))
-    });
-    tauri::async_runtime::spawn(async move {
-        let result = match invocation {
-            Ok(invocation) => refresh_command_link(&invocation).await,
-            Err(message) => Err(message),
-        };
-        if let Err(message) = result {
-            log::warn!("the epicenter command link was not refreshed: {message}");
-        }
-    });
+pub(crate) fn install_bundled_engine(paths: &DesktopPaths) -> Result<(), String> {
+    install_engine(&bundled_binary()?, &paths.engine)
 }
 
 // ---------------------------------------------------------------------------
@@ -786,6 +799,7 @@ mod tests {
         DesktopPaths {
             data_dir: dir.join("data"),
             folder_dir: dir.join("Epicenter"),
+            engine: dir.join(".epicenter/bin/epicenter"),
             environment: epicenter_standalone::data_folder::Environment::Production,
         }
     }
@@ -813,46 +827,24 @@ mod tests {
         fs::canonicalize(dir).unwrap()
     }
 
-    /// The launch call runs one fixed invocation with the shell's
-    /// directories, and a run that exits non-zero is reported with what the
-    /// CLI printed. The child is a script standing in for the binary.
-    #[tokio::test]
-    async fn the_launch_call_is_one_fixed_invocation_with_the_shells_directories() {
-        let dir = scratch("link");
-        let seen = dir.join("seen");
-        let script = dir.join("child.sh");
-        fs::write(
-            &script,
-            format!(
-                "printf '%s\\n' \"$*\" \"$EPICENTER_DATA_DIR\" > '{}'\n\
-                 echo '{{\"commandLink\":{{\"action\":\"translocated\"}}}}'\n\
-                 exit \"$CHILD_EXIT\"\n",
-                seen.display()
-            ),
-        )
-        .unwrap();
-        let program = Program {
-            program: PathBuf::from("sh"),
-            prefix: vec![script.into_os_string()],
-        };
-        let paths = DesktopPaths {
-            data_dir: PathBuf::from("/support/so.epicenter"),
-            folder_dir: PathBuf::from("/home/Epicenter"),
-            environment: epicenter_standalone::data_folder::Environment::Production,
-        };
-        let env = |code: &str| {
-            Invocation::new(program.clone(), "https://api.example.test", &paths)
-                .env("CHILD_EXIT", code)
-        };
-
-        assert_eq!(refresh_command_link(&env("0")).await, Ok(()));
+    #[test]
+    fn installing_engine_replaces_the_complete_binary() {
+        let dir = scratch("engine");
+        let source = dir.join("bundled");
+        let destination = dir.join(".epicenter/bin/epicenter");
+        fs::write(&source, "first").unwrap();
+        install_engine(&source, &destination).unwrap();
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "first");
+        fs::write(&source, "second").unwrap();
+        install_engine(&source, &destination).unwrap();
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "second");
+        fs::remove_file(&source).unwrap();
+        assert!(install_engine(&source, &destination).is_err());
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "second");
         assert_eq!(
-            fs::read_to_string(&seen).unwrap(),
-            "install-command --json\n/support/so.epicenter\n"
+            fs::read_dir(destination.parent().unwrap()).unwrap().count(),
+            1
         );
-        let refused = refresh_command_link(&env("1")).await.unwrap_err();
-        assert!(refused.starts_with("exit 1: "), "{refused}");
-        assert!(refused.contains("translocated"), "{refused}");
     }
 
     /// A child that prints a megabyte and a 300 KB line before it reads any

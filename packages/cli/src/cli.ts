@@ -91,8 +91,6 @@ const HANDLERS: Record<string, Run> = {
 			action as string,
 			grant,
 		),
-	'install-command': async ({ json }) =>
-		(await import('./install-command.ts')).installCommand({ json }),
 };
 
 /** What `epicenter <command> --help` adds below the usage line. */

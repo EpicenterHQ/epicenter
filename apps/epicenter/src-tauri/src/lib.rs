@@ -279,11 +279,12 @@ pub fn run() {
             macos_menu::install(app.handle()).context("install native app menu")?;
 
             let desktop_paths = DesktopPaths::resolve(app.handle()).map_err(anyhow::Error::msg)?;
-            // Git's configuration runs `~/.local/bin/epicenter`; point it
-            // at this launch's binary, wherever the app now is (ADR-0566).
-            // A packaged release rehearsal must not replace the person's PATH link.
-            if app.config().identifier == "so.epicenter" {
-                cli::spawn_command_link_refresh(&desktop_paths);
+            // The app works without the engine; sync and sign-in report it missing.
+            if let Err(error) = cli::install_bundled_engine(&desktop_paths) {
+                log::error!(
+                    "install the engine at {}: {error}",
+                    desktop_paths.engine.display()
+                );
             }
             // Every window's page comes from the scheme, which reads it.
             app.manage(scheme::Pages(

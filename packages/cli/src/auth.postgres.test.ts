@@ -574,14 +574,14 @@ test("login makes this CLI Git's helper for the deployment's Git origin in the g
 	};
 	const configured = await configureGitHelper(
 		machine(),
-		['/Applications/Epicenter.app/Contents/MacOS/epicenter-cli'],
+		[join(home, '.epicenter/bin/epicenter')],
 		env,
 	);
 	expect(configured.error).toBeNull();
 	// Twice leaves one empty reset and one helper, not a growing list.
 	await configureGitHelper(
 		machine(),
-		['/Applications/Epicenter.app/Contents/MacOS/epicenter-cli'],
+		[join(home, '.epicenter/bin/epicenter')],
 		env,
 	);
 	const read = Bun.spawnSync(
@@ -597,7 +597,7 @@ test("login makes this CLI Git's helper for the deployment's Git origin in the g
 	);
 	expect(read.stdout.toString().split('\n')).toEqual([
 		'',
-		"!'/Applications/Epicenter.app/Contents/MacOS/epicenter-cli' auth git-credential",
+		`!'${join(home, '.epicenter/bin/epicenter')}' auth git-credential`,
 		'',
 	]);
 });

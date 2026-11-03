@@ -242,7 +242,7 @@ async function machine(label: string) {
 		env,
 	);
 	if (helper.error !== null) throw new Error(helper.error);
-	const link = join(home, '.local', 'bin', 'epicenter');
+	const link = join(home, '.epicenter', 'bin', 'epicenter');
 	await mkdir(join(link, '..'), { recursive: true });
 	await writeFile(
 		link,

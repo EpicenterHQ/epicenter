@@ -4,7 +4,7 @@
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at `epicenter init` registering a folder for sync: the folders under the library root need no registration, a folder elsewhere is a link inside the root, and nothing is listed in the global Git configuration; [ADR-0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) at the public command `~/.local/bin/epicenter` and `install-command`: the engine is `~/.epicenter/bin/epicenter`.
 - **Amended by:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at `~/.epicenter/settings.md`: the file is not made, because the keychain item holds the account and server.
-- **Unbuilt:** all of it: `~/.epicenter` and `~/.epicenter-dev`; `settings.md` with the account, the server, and engine settings; `session.lock`; the root scan that finds synced folders by `epicenter.root`; `bin/` holding the engine and `git-lfs`; `documents/`; `logs/`; moving `epicenter.folder` out of the global Git configuration; retiring `install-command`.
+- **Unbuilt:** `settings.md` with the account, the server, and engine settings; `session.lock`; the root scan that finds synced folders by `epicenter.root`; the bundled `git-lfs`; `documents/`; `logs/`; moving `epicenter.folder` out of the global Git configuration.
 
 ## Context
 

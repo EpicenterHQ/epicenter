@@ -62,10 +62,10 @@ const ENV: Record<string, string> = {
 	NO_PROXY: '127.0.0.1,localhost',
 	EPICENTER_DATA_DIR: join(BOX, 'data'),
 };
-/** The command link Git's configuration runs (`AppPaths.commandLink`). */
-const EPICENTER = join(HOME, '.local', 'bin', 'epicenter');
+/** The engine Git's configuration runs (`AppPaths.engine`). */
+const EPICENTER = join(HOME, '.epicenter', 'bin', 'epicenter');
 /**
- * While this file exists, the merge driver the command link runs inside
+ * While this file exists, the merge driver the engine runs inside
  * `git merge` first creates `MERGING` and waits three seconds, so a test can
  * stop a round in the middle of its merge.
  */
@@ -155,13 +155,13 @@ const connect = (dir: string, user: string) =>
 	);
 
 beforeAll(async () => {
-	mkdirSync(join(HOME, '.local', 'bin'), { recursive: true });
+	mkdirSync(join(HOME, '.epicenter', 'bin'), { recursive: true });
 	mkdirSync(ENV.TMPDIR as string, { recursive: true });
 	writeFileSync(
 		ENV.GIT_CONFIG_GLOBAL as string,
 		'[user]\n\tname = sandbox\n\temail = sandbox@example.invalid\n[init]\n\tdefaultBranch = main\n[advice]\n\tdetachedHead = false\n',
 	);
-	// The `epicenter` on this sandbox's command link: this checkout's CLI.
+	// The sandbox engine runs this checkout's CLI.
 	writeFileSync(
 		EPICENTER,
 		`#!/bin/sh\nif [ "$1" = merge-driver ] && [ -e '${SLOW_MERGE}' ]; then : > '${MERGING}'; sleep 3; fi\nexec '${process.execPath}' '${BIN}' "$@"\n`,

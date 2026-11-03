@@ -2,8 +2,8 @@
 /**
  * Compile the `epicenter` CLI (ADR-0556) where Tauri expects its external
  * binary. The bundle names it `epicenter-cli` because Tauri refuses a sidecar
- * named like the Cargo package, `epicenter`; `epicenter install-command`
- * links it onto `PATH` as `epicenter`.
+ * named like the Cargo package, `epicenter`; the app installs it into the
+ * machine home as `bin/epicenter`.
  */
 
 import { mkdir } from 'node:fs/promises';

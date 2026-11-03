@@ -12,7 +12,7 @@
  *    the browser, and a desktop sandbox for the `epicenter` CLI: its own
  *    HOME, GIT_CONFIG_GLOBAL and GIT_CEILING_DIRECTORIES, a device-grant
  *    sign-in seeded through EPICENTER_TEST_SECRETS, the Git credential
- *    helper `auth login` writes, and the command link the merge driver
+ *    helper `auth login` writes, and the engine the merge driver
  *    runs. Each also has a guest, a second person with a browser session.
  * 4. The app built against that API and served on its registered origin.
  *
@@ -273,7 +273,7 @@ export async function runAppStack({
 				env,
 			);
 			if (helper.error !== null) throw new Error(helper.error);
-			const link = join(home, '.local', 'bin', 'epicenter');
+			const link = join(home, '.epicenter', 'bin', 'epicenter');
 			await mkdir(join(link, '..'), { recursive: true });
 			await writeFile(
 				link,

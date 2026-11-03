@@ -192,8 +192,8 @@ beforeAll(async () => {
 		env,
 	);
 	if (helper.error !== null) throw new Error(helper.error);
-	// The command link the merge driver runs: this checkout's CLI.
-	const link = join(scratch, '.local', 'bin', 'epicenter');
+	// The engine the merge driver runs: this checkout's CLI.
+	const link = join(scratch, '.epicenter', 'bin', 'epicenter');
 	await mkdir(join(link, '..'), { recursive: true });
 	await writeFile(
 		link,

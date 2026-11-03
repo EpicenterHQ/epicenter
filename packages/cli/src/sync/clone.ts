@@ -238,10 +238,10 @@ async function joinExisting(
 		throw new Error(
 			`${target} has ${await localFileCount(target)} local file(s) that would join ${url}. Pass --join to join this folder.`,
 		);
-	const commandLink = resolveAppPaths().commandLink;
-	if (!existsSync(commandLink))
+	const engine = resolveAppPaths().engine;
+	if (!existsSync(engine))
 		throw new Error(
-			`cannot join ${target} with ${url}: ${commandLink} is missing. Run epicenter install-command first.`,
+			`cannot join ${target} with ${url}: ${engine} is missing. Install Epicenter to provide the engine.`,
 		);
 	const setup = await init(target, { ...options, register: false });
 	await must(target, ['config', '--local', 'epicenter.joinPending', 'true']);

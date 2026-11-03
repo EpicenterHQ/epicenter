@@ -106,7 +106,7 @@ export async function authLogin(
 	});
 	if (error !== null) return fail(error.message, json);
 	// Git's helper is configured only now, once the sign-in it serves exists.
-	const helper = await configureGitHelper(ctx, [resolveAppPaths().commandLink]);
+	const helper = await configureGitHelper(ctx, [resolveAppPaths().engine]);
 	if (json)
 		writeJson({
 			signedIn: {

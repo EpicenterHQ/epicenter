@@ -101,13 +101,11 @@ export async function refuseReservedDirectory(input: string): Promise<void> {
 }
 
 /**
- * The merge driver Git runs for `*.md` (decision 42): the per-user command
- * link (`AppPaths.commandLink`, ADR-0566), which a Git started from the
- * Finder finds as well as one in a terminal, so moving the app breaks
- * nothing. Init repairs a clone whose driver names anything else.
+ * The merge driver Git runs for `*.md`: the machine's absolute engine path.
+ * Init repairs a clone whose driver names anything else.
  */
-export const driverCommand = (link = resolveAppPaths().commandLink) =>
-	`${shellQuote(link)} merge-driver %O %A %B %P`;
+export const driverCommand = (engine = resolveAppPaths().engine) =>
+	`${shellQuote(engine)} merge-driver %O %A %B %P`;
 
 const LFS_HOOKS = ['pre-push', 'post-checkout', 'post-commit', 'post-merge'];
 const LFS_CONFIG = [
@@ -291,9 +289,9 @@ export async function init(
 		]);
 		changed.push('merge.epicenter.name set');
 	}
-	if (!existsSync(resolveAppPaths().commandLink))
+	if (!existsSync(resolveAppPaths().engine))
 		warnings.push(
-			`${resolveAppPaths().commandLink}, the merge driver's command, does not exist yet: run epicenter install-command`,
+			`${resolveAppPaths().engine}, the merge driver's command, does not exist yet. Install Epicenter to provide the engine.`,
 		);
 
 	// 4. LFS filters, and hooks for a person's own git push, local to this clone.

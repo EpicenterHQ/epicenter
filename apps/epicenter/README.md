@@ -45,15 +45,14 @@ Epicenter ships one compiled Bun binary (ADR-0556): the `epicenter` CLI from
 compiles its entry, `packages/cli/src/bin.ts`, to
 `src-tauri/binaries/epicenter-cli-<target triple>`, the `externalBin`. The
 bundle calls it `epicenter-cli` because Tauri refuses a sidecar named like the
-Cargo package, `epicenter`; on `PATH` it is `epicenter`.
+Cargo package, `epicenter`. The app installs it as `~/.epicenter/bin/epicenter`.
 
 The one binary has these uses:
 
 - The shell's narrow CLI runner (`src-tauri/src/cli.rs`) runs it for a page's
   fixed commands. A page has no generic exec: each command maps to one
   `epicenter` invocation, writes stdin on its own task, and reads each stdout
-  line. Development runs the CLI's source
-  under `bun` instead of the binary.
+  line. Development installs the sidecar in `~/.epicenter-dev/bin/epicenter`.
 - The Folders window's actions each run one `epicenter` command, and the
   shell runs `epicenter sync --watch --json --desktop` in the background for
   as long as the app runs ([The Folders window](#the-folders-window)).
@@ -71,15 +70,10 @@ The one binary has these uses:
   cached access tokens are in the CLI's keychain entry; no token reaches a
   page or Rust.
 
-At every launch a release build runs `epicenter install-command --json`,
-which points `~/.local/bin/epicenter` at the bundled binary, so the Git
-configuration that names that link survives moving the app (ADR-0566,
-ADR-0567). It never needs `sudo`. To run `epicenter` in a terminal, add
-`~/.local/bin` to your `PATH` once:
-
-```sh
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-```
+At launch, the app copies its bundled CLI into `~/.epicenter/bin/epicenter`,
+or `~/.epicenter-dev/bin/epicenter` for a development build. Git's merge
+driver and credential helper use that absolute path. Run the binary at that
+path in a terminal.
 
 ## Configure the server
 

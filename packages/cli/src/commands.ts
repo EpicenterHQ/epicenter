@@ -147,12 +147,4 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 1,
 		summary: "Git's credential helper for the deployment's Git origin",
 	},
-	{
-		path: ['install-command'],
-		args: '',
-		minArgs: 0,
-		maxArgs: 0,
-		summary: 'link ~/.local/bin/epicenter to this binary',
-		hidden: true,
-	},
 ];
