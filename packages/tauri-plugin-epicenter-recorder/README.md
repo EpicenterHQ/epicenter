@@ -66,21 +66,19 @@ and an ending arrive on the channel the page passes to `open_meter` or
 
 A page names a microphone by the id `inputs` answers, cpal's `DeviceId` as
 text (`coreaudio:<device UID>` on macOS), which stays the same across
-launches and reconnections. To record, it names a folder-relative path and
-the root it is in, by name (`Data`), which the page opened through the
-folder plugin (`open_root`, as `openDataFolder` does). The root is required,
-so no recording lands in a folder the page did not name; a root the page has
-not opened is refused. The folder it reached is read once when the command
-arrives.
+launches and reconnections. To record, it names a folder-relative path. The recorder always uses the
+app's open Data root through the folder plugin (`open_root`, as
+`openDataFolder` does). If Data is not open, the command is refused even if
+AppData is open. The folder Data reached is read once when the command arrives.
 
 | Command | What it does |
 | --- | --- |
 | `inputs()` | Lists the input devices connected now as `{ id, name, isDefault }`. Opens nothing, so it needs no microphone permission. |
 | `open_meter(device, levels)` | Opens the microphone with id `device`, or the system default, and sends its level on `levels` until `close_meter(id)`, or until the window's page reloads or the window is destroyed. Nothing is recorded. Answers the meter's `id` and the microphone's name. |
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
-| `start(root, path, device, signals)` | Records `<path>.webm` in `root`, from the microphone with id `device` or the system default, writing it in `.epicenter/recordings` until it stops. Answers the recording's `id`. |
+| `start(path, device, signals)` | Records `<path>.webm` in Data, from the microphone with id `device` or the system default, writing it in `.epicenter/recordings` until it stops. Answers the recording's `id`. |
 | `stop(id)` | Finishes the recording in place, places it at its path, and answers `{ path, durationMs }`. It takes the same few milliseconds for a recording of any length. A file already at the path is never replaced: the refusal says so, and where the finished recording is kept in `.epicenter/recordings`. Only the window that started it may stop it. |
-| `recover(root, under)` | Finishes every recording a cut left under `under` in `root`'s `.epicenter/recordings` from its whole seconds and places it at its path, leaving the recording still being written alone. Answers `{ recovered, unplaced }`: each recording it placed as `{ path, durationMs }`, from the length its file states, so a page never reads the audio back to measure it (a second run places none); and each one whose path holds another file as `{ path, pending }`, where `pending` is its folder-relative path under `.epicenter/recordings`. That one is never deleted and never placed beside the other file: it stays pending, finished, and is answered on every run until a person moves one of the two, so a page says where its audio is. A leftover with no whole second holds no audio and is deleted. A page runs it when it opens its folder, before it lists, plays, or transcribes a recording. |
+| `recover(under)` | Finishes every recording a cut left under `under` in Data's `.epicenter/recordings` from its whole seconds and places it at its path, leaving the recording still being written alone. Answers `{ recovered, unplaced }`: each recording it placed as `{ path, durationMs }`, from the length its file states, so a page never reads the audio back to measure it (a second run places none); and each one whose path holds another file as `{ path, pending }`, where `pending` is its folder-relative path under `.epicenter/recordings`. That one is never deleted and never placed beside the other file: it stays pending, finished, and is answered on every run until a person moves one of the two, so a page says where its audio is. A leftover with no whole second holds no audio and is deleted. A page runs it when it opens its folder, before it lists, plays, or transcribes a recording. |
 
 `start` refuses before it opens anything:
 

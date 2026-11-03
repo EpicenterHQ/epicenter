@@ -8,10 +8,8 @@
 //! is `Disconnected`, and nothing is made. Every storage command names an
 //! open root; the shared path rule keeps its relative path inside it.
 //!
-//! Each open root has one recursive native watch, whose changes go to every
-//! page that opened it, each through the latest channel it opened it with.
-//! A page that reloads or closes hears nothing more, and an open it started
-//! before reloading installs nothing.
+//! Each open root has one recursive native watch. Its changes are app events;
+//! pages subscribe before opening a root.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -65,9 +63,11 @@ impl FromStr for Root {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "name")]
 pub enum RootError {
+    /// A raw request used a root name the shell does not recognize.
+    Invalid { root: String },
     /// The shell named no such root for this app.
     NotNamed { root: Root },
-    /// A command named a root the page has not opened.
+    /// A command named a root the app has not opened.
     NotOpen { root: Root },
     /// The root's path, or a folder above it, is a link whose target is not
     /// there, as on a drive that is not connected. Nothing was made.
@@ -84,6 +84,7 @@ pub enum RootError {
 impl fmt::Display for RootError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Invalid { root } => write!(formatter, "{root:?} is not a root: Data or AppData"),
             Self::NotNamed { root } => write!(formatter, "This app has no {root} folder."),
             Self::NotOpen { root } => write!(formatter, "The {root} folder is not open."),
             Self::Disconnected { folder, target } => {
@@ -102,12 +103,6 @@ impl std::error::Error for RootError {}
 /// with the location the root's path resolves to.
 type Refusal = Arc<dyn Fn(&Path) -> Option<String> + Send + Sync>;
 
-/// One page's way of hearing a root's changes.
-type Listener = Box<dyn Fn(FolderChanged) + Send>;
-
-/// Who hears a root's watch, by WebView label.
-type Listeners = Arc<Mutex<HashMap<String, Listener>>>;
-
 /// The shell's named roots. Reached with `app.roots()`.
 #[derive(Default)]
 pub struct Roots {
@@ -118,10 +113,6 @@ pub struct Roots {
 struct State {
     named: HashMap<Root, Named>,
     opened: HashMap<Root, Opened>,
-    /// Each WebView's current page, by label: a number no earlier page of
-    /// any WebView had (`last_page`).
-    pages: HashMap<String, u64>,
-    last_page: u64,
     stopped: bool,
 }
 
@@ -130,13 +121,11 @@ struct Named {
     refusal: Refusal,
 }
 
-/// A root that opened: the folder its path reached, and its watch once a
-/// page asked to hear it.
+/// A root that opened: the folder its path reached and its native watch.
 struct Opened {
     directory: Directory,
     /// Held for the root's life: dropping it stops the watch.
     watch: Option<FolderWatch>,
-    listeners: Listeners,
 }
 
 impl State {
@@ -146,11 +135,6 @@ impl State {
         } else {
             Ok(())
         }
-    }
-
-    /// Whether `page` is still the page in the WebView `label`.
-    fn current(&self, label: &str, page: u64) -> bool {
-        self.pages.get(label) == Some(&page)
     }
 }
 
@@ -220,7 +204,6 @@ impl Roots {
                     Opened {
                         directory: directory.clone(),
                         watch: None,
-                        listeners: Listeners::default(),
                     },
                 ),
             }
@@ -262,41 +245,16 @@ impl Roots {
         opened.ok_or(RootError::NotOpen { root })
     }
 
-    /// The current page of the WebView `label`, read before an open blocks.
-    pub(crate) fn page(&self, label: &str) -> Result<u64, RootError> {
-        let mut state = self.state();
-        state.running()?;
-        if let Some(page) = state.pages.get(label) {
-            return Ok(*page);
-        }
-        state.last_page += 1;
-        let page = state.last_page;
-        state.pages.insert(label.to_string(), page);
-        Ok(page)
-    }
-
-    /// Send `root`'s changes to `report`, the page `page` of the WebView
-    /// `label`, in place of that WebView's earlier recipient. The root's one
-    /// watch starts the first time a page asks. A page that has gone since
-    /// it asked installs nothing.
+    /// Start `root`'s one watch and report its changes to the app.
     pub(crate) fn watch(
         &self,
         root: Root,
         directory: &Directory,
-        label: &str,
-        page: u64,
         report: impl Fn(FolderChanged) + Send + 'static,
     ) -> Result<(), RootError> {
-        let gone = || RootError::Unavailable {
-            folder: directory.root().display().to_string(),
-            message: "the page that opened it has gone".into(),
-        };
         let watched = {
             let state = self.state();
             state.running()?;
-            if !state.current(label, page) {
-                return Err(gone());
-            }
             let opened = state
                 .opened
                 .get(&root)
@@ -308,84 +266,31 @@ impl Roots {
         if !watched {
             // A recursive watch can walk a large tree as it starts: never
             // under the lock. Until installed below, it reports nothing.
-            let listeners = Listeners::default();
-            let heard = listeners.clone();
-            let watch = FolderWatch::start(directory.root(), move |change| {
-                for listener in lock(&heard).values() {
-                    listener(change.clone());
+            let watch = FolderWatch::start(directory.root(), report).map_err(|error| {
+                RootError::Unavailable {
+                    folder: directory.root().display().to_string(),
+                    message: error.to_string(),
                 }
-            })
-            .map_err(|error| RootError::Unavailable {
-                folder: directory.root().display().to_string(),
-                message: error.to_string(),
             })?;
-            candidate = Some((watch, listeners));
+            candidate = Some(watch);
         }
         let mut state = self.state();
         state.running()?;
-        if !state.current(label, page) {
-            drop(state);
-            return Err(gone());
-        }
         let opened = state
             .opened
             .get_mut(&root)
             .filter(|opened| opened.directory == *directory)
             .ok_or(RootError::NotOpen { root })?;
         if opened.watch.is_none() {
-            if let Some((watch, listeners)) = candidate.take() {
+            if let Some(watch) = candidate.take() {
                 watch.activate();
                 opened.watch = Some(watch);
-                opened.listeners = listeners;
             }
         }
-        let previous = lock(&opened.listeners).insert(label.to_string(), Box::new(report));
         drop(state);
-        // A duplicate watch, and the page's previous recipient, go after the lock.
-        drop(previous);
+        // A duplicate watch goes after the lock.
         drop(candidate);
         Ok(())
-    }
-
-    /// A new page started loading in the WebView `label`: the previous
-    /// page's recipients hear nothing more, and its unfinished opens
-    /// install nothing.
-    pub(crate) fn page_started(&self, label: &str) {
-        let listeners = {
-            let mut state = self.state();
-            state.last_page += 1;
-            let page = state.last_page;
-            state.pages.insert(label.to_string(), page);
-            Self::all_listeners(&state)
-        };
-        Self::forget(label, listeners);
-    }
-
-    /// The WebView `label` is gone: its recipients hear nothing more.
-    pub(crate) fn page_gone(&self, label: &str) {
-        let listeners = {
-            let mut state = self.state();
-            state.pages.remove(label);
-            Self::all_listeners(&state)
-        };
-        Self::forget(label, listeners);
-    }
-
-    fn all_listeners(state: &State) -> Vec<Listeners> {
-        state
-            .opened
-            .values()
-            .map(|opened| opened.listeners.clone())
-            .collect()
-    }
-
-    /// Remove `label`'s recipient from each root. Each removal waits for a
-    /// change being reported, so nothing reaches the page once it returns.
-    fn forget(label: &str, listeners: Vec<Listeners>) {
-        for heard in listeners {
-            let removed = lock(&heard).remove(label);
-            drop(removed);
-        }
     }
 
     /// Refuse new opens and commands without waiting for admitted work
@@ -477,8 +382,6 @@ impl<R: Runtime, T: Manager<R>> RootsExt<R> for T {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc;
-    use std::time::Duration;
 
     fn never(_: &Path) -> Option<String> {
         None
@@ -600,74 +503,5 @@ mod tests {
             Err(RootError::Refused { .. })
         ));
         assert_eq!(fs::read_dir(&home).unwrap().count(), 1);
-    }
-
-    #[test]
-    fn a_previous_page_cannot_install_a_recipient_and_a_reload_silences_it() {
-        let (_temp, base) = base();
-        let roots = Roots::default();
-        roots.name(Root::Data, base.join("notes"), never);
-        let directory = roots.open(Root::Data).unwrap();
-        let old = roots.page("main").unwrap();
-        roots.page_started("main");
-        assert!(roots
-            .watch(Root::Data, &directory, "main", old, |_| {})
-            .is_err());
-        let current = roots.page("main").unwrap();
-        let (send, receive) = mpsc::channel();
-        roots
-            .watch(Root::Data, &directory, "main", current, move |change| {
-                let _ = send.send(change);
-            })
-            .unwrap();
-        fs::write(directory.root().join("a.md"), "a").unwrap();
-        receive.recv_timeout(Duration::from_secs(5)).unwrap();
-        roots.page_started("main");
-        while receive.try_recv().is_ok() {}
-        fs::write(directory.root().join("b.md"), "b").unwrap();
-        assert!(receive.recv_timeout(Duration::from_millis(300)).is_err());
-        roots.shutdown();
-        assert_eq!(roots.open(Root::Data), Err(RootError::ShuttingDown));
-        assert_eq!(roots.opened(Root::Data), Err(RootError::ShuttingDown));
-    }
-
-    #[test]
-    fn concurrent_opens_install_only_one_watch_and_each_page_hears_it() {
-        let (_temp, base) = base();
-        let roots = Arc::new(Roots::default());
-        roots.name(Root::Data, base.join("notes"), never);
-        let directory = roots.open(Root::Data).unwrap();
-        let start = Arc::new(std::sync::Barrier::new(4));
-        let (send, receive) = mpsc::channel();
-        let workers: Vec<_> = (0..4)
-            .map(|id| {
-                let (roots, directory, start, send) = (
-                    roots.clone(),
-                    directory.clone(),
-                    start.clone(),
-                    send.clone(),
-                );
-                std::thread::spawn(move || {
-                    let label = format!("window-{id}");
-                    let page = roots.page(&label).unwrap();
-                    start.wait();
-                    roots
-                        .watch(Root::Data, &directory, &label, page, move |_| {
-                            let _ = send.send(id);
-                        })
-                        .unwrap();
-                })
-            })
-            .collect();
-        for worker in workers {
-            worker.join().unwrap();
-        }
-        fs::write(directory.root().join("a.md"), "a").unwrap();
-        let mut heard = std::collections::BTreeSet::new();
-        while heard.len() < 4 {
-            heard.insert(receive.recv_timeout(Duration::from_secs(5)).unwrap());
-        }
-        roots.page_gone("window-0");
-        roots.shutdown();
     }
 }

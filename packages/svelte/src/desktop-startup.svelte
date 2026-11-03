@@ -54,7 +54,7 @@
 	const appData = $derived(await again(attempt, opened));
 	const device = $derived(
 		appData === undefined || appData.error === null
-			? await openDataFolder(contract)
+			? await again(attempt, () => openDataFolder(contract))
 			: null,
 	);
 </script>

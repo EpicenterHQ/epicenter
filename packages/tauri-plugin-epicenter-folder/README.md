@@ -9,7 +9,7 @@ runs no `git`: the folder's history runs in the `epicenter` CLI
 The page opens the folder itself, with `@epicenter/folder`'s engine
 ([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
 It names a root, `Data` or `AppData`, never a path, and holds no absolute
-path but the one `root_path` answers for it to show
+path but the one `open_root` answers for it to show
 ([ADR-0725](../../docs/adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md)).
 
 ## Layout
@@ -58,7 +58,7 @@ Nothing is granted: a capability lets a window call the plugin, and the
 roots are the app's, so every window of the app reaches the same ones.
 
 A shell gives its window the plugin's commands in a capability:
-`{ "windows": ["todos:*"], "permissions": ["epicenter-folder:default"] }`.
+`{ "windows": ["todos:*"], "permissions": ["epicenter-folder:default", "core:event:allow-listen", "core:event:allow-unlisten"] }`.
 It grants no `fs` command and names no folder.
 
 `admission::check_sync_directory`, which Epicenter runs before
@@ -81,8 +81,8 @@ operation.
 
 ## Opening
 
-The page's `@epicenter/folder` adapter calls `open_root(root, onChange)` with
-a private change channel. Whatever is at the root's path is the app's
+The page's `@epicenter/folder` adapter listens for `folder-changed` before it
+calls `open_root(root)`. Whatever is at the root's path is the app's
 ([ADR-0726](../../docs/adr/0726-an-apps-path-is-its-claim.md)):
 
 1. `Disconnected { folder, target }` when the path, or a folder above it,
@@ -98,17 +98,13 @@ A link at the path is followed when the root opens, and the root works in
 the folder it reached until it opens again. Each call looks again, so Retry
 finds a folder that came back. A root the shell did not name is
 `NotNamed`, and after shutdown the answer is `ShuttingDown`. `open_root`
-answers nothing else.
+answers the path the shell named the root at, as a person reads it
+(`/Users/me/Epicenter/whispering`, not where a link there leads). The page
+shows this path; storage commands still take only a root name and relative path.
 
-`root_path(root)` is the one command that answers an absolute path: the
-path the shell named the root at, as a person reads it
-(`/Users/me/Epicenter/whispering`, not where a link there leads), which the
-page shows and no command takes. It opens, reads and makes nothing.
-
-The first open of a root that a page asks to hear starts one recursive
-watcher for it; another open replaces that page's channel and keeps the
-watcher. A page that reloads hears nothing more until it opens again, and an
-open it started before reloading installs nothing. Watch setup failure is
+Opening starts one recursive watch per root. Changes are app events carrying
+`{ root, paths }`, so every page listening for that root hears them. A page
+reloads and drops its JavaScript listener. Watch setup failure is
 `Unavailable`.
 
 A window closes like any other window: nothing waits for its page. A write
@@ -154,7 +150,7 @@ cannot be used, and a `StorageError` (below) when the operation refuses or
 fails; the two never share a `name`. A root whose path, or a folder above
 it, is a link whose target is gone is `Disconnected { folder, target }`,
 whether it never opened (as after a startup that found the drive gone) or
-the drive went away after it did. A root the page has not opened is
+the drive went away after it did. A root the app has not opened is
 `NotOpen`, one the shell did not name `NotNamed`, and any command after
 shutdown `ShuttingDown`. None of them changes anything.
 
@@ -269,7 +265,7 @@ rather than writing through it. A recording, by
 `tauri-plugin-epicenter-recorder`, grows in `.epicenter/recordings` and is
 placed at its path whole
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
-It asks `app.roots().opened(root)` for the folder the page opened,
+It asks `app.roots().opened(Root::Data)` for the folder the app opened,
 checks the path with `page_files::data_path` (the same rule and link check
 as a put), and creates the file with `create_new`. A directory is removed
 only when empty; nothing removes a tree whole. The page writes no Git
@@ -304,25 +300,20 @@ history command. Git's checks live in the CLI's runner,
 ## Changes outside the page
 
 Each open root owns one `notify::RecommendedWatcher` over it, recursively,
-without following symbolic links. It sends typed `FolderChanged` hints to
-the private channel of each page that opened it. Its `paths` are root-relative hints, including
-directory hints that cover descendants; `null` means any path may differ.
-Rename notifications retain both paths when the operating system supplies them.
-Read/open access events and every hidden path (`paths::is_hidden_path`:
-Git's state, `.epicenter`'s unfinished writes) are ignored; close-after-write
-events remain observations. A native rescan, unknown
-scope, or watch error emits `null`; no file is read or hashed by the callback.
+without following symbolic links. It emits a typed `folder-changed` app event
+with `root` and root-relative `paths`. Directory hints cover descendants;
+`null` means any path may differ. Rename notifications retain both paths when
+the operating system supplies them. Read/open access events and hidden paths
+(`paths::is_hidden_path`, including Git state and unfinished writes) are
+ignored. A rescan, unknown scope, or watch error emits `null`; the callback
+reads no file content.
 
-`@epicenter/folder/tauri` opens the native watch with its private channel,
-then constructs and returns its passive Folder. No reader or cached source
-exists before listening, so hints need no startup replay.
-The owner rereads sources held by readers or accepted input. An observation,
-including an echo of an own write, never acknowledges a save or initiates a
-write. A page's channel is dropped when the page reloads or its window is
-destroyed, after any change being reported to it; the watch is released at
-shutdown, outside the roots' mutex. Native setup also runs outside that
-mutex; a candidate remains inactive until installed on the same open root.
-No resource identifier or filesystem permission is exposed to the page.
+`@epicenter/folder/tauri` starts listening before it opens the root. The page
+rereads sources held by readers or accepted input. An observation never
+acknowledges a save or initiates a write. The watch stops at shutdown, outside
+the roots' mutex. Native setup also runs outside that mutex; a candidate
+remains inactive until installed on the same open root. No resource identifier
+or filesystem permission is exposed to the page.
 
 Delivery is best effort. Root replacement recovery is unsupported and platform
 dependent; neither original-inode retention nor reattachment is guaranteed.

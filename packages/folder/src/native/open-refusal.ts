@@ -33,6 +33,8 @@ export function rootRefusal(refusal: unknown) {
 			return OpenDeviceError.StorageUnavailable({
 				cause: `the desktop shell named no ${error.root} root for this app`,
 			});
+		case 'Invalid':
+			return OpenDeviceError.StorageUnavailable({ cause: error.root });
 		case 'NotOpen':
 		case 'ShuttingDown':
 			return OpenDeviceError.StorageUnavailable({ cause: error.name });

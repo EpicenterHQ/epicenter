@@ -19,7 +19,7 @@ export const commands = {
 	/**  Close the meter `id` this window opened, releasing its microphone. */
 	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
 	/**
-	 *  Start recording `<path>.webm` in `root` (`opened_root`), from the
+	 *  Start recording `<path>.webm` in Data (`opened_root`), from the
 	 *  microphone whose id is `device` or the system default; answers the id to
 	 *  stop it by. An ending nobody asked for arrives on `signals`.
 	 *
@@ -31,7 +31,7 @@ export const commands = {
 	 *  Microphone access is asked for before the device is resolved. A refusal
 	 *  opens nothing.
 	 */
-	start: (root: Root, path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<string, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { root, path, device, signals })),
+	start: (path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<string, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { path, device, signals })),
 	/**
 	 *  Stop the recording `id` this window started, finish its file, and place it
 	 *  at its path, never over a file there; answers where it is and how long it
@@ -42,7 +42,7 @@ export const commands = {
 	 */
 	stop: (id: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop", { id })),
 	/**
-	 *  Finish and place every recording under `under` in `root` (`opened_root`)
+	 *  Finish and place every recording under `under` in Data (`opened_root`)
 	 *  that a quit or a crash left in the folder's `.epicenter/recordings`, and
 	 *  answer each one placed (`recovered`), by folder-relative path with how
 	 *  long it plays (`durationMs`, so a page never reads the audio back to
@@ -52,7 +52,7 @@ export const commands = {
 	 *  recording still being written is left alone. Running it again places
 	 *  nothing more.
 	 */
-	recover: (root: Root, under: string) => typedError<Recovery, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { root, under })),
+	recover: (under: string) => typedError<Recovery, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { under })),
 };
 
 /* Types */
@@ -195,19 +195,6 @@ export type Recovery = {
 	 */
 	unplaced: UnplacedRecording[],
 };
-
-/**  A root an app reaches by name. */
-export type Root =
-/**
- *  The person's files: `<library root>/<name>`, which the app's site
- *  names (ADR-0722), such as `~/Epicenter/whispering`.
- */
-"Data" |
-/**
- *  The operating system's application data directory for this app:
- *  machine-local settings, never synced.
- */
-"AppData";
 
 /**
  *  What `stop` answers once the recording is finished and at its path, and

@@ -2,7 +2,6 @@
 /// for each, and a test checks the list against the registered handlers.
 pub const COMMANDS: &[&str] = &[
     "open_root",
-    "root_path",
     "list_folder",
     "read_folder_file",
     "put_folder_file",

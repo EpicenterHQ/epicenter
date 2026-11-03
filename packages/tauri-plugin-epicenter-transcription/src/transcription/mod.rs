@@ -219,7 +219,7 @@ pub fn list_inference_models<R: Runtime>(
 }
 
 /// The audio file at the data path `path` in `root`, checked on arrival:
-/// `root` must be a root the page opened (`open_root`), whose folder is read
+/// `root` must be a root the app opened (`open_root`), whose folder is read
 /// once; the path must pass the folder's path rule with no link on the way,
 /// and a regular file must be there.
 fn audio_file<R: Runtime>(
@@ -257,10 +257,10 @@ fn audio_file<R: Runtime>(
 
 /// Transcribe the audio file at the folder-relative data path `path` (such as
 /// `recordings/20261031T101500123.wav`) in `root`, with the exact catalog
-/// model `model_id`. `root` is a root the page opened through the folder
+/// model `model_id`. `root` is a root the app opened through the folder
 /// plugin (`Root::Data`); one it has not opened is refused.
 ///
-/// A root the page has not opened, a path the folder rule refuses, and a
+/// A root the app has not opened, a path the folder rule refuses, and a
 /// missing file are refused before any model is resolved. An unknown or
 /// uninstalled model is refused before the file is read or decoded. The
 /// active-model setting is neither read nor changed. The blocking job owns its

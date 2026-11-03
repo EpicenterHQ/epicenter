@@ -8,8 +8,8 @@
  * Key behaviors:
  * - A page opens a root by name and holds no path but the one it shows:
  *   `rootOf` answers the root's name, which every storage call names, and
- *   `displayPath` the path `root_path` answered; opening answers none
- * - The data folder is made when missing; a data folder behind a link whose
+ *   `displayPath` the path `open_root` answered
+ * - A data folder behind a link whose
  *   target is gone is `Disconnected`, with words a person reads, and Retry
  *   opens it once it is back; a storage call on it is `Unavailable` with
  *   that `Disconnected` as its cause
@@ -23,7 +23,6 @@ import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
 import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { Root } from './native/bindings.gen.js';
 import {
 	createNamedShell,
 	type NamedShell,
@@ -35,7 +34,22 @@ let inTauri = true;
 /** The AppData root this test's shell named. */
 let appData: string;
 
-type Channel = { onmessage?: (change: { paths: string[] | null }) => void };
+type FolderEvent = { root: 'Data' | 'AppData'; paths: string[] | null };
+const eventListeners = new Set<(event: { payload: FolderEvent }) => void>();
+function emit(payload: FolderEvent) {
+	for (const listener of eventListeners) listener({ payload });
+}
+mock.module('@tauri-apps/api/event', () => ({
+	listen: async (
+		_event: string,
+		listener: (event: { payload: FolderEvent }) => void,
+	) => {
+		eventListeners.add(listener);
+		return () => {
+			eventListeners.delete(listener);
+		};
+	},
+}));
 
 mock.module('@tauri-apps/api/core', () => ({
 	Channel: class {},
@@ -45,7 +59,11 @@ mock.module('@tauri-apps/api/core', () => ({
 		cmd: string,
 		body?: Record<string, unknown> | Uint8Array,
 		options?: { headers?: Record<string, string> },
-	) => shell.invoke(cmd, body, options),
+	) => {
+		if (cmd.endsWith('|open_root'))
+			expect(eventListeners.size).toBeGreaterThan(0);
+		return shell.invoke(cmd, body, options);
+	},
 }));
 
 const { displayPath, openAppData, openDataFolder, openDevice, rootOf } =
@@ -78,19 +96,13 @@ beforeEach(async () => {
 		AppData: appData,
 	});
 	inTauri = true;
+	eventListeners.clear();
 });
 
 afterEach(async () => {
 	await rm(shell.root, { recursive: true, force: true });
 	await rm(appData, { recursive: true, force: true });
 });
-
-/** The latest channel the shell was handed for `root`. */
-function channel(root: Root): Channel {
-	const found = shell.opened.findLast((open) => open.root === root);
-	if (found === undefined) throw new Error(`nothing opened ${root}`);
-	return found.onChange as Channel;
-}
 
 test('the data folder opens by name, and a create lands there in house style', async () => {
 	const device = unwrap(await openDataFolder(notes));
@@ -110,18 +122,11 @@ test('the page names roots, never paths, and shows the path the shell answered',
 	const device = unwrap(await openDataFolder(notes));
 	expect(rootOf(device)).toBe('Data');
 	expect(displayPath(device)).toBe(shell.root);
-	// The path comes from the display-only command; opening answers nothing.
-	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['open_root', 'root_path']);
+	// The path comes from the open command.
+	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['open_root']);
 	expectOk(await device.notes.create({ id: 'a', title: 'Here' }));
 	expect(shell.calls.every(({ args }) => args.root === 'Data')).toBe(true);
 	expect(() => rootOf({} as typeof device)).toThrow();
-});
-
-test('the data folder is made when nothing is at its path', async () => {
-	await rm(shell.root, { recursive: true, force: true });
-	const device = unwrap(await openDataFolder(notes));
-	expectOk(await device.notes.create({ id: 'a', title: 'Made' }));
-	expect(await shell.text('notes/a.md')).toContain('title: Made');
 });
 
 test('AppData opens an app-owned settings contract beside the data folder', async () => {
@@ -285,16 +290,14 @@ test("the shell's watcher reaches a collection's listeners", async () => {
 	const device = unwrap(await openDataFolder(notes));
 	let heard = 0;
 	const stop = device.notes.subscribe(() => heard++);
-	const watcher = channel('Data');
-	if (watcher.onmessage === undefined) throw new Error('no watcher was opened');
-	watcher.onmessage({ paths: ['notes/a.md'] });
+	emit({ root: 'Data', paths: ['notes/a.md'] });
 	expect(heard).toBe(1);
-	watcher.onmessage({ paths: ['elsewhere/x.md'] });
+	emit({ root: 'Data', paths: ['elsewhere/x.md'] });
 	expect(heard).toBe(1);
-	watcher.onmessage({ paths: null });
+	emit({ root: 'Data', paths: null });
 	expect(heard).toBe(2);
 	stop();
-	watcher.onmessage({ paths: ['notes/a.md'] });
+	emit({ root: 'Data', paths: ['notes/a.md'] });
 	expect(heard).toBe(2);
 });
 
@@ -305,10 +308,24 @@ test('each root hears only its own watcher', async () => {
 	let heardSettings = 0;
 	const stop = own.notes.subscribe(() => heard++);
 	const stopSettings = settings.settings.subscribe(() => heardSettings++);
-	channel('AppData').onmessage?.({ paths: ['settings.md'] });
+	emit({ root: 'AppData', paths: ['settings.md'] });
 	expect([heard, heardSettings]).toEqual([0, 1]);
-	channel('Data').onmessage?.({ paths: null });
+	emit({ root: 'Data', paths: null });
 	expect([heard, heardSettings]).toEqual([1, 1]);
 	stop();
 	stopSettings();
+});
+
+test('two concurrent opens both hear a later root change', async () => {
+	const [first, second] = await Promise.all([
+		openDataFolder(notes),
+		openDataFolder(notes),
+	]);
+	const heard = { first: 0, second: 0 };
+	const stopFirst = unwrap(first).notes.subscribe(() => heard.first++);
+	const stopSecond = unwrap(second).notes.subscribe(() => heard.second++);
+	emit({ root: 'Data', paths: ['notes/a.md'] });
+	expect(heard).toEqual({ first: 1, second: 1 });
+	stopFirst();
+	stopSecond();
 });

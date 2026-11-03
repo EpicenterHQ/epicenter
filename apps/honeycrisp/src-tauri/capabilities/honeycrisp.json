@@ -5,6 +5,8 @@
 	"local": true,
 	"windows": ["honeycrisp:*"],
 	"permissions": [
-		"epicenter-folder:default"
+		"epicenter-folder:default",
+		"core:event:allow-listen",
+		"core:event:allow-unlisten"
 	]
 }

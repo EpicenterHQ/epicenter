@@ -6,6 +6,8 @@
 	"windows": ["vocab:*"],
 	"permissions": [
 		"epicenter-folder:default",
+		"core:event:allow-listen",
+		"core:event:allow-unlisten",
 		"allow-account-state",
 		"allow-account-sign-in",
 		"allow-account-sign-out",

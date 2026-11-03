@@ -9,7 +9,7 @@
 //! Key behaviors:
 //! - The generated TypeScript bindings match the registered commands.
 //! - A page reaches a root by name, once it opened it, and holds no
-//!   absolute path but the one `root_path` gives it to show. A root the
+//!   absolute path but the one `open_root` gives it to show. A root the
 //!   shell did not name, or a name that is not a root, reaches nothing.
 //! - Opening makes a missing folder, follows a link at the root, and makes
 //!   nothing behind a link whose target is gone; every storage command on
@@ -24,8 +24,6 @@
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
 //!   fallback, is accepted too. A file read returns its bytes raw. A
 //!   refusal is a `StorageError`.
-//! - Opening adds nothing to the app's access control, so an app that
-//!   already scopes another permission opens and reads as any other does.
 //! - After shutdown, a late change and a late open are refused.
 //! - A window without the plugin's permission cannot call it.
 
@@ -33,58 +31,37 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 use tauri::http::{HeaderMap, HeaderValue};
-use tauri::ipc::{CallbackFn, Channel, InvokeBody, InvokeResponseBody, RuntimeAuthority};
+use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
-use tauri::utils::acl::capability::Capability;
-use tauri::utils::acl::manifest::Manifest;
-use tauri::utils::acl::resolved::Resolved;
 use tauri::utils::acl::ExecutionContext;
-use tauri::utils::platform::Target;
 use tauri::webview::InvokeRequest;
-use tauri::{App, WebviewWindow, WebviewWindowBuilder};
+use tauri::{App, Listener, WebviewWindow, WebviewWindowBuilder};
 
-use crate::{init, FolderChanged, Root, RootsExt, COMMANDS};
+use crate::{init, FolderEvent, Root, RootsExt, COMMANDS};
 
-/// A channel that hands each change it hears to `send`, as a page's does.
-fn heard(send: std::sync::mpsc::Sender<FolderChanged>) -> Channel<FolderChanged> {
-    Channel::new(move |body: InvokeResponseBody| {
-        if let InvokeResponseBody::Json(json) = body {
-            if let Ok(change) = serde_json::from_str::<FolderChanged>(&json) {
+/// Subscribe before opening the root, as a page does.
+fn heard(app: &App<MockRuntime>, root: Root, send: std::sync::mpsc::Sender<FolderEvent>) {
+    app.listen_any("folder-changed", move |event| {
+        if let Ok(change) = serde_json::from_str::<FolderEvent>(event.payload()) {
+            if change.root == root {
                 let _ = send.send(change);
             }
         }
-        Ok(())
-    })
+    });
 }
 
-/// `open_root` from `window`'s page, hearing changes on `channel`.
-fn open_with(
-    window: &WebviewWindow<MockRuntime>,
-    root: Root,
-    channel: Channel<FolderChanged>,
-) -> Result<(), Value> {
+fn open_root(window: &WebviewWindow<MockRuntime>, root: Root) -> Result<String, Value> {
     let webview: tauri::Webview<MockRuntime> = window.as_ref().clone();
-    tauri::async_runtime::block_on(crate::commands::open_root(webview, root, channel))
+    tauri::async_runtime::block_on(crate::commands::open_root(webview, root))
         .map_err(|error| serde_json::to_value(error).unwrap())
 }
 
-/// `open_root` of `root`, its changes heard by nobody.
-fn open_root(window: &WebviewWindow<MockRuntime>, root: Root) -> Result<(), Value> {
-    open_with(window, root, Channel::new(|_: InvokeResponseBody| Ok(())))
-}
-
-/// `open_root` of the data root, as a page opens it.
-fn open(window: &WebviewWindow<MockRuntime>) -> Result<(), Value> {
+fn open(window: &WebviewWindow<MockRuntime>) -> Result<String, Value> {
     open_root(window, Root::Data)
 }
 
-/// `root_path` of `root`, the one absolute path a page holds, to show.
-fn root_path(window: &WebviewWindow<MockRuntime>, root: &str) -> Result<Value, Value> {
-    invoke(window, "root_path", json!({ "root": root }))
-}
-
 /// Wait for a change that may name `path`.
-fn wait_for(receive: &std::sync::mpsc::Receiver<FolderChanged>, path: &str) {
+fn wait_for(receive: &std::sync::mpsc::Receiver<FolderEvent>, path: &str) {
     let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let notice = receive
@@ -102,31 +79,9 @@ fn wait_for(receive: &std::sync::mpsc::Receiver<FolderChanged>, path: &str) {
 
 /// A page's changes come through the channel it opened the root with, and
 /// a reloaded page's new channel replaces its old one.
-#[test]
-fn observations_use_only_the_callers_latest_channel() {
-    use std::sync::mpsc;
-
-    let fixture = fixture("caller-channel");
-    let main = fixture.window("main");
-    let (send, receive) = mpsc::channel();
-    open_with(&main, Root::Data, heard(send)).unwrap();
-    std::fs::write(fixture.root.join("change.md"), b"changed").unwrap();
-    wait_for(&receive, "change.md");
-    while receive.try_recv().is_ok() {}
-    // A page that reloads opens again, and its new channel is the one heard.
-    fixture.app.roots().page_started("main");
-    let (next_send, next_receive) = mpsc::channel();
-    open_with(&main, Root::Data, heard(next_send)).unwrap();
-    std::fs::write(fixture.root.join("after-reload.md"), b"changed").unwrap();
-    wait_for(&next_receive, "after-reload.md");
-    assert!(receive.try_iter().all(|change| change
-        .paths
-        .is_none_or(|paths| !paths.contains(&"after-reload.md".to_string()))));
-}
-
 /// Real notify delivery through each root's watch: a change in one root is
 /// not heard from the other. No file content or absolute path crosses the
-/// channel.
+/// event.
 #[test]
 fn external_writes_and_atomic_replacements_reach_only_their_roots_listeners() {
     use std::sync::mpsc;
@@ -135,8 +90,10 @@ fn external_writes_and_atomic_replacements_reach_only_their_roots_listeners() {
     let main = fixture.window("main");
     let (send, receive) = mpsc::channel();
     let (settings_send, settings_receive) = mpsc::channel();
-    open_with(&main, Root::Data, heard(send)).unwrap();
-    open_with(&main, Root::AppData, heard(settings_send)).unwrap();
+    heard(&fixture.app, Root::Data, send);
+    heard(&fixture.app, Root::AppData, settings_send);
+    open_root(&main, Root::Data).unwrap();
+    open_root(&main, Root::AppData).unwrap();
 
     std::fs::create_dir(fixture.root.join("notes")).unwrap();
     std::fs::write(fixture.root.join("notes/a.md"), b"external").unwrap();
@@ -156,7 +113,7 @@ fn external_writes_and_atomic_replacements_reach_only_their_roots_listeners() {
     fixture.app.roots().shutdown();
 }
 
-/// A page names a root, and `root_path` alone answers the path the shell
+/// A page names a root, and `open_root` answers the path the shell
 /// named it at, to show; each root holds its own files.
 #[test]
 fn a_page_reaches_each_root_by_name_and_each_holds_its_own_files() {
@@ -164,10 +121,13 @@ fn a_page_reaches_each_root_by_name_and_each_holds_its_own_files() {
     let main = fixture.window("main");
     open_root(&main, Root::Data).unwrap();
     open_root(&main, Root::AppData).unwrap();
-    assert_eq!(root_path(&main, "Data").unwrap(), json!(fixture.root));
     assert_eq!(
-        root_path(&main, "AppData").unwrap(),
-        json!(fixture.app_data)
+        open_root(&main, Root::Data).unwrap(),
+        fixture.root.display().to_string()
+    );
+    assert_eq!(
+        open_root(&main, Root::AppData).unwrap(),
+        fixture.app_data.display().to_string()
     );
     std::fs::write(fixture.root.join("a.md"), b"data").unwrap();
     std::fs::write(fixture.app_data.join("a.md"), b"settings").unwrap();
@@ -209,9 +169,9 @@ fn a_page_reaches_each_root_by_name_and_each_holds_its_own_files() {
         headers,
     )
     .unwrap_err();
-    assert!(
-        text(&refused["message"]).contains("not a root"),
-        "{refused}"
+    assert_eq!(
+        refused,
+        json!({ "name": "Invalid", "root": fixture.root.display().to_string() })
     );
 }
 
@@ -230,10 +190,8 @@ fn a_root_is_made_when_missing_and_reached_only_once_opened() {
     );
     assert_eq!(read_file(&main, "a.md").unwrap_err(), not_open);
     assert_eq!(put(&main, "a.md", Some(b"a"), None).unwrap_err(), not_open);
-    // The path to show is answered all the same, and makes nothing.
-    assert_eq!(root_path(&main, "Data").unwrap(), json!(fixture.root));
     assert!(!fixture.root.exists());
-    open(&main).unwrap();
+    assert_eq!(open(&main).unwrap(), fixture.root.display().to_string());
     assert!(fixture.root.is_dir());
     assert_eq!(
         put(&main, "todos/a.md", Some(b"a"), None).unwrap(),
@@ -252,7 +210,7 @@ fn a_root_the_shell_did_not_name_is_refused() {
     let main = window(&app, "main");
     let not_named = json!({ "name": "NotNamed", "root": "Data" });
     assert_eq!(open(&main).unwrap_err(), not_named);
-    assert_eq!(root_path(&main, "Data").unwrap_err(), not_named);
+    assert_eq!(open_root(&main, Root::Data).unwrap_err(), not_named);
     assert_eq!(
         invoke(&main, "list_folder", json!({ "root": "Data" })).unwrap_err(),
         not_named
@@ -281,7 +239,10 @@ fn a_link_at_the_root_is_followed_and_a_dangling_one_makes_nothing() {
     assert!(!drive.exists());
     std::fs::create_dir(&drive).unwrap();
     open(&main).unwrap();
-    assert_eq!(root_path(&main, "Data").unwrap(), json!(fixture.root));
+    assert_eq!(
+        open_root(&main, Root::Data).unwrap(),
+        fixture.root.display().to_string()
+    );
     assert_eq!(put(&main, "a.md", Some(b"there"), None).unwrap(), "landed");
     assert_eq!(std::fs::read(drive.join("a.md")).unwrap(), b"there");
     assert_eq!(read_file(&main, "a.md").unwrap(), b"there");
@@ -351,22 +312,30 @@ fn storage_behind_a_dangling_link_is_disconnected_and_makes_nothing() {
 fn epicenter_is_asked_only_about_an_open_root() {
     let fixture = fixture("synced");
     let main = fixture.window("main");
+    open_root(&main, Root::AppData).unwrap();
     assert_eq!(
-        invoke(&main, "synced_with_epicenter", json!({ "root": "Data" })).unwrap_err(),
+        invoke(&main, "synced_with_epicenter", json!({})).unwrap_err(),
+        json!({ "name": "Folder", "message": "The Data folder is not open." })
+    );
+    assert_eq!(
+        invoke(
+            &main,
+            "sync_with_epicenter",
+            json!({ "contract": "https://capture.epicenter.so/contract.json" })
+        )
+        .unwrap_err(),
         json!({ "name": "Folder", "message": "The Data folder is not open." })
     );
     open(&main).unwrap();
     assert_eq!(
-        invoke(&main, "synced_with_epicenter", json!({ "root": "Data" })).unwrap(),
+        invoke(&main, "synced_with_epicenter", json!({})).unwrap(),
         json!(false)
     );
-    let refused = invoke(
-        &main,
-        "synced_with_epicenter",
-        json!({ "root": fixture.root }),
-    )
-    .unwrap_err();
-    assert!(text(&refused).contains("root"), "{refused}");
+    open_root(&main, Root::AppData).unwrap();
+    assert_eq!(
+        invoke(&main, "synced_with_epicenter", json!({})).unwrap(),
+        json!(false)
+    );
 }
 
 /// A note the folder made, never edited, then deleted by another program is
@@ -380,8 +349,9 @@ fn a_note_the_folder_made_and_another_program_deletes_is_reported_gone() {
     let fixture = fixture("made-then-deleted");
     let main = fixture.window("main");
     let (send, receive) = mpsc::channel();
-    open_with(&main, Root::Data, heard(send)).unwrap();
-    let names_made = |change: &crate::FolderChanged| {
+    heard(&fixture.app, Root::Data, send);
+    open_root(&main, Root::Data).unwrap();
+    let names_made = |change: &crate::FolderEvent| {
         change
             .paths
             .as_ref()
@@ -869,7 +839,11 @@ fn a_put_takes_its_bytes_raw_and_its_path_percent_encoded() {
             headers,
         )
         .unwrap_err();
-        assert!(text(&missing["message"]).contains(header), "{missing}");
+        if header == "root" {
+            assert_eq!(missing, json!({ "name": "Invalid", "root": "" }));
+        } else {
+            assert!(text(&missing["message"]).contains(header), "{missing}");
+        }
     }
     assert!(!fixture.root.join("refused.bin").exists());
     assert_eq!(staged(&fixture), Vec::<String>::new());
@@ -1039,57 +1013,6 @@ fn a_folder_with_a_git_file_or_link_opens_and_saves() {
         assert_eq!(staged(&linked), Vec::<String>::new());
         linked.app.roots().shutdown();
     }
-}
-
-/// Before Tauri 2.12 a capability added at run time numbered its scopes from
-/// zero, so a grant that added one collided with a scope the app already
-/// had. Opening adds nothing to the app's access control: here the app
-/// scopes a permission of another plugin, and opening and reading work as
-/// they do in any app.
-#[test]
-fn opening_in_an_app_that_already_scopes_a_permission_still_reads() {
-    let mut context = mock_context(noop_assets());
-    let permission = serde_json::from_value(json!({
-        "identifier": "allow-fetch",
-        "commands": { "allow": ["fetch"] },
-    }))
-    .unwrap();
-    let http = Manifest {
-        default_permission: None,
-        permissions: [("allow-fetch".to_string(), permission)].into(),
-        permission_sets: Default::default(),
-        global_scope_schema: None,
-    };
-    let acl = [("http".to_string(), http)].into();
-    let capability: Capability = serde_json::from_value(json!({
-        "identifier": "main",
-        "windows": ["main"],
-        "permissions": [
-            { "identifier": "http:allow-fetch", "allow": [{ "url": "https://example.com/*" }] },
-        ],
-    }))
-    .unwrap();
-    let resolved = Resolved::resolve(
-        &acl,
-        [("main".to_string(), capability)].into(),
-        Target::current(),
-    )
-    .unwrap();
-    assert!(
-        !resolved.command_scope.is_empty(),
-        "the app scopes a permission"
-    );
-    *context.runtime_authority_mut() = RuntimeAuthority::new(acl, resolved);
-    allow_plugin(&mut context);
-    let fixture = fixture_in("scoped-app", context);
-    let main = fixture.window("main");
-    open(&main).unwrap();
-    std::fs::write(fixture.root.join("a.md"), b"read").unwrap();
-    assert_eq!(read_file(&main, "a.md").unwrap(), b"read");
-    assert_eq!(
-        invoke(&main, "list_folder", json!({ "root": "Data" })).unwrap()[0]["path"],
-        "a.md"
-    );
 }
 
 #[test]

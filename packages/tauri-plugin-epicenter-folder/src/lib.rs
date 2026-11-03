@@ -16,7 +16,7 @@
 //! ```
 //!
 //! A page names a root, never a path, and holds no absolute path but the
-//! one `root_path` answers for it to show. Opening a root opens whatever is
+//! one `open_root` answers for it to show. Opening a root opens whatever is
 //! at its path, following a link there, and makes the folder when nothing is
 //! there (ADR-0726). The page runs `@epicenter/folder`'s engine over the
 //! root, whose storage is this plugin's commands, one per storage method
@@ -31,11 +31,11 @@
 //! `Roots::shutdown` refuses new work without waiting for work already
 //! running (ADR-0542).
 //!
-//! Each open root owns one recursive native watch. A page's private channel
-//! tells it which paths may differ; the page owns reading those paths.
+//! Each open root owns one recursive native watch. Its app event tells pages
+//! which paths may differ; each page owns reading those paths.
 
 use tauri::plugin::TauriPlugin;
-use tauri::{Manager, RunEvent, Runtime, WindowEvent};
+use tauri::{Manager, RunEvent, Runtime};
 
 pub use epicenter_folder_core::admission;
 pub use epicenter_folder_core::directory::{Directory, DirectoryError};
@@ -50,7 +50,7 @@ mod watch;
 pub use command_names::COMMANDS;
 pub use commands::FolderError;
 pub use roots::{Root, RootError, Roots, RootsExt};
-pub use watch::FolderChanged;
+pub use watch::{FolderChanged, FolderEvent};
 
 const PLUGIN_NAME: &str = "epicenter-folder";
 
@@ -65,12 +65,12 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
         .plugin_name(PLUGIN_NAME)
         .commands(tauri_specta::collect_commands![
             commands::open_root::<tauri::Wry>,
-            commands::root_path::<tauri::Wry>,
             commands::list_folder::<tauri::Wry>,
             epicenter::sync_with_epicenter::<tauri::Wry>,
             epicenter::synced_with_epicenter::<tauri::Wry>,
         ])
         .typ::<PutOutcome>()
+        .typ::<FolderEvent>()
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
 
@@ -95,18 +95,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             app.manage(Roots::default());
             Ok(())
         })
-        .on_page_load(|webview, payload| {
-            if payload.event() == tauri::webview::PageLoadEvent::Started {
-                webview.app_handle().roots().page_started(webview.label());
-            }
-        })
         .on_event(|app, event| match event {
-            // A destroyed window's page hears nothing more.
-            RunEvent::WindowEvent {
-                label,
-                event: WindowEvent::Destroyed,
-                ..
-            } => app.roots().page_gone(label),
             RunEvent::Exit => app.roots().shutdown(),
             _ => {}
         })

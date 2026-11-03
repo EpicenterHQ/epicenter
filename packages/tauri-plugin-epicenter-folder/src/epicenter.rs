@@ -1,10 +1,10 @@
 //! How an app's folder reaches Epicenter (decisions 81 and 82): the page asks
 //! the shell to open `epicenter://init?path=<folder>&contract=<url>`, naming
-//! a root it opened (`Root::Data`), which the shell writes out as the path
+//! the open Data root, which the shell writes out as the path
 //! it named the root at, and the URL its contract is published at.
 //! Epicenter, if installed, asks the person where to sync it and runs
 //! `epicenter init`. The page can also ask whether Epicenter already syncs a
-//! root it opened, which reads the folder's Git configuration and changes
+//! Data, which reads the folder's Git configuration and changes
 //! nothing.
 
 use std::fmt;
@@ -43,17 +43,16 @@ impl fmt::Display for SyncRequestError {
 }
 
 /// Ask the operating system to open Epicenter with a request to sync the
-/// folder of `root`, a root the page opened, under `contract`, the URL its
+/// Data folder, after the app opened it, under `contract`, the URL its
 /// contract is published at. Answers once the system took the request;
 /// whether Epicenter sets the folder up is the person's choice there.
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_with_epicenter<R: Runtime>(
     webview: Webview<R>,
-    root: Root,
     contract: String,
 ) -> Result<(), SyncRequestError> {
-    let (_, path) = named(&webview, root).map_err(|refusal| SyncRequestError::Folder {
+    let (_, path) = named(&webview, Root::Data).map_err(|refusal| SyncRequestError::Folder {
         message: refusal.to_string(),
     })?;
     let link = init_link(&path, &contract)?;
@@ -62,17 +61,17 @@ pub async fn sync_with_epicenter<R: Runtime>(
     })
 }
 
-/// Whether Epicenter syncs the folder of `root`, a root the page opened
+/// Whether Epicenter syncs the open Data folder
 /// (`synced`).
 #[tauri::command]
 #[specta::specta]
 pub async fn synced_with_epicenter<R: Runtime>(
     webview: Webview<R>,
-    root: Root,
 ) -> Result<bool, SyncRequestError> {
-    let (directory, _) = named(&webview, root).map_err(|refusal| SyncRequestError::Folder {
-        message: refusal.to_string(),
-    })?;
+    let (directory, _) =
+        named(&webview, Root::Data).map_err(|refusal| SyncRequestError::Folder {
+            message: refusal.to_string(),
+        })?;
     Ok(
         tauri::async_runtime::spawn_blocking(move || synced(directory.root()))
             .await

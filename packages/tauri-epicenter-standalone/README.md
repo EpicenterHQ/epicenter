@@ -37,17 +37,14 @@ label is `dev` keeps it. A configuration that states something else, or a
 development identifier without `.dev`, fails startup
 (`StartupError::Environment`, `StartupError::Identity`).
 
-Startup attempts the data root before the window exists. Whatever is at its
-path is the app's
+Startup names both roots before the window opens. The page then opens Data
+off the window thread. Whatever is at its path is the app's
 ([ADR-0726](../../docs/adr/0726-an-apps-path-is-its-claim.md)): the folder is
-made when nothing is there, and a link there is followed. A link whose
-target is gone makes nothing and answers `Disconnected`, as a data root
-that resolves to the person's home folder, a folder holding it, or the
-library root itself answers `Refused` (`refusal`, the one refusal). The
-window still opens. The page opens the root again for its watch, and a
-failure shows Recovery with Retry; until the root opens, every storage
-command on it answers the same `Disconnected`. The page asks `root_path`
-for the path it shows.
+made when nothing is there, and a link there is followed. A link whose target
+is gone makes nothing and answers `Disconnected`. A data root that resolves to
+the person's home folder, a folder holding it, or the library root itself
+answers `Refused` (`refusal`, the one refusal). The page shows either failure
+in Recovery with Retry. `open_root` also answers the named path the page shows.
 
 ## Window and Quit
 

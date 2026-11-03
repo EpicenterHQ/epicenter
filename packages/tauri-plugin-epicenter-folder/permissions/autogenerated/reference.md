@@ -5,7 +5,6 @@ Open the roots the shell named (Data and AppData), show the path the shell named
 #### This default permission set includes the following:
 
 - `allow-open-root`
-- `allow-root-path`
 - `allow-list-folder`
 - `allow-read-folder-file`
 - `allow-put-folder-file`
@@ -121,32 +120,6 @@ Enables the read_folder_file command without any pre-configured scope.
 <td>
 
 Denies the read_folder_file command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:allow-root-path`
-
-</td>
-<td>
-
-Enables the root_path command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-root-path`
-
-</td>
-<td>
-
-Denies the root_path command without any pre-configured scope.
 
 </td>
 </tr>

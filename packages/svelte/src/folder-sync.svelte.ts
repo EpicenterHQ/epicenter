@@ -7,7 +7,6 @@ import type { Client, Contract } from '@epicenter/definition/contract';
 import {
 	displayPath,
 	type FolderRequest,
-	rootOf,
 	syncedWithEpicenter,
 	syncWithEpicenter,
 } from '@epicenter/folder/tauri';
@@ -26,7 +25,6 @@ export function folderSync({
 	device: Client<Contract>;
 	contract: string;
 }) {
-	const root = rootOf(device);
 	const path = displayPath(device);
 	let managed = $state(false);
 	let request = $state<{ tone: 'requested' | 'failed'; message: string }>();
@@ -34,7 +32,7 @@ export function folderSync({
 
 	/** Ask the shell again; the native predicate reads Epicenter enrollment. */
 	async function check() {
-		const { data } = await syncedWithEpicenter({ root });
+		const { data } = await syncedWithEpicenter();
 		managed = data === true;
 	}
 
@@ -70,7 +68,7 @@ export function folderSync({
 		},
 		requestSetup() {
 			void ask(async () => {
-				const { error } = await syncWithEpicenter({ root, contract });
+				const { error } = await syncWithEpicenter({ contract });
 				return error === null
 					? { ok: true }
 					: { ok: false, message: error.message };

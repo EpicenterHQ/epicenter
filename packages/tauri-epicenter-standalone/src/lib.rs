@@ -14,10 +14,10 @@
 //! production one with `.dev` appended. Only the data root is ever synced
 //! (by Epicenter).
 //!
-//! Startup names both roots, opens the data root, making the folder when
-//! nothing is at its path and following a link there (ADR-0726), and only
-//! then opens the window; nothing is granted or stored. If the data root
-//! cannot open, the window still opens so its recovery screen can show the
+//! Startup names both roots, then opens the window. The page opens the data
+//! root off the window thread, making the folder when nothing is at its path
+//! and following a link there (ADR-0726). If the data root cannot open,
+//! its recovery screen shows the
 //! typed error and Retry. The one refusal is
 //! a data root whose location is the person's home folder, a folder holding
 //! it, or the library root itself (`refusal`). A startup that fails says why
@@ -87,7 +87,7 @@ impl fmt::Display for StartupError {
 impl std::error::Error for StartupError {}
 
 /// Builder with the folder plugin, the dialog plugin (for a startup failure),
-/// and setup that names the app's roots, opens its data folder, and opens its
+/// and setup that names the app's roots and opens its
 /// window. Add app-specific plugins and commands, then call
 /// `.run(tauri::generate_context!())`.
 pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
@@ -104,8 +104,7 @@ pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
         })
 }
 
-/// Start the app under the person's home folder: name its roots, open its
-/// data folder, then open its window.
+/// Start the app under the person's home folder: name its roots, then open its window.
 pub fn start<R: Runtime>(
     handle: &AppHandle<R>,
     app: StandaloneApp,
@@ -124,9 +123,6 @@ fn start_in<R: Runtime>(
     app_data: PathBuf,
 ) -> Result<WebviewWindow<R>, StartupError> {
     name_roots(handle, home, app_data)?;
-    // The page opens Data again to attach its change channel. If this first
-    // attempt fails, that open returns the typed error to Recovery and Retry.
-    let _ = handle.roots().open(Root::Data);
     open_window(handle, app)
 }
 
@@ -324,18 +320,9 @@ mod tests {
         .map(|body| body.deserialize::<Value>().expect("a JSON response"))
     }
 
-    /// `open_root`, then `root_path`, as `openDataFolder` and `openAppData`
-    /// ask for them: the path to show, or why the root did not open.
+    /// `open_root` as `openDataFolder` and `openAppData` ask for it.
     fn open(window: &WebviewWindow<MockRuntime>, root: &str) -> Result<Value, Value> {
-        assert_eq!(
-            call(
-                window,
-                "open_root",
-                json!({ "root": root, "onChange": "__CHANNEL__:1" }),
-            )?,
-            Value::Null
-        );
-        call(window, "root_path", json!({ "root": root }))
+        call(window, "open_root", json!({ "root": root }))
     }
 
     /// The files a page lists in `root`, or the plugin's refusal.
@@ -350,18 +337,18 @@ mod tests {
         })
     }
 
-    /// Startup makes the data folder before the window exists; the page then
-    /// opens both roots by name and is shown the path the shell derived.
+    /// Startup names roots without touching disk; the page opens them after the window.
     /// AppData is made when the page first opens it.
     #[test]
-    fn startup_makes_the_data_folder_before_the_window() {
+    fn the_page_makes_the_data_folder_after_the_window_opens() {
         let fixture = fixture();
         assert!(!fixture.data.exists());
         let window = fixture.start().unwrap();
         assert_eq!(window.label(), "notes:main");
-        assert!(fixture.data.is_dir());
+        assert!(!fixture.data.exists());
         assert!(!fixture.config.exists());
         assert_eq!(open(&window, "Data").unwrap(), json!(fixture.data));
+        assert!(fixture.data.is_dir());
         assert_eq!(open(&window, "AppData").unwrap(), json!(fixture.config));
         fs::write(fixture.data.join("a.md"), "---\n---\n").unwrap();
         fs::write(fixture.config.join("settings.md"), "---\n---\n").unwrap();
@@ -379,12 +366,13 @@ mod tests {
             Some(json!({ "environment": "development" })),
         );
         let window = fixture.start().unwrap();
-        assert!(fixture.home.join("Epicenter Dev/notes").is_dir());
+        assert!(!fixture.home.join("Epicenter Dev/notes").exists());
         assert!(!fixture.home.join("Epicenter").exists());
         assert_eq!(
             open(&window, "Data").unwrap(),
             json!(fixture.home.join("Epicenter Dev/notes"))
         );
+        assert!(fixture.home.join("Epicenter Dev/notes").is_dir());
     }
 
     /// A configuration whose environment and identifier disagree, or whose

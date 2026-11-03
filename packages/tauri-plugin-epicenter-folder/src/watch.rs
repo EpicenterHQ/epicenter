@@ -9,6 +9,15 @@ use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watche
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::Root;
+
+/// One opened root's changed paths, delivered as `folder-changed`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct FolderEvent {
+    pub root: Root,
+    pub paths: Option<Vec<String>>,
+}
+
 /// Paths whose stored content may differ, or any path when scope is unknown.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct FolderChanged {
@@ -60,8 +69,8 @@ impl FolderWatch {
 impl Drop for FolderWatch {
     fn drop(&mut self) {
         // Wait for an emitting callback, then fence later emissions before the
-        // native watcher drops. Drop outside `Roots`' lock: reporting may call
-        // listeners, and notify's macOS destructor joins its watcher thread.
+        // native watcher drops. Drop outside `Roots`' lock: reporting may emit
+        // an app event, and notify's macOS destructor joins its watcher thread.
         *self
             .active
             .lock()

@@ -343,18 +343,6 @@
           "markdownDescription": "Denies the read_folder_file command without any pre-configured scope."
         },
         {
-          "description": "Enables the root_path command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-root-path",
-          "markdownDescription": "Enables the root_path command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the root_path command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-root-path",
-          "markdownDescription": "Denies the root_path command without any pre-configured scope."
-        },
-        {
           "description": "Enables the sync_with_epicenter command without any pre-configured scope.",
           "type": "string",
           "const": "allow-sync-with-epicenter",
@@ -379,10 +367,10 @@
           "markdownDescription": "Denies the synced_with_epicenter command without any pre-configured scope."
         },
         {
-          "description": "Open the roots the shell named (Data and AppData), show the path the shell named each at, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-root-path`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`",
+          "description": "Open the roots the shell named (Data and AppData), show the path the shell named each at, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Open the roots the shell named (Data and AppData), show the path the shell named each at, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-root-path`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`"
+          "markdownDescription": "Open the roots the shell named (Data and AppData), show the path the shell named each at, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`"
         }
       ]
     }

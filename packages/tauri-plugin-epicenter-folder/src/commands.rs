@@ -3,8 +3,8 @@
 //!
 //! A page names a root (`Root::Data` or `Root::AppData`) and a relative path
 //! in it, never an absolute path; the shared path rule keeps the path inside
-//! the root. Only `root_path` answers an absolute path, for the page to show.
-//! A storage command works in the folder its root reached when the page
+//! the root. `open_root` answers its display path for the page to show.
+//! A storage command works in the folder its root reached when the app
 //! opened it (`Roots::opened`), cloned when the command is admitted, so
 //! nothing that happens meanwhile redirects it. A root it cannot use is a
 //! `RootError` (`Disconnected` for a link whose target is gone), and a
@@ -18,10 +18,9 @@ use std::path::PathBuf;
 use epicenter_folder_core::storage::{self, ListedFile, PutOutcome, StorageError};
 use serde::Serialize;
 use specta::Type;
-use tauri::ipc::Channel;
-use tauri::{Manager, Runtime, Webview};
+use tauri::{Emitter, Manager, Runtime, Webview};
 
-use crate::{Directory, FolderChanged, Root, RootError, Roots};
+use crate::{Directory, FolderEvent, Root, RootError, Roots};
 
 /// Run blocking work off the window thread.
 async fn blocking<T: Send + 'static>(
@@ -69,33 +68,37 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
 /// link if one is there, and a missing folder is made (ADR-0726); a link
 /// whose target is gone is `Disconnected`, and nothing is made. Each call
 /// looks again, so Retry finds a folder that came back. The root's one watch
-/// sends its changes to the latest channel this page opened it with. Opening
+/// sends its changes as an app event. The page listens before opening. Opening
 /// removes the staged files a stopped save left an hour or more ago
 /// (`storage::sweep_stale_scratch`).
 #[tauri::command]
 #[specta::specta]
-pub async fn open_root<R: Runtime>(
-    webview: Webview<R>,
-    root: Root,
-    on_change: Channel<FolderChanged>,
-) -> Result<(), RootError> {
-    let label = webview.label().to_string();
-    let page = webview.state::<Roots>().page(&label)?;
+pub async fn open_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<String, RootError> {
     let app = webview.app_handle().clone();
+    let folder = webview.state::<Roots>().path(root)?.display().to_string();
+    let lost_folder = folder.clone();
     blocking(
         move || {
             let roots = app.state::<Roots>();
             let directory = roots.open(root)?;
             storage::sweep_stale_scratch(directory.root());
-            roots.watch(root, &directory, &label, page, move |change| {
-                if let Err(error) = on_change.send(change) {
+            let events = app.clone();
+            roots.watch(root, &directory, move |change| {
+                if let Err(error) = events.emit(
+                    "folder-changed",
+                    FolderEvent {
+                        root,
+                        paths: change.paths,
+                    },
+                ) {
                     log::warn!("The folder observation could not be delivered: {error}");
                 }
-            })
+            })?;
+            Ok(folder)
         },
         |message| {
             Err(RootError::Unavailable {
-                folder: root.to_string(),
+                folder: lost_folder,
                 message,
             })
         },
@@ -103,19 +106,7 @@ pub async fn open_root<R: Runtime>(
     .await
 }
 
-/// The path the shell named `root` at, written out
-/// (`/Users/me/Epicenter/whispering`, not where a link there leads), for the
-/// page to show. It opens, reads and makes nothing, and no command takes it.
-#[tauri::command]
-#[specta::specta]
-pub fn root_path<R: Runtime>(webview: Webview<R>, root: Root) -> Result<String, RootError> {
-    webview
-        .state::<Roots>()
-        .path(root)
-        .map(|path| path.to_string_lossy().into_owned())
-}
-
-/// The folder `root` reached when the page opened it, for one command
+/// The folder `root` reached when the app opened it, for one command
 /// (`Roots::opened`).
 fn opened<R: Runtime>(webview: &Webview<R>, root: Root) -> Result<Directory, FolderError> {
     Ok(webview.state::<Roots>().opened(root)?)
@@ -201,6 +192,12 @@ pub async fn put_folder_file<R: Runtime>(
     let path = header("path").ok().flatten().unwrap_or_default();
     let refused = |message: String| failed(&path, "write", message);
     required("path").map_err(refused)?;
+    let named = required("root").map_err(|_| RootError::Invalid {
+        root: String::new(),
+    })?;
+    let root: Root = named
+        .parse()
+        .map_err(|_| RootError::Invalid { root: named })?;
     let remove = match required("remove").map_err(refused)?.as_str() {
         "true" => true,
         "false" => false,
@@ -219,9 +216,6 @@ pub async fn put_folder_file<R: Runtime>(
         }
     };
     let operation = if remove { "remove" } else { "write" };
-    let root: Root = required("root")
-        .and_then(|root| root.parse())
-        .map_err(refused)?;
     let directory = opened(&webview, root)?;
     let at = path.clone();
     blocking(

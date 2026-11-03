@@ -4,19 +4,15 @@
  * (`@epicenter/folder/tauri`) and everything above it.
  *
  * The shell named each root at startup (`Data`, and `AppData` when given),
- * and the page opens one by name (`open_root`), which makes its folder when
- * nothing is there; `root_path` alone answers the path to show. Every
- * storage command names its root, as the plugin's do, and reaches only a
- * root the page opened; its storage commands are one per storage method
- * (ADR-0581). Here the Bun store over the same directory (`nodeStore`)
+ * and the page opens one by name (`open_root`), which answers its path to
+ * show. Every storage command names its root. The Bun store over the same
+ * directory (`nodeStore`)
  * answers each, as the plugin answers: its value, or a rejection with the
  * plugin's `FolderError`: `NotFound` for a read of nothing, `Io` for any
- * other storage failure, and the root's `RootError` (`NotOpen`, or
- * `control.refuse`'s, such as `Disconnected`) when the root cannot be used.
+ * other storage failure, and `control.refuse`'s root error when unavailable.
  * `control.refuse` answers an open, and every storage command, with the
  * shell's `RootError`, and `control.refuseNext` fails the next writes
- * before anything lands. A
- * test installs `invoke` with `mock.module`, then opens the folder the way
+ * before anything lands. A test installs `invoke` with `mock.module`, then opens the folder the way
  * its app does. `packages/tauri-plugin-epicenter-folder` tests the plugin's
  * own checks.
  */
@@ -77,14 +73,9 @@ export async function namedDirectory(prefix = 'named-'): Promise<string> {
 
 /**
  * The shell, with its data root named at `roots.Data` and its AppData root
- * at `roots.AppData`, when given. `opened` lists every open, with its
- * channel.
+ * at `roots.AppData`, when given.
  */
 export function createNamedShell(roots: { Data: string; AppData?: string }) {
-	/** Each `open_root`: the root asked for and its channel. */
-	const opened: { root: Root; onChange: unknown }[] = [];
-	/** The roots the page has opened. */
-	const open = new Set<Root>();
 	const calls: ShellCall[] = [];
 	const control = {
 		/** The shell's refusal of `root`, if any, to an open or a storage command. */
@@ -106,28 +97,14 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 		const store = stores.get(named);
 		if (store === undefined)
 			throw { name: 'NotNamed', root: named } satisfies FolderError;
-		if (!open.has(named))
-			throw { name: 'NotOpen', root: named } satisfies FolderError;
 		return store;
 	}
 
 	const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
 		async open_root(args) {
 			const named = args.root as Root;
-			opened.push({ root: named, onChange: args.onChange });
 			const refused = control.refuse(named);
 			if (refused !== undefined) throw refused;
-			const path = roots[named];
-			if (path === undefined)
-				throw { name: 'NotNamed', root: named } satisfies RootError;
-			// Whatever is there opens; the folder is made when nothing is.
-			await nodeFs.mkdir(path, { recursive: true });
-			open.add(named);
-			return null;
-		},
-		/** Display only: opens, reads and makes nothing. */
-		root_path(args) {
-			const named = args.root as Root;
 			const path = roots[named];
 			if (path === undefined)
 				throw { name: 'NotNamed', root: named } satisfies RootError;
@@ -150,39 +127,11 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 		},
 		async put_folder_file(args) {
 			const path = args.path as string;
-			// The bytes are the raw body; a JSON body is refused, as the shell
-			// refuses one that is not an array of bytes.
-			const bytes = args.bytes;
-			if (!(bytes instanceof Uint8Array))
-				throw {
-					name: 'Io',
-					path,
-					operation: 'write',
-					message: 'put_folder_file takes its bytes as a raw body',
-				} satisfies StorageError;
-			const expected = args.expected;
-			if (typeof expected !== 'string')
-				throw {
-					name: 'Io',
-					path,
-					operation: 'write',
-					message: 'put_folder_file needs the expected header',
-				} satisfies StorageError;
-			// As `storage::Expectation::parse` reads it: a keyword, or a tagged hash.
-			const hash = /^sha256:([0-9a-f]{64})$/.exec(expected)?.[1];
-			const parsed: DeviceExpectation | undefined =
+			const expected = args.expected as string;
+			const parsed: DeviceExpectation =
 				expected === 'absent'
-					? expected
-					: hash !== undefined
-						? { sha256: hash as Version }
-						: undefined;
-			if (parsed === undefined)
-				throw {
-					name: 'Io',
-					path,
-					operation: 'write',
-					message: `expected is ${JSON.stringify(expected)}, not absent, or sha256: and a SHA-256`,
-				} satisfies StorageError;
+					? 'absent'
+					: { sha256: expected.slice('sha256:'.length) as Version };
 			if (control.refuseNext > 0) {
 				control.refuseNext -= 1;
 				throw {
@@ -197,7 +146,7 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 				path,
 				storageFor(args).write(
 					path,
-					args.remove === 'true' ? null : bytes,
+					args.remove === 'true' ? null : (args.bytes as Uint8Array),
 					parsed,
 				),
 			);
@@ -206,7 +155,6 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 
 	return {
 		root: roots.Data,
-		opened,
 		calls,
 		control,
 		/** The text at a path in the data root, or undefined when there is no file. */

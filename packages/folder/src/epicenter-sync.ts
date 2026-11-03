@@ -9,11 +9,7 @@
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import {
-	commands,
-	type Root,
-	type SyncRequestError,
-} from './native/bindings.gen.js';
+import { commands, type SyncRequestError } from './native/bindings.gen.js';
 
 export const EpicenterSyncError = defineErrors({
 	/** The shell refused or could not answer; `message` says why. */
@@ -26,27 +22,23 @@ export type EpicenterSyncError = InferErrors<typeof EpicenterSyncError>;
 
 /**
  * Ask the operating system to open Epicenter with a request to sync the
- * folder of `root` under the contract published at `contract`. `root` is a
- * root this page opened (its data folder); the shell refuses any other.
+ * open Data folder under the contract published at `contract`.
  * Ok means the system took the request; whether Epicenter sets the folder up
  * is the person's choice there, so never say the folder is syncing yet.
  *
  * ```ts
  * const { error } = await syncWithEpicenter({
- * 	root: 'Data',
  * 	contract: 'https://capture.epicenter.so/contract.json',
  * });
  * ```
  */
 export async function syncWithEpicenter({
-	root,
 	contract,
 }: {
-	root: Root;
 	contract: string;
 }): Promise<Result<undefined, EpicenterSyncError>> {
 	const sent = await commands
-		.syncWithEpicenter(root, contract)
+		.syncWithEpicenter(contract)
 		.catch((cause: unknown) => ({ data: null, error: cause }));
 	if (sent.error !== null)
 		return EpicenterSyncError.Unavailable({ cause: sent.error });
@@ -54,18 +46,16 @@ export async function syncWithEpicenter({
 }
 
 /**
- * Whether Epicenter has adopted the folder of `root` for local history:
+ * Whether Epicenter has adopted the open Data folder for local history:
  * true once `epicenter init` set `epicenter.root`. The historical method
  * name does not imply that an origin exists or that a remote sync succeeded.
  * Asks again each call, since setup can happen while the app is open.
  */
-export async function syncedWithEpicenter({
-	root,
-}: {
-	root: Root;
-}): Promise<Result<boolean, EpicenterSyncError>> {
+export async function syncedWithEpicenter(): Promise<
+	Result<boolean, EpicenterSyncError>
+> {
 	const answer = await commands
-		.syncedWithEpicenter(root)
+		.syncedWithEpicenter()
 		.catch((cause: unknown) => ({ data: null, error: cause }));
 	if (answer.error !== null)
 		return EpicenterSyncError.Unavailable({ cause: answer.error });
