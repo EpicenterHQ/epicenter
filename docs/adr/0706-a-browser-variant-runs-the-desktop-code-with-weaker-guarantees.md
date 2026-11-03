@@ -44,7 +44,9 @@ a desktop variant can import it into a folder after showing which paths
 already exist.
 
 **The local web variant stays.** Whispering records in a browser without
-sign-in.
+sign-in. Signing in there unlocks hosted transcription, as it does on the
+desktop; the recordings stay in the browser and never sync, because a browser
+runs no Git.
 
 ## Consequences
 

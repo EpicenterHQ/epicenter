@@ -48,12 +48,14 @@ CLI).
   Whispering/                      one repository per folder, labeled by the contract's title
     AGENTS.md                      contract: https://whispering.epicenter.so/contract.json
     settings.md                    settings that follow you
+    shortcuts.md                   shortcuts that follow you
     recordings/<id>.md             one note per thing, named by its ID
     recordings/<id>.wav            attached files sit beside their note (Git LFS)
   Vocab/  Mail/  The Ark/ …
 
 <AppData>/so.epicenter.whispering/ this device: never synced
-  settings.md                      this device's settings and the `folder` key
+  settings.md                      this device's overrides and the `folder` key
+  shortcuts.md                     this device's shortcut overrides
   index.sqlite                     derived data, rebuilt from the folder
 
 ~/.agents/skills/                  your agent skills
@@ -68,6 +70,9 @@ Keychain                           secrets
 - A relative `folder` resolves against the library root and an absolute one is
   used as written. An app remembers its folder after the first open, and asks
   before writing into a folder it does not recognize ([ADR-0712](adr/0712-an-apps-folder-path-resolves-against-one-movable-library-root.md)).
+- Settings and shortcuts follow you. Each is a note in the folder, with an
+  optional note of the same name in AppData that overrides it on this device;
+  a reader spreads defaults, then the folder's note, then the device's.
 - A database is only ever a cache. An app that wants SQLite builds it in
   AppData from the folder's files.
 
@@ -103,6 +108,8 @@ A browser variant runs the same code as the desktop variant with weaker
 guarantees: its files are not visible, agents and tools cannot read them, a
 local web variant has no history or sync, and the browser can delete them
 ([ADR-0706](adr/0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md)). Whispering keeps a local web variant that works without signing in.
+Signing in there unlocks hosted transcription, as on the desktop; its
+recordings stay in the browser.
 
 ## Apps and their stores
 
@@ -133,14 +140,14 @@ local web variant has no history or sync, and the browser can delete them
 ## Open questions
 
 - Whether Tasks and Timebox stay folders.
-- Whether signed-in Whispering on the web syncs recordings, or signing in only
-  unlocks hosted transcription.
 - The size cap for documents, and the size above which a text file goes to LFS.
-- Whether embeddings sync or are recomputed on each device.
-- Which settings follow you and which stay on the device, starting with the
-  shortcut key.
 - How app actions and plugins run, when synced batches apply, and how a
   person's own versions of actions survive an app update.
-- `epicenter checkout` and `epicenter apply`, so agents can edit documents as
-  files.
 - End-to-end encryption for documents.
+
+## Later
+
+- Embeddings. Nothing stores them yet; whether they sync or are recomputed on
+  each device is decided when an app needs them.
+- `epicenter checkout` and `epicenter apply`, so agents can edit a document as
+  files and apply the changes back.
