@@ -7,9 +7,9 @@
  * The server is `VITE_EPICENTER_SERVER` when the build sets it (a local or
  * self-hosted API), otherwise Epicenter's.
  *
- * The client is made on first use: making it reads `localStorage` and
- * schedules renewals. The web app's root and the sign-in callback use it;
- * the desktop window, whose folder Epicenter syncs, never signs in.
+ * Making a client reads `localStorage` and schedules renewals, so each page
+ * makes one: the web world (`app.web.ts`) or the sign-in callback. The
+ * desktop window, whose folder Epicenter syncs, never signs in.
  */
 import {
 	createBrowserOAuth,
@@ -20,7 +20,8 @@ import { fromAuth } from '@epicenter/auth/svelte';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
 
-function createAuth() {
+/** A page's sign-in. */
+export function createWebAuth() {
 	const server = SELF_HOST_ORIGIN
 		? selfHostedServer(SELF_HOST_ORIGIN)
 		: epicenterCloud(APP_URLS.API);
@@ -31,18 +32,5 @@ function createAuth() {
 		scope: 'openid folders:read folders:write',
 		accountManagement: !SELF_HOST_ORIGIN,
 	});
-	if (import.meta.hot) import.meta.hot.dispose(() => client[Symbol.dispose]());
 	return fromAuth(client);
 }
-
-let auth: ReturnType<typeof createAuth> | undefined;
-
-/** This page's sign-in, made on first use. */
-export function webAuth() {
-	auth ??= createAuth();
-	return auth;
-}
-
-if (import.meta.hot)
-	// Hand the update up, with the client released first (see apps/vocab's auth).
-	import.meta.hot.accept(() => import.meta.hot?.invalidate());

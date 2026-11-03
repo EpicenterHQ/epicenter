@@ -1,6 +1,6 @@
 <!--
-	The web app's header account of its store: the person's repository,
-	online only, whether it answers, and the account.
+	`#platform/chrome` on the web: the header's account of its store, the
+	person's repository, online only, whether it answers, and the account.
 -->
 <script lang="ts">
 	import StatusPopover from '@epicenter/svelte/status-popover';
@@ -8,13 +8,9 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
-	import { webAuth } from '../auth.js';
-	import type { ChromeProps } from '../platform.js';
-	import { getTodos } from '../todos.js';
+	import { auth, signOut, todos } from '../app.web.js';
 
-	let { pendingNewTodo }: ChromeProps = $props();
-	const auth = webAuth();
-	const todos = getTodos();
+	let { pendingNewTodo }: { pendingNewTodo: boolean } = $props();
 
 	const status = $derived.by((): StatusLine => {
 		const unreadable = todos.error;
@@ -33,11 +29,6 @@
 		const { error } = await auth.startSignIn();
 		if (error !== null) toast.error('Could not sign in', { description: error.message });
 	}
-
-	async function signOut() {
-		const { error } = await auth.signOut();
-		if (error !== null) toast.error('Could not sign out', { description: error.message });
-	}
 </script>
 
 <StatusPopover summary={status} details={[{ name: 'Status', testid: 'status-files', line: status }]}>
@@ -49,10 +40,8 @@
 	</StatusRow>
 </StatusPopover>
 <div class="ml-auto flex min-w-0 items-center gap-2">
-	{#if auth.state.status !== 'signed-out'}
-		{#if auth.state.status === 'reauth-required'}
-			<Button size="sm" onclick={() => void signIn()}>Sign in again</Button>
-		{/if}
-		<Button variant="ghost" size="sm" onclick={() => void signOut()}>Sign out</Button>
+	{#if auth.state.status === 'reauth-required'}
+		<Button size="sm" onclick={() => void signIn()}>Sign in again</Button>
 	{/if}
+	<Button variant="ghost" size="sm" onclick={() => void signOut()}>Sign out</Button>
 </div>

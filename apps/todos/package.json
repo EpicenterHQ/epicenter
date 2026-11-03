@@ -5,9 +5,17 @@
 	"version": "0.0.1",
 	"type": "module",
 	"imports": {
-		"#platform/root": {
-			"tauri": "./src/lib/root.tauri.ts",
-			"default": "./src/lib/root.ts"
+		"#platform/app": {
+			"tauri": "./src/lib/app.tauri.ts",
+			"default": "./src/lib/app.web.ts"
+		},
+		"#platform/chrome": {
+			"tauri": "./src/lib/components/DesktopChrome.svelte",
+			"default": "./src/lib/components/OnlineChrome.svelte"
+		},
+		"#platform/recovery": {
+			"tauri": "./src/lib/components/DesktopRecovery.svelte",
+			"default": "./src/lib/components/SignIn.svelte"
 		}
 	},
 	"scripts": {

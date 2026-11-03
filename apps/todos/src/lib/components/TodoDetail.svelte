@@ -18,9 +18,9 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { todos as contract } from '$lib/contract.js';
-	import { getTodos, labelOf, todoPath } from '$lib/todos.js';
+	import { todos } from '$lib/app.js';
+	import { labelOf, todoPath } from '$lib/todos.js';
 
-	const todos = getTodos();
 	let {
 		id: shownId,
 		onBack,

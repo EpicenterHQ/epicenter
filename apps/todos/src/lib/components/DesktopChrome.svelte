@@ -1,23 +1,22 @@
 <!--
-	The desktop window's header account of its store: Todos' folder on this
-	computer, whether Epicenter syncs it, Sync with Epicenter until it does,
-	and Choose data folder… (decisions 81 and 88). It never signs in.
+	`#platform/chrome` in the desktop window: the header's account of its
+	store, Todos' folder on this computer, whether Epicenter syncs it, Sync
+	with Epicenter until it does, and Choose data folder… (decisions 81 and
+	88), which reloads the page over the folder picked. It never signs in.
 -->
 <script lang="ts">
-	import { getFolderSync } from '@epicenter/svelte/folder-sync';
+	import { folderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
-	import type { ChromeProps } from '../platform.js';
-	import { getTodos } from '../todos.js';
+	import { appData, folder, todos } from '../app.tauri.js';
+	import { CONTRACT_URL } from '../folder.tauri.js';
 
-	let { pendingNewTodo }: ChromeProps = $props();
+	let { pendingNewTodo }: { pendingNewTodo: boolean } = $props();
 
-	// DesktopRoot renders the app, and so this, only over its open data folder.
-	const sync = getFolderSync();
-	const todos = getTodos();
+	const sync = folderSync({ appData, device: folder, contract: CONTRACT_URL });
 
 	const status = $derived.by((): StatusLine => {
 		const unreadable = todos.error;

@@ -42,16 +42,16 @@ async function bundle(desktop: boolean) {
 }
 
 const webLeaves = [
-	'root.ts',
-	'components/OnlineRoot.svelte',
+	'app.web.ts',
+	'auth.ts',
 	'components/OnlineChrome.svelte',
+	'components/SignIn.svelte',
 ];
 const desktopLeaves = [
-	'root.tauri.ts',
+	'app.tauri.ts',
 	'folder.tauri.ts',
-	'components/Startup.svelte',
-	'components/DesktopRoot.svelte',
 	'components/DesktopChrome.svelte',
+	'components/DesktopRecovery.svelte',
 ];
 
 test(

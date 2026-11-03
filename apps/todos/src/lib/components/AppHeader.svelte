@@ -1,10 +1,10 @@
 <!--
-	The header: the app's name, then the variant's account of the store
-	(`Chrome` from `#platform/root`): where the todos are, whether they read,
-	and the account on the web or the folder's sync on the desktop.
+	The header: the app's name, then the build's account of the store
+	(`#platform/chrome`): where the todos are, whether they read, and the
+	account on the web or the folder's sync on the desktop.
 -->
 <script lang="ts">
-	import { Chrome } from '#platform/root';
+	import Chrome from '#platform/chrome';
 
 	let { pendingNewTodo }: { pendingNewTodo: boolean } = $props();
 </script>
