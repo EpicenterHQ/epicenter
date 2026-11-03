@@ -5,6 +5,16 @@ documents synced through your account. Both speak one field language and one
 export format, so you can browse, back up, move, and compact all of it from
 one place.
 
+**Everything you own is in `~/Epicenter`.** Each app keeps its folder there,
+named by the app's slug. A folder that lives somewhere else is a link inside
+it.
+
+**Everything a machine shares is in `~/.epicenter`.** The sync engine, the
+sign-in, local copies of documents, and logs. Secrets stay in the keychain.
+
+**You sign in a machine, not an app.** One account per machine. Every
+Epicenter program on it shares that sign-in.
+
 This page describes where Epicenter is going and links the records that decide
 each part. Most of it is not built yet; each record's `Unbuilt` line says what
 is missing. [Positioning](positioning.md) owns what Epicenter claims today.
@@ -44,9 +54,9 @@ is the contract's `name`, the short name every program already knows
 | Epicenter's machinery | `~/.epicenter` | `~/.epicenter-dev` |
 | Repository or document | `<account>/whispering` | the same, on the dev server |
 
-Every program can compute every location from the slug and the environment,
-except a folder a person placed outside the root, which its app remembers. No
-program needs a registry to find anything. People see the app's name,
+Every program can compute every location from the slug and the environment.
+A folder that lives elsewhere is still reached through a link inside the root,
+so no program needs a registry to find anything. People see the app's name,
 "Whispering", in its window and menus.
 
 ## Two stores
@@ -93,12 +103,15 @@ Three places, each with one job:
     recordings/<id>.md             one note per thing, named by its ID
     recordings/<id>.wav            attached files sit beside their note (Git LFS)
   vocab/  mail/  theark/ …
+  notes -> ~/Documents/Vault       a folder that lives elsewhere: a link inside the root
 
 ~/.epicenter/                      Epicenter's machinery: hidden, never synced, read by every program
-  settings.md                      folders outside ~/Epicenter that this machine syncs
+  settings.md                      the account this machine is signed in as; engine settings
+  session.lock                     held while refreshing the sign-in
   bin/epicenter                    the engine
   bin/git-lfs                      bundled with it
   documents/<namespace>/tabs/      the one local copy of each document
+  logs/                            sync logs
 
 <AppData>/so.epicenter.whispering/ this device, for one app: never synced
   settings.md                      this device's overrides, and `folder` once remembered
@@ -109,15 +122,22 @@ Three places, each with one job:
 - **Settings and shortcuts follow you.** Each is a note in the folder; an
   optional note of the same name in AppData overrides it on this device. A
   reader spreads defaults, then the folder's note, then the device's.
-- **An app remembers its folder** after the first open, and asks before
-  writing into a folder it does not recognize. A folder outside the root is
-  stored as an absolute path ([ADR-0712](adr/0712-an-apps-folder-resolves-against-a-fixed-library-root.md)).
-- **The library root is fixed.** To move it, move the folder and leave a
-  symlink at `~/Epicenter`.
+- **An app shows its folder during onboarding** ("Your recordings are files in
+  `~/Epicenter/whispering`"), remembers its name after the first open, and asks
+  before writing into a folder it does not recognize ([ADR-0712](adr/0712-an-apps-folder-resolves-against-a-fixed-library-root.md)).
+- **Links do the moving.** To keep a folder elsewhere, put a link to it inside
+  `~/Epicenter` (`ln -s ~/Documents/Vault ~/Epicenter/notes`, or
+  `epicenter link`). To move the whole library, move it and leave a link at
+  `~/Epicenter`. Epicenter follows links like any folder.
 - **A folder's `AGENTS.md`** names its contract and tells agents what the
   folder is ([ADR-0711](adr/0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md)).
 - **`~/.epicenter`** holds what every program on this machine shares
   ([ADR-0718](adr/0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)). Secrets stay in the keychain.
+- **One sign-in per machine.** Whichever Epicenter program you sign in from,
+  every first-party program on the machine is signed in; signing out anywhere
+  signs the machine out. Work and personal folders are namespaces under one
+  account. Third-party apps get their own grant
+  ([ADR-0720](adr/0720-you-sign-in-a-machine-not-an-app.md)).
 
 ## On the server
 
@@ -140,7 +160,7 @@ some manual setup for hosts other than Epicenter. What the account adds:
 | The app's site | Publishes its contract, and optionally download links, an agent skill, and later actions ([ADR-0717](adr/0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md)). |
 | The `epicenter` engine | Git, LFS, merge, `check`, `get`, and `set`. One copy per machine in `~/.epicenter/bin`, installed by the Epicenter app ([ADR-0713](adr/0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md)). |
 | The Epicenter app | Installs the engine, asks consent for a first sync, syncs on a schedule, and browses every folder and document you have ([ADR-0715](adr/0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md)). |
-| Your account | Resources, grants, documents, inference. |
+| Your account | Resources, grants, documents, inference. Signed in once per machine. |
 
 Every folder merges by one rule: `.md` notes merge fields and body, a file
 with a binary extension goes to Git LFS, and every other file merges as text
@@ -181,7 +201,9 @@ recordings stay in the browser.
   is a document app.
 - One repository for the whole library root.
 - Two live stores for the same data.
-- A registry of apps. An app joins by publishing a contract.
+- A registry of apps or folders. An app joins by publishing a contract; a
+  folder joins by being inside `~/Epicenter`.
+- A sign-in per app.
 - Machine state in your Git configuration or in a synced folder.
 
 ## Open questions

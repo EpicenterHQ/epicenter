@@ -31,7 +31,7 @@ other copy must read the same way.
 ```txt
 Epicenter app        installs and updates   ~/.epicenter/bin/epicenter (compiled Bun CLI), ~/.epicenter/bin/git-lfs
                      checks at setup        git (explains Apple's developer-tools prompt)
-                     owns                   consent screen, sync --watch, `folders` in ~/.epicenter/settings.md
+                     owns                   consent screen, sync --watch, the root scan
 Whispering, Capture, calls when present      epicenter sync <folder> --json, epicenter status --json
 other apps           otherwise shows         "Syncing needs Epicenter" and a download link
 ```
@@ -63,8 +63,8 @@ is unbuilt.
 ## Consequences
 
 - One 75 MB engine per machine instead of one per app. Apps lose that size.
-- Every app on a machine runs the same engine version, so `folders` in
-  `~/.epicenter/settings.md` (folders outside the root) and the credentials have one reader and one
+- Every app on a machine runs the same engine version, so the root scan
+  and the machine's sign-in (ADR-0720) have one reader and one
   writer implementation.
 - An app cannot sync without the Epicenter app installed. Local saving needs
   no engine, so this costs only sync.

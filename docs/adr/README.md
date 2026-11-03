@@ -916,3 +916,4 @@ When you add an ADR, add its row here.
 | [0717](0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md) | An Epicenter app is a site that publishes a contract | Proposed |
 | [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Proposed (amends 0642 and 0700) |
 | [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Proposed (supersedes 0627) |
+| [0720](0720-you-sign-in-a-machine-not-an-app.md) | You sign in a machine, not an app | Proposed (amends 0549 and 0701) |

@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-03
-- **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 96's removal of `EPICENTER_FOLDER_DIR` for standalone apps and at remembering only a chosen folder: every program uses one fixed root per environment, `EPICENTER_FOLDER_DIR` overrides it only in tests, and an app remembers the folder it first opened; [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md) at its remembered folder: an app also remembers the default after its first open.
-- **Unbuilt:** relative `folder` values; writing `folder` after the first open of the default; the first-open inspection and its two-choice question; the root `~/Epicenter Dev` for development builds of standalone apps; the warning for a root inside a file-syncing service; removing the refusal of "first-use persistence" from `apps/epicenter/AGENTS.md` (its refusal of collision suffixes stays).
+- **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 96's removal of `EPICENTER_FOLDER_DIR` for standalone apps and at remembering only a chosen folder: every program uses one fixed root per environment, `EPICENTER_FOLDER_DIR` overrides it only in tests, and an app remembers the folder it first opened, always as a name under the root; [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md) at its remembered folder: an app also remembers the default after its first open.
+- **Unbuilt:** `folder` values as names under the root; writing `folder` after the first open of the default; the first-open inspection and its two-choice question; the onboarding line that shows the folder; `epicenter link`; the broken-link message; the root `~/Epicenter Dev` for development builds of standalone apps; the warning for a root inside a file-syncing service; removing the refusal of "first-use persistence" from `apps/epicenter/AGENTS.md` (its refusal of collision suffixes stays).
 
 ## Context
 
@@ -53,16 +53,32 @@ these two steps for the person; it writes no setting. Paths are compared after
 canonicalizing the root, since `resolve_folder` returns a picked folder's
 canonical path.
 
-**A relative `folder` resolves against the root; an absolute one is used as written.**
+**Everything a person owns is in the root, and a folder is always a name under it.**
+An app's remembered `folder` is a name, never a path:
 
 ```txt
 <AppData so.epicenter.whispering>/settings.md
   folder: whispering                      → <root>/whispering
-  folder: /Volumes/Archive/whispering     → used as written
+  folder: whispering-personal             → <root>/whispering-personal, a name picked after a collision
 ```
 
+**A folder that lives elsewhere is a symlink inside the root.** Epicenter and
+every app follow the link like any directory; links are not a feature with its
+own setting.
+
+```sh
+ln -s ~/Documents/Vault ~/Epicenter/notes
+epicenter link ~/Documents/Vault notes     # the same link, made by the CLI
+```
+
+"Add folder…" in Epicenter runs `epicenter link`. Forgetting a folder removes
+the link and leaves the files. When the link's target is missing, as on an
+unplugged drive, the app says "This folder is on a drive that isn't
+connected." `resolve_folder` canonicalizes paths, so the shell grants the
+link's target.
+
 **The app writes `folder` after the first successful open of its default.**
-The value is the relative slug (`whispering`, [ADR-0710](0710-an-apps-slug-names-everything-a-program-reads.md)). From then on a
+The value is the slug (`whispering`, [ADR-0710](0710-an-apps-slug-names-everything-a-program-reads.md)). From then on a
 missing folder reaches the existing recovery (`Missing`) with "Locate…" and
 "Open existing folder…", never a new empty folder.
 
@@ -72,13 +88,13 @@ missing folder reaches the existing recovery (`Missing`) with "Locate…" and
 | --- | --- |
 | nothing, or an empty directory | the app uses it |
 | files that pass the app's contract check, or an `AGENTS.md` naming its contract ([ADR-0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md)) | the app opens it; notes that do not read are listed for repair |
-| anything else | the app asks "Use this folder" or "Choose another", showing the path |
+| anything else | the app asks "Use this folder" or "Choose another", showing the path; "Choose another" takes a name under the root or an existing folder, which becomes a link |
 
 No folder name gets a suffix. Two apps sharing a slug meet here.
 
-**A folder may live outside the root.** "Open existing folder…" (today
-"Choose data folder…", `pickDataFolder`) records its absolute path and never
-moves files.
+**Onboarding shows the folder and asks nothing.** The first launch says "Your
+recordings are files in ~/Epicenter/whispering" with "Show in Finder". There
+is no choice between this folder and the app's AppData.
 
 **Epicenter warns when the root is inside Dropbox, iCloud Drive, or OneDrive.**
 Git and a second file-syncing service on one `.git` directory corrupt it.
@@ -87,6 +103,9 @@ Git and a second file-syncing service on one `.git` directory corrupt it.
 
 - A moved or renamed folder produces a "Locate…" screen instead of an empty
   app; one AppData value per app makes that possible.
+- Agents and Finder see every folder in one tree, including folders stored on
+  other drives.
+- No program stores a list of folders; scanning the root finds them all.
 - No program reads another program's files to learn the root.
 - Time Machine backs up the symlink, not the library it points to; a library
   on another volume is backed up there.
@@ -110,3 +129,10 @@ Git and a second file-syncing service on one `.git` directory corrupt it.
 - **No remembered folder.** Moving the default before reopening creates an
   empty app.
 - **Absolute paths only.** Moving the library breaks every remembered path.
+- **Absolute `folder` paths beside relative ones.** Two kinds of folder, and a
+  folder outside the root that agents and a root scan never see.
+- **A registry of folders anywhere (Obsidian's `obsidian.json`, Syncthing).** A
+  stored list that goes stale when a folder moves, no single tree for agents,
+  and the question of where a new folder goes comes back.
+- **An onboarding choice between this folder and the app's AppData.** A
+  first-launch question, and two kinds of location to support.

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 81 ("Epicenter learns of a folder only through Sync with Epicenter's deep link"): Epicenter also lists the library root's folders; and at the 2026-11-01 revision that deleted the folder editor window ("Epicenter opens no folder's files"): Epicenter shows a folder's or document's items again; [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) at deferring the desktop data browser.
-- **Unbuilt:** the library-root scan; adding a folder from anywhere; the account's repository and document lists in the Folders window; generic collection views from the field vocabulary; opening documents through `~/.epicenter/documents`; removing the line in `apps/epicenter/AGENTS.md` that conflicts ("Epicenter opens no folder's files").
+- **Unbuilt:** the library-root scan that follows links; "Add folder…" running `epicenter link`; the account's repository and document lists in the Folders window; generic collection views from the field vocabulary; opening documents through `~/.epicenter/documents`; removing the line in `apps/epicenter/AGENTS.md` that conflicts ("Epicenter opens no folder's files").
 
 ## Context
 
@@ -26,20 +26,21 @@ made it, and cannot see which folders exist under `~/Epicenter`.
 
 **The Epicenter app lists and opens every folder and document a person has.**
 
-The Folders window shows one list built from three sources. Each source is a
-different fact, and none is copied into another:
+The Folders window shows one list built from two sources. Each source is a
+different fact, and neither is copied into the other:
 
 | Source | Fact | Read from |
 | --- | --- | --- |
-| it is under the library root | a non-hidden child directory of `~/Epicenter`; synced when it is a repository whose local configuration carries `epicenter.root`, otherwise "Not synced" | a directory listing, never stored |
-| it is outside the root and this machine syncs it | an absolute path in `folders` | `~/.epicenter/settings.md` ([ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)) |
+| it is on this machine | a non-hidden child of `~/Epicenter`, followed when it is a link to a folder elsewhere ([ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md)); synced when it is a repository whose local configuration carries `epicenter.root`, otherwise "Not synced" | a directory listing, never stored |
 | it is on the account | a repository or document the signed-in account can reach | the server's repository and document lists ([ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md)) |
 
 - **A folder under the root that is not synced shows as "Not synced".**
   Enrolling it takes the person's confirmation in Epicenter's consent screen.
   Listing makes no ownership claim.
-- **The `epicenter://init` link stays** for an app whose folder is outside the
-  root. "Add folder…" adds a folder from anywhere.
+- **"Add folder…" runs `epicenter link`,** which puts a link to a folder from
+  anywhere inside the root; forgetting it removes the link and leaves the
+  files. The `epicenter://init` link stays as an app's way to ask for a first
+  sync.
 - **Opening a folder or document shows its collections and items.** The views
   come from the collection's fields in the shared field vocabulary ([ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md)):
   a `select` shows as a single choice, a `multiSelect` as chips. A folder's
@@ -54,8 +55,8 @@ different fact, and none is copied into another:
   as its own shortcuts, it keeps it in `~/Epicenter/epicenter`, a folder like
   any app's. Until then the folder does not exist.
 
-No new registry is stored. The three lists stay where they are, and the window
-joins them by path and by resource name each time it lists.
+No registry is stored. The window joins the directory listing and the
+account's lists by name each time it lists.
 
 ## Consequences
 
@@ -78,8 +79,8 @@ joins them by path and by resource name each time it lists.
   table of app names, which ADR-0701 refuses ("Epicenter manages folders, not
   apps"), and folders under other names would never appear.
 - **A stored registry of every folder and document.** A second copy of facts
-  the three sources already hold, which drifts when a folder moves or an account
-  changes.
+  the directory listing and the account already hold, which drifts when a
+  folder moves or an account changes.
 - **No browser; each app shows only its own data.** Documents would have no
   view outside their app, and the account would have no single place to see
   what it holds.

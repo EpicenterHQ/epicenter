@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-03
-- **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at `epicenter init` registering a folder for sync: the folders under the library root need no registration, and a folder outside it is listed in `~/.epicenter/settings.md`, not the global Git configuration; [ADR-0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) at the public command `~/.local/bin/epicenter` and `install-command`: the engine is `~/.epicenter/bin/epicenter`.
-- **Unbuilt:** all of it: `~/.epicenter` and `~/.epicenter-dev`; `settings.md` with `folders`; the root scan that finds synced folders by `epicenter.root`; `bin/` holding the engine and `git-lfs`; `documents/`; moving `epicenter.folder` out of the global Git configuration; retiring `install-command`.
+- **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at `epicenter init` registering a folder for sync: the folders under the library root need no registration, a folder elsewhere is a link inside the root, and nothing is listed in the global Git configuration; [ADR-0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) at the public command `~/.local/bin/epicenter` and `install-command`: the engine is `~/.epicenter/bin/epicenter`.
+- **Unbuilt:** all of it: `~/.epicenter` and `~/.epicenter-dev`; `settings.md` with the account, the server, and engine settings; `session.lock`; the root scan that finds synced folders by `epicenter.root`; `bin/` holding the engine and `git-lfs`; `documents/`; `logs/`; moving `epicenter.folder` out of the global Git configuration; retiring `install-command`.
 
 ## Context
 
@@ -40,25 +40,22 @@ machine. Development builds use `~/.epicenter-dev`, as their data uses
 
 ```txt
 ~/.epicenter/
-  settings.md                    front matter; `folders:` lists only folders outside
-                                 the library root that this machine syncs
-  bin/epicenter                  the engine ([ADR-0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md))
+  settings.md                    front matter: the account and server this machine is
+                                 signed in as (ADR-0720), and engine settings
+  session.lock                   held while the sign-in refreshes
+  bin/epicenter                  the engine (ADR-0713)
   bin/git-lfs                    the copy the engine runs
-  documents/<namespace>/<name>/    the one local copy of each document on this machine
+  documents/<namespace>/<name>/  the one local copy of each document on this machine
+  logs/                          sync logs
 ```
 
-**A folder under the library root needs no registration.** The engine finds
-the folders it syncs by scanning the root's children for a repository whose
-local configuration carries `epicenter.root`, which `epicenter init` already
-writes. `settings.md` lists only the exceptions, folders outside the root, by
-absolute path:
+Secrets stay in the keychain.
 
-```md
----
-folders:
-  - /Volumes/Archive/photos
----
-```
+**No list of folders exists.** The engine finds the folders it syncs by
+scanning the root's children, following links ([ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md)), for a repository
+whose local configuration carries `epicenter.root`, which `epicenter init`
+already writes. A folder stored on another drive is a link inside the root, so
+the same scan finds it.
 
 **Every program finds the engine at `~/.epicenter/bin/epicenter`.** An app
 calls that path; a terminal user adds `~/.epicenter/bin` to `PATH`.
@@ -78,6 +75,8 @@ not data.
   holding `~/.gitconfig` never carries them.
 - An app reads machine state with a file read of `~/.epicenter/settings.md`,
   with no `git` and no knowledge of Epicenter's bundle identifier.
+- `settings.md` holds no folder paths, so nothing in it goes stale when a
+  folder moves.
 - `epicenter sync` with no path scans the root's children each run: one
   directory listing and one configuration read per child.
 - Uninstalling Epicenter leaves `~/.epicenter` behind.

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-03
 - **Supersedes:** [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) (every change to the data model is checked against nine principles): its principles describe browser clones, IndexedDB datasets and a merge that writes no conflict marker, which ADR-0700 and the records cited below replace.
-- **Unbuilt:** ADR-0705 through ADR-0718, which the principles cite, are Proposed and unbuilt in part; the principles describe the model those records build toward.
+- **Unbuilt:** ADR-0705 through ADR-0718 and ADR-0720, which the principles cite, are Proposed and unbuilt in part; the principles describe the model those records build toward.
 
 ## Context
 
@@ -23,6 +23,16 @@ identity. Amending 0627 again would leave most of its sentences describing
 the replaced model.
 
 ## Decision
+
+**Three sentences say where everything is.**
+
+- **Everything you own is in `~/Epicenter`.** Each app keeps its folder there,
+  named by the app's slug. A folder that lives somewhere else is a link inside
+  it.
+- **Everything a machine shares is in `~/.epicenter`.** The sync engine, the
+  sign-in, local copies of documents, and logs. Secrets stay in the keychain.
+- **You sign in a machine, not an app.** One account per machine. Every
+  Epicenter program on it shares that sign-in.
 
 **Every change to the data model is checked against these principles.** The
 cited records govern where a principle and a record differ.
@@ -51,15 +61,16 @@ cited records govern where a principle and a record differ.
    Epicenter's machinery is a third place, `~/.epicenter` ([ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md),
    [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)).
 5. **Find things by convention; store only the exceptions.** A program
-   derives a folder's path from the root and the slug, and Epicenter scans the
-   root. An app writes the folder it first opened, relative to the root; only
-   a folder outside the root is an absolute path, and only folders outside the
-   root are listed in `~/.epicenter/settings.md` ([ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md), [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md),
+   derives a folder's path from the root and the slug, and Epicenter finds
+   every folder by scanning the root, following links. An app writes the name
+   of the folder it first opened; a folder that lives elsewhere is a link
+   inside the root, so no list of folders exists ([ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md), [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md),
    [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md)).
 6. **Apps work alone; Epicenter and the account add capabilities and never
    take custody.** A folder app needs no account and no Epicenter to save
    locally; syncing goes through Epicenter's engine. Signing in
-   grants capabilities, not storage, and inference is independent of sync
+   grants capabilities, not storage, and one sign-in serves every first-party
+   program on the machine ([ADR-0720](0720-you-sign-in-a-machine-not-an-app.md)). Inference is independent of sync
    ([ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md),
    [ADR-0706](0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md),
    [ADR-0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md)).
