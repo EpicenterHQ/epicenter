@@ -14,7 +14,8 @@
  * into a clone.
  */
 
-import { existsSync, type FSWatcher, watch as watchDirectory } from 'node:fs';
+import { type FSWatcher, watch as watchDirectory } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { basename, join, resolve, sep } from 'node:path';
 import {
 	isRepositoryName,
@@ -64,10 +65,9 @@ function reportSetup(
 		for (const warning of value.warnings ?? []) writeErr(`warning: ${warning}`);
 }
 
-/** `epicenter init [<dir>] [--enclosing-ok]`. */
+/** `epicenter init [<dir>]`. */
 export async function initCommand(
 	dir: string | undefined,
-	options: Options,
 	json: boolean,
 	grant: GrantKind,
 ) {
@@ -75,7 +75,6 @@ export async function initCommand(
 	try {
 		const initialized = await init(dir ?? '.', {
 			credential: credentialFor(grant),
-			allowEnclosing: options['enclosing-ok'] === true,
 		});
 		reportSetup('init', initialized, json);
 		return EXIT.ok;
@@ -90,7 +89,6 @@ export async function initCommand(
 export async function connectCommand(
 	dir: string,
 	source: string,
-	options: Options,
 	json: boolean,
 	grant: GrantKind,
 ) {
@@ -102,9 +100,7 @@ export async function connectCommand(
 		);
 	const { connect } = await import('./connect.ts');
 	try {
-		const result = await connect(dir, named.url, {
-			allowEnclosing: options['enclosing-ok'] === true,
-		});
+		const result = await connect(dir, named.url);
 		if (json) writeJson({ connect: result });
 		else
 			writeOut(
@@ -328,22 +324,32 @@ async function watch(
 	roundOf: () => Promise<number>,
 	interval: number,
 ): Promise<never> {
-	const watchers = new Map<string, FSWatcher>();
+	const watchers = new Map<string, { target: string; watcher: FSWatcher }>();
 	let busy = false;
 	let wake = () => {};
 	for (;;) {
-		for (const folder of await folders())
-			if (!watchers.has(folder) && existsSync(folder))
-				watchers.set(
-					folder,
-					watchDirectory(folder, { recursive: true }, (_event, name) => {
-						const path = String(name ?? '')
-							.split(sep)
-							.join('/');
-						if (busy || isHiddenPath(path)) return;
-						wake();
-					}),
-				);
+		for (const folder of await folders()) {
+			const target = await realpath(folder).catch(() => null);
+			const current = watchers.get(folder);
+			if (current?.target === target) continue;
+			current?.watcher.close();
+			watchers.delete(folder);
+			if (target !== null)
+				watchers.set(folder, {
+					target,
+					watcher: watchDirectory(
+						target,
+						{ recursive: true },
+						(_event, name) => {
+							const path = String(name ?? '')
+								.split(sep)
+								.join('/');
+							if (busy || isHiddenPath(path)) return;
+							wake();
+						},
+					),
+				});
+		}
 		busy = true;
 		await roundOf();
 		busy = false;

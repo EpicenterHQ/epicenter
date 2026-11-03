@@ -9,8 +9,7 @@
  *   (a rejected push fetches, merges, and pushes again)
  *
  * Epicenter sync is the only desktop committer (decision 31), and it commits
- * only the data folder's own paths, never the rest of an enclosing
- * repository; fetch, merge, and push are repository-wide. Rounds are
+ * only its own repository. Rounds are
  * serialized per repository by a lock file in its Git directory, so the
  * desktop app's `--watch` and a person's `epicenter sync` take turns.
  *
@@ -142,30 +141,33 @@ export async function syncFolder(
 	options: SyncOptions = {},
 ): Promise<SyncResult> {
 	const notes: string[] = [];
-	let folder = resolve(input);
+	const folder = resolve(input);
+	let target = folder;
 	try {
 		if (!existsSync(folder) || !statSync(folder).isDirectory())
 			throw new Stop(
 				`${folder} does not exist. Run epicenter forget ${folder} if it is gone for good.`,
 				'stopped',
 			);
-		folder = await realpath(folder);
-		const root = await repositoryRoot(folder);
+		target = await realpath(folder);
+		const root = await repositoryRoot(target);
 		if (root === null)
 			throw new Stop(
 				`${folder} is not in a Git repository. Run epicenter init ${folder}.`,
 				'stopped',
 			);
-		// Only a repository init adopted: otherwise a folder inside some other
-		// repository (a home or dotfiles one) would have it pulled and pushed.
-		if ((await config(folder, 'epicenter.root')) !== root)
+		// A boolean in an enclosing repository's config cannot authorize its subfolder.
+		if (
+			root !== target ||
+			(await config(target, 'epicenter.synced')) !== 'true'
+		)
 			throw new Stop(
-				`the repository at ${root} was not set up by epicenter init (or was forgotten), so nothing was committed. Run epicenter init ${folder}.`,
+				`${folder} is not its own synced repository. Run epicenter init ${folder} again.`,
 				'stopped',
 			);
 		const common = resolve(
-			folder,
-			(await must(folder, ['rev-parse', '--git-common-dir'])).trim(),
+			target,
+			(await must(target, ['rev-parse', '--git-common-dir'])).trim(),
 		);
 		const head = await holdingFileLock(
 			join(common, 'epicenter-sync.lock'),
@@ -173,7 +175,7 @@ export async function syncFolder(
 				waitMs: TURN_WAIT_MS,
 				held: `another epicenter sync of ${root} ran for more than ${TURN_WAIT_MS / 1000} seconds; nothing was changed.`,
 			},
-			() => round(folder, root, options, notes),
+			() => round(target, root, options, notes),
 		).catch((cause: unknown) => {
 			if (cause instanceof Stop) throw cause;
 			// The lock could not be taken: another round is still running.
@@ -184,7 +186,7 @@ export async function syncFolder(
 		return { folder, status: 'synced', head, notes };
 	} catch (cause) {
 		if (!(cause instanceof Stop)) throw cause;
-		const head = await git(folder, [
+		const head = await git(target, [
 			'rev-parse',
 			'-q',
 			'--verify',

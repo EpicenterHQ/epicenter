@@ -37,8 +37,8 @@ front end over `status`, `init`, `connect`, `clone`, `sync`, `forget`, `share`, 
 | --- | --- | --- |
 | `epicenter check [<dir> \| <contract> [<dir>]]` | built | Reads `contract` from `<dir>/AGENTS.md` unless a contract is supplied; runs `checkFiles` in `@epicenter/folder/node` |
 | `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
-| `epicenter init [<dir>] [--enclosing-ok]` | built | `src/sync/setup.ts` |
-| `epicenter connect <dir> <namespace>/<name> \| '~/<name>' \| <url> [--enclosing-ok]` | built | `src/sync/connect.ts` |
+| `epicenter init [<dir>]` | built | `src/sync/setup.ts` |
+| `epicenter connect <dir> <namespace>/<name> \| '~/<name>' \| <url>` | built | `src/sync/connect.ts` |
 | `epicenter sync [<dir>] [--watch]` | built | `src/sync/sync.ts` |
 | `epicenter status [<dir>]` | built | `src/sync/status.ts` |
 | `epicenter clone <namespace>/<name> \| <url> \| <path> [<dir>]` | built | `src/sync/clone.ts` |
@@ -132,22 +132,21 @@ with real `git add`, so Git LFS's filters run.
   epicenter merge-driver %O %A %B %P`, the link `install-command` keeps);
   `git lfs install --local`;
   `git lfs pull` for files checked out as pointers; and the folder in the
-  global, multi-valued
-  `epicenter.folder`. A folder inside another repository is refused unless
-  `--enclosing-ok` is passed, and the adopted repository is recorded as
-  `epicenter.root` in its local configuration. Init refuses an unfinished Git
+  global, multi-valued `epicenter.folder`. A folder inside another repository
+  is refused. Its own repository records `epicenter.synced = true` in local
+  configuration. Links are followed for Git operations, while registration
+  keeps the path passed to `init`. Init refuses an unfinished Git
   operation, unmerged entries, or a branch other than `main` before changing
   the control files.
 - `connect <dir> <repository>` adds Git `origin` to an enrolled folder. It
   leaves an existing matching origin alone and refuses a different one.
-  `--enclosing-ok` is required again when the folder sits inside a larger
-  repository, because sync transfers that whole repository. The first sync
-  fetches and merges remote `main` before pushing; without an origin, sync
+  The first sync fetches and merges remote `main` before pushing; without an origin, sync
   still commits local changes.
 - `sync [<dir>]` runs one round per folder, or for every registered folder
   without `<dir>`. Rounds of one repository take turns on
-  `<git dir>/epicenter-sync.lock` (`holdingFileLock`). A round refuses a
-  repository `init` did not adopt, an unfinished merge or rebase, unmerged
+  `<git dir>/epicenter-sync.lock` (`holdingFileLock`). A round refuses a repository
+  without `epicenter.synced = true`, a subfolder of another repository, an
+  unfinished merge or rebase, unmerged
   entries, or a clone without the driver and LFS filters; stages and commits
   only the folder's own paths, never `.epicenter` (the folder's unfinished
   writes, excluded by pathspec whatever `.gitignore` says); fetches `origin`; stops if the remote `main`
@@ -178,7 +177,7 @@ with real `git add`, so Git LFS's filters run.
   `not in a Git repository`, and the rest are still read. With no folder
   registered it prints nothing (and says so on stderr without `--json`) and
   exits 0. The desktop app's Folders window lists its folders from this.
-- `forget [<dir>]` unregisters the folder and unsets `epicenter.root` unless
+- `forget [<dir>]` unregisters the folder and unsets `epicenter.synced` unless
   another registered folder shares the repository.
 - `merge-driver` runs `settle` on a note: the later arrival at the server
   wins a front matter key (`%A` under a merge, `%B` under a rebase), and the

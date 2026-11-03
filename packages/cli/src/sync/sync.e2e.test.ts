@@ -12,8 +12,7 @@
  * gets the sandbox environment and nothing else from this one but `PATH`.
  *
  * Key behaviors:
- * - T0: init refuses an enclosing repository unless --enclosing-ok, and sync
- *   commits only the registered data folder's paths
+ * - T0: init and sync refuse a folder inside an enclosing repository
  * - T1, T2, T2b: notes merge by `settle` through the merge driver; the later
  *   arrival wins a key, under merge and under a person's `pull --rebase`
  * - T3: an edit beats a delete, both ways
@@ -36,7 +35,9 @@ import {
 	mkdtempSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	rmSync,
+	symlinkSync,
 	unlinkSync,
 	writeFileSync,
 } from 'node:fs';
@@ -318,7 +319,7 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'T0: an enclosing repository is adopted only on purpose, and sync commits only the data folder',
+		'T0: an enclosing repository is refused even when it is synced',
 		async () => {
 			const OUTER = join(BOX, 'outer');
 			await git(BOX, 'init', '-q', '-b', 'main', OUTER);
@@ -337,27 +338,152 @@ describe('epicenter sync over stock git', () => {
 			expect(unadopted.code).toBe(2);
 			expect(await quiet(OUTER, 'rev-list', '--count', '--all')).toBe('1');
 
-			const adopted = await init(DATA, '--enclosing-ok');
-			expect(adopted.code).toBe(0);
-			expect(existsSync(join(DATA, '.gitattributes'))).toBe(true);
-			const synced = await syncJson(DATA);
-			expect(synced.code).toBe(0);
-			expect(synced.status.notes).toContain('no remote: committed locally');
-			const committed = (
-				await quiet(OUTER, 'log', '--name-only', '--format=', 'HEAD~2..HEAD')
-			)
-				.split('\n')
-				.filter(Boolean)
-				.sort();
-			expect(committed).toEqual([
-				'data/.gitattributes',
-				'data/.gitignore',
-				'data/note.md',
-			]);
+			expect((await init(OUTER)).code).toBe(0);
+			expect(
+				await quiet(OUTER, 'config', '--local', '--get', 'epicenter.synced'),
+			).toBe('true');
+			const inherited = await syncJson(DATA);
+			expect(inherited.code).toBe(2);
+			expect(inherited.status.message).toContain(
+				`Run epicenter init ${DATA} again`,
+			);
+			expect((await init(DATA)).code).toBe(2);
+			expect(existsSync(join(DATA, '.gitattributes'))).toBe(false);
 			expect((await git(OUTER, 'status', '--porcelain')).stdout).toBe(
-				' M tracked.txt\n?? secret.txt\n',
+				' M tracked.txt\n?? data/\n?? secret.txt\n',
 			);
 			await cli('forget', DATA);
+			await cli('forget', OUTER);
+		},
+		LONG,
+	);
+
+	test(
+		'a linked folder keeps its registration and sync after its target moves',
+		async () => {
+			const real = join(BOX, 'linked-real');
+			const moved = join(BOX, 'linked-moved');
+			const link = join(HOME, 'Epicenter', 'linked');
+			const library = join(BOX, 'library-real');
+			mkdirSync(library);
+			symlinkSync(library, join(HOME, 'Epicenter'));
+			write(real, 'notes/a.md', '---\ntitle: A\n---\nfirst\n');
+			symlinkSync(real, link);
+			const first = await init(link);
+			expect(first.code).toBe(0);
+			expect(first.out).toContain(`${link}:`);
+			expect(
+				await quiet(real, 'config', '--local', '--get', 'epicenter.synced'),
+			).toBe('true');
+			expect(
+				(await git(BOX, 'config', '--global', '--get-all', 'epicenter.folder'))
+					.stdout,
+			).toContain(`${link}\n`);
+			await git(BOX, 'config', '--global', '--add', 'epicenter.folder', real);
+			expect((await init(link)).code).toBe(0);
+			expect(
+				(
+					await git(BOX, 'config', '--global', '--get-all', 'epicenter.folder')
+				).stdout.split('\n'),
+			).not.toContain(real);
+			const status = JSON.parse(
+				(await cli('status', link, '--json')).stdout,
+			).status;
+			expect(status).toMatchObject({
+				folder: link,
+				repository: real,
+				adopted: true,
+				registered: true,
+			});
+			expect(status.changes).toContainEqual({
+				status: '??',
+				path: 'notes/a.md',
+			});
+			expect((await cli('status', '--json')).stdout).toContain(
+				`"folder":"${link}"`,
+			);
+			expect((await syncJson(link)).status).toMatchObject({
+				folder: link,
+				status: 'synced',
+			});
+
+			renameSync(real, moved);
+			unlinkSync(link);
+			symlinkSync(moved, link);
+			write(moved, 'notes/b.md', '---\ntitle: B\n---\nsecond\n');
+			const after = await syncJson(link);
+			expect(after.code).toBe(0);
+			expect(after.status.folder).toBe(link);
+			expect(await quiet(moved, 'show', 'HEAD:notes/b.md')).toContain('second');
+			expect(
+				JSON.parse((await cli('status', link, '--json')).stdout).status
+					.repository,
+			).toBe(moved);
+			expect((await cli('forget', link)).code).toBe(0);
+			expect(
+				await quiet(moved, 'config', '--local', '--get', 'epicenter.synced'),
+			).toBe('');
+		},
+		LONG,
+	);
+
+	test(
+		'init replaces a legacy path entry and a legacy root alone cannot sync',
+		async () => {
+			const real = join(BOX, 'legacy-real');
+			const link = join(BOX, 'legacy-link');
+			mkdirSync(real);
+			symlinkSync(real, link);
+			await git(BOX, 'init', '-q', '-b', 'main', real);
+			await git(real, 'config', '--local', 'epicenter.root', real);
+			await git(BOX, 'config', '--global', '--add', 'epicenter.folder', real);
+			const stopped = await syncJson(link);
+			expect(stopped.status.status).toBe('stopped');
+			expect(stopped.status.message).toContain(
+				`Run epicenter init ${link} again`,
+			);
+			expect((await init(link)).code).toBe(0);
+			expect(
+				await quiet(real, 'config', '--local', '--get', 'epicenter.root'),
+			).toBe('');
+			expect(
+				await quiet(real, 'config', '--local', '--get', 'epicenter.synced'),
+			).toBe('true');
+			expect(
+				(
+					await git(BOX, 'config', '--global', '--get-all', 'epicenter.folder')
+				).stdout.split('\n'),
+			).toContain(link);
+			expect(
+				(
+					await git(BOX, 'config', '--global', '--get-all', 'epicenter.folder')
+				).stdout.split('\n'),
+			).not.toContain(real);
+			expect((await syncJson(link)).status.status).toBe('synced');
+			expect((await cli('forget', real)).code).toBe(0);
+			expect(
+				await quiet(real, 'config', '--local', '--get', 'epicenter.synced'),
+			).toBe('');
+		},
+		LONG,
+	);
+
+	test(
+		'a folder enrolled before moving stays synced through a link at its original path',
+		async () => {
+			const original = join(BOX, 'before-move');
+			const moved = join(BOX, 'after-move');
+			write(original, 'notes/a.md', '---\ntitle: A\n---\nfirst\n');
+			expect((await init(original)).code).toBe(0);
+			renameSync(original, moved);
+			symlinkSync(moved, original);
+			const round = await syncJson(original);
+			expect(round.status).toMatchObject({
+				folder: original,
+				status: 'synced',
+			});
+			expect(await quiet(moved, 'show', 'HEAD:notes/a.md')).toContain('first');
+			expect((await cli('forget', original)).code).toBe(0);
 		},
 		LONG,
 	);

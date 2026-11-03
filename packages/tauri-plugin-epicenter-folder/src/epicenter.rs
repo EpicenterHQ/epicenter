@@ -127,24 +127,13 @@ fn encode_value(value: &str) -> String {
     encoded
 }
 
-/// Whether Epicenter syncs the folder at `root`: `epicenter init` records the
-/// repository it adopted as `epicenter.root` in `<root>/.git/config`, and
-/// `epicenter forget` removes it. A folder with no repository, or one whose
-/// `epicenter.root` names another directory, is not synced. Git itself is
-/// not needed to answer.
+/// Whether Epicenter syncs the folder at `root`: its own repository has
+/// `epicenter.synced = true` in `<root>/.git/config`. Git itself is not needed.
 pub fn synced(root: &Path) -> bool {
     let Ok(config) = fs::read_to_string(root.join(".git/config")) else {
         return false;
     };
-    let Some(recorded) = config_value(&config, "epicenter", "root") else {
-        return false;
-    };
-    let recorded = Path::new(&recorded);
-    recorded == root
-        || matches!(
-            (dunce::canonicalize(recorded), dunce::canonicalize(root)),
-            (Ok(recorded), Ok(root)) if recorded == root
-        )
+    config_value(&config, "epicenter", "synced").as_deref() == Some("true")
 }
 
 /// The last value of `section.key` (no subsection) in Git configuration
@@ -259,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_is_synced_once_init_records_it_as_epicenter_root() {
+    fn a_folder_is_synced_once_init_records_consent() {
         let temp = tempfile::tempdir().unwrap();
         let root = dunce::canonicalize(temp.path()).unwrap().join("Capture");
         fs::create_dir(&root).unwrap();
@@ -269,16 +258,12 @@ mod tests {
         git_config(&root, "[core]\n\tbare = false\n");
         assert!(!synced(&root));
         // As `epicenter init` writes it.
-        git_config(
-            &root,
-            &format!(
-                "[core]\n\tbare = false\n[epicenter]\n\troot = {}\n[remote \"origin\"]\n\turl = x\n",
-                root.display()
-            ),
-        );
+        git_config(&root, "[core]\n\tbare = false\n[epicenter]\n\tsynced = true\n[remote \"origin\"]\n\turl = x\n");
         assert!(synced(&root));
-        // A root naming another repository is not this folder's.
-        git_config(&root, "[epicenter]\n\troot = /elsewhere\n");
+        git_config(&root, "[epicenter]\n\tsynced = false\n");
+        assert!(!synced(&root));
+        // The old path setting does not grant consent.
+        git_config(&root, &format!("[epicenter]\n\troot = {}\n", root.display()));
         assert!(!synced(&root));
     }
 

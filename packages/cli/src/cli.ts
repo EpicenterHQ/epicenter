@@ -29,24 +29,19 @@ type Run = (
 const HANDLERS: Record<string, Run> = {
 	messages: async () => (await import('./messages.js')).messagesCommand(),
 	check: async ({ positionals: [contract, dir], json }) =>
-		(await import('./contract-commands.ts')).check(
-			contract,
-			dir,
-			json,
-		),
+		(await import('./contract-commands.ts')).check(contract, dir, json),
 	format: async ({ positionals: [contract, dir], json }) =>
 		(await import('./contract-commands.ts')).format(
 			contract as string,
 			dir ?? '.',
 			json,
 		),
-	init: async ({ positionals: [dir], options, json, grant }) =>
-		(await import('./sync/commands.ts')).initCommand(dir, options, json, grant),
-	connect: async ({ positionals: [dir, source], options, json, grant }) =>
+	init: async ({ positionals: [dir], json, grant }) =>
+		(await import('./sync/commands.ts')).initCommand(dir, json, grant),
+	connect: async ({ positionals: [dir, source], json, grant }) =>
 		(await import('./sync/commands.ts')).connectCommand(
 			dir as string,
 			source as string,
-			options,
 			json,
 			grant,
 		),
@@ -150,15 +145,13 @@ every other file except dotfiles is Git LFS); the merge driver and the LFS
 filters and hooks in this clone; the LFS bytes for files checked out as
 pointers; and the folder in
 the global epicenter.folder list. A folder inside another repository is
-refused, because sync pulls and pushes that whole repository; --enclosing-ok
-adopts it on purpose (sync still commits only the folder). Exits 0, or 2 when
+refused, because sync pulls and pushes that whole repository. Exits 0, or 2 when
 refused.`,
 	connect: `Adds origin to a folder already set up by epicenter init. The repository
 can be <namespace>/<name>, the signed-in person's '~/name' (quote it so the
 shell does not expand ~), or a URL such as file:// for a local repository.
 An existing origin with the same URL needs no change; a different origin is
-refused. An enclosing repository needs --enclosing-ok because sync transfers
-the entire repository. This command does not run sync, but the desktop's
+refused. This command does not run sync, but the desktop's
 background sync service may fetch and push once origin is configured.`,
 	forget: `Takes <dir> (default: the current directory) out of the global
 epicenter.folder list, and makes sync refuse it until init runs again. Its

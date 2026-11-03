@@ -116,3 +116,20 @@ test('init refuses a folder inside .git or .epicenter before it makes anything, 
 	expect(notes.code).toBe(0);
 	expect(existsSync(join(BOX, 'home/.notes/.git'))).toBe(true);
 }, 60_000);
+
+test('init checks a linked target against home and application data', async () => {
+	const home = join(BOX, 'home');
+	mkdirSync(home, { recursive: true });
+	mkdirSync(join(BOX, 'data'), { recursive: true });
+	for (const [target, name] of [
+		[home, 'home-link'],
+		[join(BOX, 'data'), 'data-link'],
+	] as const) {
+		const link = join(BOX, name);
+		symlinkSync(target, link);
+		const refused = await init(link);
+		expect(refused.code).toBe(2);
+		expect(refused.out).toContain('refused:');
+		expect(existsSync(join(target, '.git'))).toBe(false);
+	}
+}, 60_000);

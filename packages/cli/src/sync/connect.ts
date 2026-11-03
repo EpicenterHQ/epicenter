@@ -6,19 +6,11 @@ import { config, configAll, git, must, originPushUrl } from './git.ts';
 import { Refused } from './setup.ts';
 import { folderStatus } from './status.ts';
 
-export async function connect(
-	input: string,
-	url: string,
-	{ allowEnclosing = false }: { allowEnclosing?: boolean } = {},
-) {
+export async function connect(input: string, url: string) {
 	const status = await folderStatus(input);
 	if (status === null || !status.adopted || !status.registered)
 		throw new Refused(
 			`${input} is not registered for sync. Run epicenter init ${input} first.`,
-		);
-	if (status.repository !== status.folder && !allowEnclosing)
-		throw new Refused(
-			`${status.folder} is inside ${status.repository}. Sync would fetch, merge, and push that whole repository. Pass --enclosing-ok if that is intentional.`,
 		);
 	const common = resolve(
 		status.repository,

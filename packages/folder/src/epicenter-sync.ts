@@ -47,7 +47,7 @@ export async function syncWithEpicenter({
 
 /**
  * Whether Epicenter has adopted the open Data folder for local history:
- * true once `epicenter init` set `epicenter.root`. The historical method
+ * true once `epicenter init` set `epicenter.synced`. The historical method
  * name does not imply that an origin exists or that a remote sync succeeded.
  * Asks again each call, since setup can happen while the app is open.
  */

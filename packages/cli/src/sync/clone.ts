@@ -45,7 +45,7 @@ export function localSource(source: string): CloneSource | undefined {
 export async function clone(
 	{ url, name }: CloneSource,
 	dir: string,
-	options: Omit<InitOptions, 'allowEnclosing'>,
+	options: InitOptions,
 ): Promise<Initialized> {
 	if (name === '') throw new Error(`'${url}' names no repository`);
 	const target = resolve(dir);
