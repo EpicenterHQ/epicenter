@@ -33,7 +33,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '[<dir>]',
 		minArgs: 0,
 		maxArgs: 1,
-		summary: 'set up or repair a data folder for sync, and register it',
+		summary: 'set up or repair a data folder for sync',
 	},
 	{
 		path: ['connect'],
@@ -52,7 +52,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 			{ name: 'interval', value: '<seconds>', hidden: true },
 		],
 		summary:
-			'commit the folder, merge the remote by Epicenter rules, and push; every registered folder without <dir>',
+			'commit the folder, merge the remote by Epicenter rules, and push; every synced library folder without <dir>',
 		long: true,
 	},
 	{
@@ -61,7 +61,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 0,
 		maxArgs: 1,
 		summary:
-			'changed files, ahead and behind, and the remote; every registered folder without <dir>',
+			'changed files, ahead and behind, and the remote; every synced library folder without <dir>',
 	},
 	{
 		path: ['clone'],

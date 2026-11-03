@@ -22,7 +22,7 @@ export type SyncLine = {
 	detail: string | null;
 };
 
-/** The CLI's reasons a registered folder cannot be read, as a row says them. */
+/** The CLI's reasons a synced folder cannot be read, as a row says them. */
 const PROBLEMS: Record<string, string> = {
 	'not on disk': 'Missing from disk',
 	'not in a Git repository': 'Not a Git repository',

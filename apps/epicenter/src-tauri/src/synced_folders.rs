@@ -3,7 +3,7 @@
 //! action here is one CLI call a person or an agent could type.
 //!
 //! - The list is `epicenter status --json`, which reads every folder
-//!   registered in the global Git configuration.
+//!   found under the environment's library root and owner folders.
 //! - The background service is `epicenter sync --watch --json`, run for as
 //!   long as the app runs. Each round it prints `{"sync": {...}}` per folder;
 //!   the last round of each folder is kept here and the Folders window hears
@@ -22,7 +22,7 @@
 //!
 //! A page names a folder by the path the last listing gave it, and a command
 //! refuses any path that listing did not hold: a page can act only on
-//! folders the CLI registered.
+//! folders the CLI found.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -87,7 +87,7 @@ pub struct SyncRound {
     pub ended_at: f64,
 }
 
-/// A registered folder, with its last round.
+/// A synced folder, with its last round.
 #[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncedFolder {
@@ -335,7 +335,7 @@ impl SyncedFolders {
     }
 }
 
-/// One line of `epicenter status --json`: a registered folder's status, or
+/// One line of `epicenter status --json`: a folder's status, or
 /// why it has none.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
@@ -650,7 +650,7 @@ fn error_message(error: &CliError) -> String {
     }
 }
 
-/// The folders the CLI registered, each with its last round.
+/// The folders the CLI found, each with its last round.
 #[tauri::command]
 #[specta::specta]
 pub async fn synced_folders(webview: Webview) -> Result<SyncedFolderListing, CliError> {
@@ -783,7 +783,7 @@ pub fn dismiss_folder_setup(app: DesktopAppHandle, path: String) {
 }
 
 /// `epicenter clone <source>`: a repository as `<owner>/<name>` or a URL,
-/// into the library folder, set up and registered.
+/// into the library folder and set up for sync.
 #[tauri::command]
 #[specta::specta]
 pub async fn clone_synced_folder(
@@ -1036,9 +1036,9 @@ mod tests {
 
     fn status_lines() -> Vec<String> {
         vec![
-            r#"{"status":{"folder":"/a","repository":"/a","branch":"main","head":"h","registered":true,"adopted":true,"changes":[{"status":"??","path":"x.md"}],"remote":"https://git.example/me/a.git","ahead":1,"behind":0}}"#.into(),
+            r#"{"status":{"folder":"/a","repository":"/a","branch":"main","head":"h","adopted":true,"changes":[{"status":"??","path":"x.md"}],"remote":"https://git.example/me/a.git","ahead":1,"behind":0}}"#.into(),
             r#"{"status":{"folder":"/gone","problem":"not on disk"}}"#.into(),
-            r#"{"status":{"folder":"/b","repository":"/b","branch":null,"head":null,"registered":true,"adopted":false,"changes":[],"remote":null,"ahead":null,"behind":null}}"#.into(),
+            r#"{"status":{"folder":"/b","repository":"/b","branch":null,"head":null,"adopted":false,"changes":[],"remote":null,"ahead":null,"behind":null}}"#.into(),
         ]
     }
 

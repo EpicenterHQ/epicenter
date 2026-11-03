@@ -192,20 +192,26 @@ test('clone joins an app-created folder and merges local and remote notes', asyn
 			(
 				await f.git(target, 'config', '--get', 'epicenter.synced')
 			).stdout.trim(),
-		).toBe('true');
+		).toBe('');
 		expect((await f.git(target, 'ls-files', '-u')).stdout.trim()).toBe('');
 		expect(
 			(
 				await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
 			).stdout.trim(),
 		).toBe(before);
-		expect((await f.cli('sync')).code).toBe(2);
+		expect((await f.cli('sync')).code).toBe(0);
+		expect((await f.cli('status', '--json')).stdout).toBe('');
 		expect(
 			(
 				await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
 			).stdout.trim(),
 		).toBe(before);
 		expect((await f.cli('sync', target)).code).toBe(0);
+		expect(
+			(
+				await f.git(target, 'config', '--get', 'epicenter.synced')
+			).stdout.trim(),
+		).toBe('true');
 		expect(
 			(
 				await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
@@ -272,19 +278,6 @@ test('same remote is already cloned; different remote is refused with both URLs'
 		expect(
 			(await f.git(target, 'config', '--unset-all', 'epicenter.synced')).code,
 		).toBe(0);
-		expect(
-			(
-				await f.git(
-					f.box,
-					'config',
-					'--global',
-					'--fixed-value',
-					'--unset-all',
-					'epicenter.folder',
-					target,
-				)
-			).code,
-		).toBe(0);
 		const again = await f.cli('clone', source);
 		expect(again.code, again.out).toBe(0);
 		expect(again.out).toContain('already cloned');
@@ -293,17 +286,6 @@ test('same remote is already cloned; different remote is refused with both URLs'
 				await f.git(target, 'config', '--get', 'epicenter.synced')
 			).stdout.trim(),
 		).toBe('true');
-		expect(
-			(
-				await f.git(
-					f.box,
-					'config',
-					'--global',
-					'--get-all',
-					'epicenter.folder',
-				)
-			).stdout,
-		).toContain(target);
 		expect((await f.git(target, 'rev-parse', 'HEAD')).stdout.trim()).toBe(head);
 		const refused = await f.cli('clone', other);
 		expect(refused.code).not.toBe(0);

@@ -9,9 +9,6 @@
  * another repository's working tree is refused. Consent to sync is recorded
  * as `epicenter.synced = true` in the folder's local repository configuration.
  *
- * Registration is like `git maintenance register`: the multi-valued
- * `epicenter.folder` in production, or `epicenter.devFolder` in development,
- * lists the folders `epicenter sync` (no path) and `sync --watch` keep in sync.
  */
 
 import { existsSync } from 'node:fs';
@@ -24,14 +21,7 @@ import {
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import { resolveAppPaths } from '../app-paths.ts';
 import { canonicalPath, containsPath, reservedSegment } from './admission.ts';
-import {
-	type CredentialFor,
-	config,
-	configAll,
-	git,
-	must,
-	shellQuote,
-} from './git.ts';
+import { type CredentialFor, config, git, must, shellQuote } from './git.ts';
 import { REPOSITORY_IGNORE, withEpicenterBlock } from './managed-block.ts';
 import { repositoryProblem } from './repository-state.ts';
 
@@ -115,26 +105,6 @@ const LFS_CONFIG = [
 	'filter.lfs.required',
 ];
 
-/** The folders registered for sync, as stored. */
-export const registrationKey = () =>
-	process.env.EPICENTER_ENVIRONMENT === 'development'
-		? 'epicenter.devFolder'
-		: 'epicenter.folder';
-
-export const registeredFolders = () =>
-	configAll(undefined, registrationKey(), '--global');
-
-/** A registered spelling that currently points at `target`, if any. */
-export async function registrationFor(
-	registered: readonly string[],
-	target: string,
-): Promise<string | undefined> {
-	for (const entry of registered) {
-		if ((await realpath(entry).catch(() => null)) === target) return entry;
-	}
-	return undefined;
-}
-
 /** The top of the repository `folder` is in, links resolved, or null. */
 export async function repositoryRoot(folder: string): Promise<string | null> {
 	const top = await git(folder, ['rev-parse', '--show-toplevel']);
@@ -172,8 +142,6 @@ export async function identity(cwd: string): Promise<Record<string, string>> {
 export type InitOptions = {
 	/** The token for a remote, asked for by its URL, to pull LFS bytes. */
 	readonly credential?: CredentialFor;
-	/** A join waits for the person's next explicit sync before joining the watch list. */
-	readonly register?: boolean;
 };
 
 export type Initialized = {
@@ -192,7 +160,21 @@ export type Initialized = {
  */
 export async function init(
 	input: string,
-	{ credential, register = true }: InitOptions = {},
+	options: InitOptions = {},
+): Promise<Initialized> {
+	const prepared = await prepareFolder(input, options);
+	const target = await realpath(prepared.folder);
+	if ((await config(target, 'epicenter.synced')) !== 'true') {
+		await must(target, ['config', '--local', 'epicenter.synced', 'true']);
+		prepared.changed.push('epicenter.synced = true');
+	}
+	return prepared;
+}
+
+/** Set up Git and LFS without adding a pending join to the sync scan. */
+export async function prepareFolder(
+	input: string,
+	{ credential }: InitOptions = {},
 ): Promise<Initialized> {
 	await refuseReservedDirectory(input);
 	const folder = resolve(input);
@@ -228,11 +210,6 @@ export async function init(
 	const root = (await repositoryRoot(target)) as string;
 	const problem = await repositoryProblem(root);
 	if (problem !== null) throw new Refused(problem);
-	if ((await config(target, 'epicenter.synced')) !== 'true') {
-		await must(target, ['config', '--local', 'epicenter.synced', 'true']);
-		changed.push('epicenter.synced = true');
-	}
-
 	// 2. Epicenter's blocks of the folder's committed attributes and ignore rules.
 	const managed = [
 		['.gitattributes', REPOSITORY_ATTRIBUTES],
@@ -361,48 +338,12 @@ export async function init(
 		else warnings.push(`git lfs pull failed: ${pulled.stderr.trim()}`);
 	}
 
-	// 6. Registration.
-	if (!register) return { folder, repository: root, changed, warnings };
-	const registered = await registeredFolders();
-	const existing = await registrationFor(registered, target);
-	if (folder !== target && registered.includes(target)) {
-		if (!registered.includes(folder))
-			await must(undefined, [
-				'config',
-				'--global',
-				'--add',
-				registrationKey(),
-				folder,
-			]);
-		await must(undefined, [
-			'config',
-			'--global',
-			'--fixed-value',
-			'--unset-all',
-			registrationKey(),
-			target,
-		]);
-		changed.push(`registered link in global ${registrationKey()}`);
-	} else if (!registered.includes(folder) && existing === undefined) {
-		await must(undefined, [
-			'config',
-			'--global',
-			'--add',
-			registrationKey(),
-			folder,
-		]);
-		changed.push(`registered in global ${registrationKey()}`);
-	} else if (!registered.includes(folder) && existing !== undefined) {
-		warnings.push(`already registered as ${existing}`);
-	}
 	return { folder, repository: root, changed, warnings };
 }
 
 /**
- * Take `input` out of Epicenter's sync: unregister it, and drop
- * `epicenter.synced` unless another registered path shares its repository,
- * so a later sync refuses it until init runs again. The files, the
- * repository, and its history stay as they are.
+ * Take `input` out of Epicenter's sync by clearing local consent.
+ * The files, repository, and history stay as they are.
  */
 export async function forget(
 	input: string,
@@ -410,42 +351,12 @@ export async function forget(
 	const folder = resolve(input);
 	const target = await realpath(folder).catch(() => null);
 	const changed: string[] = [];
-	const registered = await registeredFolders();
-	const exact = [...new Set(registered.filter((entry) => entry === folder))];
-	const matches =
-		exact.length > 0
-			? exact
-			: target === null
-				? []
-				: [...new Set(registered.filter((entry) => entry === target))];
-	if (matches.length === 0 && target !== null) {
-		const alias = await registrationFor(registered, target);
-		if (alias !== undefined) matches.push(alias);
-	}
-	for (const entry of matches) {
-		await must(undefined, [
-			'config',
-			'--global',
-			'--fixed-value',
-			'--unset-all',
-			registrationKey(),
-			entry,
-		]);
-		changed.push(`unregistered from global ${registrationKey()}`);
-	}
 	const root = target === null ? null : await repositoryRoot(target);
 	if (root !== null && root === target) {
-		const others = await Promise.all(
-			registered
-				.filter((other) => !matches.includes(other) && existsSync(other))
-				.map((other) => realpath(other).catch(() => null)),
-		);
-		if (!others.includes(target)) {
-			for (const key of ['epicenter.synced', 'epicenter.joinPending']) {
-				if ((await config(target, key)) === null) continue;
-				await must(target, ['config', '--local', '--unset-all', key]);
-				changed.push(`${key} unset`);
-			}
+		for (const key of ['epicenter.synced', 'epicenter.joinPending']) {
+			if ((await config(target, key)) === null) continue;
+			await must(target, ['config', '--local', '--unset-all', key]);
+			changed.push(`${key} unset`);
 		}
 	}
 	return { folder, changed };

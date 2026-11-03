@@ -1,6 +1,6 @@
 # Epicenter desktop app
 
-Epicenter manages folders: it registers, syncs, shares, and shows the status
+Epicenter manages folders: it sets up, syncs, shares, and shows the status
 of the folders the `epicenter` CLI syncs. Apps are separate programs that read and write those folders
 through the file contract
 ([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md),
@@ -125,11 +125,11 @@ Files split by what they cost to lose (ADR-0539):
 The library and application data are derived, never saved: no configuration
 selects or remembers them. Release and development data remain separate.
 
-The folders Epicenter syncs may sit anywhere on disk. Their list is the
-global Git configuration's multi-valued `epicenter.folder`, which `epicenter
-init`, `clone`, and `forget` change; neither application-data directory
-holds a list of folders. The shell sets no Git configuration of its own, so
-release, development, and a terminal's `epicenter` share that one list.
+Epicenter finds synced folders under `~/Epicenter`, or `~/Epicenter Dev` in
+development. A folder elsewhere is linked inside that library. The CLI scans
+the library root and one level of owner folders, selecting each repository
+whose local Git configuration has `epicenter.synced = true`. Neither
+application-data directory holds a folder list.
 
 Overrides select an explicit location, so pointing both builds at the same
 location deliberately shares those files. Development signs in separately
@@ -203,20 +203,19 @@ capability, `folders.json`, grants no folder plugin command.
 ### The folder list
 
 `synced_folders` runs `epicenter status --json`, which reads every folder in
-the global Git configuration's `epicenter.folder`, and joins each line with
+the environment's library root and owner folders, and joins each line with
 that folder's last round of `epicenter sync --json`. A row shows the folder's
 name, where it syncs to (the `origin`'s `<owner>/<name>`, or "This computer
 only" when it has none), and its last round: synced with a remote, saved
-locally without one, waiting, retrying, or stopped. A
-registered folder the CLI cannot read shows why: missing from disk, not a Git
-repository, or a repository `epicenter init` has not adopted. The shell keeps
+locally without one, waiting, retrying, or stopped. A folder requested for setup shows why it cannot be read, if applicable.
+The scan omits missing folders and repositories without sync consent. The shell keeps
 rounds and requests in memory for this run and saves nothing.
 
 The window lists again when the shell emits
 `epicenter://synced-folders-changed` (a round ended, the service changed, or a
 request arrived) and when it gains focus. A page names a folder by the path
 the last listing held; every command that takes a folder refuses any other
-path, so a page acts only on folders the CLI registered.
+path, so a page acts only on folders the CLI found.
 
 ### Background sync
 

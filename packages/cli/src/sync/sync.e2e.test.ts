@@ -22,7 +22,7 @@
  *   are serialized and a rejected push is retried, so every run succeeds
  * - T7: a rewritten remote main stops sync before it merges
  * - T8: a binary both sides replaced lands as a conflict copy (decision 44)
- * - clone, status, forget, sync of every registered folder, and --watch,
+ * - clone, status, forget, sync of every synced library folder, and --watch,
  *   which a change under a hidden path never wakes, and which a stop signal
  *   in the middle of a merge ends only after the round finishes
  */
@@ -139,11 +139,9 @@ function inHouseStyle(text: string) {
 }
 
 const REMOTE = join(BOX, 'remote.git');
-const [A, B, C] = ['A', 'B', 'C'].map((name) => join(BOX, name)) as [
-	string,
-	string,
-	string,
-];
+const [A, B, C] = ['A', 'B', 'C'].map((name) =>
+	join(HOME, 'Epicenter', name),
+) as [string, string, string];
 const NOTE = 'notes/meeting notes.md';
 let lfs: LfsServer;
 
@@ -208,7 +206,7 @@ describe('epicenter sync over stock git', () => {
 				'.gitignore committed',
 				'merge.epicenter.driver set',
 				'git lfs install --local',
-				'registered',
+				'epicenter.synced = true',
 			])
 				expect(first.out).toContain(step);
 			await connect(A, 'alice');
@@ -225,9 +223,6 @@ describe('epicenter sync over stock git', () => {
 			const again = await init(A);
 			expect(again.out).toContain('nothing to do');
 			expect(await snapshot()).toBe(before);
-			expect(
-				await quiet(BOX, 'config', '--global', '--get-all', 'epicenter.folder'),
-			).toBe(A);
 
 			const attr = await quiet(
 				A,
@@ -359,110 +354,26 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'a linked folder keeps its registration and sync after its target moves',
+		'a linked app folder keeps syncing when its target moves',
 		async () => {
 			const real = join(BOX, 'linked-real');
 			const moved = join(BOX, 'linked-moved');
 			const link = join(HOME, 'Epicenter', 'linked');
-			const library = join(BOX, 'library-real');
-			mkdirSync(library);
-			symlinkSync(library, join(HOME, 'Epicenter'));
 			write(real, 'notes/a.md', '---\ntitle: A\n---\nfirst\n');
 			symlinkSync(real, link);
-			const first = await init(link);
-			expect(first.code).toBe(0);
-			expect(first.out).toContain(`${link}:`);
-			expect(
-				await quiet(real, 'config', '--local', '--get', 'epicenter.synced'),
-			).toBe('true');
-			expect(
-				(await git(BOX, 'config', '--global', '--get-all', 'epicenter.folder'))
-					.stdout,
-			).toContain(`${link}\n`);
-			await git(BOX, 'config', '--global', '--add', 'epicenter.folder', real);
 			expect((await init(link)).code).toBe(0);
-			expect(
-				(
-					await git(BOX, 'config', '--global', '--get-all', 'epicenter.folder')
-				).stdout.split('\n'),
-			).not.toContain(real);
-			const status = JSON.parse(
-				(await cli('status', link, '--json')).stdout,
-			).status;
-			expect(status).toMatchObject({
-				folder: link,
-				repository: real,
-				adopted: true,
-				registered: true,
-			});
-			expect(status.changes).toContainEqual({
-				status: '??',
-				path: 'notes/a.md',
-			});
 			expect((await cli('status', '--json')).stdout).toContain(
 				`"folder":"${link}"`,
 			);
-			expect((await syncJson(link)).status).toMatchObject({
-				folder: link,
-				status: 'synced',
-			});
-
 			renameSync(real, moved);
 			unlinkSync(link);
 			symlinkSync(moved, link);
 			write(moved, 'notes/b.md', '---\ntitle: B\n---\nsecond\n');
-			const after = await syncJson(link);
-			expect(after.code).toBe(0);
-			expect(after.status.folder).toBe(link);
+			expect((await syncJson(link)).status.status).toBe('synced');
 			expect(await quiet(moved, 'show', 'HEAD:notes/b.md')).toContain('second');
-			expect(
-				JSON.parse((await cli('status', link, '--json')).stdout).status
-					.repository,
-			).toBe(moved);
 			expect((await cli('forget', link)).code).toBe(0);
 			expect(
 				await quiet(moved, 'config', '--local', '--get', 'epicenter.synced'),
-			).toBe('');
-		},
-		LONG,
-	);
-
-	test(
-		'init replaces a legacy path entry and a legacy root alone cannot sync',
-		async () => {
-			const real = join(BOX, 'legacy-real');
-			const link = join(BOX, 'legacy-link');
-			mkdirSync(real);
-			symlinkSync(real, link);
-			await git(BOX, 'init', '-q', '-b', 'main', real);
-			await git(real, 'config', '--local', 'epicenter.root', real);
-			await git(BOX, 'config', '--global', '--add', 'epicenter.folder', real);
-			const stopped = await syncJson(link);
-			expect(stopped.status.status).toBe('stopped');
-			expect(stopped.status.message).toContain(
-				`Run epicenter init ${link} again`,
-			);
-			expect((await init(link)).code).toBe(0);
-			expect(
-				await quiet(real, 'config', '--local', '--get', 'epicenter.root'),
-			).toBe(real);
-			expect(
-				await quiet(real, 'config', '--local', '--get', 'epicenter.synced'),
-			).toBe('true');
-			expect(
-				(
-					await git(BOX, 'config', '--global', '--get-all', 'epicenter.folder')
-				).stdout.split('\n'),
-			).toContain(link);
-			expect(
-				(
-					await git(BOX, 'config', '--global', '--get-all', 'epicenter.folder')
-				).stdout.split('\n'),
-			).not.toContain(real);
-			expect((await syncJson(link)).status.status).toBe('synced');
-			expect((await cli('forget', real)).code).toBe(0);
-			expect(
-				await quiet(real, 'config', '--local', '--get', 'epicenter.synced'),
 			).toBe('');
 		},
 		LONG,
@@ -666,7 +577,7 @@ describe('epicenter sync over stock git', () => {
 			const repaired = await init(C);
 			expect(repaired.out).toContain('merge.epicenter.driver set');
 			expect(repaired.out).toContain('git lfs install --local');
-			expect(repaired.out).not.toMatch(/attributes|registered|lfs pull/);
+			expect(repaired.out).not.toMatch(/attributes|epicenter.synced|lfs pull/);
 			expect((await init(C)).out).toContain('nothing to do');
 			expect((await sync(C)).code).toBe(0);
 			expect((await sync(A)).code).toBe(0);
@@ -850,9 +761,9 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'clone: git clone, then init, then the LFS bytes, registered for sync',
+		'clone: git clone, then init, then the LFS bytes, synced for sync',
 		async () => {
-			const D = join(BOX, 'D');
+			const D = join(HOME, 'Epicenter', 'D');
 			// The clone reads LFS bytes from the URL the global config names for this remote.
 			await git(BOX, 'config', '--global', `lfs.${REMOTE}.url`, lfs.url);
 			await git(BOX, 'config', '--global', 'lfs.url', lfs.url);
@@ -865,8 +776,8 @@ describe('epicenter sync over stock git', () => {
 				await quiet(D, 'config', '--local', 'merge.epicenter.driver'),
 			).toBe(`'${EPICENTER}' merge-driver %O %A %B %P`);
 			expect(
-				await quiet(BOX, 'config', '--global', '--get-all', 'epicenter.folder'),
-			).toContain(D);
+				await quiet(D, 'config', '--local', '--get', 'epicenter.synced'),
+			).toBe('true');
 			expect(await quiet(D, 'status', '--porcelain')).toBe('');
 		},
 		LONG,
@@ -883,7 +794,6 @@ describe('epicenter sync over stock git', () => {
 				folder: A,
 				repository: A,
 				branch: 'main',
-				registered: true,
 				remote: REMOTE,
 				ahead: 0,
 				behind: 0,
@@ -897,7 +807,7 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'sync without a path syncs every registered folder; forget unregisters one',
+		'sync without a path scans synced library folders; forget clears consent',
 		async () => {
 			const all = await cli('sync', '--json');
 			const lines = all.stdout
@@ -905,7 +815,7 @@ describe('epicenter sync over stock git', () => {
 				.split('\n')
 				.map((line) => JSON.parse(line).sync as SyncLine);
 			expect(lines.map((line) => line.folder).sort()).toEqual(
-				[A, B, C, join(BOX, 'D')].sort(),
+				[A, B, C, join(HOME, 'Epicenter', 'D')].sort(),
 			);
 			expect(lines.filter((line) => line.status !== 'synced')).toEqual([]);
 			expect(all.code).toBe(0);
@@ -916,8 +826,8 @@ describe('epicenter sync over stock git', () => {
 			const forgot = await cli('forget', C);
 			expect(forgot.code).toBe(0);
 			expect(
-				await quiet(BOX, 'config', '--global', '--get-all', 'epicenter.folder'),
-			).not.toContain(C);
+				await quiet(C, 'config', '--local', '--get', 'epicenter.synced'),
+			).toBe('');
 			const refused = await sync(C);
 			expect(refused.code).toBe(2);
 			expect(refused.out).toContain('epicenter init');
@@ -926,13 +836,12 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'status without a path reads every registered folder, and names one gone from disk',
+		'status without a path omits removed and unsynced folders',
 		async () => {
-			const M = join(BOX, 'M');
+			const M = join(HOME, 'Epicenter', 'M');
 			mkdirSync(M);
 			expect((await init(M)).code).toBe(0);
 			rmSync(M, { recursive: true, force: true });
-
 			const all = await cli('status', '--json');
 			expect(all.code).toBe(0);
 			const lines = all.stdout
@@ -940,23 +849,11 @@ describe('epicenter sync over stock git', () => {
 				.split('\n')
 				.map((line) => JSON.parse(line).status);
 			expect(lines.map((line) => line.folder).sort()).toEqual(
-				[A, B, join(BOX, 'D'), M].sort(),
+				[A, B, join(HOME, 'Epicenter', 'D')].sort(),
 			);
-			expect(lines.find((line) => line.folder === M)).toEqual({
-				folder: M,
-				problem: 'not on disk',
-			});
-			expect(lines.find((line) => line.folder === A)).toMatchObject({
-				registered: true,
-				adopted: true,
-				remote: REMOTE,
-			});
-			const text = await cli('status');
-			expect(text.out).toContain(`${M}: not on disk`);
-
-			expect((await cli('forget', M)).code).toBe(0);
-			const after = await cli('status', '--json');
-			expect(after.stdout).not.toContain(M);
+			expect(lines.some((line) => line.folder === C || line.folder === M)).toBe(
+				false,
+			);
 		},
 		LONG,
 	);

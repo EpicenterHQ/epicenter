@@ -6,7 +6,7 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 export const commands = {
 	/**  Show Settings: the Folders window's Settings button (ADR-0537). */
 	openHome: () => __TAURI_INVOKE<void>("open_home"),
-	/**  The folders the CLI registered, each with its last round. */
+	/**  The folders the CLI found, each with its last round. */
 	syncedFolders: () => typedError<SyncedFolderListing, CliError>(__TAURI_INVOKE("synced_folders")),
 	/**
 	 *  Choose a folder with the native picker and queue a setup preview: `None`
@@ -22,7 +22,7 @@ export const commands = {
 	dismissFolderSetup: (path: string) => __TAURI_INVOKE<void>("dismiss_folder_setup", { path }),
 	/**
 	 *  `epicenter clone <source>`: a repository as `<owner>/<name>` or a URL,
-	 *  into the library folder, set up and registered.
+	 *  into the library folder and set up for sync.
 	 */
 	cloneSyncedFolder: (source: string) => typedError<FolderSetUp, CliError>(__TAURI_INVOKE("clone_synced_folder", { source })),
 	/**  Attach an enrolled folder to an origin through the CLI. */
@@ -184,7 +184,7 @@ export type SyncService = { state: "starting" } | { state: "running" } | { state
  */
 export type SyncStatus = "synced" | "retry" | "stopped";
 
-/**  A registered folder, with its last round. */
+/**  A synced folder, with its last round. */
 export type SyncedFolder = {
 	path: string,
 	name: string,

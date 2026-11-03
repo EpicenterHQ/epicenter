@@ -28,6 +28,7 @@ import {
 	type Initialized,
 	type InitOptions,
 	init,
+	prepareFolder,
 	refuseReservedDirectory,
 	repositoryRoot,
 } from './setup.ts';
@@ -198,10 +199,10 @@ async function joinExisting(
 					`${target} fetches from ${url} but pushes to ${push}; cannot join remote ${url}`,
 				);
 			const pending = (await config(root, 'epicenter.joinPending')) === 'true';
-			return {
-				...(await init(target, { ...options, register: !pending })),
-				alreadyCloned: true,
-			};
+			const setup = pending
+				? await prepareFolder(target, options)
+				: await init(target, options);
+			return { ...setup, alreadyCloned: true };
 		}
 	}
 	let sameContract = false;
@@ -243,10 +244,21 @@ async function joinExisting(
 		throw new Error(
 			`cannot join ${target} with ${url}: ${engine} is missing. Install Epicenter to provide the engine.`,
 		);
-	const setup = await init(target, { ...options, register: false });
+	const setup = await prepareFolder(target, options);
 	await must(target, ['config', '--local', 'epicenter.joinPending', 'true']);
+	if ((await config(target, 'epicenter.synced')) === 'true')
+		await must(target, [
+			'config',
+			'--local',
+			'--unset-all',
+			'epicenter.synced',
+		]);
 	await connect(target, url, true);
-	const round = await syncFolder(target, { ...options, publish: false });
+	const round = await syncFolder(target, {
+		...options,
+		publish: false,
+		allowPending: true,
+	});
 	const sync = {
 		...round,
 		notes: [
@@ -268,7 +280,7 @@ async function createParents(path: string, created: string[]) {
 	await mkdir(path, { recursive: true });
 }
 
-/** Clone or join. A join never publishes; the first explicit sync registers it. */
+/** Clone or join. A join never publishes; the first explicit sync consents to watch. */
 export async function clone(
 	{ url, name, accountOwned }: CloneSource,
 	dir: string | undefined,

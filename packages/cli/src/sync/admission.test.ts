@@ -185,16 +185,6 @@ test('a refused init inside an enclosing repository leaves no directory', async 
 	expect(existsSync(join(parent, 'new'))).toBe(false);
 }, 60_000);
 
-test('development registration uses a separate global key', async () => {
-	const production = join(BOX, 'prod-folder');
-	const development = join(BOX, 'dev-folder');
-	expect((await init(production)).code).toBe(0);
-	expect((await init(development, 'development')).code).toBe(0);
-	const config = readFileSync(join(BOX, 'home', '.gitconfig'), 'utf8');
-	expect(config).toContain('folder = ' + production);
-	expect(config).toContain('devFolder = ' + development);
-}, 60_000);
-
 test('init refuses a folder inside .git or .epicenter before it makes anything, and sets up ~/.notes', async () => {
 	for (const dir of ['x/.git/y', 'x/.EPICENTER/y']) {
 		const refused = await init(dir);

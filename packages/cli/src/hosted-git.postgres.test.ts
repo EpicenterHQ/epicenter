@@ -251,11 +251,8 @@ test('init, a remote added by hand, and sync create the repository; clone and sy
 	const created = await epicenter('sync', folder, '--json');
 	expect(created.code).toBe(0);
 	expect(JSON.parse(created.stdout).sync.status).toBe('synced');
-	// Init only registers the folder in the global configuration; the
-	// credential helper there is the one `auth login` wrote.
-	expect(await readFile(globalConfig, 'utf8')).toBe(
-		`${globalBefore}[epicenter]\n\tfolder = ${folder}\n`,
-	);
+	// Init leaves the global configuration, including the credential helper, alone.
+	expect(await readFile(globalConfig, 'utf8')).toBe(globalBefore);
 
 	const listing = await epicenter('repos', '--json');
 	expect(listing.code).toBe(0);

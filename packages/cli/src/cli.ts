@@ -128,7 +128,7 @@ the deployment's Git origin with a username, an access token as the password,
 and password_expiry_utc; any other host gets no answer. store and erase do
 nothing. Takes no --json.`,
 	status: `Prints the folder's branch and commit, the files under it that changed since
-the last sync, whether it is registered, and its remote with how far ahead
+the last sync, whether it is set up for sync, and its remote with how far ahead
 and behind it was at the last fetch. Reads only: it fetches nothing and
 writes nothing. With --json, {"status": {...}}. <dir> defaults to the current
 directory. A folder not yet in a repository reports its problem. Exits 0.`,
@@ -181,7 +181,7 @@ Notes merge by Epicenter's rules: front matter by key, the later arrival
 winning, and the body by line with one conflict block per clash. An edit
 beats a delete, and a file both sides replaced keeps the remote's and lands
 this one beside it as "<name> (conflict <hash>).<ext>". Without <dir>, syncs
-every folder init registered. Syncs of one repository take turns. --watch
+every synced folder found in the library. Syncs of one repository take turns. --watch
 syncs again after each change and every 30 seconds until stopped. With
 --json, one {"sync": {...}} line per folder per round. Exits 0 when every
 folder synced, 1 when a round should run again (a lock, the network), and 2

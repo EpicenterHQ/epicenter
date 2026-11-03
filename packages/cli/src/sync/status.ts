@@ -3,8 +3,8 @@
  * `git status --porcelain` over what sync would commit (`COMMITTED`: the
  * folder, never its unfinished writes in `.epicenter`), compares `HEAD`
  * with the last fetched `origin/main`, and names whether the folder is
- * registered.
- * Without `<dir>` it reads every registered folder (`registeredStatus`).
+ * synced.
+ * Without `<dir>` the command scans the library for synced folders.
  * It fetches nothing and writes nothing.
  */
 
@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import { config, git } from './git.ts';
-import { registeredFolders, registrationFor, repositoryRoot } from './setup.ts';
+import { repositoryRoot } from './setup.ts';
 import { COMMITTED, MAGIC } from './sync.ts';
 
 export type FolderStatus = {
@@ -22,7 +22,6 @@ export type FolderStatus = {
 	readonly branch: string | null;
 	/** The commit `HEAD` is at, or null before the first commit. */
 	readonly head: string | null;
-	readonly registered: boolean;
 	/** Whether this folder is its own repository with sync consent. */
 	readonly adopted: boolean;
 	/** Each changed path under the folder, relative to it, with its porcelain status. */
@@ -33,14 +32,14 @@ export type FolderStatus = {
 	readonly behind: number | null;
 };
 
-/** A registered folder whose status cannot be read, and why. */
+/** A folder whose status cannot be read, and why. */
 export type FolderProblem = {
 	readonly folder: string;
 	readonly problem: 'not on disk' | 'not in a Git repository';
 };
 
-/** The status of a folder as registered, or the reason it has none. */
-export async function registeredStatus(
+/** The status of a folder, or the reason it has none. */
+export async function folderStatusOrProblem(
 	folder: string,
 ): Promise<FolderStatus | FolderProblem> {
 	if (!existsSync(folder)) return { folder, problem: 'not on disk' };
@@ -60,31 +59,23 @@ export async function folderStatus(
 	const target = await realpath(folder);
 	const root = await repositoryRoot(target);
 	if (root === null) return null;
-	const [branch, head, adopted, remote, registered, porcelain, counts] =
-		await Promise.all([
-			git(root, ['symbolic-ref', '-q', '--short', 'HEAD']),
-			git(root, ['rev-parse', '-q', '--verify', 'HEAD']),
-			config(root, 'epicenter.synced'),
-			config(root, 'remote.origin.url'),
-			registeredFolders(),
-			git(
-				target,
-				[
-					'status',
-					'--porcelain=v1',
-					'-z',
-					'--untracked-files=all',
-					...COMMITTED,
-				],
-				MAGIC,
-			),
-			git(root, [
-				'rev-list',
-				'--left-right',
-				'--count',
-				'HEAD...refs/remotes/origin/main',
-			]),
-		]);
+	const [branch, head, adopted, remote, porcelain, counts] = await Promise.all([
+		git(root, ['symbolic-ref', '-q', '--short', 'HEAD']),
+		git(root, ['rev-parse', '-q', '--verify', 'HEAD']),
+		config(root, 'epicenter.synced'),
+		config(root, 'remote.origin.url'),
+		git(
+			target,
+			['status', '--porcelain=v1', '-z', '--untracked-files=all', ...COMMITTED],
+			MAGIC,
+		),
+		git(root, [
+			'rev-list',
+			'--left-right',
+			'--count',
+			'HEAD...refs/remotes/origin/main',
+		]),
+	]);
 	const changes: { status: string; path: string }[] = [];
 	const entries = porcelain.stdout.split('\0');
 	for (let i = 0; i < entries.length; i++) {
@@ -108,7 +99,6 @@ export async function folderStatus(
 		repository: root,
 		branch: branch.code === 0 ? branch.stdout.trim() : null,
 		head: head.code === 0 ? head.stdout.trim() : null,
-		registered: (await registrationFor(registered, target)) !== undefined,
 		adopted: root === target && adopted === 'true',
 		changes,
 		remote,

@@ -26,9 +26,10 @@ import {
 import { isHiddenPath } from '@epicenter/definition/contract';
 import type { GrantKind } from '../auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
+import { syncedFolders } from './discovery.ts';
 import type { CredentialFor } from './git.ts';
 import { mergeDriver } from './merge-driver.ts';
-import { Refused, registeredFolders } from './setup.ts';
+import { Refused } from './setup.ts';
 import type { FolderStatus } from './status.ts';
 import type { SyncResult } from './sync.ts';
 
@@ -211,24 +212,26 @@ async function repositorySource(source: string, grant?: GrantKind) {
 
 /**
  * `epicenter status [<dir>]`: one folder, or without `<dir>` every
- * registered one, like `sync`. A registered folder that cannot be read
+ * synced one, like `sync`. A folder that cannot be read
  * reports `{ folder, problem }` instead of failing the rest.
  */
 export async function statusCommand(dir: string | undefined, json: boolean) {
-	const { registeredStatus } = await import('./status.ts');
+	const { folderStatusOrProblem } = await import('./status.ts');
 	if (dir === undefined) {
-		const folders = await registeredFolders();
+		const folders = await syncedFolders();
 		if (folders.length === 0 && !json)
-			writeErr('No folder is registered for sync; run epicenter init <dir>.');
+			writeErr(
+				'No synced folder found in the Epicenter library; run epicenter init <dir>.',
+			);
 		for (const folder of folders) {
-			const status = await registeredStatus(folder);
+			const status = await folderStatusOrProblem(folder);
 			if (json) writeJson({ status });
 			else if ('problem' in status) writeOut(`${folder}: ${status.problem}`);
 			else writeStatus(status);
 		}
 		return EXIT.ok;
 	}
-	const status = await registeredStatus(dir);
+	const status = await folderStatusOrProblem(dir);
 	if (json) writeJson({ status });
 	else if ('problem' in status) writeOut(`${status.folder}: ${status.problem}`);
 	else writeStatus(status);
@@ -239,8 +242,8 @@ function writeStatus(status: FolderStatus) {
 	writeOut(
 		[
 			`${status.folder} on ${status.branch ?? 'a detached HEAD'} at ${status.head?.slice(0, 7) ?? 'no commit yet'}`,
-			status.adopted && status.registered
-				? 'Registered for local history and sync.'
+			status.adopted
+				? 'Synced for local history and sync.'
 				: `Not synced: run epicenter init ${status.folder}.`,
 			status.changes.length === 0
 				? 'No changes since the last sync.'
@@ -274,7 +277,7 @@ function reportSync(result: SyncResult, json: boolean) {
 		);
 }
 
-/** `epicenter sync [<dir>] [--watch]`: one folder, or every registered one. */
+/** `epicenter sync [<dir>] [--watch]`: one folder, or every synced one. */
 export async function syncCommand(
 	dir: string | undefined,
 	options: Options,
@@ -301,7 +304,7 @@ export async function syncCommand(
 	onStop(endGitCommands);
 	const credential = credentialFor(grant);
 	const folders = async () =>
-		dir === undefined ? registeredFolders() : [resolve(dir)];
+		dir === undefined ? syncedFolders() : [resolve(dir)];
 	const roundOf = async () => {
 		let exit: number = EXIT.ok;
 		for (const folder of await folders()) {
@@ -339,7 +342,9 @@ export async function syncCommand(
 
 	if (options.watch !== true) {
 		if ((await folders()).length === 0) {
-			writeErr('No folder is registered for sync; run epicenter init <dir>.');
+			writeErr(
+				'No synced folder found in the Epicenter library; run epicenter init <dir>.',
+			);
 			return EXIT.ok;
 		}
 		return roundOf();
@@ -373,7 +378,13 @@ async function watch(
 	let busy = false;
 	let wake = () => {};
 	for (;;) {
-		for (const folder of await folders()) {
+		const currentFolders = await folders();
+		for (const [folder, entry] of watchers) {
+			if (currentFolders.includes(folder)) continue;
+			entry.watcher.close();
+			watchers.delete(folder);
+		}
+		for (const folder of currentFolders) {
 			const target = await realpath(folder).catch(() => null);
 			const current = watchers.get(folder);
 			if (current?.target === target) continue;

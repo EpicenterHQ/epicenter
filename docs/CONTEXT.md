@@ -30,7 +30,7 @@ The decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in-code-on-th
 | Directory | A physical filesystem location. In ordinary explanations, folder can name a disk directory; qualify a browser folder when its private storage matters. |
 | Remembered path | An optional machine-local shortcut shared by Epicenter desktop and CLI. It grants no access and does not configure where a standalone app saves. |
 | Repository | A Git repository; repo is its shorthand, not another concept. A hosted repository also has a stable service ID, a changeable label, and membership. |
-| Clone | An independent local copy of a repository. A desktop folder registered with `epicenter init` is a clone; a web app never holds one. |
+| Clone | An independent local copy of a repository. A desktop folder set up with `epicenter init` is a clone; a web app never holds one. |
 | Remote or sync destination | The Git endpoint configured for synchronization. The remote URL does not identify the local dataset or grant access to it. |
 | Table | A reader's view of immediate Markdown rows in one named top-level directory. Apps or selected schemas name tables; marker files do not. |
 | Row | One table's `<id>.md` file, interpreted as frontmatter fields and a Markdown body. |
@@ -66,10 +66,10 @@ online web variant opens the repository with `openRemote`.
 Epicenter keeps no records of its own in the library, `~/Epicenter` (`~/Epicenter Dev`
 in development); the standalone apps keep their folders there.
 
-The folders Epicenter syncs are the global Git configuration's multi-valued
-`epicenter.folder`, which `epicenter init`, `clone`, and `forget` change; the
-desktop's Folders window runs those commands, and no AppData file lists
-folders. A CLI `open <directory>` command remains unbuilt. A data folder's
+Epicenter finds synced folders under the environment's library root and
+one owner level. Each folder's local Git configuration records consent as
+`epicenter.synced = true`. The desktop's Folders window runs the CLI's
+commands, and no AppData file lists folders. A CLI `open <directory>` command remains unbuilt. A data folder's
 `epicenter.json` has the separate portable declaration role described next.
 
 Local dataset is a countable way to describe the local data an app selected,
@@ -134,7 +134,7 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | Save | Acknowledged local persistence of an edit. It does not promise a Git commit or remote receipt. |
 | Write | A file or storage operation. A client's write is conditional on the version its writer read. It is not a second kind of dataset or an automatic upload. |
 | Commit or version | A fixed Git snapshot. Prefer commit in technical text; version can explain it in a UI. |
-| Sync | `epicenter sync`: commit a registered folder's files with `git add`, fetch, merge, and push. It is the only desktop committer; the server commits web writes. Apps never commit. |
+| Sync | `epicenter sync`: commit a synced folder's files with `git add`, fetch, merge, and push. It is the only desktop committer; the server commits web writes. Apps never commit. |
 | Merge | Combine base, current, and incoming (the later arrival): a front matter key goes to the later arrival; the body merges by line, then by word; an edit beats a delete. Schemas do not choose merge behavior. |
 | Conflict block, conflict copy | What a merge leaves when both sides changed the same spot: one block of whole lines in a note's body, or, for a binary file, the later bytes beside it as `<stem> (conflict <hash7>).<ext>`. Both are ordinary file content. |
 | History | The commits Git records. Overwritten intermediate saves need not be recoverable. |

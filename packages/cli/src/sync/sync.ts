@@ -1,5 +1,5 @@
 /**
- * One round of `epicenter sync` for one registered data folder, over the
+ * One round of `epicenter sync` for one data folder, over the
  * system `git` (decisions 21, 31, 33, 41, 44, 52):
  *
  *   guards -> git add -A -- <folder> but its .epicenter -> commit those paths
@@ -161,19 +161,17 @@ export async function syncFolder(
 				'stopped',
 			);
 		// A boolean in an enclosing repository's config cannot authorize its subfolder.
+		const pending = (await config(target, 'epicenter.joinPending')) === 'true';
 		if (
 			root !== target ||
-			(await config(target, 'epicenter.synced')) !== 'true'
+			((await config(target, 'epicenter.synced')) !== 'true' &&
+				!(pending && options.allowPending === true))
 		)
 			throw new Stop(
 				`${folder} is not its own synced repository. Run epicenter init ${folder} again.`,
 				'stopped',
 			);
-		if (
-			(await config(target, 'epicenter.joinPending')) === 'true' &&
-			options.publish !== false &&
-			options.allowPending !== true
-		)
+		if (pending && options.publish !== false && options.allowPending !== true)
 			throw new Stop(
 				`${folder} is waiting to publish local files. Run epicenter sync ${folder} explicitly.`,
 				'stopped',
