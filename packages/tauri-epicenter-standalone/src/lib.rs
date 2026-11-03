@@ -1,27 +1,24 @@
-//! Standalone startup: one app, two roots, one primary window (decisions 88
-//! to 97).
+//! Standalone startup: one app, two roots, one primary window.
 //!
 //! An installed app keeps two roots. Its **AppData root** is fixed: the
 //! operating system's application data directory for the app, one per
 //! installation, never synced and never chosen. Its settings notes sit at its
 //! top (`settings.md`, `shortcuts.md`), as the same notes sit at the top of
-//! the data root. Its **data root** is the person's files:
-//! `~/Epicenter/<productName>` by default (`~/Epicenter/<App> Dev` for the
-//! development configuration, which overrides `productName`), or the folder
-//! the person picked with "Choose data folder…", which the page remembers as
-//! `folder` in the AppData root's `settings.md`. Only the data root is ever
-//! synced (by Epicenter).
+//! the data root. Its **data root** is the person's files, derived from the
+//! app's declared production site under `~/Epicenter` or `~/Epicenter Dev`.
+//! For this transition, the page may still use a folder remembered in its
+//! AppData settings. Only the data root is ever synced (by Epicenter).
 //!
-//! Rust never reads or writes a settings note, names no path to the page, and
-//! grants no folder itself: Tauri does. Startup makes the AppData root and
-//! opens the window bound to it. The page finds both roots with Tauri's path
-//! API and opens them through the folder plugin (`openAppData` and
-//! `openDataFolder` in `@epicenter/folder/tauri`), which opens a data folder
-//! only when Tauri's runtime file-system scope allows it: startup allows the
-//! default (`default_folder`), the dialog plugin's `open` allows a folder the
-//! person picks, and `tauri-plugin-persisted-scope` keeps those across
-//! launches (in the AppData root's `.persisted-scope`). No capability names
-//! a folder.
+//! Rust never reads or writes a settings note. Startup grants the derived
+//! data folder through Tauri's file-system scope, keeps its resolved path for
+//! the folder plugin to answer, makes the AppData root, and opens the window
+//! bound to it. The page opens both roots through the folder plugin
+//! (`openAppData` and `openDataFolder` in `@epicenter/folder/tauri`), which
+//! opens a data folder only when Tauri's runtime file-system scope allows it:
+//! startup allows the derived folder, the dialog plugin's `open` allows a
+//! folder the person picks, and `tauri-plugin-persisted-scope` keeps those
+//! across launches (in the AppData root's `.persisted-scope`). No capability
+//! names a folder.
 //! The folder plugin refuses the places no app keeps its files in
 //! (`scope::Refusals`).
 //!
@@ -35,15 +32,18 @@ use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-use tauri_plugin_epicenter_folder::{Directory, FolderExt};
+use tauri_plugin_epicenter_folder::{scope::Refusals, DataFolder, Directory, FolderExt};
 use tauri_plugin_fs::FsExt;
+
+pub mod data_folder;
 
 #[derive(Clone, Copy, Debug)]
 pub struct StandaloneApp {
     /// The window-label prefix its capability selects (`<page>:*`).
     pub page: &'static str,
-    /// The app's name, in its windows and messages. Its default folder is
-    /// named for the configured `productName` (`default_folder`).
+    /// The app's declared production origin, which names its data folder.
+    pub site: &'static str,
+    /// The app's name, in its windows and messages.
     pub title: &'static str,
     /// The primary window's logical width and height.
     pub size: (f64, f64),
@@ -63,7 +63,7 @@ pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
         .manage(app)
         .setup(move |application| {
             let handle = application.handle().clone();
-            let started = allow_default_folder(&handle).and_then(|()| {
+            let started = allow_data_folder(&handle, app.site).and_then(|()| {
                 handle
                     .path()
                     .app_data_dir()
@@ -77,25 +77,54 @@ pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
         })
 }
 
-/// `~/Epicenter/<productName>`: the data folder a page opens when its
-/// `settings.md` names none. `productName` is the merged configuration's
-/// (`package_info().name`, what the page's `getName()` answers), so the
-/// development configuration's `<App> Dev` gets its own folder.
-pub fn default_folder<R: Runtime>(handle: &AppHandle<R>) -> Result<PathBuf, String> {
+/// The data folder this build derives from its site and bundle identifier.
+pub fn data_folder<R: Runtime>(handle: &AppHandle<R>, site: &str) -> Result<PathBuf, String> {
     let home = handle
         .path()
         .home_dir()
         .map_err(|error| error.to_string())?;
-    Ok(home.join("Epicenter").join(&handle.package_info().name))
+    let root = data_folder::root(
+        &home,
+        &handle.config().identifier,
+        std::env::var_os("EPICENTER_FOLDER_DIR").as_deref(),
+    );
+    let relative = data_folder::relative_path(site).map_err(|error| error.to_string())?;
+    Ok(root.join(relative))
 }
 
-/// Allow this build's own default folder, and everything in it, in Tauri's
-/// runtime file-system scope, the one grant the folder plugin consults.
-fn allow_default_folder<R: Runtime>(handle: &AppHandle<R>) -> Result<(), String> {
+/// Grant the derived folder and keep the same resolved path for the page.
+fn allow_data_folder<R: Runtime>(handle: &AppHandle<R>, site: &str) -> Result<(), String> {
+    let folder = data_folder(handle, site)?;
+    grant_data_folder(handle, &folder)
+}
+
+fn grant_data_folder<R: Runtime>(handle: &AppHandle<R>, folder: &Path) -> Result<(), String> {
+    let resolved = if folder.exists() {
+        dunce::canonicalize(folder).map_err(|error| error.to_string())?
+    } else {
+        folder.to_path_buf()
+    };
+    if folder
+        .parent()
+        .is_some_and(|parent| parent.starts_with(&resolved))
+    {
+        return Err(format!(
+            "{} contains the app's folder root and cannot be its data folder",
+            resolved.display()
+        ));
+    }
+    if let Some(reason) = Refusals::resolve(handle)
+        .map_err(|error| format!("{error:?}"))?
+        .refusal(&resolved)
+    {
+        return Err(reason);
+    }
     handle
         .fs_scope()
-        .allow_directory(default_folder(handle)?, true)
-        .map_err(|error| error.to_string())
+        .allow_directory(&resolved, true)
+        .map_err(|error| error.to_string())?;
+    handle.manage(DataFolder(resolved));
+    Ok(())
 }
 
 /// Make the AppData root `config` and open the window bound to it; the page
@@ -165,6 +194,7 @@ mod tests {
 
     const NOTES: StandaloneApp = StandaloneApp {
         page: "notes",
+        site: "https://notes.epicenter.so",
         title: "Notes",
         size: (960.0, 720.0),
     };
@@ -173,7 +203,7 @@ mod tests {
         app: App<MockRuntime>,
         /// The AppData root.
         config: PathBuf,
-        /// The default data folder, `~/Epicenter/Notes`.
+        /// The derived data folder, `~/Epicenter/notes`.
         default: PathBuf,
         base: PathBuf,
         _temp: tempfile::TempDir,
@@ -209,7 +239,7 @@ mod tests {
         Fixture {
             app,
             config: base.join("home/Library/Application Support/so.epicenter.notes"),
-            default: base.join("home/Epicenter/Notes"),
+            default: base.join("home/Epicenter/notes"),
             base,
             _temp: temp,
         }
@@ -356,29 +386,55 @@ mod tests {
         assert_eq!(open(&window, &unplugged, false).unwrap(), json!(unplugged));
     }
 
-    /// Startup allows `~/Epicenter/<productName>`, the merged configuration's
-    /// name the page's `getName()` answers, and only it: a folder beside it
-    /// stays not granted. Nothing on disk is touched.
+    /// Startup grants the derived folder and nothing beside it.
     #[test]
-    fn startup_allows_this_builds_own_default_folder() {
+    fn startup_allows_this_builds_derived_folder() {
         let fixture = fixture();
         let handle = fixture.app.handle();
-        let default = default_folder(handle).unwrap();
-        assert_eq!(
-            default,
-            handle
-                .path()
-                .home_dir()
-                .unwrap()
-                .join("Epicenter")
-                .join(&handle.package_info().name)
-        );
+        let default = &fixture.default;
         assert!(!handle.fs_scope().is_allowed(&default));
-        allow_default_folder(handle).unwrap();
+        grant_data_folder(handle, default).unwrap();
         assert!(handle.fs_scope().is_allowed(&default));
         assert!(handle.fs_scope().is_allowed(default.join("notes/a.md")));
         assert!(!handle
             .fs_scope()
             .is_allowed(default.with_file_name("Elsewhere")));
+        assert_eq!(handle.state::<DataFolder>().0, *default);
+        let window = fixture.start();
+        assert_eq!(
+            call(&window, "data_folder", json!({})).unwrap(),
+            json!(default)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_folder_is_granted_by_its_target() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = fixture();
+        let target = fixture.base.join("archive/notes");
+        fs::create_dir_all(&target).unwrap();
+        fs::create_dir_all(fixture.default.parent().unwrap()).unwrap();
+        symlink(&target, &fixture.default).unwrap();
+        let handle = fixture.app.handle();
+        grant_data_folder(handle, &fixture.default).unwrap();
+        assert_eq!(handle.state::<DataFolder>().0, target);
+        assert!(handle.fs_scope().is_allowed(&target));
+        assert!(handle.fs_scope().is_allowed(target.join("a.md")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_the_library_root_is_not_granted_recursively() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = fixture();
+        let library = fixture.default.parent().unwrap();
+        fs::create_dir_all(library).unwrap();
+        symlink(library, &fixture.default).unwrap();
+        let handle = fixture.app.handle();
+        assert!(grant_data_folder(handle, &fixture.default).is_err());
+        assert!(!handle.fs_scope().is_allowed(library.join("other-app")));
     }
 }

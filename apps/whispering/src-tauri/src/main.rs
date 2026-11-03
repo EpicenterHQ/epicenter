@@ -25,6 +25,7 @@ include!("command_names.rs");
 /// Wide: the recordings and the open one side by side.
 const WHISPERING: StandaloneApp = StandaloneApp {
     page: "whispering",
+    site: "https://whispering.epicenter.so",
     title: "Whispering",
     size: (1100.0, 760.0),
 };

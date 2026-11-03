@@ -21,6 +21,7 @@ include!("command_names.rs");
 /// Wide: the chat history, the conversation, and its focus words side by side.
 const VOCAB: StandaloneApp = StandaloneApp {
     page: "vocab",
+    site: "https://vocab.epicenter.so",
     title: "Vocab",
     size: (1100.0, 760.0),
 };

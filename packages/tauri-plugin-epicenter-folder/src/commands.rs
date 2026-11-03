@@ -22,7 +22,18 @@ use tauri::ipc::Channel;
 use tauri::{Manager, Runtime, Webview};
 
 use crate::scope::admit;
-use crate::{Directory, DirectoryError, FolderChanged, Folders, WindowError};
+use crate::{DataFolder, Directory, DirectoryError, FolderChanged, Folders, WindowError};
+
+/// The data folder the standalone shell derived and granted at startup.
+#[tauri::command]
+#[specta::specta]
+pub fn data_folder<R: Runtime>(webview: Webview<R>) -> Result<String, WindowError> {
+    let folder = webview
+        .app_handle()
+        .try_state::<DataFolder>()
+        .ok_or(WindowError::NotBound)?;
+    Ok(folder.0.to_string_lossy().into_owned())
+}
 
 /// Run blocking work off the window thread.
 async fn blocking<T: Send + 'static>(

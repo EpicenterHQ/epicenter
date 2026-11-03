@@ -4,6 +4,7 @@ Open the folder the shell bound to this window, and other folders (and resolve t
 
 #### This default permission set includes the following:
 
+- `allow-data-folder`
 - `allow-open-folder`
 - `allow-resolve-folder`
 - `allow-list-folder`
@@ -20,6 +21,32 @@ Open the folder the shell bound to this window, and other folders (and resolve t
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`epicenter-folder:allow-data-folder`
+
+</td>
+<td>
+
+Enables the data_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-data-folder`
+
+</td>
+<td>
+
+Denies the data_folder command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>

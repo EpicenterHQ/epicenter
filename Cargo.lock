@@ -1332,6 +1332,7 @@ dependencies = [
 name = "epicenter-standalone"
 version = "0.0.1"
 dependencies = [
+ "dunce",
  "serde",
  "serde_json",
  "tauri",
@@ -1340,6 +1341,7 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-persisted-scope",
  "tempfile",
+ "url",
 ]
 
 [[package]]

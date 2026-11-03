@@ -14,6 +14,7 @@ use epicenter_standalone::StandaloneApp;
 /// Wide enough for the list beside the open todo.
 const TODOS: StandaloneApp = StandaloneApp {
     page: "todos",
+    site: "https://todos.epicenter.so",
     title: "Todos",
     size: (960.0, 720.0),
 };

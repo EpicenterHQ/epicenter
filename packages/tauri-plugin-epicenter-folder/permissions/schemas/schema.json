@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the data_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-data-folder",
+          "markdownDescription": "Enables the data_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the data_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-data-folder",
+          "markdownDescription": "Denies the data_folder command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_folder command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-folder",
@@ -379,10 +391,10 @@
           "markdownDescription": "Denies the synced_with_epicenter command without any pre-configured scope."
         },
         {
-          "description": "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-resolve-folder`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`",
+          "description": "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-data-folder`\n- `allow-open-folder`\n- `allow-resolve-folder`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-resolve-folder`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`"
+          "markdownDescription": "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-data-folder`\n- `allow-open-folder`\n- `allow-resolve-folder`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`"
         }
       ]
     }

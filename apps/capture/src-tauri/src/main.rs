@@ -14,6 +14,7 @@ use epicenter_standalone::StandaloneApp;
 /// Narrow and tall: the timeline and one capture, a column at a time.
 const CAPTURE: StandaloneApp = StandaloneApp {
     page: "capture",
+    site: "https://capture.epicenter.so",
     title: "Capture",
     size: (760.0, 720.0),
 };

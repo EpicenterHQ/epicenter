@@ -3,10 +3,9 @@
  * to 94). The AppData root is the operating system's application data
  * directory for the app: machine-local, never synced, its `settings.md`
  * holding `folder` only when the person chose a data folder. The data root
- * is the person's files: `folder`, or `~/Epicenter/<productName>` by default,
- * the app's configured name (`Capture`, or `Capture Dev` in development,
- * whose configuration also gives it its own AppData). Both are found with
- * Tauri's own APIs; the shell names no path to the page.
+ * is the person's files: `folder`, or the path the shell derives from the
+ * app's site under `~/Epicenter` or `~/Epicenter Dev`. The shell answers
+ * that path to the page; Tauri's path API answers the AppData path.
  *
  * Tauri decides which folders a window may open, through its runtime
  * file-system scope: the standalone shell allows the app's default data
@@ -26,9 +25,8 @@ import type {
 	ClientError,
 	Contract,
 } from '@epicenter/definition/contract';
-import { getName } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
-import { appDataDir, homeDir, join } from '@tauri-apps/api/path';
+import { appDataDir } from '@tauri-apps/api/path';
 import { Ok, type Result } from 'wellcrafted/result';
 import { OpenDeviceError } from './errors.js';
 import { commands } from './native/bindings.gen.js';
@@ -63,9 +61,8 @@ export async function openAppData<TContract extends SettingsContract>(
 
 /**
  * The data root's client: the folder `appData`'s `settings.md` names, or
- * the default `~/Epicenter/<productName>` when it names none (`getName()`,
- * the configured `productName`, which the development configuration
- * overrides). Only the default is made when missing; a chosen folder that
+ * the shell's derived folder when it names none. Only the default is made
+ * when missing; a chosen folder that
  * is gone is `Missing`, never made again and never replaced by another.
  */
 export async function openDataFolder<TContract extends Contract>(
@@ -87,10 +84,13 @@ export async function openDataFolder<TContract extends Contract>(
 	});
 }
 
-/** `~/Epicenter/<productName>`: the data folder `settings.md` names none of. */
+/** The shell's derived data folder, used when `settings.md` names none. */
 async function defaultDataFolder(): Promise<Result<string, OpenDeviceError>> {
 	try {
-		return Ok(await join(await homeDir(), 'Epicenter', await getName()));
+		const folder = await commands.dataFolder();
+		return folder.error === null
+			? Ok(folder.data)
+			: OpenDeviceError.StorageUnavailable({ cause: folder.error });
 	} catch (cause) {
 		return OpenDeviceError.StorageUnavailable({ cause });
 	}

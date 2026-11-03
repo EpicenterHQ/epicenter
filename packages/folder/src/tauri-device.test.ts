@@ -15,8 +15,8 @@
  * - A storage refusal is `Unavailable`; a page outside Tauri opens nothing
  * - The shell's watcher reaches a collection's listeners, and every handle
  *   over a root hears it whichever opened last
- * - The data folder is the one `settings.md` names, or
- *   `~/Epicenter/<productName>`, which alone is made when missing
+ * - The data folder is the one `settings.md` names, or the path the shell
+ *   derives from the site, which alone is made when missing
  * - The folder picker answers the folder picked by its canonical path, or
  *   null when cancelled; picking remembers that path in `settings.md`, or
  *   forgets `folder` when it is the default, however either was spelled
@@ -35,9 +35,9 @@ import {
 
 let shell: GrantedShell;
 let inTauri = true;
-/** The home directory and app name Tauri's APIs answer. */
+/** The home directory Tauri answers and the data folder the shell answers. */
 let home = '/home';
-let productName = 'Notes';
+let dataFolder = '/home/Epicenter/notes';
 /** What the folder picker answers next, and what it was asked. */
 let picked: string | null = null;
 const pickerAsked: unknown[] = [];
@@ -57,6 +57,8 @@ mock.module('@tauri-apps/api/core', () => ({
 			pickerAsked.push((body as { options: unknown }).options);
 			return Promise.resolve(picked);
 		}
+		if (cmd === 'plugin:epicenter-folder|data_folder')
+			return Promise.resolve(dataFolder);
 		return shell.invoke(cmd, body, options);
 	},
 }));
@@ -64,9 +66,6 @@ mock.module('@tauri-apps/api/path', () => ({
 	appDataDir: async () => shell.root,
 	homeDir: async () => home,
 	join: async (...parts: string[]) => join(...parts),
-}));
-mock.module('@tauri-apps/api/app', () => ({
-	getName: async () => productName,
 }));
 
 const {
@@ -104,6 +103,7 @@ beforeEach(async () => {
 	shell = createGrantedShell(await grantedDirectory('tauri-device-'));
 	inTauri = true;
 	picked = null;
+	dataFolder = '/home/Epicenter/notes';
 	pickerAsked.length = 0;
 });
 
@@ -295,10 +295,10 @@ test('each root hears only its own watcher', async () => {
 	stopThere();
 });
 
-test('the data folder is ~/Epicenter/<productName> when settings.md names none, made when missing', async () => {
+test('the data folder comes from the shell when settings.md names none, made when missing', async () => {
 	home = await allowed('tauri-device-home-');
-	const fallback = join(home, 'Epicenter', 'Notes Dev');
-	productName = 'Notes Dev';
+	const fallback = join(home, 'Epicenter Dev', 'notes');
+	dataFolder = fallback;
 	shell = createGrantedShell(shell.root, { grants: [fallback] });
 	const appData = unwrap(await openAppData(notesSettings));
 	const device = unwrap(await openDataFolder(notes, { appData }));
@@ -307,7 +307,6 @@ test('the data folder is ~/Epicenter/<productName> when settings.md names none, 
 		'title: Default',
 	);
 	expect(shell.opened.at(-1)?.root).toBe(fallback);
-	productName = 'Notes';
 });
 
 test('a folder settings.md names opens as it is: never made, and NotGranted until picked', async () => {
@@ -384,6 +383,7 @@ test('the default folder is forgotten when picked, however its path is spelled',
 	home = join(await allowed('tauri-device-link-'), 'home');
 	await symlink(real, home);
 	const fallback = join(home, 'Epicenter', 'Notes');
+	dataFolder = fallback;
 	await mkdir(join(real, 'Epicenter', 'Notes'), { recursive: true });
 	const appData = unwrap(await openAppData(notesSettings));
 	expectOk(await rememberFolder(appData, '/elsewhere'));

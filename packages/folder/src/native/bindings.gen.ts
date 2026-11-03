@@ -4,6 +4,8 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
+	/**  The data folder the standalone shell derived and granted at startup. */
+	dataFolder: () => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|data_folder")),
 	/**
 	 *  Open the root at the absolute path `root` for the calling window and
 	 *  watch it, answering its canonical path, by which the page names it from

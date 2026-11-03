@@ -1,6 +1,7 @@
 /// Every command this plugin exposes. The build script generates a permission
 /// for each, and a test checks the list against the registered handlers.
 pub const COMMANDS: &[&str] = &[
+    "data_folder",
     "open_folder",
     "resolve_folder",
     "list_folder",

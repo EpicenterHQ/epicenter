@@ -36,6 +36,7 @@
 //! Each opened binding owns one recursive native watch. Its private channel
 //! tells the page which paths may differ; the page owns reading those paths.
 
+use std::path::PathBuf;
 use tauri::plugin::TauriPlugin;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 
@@ -56,6 +57,9 @@ pub use folders::{BindError, Folders, WindowError};
 pub use watch::FolderChanged;
 pub use windows::{FolderExt, OpenWindowError};
 
+/// The resolved data folder granted by a standalone shell at startup.
+pub struct DataFolder(pub PathBuf);
+
 const PLUGIN_NAME: &str = "epicenter-folder";
 
 /// The typed command contract. The TypeScript bindings in
@@ -68,6 +72,7 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
         .plugin_name(PLUGIN_NAME)
         .commands(tauri_specta::collect_commands![
+            commands::data_folder::<tauri::Wry>,
             commands::open_folder::<tauri::Wry>,
             commands::resolve_folder::<tauri::Wry>,
             commands::list_folder::<tauri::Wry>,

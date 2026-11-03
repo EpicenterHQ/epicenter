@@ -9,6 +9,7 @@ license = "AGPL-3.0-or-later"
 publish = false
 
 [dependencies]
+dunce = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = "2.12"
@@ -19,6 +20,7 @@ tauri-plugin-epicenter-folder = { path = "../tauri-plugin-epicenter-folder" }
 # across launches.
 tauri-plugin-fs = "2.7"
 tauri-plugin-persisted-scope = "2.4"
+url = "2"
 
 [dev-dependencies]
 tauri = { version = "2.12", features = ["test"] }

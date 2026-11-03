@@ -7,6 +7,7 @@
 [default]
 description = "Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them."
 permissions = [
+  "allow-data-folder",
   "allow-open-folder",
   "allow-resolve-folder",
   "allow-list-folder",

@@ -14,6 +14,7 @@ use epicenter_standalone::StandaloneApp;
 /// Wide: the folders, the notes, and the open note side by side.
 const HONEYCRISP: StandaloneApp = StandaloneApp {
     page: "honeycrisp",
+    site: "https://honeycrisp.epicenter.so",
     title: "Honeycrisp",
     size: (1100.0, 760.0),
 };

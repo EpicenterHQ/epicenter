@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-data-folder"
+description = "Enables the data_folder command without any pre-configured scope."
+commands.allow = ["data_folder"]
+
+[[permission]]
+identifier = "deny-data-folder"
+description = "Denies the data_folder command without any pre-configured scope."
+commands.deny = ["data_folder"]
