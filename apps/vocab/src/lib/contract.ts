@@ -13,7 +13,7 @@
  *
  * Vocab's settings (the tutor model chosen and the endpoints connected) are
  * this device's, not the learner's data, so there is no settings note.
- * Its name makes the repository `<account>/vocab`. Published, unchanged, as
+ * The app's site names its repository `~/vocab`. Published, unchanged, as
  * `static/contract.json` (`bun run contract`), so `epicenter check
  * <url>/contract.json <dir>` checks a clone.
  */

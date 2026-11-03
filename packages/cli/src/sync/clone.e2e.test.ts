@@ -129,16 +129,24 @@ test('implicit clone falls back when AGENTS.md or its contract key is missing', 
 	try {
 		const absent = await f.remote('absent');
 		const noKey = await f.remote('no-key', '---\ntitle: Plain\n---\nplain\n');
+		const owner = await f.remote('zhongwen.bradenwong.com');
 		const a = await f.cli('clone', absent);
 		const b = await f.cli('clone', noKey);
+		const c = await f.cli('clone', owner);
 		expect(a.code).toBe(0);
 		expect(b.code).toBe(0);
+		expect(c.code).toBe(0);
 		expect(a.out).toContain('no AGENTS.md');
 		expect(b.out).toContain('no contract key');
 		expect(existsSync(join(f.library, 'absent', 'notes', 'remote.md'))).toBe(
 			true,
 		);
 		expect(existsSync(join(f.library, 'no-key', 'AGENTS.md'))).toBe(true);
+		expect(
+			existsSync(
+				join(f.library, 'bradenwong.com', 'zhongwen', 'notes/remote.md'),
+			),
+		).toBe(true);
 	} finally {
 		f.cleanup();
 	}
@@ -170,7 +178,11 @@ test('clone joins an app-created folder and merges local and remote notes', asyn
 		const target = join(f.library, 'whispering');
 		f.write(target, 'AGENTS.md', contract('https://whispering.epicenter.so'));
 		f.write(target, 'notes/local.md', '---\ntitle: Local\n---\nlocal note\n');
-		const joined = await f.cli('clone', source);
+		expect((await f.cli('init', target)).code).toBe(0);
+		const before = (
+			await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
+		).stdout.trim();
+		const joined = await f.cli('clone', source, '--join');
 		expect(joined.code).toBe(0);
 		expect(existsSync(join(target, 'notes', 'remote.md'))).toBe(true);
 		expect(readFileSync(join(target, 'notes', 'local.md'), 'utf8')).toContain(
@@ -182,6 +194,23 @@ test('clone joins an app-created folder and merges local and remote notes', asyn
 			).stdout.trim(),
 		).toBe('true');
 		expect((await f.git(target, 'ls-files', '-u')).stdout.trim()).toBe('');
+		expect(
+			(
+				await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
+			).stdout.trim(),
+		).toBe(before);
+		expect((await f.cli('sync')).code).toBe(2);
+		expect(
+			(
+				await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
+			).stdout.trim(),
+		).toBe(before);
+		expect((await f.cli('sync', target)).code).toBe(0);
+		expect(
+			(
+				await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
+			).stdout.trim(),
+		).not.toBe(before);
 		expect(noTemps(f.library)).toEqual([]);
 	} finally {
 		f.cleanup();
@@ -213,7 +242,7 @@ test('join reports a note conflict and keeps both versions in the note', async (
 			'notes/shared.md',
 			'---\ntitle: Shared\n---\nlocal version\n',
 		);
-		const joined = await f.cli('clone', source);
+		const joined = await f.cli('clone', source, '--join');
 		expect(joined.code).toBe(0);
 		expect(joined.out).toContain('conflict block written');
 		const note = readFileSync(join(target, 'notes/shared.md'), 'utf8');
@@ -238,16 +267,81 @@ test('same remote is already cloned; different remote is refused with both URLs'
 		);
 		const target = join(f.library, 'whispering');
 		expect((await f.cli('clone', source)).code).toBe(0);
+		expect((await f.cli('clone', source, target)).out).toContain('--join');
 		const head = (await f.git(target, 'rev-parse', 'HEAD')).stdout.trim();
+		expect(
+			(await f.git(target, 'config', '--unset-all', 'epicenter.synced')).code,
+		).toBe(0);
+		expect(
+			(
+				await f.git(
+					f.box,
+					'config',
+					'--global',
+					'--fixed-value',
+					'--unset-all',
+					'epicenter.folder',
+					target,
+				)
+			).code,
+		).toBe(0);
 		const again = await f.cli('clone', source);
 		expect(again.code, again.out).toBe(0);
 		expect(again.out).toContain('already cloned');
+		expect(
+			(
+				await f.git(target, 'config', '--get', 'epicenter.synced')
+			).stdout.trim(),
+		).toBe('true');
+		expect(
+			(
+				await f.git(
+					f.box,
+					'config',
+					'--global',
+					'--get-all',
+					'epicenter.folder',
+				)
+			).stdout,
+		).toContain(target);
 		expect((await f.git(target, 'rev-parse', 'HEAD')).stdout.trim()).toBe(head);
 		const refused = await f.cli('clone', other);
 		expect(refused.code).not.toBe(0);
 		expect(refused.out).toContain(source);
 		expect(refused.out).toContain(other);
 		expect(noTemps(f.library)).toEqual([]);
+	} finally {
+		f.cleanup();
+	}
+}, 60_000);
+
+test('an implicit non-account join and an occupied explicit directory require --join', async () => {
+	const f = fixture();
+	try {
+		const source = await f.remote(
+			'whispering',
+			contract('https://whispering.epicenter.so'),
+		);
+		const target = join(f.library, 'whispering');
+		f.write(target, 'AGENTS.md', contract('https://whispering.epicenter.so'));
+		f.write(target, 'notes/local.md', 'local');
+		const implicit = await f.cli('clone', source);
+		expect(implicit.code).toBe(2);
+		expect(implicit.out).toContain(target);
+		expect(implicit.out).toContain('2 local file(s)');
+		expect(implicit.out).toContain(source);
+		expect(implicit.out).toContain('--join');
+		const explicit = await f.cli('clone', source, target);
+		expect(explicit.code).toBe(2);
+		expect(explicit.out).toContain('--join');
+		expect(existsSync(join(target, '.git'))).toBe(false);
+		const invalid = await f.remote(
+			'invalid-note',
+			contract('http://whispering.epicenter.so'),
+		);
+		const checked = await f.cli('clone', invalid, target, '--join');
+		expect(checked.code).toBe(2);
+		expect(checked.out).toContain('invalidSiteUrl');
 	} finally {
 		f.cleanup();
 	}
@@ -263,12 +357,21 @@ test('failed clone removes its temporary checkout and leaves no destination', as
 		const failed = await f.cli('clone', source);
 		expect(failed.code).not.toBe(0);
 		expect(existsSync(join(f.library, 'invalid'))).toBe(false);
+		expect(existsSync(f.library)).toBe(false);
 		expect(noTemps(f.library)).toEqual([]);
 		const explicit = join(f.box, 'explicit-failure');
 		const missing = await f.cli('clone', join(f.box, 'missing.git'), explicit);
 		expect(missing.code).not.toBe(0);
 		expect(existsSync(explicit)).toBe(false);
 		expect(noTemps(f.box)).toEqual([]);
+		const nested = join(f.box, 'created-parent', 'child', 'target');
+		const nestedFailure = await f.cli(
+			'clone',
+			join(f.box, 'missing.git'),
+			nested,
+		);
+		expect(nestedFailure.code).not.toBe(0);
+		expect(existsSync(join(f.box, 'created-parent'))).toBe(false);
 	} finally {
 		f.cleanup();
 	}

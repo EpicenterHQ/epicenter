@@ -124,6 +124,10 @@ export type SyncResult = {
 export type SyncOptions = {
 	/** The token for the remote, asked for by its URL. */
 	readonly credential?: CredentialFor;
+	/** Joining fetches and merges now; publishing waits for explicit sync. */
+	readonly publish?: boolean;
+	/** The CLI sets this only for a person's explicit, one-shot folder sync. */
+	readonly allowPending?: boolean;
 };
 
 class Stop extends Error {
@@ -163,6 +167,15 @@ export async function syncFolder(
 		)
 			throw new Stop(
 				`${folder} is not its own synced repository. Run epicenter init ${folder} again.`,
+				'stopped',
+			);
+		if (
+			(await config(target, 'epicenter.joinPending')) === 'true' &&
+			options.publish !== false &&
+			options.allowPending !== true
+		)
+			throw new Stop(
+				`${folder} is waiting to publish local files. Run epicenter sync ${folder} explicitly.`,
 				'stopped',
 			);
 		const common = resolve(
@@ -273,7 +286,7 @@ export const MAGIC = { env: { GIT_LITERAL_PATHSPECS: '0' } };
 async function round(
 	folder: string,
 	root: string,
-	{ credential }: SyncOptions,
+	{ credential, publish = true }: SyncOptions,
 	notes: string[],
 ): Promise<string> {
 	const problem = await repositoryProblem(root);
@@ -341,6 +354,9 @@ async function round(
 			(await sha(root, 'HEAD')) === (await sha(root, REMOTE_MAIN))
 		)
 			return sha(root, 'HEAD');
+		if (!publish) {
+			return sha(root, 'HEAD');
+		}
 
 		const uploaded = await git(root, ['lfs', 'push', 'origin', 'HEAD'], {
 			credential: auth,

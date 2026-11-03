@@ -80,12 +80,16 @@ owner's 12-character id (`epicenter repos` lists them).
   `https` remote only; an `http` one, as a local server, uses the helper).
   `credentials.e2e.test.ts` holds this to an `https` stand-in that refuses
   any request without the token.
-- `epicenter clone <namespace>/<name> [<dir>]` clones into `<dir>` when given.
-  Without it, the CLI reads the cloned `AGENTS.md` contract URL and derives
-  a path under `~/Epicenter` from the app's site. If the note or its contract
-  key is missing, it uses the repository name. It joins a folder already at
-  the destination when its remote is compatible. A URL or local path is
-  cloned as given.
+- `epicenter clone <namespace>/<name> [<dir>]` first clones into a temporary
+  folder. Without `<dir>`, it reads the cloned `AGENTS.md` contract URL and
+  derives a path under `~/Epicenter` from the app's site. Without a contract,
+  a host-shaped repository name produces an owner folder; another name is
+  used directly. An occupied folder joins automatically only when it is at
+  that derived path, its own note names the same contract, and the remote is
+  the account's own repository for that app. Other joins require `--join`,
+  including an occupied explicit `<dir>`. Joining fetches and merges locally
+  without publishing. The next explicit `epicenter sync <dir>` publishes and
+  registers the folder for watched sync.
 - `epicenter repos` lists the repositories of every namespace the sign-in may
   reach, the personal one first. With `--json`:
   `{"namespaces": [{"id", "title", "personal", "role", "repositories":
@@ -135,7 +139,8 @@ with real `git add`, so Git LFS's filters run.
   epicenter merge-driver %O %A %B %P`, the link `install-command` keeps);
   `git lfs install --local`;
   `git lfs pull` for files checked out as pointers; and the folder in the
-  global, multi-valued `epicenter.folder`. A folder inside another repository
+  global, multi-valued `epicenter.folder` in production or
+  `epicenter.devFolder` in development. A folder inside another repository
   is refused. Its own repository records `epicenter.synced = true` in local
   configuration. Links are followed for Git operations, while registration
   keeps the path passed to `init`. Init refuses an unfinished Git

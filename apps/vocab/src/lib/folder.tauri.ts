@@ -1,13 +1,8 @@
 /**
  * What Vocab's desktop window opens besides its data folder (decisions 88 to
- * 94): its AppData root's settings contract, and where Vocab publishes its
- * contract. Only the desktop leaves import this.
+ * 94): its AppData root's settings contract. Only the desktop leaves import this.
  */
-import { APPS } from '@epicenter/constants/apps';
 import { defineContract } from '@epicenter/definition/contract';
-
-/** Where Vocab's web app publishes its contract (`static/contract.json`). */
-export const CONTRACT_URL = `${APPS.VOCAB.url}/contract.json`;
 
 /**
  * Vocab's settings notes on this computer (decisions 86 to 89), at the top

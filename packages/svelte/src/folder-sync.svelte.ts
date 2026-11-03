@@ -16,14 +16,14 @@ import { on } from 'svelte/events';
 /**
  * Call while a component initializes; it listens for the window's focus for
  * that component's life. `device` is the data folder's client, and
- * `contract` is the URL the app's contract is published at (an app constant: deployment, not data).
+ * `site` is the app's production site.
  */
 export function folderSync({
 	device,
-	contract,
+	site,
 }: {
 	device: Client<Contract>;
-	contract: string;
+	site: string;
 }) {
 	const path = displayPath(device);
 	let managed = $state(false);
@@ -68,7 +68,9 @@ export function folderSync({
 		},
 		requestSetup() {
 			void ask(async () => {
-				const { error } = await syncWithEpicenter({ contract });
+				const { error } = await syncWithEpicenter({
+					contract: `${site}/contract.json`,
+				});
 				return error === null
 					? { ok: true }
 					: { ok: false, message: error.message };

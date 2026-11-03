@@ -4,7 +4,7 @@
  * the body (`document.ts` reads them). Capture has no settings, so it has no
  * settings note, and no other files.
  *
- * Its name makes the repository `<account>/capture` (decision 46). The app
+ * The app's site names its repository `~/capture`. The app
  * publishes it, unchanged, as `apps/capture/static/contract.json`, so
  * `epicenter check <url>/contract.json <dir>` checks a clone.
  *

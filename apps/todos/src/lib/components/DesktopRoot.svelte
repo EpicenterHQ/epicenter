@@ -10,19 +10,19 @@
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
 	import type { Snippet } from 'svelte';
 	import type { Todos } from '../contract.js';
-	import { CONTRACT_URL } from '../folder.tauri.js';
-	import { setTodos } from '../todos.js';
+		import { setTodos } from '../todos.js';
 
 	let {
 		device,
+		site,
 		children,
-	}: { device: Client<Todos>; children: Snippet } = $props();
+	}: { site: string; device: Client<Todos>; children: Snippet } = $props();
 
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally
 	setTodos(fromClient(device).todos);
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ device, contract: CONTRACT_URL }));
+	setFolderSync(folderSync({ device, site }));
 </script>
 
 {@render children()}

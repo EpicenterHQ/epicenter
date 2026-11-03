@@ -48,7 +48,6 @@ const webLeaves = [
 ];
 const desktopLeaves = [
 	'root.tauri.ts',
-	'folder.tauri.ts',
 	'components/Startup.svelte',
 	'components/DesktopRoot.svelte',
 	'components/DesktopChrome.svelte',

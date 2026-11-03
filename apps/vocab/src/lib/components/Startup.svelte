@@ -5,17 +5,18 @@
 -->
 <script lang="ts">
 	import DesktopStartup from '@epicenter/svelte/desktop-startup';
+	import { APPS } from '@epicenter/constants/apps';
 	import type { Snippet } from 'svelte';
 	import { authReady } from '../auth.tauri.js';
 	import { vocab } from '../contract.js';
-	import { CONTRACT_URL, vocabSettings } from '../folder.tauri.js';
+	import { vocabSettings } from '../folder.tauri.js';
 	import DesktopRoot from './DesktopRoot.svelte';
 
 	let { children: pages }: { children: Snippet } = $props();
 </script>
 
-<DesktopStartup app="Vocab" settings={vocabSettings} contract={vocab} contractUrl={CONTRACT_URL} ready={authReady}>
-	{#snippet children(appData, device)}
-		{#if appData}<DesktopRoot {appData} {device}>{@render pages()}</DesktopRoot>{/if}
+<DesktopStartup app="Vocab" settings={vocabSettings} contract={vocab} site={APPS.VOCAB.url} ready={authReady}>
+	{#snippet children(appData, device, site)}
+		{#if appData}<DesktopRoot {appData} {device} {site}>{@render pages()}</DesktopRoot>{/if}
 	{/snippet}
 </DesktopStartup>

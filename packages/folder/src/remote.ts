@@ -44,6 +44,7 @@ type RemoteLocation =
  * `@epicenter/auth` `Account`) reaches: `repository`, `<owner>/<name>` where
  * `<owner>` is a person's handle (`~` for the account's own), by default
  * `~/<name derived from site>`. A version is the Git blob id on `main`.
+ * When both `site` and `repository` are supplied, `repository` wins.
  * A server that cannot be reached, or that refuses this account the repository, is
  * `Unavailable` on each call, never a throw; a contract that is not well
  * formed, or a `repository` that names none, throws here, at once.

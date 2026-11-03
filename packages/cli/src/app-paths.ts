@@ -17,9 +17,10 @@
 
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
-
-/** The release app's identifier, which names its platform directories. */
-const IDENTIFIER = 'so.epicenter';
+import {
+	EPICENTER_BUNDLE_IDENTIFIER,
+	epicenterDataRoot,
+} from '@epicenter/constants/app-data';
 
 export type AppPaths = {
 	/** The library root: where `epicenter clone` puts a folder. */
@@ -57,13 +58,12 @@ export function resolveAppPaths(
 	if (environment !== 'production' && environment !== 'development')
 		throw new Error(`Unknown EPICENTER_ENVIRONMENT: '${environment}'.`);
 	return {
-		// Tauri's `app_local_data_dir` on macOS.
 		dataDir: directory(env, 'EPICENTER_DATA_DIR', () =>
-			join(
-				home,
-				'Library',
-				'Application Support',
-				environment === 'development' ? `${IDENTIFIER}.dev` : IDENTIFIER,
+			epicenterDataRoot(
+				{ env, platform: process.platform, homeDir: home },
+				environment === 'development'
+					? `${EPICENTER_BUNDLE_IDENTIFIER}.dev`
+					: EPICENTER_BUNDLE_IDENTIFIER,
 			),
 		),
 		folderDir: join(

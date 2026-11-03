@@ -6,9 +6,17 @@ import { config, configAll, git, must, originPushUrl } from './git.ts';
 import { Refused } from './setup.ts';
 import { folderStatus } from './status.ts';
 
-export async function connect(input: string, url: string) {
+export async function connect(
+	input: string,
+	url: string,
+	allowUnregistered = false,
+) {
 	const status = await folderStatus(input);
-	if (status === null || !status.adopted || !status.registered)
+	if (
+		status === null ||
+		!status.adopted ||
+		(!allowUnregistered && !status.registered)
+	)
 		throw new Refused(
 			`${input} is not registered for sync. Run epicenter init ${input} first.`,
 		);

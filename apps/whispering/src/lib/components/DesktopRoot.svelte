@@ -8,7 +8,6 @@
 	the one place it is (decision 87).
 -->
 <script lang="ts">
-	import { APPS } from '@epicenter/constants/apps';
 	import type { Client } from '@epicenter/definition/contract';
 	import { fromClient, type ReactiveClient } from '@epicenter/svelte/client';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
@@ -20,23 +19,19 @@
 	let {
 		appData,
 		device,
+		site,
 		children,
 	}: {
 		appData: Client<WhisperingSettings>;
 		device: Client<Whispering>;
+		site: string;
 		children: Snippet<[ReactiveClient<Whispering>]>;
 	} = $props();
 
-	/**
-	 * Where Whispering's web app publishes its contract (`static/contract.json`):
-	 * deployment, not data, so a constant here and not in the contract
-	 * (decision 82).
-	 */
-	const CONTRACT_URL = `${APPS.WHISPERING.url}/contract.json`;
 
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ device, contract: CONTRACT_URL }));
+	setFolderSync(folderSync({ device, site }));
 	// svelte-ignore state_referenced_locally
 	const files = fromClient(device);
 	// svelte-ignore state_referenced_locally

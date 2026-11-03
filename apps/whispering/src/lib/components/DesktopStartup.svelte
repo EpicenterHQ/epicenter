@@ -16,9 +16,9 @@
 	let { children: outer }: { children: Snippet<[Client<Whispering>, ReactiveClient<Whispering>]> } = $props();
 </script>
 
-<DesktopStartup app="Whispering" settings={whisperingSettings} contract={whispering} contractUrl={`${APPS.WHISPERING.url}/contract.json`}>
-	{#snippet children(appData, device)}
-		{#if appData}<DesktopRoot {appData} {device}>
+<DesktopStartup app="Whispering" settings={whisperingSettings} contract={whispering} site={APPS.WHISPERING.url}>
+	{#snippet children(appData, device, site)}
+		{#if appData}<DesktopRoot {appData} {device} {site}>
 			{#snippet children(files)}
 				{@render outer(device, files)}
 			{/snippet}

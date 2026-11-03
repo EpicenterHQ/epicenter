@@ -121,22 +121,26 @@ pub async fn reveal_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<
         move || {
             let location = reveal_location(&path);
             let (program, arguments) = reveal_command(location);
-            Command::new(program)
-                .args(arguments)
-                .status()
-                .and_then(|status| {
-                    if status.success() {
-                        Ok(())
-                    } else {
-                        Err(std::io::Error::other(format!(
-                            "{program} exited with {status}"
-                        )))
-                    }
-                })
-                .map_err(|cause| RootError::Unavailable {
-                    folder,
-                    message: cause.to_string(),
-                })
+            let opened = if cfg!(target_os = "windows") {
+                Command::new(program).args(&arguments).spawn().map(|_| ())
+            } else {
+                Command::new(program)
+                    .args(&arguments)
+                    .status()
+                    .and_then(|status| {
+                        if status.success() {
+                            Ok(())
+                        } else {
+                            Err(std::io::Error::other(format!(
+                                "{program} exited with {status}"
+                            )))
+                        }
+                    })
+            };
+            opened.map_err(|cause| RootError::Unavailable {
+                folder,
+                message: cause.to_string(),
+            })
         },
         |message| {
             Err(RootError::Unavailable {

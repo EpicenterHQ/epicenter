@@ -11,18 +11,18 @@
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
 	import type { Snippet } from 'svelte';
 	import { setCaptureList } from '../captures.svelte.js';
-	import { CONTRACT_URL } from '../folder.tauri.js';
 
 	let {
 		device,
+		site,
 		children,
-	}: { device: Client<Capture>; children: Snippet } = $props();
+	}: { site: string; device: Client<Capture>; children: Snippet } = $props();
 
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally
 	setCaptureList(fromClient(device).captures);
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ device, contract: CONTRACT_URL }));
+	setFolderSync(folderSync({ device, site }));
 </script>
 
 {@render children()}

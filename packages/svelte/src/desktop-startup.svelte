@@ -6,9 +6,9 @@
 	actions retry here; otherwise `children` renders over both clients.
 
 	```svelte
-	<DesktopStartup app="Capture" contract={capture} contractUrl={CONTRACT_URL}>
-		{#snippet children(_appData, device)}
-			<DesktopRoot {device}>{@render pages()}</DesktopRoot>
+	<DesktopStartup app="Capture" contract={capture} site={APPS.CAPTURE.url}>
+		{#snippet children(_appData, device, site)}
+			<DesktopRoot {device} {site}>{@render pages()}</DesktopRoot>
 		{/snippet}
 	</DesktopStartup>
 	```
@@ -29,7 +29,7 @@
 		app,
 		settings,
 		contract,
-		contractUrl,
+		site,
 		ready,
 		children,
 	}: {
@@ -39,12 +39,12 @@
 		settings?: TSettings;
 		/** The data folder's contract. */
 		contract: TContract;
-		/** The contract published by the app's production site. */
-		contractUrl: string;
+		/** The app's production site. */
+		site: string;
 		/** Anything else the first page waits for, such as the shell's sign-in answer. */
 		ready?: Promise<unknown>;
 		/** The app over its open roots. */
-		children: Snippet<[Client<TSettings> | undefined, Client<TContract>]>;
+		children: Snippet<[Client<TSettings> | undefined, Client<TContract>, string]>;
 	} = $props();
 
 	/** Retry counts another attempt; reading it below opens both roots again. */
@@ -57,7 +57,7 @@
 	const appData = $derived(await again(attempt, opened));
 	const device = $derived(
 		appData === undefined || appData.error === null
-			? await again(attempt, () => openDataFolder(contract, contractUrl))
+			? await again(attempt, () => openDataFolder(contract, site))
 			: null,
 	);
 </script>
@@ -67,5 +67,5 @@
 {:else if device?.error}
 	<Recovery {app} error={device.error} {retry} />
 {:else if device !== null}
-	{@render children(appData?.data, device.data)}
+	{@render children(appData?.data, device.data, site)}
 {/if}

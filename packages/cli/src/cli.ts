@@ -49,12 +49,13 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./sync/commands.ts')).syncCommand(dir, options, json, grant),
 	status: async ({ positionals: [dir], json }) =>
 		(await import('./sync/commands.ts')).statusCommand(dir, json),
-	clone: async ({ positionals: [source, dir], json, grant }) =>
+	clone: async ({ positionals: [source, dir], options, json, grant }) =>
 		(await import('./sync/commands.ts')).cloneCommand(
 			source as string,
 			dir,
 			json,
 			grant,
+			options,
 		),
 	forget: async ({ positionals: [dir], json }) =>
 		(await import('./sync/commands.ts')).forgetCommand(dir, json),
@@ -134,17 +135,19 @@ and behind it was at the last fetch. Reads only: it fetches nothing and
 writes nothing. With --json, {"status": {...}}. <dir> defaults to the current
 directory. A folder not yet in a repository reports its problem. Exits 0.`,
 	clone: `Clones <namespace>/<name> from this deployment's Git origin, any other URL
-with your own Git credentials, or a repository by its path, into <dir>, by
-default ~/Epicenter/<name>. Then runs init there, which pulls the LFS bytes
-and registers the folder. Run epicenter repos to list the names. Exits 2
-when it cannot clone.`,
+with your own Git credentials, or a repository by its path. By default the
+destination comes from the cloned AGENTS.md contract under ~/Epicenter.
+An occupied folder joins automatically only when its contract matches, the
+path is derived from that contract, and the repository belongs to your
+account. Pass --join to join another occupied folder. Joining fetches and
+merges locally; run epicenter sync <dir> to publish local files.`,
 	init: `Sets up or repairs <dir> (default: the current directory) for sync, and says
 what it changed: git init when it is not in a repository; Epicenter's block in
 the folder's committed .gitattributes (notes merge by Epicenter's rules,
 every other file except dotfiles is Git LFS); the merge driver and the LFS
 filters and hooks in this clone; the LFS bytes for files checked out as
 pointers; and the folder in
-the global epicenter.folder list. A folder inside another repository is
+the environment's global folder list. A folder inside another repository is
 refused, because sync pulls and pushes that whole repository. Exits 0, or 2 when
 refused.`,
 	connect: `Adds origin to a folder already set up by epicenter init. The repository
@@ -153,8 +156,8 @@ shell does not expand ~), or a URL such as file:// for a local repository.
 An existing origin with the same URL needs no change; a different origin is
 refused. This command does not run sync, but the desktop's
 background sync service may fetch and push once origin is configured.`,
-	forget: `Takes <dir> (default: the current directory) out of the global
-epicenter.folder list, and makes sync refuse it until init runs again. Its
+forget: `Takes <dir> (default: the current directory) out of the environment's
+global folder list, and makes sync refuse it until init runs again. Its
 files, repository, and history stay.`,
 	repos: `Lists the repositories of every namespace this sign-in may reach: the
 personal namespace first, then each group by title, as <namespace>/<name>.

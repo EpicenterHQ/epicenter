@@ -18,9 +18,9 @@ export function withAgentsNote(
 		throw new Error(`AGENTS.md has ${found.reason}`);
 	if (found.kind === 'frontmatter') {
 		if (!found.hasContract)
-			note = `${note.slice(0, found.frame.yamlEnd)}contract: ${contractUrl}${found.frame.newline}${note.slice(found.frame.yamlEnd)}`;
+			note = `${note.slice(0, found.frame.yamlEnd)}contract: ${JSON.stringify(contractUrl)}${found.frame.newline}${note.slice(found.frame.yamlEnd)}`;
 	} else
-		note = `${found.frame.bom}---${newline}contract: ${contractUrl}${newline}---${newline}${note.slice(found.frame.bom.length)}`;
+		note = `${found.frame.bom}---${newline}contract: ${JSON.stringify(contractUrl)}${newline}---${newline}${note.slice(found.frame.bom.length)}`;
 
 	const description =
 		contract.description?.replace(/\s+/g, ' ').trim() ||
@@ -37,11 +37,19 @@ export function withAgentsNote(
 	const begins = [
 		...note.matchAll(/^<!-- BEGIN epicenter -->[ \t]*(?:\r?\n|$)/gm),
 	];
-	const ends = [
-		...note.matchAll(/^<!-- END epicenter -->[ \t]*(?:\r?\n|$)/gm),
-	];
-	if (begins.length > 1 || ends.length > 1 || begins.length !== ends.length)
-		throw new Error('AGENTS.md has incomplete or repeated Epicenter markers');
+	const ends = [...note.matchAll(/^<!-- END epicenter -->[ \t]*(?:\r?\n|$)/gm)];
+	if (
+		(begins.length === 0 && ends.length > 0) ||
+		(begins.length > 0 && ends.length === 0)
+	)
+		throw new Error('AGENTS.md has incomplete Epicenter markers');
+	if (begins.length > 1 || ends.length > 1) {
+		const start = begins[0]?.index ?? -1;
+		const last = ends.at(-1)?.index ?? -1;
+		if (last < (begins.at(-1)?.index ?? -1))
+			throw new Error('AGENTS.md has Epicenter markers out of order');
+		return `${note.slice(0, start)}${block.slice(0, -newline.length)}${note.slice(last + END.length)}`;
+	}
 	if (begins.length === 1) {
 		const start = begins[0]?.index ?? -1;
 		const end = ends[0]?.index ?? -1;

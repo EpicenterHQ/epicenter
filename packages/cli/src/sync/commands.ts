@@ -126,9 +126,10 @@ export async function cloneCommand(
 	dir: string | undefined,
 	json: boolean,
 	grant: GrantKind,
+	flags: Options = {},
 ) {
 	const { clone } = await import('./clone.ts');
-	const named = await repositorySource(source);
+	const named = await repositorySource(source, grant);
 	if (named === undefined)
 		return fail(
 			`'${source}' is neither <namespace>/<name>, a URL, nor a path to a repository`,
@@ -137,6 +138,17 @@ export async function cloneCommand(
 	try {
 		const cloned = await clone(named, dir, {
 			credential: credentialFor(grant),
+			join: flags.join === true,
+			ownsRemote: async (url) => {
+				const { resolveDeployment } = await import('../auth.ts');
+				const remote = parseRepositoryUrl(
+					resolveDeployment().audiences.git,
+					url,
+				);
+				if (remote === undefined) return false;
+				const { personalNamespace } = await import('../repository-commands.ts');
+				return remote.namespace === (await personalNamespace(grant));
+			},
 		});
 		reportSetup('cloned', { url: named.url, ...cloned }, json);
 		if (!json) {
@@ -179,10 +191,11 @@ async function repositorySource(source: string, grant?: GrantKind) {
 				name: personalName,
 			}),
 			name: personalName,
+			accountOwned: true,
 		};
 	}
 	return (
-		(grant === undefined ? localSource(source) : undefined) ??
+		localSource(source) ??
 		(hosted !== undefined
 			? { url: repositoryUrl(git, hosted), name: hosted.name }
 			: URL.canParse(source)
@@ -294,7 +307,28 @@ export async function syncCommand(
 		for (const folder of await folders()) {
 			if (isStopping()) break;
 			const status = await finishBeforeExit(async () => {
-				const result = await syncFolder(folder, { credential });
+				const result = await syncFolder(folder, {
+					credential,
+					allowPending: dir !== undefined && options.watch !== true,
+				});
+				if (
+					dir !== undefined &&
+					options.watch !== true &&
+					result.status === 'synced'
+				) {
+					const { config } = await import('./git.ts');
+					if ((await config(dir, 'epicenter.joinPending')) === 'true') {
+						const { init } = await import('./setup.ts');
+						await init(dir, { credential });
+						const { must } = await import('./git.ts');
+						await must(dir, [
+							'config',
+							'--local',
+							'--unset-all',
+							'epicenter.joinPending',
+						]);
+					}
+				}
 				reportSync(result, json);
 				return result.status;
 			}, ROUND_GRACE_MS);

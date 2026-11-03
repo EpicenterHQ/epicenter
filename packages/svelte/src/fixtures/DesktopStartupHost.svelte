@@ -9,7 +9,7 @@
 	});
 </script>
 
-<DesktopStartup app="Capture" {contract} contractUrl="https://capture.epicenter.so/contract.json">
+<DesktopStartup app="Capture" {contract} site="https://capture.epicenter.so">
 	{#snippet children(_settings, _device)}
 		<p>Opened</p>
 	{/snippet}

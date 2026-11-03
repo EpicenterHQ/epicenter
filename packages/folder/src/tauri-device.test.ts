@@ -66,8 +66,14 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
-const { displayPath, openAppData, openDataFolder, openDevice, revealRoot, rootOf } =
-	await import('./tauri.js');
+const {
+	displayPath,
+	openAppData,
+	openDataFolder,
+	openDevice,
+	revealRoot,
+	rootOf,
+} = await import('./tauri.js');
 const { storeOf } = await import('./device/client.js');
 
 const notes = defineContract({
@@ -105,18 +111,26 @@ afterEach(async () => {
 test('a malformed AGENTS.md is left as it is and never stops the folder opening', async () => {
 	const malformed = 'My notes.\n<!-- BEGIN epicenter -->\nhalf a block\n';
 	await shell.write('AGENTS.md', malformed);
-	expectOk(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	expectOk(await openDataFolder(notes, 'https://notes.example.com'));
 	expect(await shell.text('AGENTS.md')).toBe(malformed);
 });
 
 test('the data folder opens by name, and a create lands there in house style', async () => {
-	const device = unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	const device = unwrap(
+		await openDataFolder(notes, 'https://notes.example.com'),
+	);
 	const agents = await shell.text('AGENTS.md');
-	expect(agents).toContain('contract: https://notes.example.com/contract.json');
+	expect(agents).toContain(
+		'contract: "https://notes.example.com/contract.json"',
+	);
 	expect(agents).toContain('notes: `notes/{id}.md`');
-	unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	unwrap(await openDataFolder(notes, 'https://notes.example.com'));
 	expect(await shell.text('AGENTS.md')).toBe(agents);
-	expect(shell.calls.filter(({ cmd, args }) => cmd === 'put_folder_file' && args.path === 'AGENTS.md')).toHaveLength(1);
+	expect(
+		shell.calls.filter(
+			({ cmd, args }) => cmd === 'put_folder_file' && args.path === 'AGENTS.md',
+		),
+	).toHaveLength(1);
 	const created = expectOk(
 		await device.notes.create({ id: 'a', title: 'First', body: 'Hello.\n' }),
 	);
@@ -130,7 +144,9 @@ test('the data folder opens by name, and a create lands there in house style', a
 });
 
 test('the page names roots, never paths, and shows the path the shell answered', async () => {
-	const device = unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	const device = unwrap(
+		await openDataFolder(notes, 'https://notes.example.com'),
+	);
 	expect(rootOf(device)).toBe('Data');
 	expect(displayPath(device)).toBe(shell.root);
 	// The path comes from the open command.
@@ -142,7 +158,9 @@ test('the page names roots, never paths, and shows the path the shell answered',
 
 test('AppData opens an app-owned settings contract beside the data folder', async () => {
 	const settings = unwrap(await openAppData(notesSettings));
-	const device = unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	const device = unwrap(
+		await openDataFolder(notes, 'https://notes.example.com'),
+	);
 	expectOk(await settings.settings.create({ theme: 'dark' }));
 	expectOk(await device.notes.create({ id: 'a', title: 'Data' }));
 	expect(await readFile(join(appData, 'settings.md'), 'utf8')).toContain(
@@ -156,17 +174,21 @@ test('a data folder on a drive that is not connected is Disconnected, and Retry 
 	const folder = '/Users/me/Epicenter/notes';
 	const target = '/Volumes/Archive/notes';
 	shell.control.refuse = () => ({ name: 'Disconnected', folder, target });
-	const refused = expectErr(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	const refused = expectErr(
+		await openDataFolder(notes, 'https://notes.example.com'),
+	);
 	expect(refused).toMatchObject({ name: 'Disconnected', folder, target });
 	expect(refused.message).toBe(
 		`${folder} is a link to ${target}, a place that isn't available, such as a disconnected drive.`,
 	);
 	shell.control.refuse = () => undefined;
-	unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	unwrap(await openDataFolder(notes, 'https://notes.example.com'));
 });
 
 test('a storage call on a data folder whose drive went away is Unavailable, with Disconnected as its cause', async () => {
-	const device = unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	const device = unwrap(
+		await openDataFolder(notes, 'https://notes.example.com'),
+	);
 	const disconnected = {
 		name: 'Disconnected',
 		folder: shell.root,
@@ -191,7 +213,9 @@ test('each refusal reads as the error a person is shown', async () => {
 		reason:
 			"/Users/me is your home folder or holds it, so it cannot be an app's folder.",
 	});
-	expect(expectErr(await openDataFolder(notes, 'https://notes.example.com/contract.json'))).toMatchObject({
+	expect(
+		expectErr(await openDataFolder(notes, 'https://notes.example.com')),
+	).toMatchObject({
 		name: 'Refused',
 		message:
 			"/Users/me is your home folder or holds it, so it cannot be an app's folder.",
@@ -201,7 +225,9 @@ test('each refusal reads as the error a person is shown', async () => {
 		folder: '/Users/me/Epicenter/notes',
 		message: 'permission denied',
 	});
-	expect(expectErr(await openDataFolder(notes, 'https://notes.example.com/contract.json'))).toMatchObject({
+	expect(
+		expectErr(await openDataFolder(notes, 'https://notes.example.com')),
+	).toMatchObject({
 		name: 'Unreadable',
 		folder: '/Users/me/Epicenter/notes',
 	});
@@ -213,7 +239,9 @@ test('each refusal reads as the error a person is shown', async () => {
 });
 
 test('a stale write is a Conflict and lands nothing; a current one lands', async () => {
-	const device = unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	const device = unwrap(
+		await openDataFolder(notes, 'https://notes.example.com'),
+	);
 	const first = expectOk(await device.notes.create({ id: 'a', title: 'One' }));
 	const second = expectOk(
 		await device.notes.update(
@@ -236,7 +264,9 @@ test('a stale write is a Conflict and lands nothing; a current one lands', async
 });
 
 test('a create lands only where nothing is, and a version is checked as one', async () => {
-	const device = unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	const device = unwrap(
+		await openDataFolder(notes, 'https://notes.example.com'),
+	);
 	const store = storeOf(device);
 	const bytes = (text: string) => new TextEncoder().encode(text);
 	expect(expectOk(await store.write('a.bin', bytes('two'), 'absent'))).toBe(
@@ -265,7 +295,9 @@ test('a create lands only where nothing is, and a version is checked as one', as
 });
 
 test('another program’s edit is read with its own version', async () => {
-	const device = unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	const device = unwrap(
+		await openDataFolder(notes, 'https://notes.example.com'),
+	);
 	await shell.write('notes/b.md', '---\ntitle: From git\n---\n');
 	const read = expectOk(await device.notes.get({ id: 'b' }));
 	expect(read.title).toBe('From git');
@@ -280,7 +312,9 @@ test('another program’s edit is read with its own version', async () => {
 });
 
 test('a storage refusal is Unavailable, and the next call tries again', async () => {
-	const device = unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	const device = unwrap(
+		await openDataFolder(notes, 'https://notes.example.com'),
+	);
 	shell.control.refuseNext = 1;
 	const refused = expectErr(
 		await device.notes.create({ id: 'a', title: 'One' }),
@@ -298,7 +332,9 @@ test('outside Tauri nothing opens and the shell is never asked', async () => {
 });
 
 test("the shell's watcher reaches a collection's listeners", async () => {
-	const device = unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	const device = unwrap(
+		await openDataFolder(notes, 'https://notes.example.com'),
+	);
 	let heard = 0;
 	const stop = device.notes.subscribe(() => heard++);
 	emit({ root: 'Data', paths: ['notes/a.md'] });
@@ -313,7 +349,7 @@ test("the shell's watcher reaches a collection's listeners", async () => {
 });
 
 test('each root hears only its own watcher', async () => {
-	const own = unwrap(await openDataFolder(notes, 'https://notes.example.com/contract.json'));
+	const own = unwrap(await openDataFolder(notes, 'https://notes.example.com'));
 	const settings = unwrap(await openAppData(notesSettings));
 	let heard = 0;
 	let heardSettings = 0;
@@ -329,8 +365,8 @@ test('each root hears only its own watcher', async () => {
 
 test('two concurrent opens both hear a later root change', async () => {
 	const [first, second] = await Promise.all([
-		openDataFolder(notes, 'https://notes.example.com/contract.json'),
-		openDataFolder(notes, 'https://notes.example.com/contract.json'),
+		openDataFolder(notes, 'https://notes.example.com'),
+		openDataFolder(notes, 'https://notes.example.com'),
 	]);
 	const heard = { first: 0, second: 0 };
 	const stopFirst = unwrap(first).notes.subscribe(() => heard.first++);

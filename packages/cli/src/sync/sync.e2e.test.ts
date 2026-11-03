@@ -445,7 +445,7 @@ describe('epicenter sync over stock git', () => {
 			expect((await init(link)).code).toBe(0);
 			expect(
 				await quiet(real, 'config', '--local', '--get', 'epicenter.root'),
-			).toBe('');
+			).toBe(real);
 			expect(
 				await quiet(real, 'config', '--local', '--get', 'epicenter.synced'),
 			).toBe('true');

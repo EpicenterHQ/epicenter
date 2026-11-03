@@ -106,9 +106,9 @@ takes. The header reads `getFolderSync()` and checks on focus whether
 Epicenter manages the folder.
 
 ```svelte
-<DesktopStartup app="Capture" contract={capture} contractUrl={CONTRACT_URL}>
-  {#snippet children(_appData, device)}
-    <DesktopRoot {device}>…</DesktopRoot>
+<DesktopStartup app="Capture" contract={capture} site={APPS.CAPTURE.url}>
+  {#snippet children(_appData, device, site)}
+    <DesktopRoot {device} {site}>…</DesktopRoot>
   {/snippet}
 </DesktopStartup>
 ```

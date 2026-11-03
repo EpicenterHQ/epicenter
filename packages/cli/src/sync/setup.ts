@@ -10,17 +10,25 @@
  * as `epicenter.synced = true` in the folder's local repository configuration.
  *
  * Registration is like `git maintenance register`: the multi-valued
- * `epicenter.folder` in the person's global Git configuration lists the
- * folders `epicenter sync` (no path) and `sync --watch` keep in sync.
+ * `epicenter.folder` in production, or `epicenter.devFolder` in development,
+ * lists the folders `epicenter sync` (no path) and `sync --watch` keep in sync.
  */
 
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import {
+	EPICENTER_BUNDLE_IDENTIFIER,
+	epicenterDataRoot,
+} from '@epicenter/constants/app-data';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import { resolveAppPaths } from '../app-paths.ts';
-import { canonicalPath, isReservedDirectory } from './admission.ts';
+import {
+	canonicalPath,
+	containsPath,
+	isReservedDirectory,
+} from './admission.ts';
 import {
 	type CredentialFor,
 	config,
@@ -47,16 +55,31 @@ export async function refuseReservedDirectory(input: string): Promise<void> {
 			`${canonical} is inside a .git or ${STATE_DIRECTORY} folder, which belong to Git and to Epicenter, so it cannot be a data folder.`,
 		);
 	const paths = resolveAppPaths();
-	const data = await canonicalPath(paths.dataDir);
-	const library = await canonicalPath(paths.folderDir);
-	const holds = (holder: string, inner: string) =>
-		inner === holder || inner.startsWith(`${holder}/`);
-	if (holds(canonical, data) || holds(data, canonical))
-		throw new Refused(`${canonical} overlaps Epicenter's application data.`);
-	if (holds(canonical, library))
-		throw new Refused(
-			`${canonical} holds every Epicenter folder, so it cannot be one.`,
-		);
+	const home = resolve(paths.folderDir, '..');
+	const platformEnv = { ...process.env, EPICENTER_DATA_DIR: undefined };
+	const dataDirs = [
+		paths.dataDir,
+		epicenterDataRoot(
+			{ env: platformEnv, platform: process.platform, homeDir: home },
+			EPICENTER_BUNDLE_IDENTIFIER,
+		),
+		epicenterDataRoot(
+			{ env: platformEnv, platform: process.platform, homeDir: home },
+			`${EPICENTER_BUNDLE_IDENTIFIER}.dev`,
+		),
+	];
+	for (const directory of dataDirs) {
+		const data = await canonicalPath(directory);
+		if (containsPath(canonical, data) || containsPath(data, canonical))
+			throw new Refused(`${canonical} overlaps Epicenter's application data.`);
+	}
+	for (const name of ['Epicenter', 'Epicenter Dev']) {
+		const library = await canonicalPath(join(home, name));
+		if (containsPath(canonical, library))
+			throw new Refused(
+				`${canonical} holds every Epicenter folder, so it cannot be one.`,
+			);
+	}
 }
 
 /**
@@ -77,8 +100,13 @@ const LFS_CONFIG = [
 ];
 
 /** The folders registered for sync, as stored. */
+export const registrationKey = () =>
+	process.env.EPICENTER_ENVIRONMENT === 'development'
+		? 'epicenter.devFolder'
+		: 'epicenter.folder';
+
 export const registeredFolders = () =>
-	configAll(undefined, 'epicenter.folder', '--global');
+	configAll(undefined, registrationKey(), '--global');
 
 /** A registered spelling that currently points at `target`, if any. */
 export async function registrationFor(
@@ -128,6 +156,8 @@ export async function identity(cwd: string): Promise<Record<string, string>> {
 export type InitOptions = {
 	/** The token for a remote, asked for by its URL, to pull LFS bytes. */
 	readonly credential?: CredentialFor;
+	/** A join waits for the person's next explicit sync before joining the watch list. */
+	readonly register?: boolean;
 };
 
 export type Initialized = {
@@ -146,10 +176,19 @@ export type Initialized = {
  */
 export async function init(
 	input: string,
-	{ credential }: InitOptions = {},
+	{ credential, register = true }: InitOptions = {},
 ): Promise<Initialized> {
 	await refuseReservedDirectory(input);
 	const folder = resolve(input);
+	if (!existsSync(folder)) {
+		let parent = dirname(folder);
+		while (!existsSync(parent)) parent = dirname(parent);
+		const enclosing = await repositoryRoot(await realpath(parent));
+		if (enclosing !== null)
+			throw new Refused(
+				`${folder} is inside the existing repository ${enclosing}. Move it outside that repository, then run epicenter init ${folder} again.`,
+			);
+	}
 	await mkdir(folder, { recursive: true });
 	const target = await realpath(folder);
 	const changed: string[] = [];
@@ -171,10 +210,6 @@ export async function init(
 	if ((await config(target, 'epicenter.synced')) !== 'true') {
 		await must(target, ['config', '--local', 'epicenter.synced', 'true']);
 		changed.push('epicenter.synced = true');
-	}
-	if ((await config(target, 'epicenter.root')) !== null) {
-		await must(target, ['config', '--local', '--unset-all', 'epicenter.root']);
-		changed.push('epicenter.root unset');
 	}
 
 	// 2. Epicenter's blocks of the folder's committed attributes and ignore rules.
@@ -296,6 +331,7 @@ export async function init(
 	}
 
 	// 6. Registration.
+	if (!register) return { folder, repository: root, changed, warnings };
 	const registered = await registeredFolders();
 	const existing = await registrationFor(registered, target);
 	if (folder !== target && registered.includes(target)) {
@@ -304,7 +340,7 @@ export async function init(
 				'config',
 				'--global',
 				'--add',
-				'epicenter.folder',
+				registrationKey(),
 				folder,
 			]);
 		await must(undefined, [
@@ -312,19 +348,19 @@ export async function init(
 			'--global',
 			'--fixed-value',
 			'--unset-all',
-			'epicenter.folder',
+			registrationKey(),
 			target,
 		]);
-		changed.push('registered link in global epicenter.folder');
+		changed.push(`registered link in global ${registrationKey()}`);
 	} else if (!registered.includes(folder) && existing === undefined) {
 		await must(undefined, [
 			'config',
 			'--global',
 			'--add',
-			'epicenter.folder',
+			registrationKey(),
 			folder,
 		]);
-		changed.push('registered in global epicenter.folder');
+		changed.push(`registered in global ${registrationKey()}`);
 	} else if (!registered.includes(folder) && existing !== undefined) {
 		warnings.push(`already registered as ${existing}`);
 	}
@@ -361,10 +397,10 @@ export async function forget(
 			'--global',
 			'--fixed-value',
 			'--unset-all',
-			'epicenter.folder',
+			registrationKey(),
 			entry,
 		]);
-		changed.push('unregistered from global epicenter.folder');
+		changed.push(`unregistered from global ${registrationKey()}`);
 	}
 	const root = target === null ? null : await repositoryRoot(target);
 	if (root !== null && root === target) {
@@ -374,7 +410,7 @@ export async function forget(
 				.map((other) => realpath(other).catch(() => null)),
 		);
 		if (!others.includes(target)) {
-			for (const key of ['epicenter.synced', 'epicenter.root']) {
+			for (const key of ['epicenter.synced', 'epicenter.joinPending']) {
 				if ((await config(target, key)) === null) continue;
 				await must(target, ['config', '--local', '--unset-all', key]);
 				changed.push(`${key} unset`);

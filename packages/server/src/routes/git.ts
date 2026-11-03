@@ -2,7 +2,7 @@
  * Hosted Git (ADR-0546): a folder's remote is
  * `<git audience>/<namespace>/<name>.git`, and the first push or web write
  * creates it. `<namespace>` may be `~`, the caller's personal namespace, so
- * a web app reaches `<account>/<app>` (decision 46) from its token alone.
+ * a web app reaches `~/<repository name>` from its token alone.
  *
  * ```txt
  * <git>/<ns>/<name>.git/info/refs?service=…        GET   folders:read, read  (receive-pack: folders:write, push)

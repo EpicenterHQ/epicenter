@@ -6,10 +6,13 @@
  */
 import type { Client, Contract } from '@epicenter/definition/contract';
 import { Ok, type Result } from 'wellcrafted/result';
+import { createLogger } from 'wellcrafted/logger';
 import { withAgentsNote } from './agents-note.js';
 import { storeOf } from './device/client.js';
 import type { OpenDeviceError } from './errors.js';
 import { openDevice } from './tauri.js';
+
+const log = createLogger('folder/desktop');
 
 /** What became of a request the shell answers: done, or why not. */
 export type FolderRequest = { ok: true } | { ok: false; message: string };
@@ -23,7 +26,7 @@ export async function openAppData<TContract extends Contract>(
 
 /**
  * Open the app's data folder, which the shell makes when nothing is at its
- * path, then bring its root `AGENTS.md` note up to date with `contractUrl`.
+ * path, then bring its root `AGENTS.md` note up to date with the site's contract.
  * A data folder behind a link whose target is gone is `Disconnected`, and
  * nothing is made. The note is advice for agents, so a note that cannot be
  * read or updated (malformed by hand, or changing underneath) never stops
@@ -31,11 +34,11 @@ export async function openAppData<TContract extends Contract>(
  */
 export async function openDataFolder<TContract extends Contract>(
 	contract: TContract,
-	contractUrl: string,
+	site: string,
 ): Promise<Result<Client<TContract>, OpenDeviceError>> {
 	const opened = await openDevice(contract, { root: 'Data' });
 	if (opened.error !== null) return opened;
-	await refreshAgentsNote(opened.data, contract, contractUrl);
+	await refreshAgentsNote(opened.data, contract, `${site}/contract.json`);
 	return Ok(opened.data);
 }
 
@@ -51,7 +54,10 @@ async function refreshAgentsNote<TContract extends Contract>(
 	const store = storeOf(device);
 	for (let attempt = 0; attempt < 3; attempt++) {
 		const read = await store.read('AGENTS.md');
-		if (read.error !== null) return false;
+		if (read.error !== null) {
+			log.debug('Could not read AGENTS.md', { error: read.error });
+			return false;
+		}
 		let current: string | null = null;
 		let wanted: string;
 		try {
@@ -60,7 +66,8 @@ async function refreshAgentsNote<TContract extends Contract>(
 					read.data.bytes,
 				);
 			wanted = withAgentsNote(current, contract, contractUrl);
-		} catch {
+		} catch (error) {
+			log.debug('Could not prepare AGENTS.md', { error });
 			return false;
 		}
 		if (wanted === current) return true;
@@ -69,8 +76,12 @@ async function refreshAgentsNote<TContract extends Contract>(
 			new TextEncoder().encode(wanted),
 			read.data === null ? 'absent' : { sha256: read.data.version },
 		);
-		if (written.error !== null) return false;
+		if (written.error !== null) {
+			log.debug('Could not write AGENTS.md', { error: written.error });
+			return false;
+		}
 		if (written.data === 'landed') return true;
 	}
+	log.debug('Could not update AGENTS.md after three attempts');
 	return false;
 }
