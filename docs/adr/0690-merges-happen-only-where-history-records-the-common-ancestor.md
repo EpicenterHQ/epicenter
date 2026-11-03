@@ -4,7 +4,7 @@
 - **Date:** 2026-10-27
 - **Amends:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) at its `a save` role: a local save no longer merges; the sync role is unchanged.
 - **Relates:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) for the local write queue; [ADR-0534](0534-data-folders-are-the-only-data-model.md) for folders as the only data model; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) and [ADR-0530](0530-applications-record-a-version-at-natural-moments.md) for when commits happen.
-- **Unbuilt:** no app commits automatically or turns on sync; no merge notice reaches an editor; no live body session or capture-only client exists; browser sync does not yet honor `.gitignore` patterns.
+- **Unbuilt:** no app commits automatically or turns on sync; no merge notice reaches an editor; no capture-only client exists; browser sync does not yet honor `.gitignore` patterns.
 
 ## Context
 
@@ -61,9 +61,9 @@ same field or line, the edit that reaches `main` last wins and the losing edit
 stays a parent of the merge commit (ADR-0622). History keeps
 every committed state, so a value replaced on any device stays recoverable.
 
-**A live collaboration layer is a session over the body only.** It persists
-through `Folder.update(path, { body })` like any editor. Fields are never
-collaborative. No layer writes files except through the Folder.
+**No live collaboration layer runs over a folder's notes.** An app that needs
+co-editing keeps that data in a document ([ADR-0707](0707-an-app-that-needs-co-editing-is-a-document-app.md)). No layer writes files
+except through the Folder.
 
 **Every device holds a full replica; the hosted remote is the durable copy.**
 The desktop folder is a directory; the browser replica is the Git working tree
@@ -97,9 +97,9 @@ The hosted remote is a Git repository behind a serverless Worker, so no machine
 of the person's runs continuously. It stores plain text without end-to-end
 encryption. A browser replica can be evicted and rebuilt from the remote.
 
-Real-time co-editing of fields, merging of local whole-file writes, and a
-CRDT as the source of truth are foreclosed; a body session is the only
-collaboration layer this permits.
+Real-time co-editing of a folder's notes, merging of local whole-file writes,
+and a CRDT as the source of truth for a folder are foreclosed; co-editing
+belongs to document apps ([ADR-0707](0707-an-app-that-needs-co-editing-is-a-document-app.md)).
 
 ## Considered alternatives
 

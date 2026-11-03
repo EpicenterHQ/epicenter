@@ -7,6 +7,7 @@
 - **Amended by:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) at what the host is: the Rust shell serves bundles ([ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md)), the `epicenter` CLI holds credentials, and no TypeScript host runs, while the refusal of application data in the host is unchanged.
 - **Date:** 2026-08-08
 - **Amended by:** [ADR-0323](0323-background-work-runs-in-the-host-and-a-window-is-for-looking-at.md) at what a host does. It serves bundles, brokers credentials, and now runs a declared slice of first-party application code, because a hidden window cannot stay awake and the host already owns the files and the credentials that work needs. The refusal this record was written for is untouched: nothing there opens a store or serves an authority.
+- **Amended by:** [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) at the host owning no application data: the Epicenter app keeps local copies of a person's documents in its own AppData.
   this branch. Reconcile at merge time (`docs/adr/README.md`).
 - **Amends:** [ADR-0209](0209-epicenter-is-the-raw-view-beside-its-applications-not-a-shell-above-them.md)
   and [ADR-0208](0208-every-app-folder-is-markdown-beside-one-queryable-database.md),
