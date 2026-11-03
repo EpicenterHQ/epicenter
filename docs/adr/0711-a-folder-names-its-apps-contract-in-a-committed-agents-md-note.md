@@ -1,6 +1,6 @@
 # 0711. A folder names its app's contract in a committed AGENTS.md note
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at decision 35 ("folders hold no `epicenter.json`") and at `epicenter init --contract` in its Unbuilt line: a folder holds an `AGENTS.md` note naming its contract URL, and `init` records no contract in Git configuration.
 - **Unbuilt:** the app writing `AGENTS.md` at first open; the CLI's generated block in it; `epicenter check` and Epicenter reading `contract` from it; the deep link `epicenter://init` writing the note when it is missing.

@@ -1,6 +1,6 @@
 # 0706. A browser variant runs the desktop code with weaker guarantees
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (an app's variants and their stores), [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) (folder and document stores).
 - **Unbuilt:** Whispering's export of every recording and its audio from the local web variant, and an import of that export into a desktop folder; the browser copy of a document.

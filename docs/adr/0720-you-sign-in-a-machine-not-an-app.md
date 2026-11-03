@@ -1,6 +1,6 @@
 # 0720. You sign in a machine, not an app
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 84 (one native client per app, `so.epicenter.<app>.native`, each with its own refresh token): every first-party program on a machine shares one sign-in; [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at its client table's desktop and CLI rows: `so.epicenter` is the one first-party client for a machine and accepts both the loopback authorization code and device authorization, and `so.epicenter.cli` retires.
 - **Relates:** [ADR-0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) (each access token is narrowed to one audience), [ADR-0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) (namespaces), [ADR-0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) and [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (third-party grants), [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) (`~/.epicenter`), [ADR-0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) (principles).

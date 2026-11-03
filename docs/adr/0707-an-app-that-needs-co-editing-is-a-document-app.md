@@ -1,6 +1,6 @@
 # 0707. An app that needs co-editing is a document app
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Relates:** [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) (folder and document stores), [ADR-0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) (merges where history records the common ancestor).
 - **Unbuilt:** the document store [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) names; no app co-edits today.

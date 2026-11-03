@@ -1,6 +1,6 @@
 # 0708. A namespace holds documents beside repositories under one resource grant
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) at `https://git.epicenter.so/<id>.git`, the name as a free non-unique label, the renaming of the `namespace` tables to `repository` and `repository_member`, the deletion of the `repository` table, and "No table, column, file, identifier, route, or flag says namespace": a namespace stays the owner, a resource is addressed `<namespace>/<name>`, and a name is unique within its namespace across both kinds; [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at a repository's name being unique within its namespace: the uniqueness spans the namespace's documents too.
 - **Relates:** [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) (documents as a second store), [ADR-0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) (the owner namespace), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (a sign-in grant names one repository).

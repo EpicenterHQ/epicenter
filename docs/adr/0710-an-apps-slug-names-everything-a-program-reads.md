@@ -1,6 +1,6 @@
 # 0710. An app's slug names everything a program reads
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 96's source of the default folder's name: the default folder is `<root>/<contract name>`, and `getName()` names only what a person reads.
 - **Unbuilt:** `defaultDataFolder` reading the contract's `name` instead of `getName()`; `epicenter connect` defaulting the repository name to the slug; development builds of standalone apps using the root `~/Epicenter Dev`.
