@@ -47,7 +47,7 @@ Epicenter scanning the root, documents, Tabs.
 | 1 | The shell derives the data folder from the app's site | Done (`233d389069`) |
 | 2 | No stored or chosen data-folder location | Done (`a33b60d698`) |
 | 3 | Fixes from review: identity from the bundle identifier, explicit environment, dead-link error | In review |
-| 4 | Named roots: storage commands take `(root, relative path)`; delete window binding, the other-roots scope, `open_folder`, `resolve_folder`, `data_folder`, the file-system grant and `tauri-plugin-persisted-scope`; open-or-create; one refusal rule | Next |
+| 4 | Named roots: storage commands take `(root, relative path)`; delete window binding, the other-roots scope, `open_folder`, `resolve_folder`, `data_folder`, the file-system grant and `tauri-plugin-persisted-scope`; open-or-create; one refusal rule | In review |
 | 5 | The plain error screen ([Retry] [Show in Finder]) and the onboarding line | |
 | 6 | The `AGENTS.md` note written at first open | |
 | 7 | The naming rule as one fixture both Rust and TypeScript test against; `epicenter clone` names the folder from the site | |

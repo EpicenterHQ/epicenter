@@ -1,47 +1,27 @@
-//! The IPC surface: opening the calling window's folder, and one command per
-//! method of the page's folder storage (`storage`, ADR-0581).
+//! The IPC surface: opening a named root, and one command per method of the
+//! page's folder storage (`storage`, ADR-0581).
 //!
-//! A page names folder-relative paths and which of its window's roots they
-//! are in: `root`, the absolute path of the window's own directory or of a
-//! root it opened (`open_folder`, which Tauri's runtime file-system scope
-//! must allow: `scope`), exactly as `open_folder` answered it. Every command
-//! takes its `root`; none falls back to the window's own directory. Every
-//! command derives its roots from the calling WebView's label, which Tauri
-//! injects, so a page reaches no other path. Each command clones the
-//! window's `Directory` when it is admitted and works in that root until it
-//! ends, so a window closed and replaced under the same label meanwhile
-//! cannot redirect it. Every command that touches the disk runs on the
-//! blocking pool, never on the thread that drives the windows. The folder's
-//! Git is not here: the `epicenter` CLI runs it (ADR-0559).
+//! A page names a root (`Root::Data` or `Root::AppData`) and a relative path
+//! in it, never an absolute path; the shared path rule keeps the path inside
+//! the root. Only `root_path` answers an absolute path, for the page to show.
+//! A storage command works in the folder its root reached when the page
+//! opened it (`Roots::opened`), cloned when the command is admitted, so
+//! nothing that happens meanwhile redirects it. A root it cannot use is a
+//! `RootError` (`Disconnected` for a link whose target is gone), and a
+//! storage refusal or failure a `StorageError` (`FolderError`). Every command that touches
+//! the disk runs on the blocking pool, never on the thread that drives the
+//! windows. The folder's Git is not here: the `epicenter` CLI runs it
+//! (ADR-0559).
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use epicenter_folder_core::admission::resolved;
 use epicenter_folder_core::storage::{self, ListedFile, PutOutcome, StorageError};
+use serde::Serialize;
+use specta::Type;
 use tauri::ipc::Channel;
 use tauri::{Manager, Runtime, Webview};
 
-use crate::scope::admit;
-use crate::{
-    DataFolder, DataFolderError, Directory, DirectoryError, FolderChanged, Folders, WindowError,
-};
-
-/// The data folder the standalone shell derived and granted at startup:
-/// `NoDataFolder` from a shell that derives none, `Disconnected` when the
-/// derived path is a link whose target is not there.
-#[tauri::command]
-#[specta::specta]
-pub fn data_folder<R: Runtime>(webview: Webview<R>) -> Result<String, DataFolderError> {
-    let folder = webview
-        .app_handle()
-        .try_state::<DataFolder>()
-        .ok_or(DataFolderError::NoDataFolder)?;
-    folder
-        .0
-        .as_ref()
-        .map(|path| path.to_string_lossy().into_owned())
-        .map_err(Clone::clone)
-}
+use crate::{Directory, FolderChanged, Root, RootError, Roots};
 
 /// Run blocking work off the window thread.
 async fn blocking<T: Send + 'static>(
@@ -54,6 +34,29 @@ async fn blocking<T: Send + 'static>(
     }
 }
 
+/// Why a storage command answered no: the root it named cannot be used
+/// (`RootError`, such as `Disconnected` with the link's folder and target),
+/// or the storage operation refused or failed (`StorageError`). The two never
+/// share a `name`, so the page tells them apart by it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(untagged)]
+pub enum FolderError {
+    Root(RootError),
+    Storage(StorageError),
+}
+
+impl From<RootError> for FolderError {
+    fn from(error: RootError) -> Self {
+        Self::Root(error)
+    }
+}
+
+impl From<StorageError> for FolderError {
+    fn from(error: StorageError) -> Self {
+        Self::Storage(error)
+    }
+}
+
 fn failed(path: &str, operation: &str, message: String) -> StorageError {
     StorageError::Io {
         path: path.to_string(),
@@ -62,126 +65,94 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
     }
 }
 
-/// Open the root at the absolute path `root` for the calling window and
-/// watch it, answering its canonical path, by which the page names it from
-/// then on. The window's own directory, by any path that resolves to it, is
-/// the directory the shell bound before the window existed: refused when
-/// gone, never made again. Any other `root` must be a folder an app may keep
-/// its files in (`Refused` otherwise, a relative path included) that Tauri's
-/// file-system scope allows (`NotGranted` otherwise); it is made, with
-/// missing parents, only for `create`, and is `Missing` when it is not there. Each open root has one watch, whose
-/// changes go to the latest channel the page opened it with, and removes
-/// the staged files a stopped save left an hour or more ago
-/// (`storage::sweep_scratch`).
+/// Open `root` and watch it. Whatever is at the root's path opens, through a
+/// link if one is there, and a missing folder is made (ADR-0726); a link
+/// whose target is gone is `Disconnected`, and nothing is made. Each call
+/// looks again, so Retry finds a folder that came back. The root's one watch
+/// sends its changes to the latest channel this page opened it with. Opening
+/// removes the staged files a stopped save left an hour or more ago
+/// (`storage::sweep_stale_scratch`).
 #[tauri::command]
 #[specta::specta]
-pub async fn open_folder<R: Runtime>(
+pub async fn open_root<R: Runtime>(
     webview: Webview<R>,
-    root: PathBuf,
-    create: bool,
+    root: Root,
     on_change: Channel<FolderChanged>,
-) -> Result<String, WindowError> {
+) -> Result<(), RootError> {
     let label = webview.label().to_string();
-    let (primary, observation) = webview
-        .app_handle()
-        .state::<Folders>()
-        .reserve_observation(&label)?;
+    let page = webview.state::<Roots>().page(&label)?;
     let app = webview.app_handle().clone();
     blocking(
         move || {
-            // The window's own directory, by any path that resolves to it.
-            let directory = if resolved(&root) == primary.root() {
-                primary
-            } else {
-                admit(&webview, &root, create)?
-            };
-            let root = directory.root();
-            Directory::existing(root).map_err(|error| match error {
-                DirectoryError::Missing { .. } => WindowError::Missing,
-                DirectoryError::Unavailable { message } => WindowError::Unavailable { message },
-            })?;
-            storage::sweep_stale_scratch(root);
-            app.state::<Folders>()
-                .watch(&label, &directory, observation, move |change| {
-                    if let Err(error) = on_change.send(change) {
-                        log::warn!("The folder observation could not be delivered: {error}");
-                    }
-                })?;
-            Ok(root.to_string_lossy().into_owned())
+            let roots = app.state::<Roots>();
+            let directory = roots.open(root)?;
+            storage::sweep_stale_scratch(directory.root());
+            roots.watch(root, &directory, &label, page, move |change| {
+                if let Err(error) = on_change.send(change) {
+                    log::warn!("The folder observation could not be delivered: {error}");
+                }
+            })
         },
-        |message| Err(WindowError::Unavailable { message }),
+        |message| {
+            Err(RootError::Unavailable {
+                folder: root.to_string(),
+                message,
+            })
+        },
     )
     .await
 }
 
-/// The canonical path of `root`, a folder this window may open: what a page
-/// remembers for a folder the person picked, since the picker answers the
-/// path they reached, which may pass through a link (`/tmp` is
-/// `/private/tmp` on macOS). `Refused`, `NotGranted` and `Missing` as
-/// `open_folder` answers them; nothing is opened, watched or made.
+/// The path the shell named `root` at, written out
+/// (`/Users/me/Epicenter/whispering`, not where a link there leads), for the
+/// page to show. It opens, reads and makes nothing, and no command takes it.
 #[tauri::command]
 #[specta::specta]
-pub async fn resolve_folder<R: Runtime>(
-    webview: Webview<R>,
-    root: PathBuf,
-) -> Result<String, WindowError> {
-    blocking(
-        move || {
-            admit(&webview, &root, false)
-                .map(|directory| directory.root().to_string_lossy().into_owned())
-        },
-        |message| Err(WindowError::Unavailable { message }),
-    )
-    .await
-}
-
-/// The root the page named among the calling window's, cloned for this
-/// command (`Folders::bound_root`).
-fn bound<R: Runtime>(
-    webview: &Webview<R>,
-    root: &Path,
-    path: &str,
-    operation: &str,
-) -> Result<Directory, StorageError> {
+pub fn root_path<R: Runtime>(webview: Webview<R>, root: Root) -> Result<String, RootError> {
     webview
-        .app_handle()
-        .state::<Folders>()
-        .bound_root(webview.label(), root)
-        .map_err(|refusal| failed(path, operation, format!("{refusal:?}")))
+        .state::<Roots>()
+        .path(root)
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
-/// Every file below the root `root`, `.git` aside, hidden ones included,
-/// none of them followed (`storage::list`).
+/// The folder `root` reached when the page opened it, for one command
+/// (`Roots::opened`).
+fn opened<R: Runtime>(webview: &Webview<R>, root: Root) -> Result<Directory, FolderError> {
+    Ok(webview.state::<Roots>().opened(root)?)
+}
+
+/// Every file below `root`, `.git` aside, hidden ones included, none of
+/// them followed (`storage::list`).
 #[tauri::command]
 #[specta::specta]
 pub async fn list_folder<R: Runtime>(
     webview: Webview<R>,
-    root: PathBuf,
-) -> Result<Vec<ListedFile>, StorageError> {
-    let directory = bound(&webview, &root, "", "list")?;
+    root: Root,
+) -> Result<Vec<ListedFile>, FolderError> {
+    let directory = opened(&webview, root)?;
     blocking(
-        move || storage::list(directory.root()),
-        |message| Err(failed("", "list", message)),
+        move || storage::list(directory.root()).map_err(FolderError::from),
+        |message| Err(failed("", "list", message).into()),
     )
     .await
 }
 
-/// Read a file in the root `root` (`storage::read`). The ASCII stamp,
-/// a zero byte, then the file bytes return in one raw `ArrayBuffer`, rather than as a JSON array
-/// of numbers. tauri-specta cannot type a raw response, so the generated
-/// bindings leave this command out and `device/tauri-store.ts` invokes it by name;
-/// `init` dispatches it beside the typed commands.
+/// Read a file in `root` (`storage::read`). The ASCII stamp, a zero byte,
+/// then the file bytes return in one raw `ArrayBuffer`, rather than as a JSON
+/// array of numbers. tauri-specta cannot type a raw response, so the
+/// generated bindings leave this command out and `device/tauri-store.ts`
+/// invokes it by name; `init` dispatches it beside the typed commands.
 #[tauri::command]
 pub async fn read_folder_file<R: Runtime>(
     webview: Webview<R>,
     path: String,
-    root: PathBuf,
-) -> Result<tauri::ipc::Response, StorageError> {
-    let directory = bound(&webview, &root, &path, "read")?;
+    root: Root,
+) -> Result<tauri::ipc::Response, FolderError> {
+    let directory = opened(&webview, root)?;
     let at = path.clone();
     blocking(
-        move || storage::read(directory.root(), &path),
-        |message| Err(failed(&at, "read", message)),
+        move || storage::read(directory.root(), &path).map_err(FolderError::from),
+        |message| Err(failed(&at, "read", message).into()),
     )
     .await
     .map(|read| {
@@ -192,29 +163,29 @@ pub async fn read_folder_file<R: Runtime>(
     })
 }
 
-/// Publish a file's bytes in a root the window reaches, or remove it, only while
-/// the path holds what the page expects (`storage::put`): a `landed` result
-/// with its stamp, or `stale` when it did not hold that and nothing changed.
+/// Publish a file's bytes in a root, or remove it, only while the path holds
+/// what the page expects (`storage::put`): a `landed` result with its stamp,
+/// or `stale` when it did not hold that and nothing changed.
 ///
 /// The bytes are the request's raw body, so file content crosses IPC as it
 /// is rather than as a JSON array of numbers. Percent-encoded headers carry
-/// the rest: `path`, `root` (as every command takes it), `remove`
-/// (`true` to remove the file, when the body is ignored), and `expected`, the version the
-/// page read there (`absent` for a create, or `sha256:` and the SHA-256 of the file:
-/// `storage::Expectation`). A JSON
-/// array of bytes is accepted as well: Tauri
-/// sends one when its custom-protocol IPC failed and it fell back to
-/// `postMessage`. Any other body is refused.
+/// the rest: `path`, `root` (`Data` or `AppData`), `remove` (`true` to
+/// remove the file, when the body is ignored), and `expected`, the version
+/// the page read there (`absent` for a create, or `sha256:` and the SHA-256
+/// of the file: `storage::Expectation`). A JSON array of bytes is accepted
+/// as well: Tauri sends one when its custom-protocol IPC failed and it fell
+/// back to `postMessage`. Any other body is refused.
 ///
 /// The check runs right before the change; within this process, puts of one
-/// path take turns from the check to the change (`storage::put`). tauri-specta cannot type a raw request, so the generated
-/// bindings leave this command out and `device/tauri-store.ts` invokes it by name;
-/// `init` dispatches it beside the typed commands.
+/// path take turns from the check to the change (`storage::put`).
+/// tauri-specta cannot type a raw request, so the generated bindings leave
+/// this command out and `device/tauri-store.ts` invokes it by name; `init`
+/// dispatches it beside the typed commands.
 #[tauri::command]
 pub async fn put_folder_file<R: Runtime>(
     webview: Webview<R>,
     request: tauri::ipc::Request<'_>,
-) -> Result<PutOutcome, StorageError> {
+) -> Result<PutOutcome, FolderError> {
     let header = |name: &str| -> Result<Option<String>, String> {
         let Some(value) = request.headers().get(name) else {
             return Ok(None);
@@ -233,7 +204,7 @@ pub async fn put_folder_file<R: Runtime>(
     let remove = match required("remove").map_err(refused)?.as_str() {
         "true" => true,
         "false" => false,
-        other => return Err(refused(format!("remove is {other:?}, not true or false"))),
+        other => return Err(refused(format!("remove is {other:?}, not true or false")).into()),
     };
     let expected =
         storage::Expectation::parse(&required("expected").map_err(refused)?).map_err(refused)?;
@@ -248,12 +219,27 @@ pub async fn put_folder_file<R: Runtime>(
         }
     };
     let operation = if remove { "remove" } else { "write" };
-    let root = PathBuf::from(required("root").map_err(refused)?);
-    let directory = bound(&webview, &root, &path, operation)?;
+    let root: Root = required("root")
+        .and_then(|root| root.parse())
+        .map_err(refused)?;
+    let directory = opened(&webview, root)?;
     let at = path.clone();
     blocking(
-        move || storage::put(directory.root(), &path, bytes.as_deref(), &expected),
-        |message| Err(failed(&at, operation, message)),
+        move || {
+            storage::put(directory.root(), &path, bytes.as_deref(), &expected)
+                .map_err(FolderError::from)
+        },
+        |message| Err(failed(&at, operation, message).into()),
     )
     .await
+}
+
+/// The folder `root` reached, and the path the shell named it at, for a
+/// command that names the folder to another program.
+pub(crate) fn named<R: Runtime>(
+    webview: &Webview<R>,
+    root: Root,
+) -> Result<(Directory, PathBuf), RootError> {
+    let roots = webview.state::<Roots>();
+    Ok((roots.opened(root)?, roots.path(root)?))
 }

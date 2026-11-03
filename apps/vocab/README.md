@@ -61,9 +61,9 @@ bun dev:vocab:desktop     # from the repository root; needs a Rust toolchain
 bun build:vocab:desktop   # a local, unsigned macOS app bundle
 ```
 
-Its Tauri shell derives and grants the folder from Vocab's site. The page opens
-`~/Epicenter/vocab` (`~/Epicenter Dev/vocab` in development), making it when
-missing for now. Vocab opens its AppData contract for connected endpoints.
+Its Tauri shell names the folder from Vocab's site, and the page opens it by
+name: `~/Epicenter/vocab` (`~/Epicenter Dev/vocab` in development), made
+when nothing is there. Vocab opens its AppData contract for connected endpoints.
 A failed open shows the shared recovery screen with Retry. The header shows
 the shell's folder path and offers **Set up in Epicenter** for local history.
 Connecting a repository in Epicenter enables transfer.

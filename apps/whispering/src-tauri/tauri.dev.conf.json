@@ -6,5 +6,10 @@
 		"security": {
 			"capabilities": ["whispering"]
 		}
+	},
+	"plugins": {
+		"epicenter-standalone": {
+			"environment": "development"
+		}
 	}
 }

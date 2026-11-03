@@ -6,5 +6,10 @@
 		"security": {
 			"capabilities": ["capture"]
 		}
+	},
+	"plugins": {
+		"epicenter-standalone": {
+			"environment": "development"
+		}
 	}
 }

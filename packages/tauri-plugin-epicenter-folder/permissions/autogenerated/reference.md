@@ -1,12 +1,11 @@
 ## Default Permission
 
-Open the folder the shell bound to this window, and other folders (and resolve their canonical paths) Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.
+Open the roots the shell named (Data and AppData), show the path the shell named each at, read and change their files through the shell, and ask Epicenter to sync them.
 
 #### This default permission set includes the following:
 
-- `allow-data-folder`
-- `allow-open-folder`
-- `allow-resolve-folder`
+- `allow-open-root`
+- `allow-root-path`
 - `allow-list-folder`
 - `allow-read-folder-file`
 - `allow-put-folder-file`
@@ -21,32 +20,6 @@ Open the folder the shell bound to this window, and other folders (and resolve t
 <th>Description</th>
 </tr>
 
-
-<tr>
-<td>
-
-`epicenter-folder:allow-data-folder`
-
-</td>
-<td>
-
-Enables the data_folder command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-data-folder`
-
-</td>
-<td>
-
-Denies the data_folder command without any pre-configured scope.
-
-</td>
-</tr>
 
 <tr>
 <td>
@@ -77,12 +50,12 @@ Denies the list_folder command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-open-folder`
+`epicenter-folder:allow-open-root`
 
 </td>
 <td>
 
-Enables the open_folder command without any pre-configured scope.
+Enables the open_root command without any pre-configured scope.
 
 </td>
 </tr>
@@ -90,12 +63,12 @@ Enables the open_folder command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:deny-open-folder`
+`epicenter-folder:deny-open-root`
 
 </td>
 <td>
 
-Denies the open_folder command without any pre-configured scope.
+Denies the open_root command without any pre-configured scope.
 
 </td>
 </tr>
@@ -155,12 +128,12 @@ Denies the read_folder_file command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-resolve-folder`
+`epicenter-folder:allow-root-path`
 
 </td>
 <td>
 
-Enables the resolve_folder command without any pre-configured scope.
+Enables the root_path command without any pre-configured scope.
 
 </td>
 </tr>
@@ -168,12 +141,12 @@ Enables the resolve_folder command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:deny-resolve-folder`
+`epicenter-folder:deny-root-path`
 
 </td>
 <td>
 
-Denies the resolve_folder command without any pre-configured scope.
+Denies the root_path command without any pre-configured scope.
 
 </td>
 </tr>

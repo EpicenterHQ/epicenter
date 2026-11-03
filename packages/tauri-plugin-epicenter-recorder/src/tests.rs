@@ -1,5 +1,5 @@
 //! The plugin through Tauri's real invoke path, on the mock runtime, beside
-//! the folder plugin whose window bindings it reads.
+//! the folder plugin whose open roots it reads.
 //!
 //! No test opens a microphone: every refusal checked here happens before the
 //! device is resolved, and the lifecycle of a held recording is driven with
@@ -14,10 +14,10 @@
 //! - Without microphone access no meter or recording resolves a device;
 //!   listing asks for nothing.
 //! - Permission granted after page departure resolves no device for that page.
-//! - `start` records only into the directory the shell bound to the calling
-//!   window or a root its page opened, at a data path the shared path rule accepts, with nothing
-//!   at it yet. A root the page did not open, a window with no binding, or a
-//!   page whose folders have shut down, is refused.
+//! - `start` records only into a root the page opened, named by name, at a
+//!   data path the shared path rule accepts, with nothing at it yet. A root
+//!   the page did not open, an absolute path, or a page whose folders have
+//!   shut down, is refused.
 //! - `stop` reaches only a recording the window started; no command deletes
 //!   one. It answers once the recording is finished and at its path.
 //! - `recover` finishes and places cut-off recordings in such a folder, and
@@ -25,7 +25,7 @@
 //! - A destroyed window's recording is finished and placed, never deleted.
 //! - A window without the plugin's permission cannot call it.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde_json::{json, Value};
 use tauri::ipc::{CallbackFn, InvokeBody};
@@ -33,7 +33,7 @@ use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_K
 use tauri::utils::acl::ExecutionContext;
 use tauri::webview::InvokeRequest;
 use tauri::{App, Manager, WebviewWindow, WebviewWindowBuilder};
-use tauri_plugin_epicenter_folder::{BindError, Directory, FolderExt};
+use tauri_plugin_epicenter_folder::{Root, RootsExt};
 
 use crate::{init, Builder, Recorders, COMMANDS};
 
@@ -101,8 +101,8 @@ fn context() -> tauri::Context<MockRuntime> {
     context
 }
 
-/// An app with both plugins, and the directory `notes` bound to `main`
-/// before any window exists, as a shell binds it.
+/// An app with both plugins, its data root named at `notes` and opened, as
+/// a shell names it and its page opens it, and its AppData root named only.
 fn fixture() -> Fixture {
     fixture_with_access(|| Ok(()))
 }
@@ -118,12 +118,11 @@ fn fixture_with_access(access: fn() -> crate::recorder::Result<()>) -> Fixture {
         .plugin(Builder::new().access(access).build())
         .build(context())
         .expect("mock app");
-    let folders = app.folders();
-    folders
-        .bind_while_building("main", Directory::create(&root).unwrap(), || {
-            Ok::<_, BindError>(window(&app, "main"))
-        })
-        .unwrap();
+    app.roots().name(Root::Data, root.clone(), |_| None);
+    app.roots().open(Root::Data).unwrap();
+    // Named but never opened.
+    app.roots()
+        .name(Root::AppData, root.with_file_name("app-data"), |_| None);
     Fixture {
         app,
         root,
@@ -164,12 +163,12 @@ fn invoke(window: &WebviewWindow<MockRuntime>, command: &str, args: Value) -> Re
     call(window, "epicenter-recorder", command, args)
 }
 
-/// `start` at `path` in `root`, from the system default microphone.
-fn start(window: &WebviewWindow<MockRuntime>, root: &Path, path: &str) -> Result<Value, Value> {
+/// `start` at `path` in the data root, from the system default microphone.
+fn start(window: &WebviewWindow<MockRuntime>, path: &str) -> Result<Value, Value> {
     invoke(
         window,
         "start",
-        json!({ "root": root, "path": path, "device": null, "signals": "__CHANNEL__:1" }),
+        json!({ "root": "Data", "path": path, "device": null, "signals": "__CHANNEL__:1" }),
     )
 }
 
@@ -221,7 +220,7 @@ fn a_microphone_that_is_not_connected_is_refused_not_replaced() {
         let refused = invoke(
             &main,
             "start",
-            json!({ "root": fixture.root, "path": "recordings/a", "device": device, "signals": "__CHANNEL__:1" }),
+            json!({ "root": "Data", "path": "recordings/a", "device": device, "signals": "__CHANNEL__:1" }),
         )
         .unwrap_err();
         assert_eq!(name(&refused), "InputUnavailable", "{device}: {refused}");
@@ -338,7 +337,7 @@ fn without_microphone_access_no_meter_or_recording_resolves_a_device() {
     let refused = invoke(
         &main,
         "start",
-        json!({ "root": fixture.root, "path": "recordings/a", "device": "not an id", "signals": "__CHANNEL__:1" }),
+        json!({ "root": "Data", "path": "recordings/a", "device": "not an id", "signals": "__CHANNEL__:1" }),
     )
     .unwrap_err();
     assert_eq!(name(&refused), "PermissionDenied", "{refused}");
@@ -373,7 +372,7 @@ fn permission_granted_after_page_departure_resolves_no_device() {
         let args = match command {
             "open_meter" => json!({ "device": "not an id", "levels": "__CHANNEL__:1" }),
             _ => {
-                json!({ "root": fixture.root, "path": "recordings/a", "device": "not an id", "signals": "__CHANNEL__:1" })
+                json!({ "root": "Data", "path": "recordings/a", "device": "not an id", "signals": "__CHANNEL__:1" })
             }
         };
         let calling = std::thread::spawn(move || invoke(&main, command, args));
@@ -440,7 +439,7 @@ fn permission_granted_after_exit_finalization_resolves_no_device() {
         let args = match command {
             "open_meter" => json!({ "device": "not an id", "levels": "__CHANNEL__:1" }),
             _ => {
-                json!({ "root": fixture.root, "path": "recordings/a", "device": "not an id", "signals": "__CHANNEL__:1" })
+                json!({ "root": "Data", "path": "recordings/a", "device": "not an id", "signals": "__CHANNEL__:1" })
             }
         };
         let calling = std::thread::spawn(move || invoke(&main, command, args));
@@ -470,32 +469,24 @@ fn permission_granted_after_exit_finalization_resolves_no_device() {
 }
 
 #[test]
-fn start_and_recover_reach_only_a_folder_the_calling_window_opened() {
+fn start_and_recover_reach_only_a_root_the_page_opened() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
-    let other = window(&fixture.app, "other");
 
-    // A window the shell bound no folder to records and repairs nothing,
-    // whatever the page passes.
+    // An absolute path names no root, whatever folder it is.
     let elsewhere = fixture.root.to_str().unwrap();
-    for args in [
-        json!({ "root": elsewhere, "path": "recordings/a", "device": null, "signals": "__CHANNEL__:1" }),
-        json!({ "scope": "notes", "root": elsewhere, "path": "recordings/a", "device": null, "signals": "__CHANNEL__:1" }),
+    for (command, args) in [
+        (
+            "start",
+            json!({ "root": elsewhere, "path": "recordings/a", "device": null, "signals": "__CHANNEL__:1" }),
+        ),
+        (
+            "recover",
+            json!({ "root": elsewhere, "under": "recordings" }),
+        ),
     ] {
-        let refused = invoke(&other, "start", args).unwrap_err();
-        assert_eq!(name(&refused), "Refused", "{refused}");
-        assert!(
-            refused["message"].as_str().unwrap().contains("NotBound"),
-            "{refused}"
-        );
+        assert!(invoke(&main, command, args).is_err(), "{command}");
     }
-    let refused = invoke(
-        &other,
-        "recover",
-        json!({ "root": elsewhere, "under": "recordings" }),
-    )
-    .unwrap_err();
-    assert_eq!(name(&refused), "Refused", "{refused}");
 
     // A request that names no root reaches no folder: there is no default.
     for (command, args) in [
@@ -508,56 +499,43 @@ fn start_and_recover_reach_only_a_folder_the_calling_window_opened() {
         assert!(invoke(&main, command, args).is_err(), "{command}");
     }
 
-    // A root the page names is reached only when the window opened it: its
-    // own folder by its path, never a folder it did not open.
+    // The data root, which the page opened, is reached; a root it has not
+    // opened is refused before anything is made.
     assert_eq!(
         invoke(
             &main,
             "recover",
-            json!({ "root": elsewhere, "under": "recordings" })
+            json!({ "root": "Data", "under": "recordings" })
         )
         .unwrap(),
         json!({ "recovered": [], "unplaced": [] })
     );
-    let unopened = fixture.root.parent().unwrap().join("unopened");
-    std::fs::create_dir_all(&unopened).unwrap();
-    let unopened = unopened.to_str().unwrap();
     for (command, args) in [
         (
             "start",
-            json!({ "root": unopened, "path": "recordings/a", "device": null, "signals": "__CHANNEL__:1" }),
+            json!({ "root": "AppData", "path": "recordings/a", "device": null, "signals": "__CHANNEL__:1" }),
         ),
         (
             "recover",
-            json!({ "root": unopened, "under": "recordings" }),
+            json!({ "root": "AppData", "under": "recordings" }),
         ),
     ] {
         let refused = invoke(&main, command, args).unwrap_err();
         assert_eq!(name(&refused), "Refused", "{command}: {refused}");
         assert!(
-            refused["message"].as_str().unwrap().contains("NotGranted"),
+            refused["message"].as_str().unwrap().contains("not open"),
             "{command}: {refused}"
         );
     }
-    assert!(!std::path::Path::new(unopened).join("recordings").exists());
 
-    // Folder shutdown also refuses recorder calls from a previously bound page.
-    assert_eq!(
-        invoke(
-            &main,
-            "recover",
-            json!({ "root": fixture.root, "under": "recordings" })
-        )
-        .unwrap(),
-        json!({ "recovered": [], "unplaced": [] })
-    );
-    fixture.app.folders().shutdown();
-    let refused = start(&main, &fixture.root, "recordings/a").unwrap_err();
+    // Folder shutdown also refuses recorder calls from a page that opened it.
+    fixture.app.roots().shutdown();
+    let refused = start(&main, "recordings/a").unwrap_err();
     assert_eq!(name(&refused), "Refused", "{refused}");
     let refused = invoke(
         &main,
         "recover",
-        json!({ "root": fixture.root, "under": "recordings" }),
+        json!({ "root": "Data", "under": "recordings" }),
     )
     .unwrap_err();
     assert_eq!(name(&refused), "Refused", "{refused}");
@@ -577,7 +555,7 @@ fn start_refuses_a_path_the_path_rule_refuses_before_opening_anything() {
         "recordings/a:b",
         "",
     ] {
-        let refused = start(&main, &fixture.root, path).unwrap_err();
+        let refused = start(&main, path).unwrap_err();
         assert_eq!(name(&refused), "Refused", "{path:?}: {refused}");
     }
     assert!(!fixture.root.join("recordings").exists());
@@ -590,7 +568,7 @@ fn start_never_records_over_a_file_already_there() {
     let main = window(&fixture.app, "main");
     std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
     std::fs::write(fixture.root.join("recordings/a.webm"), b"kept").unwrap();
-    let refused = start(&main, &fixture.root, "recordings/a").unwrap_err();
+    let refused = start(&main, "recordings/a").unwrap_err();
     assert_eq!(name(&refused), "Refused", "{refused}");
     assert_eq!(
         std::fs::read(fixture.root.join("recordings/a.webm")).unwrap(),
@@ -606,7 +584,7 @@ fn start_never_records_through_a_link() {
     let outside = fixture.root.parent().unwrap().join("outside");
     std::fs::create_dir_all(&outside).unwrap();
     std::os::unix::fs::symlink(&outside, fixture.root.join("recordings")).unwrap();
-    let refused = start(&main, &fixture.root, "recordings/a").unwrap_err();
+    let refused = start(&main, "recordings/a").unwrap_err();
     assert_eq!(name(&refused), "Refused", "{refused}");
     assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
 }
@@ -709,14 +687,14 @@ fn a_destroyed_window_finalizes_its_recording() {
 /// yet stated. `recover` finishes and places it, and leaves the one a live
 /// recording is writing.
 #[test]
-fn recover_places_cut_off_recordings_in_the_bound_folder() {
+fn recover_places_cut_off_recordings_in_the_open_root() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
     let recover = || {
         invoke(
             &main,
             "recover",
-            json!({ "root": fixture.root, "under": "recordings" }),
+            json!({ "root": "Data", "under": "recordings" }),
         )
     };
     let nothing = json!({ "recovered": [], "unplaced": [] });
@@ -754,12 +732,7 @@ fn recover_places_cut_off_recordings_in_the_bound_folder() {
     assert!(!staged.exists());
     assert!(live.exists(), "a live recording is its writer's");
     assert_eq!(recover().unwrap(), nothing);
-    let refused = invoke(
-        &main,
-        "recover",
-        json!({ "root": fixture.root, "under": ".git" }),
-    )
-    .unwrap_err();
+    let refused = invoke(&main, "recover", json!({ "root": "Data", "under": ".git" })).unwrap_err();
     assert_eq!(name(&refused), "Refused", "{refused}");
 }
 

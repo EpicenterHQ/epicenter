@@ -74,18 +74,17 @@ export const commands = {
 	/**
 	 *  Transcribe the audio file at the folder-relative data path `path` (such as
 	 *  `recordings/20261031T101500123.wav`) in `root`, with the exact catalog
-	 *  model `model_id`. `root` is the directory the shell bound to the calling
-	 *  window or a folder its page opened, by the exact path the shell answered it with; any other
-	 *  root is refused, whatever it holds.
+	 *  model `model_id`. `root` is a root the page opened through the folder
+	 *  plugin (`Root::Data`); one it has not opened is refused.
 	 *
-	 *  A root the window did not open, a path the folder rule refuses, and a
+	 *  A root the page has not opened, a path the folder rule refuses, and a
 	 *  missing file are refused before any model is resolved. An unknown or
 	 *  uninstalled model is refused before the file is read or decoded. The
 	 *  active-model setting is neither read nor changed. The blocking job owns its
 	 *  input until inference finishes, including after the caller abandons the
 	 *  call.
 	 */
-	transcribeFile: (modelId: string, root: string, path: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|transcribe_file", { modelId, root, path, hints })),
+	transcribeFile: (modelId: string, root: Root, path: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|transcribe_file", { modelId, root, path, hints })),
 	/**
 	 *  Open this app's model settings through the callback given to
 	 *  `Builder::open_settings`. Refused when the app gave none.
@@ -191,6 +190,19 @@ export type ModelInfo = {
 	recommended: boolean,
 	downloaded: boolean,
 };
+
+/**  A root an app reaches by name. */
+export type Root =
+/**
+ *  The person's files: `<library root>/<name>`, which the app's site
+ *  names (ADR-0722), such as `~/Epicenter/whispering`.
+ */
+"Data" |
+/**
+ *  The operating system's application data directory for this app:
+ *  machine-local settings, never synced.
+ */
+"AppData";
 
 /**
  *  Failures model administration commands can report. Both are actionable:

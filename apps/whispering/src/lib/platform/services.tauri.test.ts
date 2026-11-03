@@ -24,7 +24,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { Whispering } from '../contract.js';
 
 const ORIGIN = 'http://localhost:8787';
-const ROOT = '/Users/me/Epicenter/Whispering';
+const ROOT = 'Data';
 
 /** The keychain's entries, by the page's name. */
 const keychain = new Map<string, string>();
@@ -121,7 +121,7 @@ mock.module('@epicenter/transcription-native', () => ({
 	},
 }));
 
-/** The data folder's client, by the root the shell answered when it opened. */
+/** The data folder's client, by the root it was opened at. */
 const dataFolder = {} as Client<Whispering>;
 mock.module('@epicenter/folder/tauri', () => ({
 	rootOf: (client: unknown) => {

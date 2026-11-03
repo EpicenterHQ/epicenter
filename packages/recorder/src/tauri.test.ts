@@ -39,7 +39,7 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
-/** Devices the page opened, and the root the shell answered for each. */
+/** Devices the page opened, and the root each was opened at. */
 const roots = new Map<object, string>();
 mock.module('@epicenter/folder/tauri', () => ({
 	rootOf(device: object) {
@@ -52,8 +52,8 @@ mock.module('@epicenter/folder/tauri', () => ({
 
 const { recorder } = await import('./tauri.js');
 
-const ROOT = '/Users/me/Epicenter/App';
-/** The data folder the page opened by its path. */
+const ROOT = 'Data';
+/** The data folder the page opened by its root's name. */
 const device = {} as Parameters<typeof recorder.start>[0]['device'];
 roots.set(device, ROOT);
 

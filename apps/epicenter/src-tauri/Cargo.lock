@@ -5241,12 +5241,10 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde_json",
- "sha2",
  "specta",
  "specta-typescript",
  "tauri",
  "tauri-plugin",
- "tauri-plugin-fs",
  "tauri-plugin-opener",
  "tauri-specta",
 ]

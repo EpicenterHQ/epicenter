@@ -1,43 +1,39 @@
 /**
  * `openDevice` from `@epicenter/folder/tauri`, and a standalone app's two
- * roots (`openAppData`, `openDataFolder`): the typed client over a directory
- * the desktop shell lets the window reach, through the folder plugin's
- * storage commands. The shell here is `createGrantedShell`, a real directory
- * behind the plugin's command names, whose allowed roots stand in for
- * Tauri's file-system scope, so what lands is what a desktop folder holds.
+ * roots (`openAppData`, `openDataFolder`): the typed client over a root the
+ * desktop shell named, through the folder plugin's storage commands. The
+ * shell here is `createNamedShell`, real directories behind the plugin's
+ * command names, so what lands is what a desktop folder holds.
  *
  * Key behaviors:
- * - `path` is the root's absolute path: the bound directory, or a root the
- *   shell allows; any other is `NotGranted`, a missing one `Missing` unless
- *   `create`. `rootOf` answers the root as the shell answered it, and every
- *   storage call names it
+ * - A page opens a root by name and holds no path but the one it shows:
+ *   `rootOf` answers the root's name, which every storage call names, and
+ *   `displayPath` the path `root_path` answered; opening answers none
+ * - The data folder is made when missing; a data folder behind a link whose
+ *   target is gone is `Disconnected`, with words a person reads, and Retry
+ *   opens it once it is back; a storage call on it is `Unavailable` with
+ *   that `Disconnected` as its cause
  * - Versions are sha256, so a stale `over` is a `Conflict` and lands nothing
  * - A storage refusal is `Unavailable`; a page outside Tauri opens nothing
- * - The shell's watcher reaches a collection's listeners, and every handle
- *   over a root hears it whichever opened last
- * - The data folder is the path the shell derives from its bundle identifier and is made when missing
- * - A data folder behind a link to a drive that is gone is `Disconnected`, and
- *   nothing is opened or made; a shell that derives none says so
+ * - The shell's watcher reaches a collection's listeners, each root its own
  */
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
-import { readFile, realpath, rm } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
 import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import type { Root } from './native/bindings.gen.js';
 import {
-	createGrantedShell,
-	type GrantedShell,
-	grantedDirectory,
-} from './granted-shell.test-support.js';
-import type { DataFolderError } from './native/bindings.gen.js';
+	createNamedShell,
+	type NamedShell,
+	namedDirectory,
+} from './named-shell.test-support.js';
 
-let shell: GrantedShell;
+let shell: NamedShell;
 let inTauri = true;
-/** The data folder the shell answers. */
-let dataFolder = '/home/Epicenter/notes';
-/** The shell's refusal to answer a data folder, when it has one. */
-let dataFolderError: DataFolderError | undefined;
+/** The AppData root this test's shell named. */
+let appData: string;
 
 type Channel = { onmessage?: (change: { paths: string[] | null }) => void };
 
@@ -49,25 +45,11 @@ mock.module('@tauri-apps/api/core', () => ({
 		cmd: string,
 		body?: Record<string, unknown> | Uint8Array,
 		options?: { headers?: Record<string, string> },
-	) => {
-		if (cmd === 'plugin:epicenter-folder|data_folder')
-			return dataFolderError === undefined
-				? Promise.resolve(dataFolder)
-				: Promise.reject(dataFolderError);
-		return shell.invoke(cmd, body, options);
-	},
-}));
-mock.module('@tauri-apps/api/path', () => ({
-	appDataDir: async () => shell.root,
-	join: async (...parts: string[]) => join(...parts),
+	) => shell.invoke(cmd, body, options),
 }));
 
-const {
-	openAppData,
-	openDataFolder,
-	openDevice,
-	rootOf,
-} = await import('./tauri.js');
+const { displayPath, openAppData, openDataFolder, openDevice, rootOf } =
+	await import('./tauri.js');
 const { storeOf } = await import('./device/client.js');
 
 const notes = defineContract({
@@ -89,36 +71,29 @@ const notesSettings = defineContract({
 	},
 });
 
-const removed: string[] = [];
 beforeEach(async () => {
-	shell = createGrantedShell(await grantedDirectory('tauri-device-'));
+	appData = await namedDirectory('tauri-device-app-data-');
+	shell = createNamedShell({
+		Data: await namedDirectory('tauri-device-'),
+		AppData: appData,
+	});
 	inTauri = true;
-	dataFolder = '/home/Epicenter/notes';
-	dataFolderError = undefined;
 });
 
 afterEach(async () => {
 	await rm(shell.root, { recursive: true, force: true });
-	for (const path of removed.splice(0))
-		await rm(path, { recursive: true, force: true });
+	await rm(appData, { recursive: true, force: true });
 });
 
-/** A directory the shell allows beside the bound one, as the picker would. */
-async function allowed(prefix: string) {
-	const directory = await grantedDirectory(prefix);
-	removed.push(directory);
-	return directory;
-}
-
 /** The latest channel the shell was handed for `root`. */
-function channel(root: string): Channel {
+function channel(root: Root): Channel {
 	const found = shell.opened.findLast((open) => open.root === root);
 	if (found === undefined) throw new Error(`nothing opened ${root}`);
 	return found.onChange as Channel;
 }
 
-test('the default is the bound directory: a create lands there in house style', async () => {
-	const device = unwrap(await openDevice(notes, { path: shell.root }));
+test('the data folder opens by name, and a create lands there in house style', async () => {
+	const device = unwrap(await openDataFolder(notes));
 	const created = expectOk(
 		await device.notes.create({ id: 'a', title: 'First', body: 'Hello.\n' }),
 	);
@@ -131,8 +106,98 @@ test('the default is the bound directory: a create lands there in house style', 
 	).toEqual(['a']);
 });
 
+test('the page names roots, never paths, and shows the path the shell answered', async () => {
+	const device = unwrap(await openDataFolder(notes));
+	expect(rootOf(device)).toBe('Data');
+	expect(displayPath(device)).toBe(shell.root);
+	// The path comes from the display-only command; opening answers nothing.
+	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['open_root', 'root_path']);
+	expectOk(await device.notes.create({ id: 'a', title: 'Here' }));
+	expect(shell.calls.every(({ args }) => args.root === 'Data')).toBe(true);
+	expect(() => rootOf({} as typeof device)).toThrow();
+});
+
+test('the data folder is made when nothing is at its path', async () => {
+	await rm(shell.root, { recursive: true, force: true });
+	const device = unwrap(await openDataFolder(notes));
+	expectOk(await device.notes.create({ id: 'a', title: 'Made' }));
+	expect(await shell.text('notes/a.md')).toContain('title: Made');
+});
+
+test('AppData opens an app-owned settings contract beside the data folder', async () => {
+	const settings = unwrap(await openAppData(notesSettings));
+	const device = unwrap(await openDataFolder(notes));
+	expectOk(await settings.settings.create({ theme: 'dark' }));
+	expectOk(await device.notes.create({ id: 'a', title: 'Data' }));
+	expect(await readFile(join(appData, 'settings.md'), 'utf8')).toContain(
+		'theme: dark',
+	);
+	expect(await shell.text('settings.md')).toBeUndefined();
+	expect(rootOf(settings)).toBe('AppData');
+});
+
+test('a data folder on a drive that is not connected is Disconnected, and Retry opens it once it is back', async () => {
+	const folder = '/Users/me/Epicenter/notes';
+	const target = '/Volumes/Archive/notes';
+	shell.control.refuse = () => ({ name: 'Disconnected', folder, target });
+	const refused = expectErr(await openDataFolder(notes));
+	expect(refused).toMatchObject({ name: 'Disconnected', folder, target });
+	expect(refused.message).toBe(
+		`${folder} is a link to ${target}, a place that isn't available, such as a disconnected drive.`,
+	);
+	shell.control.refuse = () => undefined;
+	unwrap(await openDataFolder(notes));
+});
+
+test('a storage call on a data folder whose drive went away is Unavailable, with Disconnected as its cause', async () => {
+	const device = unwrap(await openDataFolder(notes));
+	const disconnected = {
+		name: 'Disconnected',
+		folder: shell.root,
+		target: '/Volumes/Archive/notes',
+	} as const;
+	shell.control.refuse = () => disconnected;
+	const unavailable = { name: 'Unavailable', cause: disconnected };
+	expect(expectErr(await device.notes.list())).toMatchObject(unavailable);
+	expect(expectErr(await device.notes.get({ id: 'a' }))).toMatchObject(
+		unavailable,
+	);
+	expect(
+		expectErr(await device.notes.create({ id: 'a', title: 'Lost' })),
+	).toMatchObject(unavailable);
+	expect(await shell.text('notes/a.md')).toBeUndefined();
+});
+
+test('each refusal reads as the error a person is shown', async () => {
+	shell.control.refuse = () => ({
+		name: 'Refused',
+		folder: '/Users/me/Epicenter/notes',
+		reason:
+			"/Users/me is your home folder or holds it, so it cannot be an app's folder.",
+	});
+	expect(expectErr(await openDataFolder(notes))).toMatchObject({
+		name: 'Refused',
+		message:
+			"/Users/me is your home folder or holds it, so it cannot be an app's folder.",
+	});
+	shell.control.refuse = () => ({
+		name: 'Unavailable',
+		folder: '/Users/me/Epicenter/notes',
+		message: 'permission denied',
+	});
+	expect(expectErr(await openDataFolder(notes))).toMatchObject({
+		name: 'Unreadable',
+		folder: '/Users/me/Epicenter/notes',
+	});
+	shell.control.refuse = () => undefined;
+	shell = createNamedShell({ Data: shell.root });
+	expect(expectErr(await openAppData(notesSettings))).toMatchObject({
+		name: 'StorageUnavailable',
+	});
+});
+
 test('a stale write is a Conflict and lands nothing; a current one lands', async () => {
-	const device = unwrap(await openDevice(notes, { path: shell.root }));
+	const device = unwrap(await openDataFolder(notes));
 	const first = expectOk(await device.notes.create({ id: 'a', title: 'One' }));
 	const second = expectOk(
 		await device.notes.update(
@@ -155,7 +220,7 @@ test('a stale write is a Conflict and lands nothing; a current one lands', async
 });
 
 test('a create lands only where nothing is, and a version is checked as one', async () => {
-	const device = unwrap(await openDevice(notes, { path: shell.root }));
+	const device = unwrap(await openDataFolder(notes));
 	const store = storeOf(device);
 	const bytes = (text: string) => new TextEncoder().encode(text);
 	expect(expectOk(await store.write('a.bin', bytes('two'), 'absent'))).toBe(
@@ -184,7 +249,7 @@ test('a create lands only where nothing is, and a version is checked as one', as
 });
 
 test('another program’s edit is read with its own version', async () => {
-	const device = unwrap(await openDevice(notes, { path: shell.root }));
+	const device = unwrap(await openDataFolder(notes));
 	await shell.write('notes/b.md', '---\ntitle: From git\n---\n');
 	const read = expectOk(await device.notes.get({ id: 'b' }));
 	expect(read.title).toBe('From git');
@@ -198,43 +263,8 @@ test('another program’s edit is read with its own version', async () => {
 	expect(await shell.text('notes/b.md')).toBe('---\ntitle: Edited\n---\n');
 });
 
-test('a path opens a root the shell allows; any other is NotGranted, a missing one Missing', async () => {
-	const other = await allowed('tauri-device-other-');
-	shell = createGrantedShell(shell.root, { grants: [other, `${other}-new`] });
-	removed.push(`${other}-new`);
-	const there = unwrap(await openDevice(notes, { path: other }));
-	expectOk(await there.notes.create({ id: 'a', title: 'There' }));
-	expect(rootOf(there)).toBe(await realpath(other));
-	expect(await readFile(join(other, 'notes/a.md'), 'utf8')).toContain(
-		'title: There',
-	);
-	// The directory the shell bound to the window opens by its path too.
-	const here = unwrap(await openDevice(notes, { path: shell.root }));
-	expect(rootOf(here)).toBe(shell.root);
-	expectOk(await here.notes.create({ id: 'b', title: 'Here' }));
-	expect(await shell.text('notes/b.md')).toContain('title: Here');
-	// Every storage call names the root it means.
-	expect(
-		shell.calls
-			.filter(({ cmd }) => cmd !== 'open_folder')
-			.every(({ args }) => args.root === shell.root || args.root === other),
-	).toBe(true);
-	// A relative path names no root, and the shell refuses it.
-	expect(expectErr(await openDevice(notes, { path: 'notes' }))).toMatchObject({
-		name: 'Refused',
-		folder: 'notes',
-	});
-	expect(
-		expectErr(await openDevice(notes, { path: '/Users/me/Notes' })),
-	).toMatchObject({ name: 'NotGranted', folder: '/Users/me/Notes' });
-	expect(
-		expectErr(await openDevice(notes, { path: `${other}-new` })),
-	).toMatchObject({ name: 'Missing', folder: `${other}-new` });
-	unwrap(await openDevice(notes, { path: `${other}-new`, create: true }));
-});
-
 test('a storage refusal is Unavailable, and the next call tries again', async () => {
-	const device = unwrap(await openDevice(notes, { path: shell.root }));
+	const device = unwrap(await openDataFolder(notes));
 	shell.control.refuseNext = 1;
 	const refused = expectErr(
 		await device.notes.create({ id: 'a', title: 'One' }),
@@ -245,17 +275,17 @@ test('a storage refusal is Unavailable, and the next call tries again', async ()
 
 test('outside Tauri nothing opens and the shell is never asked', async () => {
 	inTauri = false;
-	expect(expectErr(await openDevice(notes, { path: shell.root })).name).toBe(
+	expect(expectErr(await openDevice(notes, { root: 'Data' })).name).toBe(
 		'StorageUnavailable',
 	);
 	expect(shell.calls).toEqual([]);
 });
 
 test("the shell's watcher reaches a collection's listeners", async () => {
-	const device = unwrap(await openDevice(notes, { path: shell.root }));
+	const device = unwrap(await openDataFolder(notes));
 	let heard = 0;
 	const stop = device.notes.subscribe(() => heard++);
-	const watcher = channel(shell.root);
+	const watcher = channel('Data');
 	if (watcher.onmessage === undefined) throw new Error('no watcher was opened');
 	watcher.onmessage({ paths: ['notes/a.md'] });
 	expect(heard).toBe(1);
@@ -269,53 +299,16 @@ test("the shell's watcher reaches a collection's listeners", async () => {
 });
 
 test('each root hears only its own watcher', async () => {
-	const other = await allowed('tauri-device-other-');
-	shell = createGrantedShell(shell.root, { grants: [other] });
-	const own = unwrap(await openDevice(notes, { path: shell.root }));
-	const there = unwrap(await openDevice(notes, { path: other }));
+	const own = unwrap(await openDataFolder(notes));
+	const settings = unwrap(await openAppData(notesSettings));
 	let heard = 0;
-	let heardThere = 0;
+	let heardSettings = 0;
 	const stop = own.notes.subscribe(() => heard++);
-	const stopThere = there.notes.subscribe(() => heardThere++);
-	channel(other).onmessage?.({ paths: ['notes/a.md'] });
-	expect([heard, heardThere]).toEqual([0, 1]);
-	channel(shell.root).onmessage?.({ paths: null });
-	expect([heard, heardThere]).toEqual([1, 1]);
+	const stopSettings = settings.settings.subscribe(() => heardSettings++);
+	channel('AppData').onmessage?.({ paths: ['settings.md'] });
+	expect([heard, heardSettings]).toEqual([0, 1]);
+	channel('Data').onmessage?.({ paths: null });
+	expect([heard, heardSettings]).toEqual([1, 1]);
 	stop();
-	stopThere();
-});
-
-test('AppData opens an app-owned settings contract', async () => {
-	const appData = unwrap(await openAppData(notesSettings));
-	expectOk(await appData.settings.create({ theme: 'dark' }));
-	expect(await readFile(join(shell.root, 'settings.md'), 'utf8')).toContain('theme: dark');
-});
-
-test('the data folder comes from the shell and is made when missing', async () => {
-	const fallback = join(await allowed('tauri-device-home-'), 'Epicenter Dev', 'notes');
-	dataFolder = fallback;
-	shell = createGrantedShell(shell.root, { grants: [fallback] });
-	const device = unwrap(await openDataFolder(notes));
-	expectOk(await device.notes.create({ id: 'a', title: 'Default' }));
-	expect(await readFile(join(fallback, 'notes/a.md'), 'utf8')).toContain('title: Default');
-	expect(shell.opened.at(-1)?.root).toBe(fallback);
-});
-
-test('a data folder on a drive that is not connected is Disconnected, and nothing opens', async () => {
-	const folder = '/home/Epicenter/notes';
-	const target = '/Volumes/Archive/notes';
-	dataFolderError = { name: 'Disconnected', folder, target };
-	const refused = expectErr(await openDataFolder(notes));
-	expect(refused).toMatchObject({ name: 'Disconnected', folder, target });
-	expect(refused.message).toContain('on a drive that is not connected');
-	expect(refused.message).toContain(target);
-	expect(shell.opened).toEqual([]);
-});
-
-test('a shell that derives no data folder says so', async () => {
-	dataFolderError = { name: 'NoDataFolder' };
-	const refused = expectErr(await openDataFolder(notes));
-	expect(refused.name).toBe('StorageUnavailable');
-	expect(refused.message).toContain('derived no data folder');
-	expect(shell.opened).toEqual([]);
+	stopSettings();
 });

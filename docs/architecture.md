@@ -61,14 +61,16 @@ its actions is one CLI call. Epicenter opens no folder's files and binds no
 window to a directory, and keeps no records of its own.
 
 Each standalone app (Capture, Honeycrisp, Todos, Vocab, Whispering) is its
-own Tauri program on the shared `epicenter-standalone` crate: its window
-starts on its AppData root and opens its data folder,
-`~/Epicenter/<productName>` (for Todos, `~/Epicenter/Todos`) unless the
-person chose another, which Tauri's file-system scope must allow
-([ADR-0701](adr/0701-apps-run-as-separate-programs.md)).
+own Tauri program on the shared `epicenter-standalone` crate
+([ADR-0701](adr/0701-apps-run-as-separate-programs.md)): its page opens two
+roots the shell names, by name, its AppData root and its data folder,
+`~/Epicenter/<name>` from its site (for Todos, `~/Epicenter/todos`), which
+the first open makes when nothing is there
+([ADR-0725](adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md),
+[ADR-0726](adr/0726-an-apps-path-is-its-claim.md)).
 
 Each window owns its clients and the edits of its mounted editors. The
-shell owns directory permission and atomic file publication. A window closes
+shell owns which roots a page reaches and atomic file publication. A window closes
 at once and Quit quits, without waiting for the page: a local write still in
 flight then is a small, rare loss at the edge
 ([ADR-0702](adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).

@@ -277,9 +277,8 @@ whose desktop leaf went missing.
   length, is written once Stop has answered (`folder-recordings.ts`); a
   recording a quit or a crash cut off is finished and placed on the next
   launch, before any page shows, and given its note there. The recorder names the data folder to the shell by
-  the root the shell answered when the page opened it (`rootOf` from
-  `@epicenter/folder/tauri`); the shell refuses any root the window did not
-  open.
+  its root's name (`rootOf` from `@epicenter/folder/tauri`); the shell
+  refuses a root the page did not open.
 - **Transcription** goes to a custom endpoint, sent from Rust
   (`send_request`, `src-tauri/src/http.rs`, so no endpoint needs CORS), to
   Epicenter's hosted API through the account's relay (`account_fetch`, whose

@@ -1,11 +1,10 @@
 //! Vocab's desktop app (`epicenter-standalone`, decisions 88 to 97): one
-//! window that starts on Vocab's AppData root and opens its data folder,
-//! `~/Epicenter/vocab`, which its bundle identifier names, by path
-//! (`openDataFolder` from `@epicenter/folder/tauri`), when Tauri's
-//! file-system scope allows it. The AppData root also holds `connections.md`,
-//! the endpoints the learner connected, whose keys are in the keychain; the
-//! page's requests to them are sent from here, with the key, through
-//! `epicenter-account`'s `connection_fetch`. It signs in only for
+//! window whose page opens Vocab's two roots by name: its AppData root and
+//! its data folder, `~/Epicenter/vocab`, which its bundle identifier names
+//! (`openDataFolder` from `@epicenter/folder/tauri`). The AppData root holds
+//! `connections.md`, the endpoints the learner connected, whose keys are in
+//! the keychain; the page's requests to them are sent from here, with the
+//! key, through `epicenter-account`'s `connection_fetch`. It signs in only for
 //! Epicenter's hosted tutor models and dictation, through
 //! `epicenter-account`, whose token the page never holds. It asks Epicenter
 //! to sync the folder and never syncs it itself.
@@ -85,19 +84,25 @@ mod tests {
         );
     }
 
-    /// The bundle is `so.epicenter.vocab`, its folder is named for the app
-    /// (`~/Epicenter/Vocab`), and it loads the desktop page, never the web
-    /// build. The development configuration has its own name, so its own
-    /// folder (`~/Epicenter/Vocab Dev`) and AppData.
+    /// The bundle is `so.epicenter.vocab`, which names its folder,
+    /// `~/Epicenter/vocab`, and it loads the desktop page, never the web
+    /// build. The development configuration states its environment, so its
+    /// folder is `~/Epicenter Dev/vocab`, and its identifier is the
+    /// production one with `.dev`, so it has its own AppData.
     #[test]
     fn vocab_is_its_own_app_with_a_folder_named_for_it() {
         let config = read(include_str!("../tauri.conf.json"));
         assert_eq!(config["identifier"], "so.epicenter.vocab");
         assert_eq!(config["productName"], VOCAB.title);
         assert_eq!(config["build"]["frontendDist"], "../build-desktop");
-        assert_eq!(config["plugins"]["fs"]["scopeDroppedPaths"], false);
         let dev = read(include_str!("../tauri.dev.conf.json"));
         assert_eq!(dev["identifier"], "so.epicenter.vocab.dev");
+        // The environment is stated, never read from the identifier.
+        assert_eq!(
+            dev["plugins"]["epicenter-standalone"]["environment"],
+            "development"
+        );
+        assert!(config["plugins"]["epicenter-standalone"].is_null());
         assert_eq!(dev["productName"], "Vocab Dev");
         for configuration in [&config, &dev] {
             assert_eq!(
@@ -108,24 +113,14 @@ mod tests {
     }
 
     /// The window reaches its roots and Epicenter's sync request through the
-    /// folder plugin, finds them with Tauri's path API and the app's name,
-    /// may pick a folder with the native dialog, and calls exactly the
-    /// commands the build script declares. No capability names a folder:
-    /// startup allows the default.
+    /// folder plugin, by name, and calls exactly the commands the build
+    /// script declares. No capability names a folder.
     #[test]
     fn the_capability_grants_plugins_and_the_declared_commands_and_no_folder() {
         let capability = read(include_str!("../capabilities/vocab.json"));
         assert_eq!(capability["windows"], json!(["vocab:*"]));
         assert_eq!(capability["local"], true);
-        let mut expected: Vec<String> = [
-            "epicenter-folder:default",
-            "dialog:allow-open",
-            "core:app:allow-name",
-            "core:path:allow-resolve-directory",
-            "core:path:allow-join",
-        ]
-        .map(String::from)
-        .to_vec();
+        let mut expected: Vec<String> = ["epicenter-folder:default"].map(String::from).to_vec();
         expected.extend(
             COMMANDS
                 .iter()

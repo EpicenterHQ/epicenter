@@ -1,9 +1,9 @@
 //! Whispering's desktop app (`epicenter-standalone`, decisions 88 to 97): one
-//! window that starts on Whispering's AppData root and opens its data folder,
-//! `~/Epicenter/whispering`, which its bundle identifier names, by path
-//! (`openDataFolder` from `@epicenter/folder/tauri`), when Tauri's
-//! file-system scope allows it. It records into that folder from the first
-//! sample (`tauri-plugin-epicenter-recorder`), transcribes on this computer
+//! window whose page opens Whispering's two roots by name: its AppData root
+//! and its data folder, `~/Epicenter/whispering`, which its bundle identifier
+//! names (`openDataFolder` from `@epicenter/folder/tauri`). It records into
+//! that folder from the first sample (`tauri-plugin-epicenter-recorder`),
+//! transcribes on this computer
 //! (`tauri-plugin-epicenter-transcription`), through the signed-in Epicenter
 //! account (`epicenter-account`, whose token the page never holds), or at a
 //! custom endpoint (`send_request`), and starts and stops a recording from a
@@ -91,19 +91,25 @@ mod tests {
         assert_eq!(COMMANDS, expected.as_slice());
     }
 
-    /// The bundle is `so.epicenter.whispering`, its folder is named for the
-    /// app (`~/Epicenter/Whispering`), and it loads the desktop page, never
-    /// the web build. The development configuration has its own name, so its
-    /// own folder (`~/Epicenter/Whispering Dev`) and AppData.
+    /// The bundle is `so.epicenter.whispering`, which names its folder,
+    /// `~/Epicenter/whispering`, and it loads the desktop page, never the web
+    /// build. The development configuration states its environment, so its
+    /// folder is `~/Epicenter Dev/whispering`, and its identifier is the
+    /// production one with `.dev`, so it has its own AppData.
     #[test]
     fn whispering_is_its_own_app_with_a_folder_named_for_it() {
         let config = read(include_str!("../tauri.conf.json"));
         assert_eq!(config["identifier"], "so.epicenter.whispering");
         assert_eq!(config["productName"], WHISPERING.title);
         assert_eq!(config["build"]["frontendDist"], "../build-desktop");
-        assert_eq!(config["plugins"]["fs"]["scopeDroppedPaths"], false);
         let dev = read(include_str!("../tauri.dev.conf.json"));
         assert_eq!(dev["identifier"], "so.epicenter.whispering.dev");
+        // The environment is stated, never read from the identifier.
+        assert_eq!(
+            dev["plugins"]["epicenter-standalone"]["environment"],
+            "development"
+        );
+        assert!(config["plugins"]["epicenter-standalone"].is_null());
         assert_eq!(dev["productName"], "Whispering Dev");
         for configuration in [&config, &dev] {
             assert_eq!(
@@ -114,11 +120,9 @@ mod tests {
     }
 
     /// The window reaches its roots and Epicenter's sync request through
-    /// the folder plugin, finds them with Tauri's path API and the app's
-    /// name, may pick a folder with the native dialog, records, transcribes
-    /// and administers local models, hears the global shortcut, and calls
-    /// exactly the commands the build script declares. No capability names
-    /// a folder: startup allows the default.
+    /// the folder plugin, by name, records, transcribes and administers
+    /// local models, hears the global shortcut, and calls exactly the
+    /// commands the build script declares. No capability names a folder.
     #[test]
     fn the_capability_grants_plugins_and_the_declared_commands_and_no_folder() {
         let capability = read(include_str!("../capabilities/whispering.json"));
@@ -126,10 +130,6 @@ mod tests {
         assert_eq!(capability["local"], true);
         let mut expected: Vec<String> = [
             "epicenter-folder:default",
-            "dialog:allow-open",
-            "core:app:allow-name",
-            "core:path:allow-resolve-directory",
-            "core:path:allow-join",
             "core:event:allow-listen",
             "core:event:allow-unlisten",
             "epicenter-recorder:default",

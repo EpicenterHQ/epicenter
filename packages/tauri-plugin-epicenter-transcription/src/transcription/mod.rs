@@ -14,9 +14,9 @@ use crate::PluginState;
 use epicenter_folder_core::page_files;
 use epicenter_folder_core::paths::path_problem;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tauri::{AppHandle, Runtime, State, Webview};
-use tauri_plugin_epicenter_folder::FolderExt;
+use tauri_plugin_epicenter_folder::{Root, RootsExt};
 
 // ── Wire types ────────────────────────────────────────────────────────
 
@@ -219,20 +219,21 @@ pub fn list_inference_models<R: Runtime>(
 }
 
 /// The audio file at the data path `path` in `root`, checked on arrival:
-/// `root` must be the directory the shell bound to the calling window or a
-/// root its page opened (`open_folder`), by its exact path, read once; the path must pass the folder's path
-/// rule with no link on the way, and a regular file must be there.
+/// `root` must be a root the page opened (`open_root`), whose folder is read
+/// once; the path must pass the folder's path rule with no link on the way,
+/// and a regular file must be there.
 fn audio_file<R: Runtime>(
     webview: &Webview<R>,
-    root: &Path,
+    root: Root,
     path: &str,
 ) -> Result<PathBuf, TranscriptionError> {
-    let directory = webview
-        .folders()
-        .bound_root(webview.label(), root)
-        .map_err(|refusal| TranscriptionError::FolderUnavailable {
-            message: refusal.to_string(),
-        })?;
+    let directory =
+        webview
+            .roots()
+            .opened(root)
+            .map_err(|refusal| TranscriptionError::FolderUnavailable {
+                message: refusal.to_string(),
+            })?;
     let refused = |message: String| TranscriptionError::PathRefused { message };
     if let Some(problem) = path_problem(path) {
         return Err(refused(format!("{path:?}: {problem}")));
@@ -256,11 +257,10 @@ fn audio_file<R: Runtime>(
 
 /// Transcribe the audio file at the folder-relative data path `path` (such as
 /// `recordings/20261031T101500123.wav`) in `root`, with the exact catalog
-/// model `model_id`. `root` is the directory the shell bound to the calling
-/// window or a folder its page opened, by the exact path the shell answered it with; any other
-/// root is refused, whatever it holds.
+/// model `model_id`. `root` is a root the page opened through the folder
+/// plugin (`Root::Data`); one it has not opened is refused.
 ///
-/// A root the window did not open, a path the folder rule refuses, and a
+/// A root the page has not opened, a path the folder rule refuses, and a
 /// missing file are refused before any model is resolved. An unknown or
 /// uninstalled model is refused before the file is read or decoded. The
 /// active-model setting is neither read nor changed. The blocking job owns its
@@ -270,13 +270,13 @@ fn audio_file<R: Runtime>(
 #[specta::specta]
 pub async fn transcribe_file<R: Runtime>(
     model_id: String,
-    root: PathBuf,
+    root: Root,
     path: String,
     hints: TranscriptionHints,
     webview: Webview<R>,
     state: State<'_, PluginState<R>>,
 ) -> Result<TranscriptionOutcome, TranscriptionError> {
-    let audio = audio_file(&webview, &root, &path)?;
+    let audio = audio_file(&webview, root, &path)?;
     let cache = state.cache();
     tauri::async_runtime::spawn_blocking(move || cache.transcribe_explicit(model_id, &audio, hints))
         .await

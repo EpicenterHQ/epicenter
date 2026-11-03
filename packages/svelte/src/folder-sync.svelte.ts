@@ -1,9 +1,11 @@
 /**
  * The open data folder's path and Epicenter sync status in a desktop page.
- * The shell answers the path; focus refreshes whether Epicenter manages it.
+ * The shell answers the path, which the page only shows; focus refreshes
+ * whether Epicenter manages the folder.
  */
 import type { Client, Contract } from '@epicenter/definition/contract';
 import {
+	displayPath,
 	type FolderRequest,
 	rootOf,
 	syncedWithEpicenter,
@@ -24,14 +26,15 @@ export function folderSync({
 	device: Client<Contract>;
 	contract: string;
 }) {
-	const path = rootOf(device);
+	const root = rootOf(device);
+	const path = displayPath(device);
 	let managed = $state(false);
 	let request = $state<{ tone: 'requested' | 'failed'; message: string }>();
 	let asking = $state(false);
 
 	/** Ask the shell again; the native predicate reads Epicenter enrollment. */
 	async function check() {
-		const { data } = await syncedWithEpicenter({ path });
+		const { data } = await syncedWithEpicenter({ root });
 		managed = data === true;
 	}
 
@@ -51,7 +54,7 @@ export function folderSync({
 	});
 
 	return {
-		/** The data folder's path, as the shell opened it. */
+		/** The data folder's path, as the shell named it, to show. */
 		path,
 		/** Whether Epicenter manages local history, as of the last focus. */
 		get managed() {
@@ -67,7 +70,7 @@ export function folderSync({
 		},
 		requestSetup() {
 			void ask(async () => {
-				const { error } = await syncWithEpicenter({ path, contract });
+				const { error } = await syncWithEpicenter({ root, contract });
 				return error === null
 					? { ok: true }
 					: { ok: false, message: error.message };

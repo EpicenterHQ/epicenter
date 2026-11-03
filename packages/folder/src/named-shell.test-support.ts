@@ -1,29 +1,39 @@
 /**
- * The desktop shell as a page's folder engine reaches it, over a real
- * directory, for tests that run the production desktop opener
+ * The desktop shell as a page's folder engine reaches it, over real
+ * directories, for tests that run the production desktop opener
  * (`@epicenter/folder/tauri`) and everything above it.
  *
- * The shell bound the window one directory before the window existed, and
- * the page opens it (`open_folder`) by its path; other roots open only when
- * allowed, as Tauri's file-system scope allows them. Every command names its
- * root, as the plugin's do, and its storage commands are one per storage
- * method (ADR-0581). Here the Bun store over the same directory
- * (`nodeStore`) answers each, as the plugin answers: its value, or a
- * rejection with the plugin's `StorageError`, `NotFound` for a read of
- * nothing and `Io` for any other failure. `control.refuseNext` fails the next
- * writes before anything lands. A test installs `invoke` with `mock.module`,
- * then opens the folder the way its app does.
- * `packages/tauri-plugin-epicenter-folder` tests the plugin's own checks.
+ * The shell named each root at startup (`Data`, and `AppData` when given),
+ * and the page opens one by name (`open_root`), which makes its folder when
+ * nothing is there; `root_path` alone answers the path to show. Every
+ * storage command names its root, as the plugin's do, and reaches only a
+ * root the page opened; its storage commands are one per storage method
+ * (ADR-0581). Here the Bun store over the same directory (`nodeStore`)
+ * answers each, as the plugin answers: its value, or a rejection with the
+ * plugin's `FolderError`: `NotFound` for a read of nothing, `Io` for any
+ * other storage failure, and the root's `RootError` (`NotOpen`, or
+ * `control.refuse`'s, such as `Disconnected`) when the root cannot be used.
+ * `control.refuse` answers an open, and every storage command, with the
+ * shell's `RootError`, and `control.refuseNext` fails the next writes
+ * before anything lands. A
+ * test installs `invoke` with `mock.module`, then opens the folder the way
+ * its app does. `packages/tauri-plugin-epicenter-folder` tests the plugin's
+ * own checks.
  */
 import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { join } from 'node:path';
 import type { ClientError, Version } from '@epicenter/definition/contract';
 import type { InferError } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import { nodeStore } from './device/node-store.js';
 import type { DeviceExpectation, DeviceStore } from './device/store.js';
-import type { StorageError } from './native/bindings.gen.js';
+import type {
+	FolderError,
+	Root,
+	RootError,
+	StorageError,
+} from './native/bindings.gen.js';
 
 export type ShellCall = { cmd: string; args: Record<string, unknown> };
 
@@ -60,83 +70,68 @@ async function answered<T>(
 	return data;
 }
 
-/** A new, empty directory to bind, resolved to the spelling the shell reports. */
-export async function grantedDirectory(prefix = 'granted-'): Promise<string> {
+/** A new, empty directory to name as a root, resolved to the spelling the shell reports. */
+export async function namedDirectory(prefix = 'named-'): Promise<string> {
 	return nodeFs.realpath(await nodeFs.mkdtemp(join(tmpdir(), prefix)));
 }
 
 /**
- * The shell, with the directory at `root` bound to the window and the
- * directories at `grants` allowed beside it, as Tauri's file-system scope
- * allows a default or a picked folder: the page opens one by its path
- * (`open_folder`), which answers `Missing` for one that is not there unless
- * asked to make it, then names it in a command's `root`. Any other root is
- * refused as the plugin refuses it. `opened` lists every open, with its
+ * The shell, with its data root named at `roots.Data` and its AppData root
+ * at `roots.AppData`, when given. `opened` lists every open, with its
  * channel.
  */
-export function createGrantedShell(
-	root: string,
-	{ grants = [] }: { grants?: readonly string[] } = {},
-) {
-	/** Each `open_folder`: the root asked for and its channel. */
-	const opened: { root: string; onChange: unknown }[] = [];
-	/** Allowed roots the page has opened. */
-	const admitted = new Set<string>();
+export function createNamedShell(roots: { Data: string; AppData?: string }) {
+	/** Each `open_root`: the root asked for and its channel. */
+	const opened: { root: Root; onChange: unknown }[] = [];
+	/** The roots the page has opened. */
+	const open = new Set<Root>();
 	const calls: ShellCall[] = [];
 	const control = {
-		/** The shell's answer to `open_folder`; throw to refuse. */
-		open: (): unknown => null,
+		/** The shell's refusal of `root`, if any, to an open or a storage command. */
+		refuse: (_root: Root): RootError | undefined => undefined,
 		/** How many upcoming writes fail before anything lands. */
 		refuseNext: 0,
 	};
-	const storage = nodeStore(root);
-	const granted = new Map(grants.map((grant) => [grant, nodeStore(grant)]));
+	const stores = new Map<Root, DeviceStore>();
+	for (const [root, path] of Object.entries(roots) as [
+		Root,
+		string | undefined,
+	][])
+		if (path !== undefined) stores.set(root, nodeStore(path));
 	/** The storage of the root a call named, or the plugin's refusal. */
 	function storageFor(args: Record<string, unknown>): DeviceStore {
-		const named = args.root;
-		if (named === root) return storage;
-		const found = granted.get(named as string);
-		if (found !== undefined && admitted.has(named as string)) return found;
-		throw {
-			name: 'Io',
-			path: (args.path as string | undefined) ?? '',
-			operation: 'open',
-			message: `NotGranted { root: ${JSON.stringify(named)} }`,
-		} satisfies StorageError;
+		const named = args.root as Root;
+		const refused = control.refuse(named);
+		if (refused !== undefined) throw refused satisfies FolderError;
+		const store = stores.get(named);
+		if (store === undefined)
+			throw { name: 'NotNamed', root: named } satisfies FolderError;
+		if (!open.has(named))
+			throw { name: 'NotOpen', root: named } satisfies FolderError;
+		return store;
 	}
 
 	const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
-		async open_folder(args) {
-			const named = args.root as string;
+		async open_root(args) {
+			const named = args.root as Root;
 			opened.push({ root: named, onChange: args.onChange });
-			const answer = control.open();
-			// As `scope.rs` refuses a root that is not an absolute path.
-			if (!isAbsolute(named))
-				throw {
-					name: 'Refused',
-					root: named,
-					reason: `${named} is not a full path to a folder.`,
-				};
-			// The shell answers the root it watches.
-			if (named === root) return answer === null ? root : answer;
-			if (!granted.has(named)) throw { name: 'NotGranted', root: named };
-			const exists = await nodeFs
-				.stat(named)
-				.then((stats) => stats.isDirectory())
-				.catch(() => false);
-			if (!exists && args.create !== true) throw { name: 'Missing' };
-			await nodeFs.mkdir(named, { recursive: true });
-			admitted.add(named);
-			return named;
+			const refused = control.refuse(named);
+			if (refused !== undefined) throw refused;
+			const path = roots[named];
+			if (path === undefined)
+				throw { name: 'NotNamed', root: named } satisfies RootError;
+			// Whatever is there opens; the folder is made when nothing is.
+			await nodeFs.mkdir(path, { recursive: true });
+			open.add(named);
+			return null;
 		},
-		/** The canonical path of an allowed folder, as Tauri's scope matches both spellings. */
-		async resolve_folder(args) {
-			const named = args.root as string;
-			const real = await nodeFs.realpath(named).catch(() => undefined);
-			if (!granted.has(named) && (real === undefined || !granted.has(real)))
-				throw { name: 'NotGranted', root: named };
-			if (real === undefined) throw { name: 'Missing' };
-			return real;
+		/** Display only: opens, reads and makes nothing. */
+		root_path(args) {
+			const named = args.root as Root;
+			const path = roots[named];
+			if (path === undefined)
+				throw { name: 'NotNamed', root: named } satisfies RootError;
+			return path;
 		},
 		list_folder: (args) => answered('list', '', storageFor(args).list()),
 		async read_folder_file(args) {
@@ -210,18 +205,20 @@ export function createGrantedShell(
 	};
 
 	return {
-		root,
+		root: roots.Data,
 		opened,
 		calls,
 		control,
-		/** The text at a folder-relative path, or undefined when there is no file. */
+		/** The text at a path in the data root, or undefined when there is no file. */
 		async text(path: string) {
-			return nodeFs.readFile(join(root, path), 'utf8').catch(() => undefined);
+			return nodeFs
+				.readFile(join(roots.Data, path), 'utf8')
+				.catch(() => undefined);
 		},
-		/** Another program writes the folder. */
+		/** Another program writes the data root. */
 		async write(path: string, text: string | Uint8Array) {
-			await nodeFs.mkdir(join(root, path, '..'), { recursive: true });
-			await nodeFs.writeFile(join(root, path), text);
+			await nodeFs.mkdir(join(roots.Data, path, '..'), { recursive: true });
+			await nodeFs.writeFile(join(roots.Data, path), text);
 		},
 		/** In place of Tauri's `invoke`, for the folder plugin's commands. */
 		async invoke(
@@ -239,4 +236,4 @@ export function createGrantedShell(
 	};
 }
 
-export type GrantedShell = ReturnType<typeof createGrantedShell>;
+export type NamedShell = ReturnType<typeof createNamedShell>;

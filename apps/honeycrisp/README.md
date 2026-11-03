@@ -183,7 +183,7 @@ that sets its own store, and a header that says what it is.
 | `src/lib/honeycrisp.svelte.ts` | The notes' and folders' contexts, the orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections. |
 | `src/lib/editor/` | The CodeMirror note editor: the binding that writes local edits and follows changes from elsewhere, live preview, conflict cards. It knows nothing of the app's UI or storage. |
 | `src/lib/components/` | Honeycrisp's UI, which reads and writes only through the state in context. |
-| `src-tauri/` | The desktop shell: `main.rs` names Honeycrisp to `epicenter-standalone`; `capabilities/honeycrisp.json` grants the folder plugin, the native picker, and the app's name and path API, and names no folder. |
+| `src-tauri/` | The desktop shell: `main.rs` names Honeycrisp to `epicenter-standalone`; `capabilities/honeycrisp.json` grants the folder plugin and names no folder. |
 
 ## Tests
 

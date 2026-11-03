@@ -1,27 +1,29 @@
-//! Standalone startup: one app, two roots, one primary window.
+//! Standalone startup: one app, two named roots, one window.
 //!
-//! An installed app keeps two roots. Its **AppData root** is fixed: the
+//! An installed app keeps two roots, which the page reaches by name through
+//! the folder plugin (`Root`, ADR-0725). Its **AppData root** is the
 //! operating system's application data directory for the app, one per
-//! installation, never synced and never chosen. Its settings notes sit at its
-//! top (`settings.md`, `shortcuts.md`), as the same notes sit at the top of
-//! the data root. Its **data root** is the person's files, derived from the
-//! app's bundle identifier, the reversed host of its production site, under
-//! `~/Epicenter`, or `~/Epicenter Dev` for an identifier ending in `.dev`.
-//! Only the data root is ever synced (by Epicenter).
+//! installation, never synced and never chosen; its settings notes sit at
+//! its top (`settings.md`, `shortcuts.md`). Its **data root** is the
+//! person's files, `<library root>/<name>`: the name comes from the app's
+//! bundle identifier, the reversed host of its production site, and the
+//! library root is `~/Epicenter`, or `~/Epicenter Dev` for a development
+//! build. The environment is stated in the Tauri configuration, which only
+//! the development configuration (`tauri.dev.conf.json`) does
+//! (`data_folder::Environment`); a development build's identifier is the
+//! production one with `.dev` appended. Only the data root is ever synced
+//! (by Epicenter).
 //!
-//! Rust never reads or writes a settings note. Startup grants the derived
-//! data folder through Tauri's file-system scope, keeps its resolved path for
-//! the folder plugin to answer (or, for a link whose target is gone, grants
-//! nothing and keeps why), makes the AppData root, and opens the window
-//! bound to it. The page opens both roots through the folder plugin
-//! (`openAppData` and `openDataFolder` in `@epicenter/folder/tauri`), which
-//! opens a data folder only when Tauri's runtime file-system scope allows it:
-//! startup allows the derived folder, the dialog plugin's `open` allows a
-//! folder the person picks, and `tauri-plugin-persisted-scope` keeps those
-//! across launches (in the AppData root's `.persisted-scope`). No capability
-//! names a folder.
-//! The folder plugin refuses the places no app keeps its files in
-//! (`scope::Refusals`).
+//! Startup names both roots, opens the data root, making the folder when
+//! nothing is at its path and following a link there (ADR-0726), and only
+//! then opens the window; nothing is granted or stored. If the data root
+//! cannot open, the window still opens so its recovery screen can show the
+//! typed error and Retry. The one refusal is
+//! a data root whose location is the person's home folder, a folder holding
+//! it, or the library root itself (`refusal`). A startup that fails says why
+//! (`StartupError`) and offers only Quit when it cannot name roots or build
+//! the window. Rust never reads or writes a
+//! settings note.
 //!
 //! Quit is the default menu's, and quits; a window closes at once. This crate
 //! installs no close, destroy, or exit handler that waits for a page. Every
@@ -29,17 +31,15 @@
 //! Quit reaches `Exit` without `ExitRequested`), which is where the recorder
 //! finishes a recording in progress.
 
-use std::ffi::OsString;
-use std::fs;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
-use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow};
+use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_epicenter_folder::admission::resolved;
-use tauri_plugin_epicenter_folder::{
-    scope::Refusals, DataFolder, DataFolderError, Directory, FolderExt,
-};
-use tauri_plugin_fs::FsExt;
+use tauri_plugin_epicenter_folder::{Root, RootsExt};
+
+use crate::data_folder::{Environment, EnvironmentError, FolderNameError};
 
 pub mod data_folder;
 
@@ -55,161 +55,150 @@ pub struct StandaloneApp {
     pub size: (f64, f64),
 }
 
-/// Builder with the file-system scope (`tauri-plugin-fs`, no commands
-/// granted), its persistence, the folder plugin, the dialog plugin, and setup
-/// that opens the app's window. Add app-specific plugins and commands, then
-/// call `.run(tauri::generate_context!())`.
+/// Why the app did not start: what its one dialog says before Quit.
+#[derive(Debug)]
+pub enum StartupError {
+    /// The operating system named no home folder, application data folder,
+    /// or cache folder for the app.
+    Paths(tauri::Error),
+    /// The configuration's `plugins.epicenter-standalone` names no
+    /// environment.
+    Environment(EnvironmentError),
+    /// The bundle identifier names no data folder in this environment.
+    Identity(FolderNameError),
+    /// The window could not be built.
+    Window(tauri::Error),
+}
+
+impl fmt::Display for StartupError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Paths(error) => write!(
+                formatter,
+                "The system did not say where this app keeps its files: {error}"
+            ),
+            Self::Environment(error) => write!(formatter, "The app is misconfigured: {error}."),
+            Self::Identity(error) => write!(formatter, "The app is misconfigured: {error}."),
+            Self::Window(error) => write!(formatter, "The window could not open: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for StartupError {}
+
+/// Builder with the folder plugin, the dialog plugin (for a startup failure),
+/// and setup that names the app's roots, opens its data folder, and opens its
+/// window. Add app-specific plugins and commands, then call
+/// `.run(tauri::generate_context!())`.
 pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
-        // The fs scope must exist before persisted-scope restores into it.
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_epicenter_folder::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(app)
         .setup(move |application| {
             let handle = application.handle().clone();
-            let started = allow_data_folder(&handle).and_then(|()| {
-                handle
-                    .path()
-                    .app_data_dir()
-                    .map_err(|error| error.to_string())
-                    .and_then(|config| start(&handle, app, &config).map(|_| ()))
-            });
-            if let Err(error) = started {
-                quit_with(&handle, app, error);
+            if let Err(error) = start(&handle, app) {
+                quit_with(&handle, app, &error);
             }
             Ok(())
         })
 }
 
-/// The data folder this build derives from its bundle identifier.
-pub fn data_folder<R: Runtime>(handle: &AppHandle<R>) -> Result<PathBuf, String> {
-    let home = handle
-        .path()
-        .home_dir()
-        .map_err(|error| error.to_string())?;
-    data_folder::derive(
-        &home,
-        &handle.config().identifier,
-        folder_dir_override().as_deref(),
-    )
-    .map_err(|error| error.to_string())
+/// Start the app under the person's home folder: name its roots, open its
+/// data folder, then open its window.
+pub fn start<R: Runtime>(
+    handle: &AppHandle<R>,
+    app: StandaloneApp,
+) -> Result<WebviewWindow<R>, StartupError> {
+    let path = handle.path();
+    let home = path.home_dir().map_err(StartupError::Paths)?;
+    let app_data = path.app_data_dir().map_err(StartupError::Paths)?;
+    start_in(handle, app, &home, app_data)
 }
 
-/// `EPICENTER_FOLDER_DIR` replaces the root in a debug build or a test; a
-/// release build ignores it.
-fn folder_dir_override() -> Option<OsString> {
-    if cfg!(debug_assertions) {
-        std::env::var_os("EPICENTER_FOLDER_DIR")
-    } else {
-        None
-    }
+/// `start` for `home` and `app_data`.
+fn start_in<R: Runtime>(
+    handle: &AppHandle<R>,
+    app: StandaloneApp,
+    home: &Path,
+    app_data: PathBuf,
+) -> Result<WebviewWindow<R>, StartupError> {
+    name_roots(handle, home, app_data)?;
+    // The page opens Data again to attach its change channel. If this first
+    // attempt fails, that open returns the typed error to Recovery and Retry.
+    let _ = handle.roots().open(Root::Data);
+    open_window(handle, app)
 }
 
-/// Grant the derived folder and keep the same resolved path for the page.
-fn allow_data_folder<R: Runtime>(handle: &AppHandle<R>) -> Result<(), String> {
-    let folder = data_folder(handle)?;
-    grant_data_folder(handle, &folder)
-}
-
-/// Grant `folder` by its resolved path, or nothing when it is reached through
-/// a link whose target is gone: the page then hears `Disconnected` and makes
-/// nothing. A folder that resolves to its own root, or to a folder holding
-/// it, is refused, however either is spelled.
-fn grant_data_folder<R: Runtime>(handle: &AppHandle<R>, folder: &Path) -> Result<(), String> {
-    if let Some(target) = dangling_target(folder) {
-        handle.manage(DataFolder(Err(DataFolderError::Disconnected {
-            folder: folder.display().to_string(),
-            target: target.display().to_string(),
-        })));
-        return Ok(());
-    }
-    let resolved_folder = resolved(folder);
-    if folder
-        .parent()
-        .is_some_and(|parent| resolved(parent).starts_with(&resolved_folder))
-    {
-        return Err(format!(
-            "{} contains the app's folder root and cannot be its data folder",
-            resolved_folder.display()
-        ));
-    }
-    if let Some(reason) = Refusals::resolve(handle)
-        .map_err(|error| error.to_string())?
-        .refusal(&resolved_folder)
-    {
-        return Err(reason);
-    }
-    handle
-        .fs_scope()
-        .allow_directory(&resolved_folder, true)
-        .map_err(|error| error.to_string())?;
-    handle.manage(DataFolder(Ok(resolved_folder)));
+/// Name the roots: AppData, and the data folder the bundle identifier
+/// derives under `home` in the environment the configuration states.
+fn name_roots<R: Runtime>(
+    handle: &AppHandle<R>,
+    home: &Path,
+    app_data: PathBuf,
+) -> Result<(), StartupError> {
+    let config = handle.config();
+    let environment = Environment::from_config(config.plugins.0.get(data_folder::CONFIG_KEY))
+        .map_err(StartupError::Environment)?;
+    let identity =
+        data_folder::identity(&config.identifier, environment).map_err(StartupError::Identity)?;
+    let library = data_folder::root(home, environment);
+    let data =
+        library.join(data_folder::relative_path(&identity.host).map_err(StartupError::Identity)?);
+    let roots = handle.roots();
+    roots.name(Root::AppData, app_data, |_| None);
+    let home = home.to_path_buf();
+    roots.name(Root::Data, data, move |location| {
+        refusal(&home, &library, location)
+    });
     Ok(())
 }
 
-/// Where `folder` would be when it, or a folder above it, is a link whose
-/// target is not there; `None` when every link on the way resolves.
-fn dangling_target(folder: &Path) -> Option<PathBuf> {
-    folder.ancestors().find_map(|link| {
-        let is_link = fs::symlink_metadata(link).is_ok_and(|meta| meta.file_type().is_symlink());
-        if !is_link || link.exists() {
-            return None;
-        }
-        let target = fs::read_link(link).ok()?;
-        // A relative target is read from the folder holding the link.
-        let target = match link.parent() {
-            Some(parent) => parent.join(target),
-            None => target,
-        };
-        let rest = folder.strip_prefix(link).ok()?;
-        Some(if rest.as_os_str().is_empty() {
-            target
-        } else {
-            target.join(rest)
-        })
-    })
+/// The one location a data root is refused (ADR-0725): the person's home
+/// folder, a folder holding it, or the library root itself. `location` is
+/// where the root's path resolves, so a link to one of them is refused too.
+pub fn refusal(home: &Path, library: &Path, location: &Path) -> Option<String> {
+    let shown = location.display();
+    if resolved(home).starts_with(location) {
+        return Some(format!(
+            "{shown} is your home folder or holds it, so it cannot be an app's folder."
+        ));
+    }
+    if location == resolved(library) {
+        return Some(format!(
+            "{shown} holds every app's folder, so it cannot be one app's folder."
+        ));
+    }
+    None
 }
 
-/// Make the AppData root `config` and open the window bound to it; the page
-/// opens its data root by path.
-fn start<R: Runtime>(
+/// The app's one window, `<page>:main`, with its WebView files outside both
+/// roots.
+fn open_window<R: Runtime>(
     handle: &AppHandle<R>,
     app: StandaloneApp,
-    config: &Path,
-) -> Result<WebviewWindow<R>, String> {
-    let config = Directory::create(config).map_err(|error| {
-        format!(
-            "{} could not keep its settings in {}: {error}",
-            app.title,
-            config.display()
-        )
-    })?;
-    // Keep WebView runtime files outside both roots.
+) -> Result<WebviewWindow<R>, StartupError> {
     let webview_data = handle
         .path()
         .app_cache_dir()
-        .map_err(|error| error.to_string())?
+        .map_err(StartupError::Paths)?
         .join("webview");
     let (width, height) = app.size;
-    handle
-        .open_folder_window(app.page, config, WebviewUrl::default(), move |builder| {
-            Ok(builder
-                .title(app.title)
-                .inner_size(width, height)
-                .min_inner_size(400.0, 400.0)
-                .data_directory(webview_data))
-        })
-        .map_err(|error| error.to_string())
+    WebviewWindowBuilder::new(handle, format!("{}:main", app.page), WebviewUrl::default())
+        .title(app.title)
+        .inner_size(width, height)
+        .min_inner_size(400.0, 400.0)
+        .data_directory(webview_data)
+        .build()
+        .map_err(StartupError::Window)
 }
 
 /// Name the failure and offer only Quit: no other folder is opened instead.
-fn quit_with<R: Runtime>(handle: &AppHandle<R>, app: StandaloneApp, message: String) {
+fn quit_with<R: Runtime>(handle: &AppHandle<R>, app: StandaloneApp, error: &StartupError) {
     let exit = handle.clone();
     handle
         .dialog()
-        .message(message)
+        .message(error.to_string())
         .title(format!("{} could not start", app.title))
         .kind(MessageDialogKind::Error)
         .buttons(MessageDialogButtons::OkCustom("Quit".into()))
@@ -218,12 +207,12 @@ fn quit_with<R: Runtime>(handle: &AppHandle<R>, app: StandaloneApp, message: Str
 
 #[cfg(test)]
 mod tests {
-    //! The folder plugin's real commands on the mock runtime, as a page calls
-    //! them over the window startup opens, with a mock window standing in for
-    //! the WebView. Tauri's runtime file-system scope stands in for the
-    //! grants: startup's `allow_default_folder` and the dialog plugin's
-    //! `open` both extend it with `allow_directory(folder, true)`. The
-    //! native picker and the page are not driven here; what they lead to is.
+    //! Startup and the folder plugin's real commands on the mock runtime, as
+    //! a page calls them over the window startup opens, with a mock window
+    //! standing in for the WebView. The roots are named under a temporary
+    //! home, as startup names them under the person's.
+
+    use std::fs;
 
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody};
@@ -231,7 +220,6 @@ mod tests {
     use tauri::utils::acl::ExecutionContext;
     use tauri::webview::InvokeRequest;
     use tauri::App;
-    use tauri_plugin_fs::FsExt;
 
     use super::*;
 
@@ -245,28 +233,51 @@ mod tests {
         app: App<MockRuntime>,
         /// The AppData root.
         config: PathBuf,
+        /// The person's home folder.
+        home: PathBuf,
         /// The derived data folder, `~/Epicenter/notes`.
-        default: PathBuf,
+        data: PathBuf,
         base: PathBuf,
         _temp: tempfile::TempDir,
     }
 
     impl Drop for Fixture {
         fn drop(&mut self) {
-            self.app.folders().shutdown();
+            self.app.roots().shutdown();
         }
     }
 
     impl Fixture {
-        fn start(&self) -> WebviewWindow<MockRuntime> {
-            start(self.app.handle(), NOTES, &self.config).unwrap()
+        /// Start under the fixture's home.
+        fn start(&self) -> Result<WebviewWindow<MockRuntime>, StartupError> {
+            self.start_at(&self.home)
+        }
+
+        /// Start with `home` spelled as given.
+        fn start_at(&self, home: &Path) -> Result<WebviewWindow<MockRuntime>, StartupError> {
+            start_in(self.app.handle(), NOTES, home, self.config.clone())
+        }
+
+        /// Whether startup opened no window.
+        fn no_window(&self) -> bool {
+            self.app.webview_windows().is_empty()
         }
     }
 
-    fn fixture() -> Fixture {
+    /// An app whose configuration has `identifier`, and `setting` as its
+    /// `plugins.epicenter-standalone` when given.
+    fn fixture_for(identifier: &str, setting: Option<Value>) -> Fixture {
         let temp = tempfile::tempdir().unwrap();
         let base = fs::canonicalize(temp.path()).unwrap();
         let mut context = mock_context(noop_assets());
+        context.config_mut().identifier = identifier.into();
+        if let Some(setting) = setting {
+            context
+                .config_mut()
+                .plugins
+                .0
+                .insert(data_folder::CONFIG_KEY.into(), setting);
+        }
         for command in tauri_plugin_epicenter_folder::COMMANDS {
             context.runtime_authority_mut().__allow_command(
                 format!("plugin:epicenter-folder|{command}"),
@@ -274,17 +285,23 @@ mod tests {
             );
         }
         let app = mock_builder()
-            .plugin(tauri_plugin_fs::init())
             .plugin(tauri_plugin_epicenter_folder::init())
             .build(context)
             .expect("mock app");
+        let home = base.join("home");
+        fs::create_dir_all(&home).unwrap();
         Fixture {
             app,
-            config: base.join("home/Library/Application Support/so.epicenter.notes"),
-            default: base.join("home/Epicenter/notes"),
+            config: home.join("Library/Application Support/so.epicenter.notes"),
+            data: home.join("Epicenter/notes"),
+            home,
             base,
             _temp: temp,
         }
+    }
+
+    fn fixture() -> Fixture {
+        fixture_for("so.epicenter.notes", None)
     }
 
     fn call(
@@ -307,21 +324,22 @@ mod tests {
         .map(|body| body.deserialize::<Value>().expect("a JSON response"))
     }
 
-    /// `open_folder` as `openDevice` asks for it: the root's path, or why not.
-    fn open(
-        window: &WebviewWindow<MockRuntime>,
-        root: &Path,
-        create: bool,
-    ) -> Result<Value, Value> {
-        call(
-            window,
-            "open_folder",
-            json!({ "root": root, "create": create, "onChange": "__CHANNEL__:1" }),
-        )
+    /// `open_root`, then `root_path`, as `openDataFolder` and `openAppData`
+    /// ask for them: the path to show, or why the root did not open.
+    fn open(window: &WebviewWindow<MockRuntime>, root: &str) -> Result<Value, Value> {
+        assert_eq!(
+            call(
+                window,
+                "open_root",
+                json!({ "root": root, "onChange": "__CHANNEL__:1" }),
+            )?,
+            Value::Null
+        );
+        call(window, "root_path", json!({ "root": root }))
     }
 
-    /// The files a page lists at `root`, or the plugin's refusal.
-    fn list(window: &WebviewWindow<MockRuntime>, root: &Path) -> Result<Vec<String>, Value> {
+    /// The files a page lists in `root`, or the plugin's refusal.
+    fn list(window: &WebviewWindow<MockRuntime>, root: &str) -> Result<Vec<String>, Value> {
         call(window, "list_folder", json!({ "root": root })).map(|listing| {
             listing
                 .as_array()
@@ -332,238 +350,197 @@ mod tests {
         })
     }
 
-    /// The window starts on its AppData root alone: no data folder is made
-    /// or reached until the page opens one, and no settings note is written.
+    /// Startup makes the data folder before the window exists; the page then
+    /// opens both roots by name and is shown the path the shell derived.
+    /// AppData is made when the page first opens it.
     #[test]
-    fn a_window_starts_on_its_app_data_root_alone() {
+    fn startup_makes_the_data_folder_before_the_window() {
         let fixture = fixture();
-        let window = fixture.start();
-        assert!(window.label().starts_with("notes:"));
-        assert_eq!(
-            open(&window, &fixture.config, false).unwrap(),
-            json!(fixture.config)
-        );
-        assert_eq!(
-            list(&window, &fixture.config).unwrap(),
-            Vec::<String>::new()
-        );
-        assert!(!fixture.default.exists());
-        assert!(list(&window, &fixture.base.join("home")).is_err());
+        assert!(!fixture.data.exists());
+        let window = fixture.start().unwrap();
+        assert_eq!(window.label(), "notes:main");
+        assert!(fixture.data.is_dir());
+        assert!(!fixture.config.exists());
+        assert_eq!(open(&window, "Data").unwrap(), json!(fixture.data));
+        assert_eq!(open(&window, "AppData").unwrap(), json!(fixture.config));
+        fs::write(fixture.data.join("a.md"), "---\n---\n").unwrap();
+        fs::write(fixture.config.join("settings.md"), "---\n---\n").unwrap();
+        assert_eq!(list(&window, "Data").unwrap(), ["a.md"]);
+        assert_eq!(list(&window, "AppData").unwrap(), ["settings.md"]);
     }
 
-    /// The default folder, allowed as startup allows it, is made when missing
-    /// and opened beside the AppData root; a second open finds what it holds.
+    /// A development configuration states its environment, and its
+    /// identifier, the production one with `.dev`, names a folder under
+    /// `~/Epicenter Dev`.
     #[test]
-    fn the_default_data_folder_is_made_and_opened() {
-        let fixture = fixture();
-        let window = fixture.start();
-        let default = &fixture.default;
-        fixture
-            .app
-            .fs_scope()
-            .allow_directory(default, true)
-            .unwrap();
-        assert_eq!(open(&window, default, true).unwrap(), json!(default));
-        assert!(default.is_dir());
-        fs::write(default.join("a.md"), "---\n---\n").unwrap();
-        open(&window, default, true).unwrap();
-        assert_eq!(list(&window, default).unwrap(), ["a.md"]);
-        open(&window, &fixture.config, false).unwrap();
-        assert!(list(&window, &fixture.config).is_ok());
-    }
-
-    /// A folder written into `settings.md` without the picker is not
-    /// granted, and nothing falls back to the default. Once the picker
-    /// grants it, it opens with its files where they are; the folder opened
-    /// before stays granted, so switching back is free.
-    #[test]
-    fn a_folder_not_picked_is_not_granted_until_the_picker_grants_it() {
-        let fixture = fixture();
-        let window = fixture.start();
-        let default = &fixture.default;
-        fixture
-            .app
-            .fs_scope()
-            .allow_directory(default, true)
-            .unwrap();
-        open(&window, default, true).unwrap();
-        let chosen = fixture.base.join("home/Documents/Notes");
-        fs::create_dir_all(chosen.join("notes")).unwrap();
-        fs::write(chosen.join("notes/b.md"), "---\n---\n").unwrap();
-        assert_eq!(
-            open(&window, &chosen, false).unwrap_err(),
-            json!({ "name": "NotGranted", "root": chosen })
+    fn a_development_configuration_makes_its_folder_under_epicenter_dev() {
+        let fixture = fixture_for(
+            "so.epicenter.notes.dev",
+            Some(json!({ "environment": "development" })),
         );
-        assert!(list(&window, &chosen).is_err());
-        fixture
-            .app
-            .fs_scope()
-            .allow_directory(&chosen, true)
-            .unwrap();
-        assert_eq!(open(&window, &chosen, false).unwrap(), json!(chosen));
-        assert_eq!(list(&window, &chosen).unwrap(), ["notes/b.md"]);
-        assert_eq!(open(&window, default, false).unwrap(), json!(default));
-    }
-
-    /// A picked folder that is gone is not made again: the page hears
-    /// `Missing`, and once the folder is back, the same open (Retry) finds it.
-    /// A folder no app keeps its files in is refused even when picked.
-    #[test]
-    fn a_missing_or_refused_folder_is_not_opened_and_retry_finds_it_back() {
-        let fixture = fixture();
-        let window = fixture.start();
-        let unplugged = fixture.base.join("unplugged/Notes");
-        fixture
-            .app
-            .fs_scope()
-            .allow_directory(&unplugged, true)
-            .unwrap();
+        let window = fixture.start().unwrap();
+        assert!(fixture.home.join("Epicenter Dev/notes").is_dir());
+        assert!(!fixture.home.join("Epicenter").exists());
         assert_eq!(
-            open(&window, &unplugged, false).unwrap_err(),
-            json!({ "name": "Missing" })
-        );
-        assert!(!unplugged.exists());
-        assert!(!fixture.default.exists());
-        fs::create_dir_all(&unplugged).unwrap();
-        assert_eq!(open(&window, &unplugged, false).unwrap(), json!(unplugged));
-    }
-
-    /// Startup grants the derived folder and nothing beside it.
-    #[test]
-    fn startup_allows_this_builds_derived_folder() {
-        let fixture = fixture();
-        let handle = fixture.app.handle();
-        let default = &fixture.default;
-        assert!(!handle.fs_scope().is_allowed(&default));
-        grant_data_folder(handle, default).unwrap();
-        assert!(handle.fs_scope().is_allowed(&default));
-        assert!(handle.fs_scope().is_allowed(default.join("notes/a.md")));
-        assert!(!handle
-            .fs_scope()
-            .is_allowed(default.with_file_name("Elsewhere")));
-        assert_eq!(handle.state::<DataFolder>().0, Ok(default.clone()));
-        let window = fixture.start();
-        assert_eq!(
-            call(&window, "data_folder", json!({})).unwrap(),
-            json!(default)
+            open(&window, "Data").unwrap(),
+            json!(fixture.home.join("Epicenter Dev/notes"))
         );
     }
 
-    /// A shell that granted no data folder says so, rather than that the
-    /// window has none.
+    /// A configuration whose environment and identifier disagree, or whose
+    /// environment is not one, starts nothing and makes nothing.
     #[test]
-    fn a_shell_that_derived_no_folder_answers_no_data_folder() {
-        let fixture = fixture();
-        let window = fixture.start();
-        assert_eq!(
-            call(&window, "data_folder", json!({})).unwrap_err(),
-            json!({ "name": "NoDataFolder" })
+    fn a_misconfigured_environment_starts_nothing() {
+        let fixture = fixture_for(
+            "so.epicenter.notes",
+            Some(json!({ "environment": "development" })),
         );
+        assert!(matches!(
+            fixture.start(),
+            Err(StartupError::Identity(FolderNameError::NotADevelopmentIdentifier(identifier)))
+                if identifier == "so.epicenter.notes"
+        ));
+        let fixture = fixture_for(
+            "so.epicenter.notes.dev",
+            Some(json!({ "environment": "staging" })),
+        );
+        assert!(matches!(
+            fixture.start(),
+            Err(StartupError::Environment(
+                EnvironmentError::UnknownEnvironment(_)
+            ))
+        ));
+        assert!(fixture.no_window());
+        assert_eq!(fs::read_dir(&fixture.home).unwrap().count(), 0);
     }
 
-    /// A derived folder that is a link to a drive that is gone is granted
-    /// nothing and made nowhere; the page hears where the link pointed.
+    /// A dangling link makes nothing. The window opens so its page receives
+    /// Disconnected and can retry when the drive returns.
     #[cfg(unix)]
     #[test]
-    fn a_dangling_link_grants_and_makes_nothing() {
+    fn a_dangling_link_reaches_recovery_and_makes_nothing() {
         use std::os::unix::fs::symlink;
 
         let fixture = fixture();
         let target = fixture.base.join("Volumes/Archive/notes");
-        fs::create_dir_all(fixture.default.parent().unwrap()).unwrap();
-        symlink(&target, &fixture.default).unwrap();
-        let handle = fixture.app.handle();
-        grant_data_folder(handle, &fixture.default).unwrap();
-        assert!(!handle.fs_scope().is_allowed(&fixture.default));
-        assert!(!handle.fs_scope().is_allowed(&target));
-        let window = fixture.start();
-        assert_eq!(
-            call(&window, "data_folder", json!({})).unwrap_err(),
-            json!({
-                "name": "Disconnected",
-                "folder": fixture.default,
-                "target": target,
-            })
+        fs::create_dir_all(fixture.data.parent().unwrap()).unwrap();
+        symlink(&target, &fixture.data).unwrap();
+        let window = fixture.start().unwrap();
+        let failed = open(&window, "Data").unwrap_err();
+        assert!(
+            matches!(
+                &failed,
+                Value::Object(fields)
+                    if fields["name"] == "Disconnected"
+                        && fields["folder"] == fixture.data.display().to_string()
+                        && fields["target"] == target.display().to_string()
+            ),
+            "{failed:?}"
         );
-        assert!(!target.exists());
+        // Storage on the root answers the same, and makes nothing.
+        assert_eq!(list(&window, "Data").unwrap_err(), failed);
         assert!(!fixture.base.join("Volumes").exists());
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("a.md"), "---\n---\n").unwrap();
+        assert_eq!(open(&window, "Data").unwrap(), json!(fixture.data));
+        assert_eq!(list(&window, "Data").unwrap(), ["a.md"]);
     }
 
     /// The same holds when the link is the library root above the folder.
     #[cfg(unix)]
     #[test]
-    fn a_dangling_library_root_grants_and_makes_nothing() {
+    fn a_dangling_library_root_reaches_recovery_and_makes_nothing() {
         use std::os::unix::fs::symlink;
 
         let fixture = fixture();
-        let library = fixture.default.parent().unwrap();
         let drive = fixture.base.join("Volumes/Archive/Epicenter");
-        fs::create_dir_all(library.parent().unwrap()).unwrap();
-        symlink(&drive, library).unwrap();
-        let handle = fixture.app.handle();
-        grant_data_folder(handle, &fixture.default).unwrap();
+        symlink(&drive, fixture.data.parent().unwrap()).unwrap();
+        let window = fixture.start().unwrap();
         assert_eq!(
-            handle.state::<DataFolder>().0,
-            Err(DataFolderError::Disconnected {
-                folder: fixture.default.display().to_string(),
-                target: drive.join("notes").display().to_string(),
-            })
+            open(&window, "Data").unwrap_err()["target"],
+            drive.join("notes").display().to_string()
         );
-        assert!(!handle.fs_scope().is_allowed(&fixture.default));
         assert!(!drive.exists());
     }
 
+    /// A data root kept elsewhere is a link at its path, and the page is
+    /// still shown the path, not where it leads.
     #[cfg(unix)]
     #[test]
-    fn a_symlinked_folder_is_granted_by_its_target() {
+    fn a_linked_data_folder_opens_where_it_leads() {
         use std::os::unix::fs::symlink;
 
         let fixture = fixture();
         let target = fixture.base.join("archive/notes");
         fs::create_dir_all(&target).unwrap();
-        fs::create_dir_all(fixture.default.parent().unwrap()).unwrap();
-        symlink(&target, &fixture.default).unwrap();
-        let handle = fixture.app.handle();
-        grant_data_folder(handle, &fixture.default).unwrap();
-        assert_eq!(handle.state::<DataFolder>().0, Ok(target.clone()));
-        assert!(handle.fs_scope().is_allowed(&target));
-        assert!(handle.fs_scope().is_allowed(target.join("a.md")));
+        fs::write(target.join("a.md"), "---\n---\n").unwrap();
+        fs::create_dir_all(fixture.data.parent().unwrap()).unwrap();
+        symlink(&target, &fixture.data).unwrap();
+        let window = fixture.start().unwrap();
+        assert_eq!(open(&window, "Data").unwrap(), json!(fixture.data));
+        assert_eq!(list(&window, "Data").unwrap(), ["a.md"]);
     }
 
+    /// A data root that resolves to the library root, the home folder, or a
+    /// folder holding it is refused to the page, however either is spelled.
     #[cfg(unix)]
     #[test]
-    fn a_link_to_the_library_root_is_not_granted_recursively() {
+    fn a_link_to_the_library_root_or_home_or_above_is_refused_to_the_page() {
         use std::os::unix::fs::symlink;
 
-        let fixture = fixture();
-        let library = fixture.default.parent().unwrap();
-        fs::create_dir_all(library).unwrap();
-        symlink(library, &fixture.default).unwrap();
-        let handle = fixture.app.handle();
-        assert!(grant_data_folder(handle, &fixture.default).is_err());
-        assert!(!handle.fs_scope().is_allowed(library.join("other-app")));
+        for leads_to in ["library", "home", "above"] {
+            let fixture = fixture();
+            let library = fixture.data.parent().unwrap().to_path_buf();
+            fs::create_dir_all(&library).unwrap();
+            let target = match leads_to {
+                "library" => library.clone(),
+                "home" => fixture.home.clone(),
+                _ => fixture.base.clone(),
+            };
+            symlink(&target, &fixture.data).unwrap();
+            // A home reached through a link (`/tmp` is `/private/tmp` on
+            // macOS) does not hide the link.
+            let alias = fixture.base.join("alias");
+            symlink(&fixture.home, &alias).unwrap();
+            let window = fixture.start_at(&alias).unwrap();
+            let failed = open(&window, "Data").unwrap_err();
+            let expected = alias.join("Epicenter/notes").display().to_string();
+            assert!(
+                matches!(
+                    &failed,
+                    Value::Object(fields) if fields["name"] == "Refused" && fields["folder"] == expected
+                ),
+                "{leads_to}: {failed:?}"
+            );
+        }
     }
 
-    /// The guard compares resolved paths, so a home reached through a link
-    /// (`/tmp` is `/private/tmp` on macOS) does not hide a link to the root.
-    #[cfg(unix)]
     #[test]
-    fn a_link_to_the_library_root_is_refused_by_any_spelling() {
-        use std::os::unix::fs::symlink;
-
-        let fixture = fixture();
-        let library = fixture.default.parent().unwrap();
-        fs::create_dir_all(library).unwrap();
-        symlink(library, &fixture.default).unwrap();
-        let alias = fixture.base.join("alias");
-        symlink(fixture.base.join("home"), &alias).unwrap();
-        let spelled = alias.join("Epicenter/notes");
-        let handle = fixture.app.handle();
-        assert!(grant_data_folder(handle, &spelled).is_err());
-        assert!(!handle.fs_scope().is_allowed(library.join("other-app")));
-        assert!(!handle
-            .fs_scope()
-            .is_allowed(alias.join("Epicenter/other-app")));
-        assert!(handle.try_state::<DataFolder>().is_none());
+    fn the_refusal_names_home_its_ancestors_and_the_library_root_alone() {
+        let home = Path::new("/Users/person");
+        let library = home.join("Epicenter");
+        for refused in [
+            PathBuf::from("/"),
+            PathBuf::from("/Users"),
+            home.to_path_buf(),
+            library.clone(),
+        ] {
+            let reason = refusal(home, &library, &refused).unwrap();
+            assert!(!reason.contains('\n'), "{reason}");
+        }
+        for accepted in [
+            library.join("notes"),
+            library.join("bradenwong.com/zhongwen"),
+            home.join("Documents/notes"),
+            home.join(".notes"),
+            PathBuf::from("/Volumes/Archive/notes"),
+        ] {
+            assert_eq!(
+                refusal(home, &library, &accepted),
+                None,
+                "{}",
+                accepted.display()
+            );
+        }
     }
 }

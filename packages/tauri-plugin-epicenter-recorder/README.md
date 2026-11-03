@@ -67,12 +67,11 @@ and an ending arrive on the channel the page passes to `open_meter` or
 A page names a microphone by the id `inputs` answers, cpal's `DeviceId` as
 text (`coreaudio:<device UID>` on macOS), which stays the same across
 launches and reconnections. To record, it names a folder-relative path and
-the root it is in, by the exact path the folder plugin answered when the page
-opened it (`open_folder`, as `openDevice` does, such as a standalone app's
-data folder): the folder the shell bound to the calling window, or another
-root the page opened. The root is required, so no recording lands in a
-folder the page did not name; any other root is refused. The root is read
-once when the command arrives.
+the root it is in, by name (`Data`), which the page opened through the
+folder plugin (`open_root`, as `openDataFolder` does). The root is required,
+so no recording lands in a folder the page did not name; a root the page has
+not opened is refused. The folder it reached is read once when the command
+arrives.
 
 | Command | What it does |
 | --- | --- |

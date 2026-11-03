@@ -15,7 +15,7 @@ makes the client reactive with `fromClient` from
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
-| `@epicenter/folder/tauri` | `openDevice(contract, { path, create? })` opens a root the shell grants. `openAppData(settingsContract)` opens machine-local settings when an app has them. `openDataFolder(contract)` asks the shell for its derived path and makes it when missing. `rootOf(device)` answers the canonical root the shell opened. `syncWithEpicenter` and `syncedWithEpicenter` manage Epicenter enrollment. |
+| `@epicenter/folder/tauri` | `openDevice(contract, { root })` opens a root the shell named, `Data` or `AppData`; `openDataFolder(contract)` and `openAppData(settingsContract)` open each. `rootOf(device)` answers the root's name, which the recorder and local transcription take, and `displayPath(device)` the path to show, which the shell's display-only `root_path` answered. `syncWithEpicenter` and `syncedWithEpicenter` manage Epicenter enrollment. |
 | `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 
 Importing an entry does not open anything.
@@ -25,14 +25,14 @@ Importing an entry does not open anything.
 `openDevice(contract, …)` opens the typed client an app's contract derives
 (`Client<T>` from `@epicenter/definition/contract`) over a device's files, at
 the contract's paths. It is async on every platform and answers a `Result`:
-the client, or an `OpenDeviceError` saying why nothing opened (`Missing`,
-`NotGranted`, `Refused`, `Unreadable`, `StorageUnavailable`). An app opens it
+the client, or an `OpenDeviceError` saying why nothing opened
+(`Disconnected`, `Refused`, `Unreadable`, `StorageUnavailable`). An app opens it
 once, at its startup, and hands the client down:
 
 ```ts
 import { openDevice } from '@epicenter/folder/browser'; // OPFS
 // import { openDevice } from '@epicenter/folder/node';           // a directory: openDevice(c, { path })
-// import { openDevice } from '@epicenter/folder/tauri';          // a root the window may reach
+// import { openDevice } from '@epicenter/folder/tauri';          // a root the shell named: openDevice(c, { root: 'Data' })
 
 const opened = await openDevice(recorder);
 if (opened.error !== null) return opened;
@@ -58,10 +58,10 @@ read that an append overtook reads again.
 Only a context with no Worker opens nothing (`StorageUnavailable`). In Bun
 the directory is made when missing (`Unreadable` when it cannot be). `/node` also exports `checkFiles`
 and `formatNotes`, which `epicenter check` and `epicenter format` run. In a
-Tauri window the client works over a root the shell opened for it, through
-the folder plugin's commands, each naming that root by its path, and the
-shell checks each save and watches each root a page opened. A root other than the bound directory opens only
-when Tauri's runtime file-system scope allows it (the shell's derived folder); see the folder plugin's README. See
+Tauri window the client works over a root the shell named, through the
+folder plugin's commands, each naming that root by name, never by path; the
+shell makes the data folder when nothing is at its path, checks each save,
+and watches each root a page opened. See the folder plugin's README, and
 `src/device/`; `bun run --cwd packages/folder smoke:device` drives the
 browser opener in Playwright Chromium and WebKit.
 

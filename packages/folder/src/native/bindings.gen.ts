@@ -5,65 +5,53 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
-	 *  The data folder the standalone shell derived and granted at startup:
-	 *  `NoDataFolder` from a shell that derives none, `Disconnected` when the
-	 *  derived path is a link whose target is not there.
+	 *  Open `root` and watch it. Whatever is at the root's path opens, through a
+	 *  link if one is there, and a missing folder is made (ADR-0726); a link
+	 *  whose target is gone is `Disconnected`, and nothing is made. Each call
+	 *  looks again, so Retry finds a folder that came back. The root's one watch
+	 *  sends its changes to the latest channel this page opened it with. Opening
+	 *  removes the staged files a stopped save left an hour or more ago
+	 *  (`storage::sweep_stale_scratch`).
 	 */
-	dataFolder: () => typedError<string, DataFolderError>(__TAURI_INVOKE("plugin:epicenter-folder|data_folder")),
+	openRoot: (root: Root, onChange: Channel<FolderChanged>) => typedError<null, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|open_root", { root, onChange })),
 	/**
-	 *  Open the root at the absolute path `root` for the calling window and
-	 *  watch it, answering its canonical path, by which the page names it from
-	 *  then on. The window's own directory, by any path that resolves to it, is
-	 *  the directory the shell bound before the window existed: refused when
-	 *  gone, never made again. Any other `root` must be a folder an app may keep
-	 *  its files in (`Refused` otherwise, a relative path included) that Tauri's
-	 *  file-system scope allows (`NotGranted` otherwise); it is made, with
-	 *  missing parents, only for `create`, and is `Missing` when it is not there. Each open root has one watch, whose
-	 *  changes go to the latest channel the page opened it with, and removes
-	 *  the staged files a stopped save left an hour or more ago
-	 *  (`storage::sweep_scratch`).
+	 *  The path the shell named `root` at, written out
+	 *  (`/Users/me/Epicenter/whispering`, not where a link there leads), for the
+	 *  page to show. It opens, reads and makes nothing, and no command takes it.
 	 */
-	openFolder: (root: string, create: boolean, onChange: Channel<FolderChanged>) => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|open_folder", { root, create, onChange })),
+	rootPath: (root: Root) => typedError<string, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|root_path", { root })),
 	/**
-	 *  The canonical path of `root`, a folder this window may open: what a page
-	 *  remembers for a folder the person picked, since the picker answers the
-	 *  path they reached, which may pass through a link (`/tmp` is
-	 *  `/private/tmp` on macOS). `Refused`, `NotGranted` and `Missing` as
-	 *  `open_folder` answers them; nothing is opened, watched or made.
+	 *  Every file below `root`, `.git` aside, hidden ones included, none of
+	 *  them followed (`storage::list`).
 	 */
-	resolveFolder: (root: string) => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|resolve_folder", { root })),
-	/**
-	 *  Every file below the root `root`, `.git` aside, hidden ones included,
-	 *  none of them followed (`storage::list`).
-	 */
-	listFolder: (root: string) => typedError<ListedFile[], StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root })),
+	listFolder: (root: Root) => typedError<ListedFile[], FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root })),
 	/**
 	 *  Ask the operating system to open Epicenter with a request to sync the
-	 *  folder at `path` under `contract`, the URL its contract is published at.
-	 *  Answers once the system took the request; whether Epicenter sets the
-	 *  folder up is the person's choice there.
+	 *  folder of `root`, a root the page opened, under `contract`, the URL its
+	 *  contract is published at. Answers once the system took the request;
+	 *  whether Epicenter sets the folder up is the person's choice there.
 	 */
-	syncWithEpicenter: (path: string, contract: string) => typedError<null, SyncRequestError>(__TAURI_INVOKE("plugin:epicenter-folder|sync_with_epicenter", { path, contract })),
-	/**  Whether Epicenter syncs the folder at `path` (`synced`). */
-	syncedWithEpicenter: (path: string) => typedError<boolean, SyncRequestError>(__TAURI_INVOKE("plugin:epicenter-folder|synced_with_epicenter", { path })),
+	syncWithEpicenter: (root: Root, contract: string) => typedError<null, SyncRequestError>(__TAURI_INVOKE("plugin:epicenter-folder|sync_with_epicenter", { root, contract })),
+	/**
+	 *  Whether Epicenter syncs the folder of `root`, a root the page opened
+	 *  (`synced`).
+	 */
+	syncedWithEpicenter: (root: Root) => typedError<boolean, SyncRequestError>(__TAURI_INVOKE("plugin:epicenter-folder|synced_with_epicenter", { root })),
 };
 
 /* Types */
-/**  Why `data_folder` answered no folder. */
-export type DataFolderError =
-/**  This shell derives no data folder for its app. */
-{ name: "NoDataFolder" } |
-/**
- *  The derived folder is, or is inside, a link whose target is not there,
- *  as when it is on a drive that is not connected. Nothing was granted or
- *  made.
- */
-{ name: "Disconnected"; folder: string; target: string };
-
 /**  Paths whose stored content may differ, or any path when scope is unknown. */
 export type FolderChanged = {
 	paths: string[] | null,
 };
+
+/**
+ *  Why a storage command answered no: the root it named cannot be used
+ *  (`RootError`, such as `Disconnected` with the link's folder and target),
+ *  or the storage operation refused or failed (`StorageError`). The two never
+ *  share a `name`, so the page tells them apart by it.
+ */
+export type FolderError = RootError | StorageError;
 
 /**
  *  One file in a listing. Anything that is not a directory is a file here,
@@ -79,6 +67,40 @@ export type ListedFile = {
  *  other than what the page expected and changed nothing.
  */
 export type PutOutcome = "landed" | "stale";
+
+/**  A root an app reaches by name. */
+export type Root =
+/**
+ *  The person's files: `<library root>/<name>`, which the app's site
+ *  names (ADR-0722), such as `~/Epicenter/whispering`.
+ */
+"Data" |
+/**
+ *  The operating system's application data directory for this app:
+ *  machine-local settings, never synced.
+ */
+"AppData";
+
+/**  Why a root did not open or cannot be used: what the page is told. */
+export type RootError =
+/**  The shell named no such root for this app. */
+{ name: "NotNamed"; root: Root } |
+/**  A command named a root the page has not opened. */
+{ name: "NotOpen"; root: Root } |
+/**
+ *  The root's path, or a folder above it, is a link whose target is not
+ *  there, as on a drive that is not connected. Nothing was made.
+ */
+{ name: "Disconnected"; folder: string; target: string } |
+/**
+ *  The root's location is one it must never be (the shell's rule):
+ *  why, in one line.
+ */
+{ name: "Refused"; folder: string; reason: string } |
+/**  The root could not be reached or made. */
+{ name: "Unavailable"; folder: string; message: string } |
+/**  The shell is shutting its roots down. */
+{ name: "ShuttingDown" };
 
 /**
  *  Why a storage call answered no. The page's store (`device/tauri-store.ts`)
@@ -105,30 +127,12 @@ export type StorageError =
 
 /**  Why the request to Epicenter was not made: what the page is told. */
 export type SyncRequestError =
-/**  `path` is not a root the calling window reaches, or it is gone. */
-{ name: "Folder"; path: string } |
+/**  The root is not open, or its folder is not there: why, in one line. */
+{ name: "Folder"; message: string } |
 /**  The contract URL is not `https:`, or `http:` on this machine. */
 { name: "Contract"; url: string } |
 /**  The operating system did not open the link (Epicenter may not be installed). */
 { name: "NotOpened"; message: string };
-
-/**  Why the calling window's folder could not be used: what the page is told. */
-export type WindowError =
-/**  The shell bound no folder to this window. */
-{ name: "NotBound" } |
-/**  The bound directory is gone; it is never created again for the window. */
-{ name: "Missing" } |
-/**  The bound directory could not be reached. */
-{ name: "Unavailable"; message: string } |
-/**
- *  The page named a root Tauri's file-system scope does not allow, or
- *  one it has not opened.
- */
-{ name: "NotGranted"; root: string } |
-/**  The root is never a folder: why, in one line (`scope::Refusals`). */
-{ name: "Refused"; root: string; reason: string } |
-/**  The shell is shutting its folders down. */
-{ name: "ShuttingDown" };
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ data: T; error: null } | { data: null; error: E }> {

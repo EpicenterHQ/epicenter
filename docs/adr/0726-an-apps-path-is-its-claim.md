@@ -3,7 +3,7 @@
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at first launch read from AppData's absence, the first-launch collision choice, and "Locate…" / "Start a new folder": none remain; [ADR-0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) at `root_status`, `create_root`, and the `Ready`, `Missing` and `Disconnected` values: the shell states no status.
-- **Unbuilt:** opening the data root by creating it when missing; the plain error screen with [Retry] and [Show in Finder]; the error text for a link whose target is gone.
+- **Unbuilt:** the plain error screen with [Retry] and [Show in Finder]; until then the recovery screen shows the error text with [Retry].
 
 ## Context
 

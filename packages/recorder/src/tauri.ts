@@ -5,8 +5,8 @@
  * The shell's recorder encodes the microphone to Opus from the first sample
  * and writes it, a second at a time, into a WebM in the `device`'s folder's
  * own `.epicenter/recordings`, a hidden path no watcher reports and sync
- * never commits. The folder is named to the shell by the root it answered
- * when the page opened the device (`rootOf` from `@epicenter/folder/tauri`).
+ * never commits. The folder is named to the shell by the root the page
+ * opened the device at (`rootOf` from `@epicenter/folder/tauri`, `Data`).
  * `stop` finishes it in place and places it at `<path>.webm`, never over a
  * file there, so the recording appears at its path whole, and answers where
  * it is. When the page reloads or its window closes, the shell finishes and

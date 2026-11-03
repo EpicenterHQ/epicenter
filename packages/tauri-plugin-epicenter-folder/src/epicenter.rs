@@ -1,11 +1,10 @@
 //! How an app's folder reaches Epicenter (decisions 81 and 82): the page asks
 //! the shell to open `epicenter://init?path=<folder>&contract=<url>`, naming
-//! the folder it keeps its files in, which must be a root its window reaches
-//! (`Folders::bound_root`: its own directory or a root it opened), and the
-//! URL its contract is published at.
+//! a root it opened (`Root::Data`), which the shell writes out as the path
+//! it named the root at, and the URL its contract is published at.
 //! Epicenter, if installed, asks the person where to sync it and runs
 //! `epicenter init`. The page can also ask whether Epicenter already syncs a
-//! folder it reaches, which reads the folder's Git configuration and changes
+//! root it opened, which reads the folder's Git configuration and changes
 //! nothing.
 
 use std::fmt;
@@ -14,16 +13,17 @@ use std::path::Path;
 
 use serde::Serialize;
 use specta::Type;
-use tauri::{Manager, Runtime, Webview};
+use tauri::{Runtime, Webview};
 
-use crate::Folders;
+use crate::commands::named;
+use crate::Root;
 
 /// Why the request to Epicenter was not made: what the page is told.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "name")]
 pub enum SyncRequestError {
-    /// `path` is not a root the calling window reaches, or it is gone.
-    Folder { path: String },
+    /// The root is not open, or its folder is not there: why, in one line.
+    Folder { message: String },
     /// The contract URL is not `https:`, or `http:` on this machine.
     Contract { url: String },
     /// The operating system did not open the link (Epicenter may not be installed).
@@ -33,9 +33,7 @@ pub enum SyncRequestError {
 impl fmt::Display for SyncRequestError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Folder { path } => {
-                write!(formatter, "{path} is not a folder this window can use.")
-            }
+            Self::Folder { message } => formatter.write_str(message),
             Self::Contract { url } => write!(formatter, "{url} is not a contract URL."),
             Self::NotOpened { message } => {
                 write!(formatter, "The system did not open Epicenter: {message}")
@@ -45,50 +43,41 @@ impl fmt::Display for SyncRequestError {
 }
 
 /// Ask the operating system to open Epicenter with a request to sync the
-/// folder at `path` under `contract`, the URL its contract is published at.
-/// Answers once the system took the request; whether Epicenter sets the
-/// folder up is the person's choice there.
+/// folder of `root`, a root the page opened, under `contract`, the URL its
+/// contract is published at. Answers once the system took the request;
+/// whether Epicenter sets the folder up is the person's choice there.
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_with_epicenter<R: Runtime>(
     webview: Webview<R>,
-    path: String,
+    root: Root,
     contract: String,
 ) -> Result<(), SyncRequestError> {
-    let folder = reached(&webview, &path)?;
-    let link = init_link(folder.root(), &contract)?;
+    let (_, path) = named(&webview, root).map_err(|refusal| SyncRequestError::Folder {
+        message: refusal.to_string(),
+    })?;
+    let link = init_link(&path, &contract)?;
     tauri_plugin_opener::open_url(link, None::<&str>).map_err(|error| SyncRequestError::NotOpened {
         message: error.to_string(),
     })
 }
 
-/// Whether Epicenter syncs the folder at `path` (`synced`).
+/// Whether Epicenter syncs the folder of `root`, a root the page opened
+/// (`synced`).
 #[tauri::command]
 #[specta::specta]
 pub async fn synced_with_epicenter<R: Runtime>(
     webview: Webview<R>,
-    path: String,
+    root: Root,
 ) -> Result<bool, SyncRequestError> {
-    let folder = reached(&webview, &path)?;
+    let (directory, _) = named(&webview, root).map_err(|refusal| SyncRequestError::Folder {
+        message: refusal.to_string(),
+    })?;
     Ok(
-        tauri::async_runtime::spawn_blocking(move || synced(folder.root()))
+        tauri::async_runtime::spawn_blocking(move || synced(directory.root()))
             .await
             .unwrap_or(false),
     )
-}
-
-/// The root at `path` among the calling window's, or `Folder`.
-fn reached<R: Runtime>(
-    webview: &Webview<R>,
-    path: &str,
-) -> Result<crate::Directory, SyncRequestError> {
-    webview
-        .app_handle()
-        .state::<Folders>()
-        .bound_root(webview.label(), Path::new(path))
-        .map_err(|_| SyncRequestError::Folder {
-            path: path.to_owned(),
-        })
 }
 
 /// `path` when it is absolute and names an existing directory.
@@ -98,7 +87,7 @@ fn existing_folder(path: &str) -> Result<String, SyncRequestError> {
         Ok(path.to_owned())
     } else {
         Err(SyncRequestError::Folder {
-            path: path.to_owned(),
+            message: format!("{path} is not a folder."),
         })
     }
 }
@@ -259,7 +248,7 @@ mod tests {
             assert_eq!(
                 init_link(&refused, "https://capture.epicenter.so/contract.json"),
                 Err(SyncRequestError::Folder {
-                    path: refused.to_str().unwrap().into()
+                    message: format!("{} is not a folder.", refused.display())
                 })
             );
         }

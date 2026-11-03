@@ -96,11 +96,13 @@ read. A page uses one or the other, never both.
 
 ### A desktop app's folder
 
-A standalone desktop app opens the folder derived by its shell from its site:
-`~/Epicenter/<label>`, or `~/Epicenter Dev/<label>` in development.
-`DesktopStartup` opens machine-local AppData settings when the app has them,
-then opens the derived folder. A failed open shows `Recovery` with its error
-and Retry. The header reads `getFolderSync()` and checks on focus whether
+A standalone desktop app opens the folder its shell names from its site,
+by name: `~/Epicenter/<label>`, or `~/Epicenter Dev/<label>` in development,
+made when nothing is there. `DesktopStartup` opens machine-local AppData
+settings when the app has them, then the data folder. A failed open, such as
+a link to a drive that is not connected, shows `Recovery` with its error and
+Retry. The header shows the folder's path (`displayPath`), which no command
+takes. The header reads `getFolderSync()` and checks on focus whether
 Epicenter manages the folder.
 
 ```svelte

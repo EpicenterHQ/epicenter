@@ -1,15 +1,19 @@
 /**
  * How a desktop app's folder reaches Epicenter (decisions 81 and 82): the
  * app asks the shell to open `epicenter://init?path=<folder>&contract=<url>`,
- * naming the folder it keeps its files in (`folder` in its AppData
- * `settings.md`) and the URL its contract is published at (an app constant:
- * the published URL is deployment, not data). Epicenter, if installed, asks the
+ * naming its data root, which the shell writes out as the path it named it
+ * at, and the URL its contract is published at (an app constant: the
+ * published URL is deployment, not data). Epicenter, if installed, asks the
  * person where to sync the folder and runs `epicenter init`. The app can also
- * ask whether Epicenter already syncs a folder.
+ * ask whether Epicenter already syncs its folder.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { commands, type SyncRequestError } from './native/bindings.gen.js';
+import {
+	commands,
+	type Root,
+	type SyncRequestError,
+} from './native/bindings.gen.js';
 
 export const EpicenterSyncError = defineErrors({
 	/** The shell refused or could not answer; `message` says why. */
@@ -22,27 +26,27 @@ export type EpicenterSyncError = InferErrors<typeof EpicenterSyncError>;
 
 /**
  * Ask the operating system to open Epicenter with a request to sync the
- * folder at `path` under the contract published at `contract`. `path` is a
- * root this window opened (its data folder); the shell refuses any other.
+ * folder of `root` under the contract published at `contract`. `root` is a
+ * root this page opened (its data folder); the shell refuses any other.
  * Ok means the system took the request; whether Epicenter sets the folder up
  * is the person's choice there, so never say the folder is syncing yet.
  *
  * ```ts
  * const { error } = await syncWithEpicenter({
- * 	path: folder,
+ * 	root: 'Data',
  * 	contract: 'https://capture.epicenter.so/contract.json',
  * });
  * ```
  */
 export async function syncWithEpicenter({
-	path,
+	root,
 	contract,
 }: {
-	path: string;
+	root: Root;
 	contract: string;
 }): Promise<Result<undefined, EpicenterSyncError>> {
 	const sent = await commands
-		.syncWithEpicenter(path, contract)
+		.syncWithEpicenter(root, contract)
 		.catch((cause: unknown) => ({ data: null, error: cause }));
 	if (sent.error !== null)
 		return EpicenterSyncError.Unavailable({ cause: sent.error });
@@ -50,18 +54,18 @@ export async function syncWithEpicenter({
 }
 
 /**
- * Whether Epicenter has adopted the folder at `path` for local history:
+ * Whether Epicenter has adopted the folder of `root` for local history:
  * true once `epicenter init` set `epicenter.root`. The historical method
  * name does not imply that an origin exists or that a remote sync succeeded.
  * Asks again each call, since setup can happen while the app is open.
  */
 export async function syncedWithEpicenter({
-	path,
+	root,
 }: {
-	path: string;
+	root: Root;
 }): Promise<Result<boolean, EpicenterSyncError>> {
 	const answer = await commands
-		.syncedWithEpicenter(path)
+		.syncedWithEpicenter(root)
 		.catch((cause: unknown) => ({ data: null, error: cause }));
 	if (answer.error !== null)
 		return EpicenterSyncError.Unavailable({ cause: answer.error });
@@ -78,7 +82,7 @@ function describe(cause: unknown): string {
 	if (!isRefusal(cause)) return String(cause);
 	switch (cause.name) {
 		case 'Folder':
-			return `${cause.path} is not a folder this window can use.`;
+			return cause.message;
 		case 'Contract':
 			return `${cause.url} is not a contract URL.`;
 		case 'NotOpened':

@@ -41,12 +41,8 @@
 <main class="mx-auto flex w-full max-w-xl flex-col gap-5 px-6 py-12" data-testid="recovery">
 	{#if appDataError}
 		{@render screen(`${app} could not open its own settings`, error.message)}
-	{:else if error.name === 'NotGranted'}
-		{@render screen(`${app} needs your permission to open its folder`, error.message)}
-	{:else if error.name === 'Missing'}
-		{@render screen(`${app}'s folder is missing`, error.message)}
 	{:else if error.name === 'Disconnected'}
-		{@render screen(`${app}'s folder is on a drive that isn't connected`, error.message)}
+		{@render screen(`${app}'s folder isn't available`, error.message)}
 	{:else if error.name === 'Refused'}
 		{@render screen(`That folder cannot be ${app}'s folder`, error.message)}
 	{:else if error.name === 'Unreadable'}

@@ -130,8 +130,13 @@ enrolls the folder for local history; connecting a repository there enables tran
 
 A local web app keeps its files in the origin's OPFS; an online web app
 keeps none in the browser. The Epicenter app keeps no data of its own; its
-library root, `~/Epicenter` (`~/Epicenter Dev` in development, or
-`EPICENTER_FOLDER_DIR`), holds the standalone apps' folders.
+library root, `~/Epicenter` (`~/Epicenter Dev` for a development build, whose
+`tauri.dev.conf.json` states `"environment": "development"`), holds the
+standalone apps' folders. A
+standalone app reaches its folder and its AppData by name, never by path
+([ADR-0725](../docs/adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md)),
+and whatever is at its folder's path is its own
+([ADR-0726](../docs/adr/0726-an-apps-path-is-its-claim.md)).
 
 Local Books keeps its QuickBooks replica in SQLite under
 `<AppData>/apps/so.epicenter.local-books`, outside the library. `api`,

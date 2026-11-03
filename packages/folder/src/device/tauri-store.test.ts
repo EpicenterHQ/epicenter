@@ -7,7 +7,7 @@
  *
  * Key behaviors:
  * - A listing and a read keep the shell's stamps, and every call names the
- *   root
+ *   root by name
  * - A write sends its expectation in its own spelling: absent or a tagged
  *   hash
  * - A read the shell answers `NotFound` is no file
@@ -50,7 +50,7 @@ mock.module('@tauri-apps/api/core', () => ({
 }));
 
 const { tauriStore } = await import('./tauri-store.js');
-const ROOT = '/Users/me/Notes';
+const ROOT = 'Data';
 const store = () => tauriStore({ root: ROOT, watch: () => () => {} });
 
 afterEach(() => {

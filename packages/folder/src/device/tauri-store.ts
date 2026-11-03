@@ -1,8 +1,8 @@
 /**
- * A device store in a Tauri window: a root the window opened (`root`, by the
- * exact path the shell answered), named in every call. Each method is one
- * command of the folder plugin (ADR-0581), which the shell answers over that
- * root and refuses for a root the window did not open. The shell checks
+ * A device store in a Tauri window: a root the page opened (`root`, by name:
+ * `Data` or `AppData`), named in every call. Each method is one command of
+ * the folder plugin (ADR-0581), which the shell answers over that root and
+ * refuses for a root the page did not open. The shell checks
  * every path itself (`storage.rs`: literal names, no link followed, `.git`
  * never named, a nonportable name never made), stages each write, and renames
  * it over its path after checking the version it expects right before the
@@ -25,12 +25,16 @@ import { invoke } from '@tauri-apps/api/core';
 import { Ok } from 'wellcrafted/result';
 import { type ChangeSource, createChanges } from '../changes.js';
 import { hashBytes } from '../hash.js';
-import { commands, type PutOutcome } from '../native/bindings.gen.js';
+import {
+	commands,
+	type PutOutcome,
+	type Root,
+} from '../native/bindings.gen.js';
 import type { DeviceStore } from './store.js';
 
 /**
- * The store of `root`, hearing changes from `watch` (the shell's watcher,
- * whose paths are relative to the root). Whenever the shell refuses, a call
+ * The store of the root named `root`, hearing changes from `watch` (the
+ * shell's watcher, whose paths are relative to the root). Whenever the shell refuses, a call
  * is `Unavailable`. Only `openDevice`, once it found a Tauri window, makes
  * one.
  */
@@ -38,7 +42,7 @@ export function tauriStore({
 	root,
 	watch,
 }: {
-	root: string;
+	root: Root;
 	watch: ChangeSource;
 }): DeviceStore {
 	const changes = createChanges(watch);
