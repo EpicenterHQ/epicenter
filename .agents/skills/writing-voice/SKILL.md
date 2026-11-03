@@ -56,6 +56,28 @@ mutes the voice without making the claim more accurate. When the author is
 genuinely unsure, the specific question they are asking can give that
 uncertainty a clearer form than a qualified answer.
 
+## Speak To Someone You Love
+
+When writing about people's lives, relationships, or struggles, ask: **If someone
+I loved came to me with this problem, what would I want them to understand, and
+how would I help them hear it?** Imagine the relationship that fits the telling:
+a son or daughter, a brother or sister, or another person the author loves.
+Speaking to a sibling can make room for humor, oddness, and candor that might
+sound different with a child. Let that relationship bring out the author's
+authentic self and care for the person hearing it.
+
+Keep the author's particular articulations, conviction, passion, and enjoyment.
+Care can support a challenging observation: help the reader understand what the
+author sees, why it matters, and how it could help them. A gentle opening can
+prepare the reader for a forceful claim that still earns its place. Carry both
+through the piece rather than replacing the claim with generic reassurance.
+Use the imagined relationship to guide the stance and explanation; the actual
+piece can retain its own audience and form of address.
+
+Read [care and conviction](references/care-and-conviction.md) when compassion
+and a sharp articulation seem to compete. The observed exchange shows how the
+author wanted both, including a gentle opening followed by the original claim.
+
 ## Think Through The Writing Together
 
 Match your contribution to the request. When asked to draft, deliver a
