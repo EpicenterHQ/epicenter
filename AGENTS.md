@@ -68,16 +68,6 @@ its file extension. Existing
 getters and upstream protocols are current contracts; change them only as part
 of an authorized redesign. See the `typescript` and `svelte` skills.
 
-## Coherent edits
-
-Work toward the user's intended outcome. Treat their reactions as evidence
-that may change your understanding of it, while respecting explicit choices.
-
-Before editing code, prose, or instructions, reconsider the relevant whole as
-if the new context had always been known. Let that understanding determine the
-scope, then carry it into concrete work. Choose changes for coherence, not
-diff size.
-
 ## Agent instruction files
 
 `AGENTS.md` is the canonical shared instructions file. Keep it to constraints
@@ -115,18 +105,6 @@ decision settles.
 - When a design pass settles a durable decision, record it as an ADR (see `docs/adr/README.md`) and delete the now-spent spec. Git keeps the body recoverable.
 - `docs/spec-history.md` is a dated index of past specs. It is history, not truth.
 
-## Communication
-
-Optimize for the user's cognitive load, not for brevity. Preserve necessary
-difficulty and remove incidental complexity. Infer the appropriate depth from
-the immediate context rather than assuming a fixed expertise level.
-
-Lead with a useful recommendation or outcome. Handle the complexity you can
-safely handle, and surface the reasoning and details that affect the user's
-judgment, action, safety, or review. When a choice belongs to the user, present
-the consequential options and your recommendation rather than a survey. Ask
-when their answer would materially change the work; act when enough is known.
-
 ## Writing conventions
 
 Audience decides vocabulary: what a person reads uses the word they already have, and what a developer reads uses the word that is most accurate, which is often technical and load-bearing.
@@ -152,10 +130,6 @@ Audience decides vocabulary: what a person reads uses the word they already have
 - Formatting tells: sentence-case headings, no decorative emoji, no bold-label-colon bullets that restate the line, no chatbot phrases ("I hope this helps!", "Great question!").
 
 Load `writing-voice` for substantial prose or explicit tone/rewrite work.
-
-## Review posture
-
-Be direct about flawed assumptions, weak designs, and regressions. Do not agree just to be agreeable.
 
 ## Agent collaboration
 

@@ -51,15 +51,23 @@ questions outside them, and show other work in the form that lets the user
 judge it directly. Give enough context for each proposal to be understood on
 its own, and bold the parts that need particular attention.
 
-Develop each proposal through attempts and responses. Keep the proposal and the invitation to respond visibly separate. Offer a few short, open invitations: what feels right or wrong, how the user would express it in their own words, and what else comes to mind. Numbering can make these easier to respond to. Follow whichever part they take up; use focused questions when a specific uncertainty needs resolving.
+Develop each proposal through attempts and responses. Keep the proposal and
+the invitation to respond visibly separate. Choose an invitation that would
+help the next contribution: an open invitation when the user is discovering
+what they mean, or a focused question when a specific uncertainty matters.
+Follow the part they take up rather than requiring a set of answers.
 
-Re-articulating the thought can help the user discover what they mean. Accumulate the phrases, distinctions, examples, and corrections they contribute, letting these shape the next proposal and invitation. Carry recognized parts forward so the user need not identify them again, preserve selected wording exactly, and compose the next attempt yourself. Recognition of one part settles that part.
+Accumulate the user's phrases, distinctions, examples, and corrections as
+material for the next proposal. Carry recognized parts forward so the user
+need not identify them again, preserve selected wording exactly, and compose
+the next attempt yourself.
 
-Wait for the user to explicitly recognize the proposal as right before
-advancing to work that depends on it. Establish that shared understanding
-between the major stages and when developing substantial pieces within
-them. Recognition settles what the user actually examined. Return to an
-earlier understanding when later discoveries change its premise.
+Pause for recognition of the intent and the vision before building work
+that depends on them. Within a recognized direction, develop the work without
+reconfirming each piece; bring back consequential choices that need the user's
+judgment. Recognition settles what the user actually examined. Reopen an
+earlier understanding when a correction changes success or a later discovery
+changes its premise.
 
 ## Clarify the intent
 
