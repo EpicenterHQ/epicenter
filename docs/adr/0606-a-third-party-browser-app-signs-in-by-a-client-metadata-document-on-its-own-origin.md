@@ -6,6 +6,7 @@
 - **Amended by:** [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) at the client ID metadata document, the `cimd` plugin, "A redirect URI is accepted only when the document lists it", and "Epicenter's first-party browser apps keep their rows in `BROWSER_APPS`": every browser app's client id is its origin, and nothing is registered or hosted; CORS chosen by route stands.
 - **Relates:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (every app is a static site its author deploys), [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) (a token reaches every repository its owner holds).
 - **Unbuilt:** origin-identified clients and independent service consent under ADR-0614 and ADR-0634; no client metadata-document registration is required.
+- **Amended by:** [ADR-0731](0731-every-app-signs-in-as-its-site.md) at "Native app identity remains a separate implementation question": a native app is its origin with a loopback redirect.
 
 ## Context
 

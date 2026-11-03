@@ -9,11 +9,11 @@ one place.
 named from the app's address. A folder that lives somewhere else is a link
 inside it.
 
-**Everything a machine shares is in `~/.epicenter`.** The sync engine, the
-sign-in, local copies of documents, and logs. Secrets stay in the keychain.
+**Everything a machine shares is in `~/.epicenter`.** The sync engine, local
+copies of documents, and logs.
 
-**You sign in a machine, not an app.** One account per machine. Every
-Epicenter program on it shares that sign-in.
+**Each app signs in as its site.** The account asks once per app and
+remembers; a machine groups those sign-ins.
 
 This page describes where Epicenter is going and links the records that decide
 each part. Most of it is not built yet; each record's `Unbuilt` line says what
@@ -31,7 +31,8 @@ Every change to the data model is checked against eight principles
 4. Each app has two places on a machine with the same note names: its synced
    folder and this device's AppData. Epicenter's machinery is a third place,
    `~/.epicenter`.
-5. Find things by convention; store only the exceptions.
+5. Derive from the site; store only data, decisions, proofs, exceptions, and
+   caches ([ADR-0730](adr/0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md)).
 6. Apps work alone. Epicenter and the account add capabilities and never take
    custody of your data.
 7. One engine and one merge rule wherever Git runs. Conflicts stay visible.
@@ -119,7 +120,6 @@ Three places, each with one job:
   Obsidian Vault -> ~/Documents/Vault   your own folder: a name no app can have (it has a space)
 
 ~/.epicenter/                      Epicenter's machinery: hidden, never synced, read by every program
-  session.lock                     held while refreshing the sign-in
   bin/epicenter                    the engine
   bin/git-lfs                      bundled with it
   documents/<namespace>/tabs/      the one local copy of each document
@@ -129,6 +129,7 @@ Three places, each with one job:
   settings.md                      this device's overrides
   shortcuts.md                     this device's shortcut overrides
   index.sqlite                     derived data, rebuilt from the folder
+  (sign-in)                        this app's refresh token, a file only you can read
 ```
 
 - **Settings and shortcuts follow you.** Each is a note in the folder; an
@@ -156,12 +157,12 @@ Three places, each with one job:
   folder is ([ADR-0711](adr/0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md)).
 - **`~/.epicenter`** holds what every program on this machine shares
   ([ADR-0718](adr/0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)).
-  Who this machine is signed in as lives with the sign-in in the keychain.
-- **One sign-in per machine.** Whichever Epicenter program you sign in from,
-  every first-party program on the machine is signed in; signing out anywhere
-  signs the machine out. Work and personal folders are namespaces under one
-  account. Third-party apps get their own grant
-  ([ADR-0720](adr/0720-you-sign-in-a-machine-not-an-app.md)).
+- **Each app signs in as its site** ([ADR-0731](adr/0731-every-app-signs-in-as-its-site.md)). The account's own page asks
+  once per app, on the web and the desktop alike, and the server remembers the
+  grant. An app reaches its own data and inference; only Epicenter's grant
+  reaches every repository, because it syncs them. The desktop shell keeps the
+  refresh token in the app's AppData and the page never sees it. The account
+  lists each computer's apps, and "Sign out this Mac" revokes them together.
 
 ## On the server
 
@@ -239,14 +240,11 @@ Agreed direction, built after the folder work:
 - **Export all my data.** One archive of every folder and document Epicenter
   can reach, following links and including attached files, with a list of
   browser-only data it cannot reach.
-- **Git ships with the engine.** `~/.epicenter/bin` holds `git` and `git-lfs`
-  beside `epicenter`, so a first sync never asks for Apple's developer tools.
+- **Git LFS ships with the engine** in `~/.epicenter/bin`. Shipping `git`
+  itself, so a first sync never asks for Apple's developer tools, waits on a
+  relocatable build and a review of bundling GPLv2 Git with the app.
 - **Sync runs under a login agent,** so quitting the Epicenter app does not
   stop sync.
-- **Machine sign-in is tested before it is built.** A short experiment checks
-  whether separately signed apps can share one keychain item without macOS
-  prompting; if not, the engine is the only reader and apps ask it for
-  tokens ([ADR-0720](adr/0720-you-sign-in-a-machine-not-an-app.md)).
 - **Your own folders take names no app can have,** such as one with a space
   (`Obsidian Vault`): names without a dot belong to Epicenter's apps, and
   names with a dot to owners.
@@ -260,7 +258,7 @@ Agreed direction, built after the folder work:
 - A registry of apps or folders, or a stored location for any folder. An app
   joins by publishing a contract; a folder is where its app's address says.
 - Machine state in your Git configuration or in a synced folder.
-- A sign-in per app.
+- A sign-in shared between programs, or a broker that hands apps tokens.
 
 ## Open questions
 

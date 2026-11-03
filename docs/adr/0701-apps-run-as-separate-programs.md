@@ -10,6 +10,7 @@
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (apps share data through a file contract, so no app needs Epicenter to reach its data).
 - **Archive:** the annotated tag `archive/app-hosting` at `728e820cc0`, the last commit with app hosting.
 - **Removed by:** `0320d9980b`, `e06a42c039`, and `ed2068ded8` (see [Restoring app hosting](#restoring-app-hosting)).
+- **Amended by:** [ADR-0731](0731-every-app-signs-in-as-its-site.md) at decision 84: a desktop app's client is its site's origin, not `so.epicenter.<app>.native`.
 
 ## Context
 

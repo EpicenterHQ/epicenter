@@ -4,6 +4,7 @@
 - **Date:** 2026-11-03
 - **Supersedes:** [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) (every change to the data model is checked against nine principles): its principles describe browser clones, IndexedDB datasets and a merge that writes no conflict marker, which ADR-0700 and the records cited below replace.
 - **Unbuilt:** ADR-0705 through ADR-0718 and ADR-0720, which the principles cite, are Proposed and unbuilt in part; the principles describe the model those records build toward.
+- **Amended by:** [ADR-0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) at principle 5: "Derive from the site; store only data, decisions, proofs, exceptions, and caches"; [ADR-0731](0731-every-app-signs-in-as-its-site.md) at principle 6: each app signs in as its site, and a machine groups those sign-ins.
 
 ## Context
 

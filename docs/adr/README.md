@@ -771,7 +771,7 @@ When you add an ADR, add its row here.
 | [0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) | A folder syncs to git.epicenter.so under its owner's namespace, and the first push creates it | Accepted (amended by 0586, 0593, 0595, 0605, 0608, 0612, and 0620; amended by 0700) |
 | [0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) | Every repository has one owner namespace, and a person is a namespace of one | Accepted (amended by 0593, 0594, and 0612) |
 | [0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) | A view is a cache of files, with one write path, one read path, and one channel of change | Superseded by 0700 (0689 rejected) |
-| [0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) | Every Epicenter resource accepts only opaque access tokens from one OAuth 2.1 authorization server | Accepted (supersedes 0071 and 0076; amends 0075, 0326, and 0331; amended by 0565, 0578, 0594, and 0618) |
+| [0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) | Every Epicenter resource accepts only opaque access tokens from one OAuth 2.1 authorization server | Accepted (supersedes 0071 and 0076; amends 0075, 0326, and 0331; amended by 0565, 0578, 0594, 0618, and 0731) |
 | [0550](0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md) | Epicenter's MCP server reaches hosted folders through grants that target namespaces | Accepted (superseded by 0578) |
 | [0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | Every write to a folder file is one save that merges by the file's kind, and Sync settles with the same merge | Accepted (local writes amended by 0700: conditional on the version read; sync merge remains; the desktop swap amended by 0702) |
 | [0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) | Every app is installed, from a folder in any Git repository | Superseded by 0611 |
@@ -822,7 +822,7 @@ When you add an ADR, add its row here.
 | [0601](0601-the-generic-editor-edits-a-files-text-so-a-row-is-repaired-there.md) | Apps keep a route to source repair | Accepted |
 | [0602](0602-folderapp-names-its-app-by-the-last-segment-of-its-address.md) | `<FolderApp>` names its app by the last segment of its address | Superseded by 0611 |
 | [0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) | An app is an ordinary single-page app in a forkable Git repository | Superseded by 0611 |
-| [0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) | Browser sign-in uses the calling origin | Accepted (amends 0578 and 0589; amended by 0614) |
+| [0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) | Browser sign-in uses the calling origin | Accepted (amends 0578 and 0589; amended by 0614 and 0731) |
 | [0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) | An app opens any data folder by its id, on every host | Superseded by 0611 |
 | [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps share data through ordinary files | Accepted (amends 0546 and 0593; amended by 0612 and 0626) |
 | [0609](0609-a-new-data-folder-copies-its-apps-template-once.md) | A new data folder copies its app's template once | Superseded by 0611 |
@@ -898,7 +898,7 @@ When you add an ADR, add its row here.
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Superseded by 0701 (apps run as separate programs) |
 | [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Accepted 2026-11-01 (supersedes 0545, 0622, 0623, and 0628, and the 13 Folder engine records 0689 had; amends 25 records; per-repository grants, `@epicenter/secrets`, the notify Durable Object, and `epicenter init --contract` unbuilt; window Close amended 2026-11-01: a window closes at once) |
-| [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Accepted 2026-11-01 (supersedes 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0647, 0663, 0670, 0671, 0674, and 0683; standalone Todos and a native Capture or Honeycrisp client unbuilt; archive tag `archive/app-hosting`; shared Quit amended by 0700: Quit is the default menu's) |
+| [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Accepted 2026-11-01 (supersedes 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0647, 0663, 0670, 0671, 0674, and 0683; standalone Todos and a native Capture or Honeycrisp client unbuilt; archive tag `archive/app-hosting`; shared Quit amended by 0700: Quit is the default menu's; native clients amended by 0731) |
 | [0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) | A data folder's unfinished writes wait in `.epicenter`, outside its data | Accepted (amends 0543, 0551, 0562, and 0568: no save lock, one hidden-path rule, `saves/` and `recordings/`, placement) |
 | [0703](0703-a-stopped-sync-round-finishes-its-merge.md) | A stopped sync round finishes its merge | Proposed (amends 0565 at the shell's three-second kill) |
 | [0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) | An app's data lives in two kinds of store | Accepted (amends 0534 and 0700) |
@@ -915,8 +915,8 @@ When you add an ADR, add its row here.
 | [0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md) | Agents edit a document through one-shot CLI commands | Accepted |
 | [0717](0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md) | An Epicenter app is a site that publishes a contract | Superseded by 0723 |
 | [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Accepted (amends 0642 and 0700) |
-| [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Accepted (supersedes 0627) |
-| [0720](0720-you-sign-in-a-machine-not-an-app.md) | You sign in a machine, not an app | Accepted (amends 0549 and 0701) |
+| [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Accepted (supersedes 0627; amended by 0730 and 0731) |
+| [0720](0720-you-sign-in-a-machine-not-an-app.md) | You sign in a machine, not an app | Superseded by 0731 (amended 0549 and 0701) |
 | [0721](0721-an-apps-folder-is-derived-never-stored.md) | An app's folder is derived, never stored | Accepted (amends 0700, 0701, 0711, 0712, 0715, 0718) |
 | [0722](0722-an-apps-names-derive-from-its-sites-host.md) | An app's names derive from its site's host | Accepted (supersedes 0710) |
 | [0723](0723-an-apps-site-is-found-by-convention.md) | An app's site is found by convention | Accepted (supersedes 0717) |
@@ -926,3 +926,5 @@ When you add an ADR, add its row here.
 | [0727](0727-json-schema-is-the-field-language.md) | JSON Schema is the field language | Accepted (amends 0705) |
 | [0728](0728-a-build-states-its-environment.md) | A build states its environment | Accepted (amends 0712, 0721) |
 | [0729](0729-a-link-is-followed-only-at-or-above-a-root.md) | A link is followed only at or above a root | Accepted (amends 0725) |
+| [0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) | Everything not derived from an app's site is one of five stored kinds | Accepted (amends 0719) |
+| [0731](0731-every-app-signs-in-as-its-site.md) | Every app signs in as its site | Accepted (supersedes 0720; amends 0549, 0606, 0701, and 0719) |
