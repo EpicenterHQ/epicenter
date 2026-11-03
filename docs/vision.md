@@ -80,10 +80,14 @@ a folder and a few documents. No data lives in both.
 
 What both stores share:
 
-- **One field language.** Proposed field builders (`text`, `select`,
-  `multiSelect`, `date`, `url`, `ref`, `body`) compile to JSON Schema for
-  files, a Yjs shape for documents, SQL columns for queries, and UI controls
-  for generic views. Contracts differ per store; the fields do not.
+- **One field language: JSON Schema.** A contract's fields are a written
+  subset of JSON Schema, and each reader interprets it directly: `epicenter
+  check` validates it, Epicenter's generic views pick a control per type
+  (`enum` is a dropdown), `epicenter query` picks a column per type, and a
+  document app stores each field as a key
+  ([ADR-0727](adr/0727-json-schema-is-the-field-language.md)). Helpers such as
+  `instant()` are optional shorthand that return JSON Schema. Contracts differ
+  per store; the fields do not.
 - **One export format.** Every store exports to Markdown notes with their
   attached files, and imports from them. A folder's working form is already
   that format. Moving data between stores is an export followed by an import,

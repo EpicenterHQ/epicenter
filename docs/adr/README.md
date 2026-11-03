@@ -923,3 +923,4 @@ When you add an ADR, add its row here.
 | [0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) | A browser extension keeps its data in a document | Accepted (amends 0227) |
 | [0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) | An app reaches named roots through one command per storage operation | Accepted (supersedes 0647; amends 0531, 0721) |
 | [0726](0726-an-apps-path-is-its-claim.md) | An app's path is its claim | Accepted (amends 0721, 0725) |
+| [0727](0727-json-schema-is-the-field-language.md) | JSON Schema is the field language | Accepted (amends 0705) |

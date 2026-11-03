@@ -41,8 +41,10 @@ cited records govern where a principle and a record differ.
    app keeps what lasts as notes and files in a folder, or as a document
    synced through the account. SQLite lives in AppData and is rebuilt from
    them ([ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md)).
-2. **One field language, one export format.** Field builders compile to JSON
-   Schema, a Yjs shape, SQL columns and UI controls. Markdown notes with
+2. **One field language, one export format.** The field language is a written
+   subset of JSON Schema, which each reader (`check`, generic views, `query`, a
+   document app) interprets directly
+   ([ADR-0727](0727-json-schema-is-the-field-language.md)). Markdown notes with
    attached files are every store's export, and moving data between stores is
    an export then an import
    ([ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md),
