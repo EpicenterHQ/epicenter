@@ -106,10 +106,10 @@ permissions available in the session.
 
 When comparing how current and revised guidance handle a request, keep the
 request and unrelated material the same so the difference comes from the
-guidance. Present sample outputs using
-[writing-voice's comparison guidance](../writing-voice/SKILL.md#show-revisions-in-context).
-Clearly identify examples you are illustrating versus results you actually
-obtained by running the skill.
+guidance. Present sample outputs together, each readable on its own, with
+enough of the request and surrounding output to see the difference; bold the
+parts that changed or need attention. Clearly identify examples you are
+illustrating versus results you actually obtained by running the skill.
 
 For a new skill, show the proposed instructions and intended interaction. Use
 the appropriate surface for other outputs, such as caller code, a rendered

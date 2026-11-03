@@ -8,7 +8,7 @@ metadata:
 
 # Documentation
 
-Follow [writing-voice](../writing-voice/SKILL.md) for tone. For architecture walkthroughs, folder mental models, or newcomer explanations, lead with the owner, boundary, or flow; ground the model in code and name the likely misconception when it helps.
+Follow the [project writing conventions](../../../AGENTS.md#writing-conventions). For architecture walkthroughs, folder mental models, or newcomer explanations, lead with the owner, boundary, or flow; ground the model in code and name the likely misconception when it helps.
 
 Documentation explains **why**, not **what**. Users can read code to see what it does. They need you to explain the reasoning.
 

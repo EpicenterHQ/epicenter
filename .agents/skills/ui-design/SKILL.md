@@ -129,7 +129,7 @@ details that serve the chosen direction.
 
 - `styling` owns CSS, Tailwind, spacing, wrappers, overflow, and scroll traps.
 - `svelte` owns component structure, runes, lifecycle, and state mechanics.
-- `writing-voice` owns visible interface copy and tone.
+- Visible interface copy follows the person-facing [project writing conventions](../../../AGENTS.md#writing-conventions); [references/anti-slop-tells.md](references/anti-slop-tells.md) covers templated copy.
 
 For an explicit external standards or accessibility audit, WebFetch the Vercel
 Web Interface Guidelines and apply them directly, reporting findings as
