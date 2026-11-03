@@ -17,6 +17,7 @@ import { createHandler } from './http.js';
 import {
 	createFakeAppServer,
 	type FakeMessage,
+	FakeRpcError,
 	waitFor,
 } from './testing/fake-app-server.js';
 import { createTranscriber } from './transcribe.js';
@@ -423,4 +424,22 @@ test('archive maps RPC failure and busy turns to gateway errors', async () => {
 	const response = await busy(post('threads/A/archive', {}));
 	expect(response.status).toBe(409);
 	expect(await response.json()).toMatchObject({ code: 'busy' });
+});
+
+test('archive writer conflict returns a person-facing 409', async () => {
+	const handler = setup(
+		undefined,
+		createFakeAppServer({
+			onRequest: () => {
+				throw new FakeRpcError(-32600, 'thread A already has an active writer');
+			},
+		}),
+	);
+	const response = await handler(post('threads/A/archive', {}));
+	expect(response.status).toBe(409);
+	expect(await response.json()).toEqual({
+		code: 'thread_in_use',
+		error:
+			'Another Codex app has this conversation open, so only that app can archive it. Archive it there, or quit that app and retry.',
+	});
 });

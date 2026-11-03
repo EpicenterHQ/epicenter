@@ -1,6 +1,16 @@
 import type { RequestId } from '../../src/lib/protocol.js';
 import type { Transport } from '../app-server-client.js';
 
+export class FakeRpcError extends Error {
+	constructor(
+		public code: number,
+		message: string,
+	) {
+		super(message);
+		this.name = 'FakeRpcError';
+	}
+}
+
 export type FakeMessage = {
 	id?: RequestId;
 	method?: string;
@@ -55,7 +65,10 @@ export function createFakeAppServer({
 								(error) =>
 									send({
 										id: message.id,
-										error: { code: -32000, message: String(error) },
+										error:
+											error instanceof FakeRpcError
+												? { code: error.code, message: error.message }
+												: { code: -32000, message: String(error) },
 									}),
 							);
 				}

@@ -96,6 +96,7 @@ export type SendResponse = {
 };
 export type ApiErrorCode =
 	| 'busy'
+	| 'thread_in_use'
 	| 'reply_conflict'
 	| 'outcome_unknown'
 	| 'validation'

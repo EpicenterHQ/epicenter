@@ -36,6 +36,12 @@ export class BusyError extends Error {
 		this.name = 'BusyError';
 	}
 }
+export class ThreadInUseError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'ThreadInUseError';
+	}
+}
 export class ReplyConflictError extends Error {
 	constructor() {
 		super('This reply ID was already used for different text');
@@ -59,6 +65,15 @@ export class ValidationError extends Error {
 		this.name = 'ValidationError';
 	}
 }
+// Codex reports another process's thread writer lock only through this message.
+function isWriterConflict(error: unknown) {
+	return (
+		error instanceof AppServerError &&
+		error.kind === 'rpc' &&
+		error.message.includes('already has an active writer')
+	);
+}
+
 export function createCodexService({
 	client,
 	sandbox,
@@ -493,7 +508,15 @@ export function createCodexService({
 			archiving.add(threadId);
 			try {
 				await client.ensureReady();
-				await client.request('thread/archive', { threadId });
+				try {
+					await client.request('thread/archive', { threadId });
+				} catch (error) {
+					if (isWriterConflict(error))
+						throw new ThreadInUseError(
+							'Another Codex app has this conversation open, so only that app can archive it. Archive it there, or quit that app and retry.',
+						);
+					throw error;
+				}
 				live.delete(threadId);
 				resumed.delete(threadId);
 				for (const key of fileChanges.keys())
@@ -553,16 +576,25 @@ export function createCodexService({
 				try {
 					await client.ensureReady();
 					if (!resumed.has(threadId)) {
-						const response = await client.request<{ thread: Thread }>(
-							'thread/resume',
-							{
-								threadId,
-								excludeTurns: true,
-								approvalPolicy: approval,
-								sandbox,
-								approvalsReviewer: 'user',
-							},
-						);
+						let response: { thread: Thread };
+						try {
+							response = await client.request<{ thread: Thread }>(
+								'thread/resume',
+								{
+									threadId,
+									excludeTurns: true,
+									approvalPolicy: approval,
+									sandbox,
+									approvalsReviewer: 'user',
+								},
+							);
+						} catch (error) {
+							if (isWriterConflict(error))
+								throw new ThreadInUseError(
+									'Another Codex app has this conversation open, so only that app can reply to it. Reply there, or quit that app and retry.',
+								);
+							throw error;
+						}
 						if (response.thread.status.type === 'active')
 							throw new BusyError(
 								'Codex is already working on this conversation in another session',

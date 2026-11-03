@@ -5,6 +5,7 @@ import { afterEach, expect, spyOn, test } from 'bun:test';
 import type { Thread, Turn } from '../src/lib/protocol.js';
 import {
 	type AppServerClient,
+	AppServerError,
 	createAppServerClient,
 } from './app-server-client.js';
 import {
@@ -12,10 +13,12 @@ import {
 	createCodexService,
 	OutcomeUnknownError,
 	ReplyConflictError,
+	ThreadInUseError,
 } from './codex-service.js';
 import {
 	createFakeAppServer,
 	type FakeMessage,
+	FakeRpcError,
 	waitFor,
 } from './testing/fake-app-server.js';
 
@@ -673,4 +676,69 @@ test('thread archived notification clears local live and resumed state', async (
 	expect(
 		fake.messages.filter((message) => message.method === 'thread/resume'),
 	).toHaveLength(2);
+});
+
+test('archive writer conflict explains ownership and releases the guard for retry', async () => {
+	let conflict = true;
+	const { service } = setup(() => {
+		if (conflict)
+			throw new FakeRpcError(-32600, 'thread A already has an active writer');
+		return {};
+	});
+	const error = await service
+		.archiveThread('A')
+		.catch((error: unknown) => error);
+	expect(error).toBeInstanceOf(ThreadInUseError);
+	expect(error).toMatchObject({
+		message:
+			'Another Codex app has this conversation open, so only that app can archive it. Archive it there, or quit that app and retry.',
+	});
+	conflict = false;
+	expect(await service.archiveThread('A')).toEqual({ threadId: 'A' });
+});
+
+test('resume writer conflict starts no turn and allows retry with the same reply ID', async () => {
+	let conflict = true;
+	const { fake, service } = setup((message) => {
+		if (message.method === 'turn/start') return { turn };
+		if (message.method === 'thread/resume' && conflict)
+			throw new FakeRpcError(-32600, 'thread A already has an active writer');
+		return { thread: thread('A', null) };
+	});
+	const error = await service
+		.sendText('A', 'hi', { replyId: 'reply_123' })
+		.catch((error: unknown) => error);
+	expect(error).toBeInstanceOf(ThreadInUseError);
+	expect(error).toMatchObject({
+		message:
+			'Another Codex app has this conversation open, so only that app can reply to it. Reply there, or quit that app and retry.',
+	});
+	expect(
+		fake.messages.filter((message) => message.method === 'turn/start'),
+	).toHaveLength(0);
+	conflict = false;
+	expect(
+		await service.sendText('A', 'hi', { replyId: 'reply_123' }),
+	).toMatchObject({
+		turnId: turn.id,
+		duplicate: false,
+	});
+	expect(
+		fake.messages.filter((message) => message.method === 'thread/resume'),
+	).toHaveLength(2);
+	expect(
+		fake.messages.filter((message) => message.method === 'turn/start'),
+	).toHaveLength(1);
+});
+
+test('archive preserves unrelated RPC errors', async () => {
+	const { service } = setup(() => {
+		throw new FakeRpcError(-32600, 'something else');
+	});
+	const error = await service
+		.archiveThread('A')
+		.catch((error: unknown) => error);
+	expect(error).toBeInstanceOf(AppServerError);
+	expect(error).not.toBeInstanceOf(ThreadInUseError);
+	expect(error).toMatchObject({ code: -32600, message: 'something else' });
 });

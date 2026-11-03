@@ -8,6 +8,7 @@ import {
 	type CodexService,
 	OutcomeUnknownError,
 	ReplyConflictError,
+	ThreadInUseError,
 	ValidationError,
 } from './codex-service.js';
 import type { Config } from './config.js';
@@ -303,6 +304,8 @@ export function createHandler({
 				return json({ error: error.message, code: 'reply_conflict' }, 409);
 			if (error instanceof OutcomeUnknownError)
 				return json({ error: error.message, code: 'outcome_unknown' }, 409);
+			if (error instanceof ThreadInUseError)
+				return json({ error: error.message, code: 'thread_in_use' }, 409);
 			if (error instanceof AppServerError)
 				return json({ error: error.message, code: 'app_server' }, 502);
 			if (error instanceof URIError)

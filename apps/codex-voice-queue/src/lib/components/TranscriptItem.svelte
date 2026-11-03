@@ -2,6 +2,7 @@
 	import { Badge } from '@epicenter/ui/badge';
 	import { Markdown } from '@epicenter/ui/markdown';
 	import type { KnownThreadItem, ThreadItem } from '../protocol.js';
+	import { parseQuestionReply } from '../transcript.js';
 	let { item }: { item: ThreadItem } = $props();
 	const tags = new Set([
 		'userMessage',
@@ -35,7 +36,15 @@
 		<p class="text-xs font-medium text-muted-foreground">You</p>
 		{#each known.content as input, index (index)}
 			{#if input.type === 'text'}
-				<p class="whitespace-pre-wrap break-words">{input.text}</p>
+				{@const replies = parseQuestionReply(input.text)}
+				{#if replies}
+					{#each replies as reply, index (index)}
+						<p class="whitespace-pre-wrap break-words text-xs text-muted-foreground">{reply.question}</p>
+						<p class="whitespace-pre-wrap break-words">{reply.answer}</p>
+					{/each}
+				{:else}
+					<p class="whitespace-pre-wrap break-words">{input.text}</p>
+				{/if}
 			{:else if input.type === 'skill' || input.type === 'mention'}
 				<Badge variant="outline">{input.type}: {input.name}</Badge>
 			{:else if input.type === 'localImage' || input.type === 'localAudio'}

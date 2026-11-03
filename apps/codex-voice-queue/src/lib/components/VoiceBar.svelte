@@ -115,7 +115,7 @@
 			<Kbd>Space</Kbd> record / stop · <Kbd>j</Kbd> next · <Kbd>k</Kbd> previous
 		</span>
 	</div>
-	<p class="line-clamp-2 min-h-5 text-sm text-muted-foreground" aria-live="polite">
+	<p class="min-h-5 text-sm text-muted-foreground" class:line-clamp-2={queue.archiveFailedId !== queue.selectedId} aria-live="polite">
 		{queue.recorder.error ?? (queue.isBusy && queue.flow === 'idle' ? 'Codex is working on this conversation' : queue.status)}
 	</p>
 </footer>
