@@ -4,8 +4,12 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	/**  The data folder the standalone shell derived and granted at startup. */
-	dataFolder: () => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|data_folder")),
+	/**
+	 *  The data folder the standalone shell derived and granted at startup:
+	 *  `NoDataFolder` from a shell that derives none, `Disconnected` when the
+	 *  derived path is a link whose target is not there.
+	 */
+	dataFolder: () => typedError<string, DataFolderError>(__TAURI_INVOKE("plugin:epicenter-folder|data_folder")),
 	/**
 	 *  Open the root at the absolute path `root` for the calling window and
 	 *  watch it, answering its canonical path, by which the page names it from
@@ -45,6 +49,17 @@ export const commands = {
 };
 
 /* Types */
+/**  Why `data_folder` answered no folder. */
+export type DataFolderError =
+/**  This shell derives no data folder for its app. */
+{ name: "NoDataFolder" } |
+/**
+ *  The derived folder is, or is inside, a link whose target is not there,
+ *  as when it is on a drive that is not connected. Nothing was granted or
+ *  made.
+ */
+{ name: "Disconnected"; folder: string; target: string };
+
 /**  Paths whose stored content may differ, or any path when scope is unknown. */
 export type FolderChanged = {
 	paths: string[] | null,

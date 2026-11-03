@@ -36,7 +36,11 @@
 //! Each opened binding owns one recursive native watch. Its private channel
 //! tells the page which paths may differ; the page owns reading those paths.
 
+use std::fmt;
 use std::path::PathBuf;
+
+use serde::Serialize;
+use specta::Type;
 use tauri::plugin::TauriPlugin;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 
@@ -57,8 +61,35 @@ pub use folders::{BindError, Folders, WindowError};
 pub use watch::FolderChanged;
 pub use windows::{FolderExt, OpenWindowError};
 
-/// The resolved data folder granted by a standalone shell at startup.
-pub struct DataFolder(pub PathBuf);
+/// What a standalone shell found at its derived data folder at startup: the
+/// resolved folder it granted, or why it granted none. A shell that manages
+/// no `DataFolder` derives none (`DataFolderError::NoDataFolder`).
+pub struct DataFolder(pub Result<PathBuf, DataFolderError>);
+
+/// Why `data_folder` answered no folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "name")]
+pub enum DataFolderError {
+    /// This shell derives no data folder for its app.
+    NoDataFolder,
+    /// The derived folder is, or is inside, a link whose target is not there,
+    /// as when it is on a drive that is not connected. Nothing was granted or
+    /// made.
+    Disconnected { folder: String, target: String },
+}
+
+impl fmt::Display for DataFolderError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoDataFolder => formatter.write_str("This app has no data folder."),
+            Self::Disconnected { folder, target } => {
+                write!(formatter, "{folder} links to {target}, which is not there.")
+            }
+        }
+    }
+}
+
+impl std::error::Error for DataFolderError {}
 
 const PLUGIN_NAME: &str = "epicenter-folder";
 

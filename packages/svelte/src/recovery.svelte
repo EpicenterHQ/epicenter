@@ -45,6 +45,8 @@
 		{@render screen(`${app} needs your permission to open its folder`, error.message)}
 	{:else if error.name === 'Missing'}
 		{@render screen(`${app}'s folder is missing`, error.message)}
+	{:else if error.name === 'Disconnected'}
+		{@render screen(`${app}'s folder is on a drive that isn't connected`, error.message)}
 	{:else if error.name === 'Refused'}
 		{@render screen(`That folder cannot be ${app}'s folder`, error.message)}
 	{:else if error.name === 'Unreadable'}

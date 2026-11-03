@@ -1,10 +1,9 @@
 //! Todos' desktop app (`epicenter-standalone`, decisions 88 to 97): one
 //! window that starts on Todos' AppData root and opens its data folder,
-//! `~/Epicenter/Todos` unless `settings.md` names another, by path
-//! (`openDataFolder` from `@epicenter/folder/tauri`), when Tauri's
-//! file-system scope allows it: startup allows the default, and the native
-//! picker allows the folder a person chooses. It asks Epicenter to sync the
-//! folder (`syncWithEpicenter`) and never signs in.
+//! `~/Epicenter/todos`, which its bundle identifier names, by path
+//! (`openDataFolder` from `@epicenter/folder/tauri`), once startup allows it
+//! in Tauri's file-system scope. It asks Epicenter to sync the folder
+//! (`syncWithEpicenter`) and never signs in.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -14,7 +13,6 @@ use epicenter_standalone::StandaloneApp;
 /// Wide enough for the list beside the open todo.
 const TODOS: StandaloneApp = StandaloneApp {
     page: "todos",
-    site: "https://todos.epicenter.so",
     title: "Todos",
     size: (960.0, 720.0),
 };

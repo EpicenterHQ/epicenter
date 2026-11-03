@@ -1,6 +1,6 @@
 //! Vocab's desktop app (`epicenter-standalone`, decisions 88 to 97): one
 //! window that starts on Vocab's AppData root and opens its data folder,
-//! `~/Epicenter/Vocab` unless `settings.md` names another, by path
+//! `~/Epicenter/vocab`, which its bundle identifier names, by path
 //! (`openDataFolder` from `@epicenter/folder/tauri`), when Tauri's
 //! file-system scope allows it. The AppData root also holds `connections.md`,
 //! the endpoints the learner connected, whose keys are in the keychain; the
@@ -21,7 +21,6 @@ include!("command_names.rs");
 /// Wide: the chat history, the conversation, and its focus words side by side.
 const VOCAB: StandaloneApp = StandaloneApp {
     page: "vocab",
-    site: "https://vocab.epicenter.so",
     title: "Vocab",
     size: (1100.0, 760.0),
 };

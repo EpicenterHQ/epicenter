@@ -22,17 +22,25 @@ use tauri::ipc::Channel;
 use tauri::{Manager, Runtime, Webview};
 
 use crate::scope::admit;
-use crate::{DataFolder, Directory, DirectoryError, FolderChanged, Folders, WindowError};
+use crate::{
+    DataFolder, DataFolderError, Directory, DirectoryError, FolderChanged, Folders, WindowError,
+};
 
-/// The data folder the standalone shell derived and granted at startup.
+/// The data folder the standalone shell derived and granted at startup:
+/// `NoDataFolder` from a shell that derives none, `Disconnected` when the
+/// derived path is a link whose target is not there.
 #[tauri::command]
 #[specta::specta]
-pub fn data_folder<R: Runtime>(webview: Webview<R>) -> Result<String, WindowError> {
+pub fn data_folder<R: Runtime>(webview: Webview<R>) -> Result<String, DataFolderError> {
     let folder = webview
         .app_handle()
         .try_state::<DataFolder>()
-        .ok_or(WindowError::NotBound)?;
-    Ok(folder.0.to_string_lossy().into_owned())
+        .ok_or(DataFolderError::NoDataFolder)?;
+    folder
+        .0
+        .as_ref()
+        .map(|path| path.to_string_lossy().into_owned())
+        .map_err(Clone::clone)
 }
 
 /// Run blocking work off the window thread.

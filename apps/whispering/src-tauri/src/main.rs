@@ -1,6 +1,6 @@
 //! Whispering's desktop app (`epicenter-standalone`, decisions 88 to 97): one
 //! window that starts on Whispering's AppData root and opens its data folder,
-//! `~/Epicenter/Whispering` unless `settings.md` names another, by path
+//! `~/Epicenter/whispering`, which its bundle identifier names, by path
 //! (`openDataFolder` from `@epicenter/folder/tauri`), when Tauri's
 //! file-system scope allows it. It records into that folder from the first
 //! sample (`tauri-plugin-epicenter-recorder`), transcribes on this computer
@@ -25,7 +25,6 @@ include!("command_names.rs");
 /// Wide: the recordings and the open one side by side.
 const WHISPERING: StandaloneApp = StandaloneApp {
     page: "whispering",
-    site: "https://whispering.epicenter.so",
     title: "Whispering",
     size: (1100.0, 760.0),
 };

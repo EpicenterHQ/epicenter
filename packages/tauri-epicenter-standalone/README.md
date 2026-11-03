@@ -13,8 +13,13 @@ sync UI is in `@epicenter/svelte`.
 
 - **The AppData root** is the operating system's application data directory,
   used by apps with machine-local settings such as shortcuts or connections.
-- **The data root** is derived by the shell from the app's site under
-  `~/Epicenter`, or `~/Epicenter Dev` for development builds.
+- **The data root** is derived by the shell from the app's bundle
+  identifier, the reversed host of its site (`so.epicenter.whispering` is
+  `~/Epicenter/whispering`), under `~/Epicenter`, or `~/Epicenter Dev` for
+  an identifier ending in `.dev`. A site's first label is never `dev`.
+  `EPICENTER_FOLDER_DIR` replaces the root in debug builds and tests only.
+  When the derived path is a link whose target is gone, the shell grants
+  nothing and `openDataFolder` answers `Disconnected`.
 
 ## Window and Quit
 

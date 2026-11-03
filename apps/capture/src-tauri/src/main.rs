@@ -1,10 +1,9 @@
 //! Capture's desktop app (`epicenter-standalone`, decisions 88 to 90): one
 //! window that starts on Capture's AppData root and opens its data folder,
-//! `~/Epicenter/Capture` unless `settings.md` names another, by path
-//! (`openDevice` from `@epicenter/folder/tauri`), when Tauri's file-system
-//! scope allows it: the capability allows the default, and the native
-//! picker allows the folder a person chooses. It asks Epicenter to sync the
-//! folder (`syncWithEpicenter`) and never signs in.
+//! `~/Epicenter/capture`, which its bundle identifier names, by path
+//! (`openDataFolder` from `@epicenter/folder/tauri`), once startup allows it
+//! in Tauri's file-system scope. It asks Epicenter to sync the folder
+//! (`syncWithEpicenter`) and never signs in.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -14,7 +13,6 @@ use epicenter_standalone::StandaloneApp;
 /// Narrow and tall: the timeline and one capture, a column at a time.
 const CAPTURE: StandaloneApp = StandaloneApp {
     page: "capture",
-    site: "https://capture.epicenter.so",
     title: "Capture",
     size: (760.0, 720.0),
 };

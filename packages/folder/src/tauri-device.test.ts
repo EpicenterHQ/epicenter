@@ -15,7 +15,9 @@
  * - A storage refusal is `Unavailable`; a page outside Tauri opens nothing
  * - The shell's watcher reaches a collection's listeners, and every handle
  *   over a root hears it whichever opened last
- * - The data folder is the path the shell derives from the site and is made when missing
+ * - The data folder is the path the shell derives from its bundle identifier and is made when missing
+ * - A data folder behind a link to a drive that is gone is `Disconnected`, and
+ *   nothing is opened or made; a shell that derives none says so
  */
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { readFile, realpath, rm } from 'node:fs/promises';
@@ -28,11 +30,14 @@ import {
 	type GrantedShell,
 	grantedDirectory,
 } from './granted-shell.test-support.js';
+import type { DataFolderError } from './native/bindings.gen.js';
 
 let shell: GrantedShell;
 let inTauri = true;
 /** The data folder the shell answers. */
 let dataFolder = '/home/Epicenter/notes';
+/** The shell's refusal to answer a data folder, when it has one. */
+let dataFolderError: DataFolderError | undefined;
 
 type Channel = { onmessage?: (change: { paths: string[] | null }) => void };
 
@@ -46,7 +51,9 @@ mock.module('@tauri-apps/api/core', () => ({
 		options?: { headers?: Record<string, string> },
 	) => {
 		if (cmd === 'plugin:epicenter-folder|data_folder')
-			return Promise.resolve(dataFolder);
+			return dataFolderError === undefined
+				? Promise.resolve(dataFolder)
+				: Promise.reject(dataFolderError);
 		return shell.invoke(cmd, body, options);
 	},
 }));
@@ -87,6 +94,7 @@ beforeEach(async () => {
 	shell = createGrantedShell(await grantedDirectory('tauri-device-'));
 	inTauri = true;
 	dataFolder = '/home/Epicenter/notes';
+	dataFolderError = undefined;
 });
 
 afterEach(async () => {
@@ -291,4 +299,23 @@ test('the data folder comes from the shell and is made when missing', async () =
 	expectOk(await device.notes.create({ id: 'a', title: 'Default' }));
 	expect(await readFile(join(fallback, 'notes/a.md'), 'utf8')).toContain('title: Default');
 	expect(shell.opened.at(-1)?.root).toBe(fallback);
+});
+
+test('a data folder on a drive that is not connected is Disconnected, and nothing opens', async () => {
+	const folder = '/home/Epicenter/notes';
+	const target = '/Volumes/Archive/notes';
+	dataFolderError = { name: 'Disconnected', folder, target };
+	const refused = expectErr(await openDataFolder(notes));
+	expect(refused).toMatchObject({ name: 'Disconnected', folder, target });
+	expect(refused.message).toContain('on a drive that is not connected');
+	expect(refused.message).toContain(target);
+	expect(shell.opened).toEqual([]);
+});
+
+test('a shell that derives no data folder says so', async () => {
+	dataFolderError = { name: 'NoDataFolder' };
+	const refused = expectErr(await openDataFolder(notes));
+	expect(refused.name).toBe('StorageUnavailable');
+	expect(refused.message).toContain('derived no data folder');
+	expect(shell.opened).toEqual([]);
 });

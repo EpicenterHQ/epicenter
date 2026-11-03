@@ -5,13 +5,14 @@
 //! installation, never synced and never chosen. Its settings notes sit at its
 //! top (`settings.md`, `shortcuts.md`), as the same notes sit at the top of
 //! the data root. Its **data root** is the person's files, derived from the
-//! app's declared production site under `~/Epicenter` or `~/Epicenter Dev`.
-//! For this transition, the page may still use a folder remembered in its
-//! AppData settings. Only the data root is ever synced (by Epicenter).
+//! app's bundle identifier, the reversed host of its production site, under
+//! `~/Epicenter`, or `~/Epicenter Dev` for an identifier ending in `.dev`.
+//! Only the data root is ever synced (by Epicenter).
 //!
 //! Rust never reads or writes a settings note. Startup grants the derived
 //! data folder through Tauri's file-system scope, keeps its resolved path for
-//! the folder plugin to answer, makes the AppData root, and opens the window
+//! the folder plugin to answer (or, for a link whose target is gone, grants
+//! nothing and keeps why), makes the AppData root, and opens the window
 //! bound to it. The page opens both roots through the folder plugin
 //! (`openAppData` and `openDataFolder` in `@epicenter/folder/tauri`), which
 //! opens a data folder only when Tauri's runtime file-system scope allows it:
@@ -28,21 +29,26 @@
 //! Quit reaches `Exit` without `ExitRequested`), which is where the recorder
 //! finishes a recording in progress.
 
+use std::ffi::OsString;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-use tauri_plugin_epicenter_folder::{scope::Refusals, DataFolder, Directory, FolderExt};
+use tauri_plugin_epicenter_folder::admission::resolved;
+use tauri_plugin_epicenter_folder::{
+    scope::Refusals, DataFolder, DataFolderError, Directory, FolderExt,
+};
 use tauri_plugin_fs::FsExt;
 
 pub mod data_folder;
 
+/// The app's data folder is named by its bundle identifier, the reversed host
+/// of its production site (`data_folder::identity`), so nothing here names it.
 #[derive(Clone, Copy, Debug)]
 pub struct StandaloneApp {
     /// The window-label prefix its capability selects (`<page>:*`).
     pub page: &'static str,
-    /// The app's declared production origin, which names its data folder.
-    pub site: &'static str,
     /// The app's name, in its windows and messages.
     pub title: &'static str,
     /// The primary window's logical width and height.
@@ -63,7 +69,7 @@ pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
         .manage(app)
         .setup(move |application| {
             let handle = application.handle().clone();
-            let started = allow_data_folder(&handle, app.site).and_then(|()| {
+            let started = allow_data_folder(&handle).and_then(|()| {
                 handle
                     .path()
                     .app_data_dir()
@@ -77,54 +83,93 @@ pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
         })
 }
 
-/// The data folder this build derives from its site and bundle identifier.
-pub fn data_folder<R: Runtime>(handle: &AppHandle<R>, site: &str) -> Result<PathBuf, String> {
+/// The data folder this build derives from its bundle identifier.
+pub fn data_folder<R: Runtime>(handle: &AppHandle<R>) -> Result<PathBuf, String> {
     let home = handle
         .path()
         .home_dir()
         .map_err(|error| error.to_string())?;
-    let root = data_folder::root(
+    data_folder::derive(
         &home,
         &handle.config().identifier,
-        std::env::var_os("EPICENTER_FOLDER_DIR").as_deref(),
-    );
-    let relative = data_folder::relative_path(site).map_err(|error| error.to_string())?;
-    Ok(root.join(relative))
+        folder_dir_override().as_deref(),
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// `EPICENTER_FOLDER_DIR` replaces the root in a debug build or a test; a
+/// release build ignores it.
+fn folder_dir_override() -> Option<OsString> {
+    if cfg!(debug_assertions) {
+        std::env::var_os("EPICENTER_FOLDER_DIR")
+    } else {
+        None
+    }
 }
 
 /// Grant the derived folder and keep the same resolved path for the page.
-fn allow_data_folder<R: Runtime>(handle: &AppHandle<R>, site: &str) -> Result<(), String> {
-    let folder = data_folder(handle, site)?;
+fn allow_data_folder<R: Runtime>(handle: &AppHandle<R>) -> Result<(), String> {
+    let folder = data_folder(handle)?;
     grant_data_folder(handle, &folder)
 }
 
+/// Grant `folder` by its resolved path, or nothing when it is reached through
+/// a link whose target is gone: the page then hears `Disconnected` and makes
+/// nothing. A folder that resolves to its own root, or to a folder holding
+/// it, is refused, however either is spelled.
 fn grant_data_folder<R: Runtime>(handle: &AppHandle<R>, folder: &Path) -> Result<(), String> {
-    let resolved = if folder.exists() {
-        dunce::canonicalize(folder).map_err(|error| error.to_string())?
-    } else {
-        folder.to_path_buf()
-    };
+    if let Some(target) = dangling_target(folder) {
+        handle.manage(DataFolder(Err(DataFolderError::Disconnected {
+            folder: folder.display().to_string(),
+            target: target.display().to_string(),
+        })));
+        return Ok(());
+    }
+    let resolved_folder = resolved(folder);
     if folder
         .parent()
-        .is_some_and(|parent| parent.starts_with(&resolved))
+        .is_some_and(|parent| resolved(parent).starts_with(&resolved_folder))
     {
         return Err(format!(
             "{} contains the app's folder root and cannot be its data folder",
-            resolved.display()
+            resolved_folder.display()
         ));
     }
     if let Some(reason) = Refusals::resolve(handle)
-        .map_err(|error| format!("{error:?}"))?
-        .refusal(&resolved)
+        .map_err(|error| error.to_string())?
+        .refusal(&resolved_folder)
     {
         return Err(reason);
     }
     handle
         .fs_scope()
-        .allow_directory(&resolved, true)
+        .allow_directory(&resolved_folder, true)
         .map_err(|error| error.to_string())?;
-    handle.manage(DataFolder(resolved));
+    handle.manage(DataFolder(Ok(resolved_folder)));
     Ok(())
+}
+
+/// Where `folder` would be when it, or a folder above it, is a link whose
+/// target is not there; `None` when every link on the way resolves.
+fn dangling_target(folder: &Path) -> Option<PathBuf> {
+    folder.ancestors().find_map(|link| {
+        let is_link = fs::symlink_metadata(link).is_ok_and(|meta| meta.file_type().is_symlink());
+        if !is_link || link.exists() {
+            return None;
+        }
+        let target = fs::read_link(link).ok()?;
+        // A relative target is read from the folder holding the link.
+        let target = match link.parent() {
+            Some(parent) => parent.join(target),
+            None => target,
+        };
+        let rest = folder.strip_prefix(link).ok()?;
+        Some(if rest.as_os_str().is_empty() {
+            target
+        } else {
+            target.join(rest)
+        })
+    })
 }
 
 /// Make the AppData root `config` and open the window bound to it; the page
@@ -180,8 +225,6 @@ mod tests {
     //! `open` both extend it with `allow_directory(folder, true)`. The
     //! native picker and the page are not driven here; what they lead to is.
 
-    use std::fs;
-
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody};
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
@@ -194,7 +237,6 @@ mod tests {
 
     const NOTES: StandaloneApp = StandaloneApp {
         page: "notes",
-        site: "https://notes.epicenter.so",
         title: "Notes",
         size: (960.0, 720.0),
     };
@@ -399,12 +441,76 @@ mod tests {
         assert!(!handle
             .fs_scope()
             .is_allowed(default.with_file_name("Elsewhere")));
-        assert_eq!(handle.state::<DataFolder>().0, *default);
+        assert_eq!(handle.state::<DataFolder>().0, Ok(default.clone()));
         let window = fixture.start();
         assert_eq!(
             call(&window, "data_folder", json!({})).unwrap(),
             json!(default)
         );
+    }
+
+    /// A shell that granted no data folder says so, rather than that the
+    /// window has none.
+    #[test]
+    fn a_shell_that_derived_no_folder_answers_no_data_folder() {
+        let fixture = fixture();
+        let window = fixture.start();
+        assert_eq!(
+            call(&window, "data_folder", json!({})).unwrap_err(),
+            json!({ "name": "NoDataFolder" })
+        );
+    }
+
+    /// A derived folder that is a link to a drive that is gone is granted
+    /// nothing and made nowhere; the page hears where the link pointed.
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_link_grants_and_makes_nothing() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = fixture();
+        let target = fixture.base.join("Volumes/Archive/notes");
+        fs::create_dir_all(fixture.default.parent().unwrap()).unwrap();
+        symlink(&target, &fixture.default).unwrap();
+        let handle = fixture.app.handle();
+        grant_data_folder(handle, &fixture.default).unwrap();
+        assert!(!handle.fs_scope().is_allowed(&fixture.default));
+        assert!(!handle.fs_scope().is_allowed(&target));
+        let window = fixture.start();
+        assert_eq!(
+            call(&window, "data_folder", json!({})).unwrap_err(),
+            json!({
+                "name": "Disconnected",
+                "folder": fixture.default,
+                "target": target,
+            })
+        );
+        assert!(!target.exists());
+        assert!(!fixture.base.join("Volumes").exists());
+    }
+
+    /// The same holds when the link is the library root above the folder.
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_library_root_grants_and_makes_nothing() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = fixture();
+        let library = fixture.default.parent().unwrap();
+        let drive = fixture.base.join("Volumes/Archive/Epicenter");
+        fs::create_dir_all(library.parent().unwrap()).unwrap();
+        symlink(&drive, library).unwrap();
+        let handle = fixture.app.handle();
+        grant_data_folder(handle, &fixture.default).unwrap();
+        assert_eq!(
+            handle.state::<DataFolder>().0,
+            Err(DataFolderError::Disconnected {
+                folder: fixture.default.display().to_string(),
+                target: drive.join("notes").display().to_string(),
+            })
+        );
+        assert!(!handle.fs_scope().is_allowed(&fixture.default));
+        assert!(!drive.exists());
     }
 
     #[cfg(unix)]
@@ -419,7 +525,7 @@ mod tests {
         symlink(&target, &fixture.default).unwrap();
         let handle = fixture.app.handle();
         grant_data_folder(handle, &fixture.default).unwrap();
-        assert_eq!(handle.state::<DataFolder>().0, target);
+        assert_eq!(handle.state::<DataFolder>().0, Ok(target.clone()));
         assert!(handle.fs_scope().is_allowed(&target));
         assert!(handle.fs_scope().is_allowed(target.join("a.md")));
     }
@@ -436,5 +542,28 @@ mod tests {
         let handle = fixture.app.handle();
         assert!(grant_data_folder(handle, &fixture.default).is_err());
         assert!(!handle.fs_scope().is_allowed(library.join("other-app")));
+    }
+
+    /// The guard compares resolved paths, so a home reached through a link
+    /// (`/tmp` is `/private/tmp` on macOS) does not hide a link to the root.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_the_library_root_is_refused_by_any_spelling() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = fixture();
+        let library = fixture.default.parent().unwrap();
+        fs::create_dir_all(library).unwrap();
+        symlink(library, &fixture.default).unwrap();
+        let alias = fixture.base.join("alias");
+        symlink(fixture.base.join("home"), &alias).unwrap();
+        let spelled = alias.join("Epicenter/notes");
+        let handle = fixture.app.handle();
+        assert!(grant_data_folder(handle, &spelled).is_err());
+        assert!(!handle.fs_scope().is_allowed(library.join("other-app")));
+        assert!(!handle
+            .fs_scope()
+            .is_allowed(alias.join("Epicenter/other-app")));
+        assert!(handle.try_state::<DataFolder>().is_none());
     }
 }

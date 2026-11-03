@@ -1,10 +1,9 @@
 //! Honeycrisp's desktop app (`epicenter-standalone`, decisions 88 to 90): one
 //! window that starts on Honeycrisp's AppData root and opens its data folder,
-//! `~/Epicenter/Honeycrisp` unless `settings.md` names another, by path
-//! (`openDevice` from `@epicenter/folder/tauri`), when Tauri's file-system
-//! scope allows it: the capability allows the default, and the native
-//! picker allows the folder a person chooses. It asks Epicenter to sync the
-//! folder (`syncWithEpicenter`) and never signs in.
+//! `~/Epicenter/honeycrisp`, which its bundle identifier names, by path
+//! (`openDataFolder` from `@epicenter/folder/tauri`), once startup allows it
+//! in Tauri's file-system scope. It asks Epicenter to sync the folder
+//! (`syncWithEpicenter`) and never signs in.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -14,7 +13,6 @@ use epicenter_standalone::StandaloneApp;
 /// Wide: the folders, the notes, and the open note side by side.
 const HONEYCRISP: StandaloneApp = StandaloneApp {
     page: "honeycrisp",
-    site: "https://honeycrisp.epicenter.so",
     title: "Honeycrisp",
     size: (1100.0, 760.0),
 };

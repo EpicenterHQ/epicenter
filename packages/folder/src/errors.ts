@@ -8,7 +8,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 /**
  * Why `openDevice` opened no client, on every platform. A desktop data
- * folder can be missing, not granted, refused or unreadable; storage itself
+ * folder can be missing, disconnected, not granted, refused or unreadable; storage itself
  * can be unavailable anywhere (outside Tauri, a browser that gives the page
  * no private storage, a shell that did not answer). Each message says what
  * happened in words a person can act on; the app decides what it offers.
@@ -18,6 +18,12 @@ export const OpenDeviceError = defineErrors({
 	Missing: ({ folder }: { folder: string }) => ({
 		message: `${folder} is not there. It may have been moved or deleted, or be on a drive that is not connected.`,
 		folder,
+	}),
+	/** The folder is reached through a link to `target`, which is not there, as on a drive that is not connected. Nothing was made. */
+	Disconnected: ({ folder, target }: { folder: string; target: string }) => ({
+		message: `${folder} is on a drive that is not connected: it links to ${target}, which is not there. Connect the drive and open this app again.`,
+		folder,
+		target,
 	}),
 	/** Tauri's file-system scope does not allow the folder: it was named without the folder picker. */
 	NotGranted: ({ folder }: { folder: string }) => ({
