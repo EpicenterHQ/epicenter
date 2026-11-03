@@ -5,7 +5,7 @@ description: Draft and review Epicenter pull request titles and bodies, includin
 
 # Pull Request Guidelines
 
-If the task is only staging, splitting, or committing local changes, use [git](../git/SKILL.md). If the task is issue triage or public issue replies, use [github-issues](../github-issues/SKILL.md). The [writing-voice](../writing-voice/SKILL.md) rules govern the prose in any body you write.
+If the task is only staging, splitting, or committing local changes, use [git](../git/SKILL.md). If the task is issue triage or public issue replies, use [github-issues](../github-issues/SKILL.md). The [project writing conventions](../../../AGENTS.md#writing-conventions) govern the prose in any body you write.
 
 ## Explain the change
 

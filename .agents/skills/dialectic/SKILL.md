@@ -141,7 +141,8 @@ particular judgments within a stage; their introductions establish
 the shared understanding they build on. All invented exchanges are
 illustrations, not measured results or records of the user's preferences.
 
-For prose drafting and revisions, use [writing-voice](../writing-voice/SKILL.md)
-for developing recognizable expression and presenting revisions in context.
-Page and journal workflows retain their authorship and artifact requirements,
-including the boundary against inventing personal events, motives, or beliefs.
+When the user is authoring prose in their own voice, use their personal
+`writing-voice` skill if one is available. Without it, develop the prose
+through this skill and the destination's guidance. Page and journal
+workflows retain their authorship and artifact requirements, including the
+boundary against inventing personal events, motives, or beliefs.

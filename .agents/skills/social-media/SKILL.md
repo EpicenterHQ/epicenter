@@ -8,7 +8,7 @@ metadata:
 
 # Social Media Post Guidelines
 
-Follow [writing-voice](../writing-voice/SKILL.md) for tone.
+Follow the [project writing conventions](../../../AGENTS.md#writing-conventions). This skill owns platform length and register.
 
 ## Platform-Specific Brevity
 

@@ -89,9 +89,9 @@
 			"prompt": "Rewrite this article opening in one sentence so it sounds like me: Whenever I see a shower handle, I marvel at all the ways it could have been designed.",
 			"anchors": ["sounds like me"],
 			"distractors": ["in one sentence"],
-			"expect": "writing-voice",
+			"expect": null,
 			"forbid": ["one-sentence-test"],
-			"why": "Near miss for one-sentence-test. 'sounds like me' is writing-voice's hook; 'in one sentence' is the distractor and stays unresolved on the offline pass by design, because one-sentence-test must keep claiming it for review-one-sentence. The object decides the owner: authored prose to writing-voice, a technical surface to one-sentence-test, and only --live can weigh that."
+			"why": "Near miss for one-sentence-test. 'sounds like me' asks for prose in the author's own voice, which is outside the project-local skill catalog; the author may use a personal skill when one is installed, but no project skill owns it. 'in one sentence' is the distractor and stays unresolved on the offline pass by design, because one-sentence-test must keep claiming it for review-one-sentence. The object decides: authored prose is not a technical surface to audit, so one-sentence-test must not claim it, and only --live can weigh that."
 		},
 		{
 			"id": "consult-independent-investigation",
