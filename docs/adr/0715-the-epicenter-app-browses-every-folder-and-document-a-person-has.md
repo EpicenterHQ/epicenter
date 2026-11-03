@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 81 ("Epicenter learns of a folder only through Sync with Epicenter's deep link"): Epicenter also lists the library root's folders; and at the 2026-11-01 revision that deleted the folder editor window ("Epicenter opens no folder's files"): Epicenter shows a folder's or document's items again; [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) at deferring the desktop data browser.
+- **Amended by:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at `epicenter.root` marking a synced folder and at the deep link's `path` and `contract`: a folder at its derived path carrying `epicenter.synced` is synced, and both parameters follow from the app's site.
 - **Unbuilt:** the library-root scan that follows links; "Add folder…" running `epicenter link`; the account's repository and document lists in the Folders window; generic collection views from the field vocabulary; opening documents through `~/.epicenter/documents`; removing the line in `apps/epicenter/AGENTS.md` that conflicts ("Epicenter opens no folder's files").
 
 ## Context

@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at decision 35 ("folders hold no `epicenter.json`") and at `epicenter init --contract` in its Unbuilt line: a folder holds an `AGENTS.md` note naming its contract URL, and `init` records no contract in Git configuration.
+- **Amended by:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at "a person may change" a folder's name and the origin surviving a rename: a folder is always at its derived path, and renaming it disconnects its app.
 - **Unbuilt:** the app writing `AGENTS.md` at first open; the CLI's generated block in it; `epicenter check` and Epicenter reading `contract` from it; the deep link `epicenter://init` writing the note when it is missing.
 
 ## Context

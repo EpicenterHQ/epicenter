@@ -6,8 +6,8 @@ export format, so you can browse, back up, move, and compact all of it from
 one place.
 
 **Everything you own is in `~/Epicenter`.** Each app keeps its folder there,
-named by the app's slug. A folder that lives somewhere else is a link inside
-it.
+named from the app's address. A folder that lives somewhere else is a link
+inside it.
 
 **Everything a machine shares is in `~/.epicenter`.** The sync engine, the
 sign-in, local copies of documents, and logs. Secrets stay in the keychain.
@@ -26,7 +26,7 @@ Every change to the data model is checked against eight principles
 
 1. Your records are files or documents. A database is only ever a cache.
 2. One field language, one export format.
-3. The site's origin is an app's identity, the slug is its name, and the
+3. An app's site is its identity, every name derives from its host, and the
    environment picks the roots.
 4. Each app has two places on a machine with the same note names: its synced
    folder and this device's AppData. Epicenter's machinery is a third place,
@@ -37,27 +37,30 @@ Every change to the data model is checked against eight principles
 7. One engine and one merge rule wherever Git runs. Conflicts stay visible.
 8. Where a guarantee is weaker, the screen says so.
 
-## Identity, names, and roots
+## Identity and names
 
-An app is a site that publishes a contract ([ADR-0717](adr/0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md)). Its site's
-origin is its identity: globally unique, and a folder's `AGENTS.md` names the
-contract URL served from that site. Its slug
-is the contract's `name`, the short name every program already knows
-([ADR-0710](adr/0710-an-apps-slug-names-everything-a-program-reads.md)). The environment chooses the roots and never changes a name
-([ADR-0712](adr/0712-an-apps-folder-resolves-against-a-fixed-library-root.md)).
+An app is a site that publishes `/contract.json`, and optionally `/SKILL.md`
+for agents ([ADR-0723](adr/0723-an-apps-site-is-found-by-convention.md)). The
+site's address is the app's identity, and every name a program uses derives
+from its host ([ADR-0722](adr/0722-an-apps-names-derive-from-its-sites-host.md)):
 
-| | Production | Development |
+| | Epicenter's app | Anyone else's app |
 | --- | --- | --- |
-| Identity | `https://whispering.epicenter.so` | the local dev URL |
-| Synced folder | `~/Epicenter/whispering` | `~/Epicenter Dev/whispering` |
-| This device's place | `<AppData>/so.epicenter.whispering` | `<AppData>/so.epicenter.whispering.dev` |
-| Epicenter's machinery | `~/.epicenter` | `~/.epicenter-dev` |
-| Repository or document | `<account>/whispering` | the same, on the dev server |
+| Site | `https://whispering.epicenter.so` | `https://zhongwen.bradenwong.com` |
+| Folder | `~/Epicenter/whispering` | `~/Epicenter/bradenwong.com/zhongwen` |
+| Repository | `<account>/whispering` | `<account>/zhongwen.bradenwong.com` |
+| This device's place | `<AppData>/so.epicenter.whispering` | `<AppData>/com.bradenwong.zhongwen` |
 
-Every program can compute every location from the slug and the environment.
-A folder that lives elsewhere is still reached through a link inside the root,
-so no program needs a registry to find anything. People see the app's name,
-"Whispering", in its window and menus.
+At the top of `~/Epicenter`, a name without a dot is one of Epicenter's apps,
+and a name with a dot is an owner's folder holding that owner's apps. This is
+the layout Go uses: the standard library is short, and everything else is
+named by its domain.
+
+Development builds use the same names under `~/Epicenter Dev` and
+`~/.epicenter-dev`, with `.dev` on the AppData name. Every program computes
+every path from the site's address and the environment, so no program stores a
+location or needs a registry. People see the app's own name, "Whispering", in
+its window and menus.
 
 ## Two stores
 
@@ -86,9 +89,13 @@ What both stores share:
   that format. Moving data between stores is an export followed by an import,
   never two live stores at once.
 
-Records: [ADR-0705](adr/0705-an-apps-data-lives-in-two-kinds-of-store.md) (two stores), [ADR-0707](adr/0707-an-app-that-needs-co-editing-is-a-document-app.md) (co-editing apps are document apps),
-[ADR-0709](adr/0709-a-document-is-rebuilt-into-a-fresh-generation-by-copying-its-current-state.md) (rebuilding a document), [ADR-0716](adr/0716-agents-edit-a-document-through-one-shot-cli-commands.md) (agents edit documents through the
-CLI).
+Records: [ADR-0705](adr/0705-an-apps-data-lives-in-two-kinds-of-store.md)
+(two stores), [ADR-0707](adr/0707-an-app-that-needs-co-editing-is-a-document-app.md)
+(co-editing apps are document apps),
+[ADR-0709](adr/0709-a-document-is-rebuilt-into-a-fresh-generation-by-copying-its-current-state.md)
+(rebuilding a document),
+[ADR-0716](adr/0716-agents-edit-a-document-through-one-shot-cli-commands.md)
+(agents edit documents through the CLI).
 
 ## On a computer
 
@@ -96,17 +103,18 @@ Three places, each with one job:
 
 ```txt
 ~/Epicenter/                       your data: visible, synced per folder, not a repository
-  whispering/                      one repository per folder, named by the slug
+  whispering/                      one repository per app folder
     AGENTS.md                      contract: https://whispering.epicenter.so/contract.json
     settings.md                    settings that follow you
     shortcuts.md                   shortcuts that follow you
     recordings/<id>.md             one note per thing, named by its ID
     recordings/<id>.wav            attached files sit beside their note (Git LFS)
-  vocab/  mail/  theark/ …
+  vocab/  capture/  …              Epicenter's apps: names without a dot
+  bradenwong.com/                  an owner's folder: a name with a dot
+    zhongwen/                      that owner's apps
   notes -> ~/Documents/Vault       a folder that lives elsewhere: a link inside the root
 
 ~/.epicenter/                      Epicenter's machinery: hidden, never synced, read by every program
-  settings.md                      the account this machine is signed in as; engine settings
   session.lock                     held while refreshing the sign-in
   bin/epicenter                    the engine
   bin/git-lfs                      bundled with it
@@ -114,7 +122,7 @@ Three places, each with one job:
   logs/                            sync logs
 
 <AppData>/so.epicenter.whispering/ this device, for one app: never synced
-  settings.md                      this device's overrides, and `folder` once remembered
+  settings.md                      this device's overrides
   shortcuts.md                     this device's shortcut overrides
   index.sqlite                     derived data, rebuilt from the folder
 ```
@@ -122,17 +130,21 @@ Three places, each with one job:
 - **Settings and shortcuts follow you.** Each is a note in the folder; an
   optional note of the same name in AppData overrides it on this device. A
   reader spreads defaults, then the folder's note, then the device's.
-- **An app shows its folder during onboarding** ("Your recordings are files in
-  `~/Epicenter/whispering`"), remembers its name after the first open, and asks
-  before writing into a folder it does not recognize ([ADR-0712](adr/0712-an-apps-folder-resolves-against-a-fixed-library-root.md)).
-- **Links do the moving.** To keep a folder elsewhere, put a link to it inside
-  `~/Epicenter` (`ln -s ~/Documents/Vault ~/Epicenter/notes`, or
-  `epicenter link`). To move the whole library, move it and leave a link at
-  `~/Epicenter`. Epicenter follows links like any folder.
+- **No program stores where a folder is**
+  ([ADR-0721](adr/0721-an-apps-folder-is-derived-never-stored.md)). An app
+  shows its folder during onboarding ("Your recordings are files in
+  `~/Epicenter/whispering`"). On its first launch it creates the folder; if
+  the folder already holds files it does not recognize, it offers
+  [Show in Finder] or [Use it anyway]. Later, a missing folder shows
+  [Locate…] or [Start a new folder], never a silent empty one.
+- **Links do the moving.** `epicenter move whispering /Volumes/Archive` moves
+  the folder and leaves a link at `~/Epicenter/whispering`; Epicenter's
+  "Move…" runs the same command. Apps never move or choose a location.
 - **A folder's `AGENTS.md`** names its contract and tells agents what the
   folder is ([ADR-0711](adr/0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md)).
 - **`~/.epicenter`** holds what every program on this machine shares
-  ([ADR-0718](adr/0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)). Secrets stay in the keychain.
+  ([ADR-0718](adr/0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)).
+  Who this machine is signed in as lives with the sign-in in the keychain.
 - **One sign-in per machine.** Whichever Epicenter program you sign in from,
   every first-party program on the machine is signed in; signing out anywhere
   signs the machine out. Work and personal folders are namespaces under one
@@ -142,8 +154,10 @@ Three places, each with one job:
 ## On the server
 
 Repositories and documents are two kinds of resource in one namespace, shared
-through one kind of grant ([ADR-0708](adr/0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md)). A folder syncs with any Git host, with
-some manual setup for hosts other than Epicenter. What the account adds:
+through one kind of grant
+([ADR-0708](adr/0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md)).
+A folder syncs with any Git host, with some manual setup for hosts other than
+Epicenter. What the account adds:
 
 - the list of your repositories and documents on every device
 - online web variants of folder apps
@@ -156,9 +170,9 @@ some manual setup for hosts other than Epicenter. What the account adds:
 
 | Piece | Job |
 | --- | --- |
-| An app | Reads and writes its stores. A folder app needs no account and no Epicenter to save locally; syncing goes through Epicenter's engine. A document app syncs through an account. |
-| The app's site | Publishes its contract, and optionally download links, an agent skill, and later actions ([ADR-0717](adr/0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md)). |
-| The `epicenter` engine | Git, LFS, merge, `check`, `get`, and `set`. One copy per machine in `~/.epicenter/bin`, installed by the Epicenter app ([ADR-0713](adr/0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md)). |
+| An app | Reads and writes its stores. A folder app needs no account and no Epicenter to save locally; syncing goes through Epicenter's engine. A document app works locally and syncs once you sign in. |
+| The app's site | Publishes `/contract.json`, and optionally `/SKILL.md` ([ADR-0723](adr/0723-an-apps-site-is-found-by-convention.md)). "Get the app" opens the site. |
+| The `epicenter` engine | Git, LFS, merge, `check`, `move`, `get`, and `set`. One copy per machine in `~/.epicenter/bin`, installed by the Epicenter app ([ADR-0713](adr/0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md)). |
 | The Epicenter app | Installs the engine, asks consent for a first sync, syncs on a schedule, and browses every folder and document you have ([ADR-0715](adr/0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md)). |
 | Your account | Resources, grants, documents, inference. Signed in once per machine. |
 
@@ -171,9 +185,10 @@ by line ([ADR-0714](adr/0714-a-files-extension-decides-how-every-folder-merges-i
 A browser variant runs the same code as the desktop variant with weaker
 guarantees: its files are not visible, agents and tools cannot read them, a
 local web variant has no history or sync, and the browser can delete them
-([ADR-0706](adr/0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md)). Whispering keeps a local web variant that works without signing
-in. Signing in there unlocks hosted transcription, as on the desktop; its
-recordings stay in the browser.
+([ADR-0706](adr/0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md)).
+Whispering keeps a local web variant that works without signing in. Signing in
+there unlocks hosted transcription, as on the desktop; its recordings stay in
+the browser.
 
 ## Apps and their stores
 
@@ -184,14 +199,21 @@ recordings stay in the browser.
 | Folder for now, still open | Tasks, Timebox |
 | Neither | Decox (the Codex manager) |
 
+- **Tabs** is the first document app: a browser extension built with WXT,
+  Chrome first and Firefox later
+  ([ADR-0724](adr/0724-a-browser-extension-keeps-its-data-in-a-document.md)).
+  It lists your open tabs from the browser. Saving a tab closes it and keeps
+  its URL, title, and save time in the Tabs document. Saving works signed out;
+  signing in connects that local document to your account and syncs it at
+  once.
+- **Zhongwen** is your app at `zhongwen.bradenwong.com`, not one of
+  Epicenter's, so its folder is `~/Epicenter/bradenwong.com/zhongwen`.
 - **Photos:** Google Photos holds the photos. A SQLite cache in AppData mirrors
   what Google Photos has. The folder holds your annotations, one per photo.
 - **Mail:** each account's mail is a cache in AppData, and its secrets live in
   the keychain. The folder holds your saved queries and batches of changes.
 - **Messages:** Beeper holds the conversations. The folder holds replies, and
   each send is journaled on the device (ADR-0704). There is no browser variant.
-- **Tabs:** the extension reads open tabs from the browser. Saving a tab closes
-  it and keeps it in the Tabs document.
 - **Epicenter** gets a synced folder, `~/Epicenter/epicenter`, only when it has
   something worth syncing.
 
@@ -201,13 +223,14 @@ recordings stay in the browser.
   is a document app.
 - One repository for the whole library root.
 - Two live stores for the same data.
-- A registry of apps or folders. An app joins by publishing a contract; a
-  folder joins by being inside `~/Epicenter`.
-- A sign-in per app.
+- A registry of apps or folders, or a stored location for any folder. An app
+  joins by publishing a contract; a folder is where its app's address says.
 - Machine state in your Git configuration or in a synced folder.
+- A sign-in per app.
 
 ## Open questions
 
+- Which of your apps live at `epicenter.so` and which at your own domain.
 - Whether Tasks and Timebox stay folders.
 - The binary extensions that go to Git LFS, and the size above which the
   server refuses a file outside LFS.

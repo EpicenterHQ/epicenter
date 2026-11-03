@@ -1,7 +1,8 @@
 # 0717. An Epicenter app is a site that publishes a contract
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0723](0723-an-apps-site-is-found-by-convention.md).
 - **Relates:** [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (a browser app is identified by its origin); [ADR-0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md) (a folder's `AGENTS.md` names its contract URL); [ADR-0710](0710-an-apps-slug-names-everything-a-program-reads.md) (the slug names folders, repositories and AppData); [ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) (fixed roots); [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) (`~/.epicenter`); [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) (Epicenter browses folders and documents).
 - **Unbuilt:** the manifest at `https://<origin>/.well-known/epicenter.json` (the path and key names are the proposed shape); its `downloads` and `skill` keys; Epicenter reading a manifest to offer "Get the app" on a new device; copying a skill to `~/.agents/skills/<slug>/`; actions, whose shape is open.
 

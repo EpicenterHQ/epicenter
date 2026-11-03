@@ -27,8 +27,8 @@ the replaced model.
 **Three sentences say where everything is.**
 
 - **Everything you own is in `~/Epicenter`.** Each app keeps its folder there,
-  named by the app's slug. A folder that lives somewhere else is a link inside
-  it.
+  named from the app's address. A folder that lives somewhere else is a link
+  inside it.
 - **Everything a machine shares is in `~/.epicenter`.** The sync engine, the
   sign-in, local copies of documents, and logs. Secrets stay in the keychain.
 - **You sign in a machine, not an app.** One account per machine. Every
@@ -48,11 +48,13 @@ cited records govern where a principle and a record differ.
    ([ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md),
    [ADR-0707](0707-an-app-that-needs-co-editing-is-a-document-app.md),
    [ADR-0709](0709-a-document-is-rebuilt-into-a-fresh-generation-by-copying-its-current-state.md)).
-3. **The site's origin is an app's identity, the slug is its name, and the
-   environment picks the roots.** `https://whispering.epicenter.so` identifies
-   the app, and a folder's `AGENTS.md` names the contract URL served from it;
-   `whispering` names its folder, repository and AppData directory;
-   production and development differ only in roots ([ADR-0717](0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md), [ADR-0710](0710-an-apps-slug-names-everything-a-program-reads.md),
+3. **An app's site is its identity, every name derives from its host, and
+   the environment picks the roots.** `https://whispering.epicenter.so`
+   identifies the app, and a folder's `AGENTS.md` names the contract URL served
+   from it. An app at a direct subdomain of `epicenter.so` is named by its
+   label (`~/Epicenter/whispering`); every other app lives in its owner's
+   folder (`~/Epicenter/bradenwong.com/zhongwen`); AppData is the reversed host;
+   production and development differ only in roots ([ADR-0723](0723-an-apps-site-is-found-by-convention.md), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md),
    [ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md)).
 4. **Each app has two places on a machine with the same note names.** The
    synced folder holds what follows the person; the device's AppData holds
@@ -61,10 +63,11 @@ cited records govern where a principle and a record differ.
    Epicenter's machinery is a third place, `~/.epicenter` ([ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md),
    [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)).
 5. **Find things by convention; store only the exceptions.** A program
-   derives a folder's path from the root and the slug, and Epicenter finds
-   every folder by scanning the root, following links. An app writes the name
-   of the folder it first opened; a folder that lives elsewhere is a link
-   inside the root, so no list of folders exists ([ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md), [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md),
+   derives a folder's path from the app's site and the environment, and
+   Epicenter finds every folder by scanning the root and its owner folders,
+   following links. No program stores where a folder is; a folder that lives
+   elsewhere is a link at its derived path, so no list of folders exists
+   ([ADR-0721](0721-an-apps-folder-is-derived-never-stored.md), [ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md), [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md),
    [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md)).
 6. **Apps work alone; Epicenter and the account add capabilities and never
    take custody.** A folder app needs no account and no Epicenter to save
