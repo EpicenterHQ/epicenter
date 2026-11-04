@@ -238,6 +238,64 @@ codec, and as a Node-API library for the CLI) and `tauri-plugin-epicenter`
 (commands, events, the shell's sync timing; replaces today's folder plugin).
 The native host stays the CLI subcommand `epicenter native-host`.
 
+## The package map (audit, 2026-11-04)
+
+Three seats (one Codex, two Claude) audited the 22 packages by kind, callers
+and caller code. The founder accepted the experience seat's map: 11
+TypeScript packages and 4 Rust crates (plus the transcription build helper).
+
+| Package | One sentence |
+| --- | --- |
+| `definition` | what an app's files are, how two versions settle, and the names its site derives |
+| `folder` | open an app's folder as its contract's client, and this device's place |
+| `account` | this app's credentials: its Epicenter sign-in and the person's provider keys |
+| `recorder` | recordings written into the folder as they record |
+| `ai` | requests to a model the person chose, and the agent loop |
+| `transcription` | models on this computer (`null` in a browser) |
+| `svelte` | contract reactivity, startup and recovery, status |
+| `ui` | components |
+| `vite-config` | the base config and the desktop condition |
+| `cli` | the `epicenter` command |
+| `server` | the API |
+| Rust: `epicenter-core`, `tauri-plugin-epicenter`, `tauri-plugin-epicenter-recorder`, `tauri-plugin-epicenter-transcription` (with its build helper as a sub-crate) | |
+
+Moves: `agent`, `agent-protocol` and `client` merge into `ai` (the protocol
+is the type contract the loop and the model client shared; inside one package
+it needs no package of its own); `principal` merges into `account` (renamed
+from `auth`); `capture` moves into apps/capture; `constants` splits by owner
+(site names into `definition`, providers into `ai`, ports into `vite-config`,
+routes into `server`); the three desktop shell crates become
+`tauri-plugin-epicenter`; a capability keeps its TypeScript and its Rust
+plugin in one directory and may export `./svelte` for its own settings UI;
+the copied startup and chrome components collapse into `svelte`.
+
+**Composition rule: values in, availability out.** A capability takes what it
+needs as values and never imports another capability; what it can do right
+now is a value that is present or `null`. The account is live
+(`account.current: Account | null`), so capabilities receive the account,
+never a snapshot, and follow sign-in without a reload (only the online web,
+whose data depends on the account, reloads).
+
+```ts
+export const account = connectAccount();
+export const folder = await openFolder(whispering);
+export const ai = openAi({ account, local: localModels }); // localModels: null on the web
+// ai.custom: always; ai.hosted: null until signed in; ai.local: null on the web
+```
+
+Build-time selection: a capability's `.` export is
+`{ "tauri": ..., "default": ... }` (`tauri` first; the web leaf is `default`,
+not `browser`, because `desktopVariant()` keeps Vite's `browser` condition);
+explicit `./tauri` and `./browser` subpaths stay for tests and for shared code
+that needs one side (Vocab's dictation). An intermediate package takes
+capabilities as values so its own typecheck covers one leaf honestly.
+`#platform/*` remains only for app-owned native features (Whispering's
+shortcut) and the web sign-in callback.
+
+Open: Whispering's web build is local only even when signed in, which
+differs from R9; unifying the two HTTP relays moves Whispering's provider
+keys from the page into the shell (as Vocab's are, per ADR-0740).
+
 ## Phones
 
 - iOS gives each app a sandbox that the system does not evict, visible in the
