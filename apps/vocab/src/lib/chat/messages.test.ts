@@ -1,8 +1,8 @@
 /**
  * A chat's messages and the chat list, over one client's
  * `messages/{chat}/{id}.md` and `chats/{id}.md` notes: each tutor
- * conversation (`createConversation` over the client's messages) lists and
- * writes its own.
+ * conversation (`createConversation` over the folder's messages) reads its
+ * own as the folder shows them and writes its own.
  *
  * Key behaviors:
  * - A message is one note named by its own id, in its chat

@@ -2,7 +2,7 @@
 
 `@epicenter/ai/agent` is the UI-free agent loop. It takes values: a contract's messages collection, the chat it is, `ai`, the model, the system prompt, and the tools as an array.
 
-The collection is the app's folder's (`folder.messages`). The loop calls only `list`, `create` and `subscribe` on it (`ConversationMessages`), so a collection client passes too. It lists the chat's messages itself each time the collection changes, and reads the note at a path again with `list` when a create finds it occupied, rather than trusting what the folder shows.
+The collection is the app's folder's (`folder.messages`). The loop reads the chat's transcript from what the folder shows (`items()`, `invalid()`, `get()`, `loading()`, `error()`), saves with `create`, and listens with `subscribe`, which starts the folder's listing (`ConversationMessages`). It keeps no copy of its own: the folder lists the collection once per change and shows a saved message before its `create` answers.
 
 ```ts
 import { createConversation, messagesCollection } from '@epicenter/ai/agent';
@@ -24,17 +24,21 @@ const conversation = createConversation({
 
 The conversation has the shape every capability has: `snapshot()` reads, `send`, `stop`, `retry` and `save` answer promises, and `subscribe` hears a change. Svelte reads it through `reactive` from `@epicenter/svelte/reactive`, where `conversation.snapshot()` tracks.
 
+## Listing
+
+`ready` settles once the folder's first listing of the collection answers, listed or failed, or once the conversation is disposed. `snapshot().listed` is true from the first listing that succeeds, and stays true when a later one fails. Until then the transcript may be missing saved messages, so a model turn does not run: it ends with the snapshot `error` code `Unlisted`, asks no model and builds no prompt. `retry()` once `listed` is true runs that turn; the person does not send again. `send` still saves the learner's message while unlisted, so offline it answers at once and the message waits in `unsaved`.
+
 ## Tools
 
 A tool is `{ name, description, input, mutates?, run }`. The tools offered are the array: leaving a tool out is how it is denied, and a call naming one not offered runs nothing. A tool that `mutates` runs only once `approve` answers yes; with no `approve`, it is refused. A tool's `run` that rejects ends the turn, as a failed stream does.
 
 ## Saving messages
 
-Each finished message is its own note, created under its id. A note already there holding the same message counts as saved; another message at that id is refused. `Ok` from the collection is the promise that the message is saved. The loop asks once per message and never retries on its own, because a failed or thrown write may still have landed.
+Each finished message is its own note, created under its id. A note already there holding the same message counts as saved; another message at that id is refused. The folder answers `Occupied` only once it shows the note that is there, so the loop compares against `get()`. `Ok` from the collection is the promise that the message is saved. The loop asks once per message and never retries on its own, because a failed or thrown write may still have landed.
 
 - `send(text)` saves the learner message first and resolves with that outcome. The model runs only after `Ok`. A `stop()` or disposal during the write lets the write finish and starts no turn.
 - A turn that finishes cleanly saves its messages in order. A stopped or failed stream saves nothing.
-- A message the collection did not confirm stays in `snapshot().unsaved` under its id, with the reason in `saveError`. It also appears once in `messages`, even when the collection lists the message before confirming it.
+- A message the collection did not confirm stays in `snapshot().unsaved` under its id, with the reason in `saveError`. It also appears once in `messages`, even while the folder shows the message before its write answers.
 - `save()` writes `unsaved` again. It runs no model and no tool, and skips messages already confirmed.
 - `send` and `retry` do nothing while a write is in flight or a message is unsaved. `send` reports that as `NotAdmitted`.
 - Disposal stops following the collection; writes already in flight still land.
