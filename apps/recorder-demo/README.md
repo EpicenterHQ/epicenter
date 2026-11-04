@@ -100,9 +100,10 @@ account's own.
   recording, the list and one row, each over the client the recorder is
   given and that client alone. The variant also hands the recorder how it
   records (`src/lib/record.ts`: `recordInto(device)` on this browser,
-  `recordInPage` online). The recorder wraps it once for Svelte
-  (`fromClient`) and hands both down: a row reads audio bytes through the
-  client and shows and edits through the wrapped one.
+  `recordInPage` online). The recorder reads the client as a folder
+  (`folderOf`) through `reactive`, once, and hands that down: the list
+  shows it, and a row edits it and reads its audio's bytes (`read`). While
+  one of its writes is out, leaving the page asks first.
 - `src/lib/recordings.ts`: one client's notes and audio, joined by id, and
   `finishCutOffRecordings`, which gives audio a closed tab left alone its
   note.

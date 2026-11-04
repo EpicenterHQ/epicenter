@@ -1,7 +1,7 @@
 <!--
 	The online variant's signed-in root, for one account: it opens the
-	repository (`openRemote`) and gives it to the recorder, which wraps it
-	once for Svelte. The parent's `{#key}` makes a new one for a new account;
+	repository (`openRemote`) and gives it to the recorder, which reads it
+	as a folder through `reactive`, once. The parent's `{#key}` makes a new one for a new account;
 	sign-out or replacement retires this repository.
 -->
 <script lang="ts">
