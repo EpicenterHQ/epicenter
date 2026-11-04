@@ -4,8 +4,7 @@
  * same contract's client at the same paths, in place of the folder the page
  * is given. The client the list writes through can be made to fail, or to
  * hold its writes until released, the way a lost connection or a slow write
- * would, and another program can write its files. The memory folder the
- * `test` condition gives `$lib/app` can do none of these.
+ * would, and another program can write its files.
  *
  * Import `svelte-dom.test-support.js` (or `svelte-modules`) first: the store
  * and `reactive` need Svelte's client runtime.
