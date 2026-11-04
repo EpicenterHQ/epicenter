@@ -61,7 +61,7 @@ describe('state', () => {
 		] as const) {
 			const { client, ready } = createTauriAuth(shell(() => answer).fake);
 			await ready;
-			const state = client.getState();
+			const state = client.state();
 			expect(state.status).toBe(status);
 			expect(client.baseURL).toBe(ORIGIN);
 			if (state.status !== 'signed-out') {
@@ -76,7 +76,7 @@ describe('state', () => {
 			shell(() => new Error('no shell')).fake,
 		);
 		await ready;
-		expect(client.getState().status).toBe('signed-out');
+		expect(client.state().status).toBe('signed-out');
 	});
 });
 
@@ -92,15 +92,15 @@ describe('signing in and out', () => {
 		const { client, ready } = createTauriAuth(fake);
 		await ready;
 		const seen: string[] = [];
-		client.subscribe(() => seen.push(client.getState().status));
-		const first = client.getState().account;
+		client.subscribe(() => seen.push(client.state().status));
+		const first = client.state().account;
 		expectOk(await client.startSignIn());
-		expect(client.getState().status).toBe('signed-in');
-		expect(client.getState().account).toBe(first);
+		expect(client.state().status).toBe('signed-in');
+		expect(client.state().account).toBe(first);
 		who = { origin: ORIGIN, principalId: 'person-2' };
 		expectOk(await client.startSignIn());
 		expect(first?.signal.aborted).toBe(true);
-		expect(String(client.getState().account?.principalId)).toBe('person-2');
+		expect(String(client.state().account?.principalId)).toBe('person-2');
 		expect(seen).toEqual(['signed-in', 'signed-in']);
 	});
 
@@ -115,7 +115,7 @@ describe('signing in and out', () => {
 		const error = expectErr(await client.startSignIn());
 		expect(error.name).toBe('StartSignInFailed');
 		expect(error.message).toContain('ten minutes');
-		expect(client.getState().status).toBe('signed-out');
+		expect(client.state().status).toBe('signed-out');
 	});
 
 	test('signing out retires the Account', async () => {
@@ -126,10 +126,10 @@ describe('signing in and out', () => {
 		);
 		const { client, ready } = createTauriAuth(fake);
 		await ready;
-		const account = client.getState().account;
+		const account = client.state().account;
 		expectOk(await client.signOut());
 		expect(sent.map(({ command }) => command)).toContain('account_sign_out');
-		expect(client.getState().status).toBe('signed-out');
+		expect(client.state().status).toBe('signed-out');
 		if (account === undefined) throw new Error('signed in before signing out');
 		expect(account.signal.aborted).toBe(true);
 		await expect(account.fetch(`${ORIGIN}/v1/models`)).rejects.toThrow();

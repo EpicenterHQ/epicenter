@@ -19,7 +19,7 @@ const HOSTED_MODELS: readonly EndpointModel[] = [
 /** What `hosted` reads of the account: who is signed in now, and when that changes. */
 export type LiveAccount = Pick<
 	AuthClient,
-	'getState' | 'subscribe' | 'baseURL'
+	'state' | 'subscribe' | 'baseURL'
 >;
 
 /** Why a hosted request was not sent: no one is signed in. Its `name` says so to a caller sorting failures. */
@@ -56,7 +56,7 @@ export function hosted(
 	);
 	/** The account signed in now, while it is not retired. */
 	function current(): Account | null {
-		const state = account.getState();
+		const state = account.state();
 		if (state.status === 'signed-out' || state.account.signal.aborted)
 			return null;
 		return state.account;

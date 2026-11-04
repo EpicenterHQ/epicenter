@@ -181,7 +181,7 @@ function liveAccount(text: string) {
 	let state: AuthState = { status: 'signed-out' };
 	const account: LiveAccount = {
 		baseURL: 'https://api.epicenter.test',
-		getState: () => state,
+		state: () => state,
 		subscribe(listener) {
 			listeners.add(listener);
 			return () => listeners.delete(listener);

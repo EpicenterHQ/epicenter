@@ -195,7 +195,7 @@ describe('a startup job made beside the folder', () => {
 				const updated = await folder.todos.update(
 					{ id: todo.id },
 					{ title: 'Untitled' },
-					{ over: todo.version },
+					{ base: todo },
 				);
 				if (updated.error !== null) return updated;
 				finished++;
@@ -339,7 +339,7 @@ test('on the web, a folder over an account opens once the account is signed in',
 		| undefined;
 	const listeners = new Set<() => void>();
 	const account = {
-		getState: () => ({ account: signedIn }),
+		state: () => ({ account: signedIn }),
 		subscribe(listener: () => void) {
 			listeners.add(listener);
 			return () => {

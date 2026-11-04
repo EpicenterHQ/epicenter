@@ -358,28 +358,28 @@ TanStack Table into an infinite loop. See
 
 # Contract reads and editing
 
-`fromClient(client)` gives each collection tracked `items`, `invalid`,
-`loading`, and `error`. Under ADR-0766 collections are expected to come
-straight off the module-level `folder`, each with its own loading state
-(Todos settles the shape first). In an app not yet moved, the root that
-opens the client (the desktop root, the local web startup's child, or the
-online root) wraps it once and sets one app-owned `createContext` pair per
-collection its components read, during its setup and never after an
+A folder read through `reactive` gives each collection tracking reads:
+`items()`, `invalid()`, `loading()`, `error()` and `get(args)` (ADR-0769).
+Under ADR-0766 collections come straight off the module-level `folder` in
+`src/lib/app.ts` (Todos). In an app not yet moved, the root that opens the
+client (the desktop root, the local web startup's child, or the online
+root) reads it as a folder once and sets one app-owned `createContext` pair
+per collection its components read, during its setup and never after an
 `await`:
 
 ```ts
 // src/lib/todos.ts
-export const [getTodos, setTodos] = createContext<ReactiveNotes<TodoNotes>>();
+export const [getTodos, setTodos] = createContext<FolderNotes<TodoNotes>>();
 
 // The root, where the client is made
-const files = fromClient(device);
+const files = reactive(folderOf(device));
 setTodos(files.todos);
 ```
 
 The component that shows a note makes one editor of it during setup. The
 editor is that view's read of the note too: `todo.fields` holds one accessor
 per declared field and `body`, each showing typed input until its save
-answers and the note as shown after, and `todo.exists` says whether a note
+answers and the note as shown after, and `todo.exists()` says whether a note
 that reads is listed at its path (false while missing, deleted or not
 reading):
 
@@ -389,10 +389,10 @@ reading):
 
   const todos = getTodos();
   const todo = todos.edit({ id });
-  const open = $derived(todos.items.filter((todo) => !todo.done));
+  const open = $derived(todos.items().filter((todo) => !todo.done));
 </script>
 
-{#if todo.exists}
+{#if todo.exists()}
   <Input bind:value={todo.fields.title} />
   <Textarea bind:value={todo.fields.body} />
   <Checkbox bind:checked={todo.fields.done} />

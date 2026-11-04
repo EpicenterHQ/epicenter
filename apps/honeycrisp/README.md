@@ -151,13 +151,14 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 ## How it is wired
 
 ```text
-routes/+layout.svelte          every page: the chrome and the leave guard
+routes/+layout.svelte          every page: the chrome
 routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: setNotes/setFolders(fromClient(openRemote(honeycrisp, { account, site: APPS.HONEYCRISP.url })))
+    Online.svelte              {#key account}: reactive(folderOf(openRemote(honeycrisp, { account, site: APPS.HONEYCRISP.url }))),
+                               setNotes/setFolders, the leave guard
   Startup.svelte               desktop: DesktopStartup over the contract
-    DesktopRoot.svelte         setNotes/setFolders(fromClient(device)), setFolderSync
+    DesktopRoot.svelte         reactive(folderOf(device)), setNotes/setFolders, setFolderSync, the leave guard
 routes/(app)/+page.svelte      HoneycrispApp over the notes and folders the root set
   HoneycrispApp.svelte         header (Chrome from #platform/root), folders, notes, the open note
 routes/auth/callback           Callback from #platform/root: the web app finishes sign-in,
@@ -173,10 +174,10 @@ that sets its own store, and a header that says what it is.
 | Path | Role |
 | --- | --- |
 | `src/lib/contract.ts` | The contract. |
-| `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome and the leave guard. |
+| `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome. |
 | `src/routes/(app)/+layout.svelte` | The variant's `Startup` (`#platform/root`), under a `<svelte:boundary>` whose `pending` is the UI kit's spinner. |
 | `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte`, `SignInCallback.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account; the end of sign-in. |
-| `src/lib/components/Online.svelte` | The repository per account, its notes and folders set for every page (`setNotes`, `setFolders`). |
+| `src/lib/components/Online.svelte` | The repository per account, read as a folder (`folderOf`, through `reactive`), its notes and folders set for every page (`setNotes`, `setFolders`); leaving while a save is out asks first. |
 | `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's notes and folders set for every page (`setNotes`, `setFolders`); the header's local history status, Set up in Epicenter, and the shell's folder path. |
 | `src/routes/(app)/+page.svelte` | `HoneycrispApp`, over the notes and folders the root set. |
 | `src/lib/honeycrisp.svelte.ts` | The notes' and folders' contexts, the orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections. |

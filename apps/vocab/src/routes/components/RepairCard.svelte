@@ -12,7 +12,7 @@
 
 	let { entries, id }: { entries: Entries; id: string } = $props();
 	const list = getEntryList();
-	const note = $derived(list.invalid.find((candidate) => candidate.id === id));
+	const note = $derived(list.invalid().find((candidate) => candidate.id === id));
 </script>
 
 <section class="flex flex-col gap-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair entries/{id}.md">

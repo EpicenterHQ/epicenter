@@ -79,7 +79,7 @@ function fakeAccount() {
 	};
 	const account: LiveAccount = {
 		baseURL: 'https://api.epicenter.test/',
-		getState: () => state,
+		state: () => state,
 		subscribe(listener) {
 			listeners.add(listener);
 			return () => listeners.delete(listener);
@@ -241,13 +241,15 @@ test('subscribe tells each subscriber when any endpoint changes, until it stops'
 	expect(first.listeners.size).toBe(0);
 });
 
-test('refresh asks every endpoint that probes to look again', () => {
+test('refresh asks every endpoint that probes to look again', async () => {
 	let refreshed = 0;
 	const ai = openAi([
-		{ ...probing('a', 'local').endpoint, refresh: () => refreshed++ },
+		{ ...probing('a', 'local').endpoint, refresh: async () => {
+			refreshed++;
+		} },
 		custom({ baseUrl: 'https://x.test/v1' }),
 	]);
-	ai.refresh();
+	await ai.refresh();
 	expect(refreshed).toBe(1);
 });
 

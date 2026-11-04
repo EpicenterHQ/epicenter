@@ -53,6 +53,6 @@
 </div>
 <div class="flex min-w-0 items-center gap-1 md:order-last md:ml-auto">
 	<FolderSyncActions {sync} />
-	{#if auth.state.status === 'reauth-required'}<Button size="sm" onclick={() => void signInAgain()}>Sign in again</Button>{/if}
+	{#if auth.state().status === 'reauth-required'}<Button size="sm" onclick={() => void signInAgain()}>Sign in again</Button>{/if}
 	<LightSwitch variant="ghost" /><AccountMenu />
 </div>

@@ -1,20 +1,24 @@
 <!--
-	Whispering over one contract client, which the variant's `Startup` passes in:
+	Whispering over one contract client, which the variant's `Startup` passes in
+	with the same client as a folder (`folderOf`, read through `reactive`):
 	the services, the connections, the microphone and the recorder
 	(`createWhispering`), the library the pages read (`createLibrary` over
-	`filesOf(client, files)`, with the client as `Startup` wrapped it for
-	Svelte), the note collections the pages edit (`setRecordings`,
+	`filesOf(files)`), the note collections the pages edit (`setRecordings`,
 	`setTranscriptions`, `setTransformations`), and the frame around the
-	pages. Made once for the page; it stops taking work when it leaves.
+	pages. Every note is written through the folder, so leaving while it is
+	`saving()` asks first (a browser's "Leave site?"); closing a desktop
+	window does not ask, a small, rare loss at the edge (ADR-0702). Made once
+	for the page; it stops taking work when it leaves.
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
-	import type { ReactiveClient } from '@epicenter/svelte/client';
+	import type { Folder } from '@epicenter/folder/core';
 	import * as Alert from '@epicenter/ui/alert';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { onDestroy, type Snippet } from 'svelte';
+	import { onDestroy, onMount, type Snippet } from 'svelte';
+	import { on } from 'svelte/events';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { variant } from '#platform/variant';
 	import type { Whispering as WhisperingContract } from '$lib/contract.js';
@@ -33,20 +37,17 @@
 	}: {
 		/** Whispering's files for this page's whole life: the variant's store. */
 		client: Client<WhisperingContract>;
-		/** The same client as Svelte state, wrapped once where `Startup` opened it. */
-		files: ReactiveClient<WhisperingContract>;
+		/** The same client as a folder through `reactive`, made once where `Startup` opened it. */
+		files: Folder<WhisperingContract>;
 		children: Snippet;
 	} = $props();
 
 	// One client for the component's life.
 	// svelte-ignore state_referenced_locally
-	const whispering = createWhispering({ client });
+	const whispering = createWhispering({ client, files });
 	setWhispering(whispering);
 	// svelte-ignore state_referenced_locally
-	const library = createLibrary({
-		whispering,
-		files: filesOf(client, files),
-	});
+	const library = createLibrary({ whispering, files: filesOf(files) });
 	setLibrary(library);
 	// svelte-ignore state_referenced_locally
 	setRecordings(files.recordings);
@@ -59,6 +60,12 @@
 		library.dispose();
 		whispering.dispose();
 	});
+	// Leaving while a note is still being written asks first.
+	onMount(() =>
+		on(window, 'beforeunload', (event) => {
+			if (files.saving()) event.preventDefault();
+		}),
+	);
 
 	/** Below this width the sidebar becomes a bottom bar. */
 	const wide = new MediaQuery('(min-width: 768px)');

@@ -11,7 +11,6 @@
  */
 
 import type { AuthClient } from '@epicenter/account';
-import type { ReactiveAuthClient } from '@epicenter/account/svelte';
 import type { Component, Snippet } from 'svelte';
 
 /** What the header tells `Chrome`: why the words or chats did not list, if they did not. */
@@ -37,8 +36,11 @@ export type Platform = {
 	Callback: Component<CallbackProps>;
 };
 
-/** `#platform/auth`: sign-in with Epicenter, and what it does in this build, in the learner's words. */
-export type VocabAuth = ReactiveAuthClient<AuthClient> & {
+/**
+ * `#platform/auth`: sign-in with Epicenter, read through `reactive`, and
+ * what it does in this build, in the learner's words.
+ */
+export type VocabAuth = AuthClient & {
 	readonly purpose: {
 		/** Why to sign in, shown signed out. */
 		readonly signedOut: string;

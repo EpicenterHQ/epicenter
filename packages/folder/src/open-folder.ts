@@ -60,7 +60,7 @@ function accountCopy<TContract extends Contract>(
 	return () =>
 		new Promise((resolve) => {
 			const answer = (): boolean => {
-				const signedIn = account.getState().account;
+				const signedIn = account.state().account;
 				if (signedIn === undefined) return false;
 				resolve(Ok(createRemoteClient(contract, signedIn, repository)));
 				return true;

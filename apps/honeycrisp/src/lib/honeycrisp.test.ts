@@ -11,7 +11,7 @@
  *   show in All Notes
  * - Search matches a note's title or text
  *
- * Run with `--conditions=browser` (`bun run test`): `fromClient` needs
+ * Run with `--conditions=browser` (`bun run test`): `reactive` needs
  * Svelte's client runtime.
  */
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
@@ -19,11 +19,12 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { folderOf } from '@epicenter/folder/core';
 import { openDevice } from '@epicenter/folder/node';
 import { unwrap } from 'wellcrafted/result';
 import { honeycrisp } from './contract.js';
 
-const { fromClient } = await import('@epicenter/svelte/client');
+const { reactive } = await import('@epicenter/svelte/reactive');
 const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 );
@@ -73,12 +74,12 @@ test('notes sort newest first and folders by name', async () => {
 		'folders/w.md': folder('Work'),
 		'folders/h.md': folder('Home'),
 	});
-	const client = fromClient(device.client);
+	const store = reactive(folderOf(device.client));
 	const shown = follow(() => ({
-		notes: client.notes.items.toSorted(newestFirst).map(({ id }) => id),
-		folders: client.folders.items.toSorted(byName).map(({ name }) => name),
+		notes: store.notes.items().toSorted(newestFirst).map(({ id }) => id),
+		folders: store.folders.items().toSorted(byName).map(({ name }) => name),
 	}));
-	await until(() => !client.notes.loading && !client.folders.loading);
+	await until(() => !store.notes.loading() && !store.folders.loading());
 	expect(shown.values.at(-1)).toEqual({
 		notes: ['a', 'b', 'c'],
 		folders: ['Home', 'Work'],
@@ -88,8 +89,8 @@ test('notes sort newest first and folders by name', async () => {
 
 test('a new note is made in the folder shown, and opens ready to write in, once', async () => {
 	const device = await deviceWith({ 'folders/w.md': folder('Work') });
-	// As the page composes it: the client's own collections.
-	const app = createHoneycrisp(fromClient(device.client));
+	// As the page composes it: the folder's own collections.
+	const app = createHoneycrisp(reactive(folderOf(device.client)));
 	app.showFolder('w');
 	const created = await app.createNote();
 	if (created.error !== null) throw created.error;
@@ -108,17 +109,17 @@ test('deleting a folder deletes its file alone; its notes keep naming it and sho
 		'folders/w.md': folder('Work'),
 		'notes/a.md': note('2026-10-31T00:00:00.000Z', 'folderId: w\n'),
 	});
-	const client = fromClient(device.client);
-	const app = createHoneycrisp(client);
+	const store = reactive(folderOf(device.client));
+	const app = createHoneycrisp(store);
 	const shown = follow(
-		() => [client.notes.items, client.folders.items] as const,
+		() => [store.notes.items(), store.folders.items()] as const,
 	);
-	await until(() => client.folders.items.length === 1);
+	await until(() => store.folders.items().length === 1);
 	app.showFolder('w');
 	expect((await app.deleteFolder('w')).error).toBeNull();
-	await until(() => client.folders.items.length === 0);
+	await until(() => store.folders.items().length === 0);
 	expect(app.filter.folderId).toBeNull();
-	const [kept] = client.notes.items;
+	const [kept] = store.notes.items();
 	expect(kept?.folderId).toBe('w');
 	expect(kept && shownIn(app.filter, kept)).toBe(true);
 	expect(await readFile(join(device.root, 'notes/a.md'), 'utf8')).toBe(

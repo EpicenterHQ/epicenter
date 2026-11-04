@@ -37,7 +37,7 @@
 	const id = shownId;
 	const path = todoPath(id);
 	const todo = todos.edit({ id });
-	const invalid = $derived(todos.invalid.find((note) => note.id === id));
+	const invalid = $derived(todos.invalid().find((note) => note.id === id));
 
 	function confirmDelete(label: string) {
 		confirmationDialog.open({
@@ -72,12 +72,12 @@
 {/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
-	{#if todo.error !== null}
+	{#if todo.error() !== null}
 		<div class="px-4 py-2">
 			<UnsavedEdit edit={todo} />
 		</div>
 	{/if}
-	{#if todo.exists}
+	{#if todo.exists()}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
 			<Checkbox aria-label="Done" bind:checked={todo.fields.done} />

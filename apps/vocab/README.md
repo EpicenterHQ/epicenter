@@ -35,17 +35,17 @@ chats/<id>.md                            createdAt, and focus: one to three { en
 messages/<chat id>/<message id>.md       role, createdAt (ms), and parts (text, tool calls, tool results)
 ```
 
-The variant's root (`#platform/root`) opens the store before any page renders: on the web, the learner's repository (`openRemote` from `@epicenter/folder/remote`) for the account; on the desktop, the data folder. Either root wraps that one client once and sets its words, chats and messages in context (`setEntryList`, `setChatList`, `setMessageList`, in `src/lib/vocab.svelte.ts`); `VocabApp` composes the word and chat state over them (`createVocab`). Components read and write only through those collections, never a client of their own, so only the variant's root chooses the store.
+The variant's root (`#platform/root`) opens the store before any page renders: on the web, the learner's repository (`openRemote` from `@epicenter/folder/remote`) for the account; on the desktop, the data folder. Either root reads that one client once as a folder (`folderOf`, read through `reactive`) and sets its words, chats and messages in context (`setEntryList`, `setChatList`, `setMessageList`, in `src/lib/vocab.svelte.ts`); `VocabApp` composes the word and chat state over them (`createVocab`). The root also asks before the page is left while a word or chat save is out (the folder's `saving()`). Components read and write only through those collections, never a client of their own, so only the variant's root chooses the store.
 
 ```text
-src/routes/+layout.svelte                 every page: the chrome and the leave guard
+src/routes/+layout.svelte                 every page: the chrome
 src/routes/auth/callback/+page.svelte     Callback from #platform/root: the web app finishes
                                           sign-in, outside (app), then returns to /
 src/routes/(app)/+layout.svelte           <svelte:boundary> (spinner) around Startup from #platform/root
   lib/components/OnlineRoot.svelte        web: signed out, a sign-in; signed in, {#key account}
-    lib/components/Online.svelte          setEntryList/setChatList/setMessageList(fromClient(openRemote(…))), one per account
+    lib/components/Online.svelte          setEntryList/setChatList/setMessageList(reactive(folderOf(openRemote(…)))), one per account
   lib/components/Startup.svelte           desktop: DesktopStartup (vocab, authReady), then DesktopRoot
-    lib/components/DesktopRoot.svelte     setEntryList/setChatList/setMessageList(fromClient(device)), setFolderSync
+    lib/components/DesktopRoot.svelte     setEntryList/setChatList/setMessageList(reactive(folderOf(device))), setFolderSync
 src/routes/(app)/+page.svelte             VocabApp over the collections the root set
 src/routes/components/VocabApp.svelte     the header (Chrome from #platform/root), Words, and Chat
 ```

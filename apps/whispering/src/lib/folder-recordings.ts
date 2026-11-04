@@ -17,13 +17,20 @@
  * path until recovery has finished it. One whose path another file took
  * stays outside it, finished, and is said on every start until a person
  * moves one of the two; nothing deletes it.
+ *
+ * Both write through Whispering's files as a folder (`folderOf`), so the
+ * library shows a note as soon as it lands and the folder's `saving()` (the
+ * page's leave guard) counts it while it is out.
  */
-import type { Client } from '@epicenter/definition/contract';
 import { timeOf } from '@epicenter/definition/ids';
+import type { Folder, OpenFolderError } from '@epicenter/folder/core';
 import { audioDurationMs, type UnplacedRecording } from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { CaptureDevice } from './capture.js';
 import type { Whispering } from './contract.js';
+
+/** Whispering's files as a folder, as much of it as a recording's note needs. */
+type Files = Pick<Folder<Whispering>, 'recordings' | 'audio'>;
 
 /** A recording's note, as it is written once its audio is at its path. */
 export type KeptRecording = {
@@ -36,10 +43,10 @@ export type KeptRecording = {
 
 /** Write the note of a recording whose audio is at its path. */
 export async function keepRecording(
-	device: Client<Whispering>,
+	files: Pick<Files, 'recordings'>,
 	{ durationMs, ...note }: KeptRecording,
 ): Promise<Result<void, string>> {
-	const created = await device.recordings.create(
+	const created = await files.recordings.create(
 		durationMs === undefined
 			? note
 			: { ...note, durationMs: Math.max(0, Math.round(durationMs)) },
@@ -63,20 +70,21 @@ const RECORDED: readonly string[] = ['wav', 'm4a', 'webm'];
  * Answers the ids given a note (`noted`), and each recording `recover` kept
  * outside its path because another file is there (`unplaced`), for the
  * caller to say. `Unavailable` is the files refusing to be listed at all,
- * which the library's own listing reports too.
+ * which the library's own listing reports too. Over a folder of a client
+ * already open, the open's own error (`OpenFolderError`) never answers.
  */
 export async function finishCutOffRecordings(
-	device: Client<Whispering>,
+	files: Files,
 	capture: Pick<CaptureDevice, 'recover'>,
 ): Promise<
 	Result<
 		{ noted: string[]; unplaced: readonly UnplacedRecording[] },
-		{ name: 'Unavailable' | 'RepairFailed'; message: string }
+		{ name: 'Unavailable' | 'RepairFailed'; message: string } | OpenFolderError
 	>
 > {
-	const notes = await device.recordings.list();
+	const notes = await files.recordings.list();
 	if (notes.error !== null) return Err(notes.error);
-	const audio = await device.audio.list();
+	const audio = await files.audio.list();
 	if (audio.error !== null) return Err(audio.error);
 	const named = new Set(
 		[...notes.data.items, ...notes.data.invalid].map((note) => note.id),
@@ -91,11 +99,11 @@ export async function finishCutOffRecordings(
 	for (const { id, durationMs } of recovered.data.whole) {
 		if (named.has(id)) continue;
 		named.add(id);
-		const kept = await keepRecording(device, {
+		const kept = await keepRecording(files, {
 			id,
 			title: 'Recovered recording',
 			recordedAt: (timeOf(id) ?? new Date()).toISOString(),
-			durationMs: durationMs ?? (await measured(device, id)),
+			durationMs: durationMs ?? (await measured(files, id)),
 		});
 		if (kept.error === null) noted.push(id);
 	}
@@ -104,11 +112,11 @@ export async function finishCutOffRecordings(
 
 /** How long recording `id`'s audio plays, read from its bytes. */
 async function measured(
-	device: Client<Whispering>,
+	files: Pick<Files, 'audio'>,
 	id: string,
 ): Promise<number | undefined> {
 	for (const ext of RECORDED) {
-		const audio = await device.audio.get({ id, ext });
+		const audio = await files.audio.read({ id, ext });
 		if (audio.error === null) return audioDurationMs(audio.data.bytes, ext);
 	}
 	return undefined;

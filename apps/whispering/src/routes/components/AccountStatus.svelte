@@ -15,7 +15,7 @@
 
 	const whispering = getWhispering();
 	const auth = getAuth();
-	const authState = $derived(auth.state);
+	const authState = $derived(auth.state());
 	let checking = $state(true);
 	let problem = $state<string>();
 	let busy = $state(false);

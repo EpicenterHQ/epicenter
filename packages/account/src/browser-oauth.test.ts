@@ -6,14 +6,13 @@
 import { describe, expect, test } from 'bun:test';
 import { createLogger, memorySink } from 'wellcrafted/logger';
 import { expectOk } from 'wellcrafted/testing';
-import { type AuthState, isCallbackAuthClient } from './auth-contract.js';
+import type { AuthState } from './auth-contract.js';
 import { epicenterCloud } from './auth-server.js';
 import {
 	type CreateBrowserOAuthOptions,
 	createBrowserOAuth,
 } from './browser-oauth.js';
 import { asPrincipalId } from './principal.js';
-import { fromAuth } from './svelte/auth.svelte.js';
 
 const SERVER = 'https://api.test';
 const APP = 'https://todos.test';
@@ -254,16 +253,6 @@ async function signIn(world: ReturnType<typeof createWorld>, path = '/notes') {
 	return { tab, auth: tab.create(), result };
 }
 
-test('the Svelte facade retains the browser callback capability', () => {
-	const world = createWorld();
-	using client = world.openTab('/').create();
-	const auth = fromAuth(client);
-	expect('getState' in auth).toBe(false);
-	expect(isCallbackAuthClient(auth)).toBe(true);
-	expect(typeof auth.completeSignIn).toBe('function');
-	expect(typeof auth.refresh).toBe('function');
-});
-
 test('sign-in navigates to the authorize endpoint with PKCE as the app client', async () => {
 	const world = createWorld();
 	const tab = world.openTab('/list?filter=open#top');
@@ -285,7 +274,7 @@ test('sign-in navigates to the authorize endpoint with PKCE as the app client', 
 	expect(params.get('state')).toMatch(/^[A-Za-z0-9_-]{43}$/);
 	expect(params.has('prompt')).toBe(false);
 	expect(params.get('scope')).not.toContain('offline_access');
-	expect(auth.getState().status).toBe('signed-out');
+	expect(auth.state().status).toBe('signed-out');
 });
 
 test('a browser client refuses offline_access', () => {
@@ -301,7 +290,7 @@ test('completing sign-in exchanges the code, stores the token, and returns where
 	const { auth, result } = await signIn(world, '/list?filter=open#top');
 
 	expect(expectOk(result)).toEqual({ returnTo: '/list?filter=open#top' });
-	const state = auth.getState();
+	const state = auth.state();
 	expect(state.status).toBe('signed-in');
 	expect(state.account?.principalId).toBe(asPrincipalId('alice'));
 	expect(state.account?.authorityId).toBe('epicenter-api');
@@ -387,13 +376,13 @@ test('a second tab shares the stored token and follows another tab through stora
 	const world = createWorld();
 	const { auth: first } = await signIn(world);
 	using second = world.openTab().create();
-	expect(second.getState().account?.principalId).toBe(asPrincipalId('alice'));
+	expect(second.state().account?.principalId).toBe(asPrincipalId('alice'));
 
 	const seen: AuthState['status'][] = [];
-	second.subscribe(() => seen.push(second.getState().status));
+	second.subscribe(() => seen.push(second.state().status));
 	expectOk(await first.signOut());
 	world.notify();
-	expect(second.getState().status).toBe('signed-out');
+	expect(second.state().status).toBe('signed-out');
 	expect(seen).toEqual(['signed-out']);
 	first[Symbol.dispose]();
 });
@@ -402,12 +391,12 @@ test('refresh catches a missed storage event before a new request', async () => 
 	const world = createWorld();
 	const { auth: first } = await signIn(world);
 	using second = world.openTab().create();
-	const oldAccount = second.getState().account!;
+	const oldAccount = second.state().account!;
 
 	expectOk(await first.signOut());
-	expect(second.getState().account).toBe(oldAccount);
+	expect(second.state().account).toBe(oldAccount);
 	await second.refresh();
-	expect(second.getState().status).toBe('signed-out');
+	expect(second.state().status).toBe('signed-out');
 	await expect(oldAccount.fetch('/api/thing')).rejects.toBeDefined();
 	first[Symbol.dispose]();
 });
@@ -416,7 +405,7 @@ test('an Account sends the token another tab renewed and survives the renewal', 
 	const world = createWorld();
 	const { auth: first } = await signIn(world);
 	using second = world.openTab().create();
-	const account = second.getState().account!;
+	const account = second.state().account!;
 
 	// The first tab renews (same person, new token) without the second tab's
 	// storage event having arrived yet.
@@ -426,7 +415,7 @@ test('an Account sends the token another tab renewed and survives the renewal', 
 	expect(new Headers(sent.init?.headers).get('authorization')).toBe(
 		'Bearer token-2',
 	);
-	expect(second.getState().account).toBe(account);
+	expect(second.state().account).toBe(account);
 	expect(account.signal.aborted).toBe(false);
 	first[Symbol.dispose]();
 });
@@ -435,27 +424,27 @@ test('a missed sign-out followed by the same person signing in retires the old A
 	const world = createWorld();
 	const { auth: first } = await signIn(world);
 	using second = world.openTab().create();
-	const oldAccount = second.getState().account!;
+	const oldAccount = second.state().account!;
 
 	// The second tab has not processed a storage event when Alice signs out
 	// and signs back in. Its next request must not borrow the new attachment.
 	expectOk(await first.signOut());
 	await signIn(world);
 	await expect(oldAccount.fetch('/api/thing')).rejects.toBeDefined();
-	expect(second.getState().account).not.toBe(oldAccount);
+	expect(second.state().account).not.toBe(oldAccount);
 });
 
 test('another person signing in from another tab retires the earlier Account', async () => {
 	const world = createWorld();
 	const { auth: first } = await signIn(world);
 	using second = world.openTab().create();
-	const alice = second.getState().account!;
+	const alice = second.state().account!;
 
 	world.server.principal = 'bob';
 	await signIn(world);
 	world.notify();
 
-	expect(second.getState().account?.principalId).toBe(asPrincipalId('bob'));
+	expect(second.state().account?.principalId).toBe(asPrincipalId('bob'));
 	await expect(alice.fetch('/api/thing')).rejects.toBeDefined();
 	expect(alice.signal.aborted).toBe(true);
 	first[Symbol.dispose]();
@@ -466,7 +455,7 @@ test('a missing or corrupt cell is signed out and never redirects', () => {
 	world.storage.setItem(TOKEN_KEY, '{not json');
 	const tab = world.openTab();
 	using auth = tab.create();
-	expect(auth.getState().status).toBe('signed-out');
+	expect(auth.state().status).toBe('signed-out');
 	expect(tab.assigned).toEqual([]);
 	expect(world.pendingTimers()).toEqual([]);
 });
@@ -487,7 +476,7 @@ test('a token within ten minutes of expiry renews at construction with prompt=no
 	expect(url.searchParams.get('prompt')).toBe('none');
 	expect(url.searchParams.get('code_challenge_method')).toBe('S256');
 	// Still signed in while it leaves: the token has not expired.
-	expect(auth.getState().status).toBe('signed-in');
+	expect(auth.state().status).toBe('signed-in');
 
 	tab.location.href = world.server.authorize(tab.assigned[0]!);
 	const callback = tab.create();
@@ -510,7 +499,7 @@ test('the renewal timer navigates with prompt=none ten minutes before expiry', a
 	expect(tab.assigned).toHaveLength(before);
 	world.advance(1 * MINUTE);
 	world.notify();
-	const account = auth.getState().account;
+	const account = auth.state().account;
 	if (!account) throw new Error('Expected a signed-in account');
 	await account.fetch('/api/repos');
 	await Bun.sleep(0);
@@ -531,9 +520,9 @@ test('an app can keep a working page open until the person explicitly renews', a
 	world.advance(8 * HOUR - 9 * MINUTE);
 	const tab = world.openTab('/recordings');
 	using auth = createBrowserOAuth({ ...tab.options, automaticRenewal: false });
-	expect(auth.getState().status).toBe('signed-in');
+	expect(auth.state().status).toBe('signed-in');
 	expect(world.pendingTimers()).toEqual([]);
-	await auth.getState().account!.fetch('/api/thing');
+	await auth.state().account!.fetch('/api/thing');
 	await Bun.sleep(0);
 	expect(tab.assigned).toEqual([]);
 	expectOk(await auth.startSignIn());
@@ -598,7 +587,7 @@ test('the renewal timer reschedules instead of navigating when another tab alrea
 	await Bun.sleep(0);
 
 	expect(waiting.assigned).toEqual([]);
-	expect(auth.getState().status).toBe('signed-in');
+	expect(auth.state().status).toBe('signed-in');
 	expect(world.pendingTimers().length).toBeGreaterThan(0);
 	first[Symbol.dispose]();
 });
@@ -621,10 +610,10 @@ test('login_required from the silent renewal clears to signed-out and goes back'
 	expect(expectOk(await callback.completeSignIn())).toEqual({
 		returnTo: '/notes',
 	});
-	expect(callback.getState().status).toBe('signed-out');
+	expect(callback.state().status).toBe('signed-out');
 	expect(world.storage.getItem(TOKEN_KEY)).toBeNull();
 	world.notify();
-	expect(auth.getState().status).toBe('signed-out');
+	expect(auth.state().status).toBe('signed-out');
 });
 
 test('a late login_required cannot clear a newer sign-in from another tab', async () => {
@@ -646,7 +635,7 @@ test('a late login_required cannot clear a newer sign-in from another tab', asyn
 	using callback = tab.create();
 	expectOk(await callback.completeSignIn());
 	expect(world.storage.getItem(TOKEN_KEY)).toBe(newer);
-	expect(callback.getState().status).toBe('signed-in');
+	expect(callback.state().status).toBe('signed-in');
 });
 
 test('an unsolicited login_required callback cannot sign the person out', async () => {
@@ -666,7 +655,7 @@ test('getProfile reads userinfo with the account token', async () => {
 	const { auth } = await signIn(world);
 	const { data: profile, error } = await auth.getProfile();
 	expect(error).toBeNull();
-	expect(profile?.id).toBe(auth.getState().account!.principalId);
+	expect(profile?.id).toBe(auth.state().account!.principalId);
 	const sent = world.requests.at(-1)!;
 	expect(sent.url).toBe(`${SERVER}/auth/oauth2/userinfo`);
 	expect(new Headers(sent.init?.headers).get('authorization')).toBe(
@@ -677,7 +666,7 @@ test('getProfile reads userinfo with the account token', async () => {
 test("Account.fetch attaches the bearer only for its own server and its token's resource", async () => {
 	const world = createWorld();
 	const { auth } = await signIn(world);
-	const account = auth.getState().account!;
+	const account = auth.state().account!;
 
 	await account.fetch('/api/repos', {
 		headers: { cookie: 'session=ambient', authorization: 'Bearer caller' },
@@ -716,12 +705,12 @@ test("Account.fetch attaches the bearer only for its own server and its token's 
 test('a 401 publishes reauth-required and keeps the Account until a new token arrives', async () => {
 	const world = createWorld();
 	const { auth } = await signIn(world);
-	const account = auth.getState().account!;
+	const account = auth.state().account!;
 
 	world.server.resourceStatus = 401;
 	const response = await account.fetch('/api/thing');
 	expect(response.status).toBe(401);
-	expect(auth.getState()).toEqual({ status: 'reauth-required', account });
+	expect(auth.state()).toEqual({ status: 'reauth-required', account });
 	await expect(account.fetch('/api/thing')).rejects.toMatchObject({
 		code: 'reauth-required',
 	});
@@ -730,7 +719,7 @@ test('a 401 publishes reauth-required and keeps the Account until a new token ar
 	world.server.resourceStatus = 200;
 	await signIn(world);
 	world.notify();
-	expect(auth.getState()).toEqual({ status: 'signed-in', account });
+	expect(auth.state()).toEqual({ status: 'signed-in', account });
 	expect((await account.fetch('/api/thing')).status).toBe(200);
 	auth[Symbol.dispose]();
 });
@@ -738,7 +727,7 @@ test('a 401 publishes reauth-required and keeps the Account until a new token ar
 test('sign-out revokes the access token and clears storage', async () => {
 	const world = createWorld();
 	const { auth } = await signIn(world);
-	const account = auth.getState().account!;
+	const account = auth.state().account!;
 
 	expectOk(await auth.signOut());
 
@@ -753,7 +742,7 @@ test('sign-out revokes the access token and clears storage', async () => {
 		r.url.endsWith('/auth/oauth2/revoke'),
 	)!;
 	expect(revocation.init?.credentials).toBe('omit');
-	expect(auth.getState().status).toBe('signed-out');
+	expect(auth.state().status).toBe('signed-out');
 	expect(world.storage.getItem(TOKEN_KEY)).toBeNull();
 	await expect(account.fetch('/api/thing')).rejects.toBeDefined();
 	auth[Symbol.dispose]();
@@ -765,7 +754,7 @@ test('sign-out clears locally even when revocation fails', async () => {
 	});
 	const { auth } = await signIn(world);
 	expectOk(await auth.signOut());
-	expect(auth.getState().status).toBe('signed-out');
+	expect(auth.state().status).toBe('signed-out');
 	expect(world.storage.getItem(TOKEN_KEY)).toBeNull();
 	expect(world.logs.map((event) => event.message)).toEqual([
 		'Token revocation failed.',
@@ -828,7 +817,7 @@ describe('one sign-in for several resources', () => {
 			...attempts.cells.values(),
 		])
 			expect(value).not.toContain('ep_rt_');
-		expect(auth.getState().status).toBe('signed-in');
+		expect(auth.state().status).toBe('signed-in');
 		auth[Symbol.dispose]();
 	});
 
@@ -840,7 +829,7 @@ describe('one sign-in for several resources', () => {
 		async (_, git) => {
 			const world = createWorld({ resources: [API, git] });
 			const { auth } = await signIn(world);
-			const account = auth.getState().account!;
+			const account = auth.state().account!;
 			const sentWith = async (url: string) => {
 				await account.fetch(url);
 				return new Headers(world.requests.at(-1)!.init?.headers).get(
@@ -873,7 +862,7 @@ describe('one sign-in for several resources', () => {
 		const { error } = await auth.completeSignIn();
 		expect(error?.name).toBe('CompleteSignInFailed');
 		expect(world.storage.getItem(TOKEN_KEY)).toBeNull();
-		expect(auth.getState().status).toBe('signed-out');
+		expect(auth.state().status).toBe('signed-out');
 		await Bun.sleep(0);
 		expect(
 			world.revoked.map((form) => [
@@ -889,11 +878,11 @@ describe('one sign-in for several resources', () => {
 	test('a 401 on either token asks for reauthentication; sign-out retires and revokes both', async () => {
 		const world = createWorld({ resources: BOTH });
 		const { auth } = await signIn(world);
-		const account = auth.getState().account!;
+		const account = auth.state().account!;
 
 		world.server.refusedTokens.add('token-2');
 		expect((await account.fetch(`${LOCAL_GIT}/x`)).status).toBe(401);
-		expect(auth.getState()).toEqual({ status: 'reauth-required', account });
+		expect(auth.state()).toEqual({ status: 'reauth-required', account });
 		await expect(account.fetch(`${LOCAL_GIT}/x`)).rejects.toMatchObject({
 			code: 'reauth-required',
 		});
@@ -924,7 +913,7 @@ describe('one sign-in for several resources', () => {
 		using leaving = tab.create();
 		await Bun.sleep(0);
 		expect(tab.assigned).toHaveLength(1);
-		expect(leaving.getState().status).toBe('signed-in');
+		expect(leaving.state().status).toBe('signed-in');
 		const params = new URL(tab.assigned[0]!).searchParams;
 		expect(params.get('prompt')).toBe('none');
 		expect(params.getAll('resource')).toEqual([API, LOCAL_GIT]);

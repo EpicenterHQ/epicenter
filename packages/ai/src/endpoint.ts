@@ -53,8 +53,8 @@ export type Endpoint = {
 	models(): readonly EndpointModel[];
 	/** Called when `models()` may answer differently. Absent when it never changes. */
 	subscribe?(listener: () => void): () => void;
-	/** Look again for models, such as when a picker opens. Never blocks. */
-	refresh?(): void;
+	/** Look again for models, such as when a picker opens; answers once the look is done. */
+	refresh?(): Promise<void>;
 };
 
 /**

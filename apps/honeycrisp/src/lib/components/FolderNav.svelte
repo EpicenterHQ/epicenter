@@ -22,7 +22,7 @@
 
 	const counts = $derived.by(() => {
 		const byFolder = new Map<string, number>();
-		for (const { folderId } of notes.items)
+		for (const { folderId } of notes.items())
 			if (folderId !== undefined) byFolder.set(folderId, (byFolder.get(folderId) ?? 0) + 1);
 		return byFolder;
 	});
@@ -39,7 +39,7 @@
 			naming = undefined;
 			return;
 		}
-		const target = folders.items.find((folder) => folder.id === current.id);
+		const target = folders.items().find((folder) => folder.id === current.id);
 		savingName = true;
 		const saved =
 			target === undefined
@@ -105,7 +105,7 @@
 	>
 		<FileTextIcon class="size-4" />
 		<span>All Notes</span>
-		<span class="ml-auto text-xs text-muted-foreground">{notes.items.length}</span>
+		<span class="ml-auto text-xs text-muted-foreground">{notes.items().length}</span>
 	</button>
 
 	<div class="mt-2 flex items-center justify-between px-2">
@@ -121,7 +121,7 @@
 		</Button>
 	</div>
 	{#if naming && naming.id === undefined}{@render nameInput()}{/if}
-	{#each folders.items.toSorted(byName) as folder (folder.id)}
+	{#each folders.items().toSorted(byName) as folder (folder.id)}
 		{#if naming?.id === folder.id}
 			{@render nameInput()}
 		{:else}
@@ -161,13 +161,13 @@
 			</div>
 		{/if}
 	{:else}
-		{#if !naming && !folders.loading}<p class="px-2 py-1 text-xs text-muted-foreground">No folders yet</p>{/if}
+		{#if !naming && !folders.loading()}<p class="px-2 py-1 text-xs text-muted-foreground">No folders yet</p>{/if}
 	{/each}
 
-	{#if folders.invalid.length > 0}
+	{#if folders.invalid().length > 0}
 		<!-- Folder files that do not read as folders: each opens with its text, to repair or delete. -->
 		<h3 class="mt-2 px-2 text-xs font-medium text-destructive">Folders that need repair</h3>
-		{#each folders.invalid as file (file.id)}
+		{#each folders.invalid() as file (file.id)}
 			<button
 				class="{row} h-auto flex-col items-start gap-0.5 py-1.5"
 				class:bg-accent={app.selected?.collection === 'folders' && app.selected.id === file.id}

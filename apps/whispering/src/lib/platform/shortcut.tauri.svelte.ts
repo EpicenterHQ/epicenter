@@ -10,7 +10,7 @@
  * (decision 89): once both notes are read, and whenever the resolved key
  * changes, the page asks the shell to hold it (`set_shortcut`).
  */
-import type { ReactiveClient, ReactiveNotes } from '@epicenter/svelte/client';
+import type { Folder, FolderNotes } from '@epicenter/folder/core';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { createContext } from 'svelte';
@@ -114,16 +114,16 @@ function hold(accelerator: string): Promise<string | null> {
 }
 
 /**
- * The global shortcut over the window's two roots, each the client the
- * desktop root wrapped once. Call while a component initializes: it holds
+ * The global shortcut over the window's two roots, each the folder the
+ * desktop root made once and read through `reactive`. Call while a component initializes: it holds
  * the resolved key for that component's life.
  */
 export function globalShortcut({
 	appData,
 	device,
 }: {
-	appData: ReactiveClient<WhisperingSettings>;
-	device: ReactiveClient<Whispering>;
+	appData: Folder<WhisperingSettings>;
+	device: Folder<Whispering>;
 }) {
 	const here = $derived(appData.shortcuts.get({}));
 	const shortcuts = $derived({
@@ -134,7 +134,7 @@ export function globalShortcut({
 	/** The key alone, so a note read again with the same key asks the shell nothing. */
 	const accelerator = $derived(shortcuts.toggleRecording);
 	const read = $derived(
-		!appData.shortcuts.loading && !device.shortcuts.loading,
+		!appData.shortcuts.loading() && !device.shortcuts.loading(),
 	);
 	/** The shell's answer for the last key asked for. */
 	let held = $state<{ accelerator: string; problem: string | null }>();
@@ -149,7 +149,7 @@ export function globalShortcut({
 
 	/** Set `toggleRecording` in `notes` to `key`, making the note when there is none. */
 	async function write(
-		notes: ReactiveNotes<Whispering['collections']['shortcuts']>,
+		notes: FolderNotes<Whispering['collections']['shortcuts']>,
 		key: string,
 	) {
 		const written =

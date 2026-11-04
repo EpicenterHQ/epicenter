@@ -10,6 +10,7 @@
 	import { variant } from '#platform/variant';
 	import { capture, capturePath } from '../model/index.js';
 	import { type ClientError, describeIssues, readNoteText, type Version } from '@epicenter/definition/contract';
+	import type { OpenFolderError } from '@epicenter/folder/core';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -34,7 +35,7 @@
 	});
 
 	const note = $derived(list.get(args));
-	const broken = $derived(list.invalid.find((file) => file.id === args.id));
+	const broken = $derived(list.invalid().find((file) => file.id === args.id));
 	/** The file's text as shown: a capture's in house style, or a broken file's own. */
 	const source = $derived.by(() => {
 		if (note !== undefined) {
@@ -56,7 +57,7 @@
 	const thoughts = $derived(typed.error === null ? readCaptureBody(typed.data) : undefined);
 	const reads = $derived(typed.error === null && thoughts?.error === null);
 	let saving = $state(false);
-	let refusal = $state<ClientError | null>(null);
+	let refusal = $state<ClientError | OpenFolderError | null>(null);
 	const selection = untrack(() => captures.opened?.focus);
 
 	function selectThought(node: HTMLTextAreaElement) {

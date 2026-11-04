@@ -1,5 +1,6 @@
 <!--
-	Pick a model from every endpoint the app merged (`fromAi`), grouped by
+	Pick a model from every endpoint the app merged (`openAi`, read through
+	`reactive`), grouped by
 	endpoint in the merged order, and keep the person's own connections: add
 	one with its key, edit it, refresh its models, or remove it. The owner
 	saves each complete choice (`onSelect`). Opening the picker asks probing
@@ -25,9 +26,8 @@
 	import { unwrap } from 'wellcrafted/result';
 	import { type AiError, createClient } from '../client.js';
 	import { custom } from '../custom.js';
-	import type { Capability } from '../endpoint.js';
-	import type { ModelChoice } from '../open-ai.js';
-	import type { ReactiveAi } from '../svelte/ai.svelte.js';
+	import type { Capability, Endpoint } from '../endpoint.js';
+	import type { Ai, ModelChoice } from '../open-ai.js';
 	import { CONNECTION_PRESETS, type PresetId } from './presets.js';
 
 	let {
@@ -38,7 +38,8 @@
 		disabled = false,
 		placeholder = 'Select model',
 	}: {
-		ai: ReactiveAi;
+		/** The app's `openAi`, as `reactive` adapts it. */
+		ai: Ai;
 		/** What a listed model must be able to do. */
 		can?: Capability;
 		value: ModelChoice | null;
@@ -55,7 +56,7 @@
 
 	// The person's connections, merged in `ai` (`customEndpoints()`); reading
 	// them through `ai` reruns this when one is added, edited or removed.
-	const connections = $derived(ai.custom);
+	const connections = $derived(ai.custom());
 	const records = $derived(connections?.list() ?? []);
 	/** Why the saved connections could not be read, if they could not. */
 	const problem = $derived(connections?.problem() ?? null);
@@ -63,10 +64,10 @@
 	const endpointOf = (id: string) =>
 		connections?.endpoints().find((endpoint) => endpoint.id === id);
 	const groups = $derived(
-		ai.endpoints.map((endpoint) => ({
+		ai.endpoints().map((endpoint) => ({
 			endpoint,
 			record: records.find((record) => record.id === endpoint.id),
-			models: ai.models.filter(
+			models: ai.models().filter(
 				(model) => model.endpoint === endpoint.id && model.can.includes(can),
 			),
 		})),
@@ -160,7 +161,7 @@
 		}
 	}
 
-	function headingOf(endpoint: ReactiveAi['endpoints'][number]) {
+	function headingOf(endpoint: Endpoint) {
 		return endpoint.source === 'local'
 			? `${endpoint.name} on this computer`
 			: endpoint.name;
@@ -169,10 +170,10 @@
 	const triggerLabel = $derived.by(() => {
 		if (!value) return placeholder;
 		const chosen = value;
-		const model = ai.models.find(
+		const model = ai.models().find(
 			(entry) => entry.endpoint === chosen.endpoint && entry.id === chosen.model,
 		);
-		const endpoint = ai.endpoints.find((entry) => entry.id === chosen.endpoint);
+		const endpoint = ai.endpoints().find((entry) => entry.id === chosen.endpoint);
 		return `${model?.label ?? chosen.model} · ${endpoint?.name ?? 'Unavailable'}`;
 	});
 
@@ -258,7 +259,7 @@
 			resetConnectForm();
 			return;
 		}
-		ai.refresh();
+		void ai.refresh();
 	});
 
 	// Discover models on a debounced change of the connect form's endpoint or key.

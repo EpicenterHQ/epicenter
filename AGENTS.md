@@ -62,8 +62,9 @@ Do not use direct `console.*` in library code. Use `wellcrafted/logger`, except 
 ## Read APIs
 
 For new or deliberately redesigned APIs, prefer explicit read methods in
-ordinary JavaScript, TypeScript, and React. Svelte 5 reactive adapters are the
-getter exception. Choose by the API's role, not its file extension. Existing
+JavaScript, TypeScript, React and Svelte alike; Svelte reads a capability
+through `reactive`, which keeps its methods. Choose by the API's role, not
+its file extension. Existing
 getters and upstream protocols are current contracts; change them only as part
 of an authorized redesign. See the `typescript` and `svelte` skills.
 

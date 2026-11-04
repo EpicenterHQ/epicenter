@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { undo } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
+import { folderOf } from '@epicenter/folder/core';
 import { openDevice } from '@epicenter/folder/node';
 import { unwrap } from 'wellcrafted/result';
 import { honeycrisp } from '../contract.js';
@@ -28,7 +29,7 @@ import { changesTo } from './binding.js';
 import { conflictsIn, resolveConflict } from './conflicts.js';
 import { createNoteEditor, type NoteEditor } from './note-editor.js';
 
-const { fromClient } = await import('@epicenter/svelte/client');
+const { reactive } = await import('@epicenter/svelte/reactive');
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: BodyHost } = await import('./body-host.test-support.svelte');
 
@@ -91,7 +92,7 @@ async function boundNote(text: string) {
 	document.body.append(target);
 	const host = mount(BodyHost, {
 		target,
-		props: { notes: fromClient(device).notes, id: 'a' },
+		props: { notes: reactive(folderOf(device)).notes, id: 'a' },
 	});
 	cleanups.push(() => unmount(host));
 	let view: EditorView | null = null;

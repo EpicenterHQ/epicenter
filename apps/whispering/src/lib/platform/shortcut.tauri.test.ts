@@ -48,7 +48,8 @@ mock.module('@tauri-apps/api/event', () => ({
 const { acceleratorOf, globalShortcut, labelOf } = await import(
 	'./shortcut.tauri.svelte.js'
 );
-const { fromClient } = await import('@epicenter/svelte/client');
+const { folderOf } = await import('@epicenter/folder/core');
+const { reactive } = await import('@epicenter/svelte/reactive');
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: InitHost } = await import(
 	'../../../../../packages/svelte/src/fixtures/InitHost.svelte'
@@ -73,9 +74,13 @@ async function roots({ data, here }: { data?: string; here?: string } = {}) {
 	if (data) await writeFile(join(folder, 'shortcuts.md'), note(data));
 	if (here) await writeFile(join(appDataRoot, 'shortcuts.md'), note(here));
 	return {
-		device: fromClient(unwrap(await openDevice(whispering, { path: folder }))),
-		appData: fromClient(
-			unwrap(await openDevice(whisperingSettings, { path: appDataRoot })),
+		device: reactive(
+			folderOf(unwrap(await openDevice(whispering, { path: folder }))),
+		),
+		appData: reactive(
+			folderOf(
+				unwrap(await openDevice(whisperingSettings, { path: appDataRoot })),
+			),
 		),
 		text: (root: 'data' | 'here') =>
 			readFile(

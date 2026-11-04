@@ -1,4 +1,4 @@
-import { fromAuth } from '@epicenter/account/svelte';
+import { reactive } from '@epicenter/svelte/reactive';
 import { createCookieSessionAuth } from '../auth/cookie-session.js';
 import { readDashboardReturnPath } from '../dashboard/navigation.js';
 
@@ -12,7 +12,7 @@ const client = createCookieSessionAuth({
 		),
 });
 
-export const auth = fromAuth(client);
+export const auth = reactive(client);
 
 /** Settles once the first cookie session read has decided the state. */
 export const authReady = client.refresh();

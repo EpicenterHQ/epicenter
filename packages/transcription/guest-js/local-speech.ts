@@ -127,9 +127,7 @@ export function localSpeech({
 				listeners.delete(listener);
 			};
 		},
-		refresh() {
-			void read();
-		},
+		refresh: read,
 		async fetch(path, init) {
 			init?.signal?.throwIfAborted();
 			const method = (init?.method ?? 'GET').toUpperCase();

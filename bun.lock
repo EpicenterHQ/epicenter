@@ -64,6 +64,7 @@
         "@epicenter/account": "workspace:*",
         "@epicenter/ai": "workspace:*",
         "@epicenter/definition": "workspace:*",
+        "@epicenter/svelte": "workspace:*",
         "@tanstack/svelte-query": "catalog:",
         "@tanstack/svelte-query-devtools": "catalog:",
         "better-auth": "catalog:",
@@ -424,7 +425,6 @@
       "name": "@epicenter/account",
       "version": "0.1.1",
       "dependencies": {
-        "@epicenter/svelte": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",
@@ -432,15 +432,8 @@
       "devDependencies": {
         "@types/bun": "catalog:",
         "better-auth": "catalog:",
-        "svelte": "catalog:",
         "typescript": "catalog:",
       },
-      "peerDependencies": {
-        "svelte": "^5",
-      },
-      "optionalPeers": [
-        "svelte",
-      ],
     },
     "packages/ai": {
       "name": "@epicenter/ai",
@@ -449,7 +442,6 @@
         "@epicenter/account": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/local": "workspace:*",
-        "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@tanstack/svelte-query": "catalog:",

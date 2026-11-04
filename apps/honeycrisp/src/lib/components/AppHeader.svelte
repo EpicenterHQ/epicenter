@@ -13,5 +13,5 @@
 
 <header class="flex h-12 shrink-0 items-center gap-2 border-b px-3">
 	<h1 class="text-sm font-semibold">Honeycrisp</h1>
-	<Chrome unreadable={notes.error ?? folders.error} />
+	<Chrome unreadable={notes.error() ?? folders.error()} />
 </header>

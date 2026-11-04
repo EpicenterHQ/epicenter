@@ -17,6 +17,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Client, ClientError } from '@epicenter/definition/contract';
+import { folderOf } from '@epicenter/folder/core';
 import { openDevice } from '@epicenter/folder/node';
 import { flushSync } from 'svelte';
 import { unwrap } from 'wellcrafted/result';
@@ -24,7 +25,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type Backend, createDemoBackend } from './backend.js';
 import { type Messages, messages } from './contract.js';
 
-const { fromClient } = await import('@epicenter/svelte/client');
+const { reactive } = await import('@epicenter/svelte/reactive');
 const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 );
@@ -43,7 +44,7 @@ async function setup(
 	const root = await mkdtemp(join(tmpdir(), 'messages-drafts-'));
 	cleanup.push(() => rm(root, { recursive: true, force: true }));
 	const client = unwrap(await openDevice(messages, { path: root }));
-	const device: Device = { client, files: fromClient(wrap(client)) };
+	const device: Device = { client, files: reactive(folderOf(wrap(client))) };
 	const backend = createDemoBackend();
 	const id = await draftId(backend, 'demo-maya');
 	expectOk(
@@ -60,10 +61,10 @@ async function setup(
 /** Keep `device`'s collections listing and following changes, as an open page does. */
 function watch(device: Device) {
 	const followed = follow(() => [
-		device.files.drafts.items,
-		device.files.drafts.invalid,
-		device.files.attempts.items,
-		device.files.attempts.invalid,
+		device.files.drafts.items(),
+		device.files.drafts.invalid(),
+		device.files.attempts.items(),
+		device.files.attempts.invalid(),
 	]);
 	cleanup.push(followed.stop);
 }
@@ -314,7 +315,7 @@ test('broken draft front matter refuses a send', async () => {
 		join(root, `drafts/${id}.md`),
 		'---\nchatId: [\n---\nOriginal',
 	);
-	await until(() => device.files.drafts.invalid.some((note) => note.id === id));
+	await until(() => device.files.drafts.invalid().some((note) => note.id === id));
 	expect(
 		expectErr(await send(device, id, counted.backend, 'Edited')).message,
 	).toBe('This draft needs Markdown repair before sending.');

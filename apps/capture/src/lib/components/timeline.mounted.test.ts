@@ -59,7 +59,7 @@ test('New capture writes nothing until Add and then opens Add a thought', async 
 	const h = await setup();
 	type(field('new-capture'), 'Fresh writing');
 	flushSync();
-	expect(h.list.items).toEqual([]);
+	expect(h.list.items()).toEqual([]);
 	submit(field('new-capture')?.form);
 	await until(() => field('new-thought') !== null);
 	expect(h.captures.timeline.rows[0]?.preview).toContain('Fresh writing');

@@ -43,17 +43,17 @@ function setup() {
 
 test('state reads the cookie session; no session is signed out', async () => {
 	const { auth, server } = setup();
-	expect(auth.getState().status).toBe('signed-out');
+	expect(auth.state().status).toBe('signed-out');
 	await auth.refresh();
-	expect<string | undefined>(auth.getState().account?.principalId).toBe(
+	expect<string | undefined>(auth.state().account?.principalId).toBe(
 		'alice',
 	);
-	const before = auth.getState().account;
+	const before = auth.state().account;
 	await auth.refresh();
-	expect(auth.getState().account).toBe(before);
+	expect(auth.state().account).toBe(before);
 	server.cookie = null;
 	await auth.refresh();
-	expect(auth.getState()).toEqual({ status: 'signed-out' });
+	expect(auth.state()).toEqual({ status: 'signed-out' });
 });
 
 test('sign-in leaves for the sign-in page with the return path', async () => {
@@ -72,7 +72,7 @@ test('sign-in leaves for the sign-in page with the return path', async () => {
 test('the Account sends the cookie, never a bearer, and only to this origin', async () => {
 	const { auth, sent } = setup();
 	await auth.refresh();
-	const account = auth.getState().account;
+	const account = auth.state().account;
 	if (!account) throw new Error('Expected Alice');
 	await account.fetch('/api/billing/overview', {
 		credentials: 'omit',
@@ -92,17 +92,17 @@ test('the Account sends the cookie, never a bearer, and only to this origin', as
 test('a cookie that changes hands retires the Account it was captured for', async () => {
 	const { auth, server } = setup();
 	await auth.refresh();
-	const alice = auth.getState().account;
+	const alice = auth.state().account;
 	if (!alice) throw new Error('Expected Alice');
 	const states: (string | undefined)[] = [];
-	auth.subscribe(() => states.push(auth.getState().account?.principalId));
+	auth.subscribe(() => states.push(auth.state().account?.principalId));
 	server.cookie = 'bob';
 	const refused = await alice.fetch('/api/billing/overview', {
 		headers: { 'x-epicenter-principal': 'alice' },
 	});
 	expect(refused.status).toBe(401);
 	await auth.refresh();
-	expect<string | undefined>(auth.getState().account?.principalId).toBe('bob');
+	expect<string | undefined>(auth.state().account?.principalId).toBe('bob');
 	// Bob replaces Alice directly; the dashboard never flashes signed out.
 	expect(states).toEqual(['bob']);
 	await expect(alice.fetch('/api/billing/overview')).rejects.toThrow();
@@ -113,10 +113,10 @@ test('a failed sign-out keeps the Account the cookie still holds', async () => {
 	await auth.refresh();
 	server.signOutStatus = 500;
 	expect((await auth.signOut()).error?.name).toBe('SignOutFailed');
-	expect<string | undefined>(auth.getState().account?.principalId).toBe(
+	expect<string | undefined>(auth.state().account?.principalId).toBe(
 		'alice',
 	);
 	server.signOutStatus = 200;
 	expectOk(await auth.signOut());
-	expect(auth.getState()).toEqual({ status: 'signed-out' });
+	expect(auth.state()).toEqual({ status: 'signed-out' });
 });

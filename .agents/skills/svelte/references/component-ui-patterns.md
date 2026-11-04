@@ -225,14 +225,15 @@ shows its reason and opens as text, as below; repairing text does not switch a
 mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
 mode, or automatic Source fallback.
 
-The root sets each collection a page reads in its own context
-(`setTodos(fromClient(device).todos)`). Read `todos.items` for listings,
-`todos.invalid` for notes that do not read (with their text, for repair), and
-`get(args)` for one note from a list or a workflow.
+A page reads each collection off the app's `folder` (or, in an app not yet
+moved to `app.ts`, from the context its root set with
+`setTodos(reactive(folderOf(device)).todos)`). Read `todos.items()` for
+listings, `todos.invalid()` for notes that do not read (with their text, for
+repair), and `get(args)` for one note from a list or a workflow.
 
 The view that shows a note makes one editor of it during setup
-(`const todo = getTodos().edit({ id })`) from `@epicenter/svelte/client`,
-gates on `todo.exists`, and reads every value through `todo.fields` rather
+(`const todo = folder.todos.edit({ id })`),
+gates on `todo.exists()`, and reads every value through `todo.fields` rather
 than a second `get` or a prop. Bind its fields
 (`bind:value={todo.fields.title}`, `bind:checked={todo.fields.done}`) and
 render `<UnsavedEdit edit={todo} />` for inline failure, retry, discard, and

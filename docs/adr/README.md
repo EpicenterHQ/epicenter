@@ -960,7 +960,8 @@ When you add an ADR, add its row here.
 | [0762](0762-epicenter-is-made-of-standards-and-places.md) | Epicenter is made of standards and places | Accepted (amended by 0763 and 0764) |
 | [0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) | Epicenter's doctrine is three roots and one rule for apps | Accepted (amends 0719 and 0762) |
 | [0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) | Reaching a model is `@epicenter/ai`'s alone, in the OpenAI vocabulary | Accepted (amends 0740, 0755, 0757, and 0762) |
-| [0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) | Choose by value, not by name; every capability has the same shape | Accepted (amends 0754; amended by 0766) |
-| [0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) | An app's capabilities are module values, opened synchronously | Accepted (amends 0753, 0754, 0756, and 0765; amended by 0767 and 0768) |
+| [0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) | Choose by value, not by name; every capability has the same shape | Accepted (amends 0754; amended by 0766 and 0769) |
+| [0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) | An app's capabilities are module values, opened synchronously | Accepted (amends 0753, 0754, 0756, and 0765; amended by 0767, 0768, and 0769) |
 | [0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) | An async lifecycle is modeled as synchronous state; actions wait on their own | Accepted (supersedes 0410; amends 0766; amended by 0768) |
 | [0768](0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md) | Retry belongs to a failure, and editing `app.ts` reloads the page | Accepted (amends 0766 and 0767) |
+| [0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) | Svelte reads every capability through one reactive copy | Accepted (amends 0765 and 0766) |

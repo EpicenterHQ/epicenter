@@ -1,8 +1,9 @@
 /**
  * Whispering for one mounted page: the services, the models it can reach,
  * the microphone, and the recorder. What the files show is the library's
- * (`library.svelte.ts`); both write through the same client, which the
- * variant root chose (`#platform/root`'s `Startup`).
+ * (`library.svelte.ts`); both write through the same folder, over the
+ * client the variant root chose (`#platform/root`'s `Startup`), so the
+ * folder's `saving()` counts every note either writes.
  *
  * A recording is written into the client's files as it records (decision
  * 84): the desktop shell encodes it into the data folder from the first
@@ -27,10 +28,10 @@
  * answers and returns. A recording under way ends with the page.
  */
 import type { ModelChoice } from '@epicenter/ai';
-import { fromAi } from '@epicenter/ai/svelte';
 import type { Client } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import { holdLeave } from '@epicenter/svelte/leave-guard';
+import type { Folder } from '@epicenter/folder/core';
+import { reactive } from '@epicenter/svelte/reactive';
 import { createContext } from 'svelte';
 import type { Result } from 'wellcrafted/result';
 import { createServices } from '#platform/services';
@@ -80,9 +81,12 @@ function defaultTitle(at: Date): string {
 
 export function createWhispering({
 	client,
+	files,
 }: {
 	/** Whispering's files, where every recording is kept. */
 	client: Client<WhisperingContract>;
+	/** The same files as a folder, which a recording's note is written through. */
+	files: Folder<WhisperingContract>;
 }) {
 	const services = createServices(client);
 	/** Whether the sidebar is open on a wide window. Held here so no page owns it. */
@@ -103,9 +107,9 @@ export function createWhispering({
 	});
 
 	/** Every model this page can reach, in the picker's order; sign-in and a saved connection reach it as they happen. */
-	const ai = fromAi(services.ai);
+	const ai = reactive(services.ai);
 	/** Why the saved connections could not be read, if they could not; tracks in Svelte. */
-	const connectionsProblem = () => ai.custom?.problem() ?? undefined;
+	const connectionsProblem = () => ai.custom()?.problem() ?? undefined;
 
 	/** The model chosen for `operation` now, as where a request would go, or why there is none. */
 	function chosen(operation: Operation): Chosen {
@@ -243,14 +247,12 @@ export function createWhispering({
 			recorderError = error.message;
 			return;
 		}
-		const kept = await holdLeave(
-			keepRecording(client, {
-				id: take.id,
-				title: defaultTitle(at),
-				recordedAt: at.toISOString(),
-				durationMs: stopped.durationMs,
-			}),
-		);
+		const kept = await keepRecording(files, {
+			id: take.id,
+			title: defaultTitle(at),
+			recordedAt: at.toISOString(),
+			durationMs: stopped.durationMs,
+		});
 		if (kept.error !== null && !disposed)
 			recorderError = `The recording was kept, but its note could not be written: ${kept.error}`;
 	}
@@ -267,8 +269,9 @@ export function createWhispering({
 	 * every page says it, from the library's own listing.
 	 */
 	async function completeCutOffRecordings() {
-		const { data, error } = await holdLeave(
-			finishCutOffRecordings(client, services.capture),
+		const { data, error } = await finishCutOffRecordings(
+			files,
+			services.capture,
 		);
 		if (disposed) return;
 		if (error !== null) {

@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for contract clients, text editing and status, and the helper every capability's adapter is built on.",
+	"description": "Svelte 5 bindings: any capability as Svelte state (reactive), the folder's root, text editing and status.",
 	"keywords": [
 		"svelte",
 		"local-first",
@@ -13,8 +13,6 @@
 		"reactive state"
 	],
 	"exports": {
-		"./client": "./src/client.svelte.ts",
-		"./leave-guard": "./src/leave-guard.ts",
 		"./note-repair": "./src/note-repair.svelte",
 		"./unsaved-edit": "./src/unsaved-edit.svelte",
 		"./status-line": "./src/status-line.ts",
@@ -24,7 +22,7 @@
 		"./folder-sync-actions": "./src/folder-sync-actions.svelte",
 		"./desktop-startup": "./src/desktop-startup.svelte",
 		"./folder-onboarding": "./src/folder-onboarding.svelte",
-		"./tracked": "./src/tracked.ts",
+		"./reactive": "./src/reactive.ts",
 		"./when-open": "./src/when-open.svelte"
 	},
 	"dependencies": {

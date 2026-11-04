@@ -37,10 +37,12 @@ crate, which also describes how a web app gains a desktop variant.
 
 ## Svelte app root
 
-Only a variant's root decides the store. Components take the client, or its
-`fromClient` wrapper from `@epicenter/svelte/client`, and never know which
+Only a variant's root decides the store. Components take the folder, read
+through `reactive` from `@epicenter/svelte/reactive`, and never know which
 store it is, so a new variant is a new root over the same components. Each
-store is wrapped for Svelte once, where it is made.
+store is adapted for Svelte once, where it is made. Todos has moved the
+choice into `openFolder` in `src/lib/app.ts`, which every app follows
+([ADR-0766](../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
 
 An app with a desktop variant chooses the root at build time through its
 `#platform/root` seam: the browser leaf by default, the desktop leaf under the
@@ -77,26 +79,28 @@ and shows recovery when a root does not open:
 </DesktopStartup>
 ```
 
-An online root is the signed-in layout, which opens the repository per
-account and sets each collection its components read in context, as the
-desktop root does over its folder:
+In an app not yet moved, an online root is the signed-in layout, which
+opens the repository per account and sets each collection its components
+read in context, as the desktop root does over its folder:
 
 ```svelte
-<!-- apps/todos/src/lib/components/Online.svelte -->
+<!-- apps/vocab/src/lib/components/Online.svelte -->
 <script lang="ts">
   const { account, children } = $props();
-  setTodos(fromClient(openRemote(todos, { account, site: APPS.TODOS.url })).todos); // wrapped once, where it is made
+  const client = openRemote(vocab, { account, site: APPS.VOCAB.url });
+  const folder = reactive(folderOf(client)); // adapted once, where it is made
+  setEntryList(folder.entries);
 </script>
 
 {@render children()}
 ```
 
-UI components read a collection from its context (`getTodos()`), sort with
-the app's own order, and read and write through `fromClient` state: tracked
-`items`, `invalid` (notes that do not read, with their text), and writes
-that pass the version shown. The component that shows a note makes one
-editor of it (`todos.edit({ id })`), gates on `exists`, and binds its
-`fields`. See [Todos](todos/README.md),
+UI components read a collection (off `folder`, or from its context), sort
+with the app's own order, and read and write through the folder's
+collection: `items()`, `invalid()` (notes that do not read, with their
+text), and writes made over the version shown. The component that shows a
+note makes one editor of it (`todos.edit({ id })`), gates on `exists()`,
+and binds its `fields`. See [Todos](todos/README.md),
 [Capture](capture/README.md) and the
 [Svelte package](../packages/svelte/README.md).
 

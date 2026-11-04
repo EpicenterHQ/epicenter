@@ -29,9 +29,11 @@ export async function createTestWhispering({
 	const { follow } = await import(
 		'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 	);
-	const whispering = createWhispering({ client });
-	const { fromClient } = await import('@epicenter/svelte/client');
-	const files = filesOf(client, fromClient(client));
+	const { folderOf } = await import('@epicenter/folder/core');
+	const { reactive } = await import('@epicenter/svelte/reactive');
+	const folder = reactive(folderOf(client));
+	const whispering = createWhispering({ client, files: folder });
+	const files = filesOf(folder);
 	const library = createLibrary({ whispering, files });
 	const followed = follow(() => [
 		library.entries,
@@ -40,8 +42,8 @@ export async function createTestWhispering({
 		library.transformations,
 		library.transformationRepairs,
 		library.textRepairs,
-		files.transformation_runs.items,
-		files.text_runs.items,
+		files.transformation_runs.items(),
+		files.text_runs.items(),
 		library.entries.map((note) => library.audioOf(note.id)),
 	]);
 	return {

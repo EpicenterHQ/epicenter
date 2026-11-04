@@ -10,7 +10,7 @@ const auth = createBrowserOAuth({
 	scope: 'openid profile email ai',
 	accountManagement: true,
 });
-const state = auth.getState();
+const state = auth.state();
 if (state.status !== 'signed-out') {
 	const account = state.account;
 	// Keep this Account for the lifetime of the opened application.
@@ -140,41 +140,37 @@ moves the refresh token and the API keys out of the keychain into one file in
 the app's AppData; that move is unbuilt.
 
 ```ts
-import { fromAuth } from '@epicenter/account/svelte';
 import { createTauriAuth } from '@epicenter/account/tauri';
+import { reactive } from '@epicenter/svelte/reactive';
 
 const { client, ready } = createTauriAuth();
-export const auth = fromAuth(client);
+export const auth = reactive(client);
 ```
 
 ## Lifetime and policy
 
 `AuthState` is signed-out, signed-in with an Account, or reauth-required with
 that same Account. An online root captures the Account once and opens its
-store over it, keyed on the Account so a new one opens a new store. A Svelte app can export one
-`fromAuth(client)` facade and read `auth.state` in both places: component setup
-gets a snapshot, while a template, derived value, or effect tracks changes.
-The plain client keeps its explicit `getState()` method; the Svelte facade
-exposes `state` instead and carries through the other methods. A component with
-imperative work on auth changes can subscribe directly with `subscribe`, whose
-listener reads `getState()` again.
-It exposes `refresh()`, which rereads the saved OAuth cell. A focus check can
-await it.
-
-Use the plain client in framework-independent packages and CLIs with no Svelte
-app owner, or when testing the core client. Its `getState()` call makes each
-snapshot read explicit. In a Svelte app, keep that client private in the app's
-auth module and export only the facade:
+store over it, keyed on the Account so a new one opens a new store. The
+client reads `state()` and notifies through `subscribe`, the shape every
+capability has
+([ADR-0769](../../docs/adr/0769-svelte-reads-every-capability-through-one-reactive-copy.md)).
+A Svelte app adapts it once with `reactive` from
+`@epicenter/svelte/reactive` and reads `auth.state()` everywhere: component
+setup or an event handler gets a snapshot, while a template, derived value,
+or effect tracks changes. A component with imperative work on auth changes
+can subscribe directly with `subscribe`, whose listener reads `state()`
+again. `refresh()` rereads the saved OAuth cell; a focus check can await it.
 
 ```ts
 const client = createBrowserOAuth(options);
-export const auth = fromAuth(client);
+export const auth = reactive(client);
 ```
 
-The callback route, components, and app-owned services can share that facade.
-Read `auth.state` in component setup or an event handler for a snapshot; read
-it in a template, derived value, or effect to track changes. The callback
-capability guard `isCallbackAuthClient(auth)` also accepts the facade. Vocab's
+The package has no Svelte code of its own: framework-independent packages
+and CLIs use the same client and call `state()`. The callback route,
+components, and app-owned services share the one adapted client, and
+`isCallbackAuthClient(auth)` accepts it. Vocab's
 [`auth.ts`](../../apps/vocab/src/lib/auth.ts) and Whispering's
 [`#platform/auth`](../../apps/whispering/src/lib/platform/auth.ts) show the
 single-export pattern.
