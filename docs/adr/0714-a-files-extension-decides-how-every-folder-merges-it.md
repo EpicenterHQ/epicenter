@@ -1,7 +1,8 @@
 # 0714. A file's extension decides how every folder merges it
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md): notes merge by Epicenter's rule and every other file is kept whole through Git LFS, with no binary-extension list or size cap.
 - **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at "every file that is not a `.md` note and not a hidden path is Git LFS": files with a binary extension are Git LFS, every other file merges as text, and the server refuses a text file over a size cap.
 - **Unbuilt:** the binary-extension list in `REPOSITORY_ATTRIBUTES` and `storedWithLfs`; the server's refusal of a file over the size cap that is not in LFS; the starter `.gitignore` for plain folders; the warning for a database file.
 

@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) at "a field is declared once with a field builder and compiles to four outputs": no builder compiles anything; each reader interprets the contract's JSON Schema itself.
+- **Amended by:** [ADR-0739](0739-a-document-body-uses-a-standard-codec-until-an-app-needs-its-own.md) at "a field is a key in the item's map": a field is a key in the item's `fields` map, beside its `body`.
 - **Unbuilt:** the written list of supported JSON Schema keywords; Epicenter's generic views reading it; `epicenter query` mapping it to columns; a document app mapping it to keys.
 
 ## Context
