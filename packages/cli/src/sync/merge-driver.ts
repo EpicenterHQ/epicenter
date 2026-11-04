@@ -1,13 +1,15 @@
 /**
- * `epicenter merge-driver %O %A %B %P`: Git's merge driver for `*.md`
- * (decision 42), running `settle` from `@epicenter/definition/merge`, the
- * same note merge the server runs.
+ * `epicenter merge-driver %O %A %B %P`: a merge driver for `*.md` (decision
+ * 42) that a person's own `git` runs when they configure
+ * `merge.epicenter.driver` to it (ADR-0733), running `settle` from
+ * `@epicenter/definition/merge`, the same note merge the server and the
+ * sync core run. Epicenter's own rounds merge in the core and never call it.
  *
  * Which side arrives later (decision 28: the last arrival at the server
  * wins a front matter key). The server's `current` is what `main` already
  * holds, and `incoming` is the write landing after it.
  *
- * - `git merge origin/main` (what `epicenter sync` runs, and `git pull`):
+ * - `git merge origin/main` (and `git pull`):
  *   %A is ours, the local commit not yet on the server, and %B is theirs,
  *   already there. The merge commit carries ours to the server after
  *   theirs, so ours is the later arrival: current = %B, incoming = %A.
@@ -20,14 +22,27 @@
  * Writes the merged note to %A and exits 0, conflict block or not: the
  * conflict lives in the file (decision 24), and the note always parses
  * because the front matter never gets a block. A failure exits 1, which
- * leaves Git's ordinary conflict state, and `epicenter sync` stops on it.
+ * leaves Git's ordinary conflict state, and `epicenter sync` refuses the
+ * folder until the person resolves it.
  * It says what it did on one stderr line, `[epicenter merge] ...`.
  */
 
+import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { settle } from '@epicenter/definition/merge';
 import { git } from './git.ts';
-import { rebasing } from './repository-state.ts';
+
+/** Whether Git is replaying commits (`rebase-merge` or `rebase-apply` exists). */
+async function rebasing(cwd: string): Promise<boolean> {
+	for (const name of ['rebase-merge', 'rebase-apply']) {
+		const path = (
+			await git(cwd, ['rev-parse', '--git-path', name])
+		).stdout.trim();
+		if (path !== '' && existsSync(resolve(cwd, path))) return true;
+	}
+	return false;
+}
 
 /** Author and time of a commit, for a conflict label. */
 async function partyOf(cwd: string, rev: string, fallback: string) {

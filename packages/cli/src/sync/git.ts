@@ -1,114 +1,29 @@
 /**
- * The `git` the sync verbs run: `runGit` from `@epicenter/folder/bun` (the
- * system `git` that `locateGit` finds, no hooks, no fsmonitor, no `ext` or
- * `fd` transports, and a Bearer token sent only to its `https` remote), with
- * text output and a working directory.
- *
- * Hooks never run here, so Git LFS's `pre-push` hook does not either: sync
- * runs `git lfs push` itself before it pushes. The clean and smudge filters
- * are configuration, not hooks, so `git add` and checkouts still store and
- * restore LFS pointers.
+ * The system `git` that `epicenter status` and the merge driver still run:
+ * `runGit` from `@epicenter/folder/bun` (the `git` that `locateGit` finds,
+ * no hooks, no fsmonitor, no `ext` or `fd` transports), with text output and
+ * a working directory. Sync, init, clone, and connect run in the sync core
+ * and start no `git`.
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { resolve } from 'node:path';
-import { type GitCredential, runGit } from '@epicenter/folder/bun';
-
-/**
- * One argument for `sh`, single-quoted: Git runs a configured command (a
- * `!` credential helper, a merge driver) through the shell.
- */
-export const shellQuote = (value: string) =>
-	`'${value.replaceAll("'", `'\\''`)}'`;
-
-const syncDriver = new AsyncLocalStorage<string>();
-
-/** Each Git child of a sync round uses this CLI's merge driver. */
-export async function withSyncDriver<T>(work: () => Promise<T>): Promise<T> {
-	const source = process.argv[1]?.endsWith('.ts')
-		? ` ${shellQuote(resolve(process.argv[1]))}`
-		: '';
-	const command = `${shellQuote(process.execPath)}${source} merge-driver %O %A %B %P`;
-	return syncDriver.run(command, work);
-}
+import { runGit } from '@epicenter/folder/bun';
 
 export type Ran = {
 	code: number;
 	stdout: string;
 	stderr: string;
-	/** Stdout as Git wrote it, for a blob that may not be text. */
-	bytes: Uint8Array;
-};
-
-/**
- * The token for a remote, asked for by its URL as each transfer starts:
- * `undefined` sends none, so Git uses the person's own sign-in.
- */
-export type CredentialFor = (url: string) => Promise<GitCredential | undefined>;
-
-export type GitOptions = {
-	readonly env?: Readonly<Record<string, string>>;
-	readonly input?: string | Uint8Array;
-	readonly credential?: GitCredential;
 };
 
 /** Run `git` in `cwd`, never throwing on its exit code. */
 export async function git(
-	cwd: string | undefined,
+	cwd: string,
 	args: readonly string[],
-	options: GitOptions = {},
+	options: { readonly env?: Readonly<Record<string, string>> } = {},
 ): Promise<Ran> {
-	const driver = syncDriver.getStore();
-	const ran = await runGit(
-		driver === undefined
-			? args
-			: ['-c', `merge.epicenter.driver=${driver}`, ...args],
-		{ cwd, allowFailure: true, ...options },
-	);
+	const ran = await runGit(args, { cwd, allowFailure: true, ...options });
 	return {
 		code: ran.code ?? 1,
 		stdout: new TextDecoder().decode(ran.stdout),
-		bytes: ran.stdout,
 		stderr: ran.stderr,
 	};
-}
-
-/** Run `git` in `cwd` and return its stdout, throwing with its stderr when it fails. */
-export async function must(
-	cwd: string | undefined,
-	args: readonly string[],
-	options: GitOptions = {},
-): Promise<string> {
-	const ran = await git(cwd, args, options);
-	if (ran.code !== 0)
-		throw new Error(
-			`git ${args.join(' ')} failed (${ran.code}): ${ran.stderr.trim()}`,
-		);
-	return ran.stdout;
-}
-
-/** A configuration value in `scope`, or null when unset. */
-export async function config(
-	cwd: string | undefined,
-	key: string,
-	scope: '--local' | '--global' = '--local',
-): Promise<string | null> {
-	const ran = await git(cwd, ['config', scope, '--get', key]);
-	return ran.code === 0 ? ran.stdout.trim() : null;
-}
-
-/** Every value of a multi-valued key in `scope`, empty ones included. */
-export async function configAll(
-	cwd: string | undefined,
-	key: string,
-	scope: '--local' | '--global' = '--local',
-): Promise<string[]> {
-	const ran = await git(cwd, ['config', scope, '--null', '--get-all', key]);
-	return ran.code === 0 ? ran.stdout.split('\0').slice(0, -1) : [];
-}
-
-/** The effective destination Git would push origin to, including pushurl and rewrites. */
-export async function originPushUrl(root: string): Promise<string | null> {
-	const ran = await git(root, ['remote', 'get-url', '--push', 'origin']);
-	return ran.code === 0 ? ran.stdout.trim() : null;
 }

@@ -8,10 +8,10 @@
  * folder synced, 1 a round to run again (a lock, the network, the remote
  * still moving), 2 a folder stopped for a person or agent.
  *
- * A hosted `https` remote on this deployment's Git origin gets the grant's
- * token as a Bearer header on each transfer (`hostedCredentials`); any other
- * remote uses the person's own Git credentials. Init writes no credential
- * into a clone.
+ * A remote on this deployment's Git origin gets the grant's token, which
+ * the sync core sends as a Bearer header on each request
+ * (`hostedCredentials`); any other remote gets none. Nothing writes a
+ * credential into a folder.
  */
 
 import { type FSWatcher, watch as watchDirectory } from 'node:fs';
@@ -27,11 +27,10 @@ import {
 import type { GrantKind } from '../auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
 import { type DiscoveredFolder, discoveredFolders } from './discovery.ts';
-import type { CredentialFor } from './git.ts';
 import { mergeDriver } from './merge-driver.ts';
 import { Refused } from './setup.ts';
 import type { FolderStatus } from './status.ts';
-import type { SyncResult } from './sync.ts';
+import type { CredentialFor, SyncResult } from './sync.ts';
 
 type Options = Record<string, string | true>;
 

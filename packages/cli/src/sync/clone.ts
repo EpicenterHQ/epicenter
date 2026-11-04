@@ -30,14 +30,18 @@ import {
 import { connect as attach, locate, open } from '@epicenter/core';
 import { resolveAppPaths } from '../app-paths.ts';
 import { connect } from './connect.ts';
-import type { CredentialFor } from './git.ts';
 import {
 	type Initialized,
 	type InitOptions,
 	init,
 	refuseReservedDirectory,
 } from './setup.ts';
-import { round, type SyncResult, syncFolder } from './sync.ts';
+import {
+	type CredentialFor,
+	round,
+	type SyncResult,
+	syncFolder,
+} from './sync.ts';
 
 export type CloneSource = {
 	readonly url: string;

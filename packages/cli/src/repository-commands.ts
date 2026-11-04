@@ -35,7 +35,7 @@ import {
 	type GrantKind,
 } from './auth.ts';
 import { EXIT, fail, writeJson, writeOut } from './output.ts';
-import type { CredentialFor } from './sync/git.ts';
+import type { CredentialFor } from './sync/sync.ts';
 
 /**
  * The credential for a remote of this deployment's hosted Git, asked for by
@@ -63,7 +63,7 @@ export function hostedCredentials(
 			ctx.deployment.audiences.git,
 		);
 		if (error !== null) throw new Error(error.message);
-		return { url, token: data.token };
+		return { token: data.token };
 	};
 }
 

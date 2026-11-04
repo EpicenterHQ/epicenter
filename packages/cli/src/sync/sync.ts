@@ -23,7 +23,6 @@ import { realpath } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { resolve } from 'node:path';
 import { locate, type SyncRound, sync } from '@epicenter/core';
-import type { CredentialFor } from './git.ts';
 
 export type SyncStatus = 'synced' | 'retry' | 'stopped';
 
@@ -37,6 +36,14 @@ export type SyncResult = {
 	/** Why the round ended `retry` or `stopped`. */
 	readonly message?: string;
 };
+
+/**
+ * The bearer token for a remote, asked for by its URL as a round starts:
+ * `undefined` sends none.
+ */
+export type CredentialFor = (
+	url: string,
+) => Promise<{ readonly token: string } | undefined>;
 
 export type SyncOptions = {
 	/** The token for the remote, asked for by its URL. */

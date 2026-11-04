@@ -61,7 +61,7 @@ front end over `status`, `init`, `connect`, `clone`, `sync`, `forget`, `share`, 
 | `epicenter messages` | built, hidden | Local Beeper operations on stdin; token in the device keychain |
 
 `messages`, `merge-driver`, `sync --interval`, and `--desktop` are left out of `--help`:
-the desktop app or Git runs them.
+the desktop app or a person's own Git runs them.
 
 ## Hosted repositories
 
@@ -204,10 +204,12 @@ the queries the core has no read-only form of.
   path skips these candidates with one note each. With no candidate found it prints nothing
   (and says so on stderr without `--json`) and exits 0. The desktop app's Folders window lists its folders from this.
 - `forget [<dir>]` unsets local `epicenter.synced`.
-- `merge-driver` runs `settle` on a note: the later arrival at the server
-  wins a front matter key (`%A` under a merge, `%B` under a rebase), and the
-  body merges by line, then by word; two changes at the same spot give one
-  conflict block of whole lines.
+- `merge-driver` runs `settle` on a note for a person's own `git` that
+  names it as `merge.epicenter.driver` (Epicenter's rounds merge in the core
+  and never call it): the later arrival at the server wins a front matter
+  key (`%A` under a merge, `%B` under a rebase), and the body merges by line,
+  then by word; two changes at the same spot give one conflict block of
+  whole lines.
 
 `src/sync/sync.e2e.test.ts` runs spike 7's cases against a bare remote and
 a small LFS server in a sandbox (its own `HOME`, `GIT_CONFIG_GLOBAL`, and
@@ -325,7 +327,7 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/parse.ts` | The hand-written parser. |
 | `src/contract-commands.ts` | `check` and `format` against an app's contract, over `@epicenter/folder/node`. |
 | `src/sync/` | `init`, `connect`, `sync`, `status`, `clone`, `forget`, and the merge driver, over the sync core; `status` and the merge driver over the system `git`. |
-| `src/stop.ts` | The one stop-signal handler: cleanups at once, then unfinished refreshes, then exit. |
+| `src/stop.ts` | The one stop-signal handler: wait for an unfinished refresh or round, then exit. |
 | `src/repository-commands.ts` | `repos`, and the token `sync` and `clone` send to the deployment's Git. |
 | `src/app-paths.ts` | Where the Epicenter folder, the sign-in locks, and the engine live, by the shell's rule. |
 | `src/auth.ts` | The two grants: device and desktop sign-in, the one refresh, status, sign-out, and Git's credential helper. |
