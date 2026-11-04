@@ -33,6 +33,7 @@ Installed Whispering keeps its two connections there as "Whispering
 transcription" and "Whispering text", and remembers their ids in its origin's
 <!-- doc-path-check: ignore-next-line -->
 `localStorage` (`apps/whispering/src/lib/workspace/epicenter-connections.ts:43-47`,
+<!-- doc-path-check: ignore-next-line (Whispering's connections moved onto endpoints, ADR-0757) -->
 `:97`). Its rules (`apps/whispering/src/lib/connections.ts:1-16`) say a key is
 kept only for the base URL it was saved for, and that the folder's files never
 choose where a request goes.

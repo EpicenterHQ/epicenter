@@ -3,8 +3,7 @@
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at `desktopVariant()` turning on the `tauri` condition "for the app's `#platform/*` seams" and at the shared `epicenter-standalone` crate: the condition also selects each capability package's leaf, `#platform/*` remains only for app-owned native features and the web sign-in callback, and `epicenter-standalone` merges into `tauri-plugin-epicenter`; [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) at "The package selects its default services from the running environment" and at a consumer's build passing no condition: a capability's leaf is selected at build time by the `tauri` export condition.
-- **Amended by:** [ADR-0760](0760-global-shortcuts-are-a-capability.md) at its capability list and at "Whispering's global shortcut is an app-owned native feature": `shortcut` is a capability.
-- **Amended:** 2026-11-04, at the `account` and `ai` rows: the person's provider keys belong to `ai`, beside the custom endpoints they unlock (`@epicenter/ai/tauri`), and `account` holds only the Epicenter sign-in.
+- **Amended by:** [ADR-0760](0760-global-shortcuts-are-a-capability.md) at its capability list and at "Whispering's global shortcut is an app-owned native feature": `shortcut` is a capability; [ADR-0764](0764-a-persons-provider-keys-belong-to-the-endpoints-they-unlock.md) at the `account` and `ai` rows: the person's provider keys belong to `ai`.
 - **Relates:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) (what a capability is), [ADR-0751](0751-every-native-app-carries-one-sync-core.md) (`epicenter-core` and `tauri-plugin-epicenter`), [ADR-0756](0756-an-apps-native-shell-is-linked-from-its-capabilities.md) (the shell linked from capabilities), [ADR-0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) (the platform supplies how).
 - **Unbuilt:** every move below, which branch `claude/package-moves` is making; the `.` export with `tauri` and `default` leaves on each capability; `./svelte` on every capability but `account`.
 
@@ -41,9 +40,9 @@ a program.**
 | Package | Kind | One sentence |
 | --- | --- | --- |
 | `folder` | capability | open an app's folder as its contract's client, and this device's place |
-| `account` | capability | this app's Epicenter sign-in |
+| `account` | capability | this app's credentials: its Epicenter sign-in and the person's provider keys |
 | `recorder` | capability | recordings written into the folder as they record |
-| `ai` | capability | requests to a model the person chose, the person's provider keys, and the agent loop |
+| `ai` | capability | requests to a model the person chose, and the agent loop |
 | `transcription` | capability | models on this computer (`null` in a browser) |
 | `definition` | format | what an app's files are, how two versions settle, and the names its site derives |
 | `svelte` | framework layer | contract reactivity, startup and recovery, status |
