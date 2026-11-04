@@ -4,6 +4,7 @@
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) at how an app chooses between its two stores and at the assignment `document Tabs (saved tabs)`: what a person keeps is items in a collection, a document holds only live state whose value is being current, and Tabs is a collection ([ADR-0743](0743-tabs-keeps-saved-tabs-as-items-in-a-collection.md)).
 - **Relates:** [ADR-0707](0707-an-app-that-needs-co-editing-is-a-document-app.md) (co-editing apps are document apps), [ADR-0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md) (`epicenter get` and `epicenter set`), [ADR-0450](0450-current-files-own-portable-document-data.md) (a file must not become a temporary representation imported into another authority), [ADR-0739](0739-a-document-body-uses-a-standard-codec-until-an-app-needs-its-own.md) (document bodies), [ADR-0744](0744-sync-diffs-state-because-agents-edit-state.md) (sync diffs state).
+- **Amended by:** [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) at the document store: the folder is the only kind of store.
 - **Unbuilt:** the document store, until the first app with live state; [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md)'s `Unbuilt` line names its parts.
 
 ## Context

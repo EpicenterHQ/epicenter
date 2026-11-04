@@ -4,6 +4,7 @@
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) at "A document contract carries … a body whose type is the app's own": a body uses one of three standard codecs; [ADR-0727](0727-json-schema-is-the-field-language.md) at "a field is a key in the item's map": a field is a key in the item's `fields` map.
 - **Relates:** [ADR-0707](0707-an-app-that-needs-co-editing-is-a-document-app.md) (co-editing apps are document apps), [ADR-0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) (Tabs keeps its data in a document).
+- **Amended by:** [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) at the document store: the folder is the only kind of store.
 - **Unbuilt:** all of the document store ([ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md)), including the item map and the three codecs.
 
 ## Context

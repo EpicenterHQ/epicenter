@@ -965,4 +965,5 @@ When you add an ADR, add its row here.
 | [0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) | An async lifecycle is modeled as synchronous state; actions wait on their own | Accepted (supersedes 0410; amends 0766; amended by 0768) |
 | [0768](0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md) | Retry belongs to a failure, and editing `app.ts` reloads the page | Accepted (amends 0766 and 0767) |
 | [0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) | Svelte reads every capability through one reactive copy | Accepted (amends 0765 and 0766) |
-| [0770](0770-teams-own-repositories-and-sharing-is-membership.md) | Teams own repositories, and sharing is membership | Accepted (amends 0547, 0594, 0612, 0708, and 0732) |
+| [0770](0770-teams-own-repositories-and-sharing-is-membership.md) | Teams own repositories, and sharing is membership | Accepted (amends 0547, 0594, 0612, 0708, and 0732; amended by 0771) |
+| [0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) | Plain files let Epicenter refuse renames, attachment conflict copies, and a second store | Accepted (amends 0612, 0705, 0707, 0708, 0709, 0715, 0716, 0734, 0739, 0742, and 0770) |
