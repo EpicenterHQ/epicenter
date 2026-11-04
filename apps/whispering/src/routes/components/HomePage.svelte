@@ -28,9 +28,9 @@
 	/** A transcription of it in this window, and what became of it. */
 	const run = $derived(latest ? library.transcriptionRun(latest.id) : undefined);
 	const transcribing = $derived(run?.state.kind === 'running' || (run?.state.kind === 'unsaved' && run.state.message === undefined));
-	const model = $derived(whispering.connections?.transcription?.model);
+	const model = $derived(whispering.choice('transcription')?.model);
 
-	/** The transformation chosen beside the recorder, as the lists and the text connection have it now. */
+	/** The transformation chosen beside the recorder, as the lists and the text model have it now. */
 	const postProcessing = $derived(library.postProcessing);
 	/** Whether a transformation of the newest transcript is under way. Its result shows below once kept. */
 	const postRunning = $derived(
@@ -105,7 +105,7 @@
 								variant="outline"
 								disabled={!transcript.body.trim() || postRunning}
 								aria-label="Run post-processing: {name}"
-								tooltip={chosen.kind === 'ready' ? `Runs “${name}”: sends this transcript to ${chosen.model} at ${chosen.endpoint}` : undefined}
+								tooltip={chosen.kind === 'ready' ? `Runs “${name}”: sends this transcript to ${chosen.target.model} at ${chosen.target.name}` : undefined}
 								onclick={() => void runPostProcessing()}
 								data-testid="run-post-processing"
 							>
@@ -139,7 +139,7 @@
 						{:else if model}
 							Not transcribed yet. Nothing is sent until you press Transcribe.
 						{:else}
-							Transcription is not set up. Set up its connection in Settings; nothing is sent until you do.
+							No transcription model is chosen. Choose one in Settings; nothing is sent until you do.
 						{/if}
 					</p>
 				{/if}

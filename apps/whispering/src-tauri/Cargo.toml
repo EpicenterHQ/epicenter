@@ -13,11 +13,8 @@ epicenter-transcription-build = { path = "../../../packages/epicenter-transcript
 tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
-base64 = "0.22"
 epicenter-account = { path = "../../../packages/tauri-epicenter-account" }
 epicenter-standalone = { path = "../../../packages/tauri-epicenter-standalone" }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
-serde = { version = "1", features = ["derive"] }
 # `generate_context!` writes the configuration's `plugins` block as
 # `serde_json` values in the app's own crate, and the tests read the
 # configuration with it.
@@ -35,4 +32,3 @@ transcribe-cpp = { version = "0.1.0", default-features = false }
 [dev-dependencies]
 # The mock runtime drives the real commands in tests.
 tauri = { version = "2.12", features = ["test"] }
-tokio = { version = "1", features = ["macros", "rt"] }

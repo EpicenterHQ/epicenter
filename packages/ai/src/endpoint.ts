@@ -69,6 +69,17 @@ export function guessCapabilities(id: string): Capability[] {
 	return ['chat'];
 }
 
+/**
+ * A request the endpoint refuses before sending anything, named
+ * `InvalidRequest` as the desktop shell names its own, so a caller can tell
+ * it from a request that left and got no answer.
+ */
+function invalidRequest(message: string): Error {
+	const error = new Error(message);
+	error.name = 'InvalidRequest';
+	return error;
+}
+
 /** A base URL an endpoint may send to: http or https, no credentials, query, or fragment. */
 function baseUrlOf(value: string): string {
 	const url = new URL(value);
@@ -79,7 +90,7 @@ function baseUrlOf(value: string): string {
 		url.search ||
 		url.hash
 	)
-		throw new Error(`Not an endpoint base URL: ${value}`);
+		throw invalidRequest(`Not an endpoint base URL: ${value}`);
 	return url.href.replace(/\/+$/, '');
 }
 
@@ -144,7 +155,7 @@ export function openAiCompatible({
 			const base = baseUrlOf(baseUrl);
 			const url = new URL(path, `${base}/`).href;
 			if (!url.startsWith(`${base}/`))
-				throw new Error(`A request cannot leave its endpoint: ${path}`);
+				throw invalidRequest(`A request cannot leave its endpoint: ${path}`);
 			const headers = new Headers(init?.headers);
 			headers.delete('authorization');
 			headers.delete('cookie');

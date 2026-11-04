@@ -13,15 +13,16 @@
  * closing; an answer that arrives after closing keeps nothing.
  *
  * A run sends what the person sees: the recipe and transcript text a page
- * shows, typing included, or else the notes as listed.
+ * shows, typing included, or else the notes as listed. Where it goes is
+ * fixed when it starts (its target: the endpoint and model chosen then), and
+ * Run again sends to that target or, when it was removed or moved, nothing.
  */
 import { timeId } from '@epicenter/definition/ids';
 import { SvelteMap } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
-import { audioPathOf, type WhisperingFiles } from './files.svelte.js';
-import type { WhisperingServices } from './platform/types.js';
-import type { RecipeRow, ResolvedRecipe } from './recipe.js';
+import type { WhisperingFiles } from './files.svelte.js';
+import type { Audio, Target } from './inference.js';
+import type { Chosen, RecipeRow, ResolvedRecipe } from './recipe.js';
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -78,6 +79,8 @@ export type Run = Fields & {
 	readonly key: string;
 	/** The id its result note is created under, fixed when the run starts. */
 	readonly noteId: string;
+	/** Where its request goes, fixed when the run starts; none for a run that never started. */
+	readonly target: Target | undefined;
 	readonly state: RunState;
 };
 
@@ -99,19 +102,25 @@ export function createRuns({
 	transcribe,
 	transform,
 	refused,
-	connections,
+	chosen,
 	resolve,
 	deleting,
 }: {
 	files: WhisperingFiles;
-	transcribe: WhisperingServices['transcribe'];
-	transform: WhisperingServices['transform'];
+	/** Send a recording's audio to `target`. Nothing is written by this. */
+	transcribe: (
+		target: Target,
+		audio: () => Promise<Result<Audio, string>>,
+	) => Promise<Answer>;
+	/** Send instructions and a text to `target`. Nothing is written by this. */
+	transform: (
+		target: Target,
+		request: { prompt: string; input: string },
+	) => Promise<Answer>;
 	/** Why nothing new starts now, if it does not. */
 	refused: () => string | undefined;
-	connections: () => {
-		readonly info: ConnectionsInfo | undefined;
-		readonly error: string | undefined;
-	};
+	/** The model chosen for transcription now, or why there is none. */
+	chosen: (operation: 'transcription') => Chosen;
 	resolve: (recipe: RecipeRow | undefined) => ResolvedRecipe;
 	/** Recordings whose deletion is under way. No request starts for one. */
 	deleting: ReadonlySet<string>;
@@ -202,23 +211,10 @@ export function createRuns({
 		return resolve(recipe);
 	}
 
-	/** Why a request made over `endpoint` would not go out over the connection set up now. */
-	function connectionMoved(
-		operation: 'transcription' | 'text',
-		endpoint: string,
-	): string | undefined {
-		const connection = connections().info?.[operation];
-		if (connection === undefined)
-			return `This was run with ${endpoint}, and no ${operation} connection is set up now, so it was not sent again.`;
-		if (!sameBaseUrl(connection.baseUrl, endpoint))
-			return `This was run with ${endpoint}, and the ${operation} connection is now ${connection.baseUrl}, so it was not sent again. Run it anew.`;
-		return undefined;
-	}
-
-	/** Start a recipe run whose fields `prepare` makes from what it reads now. */
+	/** Start a recipe run whose fields and target `prepare` makes from what it reads now. */
 	async function runRecipe(
 		key: string,
-		prepare: () => Fields | string,
+		prepare: () => (Fields & { target: Target }) | string,
 	): Promise<string | undefined> {
 		if (underWay(key))
 			return 'This transformation is already running on this. Run it again when it has finished.';
@@ -231,15 +227,9 @@ export function createRuns({
 			noteId: timeId(at),
 			state: { kind: 'running' },
 		} as Run;
-		const fields = run.fields as RecipeFields;
-		await send(run, () =>
-			transform({
-				expectedBaseUrl: fields.endpoint,
-				model: fields.model,
-				prompt: fields.prompt,
-				input: fields.input,
-			}),
-		);
+		const { prompt, input } = run.fields as RecipeFields;
+		const { target } = prepared;
+		await send(run, () => transform(target, { prompt, input }));
 		return undefined;
 	}
 
@@ -309,8 +299,9 @@ export function createRuns({
 			await keep(run, run.state.text);
 		},
 		/**
-		 * Send a failed run's request again, while its connection is still the
-		 * one it was made for. Answers why nothing was sent.
+		 * Send a failed run's request again, to the target it was made for. An
+		 * endpoint removed or moved since fails the run with why, and nothing
+		 * is sent. Answers why nothing was tried.
 		 */
 		async runAgain(key: string): Promise<string | undefined> {
 			const why = refused();
@@ -319,18 +310,13 @@ export function createRuns({
 			const request = requests.get(key);
 			if (run?.state.kind !== 'failed' || request === undefined)
 				return 'This is already running.';
-			const moved = connectionMoved(
-				run.collection === 'transcriptions' ? 'transcription' : 'text',
-				run.fields.endpoint,
-			);
-			if (moved !== undefined) return moved;
 			await send(run, request);
 			return undefined;
 		},
 
 		/**
-		 * Transcribe recording `id`: send its audio over the transcription
-		 * connection, then create its transcript.
+		 * Transcribe recording `id`: send its audio to the transcription model
+		 * chosen now, then create its transcript.
 		 * Answers why nothing was sent.
 		 */
 		async transcribe(id: string): Promise<string | undefined> {
@@ -350,19 +336,15 @@ export function createRuns({
 					},
 					key,
 					noteId: '',
+					target: undefined,
 					state: { kind: 'failed', message },
 				});
 				requests.delete(key);
 				return message;
 			};
-			const { info, error: connectionsError } = connections();
-			const connection = info?.transcription;
-			if (connection === undefined)
-				return fail(
-					connectionsError === undefined
-						? 'No transcription connection is set up, so nothing was sent. Set one up in Settings, then transcribe.'
-						: `The transcription connection could not be read, so nothing was sent: ${connectionsError}`,
-				);
+			const choice = chosen('transcription');
+			if (choice.kind !== 'ready') return fail(choice.reason);
+			const { target } = choice;
 			const recording = files.recordings.get({ id });
 			if (recording === undefined)
 				return fail(
@@ -383,27 +365,23 @@ export function createRuns({
 				fields: {
 					recordingId: id,
 					createdAt: at.toISOString(),
-					model: connection.model,
-					endpoint: connection.baseUrl,
+					model: target.model,
+					endpoint: target.address,
 				},
 				key,
 				noteId: timeId(at),
+				target,
 				state: { kind: 'running' },
 			};
 			await send(run, () =>
-				transcribe({
-					audio: async () => {
-						const read = await files.readAudio(id);
-						if (read.error !== null) return Err(read.error);
-						return Ok({
-							bytes: read.data.bytes,
-							filename: read.data.name,
-							mimeType: read.data.mimeType,
-						});
-					},
-					expectedBaseUrl: connection.baseUrl,
-					model: connection.model,
-					audioPath: audioPathOf(files.audioOf(id)),
+				transcribe(target, async () => {
+					const read = await files.readAudio(id);
+					if (read.error !== null) return Err(read.error);
+					return Ok({
+						bytes: read.data.bytes,
+						filename: read.data.name,
+						mimeType: read.data.mimeType,
+					});
 				}),
 			);
 			return undefined;
@@ -434,14 +412,15 @@ export function createRuns({
 				if (deleting.has(transcript.recordingId)) return BEING_DELETED;
 				return {
 					collection: 'transformation_runs',
+					target: resolved.target,
 					fields: {
 						recordingId: transcript.recordingId,
 						transcriptionId,
 						transformationId: recipeId,
 						transformationTitle: resolved.title,
 						createdAt: new Date().toISOString(),
-						model: resolved.model,
-						endpoint: resolved.endpoint,
+						model: resolved.target.model,
+						endpoint: resolved.target.address,
 						prompt: resolved.prompt,
 						input,
 					},
@@ -468,12 +447,13 @@ export function createRuns({
 				if (resolved.kind !== 'ready') return resolved.reason;
 				return {
 					collection: 'text_runs',
+					target: resolved.target,
 					fields: {
 						transformationId: recipeId,
 						transformationTitle: resolved.title,
 						createdAt: new Date().toISOString(),
-						model: resolved.model,
-						endpoint: resolved.endpoint,
+						model: resolved.target.model,
+						endpoint: resolved.target.address,
 						prompt: resolved.prompt,
 						input,
 					},

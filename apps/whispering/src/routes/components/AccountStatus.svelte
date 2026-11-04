@@ -1,6 +1,6 @@
 <!--
-	The optional sign-in with Epicenter. It grants capabilities only: the
-	Epicenter account route for transcription and AI (the API audience). It
+	The optional sign-in with Epicenter. It grants capabilities only:
+	Epicenter's models for transcription and AI (the API audience). It
 	never opens a repository and never moves a recording, which stays where
 	the build keeps it either way: this browser, or the desktop's data folder
 	(ADR-0700).
@@ -38,23 +38,16 @@
 			if (!mounted || current !== checkId) return;
 			problem = describe(cause);
 		} finally {
-			if (mounted && current === checkId) {
-				checking = false;
-				void whispering.readConnections();
-			}
+			if (mounted && current === checkId) checking = false;
 		}
 	}
 
 	onMount(() => {
 		mounted = true;
-		const stop = auth.onStateChange(() => {
-			void whispering.readConnections();
-		});
 		void check();
 		return () => {
 			mounted = false;
 			checkId++;
-			stop();
 		};
 	});
 

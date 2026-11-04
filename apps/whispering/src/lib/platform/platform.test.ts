@@ -59,7 +59,6 @@ const desktopLeaves = [
 	'platform/variant.tauri.ts',
 	'platform/auth.tauri.ts',
 	'platform/services.tauri.ts',
-	'platform/fetch.tauri.ts',
 	'platform/shortcut.tauri.svelte.ts',
 	'settings.tauri.ts',
 	'components/DesktopStartup.svelte',
@@ -73,6 +72,8 @@ const desktopPackages = [
 	'folder/src/tauri.ts',
 	'recorder/src/tauri.ts',
 	'account/src/tauri.ts',
+	'ai/src/tauri.ts',
+	'transcription/guest-js/local-speech.ts',
 	'transcription/guest-js/bindings.gen.ts',
 ];
 

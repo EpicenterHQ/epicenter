@@ -5,8 +5,9 @@
 //! that folder from the first sample (`tauri-plugin-epicenter-recorder`),
 //! transcribes on this computer
 //! (`tauri-plugin-epicenter-transcription`), through the signed-in Epicenter
-//! account (`epicenter-account`, whose token the page never holds), or at a
-//! custom endpoint (`send_request`), and starts and stops a recording from a
+//! account (`epicenter-account`, whose token the page never holds), or at an
+//! endpoint the person connected, whose key the shell adds
+//! (`connection_fetch`), and starts and stops a recording from a
 //! global shortcut, the one the page resolves from `shortcuts.md` and asks
 //! for (`set_shortcut`). It asks Epicenter to sync the folder and never
 //! syncs it itself.
@@ -14,7 +15,6 @@
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod http;
 mod shortcut;
 
 use epicenter_account::AccountApp;
@@ -41,8 +41,7 @@ fn main() {
     let builder = epicenter_standalone::builder(WHISPERING)
         .plugin(tauri_plugin_epicenter_recorder::init())
         .plugin(tauri_plugin_epicenter_transcription::init())
-        .plugin(shortcut::listener())
-        .manage(http::Sender::default());
+        .plugin(shortcut::listener());
     let app = epicenter_account::manage(builder, ACCOUNT, &context.config().identifier)
         .invoke_handler(tauri::generate_handler![
             epicenter_account::account::account_state,
@@ -54,7 +53,6 @@ fn main() {
             epicenter_account::keychain::keychain_set,
             epicenter_account::connection::connection_fetch,
             epicenter_account::connection::connection_fetch_cancel,
-            http::send_request,
             shortcut::set_shortcut,
         ])
         .build(context)
@@ -84,16 +82,17 @@ mod tests {
         assert_eq!(ACCOUNT.scope, AccountApp::HOSTED_MODELS);
     }
 
-    /// The build script declares every account and connection command,
-    /// `send_request` and `set_shortcut`, and nothing else.
+    /// The build script declares every account and connection command and
+    /// `set_shortcut`, and nothing else: requests leave through the
+    /// connections' one shell fetch.
     #[test]
-    fn the_declared_commands_are_the_accounts_connections_send_request_and_set_shortcut() {
+    fn the_declared_commands_are_the_accounts_connections_and_set_shortcut() {
         let mut expected = [
             epicenter_account::COMMANDS,
             epicenter_account::CONNECTION_COMMANDS,
         ]
         .concat();
-        expected.extend(["send_request", "set_shortcut"]);
+        expected.push("set_shortcut");
         assert_eq!(COMMANDS, expected.as_slice());
     }
 
@@ -126,9 +125,10 @@ mod tests {
     }
 
     /// The window reaches its roots and Epicenter's sync request through
-    /// the folder plugin, by name, records, transcribes and administers
-    /// local models, hears the global shortcut, and calls exactly the
-    /// commands the build script declares. No capability names a folder.
+    /// the folder plugin, by name, records, transcribes uploaded audio and
+    /// administers local models, hears the global shortcut, and calls
+    /// exactly the commands the build script declares. No capability names
+    /// a folder.
     #[test]
     fn the_capability_grants_plugins_and_the_declared_commands_and_no_folder() {
         let capability = read(include_str!("../capabilities/whispering.json"));
@@ -140,7 +140,7 @@ mod tests {
             "core:event:allow-unlisten",
             "epicenter-recorder:default",
             "epicenter-transcription:allow-list-inference-models",
-            "epicenter-transcription:allow-transcribe-file",
+            "epicenter-transcription:allow-transcribe-audio",
             "epicenter-transcription:allow-list-models",
             "epicenter-transcription:allow-download-model",
             "epicenter-transcription:allow-reveal-model",

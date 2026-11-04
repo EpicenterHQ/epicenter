@@ -11,6 +11,10 @@
  * - Audio no note names (a note not written, a placement that failed, a
  *   closed tab) gets its note from the next start's recovery, which
  *   finishes before the start answers, so before any page reads a recording
+ * - A transcription sends the recording's audio to the model chosen for it,
+ *   and its transcript names that model and where it went
+ * - A request goes only to the endpoint it was prepared for: one whose
+ *   connection was edited or removed since is not sent, and says why
  * - A result is kept when its answer arrives, even if the pages have since
  *   closed
  * - Deleting a recording deletes its transcripts, their results, and its
@@ -33,6 +37,7 @@ import {
 	deferred,
 	eventually,
 	openTestServices,
+	TEST_BASE_URL,
 	type TestServicesOptions,
 	toneWav,
 } from './services.test-support.js';
@@ -445,17 +450,74 @@ test('a transcription sends the recording’s audio and keeps its transcript bes
 	expect(await library.transcribe(recording.id)).toBeUndefined();
 
 	expect(test.transcribed).toHaveLength(1);
-	expect(test.transcribed[0]!.bytes).toEqual(toneWav());
+	expect(test.transcribed[0]).toMatchObject({
+		model: 'verification-model',
+		bytes: toneWav(),
+	});
 	await eventually(() => library.resultsFor(recording.id).length === 1);
 	expect(library.resultsFor(recording.id)[0]).toMatchObject({
 		recordingId: recording.id,
 		model: 'verification-model',
+		endpoint: TEST_BASE_URL,
 		body: 'um so a steady tone\n',
 	});
 	expect(
 		await notesIn(join(test.root, 'device'), 'transcriptions'),
 	).toHaveLength(1);
 	expect(library.transcriptionRun(recording.id)).toBeUndefined();
+});
+
+/** A transcription that failed once, so Run again would send the same request. */
+async function failedOnce(opened: Awaited<ReturnType<typeof fixture>>) {
+	const { library } = opened;
+	const recording = await record(opened);
+	await eventually(() => library.audioOf(recording.id).kind === 'here');
+	await library.transcribe(recording.id);
+	const run = library.transcriptionRun(recording.id);
+	expect(run?.state.kind).toBe('failed');
+	return { key: run!.key, id: recording.id };
+}
+
+test('a request whose connection was edited since it was prepared is not sent there, and says where it moved', async () => {
+	const opened = await fixture({
+		transcribe: async () => Err({ message: 'busy, try later' }),
+	});
+	const { test, library } = opened;
+	const failed = await failedOnce(opened);
+	expect(test.transcribed).toHaveLength(1);
+
+	await test.connections.update(test.connectionId, {
+		baseUrl: 'http://127.0.0.1:18081/v1',
+	});
+	expect(await library.runAgain(failed.key)).toBeUndefined();
+
+	const state = library.transcriptionRun(failed.id)?.state;
+	expect(state?.kind).toBe('failed');
+	expect(state?.kind === 'failed' && state.message).toContain(
+		`prepared for Test endpoint at ${TEST_BASE_URL}, which now sends to http://127.0.0.1:18081/v1, so nothing was sent`,
+	);
+	expect(test.transcribed).toHaveLength(1);
+});
+
+test('a request whose connection was removed since it was prepared is not sent anywhere else, and names it', async () => {
+	const opened = await fixture({
+		transcribe: async () => Err({ message: 'busy, try later' }),
+	});
+	const { test, library } = opened;
+	const failed = await failedOnce(opened);
+
+	await test.connections.remove(test.connectionId);
+	expect(await library.runAgain(failed.key)).toBeUndefined();
+
+	const state = library.transcriptionRun(failed.id)?.state;
+	expect(state?.kind === 'failed' && state.message).toContain(
+		'Test endpoint is no longer set up, so nothing was sent',
+	);
+	expect(test.transcribed).toHaveLength(1);
+	// Nothing is chosen at an endpoint that is gone, so a new request is refused before it starts.
+	expect(await library.transcribe(failed.id)).toContain(
+		'not set up on this device',
+	);
 });
 
 test('a transformation of a transcript, and of pasted text, keeps its result once answered', async () => {

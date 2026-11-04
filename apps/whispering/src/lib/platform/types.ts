@@ -8,33 +8,21 @@
  *   few components that speak of it.
  * - `#platform/variant` (`Variant`): which build this is, where only a
  *   sentence differs.
- * - `#platform/services` (`CreateServices`): capture, inference,
- *   connections, and preferences, which own no files.
+ * - `#platform/services` (`CreateServices`): capture, the endpoints models
+ *   are reached at, and preferences, which own no files.
  * - `#platform/auth` (`PlatformAuth`): the optional sign-in with Epicenter.
  */
 import type { AuthClient } from '@epicenter/account';
 import type { ReactiveAuthClient } from '@epicenter/account/svelte';
+import type { Endpoint } from '@epicenter/ai';
+import type { ModelChoices } from '@epicenter/ai/choices';
+import type { AiConnections } from '@epicenter/ai/connections';
 import type { Client } from '@epicenter/definition/contract';
 import type { ReactiveClient } from '@epicenter/svelte/client';
 import type { Component, Snippet } from 'svelte';
-import type { Result } from 'wellcrafted/result';
 import type { CaptureDevice } from '../capture.js';
-import type {
-	ConnectionChange,
-	ConnectionDefaults,
-	ConnectionsInfo,
-	Operation,
-} from '../connections.js';
 import type { Whispering } from '../contract.js';
 import type { MicrophonePreferences } from '../microphone-preference.js';
-import type {
-	PreparedTranscription,
-	TranscriptionError,
-} from '../transcription.js';
-import type {
-	PreparedTransformation,
-	TransformationError,
-} from '../transformation.js';
 
 /**
  * Which Whispering this build is: the local web app over this browser's
@@ -50,7 +38,7 @@ export type Variant = 'local' | 'desktop';
  * the web; on the desktop the AppData root and then the data folder, or the
  * recovery screen. `Chrome` is the header's account of the store (where the
  * recordings are, and on the desktop whether Epicenter syncs them). `Settings`
- * is what only this build's settings have, above the connections, or null.
+ * is what only this build's settings have, above the models, or null.
  * `Callback` is the page that ends a sign-in, which only the web app makes.
  */
 export type Platform = {
@@ -79,50 +67,8 @@ export type WhisperingServices = {
 	 * are constructed.
 	 */
 	readonly capture: CaptureDevice;
-	/**
-	 * Send a recording's audio over the transcription connection, only while
-	 * that connection is still the base URL the request was prepared for.
-	 * Nothing is written by this.
-	 */
-	transcribe(
-		request: PreparedTranscription,
-	): Promise<Result<{ text: string }, TranscriptionError>>;
-	/**
-	 * Send instructions and a text to the text connection's chat endpoint and
-	 * return its answer, only while that connection is still the base URL the
-	 * request was prepared for. Nothing is written by this.
-	 */
-	transform(
-		request: PreparedTransformation,
-	): Promise<Result<{ text: string }, TransformationError>>;
-	/** Where text requests leave from, and what that requires of the endpoint. */
-	readonly transformNote: string;
-	/**
-	 * This device's two connections. Kept outside Whispering's files; what the
-	 * page is told never includes a key.
-	 */
-	readonly connections: {
-		/** Where connections and keys are kept, for the settings form. */
-		readonly storedIn: string;
-		/** Where an unconfigured connection's form starts. Never used for a request. */
-		readonly defaults: ConnectionDefaults;
-		/** Rejects when what is stored cannot be read. */
-		read(): Promise<ConnectionsInfo>;
-		/** Save one connection; a refusal is returned as text. */
-		set(
-			operation: Operation,
-			change: ConnectionChange,
-		): Promise<Result<ConnectionsInfo, string>>;
-		/** Send an operation through the signed-in Epicenter account. */
-		useAccount(operation: Operation): Promise<Result<ConnectionsInfo, string>>;
-		/** Leave the account route to configure a custom endpoint. */
-		useCustom(operation: Operation): Promise<Result<ConnectionsInfo, string>>;
-		/**
-		 * Transcribe on this computer with the active local model. Only the
-		 * desktop app has it.
-		 */
-		useLocal?(operation: Operation): Promise<Result<ConnectionsInfo, string>>;
-	};
+	/** Where this build's models are, besides the person's saved connections. */
+	readonly endpoints: WhisperingEndpoints;
 	/**
 	 * What this device remembers that is neither a file nor a secret. It is
 	 * never written to Whispering's files, so it does not travel with them.
@@ -131,8 +77,34 @@ export type WhisperingServices = {
 };
 
 /**
+ * The endpoints this build merges (ADR-0757), in the order the model picker
+ * lists them: Epicenter's hosted models, the person's saved connections,
+ * then what runs on this computer. Nothing here sends a request until the
+ * person asks, and a probe of this computer runs only while a picker shows.
+ */
+export type WhisperingEndpoints = {
+	/**
+	 * Epicenter's hosted models through the account signed in now. Read again,
+	 * it follows sign-in and sign-out; read in Svelte, it tracks them.
+	 */
+	hosted(): Endpoint;
+	/** Ollama and LM Studio, and on the desktop transcription in this app (`localSpeech`). */
+	readonly local: readonly Endpoint[];
+	/**
+	 * Open the person's saved connections, each a provider's base URL and its
+	 * key: this site's storage on the web, AppData's `connections.md` with each
+	 * key in the credential store on the desktop. Rejects when they cannot be
+	 * opened.
+	 */
+	openConnections(): Promise<AiConnections>;
+	/** Open this device's model choice for transcription and for text, kept beside the microphone's. */
+	openChoices(): ModelChoices;
+	/** Where a saved connection's key is kept, and where its requests leave from. */
+	readonly note: string;
+};
+
+/**
  * Construct the capabilities this build offers over `client`, the store the
- * app keeps its files in, without I/O. Both builds record into `client`; the
- * desktop also transcribes from the folder it opened.
+ * app keeps its files in, without I/O. Both builds record into `client`.
  */
 export type CreateServices = (client: Client<Whispering>) => WhisperingServices;

@@ -137,9 +137,10 @@ test('the services are reached through the seam alone', () => {
 	]);
 });
 
-/** What only the desktop's leaves use of `@epicenter/svelte`: the data folder's sync, and the startup with its recovery screen. */
+/** What only the desktop's leaves use of `@epicenter/svelte`: the data folder's sync and onboarding, and the startup with its recovery screen. */
 const DESKTOP_SVELTE = [
 	'@epicenter/svelte/desktop-startup',
+	'@epicenter/svelte/folder-onboarding',
 	'@epicenter/svelte/folder-sync',
 	'@epicenter/svelte/folder-sync-actions',
 ];

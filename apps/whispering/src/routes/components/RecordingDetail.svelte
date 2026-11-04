@@ -42,6 +42,8 @@
 		onClose?: () => void;
 	} = $props();
 	const whispering = getWhispering();
+	/** The transcription model chosen now, where Transcribe would send. */
+	const transcriber = $derived(whispering.chosen('transcription'));
 	const library = getLibrary();
 
 	// The parent keys this view by the recording.
@@ -163,10 +165,10 @@
 						</dd>
 						<dt class="text-muted-foreground">Transcribes with</dt>
 						<dd class="min-w-0 break-words">
-							{#if whispering.connections?.transcription}
-								{whispering.connections.transcription.model} at {whispering.connections.transcription.source === 'local' ? 'this computer' : whispering.connections.transcription.baseUrl}
+							{#if transcriber.kind === 'ready'}
+								{transcriber.target.model} at {transcriber.target.name}
 							{:else}
-								Not set up
+								No model chosen
 							{/if}
 						</dd>
 						<dt class="text-muted-foreground">ID</dt>

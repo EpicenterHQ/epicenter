@@ -31,8 +31,9 @@ Signing in with Epicenter is optional and grants capabilities only. Read
 - **No migration or compatibility code** (decision 72). Nothing reads an
   earlier build's IndexedDB folder or Yjs store. Do not add a second store
   or a cache of notes.
-- **Capabilities through the seam.** Capture, inference, connections and
-  preferences come from `#platform/services`, auth from `#platform/auth`
+- **Capabilities through the seam.** Capture, the endpoints models are
+  reached at, connections and preferences come from `#platform/services`,
+  auth from `#platform/auth`
   (`src/lib/platform/`). Nothing under `src/` imports Node or Bun, and only
   the desktop leaves import Tauri.
 - **One mounted app lifetime per page.** `WhisperingApp` makes Whispering
@@ -59,10 +60,12 @@ Signing in with Epicenter is optional and grants capabilities only. Read
 - **Provider requests are explicit.** Nothing is sent at launch or after a
   recording without the person asking; post-processing is a button.
 - **A key never reaches the files.** Connections, keys included, stay in
-  this site's `localStorage` (on the desktop, the keychain entry
-  `connections`), and the microphone choice in `localStorage`. A key is never logged
+  this site's `localStorage` (on the desktop, AppData's `connections.md`
+  with each key in the credential store, which only the shell reads), and
+  the model and microphone choices in `localStorage`. A key is never logged
   or written, including inside an error message. A request goes only to the
-  base URL it was prepared for.
+  endpoint it was prepared for, and only while it is still at the address it
+  had then; nothing falls back to another.
 - **Ids are identity.** Never rename a note's file; change its title. Ids come
   from `timeId()`.
 - **Every recording is a microphone take.** Tests fake the microphone in

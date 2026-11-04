@@ -85,7 +85,7 @@
 						<span class="truncate font-medium">{titleOf(entry)}</span>
 					</span>
 					<span class="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-						<span>{model ?? 'The text connection’s model'}</span>
+						<span>{model ?? 'The text model'}</span>
 						{#if results > 0}<span>· {results} {results === 1 ? 'result' : 'results'}</span>{/if}
 					</span>
 				</button>
@@ -98,7 +98,7 @@
 						<Empty.Title>No transformations yet</Empty.Title>
 						<Empty.Description>
 							A transformation is a title and instructions saved as a note in <code class="font-mono">transformations/</code>.
-							It runs with the text connection in Settings. Start from one of these and edit it, or write your own.
+							It runs with the text model chosen in Settings. Start from one of these and edit it, or write your own.
 						</Empty.Description>
 					</Empty.Header>
 					<Empty.Content class="flex-row flex-wrap justify-center">

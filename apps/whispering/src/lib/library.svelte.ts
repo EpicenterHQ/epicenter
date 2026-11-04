@@ -81,7 +81,7 @@ export function createLibrary({
 	whispering,
 	files,
 }: {
-	/** The services, the connections, and whether Whispering is closing. */
+	/** The services, the models, and whether Whispering is closing. */
 	whispering: Whispering;
 	/** The files the pages read and edit. */
 	files: WhisperingFiles;
@@ -186,13 +186,10 @@ export function createLibrary({
 
 	const runs = createRuns({
 		files,
-		transcribe: (request) => whispering.services.transcribe(request),
-		transform: (request) => whispering.services.transform(request),
+		transcribe: whispering.transcribe,
+		transform: whispering.transform,
 		refused,
-		connections: () => ({
-			info: whispering.connections,
-			error: whispering.connectionsProblem,
-		}),
+		chosen: whispering.chosen,
 		resolve: whispering.resolve,
 		deleting,
 	});
@@ -237,7 +234,7 @@ export function createLibrary({
 		get closing() {
 			return whispering.closing;
 		},
-		/** The selected transformation, resolved against the lists and the connection. */
+		/** The selected transformation, resolved against the lists and the text model. */
 		get postProcessing(): PostProcessingChoice {
 			const id = ui.postProcessing;
 			if (id === undefined) return { kind: 'none' };
@@ -373,7 +370,7 @@ export function createLibrary({
 
 		/**
 		 * A new recipe: a title and instructions. It names no model of its own
-		 * (`null`), so it runs with the text connection.
+		 * (`null`), so it runs with the text model.
 		 */
 		async createTransformation({
 			title,

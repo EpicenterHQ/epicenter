@@ -1,7 +1,7 @@
 <!--
 	The header: a live recording, where the recordings are kept (the build's
 	`Chrome`: this browser, or the desktop's data folder and its sync), and
-	Settings, where the connections and the optional sign-in are.
+	Settings, where the models and the optional sign-in are.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -53,7 +53,7 @@
 		<Popover.Root>
 			<Popover.Trigger>
 				{#snippet child({ props })}
-					<Button {...props} variant="ghost" size="icon-sm" tooltip="Connections" aria-label="Settings" data-testid="settings">
+					<Button {...props} variant="ghost" size="icon-sm" tooltip="Models and sign-in" aria-label="Settings" data-testid="settings">
 						<SettingsIcon />
 					</Button>
 				{/snippet}

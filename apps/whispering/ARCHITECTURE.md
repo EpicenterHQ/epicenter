@@ -12,7 +12,8 @@ grants capabilities, never storage
 ```text
 src/lib/contract.ts          the contract (published as static/contract.json)
 src/lib/files.svelte.ts      one client's note lists, and its recordings' audio
-src/lib/whispering.svelte.ts services, connections, microphone, recorder
+src/lib/whispering.svelte.ts services, models, microphone, recorder
+src/lib/inference.ts         a request to a model, and how its failures read
 src/lib/library.svelte.ts    the pages' state over the files: lists, selection, runs, deletion
 src/lib/platform/            what each build decides: root, services, auth, variant (#platform/*)
 src/lib/components/          the variants' startups, header chrome, settings, callbacks
@@ -36,11 +37,11 @@ src-tauri/                   the desktop app's shell
   renders the build's `Callback`, which finishes a web sign-in and loads the
   page it started from.
 - `WhisperingApp.svelte` takes the client and its Svelte state as props. It makes
-  `createWhispering({ client })` (the services, the connections, the
+  `createWhispering({ client })` (the services, the models, the
   microphone and the recorder) and
   `createLibrary({ whispering, files: filesOf(client, files) })`, puts both in
-  context (`setWhispering`, `setLibrary`), awaits `start()` (connections
-  and the saved microphone), renders the frame (sidebar or bottom bar, and
+  context (`setWhispering`, `setLibrary`), awaits `start()` (the model
+  choices, the saved connections and the saved microphone), renders the frame (sidebar or bottom bar, and
   the header with its status line), and disposes both when it leaves.
 
 Nothing below `WhisperingApp` knows which store it is; where only a
@@ -144,16 +145,18 @@ released by choosing, recording, or closing. The choice is kept in
 `runs.svelte.ts` owns transcriptions and recipe runs. A run is keyed by what
 it runs on (`transcriptions:<recording>`, `transformation_runs:<transcript>:<recipe>`,
 `text_runs:<recipe>`), so the same run does not go twice at once, and gets its
-result's id (`timeId`) when it starts. Its state lives in this window:
-`running`, `failed` (Run again resends the same request while the connection
-is still the one it was made for), or `unsaved` (the answer arrived; its note
+result's id (`timeId`) and its target (the endpoint and model chosen then)
+when it starts. Its state lives in this window: `running`, `failed` (Run
+again resends the same request to the same target, and fails with why when
+that endpoint was removed or moved since), or `unsaved` (the answer arrived; its note
 is being created, or why it was not; Save again creates it with the same id
 and sends nothing, and `Occupied` means an earlier save landed). When the
 answer arrives the result note is created in the files with every field
 fixed and the answer as its body, so a result note always holds an answer.
 
 - Transcription reads the audio through `files.readAudio` only once the
-  connection is known to be the one prepared for (`transcription.ts`).
+  target's endpoint is known to be where it was, and checks again before it
+  sends (`inference.ts`).
 - A recipe run sends what the page shows (the recipe and transcript text,
   typing included) or else the notes as listed. `recipe.ts`'s `resolveRecipe`
   is the one decision whether a recipe can run and with what; the Run button,
@@ -161,23 +164,36 @@ fixed and the answer as its body, so a result note always holds an answer.
 - The transcript is never written by a transformation. A result records the
   exact prompt and input it sent.
 
-## Connections and sign-in
+## Models, connections and sign-in
 
-`connections.ts` holds the pure rules; `platform/browser.ts` applies them to
-`localStorage['whispering.connections']`. Each operation is a custom
-connection (base URL, model, optional key; a local endpoint or a provider)
-or the Epicenter account (`account.fetch` to the API's `/v1`). A prepared
-request names the base URL it was prepared for and is refused if the
-connection moved. Keys never reach Whispering's files or logs.
-`settings-draft.svelte.ts` is the one draft of the Settings form, shared by
-the header popover and the transcription control.
+Every model is an endpoint
+([ADR-0757](../../docs/adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)).
+`whispering.svelte.ts` merges, in this order, `hosted(account)` (Epicenter's
+models through the account signed in now), one `custom` endpoint per
+connection the person saved, and what runs on this computer: Ollama and LM
+Studio (`localServers()`), and on the desktop `localSpeech()`. The build
+supplies each through `#platform/services` (`endpoints`): the web keeps
+connections, keys included, in this site's `localStorage` and sends from the
+tab; the desktop keeps them in AppData's `connections.md` with each key in
+the credential store, and sends every one of them, Ollama's and LM Studio's
+included, through the shell's fetch (`connection_fetch`), which adds the key.
+
+The person chooses one model for transcription and one for text
+(`ModelPicker` from `@epicenter/ai/picker`, in `ModelSetting.svelte`, kept by
+`createModelChoices` in `localStorage`); the same picker adds, edits and
+removes a connection. `inference.ts` sends a prepared request through the
+endpoints merged at that moment, to its target alone, and refuses one whose
+endpoint was removed or moved. A refusal before sending says nothing was
+sent; an endpoint that never answered leaves the outcome unknown. Keys never
+reach Whispering's files, logs or errors: an endpoint removes its key from a
+refusal it reads, and on the desktop the shell does.
 
 Signing in is optional and lives in Settings (`AccountStatus.svelte`). The
 OAuth client (`platform/auth.ts`) asks for one resource, the API audience,
 with `openid profile email ai`: what the account route needs. It asks for no
 Git audience and no `folders:*` scope, so its token cannot reach a
 repository (`platform/web-sign-in.postgres.test.ts` checks the Git host
-refuses it). Signing in or out re-reads the connections and changes no file.
+refuses it). Signing in or out merges the endpoints again and changes no file.
 
 ## Deleting
 

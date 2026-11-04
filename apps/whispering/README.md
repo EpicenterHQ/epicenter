@@ -16,7 +16,7 @@ against. Any program that writes the layout is a valid writer.
 | `recordings/<id>.md` | A recording: `title`, `recordedAt`, `durationMs` in front matter, your notes in the body. |
 | `recordings/<id>.<ext>` | Its audio: `m4a` (AAC) or `webm` (Opus) from a browser, `webm` (Opus) from a desktop. |
 | `transcriptions/<id>.md` | A transcript: the `recordingId` it was made from, `createdAt`, `model`, `endpoint`; the transcript is the body. |
-| `transformations/<id>.md` | A transformation: a `title` and an optional `model` (`null` uses the text connection's); its instructions are the body. |
+| `transformations/<id>.md` | A transformation: a `title` and an optional `model` (`null` uses the text model chosen in Settings); its instructions are the body. |
 | `transformation_runs/<id>.md` | A transformation applied to a transcript: what it came from, when, the model and endpoint, and the exact `prompt` and `input` sent; the answer is the body. |
 | `text_runs/<id>.md` | The same, applied to pasted text; it names no recording. |
 | `shortcuts.md` | The desktop app's global shortcut, `toggleRecording` (absent: `CommandOrControl+Shift+;`). The web app has none and leaves it. |
@@ -63,9 +63,9 @@ visit; Chromium, Firefox, and the desktop app never show it
 
 ### Signing in is optional
 
-Signing in with Epicenter, from Settings, grants capabilities only: the
-**Use Epicenter account** connection for transcription and text, which sends
-through Epicenter's hosted API. It never opens a repository, never moves a
+Signing in with Epicenter, from Settings, grants capabilities only:
+Epicenter's models, listed beside every other model for transcription and
+text, which send through Epicenter's hosted API. It never opens a repository, never moves a
 recording, and signing out keeps every one. The app signs in as
 `so.epicenter.whispering` for the server's API audience alone, with
 `openid profile email ai` and no `folders:*` scope
@@ -88,7 +88,8 @@ already saved.
 | Transformations | `/transformations` | The instructions you apply to transcripts or pasted text, and their results. |
 
 The header has the status line, a recorder control on every page but Home,
-and Settings (the two connections and the optional sign-in).
+and Settings (the transcription and text models, their connections, and
+the optional sign-in).
 
 ### Recording
 
@@ -124,11 +125,12 @@ recording's). A result on pasted text is never deleted with a recording.
 
 ### Transcription
 
-**Transcribe** sends the recording's audio over the transcription connection
-and keeps the transcript as a new note when the answer arrives. Nothing is
+**Transcribe** sends the recording's audio to the transcription model and
+keeps the transcript as a new note when the answer arrives. Nothing is
 transcribed until you press it. While the request is out, the recording says
-so. If no answer comes, it says why with **Run again** (the same request,
-only while the connection is still the endpoint it was made for) and
+so. If no answer comes, it says why with **Run again** (the same request, to
+the same endpoint and model, and only while that endpoint is still where it
+was) and
 **Dismiss**. If the answer arrives but cannot be kept, it stays in the window
 with **Save again** (no second request), **Copy**, and **Discard**, and the
 header counts it until then; a reload loses it.
@@ -137,14 +139,14 @@ header counts it until then; a reload loses it.
 
 A transformation is a title and instructions you reuse: clean up dictation,
 summarize, draft an email. **New** offers three starters and an empty one;
-nothing is created until you choose. Where a run is sent is the text
-connection, never the file; a model typed in a transformation is used instead
-of the connection's.
+nothing is created until you choose. Where a run is sent is the text model's
+endpoint, never the file; a model typed in a transformation is sent to that
+endpoint instead of the text model.
 
 Run one from a transcript's **Transform** menu, or from **Try it** on its
 page, on a chosen transcript or on pasted text (no recording needed; the
 pasted text stays while you move around and is written only into a result).
-Running sends one request, `POST <text connection>/chat/completions`, with
+Running sends one request, a chat completion at the text model's endpoint, with
 the instructions as shown (typing included) as the system message and the
 text as the user message. The answer becomes a new result note; the
 transcript is never changed. A result records the exact instructions and text
@@ -163,34 +165,36 @@ Three controls sit beside the microphone on Home:
   level and records nothing. The choice applies to the next recording and is
   kept in this site's `localStorage`, never in Whispering's files.
 - **Transcription model.** The transcription part of Settings, the same
-  draft. The model is a name you type; Whispering keeps no list of models.
+  choice.
 - **Post-processing.** None, or one of your transformations. Choosing sends
   nothing: **Run post-processing** on the latest transcript does, exactly as
   Transform would. A choice that was deleted or cannot run says why.
 
-### Connections
+### Models and connections
 
-Settings has two connections, **Transcription** and **Text**: each a base URL
-(a local endpoint or a provider), the model used when a request names none,
-and an optional key, kept in this site's `localStorage` (the keychain on
-the desktop), never in Whispering's files. Or choose **Use Epicenter
-account**: once you sign in,
-the account supplies the address and authorization (`account.fetch`);
-signed out, it sends nothing and says to sign in.
+Settings chooses two models, **Transcription** and **Text**, from every
+endpoint Whispering can reach (ADR-0757): Epicenter's once you sign in, each
+connection you saved (a provider's base URL and an optional key), Ollama and
+LM Studio when they run on this computer, and on the desktop transcription
+in the app itself. The same picker adds, edits and removes a connection.
+Choices and connections stay on this device, never in Whispering's files:
+in this site's `localStorage`, or on the desktop AppData's `connections.md`
+with each key in the credential store.
 
-- Nothing is sent until a connection is saved; a keyless local endpoint is
-  set up the same way.
-- A request goes only to its connection's base URL, with that connection's
-  key, and is refused, with nothing sent, if the connection changed after it
-  was prepared. A key is kept only for the endpoint it was saved for, never
-  carried by a redirect, and removed from any error that echoes it.
-- The web app's tab sends requests itself, so a custom endpoint must allow
-  the page's origin (CORS). Most hosted providers refuse that; a local endpoint or the
-  Epicenter account works. A key saved here can be read by code running on
-  the site, and the form says so.
-- If an answer stops partway, the request may have been answered with the
-  reply lost; the app says the outcome is unknown and never sends it again on
-  its own.
+- Nothing is sent until you press Transcribe or Run. Choosing a model sends
+  nothing; adding a connection may ask its endpoint which models it serves.
+- A request goes only to the endpoint and model chosen when it was prepared,
+  and is refused, with nothing sent, if that connection was removed or now
+  sends elsewhere. A key is kept only for the endpoint it was saved for,
+  never carried by a redirect, and removed from any error that echoes it.
+- The web app's tab sends requests itself, so a connection's endpoint must
+  allow the page's origin (CORS). Most hosted providers refuse that;
+  Epicenter's models work. A key saved here can be read by code running on
+  the site, and Settings says so.
+- Signed out, Epicenter's models send nothing and say to sign in.
+- If no answer arrives, the request may have been answered with the reply
+  lost; the app says the outcome is unknown and never sends it again on its
+  own.
 
 ## Run it
 
@@ -225,7 +229,7 @@ sees the next start give it a note with the length of what was written;
 offline, it records
 and edits; it shows the
 Safari line in Settings in WebKit and not in Chromium, and the
-Epicenter account route refused until sign-in, then, signed in, sending the
+Epicenter's transcription model refused until sign-in, then, signed in, sending the
 account's API token (to a stub of the API's transcription route) and
 keeping the transcript here, with this browser's files otherwise unchanged
 and no `whispering` repository in `epicenter repos`; signing out keeps
@@ -248,7 +252,7 @@ bun build:whispering:desktop   # a local, unsigned macOS app bundle
 Its Tauri shell derives `~/Epicenter/whispering` and names it the Data root, or
 `~/Epicenter Dev/whispering` in development. The page opens this folder,
 making it when missing for now. Whispering opens its AppData root for shortcut
-overrides. A failed open shows the shared recovery screen with Retry. The
+overrides and the connected endpoints. A failed open shows the shared recovery screen with Retry. The
 status details and Settings show the shell's folder path. **Set up in
 Epicenter** enrolls the folder for local history; connecting a repository
 there enables transfer. Whispering never syncs it itself.
@@ -260,7 +264,7 @@ build-time seams:
 | Seam | Web leaf | Desktop leaf |
 | --- | --- | --- |
 | `#platform/root` | `root.ts`: this browser's storage, "On this browser", the end of a web sign-in | `root.tauri.ts`: the two roots or the recovery screen, the folder's status and sync, the global shortcut, Settings for the folder, local models and the shortcut |
-| `#platform/services` | `browser.ts`: the WebView microphone, `fetch`, `localStorage` | `services.tauri.ts`: the shell's microphone, `send_request`, the keychain, local models |
+| `#platform/services` | `browser.ts`: the WebView microphone, endpoints over the tab's `fetch`, `localStorage` | `services.tauri.ts`: the shell's microphone, endpoints over the shell's fetch, connections in AppData with keys in the credential store, local speech |
 | `#platform/auth` | `auth.ts`: browser OAuth | `auth.tauri.ts`: `createTauriAuth` over `epicenter-account` |
 | `#platform/variant` | `'local'` | `'desktop'`, where only a sentence differs |
 
@@ -279,15 +283,19 @@ whose desktop leaf went missing.
   launch, before any page shows, and given its note there. The recorder names the data folder to the shell by
   its root's name (`rootOf` from `@epicenter/folder/tauri`); the shell
   refuses a root the page did not open.
-- **Transcription** goes to a custom endpoint, sent from Rust
-  (`send_request`, `src-tauri/src/http.rs`, so no endpoint needs CORS), to
-  Epicenter's hosted API through the account's relay (`account_fetch`, whose
-  token the page never holds), or to a local model with **Use this
-  computer** (`@epicenter/transcription`, models administered in
-  Settings), which reads the recording's file in place.
-- **Connections and keys** are one keychain entry, `connections`
-  (`keychain` from `@epicenter/account/tauri`). A debug build started with
-  `EPICENTER_SECRETS_FILE=<path>` keeps them in that file instead.
+- **Requests** to a connection, and to Ollama and LM Studio, leave from
+  Rust through the shell's one fetch (`connection_fetch` in
+  `epicenter-account`), which adds a connection's key and sends only to the
+  endpoint it was saved for, so no endpoint needs CORS; Epicenter's go
+  through the account's relay (`account_fetch`, whose token the page never
+  holds); transcription on this computer runs in the app
+  (`localSpeech()` from `@epicenter/transcription`, models downloaded in
+  Settings), which takes the recording's audio as an upload.
+- **Connections** are AppData's `connections.md`, with no key in it, and
+  **keys** are credential-store entries, one per connection
+  (`createKeychainConnections` from `@epicenter/ai/tauri`). A debug build
+  started with `EPICENTER_SECRETS_FILE=<path>` keeps the keys in that file
+  instead.
 - **Sign-in** is `so.epicenter.whispering.native` through the shared
   [`epicenter-account`](../../packages/tauri-epicenter-account/README.md)
   crate, in the system browser.
@@ -326,8 +334,8 @@ build script declares, and how an accelerator parses.
 - Automatic transcription or transformation. Each is a button you press, so
   nothing is sent to a paid endpoint on its own.
 - Transcription on this computer in the web app, and importing audio files.
-- Transformations beyond one prompt and one request, a provider or model
-  catalog, and a connection or key per transformation.
+- Transformations beyond one prompt and one request, and a connection or
+  key per transformation.
 - Windows and Linux are untested.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces fit.

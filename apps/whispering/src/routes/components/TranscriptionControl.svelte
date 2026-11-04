@@ -8,21 +8,21 @@
 	import SettingsForm from './SettingsForm.svelte';
 
 	/**
-	 * The transcription connection in use, beside the recorder. It opens the
-	 * transcription part of the header's settings, over the same draft. The
-	 * model is typed, not picked from a list: an endpoint is never asked what
-	 * it serves. The recorder owns which option popover is open.
+	 * The transcription model in use, beside the recorder. It opens the
+	 * transcription part of the header's settings, the same choice. The
+	 * recorder owns which option popover is open.
 	 */
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 	let trigger = $state<HTMLElement | null>(null);
 	let content = $state<HTMLElement | null>(null);
 
 	const whispering = getWhispering();
-	const connection = $derived(whispering.connections?.transcription);
+	const chosen = $derived(whispering.chosen('transcription'));
+	const ready = $derived(chosen.kind === 'ready');
 	const summary = $derived(
-		connection
-			? `Transcription model: ${connection.model}, ${connection.source === 'local' ? 'on this computer' : `at ${connection.baseUrl}`}`
-			: 'Transcription is not set up. Set up its connection to transcribe.',
+		chosen.kind === 'ready'
+			? `Transcription model: ${chosen.target.model}, at ${chosen.target.name}`
+			: 'No transcription model is chosen. Choose one to transcribe.',
 	);
 	let hinting = $state(false);
 </script>
@@ -42,7 +42,7 @@
 							aria-label={summary}
 							data-testid="transcription-control"
 						>
-							<AudioLinesIcon class={connection ? 'text-success brightness-75 dark:brightness-100' : 'text-warning'} />
+							<AudioLinesIcon class={ready ? 'text-success brightness-75 dark:brightness-100' : 'text-warning'} />
 						</Button>
 					{/snippet}
 				</Popover.Trigger>
