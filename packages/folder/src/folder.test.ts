@@ -195,7 +195,7 @@ describe('a startup job made beside the folder', () => {
 				const updated = await folder.todos.update(
 					{ id: todo.id },
 					{ title: 'Untitled' },
-					{ over: todo.version },
+					{ base: todo },
 				);
 				if (updated.error !== null) return updated;
 				finished++;

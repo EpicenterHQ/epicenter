@@ -4,6 +4,11 @@
 	While it opens, a spinner; when it failed, Recovery with the typed error,
 	whose Retry is the failure's own `retry()`; once it is closed, nothing.
 
+	It is also the page's leave guard: while the folder is `saving()`,
+	leaving the page asks first (a browser's "Leave site?"). Closing a
+	desktop window does not ask the page, so a local write still out then is
+	a small, rare loss at the edge (ADR-0702).
+
 	The pages sit in one plain `<svelte:boundary>`: a page that throws shows
 	a page error with Try again, never the folder's Recovery, and this
 	component catches nothing of the folder's.
@@ -12,14 +17,15 @@
 	<WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
 	```
 
-	`folder` is the app's folder as `fromClient` adapts it, the same value
-	the pages read.
+	`folder` is the app's folder as `reactive` adapts it, the same value the
+	pages read.
 -->
 <script lang="ts">
-	import type { FolderLifecycle, FolderState } from '@epicenter/folder/core';
+	import type { FolderLifecycle } from '@epicenter/folder/core';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
-	import type { Snippet } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
+	import { on } from 'svelte/events';
 	import Recovery from './recovery.svelte';
 
 	let {
@@ -29,21 +35,26 @@
 	}: {
 		/** The app's name, as people know it (`Todos`). */
 		app: string;
-		/** The folder, adapted by `fromClient`: its state tracks. */
-		folder: {
-			readonly state: FolderState;
-			readonly reveal: FolderLifecycle['reveal'];
-		};
+		/** The folder, adapted by `reactive`: its state tracks. */
+		folder: Pick<FolderLifecycle, 'state' | 'saving' | 'reveal'>;
 		/** The pages, once the folder is open. */
 		children: Snippet;
 	} = $props();
+
+	const state = $derived(folder.state());
+
+	onMount(() =>
+		on(window, 'beforeunload', (event) => {
+			if (folder.saving()) event.preventDefault();
+		}),
+	);
 </script>
 
-{#if folder.state.status === 'opening'}
+{#if state.status === 'opening'}
 	<Loading class="h-dvh" />
-{:else if folder.state.status === 'failed'}
-	<Recovery {app} error={folder.state.error} retry={folder.state.retry} reveal={folder.reveal} />
-{:else if folder.state.status === 'open'}
+{:else if state.status === 'failed'}
+	<Recovery {app} error={state.error} retry={state.retry} reveal={folder.reveal} />
+{:else if state.status === 'open'}
 	<svelte:boundary>
 		{@render children()}
 		{#snippet failed(error, reset)}

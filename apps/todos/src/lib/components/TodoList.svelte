@@ -16,7 +16,7 @@
 	import TodoRow from './TodoRow.svelte';
 
 	const { todos } = folder;
-	const shown = $derived(todos.items.toSorted(openFirst));
+	const shown = $derived(todos.items().toSorted(openFirst));
 
 	let {
 		open,
@@ -79,7 +79,7 @@
 			{#each shown as todo (todo.id)}
 				<TodoRow {todo} selected={open === todo.id} {onOpen} />
 			{:else}
-				{#if !todos.loading}
+				{#if !todos.loading()}
 					<li>
 						<Empty.Root>
 							<Empty.Title>No todos yet</Empty.Title>
@@ -90,15 +90,15 @@
 			{/each}
 		</ul>
 
-		{#if todos.invalid.length > 0}
+		{#if todos.invalid().length > 0}
 			<!-- Not todos the list can edit: each opens with its text, to repair or delete. -->
 			<section class="max-h-[40%] shrink-0 overflow-y-auto border-t bg-destructive/5 px-3 py-2 text-xs" aria-label="Needs repair">
 				<p class="flex items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
-					{todos.invalid.length === 1 ? 'This file does' : 'These files do'} not read as a todo. Todos keeps {todos.invalid.length === 1 ? 'its' : 'their'} text as it is.
+					{todos.invalid().length === 1 ? 'This file does' : 'These files do'} not read as a todo. Todos keeps {todos.invalid().length === 1 ? 'its' : 'their'} text as it is.
 				</p>
 				<ul class="mt-1 space-y-1.5">
-					{#each todos.invalid as note (note.id)}
+					{#each todos.invalid() as note (note.id)}
 						<li class="flex items-start gap-2" data-invalid={note.id}>
 							<div class="min-w-0 flex-1">
 								<code class="font-mono break-anywhere">{note.path}</code>
