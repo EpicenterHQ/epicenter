@@ -586,7 +586,7 @@ Two habits make the link hard to forget:
 | [0325](0325-a-database-is-bound-to-one-authority-and-re-homing-is-export-and-import.md) | A database is bound to one authority, and re-homing is export and import | Accepted (the binding and the refusal are built in the browser; export and import are unbuilt; amends 0262 at server selection) |
 | [0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) | The deployment names the authority, and a person never types one | Accepted (unbuilt in part; amends 0262 and 0071; amended by 0334, 0335, and 0549) |
 | [0327](0327-undelivered-work-is-an-outbox-and-that-is-where-a-failure-appears.md) | Undelivered work is an outbox, and that is where a failure appears | Accepted (unbuilt; amends 0323 at where an outcome lands) |
-| [0328](0328-epicenter-runs-when-you-log-in-and-pause-is-the-only-control-it-offers.md) | Epicenter runs when you log in, and Pause is the only control it offers | Accepted (unbuilt; amends 0323 at the per-application pause) |
+| [0328](0328-epicenter-runs-when-you-log-in-and-pause-is-the-only-control-it-offers.md) | Epicenter runs when you log in, and Pause is the only control it offers | Accepted (unbuilt; amends 0323 at the per-application pause; amended by 0750 at login and Pause for sync) |
 | [0329](0329-frontmatter-round-trips-and-the-body-only-renders-out.md) | Frontmatter round-trips, and the body only renders out | Accepted (unbuilt; amends 0271 at the write direction for values only) |
 | [0330](0330-an-agent-uses-the-surfaces-a-person-uses.md) | An agent uses the surfaces a person uses | Accepted (unbuilt; SQL to read, frontmatter to edit, TypeScript to build; no agent API) |
 | [0331](0331-whispering-authenticates-with-an-oauth-bearer-on-every-surface.md) | Whispering authenticates with an OAuth bearer on every surface; the web build keeps its own origin | Accepted (amended by 0230 and 0549) |
@@ -909,13 +909,13 @@ When you add an ADR, add its row here.
 | [0710](0710-an-apps-slug-names-everything-a-program-reads.md) | An app's slug names everything a program reads | Superseded by 0722 |
 | [0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md) | A folder names its app's contract in a committed AGENTS.md note | Accepted (amends 0700) |
 | [0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) | An app's folder resolves against a fixed library root | Accepted (amends 0670 and 0701) |
-| [0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) | One Epicenter engine per machine syncs every app's folder | Accepted (amends 0642; amended by 0733) |
+| [0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) | One Epicenter engine per machine syncs every app's folder | Accepted (amends 0642; amended by 0733, 0750, and 0751) |
 | [0714](0714-a-files-extension-decides-how-every-folder-merges-it.md) | A file's extension decides how every folder merges it | Superseded by 0734 |
 | [0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) | The Epicenter app browses every folder and document a person has | Accepted (amends 0635 and 0701; amended by 0721 and 0736) |
 | [0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md) | Agents edit a document through one-shot CLI commands | Accepted |
 | [0717](0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md) | An Epicenter app is a site that publishes a contract | Superseded by 0723 |
-| [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Accepted (amends 0642 and 0700; amended by 0721, 0731, 0732, and 0733) |
-| [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Accepted (supersedes 0627; amended by 0730, 0731, and 0741) |
+| [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Accepted (amends 0642 and 0700; amended by 0721, 0731, 0732, 0733, and 0751) |
+| [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Accepted (supersedes 0627; amended by 0730, 0731, 0741, and 0751) |
 | [0720](0720-you-sign-in-a-machine-not-an-app.md) | You sign in a machine, not an app | Superseded by 0731 (amended 0549 and 0701) |
 | [0721](0721-an-apps-folder-is-derived-never-stored.md) | An app's folder is derived, never stored | Accepted (amends 0700, 0701, 0711, 0712, 0715, 0718; amended by 0725, 0726, 0728, 0735, and 0736) |
 | [0722](0722-an-apps-names-derive-from-its-sites-host.md) | An app's names derive from its site's host | Accepted (supersedes 0710) |
@@ -929,7 +929,7 @@ When you add an ADR, add its row here.
 | [0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) | Everything not derived from an app's site is one of five stored kinds | Accepted (amends 0719) |
 | [0731](0731-every-app-signs-in-as-its-site.md) | Every app signs in as its site | Accepted (supersedes 0720; amends 0549, 0606, 0701, and 0719; amended by 0732 and 0740) |
 | [0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) | A grant reaches what the person chooses at consent | Accepted (amends 0718 and 0731) |
-| [0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) | Your own git in an Epicenter folder is plain Git | Accepted (amends 0565, 0713, and 0718; amended by 0748) |
+| [0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) | Your own git in an Epicenter folder is plain Git | Accepted (amends 0565, 0713, and 0718; amended by 0748 and 0751) |
 | [0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) | Every file other than a note is kept whole in Git LFS | Accepted (supersedes 0714) |
 | [0735](0735-sync-gives-files-a-history-it-never-merges-two.md) | Sync gives files a history; it never merges two | Accepted (amends 0700 and 0721) |
 | [0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) | A folder outside the library is enrolled through a link the person names | Accepted (amends 0715 and 0721) |
@@ -941,8 +941,11 @@ When you add an ADR, add its row here.
 | [0742](0742-items-are-what-you-keep-documents-are-whats-live.md) | Items are what you keep; documents are what's live | Accepted (amends 0705) |
 | [0743](0743-tabs-keeps-saved-tabs-as-items-in-a-collection.md) | Tabs keeps saved tabs as items in a collection | Accepted (supersedes 0724) |
 | [0744](0744-sync-diffs-state-because-agents-edit-state.md) | Sync diffs state, because agents edit state | Accepted |
-| [0745](0745-a-browser-extension-writes-through-the-local-epicenter-engine.md) | A browser extension writes through the local Epicenter engine | Accepted (amends 0227 and 0700) |
+| [0745](0745-a-browser-extension-writes-through-the-local-epicenter-engine.md) | A browser extension writes through the local Epicenter engine | Accepted (amends 0227 and 0700; amended by 0750) |
 | [0746](0746-the-web-is-online-offline-needs-an-installed-app.md) | The web is online; offline needs an installed app | Accepted |
-| [0747](0747-git-runs-only-as-git-on-the-desktop.md) | Git runs only as Git, on the desktop | Accepted |
-| [0748](0748-epicenter-ships-a-portable-git-inside-the-app.md) | Epicenter ships a portable Git inside the app | Accepted (amends 0733) |
-| [0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) | Epicenter draws its boundaries where people already expect them | Accepted |
+| [0747](0747-git-runs-only-as-git-on-the-desktop.md) | Git runs only as Git, on the desktop | Accepted (amended by 0751) |
+| [0748](0748-epicenter-ships-a-portable-git-inside-the-app.md) | Epicenter ships a portable Git inside the app | Superseded by 0751 |
+| [0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) | Epicenter draws its boundaries where people already expect them | Accepted (amended by 0750) |
+| [0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) | Sync is like save: any program can sync a folder, and none owns it | Accepted (amends 0328, 0713, 0745, and 0749) |
+| [0751](0751-every-native-app-carries-one-sync-core.md) | Every native app carries one sync core | Accepted (supersedes 0748; amends 0713, 0718, 0719, 0733, and 0747) |
+| [0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) | An app's folder sits under the platform's visible root of app folders | Accepted |

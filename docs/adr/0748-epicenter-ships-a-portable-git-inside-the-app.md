@@ -1,7 +1,8 @@
 # 0748. Epicenter ships a portable Git inside the app
 
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0751](0751-every-native-app-carries-one-sync-core.md): every native app links one sync core over libgit2, so no Git program ships and no license review of distributing GPLv2 Git is needed.
 - **Amends:** [ADR-0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) at "Epicenter requires the system's `git`" and its setup step that triggers the platform's installer: Epicenter ships a portable Git with Git LFS inside the app, uses it for its own runs, and shows no installer prompt; and at "Epicenter ships `git-lfs` inside the app": that `git-lfs` is the one in the bundle.
 - **Relates:** [ADR-0747](0747-git-runs-only-as-git-on-the-desktop.md) (Git runs only as Git), [ADR-0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) (one engine per machine), [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (a desktop clone needs `git` and `git-lfs`).
 - **Unbuilt:** all of it: the bundle inside the app for each platform; `locateGit` returning it; removing the search for a system `git` and `GitMissingError`'s installer messages. It ships only after a license review of distributing GPLv2 Git as a separate program: the license text in the app, and the source of the exact build made available.

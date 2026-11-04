@@ -1,7 +1,7 @@
 # One sync core on every native platform
 
 **Date**: 2026-11-04
-**Status**: Draft
+**Status**: In Progress
 **Owner**: Epicenter
 
 ## One sentence
@@ -14,11 +14,18 @@ This is a working document for a design conversation. It gathers what
 2026-11-04 settled, the requirements that remain, and the recomposition, so
 the reasoning can be reread later.
 
-**Adopted as the direction (2026-11-04), gated on the libgit2 spike**
-(branch `claude/spike-sync-core`): every native app carries one Rust sync
-core. It becomes a record once the spike answers; until then ADR-0713 and
-ADR-0748 stand. Tabs keeps its items flat in its folder
-(`~/Epicenter/tabs/<id>.md`, contract path `{id}.md`).
+**Decided (2026-11-04).** The libgit2 spike (branch
+`claude/spike-sync-core`, commits `8dc6d63ed0` to `ca35dbe098`) answered,
+and the founder accepted three records:
+
+| Record | Decision |
+| --- | --- |
+| [ADR-0750](../docs/adr/0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) | Sync is like save: any program can sync a folder, and none owns it |
+| [ADR-0751](../docs/adr/0751-every-native-app-carries-one-sync-core.md) | Every native app carries one sync core (supersedes ADR-0748; amends ADR-0713) |
+| [ADR-0752](../docs/adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) | An app's folder sits under the platform's visible root of app folders |
+
+What remains here is the plan for building them. Tabs keeps its items flat
+in its folder (`~/Epicenter/tabs/<id>.md`, contract path `{id}.md`).
 
 ## What is already settled
 
@@ -37,8 +44,11 @@ ADR-0748 stand. Tabs keeps its items flat in its folder
 | A browser extension writes through the local Epicenter engine | ADR-0745 |
 | The web is online; offline needs an installed app | ADR-0746 |
 | Git runs only as Git, on the desktop | ADR-0747 |
-| Epicenter ships a portable Git inside the app, after a license review | ADR-0748 |
+| Epicenter ships a portable Git inside the app (superseded by ADR-0751) | ADR-0748 |
 | Epicenter draws its boundaries where people already expect them | ADR-0749 |
+| Sync is like save: any program can sync a folder, and none owns it | ADR-0750 |
+| Every native app carries one sync core | ADR-0751 |
+| An app's folder sits under the platform's visible root of app folders | ADR-0752 |
 
 Experiments already run and retired, with the record that retired them:
 
@@ -206,10 +216,13 @@ consent screen in every app; the napi and iOS build matrix.
 
 `keep_synced` handles made app code babysit a syncing object, which is sync
 as a role again. Instead `folder.sync()` runs one round, and the shell that
-already opens the Data root decides when: after a save (debounced), every 30
-seconds, on reconnect, and on "Sync now". That timing lives once in the core.
-App code contains no sync code; Epicenter's shell runs the same loop over
-every consented library folder; the CLI runs one round or `--watch`. A
+already opens the Data root decides when. The timer and reconnect first
+proposed here were dropped: ADR-0750 settles the moments as open, a few
+seconds after a save, return to the window, and Sync, with no watcher,
+interval, or background service. That timing lives once, in
+`tauri-plugin-epicenter`. App code contains no sync code; Epicenter's shell
+runs a round over every consented library folder at the same moments; the
+CLI runs one round, or `--watch` for a person in a terminal. A
 program's account is fixed for its lifetime and passed once to
 `Folder::open`, so `sync()` takes no arguments.
 
@@ -240,18 +253,74 @@ The native host stays the CLI subcommand `epicenter native-host`.
   App Group root waits for the first phone use that needs another app's data
   offline.
 
-## Open questions
+## Questions this document asked, and their answers
 
-1. Is "every app carries the sync core" the right reversal of ADR-0713, or
-   does one engine per machine still earn its place?
-2. Does `settle` move to Rust now, or when the phone app arrives?
-3. Does the bundled portable Git (just approved) ship first as a stopgap, or
-   does a libgit2 spike go first?
-4. On a phone, do Epicenter's own apps share one App Group root?
+1. Every app carries the sync core, reversing ADR-0713 (ADR-0751).
+2. `settle` moves to Rust in the core's first commits; the server keeps the
+   TypeScript `settle` until a single source is wanted (ADR-0751).
+3. The libgit2 spike went first, and the portable Git never ships (ADR-0751
+   supersedes ADR-0748).
+4. One folder per app on a phone; an App Group root waits (ADR-0752).
 
-## Spikes before any decision
+## Plan
 
-1. libgit2 core: clone, commit, fetch, merge with `settle` (ported or called),
-   LFS upload and download, push, against the hosted server, from a Rust test
-   and from Bun through napi-rs.
-2. The same core in a Tauri iOS simulator build.
+Each step is a set of standalone commits. The spike's code on
+`claude/spike-sync-core` (`packages/sync-core`) is the starting point, not a
+dependency.
+
+### 1. The core's first commits
+
+In `epicenter-core`, each closing an item of ADR-0751's `Unbuilt` line:
+
+1. **Transport.** A Rust smart-HTTP transport registered with libgit2 in
+   place of its HTTPS: one TLS stack, no OpenSSL (5.5 MiB to 2.5 MiB for the
+   addon), and the blocker for iOS removed.
+2. **Async binding.** The Node-API binding runs a round off Bun's event
+   loop, so `epicenter native-host` keeps answering during a round.
+3. **Repack.** libgit2 cannot `gc`; the core keeps a folder's loose objects
+   bounded itself. The spike already writes a round's objects as one pack
+   (`bf40d8d988`).
+4. **Lock and recheck.** The round holds `.git/epicenter-sync.lock`, taken
+   the same way `packages/cli/src/sync/sync.ts` takes it while both exist
+   (`fcntl` locks on Linux), and rechecks the working tree before merging,
+   so a save that lands during a round is not overwritten.
+5. **Git LFS settings.** The core writes `filter.lfs.clean`,
+   `filter.lfs.smudge`, `filter.lfs.process`, and `filter.lfs.required`
+   (ADR-0733), so a person's own `git` reads the folder.
+6. **Paths.** Paths that differ only in case, and renames, which reach
+   `settle` as two new items.
+7. **`settle` in Rust.** A port of `packages/definition/src/merge`, with its
+   TypeScript tests (including `settle.properties.test.ts`) run as shared
+   fixtures against both.
+8. **iOS build.** The core in a Tauri iOS simulator build. Blocked on the
+   development machine until `rustup` is installed.
+
+### 2. Wiring
+
+1. **`tauri-plugin-epicenter`.** Replaces
+   `packages/tauri-plugin-epicenter-folder`: the shell's list, read, put, and
+   watch commands, `Folder::open`, and the moments of ADR-0750 (open, a few
+   seconds after the last save, window focus, Sync).
+2. **The CLI on the core.** `epicenter sync` and `epicenter native-host`
+   load the core through Node-API; the Git runner in `packages/cli/src/sync`
+   retires.
+3. **The Epicenter app on the core.** It syncs every consented folder in the
+   library at its moments through the plugin, and its CLI spawning is
+   deleted: `apps/epicenter/src-tauri/src/cli.rs` and
+   `apps/epicenter/src-tauri/src/synced_folders.rs`.
+4. **Agents.** The generated `AGENTS.md` block
+   (`packages/folder/src/agents-note.ts`) tells agents to run
+   `epicenter sync <dir>` before they start and after they finish.
+
+### 3. Phase 2's remaining work, on `Folder`
+
+Move, Restore, and sign-in, recast on the core's `Folder`
+(`Folder::open`, `preview_sync`, `turn_on_sync`, `sync`) instead of the
+CLI's commands. Each app shows sign-in and the first-contact consent screen
+itself (ADR-0735, ADR-0751).
+
+### 4. Tabs
+
+The extension plus its native host, `epicenter native-host`, writing a flat
+folder: `~/Epicenter/tabs/<id>.md`, contract path `{id}.md`. The host syncs
+after the extension's saves and on its Sync button (ADR-0750).

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
+- **Amended by:** [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) at the "when sync runs" row: people expect sync where they expect save, so it runs when an app opens, after a save, on return to its window, and on request.
 - **Relates:** [ADR-0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) (the principles this explains), [ADR-0741](0741-epicenter-reconciles-only-states-it-made.md) (a refusal names the command that resolves it).
 
 ## Context
