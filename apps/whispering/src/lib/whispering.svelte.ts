@@ -1,6 +1,6 @@
 /**
- * Whispering for one mounted page: the services, the connections, the
- * microphone, and the recorder. What the files show is the library's
+ * Whispering for one mounted page: the services, the models it can reach,
+ * the microphone, and the recorder. What the files show is the library's
  * (`library.svelte.ts`); both write through the same client, which the
  * variant root chose (`#platform/root`'s `Startup`).
  *
@@ -15,29 +15,52 @@
  * Recording never waits on the network, and nothing kept here ever moves
  * (ADR-0700).
  *
+ *
+ * The models are one merge of endpoints (`openAi`, ADR-0757): Epicenter's
+ * hosted models through the account signed in now, the connections the
+ * person saved with their keys, then what runs on this computer. The person
+ * chooses one model for transcription and one for text; a request captures
+ * that choice when it is prepared and goes there alone (`inference.ts`).
+ *
  * Closing waits for nothing here: `dispose` refuses new work and late
  * answers and returns. A recording under way ends with the page.
  */
+import { type ModelChoice, openAi } from '@epicenter/ai';
+import type { ModelChoices } from '@epicenter/ai/choices';
+import type {
+	AiConnectionSnapshot,
+	AiConnections,
+} from '@epicenter/ai/connections';
+import { fromAi } from '@epicenter/ai/svelte';
 import type { Client } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
 import { holdLeave } from '@epicenter/svelte/leave-guard';
 import { createContext } from 'svelte';
+import type { Result } from 'wellcrafted/result';
 import { createServices } from '#platform/services';
 import type { Capture } from './capture.js';
-import type {
-	ConnectionChange,
-	ConnectionsInfo,
-	Operation,
-} from './connections.js';
 import type { Whispering as WhisperingContract } from './contract.js';
 import { finishCutOffRecordings, keepRecording } from './folder-recordings.js';
+import {
+	type Audio,
+	addressOf,
+	type Target,
+	transcribeAt,
+	transformAt,
+} from './inference.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import {
+	type Chosen,
 	type RecipeRow,
 	type ResolvedRecipe,
 	resolveRecipe,
 } from './recipe.js';
-import { createSettingsDraft } from './settings-draft.svelte.js';
+
+/** What a model is chosen for: transcribing a recording, or running a transformation on text. */
+export type Operation = 'transcription' | 'text';
+
+/** What a model must be able to do to be chosen for each operation. */
+export const CAN = { transcription: 'transcribe', text: 'chat' } as const;
 
 export const STOPPED = 'Whispering stopped before it finished starting.';
 
@@ -75,30 +98,131 @@ export function createWhispering({
 	/** Why nothing new starts now, if it does not. */
 	const refused = () => (disposed ? CLOSING : undefined);
 
-	// --- connections, microphone -------------------------------------------------
+	// --- models, microphone -------------------------------------------------
 
-	/** What the device has set up, never a key; undefined until read or when the read failed. */
-	let connections = $state.raw<ConnectionsInfo | undefined>();
+	/** The person's saved connections, once opened; their keys never reach this page on the desktop. */
+	let connections = $state.raw<AiConnections | null>(null);
+	let records = $state.raw<readonly AiConnectionSnapshot[]>([]);
 	let connectionsError = $state<string | undefined>();
+	let stopRecords: (() => void) | undefined;
 	let connectionReadId = 0;
+	let choices: ModelChoices | undefined;
+	let stopChoices: (() => void) | undefined;
+	let chosenModels = $state.raw<Record<Operation, ModelChoice | null>>({
+		transcription: null,
+		text: null,
+	});
 
-	function resolve(recipe: RecipeRow | undefined): ResolvedRecipe {
-		return resolveRecipe(recipe, connections?.text, connectionsError);
+	/** Every endpoint merged now, in the picker's order. Signing in or saving a connection merges again. */
+	const merged = $derived.by(() => {
+		const saved = connections;
+		return openAi([
+			services.endpoints.hosted(),
+			...(saved ? records.map((record) => saved.endpoint(record)) : []),
+			services.endpoints.local,
+		]);
+	});
+	const ai = $derived(fromAi(merged));
+
+	/** The model chosen for `operation` now, as where a request would go, or why there is none. */
+	function chosen(operation: Operation): Chosen {
+		const choice = chosenModels[operation];
+		if (choice === null)
+			return {
+				kind: 'unset',
+				reason:
+					operation === 'transcription'
+						? 'No transcription model is chosen, so nothing was sent. Choose one in Settings, then transcribe.'
+						: 'Choose a text model in Settings to run this.',
+			};
+		const endpoint = merged
+			.endpoints()
+			.find((candidate) => candidate.id === choice.endpoint);
+		if (endpoint === undefined)
+			return {
+				kind: 'unset',
+				reason: `The ${operation} model chosen, ${choice.model}, is at an endpoint that is not set up on this device${
+					connectionsError === undefined
+						? ''
+						: ` (the saved connections could not be read: ${connectionsError})`
+				}. Choose a model in Settings.`,
+			};
+		const target: Target = {
+			endpoint: endpoint.id,
+			model: choice.model,
+			name: endpoint.name,
+			address: addressOf(endpoint),
+		};
+		return { kind: 'ready', target };
 	}
 
+	function resolve(recipe: RecipeRow | undefined): ResolvedRecipe {
+		return resolveRecipe(recipe, chosen('text'));
+	}
+
+	/** Open the saved connections, or open them again after a failed read. */
 	async function readConnections() {
 		const current = ++connectionReadId;
 		try {
-			const read = await services.connections.read();
-			if (disposed || current !== connectionReadId) return;
-			connections = read;
+			const opened = await services.endpoints.openConnections();
+			if (disposed || current !== connectionReadId) {
+				void opened.close();
+				return;
+			}
+			stopRecords?.();
+			void connections?.close();
+			connections = opened;
+			stopRecords = opened.subscribe((next) => {
+				records = next;
+			});
 			connectionsError = undefined;
 		} catch (cause) {
 			if (disposed || current !== connectionReadId) return;
-			connections = undefined;
 			connectionsError = describe(cause);
 		}
 	}
+
+	/** Read this device's model choices, and follow them as they change. */
+	function readChoices() {
+		const opened = services.endpoints.openChoices();
+		choices = opened;
+		const read = () => {
+			chosenModels = {
+				transcription: opened.get('transcription'),
+				text: opened.get('text'),
+			};
+		};
+		read();
+		stopChoices = opened.onChange(read);
+	}
+
+	/** Choose the model `operation` uses from now on. Nothing is sent. */
+	function choose(
+		operation: Operation,
+		choice: ModelChoice,
+	): string | undefined {
+		const why = refused();
+		if (why !== undefined) return why;
+		if (choices === undefined) return STOPPED;
+		try {
+			choices.set(operation, choice);
+			return undefined;
+		} catch (cause) {
+			return describe(cause);
+		}
+	}
+
+	/** Send audio to `target`, through the endpoints merged when it is sent. */
+	const transcribe = (
+		target: Target,
+		audio: () => Promise<Result<Audio, string>>,
+	) => transcribeAt(() => merged, target, audio);
+
+	/** Send a transformation to `target`, through the endpoints merged when it is sent. */
+	const transform = (
+		target: Target,
+		request: { prompt: string; input: string },
+	) => transformAt(() => merged, target, request);
 
 	/** A capture under way, writing recording `id`'s audio. */
 	type Take = { id: string; capture: Capture };
@@ -200,47 +324,22 @@ export function createWhispering({
 				.join('; ')}. Move the other file, and the next start adds it.`;
 	}
 
-	async function saveConnection(
-		operation: Operation,
-		change: ConnectionChange,
-	) {
-		const why = refused();
-		if (why !== undefined) return why;
-		try {
-			const { data: saved, error } = await services.connections.set(
-				operation,
-				change,
-			);
-			if (error !== null) return error;
-			if (!disposed) {
-				connections = saved;
-				connectionsError = undefined;
-			}
-			return undefined;
-		} catch (cause) {
-			return describe(cause);
-		}
-	}
-
 	function dispose(): void {
 		if (disposed) return;
 		disposed = true;
 		input.close();
+		stopRecords?.();
+		void connections?.close();
+		stopChoices?.();
+		choices?.[Symbol.dispose]();
 		if (captureState.phase === 'starting') {
 			captureState.attempt.abort();
 			captureState = { phase: 'idle' };
 		}
 	}
 
-	const settings = createSettingsDraft(
-		services.connections.defaults,
-		() => connections,
-		saveConnection,
-	);
-
 	return {
 		services,
-		settings,
 		/** Whether the sidebar is open on a wide window. */
 		get sidebarOpen() {
 			return sidebarOpen;
@@ -248,19 +347,32 @@ export function createWhispering({
 		set sidebarOpen(open: boolean) {
 			sidebarOpen = open;
 		},
-		/** What this device has set up for requests, never a key. */
+		/** Every model this page can reach now, for the picker; tracks in Svelte. */
+		get ai() {
+			return ai;
+		},
+		/** The person's saved connections, once opened, for the picker to add, edit and remove. */
 		get connections() {
 			return connections;
 		},
+		/** Why the saved connections could not be opened, if they could not. */
 		get connectionsProblem() {
 			return connectionsError;
 		},
+		/** The model chosen for `operation`, or null when none is. */
+		choice(operation: Operation): ModelChoice | null {
+			return chosenModels[operation];
+		},
+		choose,
+		chosen,
 		/**
 		 * Whether a recipe can run now, and with what: the one decision the Run
 		 * button, the post-processing choice, a transcript's menu, and the run
 		 * itself all use. Undefined is a recipe whose note does not read.
 		 */
 		resolve,
+		transcribe,
+		transform,
 		/** Why nothing new starts now, if it does not: Whispering is closing. */
 		refused,
 		/** The microphone the next recording uses, and the test of it. */
@@ -274,15 +386,17 @@ export function createWhispering({
 			return disposed;
 		},
 		/**
-		 * Read the connections and the saved microphone choice, and complete
-		 * the recordings a quit, a crash, or a closed tab cut off. The app
-		 * shows its pages once this has answered, so nothing lists, plays, or
-		 * transcribes a recording before it is complete.
+		 * Read the model choices, the saved connections and the saved
+		 * microphone choice, and complete the recordings a quit, a crash, or a
+		 * closed tab cut off. Nothing is sent to an endpoint. The app shows its
+		 * pages once this has answered, so nothing lists, plays, or transcribes
+		 * a recording before it is complete.
 		 */
 		start(): Promise<void> {
 			starting ??= (async () => {
 				try {
 					if (disposed) throw new Error(STOPPED);
+					readChoices();
 					await readConnections();
 					// The saved choice only: no microphone is opened or listed at launch.
 					if (disposed) throw new Error(STOPPED);
@@ -365,16 +479,7 @@ export function createWhispering({
 		/** Stop: the microphone is released, the audio finished at its path, and its note written. */
 		stopRecording: finishRecording,
 
-		// ------------------------------------------------------------------
-		// Connections
-		// ------------------------------------------------------------------
-
-		/**
-		 * Save one connection on this device. Nothing is sent to the endpoint
-		 * and nothing is written to Whispering's files.
-		 */
-		saveConnection,
-		/** Read the connections again, as after a failed read. */
+		/** Open the saved connections again, as after a failed read. */
 		readConnections,
 	};
 }

@@ -71,7 +71,7 @@
 <section class="flex flex-col gap-2 text-xs" data-testid="desktop-models">
 	<p class="text-sm font-medium">On this computer</p>
 	<p class="text-muted-foreground">
-		Transcribe without sending audio anywhere: download a model, make it active, then choose “Use this computer” for transcription.
+		Transcribe without sending audio anywhere: download a model here, then choose it for Transcription below, where it is listed under On this computer.
 	</p>
 	<LocalModelAdministration />
 </section>

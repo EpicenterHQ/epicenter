@@ -6294,12 +6294,9 @@ dependencies = [
 name = "whispering"
 version = "7.11.1"
 dependencies = [
- "base64 0.22.1",
  "epicenter-account",
  "epicenter-standalone",
  "epicenter-transcription-build",
- "reqwest 0.12.28",
- "serde",
  "serde_json",
  "tauri",
  "tauri-build",
@@ -6307,7 +6304,6 @@ dependencies = [
  "tauri-plugin-epicenter-recorder",
  "tauri-plugin-epicenter-transcription",
  "tauri-plugin-global-shortcut",
- "tokio",
  "transcribe-cpp",
 ]
 

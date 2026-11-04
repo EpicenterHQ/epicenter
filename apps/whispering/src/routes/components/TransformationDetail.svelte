@@ -58,7 +58,9 @@
 	);
 	/** The one decision about this recipe, as it is shown; Run decides again from the same recipe. */
 	const resolved = $derived(whispering.resolve(shown));
-	const connection = $derived(whispering.connections?.text);
+	/** The text model chosen now: where a run sends. */
+	const text = $derived(whispering.chosen('text'));
+	const target = $derived(text.kind === 'ready' ? text.target : undefined);
 	/** Saved results on transcripts and on pasted text, newest first. */
 	const outputs = $derived(
 		[
@@ -66,11 +68,11 @@
 			...library.textOutputsOf(own).map((item) => ({ source: 'text' as const, note: item })),
 		].sort((a, b) => b.note.createdAt.localeCompare(a.note.createdAt)),
 	);
-	/** The model a run would use: this transformation's own, or the text connection's. */
-	const model = $derived(modelText.trim() || connection?.model.trim() || undefined);
-	/** Whether the model and connection notes are open; a fix that needs them opens them. */
+	/** The model a run would use: this transformation's own, or the text model. */
+	const model = $derived(modelText.trim() || target?.model || undefined);
+	/** Whether the model notes are open; a fix that needs them opens them. */
 	let notesOpen = $state(false);
-	let connectionOpen = $state(false);
+	let modelOpen = $state(false);
 
 	/**
 	 * Saved transcripts with text, newest first, named by their recording.
@@ -155,21 +157,21 @@
 	}
 
 	/**
-	 * The text connection's settings close on their own when saving them
-	 * changes why Run is unavailable, and take the focused form with them. Focus
+	 * The text model's settings close on their own when choosing one changes
+	 * why Run is unavailable, and take the focused picker with them. Focus
 	 * goes to Run when it can run now, or else to what still stops it, unless
 	 * something else has taken focus meanwhile. `from` is what had focus in the
 	 * settings as they closed.
 	 */
 	$effect.pre(() => {
-		if (!connectionOpen || fix === 'connection') return;
+		if (!modelOpen || fix === 'model') return;
 		const from = document.activeElement;
-		connectionOpen = false;
+		modelOpen = false;
 		if (from === null || from === document.body || from.closest('[data-slot="popover-content"]'))
-			void focusAfterConnectionSaved(from);
+			void focusAfterModelChosen(from);
 	});
 
-	async function focusAfterConnectionSaved(from: Element | null) {
+	async function focusAfterModelChosen(from: Element | null) {
 		await tick();
 		const focused = document.activeElement;
 		if (focused !== null && focused !== document.body && focused !== from) return;
@@ -242,10 +244,10 @@
 						{#snippet child({ props })}
 							<Button {...props} variant="ghost" size="sm" class="group -ml-2 max-w-full text-muted-foreground" data-testid="transformation-notes">
 								<ChevronRightIcon class="transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none" />
-								Model and connection
-								<span class={['truncate font-normal', (whispering.connectionsProblem || !connection || !model) && 'text-destructive']}>
+								Model
+								<span class={['truncate font-normal', (!target || !model) && 'text-destructive']}>
 									· {model ?? 'no model named'} ·
-									{whispering.connectionsProblem ? 'the text connection could not be read' : (connection?.baseUrl ?? 'no text connection')}
+									{target?.name ?? 'no text model chosen'}
 								</span>
 							</Button>
 						{/snippet}
@@ -257,27 +259,25 @@
 								<Input
 									id="transformation-model"
 									bind:value={() => modelText, (value) => (recipe.fields.model = value.trim() === '' ? null : value)}
-									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
+									placeholder={target ? `The text model: ${target.model}` : 'The text model'}
 									autocomplete="off"
 									spellcheck={false}
 									data-testid="transformation-model"
 								/>
 							{:else}
-								<p class="text-sm" data-testid="transformation-model-text">{modelText || 'The text connection’s model'}</p>
+								<p class="text-sm" data-testid="transformation-model-text">{modelText || 'The text model'}</p>
 							{/if}
 							<Field.Description>
-								Leave empty to use the text connection’s model. Typed exactly as the endpoint names it; Whispering keeps no list of models.
+								Leave empty to use the text model. A model typed here is sent to the text model’s endpoint, named exactly as that endpoint names it.
 							</Field.Description>
 						</Field.Field>
 						<div class="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="transform-note">
-							{#if connection}
-								<p>Sends to the text connection: {connection.baseUrl}.</p>
-							{:else if whispering.connectionsProblem}
-								<p class="text-destructive">The text connection could not be read: {whispering.connectionsProblem}</p>
+							{#if text.kind === 'ready'}
+								<p>Sends to {text.target.name}: {text.target.address}.</p>
 							{:else}
-								<p>No text connection is set up. Set one up in Settings to run this.</p>
+								<p class="text-destructive">{text.reason}</p>
 							{/if}
-							<p>{whispering.services.transformNote}</p>
+							<p>{whispering.services.endpoints.note}</p>
 							<p>
 								A result on a transcript is saved as a new note in <code class="font-mono">transformation_runs/</code>, and a result on
 								pasted text in <code class="font-mono">text_runs/</code>, when its answer arrives. The text it came from is never changed.
@@ -357,12 +357,12 @@
 					{#if blocked}
 						<div class="flex flex-wrap items-center gap-2">
 							<p bind:this={blockedReason} class="text-xs text-muted-foreground" tabindex="-1" data-testid="run-blocked">{blocked}</p>
-							{#if fix === 'connection'}
-								<Popover.Root bind:open={connectionOpen}>
+							{#if fix === 'model'}
+								<Popover.Root bind:open={modelOpen}>
 									<Popover.Trigger>
 										{#snippet child({ props })}
-											<Button {...props} size="xs" variant="outline" data-testid="set-up-text-connection">
-												{whispering.connectionsProblem ? 'Text connection settings' : 'Set up the text connection'}
+											<Button {...props} size="xs" variant="outline" data-testid="choose-text-model">
+												Choose the text model
 											</Button>
 										{/snippet}
 									</Popover.Trigger>
@@ -371,7 +371,7 @@
 										class="max-h-(--bits-popover-content-available-height) w-80 max-w-[calc(100vw-1rem)] overflow-y-auto"
 										onCloseAutoFocus={(event) => {
 											// Escape or a click outside: the trigger is still here and takes focus back.
-											if (fix === 'connection') return;
+											if (fix === 'model') return;
 											event.preventDefault();
 										}}
 									>

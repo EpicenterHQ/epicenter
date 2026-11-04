@@ -92,7 +92,7 @@
 							<span class="flex min-w-0 flex-col">
 								<span class="truncate">{transformationName(item)}</span>
 								{#if resolved.kind === 'blocked'}
-									<span class="text-xs text-muted-foreground">{resolved.fix === 'recipe' ? 'Needs repair' : 'Text connection not set up'}</span>
+									<span class="text-xs text-muted-foreground">{resolved.fix === 'recipe' ? 'Needs repair' : 'No text model chosen'}</span>
 								{/if}
 							</span>
 						</DropdownMenu.Item>

@@ -7,7 +7,7 @@
  *   browser, `webm` from the desktop (`wav` when it could not encode one).
  * - A transcription is a note naming its recording, the transcript as body.
  * - A transformation is a reusable title and instructions (the body), with an
- *   optional model of its own (`null` uses the text connection's).
+ *   optional model of its own (`null` uses the text model chosen in Settings).
  * - Applying one writes a result: on a transcript in `transformation_runs/`,
  *   on pasted text in `text_runs/`. Each keeps the prompt and input it sent,
  *   with the answer as its body, so it reads the same after anything it came
@@ -22,8 +22,9 @@
  *   computer may override it in its own AppData `shortcuts.md`
  *   (`settings.tauri.ts`); the web app has no global shortcut and leaves it.
  *
- * Its connections (where requests go, and their keys) and the chosen
- * microphone belong to a device, so they stay out of its files.
+ * The models it uses, its connections (where requests go, and their keys)
+ * and the chosen microphone belong to a device, so they stay out of its
+ * files.
  *
  * The app's site names its repository `~/whispering` for a
  * folder Epicenter syncs, such as the desktop app's, built later; the web

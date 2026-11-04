@@ -211,7 +211,7 @@ async function open(id: string) {
 	await expect(detail()).toHaveAttribute('data-recording-id', id);
 }
 
-/** Open Settings, where the connections and the optional sign-in are; Escape closes it. */
+/** Open Settings, where the models, their connections and the optional sign-in are; Escape closes it. */
 async function settings() {
 	await page.getByTestId('settings').click();
 	await expect(account()).toBeVisible();
@@ -226,9 +226,23 @@ test('1. on this browser, a recording is kept as its audio and note, edited, tra
 	await emptyOpfs(page);
 	await page.evaluate((baseUrl) => {
 		localStorage.clear();
+		// One saved connection, keyless, chosen for transcription, as Settings
+		// would save them.
 		localStorage.setItem(
-			'whispering.connections',
-			JSON.stringify({ transcription: { baseUrl, model: 'whisper-1' } }),
+			'epicenter/ai.app-ai-connections',
+			JSON.stringify({
+				version: 1,
+				connections: [
+					{ id: 'stub', name: 'Stub', baseUrl, models: ['whisper-1'] },
+				],
+			}),
+		);
+		localStorage.setItem(
+			'whispering/ai.model-choices',
+			JSON.stringify({
+				version: 1,
+				choices: { transcription: { endpoint: 'stub', model: 'whisper-1' } },
+			}),
 		);
 	}, TRANSCRIBE);
 	await page.goto(app);
@@ -409,18 +423,28 @@ test('4. signing in enables hosted transcription and moves nothing', async ({
 	await expect(page.getByTestId('eviction-note')).toHaveCount(
 		browserName === 'webkit' && !persisted ? 1 : 0,
 	);
-	await page
-		.getByTestId('connection-transcription')
-		.getByRole('button', { name: 'Use Epicenter account' })
-		.click();
-	await expect(
-		page.getByTestId('connection-transcription-status'),
-	).toContainText(`${stack.origin}/v1`);
+	await page.keyboard.press('Escape');
+	// Epicenter's transcription model, chosen while signed out, as a choice
+	// kept from an earlier sign-in is.
+	await page.evaluate(() =>
+		localStorage.setItem(
+			'whispering/ai.model-choices',
+			JSON.stringify({
+				version: 1,
+				choices: { transcription: { endpoint: 'hosted', model: 'whisper-1' } },
+			}),
+		),
+	);
+	await page.reload();
+	await settings();
+	await expect(page.getByTestId('model-transcription-status')).toContainText(
+		'whisper-1 at Epicenter',
+	);
 	await page.keyboard.press('Escape');
 	await open(kept);
 	await detail().getByTestId('transcribe').click();
 	await expect(detail().getByTestId('run-error')).toContainText(
-		'Sign in to Epicenter',
+		'Sign in to use Epicenter',
 	);
 	expect(sent).toEqual([]);
 	await detail().getByTestId('dismiss-run').click();

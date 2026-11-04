@@ -2,41 +2,66 @@
  * Desktop Services Tests
  *
  * Whispering's desktop services (`services.tauri.ts`) over a stand-in shell:
- * Tauri's `invoke` answers from memory, so the keychain, the account's
- * commands and the request sender are each one map or one function here,
- * and the local models and the recorder are stand-ins for their packages.
+ * Tauri's `invoke` answers from memory, so the credential store, the
+ * account's commands, the shell's fetch and the transcription plugin are
+ * each one map or one function here. AppData is a real directory
+ * (`openDevice` from `@epicenter/folder/node`), and the recorder is a
+ * stand-in for its package.
  *
  * Key behaviors:
- * - Connections and keys live in the keychain, under `connections`, never in
- *   the page's storage, and the page is never told a key
- * - A custom endpoint's request leaves through the shell (`send_request`)
- *   with its key; the account's goes through the account's relay
- *   (`account_fetch`) with no token from the page
- * - Local transcription runs the recording's file in the data folder with
- *   the active model; a request prepared for one route never goes to another
+ * - A saved connection is listed in AppData's `connections.md` with no key,
+ *   its key is in the credential store, and the page is never told it
+ * - A connection's request leaves through the shell by its id, which adds
+ *   the key; the page sends none
+ * - Epicenter's models go through the account's relay (`account_fetch`)
+ *   with no token from the page
+ * - Ollama and LM Studio are looked for through the shell with no key
+ * - Transcription on this computer takes the uploaded audio
  * - The shell's microphone records `recordings/<id>` in the data folder and
  *   repairs by ids, with each repaired recording's length
  */
-import { afterEach, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, expect, mock, test } from 'bun:test';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openAi } from '@epicenter/ai';
 import type { Client } from '@epicenter/definition/contract';
-import { Ok } from 'wellcrafted/result';
-import { expectErr, expectOk } from 'wellcrafted/testing';
+import { openDevice } from '@epicenter/folder/node';
+import { Ok, unwrap } from 'wellcrafted/result';
+import { expectOk } from 'wellcrafted/testing';
 import type { Whispering } from '../contract.js';
+import { whisperingSettings } from '../settings.tauri.js';
 
 const ORIGIN = 'http://localhost:8787';
-const ROOT = 'Data';
 
-/** The keychain's entries, by the page's name. */
+/** The credential store's entries, by the page's name. */
 const keychain = new Map<string, string>();
 /** Every command the page sent, with its arguments. */
 const sent: { command: string; args?: Record<string, unknown> }[] = [];
-/** What `send_request` was asked to send. */
-const relayed: { url: string; method: string; headers: [string, string][] }[] =
-	[];
-let models = [{ id: 'whisper-base', installed: true, active: true }];
-let transcribed: unknown[] = [];
+/** The requests the shell was asked to send, as the page described them. */
+const relayed: {
+	command: string;
+	connection?: string | null;
+	url: string;
+	headers: [string, string][];
+}[] = [];
 
 type Listener = (message: unknown) => void;
+
+/** Answer a relayed request on its channel: a head, the body, the end. */
+function answer(args: Record<string, unknown> | undefined, body: unknown) {
+	const onEvent = args?.onEvent as { onmessage: Listener };
+	queueMicrotask(() => {
+		onEvent.onmessage({
+			kind: 'head',
+			status: 200,
+			headers: [['content-type', 'application/json']],
+		});
+		onEvent.onmessage([...new TextEncoder().encode(JSON.stringify(body))]);
+		onEvent.onmessage({ kind: 'end' });
+	});
+	return null;
+}
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
@@ -44,11 +69,7 @@ mock.module('@tauri-apps/api/core', () => ({
 		constructor(public onmessage?: Listener) {}
 	},
 	transformCallback: () => 0,
-	invoke: async (
-		command: string,
-		args?: Record<string, unknown>,
-		options?: { headers?: Record<string, string> },
-	) => {
+	invoke: async (command: string, args?: Record<string, unknown>) => {
 		sent.push({ command, args });
 		switch (command) {
 			case 'keychain_get':
@@ -57,79 +78,55 @@ mock.module('@tauri-apps/api/core', () => ({
 						.filter((name) => keychain.has(name))
 						.map((name) => [name, keychain.get(name)]),
 				);
-			case 'keychain_set':
-				keychain.set(args?.name as string, args?.value as string);
+			case 'keychain_set': {
+				const value = args?.value as string | null;
+				if (value === null) keychain.delete(args?.name as string);
+				else keychain.set(args?.name as string, value);
 				return null;
+			}
 			case 'account_state':
 				return {
 					origin: ORIGIN,
 					signedIn: { origin: ORIGIN, principalId: 'person-1' },
 					refused: false,
 				};
-			case 'account_fetch': {
-				const onEvent = args?.onEvent as { onmessage: Listener };
-				const body = [
-					...new TextEncoder().encode('{"text":"Heard by Epicenter."}'),
-				];
-				queueMicrotask(() => {
-					onEvent.onmessage({
-						kind: 'head',
-						status: 200,
-						headers: [['content-type', 'application/json']],
-					});
-					onEvent.onmessage(body);
-					onEvent.onmessage({ kind: 'end' });
-				});
-				return null;
-			}
-			case 'send_request': {
-				relayed.push(
-					JSON.parse(
-						decodeURIComponent(
-							options?.headers?.['x-whispering-request'] ?? '',
-						),
-					),
-				);
-				return {
-					status: 200,
-					statusText: 'OK',
-					headers: [['content-type', 'application/json']],
-					body: btoa(JSON.stringify({ text: 'Sent through the shell.' })),
+			case 'account_fetch':
+			case 'connection_fetch': {
+				const request = args?.request as {
+					connection?: string | null;
+					url: string;
+					headers: [string, string][];
 				};
+				relayed.push({ command, ...request });
+				if (request.url.endsWith('/models'))
+					return answer(args, { data: [{ id: 'llama3' }] });
+				return answer(args, { text: `Heard through ${command}.` });
 			}
+			case 'plugin:epicenter-transcription|list_inference_models':
+				return [{ id: 'whisper-base', installed: true, active: false }];
+			case 'plugin:epicenter-transcription|transcribe_audio':
+				return {
+					outcome: 'transcribed',
+					text: ' Heard here. ',
+					modelId: 'whisper-base',
+					applied: { language: null, initialPrompt: false },
+				};
 			default:
 				throw new Error(`Unexpected command ${command}`);
 		}
 	},
 }));
 
-mock.module('@epicenter/transcription/bindings', () => ({
-	commands: {
-		listInferenceModels: async () => models,
-		transcribeFile: async (modelId: string, root: string, path: string) => {
-			transcribed.push({ modelId, root, path });
-			return {
-				data: {
-					outcome: 'transcribed',
-					text: ' Heard here. ',
-					modelId,
-					applied: {},
-				},
-				error: null,
-			};
-		},
-	},
+/** AppData, a real directory. */
+const appData = await mkdtemp(join(tmpdir(), 'whispering-appdata-'));
+afterAll(() => rm(appData, { recursive: true, force: true }));
+mock.module('@epicenter/folder/tauri', () => ({
+	openAppData: async () =>
+		Ok(unwrap(await openDevice(whisperingSettings, { path: appData }))),
 }));
 
-/** The data folder's client, by the root it was opened at. */
+/** The data folder's client; the services only hand it to the recorder. */
 const dataFolder = {} as Client<Whispering>;
-mock.module('@epicenter/folder/tauri', () => ({
-	rootOf: (client: unknown) => {
-		if (client !== dataFolder)
-			throw new Error('expected a client openDevice from /tauri returned');
-		return ROOT;
-	},
-}));
 
 /** What the recorder was asked to start or repair. */
 const started: unknown[] = [];
@@ -167,162 +164,143 @@ mock.module('@epicenter/recorder/tauri', () => ({
 	},
 }));
 
-const { createServices, LOCAL_ENDPOINT } = await import('./services.tauri.js');
+const { createServices } = await import('./services.tauri.js');
+const { authReady } = await import('./auth.tauri.js');
 
 afterEach(() => {
 	keychain.clear();
 	sent.length = 0;
 	relayed.length = 0;
 	started.length = 0;
-	transcribed = [];
-	models = [{ id: 'whisper-base', installed: true, active: true }];
 });
 
-const audio = async () =>
-	Ok({
-		bytes: new Uint8Array([1, 2, 3]),
-		filename: 'a.wav',
-		mimeType: 'audio/wav',
-	});
+const upload = () =>
+	new File([new Uint8Array([1, 2, 3])], 'a.webm', { type: 'audio/webm' });
 
-const custom = {
-	baseUrl: 'http://localhost:9000/v1',
-	model: 'whisper-1',
-	key: { action: 'replace', key: 'sk-secret' },
-} as const;
-
-test('a connection and its key are kept in the keychain, and the page is told no key', async () => {
-	const { connections } = createServices(dataFolder);
-	const saved = expectOk(await connections.set('transcription', custom));
-	expect(saved.transcription).toMatchObject({
+test('a saved connection is listed in AppData with no key, its key is in the credential store, and the page is never told it', async () => {
+	const connections =
+		await createServices(dataFolder).endpoints.openConnections();
+	const id = await connections.add({
+		name: 'Speaches',
 		baseUrl: 'http://localhost:9000/v1',
-		keyPresent: true,
+		apiKey: 'sk-secret',
+		models: ['whisper-1'],
 	});
-	expect(JSON.stringify(saved)).not.toContain('sk-secret');
-	expect(JSON.parse(keychain.get('connections')!).transcription.apiKey).toBe(
-		'sk-secret',
-	);
+	const note = await readFile(join(appData, 'connections.md'), 'utf8');
+	expect(note).toContain('http://localhost:9000/v1');
+	expect(note).not.toContain('sk-secret');
+	expect(JSON.parse(keychain.get(id) ?? 'null')).toEqual({
+		endpoint: 'http://localhost:9000/v1',
+		key: 'sk-secret',
+	});
+	expect(connections.getAll()).toEqual([
+		{
+			id,
+			name: 'Speaches',
+			baseUrl: 'http://localhost:9000/v1',
+			models: ['whisper-1'],
+			hasApiKey: true,
+		},
+	]);
+	await connections.remove(id);
+	await connections.close();
 });
 
-test('a custom transcription leaves through the shell with its key', async () => {
-	const services = createServices(dataFolder);
-	await services.connections.set('transcription', custom);
-	const answer = expectOk(
-		await services.transcribe({
-			audio,
-			expectedBaseUrl: 'http://localhost:9000/v1',
-			model: 'whisper-1',
+test('a connection’s request leaves through the shell by its id, which adds the key; the page sends none', async () => {
+	const connections =
+		await createServices(dataFolder).endpoints.openConnections();
+	const id = await connections.add({
+		baseUrl: 'http://localhost:9000/v1',
+		apiKey: 'sk-secret',
+		models: ['whisper-1'],
+	});
+	const [record] = connections.getAll();
+	const ai = openAi([connections.endpoint(record!)]);
+	sent.length = 0;
+	expect(
+		expectOk(
+			await ai.transcribe({ endpoint: id, model: 'whisper-1', file: upload() }),
+		),
+	).toEqual({ text: 'Heard through connection_fetch.' });
+	expect(relayed).toEqual([
+		expect.objectContaining({
+			command: 'connection_fetch',
+			connection: id,
+			url: 'http://localhost:9000/v1/audio/transcriptions',
+		}),
+	]);
+	expect(
+		relayed[0]!.headers.some(
+			([name]) => name.toLowerCase() === 'authorization',
+		),
+	).toBe(false);
+	expect(JSON.stringify(sent)).not.toContain('sk-secret');
+	await connections.remove(id);
+	await connections.close();
+});
+
+test('Epicenter’s models go through the account’s relay with no token from the page', async () => {
+	await authReady();
+	const hosted = createServices(dataFolder).endpoints.hosted();
+	expect(hosted.baseUrl).toBe(`${ORIGIN}/v1`);
+	const ai = openAi([hosted]);
+	expect(
+		expectOk(
+			await ai.transcribe({
+				endpoint: 'hosted',
+				model: 'whisper-1',
+				file: upload(),
+			}),
+		),
+	).toEqual({ text: 'Heard through account_fetch.' });
+	expect(relayed.map(({ command, url }) => ({ command, url }))).toEqual([
+		{ command: 'account_fetch', url: `${ORIGIN}/v1/audio/transcriptions` },
+	]);
+});
+
+test('Ollama and LM Studio are looked for through the shell with no key', async () => {
+	const { local } = createServices(dataFolder).endpoints;
+	expect(local.map(({ id }) => id)).toEqual([
+		'ollama',
+		'lm-studio',
+		'local-speech',
+	]);
+	const ollama = local[0]!;
+	await new Promise<void>((resolve) => {
+		const stop = ollama.subscribe?.(() => {
+			stop?.();
+			resolve();
+		});
+	});
+	expect(ollama.models()).toEqual([{ id: 'llama3', can: ['chat'] }]);
+	expect(relayed).toContainEqual(
+		expect.objectContaining({
+			command: 'connection_fetch',
+			connection: null,
+			url: 'http://localhost:11434/v1/models',
 		}),
 	);
-	expect(answer.text).toBe('Sent through the shell.');
-	expect(relayed[0]?.url).toBe('http://localhost:9000/v1/audio/transcriptions');
-	expect(relayed[0]?.headers).toContainEqual([
-		'authorization',
-		'Bearer sk-secret',
-	]);
 });
 
-test('the account’s transcription goes through the account’s relay, with no token from the page', async () => {
-	const services = createServices(dataFolder);
-	const chosen = expectOk(
-		await services.connections.useAccount('transcription'),
-	);
-	expect(chosen.transcription).toMatchObject({
-		baseUrl: `${ORIGIN}/v1`,
-		source: 'account',
-	});
+test('transcription on this computer takes the uploaded audio', async () => {
+	const ai = openAi([createServices(dataFolder).endpoints.local]);
 	expect(
 		expectOk(
-			await services.transcribe({
-				audio,
-				expectedBaseUrl: `${ORIGIN}/v1`,
-				model: 'whisper-1',
-			}),
-		).text,
-	).toBe('Heard by Epicenter.');
-	const fetched = sent.find(({ command }) => command === 'account_fetch');
-	const request = fetched?.args?.request as {
-		url: string;
-		headers: [string, string][];
-	};
-	expect(request.url).toBe(`${ORIGIN}/v1/audio/transcriptions`);
-	expect(request.headers.some(([name]) => name === 'authorization')).toBe(
-		false,
-	);
-	expect(relayed).toEqual([]);
-});
-
-test('local transcription runs the recording’s file in the data folder, and keeps the custom one to return to', async () => {
-	const services = createServices(dataFolder);
-	await services.connections.set('transcription', custom);
-	const local = expectOk(await services.connections.useLocal!('transcription'));
-	expect(local.transcription).toMatchObject({
-		baseUrl: LOCAL_ENDPOINT,
-		model: 'whisper-base',
-		source: 'local',
-	});
-	expect(
-		expectOk(
-			await services.transcribe({
-				audio,
-				expectedBaseUrl: LOCAL_ENDPOINT,
+			await ai.transcribe({
+				endpoint: 'local-speech',
 				model: 'whisper-base',
-				audioPath: 'recordings/a.wav',
+				file: upload(),
 			}),
-		).text,
-	).toBe('Heard here.');
-	expect(transcribed).toEqual([
-		{ modelId: 'whisper-base', root: ROOT, path: 'recordings/a.wav' },
-	]);
-	expect(relayed).toEqual([]);
-	// A request prepared for the endpoint is not sent to this computer instead.
-	expect(
-		expectErr(
-			await services.transcribe({
-				audio,
-				expectedBaseUrl: 'http://localhost:9000/v1',
-				model: 'whisper-1',
-			}),
-		).name,
-	).toBe('ConnectionChanged');
-	expect(expectErr(await services.connections.useLocal!('text'))).toContain(
-		'Only transcription',
-	);
-	const back = expectOk(await services.connections.useCustom('transcription'));
-	expect(back.transcription).toMatchObject({
-		baseUrl: 'http://localhost:9000/v1',
-		keyPresent: true,
+		),
+	).toEqual({ text: ' Heard here. ' });
+	expect(sent.at(-1)).toEqual({
+		command: 'plugin:epicenter-transcription|transcribe_audio',
+		args: {
+			modelId: 'whisper-base',
+			audio: btoa(String.fromCharCode(1, 2, 3)),
+			hints: { language: null, initialPrompt: null },
+		},
 	});
-});
-
-test('local transcription without an active model says where to get one', async () => {
-	models = [];
-	const services = createServices(dataFolder);
-	await services.connections.useLocal!('transcription');
-	expect(
-		(await services.connections.read()).transcription?.readOnlyReason,
-	).toContain('once a model is chosen');
-	expect(
-		expectErr(
-			await services.transcribe({
-				audio,
-				expectedBaseUrl: LOCAL_ENDPOINT,
-				model: '',
-				audioPath: 'recordings/a.wav',
-			}),
-		).name,
-	).toBe('NotConfigured');
-});
-
-test('what the keychain holds and does not read is never taken for nothing', async () => {
-	keychain.set('connections', 'not json');
-	await expect(createServices(dataFolder).connections.read()).rejects.toThrow(
-		'credential store',
-	);
-	expectErr(
-		await createServices(dataFolder).connections.set('transcription', custom),
-	);
-	expect(keychain.get('connections')).toBe('not json');
 });
 
 test('the shell’s microphone records recordings/<id> into the data folder’s device, and recovery answers every finished recording by id', async () => {

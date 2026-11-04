@@ -1,37 +1,33 @@
 /**
  * Services for tests: this browser's files, a fixture capture device that
- * keeps a generated tone as every recording, and stubbed endpoints. Nothing
- * here reaches a network, a microphone, or a provider.
+ * keeps a generated tone as every recording, and one saved connection whose
+ * `fetch` is a stub. Nothing here reaches a network, a microphone, or a
+ * provider.
  *
  * The files are the contract's client over a real directory
  * (`@epicenter/folder/node`), as the browser's OPFS holds them, at the same
  * paths.
  *
- * The endpoint stubs are plain functions, so a test decides each answer and
- * counts each request.
+ * The endpoint is a real `custom` endpoint over a plain function standing
+ * where `fetch` would be (ADR-0757), so a test decides each answer and
+ * counts each request while the request itself is built and read as in the
+ * app.
  */
 import { mock } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { hosted } from '@epicenter/ai';
+import { createModelChoices } from '@epicenter/ai/choices';
+import { createAiConnections } from '@epicenter/ai/connections';
 import type { Client } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
 import { audioDurationMs, RecorderError } from '@epicenter/recorder';
-import { Err, Ok, unwrap } from 'wellcrafted/result';
+import { Ok, type Result, unwrap } from 'wellcrafted/result';
 import { extensionOf } from './audio-format.js';
 import type { CaptureDevice } from './capture.js';
-import {
-	applyConnectionChange,
-	type ConnectionsInfo,
-	connectionInfo,
-	connectionTargets,
-	type Operation,
-	type StoredConnection,
-} from './connections.js';
 import { type Whispering, whispering } from './contract.js';
 import type { WhisperingServices } from './platform/types.js';
-import { TranscriptionError } from './transcription.js';
-import { TransformationError } from './transformation.js';
 
 export type FixtureAudio = {
 	readonly name: string;
@@ -137,108 +133,160 @@ export function toneWav({
 	return bytes;
 }
 
-type TransformRequest = Parameters<WhisperingServices['transform']>[0];
-type TranscribeRequest = Parameters<WhisperingServices['transcribe']>[0];
+/** What the stub endpoint received for one transcription. */
+export type TranscribedRequest = {
+	readonly model: string;
+	readonly filename: string;
+	readonly bytes: Uint8Array;
+};
 
-/** The base URL both stub endpoints answer at. */
+/** What the stub endpoint received for one transformation. */
+export type TransformedRequest = {
+	readonly model: string;
+	readonly prompt: string;
+	readonly input: string;
+};
+
+/** The base URL the stub endpoint answers at. */
 export const TEST_BASE_URL = 'http://127.0.0.1:18080/v1';
 
-/**
- * The connections a test device has set up unless a test says otherwise: a
- * keyless local endpoint for each, as a person would configure on purpose.
- */
-export const TEST_CONNECTIONS: Record<Operation, StoredConnection> = {
-	transcription: { baseUrl: TEST_BASE_URL, model: 'verification-model' },
-	text: { baseUrl: TEST_BASE_URL, model: 'connection-model' },
-};
+/** The models a test device has chosen unless a test says otherwise. */
+export const TEST_MODELS = {
+	transcription: 'verification-model',
+	text: 'connection-model',
+} as const;
 
-/**
- * A device's connections, kept in memory by the same rules the host and the
- * browser apply to their storage. `stored` holds the keys, so a test can see
- * where one went; the services member answers as a services does, never
- * with a key.
- */
-export function testConnections({
-	connections = TEST_CONNECTIONS,
-	readOnly = {},
-}: {
-	connections?: Partial<Record<Operation, StoredConnection>>;
-	readOnly?: Partial<Record<Operation, string>>;
-} = {}) {
-	const stored: Partial<Record<Operation, StoredConnection>> = {
-		...connections,
-	};
-	const info = (): ConnectionsInfo => ({
-		transcription:
-			stored.transcription &&
-			connectionInfo(stored.transcription, readOnly.transcription),
-		text: stored.text && connectionInfo(stored.text, readOnly.text),
-	});
-	const member: WhisperingServices['connections'] = {
-		storedIn: 'test',
-		defaults: {
-			transcription: {
-				baseUrl: 'https://api.openai.com/v1',
-				model: 'whisper-1',
-			},
-			text: { baseUrl: 'https://api.openai.com/v1', model: '' },
-		},
-		read: async () => info(),
-		async set(operation, change) {
-			const reason = readOnly[operation];
-			if (reason !== undefined) return Err(reason);
-			const { data: next, error: changeError } = applyConnectionChange(
-				operation,
-				stored[operation],
-				change,
-			);
-			if (changeError !== null) return Err(changeError);
-			stored[operation] = next;
-			return Ok(info());
-		},
-		useAccount: async () => Err('Not in tests'),
-		useCustom: async () => Ok(info()),
-	};
-	return { stored, member };
-}
-
-/**
- * Whether a prepared request would go out over the connection stored now,
- * as the host and the browser decide it: undefined when it would.
- */
-function refusedConnection(
-	stored: StoredConnection | undefined,
-	expectedBaseUrl: string,
-):
-	| { readonly kind: 'missing' }
-	| { readonly kind: 'changed'; readonly configured: string }
-	| undefined {
-	if (stored === undefined) return { kind: 'missing' };
-	if (!connectionTargets(stored, expectedBaseUrl))
-		return { kind: 'changed', configured: stored.baseUrl };
-	return undefined;
-}
+/** An answer as a stub gives it: the text, or why it failed. */
+type StubAnswer = Result<{ text: string }, { message: string }>;
 
 export type TestServicesOptions = {
-	transcribe?: WhisperingServices['transcribe'];
-	transform?: WhisperingServices['transform'];
-	connections?: Partial<Record<Operation, StoredConnection>>;
+	/** How the endpoint answers a transcription; by default a fixed transcript. */
+	transcribe?: (request: TranscribedRequest) => Promise<StubAnswer>;
+	/** How the endpoint answers a transformation; by default the input, marked. */
+	transform?: (request: TransformedRequest) => Promise<StubAnswer>;
 };
 
-/** This browser's files in a temporary directory, and services whose endpoints are stubs. */
+/** A chat completion streamed as server-sent events, as an OpenAI endpoint sends one. */
+function streamed(text: string): Response {
+	const events = [
+		{ choices: [{ index: 0, delta: { content: text }, finish_reason: null }] },
+		{ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+	]
+		.map((event) => `data: ${JSON.stringify(event)}\n\n`)
+		.join('');
+	return new Response(`${events}data: [DONE]\n\n`, {
+		headers: { 'content-type': 'text/event-stream' },
+	});
+}
+
+/** A refusal in the OpenAI error shape. */
+const refused = (message: string) =>
+	Response.json({ error: { message } }, { status: 500 });
+
+/** Memory standing in for this site's storage, which tells every opener of it of each write, as a page's other tabs hear. */
+function memoryStorage() {
+	const values = new Map<string, string>();
+	const listeners = new Set<() => void>();
+	return {
+		getItem: (key: string) => values.get(key) ?? null,
+		setItem(key: string, value: string) {
+			values.set(key, value);
+			for (const listener of [...listeners]) listener();
+		},
+		subscribe(listener: () => void) {
+			listeners.add(listener);
+			return () => void listeners.delete(listener);
+		},
+	};
+}
+
+/**
+ * This browser's files in a temporary directory, and services whose one
+ * endpoint is a saved connection answered by a stub `fetch`, chosen for
+ * transcription and for text. Nothing reaches a network.
+ */
 export async function openTestServices({
 	transcribe,
 	transform,
-	connections,
 }: TestServicesOptions = {}) {
 	const root = await mkdtemp(join(tmpdir(), 'whispering-'));
 	const device = unwrap(
 		await openDevice(whispering, { path: join(root, 'device') }),
 	);
-	const stored = testConnections({ connections });
 
-	const transformed: TransformRequest[] = [];
-	const transcribed: { request: TranscribeRequest; bytes: Uint8Array }[] = [];
+	const transformed: TransformedRequest[] = [];
+	const transcribed: TranscribedRequest[] = [];
+
+	/** The stub endpoint: every request a saved connection sends arrives here. */
+	async function fetch(input: string, init?: RequestInit): Promise<Response> {
+		const request = new Request(input, init);
+		const path = request.url.slice(`${TEST_BASE_URL}/`.length);
+		if (path === 'audio/transcriptions') {
+			const form = await request.formData();
+			const file = form.get('file') as File;
+			const received = {
+				model: String(form.get('model')),
+				filename: file.name,
+				bytes: new Uint8Array(await file.arrayBuffer()),
+			};
+			transcribed.push(received);
+			const answer = transcribe
+				? await transcribe(received)
+				: Ok({ text: 'um so a steady tone' });
+			return answer.error !== null
+				? refused(answer.error.message)
+				: Response.json({ text: answer.data.text });
+		}
+		if (path === 'chat/completions') {
+			const body = (await request.json()) as {
+				model: string;
+				messages: { content: string }[];
+			};
+			const received = {
+				model: body.model,
+				prompt: body.messages[0]!.content,
+				input: body.messages[1]!.content,
+			};
+			transformed.push(received);
+			const answer = transform
+				? await transform(received)
+				: Ok({ text: `Transformed: ${received.input.trim()}` });
+			return answer.error !== null
+				? refused(answer.error.message)
+				: streamed(answer.data.text);
+		}
+		return new Response('Not found', { status: 404 });
+	}
+
+	// Each opening is its own, as each page lifetime opens its own over the
+	// same storage; the test changes them through one more.
+	const saved = memoryStorage();
+	const openConnections = () =>
+		createAiConnections({
+			storage: saved,
+			storageKey: 'test',
+			fetch,
+			subscribeStorage: saved.subscribe,
+		});
+	const connections = openConnections();
+	const connectionId = await connections.add({
+		name: 'Test endpoint',
+		baseUrl: TEST_BASE_URL,
+		models: [TEST_MODELS.transcription, TEST_MODELS.text],
+	});
+	const chosen = memoryStorage();
+	const openChoices = () =>
+		createModelChoices({
+			storage: chosen,
+			storageKey: 'test',
+			subscribeStorage: chosen.subscribe,
+		});
+	const choices = openChoices();
+	choices.set('transcription', {
+		endpoint: connectionId,
+		model: TEST_MODELS.transcription,
+	});
+	choices.set('text', { endpoint: connectionId, model: TEST_MODELS.text });
 
 	const services: WhisperingServices = {
 		capture: createFixtureDevice({
@@ -246,50 +294,13 @@ export async function openTestServices({
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 		}),
-		// Each stub decides the connection as the browser does, at entry, and
-		// reads the audio as it would; only a request that would go out is
-		// counted as sent.
-		async transcribe(request) {
-			const refused = refusedConnection(
-				stored.stored.transcription,
-				request.expectedBaseUrl,
-			);
-			if (refused?.kind === 'missing')
-				return TranscriptionError.ConnectionUnavailable({
-					reason: 'no transcription connection is set up.',
-				});
-			if (refused?.kind === 'changed')
-				return TranscriptionError.ConnectionChanged({
-					expected: request.expectedBaseUrl,
-					configured: refused.configured,
-				});
-			const audio = await request.audio();
-			if (audio.error !== null)
-				return TranscriptionError.AudioUnreadable({ reason: audio.error });
-			transcribed.push({ request, bytes: audio.data.bytes });
-			if (transcribe !== undefined) return transcribe(request);
-			return Ok({ text: 'um so a steady tone' });
+		endpoints: {
+			hosted: () => hosted(null),
+			local: [],
+			openConnections: async () => openConnections(),
+			openChoices,
+			note: 'test',
 		},
-		async transform(request) {
-			const refused = refusedConnection(
-				stored.stored.text,
-				request.expectedBaseUrl,
-			);
-			if (refused?.kind === 'missing')
-				return TransformationError.ConnectionUnavailable({
-					reason: 'no text connection is set up.',
-				});
-			if (refused?.kind === 'changed')
-				return TransformationError.ConnectionChanged({
-					expected: request.expectedBaseUrl,
-					configured: refused.configured,
-				});
-			transformed.push(request);
-			if (transform !== undefined) return transform(request);
-			return Ok({ text: `Transformed: ${request.input.trim()}` });
-		},
-		transformNote: 'test',
-		connections: stored.member,
 		preferences: {
 			microphone: async () => undefined,
 			setMicrophone: async () => undefined,
@@ -303,10 +314,13 @@ export async function openTestServices({
 		services,
 		/** Every transformation request the endpoint stub received, in order. */
 		transformed,
-		/** Every transcription request the endpoint stub received, with the audio it read. */
+		/** Every transcription request the endpoint stub received, with the audio it carried. */
 		transcribed,
-		/** The device's stored connections, keys included. */
-		connections: stored,
+		/** The device's saved connections, as another page of it would change them, and the id of the one the stub answers. */
+		connections,
+		connectionId,
+		/** This device's model choices, as another page of it would change them. */
+		choices,
 		/** Remove the directory. */
 		async remove() {
 			await rm(root, { recursive: true, force: true });

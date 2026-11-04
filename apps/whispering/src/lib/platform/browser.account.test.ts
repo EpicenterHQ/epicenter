@@ -1,4 +1,4 @@
-/** Browser hosted inference uses the same Account.fetch contract as the desktop route. */
+/** Browser hosted inference sends through the signed-in account's `fetch`, as the desktop's does through the shell. */
 import { afterEach, expect, test } from 'bun:test';
 import { epicenterCloud, selfHostedServer } from '@epicenter/account';
 import type { Client } from '@epicenter/definition/contract';
@@ -84,49 +84,33 @@ afterEach(() => {
 	sent.length = 0;
 });
 
-test('a selected account captures its bearer, and switching back restores the custom endpoint', async () => {
+test('Epicenter’s models are sent with the account’s bearer, and signed out nothing is sent', async () => {
 	const browser = createServices(client);
-	expectOk(
-		await browser.connections.set('text', {
-			baseUrl: 'https://custom.test/v1',
-			model: 'custom-model',
-			key: { action: 'replace', key: 'custom-key' },
-		}),
-	);
-	const hosted = expectOk(await browser.connections.useAccount!('text'));
-	expect(hosted.text?.source).toBe('account');
-	expect(hosted.text?.baseUrl).toBe(`${new URL(server.baseURL).origin}/v1`);
-	expect(JSON.stringify(hosted)).not.toContain('test-token');
-	expectOk(
-		await browser.transform({
-			expectedBaseUrl: hosted.text!.baseUrl,
-			model: hosted.text!.model,
-			prompt: 'Fix it.',
-			input: 'some text',
-		}),
-	);
+	const origin = new URL(server.baseURL).origin;
+	const signedIn = browser.endpoints.hosted();
+	expect(signedIn.baseUrl).toBe(`${origin}/v1`);
+	expect(signedIn.models().length).toBeGreaterThan(0);
+	expect(
+		(await signedIn.fetch('chat/completions', { method: 'POST' })).ok,
+	).toBe(true);
 	expect(sent).toEqual([
 		{
-			url: `${hosted.text!.baseUrl}/chat/completions`,
+			url: `${origin}/v1/chat/completions`,
 			authorization: 'Bearer test-token',
 		},
 	]);
+
 	expectOk(await getAuth().signOut());
 	sent.length = 0;
-	const signedOut = await browser.connections.read();
-	expect(signedOut.text?.source).toBe('account');
-	expect(signedOut.text?.keyPresent).toBe(false);
-	const refused = await browser.transform({
-		expectedBaseUrl: hosted.text!.baseUrl,
-		model: hosted.text!.model,
-		prompt: 'Fix it.',
-		input: 'some text',
-	});
-	expect(refused.error?.name).toBe('ConnectionUnavailable');
+	const signedOut = browser.endpoints.hosted();
+	expect(signedOut.baseUrl).toBeUndefined();
+	expect(signedOut.models()).toEqual([]);
+	const refusal = await signedOut
+		.fetch('chat/completions', { method: 'POST' })
+		.catch((cause: Error) => cause);
+	expect(refusal).toBeInstanceOf(Error);
+	expect((refusal as Error).name).toBe('SignedOut');
 	expect(sent).toEqual([]);
-	const custom = expectOk(await browser.connections.useCustom!('text'));
-	expect(custom.text?.baseUrl).toBe('https://custom.test/v1');
-	expect(custom.text?.source).toBeUndefined();
 	getAuth()[Symbol.dispose]();
 });
 
