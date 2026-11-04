@@ -27,7 +27,7 @@
  * reaches an implementation only through `@epicenter/recorder/tauri` or
  * `@epicenter/recorder/browser`.
  */
-import type { Client, Contract } from '@epicenter/definition/contract';
+import type { FolderLifecycle } from '@epicenter/folder/core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 
@@ -54,19 +54,19 @@ export type RecordingStart = {
 };
 
 /**
- * The store a recording is written into: a client `openDevice` returned,
- * the app's own, so the audio stays where the rest of its files are. On the
- * desktop the data folder (from `@epicenter/folder/tauri`), whose root the
- * shell then writes into; in a browser this origin's private files (from
- * `@epicenter/folder/browser`).
+ * The folder a recording is written into: the app's own (`openFolder`), or
+ * `reactive`'s copy of it, so the audio stays where the rest of its files
+ * are. On the desktop that is the data folder, whose root the shell writes
+ * into; in a browser, this origin's private files, appended to as the
+ * recording runs (`filesOf` from `@epicenter/folder/browser`).
  */
-export type RecordingDevice = {
-	readonly device: Client<Contract>;
+export type RecordingFolder = {
+	readonly folder: FolderLifecycle;
 };
 
 /** Where a recording is written. */
 export type StartRecordingOptions = RecordingStart &
-	RecordingDevice & {
+	RecordingFolder & {
 		/**
 		 * Store-relative, without an extension, such as
 		 * `recordings/2026-10-15-0930`: the extension is the format's (`webm`
@@ -153,7 +153,7 @@ export type Recovery = {
 	readonly unplaced: readonly UnplacedRecording[];
 };
 
-export type RecoverRecordingsOptions = RecordingDevice & {
+export type RecoverRecordingsOptions = RecordingFolder & {
 	/** The store-relative directory recordings are kept in, such as `recordings`. */
 	readonly under: string;
 	/**
@@ -195,7 +195,7 @@ export type InputListing = {
  * Its functions need no `this`, so each can be passed on its own.
  */
 export type Recorder = {
-	/** Record from `input`, or the system default, into `device` at `path`. */
+	/** Record from `input`, or the system default, into `folder` at `path`. */
 	readonly start: (
 		options: StartRecordingOptions,
 	) => Promise<Result<Recording, RecorderError>>;

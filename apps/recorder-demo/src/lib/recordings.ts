@@ -1,16 +1,16 @@
 /**
- * The recordings one client holds, this browser's files or the repository
+ * The recordings one folder holds, this browser's files or the repository
  * (whichever the page's variant opened): its notes and audio files joined
  * by id. A recording is a note and its audio at the same id; either may be
  * there without the other (a recording still under way, one a closed tab
  * cut off, a save that stopped partway, or a file another program wrote).
  */
 import type {
-	Client,
 	FileEntryOf,
 	NoteOf,
 	Version,
 } from '@epicenter/definition/contract';
+import type { Folder } from '@epicenter/folder/core';
 import { timeOf } from '@epicenter/definition/ids';
 import { audioDurationMs } from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -18,6 +18,8 @@ import type { Recorder } from '../contract.ts';
 
 type Note = NoteOf<Recorder['collections']['recordings']>;
 type Audio = FileEntryOf<Recorder['collections']['audio']>;
+/** The collections these read and write. */
+type Recordings = Pick<Folder<Recorder>, 'recordings' | 'audio'>;
 
 /** What one client holds: its notes and its audio files. */
 export type Listing = { notes: readonly Note[]; audio: readonly Audio[] };
@@ -60,11 +62,11 @@ export function recordingsOf(listing: Listing): RecordingRow[] {
  * repair. A note that does not read still names its recording.
  */
 export async function unnamedAudio(
-	device: Client<Recorder>,
+	folder: Recordings,
 ): Promise<Result<string[], string>> {
 	const [notes, audio] = await Promise.all([
-		device.recordings.list(),
-		device.audio.list(),
+		folder.recordings.list(),
+		folder.audio.list(),
 	]);
 	if (notes.error !== null) return Err(notes.error.message);
 	if (audio.error !== null) return Err(audio.error.message);
@@ -86,11 +88,11 @@ export async function unnamedAudio(
  * or whose id is not a recording's, is left as it is.
  */
 export async function finishCutOffRecordings(
-	device: Client<Recorder>,
+	folder: Recordings,
 ): Promise<Result<string[], string>> {
 	const [notes, audio] = await Promise.all([
-		device.recordings.list(),
-		device.audio.list(),
+		folder.recordings.list(),
+		folder.audio.list(),
 	]);
 	if (notes.error !== null) return Err(notes.error.message);
 	if (audio.error !== null) return Err(audio.error.message);
@@ -102,11 +104,11 @@ export async function finishCutOffRecordings(
 	for (const { id, ext } of audio.data.items) {
 		const recordedAt = timeOf(id);
 		if (named.has(id) || recordedAt === undefined) continue;
-		const read = await device.audio.get({ id, ext });
+		const read = await folder.audio.read({ id, ext });
 		if (read.error !== null) continue;
 		const durationMs = audioDurationMs(read.data.bytes, ext);
 		if (durationMs === undefined) continue;
-		const created = await device.recordings.create({
+		const created = await folder.recordings.create({
 			id,
 			title: `Recording ${recordedAt.toLocaleString()}`,
 			recordedAt: recordedAt.toISOString(),

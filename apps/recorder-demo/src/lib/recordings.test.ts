@@ -63,6 +63,7 @@ test('a recording a closed tab left as audio alone gets its note, its length rea
 	const { tmpdir } = await import('node:os');
 	const { join } = await import('node:path');
 	const { openDevice } = await import('@epicenter/folder/node');
+	const { folderOf } = await import('@epicenter/folder/core');
 	const { recorder } = await import('../contract.ts');
 	const root = await mkdtemp(join(tmpdir(), 'recorder-demo-'));
 	try {
@@ -91,12 +92,12 @@ test('a recording a closed tab left as audio alone gets its note, its length rea
 			}),
 		);
 
-		expect(unwrap(await finishCutOffRecordings(device))).toEqual([cut]);
+		expect(unwrap(await finishCutOffRecordings(folderOf(device)))).toEqual([cut]);
 		expect(unwrap(await device.recordings.get({ id: cut }))).toMatchObject({
 			recordedAt: '2026-10-31T09:30:00.000Z',
 			durationMs: 1003,
 		});
-		expect(unwrap(await finishCutOffRecordings(device))).toEqual([]);
+		expect(unwrap(await finishCutOffRecordings(folderOf(device)))).toEqual([]);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

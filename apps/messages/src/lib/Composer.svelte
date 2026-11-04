@@ -12,13 +12,12 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createMutation } from '@tanstack/svelte-query';
 	import type { Backend } from './backend.js';
+	import { folder } from './app.js';
 	import { messages as contract } from './contract.js';
-	import { getDevice } from './device.js';
 	import { recoverDraft, sendDraft } from './drafts.js';
 
 	let { backend, id, chatId, onAccepted }: { backend: Backend; id: string; chatId: string; onAccepted: () => void } = $props();
-	const device = getDevice();
-	const { drafts, attempts } = device.files;
+	const { drafts, attempts } = folder;
 	// The parent keys this composer by its durable draft ID.
 	// svelte-ignore state_referenced_locally
 	const draftId = id;
@@ -37,7 +36,7 @@
 		mutationFn: async ({ text, previousAttemptId }: { text: string; previousAttemptId: string | undefined }) => {
 			const landed = await reply.landed();
 			if (landed.error !== null) { message = 'Nothing was sent: the draft could not be saved.'; return; }
-			const result = await sendDraft(device, {
+			const result = await sendDraft(folder, {
 				id: draftId, chatId, backend, text, previousAttemptId,
 				unchanged: () => typed() === text,
 			});
@@ -49,7 +48,7 @@
 	}));
 	const recover = createMutation(() => ({
 		mutationFn: async ({ checkedAttemptId, keep }: { checkedAttemptId: string; keep: boolean }) => {
-			const result = await recoverDraft(device, {
+			const result = await recoverDraft(folder, {
 				id: draftId, chatId, backend, checkedAttemptId, keep,
 				composerEmpty: () => typed() === '',
 			});

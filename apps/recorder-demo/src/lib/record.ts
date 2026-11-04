@@ -9,14 +9,13 @@
  * - The online variant's store is the repository, written when a recording
  *   stops, so it holds the audio in the page until then (`recordInPage`).
  */
-import type { Client } from '@epicenter/definition/contract';
+import type { FolderLifecycle } from '@epicenter/folder/core';
 import {
 	type RecorderError,
 	recorder,
 	startPageRecording,
 } from '@epicenter/recorder/browser';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { Recorder } from '../contract.ts';
 
 /** A stopped recording: its audio already in the store, or its bytes, still in the page. */
 export type Stopped = { ext: string; durationMs: number } & (
@@ -32,11 +31,11 @@ export type Take = {
 /** Start recording `id`. */
 export type Record = (id: string) => Promise<Result<Take, RecorderError>>;
 
-/** Record into `device`, this browser's files, as it records. */
-export function recordInto(device: Client<Recorder>): Record {
+/** Record into `folder`, this browser's files, as it records. */
+export function recordInto(folder: FolderLifecycle): Record {
 	return async (id) => {
 		const started = await recorder.start({
-			device,
+			folder,
 			path: `recordings/${id}`,
 		});
 		if (started.error !== null) return started;
