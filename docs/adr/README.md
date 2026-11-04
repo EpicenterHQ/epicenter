@@ -487,7 +487,7 @@ Two habits make the link hard to forget:
 | [0224](0224-the-package-name-means-the-new-store-and-the-superseded-stack-is-named-legacy.md) | The package name means the new store, and the superseded stack is named legacy | Accepted (provisional number; first half stands, and the `legacy` subpath it named was deleted by 0227) |
 | [0225](0225-a-store-authority-is-one-durable-object-per-principal-and-application-and-being-signed-in-is-the-sharing-model.md) | A store authority is one Durable Object per principal and application, and being signed in is the sharing model | Accepted, amended by 0292 and 0298 (provisional number; lifecycle amended by proposed 0242) |
 | [0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md) | A host serves bundles and brokers credentials; it owns no application data | Accepted (provisional number; amends 0209 and 0208 at what a host owns, and scopes blobs out of the CRDT) |
-| [0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md) | One runtime: a desktop SPA in a WebView, over a client-owned store | Accepted (provisional number; supersedes 0179, 0186, 0210 and 0211; refuses hosted web, the installed-app plane and the browser extension; accepts data loss with no migration) |
+| [0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md) | One runtime: a desktop SPA in a WebView, over a client-owned store | Accepted (provisional number; supersedes 0179, 0186, 0210 and 0211; refuses hosted web, the installed-app plane and the browser extension; accepts data loss with no migration; extension refusal amended by 0724, then 0745: an extension writes items through the local engine) |
 | [0228](0228-a-field-is-one-value-and-a-collection-several-devices-append-to-is-a-table.md) | A field is one value, and a collection several devices append to is a table | Accepted (provisional number; relates to 0215, 0213 and 0125; refuses a per-field CRDT type system) |
 | [0229](0229-a-lens-names-the-store-it-opens-and-opening-is-one-call.md) | A lens names the store it opens, and opening is one call | Accepted (provisional number; amends 0213 and 0204; the store's location derives from the lens, and a second open of one namespace is refused; amended by 0269 at the set of openers) |
 | [0230](0230-an-auth-client-always-offers-openwebsocket-and-a-model-that-cannot-sync-denies-permanently.md) | An auth client always offers `openWebSocket`, and a credential model that cannot sync denies permanently | Accepted (provisional number; amends 0079 and 0155 at the mechanism; deletes `SyncAuthClient`) |
@@ -897,11 +897,11 @@ When you add an ADR, add its row here.
 | [0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) | An edit shows what you typed; the queue carries it; the folder shows what landed | Rejected 2026-11-01 (writes are conditional on the version read; ADR-0700) |
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Superseded by 0701 (apps run as separate programs) |
-| [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Accepted 2026-11-01 (supersedes 0545, 0622, 0623, and 0628, and the 13 Folder engine records 0689 had; amends 25 records; per-repository grants, `@epicenter/secrets`, the notify Durable Object, and `epicenter init --contract` unbuilt; window Close amended 2026-11-01: a window closes at once; init's commit and first history amended by 0735) |
+| [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Accepted 2026-11-01 (supersedes 0545, 0622, 0623, and 0628, and the 13 Folder engine records 0689 had; amends 25 records; per-repository grants, `@epicenter/secrets`, the notify Durable Object, and `epicenter init --contract` unbuilt; window Close amended 2026-11-01: a window closes at once; init's commit and first history amended by 0735; nothing-moves-between-stores amended by 0745 for an extension's held items) |
 | [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Accepted 2026-11-01 (supersedes 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0647, 0663, 0670, 0671, 0674, and 0683; standalone Todos and a native Capture or Honeycrisp client unbuilt; archive tag `archive/app-hosting`; shared Quit amended by 0700: Quit is the default menu's; native clients amended by 0731; keychain storage amended by 0740) |
 | [0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) | A data folder's unfinished writes wait in `.epicenter`, outside its data | Accepted (amends 0543, 0551, 0562, and 0568: no save lock, one hidden-path rule, `saves/` and `recordings/`, placement) |
 | [0703](0703-a-stopped-sync-round-finishes-its-merge.md) | A stopped sync round finishes its merge | Proposed (amends 0565 at the shell's three-second kill) |
-| [0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) | An app's data lives in two kinds of store | Accepted (amends 0534 and 0700; amended by 0727 and 0739) |
+| [0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) | An app's data lives in two kinds of store | Accepted (amends 0534 and 0700; amended by 0727, 0739, and 0742) |
 | [0706](0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md) | A browser variant runs the desktop code with weaker guarantees | Accepted |
 | [0707](0707-an-app-that-needs-co-editing-is-a-document-app.md) | An app that needs co-editing is a document app | Accepted |
 | [0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md) | A namespace holds documents beside repositories under one resource grant | Accepted (amends 0546 and 0612) |
@@ -920,7 +920,7 @@ When you add an ADR, add its row here.
 | [0721](0721-an-apps-folder-is-derived-never-stored.md) | An app's folder is derived, never stored | Accepted (amends 0700, 0701, 0711, 0712, 0715, 0718; amended by 0725, 0726, 0728, 0735, and 0736) |
 | [0722](0722-an-apps-names-derive-from-its-sites-host.md) | An app's names derive from its site's host | Accepted (supersedes 0710) |
 | [0723](0723-an-apps-site-is-found-by-convention.md) | An app's site is found by convention | Accepted (supersedes 0717) |
-| [0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) | A browser extension keeps its data in a document | Accepted (amends 0227) |
+| [0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) | A browser extension keeps its data in a document | Superseded by 0743 |
 | [0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) | An app reaches named roots through one command per storage operation | Accepted (supersedes 0647; amends 0531, 0721) |
 | [0726](0726-an-apps-path-is-its-claim.md) | An app's path is its claim | Accepted (amends 0721, 0725) |
 | [0727](0727-json-schema-is-the-field-language.md) | JSON Schema is the field language | Accepted (amends 0705; amended by 0739) |
@@ -929,7 +929,7 @@ When you add an ADR, add its row here.
 | [0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) | Everything not derived from an app's site is one of five stored kinds | Accepted (amends 0719) |
 | [0731](0731-every-app-signs-in-as-its-site.md) | Every app signs in as its site | Accepted (supersedes 0720; amends 0549, 0606, 0701, and 0719; amended by 0732 and 0740) |
 | [0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) | A grant reaches what the person chooses at consent | Accepted (amends 0718 and 0731) |
-| [0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) | Your own git in an Epicenter folder is plain Git | Accepted (amends 0565, 0713, and 0718) |
+| [0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) | Your own git in an Epicenter folder is plain Git | Accepted (amends 0565, 0713, and 0718; amended by 0748) |
 | [0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) | Every file other than a note is kept whole in Git LFS | Accepted (supersedes 0714) |
 | [0735](0735-sync-gives-files-a-history-it-never-merges-two.md) | Sync gives files a history; it never merges two | Accepted (amends 0700 and 0721) |
 | [0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) | A folder outside the library is enrolled through a link the person names | Accepted (amends 0715 and 0721) |
@@ -938,3 +938,11 @@ When you add an ADR, add its row here.
 | [0739](0739-a-document-body-uses-a-standard-codec-until-an-app-needs-its-own.md) | A document body uses a standard codec until an app needs its own | Accepted (amends 0705 and 0727) |
 | [0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) | Every credential an app holds lives in its own place | Accepted (amends 0549, 0701, and 0731) |
 | [0741](0741-epicenter-reconciles-only-states-it-made.md) | Epicenter reconciles only states it made | Accepted (amends 0719) |
+| [0742](0742-items-are-what-you-keep-documents-are-whats-live.md) | Items are what you keep; documents are what's live | Accepted (amends 0705) |
+| [0743](0743-tabs-keeps-saved-tabs-as-items-in-a-collection.md) | Tabs keeps saved tabs as items in a collection | Accepted (supersedes 0724) |
+| [0744](0744-sync-diffs-state-because-agents-edit-state.md) | Sync diffs state, because agents edit state | Accepted |
+| [0745](0745-a-browser-extension-writes-through-the-local-epicenter-engine.md) | A browser extension writes through the local Epicenter engine | Accepted (amends 0227 and 0700) |
+| [0746](0746-the-web-is-online-offline-needs-an-installed-app.md) | The web is online; offline needs an installed app | Accepted |
+| [0747](0747-git-runs-only-as-git-on-the-desktop.md) | Git runs only as Git, on the desktop | Accepted |
+| [0748](0748-epicenter-ships-a-portable-git-inside-the-app.md) | Epicenter ships a portable Git inside the app | Accepted (amends 0733) |
+| [0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) | Epicenter draws its boundaries where people already expect them | Accepted |
