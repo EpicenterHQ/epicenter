@@ -19,6 +19,7 @@ mod http;
 pub mod lfs;
 pub mod lock;
 pub mod merge;
+pub mod repack;
 pub mod transport;
 pub mod worktree;
 
@@ -187,7 +188,21 @@ pub fn sync_round(folder: &Path, options: &Options) -> Round {
             pack.reset()?;
             Ok(())
         };
-        round(&repo, options, &mut notes, &persist)
+        let head = round(&repo, options, &mut notes, &persist)?;
+        // Still under the lock. A failed repack leaves every object in
+        // place, so it is a note, not a failed round.
+        match Repository::open(repo.path())
+            .map_err(Error::from)
+            .and_then(|r| repack::repack(&r))
+        {
+            Ok(Some(done)) => notes.push(format!(
+                "repacked {} packs and {} loose objects into one",
+                done.packs, done.loose
+            )),
+            Ok(None) => {}
+            Err(e) => notes.push(format!("repack skipped: {}", e.message)),
+        }
+        Ok(head)
     });
     match outcome {
         Ok(head) => Round {
