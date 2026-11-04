@@ -54,9 +54,10 @@ front end over `status`, `init`, `connect`, `clone`, `sync`, `forget`, `share`, 
 | `epicenter auth token [--resource <url>]` | built | `src/auth.ts` |
 | `epicenter auth git-credential get \| store \| erase` | built | `src/auth.ts` |
 | `epicenter messages` | built, hidden | Local Beeper operations on stdin; token in the device keychain |
+| `epicenter native-host [<origin>]` | spike, hidden | `src/native-host.ts`: Chrome native messaging for the Tabs folder (`save`, `list`, `sync`); `src/native-host-manifest.ts` writes the wrapper Chrome runs and its host manifest |
 
-`messages`, `merge-driver`, `sync --interval`, and `--desktop` are left out of `--help`:
-the desktop app or Git runs them.
+`messages`, `merge-driver`, `native-host`, `sync --interval`, and `--desktop` are left out of `--help`:
+the desktop app, Git, or a browser runs them.
 
 ## Hosted repositories
 

@@ -15,6 +15,15 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary: 'Beeper operation as JSON on stdin',
 	},
 	{
+		path: ['native-host'],
+		args: '[<origin>]',
+		minArgs: 0,
+		maxArgs: 1,
+		options: [{ name: 'parent-window', value: '<handle>', hidden: true }],
+		hidden: true,
+		summary: "Chrome's native messaging host for the Tabs folder",
+	},
+	{
 		path: ['check'],
 		args: '[<dir> | <contract> [<dir>]]',
 		minArgs: 0,

@@ -28,6 +28,8 @@ type Run = (
  */
 const HANDLERS: Record<string, Run> = {
 	messages: async () => (await import('./messages.js')).messagesCommand(),
+	'native-host': async ({ positionals: [origin], grant }) =>
+		(await import('./native-host.ts')).nativeHostCommand(origin, grant),
 	check: async ({ positionals: [contract, dir], json }) =>
 		(await import('./contract-commands.ts')).check(contract, dir, json),
 	format: async ({ positionals: [contract, dir], json }) =>
