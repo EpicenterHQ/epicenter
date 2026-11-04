@@ -5,10 +5,10 @@ variant with one store for its whole life, and nothing ever moves from one
 to the other ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
 
 - **On this browser** (`/`, the local variant): the recordings in this
-  browser's private files (OPFS, `openDevice`), for good. It needs no
+  browser's private files (OPFS, `openFolder` with no account), for good. It needs no
   account and offers no sign-in, works offline, and never uploads. A
   recording is written into those files as it records
-  (`recorder.start({ device, path })` from `@epicenter/recorder/browser`,
+  (`recorder.start({ folder, path })` from `@epicenter/recorder/browser`,
   decision 84): each piece of audio, about a second, is appended to its file
   as it arrives, and its note follows at Stop. When the page opens, a
   recording a closed tab cut off is cut back to its last whole piece
@@ -89,10 +89,12 @@ account's own.
 
 ## Code
 
-- `src/main.ts`: picks the page's root by path and loads only it; for the
-  local variant it first awaits this browser's files (`openDevice`).
-- `src/LocalApp.svelte`: the local variant's root, over the device
-  `main.ts` opened for the page.
+- `src/main.ts`: picks the page's root by path and loads only it.
+- `src/lib/local.ts`: the local variant's folder, this browser's files,
+  opened once for the page (`reactive(openFolder(recorder))`). Only `/`
+  imports it.
+- `src/LocalApp.svelte`: the local variant's root, over that folder; it
+  says why when the files cannot open.
 - `src/OnlineApp.svelte`: the online variant's root: sign-in, and, signed
   in, `src/SignedIn.svelte` per account, which opens the repository
   (`openRemote`) and hands it to the recorder.

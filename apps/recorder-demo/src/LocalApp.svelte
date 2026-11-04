@@ -1,40 +1,36 @@
 <!--
 	The local variant (`/`): the recordings in this browser's private files
-	(OPFS, `openDevice`, which `main.ts` opens before mounting this), for
-	good (ADR-0700). It needs no account and offers
+	(OPFS, the folder `lib/local.ts` opens), for good (ADR-0700). When they
+	cannot open, it says why instead of the recorder. It needs no account and offers
 	no sign-in, works offline, and never uploads: the recorder demo has no
 	hosted capability, so nothing here signs in. A recording is written into
 	those files as it records (`recordInto`); when the page opens, what a
 	closed tab cut off is repaired and given its note.
 -->
 <script lang="ts">
-	import type { Client } from '@epicenter/definition/contract';
-	import { closeDevice } from '@epicenter/folder/browser';
-	import { onDestroy, onMount } from 'svelte';
+	import { onMount } from 'svelte';
 	import { recorder } from '@epicenter/recorder/browser';
 	import Header from './Header.svelte';
 	import Recorder from './Recorder.svelte';
-	import type { Recorder as RecorderContract } from './contract.ts';
+	import { folder } from './lib/local.ts';
 	import { recordInto } from './lib/record.ts';
 	import { finishCutOffRecordings, unnamedAudio } from './lib/recordings.ts';
 
-	// This page's one store: its Worker starts at the first call.
-	let { device }: { device: Client<RecorderContract> } = $props();
-	onDestroy(() => closeDevice(device));
+	const opened = $derived(folder.state());
 
 	/** Why what a closed tab cut off could not be finished, if it could not. */
 	let cutOff = $state<string | null>(null);
 	onMount(async () => {
-		const unnamed = await unnamedAudio(device);
+		const unnamed = await unnamedAudio(folder);
 		// Files this browser will not list (a private window): the list says so.
 		if (unnamed.error !== null) return;
 		const repaired = await recorder.recover({
-			device,
+			folder,
 			under: 'recordings',
 			unnamed: unnamed.data,
 		});
 		if (repaired.error !== null) return;
-		const finished = await finishCutOffRecordings(device);
+		const finished = await finishCutOffRecordings(folder);
 		if (finished.error !== null) cutOff = finished.error;
 	});
 </script>
@@ -52,6 +48,12 @@
 				Recordings a closed tab cut off could not be finished: {cutOff}
 			</p>
 		{/if}
-		<Recorder client={device} record={recordInto(device)} where="in this browser" />
+		{#if opened.status === 'failed'}
+			<p class="problem" role="alert">
+				The recorder could not open this browser's files: {opened.error.message}
+			</p>
+		{:else}
+			<Recorder {folder} record={recordInto(folder)} where="in this browser" />
+		{/if}
 	</section>
 </main>
