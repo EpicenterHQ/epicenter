@@ -1,7 +1,9 @@
 # @epicenter/folder
 
-The contract openers, `openDevice` and `openRemote`, open an app's files as
-the typed client its file contract derives
+`openFolder(contract)` hands an app its folder at once, already opening,
+with the contract's collections directly on it. The contract openers below
+it, `openDevice` and `openRemote`, open an app's files as the typed client
+its file contract derives
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 Each write is conditional on the version its writer read, so another
 writer's change since is a `Conflict` rather than overwritten. A Svelte app
@@ -12,6 +14,7 @@ makes the client reactive with `fromClient` from
 
 | Import | Purpose |
 | --- | --- |
+| `@epicenter/folder` | `openFolder(contract, { site, account }?)`, which the build picks: the desktop's data folder (`tauri`), this browser's storage or, with an `account`, the account's copy (`default`), and a new folder in memory under the `test` condition. |
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account, site })` over the signed-in person's repository. |
@@ -20,12 +23,40 @@ makes the client reactive with `fromClient` from
 
 Importing an entry does not open anything.
 
+## The folder
+
+```ts
+// src/lib/app.ts
+export const folder = openFolder(todos, { site: APPS.TODOS.url });
+```
+
+`openFolder` returns synchronously
+([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md),
+[ADR-0767](../../docs/adr/0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md)):
+
+| Member | What it does |
+| --- | --- |
+| `folder.state()` | `opening`, `ready`, or `failed` with the typed `OpenFolderError`; the same object until it changes |
+| `folder.subscribe(fn)` | hears `state()` change; returns the unsubscribe |
+| `folder.retry()` | opens again after a failure; does nothing otherwise |
+| `folder[Symbol.dispose]()` | closes what it opened, even an open still under way |
+| `folder.todos.items()`, `invalid()`, `loading()`, `error()` | answer at once: empty and loading while the folder opens; listed while something subscribes to the collection |
+| `folder.todos.list()`, `get`, `create`, `update`, `replace`, `delete` | wait for the open, then run; when it fails, answer `Err(OpenFolderError)` |
+
+Only an interface reads `state()` (`<Opening>` from `@epicenter/svelte`).
+Everything else reads and acts, and an action called while the folder opens
+completes once it has. A collection's writes show in its `items()` before
+they resolve. Under the `test` condition (`bun test --conditions=test`) the
+folder is a new one in memory; a test seeds it with `create` and mocks no
+module. A Node script opens a directory with `openDevice(contract, { path })`
+from `/node`, since its path varies by call.
+
 ## Contract openers
 
 `openDevice(contract, …)` opens the typed client an app's contract derives
 (`Client<T>` from `@epicenter/definition/contract`) over a device's files, at
 the contract's paths. It is async on every platform and answers a `Result`:
-the client, or an `OpenDeviceError` saying why nothing opened
+the client, or an `OpenFolderError` saying why nothing opened
 (`Disconnected`, `Refused`, `Unreadable`, `StorageUnavailable`). An app opens it
 once, at its startup, and hands the client down:
 

@@ -1,5 +1,5 @@
 /**
- * Why opening a contract's client failed (`OpenDeviceError`).
+ * Why opening a folder failed (`OpenFolderError`).
  *
  * Library messages state the failure precisely; the application decides what
  * a person is told.
@@ -7,13 +7,14 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 /**
- * Why `openDevice` opened no client, on every platform. A desktop folder can
- * be disconnected, refused or unreadable; storage itself can be unavailable
- * anywhere (outside Tauri, a browser that gives the page no private storage,
- * a shell that did not answer). Each message says what happened in words a
- * person can act on; the app decides what it offers.
+ * Why a folder (`openFolder`) or a client (`openDevice`) did not open, on
+ * every platform. A desktop folder can be disconnected, refused or
+ * unreadable; storage itself can be unavailable anywhere (outside Tauri, a
+ * browser that gives the page no private storage, a shell that did not
+ * answer). Each message says what happened in words a person can act on; the
+ * app decides what it offers.
  */
-export const OpenDeviceError = defineErrors({
+export const OpenFolderError = defineErrors({
 	/** The folder is a link to `target`, which is not there, as on a drive that is not connected. Nothing was made. */
 	Disconnected: ({ folder, target }: { folder: string; target: string }) => ({
 		message: `${folder} is a link to ${target}, a place that isn't available, such as a disconnected drive.`,
@@ -38,7 +39,7 @@ export const OpenDeviceError = defineErrors({
 		cause,
 	}),
 });
-export type OpenDeviceError = InferErrors<typeof OpenDeviceError>;
+export type OpenFolderError = InferErrors<typeof OpenFolderError>;
 
 /** Why the desktop shell could not show a named root in the file manager. */
 export const RevealRootError = defineErrors({

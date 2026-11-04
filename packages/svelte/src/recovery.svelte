@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { OpenDeviceError } from '@epicenter/folder/tauri';
+	import type { OpenFolderError } from '@epicenter/folder/tauri';
 	import { Button } from '@epicenter/ui/button';
 	import ShowFolderButton from './show-folder-button.svelte';
 
@@ -12,7 +12,7 @@
 		/** The app's name, as people know it (`Capture`). */
 		app: string;
 		/** Why the root did not open. */
-		error: OpenDeviceError;
+		error: OpenFolderError;
 		/** Whether the AppData root failed before the data folder opened. */
 		appDataError?: boolean;
 		/** Open the roots again. */

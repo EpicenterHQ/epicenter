@@ -9,7 +9,7 @@ import { Ok, type Result } from 'wellcrafted/result';
 import { createDeviceClient, storeOf } from './device/client.js';
 import { DeviceError, opfsStore } from './device/opfs-store.js';
 import type { DeviceStore } from './device/store.js';
-import { OpenDeviceError } from './errors.js';
+import { OpenFolderError } from './errors.js';
 
 export { DeviceError } from './device/opfs-store.js';
 
@@ -35,9 +35,9 @@ export { DeviceError } from './device/opfs-store.js';
  */
 export async function openDevice<TContract extends Contract>(
 	contract: TContract,
-): Promise<Result<Client<TContract>, OpenDeviceError>> {
+): Promise<Result<Client<TContract>, OpenFolderError>> {
 	if (typeof Worker === 'undefined')
-		return OpenDeviceError.StorageUnavailable({
+		return OpenFolderError.StorageUnavailable({
 			cause: DeviceError.WorkerFailed({ cause: 'this context has no Worker' })
 				.error,
 		});
