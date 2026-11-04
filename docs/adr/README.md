@@ -934,7 +934,7 @@ When you add an ADR, add its row here.
 | [0737](0737-an-apps-actions-are-request-notes-it-watches-in-this-devices-place.md) | An app's actions are request notes it watches in this device's place | Accepted |
 | [0738](0738-a-script-reaches-an-app-through-a-handle-module-written-from-its-site.md) | A script reaches an app through a handle module written from its site | Accepted |
 | [0739](0739-a-document-body-uses-a-standard-codec-until-an-app-needs-its-own.md) | A document body uses a standard codec until an app needs its own | Accepted (amends 0705 and 0727) |
-| [0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) | Every credential an app holds lives in its own place | Accepted (amends 0549, 0701, and 0731) |
+| [0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) | Every credential an app holds lives in its own place | Accepted (amends 0549, 0701, and 0731; amended by 0764) |
 | [0741](0741-epicenter-reconciles-only-states-it-made.md) | Epicenter reconciles only states it made | Accepted (amends 0719) |
 | [0742](0742-items-are-what-you-keep-documents-are-whats-live.md) | Items are what you keep; documents are what's live | Accepted (amends 0705) |
 | [0743](0743-tabs-keeps-saved-tabs-as-items-in-a-collection.md) | Tabs keeps saved tabs as items in a collection | Accepted (supersedes 0724) |
@@ -949,12 +949,13 @@ When you add an ADR, add its row here.
 | [0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) | An app's folder sits under the platform's visible root of app folders | Accepted |
 | [0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) | An app declares what it is and what it needs; the platform supplies where, how and when | Accepted (amends 0719; amended by 0759 and 0760) |
 | [0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) | A capability takes what it needs as values and shows what it can do now as values | Accepted (amended by 0757) |
-| [0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) | Epicenter's packages are capabilities, formats, framework layers and programs | Accepted (amends 0403 and 0701; amended by 0760) |
+| [0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) | Epicenter's packages are capabilities, formats, framework layers and programs | Accepted (amends 0403 and 0701; amended by 0760 and 0764) |
 | [0756](0756-an-apps-native-shell-is-linked-from-its-capabilities.md) | An app's native shell is linked from its capabilities | Accepted (amended by 0759) |
-| [0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) | Every model is an endpoint; every model file is a cache | Accepted (amends 0754) |
+| [0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) | Every model is an endpoint; every model file is a cache | Accepted (amends 0754; amended by 0764) |
 | [0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) | Epicenter adapts to what you already have and owns only what nothing else can | Accepted |
 | [0759](0759-an-apps-native-shell-is-generated-on-every-build.md) | An app's native shell is generated on every build | Accepted (amends 0753 and 0756) |
 | [0760](0760-global-shortcuts-are-a-capability.md) | Global shortcuts are a capability | Accepted (amends 0753 and 0755) |
 | [0761](0761-sync-never-merges-two-unrelated-histories.md) | Sync never merges two unrelated histories | Accepted (amends 0735) |
-| [0762](0762-epicenter-is-made-of-standards-and-places.md) | Epicenter is made of standards and places | Accepted (amended by 0763) |
+| [0762](0762-epicenter-is-made-of-standards-and-places.md) | Epicenter is made of standards and places | Accepted (amended by 0763 and 0764) |
 | [0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) | Epicenter's doctrine is three roots and one rule for apps | Accepted (amends 0719 and 0762) |
+| [0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) | Reaching a model is `@epicenter/ai`'s alone, in the OpenAI vocabulary | Accepted (amends 0740, 0755, 0757, and 0762) |
