@@ -15,8 +15,8 @@
  *   written, so a link is no route around the rule
  * - `epicenter init` refuses `x/.git/y` and `x/.EPICENTER/y` before it makes
  *   anything, and sets up `~/.notes`
- * - Init names the protected path that caused a refusal and installs local
- *   LFS filters and hooks when git-lfs is available
+ * - Init names the protected path that caused a refusal and writes the
+ *   local LFS filter settings without hooks, with no git-lfs needed
  */
 import { afterAll, expect, test } from 'bun:test';
 import {
@@ -247,10 +247,8 @@ test('init names home and application data for related paths', async () => {
 	);
 }, 60_000);
 
-const lfsTest =
-	Bun.spawnSync(['git', 'lfs', 'version']).exitCode === 0 ? test : test.skip;
-lfsTest(
-	'init installs local LFS filters without hooks when git-lfs is available',
+test(
+	'init writes the local LFS filter settings without hooks',
 	async () => {
 		const folder = join(BOX, 'lfs-folder');
 		const result = await init(folder, 'production', 'LFS folder');

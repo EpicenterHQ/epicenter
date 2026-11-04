@@ -12,8 +12,8 @@
  *    the browser, and a desktop sandbox for the `epicenter` CLI: its own
  *    HOME, GIT_CONFIG_GLOBAL and GIT_CEILING_DIRECTORIES, a device-grant
  *    sign-in seeded through EPICENTER_TEST_SECRETS, the Git credential
- *    helper `auth login` writes, and the engine the merge driver
- *    runs. Each also has a guest, a second person with a browser session.
+ *    helper `auth login` writes, and the engine at its machine path.
+ *    Each also has a guest, a second person with a browser session.
  * 4. The app built against that API and served on its registered origin.
  *
  * It writes what the tests need to the JSON file named by its argument,
