@@ -17,7 +17,7 @@ put items in folders a person sees in Finder or the Files app.
 standard OAuth. [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)
 takes any model as an endpoint and keeps model files in the Hugging Face
 cache other tools share, as `catalog.rs` in
-`packages/tauri-plugin-epicenter-transcription` already does.
+`packages/transcription` already does.
 
 [ADR-0741](0741-epicenter-reconciles-only-states-it-made.md) states the rule
 for states inside a folder: Epicenter repairs what it made and refuses the

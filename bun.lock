@@ -126,7 +126,7 @@
       "dependencies": {
         "@epicenter/cli": "workspace:*",
         "@epicenter/definition": "workspace:*",
-        "@epicenter/transcription-native": "workspace:*",
+        "@epicenter/transcription": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@tauri-apps/api": "catalog:",
       },
@@ -387,7 +387,7 @@
         "@epicenter/folder": "workspace:*",
         "@epicenter/recorder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
-        "@epicenter/transcription-native": "workspace:*",
+        "@epicenter/transcription": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "runed": "catalog:",
         "wellcrafted": "catalog:",
@@ -584,8 +584,8 @@
         "typescript": "catalog:",
       },
     },
-    "packages/tauri-plugin-epicenter-transcription": {
-      "name": "@epicenter/transcription-native",
+    "packages/transcription": {
+      "name": "@epicenter/transcription",
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/ui": "workspace:*",
@@ -944,7 +944,7 @@
 
     "@epicenter/todos": ["@epicenter/todos@workspace:apps/todos"],
 
-    "@epicenter/transcription-native": ["@epicenter/transcription-native@workspace:packages/tauri-plugin-epicenter-transcription"],
+    "@epicenter/transcription": ["@epicenter/transcription@workspace:packages/transcription"],
 
     "@epicenter/ui": ["@epicenter/ui@workspace:packages/ui"],
 

@@ -7,7 +7,7 @@
 
 ## Context
 
-Each entry in `CATALOG` (`packages/tauri-plugin-epicenter-transcription/src/transcription/catalog.rs`)
+Each entry in `CATALOG` (`packages/transcription/src/transcription/catalog.rs`)
 downloaded `revision: "main"`, found its file through `hf-hub`'s
 `Cache::repo(..).get()`, which reads `refs/main`, and rendered its id as
 `"{repo_id}@{revision}/{filename}"`. A tool that moved `refs/main`, or fetched

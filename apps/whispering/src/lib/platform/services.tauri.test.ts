@@ -103,7 +103,7 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
-mock.module('@epicenter/transcription-native', () => ({
+mock.module('@epicenter/transcription/bindings', () => ({
 	commands: {
 		listInferenceModels: async () => models,
 		transcribeFile: async (modelId: string, root: string, path: string) => {

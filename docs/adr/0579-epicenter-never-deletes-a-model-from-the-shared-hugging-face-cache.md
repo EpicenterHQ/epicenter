@@ -24,12 +24,12 @@ commands (`hf cache rm`).
 **Epicenter downloads models into the shared Hugging Face cache and never
 deletes from it.** It reaches:
 
-- `packages/tauri-plugin-epicenter-transcription/src/transcription/catalog.rs`: `download_model`
+- `packages/transcription/src/transcription/catalog.rs`: `download_model`
   writes through `hf-hub`; there is no `delete_model`. `reveal_model` shows a
   downloaded model's repo folder, `models--<org>--<repo>`, in the system file
   manager. It shows the folder because the file is a symlink into `blobs/`,
   which the file manager resolves to a hash-named blob.
-- `packages/tauri-plugin-epicenter-transcription/guest-js/LocalModelAdministration.svelte`:
+- `packages/transcription/guest-js/LocalModelAdministration.svelte`:
   each downloaded model offers **Show folder**, not **Delete**, and the card
   says "To free space, show a model's folder and remove it with Hugging
   Face's cache tools."

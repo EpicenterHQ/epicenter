@@ -1,5 +1,5 @@
 <script lang="ts">
-	import LocalModelAdministration from '@epicenter/transcription-native/local-model-administration';
+	import LocalModelAdministration from '@epicenter/transcription/local-model-administration';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Channel, isTauri } from '@tauri-apps/api/core';

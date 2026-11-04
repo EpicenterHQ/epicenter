@@ -50,7 +50,7 @@ tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
 epicenter-standalone = { path = "../../../packages/tauri-epicenter-standalone" }
 # Settings' local model administration, and the model cache dictation prewarms.
-tauri-plugin-epicenter-transcription = { path = "../../../packages/tauri-plugin-epicenter-transcription" }
+tauri-plugin-epicenter-transcription = { path = "../../../packages/transcription" }
 anyhow = "1"
 base64 = "0.22"
 enigo = { version = "0.5.0", optional = true }

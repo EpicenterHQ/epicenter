@@ -493,8 +493,9 @@ after the extension's saves and on its Sync button (ADR-0750).
    `apps/whispering/src/lib/platform/services.tauri.ts`) into its
    `openAi([...])` array.
 2. **`@epicenter/transcription` exposing `localSpeech()`.** The
-   transcription plugin's package renamed from
-   `@epicenter/transcription-native`; its endpoint's fetch answers
+   transcription plugin's package, renamed from
+   `@epicenter/transcription-native` and moved to `packages/transcription`;
+   its endpoint's fetch answers
    `/audio/transcriptions` by calling transcribe.cpp in the app's process,
    and its handle carries download, remove, load, and unload. `download`
    and a `path` request are built; branch `claude/whispering-endpoints`

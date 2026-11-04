@@ -77,7 +77,7 @@ test('the page imports no Node, Bun, or Tauri module', () => {
 			(specifier) =>
 				specifier.startsWith('@tauri-apps/') ||
 				specifier.endsWith('/tauri') ||
-				specifier.startsWith('@epicenter/transcription-native'),
+				specifier.startsWith('@epicenter/transcription'),
 		).filter((source) => !desktopOnly(source.split(' imports ')[0]!)),
 	).toEqual([]);
 	// A desktop module is reached only from another, or through a seam.
