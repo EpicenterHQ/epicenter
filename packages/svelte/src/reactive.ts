@@ -50,7 +50,7 @@
 import { createSubscriber } from 'svelte/reactivity';
 
 /** How a capability says it changed: call `listener`, and return the unsubscribe. */
-export type Subscribe = (listener: () => void) => () => void;
+type Subscribe = (listener: () => void) => () => void;
 
 /** Each object's adaptation, so one object always answers one. */
 const adaptations = new WeakMap<object, object>();
