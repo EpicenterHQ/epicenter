@@ -2,8 +2,10 @@
  * `@epicenter/folder/tauri`: open a root the desktop shell named as a
  * contract's typed client (`openDevice`). The page names a root (`Data` or
  * `AppData`), never a path; the shell answers each storage command, and its
- * watcher sends the paths that changed. A standalone app opens its two roots
- * with `openAppData` and `openDataFolder`.
+ * watcher sends the paths that changed. An app does not call it: its
+ * `openFolder` opens the data folder (`Data`), and what a capability keeps
+ * on this computer goes to `AppData` through `localFile` from
+ * `@epicenter/local`.
  */
 import type { Client, Contract } from '@epicenter/definition/contract';
 import { isTauri } from '@tauri-apps/api/core';
@@ -21,11 +23,7 @@ import {
 import { rootRefusal } from './native/open-refusal.js';
 import { openOf, recordOpen } from './native/opens.js';
 
-export {
-	type FolderRequest,
-	openAppData,
-	openDataFolder,
-} from './desktop-folder.js';
+export type { FolderRequest } from './desktop-folder.js';
 export { syncedWithEpicenter, syncWithEpicenter } from './epicenter-sync.js';
 export { OpenFolderError } from './errors.js';
 export type { Root } from './native/bindings.gen.js';

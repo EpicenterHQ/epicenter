@@ -327,57 +327,6 @@ export function createFolder<TContract extends Contract>(
 ): Folder<TContract> {
 	const { data: compiled, error } = compileContract(contract);
 	if (error !== null) throw new Error(error.message, { cause: error });
-	return folderOver(
-		compiled.collections.map(({ name, kind, keys }) => ({ name, kind, keys })),
-		open,
-		{ close, reveal, displayPath },
-	);
-}
-
-/**
- * A folder over `client`, which is already open: open at once, and its
- * collections read and act as any folder's. Disposing it stops its
- * listings and closes nothing: the client is its opener's. How an app
- * that opens a remote or `openDevice` itself reads and writes it as a
- * folder.
- */
-export function folderOf<TContract extends Contract>(
-	client: Client<TContract>,
-): Folder<TContract> {
-	const declared = Object.entries(client as Record<string, Raw>).map(
-		([name, collection]): Declared =>
-			'replace' in collection
-				? { name, kind: 'note', keys: collection.fieldNames }
-				: { name, kind: 'file', keys: [] },
-	);
-	return folderOver(declared, async () => Ok(client), {
-		close: () => {},
-		reveal: null,
-		displayPath: () => null,
-	});
-}
-
-/** A collection as a folder needs it: its name, its kind, and a note's declared fields. */
-type Declared = {
-	name: string;
-	kind: 'note' | 'file';
-	keys: readonly string[];
-};
-
-/** The folder over `open`, with one collection per `declared`. */
-function folderOver<TContract extends Contract>(
-	declared: Declared[],
-	open: FolderOpen<TContract>,
-	{
-		close,
-		reveal,
-		displayPath,
-	}: {
-		close: (client: Client<TContract>) => void;
-		reveal: FolderLifecycle['reveal'];
-		displayPath: FolderLifecycle['displayPath'];
-	},
-): Folder<TContract> {
 	type Opened = Result<Client<TContract>, OpenFolderError>;
 	let state: FolderState = { status: 'opening' };
 	let attempt: Promise<Opened>;
@@ -440,7 +389,7 @@ function folderOver<TContract extends Contract>(
 
 	const current = () => attempt;
 
-	for (const collection of declared) {
+	for (const collection of compiled.collections) {
 		if (RESERVED.has(collection.name))
 			throw new Error(
 				`A folder cannot have a collection named ${collection.name}: it is the folder's own.`,
@@ -481,6 +430,13 @@ function folderOver<TContract extends Contract>(
 		),
 	) as Folder<TContract>;
 }
+
+/** A collection as a folder needs it: its name, its kind, and a note's declared fields. */
+type Declared = {
+	name: string;
+	kind: 'note' | 'file';
+	keys: readonly string[];
+};
 
 /** An entry as listed: its placeholders, fields and version. */
 type Entry = { [key: string]: unknown; version: Version };

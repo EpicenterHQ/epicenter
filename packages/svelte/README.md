@@ -115,15 +115,13 @@ the draft began from, so another writer's change since is a `Conflict`
 instead of being overwritten; without `over`, `replace` writes over the
 version shown.
 
-### Apps that open their own client
+### A folder over a client of its own
 
-Apps that have not moved to `app.ts` still open a client in a root
-component (`DesktopStartup` on the desktop, `openDevice` or `openRemote` on
-the web) and read it as a folder: `reactive(folderOf(client))`, with
-`folderOf` from `@epicenter/folder/core`, and renders `<LeaveGuard>` for it.
-`DesktopStartup` opens
-machine-local AppData settings when the app has them, then the data folder,
-and shows `Recovery` when either fails.
+Every app opens its folder in `app.ts`. A page that must open a store
+`openFolder` cannot name, such as recorder-demo's link to a repository
+someone shared, makes the client itself and reads it as a folder of its
+contract, `reactive(createFolder(contract, async () => Ok(client)))`, and
+renders `<LeaveGuard>` for it, since no `<WhenOpen>` does.
 
 ## Keep typed text in an edit
 

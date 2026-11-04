@@ -17,30 +17,28 @@ The worked example is `apps/capture`; the pattern is written up in
 
 ## What belongs behind a seam
 
-**The root, which chooses the store.** An app has up to three variants, each
-with one store (ADR-0700), and only a variant's root decides which. Every app
-with a desktop variant has `#platform/root`. Its leaves export components;
-the store choice is never buried in data code:
+**The store needs no seam.** An app has up to three variants, each with
+one store (ADR-0700), and `openFolder(contract, { site, account })` in
+`src/lib/app.ts` picks it: the build picks the implementation (the desktop's
+data folder under `tauri`, the browser's otherwise), and the account picks
+the web's (the person's repository with one, this browser's files without).
+Do not add a `#platform/root` or a `Startup` component. What does differ by
+variant is a leaf:
 
-- `Startup` opens the store and renders the app over it, or says why it
-  could not. The web leaf's is the signed-in repository or this browser's
-  files; the desktop leaf's wraps `DesktopStartup` from
-  `@epicenter/svelte/desktop-startup`, which awaits `openAppData` and then
-  `openDataFolder` under the layout's `<svelte:boundary>` and renders its
-  recovery screen when either cannot open. ADR-0766 retires `Startup`: the
-  build picks `openFolder(contract)`'s implementation, `src/lib/app.ts`
-  exports the folder as a module value, and the root layout renders
-  `<WhenOpen {folder}>`. Do not add a `Startup` to an app that has moved.
-- `Chrome` is the header's account of the store (the account on the web,
-  the folder and Sync with Epicenter on the desktop).
-- Whatever else differs by variant in that app: Whispering's `Settings` (desktop only, `null` on the web) and `Callback`
-  (the page that ends a sign-in).
+- `#platform/account`: `connectAccount()`, the build's sign-in, or `null`
+  where the build never signs in.
+- `#platform/chrome`: the header's account of the store (the account on the
+  web, the folder and Sync with Epicenter on the desktop).
+- Whatever else differs by variant in that app: Whispering's
+  `#platform/components` (`Settings`, desktop only, and `Callback`, the page
+  that ends a sign-in).
 
 **A capability whose implementation differs by build.** Whispering's
-`#platform/services` (`createServices(client)`: the shell's microphone and
-the keychain on the desktop, the WebView's microphone and `localStorage` on
-the web), `#platform/auth` (`createTauriAuth` over `epicenter-account`, or
-browser OAuth). A capability package that owns both implementations picks
+`#platform/computer` (the shell's microphone, its models on this computer
+and the global shortcut on the desktop; the WebView's microphone on the
+web), and every app's `#platform/account` (`createTauriAuth` over
+`epicenter-account`, or browser OAuth). `src/lib/app.ts` alone makes the
+capabilities from them. A capability package that owns both implementations picks
 one by the same condition in its own package "imports" (`@epicenter/ai`'s
 `#device-settings`, behind `customEndpoints()`), so the app needs no seam
 for it.
@@ -58,21 +56,18 @@ through `reactive`) they show and never know which store it is.
 
    ```jsonc
    "imports": {
-     "#platform/root": { "tauri": "./src/lib/root.tauri.ts", "default": "./src/lib/root.ts" }
+     "#platform/account": { "tauri": "./src/lib/account.tauri.ts", "default": "./src/lib/account.ts" }
    }
    ```
 
 2. **Import the bare specifier**, never a leaf, with no branch at the call
-   site: `import { Startup } from '#platform/root';`. Leaves import with
+   site: `import { connectAccount } from '#platform/account';`. Leaves import with
    relative paths (no `$lib`), so the bundle test can resolve them.
 
-3. **Give it a type** both leaves annotate against, in a shared
-   `platform.ts` (or `platform/types.ts`):
-
-   ```ts
-   export const Startup: Platform['Startup'] = OnlineRoot;
-   ```
-
+3. **Give it a type** both leaves declare: the same signature in each
+   (`export function connectAccount(): CallbackAuthClient | null`), or, for a
+   value such as a component, a type in a shared `platform.ts` both
+   annotate against (`export const Chrome: Platform['Chrome'] = OnlineChrome;`).
    Use `: Type`, not `satisfies`: `satisfies` keeps the leaf's concrete type,
    so the two leaves can drift apart without an error at the import.
 

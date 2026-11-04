@@ -124,11 +124,8 @@ it closes nothing by hand. Any code imports
 `state()`: a collection's reads answer while the folder opens (`items()`
 empty, `loading()` true), and its async methods wait for the open
 ([ADR-0767](../../../../docs/adr/0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md)),
-so no other code checks or awaits readiness. Apps not yet moved still open the
-store in their variant's `Startup` (on the desktop, `DesktopStartup` from
-`@epicenter/svelte/desktop-startup` awaits `openAppData` and then
-`openDataFolder`) and set each collection in an app-owned context; keep that
-pattern in such an app until it moves. Key editors by note identity so each mounted editor owns one edit. See
+so no other code checks or awaits readiness. Every app is on this shape; do
+not add a `Startup` root or a per-collection context. Key editors by note identity so each mounted editor owns one edit. See
 [Contract reads and editing](#contract-reads-and-editing).
 
 ## Imperative Widgets: Own The Whole Runtime Boundary
@@ -360,20 +357,16 @@ TanStack Table into an infinite loop. See
 
 A folder read through `reactive` gives each collection tracking reads:
 `items()`, `invalid()`, `loading()`, `error()` and `get(args)` (ADR-0769).
-Under ADR-0766 collections come straight off the module-level `folder` in
-`src/lib/app.ts` (Todos). In an app not yet moved, the root that opens the
-client (the desktop root, the local web startup's child, or the online
-root) reads it as a folder once and sets one app-owned `createContext` pair
-per collection its components read, during its setup and never after an
-`await`:
+Collections come straight off the module-level `folder` in
+`src/lib/app.ts` (ADR-0766):
 
 ```ts
-// src/lib/todos.ts
-export const [getTodos, setTodos] = createContext<FolderNotes<TodoNotes>>();
+// src/lib/app.ts
+export const folder = reactive(openFolder(todos, { site, account }));
 
-// The root, where the client is made
-const files = reactive(folderOf(device));
-setTodos(files.todos);
+// any component
+import { folder } from '$lib/app.js';
+const { todos } = folder;
 ```
 
 The component that shows a note makes one editor of it during setup. The
@@ -385,9 +378,9 @@ reading):
 
 ```svelte
 <script lang="ts">
-  import { getTodos } from '$lib/todos.js';
+  import { folder } from '$lib/app.js';
 
-  const todos = getTodos();
+  const { todos } = folder;
   const todo = todos.edit({ id });
   const open = $derived(todos.items().filter((todo) => !todo.done));
 </script>

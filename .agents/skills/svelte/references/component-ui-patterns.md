@@ -225,9 +225,8 @@ shows its reason and opens as text, as below; repairing text does not switch a
 mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
 mode, or automatic Source fallback.
 
-A page reads each collection off the app's `folder` (or, in an app not yet
-moved to `app.ts`, from the context its root set with
-`setTodos(reactive(folderOf(device)).todos)`). Read `todos.items()` for
+A page reads each collection off the app's `folder` (`$lib/app.js`). Read
+`todos.items()` for
 listings, `todos.invalid()` for notes that do not read (with their text, for
 repair), and `get(args)` for one note from a list or a workflow.
 

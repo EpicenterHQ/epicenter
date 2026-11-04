@@ -99,14 +99,13 @@ account's own.
   in, `src/SignedIn.svelte` per account, which opens the repository
   (`openRemote`) and hands it to the recorder.
 - `src/Recorder.svelte`, `src/Library.svelte`, `src/RecordingRow.svelte`:
-  recording, the list and one row, each over the client the recorder is
-  given and that client alone. The variant also hands the recorder how it
-  records (`src/lib/record.ts`: `recordInto(device)` on this browser,
-  `recordInPage` online). The recorder reads the client as a folder
-  (`folderOf`) through `reactive`, once, and hands that down: the list
-  shows it, and a row edits it and reads its audio's bytes (`read`). While
-  one of its writes is out, leaving the page asks first.
-- `src/lib/recordings.ts`: one client's notes and audio, joined by id, and
+  recording, the list and one row, each over the folder the recorder is
+  given (read through `reactive`) and that folder alone. The variant also
+  hands the recorder how it records (`src/lib/record.ts`:
+  `recordInto(folder)` on this browser, `recordInPage` online). The list
+  shows the folder, and a row edits it and reads its audio's bytes
+  (`read`). While one of its writes is out, leaving the page asks first.
+- `src/lib/recordings.ts`: one folder's notes and audio, joined by id, and
   `finishCutOffRecordings`, which gives audio a closed tab left alone its
   note.
 

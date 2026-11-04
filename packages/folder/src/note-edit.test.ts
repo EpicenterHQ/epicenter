@@ -26,13 +26,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	type Client,
+	type Contract,
 	defineContract,
 	type NoteClient,
 } from '@epicenter/definition/contract';
-import { unwrap } from 'wellcrafted/result';
+import { Ok, unwrap } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { folderOf } from './folder.js';
+import { createFolder, type Folder } from './folder.js';
 import { openDevice } from './node.js';
+
+/** `client`, already open, as a folder of `contract`. */
+const over = <TContract extends Contract>(
+	contract: TContract,
+	client: Client<TContract>,
+) => createFolder(contract, async () => Ok(client));
 
 const todos = defineContract({
 	collections: {
@@ -72,7 +79,7 @@ async function until(check: () => boolean) {
 /** `device`'s todos as a folder, with each `update` counted and held until `gate.open` settles. */
 function gated(device: Client<Todos>) {
 	const gate = { open: Promise.resolve(), updates: 0 };
-	const files = folderOf({
+	const files = over(todos, {
 		...device,
 		todos: {
 			...device.todos,
@@ -87,7 +94,7 @@ function gated(device: Client<Todos>) {
 }
 
 /** Listen to the collection, as a reader would, until the note `a` is shown. */
-async function listening(files: ReturnType<typeof folderOf<Todos>>) {
+async function listening(files: Folder<Todos>) {
 	const stop = files.todos.subscribe(() => {});
 	await until(() => files.todos.get({ id: 'a' }) !== undefined);
 	return stop;
@@ -127,7 +134,7 @@ test('a keystroke is saving, on the editor and the folder, at once until it answ
 	const { open, text } = await folder();
 	const device = await open();
 	expectOk(await device.todos.create({ id: 'a', title: '', done: false }));
-	const files = folderOf(device);
+	const files = over(todos, device);
 	const stop = await listening(files);
 	const todo = files.todos.edit({ id: 'a' });
 	let heard = 0;
@@ -253,7 +260,7 @@ test('edit shows the newest typing until its own save answers, and discard shows
 	const device = await open();
 	expectOk(await device.todos.create({ id: 'a', title: 'Milk', done: false }));
 	const gates: PromiseWithResolvers<void>[] = [];
-	const files = folderOf({
+	const files = over(todos, {
 		...device,
 		todos: {
 			...device.todos,
@@ -293,7 +300,7 @@ test('an editor nobody listens to holds nothing: the collection lists only while
 	const device = await open();
 	expectOk(await device.todos.create({ id: 'a', title: 'Milk', done: false }));
 	let subscribed = 0;
-	const files = folderOf({
+	const files = over(todos, {
 		...device,
 		todos: {
 			...device.todos,
@@ -330,7 +337,7 @@ test('edit’s exists() is whether a note that reads is listed at its path: not 
 		'---\ntitle: Milk\ndone: false\n---\n',
 	);
 	await writeFile(join(root, 'todos/b.md'), '---\ntitle: [\n---\n');
-	const files = folderOf(device);
+	const files = over(todos, device);
 	const listed = files.todos.edit({ id: 'a' });
 	const unread = files.todos.edit({ id: 'b' });
 	expect(listed.exists()).toBe(false);
@@ -353,7 +360,7 @@ test('edit’s exists() is whether a note that reads is listed at its path: not 
 
 test('edit’s fields are the declared fields and the body, so a field named like a control is a field', async () => {
 	const { open } = await folder();
-	const files = folderOf(await open());
+	const files = over(todos, await open());
 	expect(Object.keys(files.todos.edit({ id: 'a' }).fields)).toEqual([
 		'title',
 		'done',
@@ -376,7 +383,7 @@ test('edit’s fields are the declared fields and the body, so a field named lik
 	folders.push(root);
 	const device = unwrap(await openDevice(controls, { path: root }));
 	expectOk(await device.notes.create({ id: 'a' }));
-	const notes = folderOf(device).notes;
+	const notes = over(controls, device).notes;
 	expect(notes.fieldNames).toEqual(['error', 'exists', 'note']);
 	const edit = notes.edit({ id: 'a' });
 	expect(Object.keys(edit.fields)).toEqual(['error', 'exists', 'note', 'body']);
@@ -400,7 +407,7 @@ test('edit with create makes the note on the first save, then updates it; one ma
 	const { open, text } = await folder();
 	const device = await open();
 	let creates = 0;
-	const files = folderOf({
+	const files = over(todos, {
 		...device,
 		todos: {
 			...device.todos,

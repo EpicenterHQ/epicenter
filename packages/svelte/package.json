@@ -21,7 +21,6 @@
 		"./status-row": "./src/status-row.svelte",
 		"./folder-sync": "./src/folder-sync.svelte.ts",
 		"./folder-sync-actions": "./src/folder-sync-actions.svelte",
-		"./desktop-startup": "./src/desktop-startup.svelte",
 		"./folder-onboarding": "./src/folder-onboarding.svelte",
 		"./reactive": "./src/reactive.ts",
 		"./when-open": "./src/when-open.svelte"

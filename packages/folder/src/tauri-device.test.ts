@@ -1,6 +1,7 @@
 /**
- * `openDevice` from `@epicenter/folder/tauri`, and a standalone app's two
- * roots (`openAppData`, `openDataFolder`): the typed client over a root the
+ * `openDevice` from `@epicenter/folder/tauri` over either root the shell
+ * names (`Data`, `AppData`), and the data folder `openFolder` opens on the
+ * desktop (`openDataFolder`): the typed client over a root the
  * desktop shell named, through the folder plugin's storage commands. The
  * shell here is `createNamedShell`, real directories behind the plugin's
  * command names, so what lands is what a desktop folder holds.
@@ -66,14 +67,10 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
-const {
-	displayPath,
-	openAppData,
-	openDataFolder,
-	openDevice,
-	revealRoot,
-	rootOf,
-} = await import('./tauri.js');
+const { displayPath, openDevice, revealRoot, rootOf } = await import(
+	'./tauri.js'
+);
+const { openDataFolder } = await import('./desktop-folder.js');
 const { storeOf } = await import('./device/client.js');
 
 const notes = defineContract({
@@ -156,8 +153,8 @@ test('the page names roots, never paths, and shows the path the shell answered',
 	expect(() => rootOf({} as typeof device)).toThrow();
 });
 
-test('AppData opens an app-owned settings contract beside the data folder', async () => {
-	const settings = unwrap(await openAppData(notesSettings));
+test('AppData opens a settings contract beside the data folder', async () => {
+	const settings = unwrap(await openDevice(notesSettings, { root: 'AppData' }));
 	const device = unwrap(
 		await openDataFolder(notes, 'https://notes.example.com'),
 	);
@@ -233,7 +230,7 @@ test('each refusal reads as the error a person is shown', async () => {
 	});
 	shell.control.refuse = () => undefined;
 	shell = createNamedShell({ Data: shell.root });
-	expect(expectErr(await openAppData(notesSettings))).toMatchObject({
+	expect(expectErr(await openDevice(notesSettings, { root: 'AppData' }))).toMatchObject({
 		name: 'StorageUnavailable',
 	});
 });
@@ -350,7 +347,7 @@ test("the shell's watcher reaches a collection's listeners", async () => {
 
 test('each root hears only its own watcher', async () => {
 	const own = unwrap(await openDataFolder(notes, 'https://notes.example.com'));
-	const settings = unwrap(await openAppData(notesSettings));
+	const settings = unwrap(await openDevice(notesSettings, { root: 'AppData' }));
 	let heard = 0;
 	let heardSettings = 0;
 	const stop = own.notes.subscribe(() => heard++);

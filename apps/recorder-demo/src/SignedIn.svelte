@@ -1,6 +1,7 @@
 <!--
 	The online variant's signed-in root, for one account: it opens the
-	repository (`openRemote`), read as a folder through `reactive` once,
+	repository (`openRemote`), as a folder of its contract (`createFolder`)
+	read through `reactive` once,
 	and gives it to the recorder. A shared repository (`?repository=`) is
 	why this opens its own instead of `openFolder`, which opens only the
 	account's own repository for a site. The parent's `{#key}` makes a new one for a new account;
@@ -8,9 +9,10 @@
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/account';
-	import { folderOf } from '@epicenter/folder/core';
+	import { createFolder } from '@epicenter/folder/core';
 	import { openRemote } from '@epicenter/folder/remote';
 	import { reactive } from '@epicenter/svelte/reactive';
+	import { Ok } from 'wellcrafted/result';
 	import Recorder from './Recorder.svelte';
 	import { recordInPage } from './lib/record.ts';
 	import { recorder } from './contract.ts';
@@ -23,14 +25,11 @@
 		| `${string}/${string}`
 		| null;
 	// svelte-ignore state_referenced_locally
-	const folder = reactive(
-		folderOf(
-			openRemote(recorder, {
-				account,
-				repository: shared ?? '~/recorder-demo',
-			}),
-		),
-	);
+	const repository = openRemote(recorder, {
+		account,
+		repository: shared ?? '~/recorder-demo',
+	});
+	const folder = reactive(createFolder(recorder, async () => Ok(repository)));
 </script>
 
 <p class="meta">

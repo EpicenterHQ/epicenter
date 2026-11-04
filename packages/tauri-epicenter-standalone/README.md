@@ -3,10 +3,11 @@
 A standalone Epicenter app is its own small Tauri program over a folder it
 owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
 shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines.
-Its TypeScript counterparts are in `@epicenter/folder/tauri`:
-`openAppData(settingsContract)` for apps with machine settings,
-`openDataFolder(contract, site)` for the data folder, and `syncWithEpicenter` and
-`syncedWithEpicenter`. The page's recovery and sync UI is in
+On the page, `openFolder(contract, { site })` from `@epicenter/folder` opens
+the data folder in the desktop build, `localFile(name)` from
+`@epicenter/local` keeps a capability's per-computer state in AppData, and
+`syncWithEpicenter` and `syncedWithEpicenter` from `@epicenter/folder/tauri`
+manage Epicenter enrollment. The page's recovery and sync UI is in
 `@epicenter/svelte`.
 
 ## Two named roots
@@ -79,33 +80,25 @@ Cargo workspace (`cargo test -p epicenter-standalone`).
 
 The desktop variant is the web app's own UI, built with different leaves.
 The build chooses them, never a runtime check, and the routes stay the same
-(do not swap SvelteKit's `kit.files.routes`). `apps/capture` is the worked
-example.
+(do not swap SvelteKit's `kit.files.routes`).
 
-1. **Seams.** In the app's `package.json`, map each thing the variants differ
-   in to two leaves, the desktop one under `tauri`. The one thing every
-   variant differs in is its root, which chooses the store (decision 78):
+1. **Seams.** The store needs none: `src/lib/app.ts` calls
+   `openFolder(contract, { site, account })`, and the `tauri` build of
+   `@epicenter/folder` opens the data folder. In the app's `package.json`,
+   map each thing the variants do differ in to two leaves, the desktop one
+   under `tauri`, usually the account and the chrome that shows where the
+   files are:
 
    ```json
    "imports": {
-     "#platform/root": { "tauri": "./src/lib/root.tauri.ts", "default": "./src/lib/root.ts" }
+     "#platform/account": { "tauri": "./src/lib/account.tauri.ts", "default": "./src/lib/account.ts" },
+     "#platform/chrome": { "tauri": "./src/lib/components/DesktopChrome.svelte", "default": "./src/lib/components/OnlineChrome.svelte" }
    }
    ```
 
-   A leaf is TypeScript, exporting components where the variants render
-   differently (`export const Startup: Platform['Startup'] = OnlineRoot;`),
-   so neither build carries the other's root. The desktop leaf's `Startup`
-   hands `@epicenter/svelte/desktop-startup` the app's name and contracts;
-   it awaits `openAppData(<app>Settings)` and `openDataFolder(...)` and
-   renders the app's desktop root over them (which wraps the folder once
-   and sets each collection the pages read, such as
-   `setTodos(reactive(folderOf(device)).todos)`), or its recovery screen; the
-   app's layout wraps `Startup` in `<svelte:boundary>` with the UI kit's
-   spinner as its `pending`, and `svelte.config.js` turns on
-   `compilerOptions.experimental.async`. Components import
-   `#platform/root`, never a leaf, and leaves import with relative paths
-   (no `$lib`), so the bundle test can resolve them. A shared
-   `src/lib/platform.ts` holds the types both leaves annotate against.
+   Components import `#platform/*`, never a leaf, and leaves import with
+   relative paths (no `$lib`), so the bundle test can resolve them.
+   `apps/todos` is the smallest worked example.
 2. **Build.** Merge `desktopVariant()` from `@epicenter/vite-config` into
    `vite.config.ts`, and add `"build:native": "EPICENTER_DESKTOP=1
    <APP>_BUILD_DIR=build-desktop NODE_ENV=production vite build"`, plus

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import type { Version } from '@epicenter/definition/contract';
-import { unwrap } from 'wellcrafted/result';
+import { Ok, unwrap } from 'wellcrafted/result';
 import { finishCutOffRecordings, recordingsOf } from './recordings.ts';
 
 const v = (s: string) => s as Version;
@@ -63,11 +63,12 @@ test('a recording a closed tab left as audio alone gets its note, its length rea
 	const { tmpdir } = await import('node:os');
 	const { join } = await import('node:path');
 	const { openDevice } = await import('@epicenter/folder/node');
-	const { folderOf } = await import('@epicenter/folder/core');
+	const { createFolder } = await import('@epicenter/folder/core');
 	const { recorder } = await import('../contract.ts');
 	const root = await mkdtemp(join(tmpdir(), 'recorder-demo-'));
 	try {
 		const device = unwrap(await openDevice(recorder, { path: root }));
+		const folder = createFolder(recorder, async () => Ok(device));
 		const audio = new Uint8Array(
 			await Bun.file(
 				new URL(
@@ -92,12 +93,12 @@ test('a recording a closed tab left as audio alone gets its note, its length rea
 			}),
 		);
 
-		expect(unwrap(await finishCutOffRecordings(folderOf(device)))).toEqual([cut]);
+		expect(unwrap(await finishCutOffRecordings(folder))).toEqual([cut]);
 		expect(unwrap(await device.recordings.get({ id: cut }))).toMatchObject({
 			recordedAt: '2026-10-31T09:30:00.000Z',
 			durationMs: 1003,
 		});
-		expect(unwrap(await finishCutOffRecordings(folderOf(device)))).toEqual([]);
+		expect(unwrap(await finishCutOffRecordings(folder))).toEqual([]);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

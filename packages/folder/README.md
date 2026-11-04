@@ -17,12 +17,12 @@ promises, and one `subscribe`. A Svelte app reads it through `reactive` from
 | Import | Purpose |
 | --- | --- |
 | `@epicenter/folder` | `openFolder(contract, { site, account }?)`, which the build picks: the desktop's data folder (`tauri`), this browser's storage or, with an `account`, the account's copy (`default`), and a new folder in memory under the `test` condition. |
-| `@epicenter/folder/core` | The folder every build shares, with no platform code: its types, `createFolder`, `folderOf(client)` (a ready folder over a client already open), and `OpenFolderError`. |
+| `@epicenter/folder/core` | The folder every build shares, with no platform code: its types, `createFolder` (a folder over any open; over a client already open, `createFolder(contract, async () => Ok(client))`), and `OpenFolderError`. |
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `filesOf(folder)`, the files under a folder `openFolder` opened over this browser, by path (or `deviceFiles(device)` under a client), with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/memory` | `memoryFiles(folder)`: the world outside a folder `openFolder` opened in memory under the `test` condition, for a test: `write(path, content)` as another program would (a file that does not read, too), `hold()` the folder's writes, and `refuse(reason)` them as `Unavailable`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account, site })` over the signed-in person's repository. |
-| `@epicenter/folder/tauri` | `openDevice(contract, { root })` opens a root the shell named, `Data` or `AppData`; `openDataFolder(contract, site)` opens Data and updates its root `AGENTS.md`, while `openAppData(settingsContract)` opens AppData. `rootOf(device)` answers the root's name for local transcription, and `displayPath(device)` the path to show, which `open_root` answered. `syncWithEpicenter` and `syncedWithEpicenter` manage Epicenter enrollment. |
+| `@epicenter/folder/tauri` | `openDevice(contract, { root })` opens a root the shell named, `Data` or `AppData`; an app does not call it, since the desktop `openFolder` opens Data (and updates its root `AGENTS.md`) and `localFile` from `@epicenter/local` keeps per-computer state in AppData. `rootOf(device)` answers the root's name for local transcription, and `displayPath(device)` the path to show, which `open_root` answered. `syncWithEpicenter` and `syncedWithEpicenter` manage Epicenter enrollment. |
 | `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 
 Importing an entry does not open anything.

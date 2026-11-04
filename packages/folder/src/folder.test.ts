@@ -18,7 +18,7 @@ import { type Err, Ok, type Result } from 'wellcrafted/result';
 import { createDeviceClient } from './device/client.js';
 import { memoryStore } from './device/memory-store.js';
 import { OpenFolderError } from './errors.js';
-import { createFolder, type FolderState, folderOf } from './folder.js';
+import { createFolder, type FolderState } from './folder.js';
 import { openFolder } from './open-folder.memory.js';
 
 const todos = defineContract({
@@ -364,10 +364,10 @@ test('on the web, a folder over an account opens once the account is signed in',
 	expect(listeners.size).toBe(0);
 });
 
-test('a folder over a client already open is open at once and closes nothing', async () => {
+test('a folder over a client already open reads it, and closes nothing it did not open', async () => {
 	const client = createDeviceClient(todos, memoryStore());
 	await client.todos.create({ id: 'a', title: 'Milk', done: false });
-	const folder = folderOf(client);
+	const folder = createFolder(todos, async () => Ok(client));
 	expect(folder.reveal).toBeNull();
 	expect(folder.displayPath()).toBeNull();
 	expect(folder.todos.fieldNames).toEqual(['title', 'done']);

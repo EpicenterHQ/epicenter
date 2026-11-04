@@ -16,11 +16,15 @@ An app has up to three variants, each with one store for its life, and
 builds only the ones it needs. Nothing moves between stores; signing in
 grants capabilities, never storage.
 
-| Variant | Store | Opened with |
+Every variant opens its store the same way, `openFolder(contract, { site,
+account })` from `@epicenter/folder`, and the build and the account pick
+which store that is:
+
+| Variant | Store | `openFolder` gets |
 | --- | --- | --- |
-| Desktop | a folder on the computer | `openDataFolder` and optional `openAppData` from `@epicenter/folder/tauri` |
-| Local web | this browser's files (OPFS), for good | `openDevice(contract)` from `@epicenter/folder/browser` |
-| Online web | the person's repository, behind sign-in | `openRemote(contract, { account, site })` from `@epicenter/folder/remote` |
+| Desktop | a folder on the computer (the `tauri` build) | any account, or none: it is ignored |
+| Local web | this browser's files (OPFS), for good | no account |
+| Online web | the person's repository, behind sign-in | the signed-in account |
 
 | App | Variants |
 | --- | --- |
@@ -37,67 +41,42 @@ crate, which also describes how a web app gains a desktop variant.
 
 ## Svelte app root
 
-Only a variant's root decides the store. Components take the folder, read
-through `reactive` from `@epicenter/svelte/reactive`, and never know which
-store it is, so a new variant is a new root over the same components. Each
-store is adapted for Svelte once, where it is made. Todos has moved the
-choice into `openFolder` in `src/lib/app.ts`, which every app follows
-([ADR-0766](../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+Every app opens its capabilities once, in `src/lib/app.ts`, and adapts each
+for Svelte there with `reactive`
+([ADR-0766](../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md),
+[ADR-0769](../docs/adr/0769-svelte-reads-every-capability-through-one-reactive-copy.md)).
+Nothing in it awaits, and an edit to it reloads the page
+([ADR-0768](../docs/adr/0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md)):
 
-An app with a desktop variant chooses the root at build time through its
-`#platform/root` seam: the browser leaf by default, the desktop leaf under the
-`tauri` condition (`bun run build:native`). The app's layout awaits the
-variant's `Startup` under a boundary:
+```ts
+// apps/todos/src/lib/app.ts
+const signIn = connectAccount(); // #platform/account: null where the build never signs in
 
-```svelte
-<!-- apps/capture/src/routes/(app)/+layout.svelte -->
-<script lang="ts">
-  import { Startup } from '#platform/root';
-  import { Loading } from '@epicenter/ui/loading';
-
-  let { children } = $props();
-</script>
-
-<svelte:boundary>
-  {#snippet pending()}
-    <Loading class="h-dvh" />
-  {/snippet}
-  <Startup>{@render children()}</Startup>
-</svelte:boundary>
+export const account = signIn && reactive(signIn);
+export const folder = reactive(openFolder(todos, { site: APPS.TODOS.url, account: signIn }));
 ```
 
-The desktop `Startup` hands the shared `DesktopStartup` the app's name,
-data contract, and site. Apps with machine-local settings also pass their
-AppData contract. `DesktopStartup` opens the folder derived from the site
-and shows recovery when a root does not open:
+The app's layout renders the pages over the folder with `<WhenOpen>` from
+`@epicenter/svelte`: a spinner while it opens, Recovery with Retry when it
+cannot, the pages once it has, and the leave guard while a write is out.
+An online web build asks a signed-out person to sign in first:
 
 ```svelte
-<DesktopStartup app="Capture" contract={capture} site={APPS.CAPTURE.url}>
-  {#snippet children(_appData, device, site)}
-    <DesktopRoot {device} {site}>{@render pages()}</DesktopRoot>
-  {/snippet}
-</DesktopStartup>
+<!-- apps/todos/src/routes/(app)/+layout.svelte -->
+{#if account?.state().status === 'signed-out'}
+  <SignIn {account} />
+{:else}
+  <WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
+{/if}
 ```
 
-In an app not yet moved, an online root is the signed-in layout, which
-opens the repository per account and sets each collection its components
-read in context, as the desktop root does over its folder:
+What differs by build is a `#platform/*` leaf (the browser's by default, the
+desktop's under the `tauri` condition): the account, and the chrome that
+shows where the files are. Components import `folder` from `$lib/app.js` and
+never know which store it is.
 
-```svelte
-<!-- apps/vocab/src/lib/components/Online.svelte -->
-<script lang="ts">
-  const { account, children } = $props();
-  const client = openRemote(vocab, { account, site: APPS.VOCAB.url });
-  const folder = reactive(folderOf(client)); // adapted once, where it is made
-  setEntryList(folder.entries);
-</script>
-
-{@render children()}
-```
-
-UI components read a collection (off `folder`, or from its context), sort
-with the app's own order, and read and write through the folder's
-collection: `items()`, `invalid()` (notes that do not read, with their
+UI components read a collection off `folder`, sort with the app's own
+order, and read and write through it: `items()`, `invalid()` (notes that do not read, with their
 text), and writes made over the version shown. The component that shows a
 note makes one editor of it (`todos.edit({ id })`), gates on `exists()`,
 and binds its `fields`. See [Todos](todos/README.md),
@@ -118,7 +97,7 @@ A desktop app on `epicenter-standalone` opens the folder its shell derives
 from its site: `~/Epicenter/<label>` for Epicenter apps and
 `~/Epicenter/<owner>/<label>` for other apps. Development builds use
 `~/Epicenter Dev` as the root. The folder is made when missing for now.
-A failed open shows a recovery screen with Retry. **Set up in Epicenter**
+A failed open shows `<WhenOpen>`'s recovery screen with Retry. **Set up in Epicenter**
 enrolls the folder for local history; connecting a repository there enables transfer.
 
 | App | Surfaces | Desktop folder | Contract |

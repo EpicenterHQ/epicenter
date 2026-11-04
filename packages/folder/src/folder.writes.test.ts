@@ -1,6 +1,6 @@
 /**
  * A folder's collection reads and writes over a real device client in a
- * temporary directory (`folderOf`): what an app shows of a contract's files,
+ * temporary directory (`createFolder` over it): what an app shows of a contract's files,
  * and how its writes land in what it shows. Moved here from the Svelte
  * adapter's tests once the work moved into the folder.
  *
@@ -27,13 +27,20 @@ import { join } from 'node:path';
 import {
 	type Client,
 	ClientError,
+	type Contract,
 	defineContract,
 	type NoteClient,
 } from '@epicenter/definition/contract';
-import { unwrap } from 'wellcrafted/result';
+import { Ok, unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { folderOf } from './folder.js';
+import { createFolder } from './folder.js';
 import { openDevice } from './node.js';
+
+/** `client`, already open, as a folder of `contract`. */
+const over = <TContract extends Contract>(
+	contract: TContract,
+	client: Client<TContract>,
+) => createFolder(contract, async () => Ok(client));
 
 const todos = defineContract({
 	collections: {
@@ -118,7 +125,7 @@ test('a collection lists and follows its files only while something listens', as
 	const { open } = await folder();
 	const device = await open();
 	const { client, counts } = counted(device);
-	const files = folderOf(client);
+	const files = over(todos, client);
 
 	expect(files.todos.items()).toEqual([]);
 	expect(files.todos.loading()).toBe(true);
@@ -146,7 +153,7 @@ test('a listing that fails is tried again while someone listens, with no change 
 	expectOk(await device.todos.create({ id: 'a', title: 'Milk', done: false }));
 	let failing = 1;
 	let lists = 0;
-	const files = folderOf({
+	const files = over(todos, {
 		...device,
 		todos: {
 			...device.todos,
@@ -186,7 +193,7 @@ test('a listing that fails is tried again while someone listens, with no change 
 test('a write shows at once, before any listing', async () => {
 	const { open } = await folder();
 	const { client, hold } = counted(await open());
-	const files = folderOf(client);
+	const files = over(todos, client);
 	const shown = watch(files.todos.subscribe, () => files.todos.get({ id: 'a' })?.title);
 	await until(() => !files.todos.loading());
 	const release = hold();
@@ -206,7 +213,7 @@ test('a listing a change interrupted never replaces a newer one', async () => {
 	const { open } = await folder();
 	const device = await open();
 	const { client, hold } = counted(device);
-	const files = folderOf(client);
+	const files = over(todos, client);
 	const shown = watch(files.todos.subscribe, () => files.todos.get({ id: 'a' })?.title);
 	await until(() => !files.todos.loading());
 
@@ -226,7 +233,7 @@ test('a listing a change interrupted never replaces a newer one', async () => {
 
 test('update carries an edit over another writer’s other field; after a clash it shows theirs and saves over it', async () => {
 	const { open, text } = await folder();
-	const files = folderOf(await open());
+	const files = over(todos, await open());
 	const other = await open();
 	const shown = watch(files.todos.subscribe, () => files.todos.get({ id: 'a' }));
 	await until(() => !files.todos.loading());
@@ -279,7 +286,7 @@ test('update carries an edit over another writer’s other field; after a clash 
 
 test('an invalid note shows with its text, and replace repairs it at once', async () => {
 	const { open, root } = await folder();
-	const files = folderOf(await open());
+	const files = over(todos, await open());
 	const broken = '---\ntitle: [unclosed\n---\nKept.\n';
 	await Bun.write(join(root, 'todos/a.md'), broken);
 	const invalid = watch(files.todos.subscribe, () =>
@@ -301,7 +308,7 @@ test('an invalid note shows with its text, and replace repairs it at once', asyn
 
 test('replace over the version a draft began from refuses another writer’s change since, then shows theirs', async () => {
 	const { open, root, text } = await folder();
-	const files = folderOf(await open());
+	const files = over(todos, await open());
 	await Bun.write(
 		join(root, 'todos/a.md'),
 		'---\ntitle: Milk\ndone: false\n---\n',
@@ -335,7 +342,7 @@ test('a write is saving on the folder from its call until it answers, and the fo
 	const { open } = await folder();
 	const device = await open();
 	expectOk(await device.todos.create({ id: 'a', title: '', done: false }));
-	const files = folderOf(device);
+	const files = over(todos, device);
 	await until(() => files.state().status === 'open');
 	const saving = watch(files.subscribe, () => files.saving());
 
@@ -349,7 +356,7 @@ test('a write is saving on the folder from its call until it answers, and the fo
 
 test('a file collection lists its entries without bytes, and writes over what it shows', async () => {
 	const { open } = await folder();
-	const files = folderOf(await open());
+	const files = over(todos, await open());
 	const shown = watch(files.attachments.subscribe, () => files.attachments.items());
 	await until(() => !files.attachments.loading());
 	const created = expectOk(
@@ -377,7 +384,7 @@ test('a write over a note the folder has not listed reads it first', async () =>
 	const { open, text, root } = await folder();
 	const device = await open();
 	expectOk(await device.todos.create({ id: 'a', title: 'Milk', done: false }));
-	const files = folderOf(device);
+	const files = over(todos, device);
 	expectOk(await files.todos.update({ id: 'a' }, { done: true }));
 	expect(await text('todos/a.md')).toBe('---\ntitle: Milk\ndone: true\n---\n');
 	expect(expectErr(await files.todos.delete({ id: 'none' })).name).toBe(

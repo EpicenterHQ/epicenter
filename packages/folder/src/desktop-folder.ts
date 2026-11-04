@@ -17,13 +17,6 @@ const log = createLogger('folder/desktop');
 /** What became of a request the shell answers: done, or why not. */
 export type FolderRequest = { ok: true } | { ok: false; message: string };
 
-/** Open an app's machine-local settings contract at its AppData root. */
-export async function openAppData<TContract extends Contract>(
-	contract: TContract,
-): Promise<Result<Client<TContract>, OpenFolderError>> {
-	return openDevice(contract, { root: 'AppData' });
-}
-
 /**
  * Open the app's data folder, which the shell makes when nothing is at its
  * path, then bring its root `AGENTS.md` note up to date with the site's contract.
