@@ -112,7 +112,8 @@ name, and never commits or contacts a server.
 ```text
 src/lib/app.ts                 the page's values: account (#platform/account) and
                                folder = fromClient(openFolder(todos, { site, account })),
-                               and one import.meta.hot dispose that closes them
+                               and an import.meta.hot dispose that closes them, which
+                               accept-then-invalidate makes Vite run on each edit
 routes/+layout.svelte          every page: the chrome and the leave guard
 routes/(app)/+layout.svelte    signed out on the web: SignIn; otherwise
                                <Opening app="Todos" {folder}> (spinner, Recovery, pages)

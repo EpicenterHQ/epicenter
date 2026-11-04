@@ -22,7 +22,14 @@ const opened = openFolder(todos, {
 });
 export const folder = fromClient(opened);
 
-import.meta.hot?.dispose(() => {
-	opened[Symbol.dispose]();
-	account?.[Symbol.dispose]();
-});
+if (import.meta.hot) {
+	import.meta.hot.dispose(() => {
+		opened[Symbol.dispose]();
+		account?.[Symbol.dispose]();
+	});
+	// Vite runs only the disposer of the module an update was accepted at, and
+	// the components importing this one accept their own updates: without
+	// this, an edit here leaves the old folder and account open. Accepting,
+	// then invalidating, closes them first and hands the update up as before.
+	import.meta.hot.accept(() => import.meta.hot?.invalidate());
+}

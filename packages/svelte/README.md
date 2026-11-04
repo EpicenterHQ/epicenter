@@ -33,8 +33,16 @@ An app opens its folder once and wraps it once, at module scope, in
 // src/lib/app.ts
 const opened = openFolder(todos, { site: APPS.TODOS.url });
 export const folder = fromClient(opened);
-import.meta.hot?.dispose(() => opened[Symbol.dispose]());
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => opened[Symbol.dispose]());
+  import.meta.hot.accept(() => import.meta.hot?.invalidate());
+}
 ```
+
+Vite runs only the disposer of the module an update was accepted at, and
+the components importing `app.ts` accept their own updates, so `dispose`
+alone never runs on an edit to `app.ts` and leaves the old folder open.
+Accepting, then invalidating, runs it and hands the update up as before.
 
 `fromClient(folder)` gives each collection tracked `items`, `invalid`
 (notes), `loading`, `error` and `get(args)`, plus its writes, which pass the

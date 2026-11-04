@@ -46,9 +46,8 @@ function controlled() {
 	return {
 		folder,
 		closed,
-		/** Settle the latest open attempt with a new memory client. */
-		open() {
-			const opened = client();
+		/** Settle the latest open attempt with `opened`, by default a new memory client. */
+		open(opened = client()) {
 			answers.at(-1)?.(Ok(opened));
 			return opened;
 		},
@@ -163,6 +162,62 @@ describe('a failed open', () => {
 		await tick();
 		folder.retry();
 		expect(attempts()).toBe(1);
+	});
+});
+
+describe('a startup job made beside the folder', () => {
+	/**
+	 * A recovery-style job, as Whispering finishes cut-off recordings: it
+	 * runs at once in app.ts, beside the folder, lists a collection, and
+	 * repairs what it finds. It never reads `state()` and never waits on
+	 * anything but its own actions.
+	 */
+	async function finishUntitled(
+		folder: ReturnType<typeof controlled>['folder'],
+	) {
+		const listed = await folder.todos.list();
+		if (listed.error !== null) return listed;
+		let finished = 0;
+		for (const todo of listed.data.items)
+			if (todo.title === '') {
+				const updated = await folder.todos.update(
+					{ id: todo.id },
+					{ title: 'Untitled' },
+					{ over: todo.version },
+				);
+				if (updated.error !== null) return updated;
+				finished++;
+			}
+		return Ok(finished);
+	}
+
+	test('started while the folder opens, it waits for the open and then succeeds', async () => {
+		const { folder, open } = controlled();
+		const job = finishUntitled(folder);
+		await tick();
+		expect(folder.state()).toEqual({ status: 'opening' });
+		const client = createDeviceClient(todos, memoryStore());
+		await client.todos.create({ id: 'a', title: '', done: false });
+		await client.todos.create({ id: 'b', title: 'Milk', done: false });
+		open(client);
+		expect(await job).toEqual(Ok(1));
+		expect((await client.todos.get({ id: 'a' })).data?.title).toBe('Untitled');
+	});
+
+	test('started while the folder opens, it fails with the open’s typed error when the open fails', async () => {
+		const { folder, fail } = controlled();
+		const job = finishUntitled(folder);
+		fail(
+			OpenFolderError.Refused({
+				folder: '/Users/me',
+				reason: 'This is your home folder.',
+			}),
+		);
+		const { error } = await job;
+		expect(error).toMatchObject({
+			name: 'Refused',
+			message: 'This is your home folder.',
+		});
 	});
 });
 
