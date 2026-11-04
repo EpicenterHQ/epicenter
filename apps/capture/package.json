@@ -32,13 +32,13 @@
 	},
 	"dependencies": {
 		"@epicenter/account": "workspace:*",
-		"@epicenter/capture": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@tauri-apps/api": "catalog:",
+		"markdown-it": "^14.0.0",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
@@ -49,6 +49,7 @@
 		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
+		"@types/markdown-it": "^14.0.0",
 		"jsdom": "26.1.0",
 		"playwright": "^1.61.1",
 		"svelte": "catalog:",

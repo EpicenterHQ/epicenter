@@ -8,7 +8,7 @@
 -->
 <script lang="ts">
 	import { variant } from '#platform/variant';
-	import { capture, capturePath } from '@epicenter/capture';
+	import { capture, capturePath } from '../model/index.js';
 	import { type ClientError, describeIssues, readNoteText, type Version } from '@epicenter/definition/contract';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';

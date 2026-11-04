@@ -1,5 +1,5 @@
 /** Capture commands compose over the text currently shown by one body edit. */
-import { type CaptureBody, captureBody } from '@epicenter/capture';
+import { type CaptureBody, captureBody } from './model/index.js';
 
 /** A range of a file's text as a text box shows it, with LF lines. */
 export type TextRange = { readonly start: number; readonly end: number };

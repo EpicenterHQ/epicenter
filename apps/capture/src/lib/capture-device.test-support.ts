@@ -19,10 +19,10 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type Capture, capture } from '@epicenter/capture';
 import { type Client, ClientError } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
 import { unwrap } from 'wellcrafted/result';
+import { type Capture, capture } from './model/index.js';
 
 const { fromClient } = await import('@epicenter/svelte/client');
 const { follow } = await import(

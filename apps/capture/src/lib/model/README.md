@@ -2,7 +2,7 @@
 
 A capture is one Markdown note, `captures/<id>.md`. The file's bytes are the
 saved data. There is no Yjs document, no thought rows, and no IDs for
-thoughts. This package holds Capture's contract and the body codec; it opens
+thoughts. This module holds Capture's contract and the body codec; it opens
 nothing.
 
 ```markdown
@@ -44,7 +44,7 @@ The app publishes the contract as `apps/capture/static/contract.json`.
 
 `captureBody.decode(note.body)` reads the body as the capture text and its
 ordered thoughts. markdown-it decides what the blocks are and which lines
-each owns; this package maps those ranges to offsets in the body.
+each owns; this module maps those ranges to offsets in the body.
 
 | Part | Rule |
 | --- | --- |
@@ -69,7 +69,7 @@ capture until it is repaired.
 
 ## Changing a capture
 
-An app holds one draft of the body shown in its capture editor; this package
+The app holds one draft of the body shown in its capture editor; this module
 owns only the body codec. Decode that draft, compose the complete desired
 value, encode it over the draft, and submit the resulting body as the note's
 `body` (the Capture app does it through the note's editor, `edit`). This keeps a thought
@@ -145,8 +145,8 @@ read as thoughts. The text's bytes are whole and in order in every row.
 ## Checks
 
 ```sh
-bun test packages/capture
-bun run --cwd packages/capture typecheck
+bun test apps/capture/src/lib/model
+bun run --cwd apps/capture typecheck
 ```
 
 The document tests compare every operation's output with literal expected

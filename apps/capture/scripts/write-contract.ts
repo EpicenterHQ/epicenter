@@ -4,7 +4,7 @@
  *
  *   bun run contract
  */
-import { capture } from '@epicenter/capture';
+import { capture } from '../src/lib/model/index.js';
 
 await Bun.write(
 	new URL('../static/contract.json', import.meta.url),

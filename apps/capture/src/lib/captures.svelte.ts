@@ -8,16 +8,7 @@
  * Add writes a capture to that store, where it is a commit. The timeline
  * shows the list newest first.
  */
-import {
-	type CaptureNote,
-	type CaptureNotes,
-	capture,
-	captureBody,
-	capturePath,
-	composeBody,
-	excerpt,
-	type InvalidCapture,
-} from '@epicenter/capture';
+
 import {
 	type ClientError,
 	describeIssues,
@@ -29,6 +20,16 @@ import { createContext } from 'svelte';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { TextRange } from './capture-actions.svelte.js';
+import {
+	type CaptureNote,
+	type CaptureNotes,
+	capture,
+	captureBody,
+	capturePath,
+	composeBody,
+	excerpt,
+	type InvalidCapture,
+} from './model/index.js';
 
 /** The captures a page reads and edits: its store's. */
 export type CaptureList = ReactiveNotes<CaptureNotes>;

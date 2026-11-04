@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/account';
-	import { capture } from '@epicenter/capture';
+	import { capture } from '../model/index.js';
 	import { APPS } from '@epicenter/constants/apps';
 	import { openRemote } from '@epicenter/folder/remote';
 	import { fromClient } from '@epicenter/svelte/client';
