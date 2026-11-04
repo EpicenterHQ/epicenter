@@ -114,7 +114,7 @@ one it is a create. A file other than a note names an LFS object already
 uploaded through the batch API:
 
 ```txt
-POST <git audience>/~/recorder-demo.git/epicenter/writes
+POST <git audience>/~/recorder.git/epicenter/writes
 { "files": [
     { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.md", "text": "---\ntitle: Standup\n---\n" },
     { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.m4a", "lfs": { "oid": "<sha256>", "size": 48213 } } ] }

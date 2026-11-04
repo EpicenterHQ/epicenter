@@ -16,7 +16,7 @@
 import type {
 	Recorder,
 	RecorderError,
-	RecordingHandle,
+	Recording,
 	RecordingInput,
 	UnplacedRecording,
 } from '@epicenter/recorder';
@@ -36,7 +36,7 @@ export type Capture = {
 	/** `performance.now()` when capture began, for the elapsed-time display. */
 	readonly startedAt: number;
 	/** Hear capture end unexpectedly; stop still keeps what was captured. Retired by stop. */
-	onEnded: RecordingHandle<unknown>['onEnded'];
+	onEnded: Recording['onEnded'];
 	/** Finish the file at its path and release the microphone. */
 	stop(): Promise<Result<StoppedCapture, RecorderError>>;
 };

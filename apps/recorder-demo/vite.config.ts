@@ -1,21 +1,17 @@
 /**
- * The recorder demo: a static single-page app whose `src/main.ts` picks the
- * page's variant by path. `bun run build` writes it to `dist/`, and any
- * static host that answers unknown paths with `index.html` (for `/online`
- * and `/auth/callback`) serves it; Vite's dev and preview servers do. Dev
- * and preview run on the port its OAuth client is registered for, and only
- * there.
+ * The recorder demo: a static single-page app. `bun run build` writes it to
+ * `dist/`, and any static host serves it. Dev and preview run on port 5214,
+ * which the end-to-end suite serves it on too.
  */
-import { LOCAL_APPS } from '@epicenter/definition/site';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
 
-const { port } = LOCAL_APPS.RECORDER_DEMO;
+const port = 5214;
 
 export default defineConfig({
 	plugins: [svelte()],
 	server: { port, strictPort: true },
 	preview: { port, strictPort: true },
-	// The local variant's OPFS Worker is a module Worker.
+	// The OPFS Worker is a module Worker.
 	worker: { format: 'es' },
 });

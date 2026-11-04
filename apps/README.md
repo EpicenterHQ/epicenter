@@ -31,7 +31,7 @@ which store that is:
 | Capture, Honeycrisp, Todos, Vocab | online web, desktop |
 | Whispering | local web, desktop |
 | Messages | local (a program on the computer where Beeper Desktop runs) |
-| Recorder demo | local web (`/`) and online web (`/online`) |
+| Recorder demo | local web |
 
 Each desktop variant is a Tauri program of its own
 ([ADR-0701](../docs/adr/0701-apps-run-as-separate-programs.md)). Capture,
@@ -109,7 +109,7 @@ enrolls the folder for local history; connecting a repository there enables tran
 | [Vocab](vocab/README.md) | online web; desktop | `~/Epicenter/vocab` | `vocab`: `entries`, `chats`, `messages` |
 | [Whispering](whispering/README.md) | local web; desktop | `~/Epicenter/whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
 | [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: the origin's OPFS | `messages`: `drafts`, `attempts` |
-| [Recorder demo](recorder-demo/README.md) | local web; online web | none | `recorder-demo`: `recordings`, `audio` |
+| [Recorder demo](recorder-demo/README.md) | local web | none: the origin's OPFS | `recorder-demo`: `recordings`, `audio` |
 
 A local web app keeps its files in the origin's OPFS; an online web app
 keeps none in the browser. The Epicenter app keeps no data of its own; its

@@ -4,24 +4,30 @@
  *   bun x playwright test -c apps/recorder-demo/playwright.config.ts
  *   bun x playwright test -c apps/recorder-demo/playwright.config.ts --project=webkit
  *
- * `globalSetup` starts `e2e/stack.ts`: a disposable Postgres, the local API
- * with temporary Git and LFS stores, and the built demo on its registered
- * port (5214, which must be free). Both projects record from the same
- * microphone, a generated tone the suite installs in the page
- * (`fakeMicrophone`), since WebKit under Playwright has no capture device.
- * Both run in a persistent profile, the only kind in which WebKit opens OPFS.
+ * `webServer` builds the demo into `dist/` and serves it with `vite
+ * preview` on `http://localhost:5214`, which must be free. The demo never
+ * signs in, so no API runs. Both projects record from the same microphone,
+ * a generated tone the suite installs in the page (`fakeMicrophone`), since
+ * WebKit under Playwright has no capture device. Both run in a persistent
+ * profile, the only kind in which WebKit opens OPFS.
  */
 import { defineConfig } from 'playwright/test';
 
 export default defineConfig({
 	testDir: './e2e',
-	globalSetup: './e2e/global-setup.ts',
 	timeout: 120_000,
 	expect: { timeout: 30_000 },
-	// The steps of one project share a browser profile and a repository, in order.
+	// The steps of one project share a browser profile, in order.
 	fullyParallel: false,
 	workers: 1,
 	reporter: [['list']],
+	webServer: {
+		command: 'bun run build --logLevel warn && bun run preview',
+		url: 'http://localhost:5214/contract.json',
+		reuseExistingServer: false,
+		timeout: 180_000,
+		stdout: 'pipe',
+	},
 	projects: [
 		{ name: 'chromium', use: { browserName: 'chromium' } },
 		{ name: 'webkit', use: { browserName: 'webkit' } },

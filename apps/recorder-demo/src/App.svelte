@@ -1,19 +1,16 @@
 <!--
-	The local variant (`/`): the recordings in this browser's private files
-	(OPFS, the folder `lib/local.ts` opens), for good (ADR-0700). When they
-	cannot open, it says why instead of the recorder. It needs no account and offers
-	no sign-in, works offline, and never uploads: the recorder demo has no
-	hosted capability, so nothing here signs in. A recording is written into
-	those files as it records (`recordInto`); when the page opens, what a
+	The page: the recordings in this browser's private files (OPFS, the
+	folder `lib/folder.ts` opens), for good (ADR-0700). When they cannot
+	open, it says why instead of the recorder. It needs no account and
+	offers no sign-in, works offline, and never uploads. A recording is
+	written into those files as it records; when the page opens, what a
 	closed tab cut off is repaired and given its note.
 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { recorder } from '@epicenter/recorder/browser';
-	import Header from './Header.svelte';
 	import Recorder from './Recorder.svelte';
-	import { folder } from './lib/local.ts';
-	import { recordInto } from './lib/record.ts';
+	import { folder } from './lib/folder.ts';
 	import { finishCutOffRecordings, unnamedAudio } from './lib/recordings.ts';
 
 	const opened = $derived(folder.state());
@@ -36,9 +33,11 @@
 </script>
 
 <main>
-	<Header variant="local" />
-	<section aria-labelledby="local-heading">
-		<h2 id="local-heading">On this browser</h2>
+	<header>
+		<h1>Recorder</h1>
+	</header>
+	<section aria-labelledby="recordings-heading">
+		<h2 id="recordings-heading">On this browser</h2>
 		<p class="meta">
 			Kept in this browser's files, with no account, online or not. They
 			stay here.
@@ -53,7 +52,7 @@
 				The recorder could not open this browser's files: {opened.error.message}
 			</p>
 		{:else}
-			<Recorder {folder} record={recordInto(folder)} where="in this browser" />
+			<Recorder {folder} />
 		{/if}
 	</section>
 </main>

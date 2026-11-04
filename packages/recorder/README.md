@@ -17,7 +17,7 @@ file:
 ```txt
 @epicenter/recorder           the shared vocabulary: Recorder, the types, RecorderError, audioDurationMs; no implementation
   /tauri    → recorder over tauri-plugin-epicenter-recorder: the shell writes Opus in WebM under .epicenter/recordings from the first sample, and places it at <path>.webm at stop
-  /browser  → recorder over MediaRecorder: each piece appended to <path>.m4a (or .webm) in this browser's files; startPageRecording and VAD
+  /browser  → recorder over MediaRecorder: each piece appended to <path>.m4a (or .webm) in this browser's files; VAD
   /vad-assets → the VAD runtime files, for a build's static copy
 ```
 
@@ -75,18 +75,6 @@ exact to the sample), so an app can measure audio at its path that
 `recover` did not answer a length for: a recording the shell
 placed after its page left, or one whose `stop` answer nobody heard. A store that stops taking pieces mid-recording ends it
 as `storageFailed`; stop keeps what landed.
-
-A page whose store is not in this browser (an online variant, which writes to
-the repository when a recording stops) holds the audio in the page instead,
-and `stop` answers it:
-
-```ts
-import { startPageRecording } from '@epicenter/recorder/browser';
-
-const { data: recording } = await startPageRecording({ input });
-const { data: audio } = await recording.stop();
-// { bytes, extension: 'm4a' | 'webm', durationMs }
-```
 
 AAC in MP4 is asked for first (`audio/mp4;codecs=mp4a.40.2`, saved as `.m4a`),
 then Opus in WebM (`.webm`). The browser recorder reads the page's own

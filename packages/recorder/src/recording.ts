@@ -95,11 +95,13 @@ export type StoppedRecording = {
 };
 
 /**
- * One recording in progress, owned by the page that started it. `stop`
- * answers `TStopped`: where its file is, or for a recording held in the
- * page (`startPageRecording`) the audio itself.
+ * One recording in progress, owned by the page that started it, written
+ * into the store as it records: in a browser at `<path>.<ext>`, on the
+ * desktop in the folder's `.epicenter/recordings` until `stop` places it at
+ * `<path>.webm`. Where its audio is, extension included, is what `stop`
+ * answers.
  */
-export type RecordingHandle<TStopped> = {
+export type Recording = {
 	/** Hear that capture ended on its own, including an ending before subscription. `stop` keeps what was captured. Retired by stop. */
 	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;
 	/**
@@ -109,16 +111,8 @@ export type RecordingHandle<TStopped> = {
 	 * the desktop, and in a browser is the pieces already written, which
 	 * `recover` repairs.
 	 */
-	stop(): Promise<Result<TStopped, RecorderError>>;
+	stop(): Promise<Result<StoppedRecording, RecorderError>>;
 };
-
-/**
- * A recording written into the store as it records: in a browser at
- * `<path>.<ext>`, on the desktop in the folder's `.epicenter/recordings`
- * until `stop` places it at `<path>.webm`. Where its audio is, extension
- * included, is what `stop` answers.
- */
-export type Recording = RecordingHandle<StoppedRecording>;
 
 /** A recording `Recorder.recover` repaired. */
 export type RecoveredRecording = {

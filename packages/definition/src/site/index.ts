@@ -28,7 +28,6 @@ export {
 	APPS,
 	type AppKey,
 	EPICENTER_API_URL,
-	LOCAL_APPS,
 	localUrl,
 	PRODUCTION_API_URL,
 	resolveOAuthAudiences,

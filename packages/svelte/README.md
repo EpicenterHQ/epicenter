@@ -115,14 +115,6 @@ the draft began from, so another writer's change since is a `Conflict`
 instead of being overwritten; without `over`, `replace` writes over the
 version shown.
 
-### A folder over a client of its own
-
-Every app opens its folder in `app.ts`. A page that must open a store
-`openFolder` cannot name, such as recorder-demo's link to a repository
-someone shared, makes the client itself and reads it as a folder of its
-contract, `reactive(createFolder(contract, async () => Ok(client)))`, and
-renders `<LeaveGuard>` for it, since no `<WhenOpen>` does.
-
 ## Keep typed text in an edit
 
 A note's editor shows each field the person typed until the save carrying
