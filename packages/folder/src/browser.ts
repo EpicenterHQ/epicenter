@@ -71,3 +71,30 @@ export function deviceFiles(device: Client<Contract>): DeviceFiles {
 		throw new Error('expected a client openDevice from /browser returned');
 	return { list, read, write, append };
 }
+
+/**
+ * Where a folder over this browser's files keeps its open attempt. A symbol
+ * member, so the copy `reactive` makes of the folder carries it too.
+ */
+const OPENING = Symbol('epicenter.browserFiles');
+
+type Opening = () =>
+	| Promise<Result<Client<Contract>, OpenFolderError>>
+	| undefined;
+
+/** Mark `folder` as one over this browser's files, whose open attempt `opening` answers. */
+export function holdOpening(folder: object, opening: Opening): void {
+	Object.defineProperty(folder, OPENING, { value: opening });
+}
+
+/**
+ * The files under `folder` by path (`deviceFiles`), once it opened: the
+ * folder `openFolder` returned over this browser's files, or `reactive`'s
+ * copy of it. Null for any other folder, and for one whose open failed.
+ */
+export async function filesOf(folder: object): Promise<DeviceFiles | null> {
+	const opening = (folder as { [OPENING]?: Opening })[OPENING]?.();
+	if (opening === undefined) return null;
+	const opened = await opening;
+	return opened.error === null ? deviceFiles(opened.data) : null;
+}

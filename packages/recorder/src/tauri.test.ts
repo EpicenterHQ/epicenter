@@ -12,7 +12,7 @@
  * - The shell's refusals arrive as this package's errors, by name
  * - A start withdrawn while the shell opened the microphone is stopped:
  *   released, with what the shell wrote kept
- * - `recover` names the directory, in the device's root, and answers each
+ * - `recover` names the directory, in the folder's root, and answers each
  *   recording placed with its length
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
@@ -39,7 +39,7 @@ mock.module('@tauri-apps/api/core', () => ({
 const { recorder } = await import('./tauri.js');
 
 /** The data folder the page opened. */
-const device = {} as Parameters<typeof recorder.start>[0]['device'];
+const folder = {} as Parameters<typeof recorder.start>[0]['folder'];
 
 /** The id the shell minted for the recording it started. */
 const started = '7';
@@ -57,7 +57,7 @@ beforeEach(() => {
 test('a recording starts in Data and stops by the id the shell minted', async () => {
 	const recording = expectOk(
 		await recorder.start({
-			device,
+			folder,
 			path: 'recordings/a',
 			input: { deviceId: 'coreaudio:desk-uid', label: 'Desk Microphone' },
 		}),
@@ -91,7 +91,7 @@ test('a recording starts in Data and stops by the id the shell minted', async ()
 
 test('a command that throws instead of answering is a failure, not a refusal', async () => {
 	const recording = expectOk(
-		await recorder.start({ device, path: 'recordings/a' }),
+		await recorder.start({ folder, path: 'recordings/a' }),
 	);
 	const lost = new Error('the shell is gone');
 	answer = () => {
@@ -100,25 +100,25 @@ test('a command that throws instead of answering is a failure, not a refusal', a
 	const failed = { name: 'Failed', cause: lost };
 	expect(expectErr(await recording.stop())).toMatchObject(failed);
 	expect(
-		expectErr(await recorder.start({ device, path: 'recordings/b' })),
+		expectErr(await recorder.start({ folder, path: 'recordings/b' })),
 	).toMatchObject(failed);
 	expect(expectErr(await recorder.openMeter())).toMatchObject(failed);
 	expect(expectErr(await recorder.listInputs())).toMatchObject(failed);
 	expect(
 		expectErr(
-			await recorder.recover({ device, under: 'recordings', unnamed: [] }),
+			await recorder.recover({ folder, under: 'recordings', unnamed: [] }),
 		),
 	).toMatchObject(failed);
 });
 
 test('the system default is asked for by naming no microphone', async () => {
-	expectOk(await recorder.start({ device, path: 'recordings/a' }));
+	expectOk(await recorder.start({ folder, path: 'recordings/a' }));
 	expect(calls[0]?.args.device).toBeNull();
 });
 
 test('a stop the shell refuses arrives by name', async () => {
 	const recording = expectOk(
-		await recorder.start({ device, path: 'recordings/a' }),
+		await recorder.start({ folder, path: 'recordings/a' }),
 	);
 	answer = () => {
 		throw { name: 'NotRecording', message: 'already stopped' };
@@ -143,7 +143,7 @@ test('the shell refusing a start is the matching error, with the chosen label', 
 		};
 		const refused = expectErr(
 			await recorder.start({
-				device,
+				folder,
 				path: 'recordings/a',
 				input: { deviceId: 'x', label: 'USB Mic' },
 			}),
@@ -164,7 +164,7 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 	expect(
 		expectErr(
 			await recorder.start({
-				device,
+				folder,
 				path: 'recordings/a',
 				signal: controller.signal,
 			}),
@@ -194,7 +194,7 @@ test('recover names the directory in Data and answers what it repaired, then eac
 	expect(
 		expectOk(
 			await recorder.recover({
-				device,
+				folder,
 				under: 'recordings',
 				unnamed: ['recordings/a.webm', 'recordings/left.webm'],
 			}),
@@ -220,7 +220,7 @@ test('a reply that is none of the shell’s refusals is a failure, not an answer
 	};
 	expect(
 		expectErr(
-			await recorder.recover({ device, under: 'recordings', unnamed: [] }),
+			await recorder.recover({ folder, under: 'recordings', unnamed: [] }),
 		),
 	).toMatchObject({
 		name: 'Failed',
@@ -304,7 +304,7 @@ test('an ending received before start answers reaches its subscriber once and re
 		return { durationMs: 1250 };
 	};
 	const recording = expectOk(
-		await recorder.start({ device, path: 'recordings/a' }),
+		await recorder.start({ folder, path: 'recordings/a' }),
 	);
 	const endings: string[] = [];
 	recording.onEnded((reason) => endings.push(reason));
@@ -320,7 +320,7 @@ test('an ending received before start answers reaches its subscriber once and re
 
 test('an ending reaches every listener when the first listener stops the native recorder', async () => {
 	const recording = expectOk(
-		await recorder.start({ device, path: 'recordings/a' }),
+		await recorder.start({ folder, path: 'recordings/a' }),
 	);
 	let stopping: ReturnType<typeof recording.stop> | undefined;
 	const endings: string[] = [];
