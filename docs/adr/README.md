@@ -913,7 +913,7 @@ When you add an ADR, add its row here.
 | [0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md) | Agents edit a document through one-shot CLI commands | Accepted |
 | [0717](0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md) | An Epicenter app is a site that publishes a contract | Superseded by 0723 |
 | [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Accepted (amends 0642 and 0700; amended by 0721, 0731, 0732, 0733, and 0751) |
-| [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Accepted (supersedes 0627; amended by 0730, 0731, 0741, 0751, and 0753) |
+| [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Accepted (supersedes 0627; amended by 0730, 0731, 0741, 0751, 0753, and 0763) |
 | [0720](0720-you-sign-in-a-machine-not-an-app.md) | You sign in a machine, not an app | Superseded by 0731 (amended 0549 and 0701) |
 | [0721](0721-an-apps-folder-is-derived-never-stored.md) | An app's folder is derived, never stored | Accepted (amends 0700, 0701, 0711, 0712, 0715, 0718; amended by 0725, 0726, 0728, 0735, and 0736) |
 | [0722](0722-an-apps-names-derive-from-its-sites-host.md) | An app's names derive from its site's host | Accepted (supersedes 0710) |
@@ -956,4 +956,5 @@ When you add an ADR, add its row here.
 | [0759](0759-an-apps-native-shell-is-generated-on-every-build.md) | An app's native shell is generated on every build | Accepted (amends 0753 and 0756) |
 | [0760](0760-global-shortcuts-are-a-capability.md) | Global shortcuts are a capability | Accepted (amends 0753 and 0755) |
 | [0761](0761-sync-never-merges-two-unrelated-histories.md) | Sync never merges two unrelated histories | Accepted (amends 0735) |
-| [0762](0762-epicenter-is-made-of-standards-and-places.md) | Epicenter is made of standards and places | Accepted |
+| [0762](0762-epicenter-is-made-of-standards-and-places.md) | Epicenter is made of standards and places | Accepted (amended by 0763) |
+| [0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) | Epicenter's doctrine is three roots and one rule for apps | Accepted (amends 0719 and 0762) |
