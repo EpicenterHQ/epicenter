@@ -3,6 +3,8 @@ import tailwindcss from '@tailwindcss/vite';
 import {
 	defaultClientConditions,
 	defaultServerConditions,
+	type EnvironmentModuleNode,
+	type Plugin,
 	searchForWorkspaceRoot,
 	type UserConfig,
 } from 'vite';
@@ -32,7 +34,11 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 		// across app configs. Keep the cast here, the one place every workspace
 		// app's plugins come from, instead of leaking the workaround into each app.
 		// SAFETY: both values are Vite plugins; only their peer-variant types differ.
-		plugins: [sveltekit(), tailwindcss()] as UserConfig['plugins'],
+		plugins: [
+			sveltekit(),
+			tailwindcss(),
+			reloadWhenAppChanges(),
+		] as UserConfig['plugins'],
 		// No `resolve.dedupe` here. It named `yjs` for a long time, which no
 		// workspace member depends on since the store moved to `@y/y`, so it was
 		// inert. One install is what keeps a package's identity, and the lockfile
@@ -41,6 +47,36 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 			port: app.port,
 			strictPort: true,
 			fs: { allow: [searchForWorkspaceRoot(process.cwd())] },
+		},
+	};
+}
+
+/** Every app's capabilities, opened once for the page's life (ADR-0766). */
+const APP_MODULE = '/src/lib/app.ts';
+
+/**
+ * Editing what an app is made of reloads the page (ADR-0768): a change that
+ * reaches `src/lib/app.ts`, the file itself or anything it imports, is a new
+ * world for the page, and a reload frees the old one whole (its folder, its
+ * Worker, every listener) with nothing for the app to close. An edit that
+ * reaches only components still updates in place.
+ */
+function reloadWhenAppChanges(): Plugin {
+	return {
+		name: 'epicenter:reload-when-app-changes',
+		apply: 'serve',
+		hotUpdate({ modules }) {
+			if (this.environment.name !== 'client') return;
+			const seen = new Set<EnvironmentModuleNode>();
+			const reachesApp = (node: EnvironmentModuleNode): boolean => {
+				if (seen.has(node)) return false;
+				seen.add(node);
+				if (node.file?.endsWith(APP_MODULE)) return true;
+				return [...node.importers].some(reachesApp);
+			};
+			if (!modules.some(reachesApp)) return;
+			this.environment.hot.send({ type: 'full-reload' });
+			return [];
 		},
 	};
 }
