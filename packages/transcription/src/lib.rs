@@ -2,7 +2,7 @@
 //!
 //! Install after `tauri_plugin_epicenter_folder::init()`: `transcribe_file`
 //! reads audio from a root the page opened through that plugin
-//! (`Root::Data`).
+//! (`Root::Data`), and `transcribe_audio` takes audio the page uploads.
 //! Model settings belong to the installing app and live at its own
 //! `app_local_data_dir()/local-transcription.json`; model files stay in the
 //! shared Hugging Face cache.
@@ -66,6 +66,7 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
         .commands(tauri_specta::collect_commands![
             list_models,
             download_model,
+            remove_model::<tauri::Wry>,
             reveal_model::<tauri::Wry>,
             get_active_model::<tauri::Wry>,
             set_active_model::<tauri::Wry>,
@@ -73,6 +74,9 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             set_unload_policy::<tauri::Wry>,
             list_inference_models::<tauri::Wry>,
             transcribe_file::<tauri::Wry>,
+            transcribe_audio::<tauri::Wry>,
+            load_model::<tauri::Wry>,
+            unload_model::<tauri::Wry>,
             open_model_settings::<tauri::Wry>,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)

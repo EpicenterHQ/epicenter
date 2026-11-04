@@ -210,15 +210,9 @@ impl ModelCache {
         })
     }
 
-    /// File inference resolves the requested catalog identity without changing
-    /// dictation settings. An unknown or uninstalled model is refused before
-    /// `audio` is read or decoded.
-    pub fn transcribe_explicit(
-        &self,
-        model_id: String,
-        audio: &Path,
-        hints: TranscriptionHints,
-    ) -> Result<TranscriptionOutcome, TranscriptionError> {
+    /// Resolve an explicitly named catalog model, without reading or changing
+    /// the active-model setting: unknown and uninstalled models are refused.
+    fn resolve_explicit(&self, model_id: String) -> Result<ResolvedModel, TranscriptionError> {
         let invalid = |message: String| TranscriptionError::LocalRouteUnavailable {
             reason: UnavailableReason::ActiveModelUnavailable,
             message,
@@ -230,6 +224,24 @@ impl ModelCache {
                 "Native transcription model is not installed: {model_id}"
             ))
         })?;
+        Ok(ResolvedModel {
+            id: model_id,
+            path,
+            supports_prompt: info.supports_prompt,
+            supports_language: info.supports_language,
+        })
+    }
+
+    /// File inference resolves the requested catalog identity without changing
+    /// dictation settings. An unknown or uninstalled model is refused before
+    /// `audio` is read or decoded.
+    pub fn transcribe_explicit(
+        &self,
+        model_id: String,
+        audio: &Path,
+        hints: TranscriptionHints,
+    ) -> Result<TranscriptionOutcome, TranscriptionError> {
+        let model = self.resolve_explicit(model_id)?;
         let bytes = std::fs::read(audio).map_err(|error| match error.kind() {
             std::io::ErrorKind::NotFound => TranscriptionError::FileMissing {
                 message: format!("Nothing is at {}.", audio.display()),
@@ -238,7 +250,30 @@ impl ModelCache {
                 message: format!("{}: {error}", audio.display()),
             },
         })?;
-        let samples = crate::audio::decode_to_pcm16k_mono(&bytes).map_err(|error| {
+        self.transcribe_resolved(model, &bytes, hints)
+    }
+
+    /// Inference over audio the caller already holds (an upload), with the
+    /// requested catalog model and without changing dictation settings. An
+    /// unknown or uninstalled model is refused before `audio` is decoded.
+    pub fn transcribe_bytes(
+        &self,
+        model_id: String,
+        audio: &[u8],
+        hints: TranscriptionHints,
+    ) -> Result<TranscriptionOutcome, TranscriptionError> {
+        let model = self.resolve_explicit(model_id)?;
+        self.transcribe_resolved(model, audio, hints)
+    }
+
+    /// Decode `bytes` and run `model` over them.
+    fn transcribe_resolved(
+        &self,
+        model: ResolvedModel,
+        bytes: &[u8],
+        hints: TranscriptionHints,
+    ) -> Result<TranscriptionOutcome, TranscriptionError> {
+        let samples = crate::audio::decode_to_pcm16k_mono(bytes).map_err(|error| {
             TranscriptionError::AudioReadError {
                 message: error.to_string(),
             }
@@ -246,12 +281,6 @@ impl ModelCache {
         if samples.is_empty() {
             return Ok(TranscriptionOutcome::EmptyAudio);
         }
-        let model = ResolvedModel {
-            id: model_id,
-            path,
-            supports_prompt: info.supports_prompt,
-            supports_language: info.supports_language,
-        };
         let (text, applied) = self.run_loaded(&model, &hints, &sanitize_samples(samples))?;
         self.evict_if_immediate();
         Ok(TranscriptionOutcome::Transcribed {
@@ -274,6 +303,32 @@ impl ModelCache {
         self.touch_activity();
         let _guard = self.ensure_loaded(&model.id, model.path.clone())?;
         Ok(())
+    }
+
+    /// Load the named catalog model into memory now, so the next transcription
+    /// with it starts warm. It replaces any other resident model (one fits in
+    /// memory) and stays under the unload policy like any other load.
+    pub fn load(&self, model_id: String) -> Result<(), TranscriptionError> {
+        let model = self.resolve_explicit(model_id)?;
+        self.touch_activity();
+        let _guard = self.ensure_loaded(&model.id, model.path)?;
+        Ok(())
+    }
+
+    /// Drop the named model from memory if it is the resident one, waiting
+    /// for a transcription with it to finish. Answers whether it was resident.
+    /// The model's file stays where it is.
+    pub fn unload(&self, model_id: &str) -> bool {
+        let Some(path) = installed_model_path(model_id) else {
+            return false;
+        };
+        let mut guard = lock_cached(&self.cached);
+        if guard.as_ref().is_some_and(|cached| cached.path == path) {
+            guard.take();
+            debug!("[Transcription] unloaded model (asked): {}", path.display());
+            return true;
+        }
+        false
     }
 
     /// Hold the cache lock across load. If `(path, identity)` matches the cache,

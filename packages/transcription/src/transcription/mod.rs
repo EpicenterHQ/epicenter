@@ -4,7 +4,7 @@ mod model_cache;
 mod settings;
 
 pub use catalog::{
-    download_model, list_models, reveal_model, ActiveModel, CatalogError, ModelInfo,
+    download_model, list_models, remove_model, reveal_model, ActiveModel, CatalogError, ModelInfo,
 };
 pub use error::TranscriptionError;
 pub use model_cache::ModelCache;
@@ -281,6 +281,69 @@ pub async fn transcribe_file<R: Runtime>(
     tauri::async_runtime::spawn_blocking(move || cache.transcribe_explicit(model_id, &audio, hints))
         .await
         .map_err(join_err)?
+}
+
+/// Transcribe audio the page holds (an upload, such as a dictation's blob),
+/// base64-encoded, with the exact catalog model `model_id`. The bytes are
+/// decoded where they arrive; nothing is written to disk. Audio that is not
+/// base64 is an `AudioReadError`; then an unknown or uninstalled model is
+/// refused before the audio is decoded, and audio that does not decode is an
+/// `AudioReadError`. The active-model
+/// setting is neither read nor changed.
+#[tauri::command]
+#[specta::specta]
+pub async fn transcribe_audio<R: Runtime>(
+    model_id: String,
+    audio: String,
+    hints: TranscriptionHints,
+    _app: AppHandle<R>,
+    state: State<'_, PluginState<R>>,
+) -> Result<TranscriptionOutcome, TranscriptionError> {
+    use base64::Engine;
+    let cache = state.cache();
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(audio)
+            .map_err(|error| TranscriptionError::AudioReadError {
+                message: format!("The audio is not base64: {error}"),
+            })?;
+        cache.transcribe_bytes(model_id, &bytes, hints)
+    })
+    .await
+    .map_err(join_err)?
+}
+
+/// Load `model_id` into memory now, so the next transcription with it starts
+/// warm. It replaces any other resident model and stays under the unload
+/// policy. An unknown or uninstalled model is refused.
+#[tauri::command]
+#[specta::specta]
+pub async fn load_model<R: Runtime>(
+    model_id: String,
+    _app: AppHandle<R>,
+    state: State<'_, PluginState<R>>,
+) -> Result<(), TranscriptionError> {
+    let cache = state.cache();
+    tauri::async_runtime::spawn_blocking(move || cache.load(model_id))
+        .await
+        .map_err(join_err)?
+}
+
+/// Drop `model_id` from memory if it is resident, after any transcription
+/// with it finishes. Its file stays in the cache.
+#[tauri::command]
+#[specta::specta]
+pub async fn unload_model<R: Runtime>(
+    model_id: String,
+    _app: AppHandle<R>,
+    state: State<'_, PluginState<R>>,
+) -> Result<(), TranscriptionError> {
+    let cache = state.cache();
+    tauri::async_runtime::spawn_blocking(move || {
+        cache.unload(&model_id);
+    })
+    .await
+    .map_err(join_err)
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]

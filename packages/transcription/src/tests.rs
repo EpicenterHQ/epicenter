@@ -263,3 +263,43 @@ fn a_window_without_the_permission_cannot_transcribe() {
     let refused = transcribe(&main, "unknown-model", "recordings/a.wav").unwrap_err();
     assert!(refused.to_string().contains("not allowed"), "{refused}");
 }
+
+#[test]
+fn uploaded_audio_is_refused_before_any_model_runs() {
+    let fixture = fixture();
+    let main = window(&fixture.app, "main");
+    let upload = |model: &str, audio: &str| {
+        invoke(
+            &main,
+            "transcribe_audio",
+            json!({ "modelId": model, "audio": audio, "hints": {} }),
+        )
+        .unwrap_err()
+    };
+    // Not base64: nothing to decode.
+    let refused = upload("unknown-model", "not base64!");
+    assert_eq!(name(&refused), "AudioReadError", "{refused}");
+    // An unknown model is refused before the bytes are decoded as audio.
+    let refused = upload("unknown-model", "bm90IGF1ZGlv");
+    assert_eq!(name(&refused), "LocalRouteUnavailable", "{refused}");
+}
+
+#[test]
+fn loading_an_unknown_model_is_refused_and_unloading_one_is_a_no_op() {
+    let fixture = fixture();
+    let main = window(&fixture.app, "main");
+    let refused = invoke(&main, "load_model", json!({ "modelId": "unknown-model" })).unwrap_err();
+    assert_eq!(name(&refused), "LocalRouteUnavailable", "{refused}");
+    assert_eq!(
+        invoke(&main, "unload_model", json!({ "modelId": "unknown-model" })).unwrap(),
+        Value::Null
+    );
+}
+
+#[test]
+fn removing_an_unknown_model_is_refused() {
+    let fixture = fixture();
+    let main = window(&fixture.app, "main");
+    let refused = invoke(&main, "remove_model", json!({ "modelId": "unknown-model" })).unwrap_err();
+    assert_eq!(name(&refused), "UnknownModel", "{refused}");
+}

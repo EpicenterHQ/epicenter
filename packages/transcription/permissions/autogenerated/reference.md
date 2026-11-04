@@ -140,6 +140,32 @@ Denies the list_models command without any pre-configured scope.
 <tr>
 <td>
 
+`epicenter-transcription:allow-load-model`
+
+</td>
+<td>
+
+Enables the load_model command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-transcription:deny-load-model`
+
+</td>
+<td>
+
+Denies the load_model command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `epicenter-transcription:allow-open-model-settings`
 
 </td>
@@ -159,6 +185,32 @@ Enables the open_model_settings command without any pre-configured scope.
 <td>
 
 Denies the open_model_settings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-transcription:allow-remove-model`
+
+</td>
+<td>
+
+Enables the remove_model command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-transcription:deny-remove-model`
+
+</td>
+<td>
+
+Denies the remove_model command without any pre-configured scope.
 
 </td>
 </tr>
@@ -244,6 +296,32 @@ Denies the set_unload_policy command without any pre-configured scope.
 <tr>
 <td>
 
+`epicenter-transcription:allow-transcribe-audio`
+
+</td>
+<td>
+
+Enables the transcribe_audio command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-transcription:deny-transcribe-audio`
+
+</td>
+<td>
+
+Denies the transcribe_audio command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `epicenter-transcription:allow-transcribe-file`
 
 </td>
@@ -263,6 +341,32 @@ Enables the transcribe_file command without any pre-configured scope.
 <td>
 
 Denies the transcribe_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-transcription:allow-unload-model`
+
+</td>
+<td>
+
+Enables the unload_model command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-transcription:deny-unload-model`
+
+</td>
+<td>
+
+Denies the unload_model command without any pre-configured scope.
 
 </td>
 </tr>

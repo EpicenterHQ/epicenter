@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-transcribe-audio"
+description = "Enables the transcribe_audio command without any pre-configured scope."
+commands.allow = ["transcribe_audio"]
+
+[[permission]]
+identifier = "deny-transcribe-audio"
+description = "Denies the transcribe_audio command without any pre-configured scope."
+commands.deny = ["transcribe_audio"]

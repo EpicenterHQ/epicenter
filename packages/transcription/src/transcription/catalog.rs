@@ -21,9 +21,9 @@
 //! Storage is the shared Hugging Face cache (`~/.cache/huggingface/hub`,
 //! overridable by `HF_HOME`), owned by `hf-hub`: downloads stage and resume
 //! through it, and a file already in the cache (from this app or any other HF
-//! tool) is reused. This plugin downloads into that cache and never deletes from
-//! it: other tools share the cache, so removing files is the user's call, made
-//! with Hugging Face's own tools. Rust never stores a path; it resolves the
+//! tool) is reused. The cache is a cache (ADR-0757): `remove_model` deletes a
+//! model's file from it when the person asks, and another app or tool that
+//! used the file downloads it again. Rust never stores a path; it resolves the
 //! coordinate to a cache path at point of use, so a file removed outside
 //! this app reads as not downloaded on the next look.
 //!
@@ -156,6 +156,39 @@ impl CatalogEntry {
     /// presence is resolved from the snapshots and the blob directly.
     fn cached_path(&self) -> Option<PathBuf> {
         self.cached_path_in(Cache::from_env())
+    }
+
+    /// Delete this model's file from the cache: every snapshot pointer that
+    /// resolves to its bytes (the pinned commit's file, and the same bytes at
+    /// any other commit), then the blob itself. A file of the same name with
+    /// other bytes is another tool's and stays. Answers whether anything was
+    /// there to delete.
+    fn remove_from(&self, cache: Cache) -> std::io::Result<bool> {
+        let cache = cache.repo(self.repo());
+        let pinned = cache
+            .pointer_path(self.coord.commit)
+            .join(self.coord.filename);
+        let blob_path = cache.blob_path(self.coord.sha256);
+        let blob = std::fs::canonicalize(&blob_path).ok();
+        let mut removed = false;
+        if let Some(snapshots) = cache.pointer_path(self.coord.commit).parent() {
+            for snapshot in std::fs::read_dir(snapshots).into_iter().flatten().flatten() {
+                let pointer = snapshot.path().join(self.coord.filename);
+                // A pointer whose target is gone still names this model at the
+                // pinned commit; one elsewhere counts only when it is our blob.
+                let ours = pointer == pinned
+                    || (blob.is_some() && std::fs::canonicalize(&pointer).ok() == blob);
+                if ours && std::fs::symlink_metadata(&pointer).is_ok() {
+                    std::fs::remove_file(&pointer)?;
+                    removed = true;
+                }
+            }
+        }
+        if blob_path.is_file() {
+            std::fs::remove_file(&blob_path)?;
+            removed = true;
+        }
+        Ok(removed)
     }
 
     fn cached_path_in(&self, cache: Cache) -> Option<PathBuf> {
@@ -295,6 +328,9 @@ pub enum CatalogError {
 
     #[error("Could not show the model file: {message}")]
     RevealFailed { message: String },
+
+    #[error("Could not remove the model from the cache: {message}")]
+    RemoveFailed { message: String },
 }
 
 /// The full local GGUF catalog with per-model download status. The picker's one
@@ -411,7 +447,7 @@ mod download_tests {
 
 /// Show a downloaded model's folder in the shared Hugging Face cache, such as
 /// `models--handy-computer--whisper-tiny-gguf`, so the user can see where it
-/// lives and remove it themselves. This plugin never deletes a model.
+/// lives.
 ///
 /// The folder, not the file: the file is a symlink into the repo's `blobs/`,
 /// and the file manager would select the 64-hex blob it resolves to. Deleting
@@ -437,6 +473,42 @@ pub async fn reveal_model<R: tauri::Runtime>(
         .map_err(|error| CatalogError::RevealFailed {
             message: error.to_string(),
         })
+}
+
+/// Remove a model's file from the shared Hugging Face cache, which is a
+/// cache (ADR-0757): any app or Hugging Face tool that used the file
+/// downloads it again. The model is unloaded first, after any transcription
+/// with it finishes, and a model still downloading is refused `Busy`.
+/// Removing a model that is not there succeeds. The active-model choice is
+/// kept; it reads as unavailable until the model is downloaded again.
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_model<R: tauri::Runtime>(
+    model_id: String,
+    _app: tauri::AppHandle<R>,
+    downloads: State<'_, Downloads>,
+    state: State<'_, crate::PluginState<R>>,
+) -> Result<(), CatalogError> {
+    let entry = find_or_unknown(&model_id)?;
+    if downloads.has(&model_id) {
+        return Err(CatalogError::Busy {
+            message: format!("{} is still downloading.", entry.name),
+        });
+    }
+    let cache = state.cache();
+    tauri::async_runtime::spawn_blocking(move || {
+        cache.unload(entry.id);
+        entry
+            .remove_from(Cache::from_env())
+            .map(|_| ())
+            .map_err(|error| CatalogError::RemoveFailed {
+                message: format!("{}: {error}", entry.name),
+            })
+    })
+    .await
+    .map_err(|error| CatalogError::RemoveFailed {
+        message: error.to_string(),
+    })?
 }
 
 #[cfg(test)]
@@ -508,6 +580,48 @@ mod tests {
             .cached_path_in(Cache::new(root.path().into()))
             .unwrap();
         assert!(found.ends_with(entry().coord.filename));
+    }
+
+    #[test]
+    fn removing_deletes_every_pointer_to_the_model_and_its_blob() {
+        let root = tempfile::tempdir().unwrap();
+        let other = "0000000000000000000000000000000000000000";
+        place(root.path(), entry().coord.commit, entry().coord.sha256);
+        place(root.path(), other, entry().coord.sha256);
+        let cache = || Cache::new(root.path().into());
+        assert!(entry().remove_from(cache()).unwrap());
+        assert_eq!(entry().cached_path_in(cache()), None);
+        let repo = root
+            .path()
+            .join("models--handy-computer--whisper-tiny-gguf");
+        assert!(!repo.join("blobs").join(entry().coord.sha256).exists());
+        for commit in [entry().coord.commit, other] {
+            let pointer = repo
+                .join("snapshots")
+                .join(commit)
+                .join(entry().coord.filename);
+            assert!(std::fs::symlink_metadata(pointer).is_err(), "{commit}");
+        }
+        // Nothing is left to remove, and that is not a failure.
+        assert!(!entry().remove_from(cache()).unwrap());
+    }
+
+    #[test]
+    fn removing_keeps_another_tools_file_of_the_same_name() {
+        let root = tempfile::tempdir().unwrap();
+        let other = "0000000000000000000000000000000000000000";
+        place(root.path(), entry().coord.commit, entry().coord.sha256);
+        place(root.path(), other, "different");
+        assert!(entry().remove_from(Cache::new(root.path().into())).unwrap());
+        let repo = root
+            .path()
+            .join("models--handy-computer--whisper-tiny-gguf");
+        assert!(repo.join("blobs/different").is_file());
+        assert!(repo
+            .join("snapshots")
+            .join(other)
+            .join(entry().coord.filename)
+            .is_file());
     }
 
     #[test]

@@ -5225,6 +5225,7 @@ name = "tauri-plugin-epicenter-transcription"
 version = "0.0.1"
 dependencies = [
  "audiopus",
+ "base64 0.22.1",
  "epicenter-folder-core",
  "hf-hub",
  "hound",

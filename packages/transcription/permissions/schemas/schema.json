@@ -355,6 +355,18 @@
           "markdownDescription": "Denies the list_models command without any pre-configured scope."
         },
         {
+          "description": "Enables the load_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-load-model",
+          "markdownDescription": "Enables the load_model command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-load-model",
+          "markdownDescription": "Denies the load_model command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_model_settings command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-model-settings",
@@ -365,6 +377,18 @@
           "type": "string",
           "const": "deny-open-model-settings",
           "markdownDescription": "Denies the open_model_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-model",
+          "markdownDescription": "Enables the remove_model command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-model",
+          "markdownDescription": "Denies the remove_model command without any pre-configured scope."
         },
         {
           "description": "Enables the reveal_model command without any pre-configured scope.",
@@ -403,6 +427,18 @@
           "markdownDescription": "Denies the set_unload_policy command without any pre-configured scope."
         },
         {
+          "description": "Enables the transcribe_audio command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-transcribe-audio",
+          "markdownDescription": "Enables the transcribe_audio command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the transcribe_audio command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-transcribe-audio",
+          "markdownDescription": "Denies the transcribe_audio command without any pre-configured scope."
+        },
+        {
           "description": "Enables the transcribe_file command without any pre-configured scope.",
           "type": "string",
           "const": "allow-transcribe-file",
@@ -413,6 +449,18 @@
           "type": "string",
           "const": "deny-transcribe-file",
           "markdownDescription": "Denies the transcribe_file command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the unload_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unload-model",
+          "markdownDescription": "Enables the unload_model command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unload_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unload-model",
+          "markdownDescription": "Denies the unload_model command without any pre-configured scope."
         }
       ]
     }
