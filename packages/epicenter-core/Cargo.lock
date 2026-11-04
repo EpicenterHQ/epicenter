@@ -104,6 +104,7 @@ name = "epicenter-core"
 version = "0.0.1"
 dependencies = [
  "git2",
+ "libc",
  "serde",
  "serde_json",
  "sha2",

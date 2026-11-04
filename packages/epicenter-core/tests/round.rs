@@ -298,6 +298,7 @@ fn a_push_the_remote_moved_under_fetches_merges_and_pushes_again() {
             remote: Some(world.remote()),
             machine: "B".into(),
             merge: &racing,
+            turn_wait: epicenter_core::lock::TURN_WAIT,
         },
     );
     eprintln!(

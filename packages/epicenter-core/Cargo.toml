@@ -26,6 +26,10 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[target.'cfg(unix)'.dependencies]
+# `fcntl` for the round lock (`src/lock.rs`).
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 # The test remote: `git http-backend` and an LFS server behind a token.

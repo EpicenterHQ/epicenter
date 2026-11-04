@@ -123,6 +123,7 @@ impl World {
                 remote: Some(self.remote()),
                 machine: machine.into(),
                 merge: &StandIn,
+                turn_wait: epicenter_core::lock::TURN_WAIT,
             },
         );
         eprintln!(

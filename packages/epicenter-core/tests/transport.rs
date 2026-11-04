@@ -42,6 +42,7 @@ fn sync(folder: &Path, url: &str, token: Option<&str>, machine: &str) -> Round {
             remote: Some(remote),
             machine: machine.into(),
             merge: &StandIn,
+            turn_wait: epicenter_core::lock::TURN_WAIT,
         },
     );
     eprintln!(

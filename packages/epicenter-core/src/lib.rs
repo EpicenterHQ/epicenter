@@ -17,12 +17,14 @@
 
 mod http;
 pub mod lfs;
+pub mod lock;
 pub mod merge;
 pub mod transport;
 pub mod worktree;
 
 use std::fmt;
 use std::path::Path;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use git2::{
@@ -144,6 +146,9 @@ pub struct Options<'a> {
     /// The computer's name, for "Added from <machine>".
     pub machine: String,
     pub merge: &'a dyn NoteMerge,
+    /// How long to wait for another program's round on this folder before
+    /// returning `Retry` ([`lock::TURN_WAIT`] is the CLI's wait).
+    pub turn_wait: Duration,
 }
 
 #[derive(Debug)]
@@ -164,6 +169,8 @@ pub fn sync_round(folder: &Path, options: &Options) -> Round {
         .as_ref()
         .map(|r| transport::Session::enter(&r.url, r.token.as_deref()));
     let outcome = open_or_init(folder).and_then(|repo| {
+        // Held until the round returns: commit, fetch, merge, LFS, and push.
+        let _turn = lock::RoundLock::acquire(repo.commondir(), options.turn_wait)?;
         // New objects collect in memory and land as one pack before any ref
         // names them: 10,000 loose-object writes cost seconds on APFS.
         let odb = repo.odb()?;
