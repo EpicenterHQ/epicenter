@@ -142,8 +142,8 @@ describe('remoteName', () => {
 		expect(remoteName('https://git.epicenter.so/me/notes.git')).toBe(
 			'me/notes',
 		);
-		expect(remoteName('http://localhost:8788/git/ana/recorder-demo')).toBe(
-			'ana/recorder-demo',
+		expect(remoteName('http://localhost:8788/git/ana/field-notes')).toBe(
+			'ana/field-notes',
 		);
 	});
 

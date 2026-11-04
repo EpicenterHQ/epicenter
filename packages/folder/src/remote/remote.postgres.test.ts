@@ -56,7 +56,7 @@ const recorder = defineContract({
 
 const secret = 'folder-remote-secret-0123456789abcdefghij';
 const demo = {
-	clientId: 'so.epicenter.recorder-demo',
+	clientId: 'so.epicenter.recorder',
 	redirectUri: 'https://recorder.example.test/auth/callback',
 };
 

@@ -1,3 +1,0 @@
-# The Playwright suite in e2e/ runs under Playwright, not bun test.
-[test]
-root = "src"

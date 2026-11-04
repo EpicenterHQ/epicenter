@@ -33,7 +33,7 @@ import { mountGitHost } from './git.js';
 
 const secret = 'contract-e2e-secret-0123456789abcdefghij';
 const recorder = {
-	clientId: 'so.epicenter.recorder-demo',
+	clientId: 'so.epicenter.recorder',
 	redirectUri: 'https://recorder.example.test/auth/callback',
 };
 

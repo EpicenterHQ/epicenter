@@ -287,26 +287,6 @@
         "wrangler": "catalog:",
       },
     },
-    "apps/recorder-demo": {
-      "name": "@epicenter/recorder-demo",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/definition": "workspace:*",
-        "@epicenter/folder": "workspace:*",
-        "@epicenter/recorder": "workspace:*",
-        "@epicenter/svelte": "workspace:*",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@sveltejs/vite-plugin-svelte": "catalog:",
-        "@types/bun": "catalog:",
-        "playwright": "^1.61.1",
-        "svelte": "catalog:",
-        "svelte-check": "catalog:",
-        "typescript": "catalog:",
-        "vite": "catalog:",
-      },
-    },
     "apps/todos": {
       "name": "@epicenter/todos",
       "version": "0.0.1",
@@ -955,8 +935,6 @@
     "@epicenter/posthog-reverse-proxy": ["@epicenter/posthog-reverse-proxy@workspace:apps/posthog-reverse-proxy"],
 
     "@epicenter/recorder": ["@epicenter/recorder@workspace:packages/recorder"],
-
-    "@epicenter/recorder-demo": ["@epicenter/recorder-demo@workspace:apps/recorder-demo"],
 
     "@epicenter/server": ["@epicenter/server@workspace:packages/server"],
 

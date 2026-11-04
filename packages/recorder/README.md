@@ -193,5 +193,6 @@ bun test         # the browser recorder over fakes, the desktop recorder over a 
 bun run typecheck
 ```
 
-The OPFS appends themselves run in Whispering's and the recorder demo's
-Playwright suites, which watch a recording's file grow while it records.
+The OPFS appends themselves run in Whispering's Playwright suite
+(`apps/whispering/e2e/`), which watches a recording's file grow while it
+records.
