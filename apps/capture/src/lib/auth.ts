@@ -12,8 +12,8 @@ import {
 	createBrowserOAuth,
 	epicenterCloud,
 	selfHostedServer,
-} from '@epicenter/auth';
-import { fromAuth } from '@epicenter/auth/svelte';
+} from '@epicenter/account';
+import { fromAuth } from '@epicenter/account/svelte';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
 

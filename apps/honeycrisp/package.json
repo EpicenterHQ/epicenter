@@ -52,7 +52,7 @@
 		"@codemirror/merge": "^6.12.3",
 		"@codemirror/state": "^6.7.6",
 		"@codemirror/view": "^6.43.15",
-		"@epicenter/auth": "workspace:*",
+		"@epicenter/account": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",

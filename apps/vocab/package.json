@@ -36,8 +36,8 @@
 		"deploy": "wrangler deploy"
 	},
 	"dependencies": {
+		"@epicenter/account": "workspace:*",
 		"@epicenter/ai": "workspace:*",
-		"@epicenter/auth": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",

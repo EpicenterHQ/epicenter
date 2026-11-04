@@ -9,8 +9,8 @@
  * web writes yet. Either way the demo is the local-only client
  * `so.epicenter.recorder-demo`, which only a local deployment registers.
  */
-import { createBrowserOAuth, selfHostedServer } from '@epicenter/auth';
-import { fromAuth } from '@epicenter/auth/svelte';
+import { createBrowserOAuth, selfHostedServer } from '@epicenter/account';
+import { fromAuth } from '@epicenter/account/svelte';
 import {
 	API_BUN_DEV_PORT,
 	LOCAL_APPS,

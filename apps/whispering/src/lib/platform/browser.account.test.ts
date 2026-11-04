@@ -1,6 +1,6 @@
 /** Browser hosted inference uses the same Account.fetch contract as the desktop route. */
 import { afterEach, expect, test } from 'bun:test';
-import { epicenterCloud, selfHostedServer } from '@epicenter/auth';
+import { epicenterCloud, selfHostedServer } from '@epicenter/account';
 import { APPS, resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
 import type { Client } from '@epicenter/definition/contract';

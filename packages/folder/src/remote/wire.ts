@@ -28,7 +28,7 @@ import { Ok, type Result } from 'wellcrafted/result';
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
 /**
- * What a remote needs of a signed-in account: an `@epicenter/auth` `Account`,
+ * What a remote needs of a signed-in account: an `@epicenter/account` `Account`,
  * named by shape so this package never loads authentication. `fetch` carries
  * the account's credential to its own server; `signal` aborts when the
  * account is retired.

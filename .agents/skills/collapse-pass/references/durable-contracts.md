@@ -19,8 +19,8 @@ Use these source owners as starting points, then trace their callers and tests:
   [routes](../../../../packages/server/src/routes): trace durable authority
   names and how the server resolves whose data a request can reach. Preserve
   partitioning as well as wire compatibility.
-- [Auth schemas](../../../../packages/auth/src/auth-types.ts) and
-  [principal types](../../../../packages/principal/src/principal.ts): trace
+- [Auth schemas](../../../../packages/account/src/auth-types.ts) and
+  [principal types](../../../../packages/account/src/principal.ts): trace
   persisted values, wire schemas, and consumers before changing fields or brands.
 - Applied migrations record stored-data history. Preserve them during routine
   cleanup; use the current schema and migration workflow for an authorized change.

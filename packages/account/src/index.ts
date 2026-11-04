@@ -19,3 +19,8 @@ export {
 	type CreateBrowserOAuthOptions,
 	createBrowserOAuth,
 } from './browser-oauth.js';
+export {
+	type AccountIdentity,
+	asPrincipalId,
+	PrincipalId,
+} from './principal.js';

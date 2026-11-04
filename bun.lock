@@ -30,9 +30,8 @@
       "version": "0.0.2",
       "dependencies": {
         "@better-auth/drizzle-adapter": "catalog:",
-        "@epicenter/auth": "workspace:*",
+        "@epicenter/account": "workspace:*",
         "@epicenter/constants": "workspace:*",
-        "@epicenter/principal": "workspace:*",
         "@epicenter/server": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "arktype": "catalog:",
@@ -62,7 +61,7 @@
       "dependencies": {
         "@better-auth/oauth-provider": "catalog:",
         "@better-auth/passkey": "catalog:",
-        "@epicenter/auth": "workspace:*",
+        "@epicenter/account": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@tanstack/svelte-query": "catalog:",
         "@tanstack/svelte-query-devtools": "catalog:",
@@ -94,7 +93,7 @@
       "name": "@epicenter/capture-app",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/auth": "workspace:*",
+        "@epicenter/account": "workspace:*",
         "@epicenter/capture": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
@@ -152,7 +151,7 @@
         "@codemirror/merge": "^6.12.3",
         "@codemirror/state": "^6.7.6",
         "@codemirror/view": "^6.43.15",
-        "@epicenter/auth": "workspace:*",
+        "@epicenter/account": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
@@ -291,7 +290,7 @@
       "name": "@epicenter/recorder-demo",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/auth": "workspace:*",
+        "@epicenter/account": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
@@ -314,7 +313,7 @@
       "name": "@epicenter/todos",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/auth": "workspace:*",
+        "@epicenter/account": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
@@ -347,8 +346,8 @@
       "name": "@epicenter/vocab",
       "version": "0.0.2",
       "dependencies": {
+        "@epicenter/account": "workspace:*",
         "@epicenter/ai": "workspace:*",
-        "@epicenter/auth": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
@@ -385,8 +384,8 @@
       "name": "@epicenter/whispering",
       "version": "7.11.1",
       "dependencies": {
+        "@epicenter/account": "workspace:*",
         "@epicenter/ai": "workspace:*",
-        "@epicenter/auth": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
@@ -425,33 +424,11 @@
         "typescript": "catalog:",
       },
     },
-    "packages/ai": {
-      "name": "@epicenter/ai",
-      "version": "0.0.0",
-      "dependencies": {
-        "@epicenter/auth": "workspace:*",
-        "@epicenter/ui": "workspace:*",
-        "@lucide/svelte": "catalog:",
-        "@tanstack/svelte-query": "catalog:",
-        "nanoid": "catalog:",
-        "openai": "^7.12.1",
-        "typebox": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@epicenter/principal": "workspace:*",
-        "@types/bun": "catalog:",
-        "svelte": "catalog:",
-        "svelte-check": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
-    "packages/auth": {
-      "name": "@epicenter/auth",
+    "packages/account": {
+      "name": "@epicenter/account",
       "version": "0.1.1",
       "dependencies": {
         "@epicenter/constants": "workspace:*",
-        "@epicenter/principal": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",
@@ -468,6 +445,26 @@
       "optionalPeers": [
         "svelte",
       ],
+    },
+    "packages/ai": {
+      "name": "@epicenter/ai",
+      "version": "0.0.0",
+      "dependencies": {
+        "@epicenter/account": "workspace:*",
+        "@epicenter/ui": "workspace:*",
+        "@lucide/svelte": "catalog:",
+        "@tanstack/svelte-query": "catalog:",
+        "nanoid": "catalog:",
+        "openai": "^7.12.1",
+        "typebox": "catalog:",
+        "wellcrafted": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "svelte": "catalog:",
+        "svelte-check": "catalog:",
+        "typescript": "catalog:",
+      },
     },
     "packages/capture": {
       "name": "@epicenter/capture",
@@ -545,7 +542,7 @@
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
-        "@epicenter/auth": "workspace:*",
+        "@epicenter/account": "workspace:*",
         "@epicenter/server": "workspace:*",
         "@types/bun": "catalog:",
         "@types/pg": "^8.18.0",
@@ -554,18 +551,6 @@
         "playwright": "^1.61.1",
         "typescript": "catalog:",
         "vite": "catalog:",
-      },
-    },
-    "packages/principal": {
-      "name": "@epicenter/principal",
-      "version": "0.3.0",
-      "dependencies": {
-        "arktype": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
       },
     },
     "packages/recorder": {
@@ -591,10 +576,9 @@
         "@better-auth/drizzle-adapter": "catalog:",
         "@better-auth/oauth-provider": "catalog:",
         "@better-auth/passkey": "catalog:",
-        "@epicenter/auth": "workspace:*",
+        "@epicenter/account": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
-        "@epicenter/principal": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "arktype": "catalog:",
         "aws4fetch": "^1.0.20",
@@ -945,13 +929,13 @@
 
     "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w=="],
 
+    "@epicenter/account": ["@epicenter/account@workspace:packages/account"],
+
     "@epicenter/ai": ["@epicenter/ai@workspace:packages/ai"],
 
     "@epicenter/api": ["@epicenter/api@workspace:apps/api"],
 
     "@epicenter/api-ui": ["@epicenter/api-ui@workspace:apps/api/ui"],
-
-    "@epicenter/auth": ["@epicenter/auth@workspace:packages/auth"],
 
     "@epicenter/capture": ["@epicenter/capture@workspace:packages/capture"],
 
@@ -980,8 +964,6 @@
     "@epicenter/ops": ["@epicenter/ops@workspace:ops"],
 
     "@epicenter/posthog-reverse-proxy": ["@epicenter/posthog-reverse-proxy@workspace:apps/posthog-reverse-proxy"],
-
-    "@epicenter/principal": ["@epicenter/principal@workspace:packages/principal"],
 
     "@epicenter/recorder": ["@epicenter/recorder@workspace:packages/recorder"],
 
@@ -2925,7 +2907,7 @@
 
     "zimmerframe": ["zimmerframe@1.1.4", "", {}, "sha512-B58NGBEoc8Y9MWWCQGl/gq9xBCe4IiKM0a2x7GZdQKOW5Exr8S1W24J6OgM1njK8xCRGvAJIL/MxXHf6SkmQKQ=="],
 
-    "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+    "zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
 
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
 
@@ -2938,12 +2920,6 @@
     "@astrojs/language-server/@astrojs/compiler": ["@astrojs/compiler@2.13.1", "", {}, "sha512-f3FN83d2G/v32ipNClRKgYv30onQlMZX1vCeZMjPsMMPl1mDpmbl0+N5BYo4S/ofzqJyS5hvwacEo0CCVDn/Qg=="],
 
     "@astrojs/svelte/@sveltejs/vite-plugin-svelte": ["@sveltejs/vite-plugin-svelte@6.2.4", "", { "dependencies": { "@sveltejs/vite-plugin-svelte-inspector": "^5.0.0", "deepmerge": "^4.3.1", "magic-string": "^0.30.21", "obug": "^2.1.0", "vitefu": "^1.1.1" }, "peerDependencies": { "svelte": "^5.0.0", "vite": "^6.3.0 || ^7.0.0" } }, "sha512-ou/d51QSdTyN26D7h6dSpusAKaZkAiGM55/AKYi+9AGZw7q85hElbjK3kEyzXHhLSnRISHOYzVge6x0jRZ7DXA=="],
-
-    "@better-auth/core/zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
-
-    "@better-auth/oauth-provider/zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
-
-    "@better-auth/passkey/zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
 
     "@cspotcode/source-map-support/@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.9", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.0.3", "@jridgewell/sourcemap-codec": "^1.4.10" } }, "sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ=="],
 
@@ -2962,6 +2938,8 @@
     "@inquirer/external-editor/iconv-lite": ["iconv-lite@0.7.2", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-im9DjEDQ55s9fL4EYzOAv0yMqmMBSZp6G0VvFyTMPKWxiSBHUj9NW/qqLmXUwXrrM7AvqSlTCfvqRb0cM8yYqw=="],
 
     "@modelcontextprotocol/sdk/jose": ["jose@6.2.2", "", {}, "sha512-d7kPDd34KO/YnzaDOlikGpOurfF0ByC2sEV4cANCtdqLlTfBlw2p14O/5d/zv40gJPbIQxfES3nSx1/oYNyuZQ=="],
+
+    "@modelcontextprotocol/sdk/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
     "@oslojs/jwt/@oslojs/encoding": ["@oslojs/encoding@0.4.1", "", {}, "sha512-hkjo6MuIK/kQR5CrGNdAPZhS01ZCXuWDRJ187zh6qqF2+yMHZpD9fAYpX8q2bOO6Ryhl3XpCT6kUX76N8hhm4Q=="],
 
@@ -3001,9 +2979,13 @@
 
     "astro/tinyglobby": ["tinyglobby@0.2.15", "", { "dependencies": { "fdir": "^6.5.0", "picomatch": "^4.0.3" } }, "sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ=="],
 
-    "axios/https-proxy-agent": ["https-proxy-agent@5.0.1", "", { "dependencies": { "agent-base": "6", "debug": "4" } }, "sha512-dFcAjpTQFgoLMzC2VwU+C/CbS7uRL0lWmxDITmqm7C+7F0Odmj6s9l6alZc6AELXhrnggM2CeWSXHGOdX2YtwA=="],
+    "astro/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
-    "better-auth/zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
+    "atmn/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+
+    "autumn-js/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+
+    "axios/https-proxy-agent": ["https-proxy-agent@5.0.1", "", { "dependencies": { "agent-base": "6", "debug": "4" } }, "sha512-dFcAjpTQFgoLMzC2VwU+C/CbS7uRL0lWmxDITmqm7C+7F0Odmj6s9l6alZc6AELXhrnggM2CeWSXHGOdX2YtwA=="],
 
     "better-call/rou3": ["rou3@0.9.2", "", {}, "sha512-3SOzvaAg8rkHrXtRjpCvCvbyO5to9oOO27Z/XqHEYXfMRVSw/qMIVdmaOk9W2lcRLtR6dlqTjo9hDeJk70QBYQ=="],
 

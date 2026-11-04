@@ -1,4 +1,4 @@
-# @epicenter/auth
+# @epicenter/account
 
 Auth selects an account; every application session keeps the Account it opened with.
 
@@ -30,6 +30,12 @@ an operation the server already processed.
 
 `AuthClient` always exposes sign-in. `CallbackAuthClient` adds
 `completeSignIn` for a client whose sign-in returns to a callback page.
+
+`PrincipalId` is the branded principal id and the partition key every server
+path, R2 key, local database name, and HKDF label derives from.
+`asPrincipalId` brands a trusted `string`, and `AccountIdentity` is the
+`{ authorityId, principalId }` pair without credentials. The server imports
+these from the package root too.
 
 ## Server and authority
 
@@ -119,7 +125,7 @@ the keychain and mints access tokens per resource. No WebView holds a token
 a self-hosted build; the default is Cloud.
 
 A standalone desktop app (Whispering, Vocab) signs in through its own shell
-instead: `createTauriAuth()` from `@epicenter/auth/tauri` is an `AuthClient`
+instead: `createTauriAuth()` from `@epicenter/account/tauri` is an `AuthClient`
 over the [`epicenter-account`](../tauri-epicenter-account/README.md) crate's
 commands, which sign in as the app's native client
 (`so.epicenter.<app>.native`) in the system browser, keep the refresh token
@@ -131,8 +137,8 @@ adds the key it keeps for that connection and sends only to the endpoint the
 key was saved for, so no endpoint needs to allow the window's origin.
 
 ```ts
-import { fromAuth } from '@epicenter/auth/svelte';
-import { createTauriAuth } from '@epicenter/auth/tauri';
+import { fromAuth } from '@epicenter/account/svelte';
+import { createTauriAuth } from '@epicenter/account/tauri';
 
 const { client, ready } = createTauriAuth();
 export const auth = fromAuth(client);
@@ -181,7 +187,7 @@ authorization server's own session cookie works only on its own pages, where
 sign-in, consent, and account changes happen.
 
 Carry forward `src/browser-oauth.test.ts` when changing a credential owner. After building the API UI,
-`bun packages/auth/smoke/dashboard.browser.mjs` exercises the built
+`bun packages/account/smoke/dashboard.browser.mjs` exercises the built
 sign-in/callback/dashboard routes and a virtual WebAuthn authenticator while a
 different principal owns the ambient browser cookie.
 

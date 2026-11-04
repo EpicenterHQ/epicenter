@@ -11,9 +11,10 @@
  * - `#platform/connections` (`OpenConnections`): the endpoints a learner
  *   connected on this device, and where their keys are.
  */
+
+import type { AuthClient } from '@epicenter/account';
+import type { ReactiveAuthClient } from '@epicenter/account/svelte';
 import type { ConnectionCatalog } from '@epicenter/ai/connections';
-import type { AuthClient } from '@epicenter/auth';
-import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 import type { Component, Snippet } from 'svelte';
 
 /** What the header tells `Chrome`: why the words or chats did not list, if they did not. */

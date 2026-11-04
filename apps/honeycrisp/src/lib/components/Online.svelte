@@ -5,7 +5,7 @@
 	sign-out or replacement retires this one.
 -->
 <script lang="ts">
-	import type { Account } from '@epicenter/auth';
+	import type { Account } from '@epicenter/account';
 	import { APPS } from '@epicenter/constants/apps';
 	import { openRemote } from '@epicenter/folder/remote';
 	import { fromClient } from '@epicenter/svelte/client';

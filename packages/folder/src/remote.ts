@@ -41,7 +41,7 @@ type RemoteLocation =
 
 /**
  * The typed client of `contract` over a repository `account` (an
- * `@epicenter/auth` `Account`) reaches: `repository`, `<owner>/<name>` where
+ * `@epicenter/account` `Account`) reaches: `repository`, `<owner>/<name>` where
  * `<owner>` is a person's handle (`~` for the account's own), by default
  * `~/<name derived from site>`. A version is the Git blob id on `main`.
  * When both `site` and `repository` are supplied, `repository` wins.

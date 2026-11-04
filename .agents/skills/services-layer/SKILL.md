@@ -52,7 +52,7 @@ On the desktop, a service reaches native code only through the app's shell
 and the shared crates, never through a credential in the page:
 
 - **Secrets** go to the OS keychain through `epicenter-account`: `keychain`
-  from `@epicenter/auth/tauri` (`keychain_get`, `keychain_set`). Whispering
+  from `@epicenter/account/tauri` (`keychain_get`, `keychain_set`). Whispering
   keeps both connections as one entry; Vocab keeps each key under its
   connection's id and the endpoint list in `connections.md` in AppData.
   Never put a key in a settings note, the data folder, or WebView storage.

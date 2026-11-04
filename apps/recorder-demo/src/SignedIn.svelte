@@ -5,7 +5,7 @@
 	sign-out or replacement retires this repository.
 -->
 <script lang="ts">
-	import type { Account } from '@epicenter/auth';
+	import type { Account } from '@epicenter/account';
 	import { openRemote } from '@epicenter/folder/remote';
 	import Recorder from './Recorder.svelte';
 	import { recordInPage } from './lib/record.ts';

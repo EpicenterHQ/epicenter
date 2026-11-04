@@ -286,7 +286,7 @@ whose desktop leaf went missing.
   computer** (`tauri-plugin-epicenter-transcription`, models administered in
   Settings), which reads the recording's file in place.
 - **Connections and keys** are one keychain entry, `connections`
-  (`keychain` from `@epicenter/auth/tauri`). A debug build started with
+  (`keychain` from `@epicenter/account/tauri`). A debug build started with
   `EPICENTER_SECRETS_FILE=<path>` keeps them in that file instead.
 - **Sign-in** is `so.epicenter.whispering.native` through the shared
   [`epicenter-account`](../../packages/tauri-epicenter-account/README.md)

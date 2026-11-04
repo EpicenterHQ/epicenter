@@ -1,6 +1,6 @@
+import type { Account } from '@epicenter/account';
 import { openEpicenterInference } from '@epicenter/ai';
 import type { InferenceSources } from '@epicenter/ai/target';
-import type { Account } from '@epicenter/auth';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { openConnections } from '#platform/connections';
 

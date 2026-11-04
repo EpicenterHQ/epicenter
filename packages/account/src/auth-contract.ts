@@ -1,8 +1,8 @@
-import type { AccountIdentity } from '@epicenter/principal';
 import type { Result } from 'wellcrafted/result';
 import type { createAccountManagementUrl } from './account-management.js';
 import type { AuthError } from './auth-errors.js';
 import type { Principal } from './auth-types.js';
+import type { AccountIdentity } from './principal.js';
 
 export type AuthFetch = (
 	input: Request | string | URL,

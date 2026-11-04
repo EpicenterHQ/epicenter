@@ -4,7 +4,6 @@
  * bearer, and sign-out.
  */
 import { describe, expect, test } from 'bun:test';
-import { asPrincipalId } from '@epicenter/principal';
 import { createLogger, memorySink } from 'wellcrafted/logger';
 import { expectOk } from 'wellcrafted/testing';
 import { type AuthState, isCallbackAuthClient } from './auth-contract.js';
@@ -13,6 +12,7 @@ import {
 	type CreateBrowserOAuthOptions,
 	createBrowserOAuth,
 } from './browser-oauth.js';
+import { asPrincipalId } from './principal.js';
 import { fromAuth } from './svelte/auth.svelte.js';
 
 const SERVER = 'https://api.test';

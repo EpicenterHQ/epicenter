@@ -171,10 +171,9 @@ test('configured clients preserve names and IDs but retire on credential or dest
 });
 
 test('same-owner refresh preserves an account client and sign-out retires its stream', async () => {
-	const { createBrowserOAuth, epicenterCloud } = await import(
-		'@epicenter/auth'
+	const { asPrincipalId, createBrowserOAuth, epicenterCloud } = await import(
+		'@epicenter/account'
 	);
-	const { asPrincipalId } = await import('@epicenter/principal');
 	const cells = new Map<string, string>();
 	const storage = {
 		getItem: (key: string) => cells.get(key) ?? null,

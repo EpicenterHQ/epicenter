@@ -60,7 +60,7 @@ and adds nothing that holds a credential in the page:
 
 | Need | Desktop leaf uses |
 | --- | --- |
-| A secret (API key, connection) | `keychain` from `@epicenter/auth/tauri` |
+| A secret (API key, connection) | `keychain` from `@epicenter/account/tauri` |
 | A request with the person's account | `account.fetch` from `createTauriAuth`, relayed by `account_fetch` |
 | A request to a custom endpoint | the app's own shell command (Whispering's `send_request`) |
 | A native command over the data folder | `rootOf(device)` from `@epicenter/folder/tauri` as its `root` |

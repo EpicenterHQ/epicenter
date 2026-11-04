@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Account } from '@epicenter/auth';
+	import type { Account } from '@epicenter/account';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { SvelteQueryDevtools } from '@tanstack/svelte-query-devtools';
 	import { onDestroy, untrack, type Snippet } from 'svelte';

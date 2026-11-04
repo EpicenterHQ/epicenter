@@ -2,7 +2,7 @@
 //! then its body's raw chunks as they arrive, then its end or an error. Both
 //! of this crate's relays answer this way (`account_fetch`, and
 //! `connection_fetch` in `connection.rs`), and the page reads them with one
-//! reader (`@epicenter/auth/tauri`). A relay's requests in flight are kept by
+//! reader (`@epicenter/account/tauri`). A relay's requests in flight are kept by
 //! the id the page gave each, so the page can stop one.
 
 use std::collections::HashMap;

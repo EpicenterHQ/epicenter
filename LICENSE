@@ -23,10 +23,9 @@ distribution. For consumer apps that run locally on a user's machine, section
 anyone who forks and distributes a modified binary shares the changes back.
 
   Packages:
-    packages/auth            @epicenter/auth
+    packages/account         @epicenter/account
     packages/ai              @epicenter/ai
     packages/constants       @epicenter/constants
-    packages/principal       @epicenter/principal
     packages/recorder        @epicenter/recorder
     packages/server          @epicenter/server
     packages/svelte          @epicenter/svelte

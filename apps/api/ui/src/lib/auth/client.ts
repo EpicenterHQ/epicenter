@@ -2,7 +2,7 @@
 
 import { oauthProviderClient } from '@better-auth/oauth-provider/client';
 import { passkeyClient } from '@better-auth/passkey/client';
-import type { Account } from '@epicenter/auth';
+import type { Account } from '@epicenter/account';
 import { createAuthClient } from 'better-auth/client';
 
 export const authClient = createAuthClient({

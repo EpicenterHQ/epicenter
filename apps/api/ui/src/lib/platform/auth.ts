@@ -1,4 +1,4 @@
-import { fromAuth } from '@epicenter/auth/svelte';
+import { fromAuth } from '@epicenter/account/svelte';
 import { createCookieSessionAuth } from '../auth/cookie-session.js';
 import { readDashboardReturnPath } from '../dashboard/navigation.js';
 

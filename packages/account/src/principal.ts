@@ -4,11 +4,6 @@ import type { Brand } from 'wellcrafted/brand';
 /**
  * The authenticated principal id, and the partition key everything derives from.
  *
- * This identity leaf exists because `@epicenter/app/store` and
- * `@epicenter/auth` both need it and neither depends on the other: the store
- * opens a local database with no auth at all (`openLocal(definition)`), and the auth client
- * runs with no store (the hosted dashboard). A leaf is what two siblings share.
- *
  * It is the principal Better Auth resolved for the request. By definition,
  * every server path, R2 key, local database name, and HKDF derivation label
  * uses this value as the partition key.

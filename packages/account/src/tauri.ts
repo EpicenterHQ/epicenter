@@ -14,7 +14,7 @@
  *
  * ```ts
  * const { client, ready } = createTauriAuth();
- * export const auth = fromAuth(client); // from '@epicenter/auth/svelte'
+ * export const auth = fromAuth(client); // from '@epicenter/account/svelte'
  * ```
  */
 import { Channel, invoke } from '@tauri-apps/api/core';

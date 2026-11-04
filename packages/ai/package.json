@@ -15,7 +15,7 @@
 		"./target": "./src/target.ts"
 	},
 	"dependencies": {
-		"@epicenter/auth": "workspace:*",
+		"@epicenter/account": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
@@ -25,7 +25,6 @@
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
-		"@epicenter/principal": "workspace:*",
 		"@types/bun": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",

@@ -4,8 +4,8 @@
  * purchase, including when principal IDs contain URL delimiters.
  */
 import { expect, test } from 'bun:test';
-import { asPrincipalId } from '@epicenter/principal';
 import { createAccountManagementUrl } from './account-management.js';
+import { asPrincipalId } from './principal.js';
 
 test('account links encode the principal and discard unrelated base URL context', () => {
 	const url = createAccountManagementUrl({

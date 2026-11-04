@@ -1,6 +1,5 @@
 /// <reference lib="dom" />
 
-import { asPrincipalId, PrincipalId } from '@epicenter/principal';
 import { type } from 'arktype';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
@@ -14,6 +13,7 @@ import type {
 } from './auth-contract.js';
 import { AccountUnavailable, AuthError } from './auth-errors.js';
 import type { AuthServer } from './auth-server.js';
+import { asPrincipalId, PrincipalId } from './principal.js';
 import { getProfileVia, USERINFO_PATH } from './read-profile.js';
 import { resolveTargetUrl } from './resolve-target-url.js';
 

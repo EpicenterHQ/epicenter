@@ -33,7 +33,7 @@ export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> = Omit<
  * There used to be three exported constructors here, one per composition an
  * app happened to use, each of which was a core constructor with this call
  * wrapped around it. That made the framework wrapper the door to conventions
- * that have nothing to do with a framework, so `@epicenter/auth` could not
+ * that have nothing to do with a framework, so `@epicenter/account` could not
  * hand a plain page the hosted browser convention and a Svelte app could not
  * wrap a client this module had not anticipated. One function takes any of
  * them.

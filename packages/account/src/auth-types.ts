@@ -1,5 +1,5 @@
-import { PrincipalId } from '@epicenter/principal';
 import { type } from 'arktype';
+import { PrincipalId } from './principal.js';
 
 /** Epicenter's principal projection. The self-hosted principal has no email. */
 export const Principal = type({

@@ -27,7 +27,7 @@
  */
 
 import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test';
-import type { PrincipalId } from '@epicenter/principal';
+import type { PrincipalId } from '@epicenter/account';
 import type { CloudEnv } from '@epicenter/server';
 import { Autumn, ConnectionError } from 'autumn-js';
 import { Hono } from 'hono';

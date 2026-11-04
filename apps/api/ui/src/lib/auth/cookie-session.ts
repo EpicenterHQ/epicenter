@@ -12,7 +12,7 @@ import {
 	type AuthFetch,
 	type AuthState,
 	Principal,
-} from '@epicenter/auth';
+} from '@epicenter/account';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 
 /** Better Auth's `get-session` answer, reduced to what this client reads. */

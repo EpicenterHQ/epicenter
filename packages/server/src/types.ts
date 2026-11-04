@@ -5,7 +5,7 @@
  * etc.). The authenticated principal id is the partition key by definition.
  */
 
-import type { Principal } from '@epicenter/auth';
+import type { Principal } from '@epicenter/account';
 import type { createAuth } from './auth/create-auth.js';
 import type { OAuthAudiences } from './auth/oauth-policy.js';
 import type { Db } from './db/create-db.js';

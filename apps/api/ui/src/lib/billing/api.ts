@@ -11,7 +11,7 @@
  * lets the server refuse a request once that cookie names someone else.
  */
 
-import type { Account } from '@epicenter/auth';
+import type { Account } from '@epicenter/account';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { Err, type Result, tryAsync } from 'wellcrafted/result';
 import type {

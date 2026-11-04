@@ -177,7 +177,7 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 
 test('the platform leaves own auth composition; nothing else names the account', () => {
 	expect(
-		importers((specifier) => specifier.startsWith('@epicenter/auth')).filter(
+		importers((specifier) => specifier.startsWith('@epicenter/account')).filter(
 			(source) =>
 				!source.startsWith('lib/platform/') &&
 				!source.startsWith('lib/components/SignInCallback.svelte '),

@@ -98,7 +98,7 @@ OAuth client, lives in the CLI's own modules (`packages/cli/src`).
 | Watching | `@epicenter/folder` | the shell's watcher (`999012befb:packages/folder/src/changes-tauri.ts`) | `999012befb:packages/folder/src/changes-browser.ts` |
 | Git and sync | `@epicenter/folder` | the CLI over system `git` (`c87a47f8783f:packages/folder/src/git/native-backend.ts`, ADR-0559) | isomorphic-git over OPFS (`999012befb:packages/folder/src/git/browser-backend.ts`) |
 | Inference and account calls | `@epicenter/ai`, `@epicenter/auth` | `epicenter send` | the page's own `fetch` (ADR-0557) |
-| Sign-in | `@epicenter/auth` | `epicenter auth login --loopback` | redirect (`packages/auth/src/browser-oauth.ts`) |
+| Sign-in | `@epicenter/auth` | `epicenter auth login --loopback` | redirect (`packages/account/src/browser-oauth.ts`) |
 
 The browser's `send` uses no CLI and no Rust pipe because a browser has
 nothing outside the page, so it calls `fetch` directly. On the desktop the

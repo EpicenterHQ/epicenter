@@ -1,7 +1,7 @@
 /**
  * Built dashboard and hosted sign-in smoke with real Chromium/WebAuthn.
  * Run `bun run --cwd apps/api/ui build` first, then
- * `bun packages/auth/smoke/dashboard.browser.mjs` from the repository root.
+ * `bun packages/account/smoke/dashboard.browser.mjs` from the repository root.
  * Seeds disposable Better Auth memory state and local billing responses.
  * No provider or production payment calls. DASHBOARD_FIXTURE_ONLY=1 keeps the
  * fixture server open for visual inspection; visit its printed /fixture/login

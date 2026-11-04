@@ -26,9 +26,8 @@
 	},
 	"dependencies": {
 		"@better-auth/drizzle-adapter": "catalog:",
-		"@epicenter/auth": "workspace:*",
+		"@epicenter/account": "workspace:*",
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/principal": "workspace:*",
 		"@epicenter/server": "workspace:*",
 		"@hono/standard-validator": "catalog:",
 		"arktype": "catalog:",

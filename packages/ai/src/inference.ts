@@ -1,4 +1,4 @@
-import type { AuthFetch } from '@epicenter/auth';
+import type { AuthFetch } from '@epicenter/account';
 import OpenAI from 'openai';
 
 export type AiTransport = { baseURL: string; fetch: AuthFetch };

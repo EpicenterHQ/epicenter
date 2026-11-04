@@ -9,7 +9,7 @@
  *   keeps the audio up to about its last second, which recovery finishes and
  *   places on the next launch.
  * - Connections and their keys are kept in this computer's keychain through
- *   the shell (`keychain` from `@epicenter/auth/tauri`), one entry for both
+ *   the shell (`keychain` from `@epicenter/account/tauri`), one entry for both
  *   connections, never in Whispering's files and never in the WebView's
  *   storage.
  * - Transcription goes to one of three places: a custom OpenAI-compatible
@@ -22,7 +22,7 @@
  *   token the page never holds.
  */
 
-import { keychain } from '@epicenter/auth/tauri';
+import { keychain } from '@epicenter/account/tauri';
 import {
 	AI_MODELS,
 	HOSTED_TRANSCRIPTION_MODEL,

@@ -2,7 +2,7 @@
 
 Run the normal Worker and dashboard against a disposable Postgres cluster,
 real development OAuth credentials, and Autumn sandbox. The browser simulator
-in `packages/auth/smoke/` remains useful for deterministic regressions; it does
+in `packages/account/smoke/` remains useful for deterministic regressions; it does
 not verify provider configuration or payment processing.
 
 ## Start isolated Postgres

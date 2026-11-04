@@ -5,7 +5,7 @@ in with Epicenter and to keep secrets in the OS keychain. A standalone app
 (`epicenter-standalone`) keeps its data as files in a folder Epicenter syncs,
 so it signs in only for hosted capabilities: inference and transcription on
 Epicenter's API. The page's side is `createTauriAuth` from
-`@epicenter/auth/tauri`.
+`@epicenter/account/tauri`.
 
 ## Signing in
 
@@ -65,7 +65,7 @@ A redirect is not followed. The answer streams back on a channel exactly as
 `connection_fetch_cancel` stops one. A refusal is a `ConnectionFetchError`
 (`InvalidRequest`, `SchemeRefused`, `OriginRefused`, `KeychainFailed`,
 `SendFailed`), named in `name`; the page's side is `connectionFetch(id)` from
-`@epicenter/auth/tauri`.
+`@epicenter/account/tauri`.
 
 ## The keychain
 
@@ -103,12 +103,12 @@ The app's `build.rs` declares those commands (`COMMANDS`, and
 `allow-<command>` for each. The page:
 
 ```ts
-import { createTauriAuth, keychain } from '@epicenter/auth/tauri';
-import { fromAuth } from '@epicenter/auth/svelte';
+import { createTauriAuth, keychain } from '@epicenter/account/tauri';
+import { fromAuth } from '@epicenter/account/svelte';
 
 const { client, ready } = createTauriAuth();
 export const auth = fromAuth(client);
 ```
 
 `cargo test -p epicenter-account`, which runs a streamed answer from a local
-server; the page's client is tested in `packages/auth/src/tauri.test.ts`.
+server; the page's client is tested in `packages/account/src/tauri.test.ts`.

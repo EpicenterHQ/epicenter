@@ -47,7 +47,7 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
-		"@epicenter/auth": "workspace:*",
+		"@epicenter/account": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
