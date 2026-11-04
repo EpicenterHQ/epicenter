@@ -10,9 +10,15 @@ Every native Epicenter program, on a desktop or a phone, links one Rust sync
 core and keeps its items in a folder named from its site; the web stays
 online; TypeScript remains the language of what people, apps and agents write.
 
-This is a working document for a design conversation, not a decision. It
-gathers what 2026-11-04 settled, the requirements that remain, and the
-recomposition under discussion, so the reasoning can be reread later.
+This is a working document for a design conversation. It gathers what
+2026-11-04 settled, the requirements that remain, and the recomposition, so
+the reasoning can be reread later.
+
+**Adopted as the direction (2026-11-04), gated on the libgit2 spike**
+(branch `claude/spike-sync-core`): every native app carries one Rust sync
+core. It becomes a record once the spike answers; until then ADR-0713 and
+ADR-0748 stand. Tabs keeps its items flat in its folder
+(`~/Epicenter/tabs/<id>.md`, contract path `{id}.md`).
 
 ## What is already settled
 
