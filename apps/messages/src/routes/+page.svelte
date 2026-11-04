@@ -1,10 +1,13 @@
 <!--
-	Messages' drafts and send attempts are this browser's files for this
-	origin (OPFS), which `Startup` opens before the app renders, under the
-	layout's boundary. Messages never signs in, so nothing uploads.
+	Messages over its folder (ADR-0766): `<WhenOpen>` shows a spinner while
+	this browser's files open, Recovery when they cannot, and the app once
+	they have, and asks before the page is left while a save is out.
+	Messages never signs in, so nothing uploads.
 -->
 <script lang="ts">
-	import Startup from '$lib/Startup.svelte';
+	import WhenOpen from '@epicenter/svelte/when-open';
+	import { folder } from '$lib/app.js';
+	import MessagesApp from '$lib/MessagesApp.svelte';
 </script>
 
-<Startup />
+<WhenOpen app="Messages" {folder}><MessagesApp /></WhenOpen>

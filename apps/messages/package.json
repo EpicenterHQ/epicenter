@@ -12,7 +12,7 @@
 		"contract": "bun scripts/write-contract.ts",
 		"prepare": "svelte-kit sync || echo ''",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test --isolate --conditions=browser --conditions=svelte src scripts",
+		"test": "bun test --isolate --conditions=browser --conditions=svelte --conditions=test src scripts",
 		"test:e2e": "playwright test -c playwright.config.ts"
 	},
 	"dependencies": {
