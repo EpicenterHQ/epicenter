@@ -11,6 +11,7 @@
 	import type { Client } from '@epicenter/definition/contract';
 	import { folderOf } from '@epicenter/folder/core';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
+	import LeaveGuard from '@epicenter/svelte/leave-guard';
 	import { reactive } from '@epicenter/svelte/reactive';
 	import type { Snippet } from 'svelte';
 	import { setFolders, setNotes } from '../honeycrisp.svelte.js';
@@ -30,10 +31,6 @@
 	setFolderSync(folderSync({ path: displayPath(device), site }));
 </script>
 
-<svelte:window
-	onbeforeunload={(event) => {
-		if (folder.saving()) event.preventDefault();
-	}}
-/>
+<LeaveGuard {folder} />
 
 {@render children()}

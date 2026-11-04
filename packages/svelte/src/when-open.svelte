@@ -24,8 +24,8 @@
 	import type { FolderLifecycle } from '@epicenter/folder/core';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
-	import { onMount, type Snippet } from 'svelte';
-	import { on } from 'svelte/events';
+	import type { Snippet } from 'svelte';
+	import LeaveGuard from './leave-guard.svelte';
 	import Recovery from './recovery.svelte';
 
 	let {
@@ -42,13 +42,9 @@
 	} = $props();
 
 	const state = $derived(folder.state());
-
-	onMount(() =>
-		on(window, 'beforeunload', (event) => {
-			if (folder.saving()) event.preventDefault();
-		}),
-	);
 </script>
+
+<LeaveGuard {folder} />
 
 {#if state.status === 'opening'}
 	<Loading class="h-dvh" />

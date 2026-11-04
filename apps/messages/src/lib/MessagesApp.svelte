@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
 	import { folderOf } from '@epicenter/folder/core';
+	import LeaveGuard from '@epicenter/svelte/leave-guard';
 	import { reactive } from '@epicenter/svelte/reactive';
 	import type { Messages } from './contract.js';
 	import { setDevice } from './device.js';
@@ -81,12 +82,7 @@
 	}));
 </script>
 
-<!-- Leaving while a save is out asks first. -->
-<svelte:window
-	onbeforeunload={(event) => {
-		if (files.saving()) event.preventDefault();
-	}}
-/>
+<LeaveGuard folder={files} />
 
 <main class="flex h-dvh min-h-0 flex-col overflow-hidden">
 	<header class="flex flex-wrap items-center gap-3 border-b px-4 py-3">

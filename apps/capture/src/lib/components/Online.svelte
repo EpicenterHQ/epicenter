@@ -11,9 +11,9 @@
 	import { APPS } from '@epicenter/definition/site';
 	import { folderOf } from '@epicenter/folder/core';
 	import { openRemote } from '@epicenter/folder/remote';
+	import LeaveGuard from '@epicenter/svelte/leave-guard';
 	import { reactive } from '@epicenter/svelte/reactive';
-	import { onMount, type Snippet } from 'svelte';
-	import { on } from 'svelte/events';
+	import type { Snippet } from 'svelte';
 	import { setCaptureList } from '../captures.svelte.js';
 
 	const { account, children }: { account: Account; children: Snippet } = $props();
@@ -21,12 +21,8 @@
 	// svelte-ignore state_referenced_locally
 	const folder = reactive(folderOf(openRemote(capture, { account, site: APPS.CAPTURE.url })));
 	setCaptureList(folder.captures);
-
-	onMount(() =>
-		on(window, 'beforeunload', (event) => {
-			if (folder.saving()) event.preventDefault();
-		}),
-	);
 </script>
 
 {@render children()}
+
+<LeaveGuard {folder} />

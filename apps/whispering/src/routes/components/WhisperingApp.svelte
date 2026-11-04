@@ -13,12 +13,12 @@
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
 	import type { Folder } from '@epicenter/folder/core';
+	import LeaveGuard from '@epicenter/svelte/leave-guard';
 	import * as Alert from '@epicenter/ui/alert';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { onDestroy, onMount, type Snippet } from 'svelte';
-	import { on } from 'svelte/events';
+	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { variant } from '#platform/variant';
 	import type { Whispering as WhisperingContract } from '$lib/contract.js';
@@ -60,12 +60,6 @@
 		library.dispose();
 		whispering.dispose();
 	});
-	// Leaving while a note is still being written asks first.
-	onMount(() =>
-		on(window, 'beforeunload', (event) => {
-			if (files.saving()) event.preventDefault();
-		}),
-	);
 
 	/** Below this width the sidebar becomes a bottom bar. */
 	const wide = new MediaQuery('(min-width: 768px)');
@@ -122,3 +116,5 @@
 		<BottomNav />
 	</div>
 {/if}
+
+<LeaveGuard folder={files} />

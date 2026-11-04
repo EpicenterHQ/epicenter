@@ -11,9 +11,9 @@
 	import { APPS } from '@epicenter/definition/site';
 	import { folderOf } from '@epicenter/folder/core';
 	import { openRemote } from '@epicenter/folder/remote';
+	import LeaveGuard from '@epicenter/svelte/leave-guard';
 	import { reactive } from '@epicenter/svelte/reactive';
-	import { onMount, type Snippet } from 'svelte';
-	import { on } from 'svelte/events';
+	import type { Snippet } from 'svelte';
 	import { vocab } from '../contract.js';
 	import { setChatList, setEntryList, setMessageList } from '../vocab.svelte.js';
 
@@ -25,12 +25,8 @@
 	setEntryList(folder.entries);
 	setChatList(folder.chats);
 	setMessageList(client.messages);
-
-	onMount(() =>
-		on(window, 'beforeunload', (event) => {
-			if (folder.saving()) event.preventDefault();
-		}),
-	);
 </script>
 
 {@render children()}
+
+<LeaveGuard {folder} />

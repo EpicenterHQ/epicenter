@@ -14,9 +14,9 @@
 	import type { Client } from '@epicenter/definition/contract';
 	import { type Folder, folderOf } from '@epicenter/folder/core';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
+	import LeaveGuard from '@epicenter/svelte/leave-guard';
 	import { reactive } from '@epicenter/svelte/reactive';
-	import { onMount, type Snippet } from 'svelte';
-	import { on } from 'svelte/events';
+	import type { Snippet } from 'svelte';
 	import type { Whispering } from '../contract.js';
 	import { globalShortcut, setGlobalShortcut } from '../platform/shortcut.tauri.svelte.js';
 	import type { WhisperingSettings } from '../settings.tauri.js';
@@ -33,7 +33,6 @@
 		children: Snippet<[Folder<Whispering>]>;
 	} = $props();
 
-
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally
 	setFolderSync(folderSync({ path: displayPath(device), site }));
@@ -42,12 +41,8 @@
 	// svelte-ignore state_referenced_locally
 	const settings = reactive(folderOf(appData));
 	setGlobalShortcut(globalShortcut({ appData: settings, device: files }));
-
-	onMount(() =>
-		on(window, 'beforeunload', (event) => {
-			if (settings.saving()) event.preventDefault();
-		}),
-	);
 </script>
 
 {@render children(files)}
+
+<LeaveGuard folder={settings} />

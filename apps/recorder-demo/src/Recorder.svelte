@@ -13,9 +13,8 @@
 	import type { Client } from '@epicenter/definition/contract';
 	import { timeId } from '@epicenter/definition/ids';
 	import { folderOf } from '@epicenter/folder/core';
+	import LeaveGuard from '@epicenter/svelte/leave-guard';
 	import { reactive } from '@epicenter/svelte/reactive';
-	import { onMount } from 'svelte';
-	import { on } from 'svelte/events';
 	import Library from './Library.svelte';
 	import type { Recorder } from './contract.ts';
 	import type { Record, Take } from './lib/record.ts';
@@ -37,13 +36,6 @@
 	// recorder and its list: what they show, write and play.
 	// svelte-ignore state_referenced_locally
 	const files = reactive(folderOf(client));
-
-	// Leaving while a write to the store is out asks first.
-	onMount(() =>
-		on(window, 'beforeunload', (event) => {
-			if (files.saving()) event.preventDefault();
-		}),
-	);
 
 	let problem = $state<string | null>(null);
 	let recording = $state<{ id: string; at: Date; take: Take } | null>(null);
@@ -187,3 +179,5 @@
 	</p>
 {/each}
 <Library {files} />
+
+<LeaveGuard folder={files} />

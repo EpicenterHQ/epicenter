@@ -10,6 +10,7 @@
 	import { APPS } from '@epicenter/definition/site';
 	import { folderOf } from '@epicenter/folder/core';
 	import { openRemote } from '@epicenter/folder/remote';
+	import LeaveGuard from '@epicenter/svelte/leave-guard';
 	import { reactive } from '@epicenter/svelte/reactive';
 	import type { Snippet } from 'svelte';
 	import { honeycrisp } from '../contract.js';
@@ -23,10 +24,6 @@
 	setFolders(folder.folders);
 </script>
 
-<svelte:window
-	onbeforeunload={(event) => {
-		if (folder.saving()) event.preventDefault();
-	}}
-/>
+<LeaveGuard {folder} />
 
 {@render children()}

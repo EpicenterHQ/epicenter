@@ -11,9 +11,9 @@
 	import type { Client } from '@epicenter/definition/contract';
 	import { folderOf } from '@epicenter/folder/core';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
+	import LeaveGuard from '@epicenter/svelte/leave-guard';
 	import { reactive } from '@epicenter/svelte/reactive';
-	import { onMount, type Snippet } from 'svelte';
-	import { on } from 'svelte/events';
+	import type { Snippet } from 'svelte';
 	import { setCaptureList } from '../captures.svelte.js';
 
 	let {
@@ -28,12 +28,8 @@
 	setCaptureList(folder.captures);
 	// svelte-ignore state_referenced_locally
 	setFolderSync(folderSync({ path: displayPath(device), site }));
-
-	onMount(() =>
-		on(window, 'beforeunload', (event) => {
-			if (folder.saving()) event.preventDefault();
-		}),
-	);
 </script>
 
 {@render children()}
+
+<LeaveGuard {folder} />

@@ -68,7 +68,8 @@ error never shows the folder's Recovery.
 <WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
 ```
 
-`<WhenOpen>` is also the page's leave guard. While `folder.saving()`, from a
+`<WhenOpen>` also renders the page's leave guard, `<LeaveGuard {folder} />`
+from `@epicenter/svelte/leave-guard`. While `folder.saving()`, from a
 write's call or an editor's keystroke until it answers, leaving the page
 asks "Leave site?". A desktop window does not ask the page and closes at
 once, so a local write still out then is a small, rare loss.
@@ -119,7 +120,8 @@ version shown.
 Apps that have not moved to `app.ts` still open a client in a root
 component (`DesktopStartup` on the desktop, `openDevice` or `openRemote` on
 the web) and read it as a folder: `reactive(folderOf(client))`, with
-`folderOf` from `@epicenter/folder/core`. `DesktopStartup` opens
+`folderOf` from `@epicenter/folder/core`, and renders `<LeaveGuard>` for it.
+`DesktopStartup` opens
 machine-local AppData settings when the app has them, then the data folder,
 and shows `Recovery` when either fails.
 

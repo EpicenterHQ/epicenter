@@ -14,9 +14,9 @@
 	import type { Vocab } from '../contract.js';
 	import type { Client } from '@epicenter/definition/contract';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
+	import LeaveGuard from '@epicenter/svelte/leave-guard';
 	import { reactive } from '@epicenter/svelte/reactive';
-	import { onMount, type Snippet } from 'svelte';
-	import { on } from 'svelte/events';
+	import type { Snippet } from 'svelte';
 	import { setChatList, setEntryList, setMessageList } from '../vocab.svelte.js';
 
 	let { device, site, children }: { site: string; device: Client<Vocab>; children: Snippet } = $props();
@@ -30,12 +30,8 @@
 	setMessageList(device.messages);
 	// svelte-ignore state_referenced_locally
 	setFolderSync(folderSync({ path: displayPath(device), site }));
-
-	onMount(() =>
-		on(window, 'beforeunload', (event) => {
-			if (folder.saving()) event.preventDefault();
-		}),
-	);
 </script>
 
 {@render children()}
+
+<LeaveGuard {folder} />
