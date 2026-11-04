@@ -6,7 +6,7 @@
  */
 import { defineContract } from '@epicenter/definition/contract';
 import { openFolder } from '@epicenter/folder';
-import { fromClient } from '../client.svelte.js';
+import { reactive } from '../reactive.js';
 
 export const todos = defineContract({
 	collections: {
@@ -19,4 +19,4 @@ export const todos = defineContract({
 });
 
 export const raw = openFolder(todos);
-export const folder = fromClient(raw);
+export const folder = reactive(raw);

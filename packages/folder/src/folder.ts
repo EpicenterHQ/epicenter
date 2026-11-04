@@ -6,14 +6,26 @@
  * - `state()` is `opening`, `open`, `failed` with the typed open error and
  *   the `retry()` that opens again, or `closed` once disposed: the same
  *   object until it changes, and `subscribe` hears it change.
+ * - `saving()` is whether a write is out, from the call (or the keystroke)
+ *   until it answers; `subscribe` hears it start and stop, so a page's
+ *   leave guard reads it instead of counting writes of its own.
  * - A collection's reads answer at every moment: `items()` is empty and
- *   `loading()` true while the folder opens.
+ *   `loading()` true while the folder opens, and `get(args)` is the entry
+ *   shown.
+ * - Every write is made over the version shown, unless it names another,
+ *   and puts what landed into what is shown before it answers. A note
+ *   `update` follows `updateNote`: carried over another writer's change to
+ *   other fields; a `Conflict` when they changed the same one, and then the
+ *   folder shows theirs, so saving again applies over it.
  * - Every async method waits for the open, then runs. When the open fails it
  *   answers `Err(OpenFolderError)`, so each action's error type includes the
  *   open's; a retry starts a new attempt for the actions called after it.
+ * - `notes.edit(args)` is one note as an immediate editor (`NoteEdit`).
  *
  * Only an interface reads `state()` (`<WhenOpen>` from `@epicenter/svelte`);
- * everything else reads and acts, and its actions wait.
+ * everything else reads and acts, and its actions wait. Nothing here knows a
+ * framework: `reactive(folder)` from `@epicenter/svelte/reactive` tracks the
+ * reads as they are.
  *
  * This module is the same on every build; each build's `openFolder` hands
  * `createFolder` the open that build has (the shell's data folder, this
@@ -30,6 +42,9 @@ import {
 	type InvalidNoteOf,
 	type NoteClient,
 	type NoteOf,
+	type NotePatch,
+	type PlaceholdersOf,
+	updateNote,
 	type Version,
 } from '@epicenter/definition/contract';
 import { sameValue } from '@epicenter/definition/note';
@@ -37,8 +52,10 @@ import type { InferError } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Ok, type Result } from 'wellcrafted/result';
 import { OpenFolderError, type RevealRootError } from './errors.js';
+import { editNote, type NoteEdit, type NoteEditOptions } from './note-edit.js';
 
 export { OpenFolderError } from './errors.js';
+export type { NoteEdit, NoteEditOptions } from './note-edit.js';
 
 /** Why the folder's place could not be shown. */
 export type RevealFolderError = RevealRootError;
@@ -62,17 +79,12 @@ export type FolderState =
 	  }
 	| { readonly status: 'closed' };
 
-/**
- * A collection method that waits for the open: the same arguments, and its
- * answer or the open's typed error.
- */
-type Waits<TMethods> = {
-	[K in keyof TMethods]: TMethods[K] extends (
-		...args: infer TArgs
-	) => Promise<Result<infer TData, infer TError>>
-		? (...args: TArgs) => Promise<Result<TData, TError | OpenFolderError>>
-		: TMethods[K];
-};
+/** What `TMethod` answers, or the open's typed error: a folder's method waits for the open. */
+type Waits<TMethod> = TMethod extends (
+	...args: never[]
+) => Promise<Result<infer TData, infer TError>>
+	? Promise<Result<TData, TError | OpenFolderError>>
+	: never;
 
 /**
  * The reads every collection of a folder answers at once, and the one way
@@ -94,20 +106,104 @@ type Reads<TItem> = {
 	subscribe(listener: () => void): () => void;
 };
 
-/** A note collection of a folder: its reads, and the client's methods, each waiting for the open. */
-export type FolderNotes<TCollection extends Collection> = Waits<
-	Omit<NoteClient<TCollection>, 'subscribe'>
-> &
-	Reads<NoteOf<TCollection>> & {
-		/** The notes at the collection's paths that do not read, with their text. */
-		invalid(): readonly InvalidNoteOf<TCollection>[];
-	};
+/** A note as shown, or the version and fields an edit was made over. */
+export type NoteBase<TCollection extends Collection> = {
+	version: Version;
+} & NotePatch<TCollection>;
 
-/** A file collection of a folder: its reads (entries without bytes), and the client's methods, each waiting for the open. */
-export type FolderFiles<TCollection extends Collection> = Waits<
-	Omit<FileClient<TCollection>, 'subscribe'>
-> &
-	Reads<FileEntryOf<TCollection>>;
+/**
+ * A note collection of a folder: its reads, and its writes, each waiting
+ * for the open and made over the note as shown unless told otherwise.
+ */
+export type FolderNotes<TCollection extends Collection> = Reads<
+	NoteOf<TCollection>
+> & {
+	/** The fields the contract declares, in its order: an editor's `fields` are these and `body`. */
+	fieldNames: NoteClient<TCollection>['fieldNames'];
+	/** The notes at the collection's paths that do not read, with their text. */
+	invalid(): readonly InvalidNoteOf<TCollection>[];
+	/** The note `args` names, as shown. */
+	get(args: PlaceholdersOf<TCollection>): NoteOf<TCollection> | undefined;
+	/** Every note, read now. */
+	list(): Waits<NoteClient<TCollection>['list']>;
+	create(
+		value: Parameters<NoteClient<TCollection>['create']>[0],
+	): Waits<NoteClient<TCollection>['create']>;
+	/**
+	 * Write `patch` over `base`, by default the note as shown: what a person
+	 * acting on what they see saw. An editor that shows typed text instead
+	 * passes what was shown when the typing began (`edit` does).
+	 */
+	update(
+		args: PlaceholdersOf<TCollection>,
+		patch: NotePatch<TCollection>,
+		options?: { base?: NoteBase<TCollection> },
+	): Waits<NoteClient<TCollection>['update']>;
+	/**
+	 * Replace the whole note with `text`, over `over`, by default the version
+	 * shown (valid or not). An editor that shows a draft passes the version
+	 * its draft began from, so another writer's change since is a `Conflict`
+	 * (the folder then shows theirs), not overwritten.
+	 */
+	replace(
+		args: PlaceholdersOf<TCollection>,
+		text: string,
+		options?: { over?: Version },
+	): Waits<NoteClient<TCollection>['replace']>;
+	/** Delete the note, over `over`, by default the version shown. */
+	delete(
+		args: PlaceholdersOf<TCollection>,
+		options?: { over?: Version },
+	): Waits<NoteClient<TCollection>['delete']>;
+	/**
+	 * The note `args` names as an immediate editor (`NoteEdit`).
+	 *
+	 * Saves go one at a time, and only the newest waiting is sent, carrying
+	 * every field typed since the last save that landed; only the newest
+	 * save's answer is shown. Each is made over the note as shown when this
+	 * run of typing began (each field as shown when its own typing began),
+	 * then over the editor's own last save that landed, so the editor never
+	 * clashes with itself, another writer's change to fields not typed is
+	 * carried over, and their change to a typed field surfaces as a
+	 * `Conflict` (the folder then shows theirs) with the typed text kept.
+	 * Saving again after that (`retry`, or typing on) applies over theirs.
+	 * Each keystroke counts in the folder's `saving()` from the moment it is
+	 * typed until its save answers.
+	 *
+	 * With `create`, the note need not exist yet: a save while none is shown
+	 * creates it, with `create()`'s fields and what was typed (a draft that
+	 * starts with its first keystroke). When another writer created it first
+	 * (`Occupied`), what was typed is written over theirs as an ordinary save.
+	 */
+	edit(
+		args: PlaceholdersOf<TCollection>,
+		options?: NoteEditOptions<TCollection>,
+	): NoteEdit<TCollection>;
+};
+
+/** A file collection of a folder: its reads (entries without bytes), and its writes, each waiting for the open. */
+export type FolderFiles<TCollection extends Collection> = Reads<
+	FileEntryOf<TCollection>
+> & {
+	/** The entry `args` names, as shown. */
+	get(args: PlaceholdersOf<TCollection>): FileEntryOf<TCollection> | undefined;
+	/** Every entry, read now. */
+	list(): Waits<FileClient<TCollection>['list']>;
+	create(
+		value: Parameters<FileClient<TCollection>['create']>[0],
+	): Waits<FileClient<TCollection>['create']>;
+	/** Write `patch` over `over`, by default the version shown. */
+	update(
+		args: PlaceholdersOf<TCollection>,
+		patch: { bytes: Uint8Array },
+		options?: { over?: Version },
+	): Waits<FileClient<TCollection>['update']>;
+	/** Delete the file, over `over`, by default the version shown. */
+	delete(
+		args: PlaceholdersOf<TCollection>,
+		options?: { over?: Version },
+	): Waits<FileClient<TCollection>['delete']>;
+};
 
 /** A folder's collection: notes for a path ending in `.md`, files for any other. */
 export type FolderCollection<TCollection extends Collection> =
@@ -119,7 +215,12 @@ export type FolderCollection<TCollection extends Collection> =
 export type FolderLifecycle = {
 	/** Where the folder is in its life: the same object until it changes. */
 	state(): FolderState;
-	/** Call `listener` when `state()` changes; returns the unsubscribe. */
+	/**
+	 * Whether a write is out: a collection's write from its call, or an
+	 * editor's keystroke, until it answers. A page's leave guard reads it.
+	 */
+	saving(): boolean;
+	/** Call `listener` when `state()`, `saving()` or `displayPath()` changes; returns the unsubscribe. */
 	subscribe(listener: () => void): () => void;
 	/**
 	 * Show the folder's place in the file manager, even when it did not open:
@@ -185,7 +286,13 @@ export type OpenFolder = <TContract extends Contract>(
 ) => Folder<TContract>;
 
 /** The lifecycle members, which no collection may be named. */
-const RESERVED = new Set(['state', 'subscribe', 'reveal', 'displayPath']);
+const RESERVED = new Set([
+	'state',
+	'saving',
+	'subscribe',
+	'reveal',
+	'displayPath',
+]);
 
 /** An open that answers the client, or why nothing opened. */
 export type FolderOpen<TContract extends Contract> = () => Promise<
@@ -224,9 +331,9 @@ export function createFolder<TContract extends Contract>(
 /**
  * A folder over `client`, which is already open: open at once, and its
  * collections read and act as any folder's. Disposing it stops its
- * listings and closes nothing: the client is its opener's. What
- * `fromClient` from `@epicenter/svelte/client` makes of a client a remote
- * or `openDevice` opened.
+ * listings and closes nothing: the client is its opener's. How an app
+ * that opens a remote or `openDevice` itself reads and writes it as a
+ * folder.
  */
 export function folderOf<TContract extends Contract>(
 	client: Client<TContract>,
@@ -269,17 +376,31 @@ function folderOver<TContract extends Contract>(
 	let state: FolderState = { status: 'opening' };
 	let attempt: Promise<Opened>;
 	let disposed = false;
+	/** Writes out: from the call or keystroke until it answers. */
+	let out = 0;
 	const listeners = new Set<() => void>();
 	const collections = new Map<string, ReturnType<typeof folderCollection>>();
 
-	function set(next: FolderState) {
-		state = next;
+	function notify() {
 		for (const listener of [...listeners])
 			try {
 				listener();
 			} catch (cause) {
 				log.error(new Error('A folder subscriber failed.', { cause }));
 			}
+	}
+
+	function set(next: FolderState) {
+		state = next;
+		notify();
+	}
+
+	/** Count `write` in `saving()` until it settles, landed or refused; answers it as it is. */
+	function hold<T>(write: Promise<T>): Promise<T> {
+		if (out++ === 0) notify();
+		return write.finally(() => {
+			if (--out === 0) notify();
+		});
 	}
 
 	function start() {
@@ -319,13 +440,14 @@ function folderOver<TContract extends Contract>(
 			);
 		collections.set(
 			collection.name,
-			folderCollection(collection, current as () => Promise<Opened>),
+			folderCollection(collection, current as () => Promise<Opened>, hold),
 		);
 	}
 	start();
 
 	const lifecycle: FolderLifecycle = {
 		state: () => state,
+		saving: () => out > 0,
 		subscribe(listener) {
 			listeners.add(listener);
 			return () => {
@@ -358,7 +480,7 @@ type Entry = { [key: string]: unknown; version: Version };
 type Args = Record<string, unknown>;
 /** Either kind of collection client, as this module calls it. */
 type Raw = NoteClient<Collection> | FileClient<Collection>;
-type Answer = Result<unknown, { name: string }>;
+type Answer = Result<unknown, ClientError | OpenFolderError>;
 
 /** How long after a failed listing it is tried again, doubling per failure up to the most. */
 const RETRY_FIRST_MS = 500;
@@ -372,13 +494,15 @@ const names = (entry: Entry, args: Args) =>
 
 /**
  * The collection `declared` names in the client `current()` answers: its
- * methods, each waiting for the open, and its reads, listed while someone
- * listens. `opened()` is told each time an open attempt settles, and
- * `stop()` when the folder is disposed.
+ * reads, listed while someone listens, and its writes, each waiting for the
+ * open, made over what is shown, and counted by `hold`. `opened()` is told
+ * each time an open attempt settles, and `stop()` when the folder is
+ * disposed.
  */
 function folderCollection(
 	declared: Declared,
 	current: () => Promise<Result<Client<Contract>, OpenFolderError>>,
+	hold: <T>(write: Promise<T>) => Promise<T>,
 ) {
 	const { name } = declared;
 	let items: Entry[] = [];
@@ -477,6 +601,9 @@ function folderCollection(
 		failures = 0;
 	}
 
+	/** The entry `args` names, as shown. */
+	const shown = (args: Args) => items.find((item) => names(item, args));
+
 	/** Show `entry` where `args` named one, or as a new one. */
 	function put(entry: Entry, args: Args) {
 		const at = items.findIndex((item) => names(item, args));
@@ -497,11 +624,11 @@ function folderCollection(
 	 * `Conflict` or `NotFound`, what is there now (a note read again, files
 	 * listed again).
 	 */
-	async function settle<T extends Answer>(
+	async function settle(
 		collection: Raw,
 		args: Args,
-		written: T,
-	): Promise<T> {
+		written: Answer,
+	): Promise<Answer> {
 		if (written.error === null) {
 			if (written.data === undefined) drop(args);
 			else put(written.data as Entry, args);
@@ -519,28 +646,88 @@ function folderCollection(
 		return written;
 	}
 
-	/** `method` of the open collection, called with `args`; its answer shown when `shown` says how. */
-	function waiting(
-		method: 'list' | 'get' | 'create' | 'update' | 'replace' | 'delete',
-		shown: (args: unknown[]) => Args | null,
-	) {
-		return async (...args: unknown[]) => {
-			const collection = await raw();
-			if (collection.error !== null) return collection;
-			const methods = collection.data as unknown as Record<
-				typeof method,
-				(...args: unknown[]) => Promise<Answer>
-			>;
-			const answer = await methods[method](...args);
-			const named = shown(args);
-			return named === null ? answer : settle(collection.data, named, answer);
-		};
+	/** What a write is made over: the entry shown (valid or not), or else as read now. */
+	async function baseOf(
+		collection: Raw,
+		args: Args,
+	): Promise<Result<Entry, ClientError>> {
+		const entry = shown(args) ?? invalid.find((item) => names(item, args));
+		if (entry !== undefined) return Ok(entry);
+		const listed = await collection.list();
+		const found = [
+			...(listed.data?.items ?? []),
+			...((listed.data && 'invalid' in listed.data
+				? listed.data.invalid
+				: []) as Entry[]),
+		].find((item) => names(item as Entry, args));
+		if (found !== undefined) return Ok(found as Entry);
+		// Not listed: `get` answers why (`NotFound`, or the listing's own refusal).
+		const read = await collection.get(args as never);
+		if (read.error !== null) return read;
+		return Ok(read.data as Entry);
 	}
+
+	/** The version a write passes: `over` when given, else the one shown. */
+	async function overOf(
+		collection: Raw,
+		args: Args,
+		over: Version | undefined,
+	): Promise<Result<Version, ClientError>> {
+		if (over !== undefined) return Ok(over);
+		const base = await baseOf(collection, args);
+		return base.error === null ? Ok(base.data.version) : base;
+	}
+
+	/**
+	 * A write to the open collection: `write` once the folder opened, its
+	 * answer shown over `args` (the placeholders, or a created value). Not
+	 * held: the public method holds it, or the editor's keystroke does.
+	 */
+	async function writeTo(
+		args: Args,
+		write: (collection: Raw) => Promise<Answer>,
+	): Promise<Answer> {
+		const collection = await raw();
+		if (collection.error !== null) return collection;
+		return settle(collection.data, args, await write(collection.data));
+	}
+
+	const writes = {
+		create: (value: Args) =>
+			writeTo(value, (collection) => collection.create(value as never)),
+		update: (args: Args, patch: Args, { base }: { base?: Entry } = {}) =>
+			writeTo(args, async (collection) => {
+				const from = base ? Ok(base) : await baseOf(collection, args);
+				if (from.error !== null) return from;
+				if ('replace' in collection)
+					return updateNote(collection, args as never, patch as never, {
+						base: from.data as never,
+					});
+				return collection.update(args as never, patch as never, {
+					over: from.data.version,
+				});
+			}),
+		replace: (args: Args, text: string, { over }: { over?: Version } = {}) =>
+			writeTo(args, async (collection) => {
+				if (!('replace' in collection))
+					throw new Error('replace is a note collection’s alone');
+				const version = await overOf(collection, args, over);
+				if (version.error !== null) return version;
+				return collection.replace(args as never, text, { over: version.data });
+			}),
+		delete: (args: Args, { over }: { over?: Version } = {}) =>
+			writeTo(args, async (collection) => {
+				const version = await overOf(collection, args, over);
+				if (version.error !== null) return version;
+				return collection.delete(args as never, { over: version.data });
+			}),
+	};
 
 	const reads = {
 		items: () => items,
 		loading: () => loading,
 		error: () => error,
+		get: shown,
 		subscribe(listener: () => void) {
 			listeners.add(listener);
 			if (listeners.size === 1) void follow();
@@ -551,11 +738,15 @@ function folderCollection(
 		},
 	};
 	const methods = {
-		list: waiting('list', () => null),
-		get: waiting('get', () => null),
-		create: waiting('create', ([value]) => value as Args),
-		update: waiting('update', ([args]) => args as Args),
-		delete: waiting('delete', ([args]) => args as Args),
+		async list() {
+			const collection = await raw();
+			return collection.error === null ? collection.data.list() : collection;
+		},
+		create: (value: Args) => hold(writes.create(value)),
+		update: (args: Args, patch: Args, options?: { base?: Entry }) =>
+			hold(writes.update(args, patch, options)),
+		delete: (args: Args, options?: { over?: Version }) =>
+			hold(writes.delete(args, options)),
 	};
 	const collection =
 		declared.kind === 'note'
@@ -564,7 +755,19 @@ function folderCollection(
 					...reads,
 					invalid: () => invalid,
 					...methods,
-					replace: waiting('replace', ([args]) => args as Args),
+					replace: (args: Args, text: string, options?: { over?: Version }) =>
+						hold(writes.replace(args, text, options)),
+					edit: (args: Args, options: { create?: () => Args } = {}) =>
+						editNote({
+							args,
+							options,
+							fieldNames: declared.keys,
+							shown: () => shown(args),
+							create: writes.create,
+							update: writes.update,
+							hold,
+							subscribe: reads.subscribe,
+						}),
 				}
 			: { ...reads, ...methods };
 

@@ -1,8 +1,8 @@
 /**
  * Todos' capabilities, opened once for the page's life (ADR-0766): the
  * account (the web build's sign-in; the desktop window never signs in) and
- * the folder, adapted for Svelte here, once. Every page, component and
- * module imports what it uses from here.
+ * the folder, each read through `reactive` here, once, under its own names.
+ * Every page, component and module imports what it uses from here.
  *
  * The folder is the one store of the build: this browser has none, so the
  * web opens the signed-in person's `todos` repository, and the desktop
@@ -11,11 +11,13 @@
  */
 import { APPS } from '@epicenter/definition/site';
 import { openFolder } from '@epicenter/folder';
-import { fromClient } from '@epicenter/svelte/client';
+import { reactive } from '@epicenter/svelte/reactive';
 import { connectAccount } from '#platform/account';
 import { todos } from './contract.js';
 
-export const account = connectAccount();
-export const folder = fromClient(
-	openFolder(todos, { site: APPS.TODOS.url, ...(account && { account }) }),
+const signIn = connectAccount();
+
+export const account = signIn && reactive(signIn);
+export const folder = reactive(
+	openFolder(todos, { site: APPS.TODOS.url, ...(signIn && { account: signIn }) }),
 );

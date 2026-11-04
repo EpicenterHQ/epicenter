@@ -7,8 +7,9 @@
  *   it is closed
  * - Recovery's Retry reopens the folder, and only the folder
  * - A page that throws shows the page error, never the folder's Recovery
- * - A folder wrapped by `fromClient` at module scope stays reactive in a
- *   component that reads it, and `edit()` still stops with its component
+ * - Leaving the page asks first while the folder is saving
+ * - A folder wrapped by `reactive` at module scope stays reactive in a
+ *   component that reads it, and an editor's fields bind to inputs
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
@@ -20,8 +21,8 @@ import {
 import { createFolder, OpenFolderError } from '@epicenter/folder/core';
 import type { Result } from 'wellcrafted/result';
 
-const { flushSync, mount, unmount, tick } = await import('svelte');
-const { fromClient } = await import('./client.svelte.js');
+const { flushSync, mount, unmount } = await import('svelte');
+const { reactive } = await import('./reactive.js');
 const { default: WhenOpenHost } = await import('./fixtures/WhenOpenHost.svelte');
 const { default: TodoCount } = await import('./fixtures/TodoCount.svelte');
 const { default: TodoEditor } = await import('./fixtures/TodoEditor.svelte');
@@ -48,7 +49,7 @@ function controlled() {
 	);
 	return {
 		raw,
-		folder: fromClient(raw),
+		folder: reactive(raw),
 		answers,
 		revealed,
 		/** Answer the latest open with a client whose collection is empty. */
@@ -57,7 +58,10 @@ function controlled() {
 				fieldNames: [],
 				list: async () => ({ data: { items: [], invalid: [] }, error: null }),
 				subscribe: () => () => {},
-				replace: async () => ({ data: null, error: null }),
+				replace: async () => ({
+					data: { id: 'a', body: 'text', version: 'v2' },
+					error: null,
+				}),
 			} as unknown as NoteClient<(typeof contract)['collections']['todos']>;
 			answers.at(-1)?.({ data: { todos }, error: null });
 		},
@@ -134,7 +138,7 @@ test('a folder with no place to show offers Retry alone', async () => {
 	const main = target();
 	const view = mount(WhenOpenHost, {
 		target: main,
-		props: { folder: fromClient(raw) },
+		props: { folder: reactive(raw) },
 	});
 	await settle();
 	expect(recovery(main)).not.toBeNull();
@@ -172,7 +176,29 @@ test('a folder wrapped once at module scope stays reactive in a component that r
 	await unmount(view);
 });
 
-test('edit() on the module-scope folder stops with its component', async () => {
+test('leaving the page asks first while the folder is saving, and not once it is saved', async () => {
+	const { folder, open } = controlled();
+	open();
+	const main = target();
+	const view = mount(WhenOpenHost, { target: main, props: { folder } });
+	await settle();
+	const leavingAsks = () => {
+		const leaving = new Event('beforeunload', { cancelable: true });
+		window.dispatchEvent(leaving);
+		return leaving.defaultPrevented;
+	};
+	expect(leavingAsks()).toBe(false);
+	const saving = folder.todos.replace({ id: 'a' }, 'text', { over: 'v' as never });
+	expect(leavingAsks()).toBe(true);
+	await saving;
+	expect(leavingAsks()).toBe(false);
+	await unmount(view);
+	// Unmounted, it asks nothing.
+	void folder.todos.replace({ id: 'a' }, 'text', { over: 'v' as never });
+	expect(leavingAsks()).toBe(false);
+});
+
+test('an editor on the module-scope folder binds its fields to inputs, saves what is typed, and shows a change made elsewhere', async () => {
 	type Edit = Parameters<Parameters<typeof TodoEditor>[1]['expose']>[0];
 	await app.raw.todos.create({ id: 'b', title: 'Eggs', done: false });
 	let editor: Edit | undefined;
@@ -182,15 +208,34 @@ test('edit() on the module-scope folder stops with its component', async () => {
 		props: { id: 'b', expose: (edit: Edit) => (editor = edit) },
 	});
 	await settle();
-	if (editor === undefined) throw new Error('expected the editor');
-	editor.fields.title = 'Brown eggs';
-	expect((await editor.landed()).error).toBeNull();
-	expect((await app.raw.todos.get({ id: 'b' })).data?.title).toBe('Brown eggs');
-
-	await unmount(view);
-	await tick();
-	editor.fields.title = 'After it is gone';
 	await settle();
-	expect((await app.raw.todos.get({ id: 'b' })).data?.title).toBe('Brown eggs');
-	expect(app.folder.todos.get({ id: 'b' })?.title).toBe('Brown eggs');
+	if (editor === undefined) throw new Error('expected the editor');
+	const input = main.querySelector<HTMLInputElement>('[data-testid="title-input"]');
+	const done = main.querySelector<HTMLInputElement>('[data-testid="done-input"]');
+	expect(input?.value).toBe('Eggs');
+	expect(done?.checked).toBe(false);
+
+	if (input === null || done === null) throw new Error('expected the inputs');
+	input.value = 'Brown eggs';
+	input.dispatchEvent(new Event('input'));
+	done.click();
+	flushSync();
+	expect(main.querySelector('[data-testid="saving"]')).not.toBeNull();
+	expect(main.querySelector('[data-testid="title"]')?.textContent).toBe(
+		'Brown eggs',
+	);
+	expect((await editor.landed()).error).toBeNull();
+	await settle();
+	expect(main.querySelector('[data-testid="saving"]')).toBeNull();
+	const saved = (await app.raw.todos.list()).data?.items.find(
+		(todo) => todo.id === 'b',
+	);
+	expect(saved).toMatchObject({ title: 'Brown eggs', done: true });
+
+	// A write behind the editor's back: the bound input shows it.
+	const raw = await app.raw.todos.update({ id: 'b' }, { title: 'Duck eggs' });
+	expect(raw.error).toBeNull();
+	await settle();
+	expect(input.value).toBe('Duck eggs');
+	await unmount(view);
 });

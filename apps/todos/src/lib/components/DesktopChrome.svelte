@@ -24,7 +24,7 @@
 	} = $props();
 
 	// `<WhenOpen>` renders the pages, and so this, only over the open folder.
-	const sync = folderSync({ path: folder.displayPath ?? '', site: APPS.TODOS.url });
+	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.TODOS.url });
 
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };

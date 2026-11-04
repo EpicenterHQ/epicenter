@@ -5,9 +5,11 @@
  * once, and a local write still out then is a small, rare loss at the edge
  * (ADR-0702's test for every protection).
  *
- * Every write through `fromClient`, and every keystroke in a note's `edit`,
- * is held from the moment it is asked for, so a keystroke counts before its
- * save starts.
+ * An app over a folder needs none of this: `<WhenOpen>` asks while the
+ * folder is `saving()`. This counter is for the apps on `fromClient`, whose
+ * folder's `saving()` holds it, and for a write made to a client directly.
+ * Every write and every keystroke in a note's `edit` is held from the moment
+ * it is asked for, so a keystroke counts before its save starts.
  * An app writing to a client directly (a capture of several files) hands
  * the write to `holdLeave` too. Each app root installs the guard once:
  *
