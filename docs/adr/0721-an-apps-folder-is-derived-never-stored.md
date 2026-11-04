@@ -47,7 +47,7 @@ development build. No program stores an app's location:
 
 | Deleted | Where |
 | --- | --- |
-| the `folder` key | an app's AppData `settings.md` (`packages/folder/src/settings.ts`) |
+| the `folder` key | an app's AppData `settings.md` (`settings.ts` in `packages/folder/src`, deleted by `a33b60d698`) |
 | `pickDataFolder`, `rememberFolder`, `isDefaultFolder`, and `chooseFolder` for data folders | `packages/folder/src/desktop-folder.ts` |
 | `tauri_plugin_persisted_scope` | `packages/tauri-epicenter-standalone/src/lib.rs`, `packages/tauri-plugin-epicenter-folder/Cargo.toml` |
 | `epicenter.root` and `--enclosing-ok` | `packages/cli/src/sync/setup.ts`, `sync.ts`, `status.ts` |

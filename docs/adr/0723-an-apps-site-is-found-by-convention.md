@@ -10,6 +10,7 @@
 
 Each first-party app publishes its contract at its origin, for example
 `https://whispering.epicenter.so/contract.json`, written by the app's
+<!-- doc-path-check: ignore-next-line (an app-relative path; the full path follows it) -->
 `scripts/write-contract.ts` (`apps/capture/scripts/write-contract.ts`). A
 folder's `AGENTS.md` records that contract URL
 ([ADR-0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md)),

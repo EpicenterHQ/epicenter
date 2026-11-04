@@ -10,6 +10,7 @@
 
 Each first-party app publishes its contract at its own site, for example
 `https://whispering.epicenter.so/contract.json`, written by the app's
+<!-- doc-path-check: ignore-next-line (an app-relative path; the full path follows it) -->
 `scripts/write-contract.ts` (`apps/whispering/scripts/write-contract.ts`).
 A contract carries only `name`, `collections`, `description` and `$schema`;
 `compileContract` refuses any other key (`CONTRACT_KEYS`,

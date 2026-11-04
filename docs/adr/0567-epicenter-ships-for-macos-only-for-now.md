@@ -17,6 +17,7 @@ The desktop app builds one bundle, `"targets": ["app"]` in
 `.github/workflows/` builds a desktop release. No person runs Epicenter on
 Windows or Linux. The code still carried guesses at both:
 
+<!-- doc-path-check: ignore-next-line (deleted with the public command install) -->
 - `packages/cli/src/install-command.ts`: a copy of the binary for a Linux
   AppImage, the installed `.exe` as Git's command on Windows, a refusal of
   `install-command` on Windows, and `~/.local/bin` as Linux's `PATH` link

@@ -13,6 +13,7 @@ The folder plugin binds one directory to each window before the window
 exists, keyed by the window's label (ADR-0647). Commands name their root by
 the absolute path `open_folder` answered, and any root other than the bound
 one must be allowed by Tauri's runtime file-system scope
+<!-- doc-path-check: ignore-next-line (names a file a later decision deleted) -->
 (`packages/tauri-plugin-epicenter-folder/src/scope.rs`). The model served one
 Epicenter host running many apps, one per window.
 
