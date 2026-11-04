@@ -8,7 +8,7 @@
  * hot reload or an invalidation reopen it.
  */
 import type { Client } from '@epicenter/definition/contract';
-import { openDevice } from '@epicenter/folder/browser';
+import { closeDevice, openDevice } from '@epicenter/folder/browser';
 import { fromClient, type ReactiveNotes } from '@epicenter/svelte/client';
 import { todos as contract, type Todos } from '../contract.js';
 import type { TodoNotes } from '../todos.js';
@@ -17,8 +17,15 @@ export class OpenFailed extends Error {
 	override name = 'OpenFailed';
 }
 
-const counter = globalThis as unknown as { __opens?: number };
+const counter = globalThis as unknown as { __opens?: number; __closed?: number };
 export const opens = () => counter.__opens ?? 0;
+
+/** Close a world's folder (its Worker), counted, so a probe can see opens that never closed. */
+export function closeWorld(world: Pick<World, 'folder'>) {
+	counter.__closed = (counter.__closed ?? 0) + 1;
+	console.log(`[close] #${counter.__closed}`);
+	closeDevice(world.folder);
+}
 
 /** The world every option opens: the folder, and its todos wrapped for Svelte. */
 export type World = { folder: Client<Todos>; todos: ReactiveNotes<TodoNotes> };

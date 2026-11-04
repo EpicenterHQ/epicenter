@@ -20,6 +20,8 @@ const config = {
 			fallback: 'index.html',
 			...(out && { pages: out, assets: out }),
 		}),
+		// PROTOTYPE: a page's render bug shows the nearest `+error.svelte`.
+		experimental: { handleRenderingErrors: true },
 	},
 	preprocess: vitePreprocess(),
 	// The desktop window's `Startup` awaits its roots at the top level, under

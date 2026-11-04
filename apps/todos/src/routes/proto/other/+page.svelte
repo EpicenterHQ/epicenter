@@ -2,3 +2,5 @@
 <p data-testid="other">other page</p>
 <a href="/proto/a?delay=1500">to a</a>
 <a href="/proto/c?delay=1500">to c</a>
+<a href="/proto/cr">to cr</a>
+<a href="/proto/s">to s</a>
