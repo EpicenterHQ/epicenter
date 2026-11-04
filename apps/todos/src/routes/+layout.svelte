@@ -16,6 +16,8 @@
 
 	// Leaving while a save is out asks first.
 	onMount(guardLeave);
+	// PROTOTYPE option (e): the app has mounted, so app.html's splash goes.
+	onMount(() => document.getElementById('splash')?.remove());
 </script>
 
 <svelte:head><title>Todos</title></svelte:head>
