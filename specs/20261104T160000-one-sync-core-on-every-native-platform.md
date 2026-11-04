@@ -345,6 +345,16 @@ provider keys belong to `ai`, not `account`; and the agent loop sends
 `ChatMessage` and `ChatTool`, keeping only its stream type `EngineChunk`
 (amends ADR-0740, ADR-0755, ADR-0757, ADR-0762).
 
+Then an eighth, [ADR-0765](../docs/adr/0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md):
+choose by value, not by name. The build chooses the platform, one name per
+capability; data chooses the source and the job (`{ endpoint, model }`
+under a key such as `'chat'`); a capability takes another capability's
+value, never an adapter shaped for it. Every capability is created once in
+`app.ts`, reads through methods and one `subscribe`, is a value or `null`,
+hides its platforms behind one name, may autolink a Rust plugin, and may
+export a `./svelte` adapter `fromX` built on one shared helper (amends
+ADR-0754).
+
 **Execution.** Two independent tracks in separate worktrees: package moves
 (`ai` merge, `account` rename with `principal`, `capture` into its app,
 `constants` split, one shell crate), now running on branch
@@ -507,3 +517,45 @@ after the extension's saves and on its Sync button (ADR-0750).
 5. **The development host.** After the generator: one prebuilt shell with
    every capability's plugin, so `bun dev:<app>` needs no Tauri build.
    Release builds still generate each app's own shell.
+
+### 6. Choosing by value (ADR-0765)
+
+Each item closes one entry of ADR-0765's `Unbuilt` line and deletes the
+named pair it replaces.
+
+**Wave A: AI by value.**
+
+1. **`hosted` holds the live account.** It reads the account at use instead
+   of taking `Account | undefined` at construction, so sign-in reaches it
+   without a new `openAi`.
+2. **`openAi` accepts live lists.** An entry may be a list that changes, so
+   Vocab's `$derived` re-merge in `apps/vocab/src/lib/ai.svelte.ts` goes.
+3. **`customEndpoints()` in `@epicenter/ai`.** The person's connected
+   endpoints as one live list, in place of Vocab's `OpenConnections` and
+   Whispering's `useCustom` (its `useAccount` and `useLocal` become
+   `hosted` and `localSpeech()` entries, step 5.1).
+4. **Model choices as device settings, keyed by job.** `'chat'`,
+   `'transcribe'`, and so on, in place of `createModelChoices` scopes and
+   defaults written beside each read, such as Vocab's `'tutor'`.
+
+**Wave B: one name per capability.**
+
+5. **`openFolder(contract)`**, picked by the build, in place of
+   `openDataFolder`, `openAppData` and `openDevice`.
+6. **`connectAccount()`**, picked by the build, in place of
+   `createBrowserOAuth` and `createTauriAuth`; `VocabAuth` and Whispering's
+   `PlatformAuth` go.
+7. **Startup owns both roots**: the data folder and AppData that
+   `packages/svelte/src/desktop-startup.svelte` opens today, so each app's
+   `Platform` keeps only its `Callback`.
+8. **One shared helper under every `fromX`**, with `fromAuth` (renamed
+   `fromAccount`), `fromAi` and `fromClient` on it.
+
+**Wave C: the remaining named choices.**
+
+9. **The agent's tools as an array and its messages as a contract
+   collection.**
+10. **One `file` field for transcription**, in place of a `file` or a
+    `path`.
+11. **`recorder.placesWhole` leaves app code**
+    (`apps/whispering/src/lib/microphone.ts`).

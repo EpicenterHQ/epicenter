@@ -62,7 +62,8 @@ path, no platform, and no sync moment. Records:
 [ADR-0754](adr/0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md),
 [ADR-0755](adr/0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md),
 [ADR-0756](adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md),
-[ADR-0759](adr/0759-an-apps-native-shell-is-generated-on-every-build.md).
+[ADR-0759](adr/0759-an-apps-native-shell-is-generated-on-every-build.md),
+[ADR-0765](adr/0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md).
 
 ## What this means for you
 
