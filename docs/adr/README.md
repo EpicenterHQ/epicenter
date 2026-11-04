@@ -929,7 +929,7 @@ When you add an ADR, add its row here.
 | [0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) | A grant reaches what the person chooses at consent | Accepted (amends 0718 and 0731) |
 | [0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) | Your own git in an Epicenter folder is plain Git | Accepted (amends 0565, 0713, and 0718; amended by 0748 and 0751) |
 | [0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) | Every file other than a note is kept whole in Git LFS | Accepted (supersedes 0714) |
-| [0735](0735-sync-gives-files-a-history-it-never-merges-two.md) | Sync gives files a history; it never merges two | Accepted (amends 0700 and 0721) |
+| [0735](0735-sync-gives-files-a-history-it-never-merges-two.md) | Sync gives files a history; it never merges two | Accepted (amends 0700 and 0721; amended by 0761) |
 | [0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) | A folder outside the library is enrolled through a link the person names | Accepted (amends 0715 and 0721) |
 | [0737](0737-an-apps-actions-are-request-notes-it-watches-in-this-devices-place.md) | An app's actions are request notes it watches in this device's place | Accepted |
 | [0738](0738-a-script-reaches-an-app-through-a-handle-module-written-from-its-site.md) | A script reaches an app through a handle module written from its site | Accepted |
@@ -947,7 +947,12 @@ When you add an ADR, add its row here.
 | [0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) | Sync is like save: any program can sync a folder, and none owns it | Accepted (amends 0328, 0713, 0745, and 0749) |
 | [0751](0751-every-native-app-carries-one-sync-core.md) | Every native app carries one sync core | Accepted (supersedes 0748; amends 0713, 0718, 0719, 0733, and 0747) |
 | [0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) | An app's folder sits under the platform's visible root of app folders | Accepted |
-| [0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) | An app declares what it is and what it needs; the platform supplies where, how and when | Accepted (amends 0719) |
-| [0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) | A capability takes what it needs as values and shows what it can do now as values | Accepted |
-| [0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) | Epicenter's packages are capabilities, formats, framework layers and programs | Accepted (amends 0403 and 0701) |
-| [0756](0756-an-apps-native-shell-is-linked-from-its-capabilities.md) | An app's native shell is linked from its capabilities | Accepted |
+| [0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) | An app declares what it is and what it needs; the platform supplies where, how and when | Accepted (amends 0719; amended by 0759 and 0760) |
+| [0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) | A capability takes what it needs as values and shows what it can do now as values | Accepted (amended by 0757) |
+| [0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) | Epicenter's packages are capabilities, formats, framework layers and programs | Accepted (amends 0403 and 0701; amended by 0760) |
+| [0756](0756-an-apps-native-shell-is-linked-from-its-capabilities.md) | An app's native shell is linked from its capabilities | Accepted (amended by 0759) |
+| [0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) | Every model is an endpoint; every model file is a cache | Accepted (amends 0754) |
+| [0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) | Epicenter adapts to what you already have and owns only what nothing else can | Accepted |
+| [0759](0759-an-apps-native-shell-is-generated-on-every-build.md) | An app's native shell is generated on every build | Accepted (amends 0753 and 0756) |
+| [0760](0760-global-shortcuts-are-a-capability.md) | Global shortcuts are a capability | Accepted (amends 0753 and 0755) |
+| [0761](0761-sync-never-merges-two-unrelated-histories.md) | Sync never merges two unrelated histories | Accepted (amends 0735) |

@@ -39,6 +39,9 @@ Epicenter, where it exists, is the library over them.
    else** ([ADR-0741](adr/0741-epicenter-reconciles-only-states-it-made.md)).
 10. **Boundaries go where people already expect them**
     ([ADR-0749](adr/0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md)).
+11. **Epicenter adapts to what you already have and owns only what nothing
+    else can:** syncing folders and the merge rule
+    ([ADR-0758](adr/0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md)).
 
 This page describes where Epicenter is going and links the records that decide
 each part. Most of it is not built yet; each record's `Unbuilt` line says what
@@ -80,6 +83,16 @@ extension pairs with its desktop app; sync happens when you open, save,
 return, or ask, as saving does; quitting an app stops what it does; a copy of
 a folder is a copy of your data.
 
+Its outward companion: Epicenter owns only what nothing a person already has
+does, which is syncing folders and the merge rule, and adapts to everything
+else in that tool's own format and place
+([ADR-0758](adr/0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md)).
+Models are any endpoint, model files sit in the Hugging Face cache, history is
+plain Git, other hosts are your own remotes, sign-in is standard OAuth per
+app, and files are folders you can see. Where ADR-0741 says Epicenter
+reconciles only the states it made, ADR-0758 says it builds only what no
+existing tool provides.
+
 ## Identity and names
 
 An app is a site that publishes `/contract.json`, and optionally `/SKILL.md`
@@ -107,15 +120,17 @@ its window and menus.
 
 ## How an app is built
 
-An app is four things
-([ADR-0756](adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md)):
+An app is four things, and a fifth only when it needs one
+([ADR-0756](adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md),
+[ADR-0759](adr/0759-an-apps-native-shell-is-generated-on-every-build.md)):
 
 ```txt
 <app>/
   contract.ts     what the app's files are; the build publishes it as /contract.json
   app.ts          the capabilities it needs, composed once for every platform
   routes/         its screens
-  native/         Rust for features no capability covers, such as Whispering's global shortcut
+  icon.png        the source of every icon the shell needs
+  modules/<name>/ native code no capability covers, TypeScript plus Rust; most apps have none
 ```
 
 `app.ts` composes capabilities by passing values
@@ -124,30 +139,51 @@ An app is four things
 ```ts
 export const account = connectAccount();
 export const folder = await openFolder(whispering);
-export const ai = openAi({ account, local: localModels }); // localModels is null on the web
+export const ai = openAi([
+  hosted(account),     // Epicenter's models; none until signed in
+  ...keys.map(custom), // one endpoint per provider key you added
+  localServers(),      // Ollama and LM Studio on this computer, when running
+  localSpeech(),       // transcribe.cpp in the app's process; null on the web
+]);
 ```
 
 - **A capability never imports another.** It takes what it needs as values,
   and the account it takes is live, so sign-in reaches every capability
   without a reload.
-- **What a capability can do now is a value or `null`.** `ai.hosted()` is
-  `null` when signed out, and `ai.local()` is `null` on the web.
-  `ai.models()` lists every usable model, local first, then hosted, then the
-  person's own keys.
+- **What a capability can do now is a value or `null`.** `localSpeech()` is
+  `null` on the web, and the hosted endpoint lists no models until you sign
+  in.
+- **Every model is an endpoint; every model file is a cache**
+  ([ADR-0757](adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)).
+  Requests use the OpenAI-compatible vocabulary (chat, transcription,
+  embeddings), and each model says which it can do. Hosted inference, your
+  provider keys, and Ollama and LM Studio on this computer are one HTTP
+  client pointed at different URLs; on the desktop its requests go through
+  the shell, so keys stay out of the page. `localSpeech()` runs
+  transcribe.cpp inside the app with no port, and is the only source with a
+  handle, for downloading, removing, loading, and unloading a model.
+  `ai.models()` lists every model in the array's order. Apps share model
+  files through the Hugging Face cache, never a server Epicenter runs.
 - **Reads are methods, with one `subscribe` per capability.** A Svelte
   adapter such as `fromAi` turns them into getters.
 - **Packages are capabilities, formats, framework layers, and programs**
   ([ADR-0755](adr/0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md)).
-  The capabilities are `folder`, `account`, `recorder`, `ai`, and
-  `transcription`; the format is `definition`; the framework layers are
+  The capabilities are `folder`, `account`, `recorder`, `ai`,
+  `transcription`, and `shortcut`
+  ([ADR-0760](adr/0760-global-shortcuts-are-a-capability.md)); the format is `definition`; the framework layers are
   `svelte`, `ui`, and `vite-config`; the programs are `cli` and `server`.
   A capability keeps its TypeScript, its Rust plugin, and its Svelte settings
   in one directory, and the desktop build picks its desktop code by the
   `tauri` condition.
-- **The native shell is linked from the capabilities.** A capability
-  declares its Rust plugin, and the build writes the shell's `main.rs` and
-  permissions from the app's dependencies, as React Native's autolinking
-  does. Adding `@epicenter/recorder` is the whole edit.
+- **The native shell is generated on every build and never committed**
+  ([ADR-0759](adr/0759-an-apps-native-shell-is-generated-on-every-build.md)).
+  `tauri.conf.json`, `Info.plist`, entitlements, permissions, `main.rs`, and
+  the Cargo project come from the site, the capabilities the app depends
+  on, and `icon.png`, as Expo's continuous native generation does. Adding
+  `@epicenter/recorder` adds its plugin and the microphone permission; the
+  whole edit is `bun add '@epicenter/recorder@workspace:*'`. A development
+  host, one prebuilt shell with every capability, lets `bun dev:<app>` skip
+  the Tauri build; a release builds each app's own shell.
 - **`epicenter new` writes the common `app.ts`.** No wrapper package stands
   between an app and its capabilities.
 
@@ -308,6 +344,11 @@ Three places, each with one job:
   ([ADR-0752](adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md)).
   AppData is hidden and a reset deletes it, so it keeps only what belongs to
   this device.
+- **Model files are a cache**
+  ([ADR-0757](adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)).
+  A local model sits in the shared Hugging Face cache
+  (`~/.cache/huggingface/hub`), where any app or Hugging Face tool that
+  fetched it lets every app use it.
 - **A script names the app it reaches**
   ([ADR-0738](adr/0738-a-script-reaches-an-app-through-a-handle-module-written-from-its-site.md)).
   `epicenter add https://whispering.epicenter.so` writes a handle module,
@@ -360,8 +401,11 @@ other file is kept whole in Git LFS
 Epicenter's screen says: "Files other than notes are kept whole; if two
 devices change one, both versions are kept."
 
-**Sync gives files a history; it never merges two**
-([ADR-0735](adr/0735-sync-gives-files-a-history-it-never-merges-two.md)).
+**Sync gives files a history; it never merges two unrelated histories**
+([ADR-0735](adr/0735-sync-gives-files-a-history-it-never-merges-two.md),
+[ADR-0761](adr/0761-sync-never-merges-two-unrelated-histories.md)).
+Commits made offline on a folder Epicenter already synced merge as branches
+of one history; only a history Epicenter did not make is refused.
 No app creates a repository, and a folder has no history until it first
 syncs. Turning on sync builds the folder's history on top of the account's
 repository for that app: files only the account has are checked out, files
@@ -451,11 +495,19 @@ Agreed direction, built after the folder work:
   ([ADR-0750](adr/0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md)):
   open, save, return, and Sync, in every app and in Epicenter, and a line in
   each folder's `AGENTS.md` telling agents to sync before and after.
-- **Packages by kind, and shells linked from capabilities**
+- **Packages by kind, and shells generated from capabilities**
   ([ADR-0755](adr/0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md),
-  [ADR-0756](adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md)):
-  the package moves, then `tauri-plugin-epicenter`, autolinking, and
+  [ADR-0756](adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md),
+  [ADR-0759](adr/0759-an-apps-native-shell-is-generated-on-every-build.md)):
+  the package moves, then `tauri-plugin-epicenter`, the shell generator and
+  `modules/`, the development host, `@epicenter/shortcut`
+  ([ADR-0760](adr/0760-global-shortcuts-are-a-capability.md)), and
   `epicenter new`.
+- **Every model an endpoint**
+  ([ADR-0757](adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)):
+  `openAi([...])` in `@epicenter/ai`, `localSpeech()` in
+  `@epicenter/transcription`, one desktop relay for keyed requests, and
+  Whispering's per-provider routing collapsed into its array.
 - **Browser extensions save through Epicenter's native host** over Chrome
   native messaging
   ([ADR-0745](adr/0745-a-browser-extension-writes-through-the-local-epicenter-engine.md)).
@@ -482,6 +534,12 @@ Agreed direction, built after the folder work:
   wraps them
   ([ADR-0754](adr/0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md),
   [ADR-0756](adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md)).
+- A committed native shell
+  ([ADR-0759](adr/0759-an-apps-native-shell-is-generated-on-every-build.md)).
+- A model server or model directory of Epicenter's own; apps share model
+  files through the Hugging Face cache, and a shared speech server is one
+  you run and add as an endpoint
+  ([ADR-0757](adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)).
 - A Git program shipped inside an app
   ([ADR-0751](adr/0751-every-native-app-carries-one-sync-core.md)).
 - Machine state or Epicenter's paths in your Git configuration, or machine

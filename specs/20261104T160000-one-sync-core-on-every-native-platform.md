@@ -35,7 +35,7 @@ in its folder (`~/Epicenter/tabs/<id>.md`, contract path `{id}.md`).
 | Every app signs in as its site; the account asks once per app | ADR-0731, ADR-0732 |
 | Your own `git` in a folder is plain Git; Git configuration holds no Epicenter path | ADR-0733 |
 | Every file other than an item is kept whole in Git LFS | ADR-0734 |
-| Sync gives files a history; it never merges two | ADR-0735 |
+| Sync gives files a history; it never merges two unrelated histories | ADR-0735, ADR-0761 |
 | A person's own folder takes a name with a space | ADR-0736 |
 | Epicenter reconciles only states it made; elsewhere it names the state and the command | ADR-0741 |
 | Items are what you keep; documents are what's live | ADR-0742 |
@@ -49,6 +49,14 @@ in its folder (`~/Epicenter/tabs/<id>.md`, contract path `{id}.md`).
 | Sync is like save: any program can sync a folder, and none owns it | ADR-0750 |
 | Every native app carries one sync core | ADR-0751 |
 | An app's folder sits under the platform's visible root of app folders | ADR-0752 |
+| An app declares what it is and what it needs; the platform supplies where, how and when | ADR-0753 |
+| A capability takes what it needs as values and shows what it can do now as values | ADR-0754 |
+| Epicenter's packages are capabilities, formats, framework layers and programs | ADR-0755 |
+| An app's native shell is linked from its capabilities | ADR-0756 |
+| Every model is an endpoint; every model file is a cache | ADR-0757 |
+| Epicenter adapts to what you already have and owns only what nothing else can | ADR-0758 |
+| An app's native shell is generated on every build | ADR-0759 |
+| Global shortcuts are a capability | ADR-0760 |
 
 Experiments already run and retired, with the record that retired them:
 
@@ -241,7 +249,8 @@ The native host stays the CLI subcommand `epicenter native-host`.
 ## The package map (audit, 2026-11-04)
 
 Decided in ADR-0755 (the map and the moves) and ADR-0754 (the composition
-rule).
+rule); ADR-0760 adds `shortcut`, and ADR-0757 gives `ai` its endpoint
+shape.
 
 Three seats (one Codex, two Claude) audited the 22 packages by kind, callers
 and caller code. The founder accepted the experience seat's map: 11
@@ -255,6 +264,7 @@ TypeScript packages and 4 Rust crates (plus the transcription build helper).
 | `recorder` | recordings written into the folder as they record |
 | `ai` | requests to a model the person chose, and the agent loop |
 | `transcription` | models on this computer (`null` in a browser) |
+| `shortcut` | global shortcuts (`null` in a browser; ADR-0760) |
 | `svelte` | contract reactivity, startup and recovery, status |
 | `ui` | components |
 | `vite-config` | the base config and the desktop condition |
@@ -282,8 +292,8 @@ whose data depends on the account, reloads).
 ```ts
 export const account = connectAccount();
 export const folder = await openFolder(whispering);
-export const ai = openAi({ account, local: localModels }); // localModels: null on the web
-// ai.custom(): always; ai.hosted(): null until signed in; ai.local(): null on the web
+export const ai = openAi([hosted(account), ...keys.map(custom), localServers(), localSpeech()]);
+// hosted: empty until signed in; localSpeech(): null on the web (ADR-0757)
 ```
 
 Build-time selection: a capability's `.` export is
@@ -292,12 +302,15 @@ not `browser`, because `desktopVariant()` keeps Vite's `browser` condition);
 explicit `./tauri` and `./browser` subpaths stay for tests and for shared code
 that needs one side (Vocab's dictation). An intermediate package takes
 capabilities as values so its own typecheck covers one leaf honestly.
-`#platform/*` remains only for app-owned native features (Whispering's
-shortcut) and the web sign-in callback.
+`#platform/*` remains only for app-owned native features and the web
+sign-in callback; Whispering's shortcut is now the `shortcut` capability
+(ADR-0760).
 
 Open: Whispering's web build is local only even when signed in, which
-differs from R9; unifying the two HTTP relays moves Whispering's provider
-keys from the page into the shell (as Vocab's are, per ADR-0740).
+differs from R9. Unifying the two HTTP relays (Whispering's `http.rs` and
+the account crate's `relay.rs`) into the shell's one fetch, which moves
+Whispering's provider keys from the page into the shell, is decided in
+ADR-0757.
 
 ## Proposals decided (2026-11-04)
 
@@ -306,9 +319,21 @@ The founder accepted the proposals made here as four records:
 | Record | Decision |
 | --- | --- |
 | [ADR-0753](../docs/adr/0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) | An app declares what it is and what it needs; the platform supplies where, how and when (amends ADR-0719) |
-| [ADR-0754](../docs/adr/0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) | A capability takes what it needs as values and shows what it can do now as values, including AI's sources in the order local, hosted, custom |
+| [ADR-0754](../docs/adr/0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) | A capability takes what it needs as values and shows what it can do now as values, including AI's sources in the order local, hosted, custom (the AI example amended by ADR-0757) |
 | [ADR-0755](../docs/adr/0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) | Epicenter's packages are capabilities, formats, framework layers and programs (the map above) |
-| [ADR-0756](../docs/adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md) | An app's native shell is linked from its capabilities: autolinking, `native/`, the app layout, and `epicenter new` in place of a wrapper |
+| [ADR-0756](../docs/adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md) | An app's native shell is linked from its capabilities: autolinking, `native/`, the app layout, and `epicenter new` in place of a wrapper (`native/` and the layout amended by ADR-0759) |
+
+## Decided later (2026-11-04)
+
+The founder accepted five more records:
+
+| Record | Decision |
+| --- | --- |
+| [ADR-0757](../docs/adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) | Every model is an endpoint; every model file is a cache: `openAi([...endpoints])`, one OpenAI-compatible request vocabulary over `openAiCompatible` and in-process `localSpeech()`, model files in the Hugging Face cache (amends ADR-0754) |
+| [ADR-0758](../docs/adr/0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) | Epicenter adapts to what you already have and owns only what nothing else can: syncing folders and the merge rule |
+| [ADR-0759](../docs/adr/0759-an-apps-native-shell-is-generated-on-every-build.md) | An app's native shell is generated on every build and never committed; app-specific native code lives in `modules/<name>/`; a development host for `bun dev:<app>` (amends ADR-0753, ADR-0756) |
+| [ADR-0760](../docs/adr/0760-global-shortcuts-are-a-capability.md) | Global shortcuts are a capability, `@epicenter/shortcut` (amends ADR-0753, ADR-0755) |
+| [ADR-0761](../docs/adr/0761-sync-never-merges-two-unrelated-histories.md) | Sync never merges two unrelated histories; offline commits merge as branches of one history (amends ADR-0735) |
 
 **Execution.** Two independent tracks in separate worktrees: package moves
 (`ai` merge, `account` rename with `principal`, `capture` into its app,
@@ -413,3 +438,40 @@ itself (ADR-0735, ADR-0751).
 The extension plus its native host, `epicenter native-host`, writing a flat
 folder: `~/Epicenter/tabs/<id>.md`, contract path `{id}.md`. The host syncs
 after the extension's saves and on its Sync button (ADR-0750).
+
+### 5. Capabilities and the generated shell
+
+1. **`@epicenter/ai` as endpoints (ADR-0757).** `openAi([...])`, the
+   endpoint interface with per-model capabilities (`chat`, `transcribe`,
+   `embed`), `openAiCompatible({ url, credential })` with its
+   configurations `hosted(account)`, `custom(key)` and `localServers()`,
+   and one HTTP client, `@epicenter/ai/openai`. On the desktop its requests
+   go through the shell's one fetch: Whispering's
+   `apps/whispering/src-tauri/src/http.rs` and
+   `packages/tauri-epicenter-account/src/relay.rs` become one relay.
+   Whispering's per-provider routing (about 620 lines in
+   `apps/whispering/src/lib/platform/browser.ts` and
+   `apps/whispering/src/lib/platform/services.tauri.ts`) collapses into its
+   `openAi([...])` array.
+2. **`@epicenter/transcription` exposing `localSpeech()`.** The
+   transcription plugin's package renamed from
+   `@epicenter/transcription-native`; its endpoint runs transcribe.cpp in
+   the app's process, and its handle carries download, remove, load, and
+   unload. `docs/guides/self-hosted-transcription-speaches.md` is stale
+   after the package moves (it imports `transcribe` from
+   `@epicenter/client`) and is rewritten here, with a Speaches server as a
+   `custom(key)` endpoint.
+3. **`@epicenter/shortcut` (ADR-0760).** TypeScript plus
+   `tauri-plugin-global-shortcut`; Whispering's `shortcut.rs` and the
+   Epicenter app's direct registration go.
+4. **The generated shell and `modules/` (ADR-0759).** The generator writes
+   `tauri.conf.json`, `Info.plist`, entitlements, permissions, `main.rs` and
+   the Cargo project from the site, the app's capabilities, and `icon.png`
+   into a gitignored directory; each app's committed `src-tauri/` is
+   deleted. Adding a capability is
+   `bun add '@epicenter/<capability>@workspace:*'` (a bare
+   `bun add @epicenter/<capability>` queries npm and fails for a private
+   workspace package, checked with Bun 1.4.3).
+5. **The development host.** After the generator: one prebuilt shell with
+   every capability's plugin, so `bun dev:<app>` needs no Tauri build.
+   Release builds still generate each app's own shell.

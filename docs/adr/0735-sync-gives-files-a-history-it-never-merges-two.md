@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at "Cloning where a folder already exists, as when an app on a second Mac made its folder first, joins it: fetch, then merge": the folder's files are added on top of the account's repository in one commit; [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at "the `.gitattributes` block `epicenter init` commits" and "A folder `epicenter init` has not registered has no history": a folder has no history until its first sync, whose one commit holds the attribute block.
+- **Amended by:** [ADR-0761](0761-sync-never-merges-two-unrelated-histories.md) at the title's principle, "it never merges two": it reads "it never merges two unrelated histories", and offline commits on a folder Epicenter already synced merge as branches of one history.
 - **Relates:** [ADR-0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) (how a file on both sides merges), [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) (the first push creates the repository), [ADR-0620](0620-history-in-a-repository-only-grows.md) (history only grows), [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) (the consent screen).
 - **Unbuilt:** the consent screen's counts ("This Mac's 12 recordings will be added to your Whispering, which has 340").
 

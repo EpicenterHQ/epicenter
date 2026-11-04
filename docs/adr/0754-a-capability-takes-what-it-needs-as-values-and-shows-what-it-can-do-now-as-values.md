@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
+- **Amended by:** [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) at the AI worked example: `openAi([...endpoints])` replaces `openAi({ account, local })` and the handles `ai.hosted()`, `ai.local()` and `ai.custom()`, models list in the array's order, and a management handle exists only for a source with a local lifecycle (`localSpeech()`: download, remove, load, unload).
 - **Relates:** [ADR-0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) (an app declares what it needs), [ADR-0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) (which packages are capabilities), [ADR-0731](0731-every-app-signs-in-as-its-site.md) (`connectAccount()` takes no identity options), [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (where the person's provider keys live), [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) (the online web).
 - **Unbuilt:** `connectAccount()` with `account.current()` and `account.subscribe`; `openFolder(contract)`; `openAi({ account, local })` with `ai.models()`, `ai.hosted()`, `ai.local()`, `ai.custom()`, `ai.subscribe`, and `ai.complete`; the Svelte adapters `fromAccount` and `fromAi`; the browser recorder taking its folder as a value instead of importing `deviceFiles` from `@epicenter/folder/browser`.
 

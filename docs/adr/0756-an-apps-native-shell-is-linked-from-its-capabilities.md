@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
+- **Amended by:** [ADR-0759](0759-an-apps-native-shell-is-generated-on-every-build.md) at `native/`, the app layout, and the bundle settings left without a source: the whole shell is generated on every build from the site, the capabilities, and `icon.png` and never committed, and app-specific native code lives in `modules/<name>/`.
 - **Relates:** [ADR-0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) (a capability keeps its TypeScript and its Rust plugin in one directory), [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) (the composition in `app.ts`), [ADR-0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) (an app declares what it needs), [ADR-0701](0701-apps-run-as-separate-programs.md) (each app ships its own desktop program), [ADR-0723](0723-an-apps-site-is-found-by-convention.md) (the site publishes `/contract.json`).
 - **Unbuilt:** the `package.json` key a capability declares its plugin in; the build step that writes the shell's `main.rs` and Tauri permissions from an app's dependencies; `native/` in any app; the build publishing `/contract.json` from `contract.ts` in place of each app's each app's `write-contract.ts` script; `epicenter new`; a home for the bundle settings `src-tauri/` holds today.
 
