@@ -81,7 +81,7 @@ A desktop build connects to one server. The default is Epicenter Cloud. Set
 `EPICENTER_SERVER_ORIGIN` when compiling the native host to build for a
 self-hosted HTTP(S) origin. Changing it requires rebuilding the app.
 Rust uses that origin to choose which account pages open in the system browser,
-and passes it to the CLI it runs for sign-in and `send`.
+and passes it to every CLI command it runs.
 Settings lets people sign in and out; it cannot change the server.
 
 Debug Cloud builds retain `EPICENTER_API_URL` for the local development API.
@@ -303,8 +303,9 @@ plugin awaiting a grant; nothing uses it, so it is parked with the feature. A
 default build neither registers nor starts any of it and its generated
 bindings name none of it, because the page API only grows after the first
 release; it joins that API when a native API decision grants it (ADR-0555).
-Autostart is not registered; enabling it once on first run (ADR-0328) is
-unbuilt. Of the official plugins ADR-0555 lists, a default build registers the
+Autostart is not registered: sync runs while the app runs, and
+[ADR-0750](../../docs/adr/0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md)
+replaces the background run with sync at moments a person causes. Of the official plugins ADR-0555 lists, a default build registers the
 opener and grants no page its URLs.
 
 ## Quitting Epicenter
@@ -364,12 +365,3 @@ their own folders.
 - An app is a separate program: it owns its UI, builds, and releases from its own app folder (ADR-0701). Epicenter serves no app page.
 
 The shared origin is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md) and [ADR-0561](../../docs/adr/0561-rust-serves-every-app-from-one-epicenter-app-origin.md). App hosting, removed by [ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md), is archived at the tag `archive/app-hosting`; that record says how to restore it.
-
-## AI connections
-
-The shell keeps no AI connections and serves no `/_epicenter/ai` routes, and
-Settings no longer lists or edits them. The `epicenter` CLI's `auth key` and
-`send`, which kept
-[ADR-0557](../../docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)'s
-keychain half, are deleted too: each standalone app keeps its own
-connections.

@@ -65,14 +65,14 @@ variant's `Startup` under a boundary:
 ```
 
 The desktop `Startup` hands the shared `DesktopStartup` the app's name,
-data contract, and published contract URL. Apps with machine-local settings
-also pass their AppData contract. `DesktopStartup` opens the derived folder
+data contract, and site. Apps with machine-local settings also pass their
+AppData contract. `DesktopStartup` opens the folder derived from the site
 and shows recovery when a root does not open:
 
 ```svelte
-<DesktopStartup app="Capture" contract={capture} contractUrl={CONTRACT_URL}>
-  {#snippet children(_appData, device)}
-    <DesktopRoot {device}>{@render pages()}</DesktopRoot>
+<DesktopStartup app="Capture" contract={capture} site={APPS.CAPTURE.url}>
+  {#snippet children(_appData, device, site)}
+    <DesktopRoot {device} {site}>{@render pages()}</DesktopRoot>
   {/snippet}
 </DesktopStartup>
 ```
