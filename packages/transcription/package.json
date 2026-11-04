@@ -1,13 +1,13 @@
 {
-	"name": "@epicenter/transcription-native",
+	"name": "@epicenter/transcription",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
 	"exports": {
-		".": "./guest-js/bindings.gen.ts",
+		".": "./guest-js/local-speech.ts",
+		"./bindings": "./guest-js/bindings.gen.ts",
 		"./local-models": "./guest-js/local-models.svelte.ts",
-		"./local-model-administration": "./guest-js/LocalModelAdministration.svelte",
-		"./local-speech": "./guest-js/local-speech.ts"
+		"./local-model-administration": "./guest-js/LocalModelAdministration.svelte"
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
