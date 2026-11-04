@@ -12,9 +12,10 @@
  * handler, is a snapshot that subscribes to nothing. A fix to how adapters
  * subscribe lands here, in every adapter at once.
  *
- * This is not a generic `from(x)`: each adapter names its reads, and one
- * with work of its own (`fromClient` lists a collection while it is read)
- * passes that work as its `subscribe`.
+ * Each adapter here names its reads as getters. `reactive(capability)`
+ * (`./reactive.ts`) adapts any capability under its own method names
+ * instead; these hand-written adapters remain for the apps that read the
+ * getter shapes (`fromAi`, `fromConversation`, `fromAuth`).
  */
 import { createSubscriber } from 'svelte/reactivity';
 
