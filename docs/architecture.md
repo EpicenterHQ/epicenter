@@ -35,9 +35,9 @@ and a same-field `Conflict` keeps the typed text for retry (overwrite) or
 discard (take theirs). Native storage stages one whole file and renames it
 over its path after checking that version.
 
-A Svelte page reads a client through `fromClient`, and the component that
-shows a note makes one editor of it (`notes.edit({ id })`) and binds its
-fields. The editor shows typed text until its save answers and keeps it with
+A Svelte page reads the folder through `reactive`, the one adapter for
+every capability, and the component that shows a note makes one editor of
+it (`notes.edit({ id })`) and binds its fields. The editor shows typed text until its save answers and keeps it with
 an inline error after a failed save. The page's leave guard asks before a
 browser unload while a write is out; a desktop window closes at once.
 In-memory edits do not survive a crash or a close.

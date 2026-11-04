@@ -49,8 +49,8 @@ for it.
 constant (`'online'`, `'local'`, or `'desktop'`) for the few sentences that
 name the store. Do not branch behavior on it; put the behavior in a seam.
 
-Data code never sits behind a seam. UI components take the client (or its
-`fromClient` wrapper) they show and never know which store it is.
+Data code never sits behind a seam. UI components take the folder (read
+through `reactive`) they show and never know which store it is.
 
 ## Declaring one
 

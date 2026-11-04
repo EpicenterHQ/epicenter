@@ -8,7 +8,7 @@ Judge the information and coordination each owner carries, not the rune count.
 ## Immediate editing
 
 The editor owns accepted input. The view that shows a note makes one editor
-of it (`collection.edit({ id })` from `@epicenter/svelte/client`), which saves
+of it (`collection.edit({ id })` on the folder's collection), which saves
 as the person types and shows each typed field until its save answers;
 controls bind its fields, reading the owner's current value and sending
 changes to it. Do not

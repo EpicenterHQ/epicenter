@@ -99,7 +99,7 @@ example.
    it awaits `openAppData(<app>Settings)` and `openDataFolder(...)` and
    renders the app's desktop root over them (which wraps the folder once
    and sets each collection the pages read, such as
-   `setTodos(fromClient(device).todos)`), or its recovery screen; the
+   `setTodos(reactive(folderOf(device)).todos)`), or its recovery screen; the
    app's layout wraps `Startup` in `<svelte:boundary>` with the UI kit's
    spinner as its `pending`, and `svelte.config.js` turns on
    `compilerOptions.experimental.async`. Components import

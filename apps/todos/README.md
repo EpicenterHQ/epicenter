@@ -110,12 +110,14 @@ name, and never commits or contacts a server.
 ## How it is wired
 
 ```text
-src/lib/app.ts                 the page's values: account (#platform/account) and
-                               folder = fromClient(openFolder(todos, { site, account }));
+src/lib/app.ts                 the page's values, each read through reactive:
+                               account (#platform/account) and
+                               folder = reactive(openFolder(todos, { site, account }));
                                editing it, or what it imports, reloads the page
-routes/+layout.svelte          every page: the chrome and the leave guard
+routes/+layout.svelte          every page: the chrome
 routes/(app)/+layout.svelte    signed out on the web: SignIn; otherwise
-                               <WhenOpen app="Todos" {folder}> (spinner, Recovery, pages)
+                               <WhenOpen app="Todos" {folder}> (spinner, Recovery,
+                               pages, and the leave guard while folder.saving())
 routes/(app)/+page.svelte      TodosApp
   TodosApp.svelte              header (Chrome from #platform/chrome), the list, the open todo
 routes/auth/callback           finishes sign-in, outside (app), then returns to /

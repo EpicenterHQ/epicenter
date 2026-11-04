@@ -6,16 +6,18 @@ it, `openDevice` and `openRemote`, open an app's files as the typed client
 its file contract derives
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 Each write is conditional on the version its writer read, so another
-writer's change since is a `Conflict` rather than overwritten. A Svelte app
-makes the client reactive with `fromClient` from
-[`@epicenter/svelte/client`](../svelte/README.md).
+writer's change since is a `Conflict` rather than overwritten. The folder
+has the shape every capability has: synchronous reads, actions that answer
+promises, and one `subscribe`. A Svelte app reads it through `reactive` from
+[`@epicenter/svelte/reactive`](../svelte/README.md); React reads it with
+`useSyncExternalStore`.
 
 ## Entries
 
 | Import | Purpose |
 | --- | --- |
 | `@epicenter/folder` | `openFolder(contract, { site, account }?)`, which the build picks: the desktop's data folder (`tauri`), this browser's storage or, with an `account`, the account's copy (`default`), and a new folder in memory under the `test` condition. |
-| `@epicenter/folder/core` | The folder every build shares, with no platform code: its types, `createFolder`, `folderOf(client)` (a ready folder over a client already open, which `fromClient` adapts), and `OpenFolderError`. |
+| `@epicenter/folder/core` | The folder every build shares, with no platform code: its types, `createFolder`, `folderOf(client)` (a ready folder over a client already open), and `OpenFolderError`. |
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account, site })` over the signed-in person's repository. |
@@ -37,13 +39,15 @@ export const folder = openFolder(todos, { site: APPS.TODOS.url });
 
 | Member | What it does |
 | --- | --- |
-| `folder.state()` | `opening`, `open`, `failed` with the typed `OpenFolderError` and the `retry()` that opens again, or `closed` once disposed; the same object until it changes |
-| `folder.subscribe(fn)` | hears `state()` change; returns the unsubscribe |
+| `folder.state()` | `opening`, `open`, `failed` with the typed `OpenFolderError` and the `retry()` that opens again (answering once that attempt settles), or `closed` once disposed; the same object until it changes |
+| `folder.saving()` | whether a write is out, from its call or an editor's keystroke until it answers; `<WhenOpen>` reads it for the leave guard |
+| `folder.subscribe(fn)` | hears `state()`, `saving()` or `displayPath()` change; returns the unsubscribe |
 | `folder.displayPath()` | the desktop data folder's path as the shell named it, to show a person, once it opened; null before, and on the web and in memory |
 | `folder.reveal` | shows the desktop's data folder in the file manager, even when it did not open; null on the web and in memory |
 | `folder[Symbol.dispose]()` | closes what it opened, even an open still under way |
-| `folder.todos.items()`, `invalid()`, `loading()`, `error()` | answer at once: empty and loading while the folder opens; listed while something subscribes to the collection |
-| `folder.todos.list()`, `get`, `create`, `update`, `replace`, `delete` | wait for the open, then run; when it fails, answer `Err(OpenFolderError)` |
+| `folder.todos.items()`, `invalid()`, `loading()`, `error()`, `get(args)` | answer at once: empty and loading while the folder opens; listed while something subscribes to the collection; `get(args)` is the entry shown |
+| `folder.todos.edit(args)` | one note as an immediate editor (`NoteEdit`), with its own reads and `subscribe` |
+| `folder.todos.list()`, `create`, `update`, `replace`, `delete`, and a file collection's `read(args)` | wait for the open, then run; when it fails, answer `Err(OpenFolderError)`; writes are made over the version shown unless told otherwise |
 
 Only an interface reads `state()` (`<WhenOpen>` from `@epicenter/svelte`).
 Everything else reads and acts, and an action called while the folder opens
@@ -115,8 +119,7 @@ A note that does not read is listed in `invalid` with its placeholders,
 front matter parses, else `replace(args, text, { over })`, which writes the
 whole note from text that reads and fits, in house style. `updateNote`
 (`@epicenter/definition/contract`) is the one rule for an edit that meets a
-`Conflict`; `fromClient` in `@epicenter/svelte/client` is the Svelte state
-over a client.
+`Conflict`; a folder's collections apply it to every `update` they make.
 
 `openRemote(contract, { account, site })` returns the same client over the
 signed-in person's repository for the app, `<git audience>/~/<name derived from site>.git`, through `account.fetch` (any `@epicenter/account` `Account`). A

@@ -110,10 +110,10 @@ The app's `build.rs` declares those commands (`COMMANDS`, and
 
 ```ts
 import { createTauriAuth } from '@epicenter/account/tauri';
-import { fromAuth } from '@epicenter/account/svelte';
+import { reactive } from '@epicenter/svelte/reactive';
 
 const { client, ready } = createTauriAuth();
-export const auth = fromAuth(client);
+export const auth = reactive(client);
 ```
 
 `cargo test -p epicenter-account`, which runs a streamed answer from a local

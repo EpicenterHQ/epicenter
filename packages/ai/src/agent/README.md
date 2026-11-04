@@ -19,7 +19,7 @@ const conversation = createConversation({
 });
 ```
 
-`fromConversation` in `@epicenter/ai/svelte` turns its snapshot into getters that track in Svelte.
+The conversation has the shape every capability has: `snapshot()` reads, `send`, `stop`, `retry` and `save` answer promises, and `subscribe` hears a change. Svelte reads it through `reactive` from `@epicenter/svelte/reactive`, where `conversation.snapshot()` tracks.
 
 ## Tools
 

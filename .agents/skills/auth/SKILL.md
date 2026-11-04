@@ -1,6 +1,6 @@
 ---
 name: auth
-description: 'Epicenter account package: `@epicenter/account` and the Svelte adapter at `@epicenter/account/svelte`, OAuth sign-in for browser and desktop apps, the Account lifetime, account-bound fetch, and hosted resource authorization. Use when editing Epicenter auth clients, session state, hosted sign-in, or how a route boots from auth.'
+description: 'Epicenter account package: `@epicenter/account`, the auth client Svelte reads through `reactive`, OAuth sign-in for browser and desktop apps, the Account lifetime, account-bound fetch, and hosted resource authorization. Use when editing Epicenter auth clients, session state, hosted sign-in, or how a route boots from auth.'
 metadata:
   author: epicenter
   version: '11.0'
@@ -40,12 +40,14 @@ identity.
 | The Epicenter app | the `epicenter` CLI's desktop grant (`epicenter auth login --desktop`); no page holds a token |
 | The account dashboard | `createCookieSessionAuth` in `apps/api/ui`, over the authorization server's own session cookie |
 
-Never restore a server destination from saved preferences. The Svelte
-adapter `fromAuth` makes state reads track through `trackReads` from
-`@epicenter/svelte/tracked`, the helper under every capability's adapter.
-The app's auth module exports the facade for components and the plain
-client for a capability that takes the live account (`hosted(account)` from
-`@epicenter/ai`), which reads `getState()` and `subscribe` itself.
+Never restore a server destination from saved preferences. An auth
+client has the shape every capability has (ADR-0769): it reads `state()`,
+its actions answer promises, and `subscribe` hears a change. A Svelte app
+adapts it once with `reactive` from `@epicenter/svelte/reactive`, and
+`auth.state()` tracks in a template, `$derived` or effect. A capability that
+takes the live account (`hosted(account)` from `@epicenter/ai`,
+`openFolder(contract, { account })`) takes the plain client and reads
+`state()` and `subscribe` itself.
 Retain the callback-capable type where a callback route needs it
 (`isCallbackAuthClient`).
 
