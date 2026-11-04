@@ -24,7 +24,8 @@
 		"./folder-sync-actions": "./src/folder-sync-actions.svelte",
 		"./desktop-startup": "./src/desktop-startup.svelte",
 		"./folder-onboarding": "./src/folder-onboarding.svelte",
-		"./tracked": "./src/tracked.ts"
+		"./tracked": "./src/tracked.ts",
+		"./opening": "./src/opening.svelte"
 	},
 	"dependencies": {
 		"@epicenter/definition": "workspace:*",
@@ -43,7 +44,7 @@
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test --isolate --conditions=browser --conditions=svelte"
+		"test": "bun test --isolate --conditions=browser --conditions=svelte --conditions=test"
 	},
 	"license": "AGPL-3.0-or-later"
 }

@@ -10,6 +10,7 @@
 			"tauri": "./src/open-folder.tauri.ts",
 			"default": "./src/open-folder.ts"
 		},
+		"./core": "./src/folder.ts",
 		"./browser": "./src/browser.ts",
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",

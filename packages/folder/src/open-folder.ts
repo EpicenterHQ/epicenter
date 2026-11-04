@@ -41,11 +41,9 @@ export type {
  */
 export const openFolder: OpenFolder = (contract, options) => {
 	if (options?.account === undefined)
-		return createFolder(
-			contract,
-			() => openDevice(contract),
-			(client) => closeDevice(client),
-		);
+		return createFolder(contract, () => openDevice(contract), {
+			close: (client) => closeDevice(client),
+		});
 	return createFolder(
 		contract,
 		accountCopy(contract, options.account, options.site),

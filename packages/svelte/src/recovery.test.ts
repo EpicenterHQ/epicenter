@@ -1,9 +1,11 @@
 /**
- * Desktop folder recovery and location tests.
+ * Folder recovery and location tests.
  *
  * Key behaviors:
- * - Each opening failure has one plain message and two actions.
- * - Reveal names the failed root, and onboarding shows the opened path.
+ * - Each opening failure has one plain message, Retry, and Show in Finder
+ *   when the folder has a place to show.
+ * - Without a place to show, Retry stands alone.
+ * - Onboarding shows the opened path and reveals the data folder.
  */
 import './svelte-dom.test-support.js';
 import { expect, mock, test } from 'bun:test';
@@ -17,6 +19,12 @@ mock.module('@epicenter/folder/tauri', () => ({
 }));
 
 const { flushSync, mount, unmount } = await import('svelte');
+
+/** What the folder's `reveal` does: show its place, here recorded. */
+const reveal = async () => {
+	revealed.push('Data');
+	return { data: null, error: null };
+};
 const { default: Recovery } = await import('./recovery.svelte');
 const { default: FolderOnboarding } = await import(
 	'./folder-onboarding.svelte'
@@ -60,7 +68,7 @@ for (const error of errors) {
 		document.body.append(target);
 		const view = mount(Recovery, {
 			target,
-			props: { app: 'Capture', error, retry: () => retries++ },
+			props: { app: 'Capture', error, retry: () => retries++, reveal },
 		});
 		try {
 			flushSync();
@@ -84,24 +92,20 @@ for (const error of errors) {
 	});
 }
 
-test('Recovery reveals AppData when settings failed', async () => {
+test('Recovery offers Retry alone when the folder has no place to show', async () => {
 	const target = document.createElement('div');
 	document.body.append(target);
 	const view = mount(Recovery, {
 		target,
-		props: {
-			app: 'Capture',
-			error: errors[3],
-			appDataError: true,
-			retry: () => {},
-		},
+		props: { app: 'Todos', error: errors[3], retry: () => {} },
 	});
 	try {
 		flushSync();
-		revealed.length = 0;
-		target.querySelectorAll('button')[1]?.click();
-		await Bun.sleep(0);
-		expect(revealed).toEqual(['AppData']);
+		expect(
+			[...target.querySelectorAll('button')].map(
+				(button) => button.textContent,
+			),
+		).toEqual(['Retry']);
 	} finally {
 		await unmount(view);
 		target.remove();

@@ -23,7 +23,6 @@ import {
 	type Client,
 	type ClientError,
 	type Collection,
-	type CompiledCollection,
 	type Contract,
 	compileContract,
 	type FileClient,
@@ -36,8 +35,13 @@ import {
 import { sameValue } from '@epicenter/definition/note';
 import type { InferError } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { type Err, Ok, type Result } from 'wellcrafted/result';
-import { OpenFolderError } from './errors.js';
+import { Ok, type Result } from 'wellcrafted/result';
+import { OpenFolderError, type RevealRootError } from './errors.js';
+
+export { OpenFolderError } from './errors.js';
+
+/** Why the folder's place could not be shown. */
+export type RevealFolderError = RevealRootError;
 
 const log = createLogger('folder');
 
@@ -56,8 +60,8 @@ export type FolderState =
 type Waits<TMethods> = {
 	[K in keyof TMethods]: TMethods[K] extends (
 		...args: infer TArgs
-	) => Promise<infer TResult>
-		? (...args: TArgs) => Promise<TResult | Err<OpenFolderError>>
+	) => Promise<Result<infer TData, infer TError>>
+		? (...args: TArgs) => Promise<Result<TData, TError | OpenFolderError>>
 		: TMethods[K];
 };
 
@@ -110,6 +114,12 @@ export type FolderLifecycle = {
 	subscribe(listener: () => void): () => void;
 	/** Open again after a failure; does nothing otherwise. */
 	retry(): void;
+	/**
+	 * Show the folder's place in the file manager, even when it did not open:
+	 * the desktop's data folder. Null where there is no such place (this
+	 * browser's storage, the account's copy, memory).
+	 */
+	readonly reveal: (() => Promise<Result<null, RevealFolderError>>) | null;
 	/** Close what the folder opened; every later action is `Unavailable`. */
 	[Symbol.dispose](): void;
 };
@@ -161,7 +171,7 @@ export type OpenFolder = <TContract extends Contract>(
 ) => Folder<TContract>;
 
 /** The lifecycle members, which no collection may be named. */
-const RESERVED = new Set(['state', 'subscribe', 'retry']);
+const RESERVED = new Set(['state', 'subscribe', 'retry', 'reveal']);
 
 /** An open that answers the client, or why nothing opened. */
 export type FolderOpen<TContract extends Contract> = () => Promise<
@@ -171,13 +181,70 @@ export type FolderOpen<TContract extends Contract> = () => Promise<
 /**
  * The folder over `open`, which is called now, and again on each `retry()`
  * after a failure. `close` releases a client that opened once the folder is
- * disposed, even one that opens after. A contract with a collection named
- * like a lifecycle member throws.
+ * disposed, even one that opens after; `reveal` shows the folder's place,
+ * where it has one. A contract with a collection named like a lifecycle
+ * member throws.
  */
 export function createFolder<TContract extends Contract>(
 	contract: TContract,
 	open: FolderOpen<TContract>,
-	close: (client: Client<TContract>) => void = () => {},
+	{
+		close = () => {},
+		reveal = null,
+	}: {
+		close?: (client: Client<TContract>) => void;
+		reveal?: FolderLifecycle['reveal'];
+	} = {},
+): Folder<TContract> {
+	const { data: compiled, error } = compileContract(contract);
+	if (error !== null) throw new Error(error.message, { cause: error });
+	return folderOver(
+		compiled.collections.map(({ name, kind, keys }) => ({ name, kind, keys })),
+		open,
+		{ close, reveal },
+	);
+}
+
+/**
+ * A folder over `client`, which is already open: ready at once, and its
+ * collections read and act as any folder's. Disposing it stops its
+ * listings and closes nothing: the client is its opener's. What
+ * `fromClient` from `@epicenter/svelte/client` makes of a client a remote
+ * or `openDevice` opened.
+ */
+export function folderOf<TContract extends Contract>(
+	client: Client<TContract>,
+): Folder<TContract> {
+	const declared = Object.entries(client as Record<string, Raw>).map(
+		([name, collection]): Declared =>
+			'replace' in collection
+				? { name, kind: 'note', keys: collection.fieldNames }
+				: { name, kind: 'file', keys: [] },
+	);
+	return folderOver(declared, async () => Ok(client), {
+		close: () => {},
+		reveal: null,
+	});
+}
+
+/** A collection as a folder needs it: its name, its kind, and a note's declared fields. */
+type Declared = {
+	name: string;
+	kind: 'note' | 'file';
+	keys: readonly string[];
+};
+
+/** The folder over `open`, with one collection per `declared`. */
+function folderOver<TContract extends Contract>(
+	declared: Declared[],
+	open: FolderOpen<TContract>,
+	{
+		close,
+		reveal,
+	}: {
+		close: (client: Client<TContract>) => void;
+		reveal: FolderLifecycle['reveal'];
+	},
 ): Folder<TContract> {
 	type Opened = Result<Client<TContract>, OpenFolderError>;
 	let state: FolderState = { status: 'opening' };
@@ -215,14 +282,15 @@ export function createFolder<TContract extends Contract>(
 
 	const current = () => attempt;
 
-	const { data: compiled, error } = compileContract(contract);
-	if (error !== null) throw new Error(error.message, { cause: error });
-	for (const declared of compiled.collections) {
-		if (RESERVED.has(declared.name))
+	for (const collection of declared) {
+		if (RESERVED.has(collection.name))
 			throw new Error(
-				`A folder cannot have a collection named ${declared.name}: it is the folder's own.`,
+				`A folder cannot have a collection named ${collection.name}: it is the folder's own.`,
 			);
-		collections.set(declared.name, folderCollection(declared, current));
+		collections.set(
+			collection.name,
+			folderCollection(collection, current as () => Promise<Opened>),
+		);
 	}
 	start();
 
@@ -239,6 +307,7 @@ export function createFolder<TContract extends Contract>(
 			set({ status: 'opening' });
 			start();
 		},
+		reveal,
 		[Symbol.dispose]() {
 			if (disposed) return;
 			disposed = true;
@@ -281,7 +350,7 @@ const names = (entry: Entry, args: Args) =>
  * `stop()` when the folder is disposed.
  */
 function folderCollection(
-	declared: CompiledCollection,
+	declared: Declared,
 	current: () => Promise<Result<Client<Contract>, OpenFolderError>>,
 ) {
 	const { name } = declared;

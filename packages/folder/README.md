@@ -15,6 +15,7 @@ makes the client reactive with `fromClient` from
 | Import | Purpose |
 | --- | --- |
 | `@epicenter/folder` | `openFolder(contract, { site, account }?)`, which the build picks: the desktop's data folder (`tauri`), this browser's storage or, with an `account`, the account's copy (`default`), and a new folder in memory under the `test` condition. |
+| `@epicenter/folder/core` | The folder every build shares, with no platform code: its types, `createFolder`, `folderOf(client)` (a ready folder over a client already open, which `fromClient` adapts), and `OpenFolderError`. |
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account, site })` over the signed-in person's repository. |
@@ -39,6 +40,7 @@ export const folder = openFolder(todos, { site: APPS.TODOS.url });
 | `folder.state()` | `opening`, `ready`, or `failed` with the typed `OpenFolderError`; the same object until it changes |
 | `folder.subscribe(fn)` | hears `state()` change; returns the unsubscribe |
 | `folder.retry()` | opens again after a failure; does nothing otherwise |
+| `folder.reveal` | shows the desktop's data folder in the file manager, even when it did not open; null on the web and in memory |
 | `folder[Symbol.dispose]()` | closes what it opened, even an open still under way |
 | `folder.todos.items()`, `invalid()`, `loading()`, `error()` | answer at once: empty and loading while the folder opens; listed while something subscribes to the collection |
 | `folder.todos.list()`, `get`, `create`, `update`, `replace`, `delete` | wait for the open, then run; when it fails, answer `Err(OpenFolderError)` |

@@ -1,24 +1,28 @@
 /**
- * `@epicenter/svelte/client`: a contract's typed client (`Client<T>`) as
- * Svelte state, the way `fromAuth` adapts an auth client.
+ * `@epicenter/svelte/client`: an app's folder, or a contract's typed client,
+ * as Svelte state, the way `fromAuth` adapts an auth client.
  *
- * `fromClient(client)` gives each collection tracked reads (`items`,
- * `invalid` for notes, `loading`, `error`, and `get(args)`) and its writes,
- * which pass the version the adapter shows, so a component never handles
- * one. A collection lists and subscribes (`subscribe` on the client) only
- * while an effect reads it, through `createTracker` (`./tracked.ts`, the
- * helper under every capability's adapter), and stops when the
- * last reader goes; a read outside tracking is a snapshot. One client has
- * one adapter: every `fromClient(device)` on a page is the same state, so
- * any component may compose from it and views never disagree.
+ * `fromClient(folder)` is made once, where the folder is
+ * (`export const folder = fromClient(openFolder(todos))` in `src/lib/app.ts`),
+ * and components read it directly: each collection gives tracked reads
+ * (`items`, `invalid` for notes, `loading`, `error`, and `get(args)`) and
+ * its writes, which pass the version shown, so a component never handles
+ * one. The folder's own `state` tracks too, beside `retry()` and `reveal`,
+ * so `<Opening {folder}>` takes the same value. A plain client
+ * (`openDevice`, `openRemote`) adapts the same way, ready at once, without
+ * the lifecycle.
  *
- * - A write through the adapter puts what landed into what it shows before
- *   it resolves, so an edit's answer and the next listing never disagree.
- * - A listing that a change interrupted is thrown away and read again, so a
- *   stale listing never replaces a newer one.
- * - A listing that fails keeps what was shown, says why (`error`), and is
- *   tried again after a while (half a second, doubling to 30 seconds) for as
- *   long as someone reads, so a passing storage failure does not freeze it.
+ * The reads are the folder's own (`@epicenter/folder`): a collection lists
+ * only while something reads it in a tracking context (a template,
+ * `$derived`, an effect), through `createTracker` (`./tracked.ts`, the
+ * helper under every capability's adapter), and stops when the last reader
+ * goes; a read outside tracking is a snapshot. The adapter works at module
+ * scope: nothing but `edit()` belongs to a component. One source has one
+ * adapter, so views never disagree.
+ *
+ * - A write puts what landed into what shows before it resolves.
+ * - While the folder opens, a collection is empty and `loading`; a write
+ *   waits for the open, and answers the open's error when it fails.
  * - A note `update` follows `updateNote`: carried over another writer's
  *   change to other fields; a `Conflict` when they changed the same one, and
  *   then the adapter shows theirs, so saving again applies over it.
@@ -26,7 +30,8 @@
  * `notes.edit(args)` is one note as an immediate editor (`NoteEdit`), for
  * the component that shows it: its fields to read and bind (`fields`, one
  * accessor per declared field and `body`, from the collection's
- * `fieldNames`), and whether the note is there (`exists`). `get` stays for
+ * `fieldNames`), and whether the note is there (`exists`). Call it during
+ * that component's setup: it stops with the component. `get` stays for
  * lists and for the saved note beside the typing, and `update` for code
  * that is not typing.
  *
@@ -35,15 +40,14 @@
  *
  * @example
  * ```ts
- * // The root, where the client is made: one context per collection.
- * const files = fromClient(device);
- * setTodos(files.todos);
+ * // src/lib/app.ts
+ * export const folder = fromClient(openFolder(todos, { site }));
  * ```
  *
  * ```svelte
  * <script lang="ts">
- * 	const todos = getTodos();
- * 	const todo = todos.edit({ id });
+ * 	import { folder } from '$lib/app';
+ * 	const todo = folder.todos.edit({ id });
  * </script>
  *
  * {#if todo.exists}
@@ -73,6 +77,15 @@ import {
 	type Version,
 } from '@epicenter/definition/contract';
 import { sameValue } from '@epicenter/definition/note';
+import {
+	type Folder,
+	type FolderFiles,
+	type FolderLifecycle,
+	type FolderNotes,
+	type FolderState,
+	folderOf,
+	type OpenFolderError,
+} from '@epicenter/folder/core';
 import { onDestroy } from 'svelte';
 import type { InferError } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -80,6 +93,16 @@ import { holdLeave } from './leave-guard.js';
 import { createTracker } from './tracked.js';
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
+
+/**
+ * `method`, answering `TOpen` too: the open's error for a folder's
+ * collection, never for a client already open.
+ */
+type Widen<TMethod, TOpen> = TMethod extends (
+	...args: infer TArgs
+) => Promise<Result<infer TData, infer TError>>
+	? (...args: TArgs) => Promise<Result<TData, TError | TOpen>>
+	: never;
 
 /** A note the adapter shows, or the version and fields an edit was made over. */
 type Base<TCollection extends Collection> = {
@@ -92,13 +115,13 @@ type Base<TCollection extends Collection> = {
  * and setting one saves it. The rest says whether the note is there and how
  * its saves stand.
  */
-export type NoteEdit<TCollection extends Collection> = {
+export type NoteEdit<TCollection extends Collection, TOpen = never> = {
 	/** The note's fields and body to read and bind; one accessor each, live for the editor's life. */
 	readonly fields: NotePatch<TCollection>;
 	/** Whether a note that reads is listed at the editor's path; false while missing, deleted or not reading. */
 	readonly exists: boolean;
 	/** Why the newest save failed; null while none has. What was typed stays. */
-	readonly error: ClientError | null;
+	readonly error: ClientError | TOpen | null;
 	/** Whether a save is out: from the keystroke until it answers. */
 	readonly saving: boolean;
 	/** What was typed and is not yet shown as saved, by field; null while the editor shows the note. */
@@ -108,24 +131,28 @@ export type NoteEdit<TCollection extends Collection> = {
 	/** Show the note again, dropping what was typed; a save already out still lands. */
 	discard(): void;
 	/** Answers once the newest typed value's save does: at once when nothing typed is waiting. */
-	landed(): Promise<Result<void, ClientError>>;
+	landed(): Promise<Result<void, ClientError | TOpen>>;
 };
 
-/** A note collection as Svelte state. */
-export type ReactiveNotes<TCollection extends Collection> = {
+/**
+ * A note collection as Svelte state. `TOpen` is what its actions answer when
+ * its folder did not open: `OpenFolderError` for a folder's, nothing for a
+ * client already open.
+ */
+export type ReactiveNotes<TCollection extends Collection, TOpen = never> = {
 	/** The fields the contract declares, in its order: an editor's `fields` are these and `body`. */
 	fieldNames: NoteClient<TCollection>['fieldNames'];
 	/** The notes as last listed (and written here since); empty until the first listing. */
 	readonly items: readonly NoteOf<TCollection>[];
 	/** The notes that do not read, with their text. */
 	readonly invalid: readonly InvalidNoteOf<TCollection>[];
-	/** True until the first listing answers. */
+	/** True until the first listing answers, which waits for the folder to open. */
 	readonly loading: boolean;
-	/** Why the last listing failed; null once one answers. What was shown stays. */
-	readonly error: Unavailable | null;
+	/** Why the last listing failed (the open's error when the folder did not open); null once one answers. What was shown stays. */
+	readonly error: Unavailable | TOpen | null;
 	/** The note `args` names, as shown. */
 	get(args: PlaceholdersOf<TCollection>): NoteOf<TCollection> | undefined;
-	create: NoteClient<TCollection>['create'];
+	create: Widen<NoteClient<TCollection>['create'], TOpen>;
 	/**
 	 * Write `patch` over `base`, by default the note as shown: what a person
 	 * acting on what they see saw. An editor that shows typed text instead
@@ -135,7 +162,7 @@ export type ReactiveNotes<TCollection extends Collection> = {
 		args: PlaceholdersOf<TCollection>,
 		patch: NotePatch<TCollection>,
 		options?: { base?: Base<TCollection> },
-	): ReturnType<NoteClient<TCollection>['update']>;
+	): ReturnType<Widen<NoteClient<TCollection>['update'], TOpen>>;
 	/**
 	 * Replace the whole note with `text`, over `over`, by default the version
 	 * shown (valid or not). An editor that shows a draft passes the version
@@ -146,10 +173,10 @@ export type ReactiveNotes<TCollection extends Collection> = {
 		args: PlaceholdersOf<TCollection>,
 		text: string,
 		options?: { over?: Version },
-	): ReturnType<NoteClient<TCollection>['replace']>;
+	): ReturnType<Widen<NoteClient<TCollection>['replace'], TOpen>>;
 	delete(
 		args: PlaceholdersOf<TCollection>,
-	): ReturnType<NoteClient<TCollection>['delete']>;
+	): ReturnType<Widen<NoteClient<TCollection>['delete'], TOpen>>;
 	/**
 	 * The note `args` names as an immediate editor (`NoteEdit`), for the
 	 * component that shows it. Call it during component setup: once the
@@ -177,66 +204,114 @@ export type ReactiveNotes<TCollection extends Collection> = {
 		options?: {
 			create?: () => FieldsOf<TCollection> & { body?: string };
 		},
-	): NoteEdit<TCollection>;
+	): NoteEdit<TCollection, TOpen>;
 };
 
 /** A file collection as Svelte state: its entries, without bytes (read those with the client's `get`). */
-export type ReactiveFiles<TCollection extends Collection> = {
+export type ReactiveFiles<TCollection extends Collection, TOpen = never> = {
 	readonly items: readonly FileEntryOf<TCollection>[];
 	readonly loading: boolean;
-	readonly error: Unavailable | null;
+	readonly error: Unavailable | TOpen | null;
 	get(args: PlaceholdersOf<TCollection>): FileEntryOf<TCollection> | undefined;
-	create: FileClient<TCollection>['create'];
+	create: Widen<FileClient<TCollection>['create'], TOpen>;
 	update(
 		args: PlaceholdersOf<TCollection>,
 		patch: { bytes: Uint8Array },
-	): ReturnType<FileClient<TCollection>['update']>;
+	): ReturnType<Widen<FileClient<TCollection>['update'], TOpen>>;
 	delete(
 		args: PlaceholdersOf<TCollection>,
-	): ReturnType<FileClient<TCollection>['delete']>;
+	): ReturnType<Widen<FileClient<TCollection>['delete'], TOpen>>;
 };
 
-export type ReactiveCollection<TCollection extends Collection> =
-	TCollection['path'] extends `${string}.md`
-		? ReactiveNotes<TCollection>
-		: ReactiveFiles<TCollection>;
+export type ReactiveCollection<
+	TCollection extends Collection,
+	TOpen = never,
+> = TCollection['path'] extends `${string}.md`
+	? ReactiveNotes<TCollection, TOpen>
+	: ReactiveFiles<TCollection, TOpen>;
 
 /** A contract's client as Svelte state: one reactive collection per collection. */
-export type ReactiveClient<TContract extends Contract> = {
+export type ReactiveClient<TContract extends Contract, TOpen = never> = {
 	readonly [K in keyof TContract['collections']]: ReactiveCollection<
-		TContract['collections'][K]
+		TContract['collections'][K],
+		TOpen
 	>;
 };
 
-/** Each client's adapter, so a client is bridged once however many components ask. */
+/**
+ * An app's folder as Svelte state: its collections, and its lifecycle,
+ * which only `<Opening>` reads (ADR-0767).
+ */
+export type ReactiveFolder<TContract extends Contract> = ReactiveClient<
+	TContract,
+	OpenFolderError
+> & {
+	/** The folder's open attempt: opening, ready, or failed with why. */
+	readonly state: FolderState;
+	/** Open again after a failure; does nothing otherwise. */
+	retry(): void;
+	/** Show the folder's place in the file manager, where it has one. */
+	readonly reveal: FolderLifecycle['reveal'];
+};
+
+/** Each source's adapter, so a folder or client is bridged once however many readers ask. */
 const adapters = new WeakMap<object, unknown>();
 
-/** Bridge a contract's client into Svelte's graph: the same state for the same client. */
+/** Whether `source` is a folder (`openFolder`), not a plain client. */
+const isFolder = (source: object): source is Folder<Contract> =>
+	'state' in source &&
+	typeof source.state === 'function' &&
+	'retry' in source &&
+	typeof source.retry === 'function';
+
+/**
+ * Bridge a folder, or a contract's client, into Svelte's graph: the same
+ * state for the same source. Make it once, at module scope beside the
+ * folder, and read it anywhere.
+ */
+export function fromClient<TContract extends Contract>(
+	folder: Folder<TContract>,
+): ReactiveFolder<TContract>;
 export function fromClient<TContract extends Contract>(
 	client: Client<TContract>,
-): ReactiveClient<TContract> {
-	const known = adapters.get(client);
+): ReactiveClient<TContract>;
+export function fromClient<TContract extends Contract>(
+	source: Folder<TContract> | Client<TContract>,
+): ReactiveFolder<TContract> | ReactiveClient<TContract> {
+	const known = adapters.get(source);
 	if (known !== undefined) return known as ReactiveClient<TContract>;
-	const adapted = Object.fromEntries(
-		Object.entries(client).map(([name, collection]) => [
-			name,
-			fromCollection(collection as Raw),
-		]),
-	);
-	adapters.set(client, adapted);
-	// SAFETY: each collection's client is adapted by the kind it is (a note
-	// client has `replace`), which is the kind its contract path gives it.
-	return adapted as unknown as ReactiveClient<TContract>;
+	const folder = isFolder(source)
+		? (source as unknown as Folder<Contract>)
+		: folderOf(source as Client<Contract>);
+	const collections: Record<string, unknown> = {};
+	// The folder's own members are functions, or a null `reveal`.
+	for (const [name, collection] of Object.entries(folder))
+		if (typeof collection === 'object' && collection !== null)
+			collections[name] = fromCollection(collection as Raw);
+	const adapted = isFolder(source)
+		? Object.defineProperties(collections, {
+				state: {
+					enumerable: false,
+					get: ((track) => () => {
+						track();
+						return folder.state();
+					})(createTracker(folder.subscribe)),
+				},
+				retry: { enumerable: false, value: () => folder.retry() },
+				reveal: { enumerable: false, value: folder.reveal },
+			})
+		: collections;
+	adapters.set(source, adapted);
+	// SAFETY: each collection is adapted by the kind it is (a note
+	// collection has `replace`), which is the kind its contract path gives it.
+	return adapted as unknown as ReactiveFolder<TContract>;
 }
 
-/** Either kind of collection client, as this module calls it. */
-type Raw = NoteClient<Collection> | FileClient<Collection>;
+/** Either kind of folder collection, as this module calls it. */
+type Raw = FolderNotes<Collection> | FolderFiles<Collection>;
 type Entry = { [key: string]: unknown; version: Version };
 type Args = Record<string, unknown>;
-
-/** How long after a failed listing it is tried again, doubling per failure up to the most. */
-const RETRY_FIRST_MS = 500;
-const RETRY_MOST_MS = 30_000;
+type Answer = Result<unknown, ClientError | OpenFolderError>;
 
 /** Whether `entry` is the one `args` (placeholders, or a created value) names. */
 const names = (entry: Entry, args: Args) =>
@@ -246,92 +321,19 @@ const names = (entry: Entry, args: Args) =>
 
 function fromCollection(collection: Raw) {
 	const notes = 'replace' in collection ? collection : null;
-	let items: Entry[] = [];
-	let invalid: Entry[] = [];
-	let loading = true;
-	let error: Unavailable | null = null;
-	let changed = () => {};
-	let listing = false;
-	let again = false;
-	/** Whether someone reads, so a failed listing is worth trying again. */
-	let reading = false;
-	/** Listings that failed in a row, and the try after the last one. */
-	let failures = 0;
-	let retry: ReturnType<typeof setTimeout> | undefined;
+	const track = createTracker(collection.subscribe);
+	const items = () => collection.items() as readonly Entry[];
+	const invalid = () =>
+		(notes?.invalid() ??
+			[]) as readonly InvalidNoteOf<Collection>[] as unknown as readonly Entry[];
 
-	/** List again, as long as changes keep arriving while a listing runs. */
-	async function reload() {
-		clearTimeout(retry);
-		retry = undefined;
-		if (listing) {
-			again = true;
-			return;
-		}
-		listing = true;
-		try {
-			do {
-				again = false;
-				const listed = await collection.list();
-				if (again) continue;
-				if (listed.error !== null) {
-					error = listed.error;
-					failures++;
-				} else {
-					items = listed.data.items as Entry[];
-					invalid = (
-						'invalid' in listed.data ? listed.data.invalid : []
-					) as Entry[];
-					error = null;
-					failures = 0;
-				}
-				loading = false;
-				changed();
-			} while (again);
-		} finally {
-			listing = false;
-		}
-		if (failures > 0 && reading)
-			retry = setTimeout(
-				() => void reload(),
-				Math.min(RETRY_FIRST_MS * 2 ** (failures - 1), RETRY_MOST_MS),
-			);
-	}
-
-	const track = createTracker((update) => {
-		changed = update;
-		reading = true;
-		const stop = collection.subscribe(() => void reload());
-		void reload();
-		return () => {
-			stop();
-			reading = false;
-			clearTimeout(retry);
-			retry = undefined;
-			failures = 0;
-			changed = () => {};
-		};
-	});
-
-	/** Show `entry` where `args` named one, or as a new one. */
-	function put(entry: Entry, args: Args) {
-		const at = items.findIndex((item) => names(item, args));
-		items = at === -1 ? [...items, entry] : items.with(at, entry);
-		invalid = invalid.filter((item) => !names(item, args));
-		changed();
-	}
-
-	/** Show nothing where `args` named something. */
-	function drop(args: Args) {
-		items = items.filter((item) => !names(item, args));
-		invalid = invalid.filter((item) => !names(item, args));
-		changed();
-	}
-
-	const shown = (args: Args) => items.find((item) => names(item, args));
+	const shown = (args: Args) => items().find((item) => names(item, args));
 
 	/** What a write is made over: the entry shown, or else as read now. */
-	async function baseOf(args: Args): Promise<Result<Entry, ClientError>> {
-		const entry = shown(args) ?? invalid.find((item) => names(item, args));
+	async function baseOf(
+		args: Args,
+	): Promise<Result<Entry, ClientError | OpenFolderError>> {
+		const entry = shown(args) ?? invalid().find((item) => names(item, args));
 		if (entry !== undefined) return Ok(entry);
 		const listed = await collection.list();
 		const found = [
@@ -347,50 +349,34 @@ function fromCollection(collection: Raw) {
 		return Ok(read.data as Entry);
 	}
 
-	/** After a write, show what it answered: what landed, or what is there now. */
-	async function settle<T extends Result<unknown, { name: string }>>(
-		args: Args,
-		written: T,
-	): Promise<T> {
-		if (written.error === null) {
-			if (written.data === undefined) drop(args);
-			else put(written.data as Entry, args);
-			return written;
-		}
-		if (written.error.name !== 'Conflict' && written.error.name !== 'NotFound')
-			return written;
-		// A file's `get` brings its bytes: list it again instead.
-		if (notes === null) {
-			void reload();
-			return written;
-		}
-		const now = await notes.get(args as never);
-		if (now.error === null) put(now.data as Entry, args);
-		else if (now.error.name === 'NotFound') drop(args);
-		return written;
-	}
-
 	const writes = {
-		async create(value: Args) {
-			const created = await collection.create(value as never);
-			if (created.error === null) put(created.data as Entry, value);
-			return created;
-		},
-		async update(args: Args, patch: Args, options: { base?: Entry } = {}) {
+		create: (value: Args) =>
+			collection.create(value as never) as Promise<Answer>,
+		async update(
+			args: Args,
+			patch: Args,
+			options: { base?: Entry } = {},
+		): Promise<Answer> {
 			const base = options.base ? Ok(options.base) : await baseOf(args);
 			if (base.error !== null) return base;
-			return settle(
-				args,
-				notes
-					? await updateNote(notes, args as never, patch as never, {
-							base: base.data as never,
-						})
-					: await collection.update(args as never, patch as never, {
-							over: base.data.version,
-						}),
+			if (notes === null)
+				return collection.update(args as never, patch as never, {
+					over: base.data.version,
+				});
+			// SAFETY: `updateNote` answers any error but a `Conflict` as the
+			// collection did, so the open's error passes through unchanged.
+			return updateNote(
+				notes as unknown as Pick<NoteClient<Collection>, 'get' | 'update'>,
+				args as never,
+				patch as never,
+				{ base: base.data as never },
 			);
 		},
-		async replace(args: Args, text: string, options: { over?: Version } = {}) {
+		async replace(
+			args: Args,
+			text: string,
+			options: { over?: Version } = {},
+		): Promise<Answer> {
 			if (notes === null)
 				throw new Error('replace is a note collection’s alone');
 			let over = options.over;
@@ -399,24 +385,21 @@ function fromCollection(collection: Raw) {
 				if (base.error !== null) return base;
 				over = base.data.version;
 			}
-			return settle(args, await notes.replace(args as never, text, { over }));
+			return notes.replace(args as never, text, { over });
 		},
-		async delete(args: Args) {
+		async delete(args: Args): Promise<Answer> {
 			const base = await baseOf(args);
 			if (base.error !== null) return base;
-			return settle(
-				args,
-				await collection.delete(args as never, { over: base.data.version }),
-			);
+			return collection.delete(args as never, { over: base.data.version });
 		},
 	};
 
 	/** The note `args` names as an immediate editor; see `ReactiveNotes['edit']`. */
 	function edit(args: Args, options: { create?: () => Args } = {}) {
-		type Saved = Result<unknown, ClientError>;
+		type Saved = Result<unknown, ClientError | OpenFolderError>;
 		/** What was typed and not yet shown as saved, by field; none shows the note. */
 		let typed = $state.raw<Args | null>(null);
-		let error = $state<ClientError | null>(null);
+		let error = $state<ClientError | OpenFolderError | null>(null);
 		/** Keystrokes whose save has not answered. */
 		let sending = $state(0);
 		/** The fields typed since the last save that landed: what the next save sends. */
@@ -557,7 +540,7 @@ function fromCollection(collection: Raw) {
 				base = undefined;
 				pending = {};
 			},
-			async landed(): Promise<Result<void, ClientError>> {
+			async landed(): Promise<Result<void, ClientError | OpenFolderError>> {
 				while (active && typed !== null) {
 					const ticket = newest;
 					const result = await latest;
@@ -573,19 +556,19 @@ function fromCollection(collection: Raw) {
 		...(notes && { fieldNames: notes.fieldNames }),
 		get items() {
 			track();
-			return items;
+			return items();
 		},
 		get invalid() {
 			track();
-			return invalid;
+			return invalid();
 		},
 		get loading() {
 			track();
-			return loading;
+			return collection.loading();
 		},
 		get error() {
 			track();
-			return error;
+			return collection.error();
 		},
 		get(args: Args) {
 			track();

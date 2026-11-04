@@ -10,7 +10,7 @@ import type { Contract } from '@epicenter/definition/contract';
 import { openDataFolder } from './desktop-folder.js';
 import { createFolder, type Folder, type OpenFolder } from './folder.js';
 import { openOf, recordOpen } from './native/opens.js';
-import { openDevice } from './tauri.js';
+import { openDevice, revealRoot } from './tauri.js';
 
 export { OpenFolderError } from './errors.js';
 export type {
@@ -32,13 +32,17 @@ export const openFolder: OpenFolder = <TContract extends Contract>(
 	contract: TContract,
 	options?: { site: string },
 ) => {
-	const folder: Folder<TContract> = createFolder(contract, async () => {
-		const opened =
-			options === undefined
-				? await openDevice(contract, { root: 'Data' })
-				: await openDataFolder(contract, options.site);
-		if (opened.error === null) recordOpen(folder, openOf(opened.data));
-		return opened;
-	});
+	const folder: Folder<TContract> = createFolder(
+		contract,
+		async () => {
+			const opened =
+				options === undefined
+					? await openDevice(contract, { root: 'Data' })
+					: await openDataFolder(contract, options.site);
+			if (opened.error === null) recordOpen(folder, openOf(opened.data));
+			return opened;
+		},
+		{ reveal: () => revealRoot('Data') },
+	);
 	return folder;
 };

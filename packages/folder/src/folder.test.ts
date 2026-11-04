@@ -18,7 +18,7 @@ import { type Err, Ok, type Result } from 'wellcrafted/result';
 import { createDeviceClient } from './device/client.js';
 import { memoryStore } from './device/memory-store.js';
 import { OpenFolderError } from './errors.js';
-import { createFolder } from './folder.js';
+import { createFolder, folderOf } from './folder.js';
 import { openFolder } from './open-folder.memory.js';
 
 const todos = defineContract({
@@ -40,7 +40,7 @@ function controlled() {
 	const folder = createFolder(
 		todos,
 		() => new Promise<Opened>((resolve) => answers.push(resolve)),
-		(client) => closed.push(client),
+		{ close: (client) => closed.push(client) },
 	);
 	const client = () => createDeviceClient(todos, memoryStore());
 	return {
@@ -292,4 +292,36 @@ test('on the web, a folder over an account opens once the account is signed in',
 	await tick();
 	expect(folder.state()).toEqual({ status: 'ready' });
 	expect(listeners.size).toBe(0);
+});
+
+test('a folder over a client already open is ready at once and closes nothing', async () => {
+	const client = createDeviceClient(todos, memoryStore());
+	await client.todos.create({ id: 'a', title: 'Milk', done: false });
+	const folder = folderOf(client);
+	expect(folder.reveal).toBeNull();
+	expect(folder.todos.fieldNames).toEqual(['title', 'done']);
+	folder.todos.subscribe(() => {});
+	await tick();
+	expect(folder.state()).toEqual({ status: 'ready' });
+	expect(folder.todos.items().map((todo) => todo.title)).toEqual(['Milk']);
+	folder[Symbol.dispose]();
+	expect((await client.todos.list()).error).toBeNull();
+});
+
+test('reveal is the opener’s, and answers even when the open failed', async () => {
+	const revealed: string[] = [];
+	const folder = createFolder(
+		todos,
+		async () => OpenFolderError.StorageUnavailable({ cause: 'no disk' }),
+		{
+			reveal: async () => {
+				revealed.push('Data');
+				return Ok(null);
+			},
+		},
+	);
+	await tick();
+	expect(folder.state().status).toBe('failed');
+	expect((await folder.reveal?.())?.error).toBeNull();
+	expect(revealed).toEqual(['Data']);
 });
