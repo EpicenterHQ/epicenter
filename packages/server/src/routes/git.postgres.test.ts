@@ -17,7 +17,6 @@ import { registerFirstPartyClients } from '../auth/oauth-registrations.js';
 import { createCloudContextMiddleware } from '../create-cloud-context-middleware.js';
 import { createDb, type Db } from '../db/create-db.js';
 import { createDiskGitHost } from '../git-disk-store.js';
-import { moveRepository, renameRepository } from '../repositories.js';
 import { createServerApp } from '../server-app.js';
 import { startDisposablePostgres } from '../test-helpers/disposable-postgres.js';
 import { OAuthTestClient, type Person } from '../test-helpers/oauth-client.js';
@@ -502,126 +501,6 @@ describe('hosted Git over the disk store', () => {
 		);
 	}, 60_000);
 
-	test('a rename or a move leaves an alias that still resolves', async () => {
-		const { person, token } = await signedIn('mover');
-		const url = remote(person.personal, 'before');
-		const dir = await workingCopy('mover', { 'a.md': 'one\n' });
-		expect((await git(dir, token, 'push', url, 'HEAD:main')).code).toBe(0);
-		const [row] = await repositoryRows(person.personal);
-		const id = row?.id as string;
-
-		const renamed = await renameRepository(db, {
-			accountId: person.id,
-			namespaceId: person.personal,
-			name: 'before',
-			newName: 'after',
-		});
-		expect(renamed.error).toBeNull();
-		expect(
-			(await repositoryRows(person.personal)).map(({ id, name }) => [id, name]),
-		).toEqual([[id, 'after']]);
-		// The old remote and the new one are the same repository.
-		const viaAlias = join(scratch, `alias-${crypto.randomUUID().slice(0, 8)}`);
-		expect((await git(scratch, token, 'clone', url, viaAlias)).code).toBe(0);
-		expect(await Bun.file(join(viaAlias, 'a.md')).text()).toBe('one\n');
-		await commit(viaAlias, { 'b.md': 'two\n' }, 'second');
-		expect(
-			(await git(viaAlias, token, 'push', 'origin', 'HEAD:main')).code,
-		).toBe(0);
-		const viaName = join(scratch, `name-${crypto.randomUUID().slice(0, 8)}`);
-		expect(
-			(
-				await git(
-					scratch,
-					token,
-					'clone',
-					remote(person.personal, 'after'),
-					viaName,
-				)
-			).code,
-		).toBe(0);
-		expect(await Bun.file(join(viaName, 'b.md')).text()).toBe('two\n');
-
-		// A move to a group the person owns keeps both old URLs.
-		const group = await client.group(person, 'Family', 'owner');
-		const moved = await moveRepository(db, {
-			accountId: person.id,
-			namespaceId: person.personal,
-			name: 'after',
-			toNamespaceId: group,
-		});
-		expect(moved.error).toBeNull();
-		expect((await repositoryRows(group)).map((r) => r.id)).toEqual([id]);
-		for (const old of [url, remote(person.personal, 'after')]) {
-			const again = join(scratch, `moved-${crypto.randomUUID().slice(0, 8)}`);
-			expect((await git(scratch, token, 'clone', old, again)).code).toBe(0);
-			expect(await Bun.file(join(again, 'b.md')).text()).toBe('two\n');
-		}
-		// An alias keeps resolving to its repository: a push to the old name is
-		// an ordinary push there, so unrelated history is refused, not created.
-		const fresh = await workingCopy('fresh', { 'f.md': 'fresh\n' });
-		expect((await git(fresh, token, 'push', url, 'HEAD:main')).code).not.toBe(
-			0,
-		);
-		expect(await repositoryRows(person.personal)).toEqual([]);
-	}, 180_000);
-
-	test('rename and move need the manage role, and a name taken is refused', async () => {
-		const owner = await signedIn('manager');
-		const member = await signedIn('plain-member');
-		const group = await client.group(owner.person, 'Studio', 'owner');
-		await sql.query(
-			'insert into namespace_member (namespace_id, account_id, role) values ($1, $2, $3)',
-			[group, member.person.id, 'member'],
-		);
-		const url = remote(group, 'shared');
-		const dir = await workingCopy('shared', { 'a.md': 'x\n' });
-		// A member may push, which creates.
-		expect((await git(dir, member.token, 'push', url, 'HEAD:main')).code).toBe(
-			0,
-		);
-		const denied = await renameRepository(db, {
-			accountId: member.person.id,
-			namespaceId: group,
-			name: 'shared',
-			newName: 'mine',
-		});
-		expect(denied.error?.name).toBe('Forbidden');
-		const bad = await renameRepository(db, {
-			accountId: owner.person.id,
-			namespaceId: group,
-			name: 'shared',
-			newName: 'Not Valid',
-		});
-		expect(bad.error?.name).toBe('InvalidName');
-		const other = await workingCopy('other-name', { 'o.md': 'o\n' });
-		expect(
-			(
-				await git(
-					other,
-					owner.token,
-					'push',
-					remote(group, 'taken'),
-					'HEAD:main',
-				)
-			).code,
-		).toBe(0);
-		const clash = await renameRepository(db, {
-			accountId: owner.person.id,
-			namespaceId: group,
-			name: 'shared',
-			newName: 'taken',
-		});
-		expect(clash.error?.name).toBe('NameTaken');
-		const missing = await renameRepository(db, {
-			accountId: owner.person.id,
-			namespaceId: group,
-			name: 'nothing',
-			newName: 'x',
-		});
-		expect(missing.error?.name).toBe('NotFound');
-	}, 120_000);
-
 	test("GET /api/repos lists a caller's repositories by namespace", async () => {
 		const { person, token } = await signedIn('lister');
 		const group = await client.group(person, 'Band', 'owner');
@@ -863,9 +742,9 @@ describe('per-repository grants', () => {
 		expect((await share(alice.token, album(group), 'read')).status).toBe(404);
 	}, 120_000);
 
-	test('a grant names the repository, so it follows a rename and reaches nothing else in the namespace', async () => {
-		const alice = await signedIn('rename-alice');
-		const bob = await signedIn('rename-bob');
+	test('a grant names one repository and reaches nothing else in the namespace', async () => {
+		const alice = await signedIn('scoped-alice');
+		const bob = await signedIn('scoped-bob');
 		for (const name of ['shared', 'private']) {
 			const dir = await workingCopy(name, { 'a.md': `${name}\n` });
 			expect(
@@ -909,17 +788,6 @@ describe('per-repository grants', () => {
 			).code,
 		).not.toBe(0);
 
-		expect(
-			(
-				await renameRepository(db, {
-					accountId: alice.person.id,
-					namespaceId: alice.person.personal,
-					name: 'shared',
-					newName: 'renamed',
-				})
-			).error,
-		).toBeNull();
-		expect(await advertise('renamed', bob.token)).toBe(200);
 		expect(await advertise('shared', bob.token)).toBe(200);
 
 		// A token granted for one namespace (ADR-0549) reaches only that one,
@@ -928,6 +796,6 @@ describe('per-repository grants', () => {
 			"update oauth_access_token set reference_id = 'ns:' || $1 where user_id = $2",
 			[bob.person.personal, bob.person.id],
 		);
-		expect(await advertise('renamed', bob.token)).toBe(403);
+		expect(await advertise('shared', bob.token)).toBe(403);
 	}, 120_000);
 });

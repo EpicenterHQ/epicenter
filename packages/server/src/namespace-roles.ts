@@ -14,9 +14,9 @@
  * `read` is fetch, LFS download, and reading files; `push` is a push that
  * moves `main` forward, LFS upload, and web writes; `rewrite` is a push that
  * replaces `main` (decision 33: only the owner; the receiver keeps the old
- * one under `refs/epicenter/replaced/<time>`); `manage` deletes, renames, or
- * moves a repository, changes members, and grants, lists, and revokes
- * access to it.
+ * one under `refs/epicenter/replaced/<time>`); `manage` deletes a
+ * repository, changes members, and grants, lists, and revokes access to it.
+ * No role renames or moves a repository (ADR-0771).
  */
 const ROLES = {
 	owner: ['read', 'push', 'rewrite', 'manage'],

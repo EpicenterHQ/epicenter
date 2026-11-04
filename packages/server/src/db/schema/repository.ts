@@ -1,16 +1,12 @@
 /**
  * Hosted repositories (ADR-0546). A repository belongs to one namespace
  * (ADR-0547) under a name unique within it, and has an immutable id, which is
- * what storage names it by and never appears in a URL.
- *
- * A move to another namespace, or a rename, updates the row and leaves a
- * `repository_alias` for the old `<namespace>/<name>`, so every existing
- * clone's remote keeps working. An alias stays until a new repository takes
- * its name in that namespace. Deleting a repository deletes its aliases.
+ * what storage names it by and never appears in a URL. A repository is never
+ * renamed or moved (ADR-0771), so its `<namespace>/<name>` is fixed for its
+ * life.
  *
  * A `repository_grant` lets one person outside the namespace `read` or
- * `write` one repository. It names the repository by id, so it follows a
- * rename or a move; deleting the repository or the person deletes it.
+ * `write` one repository. Deleting the repository or the person deletes it.
  */
 import { relations, sql } from 'drizzle-orm';
 import {
@@ -52,24 +48,6 @@ export const repository = pgTable(
 	],
 );
 
-export const repositoryAlias = pgTable(
-	'repository_alias',
-	{
-		namespaceId: text('namespace_id')
-			.notNull()
-			.references(() => namespace.id, { onDelete: 'cascade' }),
-		name: text('name').notNull(),
-		repositoryId: text('repository_id')
-			.notNull()
-			.references(() => repository.id, { onDelete: 'cascade' }),
-		createdAt: timestamp('created_at').defaultNow().notNull(),
-	},
-	(table) => [
-		primaryKey({ columns: [table.namespaceId, table.name] }),
-		index('repository_alias_repository_id_idx').on(table.repositoryId),
-	],
-);
-
 /** What a grant lets its person do to one repository. */
 export const GRANT_LEVELS = ['read', 'write'] as const;
 export type GrantLevel = (typeof GRANT_LEVELS)[number];
@@ -98,19 +76,8 @@ export const repositoryRelations = relations(repository, ({ one, many }) => ({
 		fields: [repository.namespaceId],
 		references: [namespace.id],
 	}),
-	aliases: many(repositoryAlias),
 	grants: many(repositoryGrant),
 }));
-
-export const repositoryAliasRelations = relations(
-	repositoryAlias,
-	({ one }) => ({
-		repository: one(repository, {
-			fields: [repositoryAlias.repositoryId],
-			references: [repository.id],
-		}),
-	}),
-);
 
 export const repositoryGrantRelations = relations(
 	repositoryGrant,
