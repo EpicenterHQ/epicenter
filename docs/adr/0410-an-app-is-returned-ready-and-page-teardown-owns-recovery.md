@@ -1,7 +1,8 @@
 # 0410. An App is returned ready and page teardown owns recovery
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-09-18
+- **Superseded by:** [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md): a capability that takes time to open is handed over at once with its lifecycle as synchronous state, its reads answer while it opens, and its actions wait for the open.
 - **Amended by:** [ADR-0423](0423-app-resources-open-as-independent-handles.md) applies ready-return, terminal close, failed-open rollback, and safe release to each resource; products own composition.
 - **Amends:** [ADR-0408](0408-one-app-opener-uses-a-complete-runtime.md) at opening and failure recovery: replace the immediate handle and public readiness promise with an asynchronous opener that returns a usable App.
 - **Relates:** [ADR-0409](0409-resource-admission-protects-its-storage-owner.md), a proposed admission decision; the implementation preserves one claim and safe release.

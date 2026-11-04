@@ -369,6 +369,16 @@ capabilities; and `device` means hardware only in code (amends ADR-0753,
 ADR-0754, ADR-0756, ADR-0765). The `app.ts` example above, with its
 `await openFolder`, is the shape it replaced.
 
+Then a tenth, [ADR-0767](../docs/adr/0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md):
+an async lifecycle is modeled as synchronous state, and actions wait on
+their own. A folder's collections read at every moment (`items()` empty and
+`loading()` true while opening); every async method on a folder or its
+collections waits for the open, fails with its typed error when the open
+fails, and waits for the new attempt after `retry()`; a dependent such as
+`createRecorder(folder)` never waits explicitly; there is no public
+`ready()`; and only `<Opening>` and Recovery read `state()` (supersedes
+ADR-0410, amends ADR-0766).
+
 **Execution.** Two independent tracks in separate worktrees: package moves
 (`ai` merge, `account` rename with `principal`, `capture` into its app,
 `constants` split, one shell crate), now running on branch
@@ -555,7 +565,7 @@ it replaces.
 5. **One shared helper under every `fromX`**, with `fromAuth` (renamed
    `fromAccount`), `fromAi` and `fromClient` on it.
 
-**W2: capabilities as module values, opened synchronously (ADR-0766).**
+**W2: capabilities as module values, opened synchronously (ADR-0766, ADR-0767).**
 Todos goes first and settles the shapes; each later app follows them.
 
 6. **Todos.** `openFolder(contract)` returns at once with `state()`,
@@ -563,11 +573,14 @@ Todos goes first and settles the shapes; each later app follows them.
    desktop folder, Node paths). `src/lib/app.ts` exports `folder` and
    `account`; the root layout renders `<Opening {folder}>` from
    `@epicenter/svelte`; its `Startup`, `DesktopStartup` and the
-   `getTodos`/`setTodos` context go. This step confirms whether collections
-   come straight off the folder (`folder.todos`), each with its own loading
-   state. Under the `test` condition `folder` is a memory folder and
-   `account` is signed out; the component tests seed them and mock no
-   module.
+   `getTodos`/`setTodos` context go. Reads answer while the folder opens
+   (`items()` empty, `loading()` true), and every async method on the
+   folder or a collection waits for the open, so nothing but `<Opening>`
+   and Recovery reads `state()` and there is no public `ready()`. This step
+   confirms whether collections come straight off the folder
+   (`folder.todos`), each with its own loading state. Under the `test`
+   condition `folder` is a memory folder and `account` is signed out; the
+   component tests seed them and mock no module.
 7. **`connectAccount()`**, picked by the build, in place of
    `createBrowserOAuth` and `createTauriAuth`; `VocabAuth` and Whispering's
    `PlatformAuth` go.
@@ -577,10 +590,12 @@ Todos goes first and settles the shapes; each later app follows them.
    browser storage on the web; transcription's settings leave
    `app_local_data_dir()`. `openAppData` is deleted.
 9. **Every other app moves**: Capture, Honeycrisp, Messages, Vocab and
-   Whispering, each deleting its `Startup` and per-collection contexts. The
-   online web passes the account to `openFolder`, and `openRemote` goes.
-   `packages/svelte/src/desktop-startup.svelte` is deleted with the last
-   user.
+   Whispering, each deleting its `Startup` and per-collection contexts.
+   Whispering's recorder is created beside `folder` in `app.ts`, and its
+   finishing of cut-off recordings waits through the folder's listing, not
+   on `state()`. The online web passes the account to `openFolder`, and
+   `openRemote` goes. `packages/svelte/src/desktop-startup.svelte` is
+   deleted with the last user.
 10. **The names.** `device` means hardware only in code: `openDevice`,
     `DeviceStore`, `test.device` and `OpenDeviceError` become `folder`
     names; `local` means only "on this computer"; on screen a folder not

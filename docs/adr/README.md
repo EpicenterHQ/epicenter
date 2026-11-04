@@ -660,6 +660,7 @@ When you add an ADR, add its row here.
 | [0407](0407-app-owns-the-declaration-and-data-engine.md) | App owns the declaration and data engine | Accepted (amends 0405 at opening and package ownership; retires historical client generation helpers from 0292/0293) |
 | [0408](0408-one-app-opener-uses-a-complete-runtime.md) | One App opener uses a complete runtime | Accepted (amends 0407 at opening and 0391 at explicit runtime injection) |
 | [0409](0409-resource-admission-protects-its-storage-owner.md) | Resource admission protects its storage owner | Proposed |
+| [0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md) | An App is returned ready and page teardown owns recovery | Superseded by 0767 |
 
 | [0411](0411-honeycrisp-displays-data-from-one-app.md) | Honeycrisp displays data from one App | Accepted (amends 0369 for Honeycrisp route and bootstrap ownership) |
 | [0412](0412-app-data-addresses-name-scopes-not-libraries.md) | App data addresses name scopes, not libraries | Accepted (amends 0375 and 0392) |
@@ -960,4 +961,5 @@ When you add an ADR, add its row here.
 | [0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) | Epicenter's doctrine is three roots and one rule for apps | Accepted (amends 0719 and 0762) |
 | [0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) | Reaching a model is `@epicenter/ai`'s alone, in the OpenAI vocabulary | Accepted (amends 0740, 0755, 0757, and 0762) |
 | [0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) | Choose by value, not by name; every capability has the same shape | Accepted (amends 0754; amended by 0766) |
-| [0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) | An app's capabilities are module values, opened synchronously | Accepted (amends 0753, 0754, 0756, and 0765) |
+| [0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) | An app's capabilities are module values, opened synchronously | Accepted (amends 0753, 0754, 0756, and 0765; amended by 0767) |
+| [0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) | An async lifecycle is modeled as synchronous state; actions wait on their own | Accepted (supersedes 0410; amends 0766) |

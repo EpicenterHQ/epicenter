@@ -167,6 +167,18 @@ export async function set(key, val) { return (await dbPromise).put('keyval', val
 
 Use `whenReady` when your client has sync methods that depend on initialized state. Use await-in-every-method when every method is async anyway (like database access). See the [idb await-in-every-method article](/docs/articles/idb-await-every-method-pattern.md) for a deeper comparison.
 
+## Epicenter capabilities
+
+An Epicenter capability that takes time to open, such as `openFolder(contract)`,
+takes neither shape whole
+([ADR-0767](../../../../docs/adr/0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md)).
+It has no public ready promise. Its lifecycle is synchronous state
+(`state()`, `subscribe`, `retry()`), its reads answer at every moment
+(empty and loading while it opens), and its async methods wait for the open,
+as in idb. Only the root gate, `<Opening>`, reads `state()`. A `whenReady`
+property fits only something with no actions to wait, as `document.fonts.ready`
+does.
+
 ## Related Patterns
 
 - [Lazy Singleton](../../../../docs/articles/lazy-singleton-pattern.md) : when you need race-condition-safe lazy initialization

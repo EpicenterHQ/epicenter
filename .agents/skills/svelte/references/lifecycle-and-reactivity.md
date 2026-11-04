@@ -118,7 +118,11 @@ values ([ADR-0766](../../../../docs/adr/0766-an-apps-capabilities-are-module-val
 `openFolder(contract)` returns at once; readiness is `folder.state()`
 (opening, ready, or failed with a typed error), and the root layout renders
 `<Opening {folder}>`, whose Retry calls `folder.retry()`. Any code imports
-`folder`; none passes it through context. Apps not yet moved still open the
+`folder`; none passes it through context. Only `<Opening>` and Recovery read
+`state()`: a collection's reads answer while the folder opens (`items()`
+empty, `loading()` true), and its async methods wait for the open
+([ADR-0767](../../../../docs/adr/0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md)),
+so no other code checks or awaits readiness. Apps not yet moved still open the
 store in their variant's `Startup` (on the desktop, `DesktopStartup` from
 `@epicenter/svelte/desktop-startup` awaits `openAppData` and then
 `openDataFolder`) and set each collection in an app-owned context; keep that
