@@ -32,7 +32,7 @@ an operation the server already processed.
 `completeSignIn` for a client whose sign-in returns to a callback page.
 
 `PrincipalId` is the branded principal id and the partition key every server
-path, R2 key, local database name, and HKDF label derives from.
+path and R2 key derives from.
 `asPrincipalId` brands a trusted `string`, and `AccountIdentity` is the
 `{ authorityId, principalId }` pair without credentials. The server imports
 these from the package root too.
@@ -135,6 +135,9 @@ writes the API keys the app saves there, and `connectionFetch(id)` is the
 `fetch` of one endpoint the person connected: the shell (`connection_fetch`)
 adds the key it keeps for that connection and sends only to the endpoint the
 key was saved for, so no endpoint needs to allow the window's origin.
+[ADR-0740](../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)
+moves the refresh token and the API keys out of the keychain into one file in
+the app's AppData; that move is unbuilt.
 
 ```ts
 import { fromAuth } from '@epicenter/account/svelte';
@@ -147,8 +150,8 @@ export const auth = fromAuth(client);
 ## Lifetime and policy
 
 `AuthState` is signed-out, signed-in with an Account, or reauth-required with
-that same Account. Store apps capture the Account once in their mounted working
-owner and keep one App per working page. A Svelte app can export one
+that same Account. An online root captures the Account once and opens its
+store over it, keyed on the Account so a new one opens a new store. A Svelte app can export one
 `fromAuth(client)` facade and read `auth.state` in both places: component setup
 gets a snapshot, while a template, derived value, or effect tracks changes.
 The plain client keeps its explicit `getState()` method; the Svelte facade
@@ -176,8 +179,7 @@ capability guard `isCallbackAuthClient(auth)` also accepts the facade. Vocab's
 single-export pattern.
 
 Ordinary persistence runs during use. Browser departures remove working UI and
-replace the document without awaiting application drains. Honeycrisp still uses
-`AppBoot` and its `?stopped` marker. Failed navigation and browser history
+replace the document without awaiting application drains. Failed navigation and browser history
 restoration cannot reactivate the retired working UI. Resource disposal and
 acquisition rollback remain independent of navigation.
 

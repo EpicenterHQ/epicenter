@@ -251,9 +251,8 @@ grant's refresh token, which ends every token the grant issued, and deletes
 its entry even when the server cannot be reached. Without `--desktop` it
 signs out the device grant.
 
-Every built resource accepts only these tokens (ADR-0549): an Epicenter
-connection's `send` reaches `/v1` with an API token, and an account target
-reaches its permitted deployment paths with a token for the audience it names.
+Every built resource accepts only these tokens (ADR-0549): a token reaches
+only the deployment paths of the audience it names.
 
 ## Directories
 
@@ -283,12 +282,11 @@ stderr without it.
 
 Exit codes are ADR-0520's: 0 done, 1 a finding a person acts on (a file that
 does not conform, a sync that stopped), 2
-input the command cannot use (a folder that is not one, a refused statement,
-an unknown option, no `git`).
+input the command cannot use (a folder that is not one, an unknown option,
+no `git`).
 
-Options are matched exactly, so a SQL statement that starts with `--` stays a
-statement. A token shaped like an option the command does not take is
-refused. After `--`, every token is a positional. The CLI never calls
+Options are matched exactly. A token shaped like an option the command does
+not take is refused. After `--`, every token is a positional. The CLI never calls
 `process.exit`, so stdout drains before the process ends, except when a
 stop signal ends it (`src/stop.ts`), whose output nobody reads then. A running
 command holds a timer, since Bun 1.3.14 can otherwise end the process while
@@ -303,7 +301,7 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/commands.ts` | Every command, with its usage. |
 | `src/parse.ts` | The hand-written parser. |
 | `src/contract-commands.ts` | `check` and `format` against an app's contract, over `@epicenter/folder/node`. |
-| `src/sync/` | `init`, `sync`, `status`, `clone`, `forget`, and the merge driver, over the system `git`. |
+| `src/sync/` | `init`, `connect`, `sync`, `status`, `clone`, `forget`, and the merge driver, over the system `git`. |
 | `src/stop.ts` | The one stop-signal handler: cleanups at once, then unfinished refreshes, then exit. |
 | `src/repository-commands.ts` | `repos`, and the token `sync` and `clone` send to the deployment's Git. |
 | `src/app-paths.ts` | Where the Epicenter folder, the sign-in locks, and the engine live, by the shell's rule. |
