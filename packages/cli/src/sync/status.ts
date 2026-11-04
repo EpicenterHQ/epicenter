@@ -10,9 +10,18 @@
 
 import { realpath, stat } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
+import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import { config, git } from './git.ts';
 import { repositoryRoot } from './setup.ts';
-import { COMMITTED, MAGIC } from './sync.ts';
+
+/**
+ * What a round commits: the data folder's own paths, never its unfinished
+ * writes in `STATE_DIRECTORY` at any depth, whatever the folder's
+ * `.gitignore` says. The exclusion is pathspec magic, so
+ * `GIT_LITERAL_PATHSPECS` from the environment is turned off for it.
+ */
+const COMMITTED = ['--', '.', `:(exclude,glob)**/${STATE_DIRECTORY}/**`];
+const MAGIC = { env: { GIT_LITERAL_PATHSPECS: '0' } };
 
 export type FolderStatus = {
 	readonly folder: string;

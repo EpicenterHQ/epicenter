@@ -338,7 +338,10 @@ export async function prepareFolder(
 	if (pointers.length > 0) {
 		const url = await config(target, 'remote.origin.url');
 		const pulled = await git(target, ['lfs', 'pull'], {
-			credential: url === null ? undefined : await credential?.(url),
+			// The system git carries a token only over https.
+			credential: url?.startsWith('https://')
+				? await credential?.(url)
+				: undefined,
 		});
 		if (pulled.code === 0)
 			changed.push(

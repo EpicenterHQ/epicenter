@@ -1,18 +1,20 @@
 /**
- * How a hosted remote's token reaches Git: fresh `epicenter` processes
- * against an `https` stand-in for the deployment's Git origin (`git
- * http-backend` and a small LFS server behind a self-signed certificate),
- * which refuses any request without the grant's Bearer token. Each process
- * holds a signed-in device and desktop grant, seeded with cached Git tokens
+ * How a hosted remote's token reaches the sync core: fresh `epicenter`
+ * processes against a stand-in for the deployment's Git origin on
+ * `http://127.0.0.1` (`git http-backend` and a small LFS server), which
+ * refuses any request without the grant's Bearer token. A token travels over
+ * `http` only to this computer, as to a development API. Each process holds
+ * a signed-in device and desktop grant, seeded with cached Git tokens
  * through `EPICENTER_TEST_SECRETS`, so none refreshes.
  *
  * Key behaviors:
- * - Clone, fetch, push, and every LFS request carry one
- *   `Authorization: Bearer` header, the token of the grant the command runs
- *   under (`--desktop` selects the desktop app's)
- * - The token is never in a `git` command line or the CLI's output
- * - `init` and `clone` write no credential helper into the clone, with or
- *   without `--desktop`
+ * - Fetch, push, and every LFS request carry one `Authorization: Bearer`
+ *   header, the token of the grant the command runs under (`--desktop`
+ *   selects the desktop app's)
+ * - No `git` transfers anything, and the token is never in a `git` command
+ *   line or the CLI's output
+ * - `init` writes no credential helper into the folder, with or without
+ *   `--desktop`
  *
  * The sandbox is sync.e2e's: its own `HOME`, `GIT_CONFIG_GLOBAL`, and
  * `GIT_CEILING_DIRECTORIES` at the sandbox, so no person's configuration or
@@ -116,32 +118,10 @@ async function httpBackend(request: Request, pathInfo: string) {
 beforeAll(async () => {
 	mkdirSync(HOME, { recursive: true });
 	mkdirSync(STORE, { recursive: true });
-	// A certificate for 127.0.0.1, which Git is told not to verify.
-	const key = join(BOX, 'key.pem');
-	const cert = join(BOX, 'cert.pem');
-	const made = Bun.spawnSync([
-		'openssl',
-		'req',
-		'-x509',
-		'-newkey',
-		'rsa:2048',
-		'-nodes',
-		'-subj',
-		'/CN=127.0.0.1',
-		'-days',
-		'1',
-		'-keyout',
-		key,
-		'-out',
-		cert,
-	]);
-	if (made.exitCode !== 0) throw new Error(made.stderr.toString());
-
 	const lfs = lfsHandler(join(BOX, 'lfs'));
 	server = Bun.serve({
 		hostname: '127.0.0.1',
 		port: 0,
-		tls: { key: Bun.file(key), cert: Bun.file(cert) },
 		async fetch(request) {
 			const url = new URL(request.url);
 			const authorization = request.headers.get('authorization');
@@ -161,7 +141,7 @@ beforeAll(async () => {
 			return httpBackend(request, url.pathname.slice('/git'.length));
 		},
 	});
-	origin = `https://127.0.0.1:${server.port}`;
+	origin = `http://127.0.0.1:${server.port}`;
 
 	const grant = (client: string, token: string) => ({
 		client,
@@ -191,7 +171,6 @@ beforeAll(async () => {
 		GIT_CONFIG_NOSYSTEM: '1',
 		GIT_TERMINAL_PROMPT: '0',
 		GIT_CEILING_DIRECTORIES: BOX,
-		GIT_SSL_NO_VERIFY: '1',
 		NO_PROXY: '127.0.0.1,localhost',
 		EPICENTER_GIT: wrapper,
 		EPICENTER_API_URL: origin,
@@ -204,14 +183,6 @@ beforeAll(async () => {
 		}),
 	};
 	writeFileSync(env.GIT_CONFIG_GLOBAL as string, '');
-	// The engine the merge driver runs: this checkout's CLI.
-	const link = join(HOME, '.epicenter', 'bin', 'epicenter');
-	mkdirSync(join(link, '..'), { recursive: true });
-	writeFileSync(
-		link,
-		`#!/bin/sh\nexec '${process.execPath}' --no-install '${BIN}' "$@"\n`,
-	);
-	chmodSync(link, 0o755);
 
 	const bare = join(STORE, NAMESPACE, 'notes.git');
 	mkdirSync(bare, { recursive: true });
@@ -253,7 +224,7 @@ const carried = (from: number, grant: keyof typeof TOKENS) =>
 			),
 		);
 
-test('clone, fetch, push, and LFS carry the grant’s Bearer token; no clone keeps a credential', async () => {
+test('fetch, push, and LFS carry the grant’s Bearer token; no folder keeps a credential', async () => {
 	const remote = `${origin}/git/${NAMESPACE}/notes.git`;
 	const A = join(BOX, 'A');
 	const B = join(BOX, 'B');
@@ -287,18 +258,11 @@ test('clone, fetch, push, and LFS carry the grant’s Bearer token; no clone kee
 	);
 	expect(carried(from, 'desktop')).toEqual([]);
 
-	// Clone and its LFS download, under the desktop grant.
+	// A second folder's first sync and its LFS download, under the desktop grant.
+	ok(await epicenter('init', B, '--name', 'B folder', '--desktop'));
+	expect((await git(B, 'remote', 'add', 'origin', remote)).code).toBe(0);
 	from = requests.length;
-	ok(
-		await epicenter(
-			'clone',
-			`${NAMESPACE}/notes`,
-			B,
-			'--name',
-			'B folder',
-			'--desktop',
-		),
-	);
+	ok(await epicenter('sync', B, '--desktop'));
 	expect(new Uint8Array(readFileSync(join(B, 'audio', 'first.bin')))).toEqual(
 		new Uint8Array(first),
 	);
@@ -334,7 +298,8 @@ test('clone, fetch, push, and LFS carry the grant’s Bearer token; no clone kee
 	expect(requests.filter((request) => request.grant === 'none')).toEqual([]);
 	expect(existsSync(ARGV_LOG)).toBe(true);
 	const argv = readFileSync(ARGV_LOG, 'utf8');
-	expect(argv).toContain('clone');
+	// Every sync ran in the core: no git fetched or pushed.
+	expect(argv).not.toMatch(/^(fetch|push|lfs|clone)\b/m);
 	for (const token of Object.values(TOKENS)) {
 		expect(argv).not.toContain(token);
 		for (const output of outputs) expect(output).not.toContain(token);

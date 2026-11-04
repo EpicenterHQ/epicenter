@@ -246,7 +246,7 @@ test('first sync merges settings.md and keeps both versions of a non-note file',
 		f.write(target, 'media/asset.bin', 'local bytes');
 		const joined = await f.cli('clone', source);
 		expect(joined.code).toBe(0);
-		expect(joined.out).toContain('merged two additions with a conflict block');
+		expect(joined.out).toContain('settings.md: settled two additions');
 		const note = readFileSync(join(target, 'settings.md'), 'utf8');
 		expect(note).toContain('local version');
 		expect(note).toContain('remote version');
@@ -350,7 +350,9 @@ test('an unrelated hand-written history is refused with a rebase command', async
 		const refused = await f.cli('clone', source);
 		expect(refused.code).toBe(2);
 		expect(refused.out).toContain('my own history');
-		expect(refused.out).toContain('git rebase --root --onto origin/main');
+		expect(refused.out).toContain(
+			`git -C ${realpathSync(target)} rebase --root --onto origin/main`,
+		);
 		expect((await f.git(target, 'rev-parse', 'HEAD')).stdout.trim()).toBe(head);
 		expect(
 			(

@@ -1,8 +1,8 @@
 /**
- * `epicenter init`, `sync`, `clone`, `forget`, `status`, and the merge driver,
- * end to end with stock `git` and `git-lfs` (spike 7's T0 to T8, with its
- * lessons applied): fresh CLI processes against a bare remote and a small
- * LFS server, in a sandbox.
+ * `epicenter init`, `sync`, `clone`, `forget`, and `status`, end to end
+ * (spike 7's T0 to T8, with its lessons applied): fresh CLI processes, whose
+ * rounds run in the sync core, against a bare remote and a small LFS server,
+ * in a sandbox. Stock `git` only sets up and inspects.
  *
  * The sandbox is the safety rule spike 7 learned from committing into an
  * enclosing repository: a temporary directory, its own `HOME`,
@@ -13,18 +13,17 @@
  *
  * Key behaviors:
  * - T0: init and sync refuse a folder inside an enclosing repository
- * - T1, T2, T2b: notes merge by `settle` through the merge driver; the later
- *   arrival wins a key, under merge and under a person's `pull --rebase`
+ * - T1, T2: notes merge by `settle` in the core; the later arrival wins a key
  * - T3: an edit beats a delete, both ways
- * - T4, T5: every non-note file travels as an LFS pointer; init repairs a
- *   clone missing its filters or bytes, and sync refuses one until then
+ * - T4, T5: every non-note file travels as an LFS pointer; a round writes
+ *   back the LFS settings a clone lost
  * - T6: a held index lock stops sync with nothing changed; concurrent syncs
  *   are serialized and a rejected push is retried, so every run succeeds
  * - T7: a rewritten remote main stops sync before it merges
  * - T8: a binary both sides replaced lands as a conflict copy (decision 44)
  * - clone, status, forget, sync of every synced library folder, and --watch,
  *   which a change under a hidden path never wakes, and which a stop signal
- *   in the middle of a merge ends only after the round finishes
+ *   in the middle of a round ends only after the round finishes
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash, randomBytes } from 'node:crypto';
@@ -45,6 +44,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { findConflicts } from '@epicenter/definition/merge';
 import { formatNote, parseRowSource } from '@epicenter/definition/note';
+import { holdingFileLock } from '../file-lock.ts';
 import { type LfsServer, startLfsServer } from './lfs-server.test-support.ts';
 
 const BIN = resolve(import.meta.dir, '..', 'bin.ts');
@@ -62,16 +62,8 @@ const ENV: Record<string, string> = {
 	NO_PROXY: '127.0.0.1,localhost',
 	EPICENTER_DATA_DIR: join(BOX, 'data'),
 };
-/** The engine Git's configuration runs (`AppPaths.engine`). */
+/** The engine's path on a machine (`AppPaths.engine`): this checkout's CLI. */
 const EPICENTER = join(HOME, '.epicenter', 'bin', 'epicenter');
-/**
- * While this file exists, the merge driver the engine runs inside
- * `git merge` first creates `MERGING` and waits three seconds, so a test can
- * stop a round in the middle of its merge.
- */
-const SLOW_MERGE = join(BOX, 'slow-merge');
-const MERGING = join(BOX, 'merging');
-const TEST_ENTRY = join(BOX, 'engine.ts');
 
 type Ran = { code: number; out: string; stdout: string; stderr: string };
 
@@ -168,21 +160,9 @@ beforeAll(async () => {
 		ENV.GIT_CONFIG_GLOBAL as string,
 		'[user]\n\tname = sandbox\n\temail = sandbox@example.invalid\n[init]\n\tdefaultBranch = main\n[advice]\n\tdetachedHead = false\n',
 	);
-	// Source mode sends Git back through this entry, so a merge uses the
-	// same code as the sync process. The pause makes the stop test observable.
-	writeFileSync(
-		TEST_ENTRY,
-		`import { existsSync, writeFileSync } from 'node:fs';
-if (Bun.argv[2] === 'merge-driver' && existsSync(${JSON.stringify(SLOW_MERGE)})) {
-  writeFileSync(${JSON.stringify(MERGING)}, '');
-  await Bun.sleep(3000);
-}
-await import(${JSON.stringify(BIN)});
-`,
-	);
 	writeFileSync(
 		EPICENTER,
-		`#!/bin/sh\nexec '${process.execPath}' '${TEST_ENTRY}' "$@"\n`,
+		`#!/bin/sh\nexec '${process.execPath}' '${BIN}' "$@"\n`,
 	);
 	chmodSync(EPICENTER, 0o755);
 	const probe = await git(BOX, 'rev-parse', '--show-toplevel');
@@ -311,7 +291,7 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'a .MD note is a note: committed as text, merged by the driver on both clones',
+		'a .MD note is a note: committed as text, merged by settle on both clones',
 		async () => {
 			const LOUD = 'notes/Loud.MD';
 			write(A, LOUD, 'one\ntwo\n');
@@ -440,7 +420,7 @@ describe('epicenter sync over stock git', () => {
 			const merged = await syncJson(B);
 			expect(merged.code).toBe(0);
 			expect(merged.status.notes.join('\n')).toMatch(
-				/notes\/meeting notes\.md: merge; incoming=%A; conflict block written/,
+				/^notes\/meeting notes\.md: settled/m,
 			);
 			expect((await sync(A)).code).toBe(0);
 
@@ -550,7 +530,7 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'T5: init repairs a clone missing its bytes or its filters, and sync refuses it until then',
+		'T5: init repairs a clone missing its bytes, and a round writes back the filters it lost',
 		async () => {
 			await git(BOX, 'clone', '-q', REMOTE, C);
 			await connect(C, 'carol');
@@ -566,19 +546,11 @@ describe('epicenter sync over stock git', () => {
 			await sh(C, 'git config --local --remove-section filter.lfs');
 			const raw = randomBytes(64 * 1024);
 			write(C, 'media/raw.webm', raw);
-			const unsetUp = await head(C);
-			const refused = await sync(C);
-			expect(refused.code).toBe(2);
-			expect(refused.out).toContain('not set up');
-
-			expect(await head(C)).toBe(unsetUp);
-			expect(await quiet(C, 'ls-files', '--', 'media/raw.webm')).toBe('');
-
-			const repaired = await init(C);
-			expect(repaired.out).toContain('filter.lfs.process set');
-			expect(repaired.out).not.toMatch(/attributes|epicenter.synced|lfs pull/);
-			expect((await init(C)).out).toContain('nothing to do');
 			expect((await sync(C)).code).toBe(0);
+			expect(
+				await quiet(C, 'config', '--local', '--get', 'filter.lfs.process'),
+			).toBe('git-lfs filter-process');
+			expect((await init(C)).out).toContain('nothing to do');
 			expect((await sync(A)).code).toBe(0);
 			expect(sha256(readFileSync(join(A, 'media/raw.webm')))).toBe(sha256(raw));
 			expect(
@@ -705,9 +677,7 @@ describe('epicenter sync over stock git', () => {
 			expect(existsSync(join(B, '.git/MERGE_HEAD'))).toBe(false);
 			expect(await quiet(B, 'rev-parse', 'HEAD~1')).toBe(bHead);
 
-			const rewriter = await sync(A);
-			expect(rewriter.code).toBe(2);
-			await git(A, 'update-ref', 'refs/epicenter/last-seen', 'origin/main');
+			// The rewriter's main is the remote's own: nothing replaced is pushed back.
 			expect((await sync(A)).code).toBe(0);
 			const recovered = await sh(
 				B,
@@ -1056,7 +1026,7 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'a stop signal in the middle of a merge lets the round finish: no merge left in progress, the merge pushed',
+		'a stop signal in the middle of a round lets it finish: the merge committed and pushed',
 		async () => {
 			for (const dir of [A, B, A])
 				expect((await syncJson(dir)).status.status).toBe('synced');
@@ -1064,12 +1034,6 @@ describe('epicenter sync over stock git', () => {
 			write(A, PATH, '---\ntitle: Stopped\n---\none\n\ntwo\n');
 			expect((await syncJson(A)).status.status).toBe('synced');
 			expect((await syncJson(B)).status.status).toBe('synced');
-			// Both clones edit the note, so B's next round merges it through the driver.
-			edit(A, PATH, 'one', 'ONE');
-			edit(B, PATH, 'two', 'TWO');
-			expect((await syncJson(A)).status.status).toBe('synced');
-
-			writeFileSync(SLOW_MERGE, '');
 			// As the desktop app starts its service: its own process group,
 			// `--desktop`, and stdin held open.
 			const watching = Bun.spawn(
@@ -1092,25 +1056,44 @@ describe('epicenter sync over stock git', () => {
 					detached: true,
 				},
 			);
+			const release = Promise.withResolvers<void>();
+			let held: Promise<void> | undefined;
 			try {
-				const deadline = Date.now() + 20_000;
-				while (!existsSync(MERGING)) {
-					if (Date.now() > deadline)
-						throw new Error('the round never reached its merge');
-					await Bun.sleep(50);
-				}
+				// The first round, then hold B's round lock as another program would.
+				const reader = watching.stdout.getReader();
+				await reader.read();
+				reader.releaseLock();
+				const taken = Promise.withResolvers<void>();
+				held = holdingFileLock(
+					join(B, '.git', 'epicenter-sync.lock'),
+					{ waitMs: 10_000, held: 'the watch still holds the round lock' },
+					async () => {
+						taken.resolve();
+						await release.promise;
+					},
+				);
+				await taken.promise;
+				// Both clones edit the note, so B's next round merges it. B's
+				// edit wakes the watch, whose round waits for its turn.
+				edit(A, PATH, 'one', 'ONE');
+				expect((await syncJson(A)).status.status).toBe('synced');
+				edit(B, PATH, 'two', 'TWO');
+				await Bun.sleep(2000);
 				// The signal the app sends its service's process group when it
-				// restarts the service.
+				// restarts the service, while the round waits.
 				process.kill(-watching.pid, 'SIGTERM');
+				await Bun.sleep(500);
+				release.resolve();
+				await held;
 				const ended = await Promise.race([
 					watching.exited,
 					Bun.sleep(30_000).then(() => 'still running' as const),
 				]);
 				expect(ended).toBe(143);
 			} finally {
+				release.resolve();
+				await held;
 				watching.kill('SIGKILL');
-				unlinkSync(SLOW_MERGE);
-				rmSync(MERGING, { force: true });
 			}
 
 			const gitPath = async (name: string) =>
@@ -1193,16 +1176,20 @@ describe('epicenter sync over stock git', () => {
 		expect(read(dir, '.gitattributes')).toBe(attributes);
 	});
 
-	test('a conflicting Git control file stops instead of becoming a conflict copy', async () => {
+	test('a conflicting Git control file stops with the command that merges it, not a conflict copy', async () => {
 		for (const dir of [A, B])
 			expect((await syncJson(dir)).status.status).toBe('synced');
 		write(A, '.gitignore', 'local rules\n');
 		write(B, '.gitignore', 'other rules\n');
 		expect((await syncJson(A)).status.status).toBe('synced');
+		const before = await quiet(REMOTE, 'rev-parse', 'main');
 		const stopped = await syncJson(B);
+		expect(stopped.code).toBe(2);
 		expect(stopped.status.status).toBe('stopped');
 		expect(stopped.status.message).toContain('.gitignore');
-		expect(await quiet(B, 'ls-files', '-u', '--', '.gitignore')).not.toBe('');
+		expect(stopped.status.message).toContain('git merge origin/main');
+		expect(read(B, '.gitignore')).toBe('other rules\n');
+		expect(await quiet(REMOTE, 'rev-parse', 'main')).toBe(before);
 		expect(
 			(await quiet(B, 'ls-files', '--', '*conflict*')).includes('.gitignore'),
 		).toBe(false);

@@ -1,6 +1,7 @@
 //! The sync core as a Node-API addon, so a Bun or Node program runs a
 //! round in-process with `settle` from `@epicenter/definition/merge` as the
-//! note merge.
+//! note merge, and turns sync on for a folder (`open`, `locate`,
+//! `setSynced`, `connect`) without a `git` program.
 //!
 //! `sync` returns a promise: the round runs on the runtime's worker pool as
 //! an `AsyncTask`, and the JavaScript thread stays free for the program's
@@ -10,12 +11,13 @@
 //! queued onto the JavaScript thread, and the round's thread waits for its
 //! return value.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
 use epicenter_core::{
-    self as core, lock, LfsEndpoint, NoteInput, NoteMerge, Options, Remote, Status as RoundStatus,
+    self as core, folder, lock, LfsEndpoint, NoteInput, NoteMerge, Options, Remote,
+    Status as RoundStatus,
 };
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
@@ -166,4 +168,65 @@ pub fn sync(
 pub fn libgit2_version() -> String {
     let (major, minor, patch) = core::libgit2_version();
     format!("{major}.{minor}.{patch}")
+}
+
+/// A refusal or failure from the core, as a thrown JavaScript `Error` whose
+/// message is the core's.
+fn thrown(e: core::Error) -> Error {
+    Error::from_reason(e.message)
+}
+
+#[napi(object)]
+pub struct Opened {
+    /// Whether this call made the repository.
+    pub initialized: bool,
+    /// The Git LFS filter settings this call wrote, in order.
+    pub configured: Vec<String>,
+}
+
+/// Open the folder's own repository, or make one with `main` and no
+/// commits, and write the Git LFS filter settings it lacks. Throws, writing
+/// nothing, for a repository in a state only a person can finish.
+#[napi]
+pub fn open(folder: String) -> Result<Opened> {
+    let opened = folder::open(Path::new(&folder)).map_err(thrown)?;
+    Ok(Opened {
+        initialized: opened.initialized,
+        configured: opened.configured.into_iter().map(str::to_string).collect(),
+    })
+}
+
+#[napi(object)]
+pub struct Located {
+    /// The top of the working tree, links resolved.
+    pub root: String,
+    /// Whether the repository's own configuration records consent.
+    pub synced: bool,
+    pub origin: Option<String>,
+}
+
+/// The repository whose working tree holds `folder`, or null.
+#[napi]
+pub fn locate(folder: String) -> Result<Option<Located>> {
+    Ok(folder::locate(Path::new(&folder))
+        .map_err(thrown)?
+        .map(|found| Located {
+            root: found.root.to_string_lossy().into_owned(),
+            synced: found.synced,
+            origin: found.origin,
+        }))
+}
+
+/// Record (`true`) or clear (`false`) consent to sync in the folder's own
+/// repository. Returns whether its configuration changed.
+#[napi]
+pub fn set_synced(folder: String, synced: bool) -> Result<bool> {
+    folder::set_synced(Path::new(&folder), synced).map_err(thrown)
+}
+
+/// Make `url` the folder's `origin`. Returns whether it was added; throws
+/// when `origin` is another remote or pushes elsewhere.
+#[napi]
+pub fn connect(folder: String, url: String) -> Result<bool> {
+    folder::connect(Path::new(&folder), &url).map_err(thrown)
 }

@@ -282,22 +282,10 @@ export async function syncCommand(
 ) {
 	const [
 		{ syncFolder },
-		{ endGitCommands },
-		{
-			finishBeforeExit,
-			isStopping,
-			onStop,
-			ROUND_GRACE_MS,
-			stopWhenStdinCloses,
-		},
-	] = await Promise.all([
-		import('./sync.ts'),
-		import('@epicenter/folder/bun'),
-		import('../stop.ts'),
-	]);
+		{ finishBeforeExit, isStopping, ROUND_GRACE_MS, stopWhenStdinCloses },
+	] = await Promise.all([import('./sync.ts'), import('../stop.ts')]);
 	// A stop lets the folder's round under way finish and begins no other, so
-	// a merge is never cut off; then every git still running ends (ADR-0559).
-	onStop(endGitCommands);
+	// a merge is never cut off.
 	const credential = credentialFor(grant);
 	const folders = async (): Promise<DiscoveredFolder[]> =>
 		dir === undefined ? discoveredFolders() : [{ folder: resolve(dir) }];

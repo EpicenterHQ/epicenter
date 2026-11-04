@@ -187,3 +187,28 @@ fn https_goes_through_the_registered_transport() {
     assert!(!message.contains("unsupported URL protocol"), "{message}");
     assert!(message.contains(&url), "{message}");
 }
+
+#[test]
+fn a_configured_lfs_url_carries_objects_and_no_token_off_the_remote_origin() {
+    if !has_git() {
+        return;
+    }
+    let world = World::new();
+    let (_remote, store) = serve_with_store(world.dir.path(), TOKEN);
+    let a = world.folder("a");
+    write(&a, ".gitattributes", ATTRIBUTES);
+    write(&a, "recordings/one.wav", WAV);
+    epicenter_core::open_or_init(&a)
+        .unwrap()
+        .config()
+        .unwrap()
+        .set_str("lfs.url", &format!("{}/remote.git/info/lfs", store.origin))
+        .unwrap();
+    let url = format!("file://{}", world.remote_path().display());
+    assert_eq!(sync(&a, &url, Some(TOKEN), "A").status, Status::Synced);
+    let seen = store.seen();
+    assert!(seen.iter().any(|r| r.line.starts_with("PUT ")), "{seen:?}");
+    assert!(seen.iter().all(|r| r.authorization.is_none()), "{seen:?}");
+    let oid = Pointer::of(WAV).oid;
+    assert!(world.dir.path().join("lfs-objects").join(oid).exists());
+}

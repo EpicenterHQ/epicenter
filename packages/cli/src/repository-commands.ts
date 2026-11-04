@@ -40,8 +40,10 @@ import { type CredentialFor, config } from './sync/git.ts';
 /**
  * The credential for a remote of this deployment's hosted Git, asked for by
  * URL as each transfer starts: the grant's access token for the Git
- * audience, sent only to an `https` remote. Any other remote gets none, so
- * Git uses the person's own sign-in. Nothing is created here: the server
+ * audience, sent only over `https`, or over `http` to this computer (a
+ * development API on `localhost`). Any other remote gets none: the sync
+ * core asks no credential helper, so it reaches only a remote that needs no
+ * sign-in, such as a local repository. Nothing is created here: the server
  * answers a name nobody holds as an empty repository, so the sync's fetch
  * finds nothing, and its push creates the repository.
  */
@@ -51,7 +53,7 @@ export function hostedCredentials(
 ): CredentialFor {
 	return async (url) => {
 		if (
-			!url.startsWith('https://') ||
+			!carriesTokens(url) ||
 			parseRepositoryUrl(ctx.deployment.audiences.git, url) === undefined
 		)
 			return undefined;
@@ -63,6 +65,17 @@ export function hostedCredentials(
 		if (error !== null) throw new Error(error.message);
 		return { url, token: data.token };
 	};
+}
+
+/** Whether a token may travel to `url`: `https`, or `http` that never leaves this computer. */
+function carriesTokens(url: string): boolean {
+	if (url.startsWith('https://')) return true;
+	if (!URL.canParse(url)) return false;
+	const { protocol, hostname } = new URL(url);
+	return (
+		protocol === 'http:' &&
+		['localhost', '127.0.0.1', '[::1]'].includes(hostname)
+	);
 }
 
 async function refusal(response: Response, url: string): Promise<string> {

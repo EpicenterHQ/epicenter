@@ -120,7 +120,11 @@ async function cloneInto(url: string, target: string, options: InitOptions) {
 		],
 		{
 			env: { GIT_LFS_SKIP_SMUDGE: '1' },
-			credential: await options.credential?.(url),
+			// The system git carries a token only over https; over http it
+			// signs in through the person's own credential helper.
+			credential: url.startsWith('https://')
+				? await options.credential?.(url)
+				: undefined,
 		},
 	);
 	if (cloned.code !== 0)

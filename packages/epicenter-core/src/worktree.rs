@@ -57,8 +57,14 @@ pub fn snapshot(repo: &Repository, index: &mut Index) -> Result<Snapshot, Error>
                 hashed += 1;
                 let bytes = fs::read(&full)?;
                 let id = if stored_with_lfs(repo, &rel)? {
-                    let pointer = lfs::store(&git_dir, &bytes)?;
-                    repo.blob(pointer.text().as_bytes())?
+                    // A file that already holds a pointer is committed as that
+                    // pointer, as `git-lfs clean` passes one through.
+                    if Pointer::parse(&bytes).is_some() {
+                        repo.blob(&bytes)?
+                    } else {
+                        let pointer = lfs::store(&git_dir, &bytes)?;
+                        repo.blob(pointer.text().as_bytes())?
+                    }
                 } else {
                     repo.blob(&bytes)?
                 };
@@ -315,6 +321,62 @@ pub fn materialize(
     }
     index.write()?;
     Ok(written)
+}
+
+/// Give every file checked out as its LFS pointer its bytes, as a `git
+/// clone` without `git-lfs` leaves them: each LFS path whose index entry and
+/// working file both hold exactly its pointer. Objects missing locally are
+/// downloaded first. Returns how many files were written.
+pub fn restore_pointers(repo: &Repository, remote: Option<&crate::Remote>) -> Result<usize, Error> {
+    let Some(root) = repo.workdir().map(Path::to_path_buf) else {
+        return Ok(0);
+    };
+    let mut index = repo.index()?;
+    let mut found: Vec<(String, Oid, Pointer)> = Vec::new();
+    for entry in index.iter() {
+        // A pointer is under 200 bytes; a conflict stage is never restored.
+        if entry.file_size >= 200 || (entry.flags >> 12) & 0b11 != 0 {
+            continue;
+        }
+        let Ok(blob) = repo.find_blob(entry.id) else {
+            continue;
+        };
+        let Some(pointer) = Pointer::parse(blob.content()) else {
+            continue;
+        };
+        let path = String::from_utf8_lossy(&entry.path).into_owned();
+        if !stored_with_lfs(repo, &path)? {
+            continue;
+        }
+        if fs::read(root.join(&path)).is_ok_and(|bytes| bytes == blob.content()) {
+            found.push((path, entry.id, pointer));
+        }
+    }
+    if found.is_empty() {
+        return Ok(0);
+    }
+    let mut missing: Vec<Pointer> = Vec::new();
+    for (_, _, pointer) in &found {
+        if !lfs::has_local(repo.path(), pointer) && !missing.contains(pointer) {
+            missing.push(pointer.clone());
+        }
+    }
+    if !missing.is_empty() {
+        let (endpoint, token) = remote.and_then(|r| r.lfs(repo)).ok_or_else(|| {
+            Error::stopped(format!(
+                "{} LFS objects are needed and the folder has no LFS endpoint",
+                missing.len()
+            ))
+        })?;
+        endpoint.download(repo.path(), &missing, token.as_deref())?;
+    }
+    for (path, id, pointer) in &found {
+        let full = root.join(path);
+        fs::write(&full, lfs::read_local(repo.path(), pointer)?)?;
+        index.add(&entry_for(path, *id, &fs::symlink_metadata(&full)?))?;
+    }
+    index.write()?;
+    Ok(found.len())
 }
 
 fn prune_empty(root: &Path, mut dir: Option<&Path>) {

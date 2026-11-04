@@ -1,20 +1,23 @@
 //! One sync round for an Epicenter folder, in-process, over libgit2:
 //!
 //! ```txt
-//! open or init -> fetch origin -> first contact (no history yet: one
-//! "Added from <machine>" commit on the remote main) or commit the working
-//! tree -> merge origin/main (settle for notes, whole files otherwise) ->
-//! LFS upload -> push (a rejected push fetches, merges, and pushes again)
+//! open or init (refusing a state only a person can finish) -> fetch origin
+//! -> first contact (no history yet, or only rounds made before an origin:
+//! one "Added from <machine>" commit on the remote main) or commit the
+//! working tree -> merge origin/main (settle for notes, whole files
+//! otherwise) -> LFS upload -> push (a rejected push fetches, merges, and
+//! pushes again) -> files left as LFS pointers get their bytes
 //! ```
 //!
-//! The counterpart of `packages/cli/src/sync/sync.ts` (ADR-0751). No `git`
-//! or `git-lfs` program runs, and the bearer token is only ever an HTTP
-//! header.
+//! Every native program runs its rounds here (ADR-0751), the `epicenter`
+//! CLI through the Node-API binding in `napi/`. No `git` or `git-lfs`
+//! program runs, and the bearer token is only ever an HTTP header.
 //!
 //! The note merge is the host's: `NoteMerge` is `settle` from
 //! `@epicenter/definition/merge` when the host is Bun, and a stand-in in the
 //! Rust tests until `settle` is ported.
 
+pub mod folder;
 mod http;
 pub mod lfs;
 pub mod lock;
@@ -28,18 +31,17 @@ use std::path::Path;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use git2::{
-    Commit, FetchOptions, Oid, PushOptions, RemoteCallbacks, Repository, RepositoryInitOptions,
-    Signature,
-};
+use git2::{Commit, FetchOptions, Oid, PushOptions, RemoteCallbacks, Repository, Signature};
 
+pub use folder::LFS_FILTER;
 pub use lfs::Endpoint as LfsEndpoint;
 
 /// A folder's unfinished local writes (ADR-0702); never committed.
 pub const STATE_DIRECTORY: &str = ".epicenter";
 const MAIN: &str = "refs/heads/main";
 const REMOTE_MAIN: &str = "refs/remotes/origin/main";
-const LAST_SEEN: &str = "refs/epicenter/last-seen";
+/// The remote `main` this clone last merged or pushed (ADR-0744).
+pub const LAST_SEEN: &str = "refs/epicenter/last-seen";
 const ATTEMPTS: usize = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,11 +136,30 @@ pub struct Remote {
 }
 
 impl Remote {
-    fn lfs(&self) -> Option<LfsEndpoint> {
-        self.lfs.clone().or_else(|| {
+    /// Where LFS objects travel, and the token they travel with: the host's
+    /// endpoint; else the one a person configured for Git LFS
+    /// (`remote.origin.lfsurl`, then `lfs.url`); else `<url>/info/lfs` for
+    /// an HTTP remote. The token goes to a configured endpoint only on the
+    /// remote's own origin.
+    fn lfs(&self, repo: &Repository) -> Option<(LfsEndpoint, Option<String>)> {
+        if let Some(endpoint) = &self.lfs {
+            return Some((endpoint.clone(), self.token.clone()));
+        }
+        let configured = repo.config().ok().and_then(|config| {
+            config
+                .get_string("remote.origin.lfsurl")
+                .or_else(|_| config.get_string("lfs.url"))
+                .ok()
+        });
+        let url = configured.or_else(|| {
             (self.url.starts_with("https://") || self.url.starts_with("http://"))
-                .then(|| LfsEndpoint::Http(format!("{}/info/lfs", self.url.trim_end_matches('/'))))
-        })
+                .then(|| format!("{}/info/lfs", self.url.trim_end_matches('/')))
+        })?;
+        let token = self
+            .token
+            .clone()
+            .filter(|_| http::origin(&url) == http::origin(&self.url));
+        Some((LfsEndpoint::Http(url), token))
     }
 }
 
@@ -189,6 +210,16 @@ pub fn sync_round(folder: &Path, options: &Options) -> Round {
             Ok(())
         };
         let head = round(&repo, options, &mut notes, &persist)?;
+        // A file left as its LFS pointer gets its bytes; one that cannot is
+        // a note, since the round itself is done.
+        match worktree::restore_pointers(&repo, options.remote.as_ref()) {
+            Ok(0) => {}
+            Ok(n) => notes.push(format!("restored {n} files checked out as LFS pointers")),
+            Err(e) => notes.push(format!(
+                "files checked out as LFS pointers keep their pointers: {}",
+                e.message
+            )),
+        }
         // Still under the lock. A failed repack leaves every object in
         // place, so it is a note, not a failed round.
         match Repository::open(repo.path())
@@ -207,64 +238,47 @@ pub fn sync_round(folder: &Path, options: &Options) -> Round {
     match outcome {
         Ok(head) => Round {
             status: Status::Synced,
-            head: Some(head.to_string()),
+            head: (!head.is_zero()).then(|| head.to_string()),
             notes,
             message: None,
         },
         Err(e) => {
-            let head = Repository::open(folder)
-                .ok()
+            let repo = Repository::open(folder).ok();
+            let head = repo
+                .as_ref()
                 .and_then(|r| r.refname_to_id(MAIN).ok())
                 .map(|h| h.to_string());
+            let held = repo.as_ref().and_then(|r| index_lock(r));
             Round {
                 status: e.status,
                 head,
                 notes,
-                message: Some(e.message),
+                message: Some(match held {
+                    Some(held) if e.status == Status::Retry => held,
+                    _ => e.message,
+                }),
             }
         }
     }
 }
 
-/// Open the folder's own repository, or make one with `main` and no commits
-/// (ADR-0735: a folder has no history until its first sync). Either way the
-/// repository gets the LFS filter settings it lacks.
-pub fn open_or_init(folder: &Path) -> Result<Repository, Error> {
-    let repo = if folder.join(".git").exists() {
-        Repository::open(folder)?
-    } else {
-        let mut opts = RepositoryInitOptions::new();
-        opts.initial_head("main").no_reinit(true);
-        Repository::init_opts(folder, &opts)?
-    };
-    write_lfs_filter(&repo)?;
-    Ok(repo)
+/// Another program's `index.lock`, the usual reason a round is told the
+/// index is locked, named with how long ago it was taken.
+fn index_lock(repo: &Repository) -> Option<String> {
+    let path = repo.path().join("index.lock");
+    let taken = std::fs::metadata(&path).ok()?.modified().ok()?;
+    let age = SystemTime::now().duration_since(taken).unwrap_or_default();
+    Some(format!(
+        "another program holds {} (taken {}s ago); nothing was changed. Run sync again; if it is still there and no git is running, delete it.",
+        path.display(),
+        age.as_secs()
+    ))
 }
 
-/// ADR-0733's Git LFS filter settings, the ones `epicenter init` writes
-/// (`packages/cli/src/sync/setup.ts`). They name the `git-lfs` command and
-/// no path, so they hold on any machine. The core cleans and smudges LFS
-/// files itself and never runs them; they are for a person's own `git`,
-/// which without them reads an LFS file raw whenever it re-checks one
-/// (a file written in the same second as the index, for one) and reports
-/// it modified.
-pub const LFS_FILTER: [(&str, &str); 4] = [
-    ("filter.lfs.clean", "git-lfs clean -- %f"),
-    ("filter.lfs.smudge", "git-lfs smudge -- %f"),
-    ("filter.lfs.process", "git-lfs filter-process"),
-    ("filter.lfs.required", "true"),
-];
-
-/// Write each LFS filter setting the repository's own configuration lacks;
-/// a value a person set stays.
-fn write_lfs_filter(repo: &Repository) -> Result<(), Error> {
-    let mut config = repo.config()?.open_level(git2::ConfigLevel::Local)?;
-    for (key, value) in LFS_FILTER {
-        if config.get_entry(key).is_err() {
-            config.set_str(key, value)?;
-        }
-    }
-    Ok(())
+/// Open the folder's own repository, or make one with `main` and no
+/// commits, with the LFS filter settings ([`folder::open`]).
+pub fn open_or_init(folder: &Path) -> Result<Repository, Error> {
+    folder::open(folder).map(|opened| opened.repo)
 }
 
 /// Writes the objects made so far where every Git reads them; called before a ref names them.
@@ -276,11 +290,8 @@ fn round(
     notes: &mut Vec<String>,
     persist: Persist,
 ) -> Result<Oid, Error> {
-    if repo.state() != git2::RepositoryState::Clean {
-        return Err(Error::stopped(format!(
-            "a Git operation is in progress ({:?}); finish or abort it, then sync.",
-            repo.state()
-        )));
+    if let Some(problem) = folder::refusal(repo)? {
+        return Err(Error::stopped(problem));
     }
     let remote = options.remote.as_ref();
     if let Some(remote) = remote {
@@ -288,10 +299,30 @@ fn round(
         fetch(repo)?;
     }
     let remote_main = repo.refname_to_id(REMOTE_MAIN).ok();
-    let had_history = repo.refname_to_id(MAIN).is_ok();
+    let ours = repo.refname_to_id(MAIN).ok();
+    let had_history = ours.is_some();
     let sig = signature(repo)?;
+    let unrelated = match (ours, remote_main) {
+        (Some(ours), Some(theirs)) => {
+            repo.refname_to_id(LAST_SEEN).is_err() && repo.merge_base(ours, theirs).is_err()
+        }
+        _ => false,
+    };
+    if unrelated {
+        // ADR-0761: history Epicenter made before this folder met its
+        // remote (rounds with no origin) is replaced by first contact, which
+        // carries the files; any other history is refused.
+        let ours = ours.expect("unrelated implies a local main");
+        if let Some(subject) = foreign_commit(repo, ours)? {
+            let folder = repo.workdir().map(|w| w.display().to_string()).unwrap_or_default();
+            let folder = folder.trim_end_matches('/');
+            return Err(Error::stopped(format!(
+                "{folder} has its own Git history, unrelated to origin/main (including \"{subject}\"). To put it on origin/main: git -C {folder} rebase --root --onto origin/main, then sync again."
+            )));
+        }
+    }
     match remote_main {
-        Some(theirs) if !had_history => {
+        Some(theirs) if !had_history || unrelated => {
             first_contact(repo, theirs, options, remote, notes, persist)?;
         }
         _ => {
@@ -324,14 +355,14 @@ fn round(
         if remote_main == Some(head) {
             return Ok(head);
         }
-        if let Some(lfs) = remote.lfs() {
+        if let Some((lfs, token)) = remote.lfs(repo) {
             let objects = worktree::objects_to_push(repo, head, remote_main)?;
-            let sent = lfs.upload(repo.path(), &objects, remote.token.as_deref())?;
+            let sent = lfs.upload(repo.path(), &objects, token.as_deref())?;
             if sent > 0 {
                 notes.push(format!("uploaded {sent} LFS objects"));
             }
         }
-        match push(repo)? {
+        match push(repo, head, remote_main)? {
             None => {
                 repo.reference(REMOTE_MAIN, head, true, "sync: pushed")?;
                 repo.reference(LAST_SEEN, head, true, "sync: pushed")?;
@@ -373,7 +404,13 @@ fn moved(reason: &str) -> bool {
 /// `origin` must be `url`: a folder tracking another remote is not joined (ADR-0735).
 pub fn ensure_origin(repo: &Repository, url: &str) -> Result<(), Error> {
     match repo.find_remote("origin") {
-        Ok(origin) if origin.url() == Some(url) && origin.pushurl().is_none() => Ok(()),
+        Ok(origin) if origin.url() == Some(url) && origin.pushurl().is_none_or(|p| p == url) => {
+            Ok(())
+        }
+        Ok(origin) if origin.url() == Some(url) => Err(Error::stopped(
+            "origin pushes to a different URL than it fetches. Inspect git remote -v before syncing."
+                .into(),
+        )),
         Ok(origin) => Err(Error::stopped(format!(
             "this folder syncs with {}, not {url}. Inspect git remote -v before syncing.",
             origin.url().unwrap_or("?")
@@ -410,9 +447,14 @@ fn fetch(repo: &Repository) -> Result<(), Error> {
         .map_err(|e| network("fetch", e))
 }
 
-/// `git push origin main:main`. Returns the remote's reason when it refused the ref.
-fn push(repo: &Repository) -> Result<Option<String>, Error> {
+/// `git push origin main:main`. Returns the remote's reason when it refused
+/// the ref. `head` is local `main`, and `expected` the remote `main` it was
+/// merged on.
+fn push(repo: &Repository, head: Oid, expected: Option<Oid>) -> Result<Option<String>, Error> {
     let mut origin = repo.find_remote("origin")?;
+    if let Some(path) = origin.url().and_then(local_path) {
+        return push_local(repo, &path, head, expected);
+    }
     let mut rejected: Option<String> = None;
     let result = {
         let mut cb = RemoteCallbacks::new();
@@ -437,6 +479,75 @@ fn push(repo: &Repository) -> Result<Option<String>, Error> {
     }
 }
 
+/// The repository a local remote names: a `file://` URL or a path.
+fn local_path(url: &str) -> Option<std::path::PathBuf> {
+    if let Some(path) = url.strip_prefix("file://") {
+        return Some(path.into());
+    }
+    (!url.contains("://") && (url.starts_with('/') || url.starts_with('.'))).then(|| url.into())
+}
+
+/// A push to a repository on this machine. libgit2's local transport sets
+/// the remote's ref without checking what it held, so two rounds pushing at
+/// once could each overwrite the other's commit. Here the new objects land
+/// in the remote as one pack, and `main` moves only if it still holds
+/// `expected`, under the remote's ref lock, as `git receive-pack` checks. No
+/// ref but `main` changes, so a fetch running meanwhile sees nothing else.
+fn push_local(
+    repo: &Repository,
+    path: &Path,
+    head: Oid,
+    expected: Option<Oid>,
+) -> Result<Option<String>, Error> {
+    let remote = Repository::open(path)?;
+    if !remote.is_bare() {
+        return Err(Error::stopped(format!(
+            "origin is {}, a repository with a working tree; Epicenter pushes only to a bare repository.",
+            path.display()
+        )));
+    }
+    let mut walk = repo.revwalk()?;
+    walk.push(head)?;
+    if let Some(old) = expected {
+        walk.hide(old)?;
+    }
+    let mut pack = repo.packbuilder()?;
+    pack.insert_walk(&mut walk)?;
+    pack.write(&remote.path().join("objects").join("pack"), 0)?;
+    let moved = match expected {
+        Some(old) => remote.reference_matching(MAIN, head, true, old, "epicenter sync: push"),
+        None => remote.reference(MAIN, head, false, "epicenter sync: push"),
+    };
+    match moved {
+        Ok(_) => Ok(None),
+        Err(e) if matches!(e.code(), git2::ErrorCode::Modified | git2::ErrorCode::Exists) => {
+            Ok(Some("stale: the remote main moved".into()))
+        }
+        Err(e) if e.code() == git2::ErrorCode::Locked => {
+            Ok(Some("cannot lock ref: another push holds it".into()))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// The subject of a commit in `head`'s history that Epicenter did not
+/// write, or None when every commit is one of a round's own.
+fn foreign_commit(repo: &Repository, head: Oid) -> Result<Option<String>, Error> {
+    let mut walk = repo.revwalk()?;
+    walk.push(head)?;
+    for id in walk {
+        let commit = repo.find_commit(id?)?;
+        let subject = commit.summary().unwrap_or_default();
+        let ours = subject.starts_with("epicenter sync ")
+            || subject.starts_with("Added from ")
+            || subject == "epicenter: attributes and ignore rules";
+        if !ours {
+            return Ok(Some(subject.to_string()));
+        }
+    }
+    Ok(None)
+}
+
 fn signature(repo: &Repository) -> Result<Signature<'static>, Error> {
     Ok(repo
         .signature()
@@ -459,7 +570,12 @@ pub fn commit_working_tree(
         .ok()
         .map(|id| repo.find_commit(id))
         .transpose()?;
-    if parent.as_ref().map(|p| p.tree_id()) == Some(tree) {
+    let unchanged = match &parent {
+        Some(parent) => parent.tree_id() == tree,
+        // A first commit of nothing: the folder has no history yet.
+        None => index.is_empty(),
+    };
+    if unchanged {
         return Ok(None);
     }
     let parents: Vec<&Commit> = parent.iter().collect();
@@ -509,13 +625,13 @@ fn download(
     if missing.is_empty() {
         return Ok(());
     }
-    let lfs = remote.lfs().ok_or_else(|| {
+    let (lfs, token) = remote.lfs(repo).ok_or_else(|| {
         Error::stopped(format!(
             "{} LFS objects are needed and the remote has no LFS endpoint",
             missing.len()
         ))
     })?;
-    let got = lfs.download(repo.path(), &missing, remote.token.as_deref())?;
+    let got = lfs.download(repo.path(), &missing, token.as_deref())?;
     notes.push(format!("downloaded {got} LFS objects"));
     Ok(())
 }
@@ -605,8 +721,9 @@ pub fn merge_remote(
     if let Ok(seen) = repo.refname_to_id(LAST_SEEN) {
         if seen != theirs && !repo.graph_descendant_of(theirs, seen)? {
             return Err(Error::stopped(format!(
-                "the remote main was rewritten: it no longer contains {}, the main this clone last saw. Not merging.",
-                &seen.to_string()[..7]
+                "the remote main was rewritten: it no longer contains {}, the main this clone last saw (remote main is now {}). Not merging, so the replaced history is not pushed back. Move your unsynced work onto origin/main (for example: git rebase --onto origin/main {LAST_SEEN}), then: git update-ref {LAST_SEEN} origin/main",
+                &seen.to_string()[..7],
+                &theirs.to_string()[..7]
             )));
         }
     }

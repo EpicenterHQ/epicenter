@@ -180,7 +180,7 @@ pub fn three_way(
     }
     if !left.is_empty() {
         return Err(Error::stopped(format!(
-            "the merge left conflicts Epicenter does not settle: {}",
+            "the merge left conflicts Epicenter does not settle: {}. Merge them yourself (git merge origin/main, resolve, git commit), then sync again.",
             left.join(", ")
         )));
     }
@@ -267,6 +267,7 @@ pub fn first_contact_tree(
             Some((t, _)) if is_note(path) => {
                 let id = s.settle(path, None, *t, ours)?;
                 index.add(&bare_entry(path, id, mode))?;
+                notes.push(format!("{path}: settled two additions"));
                 merged += 1;
             }
             Some(_) => {
