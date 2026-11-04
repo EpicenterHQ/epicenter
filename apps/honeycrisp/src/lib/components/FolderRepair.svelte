@@ -7,11 +7,12 @@
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Empty from '@epicenter/ui/empty';
 	import { toast } from '@epicenter/ui/sonner';
-	import { folderLabel, folderPath, getFolders, getHoneycrisp } from '$lib/honeycrisp.svelte.js';
+	import { folder } from '$lib/app.js';
+	import { folderLabel, folderPath, getHoneycrisp } from '$lib/honeycrisp.svelte.js';
 	import RepairDetail from './RepairDetail.svelte';
 
 	const app = getHoneycrisp();
-	const folders = getFolders();
+	const folders = folder.folders;
 	let { id: shownId }: { id: string } = $props();
 
 	// The parent keys this view by the folder.

@@ -1,9 +1,9 @@
 /**
- * Honeycrisp's state over one store's two collections, notes and folders.
- * The root that sets them chooses the store (the person's
- * `honeycrisp` repository on the web, ADR-0700, or the desktop window's
- * folder). Honeycrisp adds its orders, what the lists and the detail show,
- * and the actions that span both collections.
+ * Honeycrisp's state over one store's two collections, notes and folders:
+ * the folder's (`$lib/app`), the person's `honeycrisp` repository on the
+ * web (ADR-0700) or the desktop window's folder. Honeycrisp adds its
+ * orders, what the lists and the detail show, and the actions that span
+ * both collections.
  *
  * A note names its folder by id. Deleting a folder deletes its file only:
  * its notes keep their `folderId`, show in All Notes, and say their folder
@@ -69,18 +69,11 @@ export function shownIn(filter: Filter, note: Note) {
 	return `${note.title ?? ''}\n${note.body}`.toLowerCase().includes(needle);
 }
 
-/** The notes every component of a page reads and edits: its store's, as `reactive` adapts them, set by the variant's root. */
-export const [getNotes, setNotes] =
-	createContext<FolderNotes<NoteCollection>>();
-/** The folders every component of a page reads and edits: its store's, as `reactive` adapts them, set by the variant's root. */
-export const [getFolders, setFolders] =
-	createContext<FolderNotes<FolderCollection>>();
-
 /**
  * What a Honeycrisp page shows over its store's notes and folders: the
  * list's filter, what the detail shows, and the actions that are more than
  * one collection's write. Every other read and write goes to the notes or
- * folders (`getNotes`, `getFolders`) directly.
+ * folders (`folder.notes`, `folder.folders` from `$lib/app`) directly.
  */
 export function createHoneycrisp({
 	notes,

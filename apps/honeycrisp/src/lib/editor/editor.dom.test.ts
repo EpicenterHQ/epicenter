@@ -21,9 +21,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { undo } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
-import { folderOf } from '@epicenter/folder/core';
+import { createFolder } from '@epicenter/folder/core';
 import { openDevice } from '@epicenter/folder/node';
-import { unwrap } from 'wellcrafted/result';
+import { Ok, unwrap } from 'wellcrafted/result';
 import { honeycrisp } from '../contract.js';
 import { changesTo } from './binding.js';
 import { conflictsIn, resolveConflict } from './conflicts.js';
@@ -92,7 +92,10 @@ async function boundNote(text: string) {
 	document.body.append(target);
 	const host = mount(BodyHost, {
 		target,
-		props: { notes: reactive(folderOf(device)).notes, id: 'a' },
+		props: {
+			notes: reactive(createFolder(honeycrisp, async () => Ok(device))).notes,
+			id: 'a',
+		},
 	});
 	cleanups.push(() => unmount(host));
 	let view: EditorView | null = null;

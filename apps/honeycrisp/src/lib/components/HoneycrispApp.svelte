@@ -1,21 +1,21 @@
 <!--
-	Honeycrisp over the notes and folders the variant's root set (`getNotes`,
-	`getFolders`): the header, the folders, the notes, and what is open, which
-	it sets for every component under it (`setHoneycrisp`). The root alone
-	decides the store.
+	Honeycrisp over the folder's notes and folders (`$lib/app`), in either
+	build: the header, the folders, the notes, and what is open, which it
+	sets for every component under it (`setHoneycrisp`).
 -->
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
-	import { createHoneycrisp, getFolders, getNotes, setHoneycrisp } from '$lib/honeycrisp.svelte.js';
+	import { folder } from '$lib/app.js';
+	import { createHoneycrisp, setHoneycrisp } from '$lib/honeycrisp.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FolderNav from './FolderNav.svelte';
 	import FolderRepair from './FolderRepair.svelte';
 	import NoteDetail from './NoteDetail.svelte';
 	import NoteList from './NoteList.svelte';
 
-	const app = setHoneycrisp(createHoneycrisp({ notes: getNotes(), folders: getFolders() }));
+	const app = setHoneycrisp(createHoneycrisp({ notes: folder.notes, folders: folder.folders }));
 
 	async function createNote() {
 		const { error } = await app.createNote();

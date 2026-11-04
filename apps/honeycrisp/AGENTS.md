@@ -5,25 +5,20 @@ for the layout and page flow, and verify it against the code.
 
 ## The files are the data
 
-- Honeycrisp has two variants, chosen at build time by the `#platform/root`
-  seam (`package.json` "imports"), never a run-time check: the online web
-  app (`root.ts`: `openRemote` from `@epicenter/folder/remote` behind
-  sign-in) and the desktop app (`root.tauri.ts`: the window's folder through
-  `openDevice` from `@epicenter/folder/tauri`, which never signs in). Every
-  read and write goes through the contract's client, one store per page: the
-  variant's root wraps it once and sets its notes and folders
-  (`setNotes`, `setFolders`), and components read them (`getNotes`,
-  `getFolders`). The web app keeps
-  nothing in the browser: no device, OPFS, uploader, or service worker
-  (ADR-0700). Components take the state from context and never import a
-  client or know which store they are over; only the header's `Chrome`
-  says. Leaves and the components they import use relative imports, not
-  `$lib`, so `platform.test.ts` can bundle them. Do not add another store,
-  cache, or save queue.
-  [ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)
-  replaces the variant roots and these contexts: `src/lib/app.ts` exports
-  `folder` (one `openFolder(contract)`, the account's copy on the web), and
-  components import it. Until Honeycrisp moves, keep the pattern above.
+- Honeycrisp has two variants, one store each, and the build picks it,
+  never a run-time check
+  ([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)):
+  `src/lib/app.ts` exports `folder`, one
+  `openFolder(honeycrisp, { site, account })`, which is the signed-in
+  person's repository in the web build and the window's folder on the
+  desktop, which never signs in. Every read and write goes through it:
+  components import `folder` from `$lib/app.js` and read `folder.notes` and
+  `folder.folders`. Only `app.ts` opens the store; components never import
+  a client or know which store they are over, and only the header's
+  `Chrome` (`#platform/chrome`) says. The web app keeps nothing in the
+  browser: no device, OPFS, uploader, or service worker (ADR-0700). Seam
+  leaves use relative imports, not `$lib`, so `platform.test.ts` can bundle
+  them. Do not add another store, cache, or save queue.
 - A change to the layout is a change to `src/lib/contract.ts`, then
   `bun run contract`; the fit test fails until the two agree. No migration or
   compatibility code: there is no earlier data to read (decision 72).
@@ -34,7 +29,7 @@ for the layout and page flow, and verify it against the code.
 ## Editing
 
 - The open note's title, body, folder and pin go through its one editor
-  (`getNotes().edit({ id })`, every value read and bound through
+  (`folder.notes.edit({ id })`, every value read and bound through
   `edit.fields`), with `<UnsavedEdit>` beside it. The list's commands (folder,
   pin) and Delete call the notes' `update` or `delete` and say when they
   fail.

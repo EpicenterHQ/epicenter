@@ -1,6 +1,7 @@
 <!--
-	The web app's header account of its store: the person's repository,
-	online only, whether it answers, and the account.
+	`#platform/chrome` in the web build: the header's account of its store,
+	the person's repository, online only, whether it answers, and the
+	account.
 -->
 <script lang="ts">
 	import StatusPopover from '@epicenter/svelte/status-popover';
@@ -9,11 +10,17 @@
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import { toast } from '@epicenter/ui/sonner';
-	import { webAuth } from '../auth.js';
-	import type { ChromeProps } from '../platform.js';
+	import { account } from '../app.js';
 
-	let { unreadable }: ChromeProps = $props();
-	const auth = webAuth();
+	let {
+		unreadable,
+	}: {
+		/** Why the notes or folders did not list, if they did not. */
+		unreadable: { message: string } | null;
+	} = $props();
+
+	// The web build always has an account: its folder is the account's copy.
+	const auth = account!;
 	const state = $derived(auth.state());
 
 	const status = $derived.by((): StatusLine => {
