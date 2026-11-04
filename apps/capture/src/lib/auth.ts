@@ -5,16 +5,17 @@
  * token.
  *
  * The server is `VITE_EPICENTER_SERVER` when the build sets it (a local or
- * self-hosted API), otherwise Epicenter's. The client is made on first use:
- * making it reads `localStorage` and schedules renewals.
+ * self-hosted API), otherwise Epicenter's. The client is made on first use
+ * (making it reads `localStorage` and schedules renewals), and read through
+ * `reactive` from then on.
  */
 import {
 	createBrowserOAuth,
 	epicenterCloud,
 	selfHostedServer,
 } from '@epicenter/account';
-import { fromAuth } from '@epicenter/account/svelte';
 import { resolveOAuthAudiences } from '@epicenter/definition/site';
+import { reactive } from '@epicenter/svelte/reactive';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/vite-config/app-urls';
 
 function createAuth() {
@@ -29,7 +30,7 @@ function createAuth() {
 		accountManagement: !SELF_HOST_ORIGIN,
 	});
 	if (import.meta.hot) import.meta.hot.dispose(() => client[Symbol.dispose]());
-	return fromAuth(client);
+	return reactive(client);
 }
 
 let auth: ReturnType<typeof createAuth> | undefined;

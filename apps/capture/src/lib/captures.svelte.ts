@@ -4,7 +4,8 @@
  *
  * The list is one store's captures for the page's whole life; the variant's
  * root chooses the store (the person's `capture` repository, ADR-0700, or
- * the desktop window's folder) and sets it (`setCaptureList`).
+ * the desktop window's folder), reads it as a folder, and sets its captures
+ * (`setCaptureList`).
  * Add writes a capture to that store, where it is a commit. The timeline
  * shows the list newest first.
  */
@@ -15,7 +16,7 @@ import {
 	noteText,
 } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import type { ReactiveNotes } from '@epicenter/svelte/client';
+import type { FolderNotes, OpenFolderError } from '@epicenter/folder/core';
 import { createContext } from 'svelte';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -31,9 +32,15 @@ import {
 	type InvalidCapture,
 } from './model/index.js';
 
-/** The captures a page reads and edits: its store's. */
-export type CaptureList = ReactiveNotes<CaptureNotes>;
-/** The page's captures, set by the variant's root where it opens the store. */
+/**
+ * The captures a page reads and edits: its store's, read as a folder
+ * (`folderOf`) through `reactive`, so its reads track.
+ */
+export type CaptureList = FolderNotes<CaptureNotes>;
+/**
+ * The page's captures, set by the variant's root where it opens the store:
+ * per account on the web, once the data folder opened on the desktop.
+ */
 export const [getCaptureList, setCaptureList] = createContext<CaptureList>();
 export type Captures = ReturnType<typeof createCaptures>;
 export type Mode = 'capture' | 'text';
@@ -63,7 +70,7 @@ export const CaptureError = defineErrors({
 	Refused: ({ message }: { message: string }) => ({ message }),
 });
 export type CaptureError = InferErrors<typeof CaptureError>;
-export type Failure = ClientError | CaptureError;
+export type Failure = ClientError | OpenFolderError | CaptureError;
 
 export function instantOf(value: unknown): Date | undefined {
 	if (typeof value !== 'string') return undefined;
@@ -140,7 +147,7 @@ export function timelineOf(
 export function createCaptures(list: CaptureList) {
 	let opened = $state.raw<Opened | undefined>();
 	let navigation = 0;
-	const timeline = $derived(timelineOf(list.items, list.invalid));
+	const timeline = $derived(timelineOf(list.items(), list.invalid()));
 
 	/** Open `id` as asked, unless a later navigation came first; a capture that does not read opens as text. */
 	function go(requested: number, id: string, mode: Mode, focus?: Focus) {

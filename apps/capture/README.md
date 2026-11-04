@@ -95,13 +95,15 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 ## How it is wired
 
 ```text
-routes/+layout.svelte          every page: the chrome and the leave guard
+routes/+layout.svelte          every page: the chrome
 routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
                                around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: setCaptureList(fromClient(openRemote(capture, { account, site: APPS.CAPTURE.url })).captures)
+    Online.svelte              {#key account}: folder = reactive(folderOf(openRemote(capture, { account, site: APPS.CAPTURE.url })))
+                               setCaptureList(folder.captures), the leave guard
   Startup.svelte               desktop: DesktopStartup over the contract
-    DesktopRoot.svelte         setCaptureList(fromClient(device).captures), setFolderSync
+    DesktopRoot.svelte         folder = reactive(folderOf(device)); setCaptureList(folder.captures),
+                               setFolderSync, the leave guard
 routes/(app)/+page.svelte      CaptureApp over the captures the root set (getCaptureList)
   CaptureApp.svelte            header (Chrome from #platform/root), then
     Timeline | CaptureDetail | TextDetail
@@ -115,11 +117,11 @@ a new root that sets its own store, and a header that says what it is.
 
 | Path | Role |
 | --- | --- |
-| `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome and the leave guard. |
+| `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome. |
 | `src/routes/(app)/+layout.svelte` | The variant's `Startup` (`#platform/root`), under a `<svelte:boundary>` whose `pending` is the UI kit's spinner. |
 | `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account. |
-| `src/lib/components/Online.svelte` | The repository per account, its captures set for every page (`setCaptureList`). |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's captures set for every page (`setCaptureList`); the header's local history status, Set up in Epicenter, and the shell's folder path. |
+| `src/lib/components/Online.svelte` | The repository per account, read as a folder (`folderOf`, then `reactive`), its captures set for every page (`setCaptureList`); leaving asks first while a write is out. |
+| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder read as one (`folderOf`, then `reactive`), its captures set for every page (`setCaptureList`), and leaving asks first while a write is out; the header's local history status, Set up in Epicenter, and the shell's folder path. |
 | `src/routes/(app)/+page.svelte` | Capture over the store's captures. |
 | `src/lib/components/CaptureApp.svelte` | The header and the page it shows, over the captures the root set. |
 | `src/lib/captures.svelte.ts` | The timeline, Add, deletion, and navigation. |

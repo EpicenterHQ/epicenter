@@ -36,7 +36,7 @@
 		active = false;
 	});
 	/** The file at this capture's path, when it does not read as a capture. */
-	const broken = $derived(list.invalid.find((file) => file.id === args.id));
+	const broken = $derived(list.invalid().find((file) => file.id === args.id));
 	/** The capture, its body showing what was typed until its save answers. */
 	const edit = list.edit(args);
 	const actions = createCaptureActions({
@@ -47,7 +47,7 @@
 	});
 	/** Opened right after Add: focus goes to Add a thought. */
 	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');
-	const reading = $derived(edit.exists ? captureBody.decode(edit.fields.body ?? '') : undefined);
+	const reading = $derived(edit.exists() ? captureBody.decode(edit.fields.body ?? '') : undefined);
 	const text = $derived(reading?.data?.text ?? '');
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
 	const capturedAt = $derived(instantOf(edit.fields.capturedAt));

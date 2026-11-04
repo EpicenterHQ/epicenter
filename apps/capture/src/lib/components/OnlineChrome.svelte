@@ -13,15 +13,17 @@
 
 	let { list }: { list: CaptureList } = $props();
 	const auth = webAuth();
+	const state = $derived(auth.state());
 
 	const status = $derived.by((): StatusLine => {
-		if (auth.state.status === 'reauth-required')
+		if (state.status === 'reauth-required')
 			return {
 				label: 'Sign in again',
 				detail: 'Sign in again to edit your repository.',
 				tone: 'warning',
 			};
-		if (list.error !== null) return { label: 'Offline', detail: list.error.message, tone: 'warning' };
+		const unreadable = list.error();
+		if (unreadable !== null) return { label: 'Offline', detail: unreadable.message, tone: 'warning' };
 		return { label: 'Online', tone: 'good' };
 	});
 
@@ -45,8 +47,8 @@
 	</StatusRow>
 </StatusPopover>
 <div class="ml-auto flex items-center gap-2">
-	{#if auth.state.status !== 'signed-out'}
-		{#if auth.state.status === 'reauth-required'}
+	{#if state.status !== 'signed-out'}
+		{#if state.status === 'reauth-required'}
 			<Button size="sm" onclick={() => void signIn()}>Sign in again</Button>
 		{/if}
 		<Button variant="ghost" size="sm" onclick={() => void signOut()}>Sign out</Button>

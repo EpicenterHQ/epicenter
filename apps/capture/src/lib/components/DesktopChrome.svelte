@@ -18,8 +18,9 @@
 	const sync = getFolderSync();
 
 	const status = $derived.by((): StatusLine => {
-		if (list.error !== null)
-			return { label: 'Not readable here', detail: list.error.message, tone: 'error' };
+		const unreadable = list.error();
+		if (unreadable !== null)
+			return { label: 'Not readable here', detail: unreadable.message, tone: 'error' };
 		if (sync.managed) return { label: 'Kept by Epicenter', tone: 'good' };
 		return { label: 'On this computer', tone: 'neutral' };
 	});

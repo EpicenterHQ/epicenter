@@ -51,7 +51,7 @@
 			</Item.Button>
 		{/each}
 	</Item.Group>
-{:else if list.loading}
+{:else if list.loading()}
 	<Loading class="py-12" label="Opening captures…" />
 {:else}
 	<Empty.Root>
