@@ -237,12 +237,10 @@ test('1. on this browser, a recording is kept as its audio and note, edited, tra
 				],
 			}),
 		);
+		// This computer's `models.md` (`localFile` from `@epicenter/local`).
 		localStorage.setItem(
-			'epicenter/ai.model-choices',
-			JSON.stringify({
-				version: 1,
-				choices: { transcribe: { endpoint: 'stub', model: 'whisper-1' } },
-			}),
+			'epicenter.local/models.md',
+			'---\nchoices:\n  - job: transcribe\n    endpoint: stub\n    model: whisper-1\n---\n',
 		);
 	}, TRANSCRIBE);
 	await page.goto(app);
@@ -428,11 +426,8 @@ test('4. signing in enables hosted transcription and moves nothing', async ({
 	// kept from an earlier sign-in is.
 	await page.evaluate(() =>
 		localStorage.setItem(
-			'epicenter/ai.model-choices',
-			JSON.stringify({
-				version: 1,
-				choices: { transcribe: { endpoint: 'hosted', model: 'whisper-1' } },
-			}),
+			'epicenter.local/models.md',
+			'---\nchoices:\n  - job: transcribe\n    endpoint: hosted\n    model: whisper-1\n---\n',
 		),
 	);
 	await page.reload();
