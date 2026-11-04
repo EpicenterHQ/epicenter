@@ -82,13 +82,10 @@ conflicts and direct-write merging; Git sync and history retain content merging.
 
 | State | Remaining outcome | Continuation |
 | --- | --- | --- |
-| Remaining verification | [Preserve newer input when an older save receipt arrives](#preserve-newer-input-when-an-older-save-receipt-arrives) | The earlier reproduction came from “Improve adversary skill conflict tri”, `01a15dd6-e3c3-7d31-8f48-2c38c97fa989`; “Tighten Markdown File Contracts”, `01a15d59-b44b-79d2-8f6d-58de231dc6fe`, holds the model discussion. The owner now acknowledges input by identity, with core regressions. Additional storage-engine and mounted coverage remains the bounded verification task. |
 | Implementation under review | One Markdown interpretation and folder-owned sources | [ADR-0665](docs/adr/0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md) records framing; the [Folder guide](packages/folder/README.md#editors) describes retained sources and unconditional local publication. The guarded-source proposal in ADR-0666 and the buffer interface in ADR-0667 are historical implementation context. No second editor owner is needed. |
 | Underway | Messages draft previews and send recovery | “Rethink Epicenter’s content model”, `01a15c9c-a592-7b50-9ded-f8d4b9e0a5d7`, owns the Messages app integration. Keep checks on fictional data and preserve uncertain-send recovery. |
 | Underway | Evaluate an unparented application Quit alert | “Review native save-close flow”, `01a15c9a-215d-7222-86b9-5e0f2670d9af`, owns the disposable native experiment and any authorized adoption. Keep startup and other work separate. |
 | Remaining investigation | [Bound browser Git transfer costs](#preserve-local-only-files-during-git-exchange) | Preserve the delivered ignore and retry behavior; measure before replacing transport. |
-| After transfer behavior settles | [Make browser snapshot capture intent explicit](#make-browser-snapshot-capture-intent-explicit) | Derive the request shape from actual read and sync callers. |
-| Bounded future cleanup | [Preserve operation types through CLI history replies](#preserve-operation-types-through-cli-history-replies) | Keep output, validation and exit behavior. |
 
 Resolve integration with `braden-w/data-folders` after active changes settle.
 Preserve this branch's newer architecture and intentional deletions; assess
@@ -96,25 +93,6 @@ incoming fixes against current source. A backlog edit is not a message to
 another chat and does not create an implementation assignment.
 
 ## Folder correctness and transfer
-
-### Preserve newer input when an older save receipt arrives
-
-- Desired result: A save acknowledges only the input it submitted. A later
-  assignment remains pending even if its value equals an earlier submitted
-  value. Failed input and typing during saves remain available.
-- Earlier reproduction: Submit title A and delay its completion receipt. An outside
-  writer stores B; this handle reads B and explicitly assigns A again. Deliver
-  the old receipt. The owner before `bd78bfb52b` cleared the newer assignment
-  by comparing values, and another explicit save did nothing.
-- Delivered boundary: The owner acknowledges captured input by identity.
-  [Editor tests](packages/folder/src/edits.test.ts) cover newer equal input,
-  publication/delete ordering, failure/retry, and close. The earlier reproduction
-  is historical evidence, not a claim that the replacement still has that bug.
-- Remaining verification: Exercise this identity boundary through real storage
-  and mounted controls, including newer equal input during publication,
-  failure/retry, and close. Existing general storage and mounted tests do not
-  establish that exact interleaving. Preserve unconditional local publication
-  and the separate Git merge rules while extending coverage.
 
 ### Preserve local-only files during Git exchange
 
@@ -137,29 +115,6 @@ another chat and does not create an implementation assignment.
   before claiming ignored payloads cannot be selected. The checkpoint preflight
   and commit capture also read rules separately. Preserve native info/exclude
   and configured excludes behavior when deciding the correction.
-
-### Make browser snapshot capture intent explicit
-
-- Desired result: Callers state which files, rows, or sync inputs they need
-  without implicit meanings of strings, arrays, and object shapes.
-- Grounding: [Browser storage](packages/folder/src/browser/storage.ts) still
-  accepts omitted scope, path arrays, prefix and row selectors, and `sync`.
-  An empty array captures trees without file contents; omitted scope captures
-  all files. Preserve a consistent IndexedDB transaction and the required
-  checkpoints while simplifying this contract.
-- Revisit when: The browser publication and receiving behavior above is settled.
-  Source: archived chat `01a15623-1fc4-7f32-87f9-42e2ea1b4563`.
-
-### Preserve operation types through CLI history replies
-
-- Desired result: CLI handling retains the relationship between each history
-  operation and its result, preserving output and exit codes.
-- Grounding: [runHistory and historyExitCode](packages/folder/src/bun.ts) still
-  exchange `HistoryReply<unknown>`. Review this contract with
-  [its CLI caller](packages/cli/src/history-commands.ts), rather than replacing
-  individual shape checks or weakening untrusted-input validation.
-- Revisit when: Next CLI history API pass. Source: archived chat
-  `01a15623-1fc4-7f32-87f9-42e2ea1b4563`.
 
 ### Prove a cross-device Folder journey
 
@@ -242,12 +197,14 @@ another chat and does not create an implementation assignment.
 ### Complete Whispering's local transcription handoff
 
 - Desired result: Select on-device transcription when available; otherwise
-  explain what is missing and open Epicenter's model settings. Keep endpoint
+  explain what is missing and open the model settings. Keep endpoint
   transcription available as an explicit alternative.
-- Grounding: [Local transcription](apps/whispering/src/lib/workspace/local-transcription.ts)
-  exposes readiness and sending, but the current Settings form does not offer
-  that connection choice. The [Whispering README](apps/whispering/README.md)
-  records the limitation.
+- Grounding: [Whispering's desktop services](apps/whispering/src/lib/platform/services.tauri.ts)
+  send a recording to a local model, and the
+  [connection form](apps/whispering/src/routes/components/ConnectionForm.svelte)
+  offers it as **Use this computer**, with models administered in Settings
+  ([Whispering README](apps/whispering/README.md)). The web build has no
+  local transcription.
 - Revisit when: Next Whispering connection or first-run pass. Verify model
   selection, unavailable state, and a real transcription through the host.
 - Older cache review: The resolver trusts Hugging Face cache layout rather than
@@ -275,9 +232,10 @@ another chat and does not create an implementation assignment.
 - Desired result: If Mail returns, provide readable local mail, durable offline
   triage, and explicit write-back to the chosen provider.
 - Grounding: Local Mail was deleted in `280bdf4d44`; no current Mail code exists
-  to patch. Recover implementation evidence and the
-  [transcript review](docs/transcript-reviews.md#mail-preserve-the-product-finish-execution)
-  from history before choosing a new implementation.
+  to patch. Recover implementation evidence and the Mail transcript review
+  (docs/transcript-reviews.md at `280bdf4d44`, section "Mail: preserve the
+  product, finish execution") from history before choosing a new
+  implementation.
 - Retained acceptance: Reconnect wins over an older credential refresh; pending
   actions get delivery opportunities during downloads; throttling and retry
   waits are cancellable; restart retains progress and pending changes. Establish
