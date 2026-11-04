@@ -8,6 +8,8 @@
  *   the key is in the keychain under the connection's id
  * - The connection's endpoint is merged at once and sends through the shell
  *   by its id, with no key from the page
+ * - The model chosen for each job is `models.md` beside it, read back by
+ *   the next page
  */
 import { afterAll, expect, mock, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -78,7 +80,9 @@ mock.module('@epicenter/folder/tauri', () => ({
 	},
 }));
 
-const { customEndpoints } = await import('./device-settings.tauri.js');
+const { customEndpoints, modelChoices } = await import(
+	'./device-settings.tauri.js'
+);
 
 test('a connection is listed in AppData with no key, its key is in the keychain, and its endpoint sends through the shell by its id', async () => {
 	const connections = customEndpoints();
@@ -116,4 +120,27 @@ test('a connection is listed in AppData with no key, its key is in the keychain,
 	await connections.remove(id);
 	expect(keychain.has(id)).toBe(false);
 	await connections.close();
+});
+
+test('the model chosen for each job is models.md in AppData, beside the connections, and the next page reads it back', async () => {
+	const choices = modelChoices<'chat' | 'transcribe'>({
+		chat: { endpoint: 'hosted', model: 'default' },
+	});
+	await choices.ready;
+	expect(choices.get('chat')).toEqual({ endpoint: 'hosted', model: 'default' });
+	await choices.set('transcribe', { endpoint: 'local-speech', model: 'base' });
+	await choices.set('chat', { endpoint: 'ollama', model: 'llama3' });
+	const note = await readFile(join(appData, 'models.md'), 'utf8');
+	expect(note).toContain('local-speech');
+	expect(note).toContain('llama3');
+
+	const next = modelChoices<'chat' | 'transcribe'>();
+	await next.ready;
+	expect(next.get('chat')).toEqual({ endpoint: 'ollama', model: 'llama3' });
+	expect(next.get('transcribe')).toEqual({
+		endpoint: 'local-speech',
+		model: 'base',
+	});
+	choices[Symbol.dispose]();
+	next[Symbol.dispose]();
 });

@@ -1,14 +1,13 @@
-import type { ModelChoice } from '@epicenter/ai';
+import type { ModelChoice, ModelChoices } from '@epicenter/ai';
 import {
 	type ChatTurn,
 	createChatEngine,
 	createConversation,
 } from '@epicenter/ai/agent';
-import type { ModelChoices } from '@epicenter/ai/choices';
 import type { ReactiveAi } from '@epicenter/ai/svelte';
 import { bindAgentConversation } from '@epicenter/svelte';
 import { createTracker } from '@epicenter/svelte/tracked';
-import { HOSTED_TUTOR, tutorPrompt, VOCAB_SYSTEM_PROMPT } from '../data.js';
+import { tutorPrompt, VOCAB_SYSTEM_PROMPT } from '../data.js';
 import { createChatMessageStore, type MessageList } from './messages.svelte.js';
 import { withTutorOpening } from './opening.js';
 
@@ -26,7 +25,8 @@ export function createVocabChat({
 	focus: readonly { text: string }[];
 	/** Every model Vocab can reach (`$lib/ai.js`). */
 	ai: Pick<ReactiveAi, 'models' | 'custom' | 'chat'>;
-	choices: ModelChoices;
+	/** The model this device's learner chose for the tutor (`'chat'`), or its default. */
+	choices: ModelChoices<'chat'>;
 }) {
 	const observeChoices = createTracker(choices.subscribe);
 	let runTurn: ChatTurn | null = null;
@@ -65,9 +65,7 @@ export function createVocabChat({
 	/** The learner's choice, or Epicenter's tutor model when it is offered. */
 	function target(): ModelChoice | null {
 		observeChoices();
-		return (
-			choices.get('tutor') ?? (canChat(HOSTED_TUTOR) ? HOSTED_TUTOR : null)
-		);
+		return choices.get('chat');
 	}
 
 	function captureTarget(): boolean {
@@ -176,7 +174,7 @@ export function createVocabChat({
 			);
 		},
 		selectTarget(next: ModelChoice) {
-			choices.set('tutor', next);
+			return choices.set('chat', next);
 		},
 		/**
 		 * Save the draft as a learner message, then ask the tutor. A failed save

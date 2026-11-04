@@ -238,10 +238,10 @@ test('1. on this browser, a recording is kept as its audio and note, edited, tra
 			}),
 		);
 		localStorage.setItem(
-			'whispering/ai.model-choices',
+			'epicenter/ai.model-choices',
 			JSON.stringify({
 				version: 1,
-				choices: { transcription: { endpoint: 'stub', model: 'whisper-1' } },
+				choices: { transcribe: { endpoint: 'stub', model: 'whisper-1' } },
 			}),
 		);
 	}, TRANSCRIBE);
@@ -428,10 +428,10 @@ test('4. signing in enables hosted transcription and moves nothing', async ({
 	// kept from an earlier sign-in is.
 	await page.evaluate(() =>
 		localStorage.setItem(
-			'whispering/ai.model-choices',
+			'epicenter/ai.model-choices',
 			JSON.stringify({
 				version: 1,
-				choices: { transcription: { endpoint: 'hosted', model: 'whisper-1' } },
+				choices: { transcribe: { endpoint: 'hosted', model: 'whisper-1' } },
 			}),
 		),
 	);

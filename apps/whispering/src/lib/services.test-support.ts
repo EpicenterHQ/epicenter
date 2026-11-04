@@ -18,7 +18,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hosted, type LiveAccount, openAi } from '@epicenter/ai';
-import { createModelChoices } from '@epicenter/ai/choices';
+import { createModelChoices, type SavedChoices } from '@epicenter/ai/choices';
 import {
 	createAiConnections,
 	customEndpointsOf,
@@ -284,19 +284,18 @@ export async function openTestServices({
 		baseUrl: TEST_BASE_URL,
 		models: [TEST_MODELS.transcription, TEST_MODELS.text],
 	});
-	const chosen = memoryStorage();
-	const openChoices = () =>
-		createModelChoices({
-			storage: chosen,
-			storageKey: 'test',
-			subscribeStorage: chosen.subscribe,
-		});
-	const choices = openChoices();
-	choices.set('transcription', {
-		endpoint: connectionId,
-		model: TEST_MODELS.transcription,
+	// The device's choices, kept by job, chosen for the stub endpoint.
+	let chosen: SavedChoices = {
+		transcribe: { endpoint: connectionId, model: TEST_MODELS.transcription },
+		chat: { endpoint: connectionId, model: TEST_MODELS.text },
+	};
+	const choices = createModelChoices<'transcribe' | 'chat'>({
+		read: async () => chosen,
+		async save(job, choice) {
+			chosen = { ...chosen, [job]: choice };
+			return chosen;
+		},
 	});
-	choices.set('text', { endpoint: connectionId, model: TEST_MODELS.text });
 
 	const services: WhisperingServices = {
 		capture: createFixtureDevice({
@@ -308,7 +307,7 @@ export async function openTestServices({
 			hosted(SIGNED_OUT),
 			customEndpointsOf(async () => openConnections()),
 		]),
-		openChoices,
+		choices,
 		connectionsNote: 'test',
 		preferences: {
 			microphone: async () => undefined,

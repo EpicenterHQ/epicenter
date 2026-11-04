@@ -27,7 +27,6 @@
  * answers and returns. A recording under way ends with the page.
  */
 import type { ModelChoice } from '@epicenter/ai';
-import type { ModelChoices } from '@epicenter/ai/choices';
 import { fromAi } from '@epicenter/ai/svelte';
 import type { Client } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
@@ -97,7 +96,6 @@ export function createWhispering({
 
 	// --- models, microphone -------------------------------------------------
 
-	let choices: ModelChoices | undefined;
 	let stopChoices: (() => void) | undefined;
 	let chosenModels = $state.raw<Record<Operation, ModelChoice | null>>({
 		transcription: null,
@@ -145,30 +143,30 @@ export function createWhispering({
 		return resolveRecipe(recipe, chosen('text'));
 	}
 
-	/** Read this device's model choices, and follow them as they change. */
-	function readChoices() {
-		const opened = services.openChoices();
-		choices = opened;
+	/** Read this device's model choices (kept by job, `CAN`'s), and follow them as they change. */
+	async function readChoices() {
+		const { choices } = services;
 		const read = () => {
 			chosenModels = {
-				transcription: opened.get('transcription'),
-				text: opened.get('text'),
+				transcription: choices.get(CAN.transcription),
+				text: choices.get(CAN.text),
 			};
 		};
+		stopChoices = choices.subscribe(read);
 		read();
-		stopChoices = opened.subscribe(read);
+		await choices.ready;
+		read();
 	}
 
 	/** Choose the model `operation` uses from now on. Nothing is sent. */
-	function choose(
+	async function choose(
 		operation: Operation,
 		choice: ModelChoice,
-	): string | undefined {
+	): Promise<string | undefined> {
 		const why = refused();
 		if (why !== undefined) return why;
-		if (choices === undefined) return STOPPED;
 		try {
-			choices.set(operation, choice);
+			await services.choices.set(CAN[operation], choice);
 			return undefined;
 		} catch (cause) {
 			return describe(cause);
@@ -292,7 +290,6 @@ export function createWhispering({
 		disposed = true;
 		input.close();
 		stopChoices?.();
-		choices?.[Symbol.dispose]();
 		if (captureState.phase === 'starting') {
 			captureState.attempt.abort();
 			captureState = { phase: 'idle' };
@@ -351,7 +348,7 @@ export function createWhispering({
 			starting ??= (async () => {
 				try {
 					if (disposed) throw new Error(STOPPED);
-					readChoices();
+					await readChoices();
 					await services.ai.custom()?.ready;
 					// The saved choice only: no microphone is opened or listed at launch.
 					if (disposed) throw new Error(STOPPED);

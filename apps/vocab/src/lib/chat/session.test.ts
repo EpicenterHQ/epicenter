@@ -87,7 +87,7 @@ async function setup({ question = false } = {}) {
 	const ai = fromAi(openAi([tutorEndpoint]));
 	const choices = sessionDouble<ChatOptions['choices']>({
 		get: () => ({ endpoint: 'tutor', model: 'test-model' }),
-		set: () => {},
+		set: async () => {},
 		subscribe: () => () => {},
 	});
 	const chat = createVocabChat({

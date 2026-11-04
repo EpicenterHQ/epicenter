@@ -181,8 +181,10 @@ the credential store, and sends every one of them, Ollama's and LM Studio's
 included, through the shell's fetch (`connection_fetch`), which adds the key.
 
 The person chooses one model for transcription and one for text
-(`ModelPicker` from `@epicenter/ai/picker`, in `ModelSetting.svelte`, kept by
-`createModelChoices` in `localStorage`); the same picker adds, edits and
+(`ModelPicker` from `@epicenter/ai/picker`, in `ModelSetting.svelte`), kept
+by job, `'transcribe'` and `'chat'`, as a device setting (`modelChoices()`,
+`services.choices`): this site's `localStorage` on the web, AppData's
+`models.md` beside `connections.md` on the desktop. The same picker adds, edits and
 removes a connection. `inference.ts` sends a prepared request through the
 endpoints merged at that moment, to its target alone, and refuses one whose
 endpoint was removed or moved. Signing in moves nothing: the hosted

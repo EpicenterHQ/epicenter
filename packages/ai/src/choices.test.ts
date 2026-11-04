@@ -1,127 +1,136 @@
 /**
- * Model choice tests.
- * Verifies detached exact targets, failed writes, strict persisted validation,
- * independent observation, and refusal through retained methods after disposal.
+ * Model choice tests, over a place in memory.
+ *
+ * Key behaviors:
+ * - A saved choice is answered as saved, detached from the caller's object,
+ *   and keeps an endpoint that is gone; a job none was saved for answers
+ *   the app's default
+ * - A failed save changes nothing and tells no one
+ * - A change made elsewhere is read again and told; disposal stops that
+ * - Saved choices that do not read leave only the defaults, and say why
  */
 import { expect, test } from 'bun:test';
-import { createModelChoices } from './choices.js';
+import {
+	type ChoicesPlace,
+	createModelChoices,
+	type SavedChoices,
+} from './choices.js';
 
-function setup() {
-	const values = new Map<string, string>();
-	const observers = new Set<() => void>();
+function memoryPlace(initial: SavedChoices = {}) {
+	let saved: SavedChoices = initial;
 	let fail = false;
+	let unreadable = false;
+	const listeners = new Set<() => void>();
+	const place: ChoicesPlace = {
+		async read() {
+			if (unreadable) throw new Error('models.md does not read.');
+			return saved;
+		},
+		async save(job, choice) {
+			if (fail) throw new Error('Storage write failed.');
+			saved = { ...saved, [job]: choice };
+			return saved;
+		},
+		watch(listener) {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+	};
 	return {
-		values,
-		observers,
-		failWrites() {
+		place,
+		listeners,
+		failWrites: () => {
 			fail = true;
 		},
-		open() {
-			return createModelChoices({
-				storageKey: 'test',
-				storage: {
-					getItem(key) {
-						return values.get(key) ?? null;
-					},
-					setItem(key, value) {
-						if (fail) throw new Error('Storage write failed.');
-						values.set(key, value);
-					},
-				},
-				subscribeStorage(listener) {
-					observers.add(listener);
-					return () => {
-						observers.delete(listener);
-					};
-				},
-			});
+		breakReads: () => {
+			unreadable = true;
 		},
-		externalChange() {
-			for (const listener of observers) listener();
+		changeElsewhere(next: SavedChoices) {
+			saved = next;
+			for (const listener of listeners) listener();
 		},
 	};
 }
 
-test('saved scopes preserve exact identities and models across reload without retaining caller objects', () => {
-	const fixture = setup();
-	const selections = fixture.open();
-	const target = {
-		endpoint: 'unresolved:https://missing',
-		model: 'manual',
-	};
-	selections.set('chat', target);
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test('a saved choice is answered as saved, detached, and a job none was saved for answers the default', async () => {
+	const memory = memoryPlace();
+	const choices = createModelChoices<'chat' | 'transcribe'>(memory.place, {
+		chat: { endpoint: 'hosted', model: 'default' },
+	});
+	await choices.ready;
+	expect(choices.get('chat')).toEqual({ endpoint: 'hosted', model: 'default' });
+	expect(choices.get('transcribe')).toBeNull();
+
+	const target = { endpoint: 'gone-endpoint', model: 'manual' };
+	await choices.set('transcribe', target);
 	target.model = 'changed';
-	selections.get('chat')!.endpoint = 'changed';
-	expect(selections.get('missing')).toBeNull();
-	expect(selections.get('toString')).toBeNull();
-	selections.set('__proto__', { endpoint: 'custom', model: 'm' });
-	expect(fixture.open().get('chat')).toEqual({
-		endpoint: 'unresolved:https://missing',
+	choices.get('transcribe')!.endpoint = 'changed';
+	expect(choices.get('transcribe')).toEqual({
+		endpoint: 'gone-endpoint',
 		model: 'manual',
 	});
-	expect(fixture.open().get('__proto__')).toEqual({
-		endpoint: 'custom',
-		model: 'm',
+	const reopened = createModelChoices(memory.place);
+	await reopened.ready;
+	expect(reopened.get('transcribe')).toEqual({
+		endpoint: 'gone-endpoint',
+		model: 'manual',
 	});
-	expect([...fixture.values.keys()]).toEqual(['test.model-choices']);
 });
 
-test('failed selection persistence leaves the saved target visible and sends no notification', () => {
-	const fixture = setup();
-	const selections = fixture.open();
-	selections.set('chat', { endpoint: 'one', model: 'm' });
+test('a failed save changes nothing and tells no one', async () => {
+	const memory = memoryPlace({ chat: { endpoint: 'one', model: 'm' } });
+	const choices = createModelChoices(memory.place);
+	await choices.ready;
 	let changes = 0;
-	selections.subscribe(() => changes++);
-	fixture.failWrites();
-	expect(() => selections.set('chat', { endpoint: 'two', model: 'm' })).toThrow(
-		'write failed',
-	);
-	expect(selections.get('chat')!.endpoint).toBe('one');
+	choices.subscribe(() => changes++);
+	memory.failWrites();
+	await expect(
+		choices.set('chat', { endpoint: 'two', model: 'm' }),
+	).rejects.toThrow('write failed');
+	expect(choices.get('chat')?.endpoint).toBe('one');
 	expect(changes).toBe(0);
 });
 
-test('external updates use only the selection destination and disposal releases observation', () => {
-	const fixture = setup();
-	const selections = fixture.open();
+test('a change made elsewhere is read again and told, until disposal', async () => {
+	const memory = memoryPlace();
+	const choices = createModelChoices(memory.place);
+	await choices.ready;
 	let changes = 0;
-	selections.subscribe(() => changes++);
-	selections.set('chat', { endpoint: 'one', model: 'm' });
-	fixture.values.set('test.app-ai', 'malformed old settings');
-	fixture.externalChange();
+	choices.subscribe(() => changes++);
+	memory.changeElsewhere({ chat: { endpoint: 'two', model: 'm' } });
+	await settle();
+	expect(choices.get('chat')?.endpoint).toBe('two');
 	expect(changes).toBe(1);
-	fixture.values.set(
-		'test.model-choices',
-		JSON.stringify({
-			version: 1,
-			choices: { chat: { endpoint: 'two', model: 'm' } },
-		}),
-	);
-	fixture.externalChange();
-	expect(selections.get('chat')!.endpoint).toBe('two');
-	expect(changes).toBe(2);
-	const { get, set, subscribe } = selections;
-	selections[Symbol.dispose]();
-	selections[Symbol.dispose]();
-	expect(fixture.observers.size).toBe(0);
+
+	const { get, set, subscribe } = choices;
+	choices[Symbol.dispose]();
+	choices[Symbol.dispose]();
+	expect(memory.listeners.size).toBe(0);
 	expect(() => get('chat')).toThrow('disposed');
 	expect(() => set('chat', { endpoint: 'x', model: 'm' })).toThrow('disposed');
 	expect(() => subscribe(() => {})).toThrow('disposed');
 });
 
-test('malformed choices and unsupported versions fail without exposing or changing saved bytes', () => {
-	for (const raw of [
-		'secret invalid JSON',
-		JSON.stringify({ version: 2, choices: {} }),
-		JSON.stringify({
-			version: 1,
-			choices: {
-				chat: { endpoint: 'one', model: 'm', apiKey: 'secret' },
-			},
-		}),
-	]) {
-		const fixture = setup();
-		fixture.values.set('test.model-choices', raw);
-		expect(() => fixture.open()).toThrow('Invalid persisted model choices.');
-		expect(fixture.values.get('test.model-choices')).toBe(raw);
-	}
+test('saved choices that do not read leave the defaults, and say why', async () => {
+	const memory = memoryPlace();
+	memory.breakReads();
+	const choices = createModelChoices(memory.place, {
+		chat: { endpoint: 'hosted', model: 'default' },
+	});
+	await choices.ready;
+	expect(choices.problem()).toBe('models.md does not read.');
+	expect(choices.get('chat')).toEqual({ endpoint: 'hosted', model: 'default' });
+});
+
+test('a choice with anything beside its endpoint and model is refused', async () => {
+	const choices = createModelChoices(memoryPlace().place);
+	expect(() =>
+		choices.set('chat', {
+			endpoint: 'one',
+			model: 'm',
+			apiKey: 'secret',
+		} as never),
+	).toThrow('Invalid persisted model choices.');
 });

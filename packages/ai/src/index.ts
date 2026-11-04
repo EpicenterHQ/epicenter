@@ -5,7 +5,8 @@
  * embeddings.
  */
 
-export { customEndpoints } from '#device-settings';
+export { customEndpoints, modelChoices } from '#device-settings';
+export type { ModelChoices } from './choices.js';
 export {
 	AiError,
 	type ChatChunk,

@@ -11,11 +11,17 @@
  * `connections.md`, each key in the keychain and every request sent by the
  * shell), and none of this decides where words and chats are kept.
  */
-import { customEndpoints, hosted, localServers, openAi } from '@epicenter/ai';
+import {
+	customEndpoints,
+	hosted,
+	localServers,
+	modelChoices,
+	openAi,
+} from '@epicenter/ai';
 import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
 import { fromAi } from '@epicenter/ai/svelte';
 import { account } from '#platform/auth';
-import { VOCAB_MODEL } from './data.js';
+import { HOSTED_TUTOR, VOCAB_MODEL } from './data.js';
 
 /** Every model Vocab can reach, as Svelte state. */
 export const ai = fromAi(
@@ -25,3 +31,11 @@ export const ai = fromAi(
 		customEndpoints(),
 	]),
 );
+
+/**
+ * The tutor's model on this device, kept by job (`'chat'`): Epicenter's
+ * tutor model until the learner chooses another. A device setting, not the
+ * learner's data (this browser's storage on the web, AppData's `models.md`
+ * on the desktop).
+ */
+export const choices = modelChoices<'chat'>({ chat: HOSTED_TUTOR });

@@ -16,8 +16,7 @@
 	import { createVocabChat } from '$lib/chat/session.svelte.js';
 	import type { MessageList } from '$lib/chat/messages.svelte.js';
 	import type { Entries } from '$lib/entries.svelte.js';
-	import type { ModelChoices } from '@epicenter/ai/choices';
-	import { ai } from '$lib/ai.js';
+	import { ai, choices } from '$lib/ai.js';
 	import DictationButton from './DictationButton.svelte';
 	import PhraseCapture from './PhraseCapture.svelte';
 
@@ -27,7 +26,6 @@
 		chatId,
 		account,
 		messages,
-		choices,
 		entries,
 		focus,
 		visible,
@@ -39,7 +37,6 @@
 		account: Account | undefined;
 		/** Every chat's finished messages. */
 		messages: MessageList;
-		choices: ModelChoices;
 		entries: Entries;
 		focus: readonly { text: string }[];
 		visible: boolean;
@@ -173,7 +170,7 @@
 	{/if}
 
 	<div class="bg-background px-2 pt-1.5">
-		<ModelPicker {ai} value={chat.target} onSelect={(choice) => chat.selectTarget(choice)} disabled={chat.isGenerating} />
+		<ModelPicker {ai} value={chat.target} onSelect={(choice) => void chat.selectTarget(choice).catch((cause: unknown) => toast.error('Could not choose the model', { description: cause instanceof Error ? cause.message : String(cause) }))} disabled={chat.isGenerating} />
 	</div>
 	{#if !chat.canServe}
 		<p class="px-3 pb-1 text-xs text-muted-foreground">Choose a model to chat. Connect your own endpoint in the picker{account ? '' : ", or sign in for Epicenter's hosted models"}.</p>

@@ -28,8 +28,8 @@
 		},
 	} as const;
 
-	function select(next: ModelChoice) {
-		const problem = whispering.choose(operation, next);
+	async function select(next: ModelChoice) {
+		const problem = await whispering.choose(operation, next);
 		if (problem) toast.error(`Could not choose the ${operation} model`, { description: problem });
 	}
 </script>

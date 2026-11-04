@@ -28,9 +28,10 @@ import {
 	customEndpoints,
 	hosted,
 	localServers,
+	type ModelChoices,
+	modelChoices,
 	openAi,
 } from '@epicenter/ai';
-import { createBrowserModelChoices } from '@epicenter/ai/choices';
 import { shellFetch } from '@epicenter/ai/tauri';
 import { recorder } from '@epicenter/recorder/tauri';
 import { localSpeech } from '@epicenter/transcription';
@@ -39,23 +40,27 @@ import { localPreferences } from '../microphone-preference.js';
 import { getAccount } from './auth.tauri.js';
 import type { CreateServices } from './types.js';
 
-/** Every model this window reaches, made once for the page, when the app first starts. */
-let ai: Ai | undefined;
-function madeOnce(): Ai {
-	ai ??= openAi([
-		hosted(getAccount()),
-		customEndpoints(),
-		localServers({ fetch: shellFetch }),
-		localSpeech(),
-	]);
-	return ai;
+/** Every model this window reaches, and the one chosen for each job, made once for the page when the app first starts. */
+let models:
+	| { ai: Ai; choices: ModelChoices<'transcribe' | 'chat'> }
+	| undefined;
+function madeOnce() {
+	models ??= {
+		ai: openAi([
+			hosted(getAccount()),
+			customEndpoints(),
+			localServers({ fetch: shellFetch }),
+			localSpeech(),
+		]),
+		choices: modelChoices<'transcribe' | 'chat'>(),
+	};
+	return models;
 }
 
 /** Whispering's services in its desktop app, over the data folder `client` opened. */
 export const createServices: CreateServices = (client) => ({
 	capture: createMicrophoneDevice({ device: client, recorder }),
-	ai: madeOnce(),
-	openChoices: () => createBrowserModelChoices('whispering'),
+	...madeOnce(),
 	connectionsNote:
 		"A connection's key is kept in this computer's credential store and added by Whispering as a request leaves this computer, so any endpoint works, including one on this computer or your network. Epicenter's models go through Epicenter's API.",
 	preferences: localPreferences,

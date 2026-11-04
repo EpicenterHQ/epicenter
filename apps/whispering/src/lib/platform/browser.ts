@@ -16,27 +16,32 @@ import {
 	customEndpoints,
 	hosted,
 	localServers,
+	type ModelChoices,
+	modelChoices,
 	openAi,
 } from '@epicenter/ai';
-import { createBrowserModelChoices } from '@epicenter/ai/choices';
 import { recorder } from '@epicenter/recorder/browser';
 import { createMicrophoneDevice } from '../microphone.js';
 import { localPreferences } from '../microphone-preference.js';
 import { getAccount } from './auth.js';
 import type { CreateServices } from './types.js';
 
-/** Every model this tab reaches, made once for the page, when the app first starts. */
-let ai: Ai | undefined;
-function madeOnce(): Ai {
-	ai ??= openAi([hosted(getAccount()), customEndpoints(), localServers()]);
-	return ai;
+/** Every model this tab reaches, and the one chosen for each job, made once for the page when the app first starts. */
+let models:
+	| { ai: Ai; choices: ModelChoices<'transcribe' | 'chat'> }
+	| undefined;
+function madeOnce() {
+	models ??= {
+		ai: openAi([hosted(getAccount()), customEndpoints(), localServers()]),
+		choices: modelChoices<'transcribe' | 'chat'>(),
+	};
+	return models;
 }
 
 /** Whispering's services in a browser tab: `#platform/services`. */
 export const createServices: CreateServices = (client) => ({
 	capture: createMicrophoneDevice({ device: client, recorder }),
-	ai: madeOnce(),
-	openChoices: () => createBrowserModelChoices('whispering'),
+	...madeOnce(),
 	connectionsNote: `A connection's key is kept in this browser's storage for this site, where code running on the site can read it. Its requests leave this browser tab, so its endpoint must allow requests from ${location.origin} (CORS). Epicenter's models go through Epicenter's API and have no such limit.`,
 	preferences: localPreferences,
 });

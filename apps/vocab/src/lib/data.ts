@@ -10,8 +10,8 @@ import type { Vocab } from './contract.js';
  */
 
 /**
- * The initial model for this device's tutor workflow. The learner may choose
- * another model through the inference picker; messages do not store that choice.
+ * The tutor's model on a device until the learner chooses another (the job
+ * `'chat'` in `choices`, `ai.ts`); messages do not store that choice.
  */
 export const VOCAB_MODEL = 'gemini-3.5-flash' satisfies ServableModel;
 

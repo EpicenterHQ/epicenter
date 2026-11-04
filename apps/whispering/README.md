@@ -178,8 +178,8 @@ connection you saved (a provider's base URL and an optional key), Ollama and
 LM Studio when they run on this computer, and on the desktop transcription
 in the app itself. The same picker adds, edits and removes a connection.
 Choices and connections stay on this device, never in Whispering's files:
-in this site's `localStorage`, or on the desktop AppData's `connections.md`
-with each key in the credential store.
+in this site's `localStorage`, or on the desktop AppData's `models.md` and
+`connections.md`, with each key in the credential store.
 
 - Nothing is sent until you press Transcribe or Run. Choosing a model sends
   nothing; adding a connection may ask its endpoint which models it serves.

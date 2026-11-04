@@ -14,8 +14,7 @@
  */
 import type { AuthClient } from '@epicenter/account';
 import type { ReactiveAuthClient } from '@epicenter/account/svelte';
-import type { Ai } from '@epicenter/ai';
-import type { ModelChoices } from '@epicenter/ai/choices';
+import type { Ai, ModelChoices } from '@epicenter/ai';
 import type { Client } from '@epicenter/definition/contract';
 import type { ReactiveClient } from '@epicenter/svelte/client';
 import type { Component, Snippet } from 'svelte';
@@ -76,8 +75,12 @@ export type WhisperingServices = {
 	 * computer runs only while a picker shows.
 	 */
 	readonly ai: Ai;
-	/** Open this device's model choice for transcription and for text, kept beside the microphone's. */
-	openChoices(): ModelChoices;
+	/**
+	 * This device's model choice for each job, `'transcribe'` and `'chat'`
+	 * (`modelChoices()`): this site's storage on the web, AppData's
+	 * `models.md` beside the connections on the desktop.
+	 */
+	readonly choices: ModelChoices<'transcribe' | 'chat'>;
 	/** Where a connection's key is kept, and where its requests leave from, in the person's words. */
 	readonly connectionsNote: string;
 	/**
