@@ -283,9 +283,5 @@ configured database. `src/test-helpers/oauth-checks.ts` holds the
 authorization server checks that `apps/api` also runs against its Bun and
 Worker entries.
 
-## Shared protocol packages
-
-These packages are private and AGPL-3.0-or-later. Worker bindings and
-deployment composition remain in this package and its deployables. The Yjs
-store sync this package used to mount is removed (ADR-0534); data folders sync
-over Git (ADR-0521).
+Data folders sync over Git (ADR-0521); the Yjs store sync this package
+used to mount is removed (ADR-0534).

@@ -98,7 +98,7 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 | [Whispering](apps/whispering) | Runs, development milestone | Voice recorder in a browser tab. Recordings, transcripts, and settings are files in a folder. |
 | [Todos](apps/todos) | Runs, development milestone | Todos as Markdown notes on the file contract: kept in the browser without sign-in, uploaded to your repository once signed in. |
 | [Vocab](apps/vocab) | Runs, development | Words and chats as notes of its contract, in the browser and, signed in, the learner's repository, with AI over `@epicenter/ai`. |
-| [Epicenter](apps/epicenter) | Runs, development | The folder manager: registers, syncs, and shares folders, with a generic native file view. Apps run as separate programs. |
+| [Epicenter](apps/epicenter) | Runs, development | The folder manager: sets up, syncs, and shares the folders it finds in `~/Epicenter`, and opens none of their files. Apps run as separate programs. |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
 
 ### Packages
@@ -153,7 +153,7 @@ Every app starts from the repo root. `bun dev:<app>` runs every process the app 
 
 `bun dev:whispering` runs Whispering in a browser tab. `bun dev:todos`, `bun dev:vocab`, and `bun dev:epicenter` run those apps.
 
-The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Epicenter. Local Books and Local Mail run their own multi-process dev flows; their READMEs document them.
+The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Epicenter. Local Books runs its own multi-process dev flow; its README documents it.
 
 `bun run check` is the gate. It runs lint, typecheck, every workspace test, and the structural checks, and it is the same gate CI runs, so a green local run predicts a green pull request. Formatting is handled separately by the autofix workflow.
 
@@ -168,7 +168,7 @@ bun run format          # rewrite formatting (CI autofixes this for you)
 bun run lint:check
 bun run typecheck
 bun run test
-bun run check:structure # doc paths, catalog pins, API paths, licenses, UI boundary, boot purity
+bun run check:structure # doc paths, catalog pins, API paths, UI boundary, boot purity, vocabulary, state paths
 ```
 
 One check sits outside the gate on purpose. `bun run check:doc-hygiene` flags specs and ADRs that time has made stale, so it belongs to review rather than to merge.

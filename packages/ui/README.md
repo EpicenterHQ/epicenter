@@ -96,9 +96,8 @@ input.
 `Tabs.Content` unmounts inactive children by default, including custom `child`
 snippets. Do not repeat the selected-tab condition inside every panel. Keep editor
 input, refused input, and unfinished forms above disposable panels. Use
-`forceMount` when an inactive panel intentionally owns state that must survive:
-Epicenter's main app panes preserve the chat draft and session that way. The
-retained panel stays hidden and its controls remain alive.
+`forceMount` when an inactive panel intentionally owns state that must survive.
+The retained panel stays hidden and its controls remain alive.
 
 A structured panel still renders only while the current row is valid. Its setters
 check current row and application eligibility because input may arrive before

@@ -1,6 +1,6 @@
 # @epicenter/landing
 
-Epicenter's public landing site, built with [Astro](https://astro.build/) and deployed to Cloudflare Pages.
+Epicenter's public landing site, built with [Astro](https://astro.build/) and deployed as Cloudflare Workers static assets (`wrangler deploy`).
 
 ## Commands
 

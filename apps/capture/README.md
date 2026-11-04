@@ -120,7 +120,6 @@ a new root that sets its own store, and a header that says what it is.
 | `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account. |
 | `src/lib/components/Online.svelte` | The repository per account, its captures set for every page (`setCaptureList`). |
 | `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's captures set for every page (`setCaptureList`); the header's local history status, Set up in Epicenter, and the shell's folder path. |
-| `src/lib/folder.tauri.ts` | Where the contract is published, which the desktop window's sync names. |
 | `src/routes/(app)/+page.svelte` | Capture over the store's captures. |
 | `src/lib/components/CaptureApp.svelte` | The header and the page it shows, over the captures the root set. |
 | `src/lib/captures.svelte.ts` | The timeline, Add, deletion, and navigation. |
@@ -136,17 +135,17 @@ bun dev:capture:desktop     # from the repository root; needs a Rust toolchain
 bun build:capture:desktop   # a local, unsigned macOS app bundle
 ```
 
-Its Tauri shell derives the data folder from the app's site and grants it
-to the window. The page opens `~/Epicenter/capture` (`~/Epicenter Dev/capture`
+Its Tauri shell derives the data folder from the app's site and names it
+the Data root, which the page opens by name. The page opens `~/Epicenter/capture` (`~/Epicenter Dev/capture`
 in development), making it when missing for now. A failed open shows the
 shared recovery screen with Retry. The files remain when the app is removed.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
-(`openDataFolder(capture)`) with no sign-in: Capture makes no
+(`openDataFolder(capture, site)`) with no sign-in: Capture makes no
 inference calls, and Epicenter can keep the folder's local history. Its header
 says whether Epicenter manages the folder, offers **Set up in Epicenter** until it does
-(`syncWithEpicenter({ path, contract })`, the contract at `APPS.CAPTURE.url`'s
+(`syncWithEpicenter({ contract })`, the contract at `APPS.CAPTURE.url`'s
 `contract.json`), and shows the shell's folder path in the status details.
 Closing the window or quitting does not wait.
 

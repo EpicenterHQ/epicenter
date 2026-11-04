@@ -245,7 +245,7 @@ bun dev:whispering:desktop     # from the repository root; needs a Rust toolchai
 bun build:whispering:desktop   # a local, unsigned macOS app bundle
 ```
 
-Its Tauri shell derives and grants `~/Epicenter/whispering`, or
+Its Tauri shell derives `~/Epicenter/whispering` and names it the Data root, or
 `~/Epicenter Dev/whispering` in development. The page opens this folder,
 making it when missing for now. Whispering opens its AppData root for shortcut
 overrides. A failed open shows the shared recovery screen with Retry. The

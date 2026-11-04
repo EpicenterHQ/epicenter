@@ -76,18 +76,18 @@ bun dev:honeycrisp:desktop     # from the repository root; needs a Rust toolchai
 bun build:honeycrisp:desktop   # a local, unsigned macOS app bundle
 ```
 
-Its Tauri shell derives the data folder from the app's site and grants it
-to the window. The page opens `~/Epicenter/honeycrisp` (`~/Epicenter Dev/honeycrisp`
+Its Tauri shell derives the data folder from the app's site and names it
+the Data root, which the page opens by name. The page opens `~/Epicenter/honeycrisp` (`~/Epicenter Dev/honeycrisp`
 in development), making it when missing for now. A failed open shows the
 shared recovery screen with Retry. The files remain when the app is removed.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
-(`openDataFolder(honeycrisp)`) with no sign-in: Honeycrisp
+(`openDataFolder(honeycrisp, site)`) with no sign-in: Honeycrisp
 makes no inference calls, and Epicenter can keep the folder's local history.
 Its header says "On this computer" or "Kept by Epicenter" once the folder is
 enrolled (asked again each time the window gains focus), offers **Set up in
-Epicenter** until then (`syncWithEpicenter({ path, contract })`, the
+Epicenter** until then (`syncWithEpicenter({ contract })`, the
 contract at `APPS.HONEYCRISP.url`'s `contract.json`), and shows the shell's folder path in the status details. Closing the window or quitting does not wait.
 
 The variant is chosen at build time through the `#platform/root` seam, as
@@ -178,7 +178,6 @@ that sets its own store, and a header that says what it is.
 | `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte`, `SignInCallback.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account; the end of sign-in. |
 | `src/lib/components/Online.svelte` | The repository per account, its notes and folders set for every page (`setNotes`, `setFolders`). |
 | `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's notes and folders set for every page (`setNotes`, `setFolders`); the header's local history status, Set up in Epicenter, and the shell's folder path. |
-| `src/lib/folder.tauri.ts` | Where the contract is published, which the desktop window's sync names. |
 | `src/routes/(app)/+page.svelte` | `HoneycrispApp`, over the notes and folders the root set. |
 | `src/lib/honeycrisp.svelte.ts` | The notes' and folders' contexts, the orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections. |
 | `src/lib/editor/` | The CodeMirror note editor: the binding that writes local edits and follows changes from elsewhere, live preview, conflict cards. It knows nothing of the app's UI or storage. |

@@ -138,7 +138,7 @@ Cloudflare Workers
 └── Artifacts (ARTIFACTS binding): one namespace per environment, one Git repository per repository id
 ```
 
-API keys for AI providers come from Infisical's production `/api` secret sync to this Worker. Clients never receive provider keys. The client sends a session token, the hub validates it and swaps in the real key before forwarding to the provider.
+API keys for AI providers come from Infisical's production `/api` secret sync to this Worker. Clients never receive provider keys. The client sends an OAuth access token, the hub validates it and swaps in the real key before forwarding to the provider.
 
 ## Development
 
@@ -158,7 +158,6 @@ OAuth, AI, and billing still call their external services. For billing tests,
 use the Autumn sandbox described in [Local account integration](./ACCOUNT-INTEGRATION.md).
 Hosted Git is unavailable in this local process because Artifacts has no local
 simulator. Local dev does not require an Artifacts account secret.
-For client Git transfers without Cloudflare, use [Todos' loopback demo remote](../todos/README.md#developing).
 
 The launcher rebuilds the hosted UI at startup. After editing that UI while
 Wrangler is running, restart the root dev command or run
@@ -375,4 +374,4 @@ See `wrangler.jsonc` for the Artifacts binding, why the Worker has no Durable Ob
 
 ## License
 
-[AGPL-3.0](../../licenses/LICENSE-AGPL-3.0). The apps, the shared server library, and internal glue are AGPL so that anyone hosting a modified version shares their changes. The embeddable toolkit (`data`, `workspace`, `field`, `sqlite`, `sync`, `ui`, `identity`, `chat`, `agent`, `agent-protocol`) is MIT. This follows the same pattern as Yjs (MIT core, AGPL y-redis), Liveblocks (Apache clients, AGPL server), and Bitwarden (GPL clients, AGPL server).
+[AGPL-3.0](../../licenses/LICENSE-AGPL-3.0). The apps, the shared server library, and internal glue are AGPL so that anyone hosting a modified version shares their changes. Every package is AGPL; see `docs/licensing/licensing-strategy.md`.
