@@ -5,15 +5,14 @@
 	"type": "module",
 	"license": "AGPL-3.0-or-later",
 	"exports": {
-		".": "./src/ai.ts",
+		".": "./src/index.ts",
 		"./agent": "./src/agent/index.ts",
-		"./codex": "./src/codex-connection.ts",
+		"./choices": "./src/choices.ts",
+		"./codex": "./src/codex/index.ts",
 		"./connections": "./src/ai-connections.ts",
-		"./openai": "./src/openai/index.ts",
 		"./picker": "./src/picker/index.ts",
 		"./providers": "./src/providers.ts",
-		"./selections": "./src/selections.ts",
-		"./target": "./src/target.ts"
+		"./svelte": "./src/svelte/ai.svelte.ts"
 	},
 	"dependencies": {
 		"@epicenter/account": "workspace:*",
@@ -21,7 +20,6 @@
 		"@lucide/svelte": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"nanoid": "catalog:",
-		"openai": "^7.12.1",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
@@ -33,6 +31,6 @@
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test --isolate"
+		"test": "bun test --isolate --conditions=browser"
 	}
 }

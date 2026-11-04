@@ -19,12 +19,12 @@
 
 import type { AuthFetch } from '@epicenter/account';
 import { connectionFetch, keychain } from '@epicenter/account/tauri';
-import {
-	type AiConnectionRecord,
-	type AiConnectionSnapshot,
-	type AiConnections,
-	type CustomConnectionInput,
-	openConnectionCatalog,
+import { custom } from '@epicenter/ai';
+import type {
+	AiConnectionRecord,
+	AiConnectionSnapshot,
+	AiConnections,
+	CustomConnectionInput,
 } from '@epicenter/ai/connections';
 import type { Client, Version } from '@epicenter/definition/contract';
 import { nanoid } from '@epicenter/definition/ids';
@@ -291,10 +291,15 @@ export function createKeychainConnections({
 				);
 			});
 		},
-		transport: (record) => ({
-			baseURL: record.baseUrl,
-			fetch: send(record.id),
-		}),
+		// No key here: the shell adds the one it keeps for this connection.
+		endpoint: (record) =>
+			custom({
+				id: record.id,
+				name: record.name,
+				baseUrl: record.baseUrl,
+				fetch: send(record.id),
+				models: record.models,
+			}),
 		async close() {
 			closed = true;
 			unsubscribe();
@@ -320,10 +325,10 @@ export const openConnections: OpenConnections = async () => {
 			`Vocab's connections could not be opened: ${opened.error.message}`,
 			{ cause: opened.error },
 		);
-	return openConnectionCatalog(
-		createKeychainConnections({
-			file: opened.data.connections,
-			keys: keychain,
-		}),
-	);
+	const connections = createKeychainConnections({
+		file: opened.data.connections,
+		keys: keychain,
+	});
+	await connections.ready;
+	return connections;
 };

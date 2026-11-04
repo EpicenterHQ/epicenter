@@ -5,8 +5,8 @@
  * event matching derive from the same key and are not exercised here.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { createBrowserConnections } from './browser.js';
-import { createBrowserInferenceSelections } from './selections.js';
+import { createBrowserConnections } from './ai-connections.js';
+import { createBrowserModelChoices } from './choices.js';
 
 const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
 
@@ -36,13 +36,13 @@ test('connections and choices are saved under their browser keys', async () => {
 		baseUrl: 'https://example.com/v1',
 	});
 	await connections.close();
-	const selections = createBrowserInferenceSelections('vocab');
-	selections.set('chat', { connectionId, model: 'manual' });
+	const selections = createBrowserModelChoices('vocab');
+	selections.set('chat', { endpoint: connectionId, model: 'manual' });
 	selections[Symbol.dispose]();
 
 	expect([...values.keys()].sort()).toEqual([
 		'epicenter/ai.app-ai-connections',
-		'vocab/ai.app-ai-selections',
+		'vocab/ai.model-choices',
 	]);
 });
 
@@ -63,19 +63,19 @@ test('connections and choices saved in an earlier session read back', async () =
 		}),
 	);
 	values.set(
-		'vocab/ai.app-ai-selections',
+		'vocab/ai.model-choices',
 		JSON.stringify({
 			version: 1,
-			selections: { chat: { connectionId: 'saved', model: 'manual' } },
+			choices: { chat: { endpoint: 'saved', model: 'manual' } },
 		}),
 	);
 
 	const connections = createBrowserConnections();
 	expect(connections.getAll().map(({ id }) => id)).toEqual(['saved']);
 	await connections.close();
-	const selections = createBrowserInferenceSelections('vocab');
+	const selections = createBrowserModelChoices('vocab');
 	expect(selections.get('chat')).toEqual({
-		connectionId: 'saved',
+		endpoint: 'saved',
 		model: 'manual',
 	});
 	selections[Symbol.dispose]();

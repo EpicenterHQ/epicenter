@@ -1,10 +1,10 @@
 /**
- * Application inference selection tests.
+ * Model choice tests.
  * Verifies detached exact targets, failed writes, strict persisted validation,
  * independent observation, and refusal through retained methods after disposal.
  */
 import { expect, test } from 'bun:test';
-import { createInferenceSelections } from './selections.js';
+import { createModelChoices } from './choices.js';
 
 function setup() {
 	const values = new Map<string, string>();
@@ -17,7 +17,7 @@ function setup() {
 			fail = true;
 		},
 		open() {
-			return createInferenceSelections({
+			return createModelChoices({
 				storageKey: 'test',
 				storage: {
 					getItem(key) {
@@ -46,37 +46,37 @@ test('saved scopes preserve exact identities and models across reload without re
 	const fixture = setup();
 	const selections = fixture.open();
 	const target = {
-		connectionId: 'unresolved:https://missing',
+		endpoint: 'unresolved:https://missing',
 		model: 'manual',
 	};
 	selections.set('chat', target);
 	target.model = 'changed';
-	selections.get('chat')!.connectionId = 'changed';
+	selections.get('chat')!.endpoint = 'changed';
 	expect(selections.get('missing')).toBeNull();
 	expect(selections.get('toString')).toBeNull();
-	selections.set('__proto__', { connectionId: 'custom', model: 'm' });
+	selections.set('__proto__', { endpoint: 'custom', model: 'm' });
 	expect(fixture.open().get('chat')).toEqual({
-		connectionId: 'unresolved:https://missing',
+		endpoint: 'unresolved:https://missing',
 		model: 'manual',
 	});
 	expect(fixture.open().get('__proto__')).toEqual({
-		connectionId: 'custom',
+		endpoint: 'custom',
 		model: 'm',
 	});
-	expect([...fixture.values.keys()]).toEqual(['test.app-ai-selections']);
+	expect([...fixture.values.keys()]).toEqual(['test.model-choices']);
 });
 
 test('failed selection persistence leaves the saved target visible and sends no notification', () => {
 	const fixture = setup();
 	const selections = fixture.open();
-	selections.set('chat', { connectionId: 'one', model: 'm' });
+	selections.set('chat', { endpoint: 'one', model: 'm' });
 	let changes = 0;
 	selections.onChange(() => changes++);
 	fixture.failWrites();
-	expect(() =>
-		selections.set('chat', { connectionId: 'two', model: 'm' }),
-	).toThrow('write failed');
-	expect(selections.get('chat')!.connectionId).toBe('one');
+	expect(() => selections.set('chat', { endpoint: 'two', model: 'm' })).toThrow(
+		'write failed',
+	);
+	expect(selections.get('chat')!.endpoint).toBe('one');
 	expect(changes).toBe(0);
 });
 
@@ -85,47 +85,43 @@ test('external updates use only the selection destination and disposal releases 
 	const selections = fixture.open();
 	let changes = 0;
 	selections.onChange(() => changes++);
-	selections.set('chat', { connectionId: 'one', model: 'm' });
+	selections.set('chat', { endpoint: 'one', model: 'm' });
 	fixture.values.set('test.app-ai', 'malformed old settings');
 	fixture.externalChange();
 	expect(changes).toBe(1);
 	fixture.values.set(
-		'test.app-ai-selections',
+		'test.model-choices',
 		JSON.stringify({
 			version: 1,
-			selections: { chat: { connectionId: 'two', model: 'm' } },
+			choices: { chat: { endpoint: 'two', model: 'm' } },
 		}),
 	);
 	fixture.externalChange();
-	expect(selections.get('chat')!.connectionId).toBe('two');
+	expect(selections.get('chat')!.endpoint).toBe('two');
 	expect(changes).toBe(2);
 	const { get, set, onChange } = selections;
 	selections[Symbol.dispose]();
 	selections[Symbol.dispose]();
 	expect(fixture.observers.size).toBe(0);
 	expect(() => get('chat')).toThrow('disposed');
-	expect(() => set('chat', { connectionId: 'x', model: 'm' })).toThrow(
-		'disposed',
-	);
+	expect(() => set('chat', { endpoint: 'x', model: 'm' })).toThrow('disposed');
 	expect(() => onChange(() => {})).toThrow('disposed');
 });
 
 test('malformed choices and unsupported versions fail without exposing or changing saved bytes', () => {
 	for (const raw of [
 		'secret invalid JSON',
-		JSON.stringify({ version: 2, selections: {} }),
+		JSON.stringify({ version: 2, choices: {} }),
 		JSON.stringify({
 			version: 1,
-			selections: {
-				chat: { connectionId: 'one', model: 'm', apiKey: 'secret' },
+			choices: {
+				chat: { endpoint: 'one', model: 'm', apiKey: 'secret' },
 			},
 		}),
 	]) {
 		const fixture = setup();
-		fixture.values.set('test.app-ai-selections', raw);
-		expect(() => fixture.open()).toThrow(
-			'Invalid persisted inference selections.',
-		);
-		expect(fixture.values.get('test.app-ai-selections')).toBe(raw);
+		fixture.values.set('test.model-choices', raw);
+		expect(() => fixture.open()).toThrow('Invalid persisted model choices.');
+		expect(fixture.values.get('test.model-choices')).toBe(raw);
 	}
 });

@@ -2,9 +2,9 @@
  * Tier-1 smoke test for the OpenAI-compatible inference method (ADR-0049/0050)
  * against a local Ollama, with no auth, no API, and no UI.
  *
- * It builds the same agent engine Vocab chat uses (`createOpenAiAgentEngine`)
- * with an explicit SDK client pointed at Ollama. A green run verifies the
- * system prompts, SDK streaming, and tool-call reducer against a real server.
+ * It builds the same agent engine Vocab chat uses (`createChatEngine`) over a
+ * `custom` endpoint pointed at Ollama. A green run verifies the system prompts,
+ * the client's streaming, and the tool-call reducer against a real server.
  *
  * It doubles as a model-comparison harness: pass a model and a prompt.
  *
@@ -30,16 +30,16 @@
  *   OLLAMA_API_KEY    Bearer key for a hosted endpoint (omit for local Ollama)
  */
 
-import type { AgentEngineRequest } from '@epicenter/ai/agent';
-import { createOpenAiAgentEngine } from '@epicenter/ai/openai';
-import OpenAI from 'openai';
-import { VOCAB_SYSTEM_PROMPT } from '../vocab.js';
+import { createClient, custom, openAi } from '@epicenter/ai';
+import { type AgentEngineRequest, createChatEngine } from '@epicenter/ai/agent';
+import { VOCAB_SYSTEM_PROMPT } from '../src/lib/data.js';
 
 const model = process.argv[2] ?? 'qwen3';
 const userPrompt =
 	process.argv[3] ?? 'Teach me how to order coffee in Mandarin. Keep it short.';
 const baseUrl = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1';
 const apiKey = process.env.OLLAMA_API_KEY;
+const endpoint = custom({ id: 'smoke', baseUrl, key: apiKey });
 
 /**
  * Fail fast with a readable message if Ollama is not up or the model is not
@@ -47,26 +47,19 @@ const apiKey = process.env.OLLAMA_API_KEY;
  * stream.
  */
 async function preflight(): Promise<void> {
-	let response: Response;
-	try {
-		response = await fetch(`${baseUrl}/models`, {
-			headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
-		});
-	} catch (error) {
+	const { data: available, error } = await createClient(endpoint).listModels();
+	if (error?.name === 'Unreachable')
 		throw new Error(
-			`Cannot reach an OpenAI-compatible server at ${baseUrl}. Is \`ollama serve\` running? (${String(error)})`,
+			`Cannot reach an OpenAI-compatible server at ${baseUrl}. Is \`ollama serve\` running? (${error.message})`,
 		);
-	}
-	if (!response.ok) {
+	if (error !== null) {
 		// Some hosted endpoints don't expose /models or gate it; warn and let the
 		// real chat request be the source of truth instead of hard-failing here.
 		console.warn(
-			`! GET ${baseUrl}/models returned ${response.status}; skipping the model-present check.\n`,
+			`! GET ${baseUrl}/models failed (${error.message}); skipping the model-present check.\n`,
 		);
 		return;
 	}
-	const body = (await response.json()) as { data?: Array<{ id: string }> };
-	const available = (body.data ?? []).map((entry) => entry.id);
 	const present = available.some(
 		(id) => id === model || id.startsWith(`${model}:`),
 	);
@@ -81,17 +74,11 @@ async function preflight(): Promise<void> {
 async function main(): Promise<void> {
 	await preflight();
 
-	// The explicit SDK client owns this script's endpoint and optional key.
-	const client = new OpenAI({
-		baseURL: baseUrl,
-		apiKey: apiKey || 'unauthenticated',
-		defaultHeaders: apiKey ? undefined : { Authorization: null },
-		maxRetries: 0,
-	});
-
-	const engine = createOpenAiAgentEngine({
-		data: () => ({
-			client,
+	const ai = openAi([endpoint]);
+	const engine = createChatEngine({
+		turn: () => ({
+			ai,
+			endpoint: endpoint.id,
 			model,
 			systemPrompts: [VOCAB_SYSTEM_PROMPT],
 		}),
@@ -104,7 +91,7 @@ async function main(): Promise<void> {
 	};
 
 	console.log(`> model:   ${model}`);
-	console.log(`> backend: ${baseURL}`);
+	console.log(`> backend: ${baseUrl}`);
 	console.log(`> user:    ${userPrompt}\n`);
 
 	let text = '';

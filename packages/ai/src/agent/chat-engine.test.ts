@@ -1,5 +1,5 @@
 /**
- * The OpenAI-compatible engine builds an OpenAI Chat Completions request from the
+ * The chat engine builds an OpenAI chat request from the
  * transcript and tool catalog, and parses the streamed reply into the loop's
  * {@link EngineChunk} vocabulary. A fake `fetch` captures the request body and
  * returns a canned OpenAI SSE stream, so this exercises the real request builder
@@ -12,9 +12,10 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import OpenAI from 'openai';
-import type { AgentEngineRequest, EngineChunk } from '../agent/engine.js';
-import { createOpenAiAgentEngine } from './agent-engine.js';
+import { custom } from '../custom.js';
+import { openAi } from '../open-ai.js';
+import { createChatEngine } from './chat-engine.js';
+import type { AgentEngineRequest, EngineChunk } from './engine.js';
 
 /** Build an OpenAI SSE response: one `data:` frame per chunk, then `[DONE]`. */
 function openAiSse(chunks: object[]): Response {
@@ -63,24 +64,41 @@ function toolCalls(chunks: EngineChunk[]) {
 
 const GATEWAY = 'https://example.test/v1';
 
-describe('createOpenAiAgentEngine', () => {
+/** The engine over one custom endpoint at `baseURL`, sent through `fetch` with `apiKey`. */
+function engineOver({
+	fetch,
+	baseURL,
+	apiKey,
+	model = 'model',
+	systemPrompts = [],
+}: {
+	fetch?: typeof globalThis.fetch;
+	baseURL: string;
+	apiKey?: string;
+	model?: string;
+	systemPrompts?: string[];
+}) {
+	const ai = openAi([
+		custom({ id: 'test', baseUrl: baseURL, key: apiKey, fetch }),
+	]);
+	return createChatEngine({
+		turn: () => ({ ai, endpoint: 'test', model, systemPrompts }),
+	});
+}
+
+describe('createChatEngine', () => {
 	test('builds the OpenAI request: system prompts, mapped transcript, tools, streaming', async () => {
 		const { fetch, calls } = capturingFetch(
 			openAiSse([
 				{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] },
 			]),
 		);
-		const engine = createOpenAiAgentEngine({
-			data: () => ({
-				client: new OpenAI({
-					fetch,
-					baseURL: GATEWAY,
-					apiKey: 'test',
-					logLevel: 'off',
-				}),
-				model: 'gpt-5.5',
-				systemPrompts: ['be brief'],
-			}),
+		const engine = engineOver({
+			fetch,
+			baseURL: GATEWAY,
+			apiKey: 'test',
+			model: 'gpt-5.5',
+			systemPrompts: ['be brief'],
 		});
 
 		const request: AgentEngineRequest = {
@@ -165,16 +183,12 @@ describe('createOpenAiAgentEngine', () => {
 			requestedUrl = String(url);
 			return fetch(url, init);
 		}) as unknown as typeof globalThis.fetch;
-		const engine = createOpenAiAgentEngine({
-			data: () => ({
-				client: new OpenAI({
-					fetch: recordingFetch,
-					baseURL: 'https://example.test/v1/',
-					apiKey: 'test',
-				}),
-				model: 'gpt-5.5',
-				systemPrompts: [],
-			}),
+		const engine = engineOver({
+			fetch: recordingFetch,
+			baseURL: 'https://example.test/v1/',
+			apiKey: 'test',
+			model: 'gpt-5.5',
+			systemPrompts: [],
 		});
 
 		await drain(
@@ -300,17 +314,12 @@ describe('createOpenAiAgentEngine', () => {
 				},
 			]),
 		);
-		const engine = createOpenAiAgentEngine({
-			data: () => ({
-				client: new OpenAI({
-					fetch,
-					baseURL: GATEWAY,
-					apiKey: 'test',
-					logLevel: 'off',
-				}),
-				model: 'gemini-3.5-flash',
-				systemPrompts: [],
-			}),
+		const engine = engineOver({
+			fetch,
+			baseURL: GATEWAY,
+			apiKey: 'test',
+			model: 'gemini-3.5-flash',
+			systemPrompts: [],
 		});
 
 		const ends = toolCalls(
@@ -337,17 +346,12 @@ describe('createOpenAiAgentEngine', () => {
 			{ status: 402, headers: { 'content-type': 'application/json' } },
 		);
 		const { fetch } = capturingFetch(errorResponse);
-		const engine = createOpenAiAgentEngine({
-			data: () => ({
-				client: new OpenAI({
-					fetch,
-					baseURL: GATEWAY,
-					apiKey: 'test',
-					logLevel: 'off',
-				}),
-				model: 'gpt-5.5',
-				systemPrompts: [],
-			}),
+		const engine = engineOver({
+			fetch,
+			baseURL: GATEWAY,
+			apiKey: 'test',
+			model: 'gpt-5.5',
+			systemPrompts: [],
 		});
 
 		const chunks = await drain(
@@ -363,7 +367,7 @@ describe('createOpenAiAgentEngine', () => {
 		expect(error?.code).toBe('InsufficientCredits');
 	});
 
-	test('uses the supplied SDK client destination and explicit bearer', async () => {
+	test('sends to the endpoint destination with its bearer', async () => {
 		const realFetch = globalThis.fetch;
 		const calls: Array<{ url: string; authorization: string | null }> = [];
 		globalThis.fetch = (async (
@@ -379,15 +383,11 @@ describe('createOpenAiAgentEngine', () => {
 			]);
 		}) as typeof globalThis.fetch;
 		try {
-			const engine = createOpenAiAgentEngine({
-				data: () => ({
-					client: new OpenAI({
-						baseURL: 'http://localhost:11434/v1',
-						apiKey: 'sk-user',
-					}),
-					model: 'qwen2.5:3b',
-					systemPrompts: [],
-				}),
+			const engine = engineOver({
+				baseURL: 'http://localhost:11434/v1',
+				apiKey: 'sk-user',
+				model: 'qwen2.5:3b',
+				systemPrompts: [],
 			});
 			await drain(
 				engine(
@@ -407,9 +407,9 @@ describe('createOpenAiAgentEngine', () => {
 	});
 });
 
-// SDK framing and failed-stream admission
+// Stream framing and failed-stream admission
 
-test('SDK decodes CRLF and multiline SSE data and stops at DONE', async () => {
+test('decodes CRLF and multiline SSE data and stops at DONE', async () => {
 	const response = new Response(
 		[
 			'data: {"choices": [\r\n',
@@ -420,10 +420,7 @@ test('SDK decodes CRLF and multiline SSE data and stops at DONE', async () => {
 		{ headers: { 'content-type': 'text/event-stream' } },
 	);
 	const { fetch } = capturingFetch(response);
-	const client = new OpenAI({ fetch, baseURL: GATEWAY, apiKey: 'test' });
-	const engine = createOpenAiAgentEngine({
-		data: () => ({ client, model: 'model', systemPrompts: [] }),
-	});
+	const engine = engineOver({ fetch, baseURL: GATEWAY, apiKey: 'test' });
 	expect(
 		await drain(
 			engine({ messages: [], tools: [] }, new AbortController().signal),
@@ -452,10 +449,7 @@ test('an SSE API error preserves its code and discards pending tool calls', asyn
 			{ error: { message: 'Retired', code: 'AccountRetired' } },
 		]),
 	);
-	const client = new OpenAI({ fetch, baseURL: GATEWAY, apiKey: 'test' });
-	const engine = createOpenAiAgentEngine({
-		data: () => ({ client, model: 'model', systemPrompts: [] }),
-	});
+	const engine = engineOver({ fetch, baseURL: GATEWAY, apiKey: 'test' });
 	expect(
 		await drain(
 			engine({ messages: [], tools: [] }, new AbortController().signal),
@@ -471,22 +465,15 @@ test('malformed SSE JSON fails the run and discards pending tool calls', async (
 			headers: { 'content-type': 'text/event-stream' },
 		}),
 	);
-	const client = new OpenAI({
-		fetch,
-		baseURL: GATEWAY,
-		apiKey: 'test',
-		logLevel: 'off',
-	});
-	const engine = createOpenAiAgentEngine({
-		data: () => ({ client, model: 'model', systemPrompts: [] }),
-	});
+	const engine = engineOver({ fetch, baseURL: GATEWAY, apiKey: 'test' });
 	const chunks = await drain(
 		engine({ messages: [], tools: [] }, new AbortController().signal),
 	);
 	expect(chunks).toEqual([
 		{
 			type: 'run-error',
-			message: 'Error reading response: malformed server-sent event JSON.',
+			message:
+				"The endpoint's answer did not read: malformed server-sent event JSON.",
 			code: 'stream-error',
 		},
 	]);
@@ -509,10 +496,7 @@ test('abort after a text delta cancels the body and emits no pending tools', asy
 	const { fetch } = capturingFetch(
 		new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
 	);
-	const client = new OpenAI({ fetch, baseURL: GATEWAY, apiKey: 'test' });
-	const engine = createOpenAiAgentEngine({
-		data: () => ({ client, model: 'model', systemPrompts: [] }),
-	});
+	const engine = engineOver({ fetch, baseURL: GATEWAY, apiKey: 'test' });
 	const controller = new AbortController();
 	const chunks: EngineChunk[] = [];
 	for await (const chunk of engine(
@@ -530,10 +514,7 @@ test('abort after a text delta cancels the body and emits no pending tools', asy
 
 async function drainFrames(frames: object[]) {
 	const { fetch } = capturingFetch(openAiSse(frames));
-	const client = new OpenAI({ fetch, baseURL: GATEWAY, apiKey: 'test' });
-	const engine = createOpenAiAgentEngine({
-		data: () => ({ client, model: 'model', systemPrompts: [] }),
-	});
+	const engine = engineOver({ fetch, baseURL: GATEWAY, apiKey: 'test' });
 	return drain(
 		engine({ messages: [], tools: [] }, new AbortController().signal),
 	);
@@ -620,7 +601,7 @@ test('a tool_calls finish with no call fails the run', async () => {
 	]);
 });
 
-test('a finish reason outside the SDK vocabulary fails the run', async () => {
+test('a finish reason outside the OpenAI vocabulary fails the run', async () => {
 	const chunks = await drainFrames([
 		{ choices: [{ delta: { content: 'text' }, finish_reason: 'recitation' }] },
 	]);

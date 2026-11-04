@@ -1,32 +1,38 @@
-/** Adapts an SDK Chat Completions stream to the existing agent loop. */
+/**
+ * The agent loop's engine over `ai.chat`: the loop's transcript and tools go
+ * out as an OpenAI chat request, and the streamed chunks come back as the
+ * loop's {@link EngineChunk}s, with each tool call reduced from its deltas.
+ */
 
-import OpenAI from 'openai';
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { JsonValue } from 'wellcrafted/json';
 import type {
+	ChatChunk,
+	ChatMessage,
+	ChatTool,
+	ToolCallDelta,
+} from '../client.js';
+import type { Ai } from '../open-ai.js';
+import type {
 	AgentEngine,
 	AgentEngineToolDefinition,
+	EngineChunk,
 	ModelMessage,
-} from '../agent/engine.js';
+} from './engine.js';
 
-/** Captured client and prompts for one turn; the loop remains the tool executor. */
-export type OpenAiTurnContext = {
-	client: OpenAI;
+/** What one turn sends: through which AI, to which model, under which system prompts. */
+export type ChatTurn = {
+	ai: Pick<Ai, 'chat'>;
+	endpoint: string;
 	model: string;
 	systemPrompts: string[];
 };
 
-// Compatible providers may omit index for complete parallel tool calls.
-type OpenAiToolCallDelta =
-	Partial<OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta.ToolCall>;
-
 /** A tool call accumulated across one or more deltas. */
 type PendingToolCall = { id: string; name: string; args: string };
 
-/** Map one transcript message to its OpenAI Chat Completions shape. */
-function toOpenAiMessage(
-	message: ModelMessage,
-): OpenAI.Chat.Completions.ChatCompletionMessageParam {
+/** Map one transcript message to its OpenAI chat shape. */
+function toChatMessage(message: ModelMessage): ChatMessage {
 	if (message.role === 'user') {
 		return { role: 'user', content: message.content };
 	}
@@ -54,10 +60,8 @@ function toOpenAiMessage(
 	};
 }
 
-/** Map one tool definition to its OpenAI Chat Completions shape. */
-function toOpenAiTool(
-	definition: AgentEngineToolDefinition,
-): OpenAI.Chat.Completions.ChatCompletionFunctionTool {
+/** Map one tool definition to its OpenAI chat shape. */
+function toChatTool(definition: AgentEngineToolDefinition): ChatTool {
 	return {
 		type: 'function',
 		function: {
@@ -91,7 +95,7 @@ function toParameters(schema: unknown): Record<string, unknown> {
 
 /** Accumulate one `tool_calls[]` delta into the in-flight calls. */
 function accumulateToolCall(
-	delta: OpenAiToolCallDelta,
+	delta: ToolCallDelta,
 	byIndex: Map<number, PendingToolCall>,
 	indexless: PendingToolCall[],
 ): void {
@@ -130,8 +134,7 @@ function parseArguments(args: string): JsonValue {
 	}
 }
 
-type FinishReason =
-	OpenAI.Chat.Completions.ChatCompletionChunk.Choice['finish_reason'];
+type FinishReason = ChatChunk['choices'][number]['finish_reason'];
 
 /**
  * Why a stream that ended without a transport error is still not a whole
@@ -143,7 +146,7 @@ type FinishReason =
  * and its accumulated calls never run.
  */
 function incompleteFinish(
-	reason: FinishReason | undefined,
+	reason: FinishReason,
 	callCount: number,
 ): { message: string; code: string } | undefined {
 	switch (reason) {
@@ -178,81 +181,82 @@ function incompleteFinish(
 				code: 'incomplete-stream',
 			};
 		default:
-			// A provider outside the SDK's vocabulary. Its meaning is unknown, so
-			// the answer is not treated as whole.
+			// A reason outside OpenAI's vocabulary. Its meaning is unknown, so the
+			// answer is not treated as whole.
 			return {
-				message: `The model stopped for an unrecognized reason: ${String(reason satisfies never)}`,
+				message: `The model stopped for an unrecognized reason: ${reason}`,
 				code: 'incomplete-stream',
 			};
 	}
 }
 
-/** Use SDK framing and cancellation while retaining the agent's tool-call reducer. */
-export function createOpenAiAgentEngine({
-	data,
+/**
+ * An agent engine that sends each step through `turn().ai.chat`. `turn` is
+ * read once per step, so a host captures its choice of model when a turn
+ * starts. The loop stays the tool executor: this only reduces the model's
+ * tool calls and reports whether its answer finished.
+ */
+export function createChatEngine({
+	turn,
 }: {
-	data: () => OpenAiTurnContext;
+	turn: () => ChatTurn;
 }): AgentEngine {
-	return async function* (request, signal) {
+	return async function* (request, signal): AsyncGenerator<EngineChunk> {
 		const byIndex = new Map<number, PendingToolCall>();
 		const indexless: PendingToolCall[] = [];
-		let finishReason: FinishReason | undefined;
+		let finishReason: FinishReason = undefined;
+		let stream: ReturnType<Ai['chat']>;
 		try {
-			const { client, model, systemPrompts } = data();
-			const stream = await client.chat.completions.create(
+			const { ai, endpoint, model, systemPrompts } = turn();
+			stream = ai.chat(
 				{
+					endpoint,
 					model,
 					messages: [
 						...systemPrompts.map(
-							(
-								content,
-							): OpenAI.Chat.Completions.ChatCompletionMessageParam => ({
-								role: 'system',
-								content,
-							}),
+							(content): ChatMessage => ({ role: 'system', content }),
 						),
-						...request.messages.map(toOpenAiMessage),
+						...request.messages.map(toChatMessage),
 					],
 					...(request.tools.length > 0 && {
-						tools: request.tools.map(toOpenAiTool),
+						tools: request.tools.map(toChatTool),
 					}),
-					stream: true,
-					stream_options: { include_usage: true },
 				},
-				{ signal, maxRetries: 0 },
+				{ signal },
 			);
-			for await (const chunk of stream) {
-				if (signal.aborted) return;
-				// A usage-only frame has no choice and says nothing about the finish.
-				const choice = chunk.choices?.[0];
-				if (!choice) continue;
-				if (choice.finish_reason != null) finishReason = choice.finish_reason;
-				const delta = choice.delta;
-				if (!delta) continue;
-				if (typeof delta.content === 'string' && delta.content.length > 0) {
-					yield { type: 'text-delta', delta: delta.content };
-				}
-				for (const call of delta.tool_calls ?? [])
-					accumulateToolCall(call, byIndex, indexless);
-			}
-		} catch (error) {
-			if (signal.aborted) return;
-			const apiError = error instanceof OpenAI.APIError ? error : undefined;
-			const payload = apiError?.error;
-			const message =
-				payload && 'message' in payload && typeof payload.message === 'string'
-					? payload.message
-					: extractErrorMessage(error);
+		} catch (cause) {
+			// No model chosen, or a tool schema that is not one: the turn fails.
 			yield {
 				type: 'run-error',
-				message,
-				code:
-					apiError?.code ??
-					(apiError?.status === undefined
-						? 'stream-error'
-						: String(apiError.status)),
+				message: extractErrorMessage(cause),
+				code: 'stream-error',
 			};
 			return;
+		}
+		for await (const { data: chunk, error } of stream) {
+			if (signal.aborted) return;
+			if (error !== null) {
+				if (error.name === 'Cancelled') return;
+				yield {
+					type: 'run-error',
+					message: error.message,
+					code:
+						('code' in error ? error.code : undefined) ??
+						('status' in error ? String(error.status) : 'stream-error'),
+				};
+				return;
+			}
+			// A usage-only frame has no choice and says nothing about the finish.
+			const choice = chunk.choices[0];
+			if (!choice) continue;
+			if (choice.finish_reason != null) finishReason = choice.finish_reason;
+			const delta = choice.delta;
+			if (!delta) continue;
+			if (typeof delta.content === 'string' && delta.content.length > 0) {
+				yield { type: 'text-delta', delta: delta.content };
+			}
+			for (const call of delta.tool_calls ?? [])
+				accumulateToolCall(call, byIndex, indexless);
 		}
 		if (signal.aborted) return;
 		// Failed, cancelled, or cut-short streams never execute their partially

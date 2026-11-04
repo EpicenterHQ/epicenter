@@ -123,6 +123,15 @@ opened. It does not need any `epicenter-folder` permission.
   intent and calls nothing native.
 - `./local-model-administration`: `LocalModelAdministration.svelte`, a
   prop-free model settings card built on `createLocalModels` and `@epicenter/ui`.
+- `./local-speech`: `localSpeech()`, this app's transcribe.cpp as an
+  `@epicenter/ai` endpoint (ADR-0757), or `null` outside the desktop app. Its
+  `fetch` answers `audio/transcriptions` and `models` in-process through
+  `transcribe_file` and `list_inference_models`; a transcription names its
+  audio by `path` in the data folder, since the plugin reads the file where it
+  is, and a request without one is refused. A refusal answers as an OpenAI
+  error whose `code` is the `TranscriptionError` name. `download(id)` runs
+  `download_model` and then lists the model. It imports only types from
+  `@epicenter/ai`.
 
 ## Building an app
 
@@ -140,7 +149,8 @@ From the repository root:
 ```sh
 cargo test -p tauri-plugin-epicenter-transcription
 cargo check -p epicenter-transcription-build
-bun test --isolate packages/tauri-plugin-epicenter-transcription/guest-js/local-models.test.ts
+bun run --cwd packages/tauri-plugin-epicenter-transcription typecheck
+bun run --cwd packages/tauri-plugin-epicenter-transcription test
 ```
 
 The Rust tests check the bindings are fresh, drive the commands through

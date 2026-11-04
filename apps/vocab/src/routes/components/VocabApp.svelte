@@ -6,9 +6,7 @@
 	them, so the root alone decides the store.
 -->
 <script lang="ts">
-	import { createBrowserInferenceSelections } from '@epicenter/ai/selections';
-	import { createInferenceCatalog } from '@epicenter/ai/picker';
-	import { toHostedCatalog } from '@epicenter/ai/providers';
+	import { createBrowserModelChoices } from '@epicenter/ai/choices';
 	import { auth } from '#platform/auth';
 	import { Chrome } from '#platform/root';
 	import { Button } from '@epicenter/ui/button';
@@ -16,8 +14,8 @@
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 	import { onDestroy } from 'svelte';
-	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
-	import { openVocabInference } from '$lib/inference.js';
+	import { createVocabAi } from '$lib/ai.svelte.js';
+	import type { FocusItem } from '$lib/data.js';
 	import { createVocab, getChatList, getEntryList, getMessageList } from '$lib/vocab.svelte.js';
 	import ConversationView from './ConversationView.svelte';
 	import FocusWords from './FocusWords.svelte';
@@ -31,10 +29,8 @@
 	// adds the hosted models and dictation; the endpoints connected on this
 	// device and the chosen model are its settings, not the learner's data.
 	const account = auth.state.status === 'signed-out' ? undefined : auth.state.account;
-	const departure = new AbortController();
-	const sources = openVocabInference(account);
-	const catalog = createInferenceCatalog({ ai: sources, signal: departure.signal, hostedModels: toHostedCatalog([VOCAB_MODEL]) });
-	const selections = createBrowserInferenceSelections('vocab');
+	const ai = createVocabAi(account);
+	const choices = createBrowserModelChoices('vocab');
 	/** Why the words or chats did not list, if they did not; the variant's `Chrome` says it. */
 	const listError = $derived(lists.entries.error ?? lists.chats.error);
 
@@ -83,9 +79,8 @@
 		section = 'chat';
 	}
 	onDestroy(() => {
-		departure.abort();
-		selections[Symbol.dispose]();
-		void sources.then(({ account, connections }) => Promise.allSettled([account?.close(), connections?.close()]));
+		choices[Symbol.dispose]();
+		void ai.close().catch(() => {});
 	});
 
 </script>
@@ -141,7 +136,7 @@
 			{#if focusOpen && selectedChat}<div class="border-b p-3 md:hidden"><FocusWords focus={selectedChat.focus} {entries} /></div>{/if}
 			{#if !selectedChatId}<p class="m-auto text-center text-muted-foreground">Choose a chat from history.</p>{/if}
 			{#if selectedChatId && selectedChat}
-				{#key selectedChatId}<ConversationView chatId={selectedChatId} {account} {messages} {catalog} {selections} {entries} focus={selectedChat.focus} visible={section === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
+				{#key selectedChatId}<ConversationView chatId={selectedChatId} {account} {messages} {ai} {choices} {entries} focus={selectedChat.focus} visible={section === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
 			{/if}
 		</div>
 		<aside class="hidden w-60 shrink-0 overflow-y-auto border-l p-3 md:block" aria-label="Focus words">

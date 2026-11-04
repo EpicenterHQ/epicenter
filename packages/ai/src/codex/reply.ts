@@ -28,7 +28,7 @@ export type ReplyRequest = {
 export type ReplyEvent =
 	| { type: 'preview'; text: string }
 	| { type: 'result'; result: Result<string, ReplyError> };
-export type Ai = {
+export type Replier = {
 	reply(request: ReplyRequest): AsyncIterable<ReplyEvent>;
 };
 

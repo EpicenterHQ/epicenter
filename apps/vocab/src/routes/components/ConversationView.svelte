@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { agentMessageText } from '@epicenter/ai/agent';
-	import { InferencePicker } from '@epicenter/ai/picker';
+	import { ModelPicker } from '@epicenter/ai/picker';
+	import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
 	import * as Chat from '@epicenter/ui/chat';
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
@@ -15,8 +16,8 @@
 	import { createVocabChat } from '$lib/chat/session.svelte.js';
 	import type { MessageList } from '$lib/chat/messages.svelte.js';
 	import type { Entries } from '$lib/entries.svelte.js';
-	import type { InferenceCatalog } from '@epicenter/ai/picker';
-	import type { InferenceSelections } from '@epicenter/ai/selections';
+	import type { ModelChoices } from '@epicenter/ai/choices';
+	import type { VocabAi } from '$lib/ai.svelte.js';
 	import DictationButton from './DictationButton.svelte';
 	import PhraseCapture from './PhraseCapture.svelte';
 
@@ -26,8 +27,8 @@
 		chatId,
 		account,
 		messages,
-		catalog,
-		selections,
+		ai,
+		choices,
 		entries,
 		focus,
 		visible,
@@ -39,8 +40,8 @@
 		account: Account | undefined;
 		/** Every chat's finished messages. */
 		messages: MessageList;
-		catalog: InferenceCatalog;
-		selections: InferenceSelections;
+		ai: VocabAi;
+		choices: ModelChoices;
 		entries: Entries;
 		focus: readonly { text: string }[];
 		visible: boolean;
@@ -51,7 +52,7 @@
 	// The parent keys this component by chat ID. Its loop and draft end when
 	// another chat is selected; dictation ends sooner when Chat hides.
 	/* svelte-ignore state_referenced_locally */
-	const chat = createVocabChat({ messages, chatId, focus, catalog, selections });
+	const chat = createVocabChat({ messages, chatId, focus, ai, choices });
 
 	// The element holding the messages; phrase capture listens inside it.
 	let list = $state<HTMLElement | null>(null);
@@ -174,7 +175,7 @@
 	{/if}
 
 	<div class="bg-background px-2 pt-1.5">
-		<InferencePicker value={chat.target} onSelect={(target) => chat.selectTarget(target)} {catalog} disabled={chat.isGenerating} />
+		<ModelPicker ai={ai.current} connections={ai.connections} problem={ai.problem} value={chat.target} onSelect={(choice) => chat.selectTarget(choice)} disabled={chat.isGenerating} />
 	</div>
 	{#if !chat.canServe}
 		<p class="px-3 pb-1 text-xs text-muted-foreground">Choose a model to chat. Connect your own endpoint in the picker{account ? '' : ", or sign in for Epicenter's hosted models"}.</p>
@@ -196,7 +197,7 @@
 				}}
 			/>
 			<InputGroup.Addon align="block-end">
-				{#if visible && catalog.ai.account}<DictationButton {catalog} disabled={chat.isGenerating} onTranscript={(text) => {
+				{#if visible && account}<DictationButton transcribe={(file, signal) => ai.current.transcribe({ endpoint: 'hosted', model: HOSTED_TRANSCRIPTION_MODEL, file }, { signal })} disabled={chat.isGenerating} onTranscript={(text) => {
 					const draft = chat.inputValue.trim();
 					chat.inputValue = draft ? `${draft} ${text}` : text;
 				}} />{/if}

@@ -1,11 +1,11 @@
+<!--
+	Pick a model from every endpoint the app merged (`fromAi`), grouped by
+	endpoint in the merged order, and keep the person's own connections: add
+	one with its key, edit it, refresh its models, or remove it. The owner
+	saves each complete choice (`onSelect`). Opening the picker asks probing
+	endpoints, such as Ollama and LM Studio, to look again.
+-->
 <script lang="ts">
-	import { openEndpointInference } from '../ai.js';
-	/** Models grouped by exact connection; the owner persists each complete choice. */
-	import {
-		CONNECTION_PRESETS,
-		type ListModelsError,
-		type PresetId,
-	} from '../openai/index.js';
 	import { Button } from '@epicenter/ui/button';
 	import * as Command from '@epicenter/ui/command';
 	import { Input } from '@epicenter/ui/input';
@@ -22,35 +22,56 @@
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { createMutation, QueryClient } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import type { InferenceTarget } from '../target.js';
-	import type { InferenceCatalog } from './catalog.svelte.js';
-
-	type Props = {
-		value: InferenceTarget | null;
-		onSelect: (target: InferenceTarget) => void;
-		catalog: InferenceCatalog;
-		/** Disable while a turn generates, so a transcript never spans backends. */
-		disabled?: boolean;
-		/** Suggestions appropriate to this workflow's account operation. */
-		accountModels?: InferenceCatalog['hostedModels'];
-		placeholder?: string;
-	};
+	import { unwrap } from 'wellcrafted/result';
+	import type { AiConnections } from '../ai-connections.js';
+	import { type AiError, createClient } from '../client.js';
+	import { custom } from '../custom.js';
+	import type { Capability } from '../endpoint.js';
+	import type { ModelChoice } from '../open-ai.js';
+	import type { ReactiveAi } from '../svelte/ai.svelte.js';
+	import { CONNECTION_PRESETS, type PresetId } from './presets.js';
 
 	let {
+		ai,
+		connections,
 		value,
 		onSelect,
-		catalog,
+		can = 'chat',
 		disabled = false,
-		accountModels,
 		placeholder = 'Select model',
-	}: Props = $props();
-	const ai = $derived(catalog.ai);
-	const models = $derived(accountModels ?? catalog.hostedModels);
+		problem = null,
+	}: {
+		ai: ReactiveAi;
+		/** The person's saved connections, or null when they could not be opened. */
+		connections: AiConnections | null;
+		value: ModelChoice | null;
+		onSelect: (choice: ModelChoice) => void;
+		/** What a listed model must be able to do. */
+		can?: Capability;
+		/** Disable while a turn generates, so a transcript never spans backends. */
+		disabled?: boolean;
+		placeholder?: string;
+		/** Why the saved connections could not be opened, if they could not. */
+		problem?: string | null;
+	} = $props();
 
 	let open = $state(false);
 	let formVersion = 0;
 	let alive = true;
 	let view = $state<'list' | 'connect'>('list');
+
+	// The app merges again when a saved connection changes, so `ai` changing
+	// is when the records are read again.
+	const records = $derived(ai.endpoints && connections ? connections.getAll() : []);
+	const groups = $derived(
+		ai.endpoints.map((endpoint) => ({
+			endpoint,
+			record: records.find((record) => record.id === endpoint.id),
+			models: ai.models.filter(
+				(model) => model.endpoint === endpoint.id && model.can.includes(can),
+			),
+		})),
+	);
 
 	// "Connect a provider" form state. `formPreset` null means the preset chooser
 	// is showing; a value means its sub-form is.
@@ -61,9 +82,7 @@
 	let formApiKey = $state('');
 	let removeApiKey = $state(false);
 	const savedConnection = $derived(
-		editingId
-			? catalog.custom.find((entry) => entry.id === editingId)
-			: undefined,
+		editingId ? records.find((entry) => entry.id === editingId) : undefined,
 	);
 	let formModel = $state('');
 	let showKey = $state(false);
@@ -71,8 +90,6 @@
 	// Discovery state for the connect form.
 	let discovering = $state(false);
 	let discovered = $state.raw<string[] | null>(null);
-	// A tailored, per-variant message when discovery fails (401 vs unreachable vs
-	// malformed), or null when discovery has not failed.
 	let discoveryError = $state<string | null>(null);
 
 	// The picker also runs in apps without a QueryClientProvider.
@@ -83,20 +100,28 @@
 	});
 	const refreshConnection = createMutation(
 		() => ({
-			mutationFn: (id: string) => catalog.refresh(id),
+			mutationFn: async (id: string) => {
+				const record = connections?.getAll().find((entry) => entry.id === id);
+				if (!connections || !record) return;
+				const found = unwrap(
+					await createClient(connections.endpoint(record)).listModels(),
+				);
+				await connections.update(id, {
+					models: [...new Set([...record.models, ...found])],
+				});
+			},
 		}),
 		() => queryClient,
 	);
 	const removeConnection = createMutation(
 		() => ({
-			mutationFn: (id: string) => ai.connections!.remove(id),
+			mutationFn: (id: string) => connections!.remove(id),
 		}),
 		() => queryClient,
 	);
 
-	// Clear all of the connect form's working state. Called on close so a user who
-	// connected one provider lands back on the preset chooser (not a stale sub-form
-	// with a leftover typed API key) the next time they open the picker.
+	// Clear the connect form's working state, so a reopened picker lands on the
+	// preset chooser rather than a stale sub-form with a leftover typed key.
 	function resetConnectForm() {
 		formVersion++;
 		formPreset = null;
@@ -112,18 +137,19 @@
 		discoveryError = null;
 	}
 
-	// Turn a discovery failure into an actionable hint per variant, so the user
-	// knows whether to fix the URL, the key, or just type a model.
-	function discoveryMessage(error: ListModelsError): string {
+	// Turn a discovery failure into a hint: fix the URL, the key, or type a model.
+	function discoveryMessage(error: AiError): string {
 		switch (error.name) {
 			case 'Unreachable':
 				return "Couldn't reach this endpoint. Check the URL and that the server is running, or type a model manually.";
-			case 'RequestFailed':
+			case 'Refused':
 				if (error.status === 401 || error.status === 403)
 					return 'The endpoint rejected this API key. Check the key, then type a model manually.';
 				return `The endpoint returned ${error.status}. Type a model manually.`;
 			case 'Malformed':
 				return "This endpoint didn't return an OpenAI model list. Type a model manually.";
+			default:
+				return 'Could not discover models. Type a model manually.';
 		}
 	}
 
@@ -136,22 +162,28 @@
 		}
 	}
 
-	const selected = $derived(value);
-	const model = $derived(value?.model ?? '');
-	const triggerLabel = $derived(
-		!selected
-			? placeholder
-			: selected.connectionId === catalog.accountId
-				? `${models.find((entry) => entry.id === model)?.label ?? model} · ${catalog.accountLabel}`
-				: `${model} · ${catalog.custom.find((entry) => entry.id === selected.connectionId)?.name ?? 'Unavailable connection'}`,
-	);
-
-	function isSelected(connectionId: string, id: string) {
-		return selected?.connectionId === connectionId && selected.model === id;
+	function headingOf(endpoint: ReactiveAi['endpoints'][number]) {
+		return endpoint.source === 'local'
+			? `${endpoint.name} on this computer`
+			: endpoint.name;
 	}
 
-	function selectModel(connectionId: string, id: string) {
-		onSelect({ connectionId, model: id });
+	const triggerLabel = $derived.by(() => {
+		if (!value) return placeholder;
+		const chosen = value;
+		const model = ai.models.find(
+			(entry) => entry.endpoint === chosen.endpoint && entry.id === chosen.model,
+		);
+		const endpoint = ai.endpoints.find((entry) => entry.id === chosen.endpoint);
+		return `${model?.label ?? chosen.model} · ${endpoint?.name ?? 'Unavailable'}`;
+	});
+
+	function isSelected(endpoint: string, id: string) {
+		return value?.endpoint === endpoint && value.model === id;
+	}
+
+	function selectModel(endpoint: string, id: string) {
+		onSelect({ endpoint, model: id });
 		open = false;
 	}
 
@@ -166,18 +198,18 @@
 		formBaseUrl =
 			id === 'custom'
 				? ''
-				: (CONNECTION_PRESETS.find((p) => p.id === id)?.baseUrl ?? '');
+				: (CONNECTION_PRESETS.find((preset) => preset.id === id)?.baseUrl ?? '');
 	}
 
-	// Persist access before saving the workflow choice. A failed save keeps the form open.
+	// Save the connection before the choice. A failed save keeps the form open.
 	const saveConnection = createMutation(
 		() => ({
 			mutationFn: async (chosenModel: string) => {
-				const attempt = { catalog, formVersion };
+				const attempt = { connections, formVersion };
 				const baseUrl = formBaseUrl.trim();
 				const trimmedModel = chosenModel.trim();
-				if (!baseUrl || !trimmedModel)
-					throw new Error('Enter an endpoint and model.');
+				if (!attempt.connections) throw new Error('Saved connections are unavailable.');
+				if (!baseUrl || !trimmedModel) throw new Error('Enter an endpoint and model.');
 				const credential = removeApiKey
 					? { apiKey: '' }
 					: formApiKey.trim()
@@ -197,12 +229,12 @@
 				};
 				const id = editingId;
 				if (id) {
-					await attempt.catalog.ai.connections!.update(id, input);
+					await attempt.connections.update(id, input);
 					return { ...attempt, id, model: trimmedModel };
 				}
 				return {
 					...attempt,
-					id: await attempt.catalog.ai.connections!.add(input),
+					id: await attempt.connections.add(input),
 					model: trimmedModel,
 				};
 			},
@@ -210,7 +242,7 @@
 				if (
 					!alive ||
 					!open ||
-					saved.catalog !== catalog ||
+					saved.connections !== connections ||
 					saved.formVersion !== formVersion
 				)
 					return;
@@ -221,19 +253,21 @@
 		() => queryClient,
 	);
 
-	// Reopening the picker always lands on the model list, never a half-filled form.
+	// Reopening the picker lands on the model list, and looks for local servers again.
 	$effect(() => {
 		if (!open) {
 			view = 'list';
 			resetConnectForm();
+			return;
 		}
+		ai.refresh();
 	});
 
-	// Auto-discover on a debounced change of the connect form's endpoint or key.
-	// Best effort: a failure degrades to the free-text model floor, never a toast.
+	// Discover models on a debounced change of the connect form's endpoint or key.
+	// Best effort: a failure degrades to typing a model, never a toast.
 	$effect(() => {
 		if (view !== 'connect') return;
-		const discoveryCatalog = catalog;
+		const store = connections;
 		if (editingId && !savedConnection) {
 			discovered = null;
 			discovering = false;
@@ -243,11 +277,11 @@
 		const url = formBaseUrl.trim();
 		const key = formApiKey.trim();
 		const retainSavedKey = savedConnection?.hasApiKey && !key && !removeApiKey;
-		const savedId =
+		const saved =
 			savedConnection && savedConnection.baseUrl === url && !key && !removeApiKey
-				? savedConnection.id
+				? savedConnection
 				: undefined;
-		if (retainSavedKey && !savedId) {
+		if (retainSavedKey && !saved) {
 			discovered = null;
 			discovering = false;
 			discoveryError =
@@ -261,52 +295,29 @@
 			return;
 		}
 		discovered = null;
-		let cancelled = false;
 		discovering = true;
 		discoveryError = null;
-		let endpoint: Awaited<ReturnType<typeof openEndpointInference>> | undefined;
+		const controller = new AbortController();
 		const handle = setTimeout(async () => {
-			try {
-				const saved = savedId
-					? discoveryCatalog.ai.connections?.get(savedId)?.client
-					: undefined;
-				if (savedId && !saved)
-					throw new Error('Saved connection is no longer available.');
-				if (!savedId)
-					endpoint = await openEndpointInference({
-						baseURL: url,
-						getAuthHeaders: key
-							? () => ({ Authorization: `Bearer ${key}` })
-							: undefined,
-					});
-				if (cancelled) {
-					await endpoint?.close();
-					return;
-				}
-				const { data, error } = await discoveryCatalog.discover(
-					saved ?? endpoint!.client,
-				);
-				if (cancelled) return;
-				discovering = false;
-				if (error) {
-					discovered = null;
-					discoveryError = discoveryMessage(error);
-					return;
-				}
-				discovered = data;
-			} catch {
-				if (!cancelled) {
-					discovering = false;
-					discoveryError = 'Could not discover models.';
-				}
-			} finally {
-				await endpoint?.close();
+			// A saved connection discovers through its own endpoint, which on the
+			// desktop holds the key in the shell; a new one through the typed key.
+			const endpoint =
+				saved && store ? store.endpoint(saved) : custom({ baseUrl: url, key });
+			const { data, error } = await createClient(endpoint).listModels({
+				signal: controller.signal,
+			});
+			if (controller.signal.aborted) return;
+			discovering = false;
+			if (error) {
+				discovered = null;
+				discoveryError = discoveryMessage(error);
+				return;
 			}
+			discovered = data;
 		}, 500);
 		return () => {
-			cancelled = true;
+			controller.abort();
 			clearTimeout(handle);
-			void endpoint?.close();
 		};
 	});
 </script>
@@ -330,112 +341,86 @@
 		{/snippet}
 	</Popover.Trigger>
 	<Popover.Content class="w-80 p-0" align="end">
-                    {#if catalog.loading}<p role="status">Loading transcription connections…</p>{/if}
-                    {#each catalog.errors as error}<p role="alert">{error} Reload to try opening connections again.</p>{/each}
+		{#if problem}<p role="alert" class="p-3 text-xs text-destructive">{problem} Reload to try opening your connections again.</p>{/if}
 		{#if view === 'list'}
 			<Command.Root>
 				<Command.Input placeholder="Search models..." />
 				<Command.List class="max-h-80">
 					<Command.Empty>No models found.</Command.Empty>
-					{#if ai.account && catalog.accountId}
-						<Command.Group heading={`Connected account · ${catalog.accountLabel}`}>
-							{#each models as hostedModel (hostedModel.id)}
-								<Command.Item
-									value={`hosted ${hostedModel.id}`}
-									keywords={[hostedModel.id, hostedModel.label]}
-									onSelect={() => selectModel(catalog.accountId!, hostedModel.id)}
-								>
-									<Check
-										class="size-4 shrink-0 {isSelected(catalog.accountId!, hostedModel.id)
-											? 'opacity-100'
-											: 'opacity-0'}"
-									/>
-									<span class="flex-1 truncate">{hostedModel.label}</span>
-
-								</Command.Item>
-							{/each}
-       <div class="flex gap-1 p-2">
-        <Input bind:value={formModel} aria-label="Account model ID" placeholder="Enter a model ID" />
-        <Button size="sm" disabled={!formModel.trim()} onclick={() => selectModel(catalog.accountId!, formModel.trim())}>Use</Button>
-       </div>
-						</Command.Group>
-					{/if}
-
-					{#each catalog.custom as connection (connection.id)}
-						{@const ids = connection.models ?? []}
-						{@const label = connection.name}
-						<Command.Group heading={label}>
-							{#each ids as id (id)}
-								<Command.Item
-									value="{connection.id} {id}"
-									keywords={[id, label]}
-									onSelect={() => selectModel(connection.id, id)}
-								>
-									<Check
-										class="size-4 shrink-0 {isSelected(connection.id, id)
-											? 'opacity-100'
-											: 'opacity-0'}"
-									/>
-									<span
-										class="line-clamp-2 flex-1 break-all {isSelected(connection.id, id)
-											? 'font-medium'
-											: ''}"
-										title={id}>{id}</span>
-								</Command.Item>
-							{:else}
-								<Command.Item disabled value="{connection.id} empty">
-									<span class="text-xs text-muted-foreground">
-										No models discovered
-									</span>
-								</Command.Item>
-							{/each}
-							<Command.Item
-								value="configure {connection.id}"
-								onSelect={() => {
-									choosePreset('custom');
-									formBaseUrl = connection.baseUrl;
-         formName = connection.name;
-         editingId = connection.id;
-									formApiKey = '';
-									removeApiKey = false;
-									saveConnection.reset();
-									view = 'connect';
-								}}
-							>
-								<Plus class="size-4" />
-								<span class="text-xs">Edit {label} or enter a model</span>
-							</Command.Item>
-							<Command.Item
-								value="refresh {connection.id}"
-								disabled={refreshConnection.isPending && refreshConnection.variables === connection.id}
-								onSelect={() => refreshConnection.mutate(connection.id)}
-							>
-								{#if refreshConnection.isPending && refreshConnection.variables === connection.id}
-									<Spinner class="size-4" />
+					{#each groups as group (group.endpoint.id)}
+						{@const { endpoint, record, models } = group}
+						{#if models.length > 0 || record}
+							<Command.Group heading={headingOf(endpoint)}>
+								{#each models as model (model.id)}
+									<Command.Item
+										value="{endpoint.id} {model.id}"
+										keywords={[model.id, model.label ?? '', endpoint.name]}
+										onSelect={() => selectModel(endpoint.id, model.id)}
+									>
+										<Check
+											class="size-4 shrink-0 {isSelected(endpoint.id, model.id)
+												? 'opacity-100'
+												: 'opacity-0'}"
+										/>
+										<span
+											class="line-clamp-2 flex-1 break-all {isSelected(endpoint.id, model.id)
+												? 'font-medium'
+												: ''}"
+											title={model.id}>{model.label ?? model.id}</span>
+									</Command.Item>
 								{:else}
-									<RefreshCw class="size-4" />
+									<Command.Item disabled value="{endpoint.id} empty">
+										<span class="text-xs text-muted-foreground">No models discovered</span>
+									</Command.Item>
+								{/each}
+								{#if record}
+									<Command.Item
+										value="configure {endpoint.id}"
+										onSelect={() => {
+											choosePreset('custom');
+											formBaseUrl = record.baseUrl;
+											formName = record.name;
+											editingId = record.id;
+											saveConnection.reset();
+											view = 'connect';
+										}}
+									>
+										<Plus class="size-4" />
+										<span class="text-xs">Edit {endpoint.name} or enter a model</span>
+									</Command.Item>
+									<Command.Item
+										value="refresh {endpoint.id}"
+										disabled={refreshConnection.isPending && refreshConnection.variables === endpoint.id}
+										onSelect={() => refreshConnection.mutate(endpoint.id)}
+									>
+										{#if refreshConnection.isPending && refreshConnection.variables === endpoint.id}
+											<Spinner class="size-4" />
+										{:else}
+											<RefreshCw class="size-4" />
+										{/if}
+										<span class="text-xs">Refresh {endpoint.name}</span>
+									</Command.Item>
+									<Command.Item
+										value="remove {endpoint.id}"
+										disabled={removeConnection.isPending}
+										onSelect={() => removeConnection.mutate(endpoint.id)}
+									>
+										<Trash2 class="size-4" />
+										<span class="text-xs">Remove {endpoint.name}</span>
+									</Command.Item>
 								{/if}
-								<span class="text-xs">Refresh {label}</span>
-							</Command.Item>
-							<Command.Item
-								value="remove {connection.id}"
-								disabled={removeConnection.isPending}
-								onSelect={() => removeConnection.mutate(connection.id)}
-							>
-								<Trash2 class="size-4" />
-								<span class="text-xs">Remove {label}</span>
-							</Command.Item>
-						</Command.Group>
+							</Command.Group>
+						{/if}
 					{/each}
 
 					<Command.Separator />
 					<Command.Item
 						value="connect a provider"
-                        disabled={!ai.connections}
+						disabled={!connections}
 						onSelect={() => (view = 'connect')}
 					>
 						<Plus class="size-4" />
-						<span>{ai.connections ? "Connect a provider..." : "Saved connections unavailable"}</span>
+						<span>{connections ? 'Connect a provider...' : 'Saved connections unavailable'}</span>
 					</Command.Item>
 				</Command.List>
 			</Command.Root>
@@ -458,50 +443,43 @@
 					<Command.Root class="rounded-md border">
 						<Command.List>
 							{#each CONNECTION_PRESETS as preset (preset.id)}
-								<Command.Item
-									value={preset.label}
-									onSelect={() => choosePreset(preset.id)}
-								>
+								<Command.Item value={preset.label} onSelect={() => choosePreset(preset.id)}>
 									<span class="flex-1">{preset.label}</span>
-									<span class="text-xs text-muted-foreground">
-										{hostLabel(preset.baseUrl)}
-									</span>
+									<span class="text-xs text-muted-foreground">{hostLabel(preset.baseUrl)}</span>
 								</Command.Item>
 							{/each}
 							<Command.Separator />
-							<Command.Item
-								value="custom url"
-								onSelect={() => choosePreset('custom')}
-							>
+							<Command.Item value="custom url" onSelect={() => choosePreset('custom')}>
 								<Plus class="size-4 shrink-0 opacity-70" />
 								<span class="flex-1">Custom URL</span>
 							</Command.Item>
 						</Command.List>
 					</Command.Root>
+					<p class="text-xs text-muted-foreground">
+						Ollama and LM Studio on this computer appear on their own while they run.
+					</p>
 				{:else}
 					<div class="space-y-1">
 						<Label for="conn-name" class="text-xs">Name</Label>
-      <Input id="conn-name" bind:value={formName} placeholder="Connection name" />
-      <Label for="conn-url" class="text-xs">Base URL</Label>
+						<Input id="conn-name" bind:value={formName} placeholder="Connection name" />
+						<Label for="conn-url" class="text-xs">Base URL</Label>
 						<Input
 							id="conn-url"
 							bind:value={formBaseUrl}
 							disabled={saveConnection.isPending}
-							placeholder="http://localhost:11434/v1"
+							placeholder="https://api.example.com/v1"
 						/>
 					</div>
 
 					<div class="space-y-1">
-						<Label for="conn-key" class="text-xs">
-							API key (if required by your server)
-						</Label>
+						<Label for="conn-key" class="text-xs">API key (if required by your server)</Label>
 						<div class="flex gap-1">
 							<Input
 								id="conn-key"
 								type={showKey ? 'text' : 'password'}
 								bind:value={formApiKey}
 								disabled={saveConnection.isPending || removeApiKey}
-								placeholder={savedConnection?.hasApiKey ? "Leave blank to keep saved key" : "sk-..."}
+								placeholder={savedConnection?.hasApiKey ? 'Leave blank to keep saved key' : 'sk-...'}
 							/>
 							<Button
 								variant="ghost"
@@ -532,9 +510,7 @@
 								<Spinner class="size-3.5" /> Loading models...
 							</p>
 						{:else if discovered && discovered.length > 0}
-							<p class="text-xs text-muted-foreground">
-								Pick a model to start using it.
-							</p>
+							<p class="text-xs text-muted-foreground">Pick a model to start using it.</p>
 							<Command.Root class="rounded-md border">
 								<Command.Input placeholder="Search models..." />
 								<Command.List class="max-h-48">
@@ -551,20 +527,12 @@
 									{/each}
 								</Command.List>
 							</Command.Root>
+						{:else if discoveryError}
+							<p class="text-xs text-muted-foreground">{discoveryError}</p>
+						{:else if formBaseUrl.trim()}
+							<p class="text-xs text-muted-foreground">No models found at this endpoint, type one manually.</p>
 						{:else}
-							{#if discoveryError}
-								<p class="text-xs text-muted-foreground">
-									{discoveryError}
-								</p>
-							{:else if formBaseUrl.trim()}
-								<p class="text-xs text-muted-foreground">
-									No models found at this endpoint, type one manually.
-								</p>
-							{:else}
-								<p class="text-xs text-muted-foreground">
-									Enter an endpoint to load models.
-								</p>
-							{/if}
+							<p class="text-xs text-muted-foreground">Enter an endpoint to load models.</p>
 						{/if}
 						<div class="flex gap-1">
 							<Input bind:value={formModel} aria-label="Model ID" placeholder="Enter a model ID" />
@@ -579,8 +547,7 @@
 					</div>
 
 					<p class="text-xs text-muted-foreground">
-						Requests go straight to this URL. Your Epicenter sign-in is never
-						sent there.
+						Requests go straight to this URL. Your Epicenter sign-in is never sent there.
 					</p>
 				{/if}
 			</fieldset>

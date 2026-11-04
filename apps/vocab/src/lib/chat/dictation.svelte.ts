@@ -3,8 +3,8 @@
  * `@epicenter/recorder/browser`. The package owns the microphone and utterance
  * segmentation (Silero VAD; assets served from `/vad/`, see vite.config.ts);
  * this controller owns the UI-facing cycle: it mirrors the session into a
- * reactive status and transcribes each spoken phrase through the shared
- * `transcribe` client. The active chat view owns one controller and closes it
+ * reactive status and transcribes each spoken phrase through the `transcribe`
+ * it is given. The active chat view owns one controller and closes it
  * before another chat view mounts.
  *
  * A session is tap-to-open, tap-to-close. Inside it, every pause-delimited
@@ -13,22 +13,18 @@
  * phrase does not end the session.
  *
  * Transcription is a stateless service: this holds no preferences and reaches
- * for no sync. It receives its
- * hosted transport and uses Vocab's app-local transcription model constant.
- *
- * Dictation explicitly uses the app's hosted transcription transport. Chat
- * connection selection never changes where microphone audio is sent.
+ * for no sync. The caller decides where audio goes; Vocab sends it to
+ * Epicenter's hosted transcription, and the chat's model choice never changes
+ * that.
  */
 
-import { TranscribeError } from '@epicenter/ai/openai';
-import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
+import type { AiError, Transcription } from '@epicenter/ai';
 import {
 	createVadRecorder,
 	type RecorderError,
 	type VadRecorderError,
 } from '@epicenter/recorder/browser';
-import type OpenAI from 'openai';
-import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { base } from '$app/paths';
 
 /**
@@ -38,9 +34,15 @@ import { base } from '$app/paths';
  */
 export type DictationStatus = 'idle' | 'listening' | 'speaking';
 
-export function createDictation(
-	getClient: () => OpenAI | null | Promise<OpenAI | null>,
-) {
+export function createDictation({
+	transcribe,
+}: {
+	/** Transcribe one spoken phrase; aborting `signal` abandons it. */
+	transcribe: (
+		file: File,
+		signal: AbortSignal,
+	) => Promise<Result<Transcription, AiError>>;
+}) {
 	// The VAD model and wasm are fetched at runtime, so their URL has to carry
 	// whatever prefix this build was served under. `base` is empty on Vocab's
 	// own deploy and `/apps/<dataId>` inside Epicenter (ADR-0210), which is
@@ -59,7 +61,7 @@ export function createDictation(
 	// failures travel in the Result handed to onTranscript.
 	let deliveries: Promise<void> = Promise.resolve();
 	let starting:
-		| Promise<Result<void, VadRecorderError | RecorderError | TranscribeError>>
+		| Promise<Result<void, VadRecorderError | RecorderError>>
 		| undefined;
 	let stopping: Promise<Result<void, VadRecorderError>> | undefined;
 	let closing: Promise<void> | undefined;
@@ -112,17 +114,9 @@ export function createDictation(
 		async start({
 			onTranscript,
 		}: {
-			onTranscript: (result: Result<string, TranscribeError>) => void;
-		}): Promise<
-			Result<void, VadRecorderError | RecorderError | TranscribeError>
-		> {
+			onTranscript: (result: Result<string, AiError>) => void;
+		}): Promise<Result<void, VadRecorderError | RecorderError>> {
 			if (closed || stopping || status !== 'idle') return Ok(undefined);
-			const client = await getClient();
-			if (closed) return Ok(undefined);
-			if (!client)
-				return TranscribeError.TransportFailed({
-					cause: new Error('This Account does not supply transcription.'),
-				});
 			if (starting) return starting;
 			const generation = ++callbackGeneration;
 			starting = (async () => {
@@ -149,24 +143,12 @@ export function createDictation(
 						deliveries = deliveries
 							.then(async () => {
 								if (closed) return;
-								const result = await tryAsync({
-									try: async () => {
-										const result = await client.audio.transcriptions.create(
-											{
-												file: new File([blob], 'dictation.webm', {
-													type: blob.type,
-												}),
-												model: HOSTED_TRANSCRIPTION_MODEL,
-											},
-											{ signal: transcription.signal },
-										);
-										if (typeof result.text !== 'string')
-											throw new Error('Transcription returned no text.');
-										return result.text;
-									},
-									catch: (cause) => TranscribeError.TransportFailed({ cause }),
-								});
-								if (!closed) onTranscript(result);
+								const { data, error } = await transcribe(
+									new File([blob], 'dictation.webm', { type: blob.type }),
+									transcription.signal,
+								);
+								if (!closed)
+									onTranscript(error === null ? Ok(data.text) : Err(error));
 							})
 							// transcribe is Result-typed and never rejects; this only keeps a
 							// throwing onTranscript from wedging every later phrase's delivery.

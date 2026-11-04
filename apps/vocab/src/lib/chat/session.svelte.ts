@@ -1,13 +1,14 @@
-import { createConversation } from '@epicenter/ai/agent';
+import type { ModelChoice } from '@epicenter/ai';
 import {
-	createOpenAiAgentEngine,
-	type OpenAiTurnContext,
-} from '@epicenter/ai/openai';
-import type { InferenceCatalog, InferenceTarget } from '@epicenter/ai/picker';
-import type { InferenceSelections } from '@epicenter/ai/selections';
+	type ChatTurn,
+	createChatEngine,
+	createConversation,
+} from '@epicenter/ai/agent';
+import type { ModelChoices } from '@epicenter/ai/choices';
 import { bindAgentConversation } from '@epicenter/svelte';
 import { createSubscriber } from 'svelte/reactivity';
-import { tutorPrompt, VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '../data.js';
+import { HOSTED_TUTOR, type VocabAi } from '../ai.svelte.js';
+import { tutorPrompt, VOCAB_SYSTEM_PROMPT } from '../data.js';
 import { createChatMessageStore, type MessageList } from './messages.svelte.js';
 import { withTutorOpening } from './opening.js';
 
@@ -16,20 +17,18 @@ export function createVocabChat({
 	messages,
 	chatId,
 	focus,
-	catalog,
-	selections,
+	ai,
+	choices,
 }: {
 	/** Every chat's finished messages; this chat's are its own. */
 	messages: MessageList;
 	chatId: string;
 	focus: readonly { text: string }[];
-	catalog: InferenceCatalog;
-	selections: InferenceSelections;
+	ai: Pick<VocabAi, 'current' | 'ready'>;
+	choices: ModelChoices;
 }) {
-	const observeSelections = createSubscriber((update) =>
-		selections.onChange(update),
-	);
-	let runTarget: OpenAiTurnContext | null = null;
+	const observeChoices = createSubscriber((update) => choices.onChange(update));
+	let runTurn: ChatTurn | null = null;
 	let draft = $state('');
 	// The submitted text stays in the draft until its message is saved.
 	let submittedDraft: string | null = null;
@@ -49,22 +48,34 @@ export function createVocabChat({
 		submittedDraft = null;
 	}
 
-	function target(): InferenceTarget | null {
-		observeSelections();
+	/** Whether a merged endpoint offers `choice` as a chat model now. */
+	function canChat(choice: ModelChoice | null): choice is ModelChoice {
 		return (
-			selections.get('tutor') ??
-			(catalog.accountId
-				? { connectionId: catalog.accountId, model: VOCAB_MODEL }
-				: null)
+			choice !== null &&
+			ai.current.models.some(
+				(model) =>
+					model.endpoint === choice.endpoint &&
+					model.id === choice.model &&
+					model.can.includes('chat'),
+			)
+		);
+	}
+
+	/** The learner's choice, or Epicenter's tutor model when it is offered. */
+	function target(): ModelChoice | null {
+		observeChoices();
+		return (
+			choices.get('tutor') ?? (canChat(HOSTED_TUTOR) ? HOSTED_TUTOR : null)
 		);
 	}
 
 	function captureTarget(): boolean {
-		const resolved = catalog.resolve(target());
-		if (!resolved) return false;
-		runTarget = {
-			client: resolved.client,
-			model: resolved.model,
+		const choice = target();
+		if (!canChat(choice)) return false;
+		runTurn = {
+			ai: ai.current,
+			endpoint: choice.endpoint,
+			model: choice.model,
 			systemPrompts: [
 				focus.length
 					? tutorPrompt(focus, loop.messages.length === 0)
@@ -74,13 +85,10 @@ export function createVocabChat({
 		return true;
 	}
 
-	const provider = createOpenAiAgentEngine({
-		data: () => {
-			if (!runTarget)
-				throw new Error(
-					'Choose an inference connection before running a turn.',
-				);
-			return runTarget;
+	const provider = createChatEngine({
+		turn: () => {
+			if (!runTurn) throw new Error('Choose a model before running a turn.');
+			return runTurn;
 		},
 	});
 	const loop = bindAgentConversation(
@@ -146,13 +154,11 @@ export function createVocabChat({
 			return target();
 		},
 		get canServe() {
-			const resolved = catalog.resolve(target());
-			return resolved !== null;
+			return canChat(target());
 		},
 		/** Whether `retry` would ask the tutor now. */
 		get canAsk() {
-			const resolved = catalog.resolve(target());
-			return resolved !== null && !isBusy() && !hasNothingToAsk();
+			return canChat(target()) && !isBusy() && !hasNothingToAsk();
 		},
 		get inputValue() {
 			return draft;
@@ -161,16 +167,15 @@ export function createVocabChat({
 			draft = value;
 		},
 		get canSend() {
-			const resolved = catalog.resolve(target());
 			return (
-				resolved !== null &&
+				canChat(target()) &&
 				!isBusy() &&
 				loop.messages.length > 0 &&
 				draft.trim().length > 0
 			);
 		},
-		selectTarget(next: InferenceTarget) {
-			selections.set('tutor', next);
+		selectTarget(next: ModelChoice) {
+			choices.set('tutor', next);
 		},
 		/**
 		 * Save the draft as a learner message, then ask the tutor. A failed save
@@ -205,7 +210,7 @@ export function createVocabChat({
 			const admitted = new AbortController();
 			asking = admitted;
 			try {
-				await catalog.ready;
+				await ai.ready;
 				if (admitted.signal.aborted) return;
 				if (hasNothingToAsk() || !captureTarget()) return;
 				dismissedError = null;
