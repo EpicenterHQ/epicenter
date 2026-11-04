@@ -9,11 +9,14 @@ one place.
 named from the app's address. A folder that lives somewhere else is a link
 inside it.
 
-**Everything a machine shares is in `~/.epicenter`.** The sync engine, local
-copies of documents, and logs.
+**Everything a machine shares is in `~/.epicenter`.** A link to the sync
+engine, local copies of documents, and logs.
 
 **Each app signs in as its site.** The account asks once per app and
 remembers; a machine groups those sign-ins.
+
+**Your own `git` in an Epicenter folder is plain Git.** Epicenter writes no
+paths into your Git configuration.
 
 This page describes where Epicenter is going and links the records that decide
 each part. Most of it is not built yet; each record's `Unbuilt` line says what
@@ -36,7 +39,9 @@ Every change to the data model is checked against eight principles
 6. Apps work alone. Epicenter and the account add capabilities and never take
    custody of your data.
 7. One engine and one merge rule wherever Git runs. Conflicts stay visible.
-8. Where a guarantee is weaker, the screen says so.
+8. Epicenter reconciles what it made; anywhere else, the screen says what it
+   found and the command that fixes it
+   ([ADR-0741](adr/0741-epicenter-reconciles-only-states-it-made.md)).
 
 ## Identity and names
 
@@ -94,6 +99,11 @@ What both stores share:
   that format. Moving data between stores is an export followed by an import,
   never two live stores at once.
 
+A document item is a Yjs map of `fields` and `body`, and a collection's body
+uses one of three standard codecs: none, Markdown, or rich text
+([ADR-0739](adr/0739-a-document-body-uses-a-standard-codec-until-an-app-needs-its-own.md)).
+An app gets a codec of its own only when these cannot hold its body.
+
 Records: [ADR-0705](adr/0705-an-apps-data-lives-in-two-kinds-of-store.md)
 (two stores), [ADR-0707](adr/0707-an-app-that-needs-co-editing-is-a-document-app.md)
 (co-editing apps are document apps),
@@ -120,8 +130,7 @@ Three places, each with one job:
   Obsidian Vault -> ~/Documents/Vault   your own folder: a name no app can have (it has a space)
 
 ~/.epicenter/                      Epicenter's machinery: hidden, never synced, read by every program
-  bin/epicenter                    the engine
-  bin/git-lfs                      bundled with it
+  bin/epicenter                    the engine: a link into the Epicenter app's CLI
   documents/<namespace>/tabs/      the one local copy of each document
   logs/                            sync logs
 
@@ -129,7 +138,8 @@ Three places, each with one job:
   settings.md                      this device's overrides
   shortcuts.md                     this device's shortcut overrides
   index.sqlite                     derived data, rebuilt from the folder
-  (sign-in)                        this app's refresh token, a file only you can read
+  requests/<id>.md                 actions a script or agent asked of this app on this device
+  (credentials)                    this app's refresh token and your provider API keys, a file only you can read
 ```
 
 - **Settings and shortcuts follow you.** Each is a note in the folder; an
@@ -153,16 +163,50 @@ Three places, each with one job:
 - **Links do the moving.** `epicenter move whispering /Volumes/Archive` moves
   the folder and leaves a link at `~/Epicenter/whispering`; Epicenter's
   "Move…" runs the same command. Apps never move or choose a location.
+- **Your own folders join through a link you name**
+  ([ADR-0736](adr/0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md)).
+  "Add folder…" puts a link at `~/Epicenter/<name>`. Epicenter suggests the
+  name and you confirm it. It always has a space (`Obsidian Vault`), because
+  names without a dot belong to Epicenter's apps and names with a dot to
+  owners.
 - **A folder's `AGENTS.md`** names its contract and tells agents what the
   folder is ([ADR-0711](adr/0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md)).
 - **`~/.epicenter`** holds what every program on this machine shares
   ([ADR-0718](adr/0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md)).
 - **Each app signs in as its site** ([ADR-0731](adr/0731-every-app-signs-in-as-its-site.md)). The account's own page asks
   once per app, on the web and the desktop alike, and the server remembers the
-  grant. An app reaches its own data and inference; only Epicenter's grant
-  reaches every repository, because it syncs them. The desktop shell keeps the
-  refresh token in the app's AppData and the page never sees it. The account
-  lists each computer's apps, and "Sign out this Mac" revokes them together.
+  grant. The consent screen preselects the repository named from the app's
+  site, and you can choose another, such as one shared with you
+  ([ADR-0732](adr/0732-a-grant-reaches-what-the-person-chooses-at-consent.md)).
+  Only Epicenter's grant, as `https://epicenter.so`, reaches every
+  repository, because it syncs them. The account lists each computer's apps,
+  and "Sign out this Mac" revokes them together.
+- **Each credential lives in its app's own place**
+  ([ADR-0740](adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)).
+  On the desktop, one file in the app's AppData holds the refresh token and
+  your provider API keys, and the page never sees them. On the web, the app
+  keeps a rotated refresh token in its origin's storage, so renewing never
+  leaves the page.
+- **Your own `git` is plain Git**
+  ([ADR-0733](adr/0733-your-own-git-in-an-epicenter-folder-is-plain-git.md)).
+  Epicenter writes no credential helper, merge driver path, or LFS hooks into
+  any Git configuration; its own sync supplies them on each run. A plain
+  `git pull` merges notes by line, and the server refuses a plain push of a
+  file that belongs in LFS. Epicenter needs the system's `git` and asks the
+  platform to install it at a named setup step; it carries `git-lfs` inside
+  the app for its own runs.
+- **An app's actions are request notes**
+  ([ADR-0737](adr/0737-an-apps-actions-are-request-notes-it-watches-in-this-devices-place.md)).
+  A script or agent writes a note into the app's `requests/` in AppData, the
+  app handles it when it runs, and the result lands in the synced folder. An
+  action that needs the app's window is a deep link, such as
+  `whispering://record`.
+- **A script names the app it reaches**
+  ([ADR-0738](adr/0738-a-script-reaches-an-app-through-a-handle-module-written-from-its-site.md)).
+  `epicenter add https://whispering.epicenter.so` writes a handle module,
+  `open(handle)` opens the app's data, and `epicenter run <file>` runs the
+  script under Bun. `epicenter check` says when a handle's contract is out of
+  date.
 
 ## On the server
 
@@ -185,13 +229,26 @@ Epicenter. What the account adds:
 | --- | --- |
 | An app | Reads and writes its stores. A folder app needs no account and no Epicenter to save locally; syncing goes through Epicenter's engine. A document app works locally and syncs once you sign in. |
 | The app's site | Publishes `/contract.json`, and optionally `/SKILL.md` ([ADR-0723](adr/0723-an-apps-site-is-found-by-convention.md)). "Get the app" opens the site. |
-| The `epicenter` engine | Git, LFS, merge, `check`, `move`, `get`, and `set`. One copy per machine in `~/.epicenter/bin`, installed by the Epicenter app ([ADR-0713](adr/0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md)). |
-| The Epicenter app | Installs the engine, asks consent for a first sync, syncs on a schedule, and browses every folder and document you have ([ADR-0715](adr/0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md)). |
-| Your account | Resources, grants, documents, inference. Signed in once per machine. |
+| The `epicenter` engine | Git, LFS, merge, `check`, `move`, `get`, `set`, `add`, and `run`. The CLI inside the Epicenter app, reached through one link per machine at `~/.epicenter/bin/epicenter` ([ADR-0713](adr/0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md), [ADR-0733](adr/0733-your-own-git-in-an-epicenter-folder-is-plain-git.md)). |
+| The Epicenter app | Carries the engine, asks consent for a first sync, syncs while it runs, opens at login ([ADR-0328](adr/0328-epicenter-runs-when-you-log-in-and-pause-is-the-only-control-it-offers.md)), and browses every folder and document you have ([ADR-0715](adr/0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md)). |
+| Your account | Resources, grants, documents, inference. Each app signs in once. |
 
-Every folder merges by one rule: `.md` notes merge fields and body, a file
-with a binary extension goes to Git LFS, and every other file merges as text
-by line ([ADR-0714](adr/0714-a-files-extension-decides-how-every-folder-merges-it.md)).
+Every folder merges by one rule: `.md` notes merge fields and body, and every
+other file is kept whole in Git LFS
+([ADR-0734](adr/0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md)).
+Epicenter's screen says: "Files other than notes are kept whole; if two
+devices change one, both versions are kept."
+
+**Sync gives files a history; it never merges two**
+([ADR-0735](adr/0735-sync-gives-files-a-history-it-never-merges-two.md)).
+No app creates a repository, and a folder has no history until it first
+syncs. Turning on sync builds the folder's history on top of the account's
+repository for that app: files only the account has are checked out, files
+only this machine has are added, and files on both merge by the rule above,
+in one commit, "Added from <computer name>". The consent screen says what
+will happen: "This Mac's 12 recordings will be added to your Whispering,
+which has 340." A folder whose Git history Epicenter did not make is refused
+with the Git command that resolves it.
 
 ## In a browser
 
@@ -224,7 +281,7 @@ the browser.
 - **Photos:** Google Photos holds the photos. A SQLite cache in AppData mirrors
   what Google Photos has. The folder holds your annotations, one per photo.
 - **Mail:** each account's mail is a cache in AppData, and its secrets live in
-  the keychain. The folder holds your saved queries and batches of changes.
+  Mail's credentials file in AppData. The folder holds your saved queries and batches of changes.
 - **Messages:** Beeper holds the conversations. The folder holds replies, and
   each send is journaled on the device (ADR-0704). There is no browser variant.
 - **Epicenter** gets a synced folder, `~/Epicenter/epicenter`, only when it has
@@ -235,19 +292,23 @@ the browser.
 Agreed direction, built after the folder work:
 
 - **Restore from your account.** On a second Mac, Epicenter offers "Restore
-  Whispering": it clones the repository to the app's path, or joins a folder
-  already there.
+  Whispering". With no folder at the app's path, it checks the repository out
+  there. With a folder already there, restoring is turning on sync: this
+  Mac's files are added on top of the repository in one commit
+  ([ADR-0735](adr/0735-sync-gives-files-a-history-it-never-merges-two.md)).
 - **Export all my data.** One archive of every folder and document Epicenter
   can reach, following links and including attached files, with a list of
   browser-only data it cannot reach.
-- **Git LFS ships with the engine** in `~/.epicenter/bin`. Shipping `git`
-  itself, so a first sync never asks for Apple's developer tools, waits on a
-  relocatable build and a review of bundling GPLv2 Git with the app.
-- **Sync runs under a login agent,** so quitting the Epicenter app does not
-  stop sync.
-- **Your own folders take names no app can have,** such as one with a space
-  (`Obsidian Vault`): names without a dot belong to Epicenter's apps, and
-  names with a dot to owners.
+- **The engine is a link into the Epicenter app,** which carries `git-lfs`
+  for its own runs and asks the platform to install `git` at a named setup
+  step ([ADR-0733](adr/0733-your-own-git-in-an-epicenter-folder-is-plain-git.md)).
+- **Epicenter syncs while it runs and opens at login**
+  ([ADR-0328](adr/0328-epicenter-runs-when-you-log-in-and-pause-is-the-only-control-it-offers.md)).
+- **Your own folders join through a link you name**
+  ([ADR-0736](adr/0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md)).
+- **App actions and scripts:** request notes, deep links, and handle modules
+  ([ADR-0737](adr/0737-an-apps-actions-are-request-notes-it-watches-in-this-devices-place.md),
+  [ADR-0738](adr/0738-a-script-reaches-an-app-through-a-handle-module-written-from-its-site.md)).
 
 ## What Epicenter refuses
 
@@ -257,17 +318,21 @@ Agreed direction, built after the folder work:
 - Two live stores for the same data.
 - A registry of apps or folders, or a stored location for any folder. An app
   joins by publishing a contract; a folder is where its app's address says.
-- Machine state in your Git configuration or in a synced folder.
+- Machine state or Epicenter's paths in your Git configuration, or machine
+  state in a synced folder.
 - A sign-in shared between programs, or a broker that hands apps tokens.
+- Merging two unrelated histories, or adopting a folder whose Git history
+  Epicenter did not make.
+- A merge by line for any file other than a note.
+- A socket, verb registry, or windowless mode for app actions, until a named
+  action needs a synchronous answer.
 
 ## Open questions
 
 - Which of your apps live at `epicenter.so` and which at your own domain.
 - Whether Tasks and Timebox stay folders.
-- The binary extensions that go to Git LFS, and the size above which the
-  server refuses a file outside LFS.
-- How app actions and plugins run, when synced batches apply, and how a
-  person's own versions of actions survive an app update.
+- How plugins run, when synced batches apply, and how a person's own
+  versions of actions survive an app update.
 - End-to-end encryption for documents.
 
 ## Later

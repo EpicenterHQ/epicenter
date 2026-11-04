@@ -3,7 +3,8 @@
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) at "a desktop app that needs the CLI runs its matched private bundled executable": an app calls the one engine the Epicenter app installs at `~/.epicenter/bin/epicenter`, and bundles none.
-- **Unbuilt:** the bundled `git-lfs`; the `git` check at setup; other apps' calls to the engine; "Syncing needs Epicenter"; credential use for remotes other than Epicenter's.
+- **Amended by:** [ADR-0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) at installing and updating `~/.epicenter/bin/epicenter`, `git-lfs` installed beside the engine, and the `git` check at setup: the engine is a link into the Epicenter app's bundled CLI, `git-lfs` stays inside the app on `PATH` only for Epicenter's runs, and a named setup step triggers the platform's Git installer.
+- **Unbuilt:** other apps' calls to the engine; "Syncing needs Epicenter"; credential use for remotes other than Epicenter's.
 
 ## Context
 

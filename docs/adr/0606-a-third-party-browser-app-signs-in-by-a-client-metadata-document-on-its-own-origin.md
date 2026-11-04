@@ -3,10 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0578](0578-epicenter-hosts-no-mcp-server.md) at "Every OAuth client is a first-party row written by `registerFirstPartyClients`", "The authorization server composes no `@better-auth/cimd` plugin", and "A `client_id` that names a URL is an unknown client": a browser app's client id may be the URL of its client ID metadata document; the `mcp` audience stays deleted. [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "An OAuth client id is a constant in each app's code, registered on the server": a third-party app registers nothing, and its client id is its metadata document's URL.
-- **Amended by:** [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) at the client ID metadata document, the `cimd` plugin, "A redirect URI is accepted only when the document lists it", and "Epicenter's first-party browser apps keep their rows in `BROWSER_APPS`": every browser app's client id is its origin, and nothing is registered or hosted; CORS chosen by route stands.
+- **Amended by:** [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) at the client ID metadata document, the `cimd` plugin, "A redirect URI is accepted only when the document lists it", and "Epicenter's first-party browser apps keep their rows in `BROWSER_APPS`": every browser app's client id is its origin, and nothing is registered or hosted; CORS chosen by route stands; [ADR-0731](0731-every-app-signs-in-as-its-site.md) at "Native app identity remains a separate implementation question": a native app is its origin with a loopback redirect.
 - **Relates:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (every app is a static site its author deploys), [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) (a token reaches every repository its owner holds).
 - **Unbuilt:** origin-identified clients and independent service consent under ADR-0614 and ADR-0634; no client metadata-document registration is required.
-- **Amended by:** [ADR-0731](0731-every-app-signs-in-as-its-site.md) at "Native app identity remains a separate implementation question": a native app is its origin with a loopback redirect.
 
 ## Context
 
