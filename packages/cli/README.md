@@ -83,12 +83,9 @@ owner's 12-character id (`epicenter repos` lists them).
   folder. Without `<dir>`, it reads the cloned `AGENTS.md` contract URL and
   derives a path under `~/Epicenter` from the app's site. Without a contract,
   a host-shaped repository name produces an owner folder; another name is
-  used directly. An occupied folder joins automatically only when it is at
-  that derived path, its own note names the same contract, and the remote is
-  the account's own repository for that app. Other joins require `--join`,
-  including an occupied explicit `<dir>`. Joining fetches and merges locally
-  without publishing. The next explicit `epicenter sync <dir>` publishes and
-  sets local sync consent, making the folder visible to watched sync.
+  used directly. Cloning onto an occupied folder enrolls it with that remote
+  and syncs immediately. If this folder has no shared history with the remote, its files land in one
+  `Added from <computer name>` commit on the remote head.
 - `epicenter repos` lists the repositories of every namespace the sign-in may
   reach, the personal one first. With `--json`:
   `{"namespaces": [{"id", "title", "personal", "role", "repositories":
@@ -124,7 +121,7 @@ with real `git add`, so Git LFS's filters run.
   any segment of its canonical path in any case, the folder core's
   admission rule (`src/sync/admission.ts`, held to the folder plugin's
   `fixtures/reserved-directories.json`); `~/.notes` is a folder. Then
-  `git init` when needed; Epicenter's blocks in the folder's committed
+  `git init` when needed; Epicenter's blocks in the folder's
   `.gitattributes` and `.gitignore` (`src/sync/managed-block.ts`). The
   attributes block is `REPOSITORY_ATTRIBUTES` from
   `@epicenter/definition/contract`, which the server writes in a
@@ -133,7 +130,7 @@ with real `git add`, so Git LFS's filters run.
   directories are exempt. The ignore block is `REPOSITORY_IGNORE`, in
   `managed-block.ts`: `.DS_Store` and `.epicenter/` (a device's unfinished
   writes) are never committed, and sync leaves `.epicenter/` out itself
-  even when `.gitignore` does not name it.
+  even when `.gitignore` does not name it. Init makes no commit.
   Then local LFS filter values, with no hooks or saved merge driver;
   `git lfs pull` for files checked out as pointers. A folder inside another
   repository is refused. Its own repository records `epicenter.synced = true`
@@ -144,7 +141,7 @@ with real `git add`, so Git LFS's filters run.
   the control files.
 - `connect <dir> <repository>` adds Git `origin` to an enrolled folder. It
   leaves an existing matching origin alone and refuses a different one.
-  The first sync fetches and merges remote `main` before pushing; without an origin, sync
+  The first sync fetches remote `main` before pushing; without an origin, sync
   still commits local changes.
 - `sync [<dir>]` runs one round per folder, or for every synced folder found in the library
   without `<dir>`. Rounds of one repository take turns on
@@ -157,8 +154,10 @@ with real `git add`, so Git LFS's filters run.
   writes, excluded by pathspec whatever `.gitignore` says); fetches `origin`; stops if the remote `main`
   no longer contains `refs/epicenter/last-seen` (an owner rewrote `main`);
   stops with `retry` if another program holds `index.lock`; fetches the
-  LFS bytes of `origin/main`; then merges `origin/main`
-  (unrelated histories only on first contact), keeps the edited side of an
+  LFS bytes of `origin/main`. On first contact with unrelated Epicenter
+  history, it places the local files in one commit on remote `main`; a
+  repository with unrelated non-Epicenter commits is refused with a rebase
+  command. Later rounds merge `origin/main`, keep the edited side of an
   edit/delete, lands a binary both sides replaced as
   `<stem> (conflict <hash7>)<ext>` beside the remote's, and commits; runs
   `git lfs push`, then pushes, fetching and merging again when the push is
@@ -178,10 +177,10 @@ with real `git add`, so Git LFS's filters run.
   and writes nothing. Without `<dir>` it scans the environment's library root and one owner level, like
   `sync`; with `--json` it prints one `{"status": {...}}` line per candidate,
   in path order. Dead links, unreadable folders, repositories Git cannot
-  read, and pending joins carry `{"folder", "problem"}`. Sync without a
+  read, carry `{"folder", "problem"}`. Sync without a
   path skips these candidates with one note each. With no candidate found it prints nothing
   (and says so on stderr without `--json`) and exits 0. The desktop app's Folders window lists its folders from this.
-- `forget [<dir>]` unsets local `epicenter.synced` and `epicenter.joinPending`.
+- `forget [<dir>]` unsets local `epicenter.synced`.
 - `merge-driver` runs `settle` on a note: the later arrival at the server
   wins a front matter key (`%A` under a merge, `%B` under a rebase), and the
   body merges by line, then by word; two changes at the same spot give one

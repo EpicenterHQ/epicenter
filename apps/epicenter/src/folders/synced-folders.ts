@@ -27,7 +27,6 @@ const PROBLEMS: Record<string, string> = {
 	'not on disk': 'Missing from disk',
 	unreadable: 'Cannot read this folder',
 	'not in a Git repository': 'Not a Git repository',
-	'join pending': 'Join pending. Run sync on this folder to publish it.',
 	'its repository is not set up for sync': 'Not set up for sync',
 };
 

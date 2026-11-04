@@ -49,13 +49,12 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./sync/commands.ts')).syncCommand(dir, options, json, grant),
 	status: async ({ positionals: [dir], json }) =>
 		(await import('./sync/commands.ts')).statusCommand(dir, json),
-	clone: async ({ positionals: [source, dir], options, json, grant }) =>
+	clone: async ({ positionals: [source, dir], json, grant }) =>
 		(await import('./sync/commands.ts')).cloneCommand(
 			source as string,
 			dir,
 			json,
 			grant,
-			options,
 		),
 	forget: async ({ positionals: [dir], json }) =>
 		(await import('./sync/commands.ts')).forgetCommand(dir, json),
@@ -136,20 +135,18 @@ prints one {"status": {...}} per candidate. Exits 0.`,
 	clone: `Clones <namespace>/<name> from this deployment's Git origin, any other URL
 with your own Git credentials, or a repository by its path. By default the
 destination comes from the cloned AGENTS.md contract under ~/Epicenter.
-An occupied folder joins automatically only when its contract matches, the
-path is derived from that contract, and the repository belongs to your
-account. Pass --join to join another occupied folder. Joining fetches and
-merges locally; run epicenter sync <dir> to publish local files.`,
+An occupied folder is enrolled with this remote and synced immediately.
+Files already in that folder are added on top of the remote's history.`,
 	init: `Sets up or repairs <dir> (default: the current directory) for sync, and says
 what it changed: git init when it is not in a repository; Epicenter's block in
-the folder's committed .gitattributes (notes merge by Epicenter's rules,
+the folder's .gitattributes (notes merge by Epicenter's rules,
 every other file except dotfiles is Git LFS); LFS filters in this clone; the LFS bytes for files checked out as
-pointers; and the folder in
+pointers; and local sync consent in
 the folder's own Git config (epicenter.synced = true). If the folder is outside
 the environment's library, init links it there by folder name so discovery finds it.
 A folder inside another repository is
-refused, because sync pulls and pushes that whole repository. Exits 0, or 2 when
-refused.`,
+refused, because sync pulls and pushes that whole repository. Init makes no
+commit. Exits 0, or 2 when refused.`,
 	connect: `Adds origin to a folder already set up by epicenter init. The repository
 can be <namespace>/<name>, the signed-in person's '~/name' (quote it so the
 shell does not expand ~), or a URL such as file:// for a local repository.

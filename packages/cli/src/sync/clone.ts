@@ -17,18 +17,16 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
 	hostFromSiteUrl,
 	relativeFolderPath,
-	repositoryName,
 } from '@epicenter/constants/app-names';
 import { isRepositoryName } from '@epicenter/constants/repositories';
 import { agentsContract } from '@epicenter/definition/note';
 import { resolveAppPaths } from '../app-paths.ts';
 import { connect } from './connect.ts';
-import { config, git, must, originPushUrl } from './git.ts';
+import { config, git, originPushUrl } from './git.ts';
 import {
 	type Initialized,
 	type InitOptions,
 	init,
-	prepareFolder,
 	refuseReservedDirectory,
 	repositoryRoot,
 } from './setup.ts';
@@ -37,8 +35,6 @@ import { type SyncResult, syncFolder } from './sync.ts';
 export type CloneSource = {
 	readonly url: string;
 	readonly name: string;
-	/** True only for a resolved ~/name on the signed-in account. */
-	readonly accountOwned?: boolean;
 };
 
 export type CloneResult = Initialized & {
@@ -47,11 +43,7 @@ export type CloneResult = Initialized & {
 	readonly sync?: SyncResult;
 };
 
-export type CloneOptions = InitOptions & {
-	readonly join?: boolean;
-	readonly accountOwned?: boolean;
-	readonly ownsRemote?: (url: string) => Promise<boolean>;
-};
+export type CloneOptions = InitOptions;
 
 export function localSource(source: string): CloneSource | undefined {
 	if (
@@ -64,7 +56,7 @@ export function localSource(source: string): CloneSource | undefined {
 	return { url, name: basename(url, '.git') };
 }
 
-type Named = { path: string; naming?: string; contract?: string };
+type Named = { path: string; naming?: string };
 
 async function nameFromNote(folder: string, fallback: string): Promise<Named> {
 	const fallbackPath =
@@ -111,7 +103,6 @@ async function nameFromNote(folder: string, fallback: string): Promise<Named> {
 	}
 	return {
 		path: relativeFolderPath(hostFromSiteUrl(origin)),
-		contract: parsed.contract,
 	};
 }
 
@@ -156,112 +147,31 @@ async function destination(target: string) {
 	};
 }
 
-async function localFileCount(folder: string): Promise<number> {
-	let count = 0;
-	for (const entry of await readdir(folder, { withFileTypes: true })) {
-		if (entry.name === '.git' || entry.name === '.epicenter') continue;
-		if (entry.isDirectory())
-			count += await localFileCount(join(folder, entry.name));
-		else count++;
-	}
-	return count;
-}
-
 async function joinExisting(
 	target: string,
 	url: string,
-	name: string,
-	named: Named,
-	explicit: boolean,
 	options: CloneOptions,
 ): Promise<CloneResult> {
 	await refuseReservedDirectory(target);
-	if (explicit && !options.join)
-		throw new Error(
-			`${target} has ${await localFileCount(target)} local file(s) that would join ${url}. Pass --join to join this folder.`,
-		);
 	const canonical = await realpath(target);
 	const root = await repositoryRoot(target);
 	if (root !== null && root !== canonical)
 		throw new Error(
-			`${target} is inside the repository ${root}; cannot join ${url}`,
+			`${target} is inside the repository ${root}; cannot sync ${url}`,
 		);
 	if (root !== null) {
 		const current = await config(root, 'remote.origin.url');
 		if (current !== null && current !== url)
 			throw new Error(
-				`${target} has remote ${current}; cannot join remote ${url}`,
+				`${target} has remote ${current}; cannot sync remote ${url}`,
 			);
-		if (current === url) {
-			const push = await originPushUrl(root);
-			if (push !== url)
-				throw new Error(
-					`${target} fetches from ${url} but pushes to ${push}; cannot join remote ${url}`,
-				);
-			const pending = (await config(root, 'epicenter.joinPending')) === 'true';
-			const setup = pending
-				? await prepareFolder(target, options)
-				: await init(target, options);
-			return { ...setup, alreadyCloned: true };
-		}
+		if (current === url && (await originPushUrl(root)) !== url)
+			throw new Error(`${target} fetches from ${url} but pushes elsewhere`);
 	}
-	let sameContract = false;
-	if (named.contract !== undefined) {
-		try {
-			if ((await lstat(join(target, 'AGENTS.md'))).isFile()) {
-				const existing = agentsContract(
-					await readFile(join(target, 'AGENTS.md'), 'utf8'),
-				);
-				sameContract =
-					existing.kind === 'frontmatter' &&
-					existing.contract === named.contract;
-			}
-		} catch {
-			/* A missing or unreadable note cannot authorize an implicit join. */
-		}
-	}
-	const expectedName =
-		named.contract === undefined
-			? undefined
-			: repositoryName(hostFromSiteUrl(new URL(named.contract).origin));
-	const candidate =
-		!explicit &&
-		!options.join &&
-		named.contract !== undefined &&
-		sameContract &&
-		name === expectedName;
-	const owned =
-		candidate &&
-		(options.accountOwned === true ||
-			(await options.ownsRemote?.(url).catch(() => false)) === true);
-	const safe = candidate && owned;
-	if (!options.join && !safe)
-		throw new Error(
-			`${target} has ${await localFileCount(target)} local file(s) that would join ${url}. Pass --join to join this folder.`,
-		);
-	const setup = await prepareFolder(target, options);
-	await must(target, ['config', '--local', 'epicenter.joinPending', 'true']);
-	if ((await config(target, 'epicenter.synced')) === 'true')
-		await must(target, [
-			'config',
-			'--local',
-			'--unset-all',
-			'epicenter.synced',
-		]);
-	await connect(target, url, true);
-	const round = await syncFolder(target, {
-		...options,
-		publish: false,
-		allowPending: true,
-	});
-	const sync = {
-		...round,
-		notes: [
-			...round.notes,
-			`nothing was published; run epicenter sync ${target} to publish local files`,
-		],
-	};
-	return { ...setup, sync };
+	const setup = await init(target, options);
+	await connect(target, url);
+	const sync = await syncFolder(target, options);
+	return { ...setup, alreadyCloned: root !== null, sync };
 }
 
 async function createParents(path: string, created: string[]) {
@@ -275,9 +185,9 @@ async function createParents(path: string, created: string[]) {
 	await mkdir(path, { recursive: true });
 }
 
-/** Clone or join. A join never publishes; the first explicit sync consents to watch. */
+/** Clone a new folder or turn on sync for an occupied folder. */
 export async function clone(
-	{ url, name, accountOwned }: CloneSource,
+	{ url, name }: CloneSource,
 	dir: string | undefined,
 	options: CloneOptions = {},
 ): Promise<CloneResult> {
@@ -299,23 +209,14 @@ export async function clone(
 		await refuseReservedDirectory(target);
 		const state = await destination(target);
 		if (state.kind === 'occupied') {
-			const result = await joinExisting(
-				target,
-				url,
-				name,
-				named,
-				dir !== undefined,
-				{ ...options, accountOwned },
-			);
+			const result = await joinExisting(target, url, options);
 			completed = true;
 			return { ...result, naming: named.naming };
 		}
 		await createParents(dirname(state.path), created);
 		if (state.kind === 'empty') {
 			if (state.path !== target)
-				throw new Error(
-					`${target} is a link; choose a missing directory or pass --join`,
-				);
+				throw new Error(`${target} is a link; choose a missing directory`);
 			await rmdir(state.path);
 			restore = { path: state.path, mode: state.mode };
 		}

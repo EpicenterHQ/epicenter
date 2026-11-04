@@ -174,7 +174,7 @@ test('explicit directory wins over the site-derived folder name', async () => {
 	}
 }, 60_000);
 
-test('clone joins an app-created folder and merges local and remote notes', async () => {
+test('clone onto an occupied app folder publishes one commit on the remote history', async () => {
 	const f = fixture();
 	try {
 		const source = await f.remote(
@@ -185,56 +185,41 @@ test('clone joins an app-created folder and merges local and remote notes', asyn
 		f.write(target, 'AGENTS.md', contract('https://whispering.epicenter.so'));
 		f.write(target, 'notes/local.md', '---\ntitle: Local\n---\nlocal note\n');
 		expect((await f.cli('init', target)).code).toBe(0);
+		expect(
+			(await f.git(target, 'rev-parse', '--verify', 'HEAD')).code,
+		).not.toBe(0);
 		const before = (
 			await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
 		).stdout.trim();
-		const joined = await f.cli('clone', source, '--join');
-		expect(joined.code).toBe(0);
+		const joined = await f.cli('clone', source);
+		expect(joined.code, joined.out).toBe(0);
 		expect(existsSync(join(target, 'notes', 'remote.md'))).toBe(true);
 		expect(readFileSync(join(target, 'notes', 'local.md'), 'utf8')).toContain(
 			'local note',
 		);
+		expect((await f.git(target, 'rev-parse', 'HEAD^')).stdout.trim()).toBe(
+			before,
+		);
 		expect(
-			(
-				await f.git(target, 'config', '--get', 'epicenter.synced')
-			).stdout.trim(),
-		).toBe('');
-		expect((await f.git(target, 'ls-files', '-u')).stdout.trim()).toBe('');
-		expect(
-			(
-				await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
-			).stdout.trim(),
-		).toBe(before);
-		expect((await f.cli('sync')).code).toBe(0);
-		expect(
-			JSON.parse((await f.cli('status', '--json')).stdout).status,
-		).toMatchObject({
-			folder: target,
-			problem: 'join pending',
-		});
+			(await f.git(target, 'log', '-1', '--format=%s')).stdout.trim(),
+		).toMatch(/^Added from /);
 		expect(
 			(
 				await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
 			).stdout.trim(),
-		).toBe(before);
-		expect((await f.cli('sync', target)).code).toBe(0);
+		).toBe((await f.git(target, 'rev-parse', 'HEAD')).stdout.trim());
 		expect(
 			(
 				await f.git(target, 'config', '--get', 'epicenter.synced')
 			).stdout.trim(),
 		).toBe('true');
-		expect(
-			(
-				await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
-			).stdout.trim(),
-		).not.toBe(before);
 		expect(noTemps(f.library)).toEqual([]);
 	} finally {
 		f.cleanup();
 	}
 }, 60_000);
 
-test('join reports a note conflict and keeps both versions in the note', async () => {
+test('first sync merges settings.md and keeps both versions of a non-note file', async () => {
 	const f = fixture();
 	try {
 		const source = await f.remote(
@@ -242,29 +227,35 @@ test('join reports a note conflict and keeps both versions in the note', async (
 			contract('https://whispering.epicenter.so'),
 		);
 		const seed = join(f.box, 'conflict-seed');
-		f.write(
-			seed,
-			'notes/shared.md',
-			'---\ntitle: Shared\n---\nremote version\n',
-		);
-		expect((await f.git(seed, 'add', 'notes/shared.md')).code).toBe(0);
+		f.write(seed, 'settings.md', '---\ntitle: Shared\n---\nremote version\n');
+		f.write(seed, 'media/asset.bin', 'remote bytes');
+		expect(
+			(await f.git(seed, 'add', 'settings.md', 'media/asset.bin')).code,
+		).toBe(0);
 		expect((await f.git(seed, 'commit', '-qm', 'remote note')).code).toBe(0);
 		expect((await f.git(seed, 'push', '-q', 'origin', 'HEAD:main')).code).toBe(
 			0,
 		);
 		const target = join(f.library, 'whispering');
 		f.write(target, 'AGENTS.md', contract('https://whispering.epicenter.so'));
-		f.write(
-			target,
-			'notes/shared.md',
-			'---\ntitle: Shared\n---\nlocal version\n',
-		);
-		const joined = await f.cli('clone', source, '--join');
+		f.write(target, 'settings.md', '---\ntitle: Shared\n---\nlocal version\n');
+		f.write(target, 'media/asset.bin', 'local bytes');
+		const joined = await f.cli('clone', source);
 		expect(joined.code).toBe(0);
-		expect(joined.out).toContain('conflict block written');
-		const note = readFileSync(join(target, 'notes/shared.md'), 'utf8');
+		expect(joined.out).toContain('merged two additions with a conflict block');
+		const note = readFileSync(join(target, 'settings.md'), 'utf8');
 		expect(note).toContain('local version');
 		expect(note).toContain('remote version');
+		expect(readFileSync(join(target, 'media/asset.bin'), 'utf8')).toBe(
+			'remote bytes',
+		);
+		const copies = readdirSync(join(target, 'media')).filter((name) =>
+			name.startsWith('asset (conflict '),
+		);
+		expect(copies).toHaveLength(1);
+		expect(
+			readFileSync(join(target, 'media', copies[0] as string), 'utf8'),
+		).toBe('local bytes');
 		expect((await f.git(target, 'ls-files', '-u')).stdout.trim()).toBe('');
 	} finally {
 		f.cleanup();
@@ -284,7 +275,7 @@ test('same remote is already cloned; different remote is refused with both URLs'
 		);
 		const target = join(f.library, 'whispering');
 		expect((await f.cli('clone', source)).code).toBe(0);
-		expect((await f.cli('clone', source, target)).out).toContain('--join');
+		expect((await f.cli('clone', source, target)).code).toBe(0);
 		const head = (await f.git(target, 'rev-parse', 'HEAD')).stdout.trim();
 		expect(
 			(await f.git(target, 'config', '--unset-all', 'epicenter.synced')).code,
@@ -308,7 +299,7 @@ test('same remote is already cloned; different remote is refused with both URLs'
 	}
 }, 60_000);
 
-test('an implicit non-account join and an occupied explicit directory require --join', async () => {
+test('an occupied folder is enrolled by clone without a join flag', async () => {
 	const f = fixture();
 	try {
 		const source = await f.remote(
@@ -317,24 +308,51 @@ test('an implicit non-account join and an occupied explicit directory require --
 		);
 		const target = join(f.library, 'whispering');
 		f.write(target, 'AGENTS.md', contract('https://whispering.epicenter.so'));
-		f.write(target, 'notes/local.md', 'local');
+		f.write(target, 'notes/local.md', '---\ntitle: Local\n---\nlocal\n');
 		const implicit = await f.cli('clone', source);
-		expect(implicit.code).toBe(2);
-		expect(implicit.out).toContain(target);
-		expect(implicit.out).toContain('2 local file(s)');
-		expect(implicit.out).toContain(source);
-		expect(implicit.out).toContain('--join');
-		const explicit = await f.cli('clone', source, target);
-		expect(explicit.code).toBe(2);
-		expect(explicit.out).toContain('--join');
-		expect(existsSync(join(target, '.git'))).toBe(false);
+		expect(implicit.code, implicit.out).toBe(0);
+		expect(existsSync(join(target, 'notes/local.md'))).toBe(true);
+		expect((await f.cli('clone', source, target)).code).toBe(0);
 		const invalid = await f.remote(
 			'invalid-note',
 			contract('http://whispering.epicenter.so'),
 		);
-		const checked = await f.cli('clone', invalid, target, '--join');
+		const checked = await f.cli('clone', invalid, target);
 		expect(checked.code).toBe(2);
 		expect(checked.out).toContain('invalidSiteUrl');
+	} finally {
+		f.cleanup();
+	}
+}, 60_000);
+
+test('an unrelated hand-written history is refused with a rebase command', async () => {
+	const f = fixture();
+	try {
+		const source = await f.remote(
+			'foreign',
+			contract('https://whispering.epicenter.so'),
+		);
+		const target = join(f.library, 'whispering');
+		f.write(target, 'settings.md', '---\ntitle: Local\n---\nlocal\n');
+		expect((await f.cli('init', target)).code).toBe(0);
+		expect((await f.git(target, 'add', '-A')).code).toBe(0);
+		expect((await f.git(target, 'commit', '-qm', 'my own history')).code).toBe(
+			0,
+		);
+		const head = (await f.git(target, 'rev-parse', 'HEAD')).stdout.trim();
+		const before = (
+			await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
+		).stdout.trim();
+		const refused = await f.cli('clone', source);
+		expect(refused.code).toBe(2);
+		expect(refused.out).toContain('my own history');
+		expect(refused.out).toContain('git rebase --root --onto origin/main');
+		expect((await f.git(target, 'rev-parse', 'HEAD')).stdout.trim()).toBe(head);
+		expect(
+			(
+				await f.git(f.box, '--git-dir', source, 'rev-parse', 'main')
+			).stdout.trim(),
+		).toBe(before);
 	} finally {
 		f.cleanup();
 	}

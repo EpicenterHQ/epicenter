@@ -131,12 +131,11 @@ test('scan finds app and owner folders, follows app links, and stays in its envi
 	]);
 });
 
-test('dead links and pending joins remain rows while plain owner directories stay out', async () => {
+test('dead links and unadopted repositories remain rows while plain owner directories stay out', async () => {
 	const dead = join(library, 'dead');
 	symlinkSync(join(box, 'missing'), dead);
-	const pending = join(library, 'pending');
-	repository(pending, false);
-	git(pending, 'config', '--local', 'epicenter.joinPending', 'true');
+	const unadopted = join(library, 'unadopted');
+	repository(unadopted, false);
 	mkdirSync(join(library, 'plain', 'empty'), { recursive: true });
 	const broken = join(library, 'broken-git');
 	mkdirSync(broken);
@@ -150,9 +149,9 @@ test('dead links and pending joins remain rows while plain owner directories sta
 		rows.find((row) => row.folder === join(home, 'Epicenter', 'dead'))?.problem,
 	).toBe('not on disk');
 	expect(
-		rows.find((row) => row.folder === join(home, 'Epicenter', 'pending'))
+		rows.find((row) => row.folder === join(home, 'Epicenter', 'unadopted'))
 			?.problem,
-	).toBe('join pending');
+	).toBe('its repository is not set up for sync');
 	expect(
 		rows.find((row) => row.folder === join(home, 'Epicenter', 'broken-git'))
 			?.problem,

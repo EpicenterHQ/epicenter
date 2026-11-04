@@ -2,10 +2,9 @@
  * One round of `epicenter sync` for one data folder, over the
  * system `git` (decisions 21, 31, 33, 41, 44, 52):
  *
- *   guards -> git add -A -- <folder> but its .epicenter -> commit those paths
- *   -> fetch -> checks (rewrite, index lock) -> git lfs fetch
- *   -> merge origin/main -> edit beats delete, binary conflict copies
- *   -> merge commit -> git lfs push -> push
+ *   guards -> fetch and check unrelated history -> stage and commit local files
+ *   -> fetch LFS bytes -> merge related history, or place first-sync files
+ *      in one commit on remote main -> git lfs push -> push
  *   (a rejected push fetches, merges, and pushes again)
  *
  * Epicenter sync is the only desktop committer (decision 31), and it commits
@@ -32,13 +31,15 @@
  */
 
 import { existsSync, statSync } from 'node:fs';
-import { realpath } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { isNotePath } from '@epicenter/definition/contract';
 import {
 	conflictSibling,
 	lfsOid,
 	parsePointer,
+	settle,
 } from '@epicenter/definition/merge';
 import { type GitCredential, STATE_DIRECTORY } from '@epicenter/folder/bun';
 import { holdingFileLock, NothingChanged } from '../file-lock.ts';
@@ -124,10 +125,6 @@ export type SyncResult = {
 export type SyncOptions = {
 	/** The token for the remote, asked for by its URL. */
 	readonly credential?: CredentialFor;
-	/** Joining fetches and merges now; publishing waits for explicit sync. */
-	readonly publish?: boolean;
-	/** The CLI sets this only for a person's explicit, one-shot folder sync. */
-	readonly allowPending?: boolean;
 };
 
 class Stop extends Error {
@@ -162,20 +159,12 @@ export async function syncFolder(
 					'stopped',
 				);
 			// A boolean in an enclosing repository's config cannot authorize its subfolder.
-			const pending =
-				(await config(target, 'epicenter.joinPending')) === 'true';
 			if (
 				root !== target ||
-				((await config(target, 'epicenter.synced')) !== 'true' &&
-					!(pending && options.allowPending === true))
+				(await config(target, 'epicenter.synced')) !== 'true'
 			)
 				throw new Stop(
 					`${folder} is not its own synced repository. Run epicenter init ${folder} again.`,
-					'stopped',
-				);
-			if (pending && options.publish !== false && options.allowPending !== true)
-				throw new Stop(
-					`${folder} is waiting to publish local files. Run epicenter sync ${folder} explicitly.`,
 					'stopped',
 				);
 			const common = resolve(
@@ -287,7 +276,7 @@ export const MAGIC = { env: { GIT_LITERAL_PATHSPECS: '0' } };
 async function round(
 	folder: string,
 	root: string,
-	{ credential, publish = true }: SyncOptions,
+	{ credential }: SyncOptions,
 	notes: string[],
 ): Promise<string> {
 	const problem = await repositoryProblem(root);
@@ -301,6 +290,42 @@ async function round(
 	// Commit what the apps wrote in this folder, through the filters, and
 	// nothing else: never an unfinished write.
 	const who = await identity(root);
+	const url = await config(root, 'remote.origin.url');
+	const auth = url === null ? undefined : await credential?.(url);
+	if (url !== null) {
+		if ((await originPushUrl(root)) !== url)
+			throw new Stop(
+				'origin pushes to a different URL than it fetches. Inspect git remote -v before syncing.',
+				'stopped',
+			);
+		const fetched = await git(root, ['fetch', '-q', 'origin'], {
+			credential: auth,
+		});
+		if (fetched.code !== 0)
+			throw new Stop(
+				`git fetch failed: ${fetched.stderr.trim()}`,
+				FORBIDDEN.test(fetched.stderr) ? 'stopped' : 'retry',
+			);
+		if (
+			(await has(root, 'HEAD')) &&
+			(await has(root, REMOTE_MAIN)) &&
+			(await git(root, ['merge-base', 'HEAD', REMOTE_MAIN])).code !== 0
+		) {
+			const subjects = (await must(root, ['log', '--format=%s', 'HEAD']))
+				.trim()
+				.split('\n');
+			const foreign = subjects.find(
+				(subject) =>
+					subject !== 'epicenter: attributes and ignore rules' &&
+					!/^epicenter sync \d{4}-/.test(subject),
+			);
+			if (foreign !== undefined)
+				throw new Stop(
+					`${folder} has unrelated Git history that Epicenter did not make (including "${foreign}"). Run git rebase --root --onto origin/main in that folder, resolve any conflicts, then sync again.`,
+					'stopped',
+				);
+		}
+	}
 	await step(folder, ['add', '-A', ...COMMITTED], 'git add', MAGIC);
 	if (
 		(await git(folder, ['diff', '--cached', '--quiet', ...COMMITTED], MAGIC))
@@ -321,36 +346,27 @@ async function round(
 		notes.push('committed local changes');
 	}
 
-	const url = await config(root, 'remote.origin.url');
 	if (url === null) {
 		notes.push('no remote: committed locally');
 		return sha(root, 'HEAD');
 	}
-	if ((await originPushUrl(root)) !== url)
-		throw new Stop(
-			'origin pushes to a different URL than it fetches. Inspect git remote -v before syncing.',
-			'stopped',
-		);
-	const auth = await credential?.(url);
 	for (let attempt = 1; ; attempt++) {
-		const fetched = await git(root, ['fetch', '-q', 'origin'], {
-			credential: auth,
-		});
-		if (fetched.code !== 0)
-			throw new Stop(
-				`git fetch failed: ${fetched.stderr.trim()}`,
-				FORBIDDEN.test(fetched.stderr) ? 'stopped' : 'retry',
-			);
+		if (attempt > 1) {
+			const fetched = await git(root, ['fetch', '-q', 'origin'], {
+				credential: auth,
+			});
+			if (fetched.code !== 0)
+				throw new Stop(
+					`git fetch failed: ${fetched.stderr.trim()}`,
+					FORBIDDEN.test(fetched.stderr) ? 'stopped' : 'retry',
+				);
+		}
 		if (await has(root, REMOTE_MAIN)) await mergeRemote(root, auth, who, notes);
 		if (
 			(await has(root, REMOTE_MAIN)) &&
 			(await sha(root, 'HEAD')) === (await sha(root, REMOTE_MAIN))
 		)
 			return sha(root, 'HEAD');
-		if (!publish) {
-			return sha(root, 'HEAD');
-		}
-
 		const uploaded = await git(root, ['lfs', 'push', 'origin', 'HEAD'], {
 			credential: auth,
 		});
@@ -418,7 +434,14 @@ async function mergeRemote(
 				`git lfs fetch failed: ${fetched.stderr.trim()}`,
 				FORBIDDEN.test(fetched.stderr) ? 'stopped' : 'retry',
 			);
-		await merge(root, firstContact, auth, who, notes);
+		if ((await git(root, ['merge-base', 'HEAD', REMOTE_MAIN])).code === 0)
+			await merge(root, auth, who, notes);
+		else if (firstContact) await layerFirstSync(root, who, notes);
+		else
+			throw new Stop(
+				'local and remote history no longer share an ancestor. Inspect git log --all --graph before syncing.',
+				'stopped',
+			);
 	}
 	await must(root, ['update-ref', LAST_SEEN, REMOTE_MAIN]);
 	notes.push(
@@ -426,26 +449,170 @@ async function mergeRemote(
 	);
 }
 
+/** Put the local tree on the remote's parent without retaining a second root. */
+async function layerFirstSync(
+	root: string,
+	who: Record<string, string>,
+	notes: string[],
+) {
+	const entries = async (ref: string) => {
+		const tree = new Map<string, Stage>();
+		for (const entry of (await must(root, ['ls-tree', '-r', '-z', ref]))
+			.split('\0')
+			.filter(Boolean)) {
+			const tab = entry.indexOf('\t');
+			const [mode = '', kind = '', sha = ''] = entry.slice(0, tab).split(' ');
+			if (kind !== 'blob')
+				throw new Stop(
+					`${ref} contains a Git submodule; sync only supports files.`,
+					'stopped',
+				);
+			tree.set(entry.slice(tab + 1), { mode, sha });
+		}
+		return tree;
+	};
+	const local = await entries('HEAD');
+	const remote = await entries(REMOTE_MAIN);
+	for (const path of remote.keys()) {
+		if (path.split('/').includes(STATE_DIRECTORY))
+			throw new Stop(
+				`origin/main contains ${path} inside Epicenter's local state directory.`,
+				'stopped',
+			);
+	}
+	for (const path of local.keys()) {
+		if (
+			[...remote.keys()].some(
+				(other) => other.startsWith(`${path}/`) || path.startsWith(`${other}/`),
+			)
+		)
+			throw new Stop(
+				`${path} is a file on this computer and a directory on the remote, or the reverse. Resolve the paths before syncing.`,
+				'stopped',
+			);
+	}
+	const common = resolve(
+		root,
+		(await must(root, ['rev-parse', '--git-common-dir'])).trim(),
+	);
+	const temporary = await mkdtemp(join(common, 'epicenter-first-sync-'));
+	const index = { GIT_INDEX_FILE: join(temporary, 'index') };
+	try {
+		await step(root, ['read-tree', REMOTE_MAIN], 'read remote tree', {
+			env: index,
+		});
+		const localName = (await config(root, 'user.name')) || 'local';
+		const remoteParty = (
+			await must(root, ['log', '-1', '--format=%an%x00%aI', REMOTE_MAIN])
+		)
+			.trim()
+			.split('\0');
+		const parties = {
+			current: {
+				author: remoteParty[0] || 'remote',
+				time: remoteParty[1] || '-',
+			},
+			incoming: { author: localName, time: new Date().toISOString() },
+		};
+		for (const [path, ours] of local) {
+			const theirs = remote.get(path);
+			if (theirs?.sha === ours.sha) continue;
+			let destination = path;
+			let stage = ours;
+			if (theirs !== undefined) {
+				if (
+					['.gitignore', '.gitattributes', '.lfsconfig'].includes(
+						path.split('/').at(-1) ?? '',
+					)
+				)
+					throw new Stop(
+						`${path} differs on this computer and the remote. Resolve this Git control file before syncing.`,
+						'stopped',
+					);
+				if (isNotePath(path)) {
+					const [current, incoming] = await Promise.all([
+						must(root, ['cat-file', 'blob', theirs.sha]),
+						must(root, ['cat-file', 'blob', ours.sha]),
+					]);
+					const merged = settle(null, current, incoming, { parties });
+					const text = merged.text ?? current;
+					stage = {
+						mode: ours.mode,
+						sha: (
+							await step(
+								root,
+								['hash-object', '-w', '--stdin'],
+								`write ${path}`,
+								{ input: text },
+							)
+						).trim(),
+					};
+					notes.push(
+						`${path}: merged two additions${merged.blocks ? ' with a conflict block' : ''}`,
+					);
+				} else {
+					const blob = await git(root, ['cat-file', 'blob', ours.sha]);
+					const oid =
+						parsePointer(blob.stdout)?.oid ?? (await lfsOid(blob.bytes));
+					destination = conflictSibling(path, oid);
+					if (local.has(destination) || remote.has(destination))
+						throw new Stop(
+							`${destination} already exists; rename one of the files before syncing.`,
+							'stopped',
+						);
+					notes.push(`conflict copy: ${destination}`);
+				}
+			}
+			await step(
+				root,
+				[
+					'update-index',
+					'--add',
+					'--cacheinfo',
+					`${stage.mode},${stage.sha},${destination}`,
+				],
+				`stage ${destination}`,
+				{ env: index },
+			);
+		}
+		const tree = (
+			await step(root, ['write-tree'], 'write combined tree', { env: index })
+		).trim();
+		const remoteHead = await sha(root, REMOTE_MAIN);
+		const machine = hostname().replace(/\.local$/i, '') || 'this computer';
+		const commit = (
+			await step(
+				root,
+				['commit-tree', tree, '-p', remoteHead, '-m', `Added from ${machine}`],
+				'commit first sync',
+				{ env: who },
+			)
+		).trim();
+		const moved = await git(root, ['reset', '--keep', commit]);
+		if (moved.code !== 0)
+			throw new Stop(
+				`Could not put remote files beside local edits: ${moved.stderr.trim()}. Run sync again after saving the folder.`,
+				'retry',
+			);
+		notes.push(
+			`added this computer's files on origin/main ${remoteHead.slice(0, 7)}`,
+		);
+	} finally {
+		await rm(temporary, { recursive: true, force: true });
+	}
+}
+
 /** Merge the fetched remote main and commit it. */
 async function merge(
 	root: string,
-	firstContact: boolean,
 	auth: GitCredential | undefined,
 	who: Record<string, string>,
 	notes: string[],
 ) {
-	// First contact joins two histories that each began on their own (decision 20).
-	const merged = await git(
-		root,
-		[
-			'merge',
-			'--no-edit',
-			'-q',
-			...(firstContact ? ['--allow-unrelated-histories'] : []),
-			REMOTE_MAIN,
-		],
-		{ credential: auth, env: who },
-	);
+	const merged = await git(root, ['merge', '--no-edit', '-q', REMOTE_MAIN], {
+		credential: auth,
+		env: who,
+	});
 	for (const line of merged.stderr.split('\n'))
 		if (line.startsWith('[epicenter merge] '))
 			notes.push(line.slice('[epicenter merge] '.length));

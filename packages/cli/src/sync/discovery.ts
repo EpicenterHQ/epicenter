@@ -74,15 +74,12 @@ export async function discoveredFolders(): Promise<DiscoveredFolder[]> {
 		}
 		if (root === target) {
 			try {
-				const pending = await localConfig(target, 'epicenter.joinPending');
 				const synced = await localConfig(target, 'epicenter.synced');
 				found.push({
 					folder,
-					...(pending === 'true'
-						? { problem: 'join pending' }
-						: synced === 'true'
-							? {}
-							: { problem: 'its repository is not set up for sync' }),
+					...(synced === 'true'
+						? {}
+						: { problem: 'its repository is not set up for sync' }),
 				});
 			} catch (error) {
 				found.push({ folder, problem: reason(error) });

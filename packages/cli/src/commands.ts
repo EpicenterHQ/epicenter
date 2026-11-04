@@ -68,9 +68,8 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<namespace>/<name> | <url> | <path> [<dir>]',
 		minArgs: 1,
 		maxArgs: 2,
-		options: [{ name: 'join' }],
 		summary:
-			'clone into the app folder derived from AGENTS.md; use --join for other occupied folders',
+			'clone into the app folder derived from AGENTS.md or sync an occupied folder',
 	},
 	{
 		path: ['forget'],

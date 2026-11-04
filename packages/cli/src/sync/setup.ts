@@ -196,7 +196,7 @@ async function ensureDiscoverable(
 	changed.push(`linked at ${link}`);
 }
 
-/** Set up Git and LFS, and make the folder reachable before a join can be pending. */
+/** Set up Git and LFS, and make the folder reachable before recording consent. */
 export async function prepareFolder(
 	input: string,
 	{ credential }: InitOptions = {},
@@ -257,28 +257,6 @@ export async function prepareFolder(
 			changed.push(`${name} written`);
 		}
 	}
-	const names = managed.map(([name]) => name);
-	const pending = (
-		await must(target, ['status', '--porcelain', '--', ...names])
-	).trim();
-	if (pending !== '') {
-		const touched = names.filter((name) => pending.includes(name));
-		await must(target, ['add', '--', ...touched]);
-		// Path-limited: commits only these files, whatever else is staged.
-		await must(
-			target,
-			[
-				'commit',
-				'-q',
-				'-m',
-				'epicenter: attributes and ignore rules',
-				'--',
-				...touched,
-			],
-			{ env: await identity(target) },
-		);
-		for (const name of touched) changed.push(`${name} committed`);
-	}
 
 	// 3. LFS filters are values, not paths or hooks. Sync pushes LFS objects itself.
 	for (const [key, value] of Object.entries(LFS_CONFIG)) {
@@ -319,7 +297,7 @@ export async function forget(
 	const changed: string[] = [];
 	const root = target === null ? null : await repositoryRoot(target);
 	if (root !== null && root === target) {
-		for (const key of ['epicenter.synced', 'epicenter.joinPending']) {
+		for (const key of ['epicenter.synced']) {
 			if ((await config(target, key)) === null) continue;
 			await must(target, ['config', '--local', '--unset-all', key]);
 			changed.push(`${key} unset`);

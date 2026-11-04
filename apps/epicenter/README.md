@@ -132,8 +132,7 @@ development. A folder elsewhere is linked inside that library. The CLI scans
 the library root and one level of owner folders. Init links a folder outside
 those depths into the library before recording consent in its local Git config.
 The scan also reports dead links, unreadable candidates, repositories that
-cannot be read, and pending joins. Neither
-application-data directory holds a folder list.
+cannot be read. Neither application-data directory holds a folder list.
 
 Overrides select an explicit location, so pointing both builds at the same
 location deliberately shares those files. Development signs in separately
@@ -244,7 +243,7 @@ again after each one:
 | Action | Command | CLI call |
 | --- | --- | --- |
 | **Add folder** | `add_synced_folder` | The native folder picker queues a setup preview; it changes no repository |
-| **Set up** | `accept_folder_setup(path)` | `epicenter init <dir>` after the preview |
+| **Set up** | `accept_folder_setup(path)` | `epicenter init <dir>` after the preview; it makes no commit |
 | **Connect to a repository…** | `connect_synced_folder(path, source)` | `epicenter connect <dir> <source>`; the watcher then syncs |
 | **Clone** | `clone_synced_folder(source)` | `epicenter clone <owner>/<name>` or `epicenter clone <url>`; the CLI derives the destination from the cloned `AGENTS.md` contract URL, or uses the repository name when it has no contract |
 | **Sync now** | `sync_folder_now(path)` | `epicenter sync <dir>`, kept as the folder's last round |
@@ -258,7 +257,7 @@ empty one, one with a control character, or one that starts with `-`.
 Before `epicenter init`, a folder that already exists must be a real
 directory holding none of Epicenter's own files, so neither the records nor
 the library root becomes a repository.
-`init` and `clone` report warnings, such as a missing command link, beside the
+`init` and `clone` report warnings, such as an LFS pull failure, beside the
 list. **Connect to a repository…** is offered for a folder without a remote;
 **Sharing…** is offered for one with a remote.
 

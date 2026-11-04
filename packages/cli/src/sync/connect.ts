@@ -1,27 +1,14 @@
 /** Attach an initialized folder to an ordinary Git origin. Sync owns transfers. */
 
-import { realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { holdingFileLock } from '../file-lock.ts';
 import { config, configAll, git, must, originPushUrl } from './git.ts';
 import { Refused } from './setup.ts';
 import { folderStatus } from './status.ts';
 
-export async function connect(
-	input: string,
-	url: string,
-	allowPending = false,
-) {
+export async function connect(input: string, url: string) {
 	const status = await folderStatus(input);
-	if (
-		status === null ||
-		(!status.adopted &&
-			!(
-				allowPending &&
-				status.repository === (await realpath(input)) &&
-				(await config(status.repository, 'epicenter.joinPending')) === 'true'
-			))
-	)
+	if (status === null || !status.adopted)
 		throw new Refused(
 			`${input} is not set up for sync. Run epicenter init ${input} first.`,
 		);

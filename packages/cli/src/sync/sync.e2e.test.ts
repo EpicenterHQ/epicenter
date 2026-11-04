@@ -214,12 +214,13 @@ describe('epicenter sync over stock git', () => {
 			expect(first.code).toBe(0);
 			for (const step of [
 				'git init',
-				'.gitattributes committed',
-				'.gitignore committed',
+				'.gitattributes written',
+				'.gitignore written',
 				'filter.lfs.process set',
 				'epicenter.synced = true',
 			])
 				expect(first.out).toContain(step);
+			expect((await git(A, 'rev-parse', '--verify', 'HEAD')).code).not.toBe(0);
 			await connect(A, 'alice');
 			await git(A, 'remote', 'add', 'origin', REMOTE);
 
@@ -356,7 +357,7 @@ describe('epicenter sync over stock git', () => {
 			expect((await init(DATA)).code).toBe(2);
 			expect(existsSync(join(DATA, '.gitattributes'))).toBe(false);
 			expect((await git(OUTER, 'status', '--porcelain')).stdout).toBe(
-				' M tracked.txt\n?? data/\n?? secret.txt\n',
+				' M tracked.txt\n?? .gitattributes\n?? .gitignore\n?? data/\n?? secret.txt\n',
 			);
 			await cli('forget', DATA);
 			await cli('forget', OUTER);
@@ -898,7 +899,7 @@ describe('epicenter sync over stock git', () => {
 			const { status } = JSON.parse((await cli('status', F, '--json')).stdout);
 			expect(
 				status.changes.map((change: { path: string }) => change.path).sort(),
-			).toEqual(['.gitignore', 'notes/a.md', 'notes/b.md']);
+			).toEqual(['.gitattributes', '.gitignore', 'notes/a.md', 'notes/b.md']);
 
 			const synced = await syncJson(F);
 			expect(synced.status.status).toBe('synced');
