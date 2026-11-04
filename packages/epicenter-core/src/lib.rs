@@ -15,8 +15,10 @@
 //! `@epicenter/definition/merge` when the host is Bun, and a stand-in in the
 //! Rust tests until `settle` is ported.
 
+mod http;
 pub mod lfs;
 pub mod merge;
+pub mod transport;
 pub mod worktree;
 
 use std::fmt;
@@ -135,11 +137,6 @@ impl Remote {
                 .then(|| LfsEndpoint::Http(format!("{}/info/lfs", self.url.trim_end_matches('/'))))
         })
     }
-    fn header(&self) -> Option<String> {
-        self.token
-            .as_ref()
-            .map(|t| format!("Authorization: Bearer {t}"))
-    }
 }
 
 pub struct Options<'a> {
@@ -161,6 +158,11 @@ pub struct Round {
 /// Run one round for the folder at `folder`. Never returns Err: a stop is a `Round`.
 pub fn sync_round(folder: &Path, options: &Options) -> Round {
     let mut notes = Vec::new();
+    // The token reaches Git's requests through the transport, on this thread.
+    let _session = options
+        .remote
+        .as_ref()
+        .map(|r| transport::Session::enter(&r.url, r.token.as_deref()));
     let outcome = open_or_init(folder).and_then(|repo| {
         // New objects collect in memory and land as one pack before any ref
         // names them: 10,000 loose-object writes cost seconds on APFS.
@@ -231,7 +233,7 @@ fn round(
     let remote = options.remote.as_ref();
     if let Some(remote) = remote {
         ensure_origin(repo, &remote.url)?;
-        fetch(repo, remote)?;
+        fetch(repo)?;
     }
     let remote_main = repo.refname_to_id(REMOTE_MAIN).ok();
     let had_history = repo.refname_to_id(MAIN).is_ok();
@@ -257,7 +259,7 @@ fn round(
     };
     for attempt in 1.. {
         if attempt > 1 {
-            fetch(repo, remote)?;
+            fetch(repo)?;
         }
         let remote_main = repo.refname_to_id(REMOTE_MAIN).ok();
         if let Some(theirs) = remote_main {
@@ -277,7 +279,7 @@ fn round(
                 notes.push(format!("uploaded {sent} LFS objects"));
             }
         }
-        match push(repo, remote)? {
+        match push(repo)? {
             None => {
                 repo.reference(REMOTE_MAIN, head, true, "sync: pushed")?;
                 repo.reference(LAST_SEEN, head, true, "sync: pushed")?;
@@ -331,43 +333,37 @@ pub fn ensure_origin(repo: &Repository, url: &str) -> Result<(), Error> {
     }
 }
 
-fn callbacks<'a>() -> RemoteCallbacks<'a> {
-    RemoteCallbacks::new()
+/// A failed fetch or push: the network is retried, and a remote that
+/// refused this account's token stops the round.
+fn network(step: &str, e: git2::Error) -> Error {
+    let mut error = Error::from(e);
+    if transport::Session::refused().is_some() {
+        error.status = Status::Stopped;
+    }
+    error.message = format!("{step} failed: {}", error.message);
+    error
 }
 
-/// `git fetch origin`, with the token as a header.
-pub fn fetch(repo: &Repository, remote: &Remote) -> Result<(), Error> {
+/// `git fetch origin`; the token travels through the session's transport.
+fn fetch(repo: &Repository) -> Result<(), Error> {
     let mut origin = repo.find_remote("origin")?;
     let mut fo = FetchOptions::new();
-    fo.remote_callbacks(callbacks());
-    let header = remote.header();
-    let headers: Vec<&str> = header.iter().map(String::as_str).collect();
-    fo.custom_headers(&headers);
+    fo.remote_callbacks(RemoteCallbacks::new());
     origin
         .fetch(
             &["+refs/heads/main:refs/remotes/origin/main"],
             Some(&mut fo),
             None,
         )
-        .map_err(|e| {
-            let mut e = Error::from(e);
-            if e.message.contains("403") {
-                e.status = Status::Stopped;
-            }
-            e.message = format!("fetch failed: {}", e.message);
-            e
-        })?;
-    Ok(())
+        .map_err(|e| network("fetch", e))
 }
 
 /// `git push origin main:main`. Returns the remote's reason when it refused the ref.
-pub fn push(repo: &Repository, remote: &Remote) -> Result<Option<String>, Error> {
+fn push(repo: &Repository) -> Result<Option<String>, Error> {
     let mut origin = repo.find_remote("origin")?;
     let mut rejected: Option<String> = None;
-    let header = remote.header();
-    let headers: Vec<&str> = header.iter().map(String::as_str).collect();
     let result = {
-        let mut cb = callbacks();
+        let mut cb = RemoteCallbacks::new();
         cb.push_update_reference(|_, status| {
             if let Some(s) = status {
                 rejected = Some(s.to_string());
@@ -376,7 +372,6 @@ pub fn push(repo: &Repository, remote: &Remote) -> Result<Option<String>, Error>
         });
         let mut po = PushOptions::new();
         po.remote_callbacks(cb);
-        po.custom_headers(&headers);
         origin.push(&[format!("{MAIN}:{MAIN}")], Some(&mut po))
     };
     match result {
@@ -386,7 +381,7 @@ pub fn push(repo: &Repository, remote: &Remote) -> Result<Option<String>, Error>
         Err(e) if e.code() == git2::ErrorCode::NotFastForward => {
             Ok(Some(format!("non-fast-forward: {}", e.message())))
         }
-        Err(e) => Err(e.into()),
+        Err(e) => Err(network("push", e)),
     }
 }
 

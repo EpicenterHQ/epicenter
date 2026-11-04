@@ -13,6 +13,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use ureq::http::Response;
+use ureq::Body;
+
+use crate::http::{self, agent, origin};
 use crate::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -161,14 +165,6 @@ struct ObjectError {
 
 const LFS_JSON: &str = "application/vnd.git-lfs+json";
 
-fn origin(url: &str) -> &str {
-    let after = url.find("://").map(|i| i + 3).unwrap_or(0);
-    match url[after..].find('/') {
-        Some(i) => &url[..after + i],
-        None => url,
-    }
-}
-
 impl Endpoint {
     /// Store each object the server does not already have. Returns how many were sent.
     pub fn upload(
@@ -205,9 +201,13 @@ impl Endpoint {
                                 ))
                             })?;
                         let bytes = read_local(git_dir, pointer)?;
-                        let request = with_auth(ureq::put(&action.href), url, &action, token)
-                            .set("content-type", "application/octet-stream");
-                        request.send_bytes(&bytes).map_err(http_error)?;
+                        let mut request = agent()
+                            .put(&action.href)
+                            .header("content-type", "application/octet-stream");
+                        for (name, value) in action_headers(url, &action, token) {
+                            request = request.header(name, value);
+                        }
+                        checked(request.send(&bytes))?;
                         sent += 1;
                     }
                 }
@@ -247,11 +247,14 @@ impl Endpoint {
                         let action = answer.actions.and_then(|a| a.download).ok_or_else(|| {
                             Error::retry(format!("{} has no download", pointer.oid))
                         })?;
-                        let response = with_auth(ureq::get(&action.href), url, &action, token)
-                            .call()
-                            .map_err(http_error)?;
+                        let mut request = agent().get(&action.href);
+                        for (name, value) in action_headers(url, &action, token) {
+                            request = request.header(name, value);
+                        }
+                        let response = checked(request.call())?;
                         let mut bytes = Vec::with_capacity(pointer.size as usize);
                         response
+                            .into_body()
                             .into_reader()
                             .take(pointer.size + 1)
                             .read_to_end(&mut bytes)?;
@@ -275,30 +278,24 @@ fn check_and_store(git_dir: &Path, p: &Pointer, bytes: &[u8]) -> Result<(), Erro
     write_object(git_dir, &p.oid, bytes)
 }
 
-/// The server's own origin gets the bearer token; another origin (a
-/// presigned store URL) gets only the headers the batch answer named.
-fn with_auth(
-    request: ureq::Request,
-    lfs_url: &str,
-    action: &Action,
-    token: Option<&str>,
-) -> ureq::Request {
-    let mut request = request;
-    for (name, value) in &action.header {
-        request = request.set(name, value);
-    }
-    match token {
-        Some(token)
-            if origin(&action.href) == origin(lfs_url)
-                && !action
-                    .header
-                    .keys()
-                    .any(|k| k.eq_ignore_ascii_case("authorization")) =>
-        {
-            request.set("authorization", &format!("Bearer {token}"))
+/// The headers an action is sent with: the ones the batch answer named,
+/// and the bearer token only when the action is on the LFS server's own
+/// origin (not a presigned store URL) and names no authorization itself.
+fn action_headers(lfs_url: &str, action: &Action, token: Option<&str>) -> Vec<(String, String)> {
+    let mut headers: Vec<(String, String)> = action
+        .header
+        .iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    let names_auth = headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("authorization"));
+    if let Some(token) = token {
+        if !names_auth && origin(&action.href) == origin(lfs_url) {
+            headers.push(("authorization".into(), format!("Bearer {token}")));
         }
-        _ => request,
     }
+    headers
 }
 
 fn batch(
@@ -313,14 +310,15 @@ fn batch(
         objects,
     })
     .expect("a batch request serializes");
-    let mut request = ureq::post(&format!("{url}/objects/batch"))
-        .set("accept", LFS_JSON)
-        .set("content-type", LFS_JSON);
+    let mut request = agent()
+        .post(format!("{url}/objects/batch"))
+        .header("accept", LFS_JSON)
+        .header("content-type", LFS_JSON);
     if let Some(token) = token {
-        request = request.set("authorization", &format!("Bearer {token}"));
+        request = request.header("authorization", format!("Bearer {token}"));
     }
-    let response = request.send_string(&body).map_err(http_error)?;
-    let answer: BatchAnswer = serde_json::from_reader(response.into_reader())
+    let response = checked(request.send(body))?;
+    let answer: BatchAnswer = serde_json::from_reader(response.into_body().into_reader())
         .map_err(|e| Error::retry(format!("the LFS batch answer is not JSON: {e}")))?;
     if let Some(failed) = answer
         .objects
@@ -335,15 +333,17 @@ fn batch(
     Ok(answer.objects)
 }
 
-fn http_error(error: ureq::Error) -> Error {
-    match error {
-        ureq::Error::Status(403, _) => {
-            Error::stopped("the LFS server refused this account (403)".into())
-        }
-        ureq::Error::Status(code, response) => Error::retry(format!(
-            "the LFS server answered {code}: {}",
-            response.into_string().unwrap_or_default()
+/// A response with a success status, or the round's error for the request.
+fn checked(sent: Result<Response<Body>, ureq::Error>) -> Result<Response<Body>, Error> {
+    let response = sent.map_err(|e| Error::retry(format!("LFS transfer failed: {e}")))?;
+    http::success(response).map_err(|refused| match refused.status {
+        401 | 403 => Error::stopped(format!(
+            "the LFS server refused this account ({})",
+            refused.status
         )),
-        other => Error::retry(format!("LFS transfer failed: {other}")),
-    }
+        status => Error::retry(format!(
+            "the LFS server answered {status}: {}",
+            refused.body
+        )),
+    })
 }

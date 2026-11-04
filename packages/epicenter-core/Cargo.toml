@@ -20,12 +20,16 @@ publish = false
 # lets the core build for iOS.
 git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
 sha2 = "0.10"
-ureq = { version = "2", default-features = false, features = ["tls"] }
+# The one HTTP client for Git and LFS: rustls with ring and Mozilla's roots
+# (`src/http.rs` says why ureq).
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
 tempfile = "3"
+# The test remote: `git http-backend` and an LFS server behind a token.
+tiny_http = "0.12"
 
 [profile.release]
 strip = true
