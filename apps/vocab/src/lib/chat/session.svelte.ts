@@ -7,7 +7,7 @@ import {
 import type { ModelChoices } from '@epicenter/ai/choices';
 import type { ReactiveAi } from '@epicenter/ai/svelte';
 import { bindAgentConversation } from '@epicenter/svelte';
-import { createSubscriber } from 'svelte/reactivity';
+import { createTracker } from '@epicenter/svelte/tracked';
 import { HOSTED_TUTOR, tutorPrompt, VOCAB_SYSTEM_PROMPT } from '../data.js';
 import { createChatMessageStore, type MessageList } from './messages.svelte.js';
 import { withTutorOpening } from './opening.js';
@@ -28,7 +28,7 @@ export function createVocabChat({
 	ai: Pick<ReactiveAi, 'models' | 'custom' | 'chat'>;
 	choices: ModelChoices;
 }) {
-	const observeChoices = createSubscriber((update) => choices.onChange(update));
+	const observeChoices = createTracker(choices.subscribe);
 	let runTurn: ChatTurn | null = null;
 	let draft = $state('');
 	// The submitted text stays in the draft until its message is saved.

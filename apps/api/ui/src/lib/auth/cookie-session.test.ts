@@ -95,7 +95,7 @@ test('a cookie that changes hands retires the Account it was captured for', asyn
 	const alice = auth.getState().account;
 	if (!alice) throw new Error('Expected Alice');
 	const states: (string | undefined)[] = [];
-	auth.onStateChange((state) => states.push(state.account?.principalId));
+	auth.subscribe(() => states.push(auth.getState().account?.principalId));
 	server.cookie = 'bob';
 	const refused = await alice.fetch('/api/billing/overview', {
 		headers: { 'x-epicenter-principal': 'alice' },

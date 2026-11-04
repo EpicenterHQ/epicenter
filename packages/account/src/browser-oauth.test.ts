@@ -390,7 +390,7 @@ test('a second tab shares the stored token and follows another tab through stora
 	expect(second.getState().account?.principalId).toBe(asPrincipalId('alice'));
 
 	const seen: AuthState['status'][] = [];
-	second.onStateChange((state) => seen.push(state.status));
+	second.subscribe(() => seen.push(second.getState().status));
 	expectOk(await first.signOut());
 	world.notify();
 	expect(second.getState().status).toBe('signed-out');

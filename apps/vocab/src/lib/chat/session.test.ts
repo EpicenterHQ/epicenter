@@ -88,7 +88,7 @@ async function setup({ question = false } = {}) {
 	const choices = sessionDouble<ChatOptions['choices']>({
 		get: () => ({ endpoint: 'tutor', model: 'test-model' }),
 		set: () => {},
-		onChange: () => () => {},
+		subscribe: () => () => {},
 	});
 	const chat = createVocabChat({
 		messages: folder.lists.messages,

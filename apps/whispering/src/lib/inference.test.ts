@@ -177,12 +177,12 @@ test('a connection moved while the audio was read is not sent to either', async 
 /** A sign-in a test signs in, as the account's client does; everything it sends is answered `text`. */
 function liveAccount(text: string) {
 	const seen: string[] = [];
-	const listeners = new Set<(state: AuthState) => void>();
+	const listeners = new Set<() => void>();
 	let state: AuthState = { status: 'signed-out' };
 	const account: LiveAccount = {
 		baseURL: 'https://api.epicenter.test',
 		getState: () => state,
-		onStateChange(listener) {
+		subscribe(listener) {
 			listeners.add(listener);
 			return () => listeners.delete(listener);
 		},
@@ -202,7 +202,7 @@ function liveAccount(text: string) {
 					},
 				} as unknown as Account,
 			};
-			for (const listener of listeners) listener(state);
+			for (const listener of listeners) listener();
 		},
 	};
 }

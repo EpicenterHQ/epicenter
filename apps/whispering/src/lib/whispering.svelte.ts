@@ -156,7 +156,7 @@ export function createWhispering({
 			};
 		};
 		read();
-		stopChoices = opened.onChange(read);
+		stopChoices = opened.subscribe(read);
 	}
 
 	/** Choose the model `operation` uses from now on. Nothing is sent. */

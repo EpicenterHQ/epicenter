@@ -424,6 +424,7 @@
       "name": "@epicenter/account",
       "version": "0.1.1",
       "dependencies": {
+        "@epicenter/svelte": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",
@@ -448,6 +449,7 @@
         "@epicenter/account": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
+        "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@tanstack/svelte-query": "catalog:",

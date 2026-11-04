@@ -39,7 +39,8 @@ export type AuthClient = {
 	refresh(): Promise<void>;
 	baseURL: string;
 	accountManagementUrl?: typeof createAccountManagementUrl;
-	onStateChange(fn: (state: AuthState) => void): () => void;
+	/** Call `listener` whenever `getState()` may answer differently; returns the unsubscribe. */
+	subscribe(listener: () => void): () => void;
 	startSignIn(options?: {
 		reauthenticate?: boolean;
 	}): Promise<Result<undefined, AuthError>>;

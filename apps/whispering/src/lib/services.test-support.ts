@@ -190,7 +190,7 @@ const refused = (message: string) =>
 export const SIGNED_OUT: LiveAccount = {
 	baseURL: 'https://api.epicenter.test',
 	getState: () => ({ status: 'signed-out' }),
-	onStateChange: () => () => {},
+	subscribe: () => () => {},
 };
 
 /** Memory standing in for this site's storage, which tells every opener of it of each write, as a page's other tabs hear. */

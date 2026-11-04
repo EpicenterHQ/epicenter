@@ -19,7 +19,7 @@ const HOSTED_MODELS: readonly EndpointModel[] = [
 /** What `hosted` reads of the account: who is signed in now, and when that changes. */
 export type LiveAccount = Pick<
 	AuthClient,
-	'getState' | 'onStateChange' | 'baseURL'
+	'getState' | 'subscribe' | 'baseURL'
 >;
 
 /** Why a hosted request was not sent: no one is signed in. Its `name` says so to a caller sorting failures. */
@@ -69,7 +69,7 @@ export function hosted(
 			return account.baseURL ? v1(account.baseURL) : undefined;
 		},
 		models: () => (current() ? offered : []),
-		subscribe: (listener) => account.onStateChange(() => listener()),
+		subscribe: (listener) => account.subscribe(listener),
 		fetch(path, init) {
 			const signedIn = current();
 			if (!signedIn) return signedOut();

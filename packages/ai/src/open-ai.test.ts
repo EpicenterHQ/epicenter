@@ -70,17 +70,17 @@ test('a custom endpoint guesses what each listed id can do', () => {
 /** A live sign-in that a test signs in and out, as the account's client does. */
 function fakeAccount() {
 	const { calls, fetch } = recordingFetch();
-	const listeners = new Set<(state: AuthState) => void>();
+	const listeners = new Set<() => void>();
 	let state: AuthState = { status: 'signed-out' };
 	let lifetime = new AbortController();
 	const publish = (next: AuthState) => {
 		state = next;
-		for (const listener of listeners) listener(state);
+		for (const listener of listeners) listener();
 	};
 	const account: LiveAccount = {
 		baseURL: 'https://api.epicenter.test/',
 		getState: () => state,
-		onStateChange(listener) {
+		subscribe(listener) {
 			listeners.add(listener);
 			return () => listeners.delete(listener);
 		},

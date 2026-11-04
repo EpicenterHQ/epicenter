@@ -103,7 +103,7 @@ export function createModelChoices({
 			state = next;
 			notify();
 		},
-		onChange(listener: () => void) {
+		subscribe(listener: () => void) {
 			assertOpen();
 			listeners.add(listener);
 			return () => {

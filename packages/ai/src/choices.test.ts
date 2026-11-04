@@ -71,7 +71,7 @@ test('failed selection persistence leaves the saved target visible and sends no 
 	const selections = fixture.open();
 	selections.set('chat', { endpoint: 'one', model: 'm' });
 	let changes = 0;
-	selections.onChange(() => changes++);
+	selections.subscribe(() => changes++);
 	fixture.failWrites();
 	expect(() => selections.set('chat', { endpoint: 'two', model: 'm' })).toThrow(
 		'write failed',
@@ -84,7 +84,7 @@ test('external updates use only the selection destination and disposal releases 
 	const fixture = setup();
 	const selections = fixture.open();
 	let changes = 0;
-	selections.onChange(() => changes++);
+	selections.subscribe(() => changes++);
 	selections.set('chat', { endpoint: 'one', model: 'm' });
 	fixture.values.set('test.app-ai', 'malformed old settings');
 	fixture.externalChange();
@@ -99,13 +99,13 @@ test('external updates use only the selection destination and disposal releases 
 	fixture.externalChange();
 	expect(selections.get('chat')!.endpoint).toBe('two');
 	expect(changes).toBe(2);
-	const { get, set, onChange } = selections;
+	const { get, set, subscribe } = selections;
 	selections[Symbol.dispose]();
 	selections[Symbol.dispose]();
 	expect(fixture.observers.size).toBe(0);
 	expect(() => get('chat')).toThrow('disposed');
 	expect(() => set('chat', { endpoint: 'x', model: 'm' })).toThrow('disposed');
-	expect(() => onChange(() => {})).toThrow('disposed');
+	expect(() => subscribe(() => {})).toThrow('disposed');
 });
 
 test('malformed choices and unsupported versions fail without exposing or changing saved bytes', () => {

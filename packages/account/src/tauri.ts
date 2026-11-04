@@ -258,12 +258,12 @@ export function createTauriAuth(shell: TauriShell = tauriShell): {
 	let state: AuthState = { status: 'signed-out' };
 	let baseURL = '';
 	let current: { account: Account; lifetime: AbortController } | undefined;
-	const listeners = new Set<(state: AuthState) => void>();
+	const listeners = new Set<() => void>();
 
 	function publish(next: AuthState) {
 		if (next.status === state.status && next.account === state.account) return;
 		state = next;
-		for (const listener of listeners) listener(state);
+		for (const listener of listeners) listener();
 	}
 
 	function retire() {
@@ -322,7 +322,7 @@ export function createTauriAuth(shell: TauriShell = tauriShell): {
 		get baseURL() {
 			return baseURL;
 		},
-		onStateChange(listener: (state: AuthState) => void) {
+		subscribe(listener: () => void) {
 			listeners.add(listener);
 			return () => {
 				listeners.delete(listener);

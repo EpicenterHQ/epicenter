@@ -24,7 +24,8 @@
 		"./folder-sync": "./src/folder-sync.svelte.ts",
 		"./folder-sync-actions": "./src/folder-sync-actions.svelte",
 		"./desktop-startup": "./src/desktop-startup.svelte",
-		"./folder-onboarding": "./src/folder-onboarding.svelte"
+		"./folder-onboarding": "./src/folder-onboarding.svelte",
+		"./tracked": "./src/tracked.ts"
 	},
 	"dependencies": {
 		"@epicenter/ai": "workspace:*",
