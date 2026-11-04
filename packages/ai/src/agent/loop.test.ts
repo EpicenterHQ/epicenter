@@ -1,97 +1,170 @@
 /**
  * Agent Conversation Loop Tests
  *
- * Verifies streaming, persistence, tool steps, approval, aborts, and the
- * injected message-store lifecycle without a concrete document implementation.
+ * The loop over a stand-in messages collection (a `NoteClient` of
+ * `messagesCollection` whose writes a test can hold open, refuse, or blow
+ * up) and a stand-in `ai` whose `chat` streams what each test's engine says.
  *
  * Key behaviors:
  * - Finished turns persist while aborted or failed turns do not
- * - Tool calls resolve sequentially and re-enter the next prompt
- * - Store observation and disposal are owned by the injected seam
+ * - Tool calls run sequentially, in model order, and re-enter the next prompt
+ * - A tool left out is denied; a mutating tool runs only on the person's yes
+ * - The system prompt and `prepare` shape what each step sends
  * - A learner message is confirmed saved before the model is asked anything
  * - A fully received answer survives a failed write under the same ids, and
  *   saving it again runs neither the model nor a tool
+ * - A note already holding the message counts as saved; another is refused
+ * - Disposal stops following the collection; writes in flight still land
  */
 import { describe, expect, test } from 'bun:test';
+import { ClientError, type NoteClient } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { AgentEngine, AgentEngineRequest, EngineChunk } from './engine.js';
-import {
-	type AgentMessageStore,
-	AgentMessageStoreError,
-	createConversation,
-} from './loop.js';
+import { AiError, type ChatChunk, type ChatRequest } from '../client.js';
+import type { Ai } from '../open-ai.js';
+import { createConversation } from './loop.js';
 import {
 	type AgentMessage,
 	agentMessageText,
 	isPersistableMessage,
+	type MessageNote,
+	type MessagesCollection,
 } from './message.js';
-import type { ToolCatalog } from './tools.js';
+import type { EngineChunk } from './stream.js';
+import type { AgentTool } from './tools.js';
+
+const CHAT = 'chat-a';
+
+/** A note of `message` in this chat. */
+const noteOf = (message: AgentMessage): MessageNote =>
+	({
+		chat: CHAT,
+		...structuredClone(message),
+		body: '',
+		version: `v-${message.id}`,
+	}) as unknown as MessageNote;
 
 /**
- * A store whose writes a test can hold open, refuse, or blow up. `values` is
- * what a reopened conversation would read; `attempts` is every write asked for.
+ * A messages collection whose writes a test can hold open, refuse, or blow
+ * up. `values` is what a reopened conversation would list; `attempts` is
+ * every write asked for.
  */
-function makeStore(initial: AgentMessage[] = []) {
+function makeMessages(initial: AgentMessage[] = []) {
 	const values = new Map(initial.map((message) => [message.id, message]));
 	const observers = new Set<() => void>();
 	const attempts: string[] = [];
-	let disposed = false;
+	const invalid: unknown[] = [];
 	const control = {
-		/** Each write waits on the next gate before the store answers. */
+		/** Each write waits on the next gate before the collection answers. */
 		gates: [] as PromiseWithResolvers<void>[],
-		/** Keys the store answers `WriteFailed` for. */
-		refuses: (_key: string) => false,
+		/** Ids the collection refuses, `Unavailable`. */
+		refuses: (_id: string) => false,
 		/** Throw instead of answering. */
 		throws: false,
-		/** Show the message to readers before confirming it, as a live document does. */
+		/** List the message before confirming it, as a live folder does. */
 		announcesEarly: false,
 	};
-	const put = (key: string, value: AgentMessage) => {
-		values.set(key, value);
+	const put = (message: AgentMessage) => {
+		values.set(message.id, message);
 		for (const observer of observers) observer();
 	};
-	const store: AgentMessageStore = {
-		async set(key, value) {
-			if (disposed) throw new Error('store written after disposal');
-			attempts.push(key);
-			if (control.announcesEarly) put(key, value);
-			await control.gates.shift()?.promise;
-			if (disposed) throw new Error('store written after disposal');
-			if (control.throws) throw new Error('store exploded');
-			if (control.refuses(key)) {
-				return AgentMessageStoreError.WriteFailed({
-					cause: new Error('disk full'),
+	const messages = {
+		fieldNames: ['role', 'createdAt', 'parts'],
+		async list() {
+			return Ok({ items: [...values.values()].map(noteOf), invalid });
+		},
+		async get({ id }: { chat: string; id: string }) {
+			const message = values.get(id);
+			return message
+				? Ok(noteOf(message))
+				: ClientError.NotFound({ path: `messages/${CHAT}/${id}.md` });
+		},
+		async create(value: MessageNote) {
+			const { chat: _chat, body: _body, ...rest } = value;
+			const message = rest as unknown as AgentMessage;
+			attempts.push(message.id);
+			if (values.has(message.id) && !control.announcesEarly)
+				return ClientError.Occupied({
+					path: `messages/${CHAT}/${message.id}.md`,
 				});
-			}
-			if (!control.announcesEarly) put(key, value);
-			return Ok(undefined);
+			if (control.announcesEarly) put(message);
+			await control.gates.shift()?.promise;
+			if (control.throws) throw new Error('collection exploded');
+			if (control.refuses(message.id))
+				return ClientError.Unavailable({ cause: new Error('disk full') });
+			if (!control.announcesEarly) put(message);
+			return Ok(noteOf(message));
 		},
-		entries: () => values.entries().map(([key, val]) => ({ key, val })),
-		observe(handler) {
+		subscribe(handler: () => void) {
 			observers.add(handler);
-			return () => observers.delete(handler);
+			return () => {
+				observers.delete(handler);
+			};
 		},
-		[Symbol.dispose]() {
-			disposed = true;
-			observers.clear();
-		},
-	};
-	return {
-		store,
-		values,
-		observers,
-		attempts,
-		control,
-		isDisposed: () => disposed,
-	};
+	} as unknown as NoteClient<MessagesCollection>;
+	return { messages, values, observers, attempts, control, invalid, put };
 }
 
-/** Hold the store's next write open until the returned gate resolves. */
-function holdNextWrite(control: ReturnType<typeof makeStore>['control']) {
+/** Hold the collection's next write open until the returned gate resolves. */
+function holdNextWrite(control: ReturnType<typeof makeMessages>['control']) {
 	const gate = Promise.withResolvers<void>();
 	control.gates.push(gate);
 	return gate;
+}
+
+/** What a step is asked: its messages and the tools offered. */
+type Request = Pick<ChatRequest, 'messages'> & { tools: ChatRequest['tools'] };
+type Engine = (
+	request: Request,
+	signal: AbortSignal,
+) => AsyncIterable<EngineChunk>;
+
+/**
+ * An `ai` whose chat streams what `engine` says for each request, in the
+ * OpenAI shape: text as content deltas, each tool call as one indexed delta,
+ * a failure as the provider's error, and the finish the answer had.
+ */
+function aiOf(engine: Engine): Pick<Ai, 'chat'> {
+	return {
+		async *chat(request, { signal } = {}) {
+			let calls = 0;
+			for await (const chunk of engine(
+				{ messages: request.messages, tools: request.tools },
+				signal ?? new AbortController().signal,
+			)) {
+				if (chunk.type === 'run-error') {
+					yield AiError.Failed({ message: chunk.message, code: chunk.code });
+					return;
+				}
+				const delta: NonNullable<ChatChunk['choices'][number]['delta']> =
+					chunk.type === 'text-delta'
+						? { content: chunk.delta }
+						: {
+								tool_calls: [
+									{
+										index: calls++,
+										id: chunk.toolCallId,
+										type: 'function',
+										function: {
+											name: chunk.toolName,
+											arguments: JSON.stringify(chunk.input),
+										},
+									},
+								],
+							};
+				yield Ok({ choices: [{ index: 0, delta }] });
+			}
+			yield Ok({
+				choices: [
+					{
+						index: 0,
+						delta: {},
+						finish_reason: calls > 0 ? 'tool_calls' : 'stop',
+					},
+				],
+			});
+		},
+	} as Pick<Ai, 'chat'>;
 }
 
 function streamOf(chunks: EngineChunk[]): AsyncIterable<EngineChunk> {
@@ -116,10 +189,26 @@ async function settle(handle: {
 	for (let count = 0; count < 200 && isActive(); count++) await tick();
 }
 
+/** A conversation over `messages` and `engine`, with its options beside. */
+function open(
+	messages: NoteClient<MessagesCollection>,
+	engine: Engine,
+	options: Partial<Parameters<typeof createConversation>[0]> = {},
+) {
+	return createConversation({
+		messages,
+		chat: CHAT,
+		ai: aiOf(engine),
+		model: () => ({ endpoint: 'test', model: 'model' }),
+		generateId: ids(),
+		...options,
+	});
+}
+
 /** A counted engine that answers every prompt with one line of text. */
 function answering(text = 'answer') {
-	const prompts: AgentEngineRequest['messages'][] = [];
-	const engine: AgentEngine = (request) => {
+	const prompts: Request['messages'][] = [];
+	const engine: Engine = (request) => {
 		prompts.push(request.messages);
 		return streamOf([{ type: 'text-delta', delta: text }]);
 	};
@@ -129,32 +218,36 @@ function answering(text = 'answer') {
 /** A tool step followed by a final answer: two assistant messages per turn. */
 function toolThenAnswer() {
 	const counts = { engine: 0, tool: 0 };
-	const engine: AgentEngine = () =>
+	const engine: Engine = () =>
 		++counts.engine === 1
 			? streamOf([
 					{ type: 'tool-call', toolCallId: 't1', toolName: 'time', input: {} },
 				])
 			: streamOf([{ type: 'text-delta', delta: 'noon' }]);
-	const tools: ToolCatalog = {
-		definitions: () => [{ name: 'time', kind: 'query' }],
-		resolve: async () => {
-			counts.tool++;
-			return { content: '12:00', isError: false };
+	const tools: AgentTool[] = [
+		{
+			name: 'time',
+			run: async () => {
+				counts.tool++;
+				return { content: '12:00', isError: false };
+			},
 		},
-	};
+	];
 	return { engine, tools, counts };
 }
 
+/** A tool that answers `content`. */
+const answeringTool = (name: string, content = name): AgentTool => ({
+	name,
+	run: async () => ({ content, isError: false }),
+});
+
 describe('createConversation', () => {
 	test('assigns ordered timestamps that preserve rapid turns after reopening', async () => {
-		const { store } = makeStore();
-		const engine: AgentEngine = () =>
+		const { messages } = makeMessages();
+		const engine: Engine = () =>
 			streamOf([{ type: 'text-delta', delta: 'answer' }]);
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine);
 		await conversation.send('first');
 		await settle(conversation);
 		await conversation.send('second');
@@ -171,7 +264,8 @@ describe('createConversation', () => {
 		);
 		expect(new Set(saved.map((message) => message.createdAt)).size).toBe(4);
 		conversation[Symbol.dispose]();
-		const reopened = createConversation({ store, engine, generateId: ids() });
+		const reopened = open(messages, engine);
+		await reopened.ready;
 		expect(
 			reopened.snapshot().messages.map((message) => agentMessageText(message)),
 		).toEqual(['first', 'answer', 'second', 'answer']);
@@ -179,17 +273,13 @@ describe('createConversation', () => {
 	});
 
 	test('persists a finished streamed turn and reports send guards', async () => {
-		const { store, values } = makeStore();
-		const engine: AgentEngine = () =>
+		const { messages, values } = makeMessages();
+		const conversation = open(messages, () =>
 			streamOf([
 				{ type: 'text-delta', delta: 'Hello' },
 				{ type: 'text-delta', delta: ' world' },
-			]);
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+			]),
+		);
 		expect(expectErr(await conversation.send(' '))).toMatchObject({
 			name: 'NotAdmitted',
 			reason: 'empty',
@@ -205,24 +295,19 @@ describe('createConversation', () => {
 			conversation.snapshot().messages.map((message) => message.role),
 		).toEqual(['user', 'assistant']);
 		const assistant = conversation.snapshot().messages[1];
-		expect(assistant).toBeDefined();
 		if (assistant === undefined) throw new Error('missing assistant message');
 		expect(agentMessageText(assistant)).toBe('Hello world');
 		expect(values.size).toBe(2);
 	});
 
 	test('streaming snapshots use fresh identities and settle into messages', async () => {
-		const { store } = makeStore();
-		const engine: AgentEngine = () =>
+		const { messages } = makeMessages();
+		const conversation = open(messages, () =>
 			streamOf([
 				{ type: 'text-delta', delta: 'one' },
 				{ type: 'text-delta', delta: ' two' },
-			]);
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+			]),
+		);
 		const snapshots = new Set<AgentMessage>();
 		conversation.subscribe(() => {
 			const { streaming } = conversation.snapshot();
@@ -235,10 +320,10 @@ describe('createConversation', () => {
 	});
 
 	test('tool steps re-prompt without an empty in-flight assistant', async () => {
-		const { store } = makeStore();
-		const prompts: AgentEngineRequest['messages'][] = [];
+		const { messages } = makeMessages();
+		const prompts: Request['messages'][] = [];
 		let step = 0;
-		const engine: AgentEngine = (request) => {
+		const engine: Engine = (request) => {
 			prompts.push(request.messages);
 			return ++step === 1
 				? streamOf([
@@ -251,15 +336,8 @@ describe('createConversation', () => {
 					])
 				: streamOf([{ type: 'text-delta', delta: 'noon' }]);
 		};
-		const tools: ToolCatalog = {
-			definitions: () => [{ name: 'time', kind: 'query' }],
-			resolve: async () => ({ content: '12:00', isError: false }),
-		};
-		const conversation = createConversation({
-			store,
-			engine,
-			tools,
-			generateId: ids(),
+		const conversation = open(messages, engine, {
+			tools: [answeringTool('time', '12:00')],
 		});
 		await conversation.send('time?');
 		await settle(conversation);
@@ -273,10 +351,10 @@ describe('createConversation', () => {
 	});
 
 	test('a tool step goes back to the model as OpenAI messages and tools', async () => {
-		const { store } = makeStore();
-		const requests: AgentEngineRequest[] = [];
+		const { messages } = makeMessages();
+		const requests: Request[] = [];
 		let step = 0;
-		const engine: AgentEngine = (request) => {
+		const engine: Engine = (request) => {
 			requests.push(request);
 			return ++step === 1
 				? streamOf([
@@ -289,26 +367,15 @@ describe('createConversation', () => {
 					])
 				: streamOf([{ type: 'text-delta', delta: '17C in Paris' }]);
 		};
-		const tools: ToolCatalog = {
-			definitions: () => [
+		const conversation = open(messages, engine, {
+			tools: [
 				{
 					name: 'weather',
-					title: 'Weather',
 					description: 'Look up weather',
-					inputSchema: {
-						type: 'object',
-						properties: { city: { type: 'string' } },
-					},
-					kind: 'query',
+					input: { type: 'object', properties: { city: { type: 'string' } } },
+					run: async () => ({ content: '17C', isError: false }),
 				},
 			],
-			resolve: async () => ({ content: '17C', isError: false }),
-		};
-		const conversation = createConversation({
-			store,
-			engine,
-			tools,
-			generateId: ids(),
 		});
 		await conversation.send('weather?');
 		await settle(conversation);
@@ -343,19 +410,55 @@ describe('createConversation', () => {
 		]);
 	});
 
-	test('a tool schema that is not an object fails the turn', async () => {
-		const { store } = makeStore();
-		const { engine, prompts } = answering();
-		const conversation = createConversation({
-			store,
-			engine,
-			tools: {
-				definitions: () => [
-					{ name: 'bad', inputSchema: 'nope', kind: 'query' },
-				],
-				resolve: async () => ({ content: '', isError: false }),
+	test('the system prompt, from the saved transcript, goes first, and prepare shapes the rest', async () => {
+		const { messages } = makeMessages();
+		const { engine, prompts } = answering('Welcome!');
+		const seen: number[] = [];
+		const conversation = open(messages, engine, {
+			system: (transcript) => {
+				seen.push(transcript.length);
+				return transcript.length === 0 ? 'Open the chat.' : 'Answer.';
 			},
-			generateId: ids(),
+			prepare: (prompt) =>
+				prompt.length > 0 ? prompt : [{ role: 'user', content: 'Begin.' }],
+		});
+		conversation.retry();
+		await settle(conversation);
+		expect(prompts[0]).toEqual([
+			{ role: 'system', content: 'Open the chat.' },
+			{ role: 'user', content: 'Begin.' },
+		]);
+		await conversation.send('thanks');
+		await settle(conversation);
+		expect(prompts[1]?.[0]).toEqual({ role: 'system', content: 'Answer.' });
+		expect(seen).toEqual([0, 2]);
+		// The opening's transient user turn is never saved.
+		expect(
+			conversation.snapshot().messages.map((message) => message.role),
+		).toEqual(['assistant', 'user', 'assistant']);
+	});
+
+	test('with no model chosen, a turn fails and asks nothing', async () => {
+		const { messages } = makeMessages();
+		const { engine, prompts } = answering();
+		const conversation = open(messages, engine, { model: () => null });
+		await conversation.send('hello');
+		await settle(conversation);
+		expect(prompts).toHaveLength(0);
+		expect(conversation.snapshot().error?.code).toBe('NoModel');
+	});
+
+	test('a tool schema that is not an object fails the turn', async () => {
+		const { messages } = makeMessages();
+		const { engine, prompts } = answering();
+		const conversation = open(messages, engine, {
+			tools: [
+				{
+					name: 'bad',
+					input: 'nope' as never,
+					run: async () => ({ content: '', isError: false }),
+				},
+			],
 		});
 		await conversation.send('go');
 		await settle(conversation);
@@ -366,13 +469,9 @@ describe('createConversation', () => {
 	});
 
 	test('later turns never prompt with the empty assistant being filled', async () => {
-		const { store } = makeStore();
+		const { messages } = makeMessages();
 		const { engine, prompts } = answering('ok');
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine);
 		await conversation.send('one');
 		await settle(conversation);
 		await conversation.send('two');
@@ -384,9 +483,9 @@ describe('createConversation', () => {
 	});
 
 	test('multiple tools run sequentially in model order', async () => {
-		const { store } = makeStore();
+		const { messages } = makeMessages();
 		let step = 0;
-		const engine: AgentEngine = () =>
+		const engine: Engine = () =>
 			++step === 1
 				? streamOf([
 						{ type: 'tool-call', toolCallId: '1', toolName: 'a', input: {} },
@@ -396,25 +495,19 @@ describe('createConversation', () => {
 		const order: string[] = [];
 		const started = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
-		const tools: ToolCatalog = {
-			definitions: () => [
-				{ name: 'a', kind: 'query' },
-				{ name: 'b', kind: 'query' },
-			],
-			resolve: async (call) => {
-				order.push(call.toolName);
-				if (call.toolName === 'a') {
+		const tool = (name: string): AgentTool => ({
+			name,
+			async run() {
+				order.push(name);
+				if (name === 'a') {
 					started.resolve();
 					await release.promise;
 				}
-				return { content: call.toolName, isError: false };
+				return { content: name, isError: false };
 			},
-		};
-		const conversation = createConversation({
-			store,
-			engine,
-			tools,
-			generateId: ids(),
+		});
+		const conversation = open(messages, engine, {
+			tools: [tool('a'), tool('b')],
 		});
 		try {
 			await conversation.send('go');
@@ -429,11 +522,11 @@ describe('createConversation', () => {
 		}
 	});
 
-	test('declined mutations record denial without invoking the catalog', async () => {
-		const { store } = makeStore();
+	test('a declined change records the denial without running the tool, and a tool left out runs nothing', async () => {
+		const { messages } = makeMessages();
 		let step = 0;
-		let resolved = false;
-		const engine: AgentEngine = () =>
+		let ran = false;
+		const engine: Engine = () =>
 			++step === 1
 				? streamOf([
 						{
@@ -442,47 +535,57 @@ describe('createConversation', () => {
 							toolName: 'delete',
 							input: {},
 						},
+						{ type: 'tool-call', toolCallId: '2', toolName: 'drop', input: {} },
 					])
 				: streamOf([{ type: 'text-delta', delta: 'kept' }]);
-		const conversation = createConversation({
-			store,
-			engine,
-			tools: {
-				definitions: () => [{ name: 'delete', kind: 'mutation' }],
-				resolve: async () => {
-					resolved = true;
-					return { content: 'deleted', isError: false };
+		const conversation = open(messages, engine, {
+			tools: [
+				{
+					name: 'delete',
+					mutates: true,
+					run: async () => {
+						ran = true;
+						return { content: 'deleted', isError: false };
+					},
 				},
-			},
-			approval: { decide: () => 'ask', request: async () => false },
-			generateId: ids(),
+			],
+			approve: async () => false,
 		});
 		await conversation.send('delete');
 		await settle(conversation);
-		expect(resolved).toBe(false);
-		expect(conversation.snapshot().messages[1]?.parts.at(-1)).toMatchObject({
-			type: 'tool-result',
-			isError: true,
-		});
+		expect(ran).toBe(false);
+		const results = conversation
+			.snapshot()
+			.messages[1]?.parts.filter((part) => part.type === 'tool-result');
+		expect(results).toMatchObject([
+			{ toolName: 'delete', content: 'Denied by the user.', isError: true },
+			{
+				toolName: 'drop',
+				content: 'No tool named drop is available.',
+				isError: true,
+			},
+		]);
 	});
 
 	test('aborting drops the partial assistant and retry starts another turn', async () => {
-		const { store, values } = makeStore();
+		const { messages, values } = makeMessages();
 		const streamed = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
-		const engine: AgentEngine = async function* () {
+		let calls = 0;
+		const engine: Engine = async function* () {
+			if (++calls > 1) {
+				yield { type: 'text-delta', delta: 'whole' };
+				return;
+			}
 			yield { type: 'text-delta', delta: 'partial' };
 			streamed.resolve();
 			await release.promise;
 		};
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine);
 		try {
 			await conversation.send('go');
 			await streamed.promise;
+			await tick();
 			expect(agentMessageText(conversation.snapshot().streaming!)).toBe(
 				'partial',
 			);
@@ -504,9 +607,9 @@ describe('createConversation', () => {
 	});
 
 	test('runaway tool loops stop after 50 steps without persisting the turn', async () => {
-		const { store, values } = makeStore();
+		const { messages, values } = makeMessages();
 		let calls = 0;
-		const engine: AgentEngine = () => {
+		const engine: Engine = () => {
 			calls++;
 			return streamOf([
 				{
@@ -517,15 +620,8 @@ describe('createConversation', () => {
 				},
 			]);
 		};
-		const tools: ToolCatalog = {
-			definitions: () => [{ name: 'loop', kind: 'query' }],
-			resolve: async () => ({ content: 'again', isError: false }),
-		};
-		const conversation = createConversation({
-			store,
-			engine,
-			tools,
-			generateId: ids(),
+		const conversation = open(messages, engine, {
+			tools: [answeringTool('loop', 'again')],
 		});
 		await conversation.send('go');
 		await settle(conversation);
@@ -535,16 +631,13 @@ describe('createConversation', () => {
 	});
 
 	test('a failed stream saves nothing and leaves no unsaved answer', async () => {
-		const { store, values } = makeStore();
-		const conversation = createConversation({
-			store,
-			engine: () =>
-				streamOf([
-					{ type: 'text-delta', delta: 'half an ans' },
-					{ type: 'run-error', message: 'provider unavailable' },
-				]),
-			generateId: ids(),
-		});
+		const { messages, values } = makeMessages();
+		const conversation = open(messages, () =>
+			streamOf([
+				{ type: 'text-delta', delta: 'half an ans' },
+				{ type: 'run-error', message: 'provider unavailable' },
+			]),
+		);
 		await conversation.send('go');
 		await settle(conversation);
 		const snapshot = conversation.snapshot();
@@ -554,29 +647,28 @@ describe('createConversation', () => {
 		expect([...values.keys()]).toEqual(['m1']);
 	});
 
-	test('a tool catalog that rejects ends the turn and leaves the conversation usable', async () => {
-		const { store, values } = makeStore();
+	test('a tool that rejects ends the turn and leaves the conversation usable', async () => {
+		const { messages, values } = makeMessages();
 		let step = 0;
-		const engine: AgentEngine = () =>
+		const engine: Engine = () =>
 			++step === 1
 				? streamOf([
 						{ type: 'tool-call', toolCallId: '1', toolName: 'a', input: {} },
 					])
 				: streamOf([{ type: 'text-delta', delta: 'recovered' }]);
-		const conversation = createConversation({
-			store,
-			engine,
-			tools: {
-				definitions: () => [{ name: 'a', kind: 'query' }],
-				resolve: async () => {
-					throw new Error('catalog went away');
+		const conversation = open(messages, engine, {
+			tools: [
+				{
+					name: 'a',
+					run: async () => {
+						throw new Error('the tool went away');
+					},
 				},
-			},
-			generateId: ids(),
+			],
 		});
 		await conversation.send('go');
 		await settle(conversation);
-		expect(conversation.snapshot().error?.message).toBe('catalog went away');
+		expect(conversation.snapshot().error?.message).toBe('the tool went away');
 		expect([...values.keys()]).toEqual(['m1']);
 		conversation.retry();
 		await settle(conversation);
@@ -586,33 +678,51 @@ describe('createConversation', () => {
 		).toEqual(['user', 'assistant']);
 	});
 
-	test('store changes refresh the snapshot and disposal tears down the seam', async () => {
-		const { store, observers, isDisposed } = makeStore();
-		const conversation = createConversation({
-			store,
-			engine: () => streamOf([]),
-			generateId: ids(),
-		});
-		await store.set('external', {
+	test('a change to the collection refreshes the snapshot, and disposal stops following it', async () => {
+		const { messages, observers, put } = makeMessages();
+		const conversation = open(messages, () => streamOf([]));
+		await conversation.ready;
+		put({
 			id: 'external',
 			role: 'user',
 			createdAt: 1,
 			parts: [{ type: 'text', text: 'external' }],
 		});
+		await tick();
 		expect(conversation.snapshot().messages[0]?.id).toBe('external');
 		expect(observers.size).toBe(1);
 		conversation[Symbol.dispose]();
 		expect(observers.size).toBe(0);
-		expect(isDisposed()).toBe(true);
+	});
+
+	test("a note of this chat that does not read is listed as unreadable, and another chat's are not", async () => {
+		const { messages, invalid } = makeMessages();
+		invalid.push(
+			{
+				chat: CHAT,
+				id: 'broken',
+				path: `messages/${CHAT}/broken.md`,
+				issues: [{ message: 'role is missing.' }],
+			},
+			{
+				chat: 'other',
+				id: 'elsewhere',
+				path: 'messages/other/elsewhere.md',
+				issues: [{ message: 'parts is missing.' }],
+			},
+		);
+		const conversation = open(messages, () => streamOf([]));
+		await conversation.ready;
+		expect(conversation.snapshot().unreadable).toEqual([
+			{ path: `messages/${CHAT}/broken.md`, reason: 'role is missing.' },
+		]);
 	});
 
 	test('every assistant message rendered live persists after a clean finish', async () => {
-		const { store, values } = makeStore();
-		const conversation = createConversation({
-			store,
-			engine: () => streamOf([{ type: 'text-delta', delta: 'visible' }]),
-			generateId: ids(),
-		});
+		const { messages, values } = makeMessages();
+		const conversation = open(messages, () =>
+			streamOf([{ type: 'text-delta', delta: 'visible' }]),
+		);
 		const rendered = new Set<string>();
 		conversation.subscribe(() => {
 			const snapshot = conversation.snapshot();
@@ -643,14 +753,10 @@ describe('createConversation', () => {
 });
 
 describe('learner message publication', () => {
-	test('the model is asked nothing until the store confirms the learner message', async () => {
-		const { store, values, control } = makeStore();
+	test('the model is asked nothing until the collection confirms the learner message', async () => {
+		const { messages, values, control } = makeMessages();
 		const { engine, prompts } = answering();
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine);
 		const gate = holdNextWrite(control);
 		const sent = conversation.send('hello');
 		await tick();
@@ -673,17 +779,13 @@ describe('learner message publication', () => {
 	});
 
 	test('a refused learner write asks no model, keeps the message under its id, and saves again without a model call', async () => {
-		const { store, values, attempts, control } = makeStore();
+		const { messages, values, attempts, control } = makeMessages();
 		const { engine, prompts } = answering();
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine);
 		control.refuses = () => true;
 		const failure = expectErr(await conversation.send('hello'));
 		expect(failure.name).toBe('WriteFailed');
-		expect(failure).toMatchObject({ cause: new Error('disk full') });
+		expect(failure).toMatchObject({ cause: { name: 'Unavailable' } });
 		await tick();
 		expect(prompts).toHaveLength(0);
 		expect(values.size).toBe(0);
@@ -720,13 +822,9 @@ describe('learner message publication', () => {
 	});
 
 	test('overlapping sends, retries, and saves admit exactly one', async () => {
-		const { store, values, attempts, control } = makeStore();
+		const { messages, values, attempts, control } = makeMessages();
 		const { engine, prompts } = answering();
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine);
 		const gate = holdNextWrite(control);
 		const first = conversation.send('first');
 		const second = conversation.send('second');
@@ -748,13 +846,9 @@ describe('learner message publication', () => {
 	});
 
 	test('stop during a pending learner write lets the write finish and starts no model turn', async () => {
-		const { store, values, control } = makeStore();
+		const { messages, values, control } = makeMessages();
 		const { engine, prompts } = answering();
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine);
 		const gate = holdNextWrite(control);
 		const sent = conversation.send('hello');
 		conversation.stop();
@@ -774,24 +868,20 @@ describe('learner message publication', () => {
 		expect(prompts).toHaveLength(1);
 	});
 
-	test('disposal during a pending learner write keeps the store usable until the write lands and starts no model turn', async () => {
-		const { store, values, control, isDisposed } = makeStore();
+	test('disposal during a pending learner write lets the write land and starts no model turn', async () => {
+		const { messages, values, control, observers } = makeMessages();
 		const { engine, prompts } = answering();
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine);
 		const gate = holdNextWrite(control);
 		const sent = conversation.send('hello');
+		await tick();
 		conversation[Symbol.dispose]();
-		expect(isDisposed()).toBe(false);
+		expect(observers.size).toBe(0);
 
 		gate.resolve();
 		expectOk(await sent);
 		await tick();
 		expect([...values.keys()]).toEqual(['m1']);
-		expect(isDisposed()).toBe(true);
 		expect(prompts).toHaveLength(0);
 		expect(expectErr(await conversation.send('later'))).toMatchObject({
 			reason: 'disposed',
@@ -801,19 +891,15 @@ describe('learner message publication', () => {
 		expect(prompts).toHaveLength(0);
 	});
 
-	test('a store that throws is reported with its cause, keeps the message, and leaves no unhandled rejection', async () => {
-		const { store, values, control } = makeStore();
+	test('a collection that throws is reported with its cause, keeps the message, and leaves no unhandled rejection', async () => {
+		const { messages, values, control } = makeMessages();
 		const { engine, prompts } = answering();
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine);
 		control.throws = true;
 		const failure = expectErr(await conversation.send('hello'));
 		expect(failure).toMatchObject({
 			name: 'Threw',
-			cause: new Error('store exploded'),
+			cause: new Error('collection exploded'),
 		});
 		await tick();
 		expect(prompts).toHaveLength(0);
@@ -825,28 +911,41 @@ describe('learner message publication', () => {
 		expectOk(await conversation.save());
 		expect([...values.keys()]).toEqual(['m1']);
 	});
+
+	test('a note already holding the message counts as saved; another message at its id is refused', async () => {
+		const { messages, put } = makeMessages();
+		const { engine } = answering();
+		let next = 0;
+		const conversation = open(messages, engine, {
+			generateId: () => (next++ === 0 ? 'taken' : `m${next}`),
+		});
+		await conversation.ready;
+		put({
+			id: 'taken',
+			role: 'user',
+			createdAt: 1,
+			parts: [{ type: 'text', text: 'someone else' }],
+		});
+		const failure = expectErr(await conversation.send('mine'));
+		expect(failure.name).toBe('WriteFailed');
+		expect(failure.message).toContain(
+			`Another message is already saved at 'messages/${CHAT}/taken.md'`,
+		);
+	});
 });
 
 describe('received answer publication', () => {
 	test('a fully received answer survives a refused write under the same ids and saves again without the model or a tool', async () => {
-		const { store, values, attempts, control } = makeStore();
+		const { messages, values, attempts, control } = makeMessages();
 		const { engine, tools, counts } = toolThenAnswer();
-		const conversation = createConversation({
-			store,
-			engine,
-			tools,
-			generateId: ids(),
-		});
-		control.refuses = (key) => key !== 'm1';
+		const conversation = open(messages, engine, { tools });
+		control.refuses = (id) => id !== 'm1';
 		await conversation.send('time?');
 		await settle(conversation);
 		expect(counts).toEqual({ engine: 2, tool: 1 });
 		const failed = conversation.snapshot();
 		expect(failed.error).toBeNull();
-		expect(failed.saveError).toMatchObject({
-			name: 'WriteFailed',
-			cause: new Error('disk full'),
-		});
+		expect(failed.saveError).toMatchObject({ name: 'WriteFailed' });
 		expect(failed.unsaved.map((message) => message.id)).toEqual(['m2', 'm3']);
 		expect(failed.messages.map((message) => message.id)).toEqual([
 			'm1',
@@ -863,7 +962,7 @@ describe('received answer publication', () => {
 		conversation.retry();
 		await tick();
 		expect(counts).toEqual({ engine: 2, tool: 1 });
-		// One attempt only: the loop never re-asks a store on its own.
+		// One attempt only: the loop never asks the collection again on its own.
 		expect(attempts).toEqual(['m1', 'm2']);
 
 		control.refuses = () => false;
@@ -884,15 +983,10 @@ describe('received answer publication', () => {
 	});
 
 	test('a partly saved answer keeps only its unconfirmed message and never writes the confirmed one twice', async () => {
-		const { store, values, attempts, control } = makeStore();
+		const { messages, values, attempts, control } = makeMessages();
 		const { engine, tools, counts } = toolThenAnswer();
-		const conversation = createConversation({
-			store,
-			engine,
-			tools,
-			generateId: ids(),
-		});
-		control.refuses = (key) => key === 'm3';
+		const conversation = open(messages, engine, { tools });
+		control.refuses = (id) => id === 'm3';
 		await conversation.send('time?');
 		await settle(conversation);
 		expect([...values.keys()]).toEqual(['m1', 'm2']);
@@ -919,14 +1013,10 @@ describe('received answer publication', () => {
 		expect(counts).toEqual({ engine: 2, tool: 1 });
 	});
 
-	test('a store that shows a message before confirming it never renders that message twice', async () => {
-		const { store, control } = makeStore();
+	test('a collection that lists a message before confirming it never renders that message twice', async () => {
+		const { messages, control } = makeMessages();
 		const { engine } = answering();
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine);
 		control.announcesEarly = true;
 		const seen: string[][] = [];
 		conversation.subscribe(() => {
@@ -960,17 +1050,14 @@ describe('received answer publication', () => {
 		).toEqual(['m1', 'm2']);
 	});
 
-	test('stop does not discard a fully received answer that is waiting for the store', async () => {
-		const { store, values, control } = makeStore();
+	test('stop does not discard a fully received answer that is waiting for the collection', async () => {
+		const { messages, values, control } = makeMessages();
 		const { engine, prompts } = answering();
-		const conversation = createConversation({
-			store,
-			engine,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine);
 		await conversation.send('hello');
 		// The learner write is done; hold the answer's write open.
 		const gate = holdNextWrite(control);
+		await tick();
 		await tick();
 		expect(conversation.snapshot()).toMatchObject({
 			isGenerating: false,
@@ -984,24 +1071,22 @@ describe('received answer publication', () => {
 		expect(prompts).toHaveLength(1);
 	});
 
-	test('disposal while an answer is being written lets every admitted write land before the store is disposed', async () => {
-		const { store, values, control, isDisposed } = makeStore();
+	test('disposal while an answer is being written lets every admitted write land', async () => {
+		const { messages, values, control } = makeMessages();
 		const { engine, tools } = toolThenAnswer();
-		const conversation = createConversation({
-			store,
-			engine,
-			tools,
-			generateId: ids(),
-		});
+		const conversation = open(messages, engine, { tools });
 		await conversation.send('time?');
 		const gate = holdNextWrite(control);
-		await tick();
+		for (
+			let count = 0;
+			count < 20 && !conversation.snapshot().isSaving;
+			count++
+		)
+			await tick();
 		expect(conversation.snapshot().isSaving).toBe(true);
 		conversation[Symbol.dispose]();
-		expect(isDisposed()).toBe(false);
 		gate.resolve();
-		await tick();
+		await settle(conversation);
 		expect([...values.keys()]).toEqual(['m1', 'm2', 'm3']);
-		expect(isDisposed()).toBe(true);
 	});
 });

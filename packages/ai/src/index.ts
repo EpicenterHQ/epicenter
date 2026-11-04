@@ -5,6 +5,8 @@
  * embeddings.
  */
 
+export { customEndpoints, modelChoices } from '#device-settings';
+export type { ModelChoices } from './choices.js';
 export {
 	AiError,
 	type ChatChunk,
@@ -21,6 +23,7 @@ export {
 	type TranscriptionRequest,
 } from './client.js';
 export { custom } from './custom.js';
+export type { CustomEndpoints } from './custom-endpoints.js';
 export {
 	type Capability,
 	type Endpoint,
@@ -30,11 +33,12 @@ export {
 	openAiCompatible,
 	type Source,
 } from './endpoint.js';
-export { hosted } from './hosted.js';
+export { hosted, type LiveAccount } from './hosted.js';
 export { localServers } from './local-servers.js';
 export {
 	type Ai,
 	type EndpointEntry,
+	type LiveEndpoints,
 	type Model,
 	type ModelChoice,
 	openAi,

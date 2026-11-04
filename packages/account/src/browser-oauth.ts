@@ -235,7 +235,7 @@ export function createBrowserOAuth({
 	let completion: ReturnType<CallbackAuthClient['completeSignIn']> | undefined;
 	let authorization: Promise<void> | undefined;
 	let disposed = false;
-	const listeners = new Set<(state: AuthState) => void>();
+	const listeners = new Set<() => void>();
 
 	/** The stored grant, or null when it is missing or corrupt. */
 	function readToken(): StoredGrant | null {
@@ -274,7 +274,7 @@ export function createBrowserOAuth({
 		state = next;
 		for (const listener of listeners) {
 			try {
-				listener(state);
+				listener();
 			} catch (cause) {
 				log.error(BrowserOAuthDiagnostic.ListenerFailed({ cause }));
 			}
@@ -675,10 +675,10 @@ export function createBrowserOAuth({
 		...(accountManagement
 			? { accountManagementUrl: createAccountManagementUrl }
 			: {}),
-		onStateChange(fn) {
-			listeners.add(fn);
+		subscribe(listener) {
+			listeners.add(listener);
 			return () => {
-				listeners.delete(fn);
+				listeners.delete(listener);
 			};
 		},
 		async startSignIn(): Promise<Result<undefined, AuthError>> {

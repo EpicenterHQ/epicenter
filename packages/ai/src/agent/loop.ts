@@ -1,46 +1,56 @@
+/**
+ * One conversation with a model over a contract's messages collection
+ * (ADR-0047): it lists the chat's finished messages, streams each turn from
+ * the chosen model through `ai.chat`, runs the tools the host offers, and
+ * saves each finished message as its own note.
+ */
+import type { NoteClient } from '@epicenter/definition/contract';
+import { sameValue } from '@epicenter/definition/note';
 import {
 	defineErrors,
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
 import type { JsonValue } from 'wellcrafted/json';
+import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type { AgentEngine } from './engine.js';
+import type { ChatMessage } from '../client.js';
+import type { Ai, ModelChoice } from '../open-ai.js';
 import {
 	type AgentMessage,
 	isPersistableMessage,
+	type MessageNote,
+	type MessagesCollection,
+	readMessage,
 	toChatMessages,
 } from './message.js';
+import { streamStep } from './stream.js';
 import {
+	type AgentTool,
 	type AgentToolCall,
-	type Approval,
-	defaultApprovalDecision,
-	NO_TOOLS,
-	resolveApprovedToolCall,
-	type ToolCatalog,
+	type Approve,
+	runTool,
 	toChatTools,
 } from './tools.js';
 
+const log = createLogger('ai/agent');
+
 export type ConversationError = { message: string; code?: string };
 
-/** Why a message is still unsaved after the store was asked to write it. */
-export const AgentMessageStoreError = defineErrors({
-	/** The store answered: it cannot confirm that the message is saved. */
+/** Why a message is still unsaved after the collection was asked to write it. */
+export const MessageSaveError = defineErrors({
+	/** The collection answered: the message is not saved. */
 	WriteFailed: ({ cause }: { cause: unknown }) => ({
-		message: `The message store did not confirm the write: ${extractErrorMessage(cause)}`,
+		message: `The message was not saved: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
-	/**
-	 * The store threw or rejected instead of answering, so whether the write
-	 * landed is unknown. The loop reports this itself; a store returns
-	 * `WriteFailed`.
-	 */
+	/** The collection threw instead of answering, so whether the write landed is unknown. */
 	Threw: ({ cause }: { cause: unknown }) => ({
-		message: `The message store threw instead of answering: ${extractErrorMessage(cause)}`,
+		message: `The message collection threw instead of answering: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
 });
-export type AgentMessageStoreError = InferErrors<typeof AgentMessageStoreError>;
+export type MessageSaveError = InferErrors<typeof MessageSaveError>;
 
 export const ConversationAdmissionError = defineErrors({
 	/** The conversation took no action: nothing was written and no model ran. */
@@ -57,139 +67,219 @@ export type ConversationAdmissionError = InferErrors<
 	typeof ConversationAdmissionError
 >;
 
+/** A message note of this chat that does not read: not shown, and not sent to the model. */
+export type UnreadableMessage = { path: string; reason: string };
+
 export type ConversationSnapshot = {
 	/** The saved transcript, then `unsaved`, then the live turn's finished steps. */
 	messages: AgentMessage[];
 	streaming: AgentMessage | null;
 	isThinking: boolean;
 	isGenerating: boolean;
-	/** Why the last model turn ended without an answer. Never a store failure. */
+	/** Why the last model turn ended without an answer. Never a save failure. */
 	error: ConversationError | null;
 	/**
-	 * Whole messages the store has not confirmed, oldest first: a sent learner
-	 * message, or a fully received answer. Each also appears once in `messages`.
+	 * Whole messages the collection has not confirmed, oldest first: a sent
+	 * learner message, or a fully received answer. Each also appears once in
+	 * `messages`.
 	 */
 	unsaved: AgentMessage[];
-	/** A store write for `unsaved` is in flight. */
+	/** A write for `unsaved` is in flight. */
 	isSaving: boolean;
 	/**
 	 * Why the last write left `unsaved` unconfirmed. Stays while `save()` tries
 	 * again and clears when everything is saved.
 	 */
-	saveError: AgentMessageStoreError | null;
+	saveError: MessageSaveError | null;
+	/** This chat's message notes that do not read. */
+	unreadable: UnreadableMessage[];
 };
 
 export type ConversationHandle = {
 	snapshot(): ConversationSnapshot;
 	subscribe(listener: () => void): () => void;
+	/** Settles once the chat's saved messages were first listed. */
+	readonly ready: Promise<void>;
 	/**
 	 * Save one learner message, then start the model turn in the background.
 	 *
-	 * Resolves when the store has answered. `Ok` means the message is saved; the
-	 * turn has started unless `stop` or disposal arrived first. On `Err` no model
-	 * ran. A failed write keeps the message in `unsaved` under its id.
+	 * Resolves when the collection has answered. `Ok` means the message is
+	 * saved; the turn has started unless `stop` or disposal arrived first. On
+	 * `Err` no model ran. A failed write keeps the message in `unsaved` under
+	 * its id.
 	 */
 	send(
 		content: string,
-	): Promise<Result<void, ConversationAdmissionError | AgentMessageStoreError>>;
+	): Promise<Result<void, ConversationAdmissionError | MessageSaveError>>;
 	/** Abort the model turn, or cancel the one a pending `send` would start. */
 	stop(): void;
 	/** Run a model turn over the saved transcript. Ignored while busy or unsaved. */
 	retry(): void;
 	/**
 	 * Write `unsaved` again under the same ids. Never runs the model or a tool,
-	 * and never writes a message the store already confirmed.
+	 * and never writes a message the collection already confirmed.
 	 */
-	save(): Promise<
-		Result<void, ConversationAdmissionError | AgentMessageStoreError>
-	>;
-	/** Writes already in flight finish before the store is disposed. */
-	[Symbol.dispose](): void;
-};
-
-/**
- * The complete durable-data capability required by the loop. A document-backed
- * adapter may implement it, but document and CRDT types do not cross this seam.
- */
-export type AgentMessageStore = {
-	/**
-	 * Write one whole message under its id and answer once the store can say
-	 * whether it is saved. `Ok` is the store's promise that the message survives
-	 * as far as this store ever keeps anything; the loop asks the model nothing
-	 * before a learner message gets it. Writing an id the store already holds
-	 * must not produce a second message.
-	 */
-	set(
-		key: string,
-		value: AgentMessage,
-	): Promise<Result<void, AgentMessageStoreError>>;
-	entries(): IterableIterator<{ key: string; val: AgentMessage }>;
-	observe(handler: () => void): () => void;
+	save(): Promise<Result<void, ConversationAdmissionError | MessageSaveError>>;
+	/** Stops following the collection; writes already in flight still land. */
 	[Symbol.dispose](): void;
 };
 
 export type ConversationOptions = {
-	store: AgentMessageStore;
-	engine: AgentEngine;
-	tools?: ToolCatalog;
-	approval?: Approval;
-	generateId: () => string;
-};
-
-const DENY_GATED_MUTATIONS: Approval = {
-	decide: defaultApprovalDecision,
-	request: async () => false,
+	/** The contract's messages collection (`messagesCollection`), as its client. */
+	messages: NoteClient<MessagesCollection>;
+	/** This conversation's chat: the `{chat}` of each of its message notes. */
+	chat: string;
+	ai: Pick<Ai, 'chat'>;
+	/** The model a turn uses, read when the turn starts; null fails the turn. */
+	model: () => ModelChoice | null;
+	/** The system prompt, from the saved transcript when the turn starts. */
+	system?: string | ((transcript: readonly AgentMessage[]) => string);
+	/** The tools the model may call. A tool left out is denied. */
+	tools?: readonly AgentTool[];
+	/** Asked before a tool that `mutates` runs; without it, such a tool is refused. */
+	approve?: Approve;
+	/** Change a step's messages before they go out, after the system prompt is set aside. */
+	prepare?: (messages: ChatMessage[]) => ChatMessage[];
+	generateId?: () => string;
 };
 
 const MAX_STEPS = 50;
 
-/** Create one UI-free conversation over injected data, engine, and tool ports. */
+/** Whether `note` holds `message`, whole. */
+const holds = (note: MessageNote, message: AgentMessage) =>
+	note.role === message.role &&
+	note.createdAt === message.createdAt &&
+	sameValue(note.parts, message.parts);
+
+/** Create one UI-free conversation over a messages collection, a model, and tools. */
 export function createConversation({
-	store,
-	engine,
-	tools = NO_TOOLS,
-	approval = DENY_GATED_MUTATIONS,
-	generateId,
+	messages,
+	chat,
+	ai,
+	model,
+	system,
+	tools = [],
+	approve,
+	prepare = (prompt) => prompt,
+	generateId = () => crypto.randomUUID(),
 }: ConversationOptions): ConversationHandle {
 	const listeners = new Set<() => void>();
 	const notify = () => {
-		for (const listener of listeners) listener();
+		for (const listener of [...listeners]) {
+			try {
+				listener();
+			} catch (cause) {
+				log.error(new Error('A conversation subscriber failed.', { cause }));
+			}
+		}
 	};
-	const readAll = () =>
-		[...store.entries()]
-			.map((entry) => entry.val)
-			.sort((a, b) => a.createdAt - b.createdAt);
 
-	let persisted = readAll();
-	let lastCreatedAt = persisted.reduce(
-		(latest, message) => Math.max(latest, message.createdAt),
-		0,
-	);
+	let isDisposed = false;
+	/** The chat's messages as last listed. */
+	let listed: AgentMessage[] = [];
+	/** Messages this conversation saved that no listing has shown yet. */
+	let confirmed: AgentMessage[] = [];
+	let unreadable: UnreadableMessage[] = [];
+	let lastCreatedAt = 0;
+	let listing = false;
+	let again = false;
+
+	/** The saved transcript: what was listed, and what was saved since, oldest first. */
+	function persisted(): AgentMessage[] {
+		const shown = new Set(listed.map((message) => message.id));
+		const all = [
+			...listed,
+			...confirmed.filter((message) => !shown.has(message.id)),
+		];
+		return all.sort((a, b) => a.createdAt - b.createdAt);
+	}
+
+	/** List the chat's messages again, as long as changes keep arriving while a listing runs. */
+	async function relist(): Promise<void> {
+		if (listing) {
+			again = true;
+			return;
+		}
+		listing = true;
+		try {
+			do {
+				again = false;
+				const { data, error: listError } = await messages.list();
+				if (again) continue;
+				if (listError !== null) {
+					log.warn(listError);
+					continue;
+				}
+				listed = data.items
+					.filter((note) => note.chat === chat)
+					.map(readMessage);
+				const shown = new Set(listed.map((message) => message.id));
+				confirmed = confirmed.filter((message) => !shown.has(message.id));
+				unreadable = data.invalid
+					.filter((note) => note.chat === chat)
+					.map(({ path, issues }) => ({
+						path,
+						reason: issues.map(({ message }) => message).join(' '),
+					}));
+				lastCreatedAt = listed.reduce(
+					(latest, message) => Math.max(latest, message.createdAt),
+					lastCreatedAt,
+				);
+				notify();
+			} while (again);
+		} finally {
+			listing = false;
+		}
+	}
+
 	const nextCreatedAt = () => {
 		lastCreatedAt = Math.max(Date.now(), lastCreatedAt + 1);
 		return lastCreatedAt;
 	};
-	const unobserve = store.observe(() => {
-		persisted = readAll();
-		lastCreatedAt = persisted.reduce(
-			(latest, message) => Math.max(latest, message.createdAt),
-			lastCreatedAt,
-		);
-		notify();
+
+	/** Save `message` as its own note; a note already there holding it counts as saved. */
+	async function write(
+		message: AgentMessage,
+	): Promise<Result<void, MessageSaveError>> {
+		// SAFETY: JSON serialization removes unsupported values from the typed message.
+		const value = JSON.parse(JSON.stringify(message)) as AgentMessage;
+		const args = { chat, id: message.id };
+		const created = await messages.create({
+			...args,
+			role: value.role,
+			createdAt: value.createdAt,
+			// SAFETY: the agent's parts are the collection's parts, as JSON.
+			parts: value.parts as MessageNote['parts'],
+			body: '',
+		});
+		if (created.error === null) return Ok(undefined);
+		if (created.error.name !== 'Occupied')
+			return MessageSaveError.WriteFailed({ cause: created.error });
+		const there = await messages.get(args);
+		if (there.error === null && holds(there.data, value)) return Ok(undefined);
+		return MessageSaveError.WriteFailed({
+			cause: `Another message is already saved at '${created.error.path}'.`,
+		});
+	}
+
+	const unsubscribe = messages.subscribe(() => {
+		if (!isDisposed) void relist();
 	});
+	const ready = relist();
+
 	let turn: AgentMessage[] | null = null;
 	let error: ConversationError | null = null;
 	let controller: AbortController | null = null;
 	let streamingId: string | null = null;
 	let unsaved: AgentMessage[] = [];
-	let saveError: AgentMessageStoreError | null = null;
+	let saveError: MessageSaveError | null = null;
 	let isSaving = false;
 	// One send, retry, or save at a time, reserved before its first await and
 	// held through every write and model step it owns.
 	let isBusy = false;
-	let isDisposed = false;
 
 	function snapshot(): ConversationSnapshot {
+		const saved = persisted();
 		const turnMessages = turn ?? [];
 		const filling = turnMessages.find((message) => message.id === streamingId);
 		const streaming =
@@ -199,15 +289,15 @@ export function createConversation({
 		const completed = turnMessages.filter(
 			(message) => message.id !== streamingId && isPersistableMessage(message),
 		);
-		// A store may announce a write before it confirms it, so a message can be
-		// in both lists for a while; the stored copy is the one rendered.
-		const stored = new Set(persisted.map((message) => message.id));
+		// A collection may list a write before it confirms it, so a message can
+		// be in both lists for a while; the saved copy is the one rendered.
+		const stored = new Set(saved.map((message) => message.id));
 		const retained = unsaved.filter((message) => !stored.has(message.id));
 		return {
 			messages:
 				retained.length > 0 || completed.length > 0
-					? [...persisted, ...retained, ...completed]
-					: persisted,
+					? [...saved, ...retained, ...completed]
+					: saved,
 			streaming,
 			isThinking: turn !== null && streaming === null && completed.length === 0,
 			isGenerating: turn !== null,
@@ -215,34 +305,33 @@ export function createConversation({
 			unsaved: [...unsaved],
 			isSaving,
 			saveError,
+			unreadable: [...unreadable],
 		};
 	}
 
 	/**
-	 * Write `unsaved` in order and stop at the first message the store does not
-	 * confirm, so a later message is never saved ahead of an earlier one. One
-	 * attempt per message: a failed or thrown write may still have landed, and
-	 * only an explicit `save()` asks again.
+	 * Write `unsaved` in order and stop at the first message the collection
+	 * does not confirm, so a later message is never saved ahead of an earlier
+	 * one. One attempt per message: a failed or thrown write may still have
+	 * landed, and only an explicit `save()` asks again.
 	 */
-	async function saveUnsaved(): Promise<Result<void, AgentMessageStoreError>> {
+	async function saveUnsaved(): Promise<Result<void, MessageSaveError>> {
 		isSaving = true;
 		notify();
-		let failure: AgentMessageStoreError | null = null;
+		let failure: MessageSaveError | null = null;
 		for (const message of [...unsaved]) {
 			const { data: saved, error: writeError } = await tryAsync({
-				try: () => store.set(message.id, message),
-				catch: (cause) => AgentMessageStoreError.Threw({ cause }),
+				try: () => write(message),
+				catch: (cause) => MessageSaveError.Threw({ cause }),
 			});
 			failure = writeError !== null ? writeError : saved.error;
 			if (failure !== null) break;
 			unsaved = unsaved.filter((pending) => pending.id !== message.id);
-			persisted = readAll();
+			confirmed = [...confirmed, message];
 			notify();
 		}
 		isSaving = false;
 		saveError = failure;
-		// Disposal waited for these writes; the store has no user left.
-		if (isDisposed) store[Symbol.dispose]();
 		return failure === null ? Ok(undefined) : Err(failure);
 	}
 
@@ -254,18 +343,16 @@ export function createConversation({
 	}
 
 	async function runStep(
-		history: AgentMessage[],
+		chosen: ModelChoice,
+		prompt: ChatMessage[],
 		assistant: AgentMessage,
 		signal: AbortSignal,
 	): Promise<Result<AgentToolCall[], ConversationError>> {
 		const calls: AgentToolCall[] = [];
 		let failure: ConversationError | undefined;
 		try {
-			for await (const chunk of engine(
-				{
-					messages: toChatMessages(history),
-					tools: toChatTools(tools.definitions()),
-				},
+			for await (const chunk of streamStep(
+				{ ai, model: chosen, messages: prompt, tools: toChatTools(tools) },
 				signal,
 			)) {
 				if (signal.aborted) break;
@@ -308,12 +395,7 @@ export function createConversation({
 	): Promise<void> {
 		for (const call of calls) {
 			if (signal.aborted) return;
-			const outcome = await resolveApprovedToolCall({
-				tools,
-				approval,
-				call,
-				signal,
-			});
+			const outcome = await runTool({ tools, approve, call, signal });
 			if (signal.aborted) return;
 			appendToolResult(
 				assistant,
@@ -336,7 +418,16 @@ export function createConversation({
 		let failure: ConversationError | undefined;
 		let count = 0;
 		try {
-			while (!signal.aborted) {
+			await ready;
+			const chosen = model();
+			const transcript = persisted();
+			const prompt = typeof system === 'function' ? system(transcript) : system;
+			if (chosen === null)
+				failure = {
+					message: 'Choose a model before asking.',
+					code: 'NoModel',
+				};
+			while (failure === undefined && chosen !== null && !signal.aborted) {
 				if (count++ >= MAX_STEPS) {
 					failure = {
 						message: `Stopped after ${MAX_STEPS} steps without a final answer.`,
@@ -344,7 +435,7 @@ export function createConversation({
 					};
 					break;
 				}
-				const history = [...persisted, ...steps];
+				const history = [...persisted(), ...steps];
 				const assistant: AgentMessage = {
 					id: generateId(),
 					role: 'assistant',
@@ -356,7 +447,11 @@ export function createConversation({
 				notify();
 
 				const { data: calls, error: stepError } = await runStep(
-					history,
+					chosen,
+					[
+						...(prompt ? [{ role: 'system' as const, content: prompt }] : []),
+						...prepare(toChatMessages(history)),
+					],
 					assistant,
 					signal,
 				);
@@ -370,7 +465,7 @@ export function createConversation({
 				await runTools(assistant, calls, signal);
 			}
 		} catch (cause) {
-			// A tool catalog or approval that rejects ends the turn like a failed
+			// A tool or an approval that rejects ends the turn like a failed
 			// stream: nothing is saved and the conversation stays usable.
 			if (!signal.aborted) failure = { message: extractErrorMessage(cause) };
 		}
@@ -394,21 +489,25 @@ export function createConversation({
 		snapshot,
 		subscribe(listener) {
 			listeners.add(listener);
-			return () => listeners.delete(listener);
+			return () => {
+				listeners.delete(listener);
+			};
 		},
+		ready,
 		async send(content) {
 			const text = content.trim();
 			const reason = text ? refusal() : 'empty';
 			if (reason !== null) {
 				return ConversationAdmissionError.NotAdmitted({ reason });
 			}
-			const id = generateId();
 			isBusy = true;
 			const admitted = new AbortController();
 			controller = admitted;
+			// A learner message comes after every message already saved.
+			await ready;
 			unsaved = [
 				{
-					id,
+					id: generateId(),
 					role: 'user',
 					createdAt: nextCreatedAt(),
 					parts: [{ type: 'text', text }],
@@ -452,8 +551,7 @@ export function createConversation({
 			if (isDisposed) return;
 			isDisposed = true;
 			controller?.abort();
-			unobserve();
-			if (!isSaving) store[Symbol.dispose]();
+			unsubscribe();
 		},
 	};
 }

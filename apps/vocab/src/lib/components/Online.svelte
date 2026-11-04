@@ -16,10 +16,11 @@
 	const { account, children }: { account: Account; children: Snippet } = $props();
 
 	// svelte-ignore state_referenced_locally
-	const files = fromClient(openRemote(vocab, { account, site: APPS.VOCAB.url }));
+	const client = openRemote(vocab, { account, site: APPS.VOCAB.url });
+	const files = fromClient(client);
 	setEntryList(files.entries);
 	setChatList(files.chats);
-	setMessageList(files.messages);
+	setMessageList(client.messages);
 </script>
 
 {@render children()}

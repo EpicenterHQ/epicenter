@@ -322,32 +322,6 @@ Denies the transcribe_audio command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-transcription:allow-transcribe-file`
-
-</td>
-<td>
-
-Enables the transcribe_file command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:deny-transcribe-file`
-
-</td>
-<td>
-
-Denies the transcribe_file command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `epicenter-transcription:allow-unload-model`
 
 </td>

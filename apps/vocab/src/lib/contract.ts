@@ -9,7 +9,8 @@
  *   to three saved expressions it practices (each the word's id and text).
  * - `messages/{chat}/{id}.md`: one finished message of chat `chat`, whole:
  *   who wrote it, when (milliseconds), and its parts (text, and the tutor's
- *   tool calls and their results).
+ *   tool calls and their results); `messagesCollection` from
+ *   `@epicenter/ai/agent`, the collection every chat app's loop keeps.
  *
  * Vocab's settings (the tutor model chosen and the endpoints connected) are
  * this device's, not the learner's data, so there is no settings note.
@@ -17,6 +18,7 @@
  * `static/contract.json` (`bun run contract`), so `epicenter check
  * <url>/contract.json <dir>` checks a clone.
  */
+import { messagesCollection } from '@epicenter/ai/agent';
 import { defineContract } from '@epicenter/definition/contract';
 
 const text = { type: 'string' } as const;
@@ -51,54 +53,7 @@ export const vocab = defineContract({
 			},
 			required: ['createdAt', 'focus'],
 		},
-		messages: {
-			path: 'messages/{chat}/{id}.md',
-			fields: {
-				role: { enum: ['user', 'assistant'] },
-				createdAt: { type: 'number' },
-				parts: {
-					type: 'array',
-					items: {
-						anyOf: [
-							{
-								type: 'object',
-								properties: { type: { const: 'text' }, text },
-								required: ['type', 'text'],
-							},
-							{
-								type: 'object',
-								properties: {
-									type: { const: 'tool-call' },
-									toolCallId: text,
-									toolName: text,
-									input: {},
-								},
-								required: ['type', 'toolCallId', 'toolName', 'input'],
-							},
-							{
-								type: 'object',
-								properties: {
-									type: { const: 'tool-result' },
-									toolCallId: text,
-									toolName: text,
-									content: text,
-									details: {},
-									isError: { type: 'boolean' },
-								},
-								required: [
-									'type',
-									'toolCallId',
-									'toolName',
-									'content',
-									'isError',
-								],
-							},
-						],
-					},
-				},
-			},
-			required: ['role', 'createdAt', 'parts'],
-		},
+		messages: messagesCollection,
 	},
 });
 

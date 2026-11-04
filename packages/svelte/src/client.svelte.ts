@@ -6,7 +6,8 @@
  * `invalid` for notes, `loading`, `error`, and `get(args)`) and its writes,
  * which pass the version the adapter shows, so a component never handles
  * one. A collection lists and subscribes (`subscribe` on the client) only
- * while an effect reads it, through `createSubscriber`, and stops when the
+ * while an effect reads it, through `createTracker` (`./tracked.ts`, the
+ * helper under every capability's adapter), and stops when the
  * last reader goes; a read outside tracking is a snapshot. One client has
  * one adapter: every `fromClient(device)` on a page is the same state, so
  * any component may compose from it and views never disagree.
@@ -73,10 +74,10 @@ import {
 } from '@epicenter/definition/contract';
 import { sameValue } from '@epicenter/definition/note';
 import { onDestroy } from 'svelte';
-import { createSubscriber } from 'svelte/reactivity';
 import type { InferError } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { holdLeave } from './leave-guard.js';
+import { createTracker } from './tracked.js';
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
@@ -296,7 +297,7 @@ function fromCollection(collection: Raw) {
 			);
 	}
 
-	const track = createSubscriber((update) => {
+	const track = createTracker((update) => {
 		changed = update;
 		reading = true;
 		const stop = collection.subscribe(() => void reload());

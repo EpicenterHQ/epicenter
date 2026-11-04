@@ -92,7 +92,7 @@ describe('signing in and out', () => {
 		const { client, ready } = createTauriAuth(fake);
 		await ready;
 		const seen: string[] = [];
-		client.onStateChange((state) => seen.push(state.status));
+		client.subscribe(() => seen.push(client.getState().status));
 		const first = client.getState().account;
 		expectOk(await client.startSignIn());
 		expect(client.getState().status).toBe('signed-in');

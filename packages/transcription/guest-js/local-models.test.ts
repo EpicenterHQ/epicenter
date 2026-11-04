@@ -1,17 +1,20 @@
 /**
- * Activation intent tests. Gated command replies expose every point where a
- * departed page or stopped request could otherwise activate a model later.
- * Transfer identity protects a newer request from late progress and cleanup.
+ * Use-after-download intent tests, over a stand-in `localSpeech()` handle and
+ * the app's model choice. Gated replies expose every point where a departed
+ * page or stopped request could otherwise choose a model later. Transfer
+ * identity protects a newer request from late progress and cleanup.
  */
 import '../../svelte/src/svelte-modules.test-support.js';
 import { expect, mock, test } from 'bun:test';
-import type { Channel } from '@tauri-apps/api/core';
 import type {
 	CatalogError,
 	DownloadProgress,
 	ModelInfo,
 } from './bindings.gen.js';
-import type { LocalModelCommands } from './local-models.svelte.js';
+import type {
+	LocalModelChoice,
+	LocalModelHandle,
+} from './local-models.svelte.js';
 
 mock.module('@tauri-apps/api/core', () => ({
 	invoke: () => {
@@ -23,6 +26,7 @@ mock.module('@tauri-apps/api/core', () => ({
 }));
 const { createLocalModels } = await import('./local-models.svelte.js');
 const ok = { data: null, error: null } as const;
+type DownloadReply = Awaited<ReturnType<LocalModelHandle['download']>>;
 const model: ModelInfo = {
 	id: 'model',
 	name: 'Model',
@@ -45,41 +49,39 @@ const flush = async () => {
 function fixture() {
 	const scans: ReturnType<typeof Promise.withResolvers<ModelInfo[]>>[] = [];
 	const downloads: {
-		reply: ReturnType<
-			typeof Promise.withResolvers<
-				Awaited<ReturnType<LocalModelCommands['downloadModel']>>
-			>
-		>;
-		channel: Channel<DownloadProgress>;
+		reply: ReturnType<typeof Promise.withResolvers<DownloadReply>>;
+		progress: (progress: DownloadProgress) => void;
 	}[] = [];
 	const activated: string[] = [];
 	const order: string[] = [];
-	const commands: LocalModelCommands = {
-		listModels: () => {
+	const speech: LocalModelHandle = {
+		catalog: () => {
 			const reply = Promise.withResolvers<ModelInfo[]>();
 			scans.push(reply);
 			return reply.promise;
 		},
-		getActiveModel: async () => null,
-		getUnloadPolicy: async () => 'after_5_minutes',
-		setActiveModel: async (id) => {
-			activated.push(id ?? 'none');
-			order.push('activate');
-			return ok;
-		},
+		unloadPolicy: async () => 'after_5_minutes',
 		setUnloadPolicy: async () => ok,
-		revealModel: async () => ok,
-		downloadModel: (_id, channel) => {
-			const reply =
-				Promise.withResolvers<
-					Awaited<ReturnType<LocalModelCommands['downloadModel']>>
-				>();
-			downloads.push({ reply, channel });
+		reveal: async () => ok,
+		remove: async () => ok,
+		download: (_id, { onProgress } = {}) => {
+			const reply = Promise.withResolvers<DownloadReply>();
+			downloads.push({ reply, progress: (value) => onProgress?.(value) });
 			return reply.promise;
 		},
 	};
-	const controller = createLocalModels(commands);
-	return { controller, commands, scans, downloads, activated, order };
+	let chosen: string | null = null;
+	const choice: LocalModelChoice = {
+		chosen: () => chosen,
+		async choose(id) {
+			activated.push(id);
+			order.push('activate');
+			chosen = id;
+			return undefined;
+		},
+	};
+	const controller = createLocalModels({ speech, choice });
+	return { controller, speech, choice, scans, downloads, activated, order };
 }
 const installed = [{ ...model, downloaded: true }];
 
@@ -91,7 +93,7 @@ for (const stage of [
 ] as const) {
 	test(`Stop during ${stage} prevents activation`, async () => {
 		const f = fixture();
-		const intent = f.controller.downloadAndActivate(model);
+		const intent = f.controller.downloadAndUse(model);
 		if (stage === 'pre-check') {
 			f.controller.stop(model);
 			at(f.scans, 0).resolve([model]);
@@ -121,7 +123,7 @@ for (const stage of [
 
 test('dispose before download success never activates', async () => {
 	const f = fixture();
-	const intent = f.controller.downloadAndActivate(model);
+	const intent = f.controller.downloadAndUse(model);
 	at(f.scans, 0).resolve([model]);
 	await flush();
 	f.controller.dispose();
@@ -134,8 +136,8 @@ for (const name of ['Busy', 'DownloadingElsewhere'] as const) {
 	test(`a new mount shows the native ${name} answer`, async () => {
 		const f = fixture();
 		f.controller.dispose();
-		f.controller = createLocalModels(f.commands);
-		const intent = f.controller.downloadAndActivate(model);
+		f.controller = createLocalModels({ speech: f.speech, choice: f.choice });
+		const intent = f.controller.downloadAndUse(model);
 		at(f.scans, 0).resolve([model]);
 		await flush();
 		const error: CatalogError = { name, message: 'native detail' };
@@ -153,7 +155,7 @@ for (const name of ['Busy', 'DownloadingElsewhere'] as const) {
 
 test('late progress and finally from an old intent leave its replacement intact', async () => {
 	const f = fixture();
-	const first = f.controller.downloadAndActivate(model);
+	const first = f.controller.downloadAndUse(model);
 	at(f.scans, 0).resolve([model]);
 	await flush();
 	f.controller.stop(model);
@@ -161,8 +163,8 @@ test('late progress and finally from an old intent leave its replacement intact'
 	const second = f.controller.download(model);
 	at(f.scans, 1).resolve([model]);
 	await flush();
-	at(f.downloads, 1).channel.onmessage({ bytesReceived: 25, totalBytes: 100 });
-	at(f.downloads, 0).channel.onmessage({ bytesReceived: 99, totalBytes: 100 });
+	at(f.downloads, 1).progress({ bytesReceived: 25, totalBytes: 100 });
+	at(f.downloads, 0).progress({ bytesReceived: 99, totalBytes: 100 });
 	expect(f.controller.stateOf(model)).toEqual({
 		type: 'downloading',
 		progress: 25,
@@ -187,7 +189,7 @@ test('late progress and finally from an old intent leave its replacement intact'
 
 test('activation is submitted before a Stop microtask after the final refresh', async () => {
 	const f = fixture();
-	const intent = f.controller.downloadAndActivate(model);
+	const intent = f.controller.downloadAndUse(model);
 	at(f.scans, 0).resolve([model]);
 	await flush();
 	at(f.downloads, 0).reply.resolve(ok);
@@ -211,42 +213,29 @@ test('activation is submitted before a Stop microtask after the final refresh', 
 	at(f.scans, 1).resolve([downloaded]);
 	await flush();
 	expect(f.order).toEqual(['success', 'activate', 'stop']);
-	at(f.scans, 2).resolve(installed);
 	await intent;
 	expect(f.activated).toEqual(['model']);
 	f.controller.dispose();
 });
 
-test('an older refresh cannot replace a completed activation or publish its error', async () => {
+test('an older refresh cannot publish its error after a newer one answered', async () => {
 	const f = fixture();
-	let active: Awaited<ReturnType<LocalModelCommands['getActiveModel']>> = null;
-	f.commands.getActiveModel = async () => active;
-	f.commands.setActiveModel = async (id) => {
-		active = {
-			id: id!,
-			name: id!,
-			installed: true,
-			supportsPrompt: true,
-			supportsLanguage: true,
-		};
-		return ok;
-	};
 	const old = f.controller.refresh();
-	const activating = f.controller.activate(model);
-	await flush();
+	const newer = f.controller.refresh();
 	at(f.scans, 1).resolve(installed);
-	await activating;
-	expect(f.controller.active?.id).toBe(model.id);
+	await newer;
+	await f.controller.use(model);
+	expect(f.controller.chosenId).toBe(model.id);
 	at(f.scans, 0).reject(new Error('obsolete scan'));
 	await old;
-	expect(f.controller.active?.id).toBe(model.id);
+	expect(f.controller.chosenId).toBe(model.id);
 	expect(f.controller.error).toBeNull();
 	f.controller.dispose();
 });
 
 test('a superseded download precheck still returns its own scan and retains activation intent', async () => {
 	const f = fixture();
-	const intent = f.controller.downloadAndActivate(model);
+	const intent = f.controller.downloadAndUse(model);
 	const newer = f.controller.refresh();
 	at(f.scans, 1).resolve([model]);
 	await newer;
@@ -254,14 +243,13 @@ test('a superseded download precheck still returns its own scan and retains acti
 	await flush();
 	expect(f.activated).toEqual([model.id]);
 	expect(f.downloads).toHaveLength(0);
-	at(f.scans, 2).resolve(installed);
 	await intent;
 	f.controller.dispose();
 });
 
 test('Stop during precheck starts no download and makes no background claim, including after a late failure', async () => {
 	const f = fixture();
-	const first = f.controller.downloadAndActivate(model);
+	const first = f.controller.downloadAndUse(model);
 	f.controller.stop(model);
 	at(f.scans, 0).resolve([model]);
 	await first;

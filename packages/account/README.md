@@ -156,7 +156,8 @@ store over it, keyed on the Account so a new one opens a new store. A Svelte app
 gets a snapshot, while a template, derived value, or effect tracks changes.
 The plain client keeps its explicit `getState()` method; the Svelte facade
 exposes `state` instead and carries through the other methods. A component with
-imperative work on auth changes can subscribe directly with `onStateChange`.
+imperative work on auth changes can subscribe directly with `subscribe`, whose
+listener reads `getState()` again.
 It exposes `refresh()`, which rereads the saved OAuth cell. A focus check can
 await it.
 

@@ -111,15 +111,26 @@ const start: Recorder['start'] = async ({ path, input, signal }) => {
 /**
  * Finish every recording a quit or a crash left in the folder's
  * `.epicenter/recordings` under `under` from its whole seconds, and place
- * it at its path. Answers each one placed, with how long it plays, and each
- * one left there because another file is at its path. Run it before
- * anything lists, plays, or transcribes a recording.
+ * it at its path. Answers each one placed, with how long it plays, then
+ * each of `unnamed`: the shell places a recording at its path only whole,
+ * so audio there is finished, its length unread. Also answers each one left
+ * outside its path because another file is there. Run it before anything
+ * lists, plays, or transcribes a recording.
  */
-const recover: Recorder['recover'] = async ({ under }) => {
+const recover: Recorder['recover'] = async ({ under, unnamed }) => {
 	try {
 		const { data, error } = await commands.recover(under);
 		if (error !== null) return fromNative(error);
-		return Ok(data);
+		const placed = new Set(data.recovered.map(({ path }) => path));
+		return Ok({
+			recovered: [
+				...data.recovered,
+				...unnamed
+					.filter((path) => !placed.has(path))
+					.map((path) => ({ path, durationMs: null })),
+			],
+			unplaced: data.unplaced,
+		});
 	} catch (cause) {
 		return RecorderError.Failed({ cause });
 	}
@@ -176,5 +187,4 @@ export const recorder = {
 	recover,
 	listInputs,
 	openMeter,
-	placesWhole: true,
 } satisfies Recorder;

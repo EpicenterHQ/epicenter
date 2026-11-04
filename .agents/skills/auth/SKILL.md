@@ -41,8 +41,11 @@ identity.
 | The account dashboard | `createCookieSessionAuth` in `apps/api/ui`, over the authorization server's own session cookie |
 
 Never restore a server destination from saved preferences. The Svelte
-adapter `fromAuth` makes state reads track through `createSubscriber`; keep
-the plain client private in the app's auth module and export the facade.
+adapter `fromAuth` makes state reads track through `trackReads` from
+`@epicenter/svelte/tracked`, the helper under every capability's adapter.
+The app's auth module exports the facade for components and the plain
+client for a capability that takes the live account (`hosted(account)` from
+`@epicenter/ai`), which reads `getState()` and `subscribe` itself.
 Retain the callback-capable type where a callback route needs it
 (`isCallbackAuthClient`).
 

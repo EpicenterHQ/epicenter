@@ -64,5 +64,5 @@
 		{#if index > 0}<Separator />{/if}
 		<ModelSetting {operation} />
 	{/each}
-	<p class="text-xs text-muted-foreground" data-testid="connections-note">{whispering.services.endpoints.note}</p>
+	<p class="text-xs text-muted-foreground" data-testid="connections-note">{whispering.services.connectionsNote}</p>
 </div>

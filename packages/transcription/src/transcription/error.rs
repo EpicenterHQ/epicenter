@@ -8,21 +8,6 @@ pub enum TranscriptionError {
     #[error("Audio read error: {message}")]
     AudioReadError { message: String },
 
-    /// The calling window has no usable folder there: the app bound none to
-    /// it, its page did not open the root it named, the directory is gone or
-    /// unreachable, or the app is shutting down.
-    #[error("No folder for this window: {message}")]
-    FolderUnavailable { message: String },
-
-    /// The path is not a data path in the window's folder: it is empty,
-    /// absolute, names `.`, `..`, or Git's state, or a link is on its way.
-    #[error("Path refused: {message}")]
-    PathRefused { message: String },
-
-    /// No regular file is at the path in the window's folder.
-    #[error("File missing: {message}")]
-    FileMissing { message: String },
-
     /// The local route cannot run: no model is active, or the selected or
     /// explicitly requested model is unknown or not installed on this computer.
     ///

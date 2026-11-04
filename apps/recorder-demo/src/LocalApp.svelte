@@ -17,7 +17,7 @@
 	import Recorder from './Recorder.svelte';
 	import type { Recorder as RecorderContract } from './contract.ts';
 	import { recordInto } from './lib/record.ts';
-	import { finishCutOffRecordings } from './lib/recordings.ts';
+	import { finishCutOffRecordings, unnamedAudio } from './lib/recordings.ts';
 
 	// This page's one store: its Worker starts at the first call.
 	let { device }: { device: Client<RecorderContract> } = $props();
@@ -29,8 +29,14 @@
 	/** Why what a closed tab cut off could not be finished, if it could not. */
 	let cutOff = $state<string | null>(null);
 	onMount(async () => {
-		const repaired = await recorder.recover({ device, under: 'recordings' });
+		const unnamed = await unnamedAudio(device);
 		// Files this browser will not list (a private window): the list says so.
+		if (unnamed.error !== null) return;
+		const repaired = await recorder.recover({
+			device,
+			under: 'recordings',
+			unnamed: unnamed.data,
+		});
 		if (repaired.error !== null) return;
 		const finished = await finishCutOffRecordings(device);
 		if (finished.error !== null) cutOff = finished.error;

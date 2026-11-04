@@ -2,7 +2,7 @@
  * The bundle test's entry (`platform.test.ts`): every `#platform/*` seam,
  * and the state the pages build over the store.
  */
-export { auth } from '#platform/auth';
-export { openConnections } from '#platform/connections';
+export { account, auth } from '#platform/auth';
 export { Callback, Chrome, Startup } from '#platform/root';
+export { ai } from './ai.js';
 export { createVocab } from './vocab.svelte.js';

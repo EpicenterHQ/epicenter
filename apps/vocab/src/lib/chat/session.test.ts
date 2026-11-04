@@ -7,7 +7,6 @@ import { expectOk } from 'wellcrafted/testing';
 const { openVocabFolder, until } = await import('../vocab.test-support.js');
 const { createVocabChat } = await import('./session.svelte.js');
 const { fromAi } = await import('@epicenter/ai/svelte');
-const { createChatMessageStore } = await import('./messages.svelte.js');
 const { startChat } = await import('./chats.js');
 
 type ChatOptions = Parameters<typeof createVocabChat>[0];
@@ -34,9 +33,10 @@ async function setup({ question = false } = {}) {
 	const chatId = expectOk(
 		await startChat(folder.lists.chats, [{ entryId: 'entry', text: 'lucid' }]),
 	).id;
-	const store = createChatMessageStore(folder.lists.messages, chatId);
-	expectOk(await store.set(welcome.id, welcome));
-	if (question) expectOk(await store.set(asked.id, asked));
+	for (const message of question ? [welcome, asked] : [welcome])
+		expectOk(
+			await folder.messages.create({ chat: chatId, ...message, body: '' }),
+		);
 	let requests = 0;
 	const tutor = {
 		finishReason: 'stop',
@@ -84,17 +84,14 @@ async function setup({ question = false } = {}) {
 			);
 		},
 	});
-	const ai = {
-		current: fromAi(openAi([tutorEndpoint])),
-		ready: Promise.resolve(),
-	};
+	const ai = fromAi(openAi([tutorEndpoint]));
 	const choices = sessionDouble<ChatOptions['choices']>({
 		get: () => ({ endpoint: 'tutor', model: 'test-model' }),
-		set: () => {},
-		onChange: () => () => {},
+		set: async () => {},
+		subscribe: () => () => {},
 	});
 	const chat = createVocabChat({
-		messages: folder.lists.messages,
+		messages: folder.messages,
 		chatId,
 		focus: [{ text: 'lucid' }],
 		ai,

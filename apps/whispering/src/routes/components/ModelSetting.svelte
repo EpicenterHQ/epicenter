@@ -28,8 +28,8 @@
 		},
 	} as const;
 
-	function select(next: ModelChoice) {
-		const problem = whispering.choose(operation, next);
+	async function select(next: ModelChoice) {
+		const problem = await whispering.choose(operation, next);
 		if (problem) toast.error(`Could not choose the ${operation} model`, { description: problem });
 	}
 </script>
@@ -39,12 +39,10 @@
 		<p class="font-medium">{copy[operation].title}</p>
 		<ModelPicker
 			ai={whispering.ai}
-			connections={whispering.connections}
+			can={CAN[operation]}
 			value={choice}
 			onSelect={select}
-			can={CAN[operation]}
 			placeholder="Choose a model"
-			problem={whispering.connectionsProblem ?? null}
 		/>
 	</div>
 	<p class="text-xs text-muted-foreground" data-testid="model-{operation}-status">

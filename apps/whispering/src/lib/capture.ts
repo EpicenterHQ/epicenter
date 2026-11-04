@@ -68,13 +68,11 @@ export type CaptureDevice = {
 	 * Repair the audio of recordings a quit, a crash, or a closed tab cut
 	 * off, and answer each recording whose audio is whole at its path and
 	 * may have no note (`whole`), by id, with how long it plays (null: read
-	 * it to measure). `unnamed` is the audio at its path no note names. In a
-	 * browser that is the only place a cut-off recording can be, and one
-	 * another tab is still writing is left out; on the desktop a cut-off
-	 * recording waits outside its path, so it is always looked for, and audio
-	 * reaches its path only whole. On the desktop it also answers each
-	 * recording kept outside its path because another file is there
-	 * (`unplaced`), which no note can name.
+	 * it to measure). `unnamed` is the audio at its path no note names, by
+	 * store-relative path (`recordings/<id>.<ext>`); one another tab is still
+	 * writing is left out. It also answers each recording kept outside its
+	 * path because another file is there (`unplaced`), which no note can
+	 * name. Where a cut-off recording waits is the recorder's to know.
 	 */
 	recover(
 		unnamed: readonly string[],

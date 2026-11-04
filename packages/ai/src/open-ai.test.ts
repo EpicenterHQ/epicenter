@@ -5,10 +5,12 @@
  * endpoint it names.
  */
 import { expect, test } from 'bun:test';
-import type { Account } from '@epicenter/account';
+import type { Account, AuthState } from '@epicenter/account';
+import { createAiConnections } from './ai-connections.js';
 import { custom } from './custom.js';
+import { customEndpointsOf } from './custom-endpoints.js';
 import { type Endpoint, openAiCompatible } from './endpoint.js';
-import { hosted } from './hosted.js';
+import { hosted, type LiveAccount } from './hosted.js';
 import { openAi } from './open-ai.js';
 
 function recordingFetch() {
@@ -65,45 +67,83 @@ test('a custom endpoint guesses what each listed id can do', () => {
 	]);
 });
 
+/** A live sign-in that a test signs in and out, as the account's client does. */
 function fakeAccount() {
-	const lifetime = new AbortController();
 	const { calls, fetch } = recordingFetch();
-	const account = {
+	const listeners = new Set<() => void>();
+	let state: AuthState = { status: 'signed-out' };
+	let lifetime = new AbortController();
+	const publish = (next: AuthState) => {
+		state = next;
+		for (const listener of listeners) listener();
+	};
+	const account: LiveAccount = {
 		baseURL: 'https://api.epicenter.test/',
-		signal: lifetime.signal,
-		fetch,
-	} as unknown as Account;
-	return { account, calls, retire: () => lifetime.abort() };
+		getState: () => state,
+		subscribe(listener) {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+	};
+	return {
+		account,
+		calls,
+		signIn() {
+			lifetime = new AbortController();
+			publish({
+				status: 'signed-in',
+				account: {
+					baseURL: 'https://api.epicenter.test/',
+					signal: lifetime.signal,
+					fetch,
+				} as unknown as Account,
+			});
+		},
+		signOut() {
+			lifetime.abort();
+			publish({ status: 'signed-out' });
+		},
+	};
 }
 
-test('hosted lists the hosted catalog at the account origin, and none once retired', async () => {
-	const { account, calls, retire } = fakeAccount();
-	const endpoint = hosted(account, { models: ['gpt-5.5', 'whisper-1'] });
-	expect(endpoint.models()).toEqual([
-		{ id: 'gpt-5.5', can: ['chat'], label: 'Best' },
-		{ id: 'whisper-1', can: ['transcribe'] },
-	]);
-	await endpoint.fetch('audio/transcriptions');
-	expect(calls[0]?.url).toBe(
-		'https://api.epicenter.test/v1/audio/transcriptions',
-	);
-
+test('hosted follows sign-in and sign-out, listing the catalog at the account origin only while signed in', async () => {
+	const live = fakeAccount();
+	const endpoint = hosted(live.account, { models: ['gpt-5.5', 'whisper-1'] });
 	let told = 0;
 	endpoint.subscribe?.(() => told++);
-	retire();
-	expect(told).toBe(1);
 	expect(endpoint.models()).toEqual([]);
-});
-
-test('hosted while signed out lists nothing and refuses requests as SignedOut', async () => {
-	const endpoint = hosted(undefined);
-	expect(endpoint.models()).toEqual([]);
-	expect(endpoint.baseUrl).toBeUndefined();
 	const refusal = await endpoint
 		.fetch('chat/completions')
 		.catch((cause) => cause);
 	expect(refusal.name).toBe('SignedOut');
 	expect(refusal.message).toContain('Sign in');
+
+	live.signIn();
+	expect(told).toBe(1);
+	expect(endpoint.models()).toEqual([
+		{ id: 'gpt-5.5', can: ['chat'], label: 'Best' },
+		{ id: 'whisper-1', can: ['transcribe'] },
+	]);
+	await endpoint.fetch('audio/transcriptions');
+	expect(live.calls[0]?.url).toBe(
+		'https://api.epicenter.test/v1/audio/transcriptions',
+	);
+
+	live.signOut();
+	expect(told).toBe(2);
+	expect(endpoint.models()).toEqual([]);
+});
+
+test('hosted keeps one id and base URL across sign-in, so a request prepared signed out still names it', () => {
+	const live = fakeAccount();
+	const endpoint = hosted(live.account);
+	const before = { id: endpoint.id, baseUrl: endpoint.baseUrl };
+	live.signIn();
+	expect({ id: endpoint.id, baseUrl: endpoint.baseUrl }).toEqual(before);
+	expect(before).toEqual({
+		id: 'hosted',
+		baseUrl: 'https://api.epicenter.test/v1',
+	});
 });
 
 test('an HTTP endpoint names its base URL, and a refusal never repeats its key', async () => {
@@ -148,11 +188,17 @@ function probing(id: string, source: Endpoint['source']) {
 	};
 }
 
+function signedIn() {
+	const live = fakeAccount();
+	live.signIn();
+	return live.account;
+}
+
 test('openAi lists models in the array order, skipping null and flattening groups', () => {
 	const local = probing('ollama', 'local');
 	const ai = openAi([
 		[local.endpoint, null],
-		hosted(fakeAccount().account, { models: ['gpt-5.5'] }),
+		hosted(signedIn(), { models: ['gpt-5.5'] }),
 		null,
 		custom({ id: 'key', baseUrl: 'https://x.test/v1', models: ['m'] }),
 	]);
@@ -243,4 +289,86 @@ test('openAiCompatible takes its models as a live answer', () => {
 	});
 	models = [];
 	expect(endpoint.models()).toEqual([]);
+});
+
+/** Connections over memory, as a device's storage holds them. */
+function memoryConnections(fetch = recordingFetch().fetch) {
+	const values = new Map<string, string>();
+	return createAiConnections({
+		storage: {
+			getItem: (key) => values.get(key) ?? null,
+			setItem: (key, value) => void values.set(key, value),
+		},
+		storageKey: 'test',
+		fetch,
+	});
+}
+
+test('a live entry is read at every use: a connection added reaches the merge it is in, and nested merges', async () => {
+	const store = memoryConnections();
+	const connections = customEndpointsOf(async () => store);
+	const ai = openAi([
+		openAi([connections]),
+		probing('ollama', 'local').endpoint,
+	]);
+	await connections.ready;
+	expect(ai.endpoints().map(({ id }) => id)).toEqual(['ollama']);
+	expect(ai.custom()).toBe(connections);
+
+	let told = 0;
+	const stop = ai.subscribe(() => told++);
+	const id = await connections.add({
+		name: 'Mine',
+		baseUrl: 'https://x.test/v1',
+		models: ['m'],
+	});
+	expect(told).toBeGreaterThan(0);
+	expect(ai.endpoints().map((endpoint) => endpoint.id)).toEqual([id, 'ollama']);
+	expect(ai.models().map(({ endpoint, id }) => `${endpoint}/${id}`)).toEqual([
+		`${id}/m`,
+	]);
+	stop();
+});
+
+test('an endpoint a live entry adds is subscribed to as it arrives, and one it drops is let go', async () => {
+	const first = probing('a', 'local');
+	const second = probing('b', 'local');
+	let current = [first.endpoint];
+	const listeners = new Set<() => void>();
+	const live = {
+		endpoints: () => current,
+		subscribe(listener: () => void) {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+	};
+	const ai = openAi([live]);
+	const stop = ai.subscribe(() => {});
+	expect(first.listeners.size).toBe(1);
+	current = [second.endpoint];
+	for (const listener of listeners) listener();
+	expect(first.listeners.size).toBe(0);
+	expect(second.listeners.size).toBe(1);
+	stop();
+	expect(second.listeners.size).toBe(0);
+	expect(listeners.size).toBe(0);
+});
+
+test('a live entry whose store cannot be opened lists nothing and says why, until it is read again', async () => {
+	let fail = true;
+	const connections = customEndpointsOf(async () => {
+		if (fail) throw new Error('The disk is gone.');
+		return memoryConnections();
+	});
+	await connections.ready;
+	expect(connections.problem()).toBe('The disk is gone.');
+	expect(connections.endpoints()).toEqual([]);
+	await expect(
+		connections.add({ baseUrl: 'https://x.test/v1' }),
+	).rejects.toThrow('could not be read');
+	fail = false;
+	await connections.reopen();
+	expect(connections.problem()).toBeNull();
+	await connections.add({ baseUrl: 'https://x.test/v1' });
+	expect(connections.endpoints()).toHaveLength(1);
 });

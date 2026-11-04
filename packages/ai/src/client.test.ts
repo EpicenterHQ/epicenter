@@ -215,7 +215,10 @@ test('transcribe posts multipart form data and reads the text', async () => {
 
 test('transcribe without text is Malformed', async () => {
 	const { client } = recording(() => Response.json({ nope: true }));
-	const { error } = await client.transcribe({ model: 'm', path: 'a.wav' });
+	const { error } = await client.transcribe({
+		model: 'm',
+		file: new Blob(['audio']),
+	});
 	expect(error?.name).toBe('Malformed');
 });
 

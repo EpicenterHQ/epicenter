@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for contract clients, text editing, agent conversations, and status.",
+	"description": "Svelte 5 bindings for contract clients, text editing and status, and the helper every capability's adapter is built on.",
 	"keywords": [
 		"svelte",
 		"local-first",
@@ -13,7 +13,6 @@
 		"reactive state"
 	],
 	"exports": {
-		".": "./src/index.ts",
 		"./client": "./src/client.svelte.ts",
 		"./leave-guard": "./src/leave-guard.ts",
 		"./note-repair": "./src/note-repair.svelte",
@@ -24,10 +23,10 @@
 		"./folder-sync": "./src/folder-sync.svelte.ts",
 		"./folder-sync-actions": "./src/folder-sync-actions.svelte",
 		"./desktop-startup": "./src/desktop-startup.svelte",
-		"./folder-onboarding": "./src/folder-onboarding.svelte"
+		"./folder-onboarding": "./src/folder-onboarding.svelte",
+		"./tracked": "./src/tracked.ts"
 	},
 	"dependencies": {
-		"@epicenter/ai": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/ui": "workspace:*",

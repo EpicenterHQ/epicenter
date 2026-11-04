@@ -6,15 +6,12 @@
 	them, so the root alone decides the store.
 -->
 <script lang="ts">
-	import { createBrowserModelChoices } from '@epicenter/ai/choices';
 	import { auth } from '#platform/auth';
 	import { Chrome } from '#platform/root';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
-	import { onDestroy } from 'svelte';
-	import { createVocabAi } from '$lib/ai.svelte.js';
 	import type { FocusItem } from '$lib/data.js';
 	import { createVocab, getChatList, getEntryList, getMessageList } from '$lib/vocab.svelte.js';
 	import ConversationView from './ConversationView.svelte';
@@ -24,13 +21,10 @@
 	const lists = { entries: getEntryList(), chats: getChatList(), messages: getMessageList() };
 	const { entries, chats, messages } = createVocab(lists);
 
-	// One account for this component's life: the root mounts every page anew
-	// for a new account (on the web, signing out unmounts it). The account
-	// adds the hosted models and dictation; the endpoints connected on this
+	// The account signed in now, followed as it changes: it adds the hosted
+	// models and dictation (`$lib/ai.js`). The endpoints connected on this
 	// device and the chosen model are its settings, not the learner's data.
-	const account = auth.state.status === 'signed-out' ? undefined : auth.state.account;
-	const ai = createVocabAi(account);
-	const choices = createBrowserModelChoices('vocab');
+	const account = $derived(auth.state.account);
 	/** Why the words or chats did not list, if they did not; the variant's `Chrome` says it. */
 	const listError = $derived(lists.entries.error ?? lists.chats.error);
 
@@ -78,10 +72,6 @@
 		historyOpen = false;
 		section = 'chat';
 	}
-	onDestroy(() => {
-		choices[Symbol.dispose]();
-		void ai.close().catch(() => {});
-	});
 
 </script>
 
@@ -136,7 +126,7 @@
 			{#if focusOpen && selectedChat}<div class="border-b p-3 md:hidden"><FocusWords focus={selectedChat.focus} {entries} /></div>{/if}
 			{#if !selectedChatId}<p class="m-auto text-center text-muted-foreground">Choose a chat from history.</p>{/if}
 			{#if selectedChatId && selectedChat}
-				{#key selectedChatId}<ConversationView chatId={selectedChatId} {account} {messages} {ai} {choices} {entries} focus={selectedChat.focus} visible={section === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
+				{#key selectedChatId}<ConversationView chatId={selectedChatId} {account} {messages} {entries} focus={selectedChat.focus} visible={section === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
 			{/if}
 		</div>
 		<aside class="hidden w-60 shrink-0 overflow-y-auto border-l p-3 md:block" aria-label="Focus words">

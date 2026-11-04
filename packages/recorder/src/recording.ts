@@ -156,6 +156,13 @@ export type Recovery = {
 export type RecoverRecordingsOptions = RecordingDevice & {
 	/** The store-relative directory recordings are kept in, such as `recordings`. */
 	readonly under: string;
+	/**
+	 * The audio files under `under` that the app keeps no record of yet, by
+	 * store-relative path (`recordings/a.webm`): the only place a browser's
+	 * cut-off recording can be, and on the desktop audio a page left before
+	 * writing its note.
+	 */
+	readonly unnamed: readonly string[];
 };
 
 /** A microphone open for its level only: nothing is recorded or written. */
@@ -194,15 +201,17 @@ export type Recorder = {
 	) => Promise<Result<Recording, RecorderError>>;
 	/**
 	 * Repair the recordings under a directory that a quit, a crash, or a
-	 * closed tab cut off, leaving any recording still being written alone.
-	 * Answers `recovered`, with how long each plays so nobody reads the audio
-	 * back to measure it: on the desktop each recording it repaired and moved
-	 * to its path (a second run answers none), and in a browser every
-	 * recording no tab is writing, repaired or already whole, since a
-	 * recording at its path is otherwise indistinguishable from one another
-	 * tab is still writing. On the desktop it also answers `unplaced`, every
-	 * time it runs, each recording it left outside its path because another
-	 * file is there, which an app says to the person.
+	 * closed tab cut off, leaving any recording still being written alone,
+	 * and answer in `recovered` each recording the app should now record:
+	 * every one it finished and placed, and every one of `unnamed` whose
+	 * audio is whole at its path, with how long it plays when it read that
+	 * (null when it did not). How a build tells a whole recording from a cut
+	 * one is its own: the desktop shell records outside the path and places
+	 * a recording there only whole, so it always looks for cut-off ones;
+	 * a browser writes at the path as it records, so it looks only among
+	 * `unnamed`, past any another tab is still writing. It also answers
+	 * `unplaced`, every time it runs, each recording it left outside its
+	 * path because another file is there, which an app says to the person.
 	 */
 	readonly recover: (
 		options: RecoverRecordingsOptions,
@@ -231,14 +240,6 @@ export type Recorder = {
 	 * so listing again is always offered.
 	 */
 	readonly onInputsChange?: (listener: () => void) => () => void;
-	/**
-	 * Whether a recording reaches its path only whole, once it stops: true on
-	 * the desktop, whose shell records outside the path and places it there,
-	 * so audio at a path is finished and a cut-off one is found only by
-	 * `recover`; false in a browser, which writes at the path as it records,
-	 * where another tab may still be writing.
-	 */
-	readonly placesWhole: boolean;
 };
 
 export const RecorderError = defineErrors({

@@ -5226,7 +5226,6 @@ version = "0.0.1"
 dependencies = [
  "audiopus",
  "base64 0.22.1",
- "epicenter-folder-core",
  "hf-hub",
  "hound",
  "libc",
@@ -5241,7 +5240,6 @@ dependencies = [
  "symphonia",
  "tauri",
  "tauri-plugin",
- "tauri-plugin-epicenter-folder",
  "tauri-plugin-opener",
  "tauri-specta",
  "tempfile",

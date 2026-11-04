@@ -1,4 +1,3 @@
-import type { AgentMessage } from '@epicenter/ai/agent';
 import type { ServableModel } from '@epicenter/ai/providers';
 import type { NoteOf } from '@epicenter/definition/contract';
 import type { Vocab } from './contract.js';
@@ -10,10 +9,13 @@ import type { Vocab } from './contract.js';
  */
 
 /**
- * The initial model for this device's tutor workflow. The learner may choose
- * another model through the inference picker; messages do not store that choice.
+ * The tutor's model on a device until the learner chooses another (the job
+ * `'chat'` in `choices`, `ai.ts`); messages do not store that choice.
  */
 export const VOCAB_MODEL = 'gemini-3.5-flash' satisfies ServableModel;
+
+/** The tutor's model when the learner has chosen none: Epicenter's, once signed in. */
+export const HOSTED_TUTOR = { endpoint: 'hosted', model: VOCAB_MODEL };
 
 /**
  * The English vocabulary tutor's system prompt. Messages remain plain text
@@ -49,7 +51,6 @@ export const STAGE_LABELS: Record<Stage, string> = {
 /** A note of each of Vocab's collections, as read. */
 export type EntryNote = NoteOf<Vocab['collections']['entries']>;
 export type ChatNote = NoteOf<Vocab['collections']['chats']>;
-export type MessageNote = NoteOf<Vocab['collections']['messages']>;
 
 /**
  * One saved word. `id` is its file's name, the SHA-256 of `text`; `note` is
@@ -99,11 +100,4 @@ export function readChat(note: ChatNote): Chat {
 		createdAt,
 		focus: focus.map(({ entryId, text }) => ({ entryId, text })),
 	};
-}
-
-/** A finished message as the tutor loop holds it: a plain copy, its own. */
-export function readMessage(note: MessageNote): AgentMessage {
-	const { id, role, createdAt, parts } = note;
-	// SAFETY: the contract's parts are the agent's parts, as JSON.
-	return structuredClone({ id, role, createdAt, parts }) as AgentMessage;
 }

@@ -5268,7 +5268,7 @@ name = "tauri-plugin-epicenter-transcription"
 version = "0.0.1"
 dependencies = [
  "audiopus",
- "epicenter-folder-core",
+ "base64 0.22.1",
  "hf-hub",
  "libc",
  "log",
@@ -5281,7 +5281,6 @@ dependencies = [
  "symphonia",
  "tauri",
  "tauri-plugin",
- "tauri-plugin-epicenter-folder",
  "tauri-plugin-opener",
  "tauri-specta",
  "tempfile",

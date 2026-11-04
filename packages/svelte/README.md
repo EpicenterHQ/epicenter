@@ -5,6 +5,23 @@ through `fromClient` (`@epicenter/svelte/client`). The component that shows
 a note owns one editor of it (`notes.edit({ id })`), which shows what the
 person typed until its save answers.
 
+## One helper under every adapter
+
+Every capability reads through explicit methods and notifies through one
+`subscribe(listener)` that returns the unsubscribe (ADR-0765). Its Svelte
+adapter turns the reads into getters with `trackReads` from
+`@epicenter/svelte/tracked`, which subscribes through `createSubscriber` only
+while something reads in a tracking context:
+
+```ts
+export const fromAi = (ai: Ai) =>
+	trackReads(ai.subscribe, { models: ai.models }, { chat: ai.chat });
+```
+
+`fromAuth`, `fromAi` and `fromClient` are built on it; `fromClient`, which
+lists a collection while it is read, passes that work as its subscribe to
+`createTracker`. There is no generic `from(x)`: each adapter names its reads.
+
 ## A contract's client
 
 `fromClient(client)` takes any `Client<T>` (`openDevice` or `openRemote`) and
@@ -157,5 +174,6 @@ on `todo.error` and is also returned to stop the action. After teardown,
 
 **Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through the client's writes like any editor. Agents may write files directly; their changes reach editors through the client's listeners.
 
-The package also exports agent conversation bindings and status display
-helpers. Those are independent of file editing.
+The package also exports status display helpers, independent of file
+editing. A conversation's adapter is `fromConversation` in
+`@epicenter/ai/svelte`, on the same `trackReads`.

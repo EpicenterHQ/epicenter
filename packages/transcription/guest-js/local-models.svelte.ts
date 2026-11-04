@@ -1,24 +1,40 @@
-/** Per-mount model administration. Rust owns downloads; the page owns activation intent. */
-import { Channel } from '@tauri-apps/api/core';
+/**
+ * Per-mount model administration over a `localSpeech()` handle: the catalog
+ * with each model's download state, downloads with progress, removal, and
+ * the unload policy. Rust owns downloads; the handle reaches them. Which
+ * model the app uses is its own choice (`LocalModelChoice`), never state of
+ * this page's: Whispering's is its transcription model choice; an app whose
+ * shell transcribes by itself keeps the shell's active model
+ * (`createNativeChoice`).
+ */
 import { SvelteMap } from 'svelte/reactivity';
 import {
 	commands as bindings,
 	type CatalogError,
-	type DownloadProgress,
 	type ModelInfo,
 	type UnloadPolicy,
 } from './bindings.gen.js';
+import type { LocalSpeech } from './local-speech.js';
 
-export type LocalModelCommands = Pick<
-	typeof bindings,
-	| 'listModels'
-	| 'getActiveModel'
-	| 'getUnloadPolicy'
-	| 'setActiveModel'
+/** What administration does through the handle. */
+export type LocalModelHandle = Pick<
+	LocalSpeech,
+	| 'catalog'
+	| 'download'
+	| 'remove'
+	| 'reveal'
+	| 'unloadPolicy'
 	| 'setUnloadPolicy'
-	| 'downloadModel'
-	| 'revealModel'
 >;
+
+/**
+ * Which local model the app uses: the id chosen now (read where it tracks),
+ * and the way to choose another, which answers why it could not.
+ */
+export type LocalModelChoice = {
+	chosen(): string | null;
+	choose(modelId: string): Promise<string | undefined>;
+};
 
 export type ModelTransferState =
 	| { type: 'not-downloaded' }
@@ -39,10 +55,45 @@ function downloadFailure(error: CatalogError): string {
 const message = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
 
-export function createLocalModels(commands: LocalModelCommands = bindings) {
+/**
+ * The model the app's shell transcribes with by itself (its active model,
+ * kept in the shell's settings), as a choice: for an app with no model
+ * choices of its own, such as the Epicenter app's dictation.
+ */
+export function createNativeChoice(
+	commands: Pick<
+		typeof bindings,
+		'getActiveModel' | 'setActiveModel'
+	> = bindings,
+): LocalModelChoice {
+	let chosen = $state.raw<string | null>(null);
+	const read = async () => {
+		chosen = (await commands.getActiveModel())?.id ?? null;
+	};
+	void read().catch(() => {});
+	return {
+		chosen: () => chosen,
+		async choose(modelId) {
+			try {
+				const { error } = await commands.setActiveModel(modelId);
+				if (error !== null) return error.message;
+				await read();
+				return undefined;
+			} catch (cause) {
+				return message(cause);
+			}
+		},
+	};
+}
+
+export function createLocalModels({
+	speech,
+	choice,
+}: {
+	speech: LocalModelHandle;
+	choice: LocalModelChoice;
+}) {
 	let models = $state.raw<ModelInfo[] | null>(null);
-	let active =
-		$state.raw<Awaited<ReturnType<LocalModelCommands['getActiveModel']>>>(null);
 	let unloadPolicy = $state.raw<UnloadPolicy>('after_5_minutes');
 	let error = $state.raw<string | null>(null);
 	let disposed = false;
@@ -53,14 +104,12 @@ export function createLocalModels(commands: LocalModelCommands = bindings) {
 		if (disposed) return;
 		const revision = ++readRevision;
 		try {
-			const [scanned, activeModel, policy] = await Promise.all([
-				commands.listModels(),
-				commands.getActiveModel(),
-				commands.getUnloadPolicy(),
+			const [scanned, policy] = await Promise.all([
+				speech.catalog(),
+				speech.unloadPolicy(),
 			]);
 			if (!disposed && revision === readRevision) {
 				models = scanned;
-				active = activeModel;
 				unloadPolicy = policy;
 			}
 			return scanned;
@@ -69,16 +118,10 @@ export function createLocalModels(commands: LocalModelCommands = bindings) {
 		}
 	}
 
-	async function activate(model: ModelInfo) {
+	async function use(model: ModelInfo) {
 		if (disposed) return;
-		try {
-			const { error: failure } = await commands.setActiveModel(model.id);
-			if (disposed) return;
-			error = failure?.message ?? null;
-			if (failure === null) await refresh();
-		} catch (cause) {
-			if (!disposed) error = message(cause);
-		}
+		const problem = await choice.choose(model.id);
+		if (!disposed) error = problem ?? null;
 	}
 
 	async function download(model: ModelInfo, useAfterDownload = false) {
@@ -93,25 +136,21 @@ export function createLocalModels(commands: LocalModelCommands = bindings) {
 				(candidate) => candidate.id === model.id && candidate.downloaded,
 			);
 			if (!installed) {
-				const channel = new Channel<DownloadProgress>();
-				channel.onmessage = ({ bytesReceived, totalBytes }) => {
-					if (!alive() || !totalBytes || totalBytes <= 0) return;
-					transfer.progress = Math.min(
-						100,
-						Math.round(((bytesReceived ?? 0) / totalBytes) * 100),
-					);
-				};
-				const result = await commands.downloadModel(model.id, channel);
+				const result = await speech.download(model.id, {
+					onProgress({ bytesReceived, totalBytes }) {
+						if (!alive() || !totalBytes || totalBytes <= 0) return;
+						transfer.progress = Math.min(
+							100,
+							Math.round(((bytesReceived ?? 0) / totalBytes) * 100),
+						);
+					},
+				});
 				if (!alive()) {
-					if (result.error === null && !disposed) {
-						await refresh();
-						if (!alive()) return;
-					}
+					if (result.error === null && !disposed) await refresh();
 					return;
 				}
 				if (result.error !== null) {
 					error = downloadFailure(result.error);
-
 					return;
 				}
 				const downloaded = await refresh();
@@ -123,12 +162,27 @@ export function createLocalModels(commands: LocalModelCommands = bindings) {
 			}
 			if (!alive() || !installed) return;
 			error = null;
-			// No await separates the final interest check from activation submission.
-			if (useAfterDownload) await activate(model);
+			// No await separates the final interest check from the choice.
+			if (useAfterDownload) await use(model);
 		} catch (cause) {
 			if (alive()) error = message(cause);
 		} finally {
 			if (transfers.get(model.id) === transfer) transfers.delete(model.id);
+		}
+	}
+
+	/** Run a native action that answers a Result, then read the catalog again. */
+	async function act(
+		run: () => Promise<{ error: { message: string } | null }>,
+	) {
+		if (disposed) return;
+		try {
+			const { error: failure } = await run();
+			if (disposed) return;
+			error = failure?.message ?? null;
+			await refresh();
+		} catch (cause) {
+			if (!disposed) error = message(cause);
 		}
 	}
 
@@ -139,8 +193,16 @@ export function createLocalModels(commands: LocalModelCommands = bindings) {
 		get loaded() {
 			return models !== null;
 		},
-		get active() {
-			return active;
+		/** The model the app uses now, from its own choice; null when it uses none of these. */
+		get chosen() {
+			const id = choice.chosen();
+			return id === null
+				? null
+				: (models?.find((model) => model.id === id) ?? null);
+		},
+		/** The id the app chose, even when it is not in the catalog or not downloaded. */
+		get chosenId() {
+			return choice.chosen();
 		},
 		get unloadPolicy() {
 			return unloadPolicy;
@@ -149,9 +211,15 @@ export function createLocalModels(commands: LocalModelCommands = bindings) {
 			return error;
 		},
 		refresh,
-		activate,
+		use,
 		download: (model: ModelInfo) => download(model),
-		downloadAndActivate: (model: ModelInfo) => download(model, true),
+		downloadAndUse: (model: ModelInfo) => download(model, true),
+		/**
+		 * Delete the model's file from the shared Hugging Face cache, which
+		 * other apps and tools may use; one that used it downloads it again.
+		 */
+		remove: (model: ModelInfo) => act(() => speech.remove(model.id)),
+		reveal: (model: ModelInfo) => act(() => speech.reveal(model.id)),
 		stop(model: ModelInfo) {
 			transfers.delete(model.id);
 		},
@@ -161,28 +229,8 @@ export function createLocalModels(commands: LocalModelCommands = bindings) {
 			if (model.downloaded) return { type: 'ready' };
 			return { type: 'not-downloaded' };
 		},
-		async setUnloadPolicy(policy: UnloadPolicy) {
-			if (disposed) return;
-			try {
-				const { error: failure } = await commands.setUnloadPolicy(policy);
-				if (disposed) return;
-				error = failure?.message ?? null;
-				if (failure === null) await refresh();
-			} catch (cause) {
-				if (!disposed) error = message(cause);
-			}
-		},
-		async reveal(model: ModelInfo) {
-			if (disposed) return;
-			try {
-				const { error: failure } = await commands.revealModel(model.id);
-				if (disposed) return;
-				error = failure?.message ?? null;
-				if (failure !== null) await refresh();
-			} catch (cause) {
-				if (!disposed) error = message(cause);
-			}
-		},
+		setUnloadPolicy: (policy: UnloadPolicy) =>
+			act(() => speech.setUnloadPolicy(policy)),
 		dispose() {
 			disposed = true;
 			transfers.clear();

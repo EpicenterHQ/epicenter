@@ -14,6 +14,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@epicenter/svelte": "workspace:*",
 		"@tauri-apps/api": "catalog:",
 		"arktype": "catalog:",
 		"wellcrafted": "catalog:"

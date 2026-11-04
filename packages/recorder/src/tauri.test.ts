@@ -105,7 +105,9 @@ test('a command that throws instead of answering is a failure, not a refusal', a
 	expect(expectErr(await recorder.openMeter())).toMatchObject(failed);
 	expect(expectErr(await recorder.listInputs())).toMatchObject(failed);
 	expect(
-		expectErr(await recorder.recover({ device, under: 'recordings' })),
+		expectErr(
+			await recorder.recover({ device, under: 'recordings', unnamed: [] }),
+		),
 	).toMatchObject(failed);
 });
 
@@ -175,7 +177,7 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 	expect(calls[1]?.args.id).toBe('7');
 });
 
-test('recover names the directory in Data and answers what it repaired', async () => {
+test('recover names the directory in Data and answers what it repaired, then each unnamed recording, whole at its path', async () => {
 	const recovery = {
 		recovered: [
 			{ path: 'recordings/a.webm', durationMs: 1250 },
@@ -190,8 +192,20 @@ test('recover names the directory in Data and answers what it repaired', async (
 	};
 	answer = () => recovery;
 	expect(
-		expectOk(await recorder.recover({ device, under: 'recordings' })),
-	).toEqual(recovery);
+		expectOk(
+			await recorder.recover({
+				device,
+				under: 'recordings',
+				unnamed: ['recordings/a.webm', 'recordings/left.webm'],
+			}),
+		),
+	).toEqual({
+		recovered: [
+			...recovery.recovered,
+			{ path: 'recordings/left.webm', durationMs: null },
+		],
+		unplaced: recovery.unplaced,
+	});
 	expect(calls).toEqual([
 		{
 			cmd: 'plugin:epicenter-recorder|recover',
@@ -205,7 +219,9 @@ test('a reply that is none of the shell’s refusals is a failure, not an answer
 		throw 'no such command plugin:epicenter-recorder|recover';
 	};
 	expect(
-		expectErr(await recorder.recover({ device, under: 'recordings' })),
+		expectErr(
+			await recorder.recover({ device, under: 'recordings', unnamed: [] }),
+		),
 	).toMatchObject({
 		name: 'Failed',
 		cause: 'no such command plugin:epicenter-recorder|recover',

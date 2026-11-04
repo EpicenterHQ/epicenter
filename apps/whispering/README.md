@@ -178,8 +178,8 @@ connection you saved (a provider's base URL and an optional key), Ollama and
 LM Studio when they run on this computer, and on the desktop transcription
 in the app itself. The same picker adds, edits and removes a connection.
 Choices and connections stay on this device, never in Whispering's files:
-in this site's `localStorage`, or on the desktop AppData's `connections.md`
-with each key in the credential store.
+in this site's `localStorage`, or on the desktop AppData's `models.md` and
+`connections.md`, with each key in the credential store.
 
 - Nothing is sent until you press Transcribe or Run. Choosing a model sends
   nothing; adding a connection may ask its endpoint which models it serves.
@@ -252,7 +252,8 @@ bun build:whispering:desktop   # a local, unsigned macOS app bundle
 Its Tauri shell derives `~/Epicenter/whispering` and names it the Data root, or
 `~/Epicenter Dev/whispering` in development. The page opens this folder,
 making it when missing for now. Whispering opens its AppData root for shortcut
-overrides and the connected endpoints. A failed open shows the shared recovery screen with Retry. The
+overrides; the connected endpoints there are `@epicenter/ai`'s
+(`customEndpoints()`). A failed open shows the shared recovery screen with Retry. The
 status details and Settings show the shell's folder path. **Set up in
 Epicenter** enrolls the folder for local history; connecting a repository
 there enables transfer. Whispering never syncs it itself.
@@ -293,7 +294,8 @@ whose desktop leaf went missing.
   Settings), which takes the recording's audio as an upload.
 - **Connections** are AppData's `connections.md`, with no key in it, and
   **keys** are credential-store entries, one per connection
-  (`createKeychainConnections` from `@epicenter/ai/tauri`). A debug build
+  (`customEndpoints()` from `@epicenter/ai`, whose desktop build keeps them
+  through `createKeychainConnections` from `@epicenter/ai/tauri`). A debug build
   started with `EPICENTER_SECRETS_FILE=<path>` keeps the keys in that file
   instead.
 - **Sign-in** is `so.epicenter.whispering.native` through the shared

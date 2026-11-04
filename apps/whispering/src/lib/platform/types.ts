@@ -8,15 +8,13 @@
  *   few components that speak of it.
  * - `#platform/variant` (`Variant`): which build this is, where only a
  *   sentence differs.
- * - `#platform/services` (`CreateServices`): capture, the endpoints models
- *   are reached at, and preferences, which own no files.
+ * - `#platform/services` (`CreateServices`): capture, the models this build
+ *   reaches (`ai`), and preferences, which own no files.
  * - `#platform/auth` (`PlatformAuth`): the optional sign-in with Epicenter.
  */
 import type { AuthClient } from '@epicenter/account';
 import type { ReactiveAuthClient } from '@epicenter/account/svelte';
-import type { Endpoint } from '@epicenter/ai';
-import type { ModelChoices } from '@epicenter/ai/choices';
-import type { AiConnections } from '@epicenter/ai/connections';
+import type { Ai, ModelChoices } from '@epicenter/ai';
 import type { Client } from '@epicenter/definition/contract';
 import type { ReactiveClient } from '@epicenter/svelte/client';
 import type { Component, Snippet } from 'svelte';
@@ -67,40 +65,29 @@ export type WhisperingServices = {
 	 * are constructed.
 	 */
 	readonly capture: CaptureDevice;
-	/** Where this build's models are, besides the person's saved connections. */
-	readonly endpoints: WhisperingEndpoints;
+	/**
+	 * Every model this build reaches (ADR-0757), made once for the page, in
+	 * the order the model picker lists them: Epicenter's hosted models through
+	 * the account signed in now, the person's connected endpoints
+	 * (`customEndpoints()`), then what runs on this computer. Every entry is
+	 * live, so sign-in and a connection added reach it without a new one.
+	 * Nothing here sends a request until the person asks, and a probe of this
+	 * computer runs only while a picker shows.
+	 */
+	readonly ai: Ai;
+	/**
+	 * This device's model choice for each job, `'transcribe'` and `'chat'`
+	 * (`modelChoices()`): this site's storage on the web, AppData's
+	 * `models.md` beside the connections on the desktop.
+	 */
+	readonly choices: ModelChoices<'transcribe' | 'chat'>;
+	/** Where a connection's key is kept, and where its requests leave from, in the person's words. */
+	readonly connectionsNote: string;
 	/**
 	 * What this device remembers that is neither a file nor a secret. It is
 	 * never written to Whispering's files, so it does not travel with them.
 	 */
 	readonly preferences: MicrophonePreferences;
-};
-
-/**
- * The endpoints this build merges (ADR-0757), in the order the model picker
- * lists them: Epicenter's hosted models, the person's saved connections,
- * then what runs on this computer. Nothing here sends a request until the
- * person asks, and a probe of this computer runs only while a picker shows.
- */
-export type WhisperingEndpoints = {
-	/**
-	 * Epicenter's hosted models through the account signed in now. Read again,
-	 * it follows sign-in and sign-out; read in Svelte, it tracks them.
-	 */
-	hosted(): Endpoint;
-	/** Ollama and LM Studio, and on the desktop transcription in this app (`localSpeech`). */
-	readonly local: readonly Endpoint[];
-	/**
-	 * Open the person's saved connections, each a provider's base URL and its
-	 * key: this site's storage on the web, AppData's `connections.md` with each
-	 * key in the credential store on the desktop. Rejects when they cannot be
-	 * opened.
-	 */
-	openConnections(): Promise<AiConnections>;
-	/** Open this device's model choice for transcription and for text, kept beside the microphone's. */
-	openChoices(): ModelChoices;
-	/** Where a saved connection's key is kept, and where its requests leave from. */
-	readonly note: string;
 };
 
 /**

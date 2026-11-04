@@ -63,12 +63,12 @@ export function createCookieSessionAuth({
 	let attachment: { account: Account; lifetime: AbortController } | null = null;
 	let state: AuthState = { status: 'signed-out' };
 	let disposed = false;
-	const listeners = new Set<(state: AuthState) => void>();
+	const listeners = new Set<() => void>();
 
 	function publish(next: AuthState) {
 		if (next.status === state.status && next.account === state.account) return;
 		state = next;
-		for (const listener of listeners) listener(state);
+		for (const listener of listeners) listener();
 	}
 
 	/** Retire the current Account, then publish the next one or none. */
@@ -164,10 +164,10 @@ export function createCookieSessionAuth({
 	const auth = {
 		baseURL: origin,
 		getState: () => state,
-		onStateChange(fn: (state: AuthState) => void) {
-			listeners.add(fn);
+		subscribe(listener: () => void) {
+			listeners.add(listener);
 			return () => {
-				listeners.delete(fn);
+				listeners.delete(listener);
 			};
 		},
 		/** Leave for this server's sign-in page, which returns to `returnPath`. */

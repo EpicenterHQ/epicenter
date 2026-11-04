@@ -1,10 +1,11 @@
 /**
  * A chat's messages and the chat list, over one client's
- * `messages/{chat}/{id}.md` and `chats/{id}.md` notes.
+ * `messages/{chat}/{id}.md` and `chats/{id}.md` notes: each tutor
+ * conversation (`createConversation` over the client's messages) lists and
+ * writes its own.
  *
  * Key behaviors:
- * - A message is one note named by its own id: saving it again changes
- *   nothing, and another message at that id is refused
+ * - A message is one note named by its own id, in its chat
  * - Text and tool parts read back whole; each chat reads only its own
  * - Chats list newest first; a refused focus writes nothing
  * - Notes that do not read are reported, never hidden among valid ones
@@ -12,32 +13,40 @@
  */
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import type { AgentMessage } from '@epicenter/ai/agent';
+import { openAi } from '@epicenter/ai';
+import { type AgentMessage, createConversation } from '@epicenter/ai/agent';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
-const { openVocabFolder, until } = await import('../vocab.test-support.js');
-const { createChatMessageStore } = await import('./messages.svelte.js');
+const { openVocabFolder, until, settle } = await import(
+	'../vocab.test-support.js'
+);
 const { createChats, startChat } = await import('./chats.js');
-const { flushSync } = await import('svelte');
 
-const message = (id: string, text: string, createdAt = 1): AgentMessage => ({
-	id,
-	role: 'user',
-	createdAt,
-	parts: [{ type: 'text', text }],
-});
+type Folder = Awaited<ReturnType<typeof openVocabFolder>>;
 
-test('a message is one note, and saving it again changes nothing', async () => {
+/** A conversation of chat `chat` that asks no model: a sent message is only saved. */
+function conversationOf(folder: Folder, chat: string) {
+	return createConversation({
+		messages: folder.messages,
+		chat,
+		ai: openAi([]),
+		model: () => null,
+	});
+}
+
+test('a sent message is one note in its chat, named by its own id', async () => {
 	await using folder = await openVocabFolder();
-	const store = createChatMessageStore(folder.lists.messages, 'chat-a');
-	const value = message('one', '你好 🌿');
-	expectOk(await store.set(value.id, value));
-	expect(await folder.text('messages/chat-a/one.md')).toBe(
-		'---\nrole: user\ncreatedAt: 1\nparts:\n  - text: "你好 🌿"\n    type: text\n---\n',
-	);
-	expect([...store.entries()]).toEqual([{ key: 'one', val: value }]);
-	expectOk(await store.set(value.id, value));
-	expect([...store.entries()]).toHaveLength(1);
+	const conversation = conversationOf(folder, 'chat-a');
+	expectOk(await conversation.send('你好 🌿'));
+	await settle(conversation);
+	const [path] = await folder.files('messages');
+	expect(path).toStartWith('messages/chat-a/');
+	const text = await folder.text(path!);
+	expect(text).toContain('role: user');
+	expect(text).toContain('- text: "你好 🌿"');
+	const [saved] = conversation.snapshot().messages;
+	expect(path).toBe(`messages/chat-a/${saved?.id}.md`);
+	conversation[Symbol.dispose]();
 });
 
 test('multiline Markdown and tool parts read back whole', async () => {
@@ -64,48 +73,50 @@ test('multiline Markdown and tool parts read back whole', async () => {
 			},
 		],
 	};
-	const store = createChatMessageStore(folder.lists.messages, 'chat-a');
-	expectOk(await store.set(value.id, value));
-	expect(folder.lists.messages.invalid).toEqual([]);
-	expect([...store.entries()][0]?.val).toEqual(value);
-});
-
-test('another message at a saved id is refused', async () => {
-	await using folder = await openVocabFolder();
-	const store = createChatMessageStore(folder.lists.messages, 'chat-a');
-	expectOk(await store.set('one', message('one', 'first')));
-	expect(expectErr(await store.set('one', message('one', 'other'))).name).toBe(
-		'WriteFailed',
-	);
-});
-
-test('each chat reads only its own messages, and a later store finds an earlier save', async () => {
-	await using folder = await openVocabFolder();
-	const first = createChatMessageStore(folder.lists.messages, 'chat-a');
-	const second = createChatMessageStore(folder.lists.messages, 'chat-b');
-	expectOk(await first.set('one', message('one', 'first chat')));
-	expectOk(await second.set('two', message('two', 'second chat')));
-	expect([...first.entries()].map(({ key }) => key)).toEqual(['one']);
-	expect([...second.entries()].map(({ key }) => key)).toEqual(['two']);
 	expectOk(
-		await createChatMessageStore(folder.lists.messages, 'chat-a').set(
-			'one',
-			message('one', 'first chat'),
-		),
+		await (await folder.other()).messages.create({
+			chat: 'chat-a',
+			...value,
+			body: '',
+		}),
 	);
+	const conversation = conversationOf(folder, 'chat-a');
+	await conversation.ready;
+	expect(conversation.snapshot().unreadable).toEqual([]);
+	expect(conversation.snapshot().messages).toEqual([value]);
+	conversation[Symbol.dispose]();
 });
 
-test('a refused save answers WriteFailed', async () => {
+test('each chat reads only its own messages', async () => {
+	await using folder = await openVocabFolder();
+	const first = conversationOf(folder, 'chat-a');
+	const second = conversationOf(folder, 'chat-b');
+	expectOk(await first.send('first chat'));
+	expectOk(await second.send('second chat'));
+	await until(
+		() =>
+			first.snapshot().messages.length === 1 &&
+			second.snapshot().messages.length === 1,
+	);
+	await Bun.sleep(20);
+	expect(first.snapshot().messages.map(({ parts }) => parts)).toEqual([
+		[{ type: 'text', text: 'first chat' }],
+	]);
+	expect(second.snapshot().messages.map(({ parts }) => parts)).toEqual([
+		[{ type: 'text', text: 'second chat' }],
+	]);
+	first[Symbol.dispose]();
+	second[Symbol.dispose]();
+});
+
+test('a refused save answers WriteFailed and keeps the message unsaved', async () => {
 	await using folder = await openVocabFolder();
 	folder.control.refuse = (collection) => collection === 'messages';
-	expect(
-		expectErr(
-			await createChatMessageStore(folder.lists.messages, 'chat-a').set(
-				'one',
-				message('one', 'x'),
-			),
-		).name,
-	).toBe('WriteFailed');
+	const conversation = conversationOf(folder, 'chat-a');
+	expect(expectErr(await conversation.send('x')).name).toBe('WriteFailed');
+	expect(conversation.snapshot().unsaved).toHaveLength(1);
+	expect(await folder.files('messages')).toEqual([]);
+	conversation[Symbol.dispose]();
 });
 
 test('chats list newest first, and a refused focus writes no chat', async () => {
@@ -132,12 +143,6 @@ test('chats list newest first, and a refused focus writes no chat', async () => 
 	expect(await folder.text(`chats/${older.id}.md`)).toBe(
 		`---\ncreatedAt: "${older.createdAt}"\nfocus:\n  - entryId: a\n    text: lucid\n---\n`,
 	);
-	expectOk(
-		await createChatMessageStore(folder.lists.messages, older.id).set(
-			'one',
-			message('one', 'hello'),
-		),
-	);
 	expect(chats.listing.chats.map(({ id, title }) => ({ id, title }))).toEqual([
 		{ id: newer.id, title: 'opaque' },
 		{ id: older.id, title: 'lucid' },
@@ -152,13 +157,15 @@ test('notes that do not read are reported with their path, never hiding valid on
 		'messages/chat-a/wrong-shape.md': '---\nrole: user\n---\n',
 		'messages/chat-b/other.md': 'not a note\n',
 	});
-	const store = createChatMessageStore(folder.lists.messages, 'chat-a');
-	expectOk(await store.set('one', message('one', 'saved')));
-	await until(() => folder.lists.messages.invalid.length === 2);
-	expect([...store.entries()].map(({ key }) => key)).toEqual(['one']);
-	expect(store.unreadable).toHaveLength(1);
-	expect(store.unreadable[0]?.path).toBe('messages/chat-a/wrong-shape.md');
-	expect(store.unreadable[0]?.reason.length).toBeGreaterThan(0);
+	const conversation = conversationOf(folder, 'chat-a');
+	expectOk(await conversation.send('saved'));
+	await settle(conversation);
+	expect(conversation.snapshot().messages).toHaveLength(1);
+	const { unreadable } = conversation.snapshot();
+	expect(unreadable).toHaveLength(1);
+	expect(unreadable[0]?.path).toBe('messages/chat-a/wrong-shape.md');
+	expect(unreadable[0]?.reason.length).toBeGreaterThan(0);
+	conversation[Symbol.dispose]();
 
 	const listing = createChats(folder.lists.chats).listing;
 	expect(listing.chats).toEqual([]);
@@ -168,13 +175,12 @@ test('notes that do not read are reported with their path, never hiding valid on
 	expect(await folder.text('chats/broken.md')).toBe(brokenChat);
 });
 
-test('observe hears a message another program saves', async () => {
+test('a message another program saves is heard', async () => {
 	await using folder = await openVocabFolder();
-	const store = createChatMessageStore(folder.lists.messages, 'chat-a');
+	const conversation = conversationOf(folder, 'chat-a');
+	await conversation.ready;
 	let changes = 0;
-	const stop = store.observe(() => changes++);
-	flushSync();
-	expect(changes).toBe(0);
+	const stop = conversation.subscribe(() => changes++);
 	expectOk(
 		await (await folder.other()).messages.create({
 			chat: 'chat-a',
@@ -184,7 +190,9 @@ test('observe hears a message another program saves', async () => {
 			parts: [{ type: 'text', text: 'outside' }],
 		}),
 	);
-	await until(() => changes > 0);
+	await until(() => conversation.snapshot().messages.length === 1);
 	stop();
-	expect([...store.entries()][0]?.key).toBe('one');
+	expect(changes).toBeGreaterThan(0);
+	expect(conversation.snapshot().messages[0]?.id).toBe('one');
+	conversation[Symbol.dispose]();
 });

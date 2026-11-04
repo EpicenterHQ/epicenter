@@ -4,20 +4,27 @@
 	"private": true,
 	"type": "module",
 	"license": "AGPL-3.0-or-later",
+	"imports": {
+		"#device-settings": {
+			"tauri": "./src/device-settings.tauri.ts",
+			"default": "./src/device-settings.ts"
+		}
+	},
 	"exports": {
 		".": "./src/index.ts",
 		"./agent": "./src/agent/index.ts",
 		"./choices": "./src/choices.ts",
-		"./codex": "./src/codex/index.ts",
 		"./connections": "./src/ai-connections.ts",
 		"./picker": "./src/picker/index.ts",
 		"./providers": "./src/providers.ts",
-		"./svelte": "./src/svelte/ai.svelte.ts",
+		"./svelte": "./src/svelte/index.ts",
 		"./tauri": "./src/tauri.ts"
 	},
 	"dependencies": {
 		"@epicenter/account": "workspace:*",
 		"@epicenter/definition": "workspace:*",
+		"@epicenter/folder": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
@@ -26,14 +33,13 @@
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
-		"@epicenter/folder": "workspace:*",
 		"@types/bun": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"typescript": "catalog:"
 	},
 	"scripts": {
-		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
+		"typecheck": "svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json",
 		"test": "bun test --isolate --conditions=browser"
 	}
 }

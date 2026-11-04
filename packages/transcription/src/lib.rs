@@ -1,8 +1,7 @@
 //! Native local transcription for a standalone desktop app.
 //!
-//! Install after `tauri_plugin_epicenter_folder::init()`: `transcribe_file`
-//! reads audio from a root the page opened through that plugin
-//! (`Root::Data`), and `transcribe_audio` takes audio the page uploads.
+//! `transcribe_audio` takes the audio the page uploads, decoded where it
+//! arrives; the page's `localSpeech()` answers every transcription that way.
 //! Model settings belong to the installing app and live at its own
 //! `app_local_data_dir()/local-transcription.json`; model files stay in the
 //! shared Hugging Face cache.
@@ -73,7 +72,6 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             get_unload_policy::<tauri::Wry>,
             set_unload_policy::<tauri::Wry>,
             list_inference_models::<tauri::Wry>,
-            transcribe_file::<tauri::Wry>,
             transcribe_audio::<tauri::Wry>,
             load_model::<tauri::Wry>,
             unload_model::<tauri::Wry>,

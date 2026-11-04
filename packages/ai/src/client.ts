@@ -106,16 +106,13 @@ export type ChatChunk = {
 	usage?: Record<string, unknown> | null;
 };
 
-/**
- * Audio to transcribe: an upload (`file`), or a `path` in the app's data
- * folder that an in-process endpoint reads where it is. An HTTP endpoint
- * needs `file`; the path is an Epicenter field it ignores.
- */
+/** Audio to transcribe, uploaded as `file` to every endpoint, as any OpenAI client sends it. */
 export type TranscriptionRequest = {
 	model: string;
+	file: Blob;
 	language?: string;
 	prompt?: string;
-} & ({ file: Blob; path?: string } | { file?: Blob; path: string });
+};
 
 export type Transcription = { text: string };
 
@@ -313,13 +310,11 @@ export function createClient({ fetch }: { fetch: EndpointFetch }) {
 		): Promise<Result<Transcription, AiError>> {
 			const form = new FormData();
 			form.set('model', request.model);
-			if (request.file)
-				form.set(
-					'file',
-					request.file,
-					request.file instanceof File ? request.file.name : 'audio',
-				);
-			if (request.path !== undefined) form.set('path', request.path);
+			form.set(
+				'file',
+				request.file,
+				request.file instanceof File ? request.file.name : 'audio',
+			);
 			if (request.language) form.set('language', request.language);
 			if (request.prompt) form.set('prompt', request.prompt);
 			const sent = await send(

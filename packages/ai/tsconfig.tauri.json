@@ -1,0 +1,6 @@
+{
+	// The desktop build's leaves: `#device-settings` resolved under the
+	// `tauri` condition, as a desktop app's build resolves it.
+	"extends": "./tsconfig.json",
+	"compilerOptions": { "customConditions": ["tauri"] }
+}

@@ -11,12 +11,8 @@ pub use model_cache::ModelCache;
 pub use settings::{LocalTranscriptionSettings, SettingsError, UnloadPolicy};
 
 use crate::PluginState;
-use epicenter_folder_core::page_files;
-use epicenter_folder_core::paths::path_problem;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use tauri::{AppHandle, Runtime, State, Webview};
-use tauri_plugin_epicenter_folder::{Root, RootsExt};
+use tauri::{AppHandle, Runtime, State};
 
 // ── Wire types ────────────────────────────────────────────────────────
 
@@ -199,7 +195,7 @@ fn join_err(e: tauri::Error) -> TranscriptionError {
     }
 }
 
-/// Installed native models available to explicit file inference. No cache paths escape.
+/// Installed native models available to explicit inference. No cache paths escape.
 #[tauri::command]
 #[specta::specta]
 pub fn list_inference_models<R: Runtime>(
@@ -216,71 +212,6 @@ pub fn list_inference_models<R: Runtime>(
             installed: true,
         })
         .collect()
-}
-
-/// The audio file at the data path `path` in `root`, checked on arrival:
-/// `root` must be a root the app opened (`open_root`), whose folder is read
-/// once; the path must pass the folder's path rule with no link on the way,
-/// and a regular file must be there.
-fn audio_file<R: Runtime>(
-    webview: &Webview<R>,
-    root: Root,
-    path: &str,
-) -> Result<PathBuf, TranscriptionError> {
-    let directory =
-        webview
-            .roots()
-            .opened(root)
-            .map_err(|refusal| TranscriptionError::FolderUnavailable {
-                message: refusal.to_string(),
-            })?;
-    let refused = |message: String| TranscriptionError::PathRefused { message };
-    if let Some(problem) = path_problem(path) {
-        return Err(refused(format!("{path:?}: {problem}")));
-    }
-    let target = page_files::data_path(directory.root(), path).map_err(refused)?;
-    match std::fs::metadata(&target) {
-        Ok(metadata) if metadata.is_file() => Ok(target),
-        Ok(_) => Err(TranscriptionError::FileMissing {
-            message: format!("{path} is not a file."),
-        }),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Err(TranscriptionError::FileMissing {
-                message: format!("Nothing is at {path}."),
-            })
-        }
-        Err(error) => Err(TranscriptionError::AudioReadError {
-            message: format!("{path}: {error}"),
-        }),
-    }
-}
-
-/// Transcribe the audio file at the folder-relative data path `path` (such as
-/// `recordings/20261031T101500123.wav`) in `root`, with the exact catalog
-/// model `model_id`. `root` is a root the app opened through the folder
-/// plugin (`Root::Data`); one it has not opened is refused.
-///
-/// A root the app has not opened, a path the folder rule refuses, and a
-/// missing file are refused before any model is resolved. An unknown or
-/// uninstalled model is refused before the file is read or decoded. The
-/// active-model setting is neither read nor changed. The blocking job owns its
-/// input until inference finishes, including after the caller abandons the
-/// call.
-#[tauri::command]
-#[specta::specta]
-pub async fn transcribe_file<R: Runtime>(
-    model_id: String,
-    root: Root,
-    path: String,
-    hints: TranscriptionHints,
-    webview: Webview<R>,
-    state: State<'_, PluginState<R>>,
-) -> Result<TranscriptionOutcome, TranscriptionError> {
-    let audio = audio_file(&webview, root, &path)?;
-    let cache = state.cache();
-    tauri::async_runtime::spawn_blocking(move || cache.transcribe_explicit(model_id, &audio, hints))
-        .await
-        .map_err(join_err)?
 }
 
 /// Transcribe audio the page holds (an upload, such as a dictation's blob),

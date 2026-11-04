@@ -277,7 +277,7 @@
 							{:else}
 								<p class="text-destructive">{text.reason}</p>
 							{/if}
-							<p>{whispering.services.endpoints.note}</p>
+							<p>{whispering.services.connectionsNote}</p>
 							<p>
 								A result on a transcript is saved as a new note in <code class="font-mono">transformation_runs/</code>, and a result on
 								pasted text in <code class="font-mono">text_runs/</code>, when its answer arrives. The text it came from is never changed.

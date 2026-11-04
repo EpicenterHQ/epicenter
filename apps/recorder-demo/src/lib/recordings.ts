@@ -55,6 +55,30 @@ export function recordingsOf(listing: Listing): RecordingRow[] {
 }
 
 /**
+ * The audio no note names, by store-relative path (`recordings/<id>.<ext>`):
+ * where a closed tab's cut-off recording is, for `recorder.recover` to
+ * repair. A note that does not read still names its recording.
+ */
+export async function unnamedAudio(
+	device: Client<Recorder>,
+): Promise<Result<string[], string>> {
+	const [notes, audio] = await Promise.all([
+		device.recordings.list(),
+		device.audio.list(),
+	]);
+	if (notes.error !== null) return Err(notes.error.message);
+	if (audio.error !== null) return Err(audio.error.message);
+	const named = new Set<string>(
+		[...notes.data.items, ...notes.data.invalid].map(({ id }) => id),
+	);
+	return Ok(
+		audio.data.items
+			.filter(({ id }) => !named.has(id))
+			.map(({ id, ext }) => `recordings/${id}.${ext}`),
+	);
+}
+
+/**
  * Make the note of each recording whose audio a closed tab or a crash left
  * without one, its length read from the audio itself. The local variant
  * runs it when it opens, after `recorder.recover` cut the audio back to its

@@ -81,13 +81,9 @@ export async function finishCutOffRecordings(
 	const named = new Set(
 		[...notes.data.items, ...notes.data.invalid].map((note) => note.id),
 	);
-	const unnamed = [
-		...new Set(
-			audio.data.items
-				.filter((file) => RECORDED.includes(file.ext) && !named.has(file.id))
-				.map((file) => file.id),
-		),
-	];
+	const unnamed = audio.data.items
+		.filter((file) => RECORDED.includes(file.ext) && !named.has(file.id))
+		.map((file) => `recordings/${file.id}.${file.ext}`);
 	const recovered = await capture.recover(unnamed);
 	if (recovered.error !== null)
 		return Err({ name: 'RepairFailed', message: recovered.error.message });

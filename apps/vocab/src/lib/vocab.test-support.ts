@@ -2,9 +2,10 @@
  * Vocab over a stand-in client, for tests: a real device client in a
  * temporary directory (`openDevice` from `@epicenter/folder/node`), the same
  * contract's client at the same paths, in place of the repository the page
- * is given. Its collections as the page reads them (`fromClient`), kept
- * listing as an open page keeps them, and a way to hold or refuse writes,
- * the way a lost connection or a slow write would.
+ * is given. Its words and chats as the page reads them (`fromClient`),
+ * kept listing as an open page keeps them, its messages as a conversation
+ * reads and writes them (the client's own collection), and a way to hold or
+ * refuse writes, the way a lost connection or a slow write would.
  *
  * Import after `svelte-modules.test-support.js`, which compiles the runes.
  */
@@ -79,21 +80,22 @@ export async function openVocabFolder(initial: Record<string, string> = {}) {
 	}
 	const control: WriteControl = {};
 	const client = unwrap(await openDevice(vocab, { path: root }));
+	const written = controlled(client, control);
 	// As the page reads them: the client's own collections.
-	const lists = fromClient(controlled(client, control));
+	const lists = fromClient(written);
 	const followed = follow(() => [
 		lists.entries.items,
 		lists.entries.invalid,
 		lists.chats.items,
 		lists.chats.invalid,
-		lists.messages.items,
-		lists.messages.invalid,
 	]);
 	await until(() => !lists.entries.loading && !lists.chats.loading);
 	return {
 		root,
 		client,
 		lists,
+		/** Every chat's messages, as a conversation is given them, through `control`. */
+		messages: written.messages,
 		control,
 		/** Another program's client of the same folder. */
 		other: async () => unwrap(await openDevice(vocab, { path: root })),

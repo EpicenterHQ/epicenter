@@ -1,3 +1,12 @@
+<!--
+	This app's local transcription models: the catalog, each one's download
+	and removal, its folder, and when an idle model leaves memory, over the
+	app's `localSpeech()` handle (`speech`; its own by default), so the
+	app's model picker hears each download and removal. Which model the app
+	uses is the app's choice (`choice`): an app with model choices passes
+	its own; by default it is the active model the shell transcribes with by
+	itself.
+-->
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
@@ -10,12 +19,31 @@
 	import { onDestroy, onMount } from 'svelte';
 	import type { ModelInfo } from './bindings.gen.js';
 	import { LOCAL_MODEL_UNLOAD_POLICY_OPTIONS } from './local-model-unload-policy.js';
-	import { createLocalModels } from './local-models.svelte.js';
-	const localModels = createLocalModels();
+	import {
+		createLocalModels,
+		createNativeChoice,
+		type LocalModelChoice,
+	} from './local-models.svelte.js';
+	import { type LocalSpeech, localSpeech } from './local-speech.js';
+
+	let {
+		speech = localSpeech(),
+		choice = createNativeChoice(),
+	}: {
+		/** The app's handle, the same value it merges in `openAi`. */
+		speech?: LocalSpeech;
+		/** Which model the app uses, and how to choose another. */
+		choice?: LocalModelChoice;
+	} = $props();
+
+	// Fixed for the component's life.
+	// svelte-ignore state_referenced_locally
+	const localModels = createLocalModels({ speech, choice });
 	onDestroy(() => localModels.dispose());
 	onMount(() => { void localModels.refresh(); });
 
-	const active = $derived(localModels.active);
+	const chosen = $derived(localModels.chosen);
+	const chosenId = $derived(localModels.chosenId);
 	const anyDownloaded = $derived(
 		localModels.models.some((model) => model.downloaded),
 	);
@@ -51,10 +79,11 @@
 		<Card.Header>
 			<Card.Title class="text-lg">Local transcription model</Card.Title>
 			<Card.Description>
-				This app uses the active model selected here for local transcription.
+				This app transcribes on this computer with the model it uses here.
 				Any started download continues while this app is open.
-				Model files live in the shared Hugging Face cache. To free space,
-				show a model's folder and remove it with Hugging Face's cache tools.
+				Model files live in the shared Hugging Face cache, which other apps
+				and tools may use: removing one there frees its space, and any of
+				them that uses it downloads it again.
 			</Card.Description>
 		</Card.Header>
 		<Card.Content class="space-y-3">
@@ -65,12 +94,12 @@
 				</Alert.Root>
 			{/if}
 
-			{#if active && !active.installed}
+			{#if localModels.loaded && chosenId !== null && !chosen?.downloaded}
 				<Alert.Root variant="warning">
-					<Alert.Title>{active.name} is active but not downloaded</Alert.Title>
+					<Alert.Title>{chosen?.name ?? chosenId} is in use but not downloaded</Alert.Title>
 					<Alert.Description>
-						Local transcription will fail until you download it again or make
-						another model active.
+						Local transcription will fail until you download it again or use
+						another model.
 					</Alert.Description>
 				</Alert.Root>
 			{/if}
@@ -101,7 +130,7 @@
 							</div>
 						{:else}
 							<Button
-								onclick={() => localModels.downloadAndActivate(recommended)}
+								onclick={() => localModels.downloadAndUse(recommended)}
 							>
 								Download and use {recommended.name} ({formatSize(
 									recommended.sizeBytes,
@@ -115,13 +144,13 @@
 			<Item.Group class="gap-2">
 				{#each localModels.models as model (model.id)}
 					{@const state = localModels.stateOf(model)}
-					{@const isActive = active?.id === model.id}
+					{@const inUse = chosenId === model.id}
 					<Item.Root variant="outline">
 						<Item.Content>
 							<Item.Title>
 								{model.name}
-								{#if isActive}
-									<Badge>Active</Badge>
+								{#if inUse}
+									<Badge>In use</Badge>
 								{:else if model.downloaded}
 									<Badge variant="secondary">Downloaded</Badge>
 								{/if}
@@ -147,15 +176,15 @@
 									Stop waiting
 								</Button>
 							{:else if state.type === 'ready'}
-								{#if isActive}
-									<Button size="sm" disabled>Active</Button>
+								{#if inUse}
+									<Button size="sm" disabled>In use</Button>
 								{:else}
 									<Button
 										size="sm"
 										variant="outline"
-										onclick={() => localModels.activate(model)}
+										onclick={() => localModels.use(model)}
 									>
-										Make active
+										Use
 									</Button>
 								{/if}
 								<Button
@@ -164,6 +193,13 @@
 									onclick={() => localModels.reveal(model)}
 								>
 									Show folder
+								</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									onclick={() => localModels.remove(model)}
+								>
+									Remove
 								</Button>
 							{:else}
 								<Button size="sm" onclick={() => localModels.download(model)}>

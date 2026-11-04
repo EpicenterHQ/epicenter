@@ -168,22 +168,28 @@ fixed and the answer as its body, so a result note always holds an answer.
 
 Every model is an endpoint
 ([ADR-0757](../../docs/adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)).
-`whispering.svelte.ts` merges, in this order, `hosted(account)` (Epicenter's
-models through the account signed in now), one `custom` endpoint per
-connection the person saved, and what runs on this computer: Ollama and LM
-Studio (`localServers()`), and on the desktop `localSpeech()`. The build
-supplies each through `#platform/services` (`endpoints`): the web keeps
-connections, keys included, in this site's `localStorage` and sends from the
+Each build's `#platform/services` makes one `openAi` for the page
+(`services.ai`), merging, in this order, `hosted(account)` (Epicenter's
+models through the account signed in now), `customEndpoints()` (one endpoint
+per connection the person saved), and what runs on this computer: Ollama and
+LM Studio (`localServers()`), and on the desktop `localSpeech()`. Every entry
+is live, so a sign-in or a saved connection reaches the same `ai`. Where
+connections are kept is `@epicenter/ai`'s, picked by the build: the web
+keeps them, keys included, in this site's `localStorage` and sends from the
 tab; the desktop keeps them in AppData's `connections.md` with each key in
 the credential store, and sends every one of them, Ollama's and LM Studio's
 included, through the shell's fetch (`connection_fetch`), which adds the key.
 
 The person chooses one model for transcription and one for text
-(`ModelPicker` from `@epicenter/ai/picker`, in `ModelSetting.svelte`, kept by
-`createModelChoices` in `localStorage`); the same picker adds, edits and
+(`ModelPicker` from `@epicenter/ai/picker`, in `ModelSetting.svelte`), kept
+by job, `'transcribe'` and `'chat'`, as a device setting (`modelChoices()`,
+`services.choices`): this site's `localStorage` on the web, AppData's
+`models.md` beside `connections.md` on the desktop. The same picker adds, edits and
 removes a connection. `inference.ts` sends a prepared request through the
 endpoints merged at that moment, to its target alone, and refuses one whose
-endpoint was removed or moved. A refusal before sending says nothing was
+endpoint was removed or moved. Signing in moves nothing: the hosted
+endpoint keeps its id and base URL, so a run prepared signed out is sent
+once signed in. A refusal before sending says nothing was
 sent; an endpoint that never answered leaves the outcome unknown. Keys never
 reach Whispering's files, logs or errors: an endpoint removes its key from a
 refusal it reads, and on the desktop the shell does.
@@ -193,7 +199,7 @@ OAuth client (`platform/auth.ts`) asks for one resource, the API audience,
 with `openid profile email ai`: what the account route needs. It asks for no
 Git audience and no `folders:*` scope, so its token cannot reach a
 repository (`platform/web-sign-in.postgres.test.ts` checks the Git host
-refuses it). Signing in or out merges the endpoints again and changes no file.
+refuses it). Signing in or out changes what `hosted(account)` lists and changes no file.
 
 ## Deleting
 

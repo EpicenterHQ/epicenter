@@ -38,6 +38,10 @@ const kept = (id: string, durationMs = 1000) => ({
 	durationMs,
 });
 
+/** The id of the recording whose audio is at `path`. */
+const idOf = (path: string) =>
+	path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
+
 /**
  * The desktop's `recover`: what the shell placed, then the audio at its
  * path that no note names, which is finished there.
@@ -49,6 +53,7 @@ const desktopRecover =
 			whole: [
 				...placed,
 				...unnamed
+					.map(idOf)
 					.filter((id) => !placed.some((recovered) => recovered.id === id))
 					.map((id) => ({ id, durationMs: null })),
 			],
@@ -116,18 +121,17 @@ test('audio whose length does not read is still given a note, without a length',
 	).toBeUndefined();
 });
 
-test('in a browser, recovery reads the audio only when some has no note, and names only what it answers', async () => {
+test('recovery is asked about exactly the audio no note names, and names only what it answers', async () => {
 	const { path, device } = await folder();
-	let repairs = 0;
-	// The browser recorder's recovery: every recording no tab is writing,
-	// leaving out `writing`, whose Web Lock another tab holds while it records.
-	const recover: Recorder['recover'] = async () => {
-		repairs++;
+	const asked: (readonly string[])[] = [];
+	// The browser recorder's recovery: every one of `unnamed` no tab is
+	// writing, leaving out `writing`, whose Web Lock another tab holds.
+	const recover: Recorder['recover'] = async ({ unnamed }) => {
+		asked.push(unnamed);
 		return Ok({
-			recovered: [
-				{ path: 'recordings/cut.webm', durationMs: 1500 },
-				{ path: 'recordings/done.webm', durationMs: 1000 },
-			],
+			recovered: unnamed
+				.filter((file) => file !== 'recordings/writing.webm')
+				.map((file) => ({ path: file, durationMs: 1500 })),
 			unplaced: [],
 		});
 	};
@@ -139,7 +143,6 @@ test('in a browser, recovery reads the audio only when some has no note, and nam
 				throw new Error('nothing records here');
 			},
 			recover,
-			placesWhole: false,
 		},
 	});
 	await writeFile(join(path, 'recordings/done.webm'), 'kept');
@@ -148,14 +151,17 @@ test('in a browser, recovery reads the audio only when some has no note, and nam
 		noted: [],
 		unplaced: [],
 	});
-	expect(repairs).toBe(0);
+	expect(asked).toEqual([[]]);
 
 	await writeFile(join(path, 'recordings/cut.webm'), 'a closed tab left it');
 	await writeFile(join(path, 'recordings/writing.webm'), 'still recording');
 	expect(expectOk(await finishCutOffRecordings(device, capture)).noted).toEqual(
 		['cut'],
 	);
-	expect(repairs).toBe(1);
+	expect(asked.at(-1)?.toSorted()).toEqual([
+		'recordings/cut.webm',
+		'recordings/writing.webm',
+	]);
 	expect(expectOk(await device.recordings.get({ id: 'cut' })).durationMs).toBe(
 		1500,
 	);

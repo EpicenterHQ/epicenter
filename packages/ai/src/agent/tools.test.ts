@@ -1,118 +1,115 @@
 /**
- * Agent Tool Approval Tests
+ * Agent Tool Tests
  *
- * Verifies that every call passes through catalog membership and approval.
+ * The tools are an array, and a tool left out is denied.
  *
  * Key behaviors:
- * - Queries auto-run while mutations ask by default
- * - Denial and abort prevent resolution
- * - Approved listed calls resolve
+ * - A call naming a tool not offered runs nothing
+ * - A tool that reads runs without asking; one that mutates asks first
+ * - With no one to ask, a mutating tool is refused
+ * - A declined approval, or a stop while asking, runs nothing
  */
 import { describe, expect, test } from 'bun:test';
-import {
-	type Approval,
-	defaultApprovalDecision,
-	resolveApprovedToolCall,
-	type ToolCatalog,
-} from './tools.js';
-
-const call = { toolCallId: '1', toolName: 'write', input: {} };
+import { type AgentTool, runTool, toChatTools } from './tools.js';
 
 function setup() {
-	const resolved: string[] = [];
-	const tools: ToolCatalog = {
-		definitions: () => [{ name: 'write', kind: 'mutation' }],
-		resolve: async (value) => {
-			resolved.push(value.toolName);
+	const ran: string[] = [];
+	const tool = (name: string, mutates?: boolean): AgentTool => ({
+		name,
+		description: `${name} something`,
+		mutates,
+		async run(input) {
+			ran.push(`${name} ${JSON.stringify(input)}`);
 			return { content: 'ran', isError: false };
 		},
-	};
-	return { resolved, tools };
+	});
+	return { ran, tools: [tool('read'), tool('write', true)] };
 }
 
-describe('tool approval', () => {
-	test('default policy auto-runs queries and asks for mutations', () => {
-		expect(defaultApprovalDecision(call, { name: 'read', kind: 'query' })).toBe(
-			'auto',
-		);
-		expect(
-			defaultApprovalDecision(call, { name: 'write', kind: 'mutation' }),
-		).toBe('ask');
-	});
+const call = (toolName: string) => ({
+	toolCallId: '1',
+	toolName,
+	input: { at: 1 },
+});
+const live = () => new AbortController().signal;
 
-	test('policy denial prevents resolution', async () => {
-		const { resolved, tools } = setup();
-		const approval: Approval = {
-			decide: () => 'deny',
-			request: async () => true,
-		};
-		expect(
-			await resolveApprovedToolCall({
-				tools,
-				approval,
-				call,
-				signal: new AbortController().signal,
-			}),
-		).toEqual({ content: 'Denied by policy.', isError: true });
-		expect(resolved).toEqual([]);
-	});
-
-	test('a stop during approval wins over late approval', async () => {
-		const { resolved, tools } = setup();
-		const controller = new AbortController();
-		const approval: Approval = {
-			decide: () => 'ask',
-			request: async () => {
-				controller.abort();
-				return true;
-			},
-		};
-		const outcome = await resolveApprovedToolCall({
+describe('runTool', () => {
+	test('a call naming a tool not offered runs nothing', async () => {
+		const { ran, tools } = setup();
+		const outcome = await runTool({
 			tools,
-			approval,
-			call,
-			signal: controller.signal,
-		});
-		expect(outcome.isError).toBe(true);
-		expect(resolved).toEqual([]);
-	});
-
-	test('a declined approval prevents resolution', async () => {
-		const { resolved, tools } = setup();
-		const outcome = await resolveApprovedToolCall({
-			tools,
-			approval: { decide: () => 'ask', request: async () => false },
-			call,
-			signal: new AbortController().signal,
+			approve: async () => true,
+			call: call('delete'),
+			signal: live(),
 		});
 		expect(outcome).toEqual({
-			content: 'Denied by the user.',
+			content: 'No tool named delete is available.',
 			isError: true,
 		});
-		expect(resolved).toEqual([]);
+		expect(ran).toEqual([]);
 	});
 
-	test('listed approved calls resolve and unlisted calls fail closed', async () => {
-		const { resolved, tools } = setup();
-		const approval: Approval = {
-			decide: () => 'auto',
-			request: async () => true,
+	test('a tool that reads runs without asking; one that mutates asks first', async () => {
+		const { ran, tools } = setup();
+		const asked: string[] = [];
+		const approve = async (_call: unknown, tool: AgentTool) => {
+			asked.push(tool.name);
+			return true;
 		};
-		expect(
-			await resolveApprovedToolCall({
-				tools,
-				approval,
-				call,
-				signal: new AbortController().signal,
-			}),
-		).toEqual({ content: 'ran', isError: false });
-		const missing = await resolveApprovedToolCall({
-			tools,
-			approval,
-			call: { ...call, toolName: 'missing' },
-			signal: new AbortController().signal,
-		});
-		expect(missing.isError).toBe(true);
-		expect(resolved).toEqual(['write']);
+		await runTool({ tools, approve, call: call('read'), signal: live() });
+		await runTool({ tools, approve, call: call('write'), signal: live() });
+		expect(asked).toEqual(['write']);
+		expect(ran).toEqual(['read {"at":1}', 'write {"at":1}']);
 	});
+
+	test('with no one to ask, a mutating tool is refused', async () => {
+		const { ran, tools } = setup();
+		const outcome = await runTool({
+			tools,
+			approve: undefined,
+			call: call('write'),
+			signal: live(),
+		});
+		expect(outcome.isError).toBe(true);
+		expect(ran).toEqual([]);
+	});
+
+	test('a declined approval, or a stop while asking, runs nothing', async () => {
+		const { ran, tools } = setup();
+		expect(
+			await runTool({
+				tools,
+				approve: async () => false,
+				call: call('write'),
+				signal: live(),
+			}),
+		).toEqual({ content: 'Denied by the user.', isError: true });
+
+		const stopping = new AbortController();
+		expect(
+			await runTool({
+				tools,
+				approve: async () => {
+					stopping.abort();
+					return true;
+				},
+				call: call('write'),
+				signal: stopping.signal,
+			}),
+		).toEqual({ content: 'Stopped before the tool ran.', isError: true });
+		expect(ran).toEqual([]);
+	});
+});
+
+test('tools are offered as OpenAI functions, a missing schema as the empty object', () => {
+	expect(toChatTools(setup().tools.slice(0, 1))).toEqual([
+		{
+			type: 'function',
+			function: {
+				name: 'read',
+				description: 'read something',
+				parameters: { type: 'object', properties: {} },
+			},
+		},
+	]);
 });
