@@ -185,11 +185,11 @@ went missing.
 | `bun x playwright test -c apps/capture/playwright.config.ts` | End to end in Chromium and WebKit (below). |
 
 `bun run test` passes `--conditions=test`, so `$lib/app.js` opens a folder
-in memory and a signed-out account: the mounted tests seed the folder
-through its ordinary methods (`folder.captures.create`, `replace`) and mock
-no module. A write that fails or waits, or a file that does not read, cannot
-be made through those methods, so those cases are covered on the page state
-over the stand-in client (`src/lib/captures.test.ts`), not on mounted views.
+in memory and a signed-out account, and the mounted views read that folder
+and mock no module. What happens outside the folder goes through
+`memoryFiles(folder)` from `@epicenter/folder/memory`: another program
+writing a file (one that does not read, too), and the folder's own writes
+made to wait or fail.
 
 The end-to-end suite (`e2e/capture.spec.ts`, on the shared stack in
 `packages/cli/src/app-stack.test-support.ts`) walks one person through five

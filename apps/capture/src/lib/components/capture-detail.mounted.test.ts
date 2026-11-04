@@ -4,13 +4,16 @@
  * The real capture and text editors over the app's own folder
  * (`$lib/app`), which the `test` condition makes a folder in memory:
  * typed text shown until it saves, thought commands over one body edit,
- * Edit as text saved with `replace`, and deletion. Each test starts from an
- * empty folder; a write the test makes through the folder is another
- * writer's.
+ * inline save recovery, Edit as text saved with `replace`, and deletion.
+ * Each test starts from an empty folder; the file it writes, and a write
+ * that waits or fails, are the world outside the folder (`outside`).
  *
  * Key behaviors:
- * - Capture text and thoughts compose over one body edit; another writer's
- *   change shows when nothing is typed
+ * - Capture text and thoughts compose over one body edit; typing stays
+ *   visible until its save answers, and another writer's change shows when
+ *   nothing is typed
+ * - A failed body save keeps what was typed, with Save again and Discard
+ * - A capture whose file stops reading offers its own text to repair
  * - Edit as text shows the note in house style, checks it as it is typed,
  *   saves it whole with Save (refused, with why, when it does not fit), and
  *   opens it as a capture once it reads as one
@@ -18,7 +21,8 @@
  *   elsewhere, each with what can be done
  * - A thought's Edit as text selects its lines, after pending typing lands
  * - Thought moves and deletes refuse a list that changed beneath them
- * - Deleting a capture asks first, saying its Git history keeps it
+ * - Deleting a capture asks first, saying its Git history keeps it, and a
+ *   failed delete keeps it open
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -30,8 +34,18 @@ import {
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { clear, folder, ONE, pageState, remove, savedText, until, write } =
-	await import('./fixtures/app-folder.test-support.js');
+const {
+	clear,
+	folder,
+	ONE,
+	outside,
+	pageState,
+	remove,
+	saved: savedNote,
+	savedText,
+	until,
+	write,
+} = await import('./fixtures/app-folder.test-support.js');
 const { locateThought } = await import('../capture-actions.svelte.ts');
 const { captureText } = await import('../captures.svelte.ts');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
@@ -53,7 +67,7 @@ function submit(form: Element | null | undefined) {
 	if (!(form instanceof HTMLFormElement)) throw new Error('Expected a form');
 	form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 }
-/** The capture `one` saved as `text`, open as `mode`. */
+/** The file of the capture `one` written as `text`, open as `mode`. */
 async function setup(text: string, mode: 'capture' | 'text') {
 	await write(text);
 	const captures = pageState();
@@ -61,7 +75,12 @@ async function setup(text: string, mode: 'capture' | 'text') {
 	document.body.replaceChildren(target);
 	const host = mount(ViewHost, { target, props: { captures } });
 	cleanup.push(() => unmount(host));
-	await until(() => folder.captures.get(ONE) !== undefined);
+	// Listed, whether it reads as a capture or is there to repair.
+	await until(
+		() =>
+			folder.captures.get(ONE) !== undefined ||
+			folder.captures.invalid().some((file) => file.id === ONE.id),
+	);
 	captures.open(ONE.id, mode);
 	flushSync();
 	return { captures, target };
@@ -103,6 +122,63 @@ test('typing capture text then adding a thought keeps both edits', async () => {
 	expect(field('new-thought')?.value).toBe('');
 });
 
+test('a thought added behind a held write keeps text typed just before it', async () => {
+	await setup(FILE, 'capture');
+	const release = outside.hold();
+	try {
+		type(field('capture-text'), 'Typed just now');
+		type(field('new-thought'), 'second');
+		submit(field('new-thought')?.form);
+		flushSync();
+		expect(field('capture-text')?.value).toBe('Typed just now');
+		// Still held a moment later: nothing landed, and the typing stays.
+		await Bun.sleep(20);
+		flushSync();
+		expect(field('capture-text')?.value).toBe('Typed just now');
+		expect(await savedText()).toBe(FILE);
+	} finally {
+		release();
+	}
+	await saved(
+		(text) => !!text?.includes('Typed just now') && !!text.includes('- second'),
+	);
+});
+
+test('a failed thought save keeps the thought visible and Save again saves the body', async () => {
+	const h = await setup(FILE, 'capture');
+	const undo = outside.refuse('disk full');
+	try {
+		type(field('new-thought'), 'keep this');
+		submit(field('new-thought')?.form);
+		await until(() => shows(h, 'Not saved:'));
+		expect(field('new-thought')?.value).toBe('');
+		expect(h.target.textContent).toContain('keep this');
+		expect(await savedText()).toBe(FILE);
+	} finally {
+		undo();
+	}
+	button(h.target, 'Save again').click();
+	await saved((text) => !!text?.includes('- keep this'));
+	await until(() => !shows(h, 'Not saved:'));
+});
+
+test('Discard follows the saved body after a failed thought save', async () => {
+	const h = await setup(FILE, 'capture');
+	const undo = outside.refuse('disk full');
+	try {
+		type(field('new-thought'), 'discard me');
+		submit(field('new-thought')?.form);
+		await until(() => shows(h, 'Not saved:'));
+		button(h.target, 'Discard').click();
+		flushSync();
+		expect(h.target.textContent).not.toContain('discard me');
+		expect(h.target.textContent).not.toContain('Not saved:');
+		expect(await savedText()).toBe(FILE);
+	} finally {
+		undo();
+	}
+});
+
 test('a blank thought is refused and its input stays', async () => {
 	const h = await setup(FILE, 'capture');
 	type(field('new-thought'), '  \n');
@@ -130,37 +206,54 @@ test('a thought typed but not added stays visible to copy when the body becomes 
 	expect(button(h.target, 'Copy text')).toBeDefined();
 });
 
-test('an outside change shows when nothing is typed, and typing then saves over it', async () => {
+test('a capture whose front matter breaks elsewhere offers its own text to repair', async () => {
+	const broken = FILE.replace(`capturedAt: "${AT}"`, 'capturedAt: nope');
+	const h = await setup(FILE, 'capture');
+	await write(broken);
+	await until(() => shows(h, 'This file does not read as a capture'));
+	button(h.target, 'Edit as text').click();
+	await until(() => textFile()?.value === broken);
+	expect(h.target.textContent).toContain('Needs repair');
+});
+
+test('an outside change shows when nothing is typed, and typing stays visible until its save answers', async () => {
 	await setup(FILE, 'capture');
 	await write(FILE.replace('Text', 'Elsewhere'));
 	await until(() => field('capture-text')?.value === 'Elsewhere');
-	type(field('capture-text'), 'Mine');
-	flushSync();
-	expect(field('capture-text')?.value).toBe('Mine');
+	const release = outside.hold();
+	try {
+		type(field('capture-text'), 'Mine');
+		flushSync();
+		expect(field('capture-text')?.value).toBe('Mine');
+		// Still held a moment later: the file is theirs, and the typing shows.
+		await Bun.sleep(20);
+		flushSync();
+		expect(field('capture-text')?.value).toBe('Mine');
+		expect(await savedText()).toContain('Elsewhere');
+	} finally {
+		release();
+	}
 	await saved((text) => !!text?.includes('Mine'));
 	expect(field('capture-text')?.value).toBe('Mine');
 });
 
 test('Edit as text shows the note in house style and opens it again as a capture', async () => {
-	// Written in another order; the folder keeps it in house style.
 	const handWritten = `---\nzeta: 1\ncapturedAt: ${AT}\n---\n\nText\n\n## Thoughts\n\n- first\n`;
-	const houseStyle = FILE.replace('---\n\n', 'zeta: 1\n---\n\n');
 	const h = await setup(handWritten, 'capture');
+	const written = (await savedNote())?.version;
 	button(h.target, 'Edit as text').click();
 	flushSync();
-	expect(textFile()?.value).toBe(houseStyle);
+	expect(textFile()?.value).toBe(FILE.replace('---\n\n', 'zeta: 1\n---\n\n'));
 	button(h.target, 'Open as capture').click();
 	flushSync();
 	expect(h.captures.opened?.mode).toBe('capture');
-	// Opening and reading wrote nothing.
-	expect(await savedText()).toBe(houseStyle);
+	// Opening and reading wrote nothing: the file is as it was written.
+	expect((await savedNote())?.version).toBe(written);
 });
 
-test('Needs repair follows typing, and Save writes the fixed text and opens it as a capture', async () => {
-	const h = await setup(FILE, 'text');
+test('Needs repair follows typing, and Save repairs the file and opens it as a capture', async () => {
+	const h = await setup('---\ncapturedAt: nope\n---\nBody\n', 'text');
 	await until(() => textFile() !== null);
-	type(textFile(), '---\ncapturedAt: nope\n---\nBody\n');
-	flushSync();
 	expect(h.target.textContent).toContain('Needs repair');
 	expect(h.target.textContent).toContain('capturedAt');
 	type(textFile(), `---\ncapturedAt: ${AT}\n---\nBody\n`);
@@ -185,6 +278,26 @@ test('Save refuses text that does not fit, says why, and keeps the text', async 
 	).toContain('capturedAt');
 	expect(textFile()?.value).toBe(typed);
 	expect(await savedText()).toBe(FILE);
+});
+
+test('a failed text save keeps the text until Save again', async () => {
+	const h = await setup(FILE, 'text');
+	const typed = FILE.replace('Text', 'Keep this');
+	const undo = outside.refuse('disk full');
+	try {
+		type(textFile(), typed);
+		flushSync();
+		button(h.target, 'Save').click();
+		await until(
+			() => h.target.querySelector('[aria-label="Not saved"]') !== null,
+		);
+		expect(textFile()?.value).toBe(typed);
+	} finally {
+		undo();
+	}
+	button(h.target, 'Save').click();
+	await saved((text) => text === typed);
+	await until(() => h.captures.opened?.mode === 'capture');
 });
 
 test('a text save over a change made elsewhere is refused, keeps the text, and can use the saved text', async () => {
@@ -238,6 +351,28 @@ test('deleting a capture asks first, saying its Git history keeps it', async () 
 	button(document, 'Cancel').click();
 	flushSync();
 	expect(await savedText()).toBe(FILE);
+});
+
+test('a failed delete keeps the file open and reports the failure', async () => {
+	const h = await setup(FILE, 'text');
+	const undo = outside.refuse('disk full');
+	try {
+		button(h.target, 'Delete…').click();
+		await until(
+			() =>
+				document.body.textContent?.includes('Delete this capture?') === true,
+		);
+		button(document, 'Delete').click();
+		await until(
+			() =>
+				document.body.textContent?.includes('Could not delete this capture') ===
+				true,
+		);
+		expect(h.captures.opened?.mode).toBe('text');
+		expect(await savedText()).toBe(FILE);
+	} finally {
+		undo();
+	}
 });
 
 test('a thought opens its own lines selected in a CRLF body', async () => {

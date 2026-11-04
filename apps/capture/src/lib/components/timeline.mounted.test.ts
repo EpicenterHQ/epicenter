@@ -2,11 +2,15 @@
  * Mounted Timeline Tests
  *
  * The real timeline over the app's own folder (`$lib/app`), which the
- * `test` condition makes a folder in memory: New capture, and another
- * writer's change. Each test starts from an empty folder.
+ * `test` condition makes a folder in memory: New capture, the files it
+ * lists, and another writer's change. Each test starts from an empty
+ * folder; the files it writes, and a write that fails, are the world
+ * outside the folder (`outside`).
  *
  * Key behaviors:
  * - New capture writes nothing until Add, then opens Add a thought
+ * - A failed Add keeps its form text
+ * - A file that does not read is listed to repair, not as a capture
  * - Another writer's change shows without a reload
  * - An Add whose text makes the Thoughts ambiguous opens as text
  */
@@ -18,7 +22,7 @@ import {
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { clear, folder, pageState, until, write } = await import(
+const { clear, folder, outside, pageState, until, write } = await import(
 	'./fixtures/app-folder.test-support.js'
 );
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
@@ -60,6 +64,38 @@ test('New capture writes nothing until Add and then opens Add a thought', async 
 	expect(folder.captures.get({ id: id ?? '' })?.body).toContain(
 		'Fresh writing',
 	);
+});
+
+test('failed Add keeps its form text and leaves the timeline empty', async () => {
+	const h = setup();
+	const undo = outside.refuse('disk full');
+	try {
+		type(field('new-capture'), 'Keep this');
+		submit(field('new-capture')?.form);
+		await until(
+			() =>
+				document.body.textContent?.includes('Could not add capture') === true,
+		);
+		expect(field('new-capture')?.value).toBe('Keep this');
+		expect(h.captures.timeline.rows).toEqual([]);
+	} finally {
+		undo();
+	}
+});
+
+test('a file that does not read as a capture is listed for repair, not as a capture', async () => {
+	const h = setup();
+	await outside.write(
+		'captures/broken.md',
+		'---\ncapturedAt: nope\n---\nBody\n',
+	);
+	await until(
+		() =>
+			h.target.textContent?.includes('1 file does not read as a capture') ===
+			true,
+	);
+	expect(h.target.textContent).toContain('captures/broken.md');
+	expect(h.captures.timeline.rows).toEqual([]);
 });
 
 test('another writer’s change shows without a reload', async () => {
