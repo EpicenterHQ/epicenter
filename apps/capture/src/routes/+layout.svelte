@@ -1,7 +1,7 @@
 <!--
 	Every page of Capture: the chrome. The app is the `(app)` group, whose
-	layout decides the store (and whose root guards leaving while a write to
-	it is out); the sign-in callback is outside it.
+	layout renders the folder's pages and asks before a page with a write
+	out is left; the sign-in callback is outside it.
 -->
 <script lang="ts">
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';

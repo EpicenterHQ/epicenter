@@ -5,9 +5,13 @@
 	"private": true,
 	"type": "module",
 	"imports": {
-		"#platform/root": {
-			"tauri": "./src/lib/root.tauri.ts",
-			"default": "./src/lib/root.ts"
+		"#platform/account": {
+			"tauri": "./src/lib/account.tauri.ts",
+			"default": "./src/lib/account.ts"
+		},
+		"#platform/chrome": {
+			"tauri": "./src/lib/components/DesktopChrome.svelte",
+			"default": "./src/lib/components/OnlineChrome.svelte"
 		},
 		"#platform/variant": {
 			"tauri": "./src/lib/variant.tauri.ts",
@@ -26,8 +30,8 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json && tsc -p tsconfig.scripts.json",
 		"test": "bun run test:unit; failed=$?; bun run test:mounted && exit $failed",
-		"test:unit": "bun test --isolate --path-ignore-patterns='**/*.mounted.test.ts' --conditions=browser --conditions=svelte src",
-		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte src/lib/components",
+		"test:unit": "bun test --isolate --path-ignore-patterns='**/*.mounted.test.ts' --conditions=browser --conditions=svelte --conditions=test src",
+		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte --conditions=test src/lib/components",
 		"test:e2e": "playwright test -c playwright.config.ts"
 	},
 	"dependencies": {

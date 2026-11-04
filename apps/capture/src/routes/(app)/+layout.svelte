@@ -1,20 +1,20 @@
 <!--
-	Capture's root, which decides the store (decision 78): the variant's
-	`Startup` (`#platform/root`) opens it before any page under it renders,
-	and the boundary shows the UI kit's spinner until it has. The web app's is
-	the person's repository behind sign-in; the desktop window's is the folder
-	Capture keeps its files in. The sign-in callback is outside this group.
+	Capture's root over its folder (ADR-0766): `<WhenOpen>` shows a spinner
+	while the folder opens, Recovery when it cannot, and the pages once it
+	has, and asks before the page is left while a write is out. On the web
+	the folder is the signed-in person's repository, so a signed-out page
+	asks to sign in instead. The sign-in callback is outside this group.
 -->
 <script lang="ts">
-	import { Startup } from '#platform/root';
-	import { Loading } from '@epicenter/ui/loading';
+	import WhenOpen from '@epicenter/svelte/when-open';
+	import { account, folder } from '$lib/app.js';
+	import SignIn from '$lib/components/SignIn.svelte';
 
 	let { children } = $props();
 </script>
 
-<svelte:boundary>
-	{#snippet pending()}
-		<Loading class="h-dvh" />
-	{/snippet}
-	<Startup>{@render children()}</Startup>
-</svelte:boundary>
+{#if account?.state().status === 'signed-out'}
+	<SignIn {account} />
+{:else}
+	<WhenOpen app="Capture" {folder}>{@render children()}</WhenOpen>
+{/if}

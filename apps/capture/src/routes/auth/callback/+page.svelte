@@ -5,13 +5,14 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { Loading } from '@epicenter/ui/loading';
-	import { webAuth } from '$lib/auth.js';
+	import { account } from '$lib/app.js';
 
 	let errorMessage = $state<string | null>(null);
 
 	$effect(() => {
-		void webAuth()
-			.completeSignIn()
+		// Only the web build has a sign-in to finish; the desktop never comes here.
+		void account
+			?.completeSignIn()
 			.then(({ data, error }) => {
 				if (error !== null) errorMessage = error.message;
 				else window.location.replace(data.returnTo ?? resolve('/'));

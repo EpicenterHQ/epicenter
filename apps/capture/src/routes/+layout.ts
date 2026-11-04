@@ -1,3 +1,3 @@
 // A client-only single-page app: its captures are in the person's
-// repository, opened after mount.
+// repository, or the desktop window's folder, opened in `$lib/app`.
 export const ssr = false;

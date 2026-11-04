@@ -15,7 +15,8 @@
 
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { createCaptureActions, locateThought } from '$lib/capture-actions.svelte.js';
-	import { type Captures, captureText, getCaptureList, instantOf } from '$lib/captures.svelte.js';
+	import { folder } from '$lib/app.js';
+	import { type Captures, captureText, instantOf } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 
@@ -30,15 +31,14 @@
 
 	// The view is keyed by the capture, so it does not change for this view.
 	const args = untrack(() => ({ id }));
-	const list = getCaptureList();
 	let active = true;
 	onDestroy(() => {
 		active = false;
 	});
 	/** The file at this capture's path, when it does not read as a capture. */
-	const broken = $derived(list.invalid().find((file) => file.id === args.id));
+	const broken = $derived(folder.captures.invalid().find((file) => file.id === args.id));
 	/** The capture, its body showing what was typed until its save answers. */
-	const edit = list.edit(args);
+	const edit = folder.captures.edit(args);
 	const actions = createCaptureActions({
 		get value() {
 			return edit.fields.body ?? '';
@@ -102,7 +102,7 @@
 	async function landedText() {
 		if ((await edit.landed()).error !== null || !active) return undefined;
 		// The saved note, not the editor's fields: what the file holds.
-		const saved = list.get(args);
+		const saved = folder.captures.get(args);
 		if (saved === undefined) return undefined;
 		const written = captureText(saved);
 		return written.error === null ? { saved, text: written.data } : undefined;

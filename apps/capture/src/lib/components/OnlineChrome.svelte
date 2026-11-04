@@ -1,6 +1,7 @@
 <!--
-	The web app's header account of its store: the person's repository,
-	online only, and the account.
+	`#platform/chrome` in the web build: the header's account of its store,
+	the person's repository, online only, whether it answers, and the
+	account.
 -->
 <script lang="ts">
 	import StatusPopover from '@epicenter/svelte/status-popover';
@@ -8,11 +9,10 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
-	import { webAuth } from '../auth.js';
-	import type { CaptureList } from '../captures.svelte.js';
+	import { account, folder } from '../app.js';
 
-	let { list }: { list: CaptureList } = $props();
-	const auth = webAuth();
+	// The web build always has an account: its folder is the account's copy.
+	const auth = account!;
 	const state = $derived(auth.state());
 
 	const status = $derived.by((): StatusLine => {
@@ -22,7 +22,7 @@
 				detail: 'Sign in again to edit your repository.',
 				tone: 'warning',
 			};
-		const unreadable = list.error();
+		const unreadable = folder.captures.error();
 		if (unreadable !== null) return { label: 'Offline', detail: unreadable.message, tone: 'warning' };
 		return { label: 'Online', tone: 'good' };
 	});

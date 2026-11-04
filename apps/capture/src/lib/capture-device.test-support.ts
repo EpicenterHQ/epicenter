@@ -1,9 +1,11 @@
 /**
- * Capture over a stand-in client: a real device client
- * (`@epicenter/folder/node`) in a temporary directory, the same contract's
- * client at the same paths, in place of the repository the page is given.
- * The client the list writes through can be made to fail, or to hold its
- * writes until released, the way a lost connection or a slow write would.
+ * Capture's page state (`createCaptures`) over a stand-in client: a real
+ * device client (`@epicenter/folder/node`) in a temporary directory, the
+ * same contract's client at the same paths, in place of the folder the page
+ * is given. The client the list writes through can be made to fail, or to
+ * hold its writes until released, the way a lost connection or a slow write
+ * would, and another program can write its files. The memory folder the
+ * `test` condition gives `$lib/app` can do none of these.
  *
  * Import `svelte-dom.test-support.js` (or `svelte-modules`) first: the store
  * and `reactive` need Svelte's client runtime.
@@ -20,9 +22,9 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Client, ClientError } from '@epicenter/definition/contract';
-import { folderOf } from '@epicenter/folder/core';
+import { createFolder } from '@epicenter/folder/core';
 import { openDevice } from '@epicenter/folder/node';
-import { unwrap } from 'wellcrafted/result';
+import { Ok, unwrap } from 'wellcrafted/result';
 import { type Capture, capture } from './model/index.js';
 
 const { reactive } = await import('@epicenter/svelte/reactive');
@@ -94,8 +96,8 @@ export async function openCaptures(files: Files = {}) {
 		},
 	};
 
-	// The folder over the client, read through `reactive`, as the variant's root reads it.
-	const list = reactive(folderOf(client)).captures;
+	// A folder over the client, read through `reactive`, as `$lib/app` reads its own.
+	const list = reactive(createFolder(capture, async () => Ok(client))).captures;
 	const captures = createCaptures(list);
 	// Read the list in an effect, as the page does, so it lists and listens.
 	const watching = follow(() => [list.items(), list.invalid(), list.loading()]);

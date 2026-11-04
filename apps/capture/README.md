@@ -39,7 +39,8 @@ again when the session needs renewing; Sign out is beside it.
 Open a capture to edit its text and add, reorder, copy, or delete thoughts.
 New capture and Add a thought are explicit submissions: their text boxes
 write nothing before Add, and leaving clears them. The capture text and the
-thought commands compose over one editor of the note (`list.edit({ id })`), so
+thought commands compose over one editor of the note
+(`folder.captures.edit({ id })`), so
 a thought command never loses text typed just before it. Typed text shows
 until its save answers; a save that fails stays with Save again, Discard and
 Copy. Thoughts are identified by their position in the shown list; a move or
@@ -67,7 +68,8 @@ or an ambiguous Thoughts layout), then files that are not text.
 ## Sign-in
 
 Capture signs in as `so.epicenter.capture` for the server's Git audience
-only (`src/lib/auth.ts`, made on first use). The server is
+only (`connectAccount()` in `src/lib/account.ts`, made once in
+`src/lib/app.ts`, and only by the web build). The server is
 `VITE_EPICENTER_SERVER` at build time, else Epicenter's. The hosted API
 does not serve web writes yet, so signing in works against a local or
 self-hosted API.
@@ -95,35 +97,40 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 ## How it is wired
 
 ```text
+src/lib/app.ts                 the page's values, each read through reactive:
+                               account (#platform/account) and
+                               folder = reactive(openFolder(capture, { site, account }));
+                               editing it, or what it imports, reloads the page
 routes/+layout.svelte          every page: the chrome
-routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
-                               around Startup from #platform/root
-  OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: folder = reactive(folderOf(openRemote(capture, { account, site: APPS.CAPTURE.url })))
-                               setCaptureList(folder.captures), the leave guard
-  Startup.svelte               desktop: DesktopStartup over the contract
-    DesktopRoot.svelte         folder = reactive(folderOf(device)); setCaptureList(folder.captures),
-                               setFolderSync, the leave guard
-routes/(app)/+page.svelte      CaptureApp over the captures the root set (getCaptureList)
-  CaptureApp.svelte            header (Chrome from #platform/root), then
+routes/(app)/+layout.svelte    signed out on the web: SignIn; otherwise
+                               <WhenOpen app="Capture" {folder}> (spinner, Recovery,
+                               pages, and the leave guard while folder.saving())
+routes/(app)/+page.svelte      CaptureApp
+  CaptureApp.svelte            createCaptures(folder.captures); header (Chrome from
+                               #platform/chrome), then
     Timeline | CaptureDetail | TextDetail
 routes/auth/callback           finishes sign-in, outside (app), then returns to /
 ```
 
-Components read and write only through the captures the variant's root
-set (`getCaptureList`) and the page state over them (`createCaptures`), both
-in `src/lib/captures.svelte.ts`, never a client of their own; only the variant's root chooses the store. Another variant needs only
-a new root that sets its own store, and a header that says what it is.
+Every component imports what it reads from `$lib/app.js`
+(`folder.captures`), never a client of its own; only `app.ts` opens the
+store
+([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+The page state over the captures (`createCaptures`, in
+`src/lib/captures.svelte.ts`) is given them by `CaptureApp` and passed to
+each view. On the web the folder is the account's copy: it opens once the
+account is signed in, and a new account is a new page (sign-in returns
+through `/auth/callback`, which reloads).
 
 | Path | Role |
 | --- | --- |
+| `src/lib/app.ts` | The account and the folder, opened once for the page. |
+| `src/lib/account.ts`, `account.tauri.ts` | The web build's sign-in; none on the desktop. |
 | `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome. |
-| `src/routes/(app)/+layout.svelte` | The variant's `Startup` (`#platform/root`), under a `<svelte:boundary>` whose `pending` is the UI kit's spinner. |
-| `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account. |
-| `src/lib/components/Online.svelte` | The repository per account, read as a folder (`folderOf`, then `reactive`), its captures set for every page (`setCaptureList`); leaving asks first while a write is out. |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder read as one (`folderOf`, then `reactive`), its captures set for every page (`setCaptureList`), and leaving asks first while a write is out; the header's local history status, Set up in Epicenter, and the shell's folder path. |
-| `src/routes/(app)/+page.svelte` | Capture over the store's captures. |
-| `src/lib/components/CaptureApp.svelte` | The header and the page it shows, over the captures the root set. |
+| `src/routes/(app)/+layout.svelte` | `SignIn` while the web build is signed out; otherwise `<WhenOpen>` over the folder. |
+| `src/lib/components/SignIn.svelte`, `OnlineChrome.svelte` | The web app's signed-out page; the header's status and account. |
+| `src/lib/components/DesktopChrome.svelte` | The header's local history status, Set up in Epicenter, and the folder's path (`folder.displayPath`). |
+| `src/lib/components/CaptureApp.svelte` | The header and the page it shows, over `folder.captures`. |
 | `src/lib/captures.svelte.ts` | The timeline, Add, deletion, and navigation. |
 | `src/lib/capture-actions.svelte.ts` | Thought and text commands over one body edit; a thought's lines in the note's text. |
 | `src/lib/components/CaptureDetail.svelte` | A capture as its text and thoughts. |
@@ -144,22 +151,27 @@ shared recovery screen with Retry. The files remain when the app is removed.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
-(`openDataFolder(capture, site)`) with no sign-in: Capture makes no
+(`openFolder(capture, { site })`, whose `tauri` leaf opens the Data root)
+with no sign-in: Capture makes no
 inference calls, and Epicenter can keep the folder's local history. Its header
 says whether Epicenter manages the folder, offers **Set up in Epicenter** until it does
 (`syncWithEpicenter({ contract })`, the contract at `APPS.CAPTURE.url`'s
 `contract.json`), and shows the shell's folder path in the status details.
 Closing the window or quitting does not wait.
 
-The variant is chosen at build time through `#platform/*` seams, as
-[the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant)
-describes: `desktopVariant()` in `vite.config.ts`, `tsconfig.tauri.json`, and
-`src/lib/platform.test.ts`, which names a seam whose desktop leaf went
-missing.
+The build picks the folder: `openFolder` from `@epicenter/folder` resolves
+to its desktop leaf under the `tauri` condition that `desktopVariant()` in
+`vite.config.ts` turns on, and to the web leaf otherwise. Three things are
+Capture's own and differ by build, through `#platform/*` seams
+([the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant));
+`tsconfig.tauri.json` typechecks the desktop leaves, and
+`src/lib/platform.test.ts` names a seam or capability whose desktop leaf
+went missing.
 
 | Seam | Web leaf | Desktop leaf |
 | --- | --- | --- |
-| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in, which sets the captures) and the account | `root.tauri.ts`: `Startup` (the two roots or the recovery screen, which sets the captures) and its sync |
+| `#platform/account` | `account.ts`: `connectAccount()`, the browser sign-in | `account.tauri.ts`: none, `null` |
+| `#platform/chrome` | `OnlineChrome.svelte`: the repository's status and the account | `DesktopChrome.svelte`: the folder's local history status and Set up in Epicenter |
 | `#platform/variant` | `variant.ts`: `'online'` | `variant.tauri.ts`: `'desktop'`, for the few sentences that name the store |
 
 ## Checks
@@ -168,9 +180,16 @@ missing.
 | --- | --- |
 | `bun test apps/capture/src/lib/model` | The contract and the body codec. |
 | `bun run --cwd apps/capture typecheck` | App, scripts, and end-to-end types. |
-| `bun run --cwd apps/capture test` | The contract's fit, the store and mounted components over a stand-in client (a folder client in a temporary directory), and both builds' seams. |
+| `bun run --cwd apps/capture test` | The contract's fit, the page state over a stand-in client (a folder client in a temporary directory, whose writes can fail or wait), the mounted views over the app's memory folder, and both builds' seams. |
 | `cargo test -p capture -p epicenter-standalone` | The desktop shell: its capability, the derived data folder and opening refusals. |
 | `bun x playwright test -c apps/capture/playwright.config.ts` | End to end in Chromium and WebKit (below). |
+
+`bun run test` passes `--conditions=test`, so `$lib/app.js` opens a folder
+in memory and a signed-out account: the mounted tests seed the folder
+through its ordinary methods (`folder.captures.create`, `replace`) and mock
+no module. A write that fails or waits, or a file that does not read, cannot
+be made through those methods, so those cases are covered on the page state
+over the stand-in client (`src/lib/captures.test.ts`), not on mounted views.
 
 The end-to-end suite (`e2e/capture.spec.ts`, on the shared stack in
 `packages/cli/src/app-stack.test-support.ts`) walks one person through five
