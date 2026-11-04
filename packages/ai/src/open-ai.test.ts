@@ -95,10 +95,33 @@ test('hosted lists the hosted catalog at the account origin, and none once retir
 	expect(endpoint.models()).toEqual([]);
 });
 
-test('hosted while signed out lists nothing and refuses requests', async () => {
+test('hosted while signed out lists nothing and refuses requests as SignedOut', async () => {
 	const endpoint = hosted(undefined);
 	expect(endpoint.models()).toEqual([]);
-	await expect(endpoint.fetch('chat/completions')).rejects.toThrow('Sign in');
+	expect(endpoint.baseUrl).toBeUndefined();
+	const refusal = await endpoint
+		.fetch('chat/completions')
+		.catch((cause) => cause);
+	expect(refusal.name).toBe('SignedOut');
+	expect(refusal.message).toContain('Sign in');
+});
+
+test('an HTTP endpoint names its base URL, and a refusal never repeats its key', async () => {
+	const endpoint = custom({
+		baseUrl: 'https://api.example.test/v1/',
+		key: 'sk-secret',
+		fetch: async () =>
+			Response.json(
+				{ error: { message: 'Incorrect API key provided: sk-secret' } },
+				{ status: 401 },
+			),
+	});
+	expect(endpoint.baseUrl).toBe('https://api.example.test/v1');
+	const refused = await endpoint.fetch('models');
+	expect(refused.status).toBe(401);
+	const body = await refused.text();
+	expect(body).not.toContain('sk-secret');
+	expect(body).toContain('[key removed]');
 });
 
 function probing(id: string, source: Endpoint['source']) {

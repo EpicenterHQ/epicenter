@@ -37,14 +37,20 @@ pub(crate) fn send_event<E: Serialize>(
 
 /// Send `response` to the page: its head, each chunk of its body as it
 /// arrives, then its end, or `failed(message)` when the body breaks off.
+/// A refusal (any status but a success) of a request sent with `key` is read
+/// whole first and sent with the key removed wherever it repeats it.
 pub(crate) async fn answer<E: Serialize>(
     response: reqwest::Response,
     channel: &Channel<InvokeResponseBody>,
     failed: impl Fn(String) -> E,
+    key: Option<&str>,
 ) {
+    let redact = key.filter(|_| !response.status().is_success());
     let headers = response
         .headers()
         .iter()
+        // A body with the key removed has another length.
+        .filter(|(name, _)| redact.is_none() || *name != reqwest::header::CONTENT_LENGTH)
         .filter_map(|(name, value)| Some((name.to_string(), value.to_str().ok()?.to_string())))
         .collect();
     send_event::<E>(
@@ -54,6 +60,17 @@ pub(crate) async fn answer<E: Serialize>(
             headers,
         },
     );
+    if let Some(key) = redact {
+        match response.bytes().await {
+            Ok(bytes) => {
+                let text = String::from_utf8_lossy(&bytes).replace(key, "[key removed]");
+                let _ = channel.send(InvokeResponseBody::Raw(text.into_bytes()));
+                send_event::<E>(channel, &RelayEvent::End);
+            }
+            Err(cause) => send_event(channel, &RelayEvent::Error(failed(cause.to_string()))),
+        }
+        return;
+    }
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         match chunk {

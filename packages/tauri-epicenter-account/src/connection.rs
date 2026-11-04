@@ -10,11 +10,15 @@
 //! `Authorization: Bearer <key>`. A page never sends a credential here, and
 //! the connection list a person can edit by hand (Vocab's `connections.md`)
 //! cannot move the key: the endpoint the key goes to is the one saved with
-//! it. A connection with no saved key is sent with none, wherever it names.
+//! it. A connection with no saved key is sent with none, wherever it names,
+//! and so is a request that names no connection (a server on this computer,
+//! such as Ollama, which answers no `tauri://` page either).
 //!
 //! Only `https` is sent, and `http` to `localhost` or `127.0.0.1` (a model on
 //! this computer). A redirect is not followed. The answer streams back like
-//! `account_fetch`'s (`relay.rs`), so a token stream reads as it arrives.
+//! `account_fetch`'s (`relay.rs`), so a token stream reads as it arrives; a
+//! refusal sent with a key comes back whole, with the key removed wherever
+//! its body repeats it, so the page never sees the key in an error.
 
 use std::sync::Arc;
 
@@ -36,13 +40,14 @@ pub struct Connections {
     requests: Requests,
 }
 
-/// One request the page sends on the connection `connection`. `body` is
-/// base64.
+/// One request the page sends on the connection `connection`, or with no
+/// key when it names none. `body` is base64.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionRequest {
     pub id: u32,
-    pub connection: String,
+    #[serde(default)]
+    pub connection: Option<String>,
     pub url: String,
     pub method: String,
     #[serde(default)]
@@ -206,7 +211,10 @@ impl Connections {
 
     /// `request`, checked against what the keychain keeps for its connection.
     async fn prepare(&self, request: &ConnectionRequest) -> Result<Checked, ConnectionFetchError> {
-        let entry = key_entry(&request.connection).map_err(|message| InvalidRequest { message })?;
+        let Some(connection) = &request.connection else {
+            return check(request, None);
+        };
+        let entry = key_entry(connection).map_err(|message| InvalidRequest { message })?;
         let secrets = self.secrets.clone();
         let saved = blocking(move || secrets.get(&entry))
             .await
@@ -223,7 +231,7 @@ async fn send(http: &reqwest::Client, checked: Checked, channel: &Channel<Invoke
     for (name, value) in checked.headers {
         builder = builder.header(name, value);
     }
-    if let Some(key) = checked.key {
+    if let Some(key) = &checked.key {
         builder = builder.bearer_auth(key);
     }
     if let Some(body) = checked.body {
@@ -231,7 +239,7 @@ async fn send(http: &reqwest::Client, checked: Checked, channel: &Channel<Invoke
     }
     let failed = |message: String| SendFailed { message };
     match builder.send().await {
-        Ok(response) => relay::answer(response, channel, failed).await,
+        Ok(response) => relay::answer(response, channel, failed, checked.key.as_deref()).await,
         Err(cause) => {
             let mut message = cause.to_string();
             let mut source = std::error::Error::source(&cause);
@@ -284,7 +292,7 @@ mod tests {
     fn request(url: &str) -> ConnectionRequest {
         ConnectionRequest {
             id: 1,
-            connection: "conn-1".into(),
+            connection: Some("conn-1".into()),
             url: url.into(),
             method: "POST".into(),
             headers: vec![("content-type".into(), "application/json".into())],
@@ -412,13 +420,73 @@ mod tests {
             Err(OriginRefused { .. })
         ));
         let mut other = request("https://elsewhere.example/v1/models");
-        other.connection = "conn-2".into();
+        other.connection = Some("conn-2".into());
         assert_eq!(connections.prepare(&other).await.unwrap().key, None);
-        other.connection = "../account".into();
+        // No connection: no key, and no keychain entry is read.
+        other.connection = None;
+        assert_eq!(connections.prepare(&other).await.unwrap().key, None);
+        other.connection = Some("../account".into());
         assert!(matches!(
             connections.prepare(&other).await,
             Err(InvalidRequest { .. })
         ));
+    }
+
+    /// A refusal sent with a key comes back whole, with the key removed.
+    #[tokio::test]
+    async fn a_refusal_never_carries_the_key_back() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buffer = [0u8; 4096];
+            let _ = stream.read(&mut buffer).await.unwrap();
+            let body = r#"{"error":{"message":"Incorrect API key provided: sk-test"}}"#;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 401 Unauthorized\r\ncontent-length: {}\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        });
+        let heard = Arc::new(Mutex::new(Vec::<InvokeResponseBody>::new()));
+        let channel = Channel::new({
+            let heard = heard.clone();
+            move |body| {
+                heard.lock().unwrap().push(body);
+                Ok(())
+            }
+        });
+        let checked = check(
+            &request(&format!("{origin}/v1/models")),
+            Some(SavedKey {
+                endpoint: format!("{origin}/v1"),
+                key: "sk-test".into(),
+            }),
+        )
+        .unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            send(&reqwest::Client::new(), checked, &channel),
+        )
+        .await
+        .expect("the answer came back");
+        let heard = heard.lock().unwrap();
+        let body: Vec<u8> = heard
+            .iter()
+            .filter_map(|body| match body {
+                InvokeResponseBody::Raw(bytes) => Some(bytes.clone()),
+                InvokeResponseBody::Json(_) => None,
+            })
+            .flatten()
+            .collect();
+        let body = String::from_utf8(body).unwrap();
+        assert!(!body.contains("sk-test"), "{body}");
+        assert!(body.contains("[key removed]"), "{body}");
     }
 
     /// The test server sends its first chunk, waits until the page has it,
