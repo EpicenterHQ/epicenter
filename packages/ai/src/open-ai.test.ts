@@ -40,7 +40,9 @@ test('an HTTP endpoint sends under its base URL with its key and never elsewhere
 	expect(calls[0]?.init?.redirect).toBe('error');
 	await expect(endpoint.fetch('https://elsewhere.test/x')).rejects.toThrow();
 	await expect(endpoint.fetch('../../escape')).rejects.toThrow();
-	expect(() => custom({ baseUrl: 'https://u:p@x.test/v1' })).toThrow();
+	await expect(
+		custom({ baseUrl: 'https://u:p@x.test/v1' }).fetch('models'),
+	).rejects.toThrow('Not an endpoint base URL');
 });
 
 test('a custom endpoint guesses what each listed id can do', () => {

@@ -1,10 +1,4 @@
-export type {
-	InferenceTarget,
-	ResolvedInferenceTarget,
-} from '../target.js';
-export {
-	createInferenceCatalog,
-	type HostedModel,
-	type InferenceCatalog,
-} from './catalog.svelte.js';
-export { default as InferencePicker } from './inference-picker.svelte';
+/** `@epicenter/ai/picker`: choose a model from every merged endpoint and keep the person's connections. */
+
+export { default as ModelPicker } from './model-picker.svelte';
+export { CONNECTION_PRESETS, type PresetId } from './presets.js';

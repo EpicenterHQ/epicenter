@@ -100,19 +100,18 @@ export function openAiCompatible({
 	fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 	models: () => readonly EndpointModel[];
 }): Endpoint {
-	const base = baseUrlOf(baseUrl);
 	const bearer = key?.trim();
 	return {
 		id,
 		name,
 		source,
 		models,
-		fetch(path, init) {
+		// A saved base URL that does not parse fails each request, not the app.
+		async fetch(path, init) {
+			const base = baseUrlOf(baseUrl);
 			const url = new URL(path, `${base}/`).href;
 			if (!url.startsWith(`${base}/`))
-				return Promise.reject(
-					new Error(`A request cannot leave its endpoint: ${path}`),
-				);
+				throw new Error(`A request cannot leave its endpoint: ${path}`);
 			const headers = new Headers(init?.headers);
 			headers.delete('authorization');
 			headers.delete('cookie');

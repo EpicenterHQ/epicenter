@@ -1,13 +1,11 @@
-import type { InferenceTarget } from './target.js';
+import type { ModelChoice } from './open-ai.js';
 
 function invalid(): never {
-	throw new Error('Invalid persisted inference selections.');
+	throw new Error('Invalid persisted model choices.');
 }
 
 /** Validate application-owned choices while retaining unavailable references. */
-function validateInferenceSelections(
-	value: unknown,
-): Record<string, InferenceTarget> {
+function validateModelChoices(value: unknown): Record<string, ModelChoice> {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
 	return Object.fromEntries(
 		Object.entries(value).map(([scope, value]: [string, unknown]) => {
@@ -16,18 +14,18 @@ function validateInferenceSelections(
 			const entry = value as Record<string, unknown>;
 			if (
 				Object.keys(entry).some(
-					(key) => !['connectionId', 'model'].includes(key),
+					(key) => !['endpoint', 'model'].includes(key),
 				) ||
-				typeof entry.connectionId !== 'string' ||
+				typeof entry.endpoint !== 'string' ||
 				typeof entry.model !== 'string'
 			)
 				invalid();
-			return [scope, { connectionId: entry.connectionId, model: entry.model }];
+			return [scope, { endpoint: entry.endpoint, model: entry.model }];
 		}),
 	);
 }
 
-function parseInferenceSelections(raw: string) {
+function parseModelChoices(raw: string) {
 	let value: unknown;
 	try {
 		value = JSON.parse(raw);
@@ -38,17 +36,22 @@ function parseInferenceSelections(raw: string) {
 	const entry = value as Record<string, unknown>;
 	if (
 		entry.version !== 1 ||
-		Object.keys(entry).some((key) => !['version', 'selections'].includes(key))
+		Object.keys(entry).some((key) => !['version', 'choices'].includes(key))
 	)
 		invalid();
 	return {
 		version: 1 as const,
-		selections: validateInferenceSelections(entry.selections),
+		choices: validateModelChoices(entry.choices),
 	};
 }
 
-/** Owns a page's workflow choices independently of its App and UI framework. */
-export function createInferenceSelections({
+/**
+ * Owns a page's model choice for each of its workflows (such as `tutor`),
+ * independently of its App and UI framework. A choice names an endpoint and
+ * a model there; one whose endpoint is gone stays saved and resolves to
+ * nothing, so it never falls back to another endpoint.
+ */
+export function createModelChoices({
 	storage,
 	storageKey,
 	subscribeStorage,
@@ -57,18 +60,18 @@ export function createInferenceSelections({
 	storageKey: string;
 	subscribeStorage?: (listener: () => void) => () => void;
 }) {
-	const key = `${storageKey}.app-ai-selections`;
+	const key = `${storageKey}.model-choices`;
 	let disposed = false;
 	const listeners = new Set<() => void>();
 	function load() {
 		const raw = storage.getItem(key);
 		return raw === null
-			? { version: 1 as const, selections: {} }
-			: parseInferenceSelections(raw);
+			? { version: 1 as const, choices: {} }
+			: parseModelChoices(raw);
 	}
 	let state = load();
 	function assertOpen() {
-		if (disposed) throw new Error('Inference selections are disposed.');
+		if (disposed) throw new Error('Model choices are disposed.');
 	}
 	function notify() {
 		for (const listener of listeners) listener();
@@ -81,19 +84,19 @@ export function createInferenceSelections({
 		notify();
 	});
 	return {
-		get(scope: string): InferenceTarget | null {
+		get(scope: string): ModelChoice | null {
 			assertOpen();
-			return Object.hasOwn(state.selections, scope)
-				? { ...state.selections[scope]! }
+			return Object.hasOwn(state.choices, scope)
+				? { ...state.choices[scope]! }
 				: null;
 		},
-		set(scope: string, target: InferenceTarget) {
+		set(scope: string, choice: ModelChoice) {
 			assertOpen();
 			const next = {
 				version: 1 as const,
-				selections: validateInferenceSelections({
-					...state.selections,
-					[scope]: target,
+				choices: validateModelChoices({
+					...state.choices,
+					[scope]: choice,
 				}),
 			};
 			storage.setItem(key, JSON.stringify(next));
@@ -115,19 +118,19 @@ export function createInferenceSelections({
 		},
 	};
 }
-export type InferenceSelections = ReturnType<typeof createInferenceSelections>;
+export type ModelChoices = ReturnType<typeof createModelChoices>;
 
-export function createBrowserInferenceSelections(appId: string) {
+/** This browser's model choices for app `appId`, kept in its storage for the site. */
+export function createBrowserModelChoices(appId: string) {
 	const storageKey = `${appId}/ai`;
-	return createInferenceSelections({
+	return createModelChoices({
 		storage: window.localStorage,
 		storageKey,
 		subscribeStorage(listener) {
 			const changed = (event: StorageEvent) => {
 				if (
 					event.storageArea === window.localStorage &&
-					(event.key === `${storageKey}.app-ai-selections` ||
-						event.key === null)
+					(event.key === `${storageKey}.model-choices` || event.key === null)
 				)
 					listener();
 			};

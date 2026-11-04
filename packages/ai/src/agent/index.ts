@@ -1,5 +1,6 @@
 /** `@epicenter/ai/agent`: a UI-free agent loop over explicit host capabilities. */
 
+export { type ChatTurn, createChatEngine } from './chat-engine.js';
 export type {
 	AgentEngine,
 	AgentEngineRequest,

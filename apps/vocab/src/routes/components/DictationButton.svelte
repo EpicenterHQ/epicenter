@@ -7,14 +7,16 @@
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { onDestroy } from 'svelte';
-	import type { InferenceCatalog } from '@epicenter/ai/picker';
+	import type { AiError, Transcription } from '@epicenter/ai';
+	import type { Result } from 'wellcrafted/result';
 
 	let {
-		catalog,
+		transcribe,
 		onTranscript,
 		disabled = false,
 	}: {
-		catalog: InferenceCatalog;
+		/** Where each spoken phrase is transcribed. */
+		transcribe: (file: File, signal: AbortSignal) => Promise<Result<Transcription, AiError>>;
 		/** Called with the recognized text once a spoken phrase transcribes. */
 		onTranscript: (text: string) => void;
 		/**
@@ -23,10 +25,7 @@
 		 */
 		disabled?: boolean;
 	} = $props();
-	const dictation = createDictation(async () => {
-		await catalog.ready;
-		return catalog.ai.account?.client ?? null;
-	});
+	const dictation = createDictation({ transcribe: (file, signal) => transcribe(file, signal) });
 	onDestroy(() => {
 		void dictation.close().catch((cause) => toast.error('Could not stop dictation', { description: extractErrorMessage(cause) }));
 	});

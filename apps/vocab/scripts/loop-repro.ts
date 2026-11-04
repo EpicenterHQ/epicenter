@@ -7,15 +7,15 @@
  *   bun run apps/vocab/scripts/loop-repro.ts qwen3:30b-a3b-instruct-2507-q4_K_M
  */
 
+import { custom, openAi } from '@epicenter/ai';
 import {
 	type AgentEngine,
 	type AgentMessage,
 	type AgentMessageStore,
 	agentMessageText,
+	createChatEngine,
 	createConversation,
 } from '@epicenter/ai/agent';
-import { createOpenAiAgentEngine } from '@epicenter/ai/openai';
-import OpenAI from 'openai';
 import { Ok } from 'wellcrafted/result';
 import { VOCAB_SYSTEM_PROMPT } from '../src/lib/data.js';
 
@@ -83,16 +83,12 @@ async function sendAndWait(
 }
 
 async function main(): Promise<void> {
-	const client = new OpenAI({
-		baseURL: baseUrl,
-		apiKey: 'unauthenticated',
-		defaultHeaders: { Authorization: null },
-		maxRetries: 0,
-	});
+	const ai = openAi([custom({ id: 'ollama', baseUrl })]);
 	const engine = loggingEngine(
-		createOpenAiAgentEngine({
-			data: () => ({
-				client,
+		createChatEngine({
+			turn: () => ({
+				ai,
+				endpoint: 'ollama',
 				model,
 				systemPrompts: [VOCAB_SYSTEM_PROMPT],
 			}),

@@ -14,7 +14,7 @@
 
 import type { AuthClient } from '@epicenter/account';
 import type { ReactiveAuthClient } from '@epicenter/account/svelte';
-import type { ConnectionCatalog } from '@epicenter/ai/connections';
+import type { AiConnections } from '@epicenter/ai/connections';
 import type { Component, Snippet } from 'svelte';
 
 /** What the header tells `Chrome`: why the words or chats did not list, if they did not. */
@@ -56,4 +56,4 @@ export type VocabAuth = ReactiveAuthClient<AuthClient> & {
  * desktop window keeps the list in its AppData root's `connections.md` and
  * each key in the keychain, and its shell sends their requests with the key.
  */
-export type OpenConnections = () => Promise<ConnectionCatalog>;
+export type OpenConnections = () => Promise<AiConnections>;

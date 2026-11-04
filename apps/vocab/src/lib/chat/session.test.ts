@@ -1,11 +1,12 @@
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
+import { custom, openAi } from '@epicenter/ai';
 import type { AgentMessage } from '@epicenter/ai/agent';
-import OpenAI from 'openai';
 import { expectOk } from 'wellcrafted/testing';
 
 const { openVocabFolder, until } = await import('../vocab.test-support.js');
 const { createVocabChat } = await import('./session.svelte.js');
+const { fromAi } = await import('@epicenter/ai/svelte');
 const { createChatMessageStore } = await import('./messages.svelte.js');
 const { startChat } = await import('./chats.js');
 
@@ -43,10 +44,10 @@ async function setup({ question = false } = {}) {
 		held: undefined as Promise<void> | undefined,
 		answers: [] as Promise<void>[],
 	};
-	const client = new OpenAI({
-		apiKey: 'test',
-		baseURL: 'https://tutor.test/v1',
-		maxRetries: 0,
+	const tutorEndpoint = custom({
+		id: 'tutor',
+		baseUrl: 'https://tutor.test/v1',
+		models: ['test-model'],
 		fetch: async () => {
 			requests++;
 			if (tutor.status !== 200)
@@ -83,13 +84,12 @@ async function setup({ question = false } = {}) {
 			);
 		},
 	});
-	const catalogMock = sessionDouble<ChatOptions['catalog']>({
-		accountId: 'account',
+	const ai = {
+		current: fromAi(openAi([tutorEndpoint])),
 		ready: Promise.resolve(),
-		resolve: () => ({ source: 'account', client, model: 'test-model' }),
-	});
-	const selectionsMock = sessionDouble<ChatOptions['selections']>({
-		get: () => null,
+	};
+	const choices = sessionDouble<ChatOptions['choices']>({
+		get: () => ({ endpoint: 'tutor', model: 'test-model' }),
 		set: () => {},
 		onChange: () => () => {},
 	});
@@ -97,8 +97,8 @@ async function setup({ question = false } = {}) {
 		messages: folder.lists.messages,
 		chatId,
 		focus: [{ text: 'lucid' }],
-		catalog: catalogMock,
-		selections: selectionsMock,
+		ai,
+		choices,
 	});
 	return {
 		chat,

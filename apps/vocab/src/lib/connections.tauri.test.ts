@@ -121,9 +121,9 @@ test('a connection’s requests go through the shell by its id, with no key from
 	const id = await connections.add({ baseUrl: ENDPOINT, apiKey: 'sk-1' });
 	const [record] = connections.getAll();
 	expect(record).not.toHaveProperty('apiKey');
-	const transport = connections.transport(record!);
-	expect(transport.baseURL).toBe(ENDPOINT);
-	expect(await (await transport.fetch(`${ENDPOINT}/models`)).text()).toBe(
+	const endpoint = connections.endpoint(record!);
+	expect(endpoint.id).toBe(id);
+	expect(await (await endpoint.fetch('models')).text()).toBe(
 		'sent by the shell',
 	);
 	expect(sent).toEqual([id]);

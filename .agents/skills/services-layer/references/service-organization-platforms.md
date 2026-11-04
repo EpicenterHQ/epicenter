@@ -46,7 +46,7 @@ adding or moving a service.
 
 When only one capability differs, give it its own seam rather than a
 services object. Vocab's `#platform/connections` exports `openConnections`:
-the web leaf is `openLocalConnectionCatalog` from `@epicenter/ai/connections`
+the web leaf is `createBrowserConnections` from `@epicenter/ai/connections`
 (browser storage, keys included); the desktop leaf keeps the endpoint list in
 `connections.md` in the AppData root and each key in the keychain under the
 connection's id, applying a key only while the connection still names the

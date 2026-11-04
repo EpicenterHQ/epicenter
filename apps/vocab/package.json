@@ -46,7 +46,6 @@
 		"@lucide/svelte": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"mode-watcher": "^1.1.0",
-		"openai": "^7.12.1",
 		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	},

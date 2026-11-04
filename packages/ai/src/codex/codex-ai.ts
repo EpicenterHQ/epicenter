@@ -1,7 +1,7 @@
 import { Ok, type Result } from 'wellcrafted/result';
 import {
-	type Ai,
 	createReplyStream,
+	type Replier,
 	ReplyError,
 	type ReplyRequest,
 } from './reply.js';
@@ -199,5 +199,5 @@ export function createCodexAi(
 				generate(captured, signal),
 			);
 		},
-	} satisfies Ai);
+	} satisfies Replier);
 }

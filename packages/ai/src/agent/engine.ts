@@ -3,7 +3,7 @@
  * (ADR-0049/0050) agree on, and the only thing they share.
  *
  * The loop (`./loop.ts`) consumes an {@link AgentEngine}; the OpenAI-compatible
- * engine (`../openai/agent-engine.ts`) produces one. Neither imports the other,
+ * engine (`./chat-engine.ts`, over `ai.chat`) produces one. Neither imports the other,
  * so the wire shape lives here and both import it.
  *
  * The vocabulary is the loop's own, not a vendor SDK's: an OpenAI-compatible
