@@ -11,7 +11,8 @@
  * - A listing that fails is tried again while someone listens, so a passing
  *   storage failure does not leave the list frozen
  * - A write shows at once, without waiting for a listing; a create refused
- *   as `Occupied` shows what is there instead
+ *   as `Occupied` shows what is there instead, and answers `Unavailable`
+ *   when what is there cannot be read
  * - `update` carries an edit over another writer's other fields, and after a
  *   clash shows theirs, so saving again applies over it
  * - Invalid notes are shown with their text, and `replace` repairs one;
@@ -223,6 +224,24 @@ test('a create refused as Occupied shows what is there, before it answers', asyn
 	expect(refused.name).toBe('Occupied');
 	expect(files.todos.get({ id: 'a' })?.title).toBe('Theirs');
 	expect(files.todos.items()).toHaveLength(1);
+});
+
+test('a refusal the folder cannot read again answers Unavailable, not the refusal', async () => {
+	const { open } = await folder();
+	const device = await open();
+	const files = over(todos, {
+		...device,
+		todos: {
+			...device.todos,
+			create: async () => ClientError.Occupied({ path: 'todos/a.md' }),
+			get: async () => ClientError.Unavailable({ cause: 'offline' }),
+		},
+	} as Client<Todos>);
+	const refused = expectErr(
+		await files.todos.create({ id: 'a', title: 'Mine', done: false }),
+	);
+	expect(refused).toMatchObject({ name: 'Unavailable', cause: 'offline' });
+	expect(files.todos.get({ id: 'a' })).toBeUndefined();
 });
 
 test('a listing a change interrupted never replaces a newer one', async () => {

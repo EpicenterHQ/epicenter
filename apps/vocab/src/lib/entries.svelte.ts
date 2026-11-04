@@ -91,7 +91,9 @@ export function createEntries(list: EntryList) {
 		/**
 		 * Trim and normalize an expression, then save it under its SHA-256 id.
 		 * Exact text already listed answers `present`; a different file at that
-		 * id answers `Taken`. Lone surrogates become U+FFFD.
+		 * id answers `Taken`. A file there that cannot be read now (offline)
+		 * answers `NotSaved`: the folder says what refused a create only once
+		 * it shows it. Lone surrogates become U+FFFD.
 		 */
 		async add(text: string): Promise<Result<'added' | 'present', EntryError>> {
 			const exact = text.trim().toWellFormed();

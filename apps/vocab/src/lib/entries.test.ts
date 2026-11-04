@@ -4,15 +4,20 @@
  * Key behaviors:
  * - Adding trims and normalizes, names the note by the text's SHA-256, and
  *   answers `present` for a word already saved; two adds make one word
- * - A different file at the word's path is `Taken`
+ * - A different file at the word's path is `Taken`; when what is there
+ *   cannot be read, the word is `NotSaved`, not `Taken`
  * - A stage change keeps keys and body it does not name; the note is the body
  * - A note that does not read is listed to repair, and `replace` repairs it
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
+import { ClientError } from '@epicenter/definition/contract';
+import { createFolder } from '@epicenter/folder/core';
+import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 
 const { openVocabFolder, until } = await import('./vocab.test-support.js');
+const { vocab } = await import('./contract.js');
 const { createEntries } = await import('./entries.svelte.js');
 
 const note = (text: string, stage = 'new', body = '') =>
@@ -57,6 +62,26 @@ test('a different file at the hashed path is Taken', async () => {
 	const id = entries.words[0]?.id ?? '';
 	expectOk(await folder.lists.entries.update({ id }, { text: 'other' }));
 	expect((await entries.add('lucid')).error?.name).toBe('Taken');
+});
+
+test('a word whose path is taken by a file that cannot be read now is NotSaved, not Taken', async () => {
+	await using folder = await openVocabFolder();
+	const offline = createFolder(vocab, async () =>
+		Ok({
+			...folder.client,
+			entries: {
+				...folder.client.entries,
+				create: async () => ClientError.Occupied({ path: 'entries/x.md' }),
+				get: async () => ClientError.Unavailable({ cause: 'offline' }),
+			},
+		}),
+	);
+	const entries = createEntries(offline.entries);
+	expect((await entries.add('lucid')).error).toMatchObject({
+		name: 'NotSaved',
+		cause: { name: 'Unavailable' },
+	});
+	offline[Symbol.dispose]();
 });
 
 test('a stage change keeps what it does not name, and the note is the body', async () => {

@@ -17,6 +17,11 @@
  *   `update` follows `updateNote`: carried over another writer's change to
  *   other fields; a `Conflict` when they changed the same one, and then the
  *   folder shows theirs, so saving again applies over it.
+ * - A note write's refusal (`Conflict`, `NotFound`, a create's `Occupied`)
+ *   answers only once the folder shows what refused it: `get(args)` after
+ *   the answer is the note there now. When it cannot be read again, the
+ *   write answers `Unavailable` instead. A file collection does not keep
+ *   this promise yet: it answers the refusal and lists again behind it.
  * - Every async method waits for the open, then runs. When the open fails it
  *   answers `Err(OpenFolderError)`, so each action's error type includes the
  *   open's; a retry starts a new attempt for the actions called after it.
@@ -117,6 +122,12 @@ export type NoteBase<TCollection extends Collection> = {
 /**
  * A note collection of a folder: its reads, and its writes, each waiting
  * for the open and made over the note as shown unless told otherwise.
+ *
+ * A write's refusal (`Conflict`, `NotFound`, a create's `Occupied`) answers
+ * only once `get(args)` shows what refused it: the note read again, or
+ * nothing when it is gone. When that read answers `Unavailable` the write
+ * answers it instead, so a refusal always means the folder shows its
+ * reason. A note there that does not read keeps the refusal.
  */
 export type FolderNotes<TCollection extends Collection> = Reads<
 	NoteOf<TCollection>
@@ -584,9 +595,14 @@ function folderCollection(
 
 	/**
 	 * After a write, show what it answered: what landed, or, after a
-	 * `Conflict`, a `NotFound` or a create's `Occupied`, what is there now (a
-	 * note read again, files listed again), so a caller reading the entry
-	 * after the answer sees what refused it.
+	 * `Conflict`, a `NotFound` or a create's `Occupied`, what refused it.
+	 *
+	 * A note's refusal answers only once the folder shows what refused it: the
+	 * note is read again and shown (or dropped, when nothing is there). When
+	 * that read answers `Unavailable`, the folder cannot show it, so the write
+	 * answers that `Unavailable` instead of a refusal the caller could not
+	 * act on. A note that is there but does not read keeps the refusal. Files
+	 * only start a listing, and answer the refusal before it shows.
 	 */
 	async function settle(
 		collection: Raw,
@@ -610,6 +626,7 @@ function folderCollection(
 		const now = await collection.get(at as never);
 		if (now.error === null) put(now.data as Entry, at);
 		else if (now.error.name === 'NotFound') drop(at);
+		else if (now.error.name === 'Unavailable') return now;
 		return written;
 	}
 
