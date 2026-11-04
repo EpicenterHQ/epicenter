@@ -1,8 +1,8 @@
 <!--
 	Every page of Whispering: the chrome. The app is the `(app)` group at `/`,
-	whose layout opens the build's store (this browser's files on the web, the
+	whose layout opens the build's store (`folder` from `src/lib/app.ts`: this browser's files on the web, the
 	data folder on the desktop) and guards leaving while it saves
-	(`WhisperingApp`); the sign-in callback is outside it and opens nothing.
+	(`<WhenOpen>`); the sign-in callback is outside it and reads no files.
 -->
 <script lang="ts">
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';

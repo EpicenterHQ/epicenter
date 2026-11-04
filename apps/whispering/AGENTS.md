@@ -11,21 +11,21 @@ Signing in with Epicenter is optional and grants capabilities only. Read
 
 ## Constraints
 
-- **One store, chosen in one place.** The variant's `Startup`
-  (`#platform/root`: `LocalStartup` or `DesktopStartup` in
-  `src/lib/components/`) opens it, and `src/routes/(app)/+layout.svelte`
-  passes its client to `WhisperingApp` as `client`. Components read through
-  the library (`getLibrary`) and edit a note through its collection's
-  context (`getRecordings().edit({ id })`), never a client of their own.
-  ADR-0766 replaces `Startup` and these contexts with the `folder` that
-  `src/lib/app.ts` exports.
+- **One store, chosen in one place.** `src/lib/app.ts` opens it,
+  `openFolder(whispering, { site })`, which the build picks (this browser's
+  storage on the web, the data folder on the desktop, memory under `test`),
+  and `src/routes/(app)/+layout.svelte` renders the app over it with
+  `<WhenOpen>`. Components read through the library (`getLibrary`) and edit
+  a note through the folder (`folder.recordings.edit({ id })`), never a
+  store of their own.
 - **The build chooses the variant.** Everything that differs is a
-  `#platform/*` leaf (`root`, `services`, `auth`, `variant`; `*.tauri.ts`
+  `#platform/*` leaf (`account`, `computer`, `components`, `variant`; `*.tauri.ts`
   and `components/Desktop*.svelte` for the desktop). No runtime
   `isTauri()` branching. Leaves and what they import use relative imports,
   not `$lib`, so `src/lib/platform/platform.test.ts` can bundle them.
 - **Sign-in grants capabilities, never storage.** It asks for the API
-  audience and `ai` only (`src/lib/platform/auth.ts`). Do not add a Git
+  audience and `ai` only (`src/lib/platform/account.ts`), and `app.ts`
+  gives `openFolder` no account. Do not add a Git
   audience, a `folders:*` scope, `openRemote`, an uploader, an
   outbox, a cache of uploaded audio, a repository view, or a switcher.
   Nothing a sign-in or sign-out does touches the files.
@@ -33,28 +33,29 @@ Signing in with Epicenter is optional and grants capabilities only. Read
 - **No migration or compatibility code** (decision 72). Nothing reads an
   earlier build's IndexedDB folder or Yjs store. Do not add a second store
   or a cache of notes.
-- **Capabilities through the seam.** Capture, the endpoints models are
-  reached at, connections and preferences come from `#platform/services`,
-  auth from `#platform/auth`
-  (`src/lib/platform/`). Nothing under `src/` imports Node or Bun, and only
-  the desktop leaves import Tauri.
+- **Capabilities through the seam.** What differs by build in capture, the
+  models on this computer and the shortcut comes from `#platform/computer`,
+  the sign-in from `#platform/account` (`src/lib/platform/`), and `app.ts`
+  alone makes the capabilities from them. Nothing under `src/` imports Node
+  or Bun, and only the desktop leaves import Tauri.
 - **Capabilities are module values; product state is the app's own.**
   `src/lib/app.ts` exports the capabilities (`folder`, `account`, `ai`,
-  `choices`, `recorder`) as module values opened once per page, and code
-  imports them rather than receiving them through context
+  `choices`, `speech`, `recorder`, `shortcut`) as module values opened once
+  per page, with no `await` and no hot-reload lines, and code imports them
+  rather than receiving them through context
   ([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
-  Until Whispering moves there, the `Startup` and `#platform/services` above
-  still open them. Product state lives in Whispering's own objects, created
-  once: `WhisperingApp` makes Whispering and its library, and route changes
-  and sign-in keep them. Keep other product state out of module-level
+  Product state lives in Whispering's own objects, created
+  once: `WhisperingApp` makes Whispering and its library over those
+  capabilities, and route changes and sign-in keep them. Keep other product state out of module-level
   variables. `dispose` refuses new work and late replies and waits for
   nothing; a recording under way ends with the page.
 - **A recording's note is written once, after Stop, when its audio is at
   its path** (on the desktop, once the shell has encoded it), so a note
   never names audio that is not there and the library never lists a take in
   progress. Audio a quit, a crash, or a closed tab left without a note gets
-  one on the next start (`folder-recordings.ts`); do not add another path
-  that writes a recording's note. Its note holds facts only:
+  one on the next start (`folder-recordings.ts`), which waits through the
+  folder's listing, never on its `state()`; do not add another path that
+  writes a recording's note. Its note holds facts only:
   never add a status, pending, or interrupted field. Store no audio path in
   a note: the audio is `recordings/<id>.<ext>`; refuse ambiguous matches. A
   recording the browser cannot keep stays in the page to save again or
@@ -90,6 +91,8 @@ server runtime), `bun run build`, `cargo test -p whispering` (after
 `bun run build:native`),
 and `bun run test:e2e` (Playwright in Chromium and WebKit over the local
 stack; port 1420 must be free). `bun run test:postgres` checks the sign-in
-against a real authorization server. Unit tests open a `/node` device
-client over a temporary directory and a library over it. Only the
+against a real authorization server. Unit tests run under the `test`
+condition, where `app.ts`'s folder and this computer's files are memory;
+Whispering's own tests open a `/node` device client over a temporary
+directory and a folder and library over it. Only the
 end-to-end suite, or using the app, establishes that it works in a browser.

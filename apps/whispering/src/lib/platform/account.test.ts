@@ -1,24 +1,9 @@
-/** Browser hosted inference sends through the signed-in account's `fetch`, as the desktop's does through the shell, and follows sign-out without a new merge. */
+/** The web build's sign-in (`connectAccount()`): Epicenter's hosted models send through its `fetch`, as the desktop's do through the shell, and follow sign-out without a new merge. */
 import { afterEach, expect, test } from 'bun:test';
 import { epicenterCloud, selfHostedServer } from '@epicenter/account';
-import type { Client } from '@epicenter/definition/contract';
 import { APPS, resolveOAuthAudiences } from '@epicenter/definition/site';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/vite-config/app-urls';
 import { expectOk } from 'wellcrafted/testing';
-import type { Whispering } from '../contract.js';
-
-Bun.plugin({
-	name: 'browser-account-build-flag',
-	setup(build) {
-		build.onLoad({ filter: /\/platform\/browser\.ts$/ }, async ({ path }) => ({
-			contents: new Bun.Transpiler({
-				loader: 'ts',
-				define: { 'import.meta.env.DEV': 'false' },
-			}).transformSync(await Bun.file(path).text()),
-			loader: 'js',
-		}));
-	},
-});
 
 const saved = new Map<string, string>();
 const storage = {
@@ -76,16 +61,15 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 	return Response.json({ choices: [{ message: { content: 'ok' } }] });
 }) as typeof fetch;
 
-const { createServices } = await import('./browser.js');
-/** The browser's services need nothing of the client they are made over. */
-const client = {} as Client<Whispering>;
-const { getAuth } = await import('./auth.js');
+const { hosted: hostedModels, openAi } = await import('@epicenter/ai');
+const { connectAccount } = await import('./account.js');
+const account = connectAccount();
 afterEach(() => {
 	sent.length = 0;
 });
 
 test('Epicenter’s models are sent with the account’s bearer, and once signed out the same endpoint sends nothing', async () => {
-	const { ai } = createServices(client);
+	const ai = openAi([hostedModels(account)]);
 	const origin = new URL(server.baseURL).origin;
 	const hosted = ai.endpoints().find(({ id }) => id === 'hosted')!;
 	expect(hosted.baseUrl).toBe(`${origin}/v1`);
@@ -100,7 +84,7 @@ test('Epicenter’s models are sent with the account’s bearer, and once signed
 		},
 	]);
 
-	expectOk(await getAuth().signOut());
+	expectOk(await account.signOut());
 	sent.length = 0;
 	expect(ai.endpoints().find(({ id }) => id === 'hosted')).toBe(hosted);
 	expect(hosted.baseUrl).toBe(`${origin}/v1`);
@@ -111,7 +95,7 @@ test('Epicenter’s models are sent with the account’s bearer, and once signed
 	expect(refusal).toBeInstanceOf(Error);
 	expect((refusal as Error).name).toBe('SignedOut');
 	expect(sent).toEqual([]);
-	getAuth()[Symbol.dispose]();
+	account[Symbol.dispose]();
 });
 
 afterEach(() => {

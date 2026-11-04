@@ -1,19 +1,14 @@
 <!--
-	Whispering over one contract client, which the variant's `Startup` passes in
-	with the same client as a folder (`folderOf`, read through `reactive`):
-	the services, the connections, the microphone and the recorder
-	(`createWhispering`), the library the pages read (`createLibrary` over
-	`filesOf(files)`), the note collections the pages edit (`setRecordings`,
-	`setTranscriptions`, `setTransformations`), and the frame around the
-	pages. Every note is written through the folder, so leaving while it is
-	`saving()` asks first (a browser's "Leave site?"); closing a desktop
-	window does not ask, a small, rare loss at the edge (ADR-0702). Made once
-	for the page; it stops taking work when it leaves.
+	Whispering over the capabilities `src/lib/app.ts` opened, rendered by the
+	app's root only once its folder is open (`<WhenOpen>`): Whispering itself
+	(`createWhispering`: the models, the microphone and the recorder) and the
+	library the pages read (`createLibrary` over `filesOf(folder)`), the
+	product state each page reads from context, and the frame around the
+	pages. Every note is written through the folder, whose `saving()` the
+	root's leave guard reads. Made once for the page; it stops taking work
+	when it leaves.
 -->
 <script lang="ts">
-	import type { Client } from '@epicenter/definition/contract';
-	import type { Folder } from '@epicenter/folder/core';
-	import LeaveGuard from '@epicenter/svelte/leave-guard';
 	import * as Alert from '@epicenter/ui/alert';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Sidebar from '@epicenter/ui/sidebar';
@@ -21,40 +16,28 @@
 	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { variant } from '#platform/variant';
-	import type { Whispering as WhisperingContract } from '$lib/contract.js';
-	import { filesOf, setRecordings, setTranscriptions, setTransformations } from '$lib/files.svelte.js';
+	import { ai, choices, folder, recorder } from '$lib/app.js';
+	import { filesOf } from '$lib/files.svelte.js';
 	import { createLibrary, setLibrary } from '$lib/library.svelte.js';
+	import { localPreferences } from '$lib/microphone-preference.js';
 	import { sentences } from '$lib/sentences.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import BottomNav from './BottomNav.svelte';
 	import VerticalNav from './VerticalNav.svelte';
 
-	let {
-		client,
-		files,
-		children,
-	}: {
-		/** Whispering's files for this page's whole life: the variant's store. */
-		client: Client<WhisperingContract>;
-		/** The same client as a folder through `reactive`, made once where `Startup` opened it. */
-		files: Folder<WhisperingContract>;
-		children: Snippet;
-	} = $props();
+	let { children }: { children: Snippet } = $props();
 
-	// One client for the component's life.
-	// svelte-ignore state_referenced_locally
-	const whispering = createWhispering({ client, files });
+	const whispering = createWhispering({
+		folder,
+		ai,
+		choices,
+		capture: recorder,
+		preferences: localPreferences,
+	});
 	setWhispering(whispering);
-	// svelte-ignore state_referenced_locally
-	const library = createLibrary({ whispering, files: filesOf(files) });
+	const library = createLibrary({ whispering, files: filesOf(folder) });
 	setLibrary(library);
-	// svelte-ignore state_referenced_locally
-	setRecordings(files.recordings);
-	// svelte-ignore state_referenced_locally
-	setTranscriptions(files.transcriptions);
-	// svelte-ignore state_referenced_locally
-	setTransformations(files.transformations);
 	// Leaving waits for nothing; a recording under way ends with the page.
 	onDestroy(() => {
 		library.dispose();
@@ -116,5 +99,3 @@
 		<BottomNav />
 	</div>
 {/if}
-
-<LeaveGuard folder={files} />

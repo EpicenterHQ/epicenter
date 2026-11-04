@@ -4,7 +4,8 @@
 	the models that transcribe on this computer, and the global shortcut.
 -->
 <script lang="ts">
-	import { getFolderSync } from '@epicenter/svelte/folder-sync';
+	import { APPS } from '@epicenter/definition/site';
+	import { folderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
 	import FolderOnboarding from '@epicenter/svelte/folder-onboarding';
 	import LocalModelAdministration from '@epicenter/transcription/local-model-administration';
@@ -13,16 +14,17 @@
 	import { Input } from '@epicenter/ui/input';
 	import { Label } from '@epicenter/ui/label';
 	import { Separator } from '@epicenter/ui/separator';
-	import { getLocalSpeech } from '../platform/services.tauri.js';
-	import { acceleratorOf, getGlobalShortcut, labelOf } from '../platform/shortcut.tauri.svelte.js';
+	import { folder, shortcut as held, speech } from '../app.js';
+	import { acceleratorOf, labelOf } from '../platform/shortcut.tauri.js';
 	import { getWhispering } from '../whispering.svelte.js';
 
-	const sync = getFolderSync();
-	const shortcut = getGlobalShortcut();
+	// `<WhenOpen>` renders the app, and so this, only over the open data folder.
+	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.WHISPERING.url });
+	// The desktop always holds a global shortcut; only the web has none.
+	const shortcut = held!;
 	const whispering = getWhispering();
 
-	/** The models on this computer: the same handle Whispering's models merge, so a download lists at once. */
-	const speech = getLocalSpeech();
+	// `speech` is the models on this computer: the same handle Whispering's models merge, so a download lists at once.
 	/** The local model in use is Whispering's transcription choice, when it names one here. */
 	const choice = {
 		chosen() {
@@ -62,8 +64,8 @@
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
 		saving = true;
-		unsaved = await shortcut.save(typed ?? shortcut.accelerator, {
-			onThisComputer: here ?? shortcut.onThisComputer,
+		unsaved = await shortcut.save(typed ?? shortcut.accelerator(), {
+			onThisComputer: here ?? shortcut.onThisComputer(),
 		});
 		saving = false;
 		if (unsaved === null) {
@@ -96,7 +98,7 @@
 <section class="flex flex-col gap-2 text-xs" data-testid="desktop-shortcut">
 	<p class="text-sm font-medium">Shortcut</p>
 	<p class="text-muted-foreground">
-		<kbd class="rounded border px-1" data-testid="shortcut-label">{shortcut.label}</kbd> starts and stops a recording from any app.
+		<kbd class="rounded border px-1" data-testid="shortcut-label">{shortcut.label()}</kbd> starts and stops a recording from any app.
 	</p>
 	<form class="flex flex-col gap-2" onsubmit={save}>
 		<Label for="global-shortcut" class="font-normal">Press the keys here: a modifier and a key, or a function key</Label>
@@ -107,19 +109,19 @@
 				readonly
 				spellcheck={false}
 				autocomplete="off"
-				disabled={!shortcut.read || saving}
-				value={labelOf(typed ?? shortcut.accelerator)}
+				disabled={!shortcut.read() || saving}
+				value={labelOf(typed ?? shortcut.accelerator())}
 				onkeydown={press}
-				data-accelerator={typed ?? shortcut.accelerator}
+				data-accelerator={typed ?? shortcut.accelerator()}
 				data-testid="shortcut-input"
 			/>
-			<Button size="sm" variant="outline" type="submit" disabled={!shortcut.read || saving} data-testid="shortcut-save">Save</Button>
+			<Button size="sm" variant="outline" type="submit" disabled={!shortcut.read() || saving} data-testid="shortcut-save">Save</Button>
 		</div>
 		<div class="flex items-center gap-2">
 			<Checkbox
 				id="shortcut-this-computer"
-				bind:checked={() => here ?? shortcut.onThisComputer, (checked) => (here = checked)}
-				disabled={!shortcut.read || saving}
+				bind:checked={() => here ?? shortcut.onThisComputer(), (checked) => (here = checked)}
+				disabled={!shortcut.read() || saving}
 				data-testid="shortcut-this-computer"
 			/>
 			<Label for="shortcut-this-computer" class="font-normal">Only on this computer</Label>
@@ -129,7 +131,7 @@
 		Kept in <code>shortcuts.md</code>: the data folder's goes wherever your files go;
 		“Only on this computer” keeps it in this computer's settings instead, ahead of the data folder's.
 	</p>
-	{#if unsaved ?? shortcut.problem}
-		<p class="text-destructive" role="alert" data-testid="shortcut-problem">{unsaved ?? shortcut.problem}</p>
+	{#if unsaved ?? shortcut.problem()}
+		<p class="text-destructive" role="alert" data-testid="shortcut-problem">{unsaved ?? shortcut.problem()}</p>
 	{/if}
 </section>

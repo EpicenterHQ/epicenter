@@ -4,22 +4,17 @@
  * desktop window's under the `tauri` condition (`bun run build:native`).
  * Each leaf annotates against these types, so both stay one shape.
  *
- * - `#platform/root` (`Platform`): which store the pages run over, and the
- *   few components that speak of it.
+ * - `#platform/account`: the optional sign-in with Epicenter
+ *   (`connectAccount`).
+ * - `#platform/computer`: the microphone, the model servers on this
+ *   computer, and the global shortcut (`GlobalShortcut`, desktop only),
+ *   which `src/lib/app.ts` makes its capabilities with.
+ * - `#platform/components` (`Platform`): the few components that speak of
+ *   the build's store.
  * - `#platform/variant` (`Variant`): which build this is, where only a
  *   sentence differs.
- * - `#platform/services` (`CreateServices`): capture, the models this build
- *   reaches (`ai`), and preferences, which own no files.
- * - `#platform/auth` (`PlatformAuth`): the optional sign-in with Epicenter.
  */
-import type { AuthClient } from '@epicenter/account';
-import type { Ai, ModelChoices } from '@epicenter/ai';
-import type { Client } from '@epicenter/definition/contract';
-import type { Folder } from '@epicenter/folder/core';
-import type { Component, Snippet } from 'svelte';
-import type { CaptureDevice } from '../capture.js';
-import type { Whispering } from '../contract.js';
-import type { MicrophonePreferences } from '../microphone-preference.js';
+import type { Component } from 'svelte';
 
 /**
  * Which Whispering this build is: the local web app over this browser's
@@ -28,20 +23,13 @@ import type { MicrophonePreferences } from '../microphone-preference.js';
 export type Variant = 'local' | 'desktop';
 
 /**
- * `#platform/root`: the one thing a variant decides (decision 78).
- * `Startup` opens the store and renders the app over it (`children`, given
- * the store's client and that client read as a folder through `reactive`,
- * once, where it was made: decision 87), or says why it could not: this browser's storage on
- * the web; on the desktop the data folder, or the
- * recovery screen. `Chrome` is the header's account of the store (where the
- * recordings are, and on the desktop whether Epicenter syncs them). `Settings`
- * is what only this build's settings have, above the models, or null.
- * `Callback` is the page that ends a sign-in, which only the web app makes.
+ * `#platform/components`: `Chrome` is the header's account of the store
+ * (where the recordings are, and on the desktop whether Epicenter syncs
+ * them). `Settings` is what only this build's settings have, above the
+ * models, or null. `Callback` is the page that ends a sign-in, which only
+ * the web app makes.
  */
 export type Platform = {
-	Startup: Component<{
-		children: Snippet<[Client<Whispering>, Folder<Whispering>]>;
-	}>;
 	Chrome: Component<ChromeProps>;
 	Settings: Component | null;
 	Callback: Component<CallbackProps>;
@@ -53,44 +41,27 @@ export type ChromeProps = { unwrittenAnswers: number };
 /** What the sign-in callback's page is given: where the app starts. */
 export type CallbackProps = { home: string };
 
-/** This page's sign-in with Epicenter, read through `reactive`: `state()` tracks in Svelte. */
-export type PlatformAuth = AuthClient;
-
-export type WhisperingServices = {
-	/**
-	 * What this app records from, writing each recording into the store as
-	 * it records: the desktop Opus in WebM in the data folder from the first sample,
-	 * a browser each piece into this browser's files. Fixed when the services
-	 * are constructed.
-	 */
-	readonly capture: CaptureDevice;
-	/**
-	 * Every model this build reaches (ADR-0757), made once for the page, in
-	 * the order the model picker lists them: Epicenter's hosted models through
-	 * the account signed in now, the person's connected endpoints
-	 * (`customEndpoints()`), then what runs on this computer. Every entry is
-	 * live, so sign-in and a connection added reach it without a new one.
-	 * Nothing here sends a request until the person asks, and a probe of this
-	 * computer runs only while a picker shows.
-	 */
-	readonly ai: Ai;
-	/**
-	 * This device's model choice for each job, `'transcribe'` and `'chat'`
-	 * (`modelChoices()`): this site's storage on the web, AppData's
-	 * `models.md` beside the connections on the desktop.
-	 */
-	readonly choices: ModelChoices<'transcribe' | 'chat'>;
-	/** Where a connection's key is kept, and where its requests leave from, in the person's words. */
-	readonly connectionsNote: string;
-	/**
-	 * What this device remembers that is neither a file nor a secret. It is
-	 * never written to Whispering's files, so it does not travel with them.
-	 */
-	readonly preferences: MicrophonePreferences;
-};
-
 /**
- * Construct the capabilities this build offers over `client`, the store the
- * app keeps its files in, without I/O. Both builds record into `client`.
+ * The desktop's global shortcut (`openShortcut` in `shortcut.tauri.ts`):
+ * the key `shortcuts.md` resolves to and the shell's hold on it. Reads
+ * answer at once; `subscribe` hears them change.
  */
-export type CreateServices = (client: Client<Whispering>) => WhisperingServices;
+export type GlobalShortcut = {
+	/** True once both `shortcuts.md` notes were read (or found absent). */
+	read(): boolean;
+	/** The resolved key, in the global-shortcut plugin's spelling. */
+	accelerator(): string;
+	/** The resolved key as a person reads it. */
+	label(): string;
+	/** Whether this computer's `shortcuts.md` sets the key, overriding the data folder's. */
+	onThisComputer(): boolean;
+	/** Why the shell does not hold the resolved key, or why this computer's note does not read. */
+	problem(): string | null;
+	subscribe(listener: () => void): () => void;
+	/** Make `typed` the shortcut, in the data folder's note or this computer's; why it was not saved, or null. */
+	save(
+		typed: string,
+		options: { onThisComputer: boolean },
+	): Promise<string | null>;
+	[Symbol.dispose](): void;
+};

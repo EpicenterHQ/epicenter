@@ -1,7 +1,7 @@
 <!--
 	One transformation: its instructions, model, results, and a place to try
 	it. Title, model and instructions are one editor of the note the lists
-	show (`getTransformations().edit`), saved as they are typed. Run sends the recipe as it is shown.
+	show (`folder.transformations.edit`), saved as they are typed. Run sends the recipe as it is shown.
 	A transformation whose note does not read shows its text, to repair.
 -->
 <script lang="ts">
@@ -19,8 +19,9 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import { tick } from 'svelte';
+	import { connectionsNote } from '#platform/variant';
 	import type { RecipeRow } from '$lib/recipe.js';
-	import { getTransformations } from '$lib/files.svelte.js';
+	import { folder } from '$lib/app.js';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { confirmDelete, formatTime, titleOf } from './file-actions.js';
@@ -46,7 +47,7 @@
 	// The parent keys this view by the transformation.
 	// svelte-ignore state_referenced_locally
 	const own = id;
-	const recipe = getTransformations().edit({ id: own });
+	const recipe = folder.transformations.edit({ id: own });
 	/** Why its note does not read, when it does not. */
 	const repair = $derived(library.transformationRepairs.find((item) => item.id === own));
 
@@ -277,7 +278,7 @@
 							{:else}
 								<p class="text-destructive">{text.reason}</p>
 							{/if}
-							<p>{whispering.services.connectionsNote}</p>
+							<p>{connectionsNote()}</p>
 							<p>
 								A result on a transcript is saved as a new note in <code class="font-mono">transformation_runs/</code>, and a result on
 								pasted text in <code class="font-mono">text_runs/</code>, when its answer arrives. The text it came from is never changed.

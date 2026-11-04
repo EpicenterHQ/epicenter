@@ -5,17 +5,17 @@
 	"description": "Voice notes: recordings, transcripts, and transformations are files, kept in this browser for good or, in the desktop app, in a folder on this computer; signing in only adds hosted transcription and AI",
 	"type": "module",
 	"imports": {
-		"#platform/auth": {
-			"tauri": "./src/lib/platform/auth.tauri.ts",
-			"default": "./src/lib/platform/auth.ts"
+		"#platform/account": {
+			"tauri": "./src/lib/platform/account.tauri.ts",
+			"default": "./src/lib/platform/account.ts"
 		},
-		"#platform/root": {
-			"tauri": "./src/lib/platform/root.tauri.ts",
-			"default": "./src/lib/platform/root.ts"
+		"#platform/components": {
+			"tauri": "./src/lib/platform/components.tauri.ts",
+			"default": "./src/lib/platform/components.ts"
 		},
-		"#platform/services": {
-			"tauri": "./src/lib/platform/services.tauri.ts",
-			"default": "./src/lib/platform/browser.ts"
+		"#platform/computer": {
+			"tauri": "./src/lib/platform/computer.tauri.ts",
+			"default": "./src/lib/platform/computer.ts"
 		},
 		"#platform/variant": {
 			"tauri": "./src/lib/platform/variant.tauri.ts",

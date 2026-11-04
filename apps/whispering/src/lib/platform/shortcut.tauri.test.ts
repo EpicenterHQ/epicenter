@@ -1,5 +1,5 @@
 /**
- * The desktop's global shortcut (`shortcut.tauri.svelte.ts`) over the
+ * The desktop's global shortcut (`openShortcut` in `shortcut.tauri.ts`) over the
  * data folder and this computer's `shortcuts.md`, both in memory under the
  * `test` condition (`openFolder` from `@epicenter/folder`, `localFile` from
  * `@epicenter/local`), with a stand-in for the shell's `set_shortcut`.
@@ -15,7 +15,6 @@
  *   again
  * - A label reads as a Mac menu, or as Windows and Linux spell it
  */
-import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder';
 import { localFile } from '@epicenter/local';
@@ -41,13 +40,8 @@ mock.module('@tauri-apps/api/event', () => ({
 	listen: async () => () => {},
 }));
 
-const { acceleratorOf, globalShortcut, labelOf } = await import(
-	'./shortcut.tauri.svelte.js'
-);
-const { reactive } = await import('@epicenter/svelte/reactive');
-const { flushSync, mount, unmount } = await import('svelte');
-const { default: InitHost } = await import(
-	'../../../../../packages/svelte/src/fixtures/InitHost.svelte'
+const { acceleratorOf, labelOf, openShortcut } = await import(
+	'./shortcut.tauri.js'
 );
 
 /** This computer's `shortcuts.md`: memory, kept for the process. */
@@ -64,81 +58,63 @@ afterEach(async () => {
 
 const note = (key: string) => `---\ntoggleRecording: "${key}"\n---\n`;
 
-/** A new data folder and this computer's note, `shortcuts.md` written in each where given. */
-async function notes({ data, mine }: { data?: string; mine?: string } = {}) {
-	const folder = reactive(openFolder(whispering));
+/** The shortcut over a new data folder and this computer's note, `shortcuts.md` written in each where given. */
+async function open({ data, mine }: { data?: string; mine?: string } = {}) {
+	const folder = openFolder(whispering);
 	if (data) await folder.shortcuts.create({ toggleRecording: data });
 	if (mine) await here.write(note(mine), 'absent');
+	const shortcut = openShortcut(folder);
+	// Its folder is followed for the page's life; a test's ends with the test.
+	cleanups.push(async () => {
+		shortcut[Symbol.dispose]();
+		folder[Symbol.dispose]();
+	});
 	return {
+		shortcut,
 		folder,
 		mine: async () => (await here.read()).data?.text ?? null,
 	};
 }
 
-/** `globalShortcut` made during a component's setup, as the desktop root makes it. */
-function setup({ folder }: { folder: Parameters<typeof globalShortcut>[0]['folder'] }) {
-	const target = document.createElement('div');
-	document.body.append(target);
-	let shortcut: ReturnType<typeof globalShortcut> | undefined;
-	const view = mount(InitHost, {
-		target,
-		props: {
-			make: () => globalShortcut({ folder }),
-			expose: (value: unknown) => {
-				shortcut = value as ReturnType<typeof globalShortcut>;
-			},
-		},
-	});
-	cleanups.push(async () => {
-		await unmount(view);
-		target.remove();
-	});
-	flushSync();
-	return shortcut as ReturnType<typeof globalShortcut>;
-}
-
 async function until(check: () => boolean) {
-	for (let turn = 0; turn < 300 && !check(); turn++) {
-		await Bun.sleep(5);
-		flushSync();
-	}
+	for (let turn = 0; turn < 300 && !check(); turn++) await Bun.sleep(5);
 	expect(check()).toBe(true);
 }
 
 test('with no note in either place, the default is held once both are read', async () => {
-	const shortcut = setup(await notes());
+	const { shortcut } = await open();
 	await until(() => asked.length > 0);
 	expect(asked).toEqual(['CommandOrControl+Shift+;']);
-	expect(shortcut.accelerator).toBe('CommandOrControl+Shift+;');
-	expect(shortcut.onThisComputer).toBe(false);
+	expect(shortcut.accelerator()).toBe('CommandOrControl+Shift+;');
+	expect(shortcut.onThisComputer()).toBe(false);
 });
 
 test('the data folder’s key wins over the default, and this computer’s over both', async () => {
-	const synced = setup(await notes({ data: 'Alt+Space' }));
+	const { shortcut: synced } = await open({ data: 'Alt+Space' });
 	await until(() => asked.includes('Alt+Space'));
-	expect(synced.accelerator).toBe('Alt+Space');
+	expect(synced.accelerator()).toBe('Alt+Space');
 	// This computer's note is one for the process: only one shortcut follows it at a time.
 	for (const cleanup of cleanups.splice(0)) await cleanup();
 	asked.length = 0;
-	const overridden = setup(
-		await notes({ data: 'Alt+Space', mine: 'CommandOrControl+Shift+K' }),
-	);
+	const { shortcut: overridden } = await open({
+		data: 'Alt+Space',
+		mine: 'CommandOrControl+Shift+K',
+	});
 	await until(() => asked.length > 0);
 	expect(asked).toEqual(['CommandOrControl+Shift+K']);
-	expect(overridden.onThisComputer).toBe(true);
+	expect(overridden.onThisComputer()).toBe(true);
 });
 
 test('what the shell refuses is the problem shown', async () => {
 	taken.add('Alt+Space');
-	const shortcut = setup(await notes({ data: 'Alt+Space' }));
-	await until(() => shortcut.problem !== null);
-	expect(shortcut.problem).toBe('Alt+Space is unavailable: already held');
+	const { shortcut } = await open({ data: 'Alt+Space' });
+	await until(() => shortcut.problem() !== null);
+	expect(shortcut.problem()).toBe('Alt+Space is unavailable: already held');
 });
 
 test('saving writes the data folder’s note and drops this computer’s override; only here writes this computer’s note', async () => {
-	const { folder, mine } = await notes({ mine: 'Alt+Space' });
-	const shortcut = setup({ folder });
-	await until(() => shortcut.read && asked.length > 0);
+	const { shortcut, folder, mine } = await open({ mine: 'Alt+Space' });
+	await until(() => shortcut.read() && asked.length > 0);
 
 	expect(
 		await shortcut.save('Control+Shift+R', { onThisComputer: true }),
@@ -149,15 +125,14 @@ test('saving writes the data folder’s note and drops this computer’s overrid
 	expect(await shortcut.save(' Alt+R ', { onThisComputer: false })).toBeNull();
 	expect(folder.shortcuts.get({})?.toggleRecording).toBe('Alt+R');
 	expect(await mine()).toBe('---\n---\n');
-	await until(() => shortcut.accelerator === 'Alt+R');
-	expect(shortcut.onThisComputer).toBe(false);
+	await until(() => shortcut.accelerator() === 'Alt+R');
+	expect(shortcut.onThisComputer()).toBe(false);
 	expect(asked.at(-1)).toBe('Alt+R');
 });
 
 test('a key the shell refuses is never written, and the resolved one is held again', async () => {
-	const { folder, mine } = await notes();
-	const shortcut = setup({ folder });
-	await until(() => shortcut.read && asked.length > 0);
+	const { shortcut, folder, mine } = await open();
+	await until(() => shortcut.read() && asked.length > 0);
 	taken.add('Alt+Space');
 	expect(await shortcut.save('Alt+Space', { onThisComputer: false })).toBe(
 		'Alt+Space is unavailable: already held',

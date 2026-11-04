@@ -1,25 +1,24 @@
 /**
- * Whispering for one mounted page: the services, the models it can reach,
- * the microphone, and the recorder. What the files show is the library's
- * (`library.svelte.ts`); both write through the same folder, over the
- * client the variant root chose (`#platform/root`'s `Startup`), so the
- * folder's `saving()` counts every note either writes.
+ * Whispering for one mounted page: the models it can reach, the microphone,
+ * and the recorder, over the capabilities `src/lib/app.ts` opened. What the
+ * files show is the library's (`library.svelte.ts`); both write through the
+ * same folder, so the folder's `saving()` counts every note either writes.
  *
- * A recording is written into the client's files as it records (decision
- * 84): the desktop shell encodes it into the data folder from the first
- * sample, a browser appends each piece to this browser's files as it
- * arrives. Stop answers once its audio is at its path, and its note is
- * written then (`folder-recordings.ts`). Starting first completes what a
- * quit, a crash, or a closed tab cut off and gives it a note, before any
- * page lists, plays, or transcribes a recording. Where the client keeps no files (a private
- * window), the browser's recorder refuses before any microphone opens.
- * Recording never waits on the network, and nothing kept here ever moves
- * (ADR-0700).
+ * A recording is written into the folder as it records (decision 84): the
+ * desktop shell encodes it into the data folder from the first sample, a
+ * browser appends each piece to this browser's files as it arrives. Stop
+ * answers once its audio is at its path, and its note is written then
+ * (`folder-recordings.ts`). Starting first completes what a quit, a crash,
+ * or a closed tab cut off and gives it a note, before any page lists,
+ * plays, or transcribes a recording; that waits through the folder's own
+ * listing, never on its `state()`. Where the folder keeps no files (a
+ * private window), the browser's recorder refuses before any microphone
+ * opens. Recording never waits on the network, and nothing kept here ever
+ * moves (ADR-0700).
  *
- *
- * The models are the build's one merge of endpoints (`services.ai`,
- * ADR-0757): Epicenter's hosted models through the account signed in now,
- * the connections the person saved with their keys, then what runs on this
+ * The models are the build's one merge of endpoints (`ai`, ADR-0757):
+ * Epicenter's hosted models through the account signed in now, the
+ * connections the person saved with their keys, then what runs on this
  * computer, each followed as it changes. The person chooses one model for
  * transcription and one for text; a request captures that choice when it is
  * prepared and goes there alone (`inference.ts`).
@@ -27,15 +26,13 @@
  * Closing waits for nothing here: `dispose` refuses new work and late
  * answers and returns. A recording under way ends with the page.
  */
-import type { ModelChoice } from '@epicenter/ai';
-import type { Client } from '@epicenter/definition/contract';
+import type { Ai, ModelChoice, ModelChoices } from '@epicenter/ai';
 import { timeId } from '@epicenter/definition/ids';
 import type { Folder } from '@epicenter/folder/core';
 import { reactive } from '@epicenter/svelte/reactive';
 import { createContext } from 'svelte';
 import type { Result } from 'wellcrafted/result';
-import { createServices } from '#platform/services';
-import type { Capture } from './capture.js';
+import type { Capture, CaptureDevice } from './capture.js';
 import type { Whispering as WhisperingContract } from './contract.js';
 import { finishCutOffRecordings, keepRecording } from './folder-recordings.js';
 import {
@@ -46,6 +43,7 @@ import {
 	transformAt,
 } from './inference.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
+import type { MicrophonePreferences } from './microphone-preference.js';
 import {
 	type Chosen,
 	type RecipeRow,
@@ -79,16 +77,25 @@ function defaultTitle(at: Date): string {
 	})}`;
 }
 
-export function createWhispering({
-	client,
-	files,
-}: {
-	/** Whispering's files, where every recording is kept. */
-	client: Client<WhisperingContract>;
-	/** The same files as a folder, which a recording's note is written through. */
-	files: Folder<WhisperingContract>;
-}) {
-	const services = createServices(client);
+/** What Whispering is made over: the capabilities `src/lib/app.ts` opened, or a test's. */
+export type WhisperingCapabilities = {
+	/** Whispering's folder, which every recording and its note is written into. */
+	readonly folder: Folder<WhisperingContract>;
+	/** Every model this page reaches, in the picker's order. */
+	readonly ai: Ai;
+	/** This computer's model for each job. */
+	readonly choices: ModelChoices<'transcribe' | 'chat'>;
+	/** What records each recording into `folder`. */
+	readonly capture: CaptureDevice;
+	/**
+	 * What this device remembers that is neither a file nor a secret: the
+	 * microphone chosen. It is never written to Whispering's files.
+	 */
+	readonly preferences: MicrophonePreferences;
+};
+
+export function createWhispering(capabilities: WhisperingCapabilities) {
+	const { folder: files, capture, preferences } = capabilities;
 	/** Whether the sidebar is open on a wide window. Held here so no page owns it. */
 	let sidebarOpen = $state(false);
 	let starting: Promise<void> | undefined;
@@ -107,7 +114,7 @@ export function createWhispering({
 	});
 
 	/** Every model this page can reach, in the picker's order; sign-in and a saved connection reach it as they happen. */
-	const ai = reactive(services.ai);
+	const ai = reactive(capabilities.ai);
 	/** Why the saved connections could not be read, if they could not; tracks in Svelte. */
 	const connectionsProblem = () => ai.custom()?.problem() ?? undefined;
 
@@ -122,7 +129,7 @@ export function createWhispering({
 						? 'No transcription model is chosen, so nothing was sent. Choose one in Settings, then transcribe.'
 						: 'Choose a text model in Settings to run this.',
 			};
-		const endpoint = services.ai
+		const endpoint = ai
 			.endpoints()
 			.find((candidate) => candidate.id === choice.endpoint);
 		if (endpoint === undefined)
@@ -149,7 +156,7 @@ export function createWhispering({
 
 	/** Read this device's model choices (kept by job, `CAN`'s), and follow them as they change. */
 	async function readChoices() {
-		const { choices } = services;
+		const { choices } = capabilities;
 		const read = () => {
 			chosenModels = {
 				transcription: choices.get(CAN.transcription),
@@ -170,7 +177,7 @@ export function createWhispering({
 		const why = refused();
 		if (why !== undefined) return why;
 		try {
-			await services.choices.set(CAN[operation], choice);
+			await capabilities.choices.set(CAN[operation], choice);
 			return undefined;
 		} catch (cause) {
 			return describe(cause);
@@ -181,13 +188,13 @@ export function createWhispering({
 	const transcribe = (
 		target: Target,
 		audio: () => Promise<Result<Audio, string>>,
-	) => transcribeAt(() => services.ai, target, audio);
+	) => transcribeAt(() => ai, target, audio);
 
 	/** Send a transformation to `target`, through the endpoints merged when it is sent. */
 	const transform = (
 		target: Target,
 		request: { prompt: string; input: string },
-	) => transformAt(() => services.ai, target, request);
+	) => transformAt(() => ai, target, request);
 
 	/** A capture under way, writing recording `id`'s audio. */
 	type Take = { id: string; capture: Capture };
@@ -202,8 +209,8 @@ export function createWhispering({
 	let recorderError = $state<string | undefined>();
 
 	const input = createMicrophoneInput({
-		capture: services.capture,
-		preferences: services.preferences,
+		capture,
+		preferences,
 		recording: () => captureState.phase !== 'idle',
 	});
 
@@ -269,10 +276,7 @@ export function createWhispering({
 	 * every page says it, from the library's own listing.
 	 */
 	async function completeCutOffRecordings() {
-		const { data, error } = await finishCutOffRecordings(
-			files,
-			services.capture,
-		);
+		const { data, error } = await finishCutOffRecordings(files, capture);
 		if (disposed) return;
 		if (error !== null) {
 			if (error.name !== 'Unavailable')
@@ -300,7 +304,6 @@ export function createWhispering({
 	}
 
 	return {
-		services,
 		/** Whether the sidebar is open on a wide window. */
 		get sidebarOpen() {
 			return sidebarOpen;
@@ -352,7 +355,7 @@ export function createWhispering({
 				try {
 					if (disposed) throw new Error(STOPPED);
 					await readChoices();
-					await services.ai.custom()?.ready;
+					await ai.custom()?.ready;
 					// The saved choice only: no microphone is opened or listed at launch.
 					if (disposed) throw new Error(STOPPED);
 					await input.load();
@@ -398,7 +401,7 @@ export function createWhispering({
 			const id = timeId(at);
 			captureState = { phase: 'starting', attempt };
 			input.release();
-			const { data: capture, error } = await services.capture.start({
+			const { data: started, error } = await capture.start({
 				id,
 				input: input.choice,
 				signal: attempt.signal,
@@ -414,7 +417,7 @@ export function createWhispering({
 				input.noteRecordingError(error);
 				return;
 			}
-			const take = { id, capture };
+			const take = { id, capture: started };
 			captureState = { phase: 'recording', at, take };
 			take.capture.onEnded((reason) => {
 				if (captureState.phase !== 'recording' || captureState.take !== take)
@@ -435,7 +438,7 @@ export function createWhispering({
 		stopRecording: finishRecording,
 
 		/** Read the saved connections again, as after a failed read. */
-		readConnections: () => services.ai.custom()?.reopen() ?? Promise.resolve(),
+		readConnections: () => ai.custom()?.reopen() ?? Promise.resolve(),
 	};
 }
 

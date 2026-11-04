@@ -18,7 +18,7 @@
  * stays outside it, finished, and is said on every start until a person
  * moves one of the two; nothing deletes it.
  *
- * Both write through Whispering's files as a folder (`folderOf`), so the
+ * Both write through Whispering's folder (`folder` from `app.ts`), so the
  * library shows a note as soon as it lands and the folder's `saving()` (the
  * page's leave guard) counts it while it is out.
  */

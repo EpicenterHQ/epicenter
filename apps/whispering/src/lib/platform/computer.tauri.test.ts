@@ -1,12 +1,11 @@
 /**
- * Desktop Services Tests
+ * Desktop Capability Tests
  *
- * Whispering's desktop services (`services.tauri.ts`) over a stand-in shell:
- * Tauri's `invoke` answers from memory, so the credential store, the
+ * What the desktop window's leaves give `src/lib/app.ts`
+ * (`account.tauri.ts`, `computer.tauri.ts`), composed as `app.ts` composes
+ * them, over a stand-in shell: Tauri's `invoke` answers from memory, so the
  * account's commands, the shell's fetch and the transcription plugin are
- * each one map or one function here. AppData is a real directory
- * (`openDevice` from `@epicenter/folder/node`), and the recorder is a
- * stand-in for its package.
+ * each one function here, and the recorder is a stand-in for its package.
  *
  * A saved connection's place (AppData's `connections.md`, each key in the
  * credential store, every request through the shell) is `@epicenter/ai`'s
@@ -21,10 +20,10 @@
  *   repairs by ids, with each repaired recording's length
  */
 import { afterEach, expect, mock, test } from 'bun:test';
-import type { Client } from '@epicenter/definition/contract';
+import type { AuthClient } from '@epicenter/account';
+import type { FolderLifecycle } from '@epicenter/folder/core';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import type { Whispering } from '../contract.js';
 
 const ORIGIN = 'http://localhost:8787';
 
@@ -97,8 +96,12 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
-/** The data folder's client; the services only hand it to the recorder. */
-const dataFolder = {} as Client<Whispering>;
+mock.module('@tauri-apps/api/event', () => ({
+	listen: async () => () => {},
+}));
+
+/** The data folder; the microphone only hands it to the recorder. */
+const dataFolder = {} as FolderLifecycle;
 
 /** What the recorder was asked to start or repair. */
 const started: unknown[] = [];
@@ -109,7 +112,7 @@ mock.module('@epicenter/recorder/tauri', () => ({
 		openMeter: async () => {
 			throw new Error('not opened');
 		},
-		start: async (options: { device: unknown; path: string }) => {
+		start: async (options: { folder: unknown; path: string }) => {
 			started.push(options);
 			return Ok({
 				onEnded: () => () => {},
@@ -118,7 +121,7 @@ mock.module('@epicenter/recorder/tauri', () => ({
 			});
 		},
 		recover: async (options: {
-			device: unknown;
+			folder: unknown;
 			under: string;
 			unnamed: readonly string[];
 		}) => {
@@ -153,8 +156,30 @@ const desktopSpeech = await import(
 );
 mock.module('@epicenter/transcription', () => desktopSpeech);
 
-const { createServices } = await import('./services.tauri.js');
-const { authReady } = await import('./auth.tauri.js');
+const { hosted, openAi } = await import('@epicenter/ai');
+const { localSpeech } = await import('@epicenter/transcription');
+const { connectAccount } = await import('./account.tauri.js');
+const { localModelServers, microphone } = await import('./computer.tauri.js');
+const { createMicrophoneDevice } = await import('../microphone.js');
+
+/** The models `app.ts` merges on the desktop, but the saved connections, which `@epicenter/ai` tests. */
+function openModels(account: AuthClient = connectAccount()) {
+	return openAi([hosted(account), localModelServers(), localSpeech()]);
+}
+
+/** Once the shell said who is signed in. */
+function signedIn(account: AuthClient): Promise<void> {
+	return new Promise((resolve) => {
+		const answer = () => {
+			if (account.state().status !== 'signed-in') return false;
+			stop();
+			resolve();
+			return true;
+		};
+		const stop = account.subscribe(() => void answer());
+		answer();
+	});
+}
 
 afterEach(() => {
 	sent.length = 0;
@@ -166,8 +191,9 @@ const upload = () =>
 	new File([new Uint8Array([1, 2, 3])], 'a.webm', { type: 'audio/webm' });
 
 test('Epicenter’s models go through the account’s relay with no token from the page', async () => {
-	await authReady();
-	const { ai } = createServices(dataFolder);
+	const account = connectAccount();
+	await signedIn(account);
+	const ai = openModels(account);
 	expect(ai.endpoints().find(({ id }) => id === 'hosted')?.baseUrl).toBe(
 		`${ORIGIN}/v1`,
 	);
@@ -186,7 +212,7 @@ test('Epicenter’s models go through the account’s relay with no token from t
 });
 
 test('Ollama and LM Studio are looked for through the shell with no key', async () => {
-	const endpoints = createServices(dataFolder).ai.endpoints();
+	const endpoints = openModels().endpoints();
 	expect(endpoints.map(({ id }) => id)).toEqual([
 		'hosted',
 		'ollama',
@@ -211,7 +237,7 @@ test('Ollama and LM Studio are looked for through the shell with no key', async 
 });
 
 test('transcription on this computer takes the uploaded audio', async () => {
-	const { ai } = createServices(dataFolder);
+	const ai = openModels();
 	expect(
 		expectOk(
 			await ai.transcribe({
@@ -231,15 +257,18 @@ test('transcription on this computer takes the uploaded audio', async () => {
 	});
 });
 
-test('the shell’s microphone records recordings/<id> into the data folder’s device, and recovery answers every finished recording by id', async () => {
-	const { capture } = createServices(dataFolder);
+test('the shell’s microphone records recordings/<id> into the data folder, and recovery answers every finished recording by id', async () => {
+	const capture = createMicrophoneDevice({
+		folder: dataFolder,
+		recorder: microphone,
+	});
 	expect(expectOk(await capture.inputs.listInputs()).inputs).toEqual([
 		{ deviceId: 'coreaudio:usb', label: 'USB' },
 	]);
 	const recording = expectOk(await capture.start({ id: '20261031T093000000' }));
 	expect(started).toEqual([
 		{
-			device: dataFolder,
+			folder: dataFolder,
 			path: 'recordings/20261031T093000000',
 			input: undefined,
 			signal: undefined,
@@ -264,7 +293,7 @@ test('the shell’s microphone records recordings/<id> into the data folder’s 
 		unplaced,
 	});
 	expect(started.at(-1)).toEqual({
-		device: dataFolder,
+		folder: dataFolder,
 		under: 'recordings',
 		unnamed: [],
 	});

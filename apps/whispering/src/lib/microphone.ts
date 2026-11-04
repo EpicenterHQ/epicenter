@@ -3,32 +3,32 @@
  * Whispering's files, over the inputs the same recorder lists, allows, and
  * tests.
  *
- * The platform leaf passes the `recorder` its build imports
- * (`@epicenter/recorder/browser` or `/tauri`) and nothing here chooses
- * between them: in a browser the page's own microphone, on the desktop the
- * shell's (ADR-0571), which lists inputs by name without access and asks
- * for access itself, so it has no `allow`. Either way the recording is
- * written into the store as it records, at `recordings/<id>.<ext>`.
+ * `src/lib/app.ts` makes it once, beside the folder, with the `recorder`
+ * its build imports (`#platform/computer`: `@epicenter/recorder/browser` or
+ * `/tauri`), and nothing here chooses between them: in a browser the page's
+ * own microphone, on the desktop the shell's (ADR-0571), which lists inputs
+ * by name without access and asks for access itself, so it has no `allow`.
+ * Either way the recording is written into the folder as it records, at
+ * `recordings/<id>.<ext>`.
  *
  * A chosen microphone is asked for by the exact ID the recorder listed it
  * under. When that one cannot be opened, the answer is a refusal: no other
  * microphone is opened in its place.
  */
-import type { Client } from '@epicenter/definition/contract';
+import type { FolderLifecycle } from '@epicenter/folder/core';
 import type { Recorder } from '@epicenter/recorder';
 import { Err, Ok } from 'wellcrafted/result';
 import type { CaptureDevice } from './capture.js';
-import type { Whispering } from './contract.js';
 
 /** Where recordings are written. */
 const DIRECTORY = 'recordings';
 
 export function createMicrophoneDevice({
-	device,
+	folder,
 	recorder,
 }: {
-	/** Whispering's files, which every recording is written into. */
-	device: Client<Whispering>;
+	/** Whispering's folder, which every recording is written into. */
+	folder: FolderLifecycle;
 	/** Lists, tests, and records from the microphone. */
 	recorder: Recorder;
 }): CaptureDevice {
@@ -36,7 +36,7 @@ export function createMicrophoneDevice({
 		inputs: recorder,
 		async start({ id, input, signal }) {
 			const { data: recording, error } = await recorder.start({
-				device,
+				folder,
 				path: `${DIRECTORY}/${id}`,
 				input,
 				signal,
@@ -57,7 +57,7 @@ export function createMicrophoneDevice({
 			// Which of these is whole, and where else a cut-off one waits, is
 			// the recorder's to know.
 			const { data, error } = await recorder.recover({
-				device,
+				folder,
 				under: DIRECTORY,
 				unnamed,
 			});

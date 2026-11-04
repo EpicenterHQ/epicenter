@@ -2,8 +2,8 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Separator } from '@epicenter/ui/separator';
 	import { onMount } from 'svelte';
-	import { Settings } from '#platform/root';
-	import { variant } from '#platform/variant';
+	import { Settings } from '#platform/components';
+	import { connectionsNote, variant } from '#platform/variant';
 	import { evictionNote, readPersisted } from '$lib/eviction-note.js';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering, type Operation } from '$lib/whispering.svelte.js';
@@ -11,7 +11,7 @@
 	import ModelSetting from './ModelSetting.svelte';
 
 	/**
-	 * Settings: what only this build has (`Settings` from `#platform/root`:
+	 * Settings: what only this build has (`Settings` from `#platform/components`:
 	 * on the desktop, the data folder and the models on this computer), the
 	 * optional sign-in, and the model this device uses for transcription and
 	 * for text, with the connections and keys it reaches them through.
@@ -64,5 +64,5 @@
 		{#if index > 0}<Separator />{/if}
 		<ModelSetting {operation} />
 	{/each}
-	<p class="text-xs text-muted-foreground" data-testid="connections-note">{whispering.services.connectionsNote}</p>
+	<p class="text-xs text-muted-foreground" data-testid="connections-note">{connectionsNote()}</p>
 </div>

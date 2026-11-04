@@ -1,6 +1,6 @@
 <!--
 	One recording: its audio, transcripts, and notes. Its fields are one
-	editor of the note the lists show (`getRecordings().edit`): what was typed
+	editor of the note the lists show (`folder.recordings.edit`): what was typed
 	shows until its save answers, then the note again. A recording whose note
 	does not read shows its text, to repair.
 -->
@@ -15,7 +15,7 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { variant } from '#platform/variant';
-	import { getRecordings } from '$lib/files.svelte.js';
+	import { folder } from '$lib/app.js';
 	import { getLibrary, type Repair } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioMissing from './AudioMissing.svelte';
@@ -49,7 +49,7 @@
 	// The parent keys this view by the recording.
 	// svelte-ignore state_referenced_locally
 	const own = id;
-	const recording = getRecordings().edit({ id: own });
+	const recording = folder.recordings.edit({ id: own });
 
 	const results = $derived(library.resultsFor(own));
 	const run = $derived(library.transcriptionRun(own));
