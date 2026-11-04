@@ -109,9 +109,10 @@ function adapt<T extends object>(target: T, subscribe: Subscribe): T {
 
 	/** The member `key` holding `value`, as the copy holds it. */
 	function member(key: PropertyKey, value: unknown): unknown {
+		if (typeof key === 'symbol')
+			return typeof value === 'function' ? value.bind(target) : value;
 		if (typeof value === 'function') {
-			if (key === 'subscribe' || typeof key === 'symbol')
-				return value.bind(target);
+			if (key === 'subscribe') return value.bind(target);
 			return (...args: unknown[]) => {
 				const answered: unknown = value.apply(target, args);
 				return isAsync(answered) ? answered : answer(answered);

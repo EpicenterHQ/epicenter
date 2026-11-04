@@ -11,6 +11,7 @@
  *   untracked, even when an effect calls it
  * - `get(args)` answering `undefined` still tracks
  * - Held capabilities, methods and returned data keep their identity
+ * - A symbol-keyed member passes through as it is, whatever it holds
  * - A returned capability is adapted with its own `subscribe`, and making
  *   it tracks nothing
  * - A plain object held without a `subscribe` inherits its holder's, and its
@@ -20,6 +21,7 @@ import './svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import { defineContract } from '@epicenter/definition/contract';
 import { openFolder } from '@epicenter/folder';
+import { memoryFiles } from '@epicenter/folder/memory';
 import { flushSync } from 'svelte';
 import { reactive } from './reactive.js';
 
@@ -112,6 +114,11 @@ test('get(args) that answers undefined still tracks, so its reader sees the note
 	await folder.todos.create({ id: 'a', title: 'Milk', done: false });
 	await until(() => shown.values.at(-1) === 'Milk');
 	shown.stop();
+});
+
+test('a symbol-keyed member passes through as it is, whatever it holds', () => {
+	const raw = openFolder(todos);
+	expect(memoryFiles(reactive(raw))).toBe(memoryFiles(raw));
 });
 
 test('held capabilities, methods and returned data keep their identity', async () => {

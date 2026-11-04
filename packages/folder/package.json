@@ -15,6 +15,7 @@
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",
 		"./node": "./src/node.ts",
+		"./memory": "./src/memory.ts",
 		"./remote": "./src/remote.ts"
 	},
 	"scripts": {
