@@ -9,8 +9,9 @@
  * (`account_fetch`). So the account's `fetch` here is a relay, and every
  * component reads `auth` the same way as in a browser build.
  *
- * The same relay sends a connected endpoint's requests (`connectionFetch`,
- * over `connection_fetch`), with the key the shell keeps for it.
+ * The shell's other relays read their answers the same way: `relayThroughShell`
+ * is the one reader, which `@epicenter/ai/tauri` uses for a connected
+ * endpoint's requests (`connection_fetch`).
  *
  * ```ts
  * const { client, ready } = createTauriAuth();
@@ -18,7 +19,6 @@
  * ```
  */
 import { Channel, invoke } from '@tauri-apps/api/core';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok } from 'wellcrafted/result';
 import type {
 	Account,
@@ -30,14 +30,14 @@ import { AccountUnavailable, AuthError } from './auth-errors.js';
 import { Principal } from './auth-types.js';
 import { getProfileVia } from './read-profile.js';
 
-/** What this module needs of the native shell; tests stand in for it. */
-export type AccountShell = {
+/** What a page needs of the native shell to reach its commands; tests stand in for it. */
+export type TauriShell = {
 	invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 	/** A channel that hands each message the shell sends to `onMessage`. */
 	channel(onMessage: (message: unknown) => void): unknown;
 };
 
-const tauriShell: AccountShell = {
+export const tauriShell: TauriShell = {
 	invoke: (command, args) => invoke(command, args),
 	channel: (onMessage) => new Channel<unknown>(onMessage),
 };
@@ -53,7 +53,8 @@ type SignedIn = { origin: string; principalId: string };
 
 /**
  * What the shell sends on a request's channel besides the body's raw chunks
- * (`relay.rs`). An error event carries its relay's own failure beside `kind`.
+ * (`relay.rs` in `epicenter-account`). An error event carries its relay's own
+ * failure beside `kind`.
  */
 type RelayEvent =
 	| { kind: 'head'; status: number; headers: [string, string][] }
@@ -88,9 +89,11 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /** One of the shell's relays: its two commands, and what its failures become. */
-type Relay = {
-	fetch: 'account_fetch' | 'connection_fetch';
-	cancel: 'account_fetch_cancel' | 'connection_fetch_cancel';
+export type ShellRelay = {
+	/** The command that sends a request, such as `account_fetch`. */
+	fetch: string;
+	/** The command that stops one, by the id the page gave it. */
+	cancel: string;
 	/** Fields the shell reads beside the request's own. */
 	fields: Record<string, unknown>;
 	/**
@@ -109,9 +112,9 @@ let lastRequest = 0;
  * closes it. Aborting `lifetime` or the request's signal stops it in the
  * shell.
  */
-async function sendThrough(
-	shell: AccountShell,
-	relay: Relay,
+export async function relayThroughShell(
+	shell: TauriShell,
+	relay: ShellRelay,
 	request: Request,
 	lifetime?: AbortSignal,
 ): Promise<Response> {
@@ -193,7 +196,7 @@ async function sendThrough(
 }
 
 /** A failure's message, whether the shell sent a string or an object. */
-function messageOf(cause: unknown): string {
+export function messageOf(cause: unknown): string {
 	if (typeof cause === 'string') return cause;
 	if (cause && typeof cause === 'object' && 'message' in cause)
 		return String(cause.message);
@@ -208,12 +211,12 @@ function messageOf(cause: unknown): string {
  * no token to send.
  */
 export function relayFetch(
-	shell: AccountShell,
+	shell: TauriShell,
 	origin: string,
 	lifetime: AbortSignal,
 	onRefusal: (code: 'reauth-required' | 'auth-unavailable') => void,
 ): AuthFetch {
-	const relay: Relay = {
+	const relay: ShellRelay = {
 		fetch: 'account_fetch',
 		cancel: 'account_fetch_cancel',
 		fields: {},
@@ -239,60 +242,8 @@ export function relayFetch(
 			);
 		lifetime.throwIfAborted();
 		const request = new Request(input instanceof Request ? input : url, init);
-		return sendThrough(shell, relay, request, lifetime);
+		return relayThroughShell(shell, relay, request, lifetime);
 	};
-}
-
-/**
- * Why the shell did not send a connection's request, or why its answer
- * ended early (`ConnectionFetchError` in `connection.rs`).
- */
-export const ConnectionFetchError = defineErrors({
-	/** The request does not read, or carried a credential of the page's. */
-	InvalidRequest: ({ message }: { message: string }) => ({ message }),
-	/** Neither `https`, nor `http` to `localhost` or `127.0.0.1`. */
-	SchemeRefused: ({ message }: { message: string }) => ({ message }),
-	/** Not on the origin of the endpoint the connection's key was saved for. */
-	OriginRefused: ({ message }: { message: string }) => ({ message }),
-	/** The keychain could not be read. */
-	KeychainFailed: ({ message }: { message: string }) => ({ message }),
-	/** The endpoint could not be reached, or its answer broke off. */
-	SendFailed: ({ message }: { message: string }) => ({ message }),
-});
-export type ConnectionFetchError = InferErrors<typeof ConnectionFetchError>;
-
-/** The shell's `ConnectionFetchError` as this page's, or a `TypeError` for anything else. */
-function connectionFailure(cause: unknown) {
-	const name =
-		cause && typeof cause === 'object' && 'name' in cause
-			? String(cause.name)
-			: '';
-	if (Object.hasOwn(ConnectionFetchError, name))
-		return ConnectionFetchError[name as ConnectionFetchError['name']]({
-			message: messageOf(cause),
-		}).error;
-	return new TypeError(messageOf(cause));
-}
-
-/**
- * The `fetch` of one connected endpoint (`connection` is its id): each
- * request goes to the shell, which reads the key the keychain keeps for the
- * connection, sends the request only to the endpoint that key was saved for
- * and with the key, and streams the answer back. The page sends no
- * credential, and no endpoint needs to allow this window's origin (CORS). A
- * refusal rejects with a {@link ConnectionFetchError}, as `fetch` rejects.
- */
-export function connectionFetch(
-	connection: string,
-	shell: AccountShell = tauriShell,
-): AuthFetch {
-	const relay: Relay = {
-		fetch: 'connection_fetch',
-		cancel: 'connection_fetch_cancel',
-		fields: { connection },
-		failure: connectionFailure,
-	};
-	return (input, init) => sendThrough(shell, relay, new Request(input, init));
 }
 
 /**
@@ -300,7 +251,7 @@ export function connectionFetch(
  * answers once the shell said who, if anyone, is signed in; until then, and
  * when the shell cannot answer, it is signed out.
  */
-export function createTauriAuth(shell: AccountShell = tauriShell): {
+export function createTauriAuth(shell: TauriShell = tauriShell): {
 	client: AuthClient;
 	ready: Promise<void>;
 } {
@@ -407,16 +358,3 @@ export function createTauriAuth(shell: AccountShell = tauriShell): {
 	const ready = refresh().catch(() => {});
 	return { client, ready };
 }
-
-/**
- * The keys a page saves in the keychain under names of its own (a provider
- * such as `openai`, or a connection's id): letters, digits, `_` and `-`.
- */
-export const keychain = {
-	/** The saved keys among `names`, by name; a name with none is absent. */
-	get: (names: string[], shell: AccountShell = tauriShell) =>
-		shell.invoke<Record<string, string>>('keychain_get', { names }),
-	/** Save the key `name`, or remove it for `null`. */
-	set: (name: string, value: string | null, shell: AccountShell = tauriShell) =>
-		shell.invoke<void>('keychain_set', { name, value }),
-};

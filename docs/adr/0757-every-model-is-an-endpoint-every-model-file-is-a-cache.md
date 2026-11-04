@@ -4,7 +4,7 @@
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) at its AI worked example: `openAi({ account, local })` with `ai.hosted()`, `ai.local()` and `ai.custom()` becomes `openAi([...endpoints])`, the default order is the array's order rather than local, hosted, custom, and a management handle exists only for a source with a local lifecycle.
 - **Relates:** [ADR-0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) (a cache is one of the five stored kinds), [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (provider keys live in the app's credentials file, and the shell sends keyed requests), [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (programs meet in a shared place; the sync moments), [ADR-0056](0056-local-inference-is-a-delegated-engine-behind-the-openai-compatible-seam.md) (local inference behind the OpenAI-compatible seam), [ADR-0424](0424-runtime-transcription-calls-the-host-directly.md) (runtime transcription calls the host directly), [ADR-0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) (Epicenter adapts to what you already have), [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (Epicenter is made of standards and places).
-- **Unbuilt:** all of it: `openAi([...])`, the endpoint shape `{ id, fetch, models() }`, per-model capabilities, `hosted`, `custom` and `localServers` in `@epicenter/ai`; one desktop relay in place of `apps/whispering/src-tauri/src/http.rs` and `packages/tauri-epicenter-account/src/relay.rs`; the accessor through which `@epicenter/account` hands over the person's provider keys; `@epicenter/transcription` exporting `localSpeech()`, with its in-process fetch and its remove, load and unload beside download, in place of `@epicenter/transcription-native`.
+- **Unbuilt:** all of it: `openAi([...])`, the endpoint shape `{ id, fetch, models() }`, per-model capabilities, `hosted`, `custom` and `localServers` in `@epicenter/ai`; one desktop relay in place of `apps/whispering/src-tauri/src/http.rs` and `packages/tauri-epicenter-account/src/relay.rs`; `@epicenter/transcription` exporting `localSpeech()`, with its in-process fetch and its remove, load and unload beside download, in place of `@epicenter/transcription-native`.
 
 ## Context
 
@@ -119,7 +119,7 @@ OpenAI vocabulary cannot express.
 `localSpeech()` carries download, remove, load and unload; an app that
 offers them keeps the endpoint in a `const` and passes the same value into
 the array. `hosted(account)` and `custom(key)` carry none: a key is added or
-removed through the keys `@epicenter/account` holds, and the plan and usage
+removed through the keys `@epicenter/ai` holds (`@epicenter/ai/tauri` on the desktop), and the plan and usage
 are read from the account.
 
 **Model files stay in the shared Hugging Face cache, which is a cache in

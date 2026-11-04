@@ -79,6 +79,7 @@ test(
 		expect(modules.some(folderModule('device/opfs-store.ts'))).toBe(false);
 		expect(modules.some(folderModule('tauri.ts'))).toBe(false);
 		expect(modules.some(packageModule('account/src/tauri.ts'))).toBe(false);
+		expect(modules.some(packageModule('ai/src/tauri.ts'))).toBe(false);
 	},
 	BUNDLE_TIMEOUT,
 );
@@ -94,6 +95,7 @@ test(
 		expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 		expect(modules.some(folderModule('epicenter-sync.ts'))).toBe(true);
 		expect(modules.some(packageModule('account/src/tauri.ts'))).toBe(true);
+		expect(modules.some(packageModule('ai/src/tauri.ts'))).toBe(true);
 		expect(modules.some(folderModule('remote.ts'))).toBe(false);
 		expect(modules.some(folderModule('browser.ts'))).toBe(false);
 		expect(modules.some(packageModule('account/src/browser-oauth.ts'))).toBe(

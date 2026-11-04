@@ -446,6 +446,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@epicenter/account": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@tanstack/svelte-query": "catalog:",
@@ -454,6 +455,7 @@
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
+        "@epicenter/folder": "workspace:*",
         "@types/bun": "catalog:",
         "svelte": "catalog:",
         "svelte-check": "catalog:",

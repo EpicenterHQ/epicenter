@@ -5,7 +5,8 @@ in with Epicenter and to keep secrets in the OS keychain. A standalone app
 (`epicenter-standalone`) keeps its data as files in a folder Epicenter syncs,
 so it signs in only for hosted capabilities: inference and transcription on
 Epicenter's API. The page's side is `createTauriAuth` from
-`@epicenter/account/tauri`.
+`@epicenter/account/tauri`; the page's side of the provider keys and the
+requests sent with them is `@epicenter/ai/tauri`.
 
 ## Signing in
 
@@ -50,8 +51,8 @@ stops one. A request with no token to send ends with `reauth-required` or
 
 ## A connected endpoint's requests
 
-An app whose person connects their own OpenAI-compatible endpoints (Vocab)
-saves each one's key with `keychain_set(<connection id>, '{"endpoint": …,
+An app whose person connects their own OpenAI-compatible endpoints (Vocab,
+Whispering) saves each one's key with `keychain_set(<connection id>, '{"endpoint": …,
 "key": …}')`, and sends the endpoint's requests through `connection_fetch`
 rather than the page's `fetch`, which CORS holds to endpoints that answer a
 `tauri://` page. The page names the connection and describes the request
@@ -65,7 +66,7 @@ A redirect is not followed. The answer streams back on a channel exactly as
 `connection_fetch_cancel` stops one. A refusal is a `ConnectionFetchError`
 (`InvalidRequest`, `SchemeRefused`, `OriginRefused`, `KeychainFailed`,
 `SendFailed`), named in `name`; the page's side is `connectionFetch(id)` from
-`@epicenter/account/tauri`.
+`@epicenter/ai/tauri`.
 
 ## The keychain
 
@@ -89,9 +90,10 @@ epicenter_account::manage(builder, ACCOUNT, &context.config().identifier)
         epicenter_account::account::account_sign_out,
         epicenter_account::account::account_fetch,
         epicenter_account::account::account_fetch_cancel,
+        // An app that reaches endpoints other than Epicenter's adds
+        // `CONNECTION_COMMANDS`, the provider keys' commands:
         epicenter_account::keychain::keychain_get,
         epicenter_account::keychain::keychain_set,
-        // An app that connects endpoints adds `CONNECTION_COMMANDS`:
         epicenter_account::connection::connection_fetch,
         epicenter_account::connection::connection_fetch_cancel,
     ])
@@ -103,7 +105,7 @@ The app's `build.rs` declares those commands (`COMMANDS`, and
 `allow-<command>` for each. The page:
 
 ```ts
-import { createTauriAuth, keychain } from '@epicenter/account/tauri';
+import { createTauriAuth } from '@epicenter/account/tauri';
 import { fromAuth } from '@epicenter/account/svelte';
 
 const { client, ready } = createTauriAuth();

@@ -130,11 +130,11 @@ over the [`epicenter-account`](../tauri-epicenter-account/README.md) crate's
 commands, which sign in as the app's native client
 (`so.epicenter.<app>.native`) in the system browser, keep the refresh token
 in the keychain, and relay each of the account's requests (`account_fetch`),
-so the page never holds a token. `keychain` from the same entry reads and
-writes the API keys the app saves there, and `connectionFetch(id)` is the
-`fetch` of one endpoint the person connected: the shell (`connection_fetch`)
-adds the key it keeps for that connection and sends only to the endpoint the
-key was saved for, so no endpoint needs to allow the window's origin.
+so the page never holds a token. The person's provider keys are not the
+account's: `@epicenter/ai/tauri` saves them in the same shell and sends a
+connected endpoint's requests with them (`connection_fetch`), reading the
+answer through this entry's `relayThroughShell`, the one reader of the
+shell's streamed answers.
 [ADR-0740](../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)
 moves the refresh token and the API keys out of the keychain into one file in
 the app's AppData; that move is unbuilt.

@@ -25,6 +25,8 @@
 		"allow-account-fetch-cancel",
 		"allow-keychain-get",
 		"allow-keychain-set",
+		"allow-connection-fetch",
+		"allow-connection-fetch-cancel",
 		"allow-send-request",
 		"allow-set-shortcut"
 	]

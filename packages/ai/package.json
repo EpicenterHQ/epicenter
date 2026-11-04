@@ -12,10 +12,12 @@
 		"./connections": "./src/ai-connections.ts",
 		"./picker": "./src/picker/index.ts",
 		"./providers": "./src/providers.ts",
-		"./svelte": "./src/svelte/ai.svelte.ts"
+		"./svelte": "./src/svelte/ai.svelte.ts",
+		"./tauri": "./src/tauri.ts"
 	},
 	"dependencies": {
 		"@epicenter/account": "workspace:*",
+		"@epicenter/definition": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
@@ -24,6 +26,7 @@
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
+		"@epicenter/folder": "workspace:*",
 		"@types/bun": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
