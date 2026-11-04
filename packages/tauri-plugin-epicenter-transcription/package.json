@@ -6,12 +6,23 @@
 	"exports": {
 		".": "./guest-js/bindings.gen.ts",
 		"./local-models": "./guest-js/local-models.svelte.ts",
-		"./local-model-administration": "./guest-js/LocalModelAdministration.svelte"
+		"./local-model-administration": "./guest-js/LocalModelAdministration.svelte",
+		"./local-speech": "./guest-js/local-speech.ts"
+	},
+	"scripts": {
+		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
+		"test": "bun test --isolate guest-js"
 	},
 	"dependencies": {
 		"@tauri-apps/api": "catalog:",
 		"@epicenter/ui": "workspace:*",
 		"svelte": "catalog:"
+	},
+	"devDependencies": {
+		"@epicenter/ai": "workspace:*",
+		"@types/bun": "catalog:",
+		"svelte-check": "catalog:",
+		"typescript": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

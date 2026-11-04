@@ -592,6 +592,12 @@
         "@tauri-apps/api": "catalog:",
         "svelte": "catalog:",
       },
+      "devDependencies": {
+        "@epicenter/ai": "workspace:*",
+        "@types/bun": "catalog:",
+        "svelte-check": "catalog:",
+        "typescript": "catalog:",
+      },
     },
     "packages/ui": {
       "name": "@epicenter/ui",
