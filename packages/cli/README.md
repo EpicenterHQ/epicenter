@@ -24,8 +24,8 @@ with no `git` or `git-lfs` program; only `status` still runs the system
 `git`:
 
 ```sh
-~/.epicenter/bin/epicenter clone <namespace>/recorder-demo ~/Epicenter/recorder-demo
-~/.epicenter/bin/epicenter sync ~/Epicenter/recorder-demo   # 0 synced, 1 run again, 2 stopped
+~/.epicenter/bin/epicenter clone <namespace>/notes ~/Epicenter/notes
+~/.epicenter/bin/epicenter sync ~/Epicenter/notes   # 0 synced, 1 run again, 2 stopped
 ```
 
 The app links its bundled CLI at `~/.epicenter/bin/epicenter`; development links it at `~/.epicenter-dev/bin/epicenter`.
@@ -109,7 +109,8 @@ owner's 12-character id (`epicenter repos` lists them).
   asking for another run.
 
 `grants.postgres.test.ts` runs sharing between two people, each on a machine
-of their own, with a web client (`openRemote`) beside each.
+of their own: the owner's folder goes up with `init`, `connect`, and `sync`,
+and the grantee's `clone` and `sync` are refused or land as the grant says.
 `hosted-git.postgres.test.ts` runs these against the real server, and a
 plain `git` signing in through `epicenter auth git-credential`; it seeds the processes'
 in-memory keychain with a signed-in grant through `EPICENTER_TEST_SECRETS`'s
