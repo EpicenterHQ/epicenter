@@ -24,25 +24,28 @@ src-tauri/                   the desktop app's shell
 ## The roots
 
 - `routes/+layout.svelte` is the chrome every route shares: tooltips, the
-  confirmation dialog, toasts, the theme, and the leave guard
-  (`guardLeave`), which asks before leaving while a save is out.
+  confirmation dialog, toasts, and the theme.
 - `routes/(app)/+layout.svelte` is the app's root: under a
   `<svelte:boundary>` it renders the build's `Startup` (`#platform/root`),
-  which opens the store, wraps it for Svelte once there (decision 87), and
-  hands both to `<WhisperingApp {client} {files}>`:
+  which opens the store, reads it as a folder once there
+  (`reactive(folderOf(client))`, decision 87), and hands both to
+  `<WhisperingApp {client} {files}>`:
   `LocalStartup` awaits this browser's device; `DesktopStartup` awaits the
   AppData root and the data folder, or renders the recovery screen. Its
   pages are `/`, `/recordings` and `/transformations`.
 - `routes/auth/callback/` is outside the group, so it opens no files: it
   renders the build's `Callback`, which finishes a web sign-in and loads the
   page it started from.
-- `WhisperingApp.svelte` takes the client and its Svelte state as props. It makes
-  `createWhispering({ client })` (the services, the models, the
-  microphone and the recorder) and
-  `createLibrary({ whispering, files: filesOf(client, files) })`, puts both in
+- `WhisperingApp.svelte` takes the client and the same client as a folder
+  as props. It makes `createWhispering({ client, files })` (the services, the
+  models, the microphone and the recorder) and
+  `createLibrary({ whispering, files: filesOf(files) })`, puts both in
   context (`setWhispering`, `setLibrary`), awaits `start()` (the model
   choices, the saved connections and the saved microphone), renders the frame (sidebar or bottom bar, and
-  the header with its status line), and disposes both when it leaves.
+  the header with its status line), and disposes both when it leaves. It is
+  also the leave guard: every note is written through the folder, so while
+  the folder is `saving()` leaving the page asks first. `DesktopRoot` guards
+  the AppData folder, where the shortcut is saved, the same way.
 
 Nothing below `WhisperingApp` knows which store it is; where only a
 sentence differs, a component reads `variant` from `#platform/variant`.
@@ -55,16 +58,19 @@ the files unless Whispering itself is closing.
 `src/lib/page-boundary.test.ts` pins this: `openDevice` only in
 `LocalStartup`, `openDataFolder` only in `DesktopStartup`; nothing
 calls `openRemote` or imports `@epicenter/folder/remote`; `createWhispering`,
-`filesOf` and `createLibrary` only in `WhisperingApp`; `fromClient` only
+`filesOf` and `createLibrary` only in `WhisperingApp`; `folderOf` only
 where each build's store is opened (`LocalStartup`, `DesktopRoot`, which
-also wraps the AppData root); auth only through `#platform/auth`; services only through
+also reads the AppData root as a folder); auth only through `#platform/auth`; services only through
 `#platform/services`; and nothing from Node or Bun, Tauri only in the desktop
 leaves.
 
 ## The files
 
-`files.svelte.ts` gives the pages one client's note collections (its
-Svelte state, `files.<collection>`) and its recordings' audio. The library
+`files.svelte.ts` gives the pages one folder's note collections
+(`files.<collection>`, whose reads `items()`, `invalid()`, `loading()` and
+`error()` track through `reactive`) and its recordings' audio.
+A recording's note is written through the same folder
+(`folder-recordings.ts`), so the lists show it as soon as it lands. The library
 sorts each list (`newest`, `byTitle`). Each list lists and listens only while
 something reactive reads it; a read outside an effect is a snapshot.
 
@@ -74,7 +80,7 @@ something reactive reads it; a read outside an effect is a snapshot.
   over what the person saw when typing began, so another writer's change to
   a field not typed is kept and a change to a typed one surfaces as a
   conflict.
-- A note that does not read is in the list's `invalid`, with its issues and
+- A note that does not read is in the list's `invalid()`, with its issues and
   text; `library.repairs` gathers those of recordings, transcriptions and
   transformation runs, and the transformations page shows its own and text
   runs'. `replace` repairs one from text.
@@ -82,7 +88,7 @@ something reactive reads it; a read outside an effect is a snapshot.
 Audio is a file collection, `recordings/{id}.{ext}`. `files.audioOf(id)`
 answers `here` with one file (its extension and version), `ambiguous` for
 more than one extension, `absent`, or `listing`. `files.readAudio(id)` reads
-it through the client.
+its bytes through the folder (`audio.read`).
 
 ## Recording
 
@@ -223,7 +229,7 @@ ends with the page.
 ## Tests
 
 `bun run test` runs under Svelte's browser runtime (`--conditions=browser`
-with `packages/svelte/src/svelte-dom.test-support.ts`), since `fromClient`
+with `packages/svelte/src/svelte-dom.test-support.ts`), since `reactive`
 notifies nothing on the server runtime. `services.test-support.ts` opens a
 `/node` device client over a temporary directory, as the browser's OPFS
 holds it, with stubbed endpoints; `whispering.test-support.ts` makes the app

@@ -13,10 +13,9 @@
  * - `#platform/auth` (`PlatformAuth`): the optional sign-in with Epicenter.
  */
 import type { AuthClient } from '@epicenter/account';
-import type { ReactiveAuthClient } from '@epicenter/account/svelte';
 import type { Ai, ModelChoices } from '@epicenter/ai';
 import type { Client } from '@epicenter/definition/contract';
-import type { ReactiveClient } from '@epicenter/svelte/client';
+import type { Folder } from '@epicenter/folder/core';
 import type { Component, Snippet } from 'svelte';
 import type { CaptureDevice } from '../capture.js';
 import type { Whispering } from '../contract.js';
@@ -31,8 +30,8 @@ export type Variant = 'local' | 'desktop';
 /**
  * `#platform/root`: the one thing a variant decides (decision 78).
  * `Startup` opens the store and renders the app over it (`children`, given
- * the store's client and that client wrapped once for Svelte, where it was
- * made: decision 87), or says why it could not: this browser's storage on
+ * the store's client and that client read as a folder through `reactive`,
+ * once, where it was made: decision 87), or says why it could not: this browser's storage on
  * the web; on the desktop the AppData root and then the data folder, or the
  * recovery screen. `Chrome` is the header's account of the store (where the
  * recordings are, and on the desktop whether Epicenter syncs them). `Settings`
@@ -41,7 +40,7 @@ export type Variant = 'local' | 'desktop';
  */
 export type Platform = {
 	Startup: Component<{
-		children: Snippet<[Client<Whispering>, ReactiveClient<Whispering>]>;
+		children: Snippet<[Client<Whispering>, Folder<Whispering>]>;
 	}>;
 	Chrome: Component<ChromeProps>;
 	Settings: Component | null;
@@ -54,8 +53,8 @@ export type ChromeProps = { unwrittenAnswers: number };
 /** What the sign-in callback's page is given: where the app starts. */
 export type CallbackProps = { home: string };
 
-/** This page's sign-in with Epicenter, as Svelte state. */
-export type PlatformAuth = ReactiveAuthClient<AuthClient>;
+/** This page's sign-in with Epicenter, read through `reactive`: `state()` tracks in Svelte. */
+export type PlatformAuth = AuthClient;
 
 export type WhisperingServices = {
 	/**

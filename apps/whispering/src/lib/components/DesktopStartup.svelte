@@ -6,14 +6,14 @@
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
 	import { APPS } from '@epicenter/definition/site';
-	import type { ReactiveClient } from '@epicenter/svelte/client';
+	import type { Folder } from '@epicenter/folder/core';
 	import DesktopStartup from '@epicenter/svelte/desktop-startup';
 	import type { Snippet } from 'svelte';
 	import { type Whispering, whispering } from '../contract.js';
 	import { whisperingSettings } from '../settings.tauri.js';
 	import DesktopRoot from './DesktopRoot.svelte';
 
-	let { children: outer }: { children: Snippet<[Client<Whispering>, ReactiveClient<Whispering>]> } = $props();
+	let { children: outer }: { children: Snippet<[Client<Whispering>, Folder<Whispering>]> } = $props();
 </script>
 
 <DesktopStartup app="Whispering" settings={whisperingSettings} contract={whispering} site={APPS.WHISPERING.url}>
