@@ -1,5 +1,5 @@
 <!--
-	One recording, read and edited through its list's store:
+	One recording, read and edited through its list's folder:
 	its title to rename, its audio to play, and Delete.
 -->
 <script lang="ts">
@@ -13,7 +13,7 @@
 		files,
 	}: {
 		row: RecordingRow;
-		/** The list's store, which this row edits and reads its audio's bytes through. */
+		/** The list's folder, which this row edits and reads its audio's bytes through. */
 		files: Folder<Recorder>;
 	} = $props();
 

@@ -1,7 +1,6 @@
 <!--
-	One store's recordings, this browser's files or the repository: its
-	notes and audio joined by id, each row read and edited through that
-	store alone.
+	The folder's recordings: its notes and audio joined by id, each row
+	read and edited through that folder alone.
 -->
 <script lang="ts">
 	import type { Folder } from '@epicenter/folder/core';
@@ -12,7 +11,7 @@
 	const {
 		files,
 	}: {
-		/** The recorder's store as a folder, read through `reactive`: what the list shows, writes and plays. */
+		/** The recorder's folder, read through `reactive`: what the list shows, writes and plays. */
 		files: Folder<Recorder>;
 	} = $props();
 	const rows = $derived(

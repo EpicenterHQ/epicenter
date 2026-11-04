@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/recorder-demo",
-	"description": "A small recorder over the file contract, in two variants: one keeps recordings in this browser, the other records straight into the signed-in person's repository",
+	"description": "A small recorder over the file contract that keeps its recordings in this browser's files, with no account",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
@@ -8,15 +8,12 @@
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
-		"demo": "bun e2e/stack.ts --demo",
 		"contract": "bun scripts/write-contract.ts",
 		"test": "bun test src",
 		"test:e2e": "playwright test -c playwright.config.ts",
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
-		"@epicenter/account": "workspace:*",
-		"@epicenter/vite-config": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
@@ -26,7 +23,6 @@
 	"devDependencies": {
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@types/bun": "catalog:",
-		"drizzle-orm": "catalog:",
 		"playwright": "^1.61.1",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",

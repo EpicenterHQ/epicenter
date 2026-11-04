@@ -291,18 +291,15 @@
       "name": "@epicenter/recorder-demo",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/account": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/recorder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
-        "@epicenter/vite-config": "workspace:*",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@types/bun": "catalog:",
-        "drizzle-orm": "catalog:",
         "playwright": "^1.61.1",
         "svelte": "catalog:",
         "svelte-check": "catalog:",

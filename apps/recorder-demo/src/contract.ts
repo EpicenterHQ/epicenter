@@ -3,9 +3,9 @@
  * when it was recorded and how long it is, beside its audio at the same id.
  * The audio's extension is whatever the browser recorded (`m4a` or `webm`).
  *
- * The online demo explicitly opens `<account>/recorder-demo`. The contract
- * is published, unchanged, as `public/contract.json` (`bun run contract`
- * writes it), so `epicenter check <url>/contract.json <dir>` checks a clone.
+ * The contract is published, unchanged, as `public/contract.json` (`bun run
+ * contract` writes it), so `epicenter check <url>/contract.json <dir>`
+ * checks a folder of these files.
  */
 import { defineContract } from '@epicenter/definition/contract';
 

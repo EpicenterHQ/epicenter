@@ -1,7 +1,5 @@
 /**
- * The recordings one folder holds, this browser's files or the repository
- * (whichever the page's variant opened): its notes and audio files joined
- * by id. A recording is a note and its audio at the same id; either may be
+ * The recordings the folder holds: its notes and audio files joined by id. A recording is a note and its audio at the same id; either may be
  * there without the other (a recording still under way, one a closed tab
  * cut off, a save that stopped partway, or a file another program wrote).
  */
@@ -82,8 +80,8 @@ export async function unnamedAudio(
 
 /**
  * Make the note of each recording whose audio a closed tab or a crash left
- * without one, its length read from the audio itself. The local variant
- * runs it when it opens, after `recorder.recover` cut the audio back to its
+ * without one, its length read from the audio itself. The page runs it
+ * when it opens, after `recorder.recover` cut the audio back to its
  * last whole piece. Answers the ids it finished; audio that does not read,
  * or whose id is not a recording's, is left as it is.
  */
