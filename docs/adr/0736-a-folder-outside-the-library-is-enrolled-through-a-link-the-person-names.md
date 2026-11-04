@@ -4,7 +4,6 @@
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) at "'Add folder…' runs `epicenter link`, which puts a link to a folder from anywhere inside the root": the link's name is one the person confirms and no app could claim; [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at its example `ln -s whispering ~/Epicenter/voice`: a name without a dot belongs to Epicenter's apps, so a person's own link takes a name with a space.
 - **Relates:** [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (names without a dot belong to Epicenter's apps, names with a dot to owners), [ADR-0729](0729-a-link-is-followed-only-at-or-above-a-root.md) (a link is followed at or above a root), [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) (the scan of the root).
-- **Unbuilt:** `epicenter link`; "Add folder…" with its suggested name; the refusal of a name an app could claim.
 
 ## Context
 
@@ -41,8 +40,9 @@ vault as its own folder ([ADR-0726](0726-an-apps-path-is-its-claim.md)).
 - **Epicenter suggests a name and the person confirms it.** The suggestion
   is the folder's own name when it has a space (`Obsidian Vault`), and
   otherwise the name prefixed with "My " (`My notes` for `~/notes`).
-- **`epicenter link <path> <name>` refuses a name without a space,** with an
-  error saying that names without a space belong to apps.
+- **`epicenter init <path> --name "<name>"` refuses a name without a
+  space,** with an error saying that names without a space belong to apps
+  and owners (`isPersonalFolderName`, `packages/constants/src/app-names.ts`).
 - **Removing the folder from Epicenter removes the link and leaves the
   files.**
 

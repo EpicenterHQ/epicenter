@@ -166,15 +166,13 @@ test('init links an outside folder and refuses a taken library name before conse
 	const external = join(box, 'external', 'new-notes');
 	const missing = await cli('init', external, '--json');
 	expect(missing.code).toBe(2);
-	expect(JSON.parse(missing.stdout).error).toContain(
-		'--name "new-notes folder"',
-	);
+	expect(JSON.parse(missing.stdout).error).toContain('--name "My new-notes"');
 	expect(existsSync(external)).toBe(false);
-	for (const name of ['notes', 'BRADENWONG.COM']) {
+	for (const name of ['notes', 'BRADENWONG.COM', 'My_Notes']) {
 		const claimable = await cli('init', external, '--name', name, '--json');
 		expect(claimable.code).toBe(2);
 		expect(JSON.parse(claimable.stdout).error).toContain(
-			'could name an app or owner',
+			'names without a space belong to apps and owners',
 		);
 	}
 	const enrolled = await cli(
@@ -197,21 +195,15 @@ test('init links an outside folder and refuses a taken library name before conse
 	).toBe(true);
 	expect((await cli('sync', external, '--json')).code).toBe(0);
 
-	const taken = join(library, 'Taken folder');
+	const taken = join(library, 'My taken');
 	mkdirSync(taken);
 	const outside = join(box, 'external', 'taken');
-	const refused = await cli(
-		'init',
-		outside,
-		'--name',
-		'taken FOLDER',
-		'--json',
-	);
+	const refused = await cli('init', outside, '--name', 'my TAKEN', '--json');
 	expect(refused.code).toBe(2);
 	const refusal = JSON.parse(refused.stdout).error;
 	expect(refusal).toContain(outside);
 	expect(refusal).toContain(taken);
-	expect(refusal).toContain('--name "taken folder 2"');
+	expect(refusal).toContain('--name "My taken 2"');
 	expect(existsSync(outside)).toBe(false);
 });
 

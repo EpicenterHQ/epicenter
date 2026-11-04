@@ -19,26 +19,17 @@ export class AppNameError extends Error {
 
 const labelPattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
-/** A DNS host or label could later name an app or owner in the library. */
-export function isClaimableHostName(name: string): boolean {
-	if (/[\s\\/@?#:]/.test(name) || name.length === 0) return false;
-	let host: string;
-	try {
-		host = new URL(`https://${name}`).hostname.replace(/\.$/, '');
-	} catch {
-		return false;
-	}
-	return (
-		host.length <= 253 &&
-		host
-			.split('.')
-			.every((label) => label.length <= 63 && labelPattern.test(label))
-	);
+/**
+ * Whether `name` is a person's own folder name in the library (ADR-0736):
+ * it has a space, which no app label or owner host can have.
+ */
+export function isPersonalFolderName(name: string): boolean {
+	return / /.test(name);
 }
 
-/** A suggested link name that cannot be claimed by an app or owner. */
+/** A link name for a person's folder: its own name, or "My <name>". */
 export function suggestLibraryLinkName(basename: string): string {
-	return isClaimableHostName(basename) ? `${basename} folder` : basename;
+	return isPersonalFolderName(basename) ? basename : `My ${basename}`;
 }
 
 function labelsFromHost(host: string): [string, string, string, ...string[]] {

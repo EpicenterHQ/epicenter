@@ -4,7 +4,7 @@
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at "Cloning where a folder already exists, as when an app on a second Mac made its folder first, joins it: fetch, then merge": the folder's files are added on top of the account's repository in one commit; [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at "the `.gitattributes` block `epicenter init` commits" and "A folder `epicenter init` has not registered has no history": a folder has no history until its first sync, whose one commit holds the attribute block.
 - **Relates:** [ADR-0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) (how a file on both sides merges), [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) (the first push creates the repository), [ADR-0620](0620-history-in-a-repository-only-grows.md) (history only grows), [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) (the consent screen).
-- **Unbuilt:** all of it: the first sync building on the account's repository; the "Added from <computer name>" commit; the consent screen's counts; the refusal of a history Epicenter did not make; removing `--allow-unrelated-histories` from `merge` and `firstContact` in `packages/cli/src/sync/sync.ts`, `joinExisting` and its `sameContract`, `expectedName`, and `ownsRemote` test in `packages/cli/src/sync/clone.ts`, `epicenter.joinPending`, the `publish` and `allowPending` options, and the commit `init` makes in `packages/cli/src/sync/setup.ts`.
+- **Unbuilt:** the consent screen's counts ("This Mac's 12 recordings will be added to your Whispering, which has 340").
 
 ## Context
 
@@ -69,10 +69,9 @@ repository is checked out at the app's derived path.
 
 **Sync never merges two unrelated histories.** `--allow-unrelated-histories`,
 the join heuristic, `epicenter.joinPending`, and the `publish` and
-`allowPending` options are removed. `epicenter clone` takes no `--join` for
-the person's own repository for that app; for any other remote, `--join` is
-the explicit consent, and the folder's files go on top of that remote's
-`main` the same way.
+`allowPending` options are removed, and so is `--join`: cloning onto an
+occupied folder is itself the consent to sync it with that remote, and the
+folder's files go on top of that remote's `main` the same way.
 
 **A folder whose Git history Epicenter did not make is refused.** A folder
 that already has a `.git` because the person or another tool ran `git init`,

@@ -27,7 +27,7 @@ import {
 	epicenterDataRoot,
 } from '@epicenter/constants/app-data';
 import {
-	isClaimableHostName,
+	isPersonalFolderName,
 	suggestLibraryLinkName,
 } from '@epicenter/constants/app-names';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
@@ -262,9 +262,9 @@ export async function prepareFolder(
 			throw new Refused(
 				`'${name}' is not a usable library link name. Try --name "${suggestion}".`,
 			);
-		if (isClaimableHostName(name))
+		if (!isPersonalFolderName(name))
 			throw new Refused(
-				`'${name}' could name an app or owner. Try --name "${suggestion}".`,
+				`'${name}' has no space; names without a space belong to apps and owners. Try --name "${suggestion}".`,
 			);
 		const occupied = entries.find(
 			(entry) => entry.toLowerCase() === name.toLowerCase(),

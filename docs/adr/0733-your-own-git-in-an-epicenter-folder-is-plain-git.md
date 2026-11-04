@@ -4,7 +4,7 @@
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) at "`epicenter auth login` writes Git's helper as two global entries": no Epicenter command writes a credential helper; [ADR-0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) at "installs and updates `~/.epicenter/bin/epicenter`", "`git-lfs` ships with the Epicenter app and installs beside the engine", and the `git` check at setup: the engine is a link into the app, `git-lfs` stays inside the app, and setup triggers the platform's Git installer; [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) at `bin/git-lfs` and `bin/epicenter` as an installed copy: `~/.epicenter/bin` holds one link.
 - **Relates:** [ADR-0728](0728-a-build-states-its-environment.md) (a build states its environment), [ADR-0567](0567-epicenter-ships-for-macos-only-for-now.md) (macOS only for now), [ADR-0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) (one merge rule).
-- **Unbuilt:** passing the merge driver on each run instead of writing `merge.epicenter.driver` at init; removing `configureGitHelper`, the LFS hook install in `init`, and the driver check in `round`; the link at `~/.epicenter/bin/epicenter`; the CLI build stating its environment; `git-lfs` inside the app on `PATH` for Epicenter's runs; the named setup step that triggers the Git installer; documenting the lines a terminal user adds for Epicenter's merge and helper.
+- **Unbuilt:** `git-lfs` inside the app on `PATH` for Epicenter's runs; documenting the lines a terminal user adds for Epicenter's merge and helper.
 
 ## Context
 
