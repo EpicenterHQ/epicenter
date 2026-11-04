@@ -13,6 +13,7 @@
 		"./picker": "./src/picker/index.ts",
 		"./providers": "./src/providers.ts",
 		"./selections": "./src/selections.ts",
+		"./svelte": "./src/svelte/ai.svelte.ts",
 		"./target": "./src/target.ts"
 	},
 	"dependencies": {
@@ -33,6 +34,6 @@
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test --isolate"
+		"test": "bun test --isolate --conditions=browser"
 	}
 }
