@@ -1,27 +1,28 @@
 <!--
 	The desktop window's header account of its store: the data folder on
 	this computer, whether Epicenter manages it, Set up in Epicenter until it
-	does. Whispering never
-	syncs anything itself. The global shortcut lives here too: a press
-	starts a recording, or stops the one under way, from any app, as the
-	header's button does.
+	does. Whispering never syncs anything itself. The global shortcut's
+	presses are heard here too: a press starts a recording, or stops the one
+	under way, from any app, as the header's button does.
 -->
 <script lang="ts">
-	import { getFolderSync } from '@epicenter/svelte/folder-sync';
+	import { APPS } from '@epicenter/definition/site';
+	import { folderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import { onMount } from 'svelte';
-	import { onShortcut } from '../platform/shortcut.tauri.svelte.js';
+	import { folder } from '../app.js';
+	import { onShortcut } from '../platform/shortcut.tauri.js';
 	import type { ChromeProps } from '../platform/types.js';
 	import { headerStatus } from '../status.js';
 	import { getWhispering } from '../whispering.svelte.js';
 
 	let { unwrittenAnswers }: ChromeProps = $props();
 
-	// DesktopRoot renders the app, and so this, only over its open data folder.
-	const sync = getFolderSync();
+	// `<WhenOpen>` renders the app, and so this, only over the open data folder.
+	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.WHISPERING.url });
 	const whispering = getWhispering();
 
 	const kept = $derived<StatusLine>(

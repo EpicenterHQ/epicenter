@@ -1,9 +1,10 @@
 /**
- * Whispering's files over one contract client, read as a folder: the note
- * lists, and each recording's audio beside them. The web build hands in
- * this browser's device (opened by `LocalStartup`), the desktop its data
- * folder (`DesktopRoot`); which client it is is the variant root's choice,
- * never this module's, so another variant passes its own.
+ * Whispering's files over its folder: the note lists, and each recording's
+ * audio beside them. The folder is the one `src/lib/app.ts` opened (this
+ * browser's storage on the web, the data folder on the desktop), which
+ * `WhisperingApp` hands in; which store it is is the build's choice, never
+ * this module's. A page edits a note through the folder itself
+ * (`folder.recordings.edit({ id })`).
  *
  * Reads are Svelte state through `reactive`: each list lists and listens
  * only while something reactive reads it. Writes answer a `Result`; the
@@ -15,7 +16,6 @@ import type {
 	Version,
 } from '@epicenter/definition/contract';
 import type { Folder, FolderNotes } from '@epicenter/folder/core';
-import { createContext } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
 import type { Whispering } from './contract.js';
@@ -73,16 +73,6 @@ export type NoteLists = {
 	readonly [K in NoteName]: FolderNotes<Collections[K]>;
 };
 
-/** The recordings a page edits, set by `WhisperingApp` over its store. */
-export const [getRecordings, setRecordings] =
-	createContext<NoteLists['recordings']>();
-/** The transcripts a page edits, set by `WhisperingApp` over its store. */
-export const [getTranscriptions, setTranscriptions] =
-	createContext<NoteLists['transcriptions']>();
-/** The transformations a page edits, set by `WhisperingApp` over its store. */
-export const [getTransformations, setTransformations] =
-	createContext<NoteLists['transformations']>();
-
 /** Whispering's files: the note lists, and the recordings' audio. */
 export type WhisperingFiles = NoteLists & {
 	/** Where recording `id`'s audio is, read reactively. */
@@ -119,9 +109,8 @@ function readable(audio: RecordingAudio): Result<AudioFile, string> {
 }
 
 /**
- * Whispering's files as every page reads and edits them: `files` is the
- * store's client as a folder through `reactive`, made once where the store
- * was opened. A recording under way has no note yet, so nothing here names
+ * Whispering's files as every page reads them: `files` is the folder
+ * through `reactive`, made once in `src/lib/app.ts`. A recording under way has no note yet, so nothing here names
  * it.
  */
 export function filesOf(files: Folder<Whispering>): WhisperingFiles {

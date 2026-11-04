@@ -8,14 +8,13 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { onMount } from 'svelte';
-	import { getAuth } from '#platform/auth';
+	import { account } from '$lib/app.js';
 	import { variant } from '#platform/variant';
 	import type { Variant } from '$lib/platform/types.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 
 	const whispering = getWhispering();
-	const auth = getAuth();
-	const authState = $derived(auth.state());
+	const authState = $derived(account.state());
 	let checking = $state(true);
 	let problem = $state<string>();
 	let busy = $state(false);
@@ -31,7 +30,7 @@
 	async function check() {
 		const current = ++checkId;
 		try {
-			await auth.refresh();
+			await account.refresh();
 			if (!mounted || current !== checkId) return;
 			problem = undefined;
 		} catch (cause) {
@@ -53,14 +52,14 @@
 
 	async function signIn() {
 		busy = true;
-		const { error } = await auth.startSignIn();
+		const { error } = await account.startSignIn();
 		if (error !== null) problem = error.message;
 		busy = false;
 	}
 
 	async function signOut() {
 		busy = true;
-		const { error } = await auth.signOut();
+		const { error } = await account.signOut();
 		if (error !== null) problem = error.message;
 		busy = false;
 	}

@@ -10,9 +10,9 @@
  * Key behaviors:
  * - The web build carries the local variant: this browser's storage, the
  *   browser's recorder and sign-in, and nothing of the desktop
- * - The desktop build carries the window's two roots, the shell's microphone,
- *   requests and local models, and sign-in through the shell, and none of the
- *   web's leaves
+ * - The desktop build carries the data folder, the shell's microphone,
+ *   requests and local models, the global shortcut, and sign-in through the
+ *   shell, and none of the web's leaves
  * - Only the web build has a service worker (decision 85): the desktop
  *   build's names an entry that does not exist, so Kit builds and registers
  *   none
@@ -46,39 +46,40 @@ async function bundle(desktop: boolean) {
 }
 
 const webLeaves = [
-	'platform/root.ts',
+	'platform/account.ts',
+	'platform/components.ts',
+	'platform/computer.ts',
 	'platform/variant.ts',
-	'platform/auth.ts',
-	'platform/browser.ts',
-	'components/LocalStartup.svelte',
 	'components/LocalChrome.svelte',
 	'components/SignInCallback.svelte',
 ];
 const desktopLeaves = [
-	'platform/root.tauri.ts',
+	'platform/account.tauri.ts',
+	'platform/components.tauri.ts',
+	'platform/computer.tauri.ts',
 	'platform/variant.tauri.ts',
-	'platform/auth.tauri.ts',
-	'platform/services.tauri.ts',
-	'platform/shortcut.tauri.svelte.ts',
-	'settings.tauri.ts',
-	'components/DesktopStartup.svelte',
-	'components/DesktopRoot.svelte',
+	'platform/shortcut.tauri.ts',
 	'components/DesktopChrome.svelte',
 	'components/DesktopSettings.svelte',
 	'components/DesktopCallback.svelte',
 ];
 /** What only the desktop build may carry from the shared packages. */
 const desktopPackages = [
-	'folder/src/tauri.ts',
+	'folder/src/open-folder.tauri.ts',
 	'recorder/src/tauri.ts',
 	'account/src/tauri.ts',
 	'ai/src/tauri.ts',
 	'transcription/guest-js/local-speech.ts',
 	'transcription/guest-js/bindings.gen.ts',
 	'ai/src/device-settings.tauri.ts',
+	'local/src/tauri.ts',
 ];
 /** What only the web build may carry from the shared packages: the leaves the `tauri` condition replaces. */
-const webPackages = ['ai/src/device-settings.ts'];
+const webPackages = [
+	'ai/src/device-settings.ts',
+	'local/src/browser.ts',
+	'folder/src/open-folder.ts',
+];
 
 test(
 	'the web build carries the local variant and nothing of the desktop',
@@ -98,7 +99,7 @@ test(
 );
 
 test(
-	'the desktop build carries the window’s roots, the shell’s capabilities, and none of the web’s leaves',
+	'the desktop build carries the data folder, the shell’s capabilities, and none of the web’s leaves',
 	async () => {
 		const modules = await bundle(true);
 		for (const name of desktopLeaves)

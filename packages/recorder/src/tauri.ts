@@ -3,7 +3,7 @@
  * (ADR-0543, decision 84).
  *
  * The shell's recorder encodes the microphone to Opus from the first sample
- * and writes it, a second at a time, into a WebM in the `device`'s folder's
+ * and writes it, a second at a time, into a WebM in the `folder`'s
  * own `.epicenter/recordings`, a hidden path no watcher reports and sync
  * never commits. The shell always records into the open Data root.
  * `stop` finishes it in place and places it at `<path>.webm`, never over a
@@ -70,7 +70,7 @@ function nativeSignals() {
 	return { ...signals, channel };
 }
 
-/** Record into `device`'s folder from the first sample, landing at `<path>.webm` when it stops. */
+/** Record into the `folder` from the first sample, landing at `<path>.webm` when it stops. */
 const start: Recorder['start'] = async ({ path, input, signal }) => {
 	if (signal?.aborted) return RecorderError.Cancelled();
 	const signals = nativeSignals();

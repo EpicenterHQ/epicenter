@@ -1,5 +1,5 @@
 /**
- * Services for tests: this browser's files, a fixture capture device that
+ * Capabilities for tests: this browser's files, a fixture capture device that
  * keeps a generated tone as every recording, and one saved connection whose
  * `fetch` is a stub. Nothing here reaches a network, a microphone, or a
  * provider.
@@ -13,7 +13,6 @@
  * counts each request while the request itself is built and read as in the
  * app.
  */
-import { mock } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,7 +29,7 @@ import { Ok, type Result, unwrap } from 'wellcrafted/result';
 import { extensionOf } from './audio-format.js';
 import type { CaptureDevice } from './capture.js';
 import { type Whispering, whispering } from './contract.js';
-import type { WhisperingServices } from './platform/types.js';
+import type { WhisperingCapabilities } from './whispering.svelte.js';
 
 export type FixtureAudio = {
 	readonly name: string;
@@ -210,8 +209,11 @@ function memoryStorage() {
 	};
 }
 
+/** The capabilities Whispering is made over, but its folder: the test makes that over its directory. */
+export type TestCapabilities = Omit<WhisperingCapabilities, 'folder'>;
+
 /**
- * This browser's files in a temporary directory, and services whose one
+ * This browser's files in a temporary directory, and capabilities whose one
  * endpoint is a saved connection answered by a stub `fetch`, chosen for
  * transcription and for text. Nothing reaches a network.
  */
@@ -297,7 +299,7 @@ export async function openTestServices({
 		},
 	});
 
-	const services: WhisperingServices = {
+	const services: TestCapabilities = {
 		capture: createFixtureDevice({
 			device,
 			name: 'tone.wav',
@@ -308,7 +310,6 @@ export async function openTestServices({
 			customEndpointsOf(async () => openConnections()),
 		]),
 		choices,
-		connectionsNote: 'test',
 		preferences: {
 			microphone: async () => undefined,
 			setMicrophone: async () => undefined,
@@ -353,21 +354,4 @@ export async function eventually(check: () => boolean, timeoutMs = 4000) {
 			throw new Error(`Not true within ${timeoutMs} ms`);
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
-}
-
-/** The services the product's `createServices` answers in this test process. */
-let provided: WhisperingServices | undefined;
-let installed = false;
-/** Give the product these doubles when it makes its services. */
-export function provideServices(services: WhisperingServices) {
-	provided = services;
-	if (installed) return;
-	installed = true;
-	mock.module('#platform/services', () => ({
-		createServices(): WhisperingServices {
-			if (provided === undefined)
-				throw new Error('No test services were provided');
-			return provided;
-		},
-	}));
 }

@@ -1,7 +1,7 @@
 /**
  * Whispering's library over its files (`files.svelte.ts`): what the pages
- * list, edit, run and delete. The files are one contract client's, which
- * the variant root chose; nothing here knows which.
+ * list, edit, run and delete. The files are the folder `app.ts` opened,
+ * which the build chose; nothing here knows which.
  *
  * Every list here is derived from what the files show, read reactively.
  * Notes that read are listed to edit; the rest are named, with why and

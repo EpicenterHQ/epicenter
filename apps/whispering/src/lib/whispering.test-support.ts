@@ -1,9 +1,13 @@
-/** Construct the real app over test files and platform capabilities. */
+/** Construct the real app over test files and test capabilities. */
 import type { Client } from '@epicenter/definition/contract';
-import type { Whispering as WhisperingContract } from './contract.js';
+import { createFolder } from '@epicenter/folder/core';
+import { Ok } from 'wellcrafted/result';
+import {
+	type Whispering as WhisperingContract,
+	whispering as contract,
+} from './contract.js';
 import type { Library } from './library.svelte.js';
-import type { WhisperingServices } from './platform/types.js';
-import { provideServices } from './services.test-support.js';
+import type { TestCapabilities } from './services.test-support.js';
 import { headerStatus, ON_THIS_BROWSER } from './status.js';
 
 /** The header's status line over `library`, as the web app's Chrome words it. */
@@ -12,27 +16,26 @@ export const headerLine = (library: Library) =>
 
 /**
  * Same construction as the app's root (`WhisperingApp`): Whispering and its
- * library over `client`. The lists are followed as mounted pages follow
- * them, so they list and hear changes.
+ * library over a folder of `client`, read through `reactive` as `app.ts`
+ * reads its folder. The lists are followed as mounted pages follow them, so
+ * they list and hear changes.
  */
 export async function createTestWhispering({
 	services,
 	client,
 }: {
-	services: WhisperingServices;
+	services: TestCapabilities;
 	client: Client<WhisperingContract>;
 }) {
-	provideServices(services);
 	const { createWhispering } = await import('./whispering.svelte.js');
 	const { createLibrary } = await import('./library.svelte.js');
 	const { filesOf } = await import('./files.svelte.js');
 	const { follow } = await import(
 		'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 	);
-	const { folderOf } = await import('@epicenter/folder/core');
 	const { reactive } = await import('@epicenter/svelte/reactive');
-	const folder = reactive(folderOf(client));
-	const whispering = createWhispering({ client, files: folder });
+	const folder = reactive(createFolder(contract, async () => Ok(client)));
+	const whispering = createWhispering({ folder, ...services });
 	const files = filesOf(folder);
 	const library = createLibrary({ whispering, files });
 	const followed = follow(() => [

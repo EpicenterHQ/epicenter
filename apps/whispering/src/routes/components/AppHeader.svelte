@@ -11,7 +11,7 @@
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import { page } from '$app/state';
-	import { Chrome } from '#platform/root';
+	import { Chrome } from '#platform/components';
 	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { pageAt } from './nav-items.js';

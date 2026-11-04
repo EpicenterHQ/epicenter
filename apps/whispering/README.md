@@ -35,8 +35,8 @@ contract; nothing moves files between them (decision 77).
 ## Where the files are
 
 Whispering's web build keeps its files in one place, for good: this
-browser's private files (OPFS, `openDevice` from
-`@epicenter/folder/browser`), at the same paths a folder holds. It opens
+browser's private files (OPFS: `openFolder` from `@epicenter/folder`, in
+`src/lib/app.ts`, given no account), at the same paths a folder holds. It opens
 without an account and works offline. Nothing syncs, uploads, or moves to a
 repository, and there is no other view
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
@@ -69,7 +69,7 @@ text, which send through Epicenter's hosted API. It never opens a repository, ne
 recording, and signing out keeps every one. The app signs in as
 `so.epicenter.whispering` for the server's API audience alone, with
 `openid profile email ai` and no `folders:*` scope
-(`src/lib/platform/auth.ts`), with no automatic renewal, so a timer never
+(`connectAccount()` in `src/lib/platform/account.ts`), with no automatic renewal, so a timer never
 navigates away mid-recording. The server is `VITE_EPICENTER_SERVER` at build
 time, else Epicenter's.
 
@@ -251,9 +251,10 @@ bun build:whispering:desktop   # a local, unsigned macOS app bundle
 
 Its Tauri shell derives `~/Epicenter/whispering` and names it the Data root, or
 `~/Epicenter Dev/whispering` in development. The page opens this folder,
-making it when missing for now. Whispering opens its AppData root for shortcut
-overrides; the connected endpoints there are `@epicenter/ai`'s
-(`customEndpoints()`). A failed open shows the shared recovery screen with Retry. The
+making it when missing for now. What this computer alone keeps, the
+shortcut's override, the connected endpoints and the model choices, each
+capability keeps in its own file on this computer (`localFile` from
+`@epicenter/local`, in AppData); the page opens no AppData root. A failed open shows the shared recovery screen with Retry. The
 status details and Settings show the shell's folder path. **Set up in
 Epicenter** enrolls the folder for local history; connecting a repository
 there enables transfer. Whispering never syncs it itself.
@@ -264,10 +265,18 @@ build-time seams:
 
 | Seam | Web leaf | Desktop leaf |
 | --- | --- | --- |
-| `#platform/root` | `root.ts`: this browser's storage, "On this browser", the end of a web sign-in | `root.tauri.ts`: the two roots or the recovery screen, the folder's status and sync, the global shortcut, Settings for the folder, local models and the shortcut |
-| `#platform/services` | `browser.ts`: the WebView microphone, endpoints over the tab's `fetch`, `localStorage` | `services.tauri.ts`: the shell's microphone, endpoints over the shell's fetch, connections in AppData with keys in the credential store, local speech |
-| `#platform/auth` | `auth.ts`: browser OAuth | `auth.tauri.ts`: `createTauriAuth` over `epicenter-account` |
+| `#platform/account` | `account.ts`: browser OAuth | `account.tauri.ts`: `createTauriAuth` over `epicenter-account` |
+| `#platform/computer` | `computer.ts`: the WebView microphone, Ollama and LM Studio over the tab's `fetch`, no global shortcut | `computer.tauri.ts`: the shell's microphone, Ollama and LM Studio over the shell's fetch, the global shortcut |
+| `#platform/components` | `components.ts`: "On this browser", the end of a web sign-in | `components.tauri.ts`: the folder's status and sync, the shortcut's presses, Settings for the folder, local models and the shortcut |
 | `#platform/variant` | `'local'` | `'desktop'`, where only a sentence differs |
+
+`src/lib/app.ts` makes the capabilities from these leaves once, for the
+page's life: the folder (`openFolder`, which the build also picks: this
+browser's storage, or the data folder), the account, the models
+(connections and `localSpeech()` are picked by their own packages' builds),
+the recorder, and the shortcut. The root renders the pages over the open
+folder (`<WhenOpen>` from `@epicenter/svelte`), or the recovery screen when
+it cannot open.
 
 `src/lib/platform/platform.test.ts` bundles both builds and names a seam
 whose desktop leaf went missing.
@@ -277,13 +286,12 @@ whose desktop leaf went missing.
   in WebM in the data folder from the first sample and places it at
   `recordings/<id>.webm` when Stop answers, in the same few milliseconds
   for a recording of any length. The call is the web build's,
-  `recorder.start({ device, path })` from `@epicenter/recorder`, imported
+  `recorder.start({ folder, path })` from `@epicenter/recorder`, imported
   from `/tauri` here and `/browser` there (decision 84). The note, with its
   length, is written once Stop has answered (`folder-recordings.ts`); a
   recording a quit or a crash cut off is finished and placed on the next
-  launch, before any page shows, and given its note there. The recorder names the data folder to the shell by
-  its root's name (`rootOf` from `@epicenter/folder/tauri`); the shell
-  refuses a root the page did not open.
+  launch, before any page shows, and given its note there. The shell records into the data folder it opened
+  for the page; the page names only the recording's path.
 - **Requests** to a connection, and to Ollama and LM Studio, leave from
   Rust through the shell's one fetch (`connection_fetch` in
   `epicenter-account`), which adds a connection's key and sends only to the
@@ -304,8 +312,9 @@ whose desktop leaf went missing.
 - **The global shortcut** starts and stops a recording from any app:
   `toggleRecording` in `shortcuts.md`, `CommandOrControl+Shift+;` by
   default. It resolves with a shallow spread, `{ ...defaults, ...data,
-  ...appData }`: the data folder's note travels with the files, and the
-  AppData root's (Settings' **Only on this computer**) overrides it here.
+  ...here }`: the data folder's note travels with the files, and this
+  computer's `shortcuts.md` (`localFile('shortcuts.md')`, Settings' **Only
+  on this computer**) overrides it here.
   Settings writes the data folder's note by default, and removes this
   computer's override when it does. The shell never reads the note: the
   page asks it to hold the resolved key (`set_shortcut`) at startup and

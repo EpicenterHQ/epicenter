@@ -5,47 +5,68 @@ local variant: one store, this browser's private files (OPFS), for the
 page's whole life. Its desktop app is the same pages over a data folder on
 the computer (see the README's "The desktop app"). Its data is the `whispering` contract's files
 (`src/lib/contract.ts`): five note collections and the audio beside each
-recording. It reads and writes them only through the contract's typed
-client. Nothing syncs, uploads, or moves between stores, and signing in
+recording. It reads and writes them only through the contract's folder
+(`openFolder` from `@epicenter/folder`). Nothing syncs, uploads, or moves between stores, and signing in
 grants capabilities, never storage
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 ```text
 src/lib/contract.ts          the contract (published as static/contract.json)
-src/lib/files.svelte.ts      one client's note lists, and its recordings' audio
-src/lib/whispering.svelte.ts services, models, microphone, recorder
+src/lib/app.ts               the capabilities, opened once: folder, account, ai, choices, recorder, shortcut
+src/lib/files.svelte.ts      the folder's note lists, and its recordings' audio
+src/lib/whispering.svelte.ts models, microphone, recorder: Whispering over the capabilities
 src/lib/inference.ts         a request to a model, and how its failures read
 src/lib/library.svelte.ts    the pages' state over the files: lists, selection, runs, deletion
-src/lib/platform/            what each build decides: root, services, auth, variant (#platform/*)
-src/lib/components/          the variants' startups, header chrome, settings, callbacks
+src/lib/platform/            what each build decides: account, computer, components, variant (#platform/*)
+src/lib/components/          the variants' header chrome, settings, callbacks
 src/routes/                  the chrome, the app's root and pages, the sign-in callback
 src-tauri/                   the desktop app's shell
 ```
 
-## The roots
+## The capabilities and the root
+
+`src/lib/app.ts` opens every capability once, for the page's life, with no
+`await` and no hot-reload lines
+([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)),
+each read through `reactive` there, once
+([ADR-0769](../../docs/adr/0769-svelte-reads-every-capability-through-one-reactive-copy.md)).
+Code imports what it uses from there, never through context:
+
+- `folder`: `openFolder(whispering, { site })`, picked by the build: this
+  browser's OPFS on the web, the data folder on the desktop, memory under the
+  `test` condition. It is given no account, so it is never the account's
+  repository.
+- `account`: `connectAccount()` from `#platform/account`, the optional
+  sign-in: browser OAuth on the web (`platform/account.ts`), the shell's
+  `epicenter-account` on the desktop (`platform/account.tauri.ts`).
+- `ai`, `choices` and `speech`: the models (see "Models, connections and
+  sign-in").
+- `recorder`: the microphone device over `folder` (see "Recording").
+- `shortcut`: the desktop's global shortcut, null on the web.
+
+The build's own pieces come from `#platform/computer` (the microphone's
+recorder, the model servers on this computer, the shortcut),
+`#platform/components` (`Chrome`, `Settings`, `Callback`) and
+`#platform/variant` (where only a sentence differs).
 
 - `routes/+layout.svelte` is the chrome every route shares: tooltips, the
   confirmation dialog, toasts, and the theme.
-- `routes/(app)/+layout.svelte` is the app's root: under a
-  `<svelte:boundary>` it renders the build's `Startup` (`#platform/root`),
-  which opens the store, reads it as a folder once there
-  (`reactive(folderOf(client))`, decision 87), and hands both to
-  `<WhisperingApp {client} {files}>`:
-  `LocalStartup` awaits this browser's device; `DesktopStartup` awaits the
-  AppData root and the data folder, or renders the recovery screen. Its
-  pages are `/`, `/recordings` and `/transformations`.
-- `routes/auth/callback/` is outside the group, so it opens no files: it
-  renders the build's `Callback`, which finishes a web sign-in and loads the
-  page it started from.
-- `WhisperingApp.svelte` takes the client and the same client as a folder
-  as props. It makes `createWhispering({ client, files })` (the services, the
-  models, the microphone and the recorder) and
-  `createLibrary({ whispering, files: filesOf(files) })`, puts both in
+- `routes/(app)/+layout.svelte` is the app's root: `<WhenOpen app="Whispering"
+  {folder}>` from `@epicenter/svelte` shows a spinner while the folder opens,
+  Recovery when it cannot, and the app once it has, and asks before the page
+  is left while the folder is `saving()`. Under it a `<svelte:boundary>`
+  shows a spinner until `WhisperingApp` has started. No sign-in is asked
+  for. Its pages are `/`, `/recordings` and `/transformations`.
+- `routes/auth/callback/` is outside the group: it renders the build's
+  `Callback`, which finishes a web sign-in and loads the page it started
+  from. It reads no files.
+- `WhisperingApp.svelte` is product state over the capabilities: it makes
+  `createWhispering({ folder, ai, choices, capture: recorder, preferences })`
+  (the models, the microphone and the recorder) and
+  `createLibrary({ whispering, files: filesOf(folder) })`, puts both in
   context (`setWhispering`, `setLibrary`), awaits `start()` (the model
-  choices, the saved connections and the saved microphone), renders the frame (sidebar or bottom bar, and
-  the header with its status line), and disposes both when it leaves. It is
-  also the leave guard: every note is written through the folder, so while
-  the folder is `saving()` leaving the page asks first. `DesktopRoot` guards
-  the AppData folder, where the shortcut is saved, the same way.
+  choices, the saved connections, the saved microphone, and the recordings a
+  cut left), renders the frame (sidebar or bottom bar, and the header with
+  its status line), and disposes both when it leaves.
 
 Nothing below `WhisperingApp` knows which store it is; where only a
 sentence differs, a component reads `variant` from `#platform/variant`.
@@ -55,14 +76,13 @@ Each page route renders a page component (`HomePage`, `RecordingsPage`,
 keeps everything in progress, and a run under way still keeps its answer in
 the files unless Whispering itself is closing.
 
-`src/lib/page-boundary.test.ts` pins this: `openDevice` only in
-`LocalStartup`, `openDataFolder` only in `DesktopStartup`; nothing
-calls `openRemote` or imports `@epicenter/folder/remote`; `createWhispering`,
-`filesOf` and `createLibrary` only in `WhisperingApp`; `folderOf` only
-where each build's store is opened (`LocalStartup`, `DesktopRoot`, which
-also reads the AppData root as a folder); auth only through `#platform/auth`; services only through
-`#platform/services`; and nothing from Node or Bun, Tauri only in the desktop
-leaves.
+`src/lib/page-boundary.test.ts` pins this: `openFolder` only in `app.ts`,
+with no account; nothing calls `openDevice`, `openDataFolder`,
+`openAppData`, `openRemote` or `folderOf`; the capabilities made only in
+`app.ts`, from `#platform/account` and `#platform/computer`;
+`createWhispering`, `filesOf` and `createLibrary` only in `WhisperingApp`;
+the account only through the platform leaves; and nothing from Node or Bun,
+Tauri only in the desktop leaves.
 
 ## The files
 
@@ -74,9 +94,8 @@ A recording's note is written through the same folder
 sorts each list (`newest`, `byTitle`). Each list lists and listens only while
 something reactive reads it; a read outside an effect is a snapshot.
 
-- `WhisperingApp` sets the collections the pages edit (`setRecordings`,
-  `setTranscriptions`, `setTransformations`), and a page edits one note with
-  one editor (`getRecordings().edit({ id })`): its saves go one at a time,
+- A page edits one note with one editor from the folder itself
+  (`folder.recordings.edit({ id })`): its saves go one at a time,
   over what the person saw when typing began, so another writer's change to
   a field not typed is kept and a change to a typed one surfaces as a
   conflict.
@@ -92,18 +111,18 @@ its bytes through the folder (`audio.read`).
 
 ## Recording
 
-The capture device comes from the services (`#platform/services`): one
-microphone device (`microphone.ts`, `createMicrophoneDevice`) over the
-`recorder` each build's services leaf imports, `@epicenter/recorder`'s one
-interface. It writes the recording into the client's files as it records
-(decision 84), through `recorder.start({ device, path })` and
-`recorder.recover({ device, under })`, and the microphone choice lists and
+The capture device is `app.ts`'s `recorder`: one microphone device
+(`microphone.ts`, `createMicrophoneDevice`) made beside `folder`, over the
+`recorder` each build's `#platform/computer` leaf imports,
+`@epicenter/recorder`'s one interface. It writes the recording into the
+folder as it records (decision 84), through `recorder.start({ folder, path })`
+and `recorder.recover({ folder, under })`, and the microphone choice lists and
 tests inputs through the same recorder (`listInputs`, `openMeter`, and in a
-browser `allow` and `onInputsChange`). In a browser (`platform/browser.ts`,
+browser `allow` and `onInputsChange`). In a browser (`platform/computer.ts`,
 over `@epicenter/recorder/browser`) the recorder asks for AAC in MP4 first
 and Opus in WebM second, and appends each piece (about a second) to
 `recordings/<id>.m4a` or `.webm` in this browser's files as it arrives. On
-the desktop (`platform/services.tauri.ts`, over `@epicenter/recorder/tauri`)
+the desktop (`platform/computer.tauri.ts`, over `@epicenter/recorder/tauri`)
 it is the shell's microphone, which encodes Opus into a WebM from the first
 sample in the folder's `.epicenter/recordings`, a second at a time, and at
 Stop finishes it and places it at `recordings/<id>.webm`.
@@ -136,7 +155,8 @@ audio has no note; on the desktop, where a cut-off recording waits outside
 its path, recovery always looks, and audio at its path is finished (one
 the shell placed after its page left, or whose note was never written).
 Starting runs this before the app shows any page (`WhisperingApp` awaits
-`whispering.start()`), and a desktop cut-off recording is at no data path
+`whispering.start()`); it waits through the folder's own listing
+(`folder.recordings.list()`), never on its `state()`, and a desktop cut-off recording is at no data path
 until recovery has finished it, so nothing lists, plays, or transcribes one
 first: such a file reads wrong (no length in a player, a torn block in the
 transcription decoder) until it is finished.
@@ -174,11 +194,13 @@ fixed and the answer as its body, so a result note always holds an answer.
 
 Every model is an endpoint
 ([ADR-0757](../../docs/adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)).
-Each build's `#platform/services` makes one `openAi` for the page
-(`services.ai`), merging, in this order, `hosted(account)` (Epicenter's
-models through the account signed in now), `customEndpoints()` (one endpoint
-per connection the person saved), and what runs on this computer: Ollama and
-LM Studio (`localServers()`), and on the desktop `localSpeech()`. Every entry
+`app.ts` makes one `openAi` for the page (`ai`), merging, in this order,
+`hosted(account)` (Epicenter's models through the account signed in now),
+`customEndpoints()` (one endpoint per connection the person saved), and what
+runs on this computer: Ollama and LM Studio (`localModelServers()` from
+`#platform/computer`, through the shell's fetch on the desktop), and on the
+desktop `localSpeech()` (`speech`, null on the web, which desktop Settings
+administers). Every entry
 is live, so a sign-in or a saved connection reaches the same `ai`. Where
 connections are kept is `@epicenter/ai`'s, picked by the build: the web
 keeps them, keys included, in this site's `localStorage` and sends from the
@@ -189,7 +211,7 @@ included, through the shell's fetch (`connection_fetch`), which adds the key.
 The person chooses one model for transcription and one for text
 (`ModelPicker` from `@epicenter/ai/picker`, in `ModelSetting.svelte`), kept
 by job, `'transcribe'` and `'chat'`, as a device setting (`modelChoices()`,
-`services.choices`): this site's `localStorage` on the web, AppData's
+`app.ts`'s `choices`): this site's `localStorage` on the web, AppData's
 `models.md` beside `connections.md` on the desktop. The same picker adds, edits and
 removes a connection. `inference.ts` sends a prepared request through the
 endpoints merged at that moment, to its target alone, and refuses one whose
@@ -201,7 +223,7 @@ reach Whispering's files, logs or errors: an endpoint removes its key from a
 refusal it reads, and on the desktop the shell does.
 
 Signing in is optional and lives in Settings (`AccountStatus.svelte`). The
-OAuth client (`platform/auth.ts`) asks for one resource, the API audience,
+OAuth client (`connectAccount()` in `platform/account.ts`) asks for one resource, the API audience,
 with `openid profile email ai`: what the account route needs. It asks for no
 Git audience and no `folders:*` scope, so its token cannot reach a
 repository (`platform/web-sign-in.postgres.test.ts` checks the Git host
@@ -230,8 +252,10 @@ ends with the page.
 
 `bun run test` runs under Svelte's browser runtime (`--conditions=browser`
 with `packages/svelte/src/svelte-dom.test-support.ts`), since `reactive`
-notifies nothing on the server runtime. `services.test-support.ts` opens a
-`/node` device client over a temporary directory, as the browser's OPFS
-holds it, with stubbed endpoints; `whispering.test-support.ts` makes the app
-as `WhisperingApp` does and follows its lists. `e2e/` is the Playwright
+notifies nothing on the server runtime, and under the `test` condition,
+where `app.ts`'s folder and this computer's files are memory
+(`app.test.ts`). `services.test-support.ts` opens a `/node` device client
+over a temporary directory, as the browser's OPFS holds it, with stubbed
+endpoints; `whispering.test-support.ts` makes the app as `WhisperingApp`
+does, over a folder of that client, and follows its lists. `e2e/` is the Playwright
 suite over the shared stack (`packages/cli/src/app-stack.test-support.ts`).

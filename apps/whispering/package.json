@@ -5,17 +5,17 @@
 	"description": "Voice notes: recordings, transcripts, and transformations are files, kept in this browser for good or, in the desktop app, in a folder on this computer; signing in only adds hosted transcription and AI",
 	"type": "module",
 	"imports": {
-		"#platform/auth": {
-			"tauri": "./src/lib/platform/auth.tauri.ts",
-			"default": "./src/lib/platform/auth.ts"
+		"#platform/account": {
+			"tauri": "./src/lib/platform/account.tauri.ts",
+			"default": "./src/lib/platform/account.ts"
 		},
-		"#platform/root": {
-			"tauri": "./src/lib/platform/root.tauri.ts",
-			"default": "./src/lib/platform/root.ts"
+		"#platform/components": {
+			"tauri": "./src/lib/platform/components.tauri.ts",
+			"default": "./src/lib/platform/components.ts"
 		},
-		"#platform/services": {
-			"tauri": "./src/lib/platform/services.tauri.ts",
-			"default": "./src/lib/platform/browser.ts"
+		"#platform/computer": {
+			"tauri": "./src/lib/platform/computer.tauri.ts",
+			"default": "./src/lib/platform/computer.ts"
 		},
 		"#platform/variant": {
 			"tauri": "./src/lib/platform/variant.tauri.ts",
@@ -25,7 +25,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
-		"test": "bun test --isolate --conditions=browser --conditions=svelte --path-ignore-patterns='**/*.postgres.test.ts' src",
+		"test": "bun test --isolate --conditions=browser --conditions=svelte --conditions=test --path-ignore-patterns='**/*.postgres.test.ts' src",
 		"test:postgres": "bun test --isolate ./src/lib/platform/web-sign-in.postgres.test.ts",
 		"test:e2e": "playwright test -c playwright.config.ts",
 		"build": "NODE_ENV=production vite build",
@@ -64,6 +64,7 @@
 		"@epicenter/ai": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/local": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/transcription": "workspace:*",

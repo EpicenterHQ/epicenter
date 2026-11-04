@@ -4,7 +4,7 @@
  * `recorder.start` writes the recording into the app's store as it records:
  * `MediaRecorder` hands over a piece about once a second, and each is
  * appended to `<path>.<ext>` in this browser's private files the moment it
- * arrives (`deviceFiles` from `@epicenter/folder/browser`). A refresh, a
+ * arrives (`filesOf` from `@epicenter/folder/browser`). A refresh, a
  * crash, or a closed tab keeps every piece already written, and
  * `recorder.recover` cuts a file a closed tab left half-written back to its
  * last whole piece. While a recording runs this tab holds a Web Lock named
@@ -34,7 +34,7 @@
  * The page's microphone streams and voice activity detection are here too:
  * they call `getUserMedia`, so only a browser build reaches them.
  */
-import { deviceFiles } from '@epicenter/folder/browser';
+import { filesOf } from '@epicenter/folder/browser';
 import { Err, Ok, type Result, tryAsync, trySync } from 'wellcrafted/result';
 import { audioDurationMs, repairAudio } from './container.js';
 import { mediaDevices, openMicrophone, release } from './microphone.js';
@@ -281,14 +281,22 @@ async function openCapture(
 
 type Capture = NonNullable<Awaited<ReturnType<typeof openCapture>>['data']>;
 
+/** A folder that keeps no files in this browser, or did not open. */
+const notHere = () =>
+	RecorderError.Unavailable({
+		reason: 'the folder keeps no files in this browser',
+	});
+
 /**
- * Record from `input` (or the system default) into `device` at
+ * Record from `input` (or the system default) into `folder` at
  * `<path>.m4a` (or `.webm`), appending each piece as it arrives. Refused
- * before any microphone opens when the store keeps no files here (a private
- * window) or a file is already at the path.
+ * before any microphone opens when the folder keeps no files in this
+ * browser, when the store keeps none here (a private window), or when a
+ * file is already at the path.
  */
-const start: Recorder['start'] = async ({ device, path, input, signal }) => {
-	const files = deviceFiles(device);
+const start: Recorder['start'] = async ({ folder, path, input, signal }) => {
+	const files = await filesOf(folder);
+	if (files === null) return notHere();
 	const expected = `${path}.${extensionOf(requestedType() ?? '')}`;
 	const there = await files.read(expected);
 	if (there.error !== null)
@@ -392,7 +400,7 @@ const start: Recorder['start'] = async ({ device, path, input, signal }) => {
 };
 
 /**
- * Repair the recordings of `unnamed` under `under` in `device` that a closed
+ * Repair the recordings of `unnamed` under `under` in `folder` that a closed
  * tab cut off: cut each `m4a` and `webm` recording directly under it back
  * to its last whole piece, skipping any a tab is still writing, and answer
  * every one no tab is writing, repaired or already whole, with how long it
@@ -400,10 +408,11 @@ const start: Recorder['start'] = async ({ device, path, input, signal }) => {
  * another tab only by this answer. A recording the app already keeps a
  * record of is whole, so only `unnamed` is read.
  */
-const recover: Recorder['recover'] = async ({ device, under, unnamed }) => {
+const recover: Recorder['recover'] = async ({ folder, under, unnamed }) => {
 	if (unnamed.length === 0) return Ok({ recovered: [], unplaced: [] });
 	const asked = new Set(unnamed);
-	const files = deviceFiles(device);
+	const files = await filesOf(folder);
+	if (files === null) return notHere();
 	const listed = await files.list();
 	if (listed.error !== null)
 		return RecorderError.Failed({ cause: listed.error });

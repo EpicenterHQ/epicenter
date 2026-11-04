@@ -1,6 +1,6 @@
 /**
  * Whispering's browser sign-in grants capabilities, never storage
- * (ADR-0700): one sign-in through `getAuth()`, the client the web build
+ * (ADR-0700): one sign-in through `connectAccount()`, the client the web build
  * uses, against the real authorization server on a disposable Postgres
  * cluster and a `Bun.serve` listener, with this deployment's first-party
  * registrations. It asks for the API audience alone, with `ai` and no
@@ -18,7 +18,6 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isCallbackAuthClient } from '@epicenter/account';
 import {
 	APPS,
 	localUrl,
@@ -154,8 +153,8 @@ test('one Whispering sign-in transcribes over the API and reaches no repository'
 	});
 	// The web build's deployment, as `VITE_EPICENTER_SERVER` names it.
 	process.env.VITE_EPICENTER_SERVER = origin;
-	const { getAuth } = await import('./auth.js');
-	const auth = getAuth();
+	const { connectAccount } = await import('./account.js');
+	const auth = connectAccount();
 
 	expectOk(await auth.startSignIn());
 	expect(navigations).toHaveLength(1);
@@ -173,7 +172,6 @@ test('one Whispering sign-in transcribes over the API and reaches no repository'
 	);
 	location.href = answer.headers.get('location') ?? '';
 	expect(new URL(location.href).searchParams.get('code')).toBeString();
-	if (!isCallbackAuthClient(auth)) throw new Error('Expected the web client');
 	expectOk(await auth.completeSignIn());
 
 	const state = auth.state();
