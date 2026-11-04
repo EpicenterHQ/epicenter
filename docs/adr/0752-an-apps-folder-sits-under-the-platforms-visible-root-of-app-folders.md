@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Relates:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) (an app's folder is derived, never stored), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (names derive from the site's host), [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) (when a phone app is built), [ADR-0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) (your files are in a folder you can see), [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (what an app's AppData holds).
+- **Amended by:** [ADR-0772](0772-each-team-has-a-root-folder-found-by-the-team-inside-it.md) at one root of app folders on a computer: each team has its own root, found by the team written inside it.
 - **Unbuilt:** every phone app, and with it a folder in an app's own container; the choice on Android between the app's own storage and a folder granted through the Storage Access Framework.
 
 ## Context
