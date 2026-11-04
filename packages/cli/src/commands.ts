@@ -33,7 +33,9 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '[<dir>]',
 		minArgs: 0,
 		maxArgs: 1,
-		summary: 'set up or repair a data folder for sync',
+		options: [{ name: 'name', value: '<name>' }],
+		summary:
+			'set up or repair a data folder for sync; --name is required outside the library',
 	},
 	{
 		path: ['connect'],
@@ -68,8 +70,9 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<namespace>/<name> | <url> | <path> [<dir>]',
 		minArgs: 1,
 		maxArgs: 2,
+		options: [{ name: 'name', value: '<name>' }],
 		summary:
-			'clone into the app folder derived from AGENTS.md or sync an occupied folder',
+			'clone into the app folder derived from AGENTS.md or sync an occupied folder; --name for a destination outside the library',
 	},
 	{
 		path: ['forget'],

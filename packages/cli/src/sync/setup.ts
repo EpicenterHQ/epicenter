@@ -15,6 +15,7 @@ import { existsSync } from 'node:fs';
 import {
 	lstat,
 	mkdir,
+	readdir,
 	readFile,
 	realpath,
 	symlink,
@@ -25,6 +26,10 @@ import {
 	EPICENTER_BUNDLE_IDENTIFIER,
 	epicenterDataRoot,
 } from '@epicenter/constants/app-data';
+import {
+	isClaimableHostName,
+	suggestLibraryLinkName,
+} from '@epicenter/constants/app-names';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import { resolveAppPaths } from '../app-paths.ts';
 import { canonicalPath, containsPath, reservedSegment } from './admission.ts';
@@ -133,6 +138,8 @@ export async function identity(cwd: string): Promise<Record<string, string>> {
 }
 
 export type InitOptions = {
+	/** Library link name for a folder outside the scan. */
+	readonly name?: string;
 	/** The token for a remote, asked for by its URL, to pull LFS bytes. */
 	readonly credential?: CredentialFor;
 };
@@ -168,13 +175,18 @@ export async function init(
 async function ensureDiscoverable(
 	target: string,
 	changed: string[],
-	name = basename(target),
+	name: string | undefined,
+	suggestion: string,
 ): Promise<void> {
 	const { discoveredFolders } = await import('./discovery.ts');
 	for (const entry of await discoveredFolders()) {
 		if ((await realpath(entry.folder).catch(() => null)) === target) return;
 	}
 	const library = resolveAppPaths().folderDir;
+	if (name === undefined)
+		throw new Refused(
+			`${target} is not reachable by the library scan; retry with --name "${suggestion}".`,
+		);
 	const link = join(library, name);
 	const existing = await lstat(link).catch((error: unknown) => {
 		if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
@@ -183,8 +195,9 @@ async function ensureDiscoverable(
 	});
 	if (existing !== null) {
 		if ((await realpath(link).catch(() => null)) === target) return;
+		const occupant = (await realpath(link).catch(() => null)) ?? link;
 		throw new Refused(
-			`${target} cannot be linked at ${link}: that library name is already taken.`,
+			`${target} cannot use '${name}' at ${link}: it belongs to ${occupant}. Try --name "${suggestion}".`,
 		);
 	}
 	await mkdir(library, { recursive: true });
@@ -199,7 +212,7 @@ async function ensureDiscoverable(
 /** Set up Git and LFS, and make the folder reachable before recording consent. */
 export async function prepareFolder(
 	input: string,
-	{ credential }: InitOptions = {},
+	{ credential, name }: InitOptions = {},
 ): Promise<Initialized> {
 	await refuseReservedDirectory(input);
 	const folder = resolve(input);
@@ -211,6 +224,59 @@ export async function prepareFolder(
 			throw new Refused(
 				`${folder} is inside the Git repository ${enclosing}; choose a folder outside it.`,
 			);
+	}
+	const libraryPath = resolveAppPaths().folderDir;
+	const library = await canonicalPath(libraryPath);
+	const canonical = await canonicalPath(folder);
+	const relative = containsPath(libraryPath, folder)
+		? folder.slice(libraryPath.length + 1)
+		: containsPath(library, canonical)
+			? canonical.slice(library.length + 1)
+			: null;
+	const scanned = relative !== null && relative.split(/[\\/]/).length <= 2;
+	const entries = await readdir(library).catch((error: unknown) => {
+		if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
+			return [];
+		throw error;
+	});
+	const baseSuggestion = suggestLibraryLinkName(basename(folder));
+	let suggestion = baseSuggestion;
+	for (
+		let suffix = 2;
+		entries.some((entry) => entry.toLowerCase() === suggestion.toLowerCase());
+		suffix++
+	)
+		suggestion = `${baseSuggestion} ${suffix}`;
+	if (!scanned && name === undefined)
+		throw new Refused(
+			`${folder} needs a library link name; retry with --name "${suggestion}".`,
+		);
+	if (name !== undefined) {
+		if (
+			name.trim() !== name ||
+			!name ||
+			name === '.' ||
+			name === '..' ||
+			/[<>:"/\\|?*\x00-\x1f]/.test(name)
+		)
+			throw new Refused(
+				`'${name}' is not a usable library link name. Try --name "${suggestion}".`,
+			);
+		if (isClaimableHostName(name))
+			throw new Refused(
+				`'${name}' could name an app or owner. Try --name "${suggestion}".`,
+			);
+		const occupied = entries.find(
+			(entry) => entry.toLowerCase() === name.toLowerCase(),
+		);
+		if (occupied !== undefined) {
+			const link = join(library, occupied);
+			const occupant = (await realpath(link).catch(() => null)) ?? link;
+			if (occupant !== canonical)
+				throw new Refused(
+					`${folder} cannot use '${name}' at ${link}: it belongs to ${occupant}. Try --name "${suggestion}".`,
+				);
+		}
 	}
 	const lfs = await git(undefined, ['lfs', 'version']);
 	if (lfs.code !== 0)
@@ -281,7 +347,7 @@ export async function prepareFolder(
 		else warnings.push(`git lfs pull failed: ${pulled.stderr.trim()}`);
 	}
 
-	await ensureDiscoverable(target, changed, basename(folder));
+	await ensureDiscoverable(target, changed, name, suggestion);
 	return { folder, repository: root, changed, warnings };
 }
 

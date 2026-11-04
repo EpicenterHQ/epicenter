@@ -11,6 +11,7 @@
 	import { ConfirmationDialog, confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Dialog from '@epicenter/ui/dialog';
 	import * as Empty from '@epicenter/ui/empty';
+	import { suggestLibraryLinkName } from '@epicenter/constants/app-names';
 	import { Input } from '@epicenter/ui/input';
 	import * as Item from '@epicenter/ui/item';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -34,6 +35,7 @@
 	let notice = $state<string | undefined>(undefined);
 	/** What the window is doing to each folder, by path. */
 	const busy = new SvelteMap<string, string>();
+	const names = new SvelteMap<string, string>();
 	/** Adding or cloning a folder, said while it runs. */
 	let adding = $state<string | undefined>(undefined);
 	let now = $state(Date.now());
@@ -114,6 +116,10 @@
 		} catch (cause) {
 			failure = `Settings did not open. ${cause instanceof Error ? cause.message : String(cause)}`;
 		}
+	}
+
+	function setupName(path: string): string {
+		return names.get(path) ?? suggestLibraryLinkName(folderName(path));
 	}
 
 	onMount(() => {
@@ -227,6 +233,14 @@
 								{#if setup.problem === 'not on disk'}
 									<p class="text-xs text-destructive">Folder is missing from disk.</p>
 								{/if}
+								{#if setup.needsName}
+									<label class="mt-2 block text-xs" for={`folder-name-${setup.path}`}>Name in your library</label>
+									<Input
+										id={`folder-name-${setup.path}`}
+										value={setupName(setup.path)}
+										oninput={(event) => names.set(setup.path, event.currentTarget.value)}
+									/>
+								{/if}
 							</Item.Content>
 							<Item.Actions>
 								<Button
@@ -236,7 +250,10 @@
 										warn(
 											(
 												await act('Setting up the folder…', () =>
-													commands.acceptFolderSetup(setup.path),
+															commands.acceptFolderSetup(
+																setup.path,
+																setup.needsName ? setupName(setup.path) : null,
+															),
 												)
 											)?.warnings,
 										)}

@@ -164,30 +164,55 @@ test('dead links and unadopted repositories remain rows while plain owner direct
 
 test('init links an outside folder and refuses a taken library name before consent', async () => {
 	const external = join(box, 'external', 'new-notes');
-	const enrolled = await cli('init', external, '--json');
+	const missing = await cli('init', external, '--json');
+	expect(missing.code).toBe(2);
+	expect(JSON.parse(missing.stdout).error).toContain(
+		'--name "new-notes folder"',
+	);
+	expect(existsSync(external)).toBe(false);
+	for (const name of ['notes', 'BRADENWONG.COM']) {
+		const claimable = await cli('init', external, '--name', name, '--json');
+		expect(claimable.code).toBe(2);
+		expect(JSON.parse(claimable.stdout).error).toContain(
+			'could name an app or owner',
+		);
+	}
+	const enrolled = await cli(
+		'init',
+		external,
+		'--name',
+		'Obsidian Vault',
+		'--json',
+	);
 	expect(enrolled.code, enrolled.stderr).toBe(0);
-	expect(readlinkSync(join(library, 'new-notes'))).toBe(realpathSync(external));
+	expect(readlinkSync(join(library, 'Obsidian Vault'))).toBe(
+		realpathSync(external),
+	);
 	expect(
 		(await status('production')).some(
 			(row) =>
-				row.folder === join(home, 'Epicenter', 'new-notes') &&
+				row.folder === join(home, 'Epicenter', 'Obsidian Vault') &&
 				row.problem === undefined,
 		),
 	).toBe(true);
 	expect((await cli('sync', external, '--json')).code).toBe(0);
 
-	const taken = join(library, 'taken');
+	const taken = join(library, 'Taken folder');
 	mkdirSync(taken);
 	const outside = join(box, 'external', 'taken');
-	const refused = await cli('init', outside, '--json');
-	expect(refused.code).toBe(2);
-	expect(refused.stdout).toContain(outside);
-	expect(refused.stdout).toContain(join(home, 'Epicenter', 'taken'));
-	const read = Bun.spawnSync(
-		['git', 'config', '--local', '--get', 'epicenter.synced'],
-		{ cwd: outside },
+	const refused = await cli(
+		'init',
+		outside,
+		'--name',
+		'taken FOLDER',
+		'--json',
 	);
-	expect(read.exitCode).not.toBe(0);
+	expect(refused.code).toBe(2);
+	const refusal = JSON.parse(refused.stdout).error;
+	expect(refusal).toContain(outside);
+	expect(refusal).toContain(taken);
+	expect(refusal).toContain('--name "taken folder 2"');
+	expect(existsSync(outside)).toBe(false);
 });
 
 test('init keeps an owner-level link when it already reaches the folder', async () => {
@@ -197,7 +222,13 @@ test('init keeps an owner-level link when it already reaches the folder', async 
 	const owner = join(library, 'another-owner');
 	mkdirSync(owner);
 	symlinkSync(target, join(owner, 'notes'));
-	const enrolled = await cli('init', target, '--json');
+	const enrolled = await cli(
+		'init',
+		target,
+		'--name',
+		'Owner notes folder',
+		'--json',
+	);
 	expect(enrolled.code, enrolled.stderr).toBe(0);
 	expect(
 		(await status('production')).some(
@@ -211,13 +242,21 @@ test('init keeps an owner-level link when it already reaches the folder', async 
 
 test('init links a repository that sits deeper than the scan', async () => {
 	const deep = join(library, 'plain', 'deeper', 'deep-app');
-	const enrolled = await cli('init', deep, '--json');
+	const enrolled = await cli(
+		'init',
+		deep,
+		'--name',
+		'deep-app folder',
+		'--json',
+	);
 	expect(enrolled.code, enrolled.stderr).toBe(0);
-	expect(readlinkSync(join(library, 'deep-app'))).toBe(realpathSync(deep));
+	expect(readlinkSync(join(library, 'deep-app folder'))).toBe(
+		realpathSync(deep),
+	);
 	expect(
 		(await status('production')).some(
 			(row) =>
-				row.folder === join(home, 'Epicenter', 'deep-app') &&
+				row.folder === join(home, 'Epicenter', 'deep-app folder') &&
 				row.problem === undefined,
 		),
 	).toBe(true);

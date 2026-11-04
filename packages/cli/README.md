@@ -38,11 +38,11 @@ front end over `status`, `init`, `connect`, `clone`, `sync`, `forget`, `share`, 
 | --- | --- | --- |
 | `epicenter check [<dir> \| <contract> [<dir>]]` | built | Reads `contract` from `<dir>/AGENTS.md` unless a contract is supplied; runs `checkFiles` in `@epicenter/folder/node` |
 | `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
-| `epicenter init [<dir>]` | built | `src/sync/setup.ts` |
+| `epicenter init [<dir>] [--name <name>]` | built | `src/sync/setup.ts` |
 | `epicenter connect <dir> <namespace>/<name> \| '~/<name>' \| <url>` | built | `src/sync/connect.ts` |
 | `epicenter sync [<dir>] [--watch]` | built | `src/sync/sync.ts` |
 | `epicenter status [<dir>]` | built | `src/sync/status.ts` |
-| `epicenter clone <namespace>/<name> \| <url> \| <path> [<dir>]` | built | `src/sync/clone.ts` |
+| `epicenter clone <namespace>/<name> \| <url> \| <path> [<dir>] [--name <name>]` | built | `src/sync/clone.ts` |
 | `epicenter forget [<dir>]` | built | `src/sync/setup.ts` |
 | `epicenter merge-driver <base> <ours> <theirs> [<path>]` | built, hidden | `src/sync/merge-driver.ts` over `settle` in `@epicenter/definition/merge` |
 | `epicenter repos` | built | `src/repository-commands.ts` |
@@ -76,7 +76,7 @@ owner's 12-character id (`epicenter repos` lists them).
   repositories, a clone, fetch, or push and their LFS transfers, carries the
   grant's token as one `Authorization: Bearer` header, in Git's
   configuration through its environment and never in an argument (an
-  `https` remote only; an `http` one, as a local server, uses the helper).
+  `https` remote only; other remotes use the person's Git credentials).
   `credentials.e2e.test.ts` holds this to an `https` stand-in that refuses
   any request without the token.
 - `epicenter clone <namespace>/<name> [<dir>]` first clones into a temporary
@@ -116,7 +116,7 @@ live in `src/sync/` and run the system `git` through `runGit` in
 desktop committer: apps write files, and sync commits them
 with real `git add`, so Git LFS's filters run.
 
-- `init [<dir>]` sets up or repairs a data folder and says what it changed.
+- `init [<dir>] [--name <name>]` sets up or repairs a data folder and says what it changed.
   It first refuses a folder inside a `.git` or `.epicenter` directory, by
   any segment of its canonical path in any case, the folder core's
   admission rule (`src/sync/admission.ts`, held to the folder plugin's
@@ -134,9 +134,11 @@ with real `git add`, so Git LFS's filters run.
   Then local LFS filter values, with no hooks or saved merge driver;
   `git lfs pull` for files checked out as pointers. A folder inside another
   repository is refused. Its own repository records `epicenter.synced = true`
-  in local configuration. Init creates a link by folder name in the library
-  when the scan cannot reach the folder, and refuses an occupied link path
-  before recording consent. Init refuses an unfinished Git
+  in local configuration. A folder outside the library needs `--name` for
+  its library link; a folder deeper than the scan does too. A name that could
+  be an app or owner host is refused, regardless of case. For example,
+  `--name "Obsidian Vault"` works, while `--name notes` does not. A taken
+  name is refused with both paths before the folder changes. Init refuses an unfinished Git
   operation, unmerged entries, or a branch other than `main` before changing
   the control files.
 - `connect <dir> <repository>` adds Git `origin` to an enrolled folder. It
@@ -202,11 +204,9 @@ so. `EPICENTER_TEST_SECRETS` replaces the keychain with in-memory stores,
 the sign-ins' seeded from its `$auth` member and every other one empty, so
 tests never touch the real one.
 
-Every command the CLI configures Git to run (the credential helper and each
-folder's saved merge driver) names the installed engine by its absolute path
-(`AppPaths.engine`). The shell runs its own bundled sidecar. After launch,
-it installs that sidecar for terminal and Git use only when its version is
-newer than the installed one.
+The shell runs its bundled sidecar in place and links it at `AppPaths.engine`
+for terminal use. Git configuration stores no path to the CLI. Sync supplies
+credentials and the note merge driver on each Git invocation.
 
 ## Signing in
 
@@ -230,10 +230,10 @@ them. `auth login` then caches an API token and reads who approved the grant
 from the server's userinfo, which `auth status` reports without a network
 request. Each sign-in records a random generation; token refresh keeps it
 unchanged. The device
-login also sets, in Git's global configuration, an empty
-`credential.<git audience>.helper` and then `!'<home>/.epicenter/bin/epicenter'
-auth git-credential`, so no broader helper is asked to store the token.
-Sign-in and sync check and repair this saved helper.
+login leaves Git configuration alone. `sync` and `clone` supply the grant's
+token for hosted HTTPS remotes on each transfer. The hidden
+`auth git-credential` command can still answer an explicit Git credential
+request.
 
 `auth token [--resource <url>]` prints an access token for the API or the
 Git audience. A cached token is reused until five minutes before it
@@ -260,16 +260,17 @@ reaches its permitted deployment paths with a token for the audience it names.
 The CLI reads and writes where the desktop shell does
 (`src/app-paths.ts`). The shell sets `EPICENTER_DATA_DIR` for sign-in locks
 and `EPICENTER_ENVIRONMENT` for the library root when it runs the CLI.
-A terminal command defaults to the production root unless it is the installed
-development engine or `EPICENTER_ENVIRONMENT` selects development. The library root is fixed at `~/Epicenter` or
+A terminal command uses the environment embedded at build time;
+`EPICENTER_ENVIRONMENT` overrides it. The library root is fixed at `~/Epicenter` or
 `~/Epicenter Dev`.
 
 ## Merging with plain Git
 
-Plain `git merge` and `git pull` run the same note merge, because
-`.gitattributes` names `merge=epicenter` and `init` defines the driver in
-each clone. `git pull --rebase` swaps Git's sides; the driver detects the
-rebase and still lets the later arrival win.
+The committed `.gitattributes` names `merge=epicenter`. Epicenter passes the
+driver command to Git for each sync operation; it does not save that command
+in the repository. A plain `git merge` or `git pull` does not invoke
+Epicenter's note driver unless the person supplies that Git configuration
+for the command.
 
 ## Output and exit codes
 

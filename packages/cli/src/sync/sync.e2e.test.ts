@@ -98,7 +98,15 @@ const git = (cwd: string, ...args: string[]) => run(cwd, ['git', ...args]);
 const quiet = async (cwd: string, ...args: string[]) =>
 	(await git(cwd, ...args)).stdout.trim();
 const cli = (...args: string[]) => run(BOX, [EPICENTER, ...args]);
-const init = (dir: string, ...flags: string[]) => cli('init', dir, ...flags);
+const init = (dir: string, ...flags: string[]) =>
+	cli(
+		'init',
+		dir,
+		...(dir.startsWith(join(HOME, 'Epicenter'))
+			? []
+			: ['--name', `${dir.split('/').at(-1)} folder`]),
+		...flags,
+	);
 const sync = (dir: string) => cli('sync', dir);
 /** One `sync --json` round's status line. */
 async function syncJson(dir: string) {

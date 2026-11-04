@@ -36,8 +36,8 @@ const HANDLERS: Record<string, Run> = {
 			dir ?? '.',
 			json,
 		),
-	init: async ({ positionals: [dir], json, grant }) =>
-		(await import('./sync/commands.ts')).initCommand(dir, json, grant),
+	init: async ({ positionals: [dir], options, json, grant }) =>
+		(await import('./sync/commands.ts')).initCommand(dir, options, json, grant),
 	connect: async ({ positionals: [dir, source], json, grant }) =>
 		(await import('./sync/commands.ts')).connectCommand(
 			dir as string,
@@ -49,10 +49,11 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./sync/commands.ts')).syncCommand(dir, options, json, grant),
 	status: async ({ positionals: [dir], json }) =>
 		(await import('./sync/commands.ts')).statusCommand(dir, json),
-	clone: async ({ positionals: [source, dir], json, grant }) =>
+	clone: async ({ positionals: [source, dir], options, json, grant }) =>
 		(await import('./sync/commands.ts')).cloneCommand(
 			source as string,
 			dir,
+			options,
 			json,
 			grant,
 		),

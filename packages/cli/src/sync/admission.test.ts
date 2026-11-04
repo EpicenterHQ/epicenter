@@ -84,10 +84,16 @@ test('a canonical path follows a link on the way and keeps a missing rest as wri
 });
 
 /** `epicenter init <dir>` in a sandbox no repository encloses. */
-async function init(dir: string, environment = 'production') {
+async function init(dir: string, environment = 'production', name?: string) {
 	const home = join(BOX, 'home');
 	const proc = Bun.spawn(
-		['bun', join(import.meta.dir, '..', 'bin.ts'), 'init', dir],
+		[
+			'bun',
+			join(import.meta.dir, '..', 'bin.ts'),
+			'init',
+			dir,
+			...(name ? ['--name', name] : []),
+		],
 		{
 			cwd: BOX,
 			env: {
@@ -194,7 +200,7 @@ test('init refuses a folder inside .git or .epicenter before it makes anything, 
 		);
 		expect(existsSync(join(BOX, dir))).toBe(false);
 	}
-	const notes = await init('home/.notes');
+	const notes = await init('home/.notes', 'production', 'Personal notes');
 	expect(notes.code).toBe(0);
 	expect(existsSync(join(BOX, 'home/.notes/.git'))).toBe(true);
 }, 60_000);
@@ -247,7 +253,7 @@ lfsTest(
 	'init installs local LFS filters without hooks when git-lfs is available',
 	async () => {
 		const folder = join(BOX, 'lfs-folder');
-		const result = await init(folder);
+		const result = await init(folder, 'production', 'LFS folder');
 		expect(result.code).toBe(0);
 		expect(result.out).toContain('filter.lfs.process set');
 		expect(result.out).not.toContain('(missing:');

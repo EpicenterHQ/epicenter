@@ -19,6 +19,28 @@ export class AppNameError extends Error {
 
 const labelPattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
+/** A DNS host or label could later name an app or owner in the library. */
+export function isClaimableHostName(name: string): boolean {
+	if (/[\s\\/@?#:]/.test(name) || name.length === 0) return false;
+	let host: string;
+	try {
+		host = new URL(`https://${name}`).hostname.replace(/\.$/, '');
+	} catch {
+		return false;
+	}
+	return (
+		host.length <= 253 &&
+		host
+			.split('.')
+			.every((label) => label.length <= 63 && labelPattern.test(label))
+	);
+}
+
+/** A suggested link name that cannot be claimed by an app or owner. */
+export function suggestLibraryLinkName(basename: string): string {
+	return isClaimableHostName(basename) ? `${basename} folder` : basename;
+}
+
 function labelsFromHost(host: string): [string, string, string, ...string[]] {
 	const labels = host.split('.');
 	if (labels.some((label) => !labelPattern.test(label)))

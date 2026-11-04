@@ -19,7 +19,7 @@ export const commands = {
 	 *  Set up the folder an `epicenter://init` link asked for. A refusal keeps
 	 *  the request, so the person can read why and dismiss it.
 	 */
-	acceptFolderSetup: (path: string) => typedError<FolderSetUp, CliError>(__TAURI_INVOKE("accept_folder_setup", { path })),
+	acceptFolderSetup: (path: string, name: string | null) => typedError<FolderSetUp, CliError>(__TAURI_INVOKE("accept_folder_setup", { path, name })),
 	/**  Let go of a request to sync `path` without reading it. */
 	dismissFolderSetup: (path: string) => __TAURI_INVOKE<void>("dismiss_folder_setup", { path }),
 	/**
@@ -144,6 +144,7 @@ export type FolderSetupPreview = {
 	contract: string | null,
 	found: FolderFound | null,
 	problem: string | null,
+	needsName: boolean,
 };
 
 export type GrantLevel = "read" | "write";

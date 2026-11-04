@@ -143,6 +143,7 @@ pub struct FolderSetupPreview {
     pub contract: Option<String>,
     pub found: Option<FolderFound>,
     pub problem: Option<String>,
+    pub needs_name: bool,
 }
 
 /// What the Folders window shows.
@@ -254,6 +255,7 @@ impl SyncedFolders {
                     contract: setup.contract.clone(),
                     found: None,
                     problem: None,
+                    needs_name: false,
                 })
                 .collect(),
         }
@@ -671,7 +673,12 @@ pub async fn synced_folders(webview: Webview) -> Result<SyncedFolderListing, Cli
     }
     let statuses = parse_status_lines(&lines)?;
     let mut listing = webview.state::<SyncedFolders>().listing(&statuses);
+    let library = &webview.state::<DesktopPaths>().folder_dir;
     for setup in &mut listing.setups {
+        setup.needs_name = Path::new(&setup.path)
+            .strip_prefix(library)
+            .map(|relative| relative.components().count() > 2)
+            .unwrap_or(true);
         let reply: serde_json::Value = cli::window_invocation(&webview)?
             .desktop()
             .answer(&["status", &setup.path, "--json"], None)
@@ -699,7 +706,11 @@ pub async fn synced_folders(webview: Webview) -> Result<SyncedFolderListing, Cli
 /// A folder that is there must be a real directory holding none of
 /// Epicenter's own files, and not the library root around every folder, so
 /// that root never becomes one repository.
-async fn init<R: Runtime>(webview: &Webview<R>, path: &str) -> Result<FolderSetUp, CliError> {
+async fn init<R: Runtime>(
+    webview: &Webview<R>,
+    path: &str,
+    name: Option<&str>,
+) -> Result<FolderSetUp, CliError> {
     #[derive(Deserialize)]
     struct Reply {
         init: FolderSetUp,
@@ -708,9 +719,14 @@ async fn init<R: Runtime>(webview: &Webview<R>, path: &str) -> Result<FolderSetU
         admit(&webview.state::<DesktopPaths>(), path)
             .map_err(|message| CliError::Refused { message })?;
     }
+    let mut args = vec!["init", path];
+    if let Some(name) = name {
+        args.extend(["--name", name]);
+    }
+    args.push("--json");
     let reply: Reply = cli::window_invocation(webview)?
         .desktop()
-        .answer(&["init", path, "--json"], None)
+        .answer(&args, None)
         .await?;
     start_service(webview.app_handle());
     Ok(reply.init)
@@ -758,14 +774,18 @@ pub async fn add_synced_folder(webview: Webview) -> Result<Option<String>, CliEr
 /// the request, so the person can read why and dismiss it.
 #[tauri::command]
 #[specta::specta]
-pub async fn accept_folder_setup(webview: Webview, path: String) -> Result<FolderSetUp, CliError> {
+pub async fn accept_folder_setup(
+    webview: Webview,
+    path: String,
+    name: Option<String>,
+) -> Result<FolderSetUp, CliError> {
     let folders = webview.state::<SyncedFolders>();
     let Some(setup) = folders.take_setup(&path) else {
         return Err(CliError::Refused {
             message: format!("Nothing asked to sync {path}."),
         });
     };
-    let result = init(&webview, &setup.path).await;
+    let result = init(&webview, &setup.path, name.as_deref()).await;
     if result.is_err() {
         folders.request(setup);
     }

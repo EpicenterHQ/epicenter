@@ -245,7 +245,13 @@ test('init, a remote added by hand, and sync create the repository; clone and sy
 
 	const url = `${origin}/git/${person.personal}/notes.git`;
 	const globalBefore = await readFile(globalConfig, 'utf8');
-	const initialized = await epicenter('init', folder, '--json');
+	const initialized = await epicenter(
+		'init',
+		folder,
+		'--name',
+		'My notes',
+		'--json',
+	);
 	expect(initialized.code).toBe(0);
 	expect((await git(folder, 'remote', 'add', 'origin', url)).code).toBe(0);
 	const created = await epicenter('sync', folder, '--json');
@@ -290,7 +296,9 @@ test('a folder with a history of its own joins an existing repository on its fir
 	const other = join(scratch, 'other-notes');
 	await mkdir(other, { recursive: true });
 	await writeFile(join(other, 'z.md'), 'z\n');
-	expect((await epicenter('init', other)).code).toBe(0);
+	expect((await epicenter('init', other, '--name', 'Other notes')).code).toBe(
+		0,
+	);
 	const url = `${origin}/git/${person.personal}/notes.git`;
 	await git(other, 'remote', 'add', 'origin', url);
 	const joined = await epicenter('sync', other, '--json');
@@ -304,7 +312,9 @@ test('a file stored with Git LFS goes up with sync and comes down with plain git
 	await mkdir(join(folder, 'recordings'), { recursive: true });
 	const bytes = crypto.getRandomValues(new Uint8Array(4096));
 	await writeFile(join(folder, 'recordings', 'a.m4a'), bytes);
-	expect((await epicenter('init', folder)).code).toBe(0);
+	expect((await epicenter('init', folder, '--name', 'Voice folder')).code).toBe(
+		0,
+	);
 	const url = `${origin}/git/${person.personal}/voice.git`;
 	await git(folder, 'remote', 'add', 'origin', url);
 	// Git LFS asks for a credential by host alone; the helper must answer it.
@@ -313,7 +323,15 @@ test('a file stored with Git LFS goes up with sync and comes down with plain git
 
 	const copy = join(scratch, 'voice-copy');
 	expect(
-		(await epicenter('clone', `${person.personal}/voice`, copy)).code,
+		(
+			await epicenter(
+				'clone',
+				`${person.personal}/voice`,
+				copy,
+				'--name',
+				'Voice copy',
+			)
+		).code,
 	).toBe(0);
 	await rm(join(copy, 'recordings', 'a.m4a'));
 	await git(copy, 'checkout', '--', 'recordings/a.m4a');

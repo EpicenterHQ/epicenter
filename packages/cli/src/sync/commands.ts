@@ -68,12 +68,14 @@ function reportSetup(
 /** `epicenter init [<dir>]`. */
 export async function initCommand(
 	dir: string | undefined,
+	options: Options,
 	json: boolean,
 	grant: GrantKind,
 ) {
 	const { init } = await import('./setup.ts');
 	try {
 		const initialized = await init(dir ?? '.', {
+			name: typeof options.name === 'string' ? options.name : undefined,
 			credential: credentialFor(grant),
 		});
 		reportSetup('init', initialized, json);
@@ -125,6 +127,7 @@ export async function forgetCommand(dir: string | undefined, json: boolean) {
 export async function cloneCommand(
 	source: string,
 	dir: string | undefined,
+	options: Options,
 	json: boolean,
 	grant: GrantKind,
 ) {
@@ -137,6 +140,7 @@ export async function cloneCommand(
 		);
 	try {
 		const cloned = await clone(named, dir, {
+			name: typeof options.name === 'string' ? options.name : undefined,
 			credential: credentialFor(grant),
 		});
 		reportSetup('cloned', { url: named.url, ...cloned }, json);

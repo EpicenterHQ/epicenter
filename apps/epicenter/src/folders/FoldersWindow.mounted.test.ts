@@ -60,8 +60,8 @@ describe.skipIf(!browser)('folders window', async () => {
 				});
 				return ok(round({ folder: path }));
 			},
-			acceptFolderSetup: async (path: string) => {
-				calls.push(`setup:${path}`);
+			acceptFolderSetup: async (path: string, name: string | null) => {
+				calls.push(`setup:${path}:${name}`);
 				listing = { ...listing, setups: [] };
 				return ok({ folder: path, changed: [], warnings: ['no command link'] });
 			},
@@ -217,6 +217,7 @@ describe.skipIf(!browser)('folders window', async () => {
 			contract: 'https://recorder.example/contract.json',
 			found: null,
 			problem: null,
+			needsName: true,
 		};
 		listing = { folders: [], service: { state: 'running' }, setups: [request] };
 		const window = await open();
@@ -229,9 +230,14 @@ describe.skipIf(!browser)('folders window', async () => {
 			expect(card.textContent).toContain('Set up Recorder?');
 			expect(card.textContent).toContain(request.path);
 			expect(card.textContent).toContain(request.contract);
+			const name = card.querySelector('input') as HTMLInputElement;
+			expect(name.value).toBe('Recorder folder');
+			name.value = 'My Recorder';
+			name.dispatchEvent(new Event('input', { bubbles: true }));
+			await settle();
 			window.button(card, 'Set up').click();
 			await settle();
-			expect(calls).toEqual([`setup:${request.path}`]);
+			expect(calls).toEqual([`setup:${request.path}:My Recorder`]);
 			expect(window.target.textContent).toContain('no command link');
 			expect(
 				window.target.querySelector('[aria-label="Requests to sync folders"]'),
@@ -250,7 +256,7 @@ describe.skipIf(!browser)('folders window', async () => {
 				.click();
 			await settle();
 			expect(calls).toEqual([
-				`setup:${request.path}`,
+				`setup:${request.path}:My Recorder`,
 				`dismiss:${request.path}`,
 			]);
 		} finally {
@@ -302,6 +308,7 @@ describe.skipIf(!browser)('folders window', async () => {
 					path,
 					contract: null,
 					problem: null,
+					needsName: true,
 					found: {
 						folder: path,
 						repository: path,

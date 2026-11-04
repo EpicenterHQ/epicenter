@@ -129,8 +129,9 @@ selects or remembers them. Release and development data remain separate.
 
 Epicenter finds synced folders under `~/Epicenter`, or `~/Epicenter Dev` in
 development. A folder elsewhere is linked inside that library. The CLI scans
-the library root and one level of owner folders. Init links a folder outside
-those depths into the library before recording consent in its local Git config.
+the library root and one level of owner folders. Init asks for a library link
+name outside those depths, then links the folder before recording consent in
+its local Git config. Names that could belong to an app or owner are refused.
 The scan also reports dead links, unreadable candidates, repositories that
 cannot be read. Neither application-data directory holds a folder list.
 
@@ -243,7 +244,7 @@ again after each one:
 | Action | Command | CLI call |
 | --- | --- | --- |
 | **Add folder** | `add_synced_folder` | The native folder picker queues a setup preview; it changes no repository |
-| **Set up** | `accept_folder_setup(path)` | `epicenter init <dir>` after the preview; it makes no commit |
+| **Set up** | `accept_folder_setup(path, name)` | `epicenter init <dir> [--name <name>]` after the preview; it makes no commit |
 | **Connect to a repository…** | `connect_synced_folder(path, source)` | `epicenter connect <dir> <source>`; the watcher then syncs |
 | **Clone** | `clone_synced_folder(source)` | `epicenter clone <owner>/<name>` or `epicenter clone <url>`; the CLI derives the destination from the cloned `AGENTS.md` contract URL, or uses the repository name when it has no contract |
 | **Sync now** | `sync_folder_now(path)` | `epicenter sync <dir>`, kept as the folder's last round |
@@ -273,7 +274,9 @@ path (`parse_init_link`). Any other link is ignored.
 Receiving the link only queues the request, once per path, and shows the
 Folders window. **Add folder** uses the same queue. The window shows the
 path, any contract, and existing Git branch and origin before setup.
-**Set up** (`accept_folder_setup`) runs `epicenter init <dir>`; a failure keeps
+**Set up** (`accept_folder_setup`) asks for a library name outside the scan,
+prefilled from the folder name, then runs `epicenter init <dir> --name <name>`.
+A failure keeps
 the request so the person can read why and dismiss it. **Dismiss**
 (`dismiss_folder_setup`) drops it without reading the folder. The contract is
 shown but not passed, because `epicenter init` takes no contract yet.

@@ -265,7 +265,7 @@ test('clone, fetch, push, and LFS carry the grant’s Bearer token; no clone kee
 	};
 
 	// init without --desktop writes no credential helper.
-	ok(await epicenter('init', A));
+	ok(await epicenter('init', A, '--name', 'A folder'));
 	expect(await credentialKeys(A)).toBe('');
 	expect((await git(A, 'remote', 'add', 'origin', remote)).code).toBe(0);
 	mkdirSync(join(A, 'notes'), { recursive: true });
@@ -289,7 +289,16 @@ test('clone, fetch, push, and LFS carry the grant’s Bearer token; no clone kee
 
 	// Clone and its LFS download, under the desktop grant.
 	from = requests.length;
-	ok(await epicenter('clone', `${NAMESPACE}/notes`, B, '--desktop'));
+	ok(
+		await epicenter(
+			'clone',
+			`${NAMESPACE}/notes`,
+			B,
+			'--name',
+			'B folder',
+			'--desktop',
+		),
+	);
 	expect(new Uint8Array(readFileSync(join(B, 'audio', 'first.bin')))).toEqual(
 		new Uint8Array(first),
 	);
