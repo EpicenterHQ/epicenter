@@ -305,6 +305,9 @@ test('4. a desktop clone holds the note and the audio the page played, and the f
 		'clone',
 		`${person.namespace}/recorder-demo`,
 		clone,
+		// Outside the library, a clone names its link (ADR-0736).
+		'--name',
+		'My recordings',
 	);
 	expect(cloned.code, `${cloned.stdout}\n${cloned.stderr}`).toBe(0);
 

@@ -164,6 +164,9 @@ test('2. a desktop clone holds the words and the chat as written, and the folder
 		'clone',
 		`${person.namespace}/vocab`,
 		clone,
+		// Outside the library, a clone names its link (ADR-0736).
+		'--name',
+		'My vocab',
 	);
 	expect(cloned.code, `${cloned.stdout}\n${cloned.stderr}`).toBe(0);
 

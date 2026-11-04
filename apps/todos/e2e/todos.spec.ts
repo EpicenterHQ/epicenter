@@ -149,6 +149,9 @@ test('2. a desktop clone holds the todos as written, and the folder fits the con
 		'clone',
 		`${person.namespace}/todos`,
 		clone,
+		// Outside the library, a clone names its link (ADR-0736).
+		'--name',
+		'My todos',
 	);
 	expect(cloned.code, `${cloned.stdout}\n${cloned.stderr}`).toBe(0);
 

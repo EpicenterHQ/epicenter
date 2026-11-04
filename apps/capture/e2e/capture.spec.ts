@@ -191,6 +191,9 @@ test('2. a desktop clone holds the captures byte for byte, and the folder fits t
 		'clone',
 		`${person.namespace}/capture`,
 		clone,
+		// Outside the library, a clone names its link (ADR-0736).
+		'--name',
+		'My captures',
 	);
 	expect(cloned.code, `${cloned.stdout}\n${cloned.stderr}`).toBe(0);
 

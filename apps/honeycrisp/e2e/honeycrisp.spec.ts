@@ -221,6 +221,9 @@ test('2. a desktop clone holds what was written, and the folder fits the contrac
 		'clone',
 		`${person.namespace}/honeycrisp`,
 		clone,
+		// Outside the library, a clone names its link (ADR-0736).
+		'--name',
+		'My notes',
 	);
 	expect(made.code, `${made.stdout}\n${made.stderr}`).toBe(0);
 
