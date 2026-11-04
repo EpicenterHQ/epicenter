@@ -7,8 +7,9 @@ resident inference cache over transcribe.cpp (whisper.cpp). Only apps that
 transcribe depend on it; other standalone apps stay free of transcribe-cpp and
 model downloads.
 
-Its companion TypeScript package, `@epicenter/transcription-native`, lives in
-`guest-js/`.
+Its TypeScript package, `@epicenter/transcription`, lives in `guest-js/`
+beside it (ADR-0755: a capability keeps its TypeScript and its Rust plugin
+in one directory).
 
 ## Installing
 
@@ -112,10 +113,11 @@ opened. It does not need any `epicenter-folder` permission.
 
 ## TypeScript package
 
-`@epicenter/transcription-native` exports:
+`@epicenter/transcription` exports:
 
-- `.`: the generated bindings (`commands` and the wire types), such as
-  `commands.listInferenceModels()` and
+- `.`: `localSpeech()`, described last below.
+- `./bindings`: the generated bindings (`commands` and the wire types), such
+  as `commands.listInferenceModels()` and
   `commands.transcribeFile(modelId, root, path, hints)`.
 - `./local-models`: `createLocalModels(commands?)`, a per-mount controller for
   the administration commands. Rust owns downloads; the page owns only its
@@ -123,7 +125,7 @@ opened. It does not need any `epicenter-folder` permission.
   intent and calls nothing native.
 - `./local-model-administration`: `LocalModelAdministration.svelte`, a
   prop-free model settings card built on `createLocalModels` and `@epicenter/ui`.
-- `./local-speech`: `localSpeech()`, this app's transcribe.cpp as an
+- `localSpeech()` (the `.` export): this app's transcribe.cpp as an
   `@epicenter/ai` endpoint (ADR-0757), or `null` outside the desktop app. Its
   `fetch` answers `audio/transcriptions` and `models` in-process through
   `transcribe_file` and `list_inference_models`; a transcription names its
@@ -149,8 +151,8 @@ From the repository root:
 ```sh
 cargo test -p tauri-plugin-epicenter-transcription
 cargo check -p epicenter-transcription-build
-bun run --cwd packages/tauri-plugin-epicenter-transcription typecheck
-bun run --cwd packages/tauri-plugin-epicenter-transcription test
+bun run --cwd packages/transcription typecheck
+bun run --cwd packages/transcription test
 ```
 
 The Rust tests check the bindings are fresh, drive the commands through
