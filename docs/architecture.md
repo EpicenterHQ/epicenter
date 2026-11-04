@@ -57,8 +57,10 @@ no app: apps are separate programs (ADR-0701). It does not install or run app
 source from a repository.
 
 The Folders window lists the folders the `epicenter` CLI syncs, and each of
-its actions is one CLI call. Epicenter opens no folder's files; the CLI's
-Git configuration is the persistent list of synced folders.
+its actions is one CLI call. Epicenter opens no folder's files and stores no
+folder list: the CLI scans `~/Epicenter` and one level of owner folders, and
+each folder's own Git configuration records its consent
+(`epicenter.synced = true`).
 
 Each standalone app (Capture, Honeycrisp, Todos, Vocab, Whispering) is its
 own Tauri program on the shared `epicenter-standalone` crate
