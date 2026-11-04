@@ -14,7 +14,7 @@
  * and repairable result the owner accepted. A block identical to one already in the
  * note is not written again, and one clash is one block however many
  * writes follow it (`merge`'s `continuedBlock`). A blob never merges:
- * `settlePointer` is its rule, compare-and-swap.
+ * `settlePointer` is its rule, the later write winning.
  *
  * A merge never breaks a key: the header merges key by key, each key's
  * block whole, and a body after no header is kept from reading as one (a
@@ -55,61 +55,23 @@ const labelled = (
 });
 
 /**
- * Settle a blob path (every file that is not a note) by compare-and-swap:
- * `incoming` lands only where `current` is still `base`, the blob its
- * writer saw (null: none, for a create). Create, replace and delete are the
- * one rule. An edit beats a delete, as for a note (decision 15): a delete
- * that does not land leaves the file, and a replace of a file that was
- * deleted since brings it back at its path. Any other create or replace
- * that does not land is `lost`: the server puts it beside the other at a
- * sibling (`conflictSibling`), so both are kept. Writing what is already
- * there lands as nothing, so two writes of the same bytes are one file.
+ * Settle a blob path (every file that is not a note), which never merges:
+ * the later write wins (ADR-0771), `incoming` (the write arriving now) over
+ * `current`, and the version that lost stays in history, as a losing field
+ * value does. An edit beats a delete, as for a note (decision 15): a delete
+ * of a file changed since its writer read it (`base`) leaves the file, and
+ * a replace of a file deleted since brings it back at its path. Writing
+ * what is already there lands as nothing, so two writes of the same bytes
+ * are one file.
  */
 export function settlePointer(
 	base: string | null,
 	current: string | null,
 	incoming: string | null,
-): { text: string | null } | { lost: true } {
-	if (incoming === current || incoming === base || current === base)
-		return { text: incoming === base ? current : incoming };
-	if (incoming === null) return { text: current };
-	if (current === null) return { text: incoming };
-	return { lost: true };
-}
-
-const utf8 = new TextEncoder();
-/** A sibling's own suffix, so a sibling of a sibling is named from the original stem. */
-const SIBLING_SUFFIX = / \(conflict [0-9a-f]{7,64}\)$/;
-
-/**
- * RULE: where a losing blob write lands (decision 44, the same on the server
- * and in desktop sync): `<stem> (conflict <hash7>)<ext>` beside `path`, from
- * the original stem (a sibling's own suffix dropped) and the first `chars`
- * characters of `oid`, the losing bytes' LFS oid (the sha256 its pointer
- * names), so every writer names one losing write alike. The stem is
- * shortened, by whole characters, until the name fits 255 bytes and the
- * path `maxPath` bytes.
- */
-export function conflictSibling(
-	path: string,
-	oid: string,
-	chars = 7,
-	maxPath = Number.POSITIVE_INFINITY,
-) {
-	const slash = path.lastIndexOf('/');
-	const folder = path.slice(0, slash + 1);
-	const name = path.slice(slash + 1);
-	const dot = name.lastIndexOf('.');
-	const ext = dot > 0 ? name.slice(dot) : '';
-	const suffix = ` (conflict ${oid.slice(0, chars)})${ext}`;
-	let stem = [
-		...(dot > 0 ? name.slice(0, dot) : name).replace(SIBLING_SUFFIX, ''),
-	];
-	const fits = () =>
-		utf8.encode(stem.join('') + suffix).length <= 255 &&
-		utf8.encode(folder + stem.join('') + suffix).length <= maxPath;
-	while (stem.length > 0 && !fits()) stem = stem.slice(0, -1);
-	return `${folder}${stem.join('')}${suffix}`;
+): string | null {
+	if (incoming === base) return current;
+	if (incoming === null && current !== base) return current;
+	return incoming;
 }
 
 /**

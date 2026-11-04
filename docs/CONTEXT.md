@@ -122,7 +122,7 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | Commit or version | A fixed Git snapshot. Prefer commit in technical text; version can explain it in a UI. |
 | Sync | `epicenter sync`: commit a synced folder's files with `git add`, fetch, merge, and push. It is the only desktop committer; the server commits web writes. Apps never commit. |
 | Merge | Combine base, current, and incoming (the later arrival): a front matter key goes to the later arrival; the body merges by line, then by word; an edit beats a delete. Schemas do not choose merge behavior. |
-| Conflict block, conflict copy | What a merge leaves when both sides changed the same spot: one block of whole lines in a note's body, or, for a binary file, the later bytes beside it as `<stem> (conflict <hash7>).<ext>`. Both are ordinary file content. |
+| Conflict block | What a merge leaves when both sides changed the same spot of a note's body: one block of whole lines, ordinary file content. A binary file never gets one: the later write wins, and the version it replaced stays in history. |
 | History | The commits Git records. Overwritten intermediate saves need not be recoverable. |
 | Snapshot | The file state described by a commit; retaining that snapshot does not require retaining every ancestor. |
 | Ref, head, base | A Git pointer, the selected local commit, and the incorporated remote commit or merge input where qualified. |

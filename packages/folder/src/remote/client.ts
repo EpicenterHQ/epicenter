@@ -16,10 +16,10 @@
  *   changed since (an edit beats a delete), which is a `Conflict` here.
  *
  * A write that races another between the read and the write lands by the
- * server's merge rules (decision 15): a note merges, a file lands beside as
- * a conflict copy. The client then answers with what landed: the merged
- * note, or for a file `Occupied` or `Conflict`, since its bytes are not at
- * the path.
+ * server's merge rules (decision 15): a note merges, and a file's later
+ * write wins, the version it replaced staying in history (ADR-0771). The
+ * client then answers with what landed: the merged note, or the file's new
+ * version.
  *
  * A collection's listeners hear this client's own writes (a file's bytes
  * included) before they resolve, and, while any listens, every move of
@@ -218,8 +218,7 @@ async function remove(
 	const answer = written.data;
 	if (!answer.landed) {
 		// `over` is not a version of this repository, or names nothing it holds.
-		if (answer.code === 'base_not_found' || answer.code === 'conflict')
-			return conflict(wire, path);
+		if (answer.code === 'base_not_found') return conflict(wire, path);
 		return refusedWrite(answer);
 	}
 	const outcome = outcomeOf(answer.receipt, path)?.outcome;
@@ -285,8 +284,7 @@ function noteClient(
 		if (written.error !== null) return written;
 		const answer = written.data;
 		if (!answer.landed) {
-			if (answer.code === 'base_not_found' || answer.code === 'conflict')
-				return conflict(wire, path);
+			if (answer.code === 'base_not_found') return conflict(wire, path);
 			return refusedWrite(answer);
 		}
 		const blob = answer.receipt.blobs[path];
@@ -442,8 +440,8 @@ function fileClient(
 
 	/**
 	 * Upload `bytes` and write them at `path` over `base`: the version that
-	 * landed there, or null when the server put them beside it as a
-	 * conflict copy because `main` changed.
+	 * landed there, since a later write wins even when `main` changed
+	 * (ADR-0771). Null when `base` names nothing this repository holds.
 	 */
 	async function land(
 		path: string,
@@ -461,8 +459,6 @@ function fileClient(
 			if (answer.code === 'base_not_found') return Ok(null);
 			return refusedWrite(answer);
 		}
-		const landed = outcomeOf(answer.receipt, path);
-		if (landed?.landed !== path) return Ok(null);
 		return Ok((answer.receipt.blobs[path] ?? null) as Version | null);
 	}
 
@@ -513,8 +509,8 @@ function fileClient(
 			if (there.data !== null) return ClientError.Occupied({ path: path.data });
 			const landed = await land(path.data, bytes);
 			if (landed.error !== null) return landed;
-			if (landed.data === null)
-				return ClientError.Occupied({ path: path.data });
+			// Only a write over a base can name one this repository lacks.
+			if (landed.data === null) throw new Error('a create has no base');
 			return Ok({ ...paramsOf(collection, value), version: landed.data });
 		},
 		async update(

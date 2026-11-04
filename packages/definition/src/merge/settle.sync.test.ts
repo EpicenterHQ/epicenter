@@ -13,7 +13,7 @@
  * - T2: one field both set takes the later arrival's value, with no block
  * - T2b: the side named incoming wins, so the driver's rebase swap keeps the later arrival
  * - T3: an edit beats a delete, in both directions
- * - Decision 44: a losing binary write is named from its LFS oid
+ * - ADR-0771: of two binary writes, the later one wins
  */
 import { describe, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
@@ -21,7 +21,7 @@ import { formatNote, parseRowSource } from '../note/index.js';
 import { findConflicts } from './conflict.js';
 import { lfsOid } from './hash.js';
 import { writePointer } from './pointer.js';
-import { conflictSibling, settle, settlePointer } from './settle.js';
+import { settle, settlePointer } from './settle.js';
 
 const parties = {
 	current: { author: 'alice', time: '2026-10-30T10:00:00Z' },
@@ -154,21 +154,20 @@ describe('house style on what settle writes', () => {
 	});
 });
 
-test('decision 44: a losing binary write lands beside its file, named from its LFS oid', async () => {
-	const winner = new TextEncoder().encode('webm bytes from Alice');
-	const loser = new TextEncoder().encode('webm bytes from Bob');
+test('ADR-0771: of two binary writes from one base, the later one wins', async () => {
+	const earlier = new TextEncoder().encode('webm bytes from Alice');
+	const later = new TextEncoder().encode('webm bytes from Bob');
 	const base = writePointer({
 		oid: await lfsOid(new Uint8Array([0])),
 		size: 1,
 	});
 	const current = writePointer({
-		oid: await lfsOid(winner),
-		size: winner.length,
+		oid: await lfsOid(earlier),
+		size: earlier.length,
 	});
-	const oid = await lfsOid(loser);
-	const incoming = writePointer({ oid, size: loser.length });
-	expect(settlePointer(base, current, incoming)).toEqual({ lost: true });
-	expect(conflictSibling('recordings/a.webm', oid)).toBe(
-		`recordings/a (conflict ${oid.slice(0, 7)}).webm`,
-	);
+	const incoming = writePointer({
+		oid: await lfsOid(later),
+		size: later.length,
+	});
+	expect(settlePointer(base, current, incoming)).toBe(incoming);
 });

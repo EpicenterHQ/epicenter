@@ -1,7 +1,7 @@
 /**
  * The write translator against the disk store and a real bare repository:
- * one commit per request, the note merge, conflict copies, an edit beating
- * a delete, and a resend after a lost reply judged like any write
+ * one commit per request, the note merge, the later binary write winning,
+ * an edit beating a delete, and a resend after a lost reply judged like any write
  * (decision 68).
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -9,7 +9,6 @@ import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
-import { conflictSibling } from '@epicenter/definition/merge';
 import { type GitObjects, MAIN, ZERO_OID } from '../git/objects.js';
 import { createDiskGitHost, repositoryPath } from '../git-disk-store.js';
 import { createDiskLfsStore } from '../lfs/disk-lfs-store.js';
@@ -185,22 +184,24 @@ describe('POST writes', () => {
 		);
 	});
 
-	test('a binary resent with other bytes lands beside the first as a conflict copy', async () => {
+	test('a binary resent with other bytes replaces the first, which stays in history', async () => {
 		const repo = await repository();
 		const take1 = await upload(repo, new TextEncoder().encode('take one'));
 		const take2 = await upload(repo, new TextEncoder().encode('take two'));
-		await repo.write({ files: [{ path: 'r/a.m4a', lfs: take1 }] });
+		const first = await repo.write({ files: [{ path: 'r/a.m4a', lfs: take1 }] });
 		const resent = await repo.write({
 			files: [{ path: 'r/a.m4a', lfs: take2 }],
 		});
-		const sibling = conflictSibling('r/a.m4a', take2.oid);
-		expect(resent.body.outcomes[0]).toEqual({
-			path: 'r/a.m4a',
-			landed: sibling,
-			outcome: 'conflict-copy',
-		});
-		expect(await repo.show('r/a.m4a')).toContain(take1.oid);
-		expect(await repo.show(sibling)).toContain(take2.oid);
+		expect(resent.body.outcomes).toEqual([
+			{ path: 'r/a.m4a', outcome: 'written' },
+		]);
+		expect(await repo.show('r/a.m4a')).toContain(take2.oid);
+		expect(
+			(await box.ok(repo.gitDir, ['ls-tree', '--name-only', 'main', 'r/'])).trim(),
+		).toBe('r/a.m4a');
+		expect(
+			await box.ok(repo.gitDir, ['show', `${first.body.commit}:r/a.m4a`]),
+		).toContain(take1.oid);
 	});
 
 	test("a repository's first commit holds the standard .gitattributes (decision 59)", async () => {
@@ -429,7 +430,7 @@ describe('POST writes', () => {
 		);
 	});
 
-	test('a racing binary replace lands beside it as a conflict copy', async () => {
+	test('a racing binary replace wins, and the one it replaced stays in history (ADR-0771)', async () => {
 		const repo = await repository();
 		const first = await upload(repo, new TextEncoder().encode('first take'));
 		const mine = await upload(repo, new TextEncoder().encode('my take'));
@@ -438,21 +439,25 @@ describe('POST writes', () => {
 			files: [{ path: 'r/a.m4a', lfs: first }],
 		});
 		const base = seeded.body.blobs['r/a.m4a'] as string;
-		await repo.write({ files: [{ path: 'r/a.m4a', base, lfs: theirs }] });
-		const lost = await repo.write({
+		const earlier = await repo.write({
+			files: [{ path: 'r/a.m4a', base, lfs: theirs }],
+		});
+		const later = await repo.write({
 			files: [{ path: 'r/a.m4a', base, lfs: mine }],
 		});
-		const sibling = conflictSibling('r/a.m4a', mine.oid);
-		expect(lost.body.outcomes[0]).toEqual({
-			path: 'r/a.m4a',
-			landed: sibling,
-			outcome: 'conflict-copy',
-		});
-		expect(await repo.show('r/a.m4a')).toContain(theirs.oid);
-		expect(await repo.show(sibling)).toContain(mine.oid);
+		expect(later.body.outcomes).toEqual([
+			{ path: 'r/a.m4a', outcome: 'written' },
+		]);
+		expect(await repo.show('r/a.m4a')).toContain(mine.oid);
+		expect(
+			(await box.ok(repo.gitDir, ['ls-tree', '--name-only', 'main', 'r/'])).trim(),
+		).toBe('r/a.m4a');
+		expect(
+			await box.ok(repo.gitDir, ['show', `${earlier.body.commit}:r/a.m4a`]),
+		).toContain(theirs.oid);
 		// Writing the same bytes again (with no base) changes nothing.
 		const again = await repo.write({
-			files: [{ path: 'r/a.m4a', lfs: theirs }],
+			files: [{ path: 'r/a.m4a', lfs: mine }],
 		});
 		expect(again.body.outcomes[0]?.outcome).toBe('unchanged');
 	});
@@ -503,7 +508,6 @@ describe('POST writes', () => {
 		});
 		expect(edited.body.outcomes[0]).toEqual({
 			path: 'r/a.m4a',
-			landed: 'r/a.m4a',
 			outcome: 'written',
 		});
 		expect(await repo.show('r/a.m4a')).toContain(second.oid);
