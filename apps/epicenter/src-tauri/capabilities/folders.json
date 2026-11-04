@@ -19,6 +19,7 @@
 		"allow-share-folder",
 		"allow-unshare-folder",
 		"allow-restart-sync-service",
-		"allow-open-home"
+		"allow-open-home",
+		"allow-install-git"
 	]
 }

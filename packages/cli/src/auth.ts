@@ -44,7 +44,6 @@ import {
 	type SecretStore,
 } from './secrets.ts';
 import { finishBeforeExit } from './stop.ts';
-import { shellQuote } from './sync/git.ts';
 
 /** Which of the CLI's two sign-ins a command uses. */
 export type GrantKind = 'device' | 'desktop';
@@ -874,58 +873,4 @@ export async function gitCredential(
 			'',
 		].join('\n'),
 	);
-}
-
-/**
- * Where Git looks for the helper of the deployment's Git audience: the
- * audience's origin, not its URL. Git matches a `credential.<url>` key
- * against the full remote URL, but Git LFS asks for a credential by protocol
- * and host alone, so a key with a path (a local deployment's
- * `http://localhost:8788/git`) is never asked for LFS. The helper still
- * answers only for the audience (`isGitAudience`).
- */
-const gitHelperOrigin = (deployment: Deployment) =>
-	new URL(deployment.audiences.git).origin;
-
-/**
- * Make this CLI Git's credential helper for the deployment's Git audience in
- * the person's global configuration (ADR-0558). An empty helper first clears
- * the helpers a broader configuration set, so no other helper is asked to
- * store the token. `command` is the machine's absolute engine path.
- * `git` runs through `runGit`, found by `locateGit`, with `env` as its
- * environment.
- */
-export async function configureGitHelper(
-	ctx: AuthContext,
-	command: readonly string[],
-	env: Record<string, string | undefined> = process.env,
-): Promise<Result<string, string>> {
-	const key = `credential.${gitHelperOrigin(ctx.deployment)}.helper`;
-	const helper = `!${command.map(shellQuote).join(' ')} auth git-credential`;
-	const { runGit } = await import('@epicenter/folder/bun');
-	const run = async (args: string[]) => {
-		try {
-			const { code, stdout, stderr } = await runGit(
-				['config', '--global', ...args],
-				{
-					environment: env,
-					allowFailure: true,
-				},
-			);
-			return {
-				code,
-				stdout: new TextDecoder().decode(stdout),
-				error: code === 0 ? null : stderr.trim() || `git exited ${code}`,
-			};
-		} catch (cause) {
-			return { code: 1, stdout: '', error: describe(cause) };
-		}
-	};
-	const current = await run(['--null', '--get-all', key]);
-	if (current.code === 0 && current.stdout === `\0${helper}\0`)
-		return Ok(helper);
-	const failed =
-		(await run(['--replace-all', key, ''])).error ??
-		(await run(['--add', key, helper])).error;
-	return failed === null ? Ok(helper) : Err(failed);
 }

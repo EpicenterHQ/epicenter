@@ -23,7 +23,7 @@ with stock `git` and `git-lfs`
 ~/.epicenter/bin/epicenter sync ~/Epicenter/recorder-demo   # 0 synced, 1 run again, 2 stopped
 ```
 
-The development engine is at `~/.epicenter-dev/bin/epicenter`.
+The app links its bundled CLI at `~/.epicenter/bin/epicenter`; development links it at `~/.epicenter-dev/bin/epicenter`.
 
 The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 --cwd apps/epicenter build:sidecar`); see
@@ -134,9 +134,7 @@ with real `git add`, so Git LFS's filters run.
   `managed-block.ts`: `.DS_Store` and `.epicenter/` (a device's unfinished
   writes) are never committed, and sync leaves `.epicenter/` out itself
   even when `.gitignore` does not name it.
-  Then `merge.epicenter.driver`, the absolute engine command
-  (`~/.epicenter/bin/epicenter merge-driver %O %A %B %P`);
-  `git lfs install --local`;
+  Then local LFS filter values, with no hooks or saved merge driver;
   `git lfs pull` for files checked out as pointers. A folder inside another
   repository is refused. Its own repository records `epicenter.synced = true`
   in local configuration. Init creates a link by folder name in the library
@@ -153,8 +151,7 @@ with real `git add`, so Git LFS's filters run.
   `<git dir>/epicenter-sync.lock` (`holdingFileLock`). A round refuses a repository
   without `epicenter.synced = true`, a subfolder of another repository, an
   unfinished merge or rebase, unmerged
-  entries, or a clone without LFS filters. It repairs a stale saved merge
-  driver and gives every Git call in the round its running merge driver;
+  entries, or a clone without LFS filters. It gives every Git call in the round its running merge driver;
   then it stages and commits
   only the folder's own paths, never `.epicenter` (the folder's unfinished
   writes, excluded by pathspec whatever `.gitignore` says); fetches `origin`; stops if the remote `main`

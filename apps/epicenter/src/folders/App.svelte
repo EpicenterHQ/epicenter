@@ -164,6 +164,9 @@
 				<Alert.Description>{failure}</Alert.Description>
 			</Alert.Root>
 		{/if}
+		{#if (failure ?? listProblem ?? (listing?.service.state === 'stopped' ? listing.service.reason : '')).toLowerCase().includes('git is missing') && navigator.platform.startsWith('Mac')}
+			<Button size="sm" variant="outline" onclick={() => void commands.installGit()}>Install Git</Button>
+		{/if}
 		{#if notice}
 			<p class="text-sm text-muted-foreground" role="status">{notice}</p>
 		{/if}

@@ -6,6 +6,8 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 export const commands = {
 	/**  Show Settings: the Folders window's Settings button (ADR-0537). */
 	openHome: () => __TAURI_INVOKE<void>("open_home"),
+	/**  Open macOS's Command Line Tools installer when Git is missing. */
+	installGit: () => typedError<null, string>(__TAURI_INVOKE("install_git")),
 	/**  The folders the CLI found, each with its last round. */
 	syncedFolders: () => typedError<SyncedFolderListing, CliError>(__TAURI_INVOKE("synced_folders")),
 	/**

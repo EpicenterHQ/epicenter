@@ -26,6 +26,7 @@
  * on the API (cookies ignore the port, so any `localhost` page can), and a
  * script to `source` for the desktop sandbox. It runs until Ctrl-C.
  */
+
 import {
 	chmod,
 	mkdir,
@@ -45,11 +46,11 @@ import { OAuthTestClient } from '../../server/src/test-helpers/oauth-client.ts';
 import {
 	type AuthContext,
 	accessToken,
-	configureGitHelper,
 	loginWithDevice,
 	resolveDeployment,
 } from './auth.ts';
 import { createMemorySecrets } from './secrets.ts';
+import { configureTestGitHelper } from './test-git-helper.ts';
 
 /** What the tests read from the state file. */
 export type Stack = {
@@ -267,12 +268,11 @@ export async function runAppStack({
 				EPICENTER_DATA_DIR: join(home, 'data'),
 				EPICENTER_TEST_SECRETS: JSON.stringify({ $auth: { [entry]: stored } }),
 			};
-			const helper = await configureGitHelper(
-				{ deployment } as AuthContext,
+			configureTestGitHelper(
+				deployment.audiences.git,
 				[process.execPath, '--no-install', cli],
 				env,
 			);
-			if (helper.error !== null) throw new Error(helper.error);
 			const link = join(home, '.epicenter', 'bin', 'epicenter');
 			await mkdir(join(link, '..'), { recursive: true });
 			await writeFile(

@@ -7,7 +7,7 @@
  * ```txt
  * <folderDir>/<site-derived path>/           a data folder `epicenter clone` makes by default
  * <dataDir>/auth/<grant>.lock                the lock a grant refreshes under (auth.ts)
- * ~/.epicenter/bin/epicenter                 the engine Git's configuration runs
+ * ~/.epicenter/bin/epicenter                 link to the app's bundled CLI
  * ```
  *
  * The shell sets `EPICENTER_ENVIRONMENT` when it runs the CLI. A terminal
@@ -16,18 +16,20 @@
  */
 
 import { homedir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import {
 	EPICENTER_BUNDLE_IDENTIFIER,
 	epicenterDataRoot,
 } from '@epicenter/constants/app-data';
+
+declare const __EPICENTER_BUILD_ENVIRONMENT__: string;
 
 export type AppPaths = {
 	/** The library root: where `epicenter clone` puts a folder. */
 	readonly folderDir: string;
 	/** Machine state worth keeping, including sign-in locks. */
 	readonly dataDir: string;
-	/** The engine every Git configuration Epicenter writes runs. */
+	/** The terminal link to the app's bundled CLI. */
 	readonly engine: string;
 };
 
@@ -50,17 +52,12 @@ function directory(
 export function resolveAppPaths(
 	env: Environment = process.env,
 	home: string = homedir(),
-	executable: string = process.execPath,
 ): AppPaths {
-	const devEngine = join(
-		home,
-		'.epicenter-dev',
-		'bin',
-		process.platform === 'win32' ? 'epicenter.exe' : 'epicenter',
-	);
 	const environment =
 		env.EPICENTER_ENVIRONMENT ||
-		(resolve(executable) === devEngine ? 'development' : 'production');
+		(typeof __EPICENTER_BUILD_ENVIRONMENT__ === 'undefined'
+			? 'production'
+			: __EPICENTER_BUILD_ENVIRONMENT__);
 	if (environment !== 'production' && environment !== 'development')
 		throw new Error(`Unknown EPICENTER_ENVIRONMENT: '${environment}'.`);
 	return {
@@ -80,7 +77,7 @@ export function resolveAppPaths(
 			home,
 			environment === 'development' ? '.epicenter-dev' : '.epicenter',
 			'bin',
-			process.platform === 'win32' ? 'epicenter.exe' : 'epicenter',
+			process.platform === 'win32' ? 'epicenter.cmd' : 'epicenter',
 		),
 	};
 }

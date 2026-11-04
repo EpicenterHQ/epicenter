@@ -16,6 +16,7 @@
  * Requires initdb, pg_ctl, git, and git-lfs on PATH; never connects to a
  * configured database.
  */
+
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import {
@@ -55,11 +56,11 @@ import {
 import {
 	type AuthContext,
 	accessToken,
-	configureGitHelper,
 	loginWithDevice,
 	resolveDeployment,
 } from './auth.ts';
 import { createMemorySecrets } from './secrets.ts';
+import { configureTestGitHelper } from './test-git-helper.ts';
 
 const recorder = defineContract({
 	collections: {
@@ -236,12 +237,11 @@ async function machine(label: string) {
 		EPICENTER_DATA_DIR: join(home, 'data'),
 		EPICENTER_TEST_SECRETS: JSON.stringify({ $auth: { [entry]: stored } }),
 	};
-	const helper = await configureGitHelper(
-		{ deployment: resolveDeployment(origin) } as AuthContext,
+	configureTestGitHelper(
+		resolveDeployment(origin).audiences.git,
 		[process.execPath, '--no-install', bin],
 		env,
 	);
-	if (helper.error !== null) throw new Error(helper.error);
 	const link = join(home, '.epicenter', 'bin', 'epicenter');
 	await mkdir(join(link, '..'), { recursive: true });
 	await writeFile(

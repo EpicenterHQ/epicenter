@@ -112,8 +112,8 @@ bytes read. Exits 0 when every note is in house style, 1 when one was left as
 it is, and 2 when the contract or the folder cannot be used.`,
 	'auth login': `Signs this computer in with a device code: open the link it prints, check
 the code, and choose which folders it may reach. The sign-in is kept in this
-computer's keychain, and Git's global configuration gets this command as its
-credential helper for the deployment's Git origin. --json prints NDJSON: the
+computer's keychain. Epicenter passes credentials to each Git call without
+saving a helper. --json prints NDJSON: the
 code and link as {"device": {...}}, then {"signedIn": {...}} or {"error"}.`,
 	'auth token': `Prints an access token for --resource, by default the deployment's API,
 refreshing the sign-in when the cached token has under five minutes left. One
@@ -143,8 +143,7 @@ merges locally; run epicenter sync <dir> to publish local files.`,
 	init: `Sets up or repairs <dir> (default: the current directory) for sync, and says
 what it changed: git init when it is not in a repository; Epicenter's block in
 the folder's committed .gitattributes (notes merge by Epicenter's rules,
-every other file except dotfiles is Git LFS); the merge driver and the LFS
-filters and hooks in this clone; the LFS bytes for files checked out as
+every other file except dotfiles is Git LFS); LFS filters in this clone; the LFS bytes for files checked out as
 pointers; and the folder in
 the folder's own Git config (epicenter.synced = true). If the folder is outside
 the environment's library, init links it there by folder name so discovery finds it.

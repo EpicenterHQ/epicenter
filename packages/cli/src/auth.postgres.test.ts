@@ -36,7 +36,6 @@ import {
 	type AuthContext,
 	accessToken,
 	authStatus,
-	configureGitHelper,
 	type DeviceCode,
 	gitCredential,
 	loginWithDevice,
@@ -564,73 +563,3 @@ await accessToken({ deployment: { origin, audiences: { api, git } }, secrets, lo
 		(await client.refresh('so.epicenter.cli', written.refreshToken)).status,
 	).toBe(200);
 }, 60_000);
-
-test("login makes this CLI Git's helper for the deployment's Git origin in the global configuration", async () => {
-	const home = await mkdtemp(join(scratch, 'home-'));
-	const env = {
-		PATH: process.env.PATH,
-		HOME: home,
-		XDG_CONFIG_HOME: join(home, '.config'),
-	};
-	const configured = await configureGitHelper(
-		machine(),
-		[join(home, '.epicenter/bin/epicenter')],
-		env,
-	);
-	expect(configured.error).toBeNull();
-	// Twice leaves one empty reset and one helper, not a growing list.
-	await configureGitHelper(
-		machine(),
-		[join(home, '.epicenter/bin/epicenter')],
-		env,
-	);
-	const read = Bun.spawnSync(
-		[
-			'git',
-			'config',
-			'--file',
-			join(home, '.gitconfig'),
-			'--get-all',
-			`credential.${new URL(audiences.git).origin}.helper`,
-		],
-		{ env },
-	);
-	expect(read.stdout.toString().split('\n')).toEqual([
-		'',
-		`!'${join(home, '.epicenter/bin/epicenter')}' auth git-credential`,
-		'',
-	]);
-	const key = `credential.${new URL(audiences.git).origin}.helper`;
-	expect(
-		Bun.spawnSync(
-			[
-				'git',
-				'config',
-				'--file',
-				join(home, '.gitconfig'),
-				'--replace-all',
-				key,
-				"!'/old/epicenter' auth git-credential",
-			],
-			{ env },
-		).exitCode,
-	).toBe(0);
-	expect(
-		(
-			await configureGitHelper(
-				machine(),
-				[join(home, '.epicenter/bin/epicenter')],
-				env,
-			)
-		).error,
-	).toBeNull();
-	const repaired = Bun.spawnSync(
-		['git', 'config', '--file', join(home, '.gitconfig'), '--get-all', key],
-		{ env },
-	);
-	expect(repaired.stdout.toString().split('\n')).toEqual([
-		'',
-		`!'${join(home, '.epicenter/bin/epicenter')}' auth git-credential`,
-		'',
-	]);
-});

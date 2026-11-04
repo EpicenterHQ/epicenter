@@ -216,8 +216,7 @@ describe('epicenter sync over stock git', () => {
 				'git init',
 				'.gitattributes committed',
 				'.gitignore committed',
-				'merge.epicenter.driver set',
-				'git lfs install --local',
+				'filter.lfs.process set',
 				'epicenter.synced = true',
 			])
 				expect(first.out).toContain(step);
@@ -296,7 +295,7 @@ describe('epicenter sync over stock git', () => {
 			await connect(B, 'bob');
 			const joined = await init(B);
 			expect(joined.out).not.toContain('.gitattributes');
-			expect(joined.out).toContain('merge.epicenter.driver set');
+			expect(joined.out).not.toContain('merge.epicenter.driver set');
 			expect((await sync(B)).code).toBe(0);
 		},
 		LONG,
@@ -475,24 +474,6 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		"T2b: a person's own git pull --rebase swaps the sides, and the driver keeps the later arrival",
-		async () => {
-			edit(A, NOTE, 'title: From Bob', 'title: Alice again');
-			edit(B, NOTE, 'title: From Bob', 'title: Bob by rebase');
-			await sync(A);
-			const rebased = await sh(
-				B,
-				'git add -A && git commit -qm "bob by hand" && git pull -q --rebase origin main && git push -q origin HEAD:main',
-			);
-			expect(rebased.code).toBe(0);
-			expect(rebased.out).toContain('rebase; incoming=%B');
-			await sync(A);
-			expect(read(A, NOTE)).toContain('title: Bob by rebase');
-		},
-		LONG,
-	);
-
-	test(
 		'T3: an edit beats a delete, both ways',
 		async () => {
 			await sync(B);
@@ -573,23 +554,19 @@ describe('epicenter sync over stock git', () => {
 				sha256(clip),
 			);
 
-			await sh(
-				C,
-				'rm .git/hooks/pre-push .git/hooks/post-checkout .git/hooks/post-commit .git/hooks/post-merge && git config --local --remove-section filter.lfs && git config --local --unset merge.epicenter.driver',
-			);
+			await sh(C, 'git config --local --remove-section filter.lfs');
 			const raw = randomBytes(64 * 1024);
 			write(C, 'media/raw.webm', raw);
 			const unsetUp = await head(C);
 			const refused = await sync(C);
 			expect(refused.code).toBe(2);
 			expect(refused.out).toContain('not set up');
-			expect(refused.out).toContain('repaired merge.epicenter.driver');
+
 			expect(await head(C)).toBe(unsetUp);
 			expect(await quiet(C, 'ls-files', '--', 'media/raw.webm')).toBe('');
 
 			const repaired = await init(C);
-			expect(repaired.out).not.toContain('merge.epicenter.driver set');
-			expect(repaired.out).toContain('git lfs install --local');
+			expect(repaired.out).toContain('filter.lfs.process set');
 			expect(repaired.out).not.toMatch(/attributes|epicenter.synced|lfs pull/);
 			expect((await init(C)).out).toContain('nothing to do');
 			expect((await sync(C)).code).toBe(0);
@@ -600,22 +577,6 @@ describe('epicenter sync over stock git', () => {
 					await quiet(REMOTE, 'cat-file', '-p', 'main:media/raw.webm')
 				).startsWith('version https://git-lfs'),
 			).toBe(true);
-			await git(
-				C,
-				'config',
-				'--local',
-				'merge.epicenter.driver',
-				"'~/.local/bin/epicenter' merge-driver %O %A %B %P",
-			);
-			const upgraded = await sync(C);
-			expect(upgraded.code).toBe(0);
-			expect(upgraded.out).toContain('repaired merge.epicenter.driver');
-			expect(
-				await quiet(C, 'config', '--local', '--get', 'merge.epicenter.driver'),
-			).toBe(`'${EPICENTER}' merge-driver %O %A %B %P`);
-			expect((await sync(C)).out).not.toContain(
-				'repaired merge.epicenter.driver',
-			);
 			await sync(B);
 		},
 		LONG,
@@ -803,7 +764,7 @@ describe('epicenter sync over stock git', () => {
 			);
 			expect(
 				await quiet(D, 'config', '--local', 'merge.epicenter.driver'),
-			).toBe(`'${EPICENTER}' merge-driver %O %A %B %P`);
+			).toBe('');
 			expect(
 				await quiet(D, 'config', '--local', '--get', 'epicenter.synced'),
 			).toBe('true');

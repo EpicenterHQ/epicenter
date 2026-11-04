@@ -11,6 +11,7 @@
 /// The commands every build registers: the page API.
 pub const COMMANDS: &[&str] = &[
     "open_home",
+    "install_git",
     "synced_folders",
     "add_synced_folder",
     "accept_folder_setup",

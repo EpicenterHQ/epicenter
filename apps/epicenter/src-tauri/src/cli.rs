@@ -32,7 +32,6 @@ use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::ipc::Channel;
@@ -214,107 +213,62 @@ fn bundled_binary_beside(executable: &std::path::Path) -> Result<PathBuf, String
     }))
 }
 
-/// Install a newer bundled sidecar for terminal and plain Git use.
-pub(crate) fn install_engine(
+/// Link the terminal command to the CLI bundled beside this app.
+pub(crate) fn link_engine(
     source: &std::path::Path,
     destination: &std::path::Path,
-    bundled_version: &Version,
 ) -> Result<(), String> {
     let parent = destination
         .parent()
         .ok_or("the engine path has no parent")?;
     fs::create_dir_all(parent).map_err(|error| format!("create {}: {error}", parent.display()))?;
-    let stamp = destination.with_file_name(format!(
-        "{}.version",
-        destination
-            .file_name()
-            .ok_or("the engine path has no name")?
-            .to_string_lossy()
-    ));
-    if destination.exists() {
-        if let Ok(installed) = fs::read_to_string(&stamp) {
-            if let Ok(version) = Version::parse(installed.trim()) {
-                if version >= *bundled_version {
-                    return Ok(());
-                }
-            }
+    let staged = parent.join(format!(".epicenter-{}.tmp", std::process::id()));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        if fs::read_link(destination).ok().as_deref() == Some(source) {
+            return Ok(());
+        }
+        let _ = fs::remove_file(&staged);
+        symlink(source, &staged).map_err(|error| error.to_string())?;
+        let result = fs::rename(&staged, destination).map_err(|error| error.to_string());
+        if result.is_err() {
+            let _ = fs::remove_file(&staged);
+        }
+        result
+    }
+    #[cfg(windows)]
+    {
+        let command = format!("@echo off\r\n\"{}\" %*\r\n", source.display());
+        if fs::read_to_string(destination).ok().as_deref() == Some(command.as_str()) {
+            return Ok(());
+        }
+        fs::write(&staged, command).map_err(|error| error.to_string())?;
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        };
+        let wide = |path: &std::path::Path| {
+            path.as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect::<Vec<_>>()
+        };
+        let moved = unsafe {
+            MoveFileExW(
+                wide(&staged).as_ptr(),
+                wide(destination).as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if moved == 0 {
+            let error = std::io::Error::last_os_error();
+            let _ = fs::remove_file(&staged);
+            Err(error.to_string())
+        } else {
+            Ok(())
         }
     }
-    let staged = parent.join(format!(
-        ".epicenter-{}-{}.tmp",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|error| error.to_string())?
-            .as_nanos()
-    ));
-    let staged_stamp = staged.with_extension("version");
-    let result = (|| {
-        fs::copy(source, &staged).map_err(|error| format!("copy {}: {error}", source.display()))?;
-        replace_engine(&staged, destination)
-            .map_err(|error| format!("install {}: {error}", destination.display()))?;
-        fs::write(&staged_stamp, bundled_version.to_string())
-            .map_err(|error| format!("write {}: {error}", staged_stamp.display()))?;
-        replace_stamp(&staged_stamp, &stamp)
-            .map_err(|error| format!("install {}: {error}", stamp.display()))
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&staged);
-        let _ = fs::remove_file(&staged_stamp);
-    }
-    result
-}
-
-#[cfg(not(windows))]
-fn replace_stamp(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
-    fs::rename(staged, destination)
-}
-
-#[cfg(windows)]
-fn replace_stamp(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-    };
-    let wide = |path: &std::path::Path| {
-        path.as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect::<Vec<_>>()
-    };
-    let moved = unsafe {
-        MoveFileExW(
-            wide(staged).as_ptr(),
-            wide(destination).as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if moved == 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(not(windows))]
-fn replace_engine(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
-    fs::rename(staged, destination)
-}
-
-#[cfg(windows)]
-fn replace_engine(staged: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
-    let mut old = destination.with_file_name("epicenter.old.exe");
-    if old.exists() && fs::remove_file(&old).is_err() {
-        old = staged.with_extension("old.exe");
-    }
-    if destination.exists() {
-        fs::rename(destination, &old)?;
-    }
-    if let Err(error) = fs::rename(staged, destination) {
-        let _ = fs::rename(&old, destination);
-        return Err(error);
-    }
-    Ok(())
 }
 
 /// How a run ended. `code` is the CLI's exit code (ADR-0520): 0 done, 1 a
@@ -674,11 +628,8 @@ async fn run_child(
     }
 }
 
-pub(crate) fn install_bundled_engine(
-    paths: &DesktopPaths,
-    version: &Version,
-) -> Result<(), String> {
-    install_engine(&bundled_binary()?, &paths.engine, version)
+pub(crate) fn link_bundled_engine(paths: &DesktopPaths) -> Result<(), String> {
+    link_engine(&bundled_binary()?, &paths.engine)
 }
 
 // ---------------------------------------------------------------------------
@@ -862,28 +813,20 @@ mod tests {
         fs::canonicalize(dir).unwrap()
     }
 
+    #[cfg(unix)]
     #[test]
-    fn installing_engine_only_promotes_newer_versions() {
-        let dir = scratch("engine");
-        let source = dir.join("bundled");
+    fn engine_link_follows_the_bundled_binary_and_replaces_an_old_target() {
+        let dir = scratch("engine-link");
+        let first = dir.join("first");
+        let second = dir.join("second");
         let destination = dir.join(".epicenter/bin/epicenter");
-        fs::write(&source, "first").unwrap();
-        install_engine(&source, &destination, &Version::parse("1.0.0").unwrap()).unwrap();
-        assert_eq!(fs::read_to_string(&destination).unwrap(), "first");
-        fs::write(&source, "second").unwrap();
-        install_engine(&source, &destination, &Version::parse("1.0.0").unwrap()).unwrap();
-        assert_eq!(fs::read_to_string(&destination).unwrap(), "first");
-        install_engine(&source, &destination, &Version::parse("0.9.0").unwrap()).unwrap();
-        assert_eq!(fs::read_to_string(&destination).unwrap(), "first");
-        install_engine(&source, &destination, &Version::parse("1.1.0").unwrap()).unwrap();
+        fs::write(&first, "first").unwrap();
+        fs::write(&second, "second").unwrap();
+        link_engine(&first, &destination).unwrap();
+        assert_eq!(fs::read_link(&destination).unwrap(), first);
+        link_engine(&second, &destination).unwrap();
+        assert_eq!(fs::read_link(&destination).unwrap(), second);
         assert_eq!(fs::read_to_string(&destination).unwrap(), "second");
-        fs::remove_file(&source).unwrap();
-        assert!(install_engine(&source, &destination, &Version::parse("1.2.0").unwrap()).is_err());
-        assert_eq!(fs::read_to_string(&destination).unwrap(), "second");
-        assert_eq!(
-            fs::read_dir(destination.parent().unwrap()).unwrap().count(),
-            2
-        );
     }
 
     #[test]

@@ -1,9 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Compile the `epicenter` CLI (ADR-0556) where Tauri expects its external
- * binary. The bundle names it `epicenter-cli` because Tauri refuses a sidecar
- * named like the Cargo package, `epicenter`; the app installs it into the
- * machine home as `bin/epicenter`.
+ * binary. The app links to the bundled sidecar from its machine home.
  */
 
 import { mkdir } from 'node:fs/promises';
@@ -23,6 +21,8 @@ async function hostTargetTriple(): Promise<string> {
 	return host;
 }
 
+const environment =
+	process.env.TAURI_ENV_DEBUG === 'true' ? 'development' : 'production';
 const hostTriple = await hostTargetTriple();
 const targetTriple = process.env.TAURI_ENV_TARGET_TRIPLE ?? hostTriple;
 if (targetTriple !== hostTriple) {
@@ -43,5 +43,5 @@ console.error(`Compiling the epicenter binary -> ${outfile}`);
 // --bytecode needs an entry graph without top-level await, which the CLI's
 // entry keeps.
 const entry = join(appDir, '..', '..', 'packages', 'cli', 'src', 'bin.ts');
-await $`bun build --compile --minify --bytecode --outfile ${outfile} ${entry}`;
+await $`bun build --compile --minify --bytecode --define ${`__EPICENTER_BUILD_ENVIRONMENT__=${JSON.stringify(environment)}`} --outfile ${outfile} ${entry}`;
 console.error('The epicenter binary compiled.');

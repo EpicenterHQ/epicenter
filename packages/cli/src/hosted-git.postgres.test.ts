@@ -13,6 +13,7 @@
  * refresh token is never replayed. Requires initdb, pg_ctl, and git on PATH;
  * never connects to a configured database.
  */
+
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import {
 	chmod,
@@ -48,11 +49,11 @@ import {
 import {
 	type AuthContext,
 	accessToken,
-	configureGitHelper,
 	loginWithDevice,
 	resolveDeployment,
 } from './auth.ts';
 import { createMemorySecrets } from './secrets.ts';
+import { configureTestGitHelper } from './test-git-helper.ts';
 
 const secret = 'cli-hosted-git-secret-0123456789abcdefgh';
 const bin = resolve(import.meta.dir, 'bin.ts');
@@ -186,12 +187,11 @@ beforeAll(async () => {
 	};
 	// What `auth login` writes. An `http` server like this one gets no token
 	// as a header, so the CLI's own `git` signs in through the helper too.
-	const helper = await configureGitHelper(
-		{ deployment: resolveDeployment(origin) } as AuthContext,
+	configureTestGitHelper(
+		resolveDeployment(origin).audiences.git,
 		[process.execPath, '--no-install', bin],
 		env,
 	);
-	if (helper.error !== null) throw new Error(helper.error);
 	// The engine the merge driver runs: this checkout's CLI.
 	const link = join(scratch, '.epicenter', 'bin', 'epicenter');
 	await mkdir(join(link, '..'), { recursive: true });
@@ -251,11 +251,8 @@ test('init, a remote added by hand, and sync create the repository; clone and sy
 	const created = await epicenter('sync', folder, '--json');
 	expect(created.code).toBe(0);
 	expect(JSON.parse(created.stdout).sync.status).toBe('synced');
-	// Sync repairs the global helper so plain Git uses the installed engine.
-	expect(await readFile(globalConfig, 'utf8')).not.toBe(globalBefore);
-	expect(await readFile(globalConfig, 'utf8')).toContain(
-		`helper = !'${join(scratch, '.epicenter/bin/epicenter')}' auth git-credential`,
-	);
+	// Sync leaves the person's Git configuration alone.
+	expect(await readFile(globalConfig, 'utf8')).toBe(globalBefore);
 
 	const listing = await epicenter('repos', '--json');
 	expect(listing.code).toBe(0);

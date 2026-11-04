@@ -87,6 +87,7 @@ macro_rules! shell_commands {
     ($($extra:tt)*) => {
         tauri_specta::collect_commands![
             open_home,
+            install_git,
             synced_folders::synced_folders,
             synced_folders::add_synced_folder,
             synced_folders::accept_folder_setup,
@@ -207,6 +208,24 @@ fn open_home(app: DesktopAppHandle) {
     request_window(&app, BuiltInApp::Home);
 }
 
+/// Open macOS's Command Line Tools installer when Git is missing.
+#[tauri::command]
+#[specta::specta]
+fn install_git() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("xcode-select")
+            .arg("--install")
+            .spawn()
+            .map_err(|error| format!("Could not start xcode-select --install: {error}"))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Git installation is available here only on macOS.".to_string())
+    }
+}
+
 pub fn run() {
     let specta_builder = make_specta_builder();
     let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
@@ -280,9 +299,8 @@ pub fn run() {
 
             let desktop_paths = DesktopPaths::resolve(app.handle()).map_err(anyhow::Error::msg)?;
             let install_paths = desktop_paths.clone();
-            let version = app.package_info().version.clone();
             tauri::async_runtime::spawn_blocking(move || {
-                if let Err(error) = cli::install_bundled_engine(&install_paths, &version) {
+                if let Err(error) = cli::link_bundled_engine(&install_paths) {
                     log::error!(
                         "install the engine at {}: {error}",
                         install_paths.engine.display()
@@ -900,6 +918,7 @@ mod tests {
         let mut expected = vec!["core:event:allow-listen", "core:event:allow-unlisten"];
         expected.extend(FOLDERS_ONLY);
         expected.push("allow-open-home");
+        expected.push("allow-install-git");
         assert_eq!(
             capability["permissions"],
             serde_json::json!(expected),

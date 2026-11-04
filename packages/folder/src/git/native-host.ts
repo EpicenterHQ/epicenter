@@ -101,7 +101,7 @@ export class GitMissingError extends Error {
 	constructor() {
 		super(
 			process.platform === 'darwin'
-				? 'git is not installed; install the Command Line Tools for Xcode to keep versions and sync'
+				? 'Git is missing. Run xcode-select --install to install the Command Line Tools, then try again.'
 				: process.platform === 'win32'
 					? 'git is not installed; install Git for Windows to keep versions and sync'
 					: 'git is not installed; install it with your package manager to keep versions and sync',

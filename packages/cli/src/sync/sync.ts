@@ -41,7 +41,6 @@ import {
 	parsePointer,
 } from '@epicenter/definition/merge';
 import { type GitCredential, STATE_DIRECTORY } from '@epicenter/folder/bun';
-import { resolveAppPaths } from '../app-paths.ts';
 import { holdingFileLock, NothingChanged } from '../file-lock.ts';
 import {
 	type CredentialFor,
@@ -53,7 +52,7 @@ import {
 	withSyncDriver,
 } from './git.ts';
 import { repositoryProblem } from './repository-state.ts';
-import { driverCommand, identity, repositoryRoot } from './setup.ts';
+import { identity, repositoryRoot } from './setup.ts';
 
 const LAST_SEEN = 'refs/epicenter/last-seen';
 const REMOTE_MAIN = 'refs/remotes/origin/main';
@@ -293,26 +292,6 @@ async function round(
 ): Promise<string> {
 	const problem = await repositoryProblem(root);
 	if (problem !== null) throw new Stop(problem, 'stopped');
-	if ((await config(folder, 'merge.epicenter.driver')) !== driverCommand()) {
-		await step(
-			folder,
-			['config', '--local', 'merge.epicenter.driver', driverCommand()],
-			'repair merge driver',
-		);
-		notes.push('repaired merge.epicenter.driver');
-	}
-	try {
-		const { authContext, configureGitHelper } = await import('../auth.ts');
-		const helper = await configureGitHelper(authContext(), [
-			resolveAppPaths().engine,
-		]);
-		if (helper.error !== null)
-			notes.push(`credential helper could not be repaired: ${helper.error}`);
-	} catch (error) {
-		notes.push(
-			`credential helper could not be checked: ${error instanceof Error ? error.message : String(error)}`,
-		);
-	}
 	// LFS filters must be installed before git add can store pointers.
 	if ((await config(folder, 'filter.lfs.process')) === null)
 		throw new Stop(

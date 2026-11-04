@@ -34,17 +34,6 @@ test('development uses its own root and application data directory', () => {
 	).toBe('/home/me/Epicenter');
 });
 
-test('the installed development engine selects development unless explicitly overridden', () => {
-	const executable = '/home/me/.epicenter-dev/bin/epicenter';
-	expect(resolveAppPaths({}, home, executable).folderDir).toBe(
-		'/home/me/Epicenter Dev',
-	);
-	expect(
-		resolveAppPaths({ EPICENTER_ENVIRONMENT: 'production' }, home, executable)
-			.folderDir,
-	).toBe('/home/me/Epicenter');
-});
-
 test('the application data override wins, and an empty one is unset', () => {
 	expect(resolveAppPaths({ EPICENTER_DATA_DIR: '/d' }, home)).toEqual({
 		dataDir: '/d',

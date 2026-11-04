@@ -11,14 +11,12 @@
  * credential protocol and takes no `--json`.
  */
 
-import { resolveAppPaths } from './app-paths.ts';
 import {
 	type AuthContext,
 	type AuthError,
 	accessToken,
 	authContext,
 	authStatus,
-	configureGitHelper,
 	type GrantKind,
 	type GrantStatus,
 	gitCredential,
@@ -105,26 +103,11 @@ export async function authLogin(
 		},
 	});
 	if (error !== null) return fail(error.message, json);
-	// Git's helper is configured only now, once the sign-in it serves exists.
-	const helper = await configureGitHelper(ctx, [resolveAppPaths().engine]);
-	if (json)
-		writeJson({
-			signedIn: {
-				...signedInResult(ctx, 'device', data),
-				gitHelper:
-					helper.error === null
-						? { configured: true, helper: helper.data }
-						: { configured: false, reason: helper.error },
-			},
-		});
+	if (json) writeJson({ signedIn: signedInResult(ctx, 'device', data) });
 	else {
 		writeOut(
 			`This computer is signed in to ${ctx.deployment.origin} as ${who(data.account)}.`,
 		);
-		if (helper.error !== null)
-			writeErr(
-				`Git was not set up to use this sign-in for ${ctx.deployment.audiences.git}: ${helper.error}`,
-			);
 	}
 	return EXIT.ok;
 }

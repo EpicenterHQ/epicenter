@@ -17,7 +17,7 @@ pub struct DesktopPaths {
     pub data_dir: PathBuf,
     /// The library root: `~/Epicenter` or `~/Epicenter Dev`.
     pub folder_dir: PathBuf,
-    /// The engine shared by this environment's apps and Git configuration.
+    /// The terminal link to this app's bundled CLI.
     pub engine: PathBuf,
     pub environment: Environment,
 }
@@ -58,7 +58,7 @@ fn engine_path(home: &Path, environment: Environment) -> PathBuf {
         Environment::Development => ".epicenter-dev",
     };
     home.join(machine_home).join("bin").join(if cfg!(windows) {
-        "epicenter.exe"
+        "epicenter.cmd"
     } else {
         "epicenter"
     })
@@ -174,7 +174,7 @@ mod tests {
                 })
                 .join("bin")
                 .join(if cfg!(windows) {
-                    "epicenter.exe"
+                    "epicenter.cmd"
                 } else {
                     "epicenter"
                 })

@@ -244,12 +244,12 @@ test('init names home and application data for related paths', async () => {
 const lfsTest =
 	Bun.spawnSync(['git', 'lfs', 'version']).exitCode === 0 ? test : test.skip;
 lfsTest(
-	'init installs local LFS filters and hooks when git-lfs is available',
+	'init installs local LFS filters without hooks when git-lfs is available',
 	async () => {
 		const folder = join(BOX, 'lfs-folder');
 		const result = await init(folder);
 		expect(result.code).toBe(0);
-		expect(result.out).toContain('git lfs install --local');
+		expect(result.out).toContain('filter.lfs.process set');
 		expect(result.out).not.toContain('(missing:');
 		for (const key of ['clean', 'smudge', 'process', 'required']) {
 			const configured = Bun.spawnSync(
@@ -259,15 +259,7 @@ lfsTest(
 			expect(configured.exitCode).toBe(0);
 			expect(configured.stdout.toString().trim()).not.toBe('');
 		}
-		for (const hook of [
-			'pre-push',
-			'post-checkout',
-			'post-commit',
-			'post-merge',
-		])
-			expect(
-				readFileSync(join(folder, '.git', 'hooks', hook), 'utf8'),
-			).toContain('git lfs');
+		expect(existsSync(join(folder, '.git', 'hooks', 'pre-push'))).toBe(false);
 	},
 	60_000,
 );

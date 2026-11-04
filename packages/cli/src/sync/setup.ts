@@ -28,7 +28,7 @@ import {
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import { resolveAppPaths } from '../app-paths.ts';
 import { canonicalPath, containsPath, reservedSegment } from './admission.ts';
-import { type CredentialFor, config, git, must, shellQuote } from './git.ts';
+import { type CredentialFor, config, git, must } from './git.ts';
 import { REPOSITORY_IGNORE, withEpicenterBlock } from './managed-block.ts';
 import { repositoryProblem } from './repository-state.ts';
 
@@ -97,31 +97,17 @@ export async function refuseReservedDirectory(input: string): Promise<void> {
 	}
 }
 
-/**
- * The merge driver Git runs for `*.md`: the machine's absolute engine path.
- * Init repairs a clone whose driver names anything else.
- */
-export const driverCommand = (engine = resolveAppPaths().engine) =>
-	`${shellQuote(engine)} merge-driver %O %A %B %P`;
-
-const LFS_HOOKS = ['pre-push', 'post-checkout', 'post-commit', 'post-merge'];
-const LFS_CONFIG = [
-	'filter.lfs.clean',
-	'filter.lfs.smudge',
-	'filter.lfs.process',
-	'filter.lfs.required',
-];
+const LFS_CONFIG = {
+	'filter.lfs.clean': 'git-lfs clean -- %f',
+	'filter.lfs.smudge': 'git-lfs smudge -- %f',
+	'filter.lfs.process': 'git-lfs filter-process',
+	'filter.lfs.required': 'true',
+} as const;
 
 /** The top of the repository `folder` is in, links resolved, or null. */
 export async function repositoryRoot(folder: string): Promise<string | null> {
 	const top = await git(folder, ['rev-parse', '--show-toplevel']);
 	return top.code === 0 ? realpath(top.stdout.trim()) : null;
-}
-
-/** The hooks directory LFS installs into: the repository's own, whatever `core.hooksPath` says. */
-async function hooksDirectory(folder: string) {
-	const common = await must(folder, ['rev-parse', '--git-common-dir']);
-	return join(resolve(folder, common.trim()), 'hooks');
 }
 
 /**
@@ -294,79 +280,11 @@ export async function prepareFolder(
 		for (const name of touched) changed.push(`${name} committed`);
 	}
 
-	// 3. The per-clone merge driver.
-	if ((await config(target, 'merge.epicenter.driver')) !== driverCommand()) {
-		await must(target, [
-			'config',
-			'--local',
-			'merge.epicenter.driver',
-			driverCommand(),
-		]);
-		changed.push('merge.epicenter.driver set');
-	}
-	if ((await config(target, 'merge.epicenter.name')) === null) {
-		await must(target, [
-			'config',
-			'--local',
-			'merge.epicenter.name',
-			'Epicenter note merge',
-		]);
-		changed.push('merge.epicenter.name set');
-	}
-	if (!existsSync(resolveAppPaths().engine))
-		warnings.push(
-			`${resolveAppPaths().engine}, the merge driver's command, does not exist yet. Install Epicenter to provide the engine.`,
-		);
-
-	// 4. LFS filters, and hooks for a person's own git push, local to this clone.
-	const hooks = await hooksDirectory(target);
-	const missingHooks: string[] = [];
-	for (const hook of LFS_HOOKS) {
-		const file = join(hooks, hook);
-		if (
-			!existsSync(file) ||
-			!(await readFile(file, 'utf8')).includes('git lfs')
-		)
-			missingHooks.push(hook);
-	}
-	const missingConfig: string[] = [];
-	for (const key of LFS_CONFIG)
-		if ((await config(target, key)) === null) missingConfig.push(key);
-	if (missingHooks.length > 0 || missingConfig.length > 0) {
-		// The runner points `core.hooksPath` nowhere; LFS installs into the repository's own.
-		const installed = await git(target, [
-			'-c',
-			`core.hooksPath=${hooks}`,
-			'lfs',
-			'install',
-			'--local',
-		]);
-		if (installed.code === 0) changed.push('git lfs install --local');
-		else {
-			// A hook of the person's own stands where LFS's would go: keep it, set the filters.
-			await must(target, ['lfs', 'install', '--local', '--skip-repo']);
-			if (missingConfig.length > 0)
-				changed.push('git lfs install --local --skip-repo');
-			warnings.push(
-				`LFS hooks are incomplete, so a plain git push may not upload LFS bytes; run git lfs install --local --manual to add LFS to your hooks: ${installed.stderr.trim()}`,
-			);
-		}
-		for (const key of LFS_CONFIG)
-			if ((await config(target, key)) === null)
-				throw new Error(
-					`Git LFS did not set ${key}; run epicenter init again after checking git-lfs.`,
-				);
-		if (installed.code === 0)
-			for (const hook of LFS_HOOKS) {
-				const file = join(hooks, hook);
-				if (
-					!existsSync(file) ||
-					!(await readFile(file, 'utf8')).includes('git lfs')
-				)
-					throw new Error(
-						`Git LFS did not install hooks/${hook}; run epicenter init again after checking git-lfs.`,
-					);
-			}
+	// 3. LFS filters are values, not paths or hooks. Sync pushes LFS objects itself.
+	for (const [key, value] of Object.entries(LFS_CONFIG)) {
+		if ((await config(target, key)) === value) continue;
+		await must(target, ['config', '--local', key, value]);
+		changed.push(`${key} set`);
 	}
 
 	// 5. Files checked out as pointers (a clone made without LFS) get their bytes.

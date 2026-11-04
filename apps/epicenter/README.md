@@ -45,7 +45,7 @@ Epicenter ships one compiled Bun binary (ADR-0556): the `epicenter` CLI from
 compiles its entry, `packages/cli/src/bin.ts`, to
 `src-tauri/binaries/epicenter-cli-<target triple>`, the `externalBin`. The
 bundle calls it `epicenter-cli` because Tauri refuses a sidecar named like the
-Cargo package, `epicenter`. The app installs it as `~/.epicenter/bin/epicenter`.
+Cargo package, `epicenter`. The app links to it at `~/.epicenter/bin/epicenter`.
 
 The one binary has these uses:
 
@@ -70,11 +70,10 @@ The one binary has these uses:
   cached access tokens are in the CLI's keychain entry; no token reaches a
   page or Rust.
 
-After launch, the app installs its bundled CLI into `~/.epicenter/bin/epicenter`,
-or `~/.epicenter-dev/bin/epicenter` for a development build, only when its
-version is newer than the installed version. Installation runs outside setup.
-Git's saved merge driver and credential helper use that path. Run it there in
-a terminal.
+After launch, the app links its bundled CLI at `~/.epicenter/bin/epicenter`,
+or `~/.epicenter-dev/bin/epicenter` for a development build. The link follows
+the app when it moves or updates. On Windows the app writes an `epicenter.cmd`
+shim. Git commands carry credentials and the merge driver for that invocation.
 
 ## Configure the server
 
@@ -111,8 +110,8 @@ of its site: `whispering.epicenter.so` uses `whispering`, and
 The shell resolves its data directory and library root once, then sets
 `EPICENTER_DATA_DIR` and `EPICENTER_ENVIRONMENT` on every `epicenter` command
 it runs. The CLI derives the same library root. A terminal command defaults
-to production unless it runs from the installed development engine or
-`EPICENTER_ENVIRONMENT` selects development
+to the environment embedded when the sidecar was built.
+`EPICENTER_ENVIRONMENT` overrides it
 (`packages/cli/src/app-paths.ts`).
 
 Files split by what they cost to lose (ADR-0539):
