@@ -9,8 +9,9 @@
 
 	let { children } = $props();
 	const target = $derived(readDashboardTarget(page.url));
+	const signIn = $derived(auth.state());
 	const mismatched = $derived(target.valid && target.expectedPrincipal !== null &&
-		auth.state.status !== 'signed-out' && target.expectedPrincipal !== auth.state.account.principalId);
+		signIn.status !== 'signed-out' && target.expectedPrincipal !== signIn.account.principalId);
 
 	let signingIn = $state(false);
 	let signInError = $state<string | null>(null);
@@ -36,9 +37,9 @@
 		<h1 class="text-xl font-semibold">This account link is invalid</h1>
 		<p>Return to your app and open account management again.</p>
 	</div>
-{:else if auth.state.status !== 'signed-out' && !mismatched}
-	{#key auth.state.account}
-		<DashboardSession account={auth.state.account}>
+{:else if signIn.status !== 'signed-out' && !mismatched}
+	{#key signIn.account}
+		<DashboardSession account={signIn.account}>
 			{@render children()}
 		</DashboardSession>
 	{/key}

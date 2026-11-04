@@ -33,6 +33,7 @@
 		"@epicenter/account": "workspace:*",
 		"@epicenter/ai": "workspace:*",
 		"@epicenter/definition": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
 		"better-auth": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"@tanstack/svelte-query-devtools": "catalog:",
