@@ -11,8 +11,10 @@
  *   (`connection_fetch`) reads the key saved under `id`, adds it, and sends
  *   only to the endpoint it was saved for, so the page never holds the key
  *   and no endpoint needs to allow the window's origin (CORS). A connection
- *   with no saved key is sent with none, which is how a server on this
- *   computer (Ollama, LM Studio) is reached.
+ *   with no saved key is sent with none.
+ * - `shellFetch`: the same fetch with no connection and so no key, for a
+ *   server on this computer (Ollama, LM Studio), which answers no
+ *   `tauri://` page.
  * - `createKeychainConnections`: the connected endpoints, their list in an
  *   AppData note shaped by `connectionsCollection` and each key in the
  *   keychain, as an `AiConnections` an app merges with `openAi`.
@@ -80,9 +82,10 @@ function connectionFailure(cause: unknown) {
  * and with the key, and streams the answer back. The page sends no
  * credential, and no endpoint needs to allow this window's origin (CORS). A
  * refusal rejects with a {@link ConnectionFetchError}, as `fetch` rejects.
+ * With `null` the shell sends with no key, as {@link shellFetch} does.
  */
 export function connectionFetch(
-	connection: string,
+	connection: string | null,
 	shell: TauriShell = tauriShell,
 ): Send {
 	const relay: ShellRelay = {
@@ -94,6 +97,14 @@ export function connectionFetch(
 	return (input, init) =>
 		relayThroughShell(shell, relay, new Request(input, init));
 }
+
+/**
+ * The shell's fetch with no key: `https` anywhere, or `http` to `localhost`
+ * or `127.0.0.1`, streamed back like a connection's. How a desktop app
+ * reaches a server on this computer, which answers no `tauri://` page.
+ */
+export const shellFetch: Send = (input, init) =>
+	connectionFetch(null)(input, init);
 
 /** The keychain as the connections reach it; tests stand in for it. */
 export type ConnectionKeys = {

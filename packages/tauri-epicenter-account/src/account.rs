@@ -703,10 +703,17 @@ async fn relay(account: Arc<Account>, request: RelayRequest, channel: Channel<In
             Err(cause) => return send_event(&channel, &error(cause.to_string(), None)),
         }
     };
-    relay::answer(response, &channel, |message| AccountFailure {
-        message,
-        refusal: None,
-    })
+    // The token is the account's own, never a provider key; the page reads
+    // Epicenter's answers as they come.
+    relay::answer(
+        response,
+        &channel,
+        |message| AccountFailure {
+            message,
+            refusal: None,
+        },
+        None,
+    )
     .await;
 }
 

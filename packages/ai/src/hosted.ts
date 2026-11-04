@@ -16,12 +16,20 @@ const HOSTED_MODELS: readonly EndpointModel[] = [
 	{ id: HOSTED_TRANSCRIPTION_MODEL, can: ['transcribe'] },
 ];
 
+/** Why a hosted request was not sent: no one is signed in. Its `name` says so to a caller sorting failures. */
+function signedOut(): Promise<never> {
+	const error = new Error("Sign in to use Epicenter's models.");
+	error.name = 'SignedOut';
+	return Promise.reject(error);
+}
+
 /**
  * Epicenter's hosted inference at the account's `<origin>/v1`, sent with
  * `account.fetch`, which adds the account's token (on the desktop, the
  * shell's relay does). It lists no models while signed out (`account` is
  * absent) or once the account is retired by sign-out, and its requests are
- * refused then.
+ * refused then: signed out, with an error named `SignedOut`, before anything
+ * is sent.
  *
  * `models` narrows the catalog to the ids an app offers; by default every
  * hosted model is listed.
@@ -39,8 +47,7 @@ export function hosted(
 			name: 'Epicenter',
 			source: 'hosted',
 			models: () => [],
-			fetch: () =>
-				Promise.reject(new Error("Sign in to use Epicenter's models.")),
+			fetch: signedOut,
 		};
 	return {
 		...openAiCompatible({

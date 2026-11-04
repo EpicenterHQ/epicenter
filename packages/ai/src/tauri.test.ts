@@ -353,6 +353,15 @@ describe('a connection’s fetch', () => {
 		expect(error.name).toBe('SendFailed');
 	});
 
+	test('with no connection the shell is asked to send with no key', async () => {
+		const { fake, sent } = shell(
+			replying({ kind: 'head', status: 200, headers: [] }, { kind: 'end' }),
+		);
+		await connectionFetch(null, fake)('http://localhost:11434/v1/models');
+		const request = sent[0]?.args?.request as Record<string, unknown>;
+		expect(request.connection).toBeNull();
+	});
+
 	test('an abort cancels the request in the shell', async () => {
 		const { fake, sent } = shell(() => null);
 		const controller = new AbortController();

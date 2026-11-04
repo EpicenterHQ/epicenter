@@ -41,6 +41,13 @@ export type Endpoint = {
 	/** What a person calls it: `Epicenter`, a provider's name, `Ollama`. */
 	name: string;
 	source: Source;
+	/**
+	 * Where its requests go, for an endpoint reached over HTTP: the base URL
+	 * every path is under. Absent for an engine inside the app and for an
+	 * endpoint that cannot send now (hosted while signed out). An app shows it,
+	 * and compares it to tell an endpoint that moved from one that did not.
+	 */
+	baseUrl?: string;
 	fetch: EndpointFetch;
 	/** The models usable now. Never blocks; an endpoint that probes answers what it last found. */
 	models(): readonly EndpointModel[];
@@ -76,12 +83,37 @@ function baseUrlOf(value: string): string {
 	return url.href.replace(/\/+$/, '');
 }
 
+/** `baseUrl` as an endpoint names it: canonical when it reads, else as given. */
+function shownBaseUrl(value: string): string {
+	try {
+		return baseUrlOf(value);
+	} catch {
+		return value.trim();
+	}
+}
+
+/**
+ * An answer that refused the request, with `key` replaced wherever its body
+ * repeats it, so a provider that echoes the key cannot carry it into an error
+ * the app shows or logs. Any other answer passes through unread.
+ */
+async function withoutKey(response: Response, key: string): Promise<Response> {
+	if (response.ok) return response;
+	const text = await response.text();
+	return new Response(text.split(key).join('[key removed]'), {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers,
+	});
+}
+
 /**
  * An OpenAI-compatible HTTP endpoint at `baseUrl`. Each request goes to a
  * path under it and never elsewhere, through `fetch` (the page's own by
  * default; on the desktop, the shell's), with `key` as a bearer token when
  * there is one. Cookies and an `Authorization` header from the caller are
- * dropped, and a redirect fails the request.
+ * dropped, a redirect fails the request, and a refusal's body never repeats
+ * the key.
  */
 export function openAiCompatible({
 	id,
@@ -105,6 +137,7 @@ export function openAiCompatible({
 		id,
 		name,
 		source,
+		baseUrl: shownBaseUrl(baseUrl),
 		models,
 		// A saved base URL that does not parse fails each request, not the app.
 		async fetch(path, init) {
@@ -116,12 +149,13 @@ export function openAiCompatible({
 			headers.delete('authorization');
 			headers.delete('cookie');
 			if (bearer) headers.set('authorization', `Bearer ${bearer}`);
-			return fetch(url, {
+			const response = await fetch(url, {
 				...init,
 				headers,
 				credentials: 'omit',
 				redirect: 'error',
 			});
+			return bearer ? withoutKey(response, bearer) : response;
 		},
 	};
 }

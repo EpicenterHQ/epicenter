@@ -60,9 +60,13 @@ rather than the page's `fetch`, which CORS holds to endpoints that answer a
 URL whose origin is not the saved endpoint's (so a hand-edited connection
 list cannot move the key), refuses a credential header from the page, adds
 `Authorization: Bearer <key>` itself, and sends only `https`, or `http` to
-`localhost` or `127.0.0.1`. A connection with no saved key is sent with none.
-A redirect is not followed. The answer streams back on a channel exactly as
-`account_fetch`'s does (`relay.rs`), so a token stream reads as it arrives;
+`localhost` or `127.0.0.1`. A connection with no saved key is sent with none,
+and so is a request that names no connection (`shellFetch` from
+`@epicenter/ai/tauri`), which is how the page reaches Ollama or LM Studio on
+this computer. A redirect is not followed. The answer streams back on a
+channel exactly as `account_fetch`'s does (`relay.rs`), so a token stream
+reads as it arrives, except that a refusal sent with a key is read whole and
+sent with the key removed wherever its body repeats it;
 `connection_fetch_cancel` stops one. A refusal is a `ConnectionFetchError`
 (`InvalidRequest`, `SchemeRefused`, `OriginRefused`, `KeychainFailed`,
 `SendFailed`), named in `name`; the page's side is `connectionFetch(id)` from
