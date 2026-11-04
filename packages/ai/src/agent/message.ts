@@ -1,7 +1,5 @@
 import type { JsonValue } from 'wellcrafted/json';
-import type { ModelMessage, ModelToolCall } from './engine.js';
-
-export type { ModelMessage, ModelToolCall };
+import type { ChatMessage, ToolCall } from '../client.js';
 
 export type AgentTextPart = { type: 'text'; text: string };
 
@@ -53,9 +51,13 @@ export function isPersistableMessage(message: AgentMessage): boolean {
 	);
 }
 
-/** Freeze the durable transcript into the inference engine's prompt shape. */
-export function toModelMessages(messages: AgentMessage[]): ModelMessage[] {
-	const prompt: ModelMessage[] = [];
+/**
+ * Freeze the durable transcript into the OpenAI chat messages a model reads:
+ * a user message's text, an assistant message's text with its tool calls, and
+ * one `tool` message per tool result after the assistant message that asked.
+ */
+export function toChatMessages(messages: AgentMessage[]): ChatMessage[] {
+	const prompt: ChatMessage[] = [];
 	for (const message of messages) {
 		if (message.role === 'user') {
 			const content = agentMessageText(message);
@@ -63,7 +65,7 @@ export function toModelMessages(messages: AgentMessage[]): ModelMessage[] {
 			continue;
 		}
 
-		const toolCalls: ModelToolCall[] = [];
+		const toolCalls: ToolCall[] = [];
 		for (const part of message.parts) {
 			if (part.type !== 'tool-call') continue;
 			toolCalls.push({
@@ -78,15 +80,14 @@ export function toModelMessages(messages: AgentMessage[]): ModelMessage[] {
 		prompt.push({
 			role: 'assistant',
 			content: agentMessageText(message),
-			...(toolCalls.length > 0 && { toolCalls }),
+			...(toolCalls.length > 0 && { tool_calls: toolCalls }),
 		});
 
 		for (const part of message.parts) {
 			if (part.type !== 'tool-result') continue;
 			prompt.push({
 				role: 'tool',
-				toolCallId: part.toolCallId,
-				name: part.toolName,
+				tool_call_id: part.toolCallId,
 				content: part.content,
 			});
 		}

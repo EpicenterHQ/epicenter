@@ -9,7 +9,7 @@ import type { AgentEngine } from './engine.js';
 import {
 	type AgentMessage,
 	isPersistableMessage,
-	toModelMessages,
+	toChatMessages,
 } from './message.js';
 import {
 	type AgentToolCall,
@@ -18,6 +18,7 @@ import {
 	NO_TOOLS,
 	resolveApprovedToolCall,
 	type ToolCatalog,
+	toChatTools,
 } from './tools.js';
 
 export type ConversationError = { message: string; code?: string };
@@ -261,7 +262,10 @@ export function createConversation({
 		let failure: ConversationError | undefined;
 		try {
 			for await (const chunk of engine(
-				{ messages: toModelMessages(history), tools: tools.definitions() },
+				{
+					messages: toChatMessages(history),
+					tools: toChatTools(tools.definitions()),
+				},
 				signal,
 			)) {
 				if (signal.aborted) break;

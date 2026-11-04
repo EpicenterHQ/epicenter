@@ -3,43 +3,16 @@
  * (ADR-0049/0050) agree on, and the only thing they share.
  *
  * The loop (`./loop.ts`) consumes an {@link AgentEngine}; the OpenAI-compatible
- * engine (`./chat-engine.ts`, over `ai.chat`) produces one. Neither imports the other,
- * so the wire shape lives here and both import it.
+ * engine (`./chat-engine.ts`, over `ai.chat`) produces one. Neither imports the
+ * other, so the contract lives here and both import it.
  *
- * The vocabulary is the loop's own, not a vendor SDK's: an OpenAI-compatible
- * engine parses OpenAI SSE deltas into these chunks, so the loop only ever sees
- * an {@link EngineChunk} and swapping the inference backend is the engine's
- * concern, never the loop's.
+ * The request speaks the OpenAI vocabulary: the loop's transcript goes out as
+ * the client's chat messages and its tools as the client's tool definitions.
+ * The answer comes back as the loop's small {@link EngineChunk} stream, so a
+ * provider's streaming quirks stay in the engine and never reach the loop.
  */
 import type { JsonValue } from 'wellcrafted/json';
-
-/**
- * One tool call inside a prompt transcript, in the OpenAI/TanStack
- * function-call shape: a stable id, the `function` discriminant, and the
- * arguments as a JSON string. The OpenAI-compatible engine maps this to a
- * `tool_calls[]` entry.
- */
-export type ModelToolCall = {
-	id: string;
-	type: 'function';
-	function: { name: string; arguments: string };
-};
-
-/**
- * A frozen transcript message: the prompt shape the inference engine consumes.
- * A `user`/`assistant` message carries prose `content`; an `assistant` message
- * may carry `toolCalls`; a `tool` message carries one tool result keyed by
- * `toolCallId`. The loop produces these from its persisted `AgentMessage`s
- * (a TanStack `ModelMessage` minus the multimodal and reasoning fields we never
- * emit), so the request body stays byte-identical across an engine swap.
- */
-export type ModelMessage = {
-	role: 'user' | 'assistant' | 'tool';
-	content: string;
-	name?: string;
-	toolCalls?: ModelToolCall[];
-	toolCallId?: string;
-};
+import type { ChatMessage, ChatTool } from '../client.js';
 
 /**
  * One streamed event from an engine: a prose delta, one completed tool call the
@@ -60,21 +33,10 @@ export type EngineChunk =
 	  }
 	| { type: 'run-error'; message: string; code?: string };
 
-/**
- * One tool offered to the model, the subset the wire needs: name, description,
- * and input schema. `kind` and `title` are loop concerns the engine never sees,
- * so the loop's fuller `AgentToolDefinition` is assignable here.
- */
-export type AgentEngineToolDefinition = {
-	name: string;
-	description?: string;
-	inputSchema?: unknown;
-};
-
-/** What the loop asks the model on one step: the prompt plus the live tools. */
+/** What the loop asks the model on one step: the transcript plus the live tools. */
 export type AgentEngineRequest = {
-	messages: ModelMessage[];
-	tools: AgentEngineToolDefinition[];
+	messages: ChatMessage[];
+	tools: ChatTool[];
 };
 
 /**

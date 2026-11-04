@@ -15,7 +15,7 @@
 import { describe, expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { AgentEngine, EngineChunk } from './engine.js';
+import type { AgentEngine, AgentEngineRequest, EngineChunk } from './engine.js';
 import {
 	type AgentMessageStore,
 	AgentMessageStoreError,
@@ -25,7 +25,6 @@ import {
 	type AgentMessage,
 	agentMessageText,
 	isPersistableMessage,
-	type ModelMessage,
 } from './message.js';
 import type { ToolCatalog } from './tools.js';
 
@@ -119,8 +118,8 @@ async function settle(handle: {
 
 /** A counted engine that answers every prompt with one line of text. */
 function answering(text = 'answer') {
-	const prompts: ModelMessage[][] = [];
-	const engine: AgentEngine = (request: { messages: ModelMessage[] }) => {
+	const prompts: AgentEngineRequest['messages'][] = [];
+	const engine: AgentEngine = (request) => {
 		prompts.push(request.messages);
 		return streamOf([{ type: 'text-delta', delta: text }]);
 	};
@@ -237,9 +236,9 @@ describe('createConversation', () => {
 
 	test('tool steps re-prompt without an empty in-flight assistant', async () => {
 		const { store } = makeStore();
-		const prompts: ModelMessage[][] = [];
+		const prompts: AgentEngineRequest['messages'][] = [];
 		let step = 0;
-		const engine: AgentEngine = (request: { messages: ModelMessage[] }) => {
+		const engine: AgentEngine = (request) => {
 			prompts.push(request.messages);
 			return ++step === 1
 				? streamOf([
@@ -271,6 +270,99 @@ describe('createConversation', () => {
 			'tool',
 		]);
 		expect(conversation.snapshot().messages).toHaveLength(3);
+	});
+
+	test('a tool step goes back to the model as OpenAI messages and tools', async () => {
+		const { store } = makeStore();
+		const requests: AgentEngineRequest[] = [];
+		let step = 0;
+		const engine: AgentEngine = (request) => {
+			requests.push(request);
+			return ++step === 1
+				? streamOf([
+						{
+							type: 'tool-call',
+							toolCallId: 't1',
+							toolName: 'weather',
+							input: { city: 'Paris' },
+						},
+					])
+				: streamOf([{ type: 'text-delta', delta: '17C in Paris' }]);
+		};
+		const tools: ToolCatalog = {
+			definitions: () => [
+				{
+					name: 'weather',
+					title: 'Weather',
+					description: 'Look up weather',
+					inputSchema: {
+						type: 'object',
+						properties: { city: { type: 'string' } },
+					},
+					kind: 'query',
+				},
+			],
+			resolve: async () => ({ content: '17C', isError: false }),
+		};
+		const conversation = createConversation({
+			store,
+			engine,
+			tools,
+			generateId: ids(),
+		});
+		await conversation.send('weather?');
+		await settle(conversation);
+		expect(requests[0]?.tools).toEqual([
+			{
+				type: 'function',
+				function: {
+					name: 'weather',
+					description: 'Look up weather',
+					parameters: {
+						type: 'object',
+						properties: { city: { type: 'string' } },
+						required: [],
+					},
+				},
+			},
+		]);
+		expect(requests[1]?.messages).toEqual([
+			{ role: 'user', content: 'weather?' },
+			{
+				role: 'assistant',
+				content: '',
+				tool_calls: [
+					{
+						id: 't1',
+						type: 'function',
+						function: { name: 'weather', arguments: '{"city":"Paris"}' },
+					},
+				],
+			},
+			{ role: 'tool', tool_call_id: 't1', content: '17C' },
+		]);
+	});
+
+	test('a tool schema that is not an object fails the turn', async () => {
+		const { store } = makeStore();
+		const { engine, prompts } = answering();
+		const conversation = createConversation({
+			store,
+			engine,
+			tools: {
+				definitions: () => [
+					{ name: 'bad', inputSchema: 'nope', kind: 'query' },
+				],
+				resolve: async () => ({ content: '', isError: false }),
+			},
+			generateId: ids(),
+		});
+		await conversation.send('go');
+		await settle(conversation);
+		expect(prompts).toHaveLength(0);
+		expect(conversation.snapshot().error?.message).toBe(
+			'Tool input schema must be a JSON Schema object.',
+		);
 	});
 
 	test('later turns never prompt with the empty assistant being filled', async () => {

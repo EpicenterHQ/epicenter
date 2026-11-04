@@ -79,10 +79,12 @@ calls another names the shared place that could not serve.
   server.** One program must run for another to work, and the caller must
   find it, as "Syncing needs Epicenter" required before ADR-0750.
 
-## Open, not decided
+## Settled after this record
 
-Whether the agent loop speaks the OpenAI vocabulary directly instead of its
-own message types (`packages/ai/src/agent/engine.ts`, the loop of
-[ADR-0047](0047-the-agent-loop-runs-in-the-client-and-tools-are-dispatched-actions.md)),
-which `packages/ai/src/openai/agent-engine.ts` (280 lines) translates
-today. It waits on a measurement of that translation code.
+The agent loop of
+[ADR-0047](0047-the-agent-loop-runs-in-the-client-and-tools-are-dispatched-actions.md)
+speaks the OpenAI vocabulary. Its request to a model is the client's chat
+messages and tool definitions (`packages/ai/src/agent/engine.ts`), and its
+own message types are gone. Only its stream type, `EngineChunk`, stays its
+own, so the chat engine absorbs a provider's streaming quirks and the loop
+never reads a delta.

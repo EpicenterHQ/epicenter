@@ -87,7 +87,7 @@ function engineOver({
 }
 
 describe('createChatEngine', () => {
-	test('builds the OpenAI request: system prompts, mapped transcript, tools, streaming', async () => {
+	test('sends the system prompts before the transcript, with the tools as given, streaming', async () => {
 		const { fetch, calls } = capturingFetch(
 			openAiSse([
 				{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] },
@@ -107,7 +107,7 @@ describe('createChatEngine', () => {
 				{
 					role: 'assistant',
 					content: '',
-					toolCalls: [
+					tool_calls: [
 						{
 							id: 'call_1',
 							type: 'function',
@@ -115,21 +115,14 @@ describe('createChatEngine', () => {
 						},
 					],
 				},
-				{
-					role: 'tool',
-					toolCallId: 'call_1',
-					name: 'get_weather',
-					content: '17C',
-				},
+				{ role: 'tool', tool_call_id: 'call_1', content: '17C' },
 			],
 			tools: [
 				{
-					name: 'get_weather',
-					description: 'Look up weather',
-					inputSchema: {
-						type: 'object',
-						properties: { city: { type: 'string' } },
-						required: ['city'],
+					type: 'function',
+					function: {
+						name: 'get_weather',
+						parameters: { type: 'object', properties: {} },
 					},
 				},
 			],
@@ -142,34 +135,9 @@ describe('createChatEngine', () => {
 		expect(body.stream_options).toEqual({ include_usage: true });
 		expect(body.messages).toEqual([
 			{ role: 'system', content: 'be brief' },
-			{ role: 'user', content: 'weather?' },
-			{
-				role: 'assistant',
-				content: '',
-				tool_calls: [
-					{
-						id: 'call_1',
-						type: 'function',
-						function: { name: 'get_weather', arguments: '{"city":"Paris"}' },
-					},
-				],
-			},
-			{ role: 'tool', tool_call_id: 'call_1', content: '17C' },
+			...request.messages,
 		]);
-		expect(body.tools).toEqual([
-			{
-				type: 'function',
-				function: {
-					name: 'get_weather',
-					description: 'Look up weather',
-					parameters: {
-						type: 'object',
-						properties: { city: { type: 'string' } },
-						required: ['city'],
-					},
-				},
-			},
-		]);
+		expect(body.tools).toEqual(request.tools);
 	});
 
 	test('POSTs to <baseURL>/chat/completions and omits tools when the catalog is empty', async () => {
