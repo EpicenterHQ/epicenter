@@ -10,7 +10,8 @@
  * - A failed open answers each waiting and later action with its typed error
  * - `retry()` opens again, and actions called after it wait for that attempt
  * - A listened collection lists once open, and shows its own writes
- * - Disposing closes the client, even one that opens after
+ * - Disposing closes the client, even one that opens after, and every
+ *   action after it answers `Unavailable`
  */
 import { describe, expect, test } from 'bun:test';
 import { type Client, defineContract } from '@epicenter/definition/contract';
@@ -302,6 +303,30 @@ describe('dispose', () => {
 		await tick();
 		expect(closed).toEqual([client]);
 		expect(seen).toEqual(['closed']);
+	});
+
+	test('every action after it answers Unavailable, on every build', async () => {
+		const folder = openFolder(todos);
+		await folder.todos.create({ id: 'a', title: 'Milk', done: false });
+		folder[Symbol.dispose]();
+		const refused = await folder.todos.create({
+			id: 'b',
+			title: 'Bread',
+			done: false,
+		});
+		expect(refused.error).toMatchObject({
+			name: 'Unavailable',
+			cause: 'The folder was closed.',
+		});
+		expect((await folder.todos.list()).error?.name).toBe('Unavailable');
+	});
+
+	test('an action waiting for the open when it is disposed answers Unavailable', async () => {
+		const { folder, open } = controlled();
+		const waiting = folder.todos.list();
+		folder[Symbol.dispose]();
+		open();
+		expect((await waiting).error?.name).toBe('Unavailable');
 	});
 
 	test('closes a client that opens after it, and the state stays closed', async () => {

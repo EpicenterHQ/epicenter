@@ -25,6 +25,8 @@
  * - Every async method waits for the open, then runs. When the open fails it
  *   answers `Err(OpenFolderError)`, so each action's error type includes the
  *   open's; a retry starts a new attempt for the actions called after it.
+ *   Once the folder is disposed, every action answers `Unavailable`, one
+ *   still waiting for the open included.
  * - `notes.edit(args)` is one note as an immediate editor (`NoteEdit`).
  *
  * Only an interface reads `state()` (`<WhenOpen>` from `@epicenter/svelte`);
@@ -38,7 +40,7 @@
  */
 import {
 	type Client,
-	type ClientError,
+	ClientError,
 	type Collection,
 	type Contract,
 	compileContract,
@@ -311,6 +313,12 @@ const RESERVED = new Set([
 	'displayPath',
 ]);
 
+/** What an action runs on: the open client, why nothing opened, or `Unavailable` once disposed. */
+type Current<TContract extends Contract> = Result<
+	Client<TContract>,
+	OpenFolderError | Unavailable
+>;
+
 /** An open that answers the client, or why nothing opened. */
 export type FolderOpen<TContract extends Contract> = () => Promise<
 	Result<Client<TContract>, OpenFolderError>
@@ -398,7 +406,13 @@ export function createFolder<TContract extends Contract>(
 		return retry;
 	}
 
-	const current = () => attempt;
+	/** The open client for an action, or why there is none; once disposed, `Unavailable` on every build. */
+	async function current(): Promise<Current<TContract>> {
+		const opened = await attempt;
+		if (disposed)
+			return ClientError.Unavailable({ cause: 'The folder was closed.' });
+		return opened;
+	}
 
 	for (const collection of compiled.collections) {
 		if (RESERVED.has(collection.name))
@@ -407,7 +421,11 @@ export function createFolder<TContract extends Contract>(
 			);
 		collections.set(
 			collection.name,
-			folderCollection(collection, current as () => Promise<Opened>, hold),
+			folderCollection(
+				collection,
+				current as () => Promise<Current<Contract>>,
+				hold,
+			),
 		);
 	}
 	void start();
@@ -475,7 +493,7 @@ const names = (entry: Entry, args: Args) =>
  */
 function folderCollection(
 	declared: Declared,
-	current: () => Promise<Result<Client<Contract>, OpenFolderError>>,
+	current: () => Promise<Current<Contract>>,
 	hold: <T>(write: Promise<T>) => Promise<T>,
 ) {
 	const { name } = declared;
@@ -494,8 +512,8 @@ function folderCollection(
 	let failures = 0;
 	let retry: ReturnType<typeof setTimeout> | undefined;
 
-	/** The collection's client once the folder opened, or why it did not. */
-	async function raw(): Promise<Result<Raw, OpenFolderError>> {
+	/** The collection's client once the folder opened, or why there is none. */
+	async function raw(): Promise<Result<Raw, OpenFolderError | Unavailable>> {
 		const opened = await current();
 		if (opened.error !== null) return opened;
 		return Ok(opened.data[name] as Raw);
