@@ -297,7 +297,7 @@ When a `$derived` expression maps a finite union to output values, use a `satisf
 
 <!-- Good: $derived with satisfies Record -->
 <script lang="ts">
-	import type { SyncStatus } from '@epicenter/sync-client';
+	type SyncStatus = 'connected' | 'connecting' | 'offline';
 
 	const tooltip = $derived(
 		({
