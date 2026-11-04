@@ -12,12 +12,9 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import type {
-	AgentEngineRequest,
-	EngineChunk,
-} from '@epicenter/agent-protocol';
 import OpenAI from 'openai';
-import { createOpenAiAgentEngine } from './openai-provider.js';
+import type { AgentEngineRequest, EngineChunk } from '../agent/engine.js';
+import { createOpenAiAgentEngine } from './agent-engine.js';
 
 /** Build an OpenAI SSE response: one `data:` frame per chunk, then `[DONE]`. */
 function openAiSse(chunks: object[]): Response {

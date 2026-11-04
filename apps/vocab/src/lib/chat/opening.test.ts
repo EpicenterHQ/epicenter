@@ -6,7 +6,10 @@
  */
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import { type AgentEngineRequest, createConversation } from '@epicenter/agent';
+import {
+	type AgentEngineRequest,
+	createConversation,
+} from '@epicenter/ai/agent';
 import { withTutorOpening } from './opening.js';
 
 const { openVocabFolder, settle } = await import('../vocab.test-support.js');

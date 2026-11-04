@@ -347,10 +347,8 @@
       "name": "@epicenter/vocab",
       "version": "0.0.2",
       "dependencies": {
-        "@epicenter/agent": "workspace:*",
         "@epicenter/ai": "workspace:*",
         "@epicenter/auth": "workspace:*",
-        "@epicenter/client": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
@@ -427,35 +425,11 @@
         "typescript": "catalog:",
       },
     },
-    "packages/agent": {
-      "name": "@epicenter/agent",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/agent-protocol": "workspace:*",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
-    "packages/agent-protocol": {
-      "name": "@epicenter/agent-protocol",
-      "version": "0.1.0",
-      "dependencies": {
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "packages/ai": {
       "name": "@epicenter/ai",
       "version": "0.0.0",
       "dependencies": {
         "@epicenter/auth": "workspace:*",
-        "@epicenter/client": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@tanstack/svelte-query": "catalog:",
@@ -530,19 +504,6 @@
         "drizzle-orm": "catalog:",
         "pg": "^8.20.0",
         "playwright": "^1.61.1",
-        "typescript": "catalog:",
-      },
-    },
-    "packages/client": {
-      "name": "@epicenter/client",
-      "version": "0.1.1",
-      "dependencies": {
-        "@epicenter/agent-protocol": "workspace:*",
-        "openai": "^7.12.1",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
         "typescript": "catalog:",
       },
     },
@@ -657,7 +618,7 @@
       "name": "@epicenter/svelte",
       "version": "0.3.0",
       "dependencies": {
-        "@epicenter/agent": "workspace:*",
+        "@epicenter/ai": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/ui": "workspace:*",
@@ -984,10 +945,6 @@
 
     "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w=="],
 
-    "@epicenter/agent": ["@epicenter/agent@workspace:packages/agent"],
-
-    "@epicenter/agent-protocol": ["@epicenter/agent-protocol@workspace:packages/agent-protocol"],
-
     "@epicenter/ai": ["@epicenter/ai@workspace:packages/ai"],
 
     "@epicenter/api": ["@epicenter/api@workspace:apps/api"],
@@ -1001,8 +958,6 @@
     "@epicenter/capture-app": ["@epicenter/capture-app@workspace:apps/capture"],
 
     "@epicenter/cli": ["@epicenter/cli@workspace:packages/cli"],
-
-    "@epicenter/client": ["@epicenter/client@workspace:packages/client"],
 
     "@epicenter/constants": ["@epicenter/constants@workspace:packages/constants"],
 

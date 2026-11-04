@@ -1,4 +1,4 @@
-import type { AgentEngine } from '@epicenter/agent';
+import type { AgentEngine } from '@epicenter/ai/agent';
 
 /** Give providers a transient user turn for an empty tutor-first transcript. */
 export function withTutorOpening(engine: AgentEngine): AgentEngine {

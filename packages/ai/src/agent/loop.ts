@@ -1,4 +1,3 @@
-import type { AgentEngine } from '@epicenter/agent-protocol';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -6,6 +5,7 @@ import {
 } from 'wellcrafted/error';
 import type { JsonValue } from 'wellcrafted/json';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
+import type { AgentEngine } from './engine.js';
 import {
 	type AgentMessage,
 	isPersistableMessage,

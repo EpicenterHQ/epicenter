@@ -1,5 +1,5 @@
-import type { ModelMessage, ModelToolCall } from '@epicenter/agent-protocol';
 import type { JsonValue } from 'wellcrafted/json';
+import type { ModelMessage, ModelToolCall } from './engine.js';
 
 export type { ModelMessage, ModelToolCall };
 

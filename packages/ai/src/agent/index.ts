@@ -1,10 +1,10 @@
-/** `@epicenter/agent`: a UI-free agent loop over explicit host capabilities. */
+/** `@epicenter/ai/agent`: a UI-free agent loop over explicit host capabilities. */
 
 export type {
 	AgentEngine,
 	AgentEngineRequest,
 	EngineChunk,
-} from '@epicenter/agent-protocol';
+} from './engine.js';
 export {
 	type AgentMessageStore,
 	AgentMessageStoreError,

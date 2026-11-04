@@ -1,6 +1,6 @@
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import type { AgentMessage } from '@epicenter/agent';
+import type { AgentMessage } from '@epicenter/ai/agent';
 import OpenAI from 'openai';
 import { expectOk } from 'wellcrafted/testing';
 

@@ -268,7 +268,7 @@ test('same-owner refresh preserves an account client and sign-out retires its st
 });
 
 test('App retirement never turns partial tool arguments into an executable call', async () => {
-	const { createOpenAiAgentEngine } = await import('@epicenter/client');
+	const { createOpenAiAgentEngine } = await import('./openai/index.js');
 	const received = Promise.withResolvers<void>();
 	const { inference, close } = setup(
 		async () =>

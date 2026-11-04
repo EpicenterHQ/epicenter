@@ -5,7 +5,7 @@
 		CONNECTION_PRESETS,
 		type ListModelsError,
 		type PresetId,
-	} from '@epicenter/client';
+	} from '../openai/index.js';
 	import { Button } from '@epicenter/ui/button';
 	import * as Command from '@epicenter/ui/command';
 	import { Input } from '@epicenter/ui/input';

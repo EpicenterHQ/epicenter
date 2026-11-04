@@ -23,11 +23,8 @@ distribution. For consumer apps that run locally on a user's machine, section
 anyone who forks and distributes a modified binary shares the changes back.
 
   Packages:
-    packages/agent           @epicenter/agent
-    packages/agent-protocol  @epicenter/agent-protocol
     packages/auth            @epicenter/auth
     packages/ai              @epicenter/ai
-    packages/client          @epicenter/client
     packages/constants       @epicenter/constants
     packages/principal       @epicenter/principal
     packages/recorder        @epicenter/recorder

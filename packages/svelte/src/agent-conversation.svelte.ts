@@ -1,7 +1,7 @@
 /**
  * Bind a client agent loop (ADR-0047) to Svelte reactive state.
  *
- * The loop core (`@epicenter/agent`) is framework-agnostic: it exposes
+ * The loop core (`@epicenter/ai/agent`) is framework-agnostic: it exposes
  * a {@link ConversationSnapshot} plus a change subscription. This mirrors each
  * change into a `$state` version counter so a component re-reads the snapshot.
  * The returned object is the controller a chat view drives.
@@ -9,7 +9,7 @@
 import type {
 	ConversationHandle,
 	ConversationSnapshot,
-} from '@epicenter/agent';
+} from '@epicenter/ai/agent';
 
 export type BoundAgentConversation = ReturnType<typeof bindAgentConversation>;
 

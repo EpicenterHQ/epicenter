@@ -8,12 +8,13 @@
  */
 
 import {
+	type AgentEngine,
 	type AgentMessage,
 	type AgentMessageStore,
 	agentMessageText,
 	createConversation,
-} from '@epicenter/agent';
-import { type AgentEngine, createOpenAiAgentEngine } from '@epicenter/client';
+} from '@epicenter/ai/agent';
+import { createOpenAiAgentEngine } from '@epicenter/ai/openai';
 import OpenAI from 'openai';
 import { Ok } from 'wellcrafted/result';
 import { VOCAB_SYSTEM_PROMPT } from '../src/lib/data.js';

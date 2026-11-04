@@ -6,15 +6,16 @@
 	"license": "AGPL-3.0-or-later",
 	"exports": {
 		".": "./src/ai.ts",
+		"./agent": "./src/agent/index.ts",
 		"./codex": "./src/codex-connection.ts",
 		"./connections": "./src/ai-connections.ts",
+		"./openai": "./src/openai/index.ts",
 		"./picker": "./src/picker/index.ts",
 		"./selections": "./src/selections.ts",
 		"./target": "./src/target.ts"
 	},
 	"dependencies": {
 		"@epicenter/auth": "workspace:*",
-		"@epicenter/client": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
