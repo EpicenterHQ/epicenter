@@ -18,7 +18,12 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 # HTTPS through the platform TLS (Secure Transport on Apple targets), no SSH.
-git2 = { version = "0.20", default-features = false, features = ["https", "vendored-libgit2"] }
+# `https` makes libgit2-sys depend on openssl-sys on every Unix target and
+# call `openssl_sys::init()`, Apple included, so OpenSSL is linked though
+# unused there: vendored, it is static (+3 MiB) instead of the build
+# machine's Homebrew dylib. A real core would drop `https` and register a
+# Rust smart-HTTP transport (git2::transport), one TLS stack for Git and LFS.
+git2 = { version = "0.20", default-features = false, features = ["https", "vendored-libgit2", "vendored-openssl"] }
 sha2 = "0.10"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 serde = { version = "1", features = ["derive"] }

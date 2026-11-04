@@ -1,0 +1,4 @@
+# Drop dynamic libraries nothing references: without `vendored-openssl`,
+# openssl-sys links the build machine's libcrypto into the addon unused.
+[target.'cfg(target_vendor = "apple")']
+rustflags = ["-C", "link-arg=-Wl,-dead_strip_dylibs"]
