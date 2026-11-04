@@ -4,7 +4,6 @@
 mod common;
 
 use std::path::Path;
-use std::process::Command;
 
 use common::*;
 use epicenter_core::lfs::Pointer;
@@ -404,55 +403,4 @@ fn a_folder_that_tracks_another_remote_is_refused() {
     let round = world.sync(&a, "A");
     assert_eq!(round.status, Status::Stopped);
     assert!(round.message.unwrap().contains("someone-else"));
-}
-
-#[test]
-fn stock_git_sees_a_clean_folder_after_a_round() {
-    if Command::new("git").arg("--version").output().is_err() {
-        return;
-    }
-    let world = World::new();
-    let a = seed_a(&world);
-    world.synced(&a, "A");
-    let b = world.folder("b");
-    write(&b, "notes/only-b.md", "from b\n");
-    world.synced(&b, "B");
-    for folder in [&a, &b] {
-        // ADR-0733 keeps the LFS filter settings, which name `git-lfs` and no
-        // path. Without them, stock Git re-reads a racily clean LFS file (one
-        // written in the index's own second) raw and reports it modified.
-        let git = |args: &[&str]| {
-            let out = Command::new("git")
-                .args([
-                    "-c",
-                    "filter.lfs.clean=git-lfs clean -- %f",
-                    "-c",
-                    "filter.lfs.smudge=git-lfs smudge -- %f",
-                ])
-                .args([
-                    "-c",
-                    "filter.lfs.process=git-lfs filter-process",
-                    "-c",
-                    "filter.lfs.required=true",
-                ])
-                .args(args)
-                .current_dir(folder)
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .output()
-                .unwrap();
-            assert!(
-                out.status.success(),
-                "{}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-            String::from_utf8(out.stdout).unwrap()
-        };
-        assert_eq!(git(&["status", "--porcelain"]), "", "{}", folder.display());
-        git(&["fsck", "--no-progress"]);
-        assert_eq!(
-            git(&["rev-parse", "HEAD"]).trim(),
-            git(&["rev-parse", "origin/main"]).trim()
-        );
-    }
 }

@@ -227,14 +227,44 @@ pub fn sync_round(folder: &Path, options: &Options) -> Round {
 }
 
 /// Open the folder's own repository, or make one with `main` and no commits
-/// (ADR-0735: a folder has no history until its first sync).
+/// (ADR-0735: a folder has no history until its first sync). Either way the
+/// repository gets the LFS filter settings it lacks.
 pub fn open_or_init(folder: &Path) -> Result<Repository, Error> {
-    if folder.join(".git").exists() {
-        return Ok(Repository::open(folder)?);
+    let repo = if folder.join(".git").exists() {
+        Repository::open(folder)?
+    } else {
+        let mut opts = RepositoryInitOptions::new();
+        opts.initial_head("main").no_reinit(true);
+        Repository::init_opts(folder, &opts)?
+    };
+    write_lfs_filter(&repo)?;
+    Ok(repo)
+}
+
+/// ADR-0733's Git LFS filter settings, the ones `epicenter init` writes
+/// (`packages/cli/src/sync/setup.ts`). They name the `git-lfs` command and
+/// no path, so they hold on any machine. The core cleans and smudges LFS
+/// files itself and never runs them; they are for a person's own `git`,
+/// which without them reads an LFS file raw whenever it re-checks one
+/// (a file written in the same second as the index, for one) and reports
+/// it modified.
+pub const LFS_FILTER: [(&str, &str); 4] = [
+    ("filter.lfs.clean", "git-lfs clean -- %f"),
+    ("filter.lfs.smudge", "git-lfs smudge -- %f"),
+    ("filter.lfs.process", "git-lfs filter-process"),
+    ("filter.lfs.required", "true"),
+];
+
+/// Write each LFS filter setting the repository's own configuration lacks;
+/// a value a person set stays.
+fn write_lfs_filter(repo: &Repository) -> Result<(), Error> {
+    let mut config = repo.config()?.open_level(git2::ConfigLevel::Local)?;
+    for (key, value) in LFS_FILTER {
+        if config.get_entry(key).is_err() {
+            config.set_str(key, value)?;
+        }
     }
-    let mut opts = RepositoryInitOptions::new();
-    opts.initial_head("main").no_reinit(true);
-    Ok(Repository::init_opts(folder, &opts)?)
+    Ok(())
 }
 
 /// Writes the objects made so far where every Git reads them; called before a ref names them.
