@@ -31,7 +31,7 @@ which store that is:
 | Capture, Honeycrisp, Todos, Vocab | online web, desktop |
 | Whispering | local web, desktop |
 | Messages | local (a program on the computer where Beeper Desktop runs) |
-| Recorder demo | local web (`/`) and online web (`/online`) |
+| Recorder demo | local web |
 
 Each desktop variant is a Tauri program of its own
 ([ADR-0701](../docs/adr/0701-apps-run-as-separate-programs.md)). Capture,
