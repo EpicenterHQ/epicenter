@@ -103,7 +103,7 @@ hosts
   CLI (Bun)         loads the core through Node-API (napi-rs); runs scripts and contracts in TypeScript
   desktop (Tauri)   each app links the core and syncs its own folder
   phone (Tauri)     each app links the core and syncs its own folder in its container
-  Epicenter app     the library view, sync for folders whose app is not running, the extension host
+  Epicenter app     the library view, sync of every consented folder while it runs, the extension host
   server (Worker)   settle compiled to WebAssembly from the same Rust source
   browser           no sync engine (the web is online)
 ```
@@ -130,10 +130,77 @@ What it would change:
 
 - ADR-0713 (an app cannot sync without the Epicenter app) reverses: every
   app carries the core and syncs its own folder; Epicenter adds the library
-  view, agents, extensions, and sync for apps that are not running.
+  view, agents, extensions, and syncs every consented folder while it runs.
 - ADR-0748 (a bundled portable Git) is replaced by the linked core.
-- Two programs may sync one folder (the app and Epicenter); Git's own lock
-  files serialize them.
+- Two programs may sync one folder (the app and Epicenter). Git's own locks
+  guard single operations, not a fetch, commit, merge and push round, so the
+  core holds `.git/epicenter-sync.lock` for the whole round, as
+  `packages/cli/src/sync/sync.ts` does today; a held lock returns Retry.
+
+## The composition the council agreed (2026-11-04)
+
+Three independent seats (two Codex, one Claude) reached the same shape.
+
+**Sync is an operation on a folder, not a role a program plays.** The folder
+holds its own consent (`epicenter.synced`), state (`.git`) and exclusion (the
+round lock). Any program with a credential may run a round, and programs
+never call each other: they meet only in the folder. This deletes routing
+folders to a syncer, "whose app is not running", the `epicenter://init`
+hand-off, and "Syncing needs Epicenter".
+
+```txt
+crates/
+  epicenter-formats   item codec, settle, conflict blocks; native and wasm32 (Worker, page)
+  epicenter-folder    paths, admission, put/read/list/watch, and sync: git2, LFS, round lock, first contact
+  epicenter-account   the credentials file (ADR-0740): the only reader, writer and refresher
+  epicenter-napi      Node-API binding for the CLI
+  epicenter-host      the native messaging host: the extension's shell
+```
+
+```rust
+pub struct Library;
+impl Library { fn at(root: &Path) -> Self; fn folders(&self) -> Vec<Result<Folder, FolderError>>; }
+impl Folder {
+    fn open(path: &Path) -> Result<Folder, FolderError>;   // creates when empty (ADR-0726)
+    fn sync_state(&self) -> SyncState;                      // Local | Synced | Refused { command }
+    fn preview_sync(&self, remote: &Url, auth: &dyn Bearer) -> Result<FirstContact, SyncError>;
+    fn turn_on_sync(&self, approved: FirstContact, auth: &dyn Bearer) -> Result<Round, SyncError>;
+    fn sync(&self, auth: &dyn Bearer) -> Result<Round, SyncError>;   // Synced | Retry | Stopped { command }
+    fn keep_synced(&self, auth: Arc<dyn Bearer>) -> Syncing;         // dropping it stops it
+}
+pub trait Bearer { fn token(&self, remote: &Url) -> Result<Option<String>, AuthError>; }
+```
+
+- A standalone app holds `folder.keep_synced(account)` while it runs; quitting
+  drops it (ADR-0749: quitting stops what an app does).
+- Epicenter holds one `keep_synced` per consented folder in
+  `Library::at(~/Epicenter)`; a held lock returns Retry.
+- The CLI's `sync` is the same call through Node-API.
+- The native host serves the same list, read, put and watch commands as the
+  Tauri plugin, plus sync: the extension is an app page whose shell is the
+  host.
+- Credentials: each program keeps its own file in its AppData;
+  `epicenter-account` is its only refresher (today there are two, in
+  `packages/cli/src/auth.ts` and `packages/tauri-epicenter-account`).
+
+**Where folders live: under the platform's visible root of per-app folders.**
+iOS and Android show each app's folder ("On My iPhone > Whispering"), so the
+operating system supplies the root. A computer has no such root, so Epicenter
+names `~/Epicenter`. AppData is refused for items: it is hidden, it is the
+place a reset deletes (ADR-0740), and discovering other apps' AppData needs a
+registry or permission prompts.
+
+Counted removal: about 7,300 non-test lines (`cli.rs` and `synced_folders.rs`
+2,532; `packages/cli/src/sync` 2,481; the native host, node store and
+Epicenter hand-off 980; the TypeScript and Rust credential code 1,232; the
+SQLite lock 107). Estimated addition: 3,000 to 4,500 lines of Rust.
+
+New obligations: LFS clean, smudge and batch inside the core (CI proves stock
+`git fsck` and `git lfs fsck` accept its output); `settle` in Rust with the
+TypeScript property tests as shared fixtures; an `epicenter.format` key so an
+older core refuses a newer folder ("update Whispering"); a lock compatible
+with today's during migration (`fcntl` locks on Linux); sign-in and the
+consent screen in every app; the napi and iOS build matrix.
 
 ## Phones
 
@@ -146,8 +213,9 @@ What it would change:
 - So on a phone each app keeps its own folder in its own container and syncs
   it with its own sign-in (ADR-0731). There is no local registry: the app
   knows its folder, and across devices the account's list of repositories is
-  the index. The desktop's `~/Epicenter` root is a convenience of computers,
-  not a requirement of the model.
+  the index. One folder per app on phones (founder, 2026-11-04, 70/30); an
+  App Group root waits for the first phone use that needs another app's data
+  offline.
 
 ## Open questions
 
