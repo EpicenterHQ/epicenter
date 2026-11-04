@@ -1,32 +1,27 @@
 <!--
-	Vocab over the words, chats and messages the variant's root set
-	(`getEntryList`, `getChatList`, `getMessageList`): a header with the
-	variant's account of its store and the account (`Chrome`), then Words and
-	Chat over them. Every component under it reads and writes only through
-	them, so the root alone decides the store.
+	Vocab over its folder (`$lib/app.js`): a header with the build's account
+	of its store and the account (`#platform/chrome`), then Words and Chat
+	over the folder's words, chats and messages.
 -->
 <script lang="ts">
-	import { auth } from '#platform/auth';
-	import { Chrome } from '#platform/root';
+	import Chrome from '#platform/chrome';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
+	import { folder } from '$lib/app.js';
+	import { createChats } from '$lib/chat/chats.js';
 	import type { FocusItem } from '$lib/data.js';
-	import { createVocab, getChatList, getEntryList, getMessageList } from '$lib/vocab.svelte.js';
+	import { createEntries } from '$lib/entries.svelte.js';
 	import ConversationView from './ConversationView.svelte';
 	import FocusWords from './FocusWords.svelte';
 	import WordsView from './WordsView.svelte';
 
-	const lists = { entries: getEntryList(), chats: getChatList(), messages: getMessageList() };
-	const { entries, chats, messages } = createVocab(lists);
+	const entries = createEntries(folder.entries);
+	const chats = createChats(folder.chats);
 
-	// The account signed in now, followed as it changes: it adds the hosted
-	// models and dictation (`$lib/ai.js`). The endpoints connected on this
-	// device and the chosen model are its settings, not the learner's data.
-	const account = $derived(auth.state().account);
-	/** Why the words or chats did not list, if they did not; the variant's `Chrome` says it. */
-	const listError = $derived(lists.entries.error() ?? lists.chats.error());
+	/** Why the words or chats did not list, if they did not; the build's `Chrome` says it. */
+	const listError = $derived(folder.entries.error() ?? folder.chats.error());
 
 	const SECTIONS = [
 		{ id: 'words', label: 'Words', icon: BookOpenIcon },
@@ -126,7 +121,7 @@
 			{#if focusOpen && selectedChat}<div class="border-b p-3 md:hidden"><FocusWords focus={selectedChat.focus} {entries} /></div>{/if}
 			{#if !selectedChatId}<p class="m-auto text-center text-muted-foreground">Choose a chat from history.</p>{/if}
 			{#if selectedChatId && selectedChat}
-				{#key selectedChatId}<ConversationView chatId={selectedChatId} {account} {messages} {entries} focus={selectedChat.focus} visible={section === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
+				{#key selectedChatId}<ConversationView chatId={selectedChatId} {entries} focus={selectedChat.focus} visible={section === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
 			{/if}
 		</div>
 		<aside class="hidden w-60 shrink-0 overflow-y-auto border-l p-3 md:block" aria-label="Focus words">

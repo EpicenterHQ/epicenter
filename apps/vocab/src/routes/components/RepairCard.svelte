@@ -8,10 +8,9 @@
 	import { Button } from '@epicenter/ui/button';
 	import { vocab } from '$lib/contract.js';
 	import type { Entries } from '$lib/entries.svelte.js';
-	import { getEntryList } from '$lib/vocab.svelte.js';
 
 	let { entries, id }: { entries: Entries; id: string } = $props();
-	const list = getEntryList();
+	const list = $derived(entries.notes);
 	const note = $derived(list.invalid().find((candidate) => candidate.id === id));
 </script>
 

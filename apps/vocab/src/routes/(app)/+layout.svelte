@@ -1,21 +1,23 @@
 <!--
-	Vocab's root, which decides the store (decision 78): the variant's
-	`Startup` (`#platform/root`) opens it before any page under it renders,
-	and the boundary shows the UI kit's spinner until it has. The web app's is
-	the learner's `vocab` repository behind sign-in; the desktop window's is
-	the folder Vocab keeps its words and chats in. The sign-in callback is
-	outside this group, so it opens nothing (ADR-0345).
+	Vocab's root over its folder (ADR-0766): `<WhenOpen>` shows a spinner
+	while the folder opens, Recovery when it cannot, and the pages once it
+	has, and asks before the page is left while a save is out. On the web the
+	folder is the learner's repository, so a signed-out page asks to sign in
+	instead (`accountPurpose.required`); the desktop window's folder needs no
+	sign-in. The sign-in callback is outside this group, so it opens nothing
+	(ADR-0345).
 -->
 <script lang="ts">
-	import { Startup } from '#platform/root';
-	import { Loading } from '@epicenter/ui/loading';
+	import { accountPurpose } from '#platform/account';
+	import WhenOpen from '@epicenter/svelte/when-open';
+	import { account, folder } from '$lib/app.js';
+	import SignIn from '$lib/components/SignIn.svelte';
 
 	let { children } = $props();
 </script>
 
-<svelte:boundary>
-	{#snippet pending()}
-		<Loading class="h-dvh" />
-	{/snippet}
-	<Startup>{@render children()}</Startup>
-</svelte:boundary>
+{#if accountPurpose.required && account.state().status === 'signed-out'}
+	<SignIn />
+{:else}
+	<WhenOpen app="Vocab" {folder}>{@render children()}</WhenOpen>
+{/if}

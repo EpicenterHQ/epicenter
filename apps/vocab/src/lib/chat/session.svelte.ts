@@ -1,8 +1,10 @@
 import type { Ai, ModelChoice, ModelChoices } from '@epicenter/ai';
-import { createConversation } from '@epicenter/ai/agent';
+import {
+	type ConversationMessages,
+	createConversation,
+} from '@epicenter/ai/agent';
 import { reactive } from '@epicenter/svelte/reactive';
 import { tutorPrompt, VOCAB_SYSTEM_PROMPT } from '../data.js';
-import type { MessageList } from '../vocab.svelte.js';
 import { tutorOpening } from './opening.js';
 
 /** One active tutor conversation for the lifetime of its keyed view. */
@@ -13,15 +15,15 @@ export function createVocabChat({
 	ai,
 	choices,
 }: {
-	/** Every chat's finished messages; this chat's are its own. */
-	messages: MessageList;
+	/** Every chat's finished messages (`folder.messages`); this chat's are its own. */
+	messages: ConversationMessages;
 	chatId: string;
 	focus: readonly { text: string }[];
-	/** Every model Vocab can reach (`$lib/ai.js`), read through `reactive`. */
+	/** Every model Vocab can reach (`$lib/app.js`), read through `reactive`. */
 	ai: Pick<Ai, 'models' | 'custom' | 'chat'>;
 	/**
 	 * The model this device's learner chose for the tutor (`'chat'`), or its
-	 * default (`$lib/ai.js`), read through `reactive`.
+	 * default (`$lib/app.js`), read through `reactive`.
 	 */
 	choices: ModelChoices<'chat'>;
 }) {

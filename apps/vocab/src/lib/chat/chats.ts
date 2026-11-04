@@ -15,7 +15,7 @@ import {
 	type UnreadableFile,
 } from '../data.js';
 
-/** The chat notes, as the client's folder (`folderOf`) shows them, read through `reactive`. */
+/** The chat notes, as the folder shows them (`folder.chats` from `$lib/app.js`, read through `reactive`). */
 export type ChatList = FolderNotes<Vocab['collections']['chats']>;
 
 export const ChatHistoryError = defineErrors({

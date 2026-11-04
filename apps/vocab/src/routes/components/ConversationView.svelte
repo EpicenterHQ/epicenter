@@ -11,21 +11,16 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { onDestroy, onMount } from 'svelte';
 	import type { AgentMessage } from '@epicenter/ai/agent';
-	import type { Account } from '@epicenter/account';
-	import { auth } from '#platform/auth';
 	import { createVocabChat } from '$lib/chat/session.svelte.js';
-	import type { MessageList } from '$lib/vocab.svelte.js';
 	import type { Entries } from '$lib/entries.svelte.js';
-	import { ai, choices } from '$lib/ai.js';
+	import { account, ai, choices, folder } from '$lib/app.js';
 	import DictationButton from './DictationButton.svelte';
 	import PhraseCapture from './PhraseCapture.svelte';
 
-	const accountManagementUrl = auth.accountManagementUrl;
+	const accountManagementUrl = account.accountManagementUrl;
 
 	let {
 		chatId,
-		account,
-		messages,
 		entries,
 		focus,
 		visible,
@@ -33,10 +28,6 @@
 		onOpeningStarted = () => {},
 	}: {
 		chatId: string;
-		/** The account signed in now. */
-		account: Account | undefined;
-		/** Every chat's finished messages. */
-		messages: MessageList;
 		entries: Entries;
 		focus: readonly { text: string }[];
 		visible: boolean;
@@ -47,7 +38,12 @@
 	// The parent keys this component by chat ID. Its loop and draft end when
 	// another chat is selected; dictation ends sooner when Chat hides.
 	/* svelte-ignore state_referenced_locally */
-	const chat = createVocabChat({ messages, chatId, focus, ai, choices });
+	const chat = createVocabChat({ messages: folder.messages, chatId, focus, ai, choices });
+
+	// The account signed in now, followed as it changes: it adds the hosted
+	// models and dictation. The endpoints connected on this device and the
+	// chosen model are its settings, not the learner's data.
+	const signedIn = $derived(account.state().account);
 
 	// The element holding the messages; phrase capture listens inside it.
 	let list = $state<HTMLElement | null>(null);
@@ -148,15 +144,15 @@
 		<div role="alert" class="flex items-center justify-between border-t px-3 py-2 text-xs text-destructive">
 			<span>This model needs you to sign in. Your words and chats stay as they are.</span>
 			<Button variant="ghost" size="sm" onclick={async () => {
-				const { error } = await auth.startSignIn();
+				const { error } = await account.startSignIn();
 				if (error !== null) toast.error('Could not sign in', { description: error.message });
 			}}>Sign in</Button>
 		</div>
 	{:else if chat.error?.code === 'InsufficientCredits'}
 		<div role="alert" class="flex items-center justify-between border-t px-3 py-2 text-xs text-destructive">
 			<span>You're out of credits</span>
-			{#if account && accountManagementUrl}
-				<Button variant="ghost" size="sm" onclick={() => window.open(accountManagementUrl(account).href, '_blank', 'noopener')}>Upgrade</Button>
+			{#if signedIn && accountManagementUrl}
+				<Button variant="ghost" size="sm" onclick={() => window.open(accountManagementUrl(signedIn).href, '_blank', 'noopener')}>Upgrade</Button>
 			{/if}
 		</div>
 	{:else if chat.visibleError}
@@ -173,7 +169,7 @@
 		<ModelPicker {ai} value={chat.target} onSelect={(choice) => void chat.selectTarget(choice).catch((cause: unknown) => toast.error('Could not choose the model', { description: cause instanceof Error ? cause.message : String(cause) }))} disabled={chat.isGenerating} />
 	</div>
 	{#if !chat.canServe}
-		<p class="px-3 pb-1 text-xs text-muted-foreground">Choose a model to chat. Connect your own endpoint in the picker{account ? '' : ", or sign in for Epicenter's hosted models"}.</p>
+		<p class="px-3 pb-1 text-xs text-muted-foreground">Choose a model to chat. Connect your own endpoint in the picker{signedIn ? '' : ", or sign in for Epicenter's hosted models"}.</p>
 	{/if}
 	<form class="border-t bg-background px-2 py-2" aria-label="Chat message" aria-busy={chat.isSaving} onsubmit={(event) => { event.preventDefault(); void chat.sendMessage(); }}>
 		<InputGroup.Root>
@@ -192,7 +188,7 @@
 				}}
 			/>
 			<InputGroup.Addon align="block-end">
-				{#if visible && account}<DictationButton transcribe={(file, signal) => ai.transcribe({ endpoint: 'hosted', model: HOSTED_TRANSCRIPTION_MODEL, file }, { signal })} disabled={chat.isGenerating} onTranscript={(text) => {
+				{#if visible && signedIn}<DictationButton transcribe={(file, signal) => ai.transcribe({ endpoint: 'hosted', model: HOSTED_TRANSCRIPTION_MODEL, file }, { signal })} disabled={chat.isGenerating} onTranscript={(text) => {
 					const draft = chat.inputValue.trim();
 					chat.inputValue = draft ? `${draft} ${text}` : text;
 				}} />{/if}
