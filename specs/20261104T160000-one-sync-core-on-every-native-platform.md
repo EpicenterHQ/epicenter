@@ -350,8 +350,17 @@ In `epicenter-core`, each closing an item of ADR-0751's `Unbuilt` line:
 7. **`settle` in Rust.** A port of `packages/definition/src/merge`, with its
    TypeScript tests (including `settle.properties.test.ts`) run as shared
    fixtures against both.
-8. **iOS build.** The core in a Tauri iOS simulator build. Blocked on the
-   development machine until `rustup` is installed.
+8. **iOS build.** Proven 2026-11-04 (branch `claude/spike-sync-core-ios`):
+   with git2 `default-features = false, features = ["vendored-libgit2"]` the
+   core builds for `aarch64-apple-ios` and `aarch64-apple-ios-sim`, passes all
+   native round tests, and links at 2.56 MB with no OpenSSL (5.77 MB with
+   it). A Rust transport registered for `https` through
+   `git2::transport::register` carries a whole round
+   (`packages/sync-core/tests/transport.rs`); it takes the bearer token in
+   its factory, because `FetchOptions::custom_headers` never reaches a
+   registered transport. The device build sets `IPHONEOS_DEPLOYMENT_TARGET`
+   (17.0). Remaining: running inside a Tauri iOS simulator app, which needs
+   a simulator runtime download.
 
 ### 2. Wiring
 
