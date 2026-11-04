@@ -23,9 +23,9 @@
 	// svelte-ignore state_referenced_locally
 	const draftId = id;
 	const named = (note: { id: string }) => note.id === draftId;
-	const brokenDraft = $derived(drafts.invalid.find(named));
+	const brokenDraft = $derived(drafts.invalid().find(named));
 	const attempt = $derived(attempts.get({ id: draftId }));
-	const brokenAttempt = $derived(attempts.invalid.find(named));
+	const brokenAttempt = $derived(attempts.invalid().find(named));
 	// svelte-ignore state_referenced_locally
 	const reply = drafts.edit({ id: draftId }, {
 		create: () => ({ chatId, profile: backend.profile, mode: backend.mode }),
