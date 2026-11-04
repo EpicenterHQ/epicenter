@@ -8,8 +8,8 @@
  * requests itself (`account_fetch`), so this page never holds a token.
  */
 import type { AuthClient } from '@epicenter/account';
-import { fromAuth } from '@epicenter/account/svelte';
 import { createTauriAuth } from '@epicenter/account/tauri';
+import { reactive } from '@epicenter/svelte/reactive';
 import type { VocabAuth } from './platform.js';
 
 const { client, ready } = createTauriAuth();
@@ -17,7 +17,7 @@ const { client, ready } = createTauriAuth();
 /** The sign-in itself, which `hosted` reads at every use. */
 export const account: AuthClient = client;
 
-export const auth: VocabAuth = Object.assign(fromAuth(client), {
+export const auth: VocabAuth = Object.assign(reactive(client), {
 	purpose: {
 		signedOut:
 			"Your words and chats are Markdown files in Vocab's folder on this computer, with no sign-in. Signing in with Epicenter adds its hosted tutor models and dictation.",

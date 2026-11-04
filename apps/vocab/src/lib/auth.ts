@@ -12,8 +12,8 @@ import {
 	epicenterCloud,
 	selfHostedServer,
 } from '@epicenter/account';
-import { fromAuth } from '@epicenter/account/svelte';
 import { APPS, resolveOAuthAudiences } from '@epicenter/definition/site';
+import { reactive } from '@epicenter/svelte/reactive';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/vite-config/app-urls';
 import type { VocabAuth } from './platform.js';
 
@@ -33,8 +33,8 @@ const client = createBrowserOAuth({
 /** The sign-in itself, which `hosted` reads at every use. */
 export const account: AuthClient = client;
 
-/** The browser client itself, which also completes a sign-in on `/auth/callback`. */
-export const browserAuth = fromAuth(client);
+/** The browser client, read through `reactive`, which also completes a sign-in on `/auth/callback`. */
+export const browserAuth = reactive(client);
 
 export const auth: VocabAuth = Object.assign(browserAuth, {
 	purpose: {

@@ -19,12 +19,12 @@ import {
 	openAi,
 } from '@epicenter/ai';
 import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
-import { fromAi } from '@epicenter/ai/svelte';
+import { reactive } from '@epicenter/svelte/reactive';
 import { account } from '#platform/auth';
 import { HOSTED_TUTOR, VOCAB_MODEL } from './data.js';
 
-/** Every model Vocab can reach, as Svelte state. */
-export const ai = fromAi(
+/** Every model Vocab can reach, read through `reactive`. */
+export const ai = reactive(
 	openAi([
 		localServers(),
 		hosted(account, { models: [VOCAB_MODEL, HOSTED_TRANSCRIPTION_MODEL] }),
@@ -38,4 +38,4 @@ export const ai = fromAi(
  * learner's data (this browser's storage on the web, AppData's `models.md`
  * on the desktop).
  */
-export const choices = modelChoices<'chat'>({ chat: HOSTED_TUTOR });
+export const choices = reactive(modelChoices<'chat'>({ chat: HOSTED_TUTOR }));

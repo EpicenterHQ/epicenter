@@ -80,11 +80,11 @@ describe('the variant root decides the one store', () => {
 	test('on the web, signed in, the root sets the repository’s collections for the account; signed out, it asks for a sign-in', async () => {
 		const root = await Bun.file(join(components, 'OnlineRoot.svelte')).text();
 		expect(root).toMatch(
-			/\{#if auth\.state\.status !== 'signed-out'\}\s*\{#key auth\.state\.account\}\s*<Online account=\{auth\.state\.account\}>/,
+			/const signIn = \$derived\(auth\.state\(\)\);[\s\S]*\{#if signIn\.status !== 'signed-out'\}\s*\{#key signIn\.account\}\s*<Online account=\{signIn\.account\}>/,
 		);
 		const online = await Bun.file(join(components, 'Online.svelte')).text();
 		expect(online).toMatch(
-			/const client = openRemote\(vocab, \{ account, site: APPS\.VOCAB\.url \}\);\s*const files = fromClient\(client\);\s*setEntryList\(files\.entries\);/,
+			/const client = openRemote\(vocab, \{ account, site: APPS\.VOCAB\.url \}\);\s*const folder = reactive\(folderOf\(client\)\);\s*setEntryList\(folder\.entries\);/,
 		);
 	});
 

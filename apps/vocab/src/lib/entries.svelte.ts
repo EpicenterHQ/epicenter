@@ -3,7 +3,7 @@
  * words that read, newest first; the notes that do not, to repair as text;
  * and adding, editing, and deleting a word.
  */
-import type { ReactiveNotes } from '@epicenter/svelte/client';
+import type { FolderNotes } from '@epicenter/folder/core';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -33,7 +33,8 @@ export const EntryError = defineErrors({
 });
 export type EntryError = InferErrors<typeof EntryError>;
 
-export type EntryList = ReactiveNotes<Vocab['collections']['entries']>;
+/** The word notes, as the client's folder (`folderOf`) shows them, read through `reactive`. */
+export type EntryList = FolderNotes<Vocab['collections']['entries']>;
 
 /** A word note that does not read, as the repair list shows it. */
 export type EntryRepair = {
@@ -69,10 +70,11 @@ export function wordsOf(notes: readonly EntryNote[]): Entry[] {
 export function createEntries(list: EntryList) {
 	return {
 		get words() {
-			return wordsOf(list.items);
+			return wordsOf(list.items());
 		},
 		get repairs(): EntryRepair[] {
-			return list.invalid
+			return list
+				.invalid()
 				.map(({ id, path, issues, text }) => ({
 					id,
 					path,
@@ -89,7 +91,8 @@ export function createEntries(list: EntryList) {
 		async add(text: string): Promise<Result<'added' | 'present', EntryError>> {
 			const exact = text.trim().toWellFormed();
 			if (exact === '') return EntryError.Empty();
-			if (list.items.some((note) => note.text === exact)) return Ok('present');
+			if (list.items().some((note) => note.text === exact))
+				return Ok('present');
 			const id = await wordId(exact);
 			/** What is at `id` already: this word, another file, or nothing. */
 			const judge = () => {
@@ -98,7 +101,7 @@ export function createEntries(list: EntryList) {
 					return word.text === exact
 						? Ok('present' as const)
 						: EntryError.Taken({ path: entryPath(id) });
-				return list.invalid.some((note) => note.id === id)
+				return list.invalid().some((note) => note.id === id)
 					? EntryError.Taken({ path: entryPath(id) })
 					: null;
 			};

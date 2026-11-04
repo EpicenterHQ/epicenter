@@ -14,7 +14,7 @@
 
 	/** Whether the repository answers, in a line; `problem` says why it is a warning. */
 	const status = $derived.by((): { label: string; problem?: string } => {
-		if (auth.state.status === 'reauth-required')
+		if (auth.state().status === 'reauth-required')
 			return { label: 'Sign in again', problem: 'Sign in again to see and edit your repository.' };
 		return unreadable === null ? { label: 'Online' } : { label: 'Offline', problem: unreadable.message };
 	});
@@ -28,6 +28,6 @@
 
 <span class="text-xs max-md:mr-auto {status.problem === undefined ? 'text-muted-foreground' : 'text-destructive'}" role="status" title={status.problem} data-testid="status">{status.label}</span>
 <div class="flex items-center gap-1 md:order-last md:ml-auto">
-	{#if auth.state.status === 'reauth-required'}<Button size="sm" onclick={() => void signInAgain()}>Sign in again</Button>{/if}
+	{#if auth.state().status === 'reauth-required'}<Button size="sm" onclick={() => void signInAgain()}>Sign in again</Button>{/if}
 	<LightSwitch variant="ghost" /><AccountMenu />
 </div>
