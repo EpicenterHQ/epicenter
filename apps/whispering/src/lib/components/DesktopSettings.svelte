@@ -7,7 +7,7 @@
 	import { getFolderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
 	import FolderOnboarding from '@epicenter/svelte/folder-onboarding';
-	import LocalModelAdministration from '@epicenter/transcription-native/local-model-administration';
+	import LocalModelAdministration from '@epicenter/transcription/local-model-administration';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { Input } from '@epicenter/ui/input';

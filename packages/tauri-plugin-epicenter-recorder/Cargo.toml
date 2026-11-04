@@ -41,6 +41,6 @@ objc2-av-foundation = { version = "0.3.2", default-features = false, features = 
 [dev-dependencies]
 tempfile = "3.8"
 # The decoder a recording is transcribed with, to check what the encoder wrote.
-tauri-plugin-epicenter-transcription = { path = "../tauri-plugin-epicenter-transcription" }
+tauri-plugin-epicenter-transcription = { path = "../transcription" }
 # The mock runtime drives the real invoke handler in tests. Test builds only.
 tauri = { version = "2.12", features = ["test"] }

@@ -73,7 +73,7 @@ const desktopPackages = [
 	'folder/src/tauri.ts',
 	'recorder/src/tauri.ts',
 	'account/src/tauri.ts',
-	'tauri-plugin-epicenter-transcription/guest-js/bindings.gen.ts',
+	'transcription/guest-js/bindings.gen.ts',
 ];
 
 test(

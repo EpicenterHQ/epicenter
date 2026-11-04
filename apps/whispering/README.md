@@ -283,7 +283,7 @@ whose desktop leaf went missing.
   (`send_request`, `src-tauri/src/http.rs`, so no endpoint needs CORS), to
   Epicenter's hosted API through the account's relay (`account_fetch`, whose
   token the page never holds), or to a local model with **Use this
-  computer** (`tauri-plugin-epicenter-transcription`, models administered in
+  computer** (`@epicenter/transcription`, models administered in
   Settings), which reads the recording's file in place.
 - **Connections and keys** are one keychain entry, `connections`
   (`keychain` from `@epicenter/account/tauri`). A debug build started with

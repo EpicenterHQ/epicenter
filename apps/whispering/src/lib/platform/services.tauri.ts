@@ -14,7 +14,7 @@
  *   storage.
  * - Transcription goes to one of three places: a custom OpenAI-compatible
  *   endpoint, the signed-in Epicenter account (the only use of signing in),
- *   or a local model on this computer (`@epicenter/transcription-native`),
+ *   or a local model on this computer (`@epicenter/transcription`),
  *   which transcribes the recording's file where it is.
  * - A custom endpoint's request leaves through the shell (`fetch.tauri.ts`),
  *   so it needs no CORS rule for the window's origin. The account's request
@@ -26,7 +26,7 @@ import { AI_MODELS, HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
 import { keychain } from '@epicenter/ai/tauri';
 import { type Root, rootOf } from '@epicenter/folder/tauri';
 import { recorder } from '@epicenter/recorder/tauri';
-import { commands as localModels } from '@epicenter/transcription-native';
+import { commands as localModels } from '@epicenter/transcription/bindings';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	applyConnectionChange,

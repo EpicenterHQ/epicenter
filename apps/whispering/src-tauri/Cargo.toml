@@ -26,7 +26,7 @@ tauri = { version = "2.12", features = [] }
 # tauri-build finds plugin permissions only through direct dependencies.
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
 tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
-tauri-plugin-epicenter-transcription = { path = "../../../packages/tauri-plugin-epicenter-transcription" }
+tauri-plugin-epicenter-transcription = { path = "../../../packages/transcription" }
 tauri-plugin-global-shortcut = "2.3"
 # A direct dependency gives this final app's build script the
 # DEP_TRANSCRIBE_CPP_* metadata `epicenter_transcription_build` reads.

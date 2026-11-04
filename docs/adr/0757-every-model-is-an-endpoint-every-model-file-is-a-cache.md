@@ -36,8 +36,8 @@ provider itself in `apps/whispering/src/lib/platform/browser.ts` and
 them.
 
 Local transcription is a separate package with a separate shape.
-`@epicenter/transcription-native`
-(`packages/tauri-plugin-epicenter-transcription`) runs transcribe.cpp inside
+`@epicenter/transcription-native` (since renamed `@epicenter/transcription`,
+in `packages/transcription`) runs transcribe.cpp inside
 the app's process through Tauri commands, with no HTTP. Its fixed catalog
 (`src/transcription/catalog.rs`) pins three GGUF models by Hugging Face
 commit and content hash, downloads them into the shared Hugging Face cache

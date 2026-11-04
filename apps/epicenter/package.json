@@ -27,7 +27,7 @@
 	"dependencies": {
 		"@epicenter/cli": "workspace:*",
 		"@epicenter/definition": "workspace:*",
-		"@epicenter/transcription-native": "workspace:*",
+		"@epicenter/transcription": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@tauri-apps/api": "catalog:"
 	},

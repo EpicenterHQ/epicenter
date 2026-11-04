@@ -146,7 +146,7 @@ they are in the shared Hugging Face cache (`~/.cache/huggingface/hub`, or
 `$HF_HOME/hub`), which Epicenter downloads into and never deletes from (ADR-0579).
 Settings shows a model's folder there; deleting that folder removes the model.
 Local transcription settings, `local-transcription.json`, belong to the
-transcription plugin (`packages/tauri-plugin-epicenter-transcription`), which
+transcription plugin (`packages/transcription`), which
 keeps them in the bundle identifier's local data directory: the data directory
 above, except that `EPICENTER_DATA_DIR` does not move them. Standalone Local
 Books defaults to production data; use `EPICENTER_DATA_DIR` when directing its
@@ -288,7 +288,7 @@ because its page is served on the scheme: `folders.json`, which alone grants
 the Folders window's CLI commands (`src-tauri/src/command_names.rs` lists every
 app command); and `home.json`, which alone grants sign-in and model
 administration: the transcription plugin's `epicenter-transcription:` commands
-that its shared pane (`@epicenter/transcription-native`) calls. Neither grants
+that its shared pane (`@epicenter/transcription`) calls. Neither grants
 the folder plugin: the shell does not install it, so no window is granted
 the transcription plugin's file
 transcription either. A development build selects the same two. This is wiring, not a sandbox (ADR-0179, ADR-0334).
