@@ -29,6 +29,7 @@ export {
 } from './endpoint.js';
 export { createEndpointAi } from './endpoint-ai.js';
 export { hosted } from './hosted.js';
+export { localServers } from './local-servers.js';
 export {
 	type EndpointEntry,
 	type Model,
