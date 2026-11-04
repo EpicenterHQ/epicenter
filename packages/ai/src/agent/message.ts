@@ -9,7 +9,7 @@ const text = { type: 'string' } as const;
  * per message: `messages/{chat}/{id}.md`, holding who wrote it, when
  * (milliseconds), and its parts (text, and the model's tool calls and their
  * results). An app adds it to its contract (`messages: messagesCollection`)
- * and hands the collection's client to `createConversation`.
+ * and hands the folder's collection (`folder.messages`) to `createConversation`.
  */
 export const messagesCollection = {
 	path: 'messages/{chat}/{id}.md',

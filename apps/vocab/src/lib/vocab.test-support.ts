@@ -1,12 +1,13 @@
 /**
- * Vocab over a stand-in client, for tests: a real device client in a
- * temporary directory (`openDevice` from `@epicenter/folder/node`), the same
- * contract's client at the same paths, in place of the repository the page
- * is given. Its words and chats as the page reads them (the client's
- * folder, `folderOf`, read through `reactive`), kept listing as an open
- * page keeps them, its messages as a conversation
- * reads and writes them (the client's own collection), and a way to hold or
- * refuse writes, the way a lost connection or a slow write would.
+ * Vocab over a stand-in folder, for tests: a folder (`createFolder`) over a
+ * real device client in a temporary directory (`openDevice` from
+ * `@epicenter/folder/node`), the same contract's client at the same paths,
+ * in place of the folder `$lib/app.js` opens. Its words, chats and messages
+ * as the page reads them (read through `reactive`), the words and chats kept
+ * listing as an open page keeps them, files written as another program
+ * would, and a way to hold or refuse writes, the way a lost connection or a
+ * slow write would. The `test` condition's memory folder cannot hold a note
+ * that does not read, nor refuse a write, so these tests build their own.
  *
  * Import after `svelte-modules.test-support.js`, which compiles the runes.
  */
@@ -21,11 +22,11 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { type Client, ClientError } from '@epicenter/definition/contract';
-import { folderOf } from '@epicenter/folder/core';
+import { createFolder } from '@epicenter/folder/core';
 import { openDevice } from '@epicenter/folder/node';
 import { reactive } from '@epicenter/svelte/reactive';
 import { flushSync } from 'svelte';
-import { unwrap } from 'wellcrafted/result';
+import { Ok, unwrap } from 'wellcrafted/result';
 import { type Vocab, vocab } from './contract.js';
 
 const { follow } = await import(
@@ -83,8 +84,8 @@ export async function openVocabFolder(initial: Record<string, string> = {}) {
 	const control: WriteControl = {};
 	const client = unwrap(await openDevice(vocab, { path: root }));
 	const written = controlled(client, control);
-	// As the page reads them: the client's own collections, as its folder.
-	const lists = reactive(folderOf(written));
+	// As the page reads them: a folder over the client, read through `reactive`.
+	const lists = reactive(createFolder(vocab, async () => Ok(written)));
 	const followed = follow(() => [
 		lists.entries.items(),
 		lists.entries.invalid(),
@@ -96,8 +97,8 @@ export async function openVocabFolder(initial: Record<string, string> = {}) {
 		root,
 		client,
 		lists,
-		/** Every chat's messages, as a conversation is given them, through `control`. */
-		messages: written.messages,
+		/** Every chat's messages, as a conversation is given them (`folder.messages`), through `control`. */
+		messages: lists.messages,
 		control,
 		/** Another program's client of the same folder. */
 		other: async () => unwrap(await openDevice(vocab, { path: root })),
@@ -123,6 +124,7 @@ export async function openVocabFolder(initial: Record<string, string> = {}) {
 		},
 		async [Symbol.asyncDispose]() {
 			followed.stop();
+			lists[Symbol.dispose]();
 			await rm(root, { recursive: true, force: true });
 		},
 	};

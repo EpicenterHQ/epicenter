@@ -1,8 +1,9 @@
 //! Vocab's desktop app (`epicenter-standalone`, decisions 88 to 97): one
 //! window whose page opens Vocab's two roots by name: its AppData root and
 //! its data folder, `~/Epicenter/vocab`, which its bundle identifier names
-//! (`openDataFolder` from `@epicenter/folder/tauri`). The AppData root holds
-//! `connections.md`, the endpoints the learner connected, whose keys are in
+//! (`openFolder` from `@epicenter/folder`, whose `tauri` leaf opens the Data
+//! root). The AppData root holds `connections.md`, the endpoints the learner
+//! connected (`customEndpoints` from `@epicenter/ai`), whose keys are in
 //! the keychain; the page's requests to them are sent from here, with the
 //! key, through `epicenter-account`'s `connection_fetch`. It signs in only for
 //! Epicenter's hosted tutor models and dictation, through

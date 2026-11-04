@@ -441,6 +441,7 @@
       "dependencies": {
         "@epicenter/account": "workspace:*",
         "@epicenter/definition": "workspace:*",
+        "@epicenter/folder": "workspace:*",
         "@epicenter/local": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
@@ -450,7 +451,6 @@
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
-        "@epicenter/folder": "workspace:*",
         "@types/bun": "catalog:",
         "svelte": "catalog:",
         "svelte-check": "catalog:",

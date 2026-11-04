@@ -1,6 +1,6 @@
 /**
- * EntryCard over a word note in a stand-in client's folder: the note is the
- * note's body, edited as typed (the words' `edit`), and the stage and delete
+ * EntryCard over a word note in a stand-in folder: the note is the note's
+ * body, edited as typed (`entries.notes.edit`), and the stage and delete
  * write through the same notes.
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
@@ -45,7 +45,7 @@ async function setup() {
 	document.body.append(target);
 	const mounted = mount(EntryCardHost, {
 		target,
-		props: { card, list: folder.lists.entries },
+		props: { card },
 	});
 	flushSync();
 	return {

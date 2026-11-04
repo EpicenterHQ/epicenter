@@ -1,7 +1,7 @@
 <!--
 	Every page of Vocab: the chrome. The app is the `(app)` group, whose
-	layout decides the store, and whose root guards leaving while a save is
-	out; the sign-in callback is outside it.
+	layout renders the pages over the folder and asks before a page with a
+	save out is left; the sign-in callback is outside it.
 -->
 <script lang="ts">
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';

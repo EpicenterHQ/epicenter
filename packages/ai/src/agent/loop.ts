@@ -4,8 +4,8 @@
  * the chosen model through `ai.chat`, runs the tools the host offers, and
  * saves each finished message as its own note.
  */
-import type { NoteClient } from '@epicenter/definition/contract';
 import { sameValue } from '@epicenter/definition/note';
+import type { FolderNotes } from '@epicenter/folder/core';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -124,9 +124,19 @@ export type ConversationHandle = {
 	[Symbol.dispose](): void;
 };
 
+/**
+ * What a conversation calls on the contract's messages collection
+ * (`messagesCollection`): the folder's (`folder.messages`), or anything that
+ * lists, creates and is heard the same way, such as a collection client.
+ */
+export type ConversationMessages = Pick<
+	FolderNotes<MessagesCollection>,
+	'list' | 'create' | 'subscribe'
+>;
+
 export type ConversationOptions = {
-	/** The contract's messages collection (`messagesCollection`), as its client. */
-	messages: NoteClient<MessagesCollection>;
+	/** The contract's messages collection (`messagesCollection`), as the app's folder has it. */
+	messages: ConversationMessages;
 	/** This conversation's chat: the `{chat}` of each of its message notes. */
 	chat: string;
 	ai: Pick<Ai, 'chat'>;
@@ -243,9 +253,9 @@ export function createConversation({
 	): Promise<Result<void, MessageSaveError>> {
 		// SAFETY: JSON serialization removes unsupported values from the typed message.
 		const value = JSON.parse(JSON.stringify(message)) as AgentMessage;
-		const args = { chat, id: message.id };
 		const created = await messages.create({
-			...args,
+			chat,
+			id: message.id,
 			role: value.role,
 			createdAt: value.createdAt,
 			// SAFETY: the agent's parts are the collection's parts, as JSON.
@@ -255,8 +265,12 @@ export function createConversation({
 		if (created.error === null) return Ok(undefined);
 		if (created.error.name !== 'Occupied')
 			return MessageSaveError.WriteFailed({ cause: created.error });
-		const there = await messages.get(args);
-		if (there.error === null && holds(there.data, value)) return Ok(undefined);
+		// Read now, not as shown: the note at that path may not be listed yet.
+		const { data: listed } = await messages.list();
+		const there = listed?.items.find(
+			(note) => note.chat === chat && note.id === message.id,
+		);
+		if (there !== undefined && holds(there, value)) return Ok(undefined);
 		return MessageSaveError.WriteFailed({
 			cause: `Another message is already saved at '${created.error.path}'.`,
 		});

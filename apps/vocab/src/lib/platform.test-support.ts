@@ -1,8 +1,7 @@
 /**
- * The bundle test's entry (`platform.test.ts`): every `#platform/*` seam,
- * and the state the pages build over the store.
+ * The bundle test's entry (`platform.test.ts`): the app's values, and every
+ * `#platform/*` seam.
  */
-export { account, auth } from '#platform/auth';
-export { Callback, Chrome, Startup } from '#platform/root';
-export { ai } from './ai.js';
-export { createVocab } from './vocab.svelte.js';
+export { accountPurpose, connectAccount } from '#platform/account';
+export { default as Chrome } from '#platform/chrome';
+export { account, ai, choices, folder } from './app.js';

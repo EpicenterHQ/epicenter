@@ -7,7 +7,6 @@
 	import { cn } from '@epicenter/ui/utils';
 	import { type Entry, STAGE_LABELS, STAGES } from '$lib/data.js';
 	import type { Entries } from '$lib/entries.svelte.js';
-	import { getEntryList } from '$lib/vocab.svelte.js';
 	import { changeStage, confirmDelete } from './word-actions.js';
 
 	let { entry, entries, chosen, canChoose, onToggle }: {
@@ -18,9 +17,9 @@
 		onToggle: () => void;
 	} = $props();
 
-	// The parent keys each card by the word's id.
+	// The parent keys each card by the word's id, and `entries` is the page's for its life.
 	// svelte-ignore state_referenced_locally
-	const word = getEntryList().edit({ id: entry.id });
+	const word = entries.notes.edit({ id: entry.id });
 </script>
 
 <article class={cn('rounded-lg border p-4', chosen && 'border-primary bg-accent/30')} data-id={entry.id}>

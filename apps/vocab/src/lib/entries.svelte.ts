@@ -1,5 +1,5 @@
 /**
- * The learner's words, over one client's `entries/{id}.md` notes: the
+ * The learner's words, over the folder's `entries/{id}.md` notes: the
  * words that read, newest first; the notes that do not, to repair as text;
  * and adding, editing, and deleting a word.
  */
@@ -33,7 +33,7 @@ export const EntryError = defineErrors({
 });
 export type EntryError = InferErrors<typeof EntryError>;
 
-/** The word notes, as the client's folder (`folderOf`) shows them, read through `reactive`. */
+/** The word notes, as the folder shows them (`folder.entries` from `$lib/app.js`, read through `reactive`). */
 export type EntryList = FolderNotes<Vocab['collections']['entries']>;
 
 /** A word note that does not read, as the repair list shows it. */
@@ -69,6 +69,11 @@ export function wordsOf(notes: readonly EntryNote[]): Entry[] {
 
 export function createEntries(list: EntryList) {
 	return {
+		/**
+		 * The word notes themselves: a card edits its word's note through them
+		 * (`notes.edit`), and a repair replaces the text of one that does not read.
+		 */
+		notes: list,
 		get words() {
 			return wordsOf(list.items());
 		},

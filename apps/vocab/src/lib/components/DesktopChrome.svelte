@@ -1,13 +1,12 @@
 <!--
-	The desktop window's header account of its store: Vocab's folder on this
-	computer, whether Epicenter manages it, and Set up in Epicenter beside
-	the account, which
-	only adds hosted tutor models and dictation. Vocab never syncs anything
-	itself.
+	`#platform/chrome` in the desktop window: the header's account of its
+	store, Vocab's folder on this computer, whether Epicenter manages it, and
+	Set up in Epicenter beside the account, which only adds hosted tutor
+	models and dictation. Vocab never syncs anything itself.
 -->
 <script lang="ts">
-	import { auth } from '#platform/auth';
-	import { getFolderSync } from '@epicenter/svelte/folder-sync';
+	import { APPS } from '@epicenter/definition/site';
+	import { folderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
 	import FolderOnboarding from '@epicenter/svelte/folder-onboarding';
 	import StatusPopover from '@epicenter/svelte/status-popover';
@@ -16,13 +15,18 @@
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import { toast } from '@epicenter/ui/sonner';
-	import type { ChromeProps } from '../platform.js';
+	import { account, folder } from '../app.js';
 	import AccountMenu from './AccountMenu.svelte';
 
-	let { unreadable }: ChromeProps = $props();
+	let {
+		unreadable,
+	}: {
+		/** Why the words or chats did not list, if they did not. */
+		unreadable: { message: string } | null;
+	} = $props();
 
-	// DesktopRoot renders the app, and so this, only over its open data folder.
-	const sync = getFolderSync();
+	// `<WhenOpen>` renders the pages, and so this, only over the open folder.
+	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.VOCAB.url });
 
 	const status = $derived.by((): StatusLine => {
 		if (unreadable !== null) return { label: 'Not readable here', detail: unreadable.message, tone: 'error' };
@@ -31,7 +35,7 @@
 	});
 
 	async function signInAgain() {
-		const { error } = await auth.startSignIn();
+		const { error } = await account.startSignIn();
 		if (error !== null) toast.error('Could not sign in', { description: error.message });
 	}
 </script>
@@ -53,6 +57,6 @@
 </div>
 <div class="flex min-w-0 items-center gap-1 md:order-last md:ml-auto">
 	<FolderSyncActions {sync} />
-	{#if auth.state().status === 'reauth-required'}<Button size="sm" onclick={() => void signInAgain()}>Sign in again</Button>{/if}
+	{#if account.state().status === 'reauth-required'}<Button size="sm" onclick={() => void signInAgain()}>Sign in again</Button>{/if}
 	<LightSwitch variant="ghost" /><AccountMenu />
 </div>

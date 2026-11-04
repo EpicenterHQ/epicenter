@@ -5,13 +5,13 @@
 	"version": "0.0.2",
 	"type": "module",
 	"imports": {
-		"#platform/auth": {
-			"tauri": "./src/lib/auth.tauri.ts",
-			"default": "./src/lib/auth.ts"
+		"#platform/account": {
+			"tauri": "./src/lib/account.tauri.ts",
+			"default": "./src/lib/account.ts"
 		},
-		"#platform/root": {
-			"tauri": "./src/lib/root.tauri.ts",
-			"default": "./src/lib/root.ts"
+		"#platform/chrome": {
+			"tauri": "./src/lib/components/DesktopChrome.svelte",
+			"default": "./src/lib/components/OnlineChrome.svelte"
 		}
 	},
 	"scripts": {
@@ -23,8 +23,8 @@
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun run test:lib; failed=$?; bun run test:svelte && exit $failed",
-		"test:lib": "bun test --conditions=browser --conditions=svelte src/lib",
-		"test:svelte": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --conditions=browser --conditions=svelte src/routes",
+		"test:lib": "bun test --conditions=browser --conditions=svelte --conditions=test src/lib",
+		"test:svelte": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --conditions=browser --conditions=svelte --conditions=test src/routes",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json",
 		"contract": "bun scripts/write-contract.ts",
 		"demo": "bun e2e/stack.ts --demo",

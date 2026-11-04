@@ -20,9 +20,7 @@ const { openVocabFolder, until } = await import(
 );
 const { createEntries } = await import('../../lib/entries.svelte.js');
 const { flushSync, mount, unmount } = await import('svelte');
-const { default: WordsViewHost } = await import(
-	'./fixtures/WordsViewHost.svelte'
-);
+const { default: WordsView } = await import('./WordsView.svelte');
 
 const word = (text: string, body = '') =>
 	`---\ntext: ${text}\nstage: new\ncreatedAt: "2026-01-01T00:00:00.000Z"\n---\n${body}`;
@@ -32,9 +30,9 @@ async function setup(initial: Record<string, string>) {
 	const entries = createEntries(folder.lists.entries);
 	const target = document.createElement('div');
 	document.body.append(target);
-	const mounted = mount(WordsViewHost, {
+	const mounted = mount(WordsView, {
 		target,
-		props: { entries, list: folder.lists.entries },
+		props: { entries, starting: false, onStart: async () => false },
 	});
 	await until(() => entries.repairs.length > 0);
 	return {
