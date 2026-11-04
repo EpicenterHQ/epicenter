@@ -1,0 +1,18 @@
+[package]
+name = "epicenter-sync-core-napi"
+version = "0.0.1"
+description = "The sync core as a Node-API addon, for the CLI under Bun"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+epicenter-sync-core = { path = ".." }
+napi = { version = "3", default-features = false, features = ["napi6"] }
+napi-derive = "3"
+
+[build-dependencies]
+napi-build = "2"

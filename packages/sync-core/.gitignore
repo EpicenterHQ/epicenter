@@ -1,0 +1,4 @@
+target/
+*.node
+/test/fixture-*/
+/dist/

@@ -26,6 +26,9 @@ exclude = [
     "apps/epicenter/src-tauri",
     "apps/epicenter/bench/backend-latency",
     "apps/epicenter/scripts/release-check",
+    # Spike: the libgit2 sync core and its Node-API binding, a workspace of its own.
+    "packages/sync-core",
+    "packages/sync-core/napi",
 ]
 
 # Every standalone app aborts on an unexpected panic in release. Errors
