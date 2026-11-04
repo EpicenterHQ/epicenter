@@ -3,7 +3,7 @@
 Epicenter is a toolkit for local-first apps over files, with optional Git
 synchronization and inference. Apps open local data before sign-in. The CLI
 can inspect ordinary files. The Epicenter desktop app manages folders: it
-registers, syncs, shares, and shows the status of folders, and opens none of
+sets up, syncs, shares, and shows the status of folders, and opens none of
 their files. Apps are separate
 programs; Epicenter does not host them ([ADR-0701](adr/0701-apps-run-as-separate-programs.md)).
 
@@ -16,9 +16,7 @@ The decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in-code-on-th
 [ADR-0633](adr/0633-apps-open-local-data-before-connecting-services.md),
 [ADR-0634](adr/0634-hosted-inference-is-independent-of-repository-sync.md),
 [ADR-0635](adr/0635-generic-desktop-data-tools-are-deferred.md),
-[ADR-0636](adr/0636-an-app-opens-local-files-through-one-folder-handle.md),
-[ADR-0641](adr/0641-epicenter-remembers-folders-as-machine-local-paths.md), and
-[ADR-0642](adr/0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md).
+and [ADR-0636](adr/0636-an-app-opens-local-files-through-one-folder-handle.md).
 
 ## Data and locations
 
@@ -28,7 +26,6 @@ The decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in-code-on-th
 | Local dataset | The local data an app opens, with identity independent of account, remote URL, or hosted repository ID. Say "local data" in ordinary explanations. |
 | Client | The typed client a contract derives (`Client<T>`), opened over a device's files (`openDevice`) or the signed-in person's repository (`openRemote`). A caller may open several. |
 | Directory | A physical filesystem location. In ordinary explanations, folder can name a disk directory; qualify a browser folder when its private storage matters. |
-| Remembered path | An optional machine-local shortcut shared by Epicenter desktop and CLI. It grants no access and does not configure where a standalone app saves. |
 | Repository | A Git repository; repo is its shorthand, not another concept. A hosted repository also has a stable service ID, a changeable label, and membership. |
 | Clone | An independent local copy of a repository. A desktop folder set up with `epicenter init` is a clone; a web app never holds one. |
 | Remote or sync destination | The Git endpoint configured for synchronization. The remote URL does not identify the local dataset or grant access to it. |
@@ -69,7 +66,7 @@ in development); the standalone apps keep their folders there.
 Epicenter finds synced folders under the environment's library root and
 one owner level. Each folder's local Git configuration records consent as
 `epicenter.synced = true`. The desktop's Folders window runs the CLI's
-commands, and no AppData file lists folders. A CLI `open <directory>` command remains unbuilt. A data folder's
+commands, and no AppData file lists folders. A data folder's
 `epicenter.json` has the separate portable declaration role described next.
 
 Local dataset is a countable way to describe the local data an app selected,
@@ -108,17 +105,6 @@ declaration sections. Tracked files remain tracked; untracked files enter
 commits unless Git ignores them. The folder's `.gitignore` files travel as
 ordinary content, and native Git also honors machine-specific excludes. Schema
 disagreements retain raw source.
-
-A folder's `epicenter.json` once held optional table schemas and shared
-saved views (ADR-0648, deleted). Schema exchange and `epicenter query` are
-deleted (decision 72), and so is the
-desktop editor that showed grids, boards, saved views, and SQL over a folder
-(2026-11-01). Saved views already in a folder's `epicenter.json` stay there
-as ordinary text.
-
-A schema-distribution service remains unbuilt. Every app is on a contract;
-migration of older stored browser data is separate. `epicenter generate` is
-deleted too.
 
 Use schema for row expectations and declaration for the whole portable
 `epicenter.json` document. Retire lens, description, and shape as competing
@@ -167,11 +153,6 @@ Git's `ours` and `theirs` names. The server's write translator applies the same
 2, on anything a person or agent must settle, such as an unfinished merge or a
 `main` its owner rewrote ([ADR-0700](adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
-The planned app-facing synchronization states are `local`, `synced`, `pending`,
-`disconnected`, and `stuck`. Local means no destination is configured. The
-remaining states describe a configured synchronization connection, independently
-of local saving.
-
 ## Clients, services, and access
 
 | Name | Meaning |
@@ -197,11 +178,6 @@ sync destination, inference provider, runtime, or grant involved. Reserve generi
 browser for no product: say web browser for the runtime and Epicenter desktop
 app for the native product.
 
-ADR-0642 separates each app's matched private CLI from explicit public-command
-installation. Executable selection grants no access to another app's session.
-Shared files and credentials still require compatible protocols; CLI selection
-does not select a data folder.
-
 Host is a qualified technical role: a runtime can host an app, a Git service
 hosts repositories, and a deployment hosts services. Shell names runtime
 integration when that mechanism matters.
@@ -222,7 +198,7 @@ additional current APIs.
 | Source | Names and current behavior |
 | --- | --- |
 | `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser`, `openDevice(contract, { path })` from `/node`, `openDevice(contract, { root })` from `/tauri` (a root the shell named, `Data` or `AppData`), and `openRemote(contract, { account, site })` from `/remote`, over a contract from `@epicenter/definition/contract`. |
-| CLI | Implemented commands include `auth`, `check`, `format`, `init`, `sync`, `clone`, `forget`, `status`, `repos`, `share`, and `unshare`. External-schema flags and CLI `open` remain deferred. |
+| CLI | Implemented commands include `auth`, `check`, `format`, `init`, `connect`, `sync`, `clone`, `forget`, `status`, `repos`, `share`, and `unshare`. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 
 For the full dated inventory and the review's accepted and rejected collapses,
