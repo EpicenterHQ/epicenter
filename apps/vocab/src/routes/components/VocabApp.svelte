@@ -24,9 +24,9 @@
 	// The account signed in now, followed as it changes: it adds the hosted
 	// models and dictation (`$lib/ai.js`). The endpoints connected on this
 	// device and the chosen model are its settings, not the learner's data.
-	const account = $derived(auth.state.account);
+	const account = $derived(auth.state().account);
 	/** Why the words or chats did not list, if they did not; the variant's `Chrome` says it. */
-	const listError = $derived(lists.entries.error ?? lists.chats.error);
+	const listError = $derived(lists.entries.error() ?? lists.chats.error());
 
 	const SECTIONS = [
 		{ id: 'words', label: 'Words', icon: BookOpenIcon },

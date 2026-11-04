@@ -1,7 +1,6 @@
-import type { ModelChoice, ModelChoices } from '@epicenter/ai';
+import type { Ai, ModelChoice, ModelChoices } from '@epicenter/ai';
 import { createConversation } from '@epicenter/ai/agent';
-import { fromConversation, type ReactiveAi } from '@epicenter/ai/svelte';
-import { createTracker } from '@epicenter/svelte/tracked';
+import { reactive } from '@epicenter/svelte/reactive';
 import { tutorPrompt, VOCAB_SYSTEM_PROMPT } from '../data.js';
 import type { MessageList } from '../vocab.svelte.js';
 import { tutorOpening } from './opening.js';
@@ -18,12 +17,14 @@ export function createVocabChat({
 	messages: MessageList;
 	chatId: string;
 	focus: readonly { text: string }[];
-	/** Every model Vocab can reach (`$lib/ai.js`). */
-	ai: Pick<ReactiveAi, 'models' | 'custom' | 'chat'>;
-	/** The model this device's learner chose for the tutor (`'chat'`), or its default. */
+	/** Every model Vocab can reach (`$lib/ai.js`), read through `reactive`. */
+	ai: Pick<Ai, 'models' | 'custom' | 'chat'>;
+	/**
+	 * The model this device's learner chose for the tutor (`'chat'`), or its
+	 * default (`$lib/ai.js`), read through `reactive`.
+	 */
 	choices: ModelChoices<'chat'>;
 }) {
-	const observeChoices = createTracker(choices.subscribe);
 	/** The model the next turn uses, captured when it is asked for. */
 	let chosen: ModelChoice | null = null;
 	let draft = $state('');
@@ -48,18 +49,19 @@ export function createVocabChat({
 	function canChat(choice: ModelChoice | null): choice is ModelChoice {
 		return (
 			choice !== null &&
-			ai.models.some(
-				(model) =>
-					model.endpoint === choice.endpoint &&
-					model.id === choice.model &&
-					model.can.includes('chat'),
-			)
+			ai
+				.models()
+				.some(
+					(model) =>
+						model.endpoint === choice.endpoint &&
+						model.id === choice.model &&
+						model.can.includes('chat'),
+				)
 		);
 	}
 
 	/** The learner's choice, or Epicenter's tutor model when it is offered. */
 	function target(): ModelChoice | null {
-		observeChoices();
 		return choices.get('chat');
 	}
 
@@ -70,7 +72,7 @@ export function createVocabChat({
 		return true;
 	}
 
-	const loop = fromConversation(
+	const loop = reactive(
 		createConversation({
 			messages,
 			chat: chatId,
@@ -85,56 +87,56 @@ export function createVocabChat({
 		}),
 	);
 	// Saving and unsaved messages hold the conversation as a live turn does.
-	const isBusy = () =>
-		asking !== null ||
-		loop.isGenerating ||
-		loop.isSaving ||
-		loop.unsaved.length > 0;
+	const isBusy = () => {
+		const { isGenerating, isSaving, unsaved } = loop.snapshot();
+		return asking !== null || isGenerating || isSaving || unsaved.length > 0;
+	};
 	/** The tutor is asked only for an opening or for an unanswered learner message. */
-	const hasNothingToAsk = () =>
-		loop.messages.length === 0
+	const hasNothingToAsk = () => {
+		const { messages } = loop.snapshot();
+		return messages.length === 0
 			? focus.length === 0
-			: loop.messages.at(-1)?.role !== 'user';
+			: messages.at(-1)?.role !== 'user';
+	};
 
 	return {
 		get messages() {
-			return loop.messages;
+			return loop.snapshot().messages;
 		},
 		get streaming() {
-			return loop.streaming;
+			return loop.snapshot().streaming;
 		},
 		/** True from the moment the tutor is asked, including model preparation. */
 		get isGenerating() {
-			return asking !== null || loop.isGenerating;
+			return asking !== null || loop.snapshot().isGenerating;
 		},
 		get isThinking() {
-			return asking !== null || loop.isThinking;
+			return asking !== null || loop.snapshot().isThinking;
 		},
 		get error() {
-			return loop.error;
+			return loop.snapshot().error;
 		},
 		get visibleError() {
-			return loop.error && loop.error.message !== dismissedError
-				? loop.error
-				: null;
+			const { error } = loop.snapshot();
+			return error && error.message !== dismissedError ? error : null;
 		},
 		/** Whole messages not yet confirmed as notes. */
 		get unsaved() {
-			return loop.unsaved;
+			return loop.snapshot().unsaved;
 		},
 		get isSaving() {
-			return loop.isSaving;
+			return loop.snapshot().isSaving;
 		},
 		/**
 		 * Why a message in `unsaved` has no file. Set until `saveAgain` succeeds.
 		 * Never a tutor failure; those are `error`.
 		 */
 		get saveError() {
-			return loop.saveError;
+			return loop.snapshot().saveError;
 		},
 		/** Message files of this chat that are not shown and not sent to the tutor. */
 		get unreadable() {
-			return loop.unreadable;
+			return loop.snapshot().unreadable;
 		},
 		get target() {
 			return target();
@@ -156,7 +158,7 @@ export function createVocabChat({
 			return (
 				canChat(target()) &&
 				!isBusy() &&
-				loop.messages.length > 0 &&
+				loop.snapshot().messages.length > 0 &&
 				draft.trim().length > 0
 			);
 		},
@@ -173,7 +175,8 @@ export function createVocabChat({
 			if (!text) return;
 			// A reply needs the chat's saved messages, which list once it opens.
 			await loop.ready;
-			if (loop.messages.length === 0 || isBusy() || !captureTarget()) return;
+			if (loop.snapshot().messages.length === 0 || isBusy() || !captureTarget())
+				return;
 			const { error } = await loop.send(text);
 			if (error?.name === 'NotAdmitted') return;
 			submittedDraft = submitted;
@@ -185,7 +188,7 @@ export function createVocabChat({
 		 * the tutor; that stays the learner's separate step.
 		 */
 		async saveAgain() {
-			if (loop.unsaved.length === 0) return;
+			if (loop.snapshot().unsaved.length === 0) return;
 			const { error } = await loop.save();
 			if (error === null) releaseSubmittedDraft();
 		},
@@ -200,13 +203,14 @@ export function createVocabChat({
 			try {
 				// A connection the learner chose answers once the saved ones are
 				// read, and what to ask depends on the chat's saved messages.
-				await Promise.all([ai.custom?.ready, loop.ready]);
+				await Promise.all([ai.custom()?.ready, loop.ready]);
 				if (admitted.signal.aborted) return;
 				if (hasNothingToAsk() || !captureTarget()) return;
 				dismissedError = null;
-				// Hand the admission to the loop, which reserves its own at once.
+				// Hand the admission to the loop, which reserves its own at once
+				// and answers once its turn ends.
 				asking = null;
-				loop.retry();
+				void loop.retry();
 			} finally {
 				if (asking === admitted) asking = null;
 			}
@@ -214,10 +218,10 @@ export function createVocabChat({
 		stop() {
 			asking?.abort();
 			asking = null;
-			loop.stop();
+			void loop.stop();
 		},
 		dismissError() {
-			dismissedError = loop.error?.message ?? null;
+			dismissedError = loop.snapshot().error?.message ?? null;
 		},
 		[Symbol.dispose]() {
 			if (disposed) return;

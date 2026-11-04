@@ -15,21 +15,23 @@
 
 	let { children }: { children: Snippet } = $props();
 
-	async function signIn() {
+	const signIn = $derived(auth.state());
+
+	async function startSignIn() {
 		// A successful start leaves this page for the sign-in page.
 		const { error } = await auth.startSignIn();
 		if (error !== null) toast.error('Could not sign in', { description: error.message });
 	}
 </script>
 
-{#if auth.state.status !== 'signed-out'}
-	{#key auth.state.account}
-		<Online account={auth.state.account}>{@render children()}</Online>
+{#if signIn.status !== 'signed-out'}
+	{#key signIn.account}
+		<Online account={signIn.account}>{@render children()}</Online>
 	{/key}
 {:else}
 	<Empty.Root class="h-dvh">
 		<Empty.Title>Vocab</Empty.Title>
 		<Empty.Description>{auth.purpose.signedOut}</Empty.Description>
-		<Button size="sm" onclick={() => void signIn()}>Sign in</Button>
+		<Button size="sm" onclick={() => void startSignIn()}>Sign in</Button>
 	</Empty.Root>
 {/if}

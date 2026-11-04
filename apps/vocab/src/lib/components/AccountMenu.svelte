@@ -16,9 +16,10 @@
 	let pending = $state(false);
 	let problem = $state('');
 	let email = $state('');
+	const signIn = $derived(auth.state());
 
 	$effect(() => {
-		if (!open || auth.state.status === 'signed-out') return;
+		if (!open || signIn.status === 'signed-out') return;
 		let current = true;
 		void auth.getProfile().then(({ data: profile, error }) => {
 			if (current) email = error === null ? (profile.email ?? '') : '';
@@ -28,7 +29,7 @@
 		};
 	});
 
-	async function signIn() {
+	async function startSignIn() {
 		pending = true;
 		problem = '';
 		const { error } = await auth.startSignIn();
@@ -55,16 +56,16 @@
 		{/snippet}
 	</Popover.Trigger>
 	<Popover.Content class="w-80 space-y-3 p-4" align="end">
-		{#if auth.state.status === 'signed-out'}
+		{#if signIn.status === 'signed-out'}
 			<p class="text-sm font-medium">Sign in is optional</p>
 			<p class="text-xs leading-relaxed text-muted-foreground">{auth.purpose.signedOut}</p>
-			<Button class="w-full" size="sm" disabled={pending} onclick={signIn}>{pending ? 'Signing in…' : 'Sign in'}</Button>
+			<Button class="w-full" size="sm" disabled={pending} onclick={startSignIn}>{pending ? 'Signing in…' : 'Sign in'}</Button>
 		{:else}
 			<p class="text-sm font-medium">{email || 'Signed in'}</p>
 			<p class="text-xs leading-relaxed text-muted-foreground">{auth.purpose.signedIn}</p>
 			<div class="flex flex-col gap-1">
 				{#if auth.accountManagementUrl}
-					<Button href={auth.accountManagementUrl(auth.state.account, 'account').href} target="_blank" rel="noopener noreferrer" variant="ghost" size="sm" class="w-full justify-start">Manage account</Button>
+					<Button href={auth.accountManagementUrl(signIn.account, 'account').href} target="_blank" rel="noopener noreferrer" variant="ghost" size="sm" class="w-full justify-start">Manage account</Button>
 				{/if}
 				<Button variant="ghost" size="sm" class="w-full justify-start" disabled={pending} onclick={signOut}>Sign out</Button>
 			</div>

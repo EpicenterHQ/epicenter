@@ -6,7 +6,7 @@ import { expectOk } from 'wellcrafted/testing';
 
 const { openVocabFolder, until } = await import('../vocab.test-support.js');
 const { createVocabChat } = await import('./session.svelte.js');
-const { fromAi } = await import('@epicenter/ai/svelte');
+const { reactive } = await import('@epicenter/svelte/reactive');
 const { startChat } = await import('./chats.js');
 
 type ChatOptions = Parameters<typeof createVocabChat>[0];
@@ -84,7 +84,7 @@ async function setup({ question = false } = {}) {
 			);
 		},
 	});
-	const ai = fromAi(openAi([tutorEndpoint]));
+	const ai = reactive(openAi([tutorEndpoint]));
 	const choices = sessionDouble<ChatOptions['choices']>({
 		get: () => ({ endpoint: 'tutor', model: 'test-model' }),
 		set: async () => {},

@@ -2,8 +2,9 @@
  * Vocab over a stand-in client, for tests: a real device client in a
  * temporary directory (`openDevice` from `@epicenter/folder/node`), the same
  * contract's client at the same paths, in place of the repository the page
- * is given. Its words and chats as the page reads them (`fromClient`),
- * kept listing as an open page keeps them, its messages as a conversation
+ * is given. Its words and chats as the page reads them (the client's
+ * folder, `folderOf`, read through `reactive`), kept listing as an open
+ * page keeps them, its messages as a conversation
  * reads and writes them (the client's own collection), and a way to hold or
  * refuse writes, the way a lost connection or a slow write would.
  *
@@ -20,8 +21,9 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { type Client, ClientError } from '@epicenter/definition/contract';
+import { folderOf } from '@epicenter/folder/core';
 import { openDevice } from '@epicenter/folder/node';
-import { fromClient } from '@epicenter/svelte/client';
+import { reactive } from '@epicenter/svelte/reactive';
 import { flushSync } from 'svelte';
 import { unwrap } from 'wellcrafted/result';
 import { type Vocab, vocab } from './contract.js';
@@ -81,15 +83,15 @@ export async function openVocabFolder(initial: Record<string, string> = {}) {
 	const control: WriteControl = {};
 	const client = unwrap(await openDevice(vocab, { path: root }));
 	const written = controlled(client, control);
-	// As the page reads them: the client's own collections.
-	const lists = fromClient(written);
+	// As the page reads them: the client's own collections, as its folder.
+	const lists = reactive(folderOf(written));
 	const followed = follow(() => [
-		lists.entries.items,
-		lists.entries.invalid,
-		lists.chats.items,
-		lists.chats.invalid,
+		lists.entries.items(),
+		lists.entries.invalid(),
+		lists.chats.items(),
+		lists.chats.invalid(),
 	]);
-	await until(() => !lists.entries.loading && !lists.chats.loading);
+	await until(() => !lists.entries.loading() && !lists.chats.loading());
 	return {
 		root,
 		client,

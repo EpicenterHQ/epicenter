@@ -1,4 +1,4 @@
-import type { ReactiveNotes } from '@epicenter/svelte/client';
+import type { FolderNotes } from '@epicenter/folder/core';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -15,7 +15,8 @@ import {
 	type UnreadableFile,
 } from '../data.js';
 
-export type ChatList = ReactiveNotes<Vocab['collections']['chats']>;
+/** The chat notes, as the client's folder (`folderOf`) shows them, read through `reactive`. */
+export type ChatList = FolderNotes<Vocab['collections']['chats']>;
 
 export const ChatHistoryError = defineErrors({
 	NotSaved: ({ cause }: { cause: unknown }) => ({
@@ -49,7 +50,7 @@ export const byRecency = (a: ChatSummary, b: ChatSummary) =>
 	b.updatedAt - a.updatedAt || a.id.localeCompare(b.id);
 export function listingOf(
 	items: readonly ChatNote[],
-	invalid: ChatList['invalid'],
+	invalid: ReturnType<ChatList['invalid']>,
 ): ChatListing {
 	return {
 		chats: items.map(readChat).map(summaryOf).sort(byRecency),
@@ -82,7 +83,7 @@ export async function startChat(
 export function createChats(list: ChatList) {
 	return {
 		get listing() {
-			return listingOf(list.items, list.invalid);
+			return listingOf(list.items(), list.invalid());
 		},
 		start: (focus: readonly FocusItem[]) => startChat(list, focus),
 	};
