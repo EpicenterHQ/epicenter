@@ -33,6 +33,25 @@ fn seed_a(world: &World) -> std::path::PathBuf {
     a
 }
 
+/// The LFS pointer `path` holds in `commit`.
+fn pointer_in(repo: &Repository, commit: &str, path: &str) -> Option<Pointer> {
+    let commit = repo
+        .find_commit(git2::Oid::from_str(commit).unwrap())
+        .unwrap();
+    let entry = commit.tree().unwrap().get_path(Path::new(path)).ok()?;
+    Pointer::parse(repo.find_blob(entry.id()).unwrap().content())
+}
+
+/// The names in `folder`'s `dir`, sorted.
+fn names(folder: &Path, dir: &str) -> Vec<String> {
+    let mut names: Vec<_> = std::fs::read_dir(folder.join(dir))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
 fn roots(repo: &Repository, head: &str) -> usize {
     let mut walk = repo.revwalk().unwrap();
     walk.push(git2::Oid::from_str(head).unwrap()).unwrap();
@@ -114,6 +133,7 @@ fn first_round_commits_lfs_pointers_and_pushes_to_an_empty_remote() {
 fn first_contact_puts_this_folders_files_on_the_remote_main_in_one_commit() {
     let world = World::new();
     let a = seed_a(&world);
+    write(&a, "photos/bird.png", b"bird, only on A");
     let pushed = world.synced(&a, "A").head.unwrap();
 
     // B made its folder before it ever synced: no .git at all.
@@ -145,10 +165,15 @@ fn first_contact_puts_this_folders_files_on_the_remote_main_in_one_commit() {
     );
     // Only the remote had it: checked out, LFS bytes smudged.
     assert_eq!(read(&b, "notes/only-a.md"), "---\ntitle: A\n---\nfrom a\n");
-    assert_eq!(std::fs::read(b.join("photos/cat.png")).unwrap(), PNG_A);
+    assert_eq!(
+        std::fs::read(b.join("photos/bird.png")).unwrap(),
+        b"bird, only on A"
+    );
     // Only here: an addition.
     assert_eq!(read(&b, "notes/only-b.md"), "---\ntitle: B\n---\nfrom b\n");
-    // On both sides: a note merged with no base, a binary kept whole beside it.
+    // On both sides: a note merged with no base, a binary kept whole, this
+    // computer's version winning as the later write; the remote's stays in
+    // the history before it.
     let shared = read(&b, "notes/shared.md");
     assert!(
         shared.starts_with("---\ntitle: Shared on B\ntags: one\nmood: calm\n---\n"),
@@ -158,15 +183,19 @@ fn first_contact_puts_this_folders_files_on_the_remote_main_in_one_commit() {
         shared.contains("<<<<<<< ") && shared.contains("written on b"),
         "{shared}"
     );
-    let sibling = format!("photos/cat (conflict {}).png", &Pointer::of(PNG_B).oid[..7]);
-    assert_eq!(std::fs::read(b.join(&sibling)).unwrap(), PNG_B);
+    assert_eq!(std::fs::read(b.join("photos/cat.png")).unwrap(), PNG_B);
+    assert_eq!(names(&b, "photos"), ["bird.png", "cat.png", "dog.png"]);
+    assert_eq!(
+        pointer_in(&repo, &pushed, "photos/cat.png"),
+        Some(Pointer::of(PNG_A))
+    );
     // Pushed, and the next round on A fast-forwards to it.
     assert_eq!(
         remote_blob(&world, "notes/only-b.md").unwrap(),
         b"---\ntitle: B\n---\nfrom b\n"
     );
     world.synced(&a, "A");
-    assert_eq!(std::fs::read(a.join(&sibling)).unwrap(), PNG_B);
+    assert_eq!(std::fs::read(a.join("photos/cat.png")).unwrap(), PNG_B);
     assert_eq!(read(&a, "notes/shared.md"), shared);
 }
 
@@ -371,7 +400,7 @@ fn an_edit_beats_a_delete_both_ways() {
 }
 
 #[test]
-fn a_binary_both_sides_replaced_keeps_the_remote_at_its_path_and_the_local_beside_it() {
+fn a_binary_both_sides_replaced_keeps_the_later_write_and_the_other_in_history() {
     let world = World::new();
     let a = seed_a(&world);
     world.synced(&a, "A");
@@ -379,18 +408,23 @@ fn a_binary_both_sides_replaced_keeps_the_remote_at_its_path_and_the_local_besid
     world.synced(&b, "B");
 
     write(&a, "photos/cat.png", b"cat v2 from A");
-    world.synced(&a, "A");
+    let earlier = world.synced(&a, "A").head.unwrap();
     write(&b, "photos/cat.png", b"cat v2 from B");
     world.synced(&b, "B");
-    let sibling = format!(
-        "photos/cat (conflict {}).png",
-        &Pointer::of(b"cat v2 from B").oid[..7]
-    );
     assert_eq!(
         std::fs::read(b.join("photos/cat.png")).unwrap(),
-        b"cat v2 from A"
+        b"cat v2 from B"
     );
-    assert_eq!(std::fs::read(b.join(&sibling)).unwrap(), b"cat v2 from B");
+    assert_eq!(names(&b, "photos"), ["cat.png"]);
+    world.synced(&a, "A");
+    assert_eq!(
+        std::fs::read(a.join("photos/cat.png")).unwrap(),
+        b"cat v2 from B"
+    );
+    assert_eq!(
+        pointer_in(&world.remote_repo(), &earlier, "photos/cat.png"),
+        Some(Pointer::of(b"cat v2 from A"))
+    );
 }
 
 #[test]

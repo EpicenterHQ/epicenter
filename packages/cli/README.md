@@ -177,8 +177,9 @@ the queries the core has no read-only form of.
   rounds made before it had an origin, it places the local files in one
   `Added from <computer name>` commit on remote `main`. Later rounds merge
   `origin/main`: `settle` for a note both sides changed, the edited side of
-  an edit/delete, and a binary both sides replaced lands as
-  `<stem> (conflict <hash7>)<ext>` beside the remote's. It uploads LFS
+  an edit/delete, and for a binary both sides replaced, this computer's
+  version, the later write, with the remote's left in history (ADR-0771).
+  It uploads LFS
   objects, then pushes, fetching and merging again when the push is
   rejected, up to five times; a push to a local repository moves its `main`
   only if it still holds what the round merged. A file checked out as its
