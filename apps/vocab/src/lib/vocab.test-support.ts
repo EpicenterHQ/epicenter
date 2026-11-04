@@ -6,8 +6,9 @@
  * as the page reads them (read through `reactive`), the words and chats kept
  * listing as an open page keeps them, files written as another program
  * would, and a way to hold or refuse writes, the way a lost connection or a
- * slow write would. The `test` condition's memory folder cannot hold a note
- * that does not read, nor refuse a write, so these tests build their own.
+ * slow write would. The `test` condition's memory folder refuses or holds
+ * every write at once (`memoryFiles`); these tests refuse one collection's
+ * writes, so they build their own.
  *
  * Import after `svelte-modules.test-support.js`, which compiles the runes.
  */
