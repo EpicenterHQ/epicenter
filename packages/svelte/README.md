@@ -2,7 +2,7 @@
 
 This package makes an app's files reactive in Svelte 5: its folder, or a
 contract's client, through `fromClient` (`@epicenter/svelte/client`), and
-the root that waits for the folder to open (`<Opening>`). The component that
+the root that renders the pages when the folder is open (`<WhenOpen>`). The component that
 shows a note owns one editor of it (`notes.edit({ id })`), which shows what
 the person typed until its save answers.
 
@@ -62,15 +62,16 @@ what landed into what shows before it resolves. A note `update` follows
 theirs and a second save applies over it. `fromClient(client)` adapts a
 plain client (`openDevice`, `openRemote`) the same way, ready at once.
 
-The root layout renders `<Opening>` from `@epicenter/svelte/opening`, the
+The root layout renders `<WhenOpen>` from `@epicenter/svelte/when-open`, the
 only reader of `state`: a spinner while the folder opens, `Recovery` with
-the typed error and Retry (`folder.retry()`, and Show in Finder where
-`folder.reveal` is not null) when it failed, and the pages once it is ready,
+the typed error and Retry (the failed state's `retry()`, and Show in Finder
+where `folder.reveal` is not null) when it failed, the pages once it is open,
+and nothing once it is closed,
 inside one plain `<svelte:boundary>` whose page error never shows the
 folder's Recovery.
 
 ```svelte
-<Opening app="Todos" {folder}>{@render children()}</Opening>
+<WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
 ```
 
 `notes.edit(args)` is one note as an immediate editor, one save at a time,

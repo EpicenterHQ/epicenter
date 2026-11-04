@@ -30,7 +30,7 @@ the store choice is never buried in data code:
   recovery screen when either cannot open. ADR-0766 retires `Startup`: the
   build picks `openFolder(contract)`'s implementation, `src/lib/app.ts`
   exports the folder as a module value, and the root layout renders
-  `<Opening {folder}>`. Do not add a `Startup` to an app that has moved.
+  `<WhenOpen {folder}>`. Do not add a `Startup` to an app that has moved.
 - `Chrome` is the header's account of the store (the account on the web,
   the folder and Sync with Epicenter on the desktop).
 - Whatever else differs by variant in that app: Whispering's `Settings` (desktop only, `null` on the web) and `Callback`

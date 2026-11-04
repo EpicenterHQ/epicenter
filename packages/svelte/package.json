@@ -25,7 +25,7 @@
 		"./desktop-startup": "./src/desktop-startup.svelte",
 		"./folder-onboarding": "./src/folder-onboarding.svelte",
 		"./tracked": "./src/tracked.ts",
-		"./opening": "./src/opening.svelte"
+		"./when-open": "./src/when-open.svelte"
 	},
 	"dependencies": {
 		"@epicenter/definition": "workspace:*",

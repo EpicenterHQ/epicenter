@@ -1,15 +1,15 @@
 <!--
 	The root of an app over its folder (ADR-0766, ADR-0767): the only reader
-	of the folder's lifecycle. While the folder opens, a spinner; when it
-	failed, Recovery with the typed error, whose Retry opens the folder again
-	(`folder.retry()`, nothing else reopens); once it is ready, the pages.
+	of the folder's lifecycle, rendering the pages when the folder is open.
+	While it opens, a spinner; when it failed, Recovery with the typed error,
+	whose Retry is the failure's own `retry()`; once it is closed, nothing.
 
 	The pages sit in one plain `<svelte:boundary>`: a page that throws shows
 	a page error with Try again, never the folder's Recovery, and this
 	component catches nothing of the folder's.
 
 	```svelte
-	<Opening app="Todos" {folder}>{@render children()}</Opening>
+	<WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
 	```
 
 	`folder` is the app's folder as `fromClient` adapts it, the same value
@@ -32,10 +32,9 @@
 		/** The folder, adapted by `fromClient`: its state tracks. */
 		folder: {
 			readonly state: FolderState;
-			retry(): void;
 			readonly reveal: FolderLifecycle['reveal'];
 		};
-		/** The pages, once the folder is ready. */
+		/** The pages, once the folder is open. */
 		children: Snippet;
 	} = $props();
 </script>
@@ -43,8 +42,8 @@
 {#if folder.state.status === 'opening'}
 	<Loading class="h-dvh" />
 {:else if folder.state.status === 'failed'}
-	<Recovery {app} error={folder.state.error} retry={() => folder.retry()} reveal={folder.reveal} />
-{:else}
+	<Recovery {app} error={folder.state.error} retry={folder.state.retry} reveal={folder.reveal} />
+{:else if folder.state.status === 'open'}
 	<svelte:boundary>
 		{@render children()}
 		{#snippet failed(error, reset)}

@@ -111,12 +111,11 @@ name, and never commits or contacts a server.
 
 ```text
 src/lib/app.ts                 the page's values: account (#platform/account) and
-                               folder = fromClient(openFolder(todos, { site, account })),
-                               and an import.meta.hot dispose that closes them, which
-                               accept-then-invalidate makes Vite run on each edit
+                               folder = fromClient(openFolder(todos, { site, account }));
+                               editing it, or what it imports, reloads the page
 routes/+layout.svelte          every page: the chrome and the leave guard
 routes/(app)/+layout.svelte    signed out on the web: SignIn; otherwise
-                               <Opening app="Todos" {folder}> (spinner, Recovery, pages)
+                               <WhenOpen app="Todos" {folder}> (spinner, Recovery, pages)
 routes/(app)/+page.svelte      TodosApp
   TodosApp.svelte              header (Chrome from #platform/chrome), the list, the open todo
 routes/auth/callback           finishes sign-in, outside (app), then returns to /

@@ -1,9 +1,10 @@
 /**
- * `<Opening>` and the folder adapted once at module scope.
+ * `<WhenOpen>` and the folder adapted once at module scope.
  *
  * Key behaviors:
- * - `<Opening>` shows a spinner while the folder opens, Recovery with the
- *   typed error when it failed, and the pages once it is ready
+ * - `<WhenOpen>` shows a spinner while the folder opens, Recovery with the
+ *   typed error when it failed, the pages once it is open, and nothing once
+ *   it is closed
  * - Recovery's Retry reopens the folder, and only the folder
  * - A page that throws shows the page error, never the folder's Recovery
  * - A folder wrapped by `fromClient` at module scope stays reactive in a
@@ -21,7 +22,7 @@ import type { Result } from 'wellcrafted/result';
 
 const { flushSync, mount, unmount, tick } = await import('svelte');
 const { fromClient } = await import('./client.svelte.js');
-const { default: OpeningHost } = await import('./fixtures/OpeningHost.svelte');
+const { default: WhenOpenHost } = await import('./fixtures/WhenOpenHost.svelte');
 const { default: TodoCount } = await import('./fixtures/TodoCount.svelte');
 const { default: TodoEditor } = await import('./fixtures/TodoEditor.svelte');
 const app = await import('./fixtures/app.test-support.js');
@@ -46,6 +47,7 @@ function controlled() {
 		},
 	);
 	return {
+		raw,
 		folder: fromClient(raw),
 		answers,
 		revealed,
@@ -79,7 +81,7 @@ const recovery = (main: HTMLElement) =>
 test('a spinner while opening, Recovery with the typed error, and Retry reopens until the pages show', async () => {
 	const { folder, answers, open, revealed } = controlled();
 	const main = target();
-	const view = mount(OpeningHost, { target: main, props: { folder } });
+	const view = mount(WhenOpenHost, { target: main, props: { folder } });
 	flushSync();
 	expect(main.querySelector('[data-testid="pages"]')).toBeNull();
 	expect(recovery(main)).toBeNull();
@@ -111,12 +113,26 @@ test('a spinner while opening, Recovery with the typed error, and Retry reopens 
 	await unmount(view);
 });
 
+test('the pages go once the folder is closed', async () => {
+	const { raw, folder, open } = controlled();
+	open();
+	const main = target();
+	const view = mount(WhenOpenHost, { target: main, props: { folder } });
+	await settle();
+	expect(main.querySelector('[data-testid="pages"]')).not.toBeNull();
+	raw[Symbol.dispose]();
+	flushSync();
+	expect(main.querySelector('[data-testid="pages"]')).toBeNull();
+	expect(recovery(main)).toBeNull();
+	await unmount(view);
+});
+
 test('a folder with no place to show offers Retry alone', async () => {
 	const raw = createFolder(contract, async () =>
 		OpenFolderError.StorageUnavailable({ cause: 'no private storage' }),
 	);
 	const main = target();
-	const view = mount(OpeningHost, {
+	const view = mount(WhenOpenHost, {
 		target: main,
 		props: { folder: fromClient(raw) },
 	});
@@ -132,7 +148,7 @@ test('a page that throws shows the page error, never the folder’s Recovery', a
 	const { folder, open } = controlled();
 	open();
 	const main = target();
-	const view = mount(OpeningHost, {
+	const view = mount(WhenOpenHost, {
 		target: main,
 		props: { folder, crash: true },
 	});

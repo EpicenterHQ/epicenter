@@ -18,7 +18,7 @@ import { type Err, Ok, type Result } from 'wellcrafted/result';
 import { createDeviceClient } from './device/client.js';
 import { memoryStore } from './device/memory-store.js';
 import { OpenFolderError } from './errors.js';
-import { createFolder, folderOf } from './folder.js';
+import { createFolder, type FolderState, folderOf } from './folder.js';
 import { openFolder } from './open-folder.memory.js';
 
 const todos = defineContract({
@@ -65,6 +65,13 @@ function controlled() {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** Retry the folder's failed open, as Recovery's Retry does. */
+function retry(folder: { state(): FolderState }) {
+	const state = folder.state();
+	if (state.status !== 'failed') throw new Error('expected a failed open');
+	state.retry();
+}
+
 describe('opening', () => {
 	test('is handed over opening, and its collections read empty and loading', () => {
 		const { folder } = controlled();
@@ -91,7 +98,7 @@ describe('opening', () => {
 		const { data, error } = await created;
 		expect(error).toBeNull();
 		expect(data?.title).toBe('Milk');
-		expect(folder.state()).toEqual({ status: 'ready' });
+		expect(folder.state()).toEqual({ status: 'open' });
 	});
 
 	test('state() keeps its identity until it changes, and subscribe hears each change', async () => {
@@ -101,7 +108,7 @@ describe('opening', () => {
 		expect(folder.state()).toBe(folder.state());
 		open();
 		await tick();
-		expect(seen).toEqual(['ready']);
+		expect(seen).toEqual(['open']);
 		expect(folder.state()).toBe(folder.state());
 	});
 });
@@ -139,12 +146,12 @@ describe('a failed open', () => {
 		expect(folder.state().status).toBe('failed');
 	});
 
-	test('retry() opens again, and an action called after it waits for the new attempt', async () => {
+	test("the failed state's retry() opens again, and an action called after it waits for the new attempt", async () => {
 		const { folder, fail, open, attempts } = controlled();
 		fail();
 		await tick();
 		expect(folder.state().status).toBe('failed');
-		folder.retry();
+		retry(folder);
 		expect(attempts()).toBe(2);
 		expect(folder.state()).toEqual({ status: 'opening' });
 		const listed = folder.todos.list();
@@ -152,16 +159,21 @@ describe('a failed open', () => {
 		const { data, error } = await listed;
 		expect(error).toBeNull();
 		expect(data?.items).toEqual([]);
-		expect(folder.state()).toEqual({ status: 'ready' });
+		expect(folder.state()).toEqual({ status: 'open' });
 	});
 
-	test('retry() does nothing unless the open failed', async () => {
-		const { folder, open, attempts } = controlled();
-		folder.retry();
+	test("a failure's retry() does nothing once the folder moved on", async () => {
+		const { folder, fail, open, attempts } = controlled();
+		fail();
+		await tick();
+		const failed = folder.state();
+		if (failed.status !== 'failed') throw new Error('expected a failure');
+		failed.retry();
 		open();
 		await tick();
-		folder.retry();
-		expect(attempts()).toBe(1);
+		failed.retry();
+		expect(attempts()).toBe(2);
+		expect(folder.state()).toEqual({ status: 'open' });
 	});
 });
 
@@ -254,7 +266,7 @@ describe('reads', () => {
 		await tick();
 		expect(folder.todos.loading()).toBe(false);
 		expect(folder.todos.error()?.name).toBe('StorageUnavailable');
-		folder.retry();
+		retry(folder);
 		const client = open();
 		await client.todos.create({ id: 'a', title: 'Milk', done: false });
 		await tick();
@@ -280,22 +292,25 @@ describe('reads', () => {
 });
 
 describe('dispose', () => {
-	test('closes the client that opened', async () => {
+	test('closes the client that opened, and the state is closed', async () => {
 		const { folder, open, closed } = controlled();
 		const client = open();
 		await tick();
+		const seen: string[] = [];
+		folder.subscribe(() => seen.push(folder.state().status));
 		folder[Symbol.dispose]();
 		await tick();
 		expect(closed).toEqual([client]);
+		expect(seen).toEqual(['closed']);
 	});
 
-	test('closes a client that opens after it, and the state stays opening', async () => {
+	test('closes a client that opens after it, and the state stays closed', async () => {
 		const { folder, open, closed } = controlled();
 		folder[Symbol.dispose]();
 		const client = open();
 		await tick();
 		expect(closed).toEqual([client]);
-		expect(folder.state()).toEqual({ status: 'opening' });
+		expect(folder.state()).toEqual({ status: 'closed' });
 	});
 });
 
@@ -345,11 +360,11 @@ test('on the web, a folder over an account opens once the account is signed in',
 	};
 	for (const listener of [...listeners]) listener();
 	await tick();
-	expect(folder.state()).toEqual({ status: 'ready' });
+	expect(folder.state()).toEqual({ status: 'open' });
 	expect(listeners.size).toBe(0);
 });
 
-test('a folder over a client already open is ready at once and closes nothing', async () => {
+test('a folder over a client already open is open at once and closes nothing', async () => {
 	const client = createDeviceClient(todos, memoryStore());
 	await client.todos.create({ id: 'a', title: 'Milk', done: false });
 	const folder = folderOf(client);
@@ -358,7 +373,7 @@ test('a folder over a client already open is ready at once and closes nothing', 
 	expect(folder.todos.fieldNames).toEqual(['title', 'done']);
 	folder.todos.subscribe(() => {});
 	await tick();
-	expect(folder.state()).toEqual({ status: 'ready' });
+	expect(folder.state()).toEqual({ status: 'open' });
 	expect(folder.todos.items().map((todo) => todo.title)).toEqual(['Milk']);
 	folder[Symbol.dispose]();
 	expect((await client.todos.list()).error).toBeNull();

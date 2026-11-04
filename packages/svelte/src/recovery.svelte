@@ -1,7 +1,7 @@
 <!--
 	Why an app's folder (or, on the desktop, its settings) did not open, with
 	Retry, and Show in Finder where the folder has a place to show
-	(`reveal`). `<Opening>` and the desktop startup render it.
+	(`reveal`). `<WhenOpen>` and the desktop startup render it.
 -->
 <script lang="ts">
 	import type { OpenFolderError } from '@epicenter/folder/core';

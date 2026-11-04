@@ -22,7 +22,7 @@ const config = {
 		}),
 	},
 	preprocess: vitePreprocess(),
-	// `@epicenter/svelte`'s Recovery, which `<Opening>` shows, reads
+	// `@epicenter/svelte`'s Recovery, which `<WhenOpen>` shows, reads
 	// `$effect.pending()`, which async Svelte provides.
 	compilerOptions: { experimental: { async: true } },
 };

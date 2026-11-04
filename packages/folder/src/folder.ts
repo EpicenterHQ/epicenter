@@ -3,16 +3,16 @@
  * ADR-0767): handed over at once, already opening, with its lifecycle as
  * synchronous state and its collections directly on it (`folder.todos`).
  *
- * - `state()` is `opening`, `ready` or `failed` with the typed open error,
- *   the same object until it changes; `subscribe` hears it change, and
- *   `retry()` opens again after a failure.
+ * - `state()` is `opening`, `open`, `failed` with the typed open error and
+ *   the `retry()` that opens again, or `closed` once disposed: the same
+ *   object until it changes, and `subscribe` hears it change.
  * - A collection's reads answer at every moment: `items()` is empty and
  *   `loading()` true while the folder opens.
  * - Every async method waits for the open, then runs. When the open fails it
  *   answers `Err(OpenFolderError)`, so each action's error type includes the
- *   open's; `retry()` starts a new attempt for the actions called after it.
+ *   open's; a retry starts a new attempt for the actions called after it.
  *
- * Only an interface reads `state()` (`<Opening>` from `@epicenter/svelte`);
+ * Only an interface reads `state()` (`<WhenOpen>` from `@epicenter/svelte`);
  * everything else reads and acts, and its actions wait.
  *
  * This module is the same on every build; each build's `openFolder` hands
@@ -47,11 +47,20 @@ const log = createLogger('folder');
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
-/** Where the folder's one open attempt is. */
+/**
+ * Where the folder is in its life. Retrying belongs to a failure, so only
+ * the failed state carries `retry()`.
+ */
 export type FolderState =
 	| { readonly status: 'opening' }
-	| { readonly status: 'ready' }
-	| { readonly status: 'failed'; readonly error: OpenFolderError };
+	| { readonly status: 'open' }
+	| {
+			readonly status: 'failed';
+			readonly error: OpenFolderError;
+			/** Open again; does nothing once the folder moved on. */
+			retry(): void;
+	  }
+	| { readonly status: 'closed' };
 
 /**
  * A collection method that waits for the open: the same arguments, and its
@@ -108,12 +117,10 @@ export type FolderCollection<TCollection extends Collection> =
 
 /** The folder's own members, beside its collections. */
 export type FolderLifecycle = {
-	/** The open attempt's state: the same object until it changes. */
+	/** Where the folder is in its life: the same object until it changes. */
 	state(): FolderState;
 	/** Call `listener` when `state()` changes; returns the unsubscribe. */
 	subscribe(listener: () => void): () => void;
-	/** Open again after a failure; does nothing otherwise. */
-	retry(): void;
 	/**
 	 * Show the folder's place in the file manager, even when it did not open:
 	 * the desktop's data folder. Null where there is no such place (this
@@ -127,7 +134,7 @@ export type FolderLifecycle = {
 	 * memory). No command takes it.
 	 */
 	displayPath(): string | null;
-	/** Close what the folder opened; every later action is `Unavailable`. */
+	/** Close what the folder opened: `state()` is `closed`, and every later action is `Unavailable`. */
 	[Symbol.dispose](): void;
 };
 
@@ -178,13 +185,7 @@ export type OpenFolder = <TContract extends Contract>(
 ) => Folder<TContract>;
 
 /** The lifecycle members, which no collection may be named. */
-const RESERVED = new Set([
-	'state',
-	'subscribe',
-	'retry',
-	'reveal',
-	'displayPath',
-]);
+const RESERVED = new Set(['state', 'subscribe', 'reveal', 'displayPath']);
 
 /** An open that answers the client, or why nothing opened. */
 export type FolderOpen<TContract extends Contract> = () => Promise<
@@ -192,7 +193,7 @@ export type FolderOpen<TContract extends Contract> = () => Promise<
 >;
 
 /**
- * The folder over `open`, which is called now, and again on each `retry()`
+ * The folder over `open`, which is called now, and again on each retry
  * after a failure. `close` releases a client that opened once the folder is
  * disposed, even one that opens after; `reveal` shows the folder's place,
  * where it has one. A contract with a collection named like a lifecycle
@@ -221,7 +222,7 @@ export function createFolder<TContract extends Contract>(
 }
 
 /**
- * A folder over `client`, which is already open: ready at once, and its
+ * A folder over `client`, which is already open: open at once, and its
  * collections read and act as any folder's. Disposing it stops its
  * listings and closes nothing: the client is its opener's. What
  * `fromClient` from `@epicenter/svelte/client` makes of a client a remote
@@ -291,11 +292,22 @@ function folderOver<TContract extends Contract>(
 			if (disposed || attempt !== opening) return;
 			set(
 				opened.error === null
-					? { status: 'ready' }
-					: { status: 'failed', error: opened.error },
+					? { status: 'open' }
+					: { status: 'failed', error: opened.error, retry: retryFailure() },
 			);
 			for (const collection of collections.values()) collection.opened();
 		});
+	}
+
+	/** A failure's retry: it opens again only while that failure is the state. */
+	function retryFailure() {
+		const retry = () => {
+			if (disposed || state.status !== 'failed' || state.retry !== retry)
+				return;
+			set({ status: 'opening' });
+			start();
+		};
+		return retry;
 	}
 
 	const current = () => attempt;
@@ -320,16 +332,12 @@ function folderOver<TContract extends Contract>(
 				listeners.delete(listener);
 			};
 		},
-		retry() {
-			if (disposed || state.status !== 'failed') return;
-			set({ status: 'opening' });
-			start();
-		},
 		reveal,
 		displayPath,
 		[Symbol.dispose]() {
 			if (disposed) return;
 			disposed = true;
+			set({ status: 'closed' });
 			listeners.clear();
 			for (const collection of collections.values()) collection.stop();
 			void attempt.then((opened) => {
@@ -437,7 +445,7 @@ function folderCollection(
 		} finally {
 			listing = false;
 		}
-		// A failed open is tried again by `retry()`, not by the listing.
+		// A failed open is tried again by its state's `retry()`, not by the listing.
 		if (failures > 0 && listeners.size > 0 && error?.name === 'Unavailable')
 			retry = setTimeout(
 				() => void reload(),

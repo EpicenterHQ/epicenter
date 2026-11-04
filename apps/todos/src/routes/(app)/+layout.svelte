@@ -1,11 +1,11 @@
 <!--
-	Todos' root over its folder (ADR-0766): `<Opening>` shows a spinner while
+	Todos' root over its folder (ADR-0766): `<WhenOpen>` shows a spinner while
 	the folder opens, Recovery when it cannot, and the pages once it has. On
 	the web the folder is the signed-in person's repository, so a signed-out
 	page asks to sign in instead. The sign-in callback is outside this group.
 -->
 <script lang="ts">
-	import Opening from '@epicenter/svelte/opening';
+	import WhenOpen from '@epicenter/svelte/when-open';
 	import { trackReads } from '@epicenter/svelte/tracked';
 	import { account, folder } from '$lib/app.js';
 	import SignIn from '$lib/components/SignIn.svelte';
@@ -24,5 +24,5 @@
 {#if account && session?.state.status === 'signed-out'}
 	<SignIn {account} />
 {:else}
-	<Opening app="Todos" {folder}>{@render children()}</Opening>
+	<WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
 {/if}

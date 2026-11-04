@@ -173,9 +173,10 @@ An Epicenter capability that takes time to open, such as `openFolder(contract)`,
 takes neither shape whole
 ([ADR-0767](../../../../docs/adr/0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md)).
 It has no public ready promise. Its lifecycle is synchronous state
-(`state()`, `subscribe`, `retry()`), its reads answer at every moment
-(empty and loading while it opens), and its async methods wait for the open,
-as in idb. Only the root gate, `<Opening>`, reads `state()`. A `whenReady`
+(`state()` and `subscribe`, with `retry()` on the failed state), its reads
+answer at every moment (empty and loading while it opens), and its async
+methods wait for the open, as in idb. Only the root gate, `<WhenOpen>`,
+reads `state()`. A `whenReady`
 property fits only something with no actions to wait, as `document.fonts.ready`
 does.
 

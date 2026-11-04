@@ -7,8 +7,8 @@
  * and components read it directly: each collection gives tracked reads
  * (`items`, `invalid` for notes, `loading`, `error`, and `get(args)`) and
  * its writes, which pass the version shown, so a component never handles
- * one. The folder's own `state` tracks too, beside `retry()` and `reveal`,
- * so `<Opening {folder}>` takes the same value. A plain client
+ * one. The folder's own `state` tracks too, beside `reveal`,
+ * so `<WhenOpen {folder}>` takes the same value. A plain client
  * (`openDevice`, `openRemote`) adapts the same way, ready at once, without
  * the lifecycle.
  *
@@ -240,16 +240,14 @@ export type ReactiveClient<TContract extends Contract, TOpen = never> = {
 
 /**
  * An app's folder as Svelte state: its collections, and its lifecycle,
- * which only `<Opening>` reads (ADR-0767).
+ * which only `<WhenOpen>` reads (ADR-0767).
  */
 export type ReactiveFolder<TContract extends Contract> = ReactiveClient<
 	TContract,
 	OpenFolderError
 > & {
-	/** The folder's open attempt: opening, ready, or failed with why. */
+	/** Where the folder is in its life: opening, open, failed with why and a retry, or closed. */
 	readonly state: FolderState;
-	/** Open again after a failure; does nothing otherwise. */
-	retry(): void;
 	/** Show the folder's place in the file manager, where it has one. */
 	readonly reveal: FolderLifecycle['reveal'];
 	/** Where the folder is, to show a person, once it opened; null where it has no path. */
@@ -263,8 +261,8 @@ const adapters = new WeakMap<object, unknown>();
 const isFolder = (source: object): source is Folder<Contract> =>
 	'state' in source &&
 	typeof source.state === 'function' &&
-	'retry' in source &&
-	typeof source.retry === 'function';
+	'subscribe' in source &&
+	typeof source.subscribe === 'function';
 
 /**
  * Bridge a folder, or a contract's client, into Svelte's graph: the same
@@ -315,7 +313,6 @@ function lifecycleOf(folder: Folder<Contract>, collections: object) {
 				return folder.displayPath();
 			},
 		},
-		retry: { value: () => folder.retry() },
 		reveal: { value: folder.reveal },
 	});
 }
