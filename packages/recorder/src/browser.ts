@@ -11,10 +11,6 @@
  * for its path without the extension, so recovery in another tab leaves its
  * file alone whatever extension the browser's type gave it.
  *
- * `startPageRecording` holds the audio in the page instead and `stop`
- * answers it, for a page whose store is not in this browser (an online
- * variant writes it to the repository when it stops).
- *
  * AAC in MP4 is asked for first (`.m4a`), since a recording lands in folders
  * that native players open, then Opus in WebM (`.webm`). Never bare
  * `audio/mp4`, whose codec differs by engine. A browser that records neither
@@ -42,7 +38,6 @@ import {
 	type Recorder,
 	RecorderError,
 	type RecordingEndedReason,
-	type RecordingHandle,
 	type RecordingStart,
 	type RecoveredRecording,
 } from './recording.js';
@@ -73,21 +68,6 @@ function extensionOf(type: string): 'm4a' | 'webm' {
 		? 'm4a'
 		: 'webm';
 }
-
-/** A recording held in the page, finished: its audio, and how long it plays. */
-export type RecordedAudio = {
-	readonly bytes: Uint8Array;
-	/** From the type the browser produced. */
-	readonly extension: 'm4a' | 'webm';
-	readonly durationMs: number;
-};
-
-/** A recording held in the page: `stop` answers its audio. */
-export type PageRecording = RecordingHandle<RecordedAudio>;
-
-export type StartPageRecording = (
-	options?: RecordingStart,
-) => Promise<Result<PageRecording, RecorderError>>;
 
 /** How often the level is read while recording. */
 const LEVEL_INTERVAL_MS = 50;
@@ -455,44 +435,6 @@ const recover: Recorder['recover'] = async ({ folder, under, unnamed }) => {
 		}
 	}
 	return Ok({ recovered, unplaced: [] });
-};
-
-/**
- * Record from `input` (or the system default) in this tab; `stop` answers
- * the audio, and nothing is written.
- */
-export const startPageRecording: StartPageRecording = async (options = {}) => {
-	const pieces: Blob[] = [];
-	const opened = await openCapture(options, (piece) => pieces.push(piece));
-	if (opened.error !== null) return opened;
-	const capture = opened.data;
-	return Ok({
-		onEnded: capture.onEnded,
-		async stop() {
-			if (capture.isSettled())
-				return RecorderError.NotRecording({
-					reason: 'it was already stopped',
-				});
-			const finished = await capture.finish();
-			if (finished.error !== null) return finished;
-			// The produced type, not the requested one: read it from the data.
-			const type = pieces[0]?.type || capture.type;
-			const { data: buffer, error: readError } = await tryAsync({
-				try: () => new Blob(pieces).arrayBuffer(),
-				catch: (cause) => RecorderError.Failed({ cause }),
-			});
-			if (readError !== null) return Err(readError);
-			const bytes = new Uint8Array(buffer);
-			if (bytes.byteLength === 0) return RecorderError.Empty();
-			const extension = extensionOf(type);
-			return Ok({
-				bytes,
-				extension,
-				durationMs:
-					audioDurationMs(bytes, extension) ?? finished.data.durationMs,
-			});
-		},
-	});
 };
 
 /**

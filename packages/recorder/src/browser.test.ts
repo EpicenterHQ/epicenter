@@ -15,8 +15,8 @@
  * - Recovery cuts a file a closed tab left half-written back to its last
  *   whole piece, answers how long it plays, and leaves a recording another
  *   tab is writing alone
- * - A recording held in the page answers its audio at stop, named by the
- *   type the browser produced: AAC in MP4 (`m4a`), else Opus in WebM (`webm`)
+ * - The file is named by the type the browser produced: AAC in MP4 (`m4a`),
+ *   else Opus in WebM (`webm`)
  * - A chosen microphone that cannot be opened exactly is refused, never
  *   replaced, and anything opened is released
  * - Stop answers how long the written audio plays, read from its bytes,
@@ -44,7 +44,7 @@ const filesByFolder = new WeakMap<object, DeviceFiles>();
 mock.module('@epicenter/folder/browser', () => ({
 	filesOf: async (folder: object) => filesByFolder.get(folder) ?? null,
 }));
-const { recorder, startPageRecording } = await import('./browser.js');
+const { recorder } = await import('./browser.js');
 
 /** What every microphone request turns off: Safari's voice processing. */
 const UNPROCESSED = {
@@ -298,6 +298,18 @@ async function placedPath(recording: Recording) {
 	return expectOk(await recording.stop()).path;
 }
 
+/** Start recording at `recordings/a` in a browser set up with `options`. */
+function startIn(
+	options: Parameters<typeof browser>[0] = {},
+	start: {
+		input?: { deviceId: string; label: string };
+		signal?: AbortSignal;
+	} = {},
+) {
+	const { folder } = browser(options);
+	return recorder.start({ folder, path: 'recordings/a', ...start });
+}
+
 test('a recording is written into the store as it records, and heard made and finished', async () => {
 	const memory = memoryFiles();
 	const { folder, tick } = browser({
@@ -363,11 +375,6 @@ test('stop answers how long the written audio plays, not how long the clock ran'
 		durationMs: 1003,
 	});
 	expect(memory.held.get('recordings/a.m4a')).toEqual(audio);
-
-	const held = expectOk(await startPageRecording());
-	recorders.at(-1)!.piece(audio.slice(0, cuts[3]));
-	tick();
-	expect(expectOk(await held.stop()).durationMs).toBe(1003);
 });
 
 test('AAC in MP4 is recorded into <path>.m4a where the browser records it', async () => {
@@ -543,31 +550,6 @@ test('a recording holds its lock while it records, so recovery passes it by', as
 	expect(locks.held.size).toBe(0);
 });
 
-test('a recording held in the page answers its audio, as WebM where the browser records no AAC', async () => {
-	const { tick } = browser();
-	const recording = expectOk(await startPageRecording());
-
-	tick();
-	const stopped = expectOk(await recording.stop());
-	expect(stopped).toEqual({
-		bytes: new Uint8Array([1, 2, 3]),
-		extension: 'webm',
-		durationMs: 1_500,
-	});
-	expect(expectErr(await recording.stop()).name).toBe('NotRecording');
-});
-
-test('AAC in MP4 is asked for first, and held in the page as m4a', async () => {
-	browser({
-		Recorder: fakeRecorderClass(
-			() => new Uint8Array([4, 5]),
-			['audio/webm;codecs=opus', 'audio/mp4;codecs=mp4a.40.2'],
-		),
-	});
-	const recording = expectOk(await startPageRecording());
-	expect(expectOk(await recording.stop()).extension).toBe('m4a');
-});
-
 test('the file is named by the type the recorder reports, however it spells it', async () => {
 	for (const [reported, extension] of [
 		[' Video/MP4 ; codecs=mp4a.40.2', 'm4a'],
@@ -588,16 +570,6 @@ test('the file is named by the type the recorder reports, however it spells it',
 		);
 		expect(await placedPath(recording)).toBe(`recordings/a.${extension}`);
 		expect([...memory.held.keys()]).toEqual([`recordings/a.${extension}`]);
-
-		browser({
-			Recorder: fakeRecorderClass(
-				() => new Uint8Array([1]),
-				undefined,
-				reported,
-			),
-		});
-		const held = expectOk(await startPageRecording());
-		expect(expectOk(await held.stop()).extension).toBe(extension);
 	}
 });
 
@@ -644,26 +616,31 @@ test('a recording whose file takes a type it did not ask for still holds its loc
 
 test('a chosen microphone is asked for exactly, and refused rather than replaced', async () => {
 	const asked: MediaStreamConstraints[] = [];
-	browser({
-		async getUserMedia(constraints) {
-			asked.push(constraints);
-			throw Object.assign(new Error('gone'), {
-				name: 'OverconstrainedError',
-			});
-		},
-	});
 	const input = { deviceId: 'usb-1', label: 'USB Mic' };
-	const refused = expectErr(await startPageRecording({ input }));
+	const refused = expectErr(
+		await startIn(
+			{
+				async getUserMedia(constraints) {
+					asked.push(constraints);
+					throw Object.assign(new Error('gone'), {
+						name: 'OverconstrainedError',
+					});
+				},
+			},
+			{ input },
+		),
+	);
 	expect(refused).toMatchObject({ name: 'InputUnavailable', label: 'USB Mic' });
 	expect(asked).toEqual([
 		{ audio: { ...UNPROCESSED, deviceId: { exact: 'usb-1' } } },
 	]);
 
 	const other = fakeStream('built-in');
-	browser({ getUserMedia: async () => other.stream });
-	expect(expectErr(await startPageRecording({ input })).name).toBe(
-		'InputUnavailable',
-	);
+	expect(
+		expectErr(
+			await startIn({ getUserMedia: async () => other.stream }, { input }),
+		).name,
+	).toBe('InputUnavailable');
 	expect(other.track.stopped).toBe(true);
 });
 
@@ -674,12 +651,15 @@ test('refused access and a missing default microphone are refusals of their own,
 		['NotFoundError', 'NoInputDevice'],
 		['NotReadableError', 'Failed'],
 	] as const) {
-		browser({
-			async getUserMedia() {
-				throw Object.assign(new Error('no'), { name: thrown });
-			},
-		});
-		expect(expectErr(await startPageRecording()).name).toBe(expected);
+		expect(
+			expectErr(
+				await startIn({
+					async getUserMedia() {
+						throw Object.assign(new Error('no'), { name: thrown });
+					},
+				}),
+			).name,
+		).toBe(expected);
 		expect(expectErr(await recorder.allow()).name).toBe(expected);
 		expect(expectErr(await recorder.openMeter()).name).toBe(expected);
 	}
@@ -687,8 +667,9 @@ test('refused access and a missing default microphone are refusals of their own,
 
 test('stop releases the microphone, and a second stop is NotRecording', async () => {
 	const { stream, track } = fakeStream('default');
-	browser({ getUserMedia: async () => stream });
-	const recording = expectOk(await startPageRecording());
+	const recording = expectOk(
+		await startIn({ getUserMedia: async () => stream }),
+	);
 	await recording.stop();
 	expect(track.stopped).toBe(true);
 	expect(expectErr(await recording.stop()).name).toBe('NotRecording');
@@ -696,19 +677,22 @@ test('stop releases the microphone, and a second stop is NotRecording', async ()
 
 test('a start, a meter, or enabling withdrawn while the browser answers releases the late stream', async () => {
 	for (const request of [
-		(signal: AbortSignal) => startPageRecording({ signal }),
-		(signal: AbortSignal) => recorder.openMeter({ signal }),
-		(signal: AbortSignal) => recorder.allow({ signal }),
+		(folder: FolderLifecycle, signal: AbortSignal) =>
+			recorder.start({ folder, path: 'recordings/a', signal }),
+		(_: FolderLifecycle, signal: AbortSignal) => recorder.openMeter({ signal }),
+		(_: FolderLifecycle, signal: AbortSignal) => recorder.allow({ signal }),
 	]) {
 		const { stream, track } = fakeStream('default');
 		const controller = new AbortController();
-		browser({
+		const { folder } = browser({
 			async getUserMedia() {
 				controller.abort();
 				return stream;
 			},
 		});
-		expect(expectErr(await request(controller.signal)).name).toBe('Cancelled');
+		expect(expectErr(await request(folder, controller.signal)).name).toBe(
+			'Cancelled',
+		);
 		expect(track.stopped).toBe(true);
 	}
 });
@@ -743,15 +727,16 @@ test('an encoder that cannot be made, started, or stopped is a failure, and the 
 
 	// One that will not stop never says it stopped: Stop answers anyway.
 	const { stream, track } = fakeStream('default');
-	browser({
-		getUserMedia: async () => stream,
-		Recorder: class extends Base {
-			override stop(): void {
-				throw new Error('InvalidStateError');
-			}
-		},
-	});
-	const recording = expectOk(await startPageRecording());
+	const recording = expectOk(
+		await startIn({
+			getUserMedia: async () => stream,
+			Recorder: class extends Base {
+				override stop(): void {
+					throw new Error('InvalidStateError');
+				}
+			},
+		}),
+	);
 	expect(expectErr(await recording.stop()).name).toBe('Failed');
 	expect(track.stopped).toBe(true);
 });
@@ -763,20 +748,9 @@ test('audio the page cannot read is a failure, not a thrown stop, and the microp
 			throw unreadable;
 		}
 	}
-
-	// Held in the page: the whole recording is read at stop.
-	const held = fakeStream('default');
-	browser({ getUserMedia: async () => held.stream });
-	const recording = expectOk(await startPageRecording());
 	stub(globalThis, 'Blob', UnreadableBlob);
-	expect(expectErr(await recording.stop())).toMatchObject({
-		name: 'Failed',
-		cause: unreadable,
-	});
-	expect(held.track.stopped).toBe(true);
-	expect(expectErr(await recording.stop()).name).toBe('NotRecording');
 
-	// Written as it records: a piece that cannot be read ends it there.
+	// A piece that cannot be read ends the recording there.
 	const written = fakeStream('default');
 	const memory = memoryFiles();
 	const { folder } = browser({
@@ -800,16 +774,11 @@ test('audio the page cannot read is a failure, not a thrown stop, and the microp
 	expect(memory.held.size).toBe(0);
 });
 
-test('a recording held in the page that captured nothing is Empty', async () => {
-	browser({ Recorder: fakeRecorderClass(() => new Uint8Array()) });
-	const recording = expectOk(await startPageRecording());
-	expect(expectErr(await recording.stop()).name).toBe('Empty');
-});
-
 test('a lost microphone ends a recording', async () => {
 	const { stream, track } = fakeStream('default');
-	browser({ getUserMedia: async () => stream });
-	const recording = expectOk(await startPageRecording());
+	const recording = expectOk(
+		await startIn({ getUserMedia: async () => stream }),
+	);
 	const endings: string[] = [];
 	recording.onEnded((reason) => endings.push(reason));
 	track.end();
@@ -822,24 +791,34 @@ test('a window without a microphone, an encoder, or MP4 or WebM audio cannot rec
 		[navigator, 'mediaDevices'],
 		[globalThis, 'MediaRecorder'],
 	] as const) {
-		browser();
+		const { folder } = browser();
 		stub(target, key, undefined);
-		expect(expectErr(await startPageRecording()).name).toBe('Unavailable');
+		expect(
+			expectErr(await recorder.start({ folder, path: 'recordings/a' })).name,
+		).toBe('Unavailable');
 	}
-	browser({ Recorder: fakeRecorderClass(() => new Uint8Array([1]), []) });
-	expect(expectErr(await startPageRecording()).name).toBe('Unavailable');
+	expect(
+		expectErr(
+			await startIn({
+				Recorder: fakeRecorderClass(() => new Uint8Array([1]), []),
+			}),
+		).name,
+	).toBe('Unavailable');
 });
 
 test('an already-ended browser stream keeps its final bytes and reports the ending to a late subscriber', async () => {
 	const { stream, track } = fakeStream('default');
-	browser({ getUserMedia: async () => stream });
-	const recording = expectOk(await startPageRecording());
+	const memory = memoryFiles();
+	const recording = expectOk(
+		await startIn({ files: memory.files, getUserMedia: async () => stream }),
+	);
 	track.end();
 	await Promise.resolve();
 	const endings: string[] = [];
 	recording.onEnded((reason) => endings.push(reason));
 	expect(endings).toEqual(['deviceDisconnected']);
-	expect(expectOk(await recording.stop()).bytes).toEqual(
+	expect(await placedPath(recording)).toBe('recordings/a.webm');
+	expect(memory.held.get('recordings/a.webm')).toEqual(
 		new Uint8Array([1, 2, 3]),
 	);
 	const late: string[] = [];
@@ -850,8 +829,9 @@ test('an already-ended browser stream keeps its final bytes and reports the endi
 
 test('an ending reaches every listener when the first listener stops the browser recorder', async () => {
 	const { stream, track } = fakeStream('default');
-	browser({ getUserMedia: async () => stream });
-	const recording = expectOk(await startPageRecording());
+	const recording = expectOk(
+		await startIn({ getUserMedia: async () => stream }),
+	);
 	let stopping: ReturnType<typeof recording.stop> | undefined;
 	const endings: string[] = [];
 	recording.onEnded(() => {
