@@ -5,7 +5,7 @@
  * embeddings.
  */
 
-export { customEndpoints, modelChoices } from '#device-settings';
+export { customEndpoints } from '#device-settings';
 export type { ModelChoices } from './choices.js';
 export {
 	AiError,
@@ -35,6 +35,7 @@ export {
 } from './endpoint.js';
 export { hosted, type LiveAccount } from './hosted.js';
 export { localServers } from './local-servers.js';
+export { modelChoices } from './model-choices.js';
 export {
 	type Ai,
 	type EndpointEntry,

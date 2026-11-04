@@ -448,7 +448,7 @@
       "dependencies": {
         "@epicenter/account": "workspace:*",
         "@epicenter/definition": "workspace:*",
-        "@epicenter/folder": "workspace:*",
+        "@epicenter/local": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
@@ -458,6 +458,7 @@
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
+        "@epicenter/folder": "workspace:*",
         "@types/bun": "catalog:",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
@@ -531,6 +532,18 @@
         "playwright": "^1.61.1",
         "typescript": "catalog:",
         "vite": "catalog:",
+      },
+    },
+    "packages/local": {
+      "name": "@epicenter/local",
+      "version": "0.0.1",
+      "dependencies": {
+        "@tauri-apps/api": "catalog:",
+        "wellcrafted": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
       },
     },
     "packages/recorder": {
@@ -938,6 +951,8 @@
     "@epicenter/honeycrisp": ["@epicenter/honeycrisp@workspace:apps/honeycrisp"],
 
     "@epicenter/landing": ["@epicenter/landing@workspace:apps/landing"],
+
+    "@epicenter/local": ["@epicenter/local@workspace:packages/local"],
 
     "@epicenter/local-books": ["@epicenter/local-books@workspace:apps/local-books"],
 

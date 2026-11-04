@@ -23,7 +23,7 @@
 	"dependencies": {
 		"@epicenter/account": "workspace:*",
 		"@epicenter/definition": "workspace:*",
-		"@epicenter/folder": "workspace:*",
+		"@epicenter/local": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
@@ -33,6 +33,7 @@
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
+		"@epicenter/folder": "workspace:*",
 		"@types/bun": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
@@ -40,6 +41,6 @@
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json",
-		"test": "bun test --isolate --conditions=browser"
+		"test": "bun test --isolate --conditions=browser --conditions=test"
 	}
 }

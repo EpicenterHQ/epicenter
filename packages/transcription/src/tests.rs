@@ -76,10 +76,10 @@ fn state(app: &App<MockRuntime>) -> tauri::State<'_, PluginState<MockRuntime>> {
 }
 
 #[test]
-fn settings_live_in_the_app_s_own_local_data_and_the_cache_is_lazy() {
+fn settings_live_in_the_app_s_app_data_and_the_cache_is_lazy() {
     let fixture = fixture();
     let app = &fixture.app;
-    let own = app.path().app_local_data_dir().unwrap();
+    let own = app.path().app_data_dir().unwrap();
     assert!(own.ends_with(IDENTIFIER), "{}", own.display());
     assert_eq!(state(app).settings_path, own.join(SETTINGS_FILE));
     assert!(state(app).cache.lock().unwrap().is_none());

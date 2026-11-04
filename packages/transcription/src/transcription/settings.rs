@@ -2,7 +2,7 @@
 //! **active**, and when to drop it from memory.
 //!
 //! Each app that installs the plugin owns one active model and unload policy,
-//! stored in its own local data directory. Its model settings administer them.
+//! stored at the top of its AppData root. Its model settings administer them.
 //! Explicit inference names a recorded catalog model but never changes the
 //! active choice.
 //!
