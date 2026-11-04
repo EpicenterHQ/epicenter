@@ -382,7 +382,20 @@ dependency.
 
 ### 1. The core's first commits
 
-In `epicenter-core`, each closing an item of ADR-0751's `Unbuilt` line:
+In `epicenter-core`, each closing an item of ADR-0751's `Unbuilt` line.
+
+**Built (2026-11-04, branch `claude/sync-core`, merged into phase 2):**
+steps 1 to 3 and 5, plus the lock half of step 4, as
+`packages/epicenter-core` (commits `41b002da22` to `3450eb30ec`): ureq with
+rustls sharing one connection pool for Git and LFS, the token sent only to
+the remote's origin; `fcntl` locks on the bytes SQLite locks, so the core and
+the CLI exclude each other; repacking above 8 packs or 256 loose objects; the
+`filter.lfs.*` settings without paths; an async Node-API binding (2.54 MiB)
+with `settle` passed in from TypeScript. Remaining here: the working-tree
+recheck, paths and renames (step 6), and `settle` in Rust (step 7). Known
+limits: a redirecting remote stops the round as refused, because the token is
+not resent after a redirect; certificates are verified against Mozilla's
+roots, not the system's.
 
 1. **Transport.** A Rust smart-HTTP transport registered with libgit2 in
    place of its HTTPS: one TLS stack, no OpenSSL (5.5 MiB to 2.5 MiB for the
