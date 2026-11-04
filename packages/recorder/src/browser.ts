@@ -392,14 +392,17 @@ const start: Recorder['start'] = async ({ device, path, input, signal }) => {
 };
 
 /**
- * Repair the recordings under `under` in `device` that a closed tab cut
- * off: cut each `m4a` and `webm` recording directly under it back to its
- * last whole piece, skipping any a tab is still writing, and answer every
- * one no tab is writing, repaired or already whole, with how long it
+ * Repair the recordings of `unnamed` under `under` in `device` that a closed
+ * tab cut off: cut each `m4a` and `webm` recording directly under it back
+ * to its last whole piece, skipping any a tab is still writing, and answer
+ * every one no tab is writing, repaired or already whole, with how long it
  * plays: an app tells a cut-off recording from one still recording in
- * another tab only by this answer.
+ * another tab only by this answer. A recording the app already keeps a
+ * record of is whole, so only `unnamed` is read.
  */
-const recover: Recorder['recover'] = async ({ device, under }) => {
+const recover: Recorder['recover'] = async ({ device, under, unnamed }) => {
+	if (unnamed.length === 0) return Ok({ recovered: [], unplaced: [] });
+	const asked = new Set(unnamed);
 	const files = deviceFiles(device);
 	const listed = await files.list();
 	if (listed.error !== null)
@@ -408,6 +411,7 @@ const recover: Recorder['recover'] = async ({ device, under }) => {
 	for (const { path } of listed.data) {
 		const name = path.slice(under.length + 1);
 		if (!path.startsWith(`${under}/`) || name.includes('/')) continue;
+		if (!asked.has(path)) continue;
 		const ext = name.slice(name.lastIndexOf('.') + 1);
 		if (ext !== 'm4a' && ext !== 'webm') continue;
 		const releaseLock = await hold(lockOf(path.slice(0, -ext.length - 1)));
@@ -588,5 +592,4 @@ export const recorder = {
 	openMeter,
 	allow,
 	onInputsChange,
-	placesWhole: false,
 } satisfies Recorder;

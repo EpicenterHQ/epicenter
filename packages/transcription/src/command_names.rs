@@ -8,7 +8,6 @@ pub const COMMANDS: &[&str] = &[
     "get_unload_policy",
     "set_unload_policy",
     "list_inference_models",
-    "transcribe_file",
     "transcribe_audio",
     "load_model",
     "unload_model",

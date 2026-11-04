@@ -439,18 +439,6 @@
           "markdownDescription": "Denies the transcribe_audio command without any pre-configured scope."
         },
         {
-          "description": "Enables the transcribe_file command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-transcribe-file",
-          "markdownDescription": "Enables the transcribe_file command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the transcribe_file command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-transcribe-file",
-          "markdownDescription": "Denies the transcribe_file command without any pre-configured scope."
-        },
-        {
           "description": "Enables the unload_model command without any pre-configured scope.",
           "type": "string",
           "const": "allow-unload-model",

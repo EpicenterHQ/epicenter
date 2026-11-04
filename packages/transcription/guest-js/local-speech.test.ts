@@ -9,10 +9,8 @@ type Call = { command: string; args?: Record<string, unknown> };
 const calls: Call[] = [];
 let installed = ['whisper-tiny'];
 let replies: Record<string, (args?: Record<string, unknown>) => unknown> = {};
-let desktop = true;
 
 mock.module('@tauri-apps/api/core', () => ({
-	isTauri: () => desktop,
 	invoke: async (command: string, args?: Record<string, unknown>) => {
 		calls.push({ command, args });
 		const name = command.replace('plugin:epicenter-transcription|', '');
@@ -27,6 +25,7 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 const { localSpeech } = await import('./local-speech.js');
+const web = await import('./local-speech.web.js');
 
 function reset() {
 	calls.length = 0;
@@ -34,15 +33,17 @@ function reset() {
 	replies = {};
 }
 
-function form(fields: Record<string, string>) {
+/** A transcription request: its fields, and the audio as `file` unless `audio` is false. */
+function form(fields: Record<string, string>, { audio = true } = {}) {
 	const body = new FormData();
 	for (const [name, value] of Object.entries(fields)) body.set(name, value);
+	if (audio) body.set('file', new File([new Uint8Array([1])], 'a.webm'));
 	return { method: 'POST', body };
 }
 
 test('lists installed models when first subscribed, as transcription models', async () => {
 	reset();
-	const speech = localSpeech()!;
+	const speech = localSpeech();
 	expect(speech.models()).toEqual([]);
 	let told = 0;
 	speech.subscribe?.(() => told++);
@@ -57,53 +58,28 @@ test('lists installed models when first subscribed, as transcription models', as
 	});
 });
 
-test('transcribes the file at a path in the data folder through transcribe_file', async () => {
-	reset();
-	replies.transcribe_file = () => ({
-		outcome: 'transcribed',
-		text: 'hello',
-		modelId: 'whisper-tiny',
-		applied: { language: 'en', initialPrompt: false },
-	});
-	const response = await localSpeech()!.fetch(
-		'audio/transcriptions',
-		form({ model: 'whisper-tiny', path: 'recordings/a.webm', language: 'en' }),
-	);
-	expect(response.status).toBe(200);
-	expect(await response.json()).toEqual({ text: 'hello' });
-	expect(calls.at(-1)).toEqual({
-		command: 'plugin:epicenter-transcription|transcribe_file',
-		args: {
-			modelId: 'whisper-tiny',
-			root: 'Data',
-			path: 'recordings/a.webm',
-			hints: { language: 'en', initialPrompt: null },
-		},
-	});
-});
-
 test('empty audio transcribes to empty text', async () => {
 	reset();
-	replies.transcribe_file = () => ({ outcome: 'empty-audio' });
-	const response = await localSpeech()!.fetch(
+	replies.transcribe_audio = () => ({ outcome: 'empty-audio' });
+	const response = await localSpeech().fetch(
 		'audio/transcriptions',
-		form({ model: 'whisper-tiny', path: 'a.wav' }),
+		form({ model: 'whisper-tiny' }),
 	);
 	expect(await response.json()).toEqual({ text: '' });
 });
 
 test('a plugin refusal answers as an OpenAI error with its name as the code', async () => {
 	reset();
-	replies.transcribe_file = () => {
+	replies.transcribe_audio = () => {
 		throw {
 			name: 'LocalRouteUnavailable',
 			reason: 'active-model-unavailable',
 			message: 'Native transcription model is not installed: whisper-large',
 		};
 	};
-	const response = await localSpeech()!.fetch(
+	const response = await localSpeech().fetch(
 		'audio/transcriptions',
-		form({ model: 'whisper-large', path: 'a.wav' }),
+		form({ model: 'whisper-large' }),
 	);
 	expect(response.status).toBe(404);
 	expect(await response.json()).toEqual({
@@ -126,7 +102,7 @@ test('an uploaded file is transcribed through transcribe_audio, as its bytes', a
 	body.set('model', 'whisper-tiny');
 	body.set('prompt', 'Vocab');
 	body.set('file', new File([new Uint8Array([0, 1, 254, 255])], 'a.webm'));
-	const response = await localSpeech()!.fetch('audio/transcriptions', {
+	const response = await localSpeech().fetch('audio/transcriptions', {
 		method: 'POST',
 		body,
 	});
@@ -142,17 +118,20 @@ test('an uploaded file is transcribed through transcribe_audio, as its bytes', a
 	});
 });
 
-test('a request with neither audio nor a path is refused before any command runs', async () => {
+test('a request with no audio, or one naming a path, is refused before any command runs', async () => {
 	reset();
-	const response = await localSpeech()!.fetch(
+	const response = await localSpeech().fetch(
 		'audio/transcriptions',
-		form({ model: 'whisper-tiny' }),
+		form(
+			{ model: 'whisper-tiny', path: 'recordings/a.webm' },
+			{ audio: false },
+		),
 	);
 	expect(response.status).toBe(400);
 	expect((await response.json()).error.code).toBe('file-required');
 	expect(calls).toEqual([]);
 	expect(
-		(await localSpeech()!.fetch('chat/completions', { method: 'POST' })).status,
+		(await localSpeech().fetch('chat/completions', { method: 'POST' })).status,
 	).toBe(404);
 });
 
@@ -163,7 +142,7 @@ test('download fetches through download_model, then lists the new model', async 
 		installed = ['whisper-small'];
 		return null;
 	};
-	const speech = localSpeech()!;
+	const speech = localSpeech();
 	let told = 0;
 	speech.subscribe?.(() => told++);
 	await Bun.sleep(0);
@@ -185,7 +164,7 @@ test('remove deletes through remove_model, then lists the model no longer', asyn
 		installed = [];
 		return null;
 	};
-	const speech = localSpeech()!;
+	const speech = localSpeech();
 	let told = 0;
 	speech.subscribe?.(() => told++);
 	await Bun.sleep(0);
@@ -208,7 +187,7 @@ test('load and unload name the model to the plugin', async () => {
 	reset();
 	replies.load_model = () => null;
 	replies.unload_model = () => null;
-	const speech = localSpeech()!;
+	const speech = localSpeech();
 	await speech.load('whisper-tiny');
 	await speech.unload('whisper-tiny');
 	expect(calls.map(({ command, args }) => [command, args])).toEqual([
@@ -220,11 +199,32 @@ test('load and unload name the model to the plugin', async () => {
 	]);
 });
 
-test('outside the desktop app there is no local speech', () => {
-	desktop = false;
-	try {
-		expect(localSpeech()).toBeNull();
-	} finally {
-		desktop = true;
-	}
+test('the catalog, a folder, and the unload policy go to their commands', async () => {
+	reset();
+	const catalog = [{ id: 'whisper-tiny', downloaded: true }];
+	replies.list_models = () => catalog;
+	replies.reveal_model = () => null;
+	replies.get_unload_policy = () => 'never';
+	replies.set_unload_policy = () => null;
+	const speech = localSpeech();
+	expect(await speech.catalog()).toEqual(catalog as never);
+	await speech.reveal('whisper-tiny');
+	expect(await speech.unloadPolicy()).toBe('never');
+	await speech.setUnloadPolicy('immediately');
+	expect(calls.map(({ command, args }) => [command, args])).toEqual([
+		['plugin:epicenter-transcription|list_models', undefined],
+		[
+			'plugin:epicenter-transcription|reveal_model',
+			{ modelId: 'whisper-tiny' },
+		],
+		['plugin:epicenter-transcription|get_unload_policy', undefined],
+		[
+			'plugin:epicenter-transcription|set_unload_policy',
+			{ policy: 'immediately' },
+		],
+	]);
+});
+
+test('a browser build has no local speech', () => {
+	expect(web.localSpeech()).toBeNull();
 });

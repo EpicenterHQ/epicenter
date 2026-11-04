@@ -186,7 +186,7 @@ export function openAi(entries: readonly EndpointEntry[]) {
 		) {
 			const client = clientFor(endpoint);
 			if (!client) return Promise.resolve(AiError.NoEndpoint({ endpoint }));
-			return client.transcribe(request as TranscriptionRequest, options);
+			return client.transcribe(request, options);
 		},
 		/** Embed at the named endpoint. */
 		embed(

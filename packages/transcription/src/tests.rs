@@ -1,33 +1,26 @@
 //! The plugin driven through the mock runtime: where settings live, lazy
-//! cache creation, and what `transcribe_file` refuses before any model runs.
+//! cache creation, and what the commands refuse before any model runs.
 
 use super::*;
 use serde_json::{json, Value};
-use std::path::PathBuf;
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
 use tauri::utils::acl::ExecutionContext;
 use tauri::webview::InvokeRequest;
 use tauri::{App, WebviewWindow, WebviewWindowBuilder};
-use tauri_plugin_epicenter_folder::{Root, RootsExt};
 
 const IDENTIFIER: &str = "so.epicenter.transcription-plugin-test";
 
-/// The mock context, allowing every command of both plugins when `allow`.
+/// The mock context, allowing every command of the plugin when `allow`.
 fn context(allow: bool) -> tauri::Context<MockRuntime> {
     let mut context = mock_context(noop_assets());
     context.config_mut().identifier = IDENTIFIER.into();
     if allow {
-        for (plugin, commands) in [
-            ("epicenter-transcription", COMMANDS),
-            ("epicenter-folder", tauri_plugin_epicenter_folder::COMMANDS),
-        ] {
-            for command in commands {
-                context.runtime_authority_mut().__allow_command(
-                    format!("plugin:{plugin}|{command}"),
-                    ExecutionContext::Local,
-                );
-            }
+        for command in COMMANDS {
+            context.runtime_authority_mut().__allow_command(
+                format!("plugin:epicenter-transcription|{command}"),
+                ExecutionContext::Local,
+            );
         }
     }
     context
@@ -35,29 +28,15 @@ fn context(allow: bool) -> tauri::Context<MockRuntime> {
 
 struct Fixture {
     app: App<MockRuntime>,
-    root: PathBuf,
-    _directory: tempfile::TempDir,
 }
 
-/// An app with both plugins and its data root named at `notes` and opened,
-/// as a shell names it and its page opens it.
+/// An app with the plugin installed.
 fn fixture_with(allow: bool) -> Fixture {
-    let directory = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(directory.path())
-        .unwrap()
-        .join("notes");
     let app = mock_builder()
-        .plugin(tauri_plugin_epicenter_folder::init())
         .plugin(init())
         .build(context(allow))
         .expect("mock app");
-    app.roots().name(Root::Data, root.clone(), |_| None);
-    app.roots().open(Root::Data).unwrap();
-    Fixture {
-        app,
-        root,
-        _directory: directory,
-    }
+    Fixture { app }
 }
 
 fn fixture() -> Fixture {
@@ -86,31 +65,6 @@ fn invoke(window: &WebviewWindow<MockRuntime>, command: &str, args: Value) -> Re
         },
     )
     .map(|body| body.deserialize::<Value>().expect("a JSON response"))
-}
-
-/// `transcribe_file` in the data root, as its page names it.
-fn transcribe(
-    window: &WebviewWindow<MockRuntime>,
-    model_id: &str,
-    path: &str,
-) -> Result<Value, Value> {
-    invoke(
-        window,
-        "transcribe_file",
-        json!({ "modelId": model_id, "root": "Data", "path": path, "hints": {} }),
-    )
-}
-
-fn transcribe_in(
-    window: &WebviewWindow<MockRuntime>,
-    root: Value,
-    path: &str,
-) -> Result<Value, Value> {
-    invoke(
-        window,
-        "transcribe_file",
-        json!({ "modelId": "unknown-model", "root": root, "path": path, "hints": {} }),
-    )
 }
 
 fn name(refusal: &Value) -> &str {
@@ -165,102 +119,15 @@ fn the_accessor_reports_a_missing_plugin() {
 }
 
 #[test]
-fn transcribe_file_reaches_only_a_root_the_page_opened() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
-    std::fs::write(fixture.root.join("recordings/a.wav"), b"not audio").unwrap();
-
-    // The data root, named by name, is reached: the unknown model is what
-    // refuses.
-    let refused = transcribe_in(&main, json!("Data"), "recordings/a.wav").unwrap_err();
-    assert_eq!(name(&refused), "LocalRouteUnavailable", "{refused}");
-
-    // A root the page never opened is refused before its file is looked at,
-    // and an absolute path names no root.
-    let refused = transcribe_in(&main, json!("AppData"), "recordings/a.wav").unwrap_err();
-    assert_eq!(name(&refused), "FolderUnavailable", "{refused}");
-    assert!(transcribe_in(&main, json!(fixture.root), "recordings/a.wav").is_err());
-
-    // Shutdown refuses the open root too.
-    fixture.app.roots().shutdown();
-    let refused = transcribe(&main, "unknown-model", "recordings/a.wav").unwrap_err();
-    assert_eq!(name(&refused), "FolderUnavailable", "{refused}");
-}
-
-#[test]
-fn transcribe_file_refuses_a_path_the_path_rule_refuses() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    std::fs::write(fixture.root.parent().unwrap().join("outside.wav"), b"x").unwrap();
-    for path in [
-        "../outside.wav",
-        "/absolute.wav",
-        ".git/config",
-        "recordings/HEAD/a.wav",
-        "recordings//a.wav",
-        "recordings/./a.wav",
-        "recordings/a:b.wav",
-        "",
-    ] {
-        let refused = transcribe(&main, "unknown-model", path).unwrap_err();
-        assert_eq!(name(&refused), "PathRefused", "{path:?}: {refused}");
-    }
-}
-
-#[cfg(unix)]
-#[test]
-fn transcribe_file_never_reads_through_a_link() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    let outside = fixture.root.parent().unwrap().join("outside");
-    std::fs::create_dir_all(&outside).unwrap();
-    std::fs::write(outside.join("a.wav"), b"x").unwrap();
-    std::os::unix::fs::symlink(&outside, fixture.root.join("recordings")).unwrap();
-    std::os::unix::fs::symlink(outside.join("a.wav"), fixture.root.join("b.wav")).unwrap();
-    for path in ["recordings/a.wav", "b.wav"] {
-        let refused = transcribe(&main, "unknown-model", path).unwrap_err();
-        assert_eq!(name(&refused), "PathRefused", "{path}: {refused}");
-    }
-}
-
-#[test]
-fn transcribe_file_refuses_a_missing_file_or_a_directory() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    std::fs::create_dir_all(fixture.root.join("recordings/a.wav")).unwrap();
-    for path in ["recordings/missing.wav", "recordings/a.wav", "absent/a.wav"] {
-        let refused = transcribe(&main, "unknown-model", path).unwrap_err();
-        assert_eq!(name(&refused), "FileMissing", "{path}: {refused}");
-    }
-}
-
-#[test]
-fn an_unknown_model_is_refused_before_the_file_is_decoded() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
-    // Decoding these bytes would answer AudioReadError.
-    std::fs::write(fixture.root.join("recordings/a.wav"), b"not audio").unwrap();
-    let refused = transcribe(&main, "unknown-model", "recordings/a.wav").unwrap_err();
-    assert_eq!(name(&refused), "LocalRouteUnavailable", "{refused}");
-    assert_eq!(refused["reason"], json!("active-model-unavailable"));
-    assert!(
-        refused["message"]
-            .as_str()
-            .unwrap()
-            .contains("unknown-model"),
-        "{refused}"
-    );
-}
-
-#[test]
 fn a_window_without_the_permission_cannot_transcribe() {
     let fixture = fixture_with(false);
     let main = window(&fixture.app, "main");
-    std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
-    std::fs::write(fixture.root.join("recordings/a.wav"), b"not audio").unwrap();
-    let refused = transcribe(&main, "unknown-model", "recordings/a.wav").unwrap_err();
+    let refused = invoke(
+        &main,
+        "transcribe_audio",
+        json!({ "modelId": "unknown-model", "audio": "bm90IGF1ZGlv", "hints": {} }),
+    )
+    .unwrap_err();
     assert!(refused.to_string().contains("not allowed"), "{refused}");
 }
 

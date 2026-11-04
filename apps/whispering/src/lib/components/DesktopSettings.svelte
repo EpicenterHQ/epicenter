@@ -13,10 +13,27 @@
 	import { Input } from '@epicenter/ui/input';
 	import { Label } from '@epicenter/ui/label';
 	import { Separator } from '@epicenter/ui/separator';
+	import { getLocalSpeech } from '../platform/services.tauri.js';
 	import { acceleratorOf, getGlobalShortcut, labelOf } from '../platform/shortcut.tauri.svelte.js';
+	import { getWhispering } from '../whispering.svelte.js';
 
 	const sync = getFolderSync();
 	const shortcut = getGlobalShortcut();
+	const whispering = getWhispering();
+
+	/** The models on this computer: the same handle Whispering's models merge, so a download lists at once. */
+	const speech = getLocalSpeech();
+	/** The local model in use is Whispering's transcription choice, when it names one here. */
+	const choice = {
+		chosen() {
+			const chosen = whispering.choice('transcription');
+			return speech && chosen?.endpoint === speech.id ? chosen.model : null;
+		},
+		choose: (model: string) =>
+			speech
+				? whispering.choose('transcription', { endpoint: speech.id, model })
+				: Promise.resolve('Nothing transcribes on this computer here.'),
+	};
 
 	/** The keys the person pressed and has not saved; none shows the shortcut as resolved. */
 	let typed = $state<string>();
@@ -71,9 +88,9 @@
 <section class="flex flex-col gap-2 text-xs" data-testid="desktop-models">
 	<p class="text-sm font-medium">On this computer</p>
 	<p class="text-muted-foreground">
-		Transcribe without sending audio anywhere: download a model here, then choose it for Transcription below, where it is listed under On this computer.
+		Transcribe without sending audio anywhere: download a model here and use it for Transcription, or choose it below, where it is listed under On this computer.
 	</p>
-	<LocalModelAdministration />
+	{#if speech}<LocalModelAdministration {speech} {choice} />{/if}
 </section>
 <Separator />
 <section class="flex flex-col gap-2 text-xs" data-testid="desktop-shortcut">

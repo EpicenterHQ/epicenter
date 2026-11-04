@@ -232,27 +232,6 @@ impl ModelCache {
         })
     }
 
-    /// File inference resolves the requested catalog identity without changing
-    /// dictation settings. An unknown or uninstalled model is refused before
-    /// `audio` is read or decoded.
-    pub fn transcribe_explicit(
-        &self,
-        model_id: String,
-        audio: &Path,
-        hints: TranscriptionHints,
-    ) -> Result<TranscriptionOutcome, TranscriptionError> {
-        let model = self.resolve_explicit(model_id)?;
-        let bytes = std::fs::read(audio).map_err(|error| match error.kind() {
-            std::io::ErrorKind::NotFound => TranscriptionError::FileMissing {
-                message: format!("Nothing is at {}.", audio.display()),
-            },
-            _ => TranscriptionError::AudioReadError {
-                message: format!("{}: {error}", audio.display()),
-            },
-        })?;
-        self.transcribe_resolved(model, &bytes, hints)
-    }
-
     /// Inference over audio the caller already holds (an upload), with the
     /// requested catalog model and without changing dictation settings. An
     /// unknown or uninstalled model is refused before `audio` is decoded.
@@ -736,16 +715,16 @@ mod tests {
     }
 
     #[test]
-    fn unknown_explicit_model_is_refused_before_audio_is_read() {
+    fn unknown_explicit_model_is_refused_before_audio_is_decoded() {
         let directory = tempfile::tempdir().unwrap();
         let cache = ModelCache::new(LocalTranscriptionSettings::load(
             directory.path().join("local-transcription.json"),
         ));
-        // The audio file does not exist: reading it would answer FileMissing.
+        // Decoding these bytes would answer AudioReadError.
         assert!(matches!(
-            cache.transcribe_explicit(
+            cache.transcribe_bytes(
                 "unknown-recorded-model".into(),
-                &directory.path().join("missing.wav"),
+                b"not audio",
                 TranscriptionHints::default(),
             ),
             Err(TranscriptionError::LocalRouteUnavailable {
@@ -1006,13 +985,11 @@ mod explicit_inference_evidence {
 
     #[test]
     #[ignore = "requires EPICENTER_NATIVE_AUDIO and the already cached Whisper Tiny model; never downloads"]
-    fn cached_model_transcribes_a_file_without_active_settings() {
-        let audio = PathBuf::from(std::env::var("EPICENTER_NATIVE_AUDIO").expect("fixture path"));
-        let scratch = tempfile::tempdir().unwrap();
-        let invalid = scratch.path().join("invalid.wav");
-        std::fs::write(&invalid, b"invalid audio").unwrap();
-        let empty = scratch.path().join("empty.wav");
-        std::fs::write(&empty, b"").unwrap();
+    fn cached_model_transcribes_uploaded_audio_without_active_settings() {
+        let audio = std::fs::read(std::env::var("EPICENTER_NATIVE_AUDIO").expect("fixture path"))
+            .expect("fixture audio");
+        let invalid: &[u8] = b"invalid audio";
+        let empty: &[u8] = b"";
         let path = std::env::temp_dir().join(format!(
             "epicenter-native-evidence-{}.json",
             std::process::id()
@@ -1022,14 +999,14 @@ mod explicit_inference_evidence {
         let id = "handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf";
         assert!(cache.settings().active_model_id().is_none());
         assert!(cache
-            .transcribe_explicit("unknown".into(), &audio, TranscriptionHints::default())
+            .transcribe_bytes("unknown".into(), &audio, TranscriptionHints::default())
             .is_err());
         assert!(cache
-            .transcribe_explicit(id.into(), &invalid, TranscriptionHints::default())
+            .transcribe_bytes(id.into(), invalid, TranscriptionHints::default())
             .is_err());
         assert_eq!(
             cache
-                .transcribe_explicit(id.into(), &empty, TranscriptionHints::default())
+                .transcribe_bytes(id.into(), empty, TranscriptionHints::default())
                 .expect("empty audio succeeds"),
             TranscriptionOutcome::EmptyAudio
         );
@@ -1038,7 +1015,7 @@ mod explicit_inference_evidence {
             "empty audio loads no model"
         );
         let outcome = cache
-            .transcribe_explicit(
+            .transcribe_bytes(
                 id.into(),
                 &audio,
                 TranscriptionHints {

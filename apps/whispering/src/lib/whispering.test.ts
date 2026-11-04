@@ -193,7 +193,10 @@ test('a recording whose audio the files do not take leaves no note behind', asyn
 /** A capture that answers every audio file no note names as whole, as the desktop's does. */
 const namesUnnamed = async (unnamed: readonly string[]) =>
 	Ok({
-		whole: unnamed.map((id) => ({ id, durationMs: null })),
+		whole: unnamed.map((path) => ({
+			id: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
+			durationMs: null,
+		})),
 		unplaced: [],
 	});
 

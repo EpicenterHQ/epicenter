@@ -75,7 +75,10 @@ const desktopPackages = [
 	'ai/src/tauri.ts',
 	'transcription/guest-js/local-speech.ts',
 	'transcription/guest-js/bindings.gen.ts',
+	'ai/src/device-settings.tauri.ts',
 ];
+/** What only the web build may carry from the shared packages: the leaves the `tauri` condition replaces. */
+const webPackages = ['ai/src/device-settings.ts'];
 
 test(
 	'the web build carries the local variant and nothing of the desktop',
@@ -86,6 +89,8 @@ test(
 		for (const name of desktopLeaves)
 			expect(modules.some(leaf(name)), name).toBe(false);
 		expect(modules.some(packageModule('folder/src/browser.ts'))).toBe(true);
+		for (const name of webPackages)
+			expect(modules.some(packageModule(name)), name).toBe(true);
 		for (const name of desktopPackages)
 			expect(modules.some(packageModule(name)), name).toBe(false);
 	},
@@ -102,6 +107,11 @@ test(
 			expect(modules.some(leaf(name)), name).toBe(false);
 		for (const name of desktopPackages)
 			expect(modules.some(packageModule(name)), name).toBe(true);
+		for (const name of [
+			...webPackages,
+			'transcription/guest-js/local-speech.web.ts',
+		])
+			expect(modules.some(packageModule(name)), name).toBe(false);
 		expect(modules.some(packageModule('folder/src/browser.ts'))).toBe(false);
 	},
 	BUNDLE_TIMEOUT,

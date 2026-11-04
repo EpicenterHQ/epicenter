@@ -144,8 +144,7 @@ mod tests {
             "epicenter-transcription:allow-list-models",
             "epicenter-transcription:allow-download-model",
             "epicenter-transcription:allow-reveal-model",
-            "epicenter-transcription:allow-get-active-model",
-            "epicenter-transcription:allow-set-active-model",
+            "epicenter-transcription:allow-remove-model",
             "epicenter-transcription:allow-get-unload-policy",
             "epicenter-transcription:allow-set-unload-policy",
         ]

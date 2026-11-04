@@ -12,8 +12,8 @@
 //! every transcript name it. It is not a coordinate; the `@main` in shipped ids
 //! predates pinning and no longer says what is downloaded. The app's model
 //! settings name it when they administer models, and the app stores the
-//! active dictation choice. Explicit file inference lists cached IDs and passes
-//! the selected ID to `transcribe_file`; `ModelCache::prewarm` and
+//! active dictation choice. Explicit inference lists cached IDs and passes
+//! the selected ID to `transcribe_audio`; `ModelCache::prewarm` and
 //! `ModelCache::transcribe` resolve the active choice. An unknown ID is refused
 //! rather than parsed. (Custom drop-in GGUF is a later earned feature, not a
 //! compatibility path.)

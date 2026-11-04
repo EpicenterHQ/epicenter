@@ -104,7 +104,6 @@ const dataFolder = {} as Client<Whispering>;
 const started: unknown[] = [];
 mock.module('@epicenter/recorder/tauri', () => ({
 	recorder: {
-		placesWhole: true,
 		listInputs: async () =>
 			Ok({ inputs: [{ deviceId: 'coreaudio:usb', label: 'USB' }] }),
 		openMeter: async () => {
@@ -118,12 +117,23 @@ mock.module('@epicenter/recorder/tauri', () => ({
 					Ok({ path: `${options.path}.webm`, durationMs: 1500 }),
 			});
 		},
-		recover: async (options: { device: unknown; under: string }) => {
+		recover: async (options: {
+			device: unknown;
+			under: string;
+			unnamed: readonly string[];
+		}) => {
 			started.push(options);
+			// The shell's recorder: what it placed, then each unnamed one, whole.
+			const placed = [
+				{ path: `${options.under}/a.webm`, durationMs: 1500 },
+				{ path: `${options.under}/b.webm`, durationMs: 2500 },
+			];
 			return Ok({
 				recovered: [
-					{ path: `${options.under}/a.webm`, durationMs: 1500 },
-					{ path: `${options.under}/b.webm`, durationMs: 2500 },
+					...placed,
+					...options.unnamed
+						.filter((path) => !placed.some((entry) => entry.path === path))
+						.map((path) => ({ path, durationMs: null })),
 				],
 				unplaced: [
 					{
@@ -135,6 +145,13 @@ mock.module('@epicenter/recorder/tauri', () => ({
 		},
 	},
 }));
+
+// The desktop build resolves `@epicenter/transcription` under the `tauri`
+// condition; this run resolves the browser's, so it is pointed at the same leaf.
+const desktopSpeech = await import(
+	'../../../../../packages/transcription/guest-js/local-speech.js'
+);
+mock.module('@epicenter/transcription', () => desktopSpeech);
 
 const { createServices } = await import('./services.tauri.js');
 const { authReady } = await import('./auth.tauri.js');
@@ -246,8 +263,16 @@ test('the shell’s microphone records recordings/<id> into the data folder’s 
 		],
 		unplaced,
 	});
-	expect(started.at(-1)).toEqual({ device: dataFolder, under: 'recordings' });
-	expect(expectOk(await capture.recover(['a', 'left']))).toEqual({
+	expect(started.at(-1)).toEqual({
+		device: dataFolder,
+		under: 'recordings',
+		unnamed: [],
+	});
+	expect(
+		expectOk(
+			await capture.recover(['recordings/a.webm', 'recordings/left.webm']),
+		),
+	).toEqual({
 		whole: [
 			{ id: 'a', durationMs: 1500 },
 			{ id: 'b', durationMs: 2500 },

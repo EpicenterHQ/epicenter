@@ -24,12 +24,11 @@ file:
 | `Recorder` | What it does |
 | --- | --- |
 | `start({ device, path, input?, signal? })` | Record into the store as it records; the handle's `stop` answers `{ path, durationMs }` |
-| `recover({ device, under })` | Repair recordings a quit, a crash, or a closed tab cut off: `{ recovered, unplaced }` |
+| `recover({ device, under, unnamed })` | Repair recordings a quit, a crash, or a closed tab cut off, and answer each the app should now record, among them each of `unnamed` (audio at its path the app keeps no record of) that is whole: `{ recovered, unplaced }` |
 | `listInputs()` | The inputs connected now, `{ inputs: [{ deviceId, label }], namesWithheld? }`. Opens nothing and never asks for access |
 | `openMeter({ input?, signal? })` | Open one input for its level only, until `close` |
 | `allow?({ signal? })` | Browser only: ask for access so inputs are listed by name, releasing the default microphone at once |
 | `onInputsChange?(listener)` | Browser only: hear inputs connected or removed. The desktop shell announces nothing |
-| `placesWhole` | `true` on the desktop, where a recording reaches its path only whole once it stops; `false` in a browser, which writes at the path as it records |
 
 The functions need no `this`, so an app passes the whole `recorder`, or any
 one of them, on its own.
@@ -39,7 +38,7 @@ one of them, on its own.
 // the module behind the app's #platform seam imports one, and the call is the same.
 import { recorder } from '@epicenter/recorder/browser';
 
-await recorder.recover({ device, under: 'recordings' }); // when the store opens, before anything records
+await recorder.recover({ device, under: 'recordings', unnamed }); // when the store opens, before anything records
 const { data: recording, error } = await recorder.start({
 	device, // the client openDevice returned: the data folder, or this browser's files
 	path: 'recordings/2026-10-15-0930', // no extension: the format's is added
@@ -63,7 +62,7 @@ file with a sync access handle.
 | Format | Opus in WebM, mono, 24 kbps, from 16 kHz PCM (about 10.5 MB an hour of speech) | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | Each whole second is written as it is encoded | Each piece is appended as it arrives; the store's listeners hear the file made and finished, not every piece |
 | Quit, crash, closed window or tab | Audio kept up to about the last second | Every piece already written is kept |
-| `recover` | Finishes a recording a quit cut off from its whole seconds and places it as `stop` does. Answers `recovered`, each `{ path, durationMs }` placed, from the length its file states, and `unplaced`, each `{ path, pending }` whose path holds another file: that recording is never deleted, stays finished at `pending` under `.epicenter/recordings`, and is answered on every run until a person moves one of the two, so an app says where it is. Run it before anything lists, plays, or transcribes a recording: a cut-off file reads wrong until it is finished | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for the recording's path, whatever extension its file took). Answers `recovered`, `{ path, durationMs }` for every recording no tab is writing, cut or already whole, the length read from the file, so an app can tell a cut-off recording from one another tab is recording; `unplaced` is always empty |
+| `recover` | Finishes a recording a quit cut off from its whole seconds and places it as `stop` does. Answers `recovered`, each `{ path, durationMs }` placed, from the length its file states, and `unplaced`, each `{ path, pending }` whose path holds another file: that recording is never deleted, stays finished at `pending` under `.epicenter/recordings`, and is answered on every run until a person moves one of the two, so an app says where it is. Each of `unnamed` not placed now is answered too, its length unread: the shell places a recording at its path only whole. Run it before anything lists, plays, or transcribes a recording: a cut-off file reads wrong until it is finished | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for the recording's path, whatever extension its file took). Reads only `unnamed`, since a recording the app keeps a record of is whole, and nothing when it is empty. Answers `recovered`, `{ path, durationMs }` for each of them no tab is writing, cut or already whole, the length read from the file, so an app can tell a cut-off recording from one another tab is recording; `unplaced` is always empty |
 | Refused before the microphone opens | The folder or path may not be written, or a file is there | This browser keeps no files here (a private window), or a file is there |
 | Chosen microphone | Asked for by the shell's ID, as `listInputs` answers it (`input.deviceId`) | Asked for by the browser's ID, as `listInputs` answers it (`input.deviceId`) |
 | Voice processing | None: cpal reads the device as it hears | Off: echo cancellation, noise suppression, and gain control are asked off, since Safari's take about 2 s to start and MediaRecorder drops that time |

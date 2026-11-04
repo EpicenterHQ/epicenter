@@ -1,54 +1,58 @@
 /**
- * `localSpeech()`: transcribe.cpp inside this app's process as an AI
- * endpoint (ADR-0757). Its `fetch` answers the OpenAI-compatible
- * `audio/transcriptions` and `models` requests in-process by calling this
- * plugin's commands, so there is no port another program could call, and
- * `openAi([... , localSpeech()])` lists its installed models beside every
- * other endpoint's.
+ * `localSpeech()` in a desktop app (the `tauri` condition; the web's is
+ * `local-speech.web.ts`, which answers null): transcribe.cpp inside this
+ * app's process as an AI endpoint (ADR-0757). Its `fetch` answers the
+ * OpenAI-compatible `audio/transcriptions` and `models` requests in-process
+ * by calling this plugin's commands, so there is no port another program
+ * could call, and `openAi([... , localSpeech()])` lists its installed models
+ * beside every other endpoint's.
  *
- * A transcription request uploads its audio as `file`, as any OpenAI client
- * does (a dictation's blob, or a recording read from the folder), and the
- * plugin decodes the bytes where they arrive. A request may instead name a
- * file already in the app's data folder by `path` (folder-relative, such as
- * `recordings/20261031T101500123.wav`), which the plugin reads where it is.
+ * A transcription uploads its audio as `file`, as any OpenAI client does (a
+ * dictation's blob, or a recording read from the folder), and the plugin
+ * decodes the bytes where they arrive.
  *
- * The endpoint also carries what the OpenAI vocabulary cannot say, a model's
- * local lifecycle: `download` fetches a catalog model into the shared Hugging
- * Face cache, `remove` deletes it from that cache (a cache other apps and
- * tools share, so one that used it downloads it again), and `load` and
- * `unload` move it in and out of memory. An app that offers them keeps the
- * endpoint in a `const` and passes the same value to `openAi`.
+ * The handle also carries what the OpenAI vocabulary cannot say: the
+ * catalog of models this app can run and each one's local lifecycle.
+ * `download` fetches a catalog model into the shared Hugging Face cache,
+ * `remove` deletes it from that cache (a cache other apps and tools share,
+ * so one that used it downloads it again), `reveal` shows its folder, `load`
+ * and `unload` move it in and out of memory, and the unload policy says when
+ * an idle model leaves memory. Which model a job uses is the app's model
+ * choice, never the handle's. An app keeps the handle in a `const` and
+ * passes the same value to `openAi`, so a download or a removal reaches its
+ * picker.
  *
  * It imports only types from `@epicenter/ai`: capabilities never import each
  * other's code.
  */
 
 import type { Endpoint, EndpointModel } from '@epicenter/ai';
-import { Channel, isTauri } from '@tauri-apps/api/core';
+import { Channel } from '@tauri-apps/api/core';
 import {
 	commands as bindings,
 	type DownloadProgress,
-	type Root,
+	type ModelInfo,
 	type TranscriptionError,
+	type UnloadPolicy,
 } from './bindings.gen.js';
 
 export type LocalSpeechCommands = Pick<
 	typeof bindings,
+	| 'listModels'
 	| 'listInferenceModels'
-	| 'transcribeFile'
 	| 'transcribeAudio'
 	| 'downloadModel'
 	| 'removeModel'
+	| 'revealModel'
 	| 'loadModel'
 	| 'unloadModel'
+	| 'getUnloadPolicy'
+	| 'setUnloadPolicy'
 >;
 
 /** How each refusal answers over HTTP; the error's name is its code. */
 const STATUS = {
 	AudioReadError: 400,
-	FolderUnavailable: 400,
-	PathRefused: 400,
-	FileMissing: 400,
 	LocalRouteUnavailable: 404,
 	ModelLoadError: 500,
 	TranscriptionError: 500,
@@ -78,18 +82,14 @@ async function formOf(init: RequestInit | undefined): Promise<FormData | null> {
 }
 
 /**
- * This app's in-process speech endpoint, or `null` outside the desktop app
- * (the web build passes the same array to `openAi`). `commands` stand in for
- * the plugin in tests; `root` is the folder a request's `path` is in.
+ * This app's in-process speech endpoint, with its models' local lifecycle.
+ * `commands` stand in for the plugin in tests.
  */
 export function localSpeech({
-	commands = isTauri() ? bindings : undefined,
-	root = 'Data',
+	commands = bindings,
 }: {
 	commands?: LocalSpeechCommands;
-	root?: Root;
 } = {}) {
-	if (!commands) return null;
 	const native = commands;
 	let models: readonly EndpointModel[] = [];
 	let reading = 0;
@@ -148,7 +148,6 @@ export function localSpeech({
 				);
 			const form = await formOf(init);
 			const model = form?.get('model');
-			const dataPath = form?.get('path');
 			const file = form?.get('file');
 			if (typeof model !== 'string' || !model)
 				return failure(
@@ -156,28 +155,22 @@ export function localSpeech({
 					'model-required',
 					'Name a model to transcribe with.',
 				);
-			const language = form?.get('language');
-			const prompt = form?.get('prompt');
-			const hints = {
-				language: typeof language === 'string' && language ? language : null,
-				initialPrompt: typeof prompt === 'string' && prompt ? prompt : null,
-			};
-			let answer: Awaited<ReturnType<typeof native.transcribeFile>>;
-			if (typeof dataPath === 'string' && dataPath)
-				answer = await native.transcribeFile(model, root, dataPath, hints);
-			else if (file instanceof Blob)
-				answer = await native.transcribeAudio(
-					model,
-					toBase64(new Uint8Array(await file.arrayBuffer())),
-					hints,
-				);
-			else
+			if (!(file instanceof Blob))
 				return failure(
 					400,
 					'file-required',
 					'Send the audio to transcribe as `file`.',
 				);
-			const { data, error } = answer;
+			const language = form?.get('language');
+			const prompt = form?.get('prompt');
+			const { data, error } = await native.transcribeAudio(
+				model,
+				toBase64(new Uint8Array(await file.arrayBuffer())),
+				{
+					language: typeof language === 'string' && language ? language : null,
+					initialPrompt: typeof prompt === 'string' && prompt ? prompt : null,
+				},
+			);
 			init?.signal?.throwIfAborted();
 			if (error !== null)
 				return failure(STATUS[error.name], error.name, error.message);
@@ -188,6 +181,10 @@ export function localSpeech({
 	};
 	return {
 		...endpoint,
+		/** Every model this app can run, each saying whether it is downloaded. */
+		catalog(): Promise<ModelInfo[]> {
+			return native.listModels();
+		},
 		/**
 		 * Download a catalog model into the shared Hugging Face cache. The
 		 * transfer continues if the page stops waiting; once it finishes, the
@@ -216,6 +213,10 @@ export function localSpeech({
 			await read();
 			return result;
 		},
+		/** Show a downloaded model's folder in the shared cache. */
+		reveal(modelId: string) {
+			return native.revealModel(modelId);
+		},
 		/** Load a model into memory now, so its next transcription starts warm. */
 		load(modelId: string) {
 			return native.loadModel(modelId);
@@ -224,6 +225,14 @@ export function localSpeech({
 		unload(modelId: string) {
 			return native.unloadModel(modelId);
 		},
+		/** When an idle model leaves memory. */
+		unloadPolicy(): Promise<UnloadPolicy> {
+			return native.getUnloadPolicy();
+		},
+		/** Set when an idle model leaves memory; this app keeps it. */
+		setUnloadPolicy(policy: UnloadPolicy) {
+			return native.setUnloadPolicy(policy);
+		},
 	};
 }
-export type LocalSpeech = NonNullable<ReturnType<typeof localSpeech>>;
+export type LocalSpeech = ReturnType<typeof localSpeech>;

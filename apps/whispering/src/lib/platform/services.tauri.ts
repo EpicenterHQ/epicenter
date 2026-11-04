@@ -40,6 +40,13 @@ import { localPreferences } from '../microphone-preference.js';
 import { getAccount } from './auth.tauri.js';
 import type { CreateServices } from './types.js';
 
+/** Transcription in this app's process, made once: the handle the models merge and Settings administers. */
+let speech: ReturnType<typeof localSpeech> | undefined;
+export function getLocalSpeech() {
+	speech ??= localSpeech();
+	return speech;
+}
+
 /** Every model this window reaches, and the one chosen for each job, made once for the page when the app first starts. */
 let models:
 	| { ai: Ai; choices: ModelChoices<'transcribe' | 'chat'> }
@@ -50,7 +57,7 @@ function madeOnce() {
 			hosted(getAccount()),
 			customEndpoints(),
 			localServers({ fetch: shellFetch }),
-			localSpeech(),
+			getLocalSpeech(),
 		]),
 		choices: modelChoices<'transcribe' | 'chat'>(),
 	};

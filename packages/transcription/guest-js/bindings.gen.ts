@@ -78,22 +78,8 @@ export const commands = {
 	 *  whether or not a model is active.
 	 */
 	setUnloadPolicy: (policy: UnloadPolicy) => typedError<null, SettingsError>(__TAURI_INVOKE("plugin:epicenter-transcription|set_unload_policy", { policy })),
-	/**  Installed native models available to explicit file inference. No cache paths escape. */
+	/**  Installed native models available to explicit inference. No cache paths escape. */
 	listInferenceModels: () => __TAURI_INVOKE<InferenceModel[]>("plugin:epicenter-transcription|list_inference_models"),
-	/**
-	 *  Transcribe the audio file at the folder-relative data path `path` (such as
-	 *  `recordings/20261031T101500123.wav`) in `root`, with the exact catalog
-	 *  model `model_id`. `root` is a root the app opened through the folder
-	 *  plugin (`Root::Data`); one it has not opened is refused.
-	 *
-	 *  A root the app has not opened, a path the folder rule refuses, and a
-	 *  missing file are refused before any model is resolved. An unknown or
-	 *  uninstalled model is refused before the file is read or decoded. The
-	 *  active-model setting is neither read nor changed. The blocking job owns its
-	 *  input until inference finishes, including after the caller abandons the
-	 *  call.
-	 */
-	transcribeFile: (modelId: string, root: Root, path: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|transcribe_file", { modelId, root, path, hints })),
 	/**
 	 *  Transcribe audio the page holds (an upload, such as a dictation's blob),
 	 *  base64-encoded, with the exact catalog model `model_id`. The bytes are
@@ -221,19 +207,6 @@ export type ModelInfo = {
 	downloaded: boolean,
 };
 
-/**  A root an app reaches by name. */
-export type Root =
-/**
- *  The person's files: `<library root>/<name>`, which the app's site
- *  names (ADR-0722), such as `~/Epicenter/whispering`.
- */
-"Data" |
-/**
- *  The operating system's application data directory for this app:
- *  machine-local settings, never synced.
- */
-"AppData";
-
 /**
  *  Failures model administration commands can report. Both are actionable:
  *  the id is not a model this build knows, or the choice could not be made
@@ -242,19 +215,6 @@ export type Root =
 export type SettingsError = { name: "UnknownModel"; message: string } | { name: "SaveFailed"; message: string };
 
 export type TranscriptionError = { name: "AudioReadError"; message: string } |
-/**
- *  The calling window has no usable folder there: the app bound none to
- *  it, its page did not open the root it named, the directory is gone or
- *  unreachable, or the app is shutting down.
- */
-{ name: "FolderUnavailable"; message: string } |
-/**
- *  The path is not a data path in the window's folder: it is empty,
- *  absolute, names `.`, `..`, or Git's state, or a link is on its way.
- */
-{ name: "PathRefused"; message: string } |
-/**  No regular file is at the path in the window's folder. */
-{ name: "FileMissing"; message: string } |
 /**
  *  The local route cannot run: no model is active, or the selected or
  *  explicitly requested model is unknown or not installed on this computer.

@@ -456,7 +456,7 @@ test('a recording that captured nothing writes nothing and is Empty', async () =
 	expect(memory.held.size).toBe(0);
 });
 
-test('recovery cuts a file a closed tab left half-written, answers every recording no tab is writing with its length, and leaves one a tab is writing', async () => {
+test('recovery cuts a file a closed tab left half-written, answers every unnamed recording no tab is writing with its length, and leaves one a tab is writing', async () => {
 	const whole = new Uint8Array(
 		await Bun.file(
 			new URL('./fixtures/chromium.m4a', import.meta.url),
@@ -475,8 +475,20 @@ test('recovery cuts a file a closed tab left half-written, answers every recordi
 	const { device } = browser({ files: memory.files, locks });
 	locks.held.add('epicenter-recording:recordings/writing');
 
+	const unnamed = [
+		'recordings/cut.m4a',
+		'recordings/writing.m4a',
+		'recordings/whole.m4a',
+	];
+	// With nothing unnamed, every recording has its record: nothing is read.
+	expect(
+		expectOk(
+			await recorder.recover({ device, under: 'recordings', unnamed: [] }),
+		),
+	).toEqual({ recovered: [], unplaced: [] });
+	expect(memory.held.get('recordings/cut.m4a')).toEqual(cut);
 	const { recovered, unplaced } = expectOk(
-		await recorder.recover({ device, under: 'recordings' }),
+		await recorder.recover({ device, under: 'recordings', unnamed }),
 	);
 	expect(unplaced).toEqual([]);
 	const repaired = memory.held.get('recordings/cut.m4a')!;
@@ -504,7 +516,7 @@ test('recovery cuts a file a closed tab left half-written, answers every recordi
 	);
 	// A second run repairs nothing more, and answers the same recordings.
 	expect(
-		expectOk(await recorder.recover({ device, under: 'recordings' })),
+		expectOk(await recorder.recover({ device, under: 'recordings', unnamed })),
 	).toEqual({ recovered, unplaced: [] });
 	expect(memory.held.get('recordings/cut.m4a')).toEqual(repaired);
 });
@@ -603,12 +615,24 @@ test('a recording whose file takes a type it did not ask for still holds its loc
 	await settle();
 	expect(memory.held.get('recordings/a.m4a')).toEqual(new Uint8Array([1]));
 	expect(
-		expectOk(await recorder.recover({ device, under: 'recordings' })).recovered,
+		expectOk(
+			await recorder.recover({
+				device,
+				under: 'recordings',
+				unnamed: ['recordings/a.m4a'],
+			}),
+		).recovered,
 	).toEqual([]);
 	expect(await placedPath(recording)).toBe('recordings/a.m4a');
 	await settle();
 	expect(
-		expectOk(await recorder.recover({ device, under: 'recordings' })).recovered,
+		expectOk(
+			await recorder.recover({
+				device,
+				under: 'recordings',
+				unnamed: ['recordings/a.m4a'],
+			}),
+		).recovered,
 	).toEqual([{ path: 'recordings/a.m4a', durationMs: null }]);
 });
 
