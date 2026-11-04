@@ -1,13 +1,12 @@
 /**
  * Wire URL paths and Hono route patterns for the Epicenter API.
  *
- * The shared home for API route contracts whose domain has no dedicated shared
- * package of its own: the session projection
- * and the OpenAI-compatible `/v1` inference gateways. This is not a registry of
- * every route in the repo. A route whose domain already owns a shared package
- * lives there instead, beside the protocol it belongs to.
- * These leaves live here only because their two sides (server and the client
- * SDK) share nothing else they could hang the path on.
+ * The server owns these route contracts: the session projection and the
+ * OpenAI-compatible `/v1` inference gateways. Clients import them from
+ * `@epicenter/server/api-routes`, a module with no imports, so a page pulls in
+ * the paths and nothing of the server. This is not a registry of every route
+ * in the repo. A route whose domain already owns a shared package lives there
+ * instead, beside the protocol it belongs to.
  *
  * Each leaf exposes some of:
  *
@@ -28,7 +27,7 @@
  * @example
  * ```ts
  * // Server route declaration
- * import { API_ROUTES } from '@epicenter/constants/api-routes';
+ * import { API_ROUTES } from '@epicenter/server/api-routes';
  * const sessionApp = new Hono<Env>()
  *   .get(API_ROUTES.session.pattern, handler);
  *

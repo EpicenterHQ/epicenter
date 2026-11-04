@@ -23,7 +23,7 @@ import { expect, mock, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { API_ROUTES } from '@epicenter/constants/api-routes';
+import { API_ROUTES } from '@epicenter/server/api-routes';
 import { makeSignature } from 'better-auth/crypto';
 
 // Exercise the real runtime compositions with a controllable database outage.

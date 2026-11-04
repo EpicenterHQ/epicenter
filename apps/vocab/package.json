@@ -38,7 +38,6 @@
 	"dependencies": {
 		"@epicenter/account": "workspace:*",
 		"@epicenter/ai": "workspace:*",
-		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/recorder": "workspace:*",

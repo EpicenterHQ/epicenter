@@ -13,13 +13,7 @@ import {
 } from './app-names.js';
 
 const rules = JSON.parse(
-	readFileSync(
-		join(
-			import.meta.dir,
-			'../../tauri-plugin-epicenter-folder/fixtures/app-names.json',
-		),
-		'utf8',
-	),
+	readFileSync(join(import.meta.dir, '../../fixtures/app-names.json'), 'utf8'),
 ) as {
 	cases: {
 		identifier: string;

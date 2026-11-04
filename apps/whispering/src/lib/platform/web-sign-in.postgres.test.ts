@@ -23,7 +23,7 @@ import {
 	APPS,
 	localUrl,
 	resolveOAuthAudiences,
-} from '@epicenter/constants/apps';
+} from '@epicenter/definition/site';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	type CloudEnv,

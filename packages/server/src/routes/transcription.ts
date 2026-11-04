@@ -31,8 +31,8 @@
  *   - 502 `upstream_unreachable`   the provider could not be reached.
  */
 
-import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
-import { API_ROUTES } from '@epicenter/constants/api-routes';
+import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
+import { API_ROUTES } from '@epicenter/server/api-routes';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import { every } from 'hono/combine';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';

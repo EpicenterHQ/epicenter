@@ -25,7 +25,6 @@ anyone who forks and distributes a modified binary shares the changes back.
   Packages:
     packages/account         @epicenter/account
     packages/ai              @epicenter/ai
-    packages/constants       @epicenter/constants
     packages/recorder        @epicenter/recorder
     packages/server          @epicenter/server
     packages/svelte          @epicenter/svelte

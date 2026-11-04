@@ -38,7 +38,7 @@ import {
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { resolveOAuthAudiences } from '@epicenter/constants/apps';
+import { resolveOAuthAudiences } from '@epicenter/definition/site';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { startDisposablePostgres } from '../../server/src/test-helpers/disposable-postgres.ts';

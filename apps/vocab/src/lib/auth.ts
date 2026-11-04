@@ -12,8 +12,8 @@ import {
 	selfHostedServer,
 } from '@epicenter/account';
 import { fromAuth } from '@epicenter/account/svelte';
-import { APPS, resolveOAuthAudiences } from '@epicenter/constants/apps';
-import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
+import { APPS, resolveOAuthAudiences } from '@epicenter/definition/site';
+import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/vite-config/app-urls';
 import type { VocabAuth } from './platform.js';
 
 const server = SELF_HOST_ORIGIN

@@ -41,7 +41,7 @@ import { resolve, sep } from 'node:path';
 import {
 	API_BUN_DEV_PORT,
 	resolveOAuthAudiences,
-} from '@epicenter/constants/apps';
+} from '@epicenter/definition/site';
 import {
 	CloudAuthBindings,
 	type CloudEnv,

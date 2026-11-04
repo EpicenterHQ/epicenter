@@ -14,12 +14,12 @@ import {
 	stat,
 } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { agentsContract } from '@epicenter/definition/note';
 import {
 	hostFromSiteUrl,
+	isRepositoryName,
 	relativeFolderPath,
-} from '@epicenter/constants/app-names';
-import { isRepositoryName } from '@epicenter/constants/repositories';
-import { agentsContract } from '@epicenter/definition/note';
+} from '@epicenter/definition/site';
 import { resolveAppPaths } from '../app-paths.ts';
 import { connect } from './connect.ts';
 import { config, git, originPushUrl } from './git.ts';

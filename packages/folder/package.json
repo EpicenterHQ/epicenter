@@ -17,7 +17,6 @@
 		"smoke:device": "bun smoke/device.ts"
 	},
 	"dependencies": {
-		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@tauri-apps/api": "catalog:",
 		"wellcrafted": "catalog:"

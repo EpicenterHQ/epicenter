@@ -1,4 +1,4 @@
-import { APPS } from '@epicenter/constants/apps';
+import { APPS } from '@epicenter/definition/site';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';

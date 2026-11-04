@@ -16,8 +16,8 @@ import {
 	LOCAL_APPS,
 	localUrl,
 	resolveOAuthAudiences,
-} from '@epicenter/constants/apps';
-import { SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
+} from '@epicenter/definition/site';
+import { SELF_HOST_ORIGIN } from '@epicenter/vite-config/app-urls';
 
 const server = selfHostedServer(
 	SELF_HOST_ORIGIN ?? localUrl({ port: API_BUN_DEV_PORT }),

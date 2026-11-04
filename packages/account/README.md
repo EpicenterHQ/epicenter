@@ -56,7 +56,7 @@ public client of the deployment's authorization server (ADR-0549). Its
 `clientId` is the app id, its redirect URI is exactly
 `<app origin>/auth/callback`, and both must match the app's registration in
 `apps/api/worker/oauth-registrations.ts`. It names its `resources` (token
-audiences, from `resolveOAuthAudiences` in `@epicenter/constants/apps`) and
+audiences, from `resolveOAuthAudiences` in `@epicenter/definition/site`) and
 the scopes it needs. Each resource gets an access token of its own. The caller
 never asks for `offline_access`.
 

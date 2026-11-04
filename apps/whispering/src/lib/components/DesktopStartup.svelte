@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
-	import { APPS } from '@epicenter/constants/apps';
+	import { APPS } from '@epicenter/definition/site';
 	import type { ReactiveClient } from '@epicenter/svelte/client';
 	import DesktopStartup from '@epicenter/svelte/desktop-startup';
 	import type { Snippet } from 'svelte';

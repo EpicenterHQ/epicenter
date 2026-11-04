@@ -21,7 +21,7 @@
  */
 
 import { TranscribeError } from '@epicenter/ai/openai';
-import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
+import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
 import {
 	createVadRecorder,
 	type RecorderError,

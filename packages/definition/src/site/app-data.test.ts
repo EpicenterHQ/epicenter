@@ -124,6 +124,7 @@ test('the bundle identifier equals the desktop bundle it has to match', () => {
 				'..',
 				'..',
 				'..',
+				'..',
 				'apps',
 				'epicenter',
 				'src-tauri',

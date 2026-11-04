@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn naming_follows_the_shared_fixture() {
         let rules: NamingRules = serde_json::from_str(include_str!(
-            "../../tauri-plugin-epicenter-folder/fixtures/app-names.json"
+            "../../definition/fixtures/app-names.json"
         ))
         .unwrap();
         for case in rules.cases {

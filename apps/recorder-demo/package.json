@@ -16,7 +16,7 @@
 	},
 	"dependencies": {
 		"@epicenter/account": "workspace:*",
-		"@epicenter/constants": "workspace:*",
+		"@epicenter/vite-config": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/recorder": "workspace:*",

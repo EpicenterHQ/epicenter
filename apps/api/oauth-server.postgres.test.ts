@@ -21,9 +21,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
 	PRODUCTION_API_URL,
+	type RepositoryListing,
 	resolveOAuthAudiences,
-} from '@epicenter/constants/apps';
-import type { RepositoryListing } from '@epicenter/constants/repositories';
+} from '@epicenter/definition/site';
 import {
 	authorizeResourceRequest,
 	createDb,

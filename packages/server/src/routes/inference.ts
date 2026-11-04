@@ -39,8 +39,8 @@ import {
 	type AiProvider,
 	MODELS_BY_ID,
 	type ServableModel,
-} from '@epicenter/constants/ai-providers';
-import { API_ROUTES } from '@epicenter/constants/api-routes';
+} from '@epicenter/ai/providers';
+import { API_ROUTES } from '@epicenter/server/api-routes';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import { every } from 'hono/combine';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';

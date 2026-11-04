@@ -3,10 +3,7 @@
  * Capture records into `client`, this browser's files, as it records.
  */
 
-import {
-	AI_MODELS,
-	HOSTED_TRANSCRIPTION_MODEL,
-} from '@epicenter/constants/ai-providers';
+import { AI_MODELS, HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
 import { recorder } from '@epicenter/recorder/browser';
 import { Err, Ok } from 'wellcrafted/result';
 import {

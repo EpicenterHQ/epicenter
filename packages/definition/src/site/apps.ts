@@ -63,7 +63,7 @@ export const APPS = {
  * not applications with an id at all: `API` is the hosted server and `SH` is the
  * marketing site, so neither carries `id`. An app id is the
  * reverse-domain string an application stores under (`so.epicenter.vocab`),
- * validated by `isAppId` in `@epicenter/constants/app-id` and spent by
+ * validated by `isAppId` in `@epicenter/definition/site/app-data` and spent by
  * `appDataDir` as the app's data directory and by `createBrowserOAuth` as the
  * app's OAuth client id. A reader who met `AppId` here and grepped for it
  * found the wrong concept.

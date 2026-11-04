@@ -15,9 +15,10 @@
  * action on another origin (a presigned storage URL) goes through a plain
  * `fetch`, with only the headers the server's answer names.
  */
-import { resolveOAuthAudiences } from '@epicenter/constants/apps';
+
 import { ClientError, type Version } from '@epicenter/definition/contract';
 import { lfsOid } from '@epicenter/definition/merge';
+import { resolveOAuthAudiences } from '@epicenter/definition/site';
 import {
 	defineErrors,
 	type InferError,

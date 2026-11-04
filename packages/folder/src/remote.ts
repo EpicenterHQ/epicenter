@@ -25,11 +25,9 @@
  *   await remote.recordings.update({ id }, { title: 'Standup' }, { over: note.data.version });
  * ```
  */
-import {
-	hostFromSiteUrl,
-	repositoryName,
-} from '@epicenter/constants/app-names';
+
 import type { Client, Contract } from '@epicenter/definition/contract';
+import { hostFromSiteUrl, repositoryName } from '@epicenter/definition/site';
 import { createRemoteClient } from './remote/client.js';
 import type { RemoteAccount } from './remote/wire.js';
 

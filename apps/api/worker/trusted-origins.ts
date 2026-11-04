@@ -1,4 +1,4 @@
-import { APPS, LOCAL_APPS, localUrl } from '@epicenter/constants/apps';
+import { APPS, LOCAL_APPS, localUrl } from '@epicenter/definition/site';
 
 /**
  * Epicenter cloud's trusted-origin set. This lives in `apps/api`, not in the

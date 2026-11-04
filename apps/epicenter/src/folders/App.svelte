@@ -11,7 +11,7 @@
 	import { ConfirmationDialog, confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Dialog from '@epicenter/ui/dialog';
 	import * as Empty from '@epicenter/ui/empty';
-	import { suggestLibraryLinkName } from '@epicenter/constants/app-names';
+	import { suggestLibraryLinkName } from '@epicenter/definition/site';
 	import { Input } from '@epicenter/ui/input';
 	import * as Item from '@epicenter/ui/item';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';

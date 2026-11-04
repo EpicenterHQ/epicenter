@@ -30,7 +30,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, win32 } from 'node:path';
-import { epicenterDataRoot } from '@epicenter/constants/app-data';
+import { epicenterDataRoot } from '@epicenter/definition/site/app-data';
 import { STATE_DIRECTORY } from '@epicenter/folder/bun';
 import {
 	canonicalPath,

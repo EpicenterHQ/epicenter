@@ -27,8 +27,10 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveOAuthAudiences } from '@epicenter/constants/apps';
-import type { RepositoryListing } from '@epicenter/constants/repositories';
+import {
+	type RepositoryListing,
+	resolveOAuthAudiences,
+} from '@epicenter/definition/site';
 import {
 	type CloudEnv,
 	createCloudContextMiddleware,

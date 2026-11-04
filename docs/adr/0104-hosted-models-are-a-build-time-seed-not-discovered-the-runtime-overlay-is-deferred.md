@@ -7,7 +7,7 @@
 
 ## Context
 
-[ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) made custom OpenAI-compatible endpoints discover their models at runtime through `GET /v1/models`, and left hosted models as a curated catalog (`packages/constants/src/ai-providers.ts`) injected per app. A live pass asked the symmetric question: should the hosted gateway also expose `/v1/models` so hosted models are discovered the same way, dropping the hard-coded catalog? The pull is real because the model landscape moves fast and a bundled catalog means shipping every client to sell a new model. The decision matters because it governs where the hosted catalog lives and whether product metadata (label, credits, per-app default) survives.
+[ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) made custom OpenAI-compatible endpoints discover their models at runtime through `GET /v1/models`, and left hosted models as a curated catalog (`packages/ai/src/providers.ts`) injected per app. A live pass asked the symmetric question: should the hosted gateway also expose `/v1/models` so hosted models are discovered the same way, dropping the hard-coded catalog? The pull is real because the model landscape moves fast and a bundled catalog means shipping every client to sell a new model. The decision matters because it governs where the hosted catalog lives and whether product metadata (label, credits, per-app default) survives.
 
 ## Decision
 

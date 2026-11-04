@@ -26,10 +26,7 @@
  */
 
 import type { PrincipalId } from '@epicenter/account';
-import {
-	MODELS_BY_ID,
-	type ServableModel,
-} from '@epicenter/constants/ai-providers';
+import { MODELS_BY_ID, type ServableModel } from '@epicenter/ai/providers';
 import type { CloudEnv } from '@epicenter/server';
 import type { Context } from 'hono';
 import { Err, Ok, type Result } from 'wellcrafted/result';

@@ -5,7 +5,6 @@
     "": {
       "name": "epicenter",
       "dependencies": {
-        "@epicenter/constants": "workspace:*",
         "tinyexec": "^1.0.4",
       },
       "devDependencies": {
@@ -31,7 +30,8 @@
       "dependencies": {
         "@better-auth/drizzle-adapter": "catalog:",
         "@epicenter/account": "workspace:*",
-        "@epicenter/constants": "workspace:*",
+        "@epicenter/ai": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@epicenter/server": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "arktype": "catalog:",
@@ -62,7 +62,8 @@
         "@better-auth/oauth-provider": "catalog:",
         "@better-auth/passkey": "catalog:",
         "@epicenter/account": "workspace:*",
-        "@epicenter/constants": "workspace:*",
+        "@epicenter/ai": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@tanstack/svelte-query": "catalog:",
         "@tanstack/svelte-query-devtools": "catalog:",
         "better-auth": "catalog:",
@@ -94,7 +95,6 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/account": "workspace:*",
-        "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
@@ -125,7 +125,7 @@
       "version": "0.0.2",
       "dependencies": {
         "@epicenter/cli": "workspace:*",
-        "@epicenter/constants": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@epicenter/transcription-native": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@tauri-apps/api": "catalog:",
@@ -153,7 +153,6 @@
         "@codemirror/state": "^6.7.6",
         "@codemirror/view": "^6.43.15",
         "@epicenter/account": "workspace:*",
-        "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
@@ -188,7 +187,6 @@
       "dependencies": {
         "@astrojs/check": "0.9.9",
         "@astrojs/svelte": "8.1.2",
-        "@epicenter/constants": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@tailwindcss/vite": "catalog:",
         "arktype": "catalog:",
@@ -211,7 +209,8 @@
         "local-books": "./src/bin.ts",
       },
       "dependencies": {
-        "@epicenter/constants": "workspace:*",
+        "@epicenter/definition": "workspace:*",
+        "@epicenter/server": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "@modelcontextprotocol/sdk": "catalog:",
         "arktype": "catalog:",
@@ -231,7 +230,7 @@
       "name": "@epicenter/local-books-ui",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/constants": "workspace:*",
+        "@epicenter/server": "workspace:*",
         "@tanstack/svelte-query": "catalog:",
         "arkregex": "catalog:",
         "hono": "catalog:",
@@ -292,11 +291,11 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/account": "workspace:*",
-        "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/recorder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
+        "@epicenter/vite-config": "workspace:*",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -315,7 +314,6 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/account": "workspace:*",
-        "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
@@ -349,7 +347,6 @@
       "dependencies": {
         "@epicenter/account": "workspace:*",
         "@epicenter/ai": "workspace:*",
-        "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/recorder": "workspace:*",
@@ -387,7 +384,6 @@
       "dependencies": {
         "@epicenter/account": "workspace:*",
         "@epicenter/ai": "workspace:*",
-        "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/recorder": "workspace:*",
@@ -429,7 +425,6 @@
       "name": "@epicenter/account",
       "version": "0.1.1",
       "dependencies": {
-        "@epicenter/constants": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",
@@ -475,7 +470,6 @@
       },
       "dependencies": {
         "@beeper/desktop-api": "^6.0.0",
-        "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "typebox": "catalog:",
@@ -489,20 +483,6 @@
         "pg": "^8.20.0",
         "playwright": "^1.61.1",
         "typescript": "catalog:",
-      },
-    },
-    "packages/constants": {
-      "name": "@epicenter/constants",
-      "version": "0.1.1",
-      "dependencies": {
-        "arktype": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "@types/node": "catalog:",
-        "typescript": "catalog:",
-        "vite": "catalog:",
       },
     },
     "packages/definition": {
@@ -523,7 +503,6 @@
       "name": "@epicenter/folder",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "wellcrafted": "catalog:",
@@ -564,7 +543,7 @@
         "@better-auth/oauth-provider": "catalog:",
         "@better-auth/passkey": "catalog:",
         "@epicenter/account": "workspace:*",
-        "@epicenter/constants": "workspace:*",
+        "@epicenter/ai": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "arktype": "catalog:",
@@ -656,6 +635,7 @@
       "name": "@epicenter/vite-config",
       "version": "0.1.1",
       "dependencies": {
+        "@epicenter/definition": "workspace:*",
         "@sveltejs/kit": "catalog:",
         "@tailwindcss/vite": "catalog:",
         "vite": "catalog:",
@@ -927,8 +907,6 @@
     "@epicenter/capture-app": ["@epicenter/capture-app@workspace:apps/capture"],
 
     "@epicenter/cli": ["@epicenter/cli@workspace:packages/cli"],
-
-    "@epicenter/constants": ["@epicenter/constants@workspace:packages/constants"],
 
     "@epicenter/definition": ["@epicenter/definition@workspace:packages/definition"],
 

@@ -1,4 +1,4 @@
-import { APPS } from '@epicenter/constants/apps';
+import { APPS } from '@epicenter/definition/site';
 import { desktopVariant, workspaceAppViteConfig } from '@epicenter/vite-config';
 import { defineConfig, mergeConfig } from 'vite';
 import devtoolsJson from 'vite-plugin-devtools-json';

@@ -11,6 +11,7 @@
 		"./connections": "./src/ai-connections.ts",
 		"./openai": "./src/openai/index.ts",
 		"./picker": "./src/picker/index.ts",
+		"./providers": "./src/providers.ts",
 		"./selections": "./src/selections.ts",
 		"./target": "./src/target.ts"
 	},

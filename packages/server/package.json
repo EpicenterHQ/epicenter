@@ -6,6 +6,7 @@
 	"description": "Shared Hono server for apps/api on Cloudflare Workers and on Bun with Postgres.",
 	"exports": {
 		".": "./src/index.ts",
+		"./api-routes": "./src/api-routes.ts",
 		"./bun": "./src/bun.ts"
 	},
 	"scripts": {
@@ -18,7 +19,7 @@
 		"@better-auth/oauth-provider": "catalog:",
 		"@better-auth/passkey": "catalog:",
 		"@epicenter/account": "workspace:*",
-		"@epicenter/constants": "workspace:*",
+		"@epicenter/ai": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@hono/standard-validator": "catalog:",
 		"arktype": "catalog:",

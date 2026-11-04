@@ -9,11 +9,11 @@ export type AppNameErrorKind =
 	| 'notDevelopmentIdentifier';
 
 export class AppNameError extends Error {
-	constructor(
-		public readonly kind: AppNameErrorKind,
-		value: string,
-	) {
+	readonly kind: AppNameErrorKind;
+
+	constructor(kind: AppNameErrorKind, value: string) {
 		super(`${kind}: ${value}`);
+		this.kind = kind;
 	}
 }
 

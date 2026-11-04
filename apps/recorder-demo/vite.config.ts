@@ -6,7 +6,7 @@
  * and preview run on the port its OAuth client is registered for, and only
  * there.
  */
-import { LOCAL_APPS } from '@epicenter/constants/apps';
+import { LOCAL_APPS } from '@epicenter/definition/site';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
 

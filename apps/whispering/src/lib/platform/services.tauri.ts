@@ -23,10 +23,7 @@
  */
 
 import { keychain } from '@epicenter/account/tauri';
-import {
-	AI_MODELS,
-	HOSTED_TRANSCRIPTION_MODEL,
-} from '@epicenter/constants/ai-providers';
+import { AI_MODELS, HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
 import { type Root, rootOf } from '@epicenter/folder/tauri';
 import { recorder } from '@epicenter/recorder/tauri';
 import { commands as localModels } from '@epicenter/transcription-native';

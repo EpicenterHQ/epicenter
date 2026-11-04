@@ -10,7 +10,7 @@
  */
 
 import { expect, test } from 'bun:test';
-import { providerLabel } from './ai-providers.ts';
+import { providerLabel } from './providers.js';
 
 test('resolves a known provider id to its vendor label', () => {
 	// gemini -> Google is the non-obvious mapping worth pinning: the vendor

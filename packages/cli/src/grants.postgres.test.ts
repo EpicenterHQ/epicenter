@@ -31,9 +31,9 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { defineContract } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
+import { resolveOAuthAudiences } from '@epicenter/definition/site';
 import { openRemote, type RemoteAccount } from '@epicenter/folder/remote';
 import {
 	type CloudEnv,

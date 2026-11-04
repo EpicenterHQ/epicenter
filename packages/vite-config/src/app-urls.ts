@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { APPS, type AppKey, localUrl } from '#apps';
+import { APPS, type AppKey, localUrl } from '@epicenter/definition/site';
 
 /**
  * Flat URL strings resolved at Vite build time.

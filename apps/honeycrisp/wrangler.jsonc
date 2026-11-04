@@ -9,7 +9,7 @@
 		"command": "bun run build"
 	},
 	// --- Custom domain: honeycrisp.epicenter.so (auto-creates DNS record on deploy) ---
-	// Domain is owned by APPS.HONEYCRISP in packages/constants/src/apps.ts; keep in sync.
+	// Domain is owned by APPS.HONEYCRISP in packages/definition/src/site/apps.ts; keep in sync.
 	"routes": [
 		{
 			"pattern": "honeycrisp.epicenter.so",

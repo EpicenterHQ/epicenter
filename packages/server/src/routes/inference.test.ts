@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import { API_ROUTES } from '@epicenter/constants/api-routes';
+import { API_ROUTES } from '@epicenter/server/api-routes';
 import { Hono } from 'hono';
 import type { Env } from '../types.js';
 import { mountInferenceApp } from './inference.js';

@@ -15,7 +15,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { APPS } from './apps.js';
 
-const appsDir = join(import.meta.dir, '..', '..', '..', 'apps');
+const appsDir = join(import.meta.dir, '..', '..', '..', '..', 'apps');
 
 /** Every app with a production Tauri configuration. */
 const desktopApps = readdirSync(appsDir).filter((app) =>

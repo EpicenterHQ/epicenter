@@ -42,7 +42,7 @@ vault as its own folder ([ADR-0726](0726-an-apps-path-is-its-claim.md)).
   otherwise the name prefixed with "My " (`My notes` for `~/notes`).
 - **`epicenter init <path> --name "<name>"` refuses a name without a
   space,** with an error saying that names without a space belong to apps
-  and owners (`isPersonalFolderName`, `packages/constants/src/app-names.ts`).
+  and owners (`isPersonalFolderName`, `packages/definition/src/site/app-names.ts`).
 - **Removing the folder from Epicenter removes the link and leaves the
   files.**
 
