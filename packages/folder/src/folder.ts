@@ -584,8 +584,9 @@ function folderCollection(
 
 	/**
 	 * After a write, show what it answered: what landed, or, after a
-	 * `Conflict` or `NotFound`, what is there now (a note read again, files
-	 * listed again).
+	 * `Conflict`, a `NotFound` or a create's `Occupied`, what is there now (a
+	 * note read again, files listed again), so a caller reading the entry
+	 * after the answer sees what refused it.
 	 */
 	async function settle(
 		collection: Raw,
@@ -597,17 +598,28 @@ function folderCollection(
 			else put(written.data as Entry, args);
 			return written;
 		}
-		if (written.error.name !== 'Conflict' && written.error.name !== 'NotFound')
+		const { name } = written.error;
+		if (name !== 'Conflict' && name !== 'NotFound' && name !== 'Occupied')
 			return written;
 		if (!('replace' in collection)) {
 			if (listeners.size > 0) void reload();
 			return written;
 		}
-		const now = await collection.get(args as never);
-		if (now.error === null) put(now.data as Entry, args);
-		else if (now.error.name === 'NotFound') drop(args);
+		// A create's `args` is the whole value; the note is named by its placeholders.
+		const at = name === 'Occupied' ? placeholdersOf(args) : args;
+		const now = await collection.get(at as never);
+		if (now.error === null) put(now.data as Entry, at);
+		else if (now.error.name === 'NotFound') drop(at);
 		return written;
 	}
+
+	/** The placeholders of a note's created value: what is not a field or the body. */
+	const placeholdersOf = (value: Args): Args =>
+		Object.fromEntries(
+			Object.entries(value).filter(
+				([key]) => key !== 'body' && !declared.keys.includes(key),
+			),
+		);
 
 	/** What a write is made over: the entry shown (valid or not), or else as read now. */
 	async function baseOf(

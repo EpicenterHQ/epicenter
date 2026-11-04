@@ -10,7 +10,8 @@
  *   interrupted never replaces a newer one
  * - A listing that fails is tried again while someone listens, so a passing
  *   storage failure does not leave the list frozen
- * - A write shows at once, without waiting for a listing
+ * - A write shows at once, without waiting for a listing; a create refused
+ *   as `Occupied` shows what is there instead
  * - `update` carries an edit over another writer's other fields, and after a
  *   clash shows theirs, so saving again applies over it
  * - Invalid notes are shown with their text, and `replace` repairs one;
@@ -207,6 +208,21 @@ test('a write shows at once, before any listing', async () => {
 
 	release();
 	shown.stop();
+});
+
+test('a create refused as Occupied shows what is there, before it answers', async () => {
+	const { open } = await folder();
+	const elsewhere = await open();
+	const files = over(todos, await open());
+	expectOk(
+		await elsewhere.todos.create({ id: 'a', title: 'Theirs', done: false }),
+	);
+	const refused = expectErr(
+		await files.todos.create({ id: 'a', title: 'Mine', done: false }),
+	);
+	expect(refused.name).toBe('Occupied');
+	expect(files.todos.get({ id: 'a' })?.title).toBe('Theirs');
+	expect(files.todos.items()).toHaveLength(1);
 });
 
 test('a listing a change interrupted never replaces a newer one', async () => {
