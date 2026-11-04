@@ -18,7 +18,8 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { onDestroy, untrack } from 'svelte';
-	import { type Captures, captureText, getCaptureList, readCaptureBody } from '$lib/captures.svelte.js';
+	import { folder } from '$lib/app.js';
+	import { type Captures, captureText, readCaptureBody } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 
@@ -26,7 +27,6 @@
 
 	// The editor is keyed by the capture, so it does not change for its life.
 	const args = untrack(() => ({ id }));
-	const list = getCaptureList();
 	const path = capturePath(args.id);
 	const collection = capture.collections.captures;
 	let active = true;
@@ -34,8 +34,8 @@
 		active = false;
 	});
 
-	const note = $derived(list.get(args));
-	const broken = $derived(list.invalid().find((file) => file.id === args.id));
+	const note = $derived(folder.captures.get(args));
+	const broken = $derived(folder.captures.invalid().find((file) => file.id === args.id));
 	/** The file's text as shown: a capture's in house style, or a broken file's own. */
 	const source = $derived.by(() => {
 		if (note !== undefined) {
@@ -74,7 +74,7 @@
 		if (saving || draft === null) return;
 		saving = true;
 		const { text, over } = draft;
-		const replaced = await list.replace(args, text, { over });
+		const replaced = await folder.captures.replace(args, text, { over });
 		saving = false;
 		if (!active) return;
 		if (replaced.error !== null) {

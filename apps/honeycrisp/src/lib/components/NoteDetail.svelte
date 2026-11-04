@@ -11,13 +11,14 @@
 	import { Input } from '@epicenter/ui/input';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import NoteEditor from '$lib/editor/NoteEditor.svelte';
-	import { byName, folderLabel, getFolders, getHoneycrisp, getNotes, noteLabel, notePath } from '$lib/honeycrisp.svelte.js';
+	import { folder } from '$lib/app.js';
+	import { byName, folderLabel, getHoneycrisp, noteLabel, notePath } from '$lib/honeycrisp.svelte.js';
 	import { confirmDeleteNote } from './delete-note.js';
 	import RepairDetail from './RepairDetail.svelte';
 
 	const app = getHoneycrisp();
-	const notes = getNotes();
-	const folders = getFolders();
+	const notes = folder.notes;
+	const folders = folder.folders;
 	let { id: shownId }: { id: string } = $props();
 
 	// The parent keys this view by the note.

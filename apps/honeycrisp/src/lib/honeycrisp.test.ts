@@ -2,7 +2,7 @@
  * Honeycrisp's state: its orders, and the actions over both collections, on
  * a stand-in client: a real device client (`@epicenter/folder/node`) in a
  * temporary directory, the same contract's client at the same paths, in
- * place of the repository the page is given.
+ * place of the folder the page is given.
  *
  * Key behaviors:
  * - Notes sort newest first and folders by name
@@ -19,10 +19,11 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { folderOf } from '@epicenter/folder/core';
+import type { Client } from '@epicenter/definition/contract';
+import { createFolder } from '@epicenter/folder/core';
 import { openDevice } from '@epicenter/folder/node';
-import { unwrap } from 'wellcrafted/result';
-import { honeycrisp } from './contract.js';
+import { Ok, unwrap } from 'wellcrafted/result';
+import { type Honeycrisp, honeycrisp } from './contract.js';
 
 const { reactive } = await import('@epicenter/svelte/reactive');
 const { follow } = await import(
@@ -51,6 +52,10 @@ async function deviceWith(files: Record<string, string>) {
 	return { root, client: unwrap(await openDevice(honeycrisp, { path: root })) };
 }
 
+/** The folder over a device client, as `$lib/app` opens its own, read through `reactive`. */
+const folderOver = (client: Client<Honeycrisp>) =>
+	reactive(createFolder(honeycrisp, async () => Ok(client)));
+
 /** A note in house style: `extra` holds the keys the contract orders before `createdAt`. */
 const note = (createdAt: string, extra = '') =>
 	`---\n${extra}createdAt: "${createdAt}"\n---\n`;
@@ -74,10 +79,16 @@ test('notes sort newest first and folders by name', async () => {
 		'folders/w.md': folder('Work'),
 		'folders/h.md': folder('Home'),
 	});
-	const store = reactive(folderOf(device.client));
+	const store = folderOver(device.client);
 	const shown = follow(() => ({
-		notes: store.notes.items().toSorted(newestFirst).map(({ id }) => id),
-		folders: store.folders.items().toSorted(byName).map(({ name }) => name),
+		notes: store.notes
+			.items()
+			.toSorted(newestFirst)
+			.map(({ id }) => id),
+		folders: store.folders
+			.items()
+			.toSorted(byName)
+			.map(({ name }) => name),
 	}));
 	await until(() => !store.notes.loading() && !store.folders.loading());
 	expect(shown.values.at(-1)).toEqual({
@@ -90,7 +101,7 @@ test('notes sort newest first and folders by name', async () => {
 test('a new note is made in the folder shown, and opens ready to write in, once', async () => {
 	const device = await deviceWith({ 'folders/w.md': folder('Work') });
 	// As the page composes it: the folder's own collections.
-	const app = createHoneycrisp(reactive(folderOf(device.client)));
+	const app = createHoneycrisp(folderOver(device.client));
 	app.showFolder('w');
 	const created = await app.createNote();
 	if (created.error !== null) throw created.error;
@@ -109,7 +120,7 @@ test('deleting a folder deletes its file alone; its notes keep naming it and sho
 		'folders/w.md': folder('Work'),
 		'notes/a.md': note('2026-10-31T00:00:00.000Z', 'folderId: w\n'),
 	});
-	const store = reactive(folderOf(device.client));
+	const store = folderOver(device.client);
 	const app = createHoneycrisp(store);
 	const shown = follow(
 		() => [store.notes.items(), store.folders.items()] as const,

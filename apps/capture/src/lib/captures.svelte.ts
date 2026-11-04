@@ -2,12 +2,11 @@
  * What Capture does with the list it is given: the timeline, which capture
  * is open and how, Add, and deletion.
  *
- * The list is one store's captures for the page's whole life; the variant's
- * root chooses the store (the person's `capture` repository, ADR-0700, or
- * the desktop window's folder), reads it as a folder, and sets its captures
- * (`setCaptureList`).
- * Add writes a capture to that store, where it is a commit. The timeline
- * shows the list newest first.
+ * The page gives it the folder's captures (`folder.captures` from
+ * `$lib/app`), one store's for the page's whole life: the person's
+ * `capture` repository (ADR-0700), or the desktop window's folder. Add
+ * writes a capture to that store, where it is a commit. The timeline shows
+ * the list newest first.
  */
 
 import {
@@ -17,7 +16,6 @@ import {
 } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
 import type { FolderNotes, OpenFolderError } from '@epicenter/folder/core';
-import { createContext } from 'svelte';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { TextRange } from './capture-actions.svelte.js';
@@ -33,15 +31,10 @@ import {
 } from './model/index.js';
 
 /**
- * The captures a page reads and edits: its store's, read as a folder
- * (`folderOf`) through `reactive`, so its reads track.
+ * The captures a page reads and edits: a folder's, read through `reactive`
+ * so its reads track (`folder.captures` from `$lib/app`).
  */
 export type CaptureList = FolderNotes<CaptureNotes>;
-/**
- * The page's captures, set by the variant's root where it opens the store:
- * per account on the web, once the data folder opened on the desktop.
- */
-export const [getCaptureList, setCaptureList] = createContext<CaptureList>();
 export type Captures = ReturnType<typeof createCaptures>;
 export type Mode = 'capture' | 'text';
 export type Focus = 'new-thought' | TextRange;

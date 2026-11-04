@@ -1,14 +1,14 @@
 /**
  * Platform Seam Tests
  *
- * Bundles Honeycrisp's `#platform/*` seams through the app's own Vite
- * resolution, once as the web build and once as the desktop build
- * (`EPICENTER_DESKTOP=1`, `bun run build:native`), and reads every module
- * each pulls in. A seam whose `tauri` key went missing breaks no build: it
- * silently ships the browser leaf. This names it.
+ * Bundles Honeycrisp's values (`$lib/app`) and `#platform/*` seams through
+ * the app's own Vite resolution, once as the web build and once as the
+ * desktop build (`EPICENTER_DESKTOP=1`, `bun run build:native`), and reads
+ * every module each pulls in. A seam or a capability whose `tauri` key went
+ * missing breaks no build: it silently ships the browser leaf. This names it.
  *
  * Key behaviors:
- * - The web build carries the online root: sign-in and the repository, no folder
+ * - The web build carries sign-in and the account's copy, no desktop folder
  * - The desktop build carries the window's folder and none of the web's
  *   sign-in or repository
  */
@@ -41,31 +41,22 @@ async function bundle(desktop: boolean) {
 	}
 }
 
-const webLeaves = [
-	'root.ts',
-	'auth.ts',
-	'components/OnlineRoot.svelte',
-	'components/OnlineChrome.svelte',
-	'components/SignInCallback.svelte',
-];
-const desktopLeaves = [
-	'root.tauri.ts',
-	'components/Startup.svelte',
-	'components/DesktopRoot.svelte',
-	'components/DesktopChrome.svelte',
-	'components/DesktopCallback.svelte',
-];
+const webLeaves = ['account.ts', 'components/OnlineChrome.svelte'];
+const desktopLeaves = ['account.tauri.ts', 'components/DesktopChrome.svelte'];
 
 test(
-	'the web build carries the online root and no desktop folder',
+	'the web build carries sign-in and the account’s copy, and no desktop folder',
 	async () => {
 		const modules = await bundle(false);
 		for (const name of webLeaves)
 			expect(modules.some(leaf(name)), name).toBe(true);
 		for (const name of desktopLeaves)
 			expect(modules.some(leaf(name)), name).toBe(false);
-		expect(modules.some(folderModule('remote.ts'))).toBe(true);
+		expect(modules.some(folderModule('open-folder.ts'))).toBe(true);
+		expect(modules.some(folderModule('remote/client.ts'))).toBe(true);
+		expect(modules.some(folderModule('open-folder.tauri.ts'))).toBe(false);
 		expect(modules.some(folderModule('tauri.ts'))).toBe(false);
+		expect(modules.some(authModule)).toBe(true);
 	},
 	BUNDLE_TIMEOUT,
 );
@@ -78,9 +69,10 @@ test(
 			expect(modules.some(leaf(name)), name).toBe(true);
 		for (const name of webLeaves)
 			expect(modules.some(leaf(name)), name).toBe(false);
-		expect(modules.some(folderModule('tauri.ts'))).toBe(true);
+		expect(modules.some(folderModule('open-folder.tauri.ts'))).toBe(true);
 		expect(modules.some(folderModule('epicenter-sync.ts'))).toBe(true);
-		expect(modules.some(folderModule('remote.ts'))).toBe(false);
+		expect(modules.some(folderModule('open-folder.ts'))).toBe(false);
+		expect(modules.some(folderModule('remote/client.ts'))).toBe(false);
 		expect(modules.some(authModule)).toBe(false);
 	},
 	BUNDLE_TIMEOUT,

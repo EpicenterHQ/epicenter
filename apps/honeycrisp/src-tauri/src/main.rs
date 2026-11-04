@@ -1,8 +1,8 @@
 //! Honeycrisp's desktop app (`epicenter-standalone`, decisions 88 to 90): one
-//! window whose page opens Honeycrisp's two roots by name: its AppData root and
-//! its data folder, `~/Epicenter/honeycrisp`, which its bundle identifier names
-//! (`openDataFolder` from `@epicenter/folder/tauri`). It asks Epicenter to
-//! sync the folder (`syncWithEpicenter`) and never signs in.
+//! window whose page opens Honeycrisp's data folder by name,
+//! `~/Epicenter/honeycrisp`, which its bundle identifier names (`openFolder`
+//! from `@epicenter/folder`, whose `tauri` leaf opens the Data root). It asks
+//! Epicenter to sync the folder (`syncWithEpicenter`) and never signs in.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]

@@ -64,7 +64,8 @@ renewing; Sign out is beside it.
   fit is refused with why.
 
 Honeycrisp signs in as `so.epicenter.honeycrisp` for the server's Git
-audience only (`src/lib/auth.ts`, made on first use). The server is
+audience only (`connectAccount()` in `src/lib/account.ts`, made once in
+`src/lib/app.ts`, and only by the web build). The server is
 `VITE_EPICENTER_SERVER` at build time, else Epicenter's. The hosted API does
 not serve web writes yet, so signing in works against a local or self-hosted
 API.
@@ -83,22 +84,31 @@ shared recovery screen with Retry. The files remain when the app is removed.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
-(`openDataFolder(honeycrisp, site)`) with no sign-in: Honeycrisp
+(`openFolder(honeycrisp, { site })`, whose `tauri` leaf opens the Data root)
+with no sign-in: Honeycrisp
 makes no inference calls, and Epicenter can keep the folder's local history.
 Its header says "On this computer" or "Kept by Epicenter" once the folder is
 enrolled (asked again each time the window gains focus), offers **Set up in
 Epicenter** until then (`syncWithEpicenter({ contract })`, the
 contract at `APPS.HONEYCRISP.url`'s `contract.json`), and shows the shell's folder path in the status details. Closing the window or quitting does not wait.
 
-The variant is chosen at build time through the `#platform/root` seam, as
-[the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant)
-describes: `desktopVariant()` in `vite.config.ts`, `tsconfig.tauri.json`, and
-`src/lib/platform.test.ts`, which names a seam whose desktop leaf went
-missing and checks that the desktop build carries no sign-in.
+The build picks the folder: `openFolder` from `@epicenter/folder` resolves
+to its desktop leaf under the `tauri` condition that `desktopVariant()` in
+`vite.config.ts` turns on, and to the web leaf otherwise. Two things are
+Honeycrisp's own and differ by build, through `#platform/*` seams
+([the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant));
+`tsconfig.tauri.json` typechecks the desktop leaves, and
+`src/lib/platform.test.ts` names a seam or capability whose desktop leaf
+went missing and checks that the desktop build carries no sign-in.
 
 | Seam | Web leaf | Desktop leaf |
 | --- | --- | --- |
-| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in, which sets the notes and folders), the account, and the end of sign-in | `root.tauri.ts`: `Startup` (the two roots or the recovery screen, which sets the notes and folders), its sync, and no sign-in |
+| `#platform/account` | `account.ts`: `connectAccount()`, the browser sign-in | `account.tauri.ts`: none, `null` |
+| `#platform/chrome` | `OnlineChrome.svelte`: the repository's status and the account | `DesktopChrome.svelte`: the folder's local history status and Set up in Epicenter |
+
+The sign-in callback page is the same in both builds: with an account it
+finishes sign-in, and without one (the desktop) it says Honeycrisp does not
+sign in there.
 
 ## Editing
 
@@ -111,7 +121,7 @@ inside it; the line holding the cursor shows its syntax. Images and tables
 show as plain Markdown.
 
 The open note's title, body, folder and pin are one editor of its note
-(`getNotes().edit({ id })`, `@epicenter/svelte/client`): saves go one at a
+(`folder.notes.edit({ id })`): saves go one at a
 time, the newest carrying every field changed since the last that landed,
 each made over what the person saw when they began typing. Another writer's
 change to other keys is carried over; their change to a key changed here
@@ -151,38 +161,43 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 ## How it is wired
 
 ```text
+src/lib/app.ts                 the page's values, each read through reactive:
+                               account (#platform/account) and
+                               folder = reactive(openFolder(honeycrisp, { site, account }));
+                               editing it, or what it imports, reloads the page
 routes/+layout.svelte          every page: the chrome
-routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
-                               around Startup from #platform/root
-  OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: reactive(folderOf(openRemote(honeycrisp, { account, site: APPS.HONEYCRISP.url }))),
-                               setNotes/setFolders, the leave guard
-  Startup.svelte               desktop: DesktopStartup over the contract
-    DesktopRoot.svelte         reactive(folderOf(device)), setNotes/setFolders, setFolderSync, the leave guard
-routes/(app)/+page.svelte      HoneycrispApp over the notes and folders the root set
-  HoneycrispApp.svelte         header (Chrome from #platform/root), folders, notes, the open note
-routes/auth/callback           Callback from #platform/root: the web app finishes sign-in,
-                               outside (app), then returns to /
+routes/(app)/+layout.svelte    signed out on the web: SignIn; otherwise
+                               <WhenOpen app="Honeycrisp" {folder}> (spinner, Recovery,
+                               pages, and the leave guard while folder.saving())
+routes/(app)/+page.svelte      HoneycrispApp
+  HoneycrispApp.svelte         createHoneycrisp over folder.notes and folder.folders (in context);
+                               header (Chrome from #platform/chrome), folders, notes, the open note
+routes/auth/callback           finishes sign-in, outside (app), then returns to /
 ```
 
-Components read and write only through the notes and folders the variant's
-root set (`getNotes`, `getFolders`) and the page state over them
-(`createHoneycrisp`, in context), never a client of their own; only the
-variant's root chooses the store. Another variant needs only a new root
-that sets its own store, and a header that says what it is.
+Every component imports what it reads from `$lib/app.js` (`folder.notes`,
+`folder.folders`), never a client of its own; only `app.ts` opens the
+store
+([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+The page state over them (`createHoneycrisp`: the filter, what is open, and
+the actions over both collections) is in context (`getHoneycrisp`). On the
+web the folder is the account's copy: it opens once the account is signed
+in, and a new account is a new page (sign-in returns through
+`/auth/callback`, which reloads).
 
 | Path | Role |
 | --- | --- |
+| `src/lib/app.ts` | The account and the folder, opened once for the page. |
 | `src/lib/contract.ts` | The contract. |
+| `src/lib/account.ts`, `account.tauri.ts` | The web build's sign-in; none on the desktop. |
 | `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome. |
-| `src/routes/(app)/+layout.svelte` | The variant's `Startup` (`#platform/root`), under a `<svelte:boundary>` whose `pending` is the UI kit's spinner. |
-| `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte`, `SignInCallback.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account; the end of sign-in. |
-| `src/lib/components/Online.svelte` | The repository per account, read as a folder (`folderOf`, through `reactive`), its notes and folders set for every page (`setNotes`, `setFolders`); leaving while a save is out asks first. |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's notes and folders set for every page (`setNotes`, `setFolders`); the header's local history status, Set up in Epicenter, and the shell's folder path. |
-| `src/routes/(app)/+page.svelte` | `HoneycrispApp`, over the notes and folders the root set. |
-| `src/lib/honeycrisp.svelte.ts` | The notes' and folders' contexts, the orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections. |
+| `src/routes/(app)/+layout.svelte` | `SignIn` while the web build is signed out; otherwise `<WhenOpen>` over the folder. |
+| `src/lib/components/SignIn.svelte`, `OnlineChrome.svelte` | The web app's signed-out page; the header's status and account. |
+| `src/lib/components/DesktopChrome.svelte` | The header's local history status, Set up in Epicenter, and the folder's path (`folder.displayPath`). |
+| `src/routes/(app)/+page.svelte` | `HoneycrispApp`, over the folder's notes and folders. |
+| `src/lib/honeycrisp.svelte.ts` | The orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections. |
 | `src/lib/editor/` | The CodeMirror note editor: the binding that writes local edits and follows changes from elsewhere, live preview, conflict cards. It knows nothing of the app's UI or storage. |
-| `src/lib/components/` | Honeycrisp's UI, which reads and writes only through the state in context. |
+| `src/lib/components/` | Honeycrisp's UI, which reads and writes through `folder` and the page state in context. |
 | `src-tauri/` | The desktop shell: `main.rs` names Honeycrisp to `epicenter-standalone`; `capabilities/honeycrisp.json` grants the folder plugin and names no folder. |
 
 ## Tests
@@ -197,7 +212,9 @@ bun x playwright test -c apps/honeycrisp/playwright.config.ts --project=webkit  
 
 The unit tests run the state and the editor over a stand-in client: a
 folder client (`@epicenter/folder/node`) in a temporary directory, the same
-contract at the same paths, in place of the repository.
+contract at the same paths, in place of the repository. `bun run test`
+passes `--conditions=test`, so anything that imports `$lib/app.js` gets a
+folder in memory and a signed-out account.
 
 The Playwright suite (`e2e/honeycrisp.spec.ts`) starts the same environment
 as `demo`, built into a scratch directory (never `build/`), and walks one
