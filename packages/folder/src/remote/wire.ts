@@ -77,14 +77,13 @@ export type WriteReceipt = {
 	commit: string;
 	paths: string[];
 	blobs: Record<string, string | null>;
-	outcomes: { path: string; landed: string; outcome: Outcome }[];
+	outcomes: { path: string; outcome: Outcome }[];
 };
 
 export type Outcome =
 	| 'written'
 	| 'merged'
 	| 'conflict'
-	| 'conflict-copy'
 	| 'unchanged'
 	| 'deleted'
 	| 'kept';

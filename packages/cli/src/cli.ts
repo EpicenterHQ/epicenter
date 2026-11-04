@@ -179,8 +179,8 @@ filters), fetches origin, checks that the remote main still contains the one
 this clone last saw, merges it, and pushes, retrying when the remote moved.
 Notes merge by Epicenter's rules: front matter by key, the later arrival
 winning, and the body by line with one conflict block per clash. An edit
-beats a delete, and a file both sides replaced keeps the remote's and lands
-this one beside it as "<name> (conflict <hash>).<ext>". Without <dir>, syncs
+beats a delete, and a file both sides replaced keeps this one, the later
+write; the remote's stays in history. Without <dir>, syncs
 every synced folder found in the library. Syncs of one repository take turns. --watch
 syncs again after each change and every 30 seconds until stopped. With
 --json, one {"sync": {...}} line per folder per round. Exits 0 when every
@@ -281,9 +281,8 @@ export async function runCli(argv: readonly string[]): Promise<number> {
 		case 'command': {
 			const run = HANDLERS[name(invocation.command)] as Run;
 			// Bun 1.3.14 can end the process while a command still awaits
-			// `crypto.subtle` work started after a child process exited, as
-			// hashing a conflict copy between two `git` runs does; a ref'd
-			// timer keeps it running until the command returns.
+			// `crypto.subtle` work started after a child process exited; a
+			// ref'd timer keeps it running until the command returns.
 			const alive = setInterval(() => {}, 2 ** 30);
 			try {
 				return await run(invocation);

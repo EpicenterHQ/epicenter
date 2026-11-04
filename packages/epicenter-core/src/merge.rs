@@ -1,7 +1,8 @@
 //! Where two histories meet, by ADR-0734's rule: a note (`*.md`) merges by
 //! `settle` (supplied by the host as a `NoteMerge`), every other file is
-//! kept whole with the remote version at its path and the local one beside
-//! it, and an edit beats a delete.
+//! kept whole with the later write winning (ADR-0771), this computer's,
+//! which arrives after the remote's, and an edit beats a delete. The version
+//! that lost stays in history.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -10,7 +11,6 @@ use git2::{
     Delta, Index, IndexEntry, MergeOptions, Oid, Repository, Tree, TreeWalkMode, TreeWalkResult,
 };
 
-use crate::lfs::Pointer;
 use crate::worktree::{bare_entry, Entries};
 use crate::{Error, NoteInput, NoteMerge, Party};
 
@@ -22,33 +22,6 @@ pub fn is_note(path: &str) -> bool {
 
 pub fn is_control(path: &str) -> bool {
     CONTROL_FILES.contains(&path.rsplit('/').next().unwrap_or(path))
-}
-
-/// `<stem> (conflict <hash7>)<ext>` beside `path`, from the losing bytes'
-/// LFS oid: `conflictSibling` in `packages/definition/src/merge/settle.ts`
-/// (without its 255-byte shortening, which a port would carry).
-pub fn conflict_sibling(path: &str, oid: &str) -> String {
-    let (folder, name) = match path.rfind('/') {
-        Some(i) => (&path[..=i], &path[i + 1..]),
-        None => ("", path),
-    };
-    let (stem, ext) = match name.rfind('.') {
-        Some(i) if i > 0 => (&name[..i], &name[i..]),
-        _ => (name, ""),
-    };
-    let stem = match stem.rfind(" (conflict ") {
-        Some(i) if stem.ends_with(')') => &stem[..i],
-        _ => stem,
-    };
-    format!("{folder}{stem} (conflict {}){ext}", &oid[..7])
-}
-
-/// The LFS oid of a blob: its pointer's, or the sha256 of its bytes.
-fn lfs_oid(repo: &Repository, id: Oid) -> Result<String, Error> {
-    let blob = repo.find_blob(id)?;
-    Ok(Pointer::parse(blob.content())
-        .unwrap_or_else(|| Pointer::of(blob.content()))
-        .oid)
 }
 
 fn text(repo: &Repository, id: Oid) -> Result<String, Error> {
@@ -161,11 +134,11 @@ pub fn three_way(
                 index.add(&bare_entry(&path, id, o.mode))?;
                 notes.push(format!("{path}: settled (libgit2 left a conflict)"));
             }
-            (_, Some(o), Some(t)) => {
-                let sibling = conflict_sibling(&path, &lfs_oid(repo, o.id)?);
-                index.add(&bare_entry(&path, t.id, t.mode))?;
-                index.add(&bare_entry(&sibling, o.id, o.mode))?;
-                notes.push(format!("conflict copy: {sibling}"));
+            (_, Some(o), Some(_)) => {
+                index.add(&bare_entry(&path, o.id, o.mode))?;
+                notes.push(format!(
+                    "{path}: kept this computer's version, the later write"
+                ));
             }
             (Some(_), Some(o), None) => {
                 index.add(&bare_entry(&path, o.id, o.mode))?;
@@ -222,8 +195,8 @@ pub fn three_way(
 
 /// ADR-0735's first contact: the remote's tree with this folder's files on
 /// top. A file only the remote has stays; a file only here is added; a file
-/// on both sides merges (a note by `settle` with no base, any other file
-/// kept whole with the local one beside it).
+/// on both sides merges (a note by `settle` with no base; any other file is
+/// kept whole, this computer's version winning as the later write).
 pub fn first_contact_tree(
     s: &Settler,
     remote: &Tree,
@@ -247,7 +220,7 @@ pub fn first_contact_tree(
     let mut final_local = HashMap::new();
     let mut paths: Vec<_> = local.keys().collect();
     paths.sort();
-    let (mut added, mut merged, mut copies) = (0, 0, 0);
+    let (mut added, mut merged, mut replaced) = (0, 0, 0);
     for path in paths {
         let (ours, mode) = local[path];
         match theirs.get(path) {
@@ -271,20 +244,17 @@ pub fn first_contact_tree(
                 merged += 1;
             }
             Some(_) => {
-                let sibling = conflict_sibling(path, &lfs_oid(repo, ours)?);
-                if theirs.contains_key(&sibling) || local.contains_key(&sibling) {
-                    return Err(Error::stopped(format!(
-                        "{sibling} already exists; rename one of the files before syncing."
-                    )));
-                }
-                index.add(&bare_entry(&sibling, ours, mode))?;
-                notes.push(format!("conflict copy: {sibling}"));
-                copies += 1;
+                index.add(&bare_entry(path, ours, mode))?;
+                final_local.insert(path.clone(), (ours, mode));
+                notes.push(format!(
+                    "{path}: kept this computer's version, the later write"
+                ));
+                replaced += 1;
             }
         }
     }
     notes.push(format!(
-        "first contact: {} from the remote, {added} added here, {merged} notes merged, {copies} conflict copies",
+        "first contact: {} from the remote, {added} added here, {merged} notes merged, {replaced} files replaced",
         theirs.len()
     ));
     Ok((index.write_tree_to(repo)?, final_local))

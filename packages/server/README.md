@@ -79,7 +79,7 @@ grants or changes it, `DELETE` revokes it (`{ "person", "revoked" }`), and
 `GET .../grants` lists `{ "grants": [{ "person", "level" }] }`. A person is
 named by their handle, the id of their personal namespace, and reaches the
 repository at `<owner handle>/<name>`. A grant is a row in `repository_grant`
-naming the repository by id, so it follows a rename or a move. The same
+naming the repository by id. The same
 statement that resolves membership resolves it, as the `reader` or `writer`
 role, so clone, fetch, push, LFS and web writes all apply one rule: `read`
 reads, `write` also pushes forward and writes from the web, and only the owner
@@ -101,8 +101,8 @@ a 64 MiB body, 256 MiB of inflated objects held at once, and 100,000 of
 receiver keeps commits, trees and pointer-sized blobs, and lets larger blobs
 go once hashed.
 Web writes go to the translator (`src/routes/files.ts`): one commit per
-request, notes merged with `@epicenter/definition/merge`'s `settle`, a losing
-binary written beside its target as a conflict copy, the standard
+request, notes merged with `@epicenter/definition/merge`'s `settle`, the
+later of two binary writes winning (ADR-0771), the standard
 `.gitattributes` (`REPOSITORY_ATTRIBUTES`) in a repository's first commit. It
 keeps nothing about a request once it answers. Both use the `GitObjects` port
 (`src/git/objects.ts`): refs, object reads by kind, and an atomic
@@ -118,25 +118,25 @@ POST <git audience>/~/recorder.git/epicenter/writes
 { "files": [
     { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.md", "text": "---\ntitle: Standup\n---\n" },
     { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.m4a", "lfs": { "oid": "<sha256>", "size": 48213 } } ] }
--> 200 { "commit", "paths", "blobs": { "<path>": "<blob id>" }, "outcomes": [{ "path", "landed", "outcome" }] }
+-> 200 { "commit", "paths", "blobs": { "<path>": "<blob id>" }, "outcomes": [{ "path", "outcome" }] }
 ```
 
-An outcome is `written`, `merged`, `conflict`, `conflict-copy`, `unchanged`,
-`deleted`, or `kept`. A body over 16 MiB is 413 `too_large`.
+An outcome is `written`, `merged`, `conflict`, `unchanged`, `deleted`, or
+`kept`. A body over 16 MiB is 413 `too_large`.
 
 A writer that lost the reply sends the same write again, and it is judged like
 any other. The same files with the same content are `unchanged` and make no
 commit (a note counts as the same when it is equal in house style). Other
 content at a path that was created meanwhile lands as two creates: a note keeps
-what is there and gains the incoming note as one conflict block, and a binary
-lands beside it as a conflict copy.
+what is there and gains the incoming note as one conflict block, and a
+binary replaces what is there, which stays in history.
 
 One statement decides each Git request (`authorizeResourceRequest`): the access
 token, given as a Bearer token or as the Basic password, its audience, scope,
 and grant target; the namespace membership and role, or a grant on the
-repository; and `<namespace>/<name>` resolved through `repository`, then
-`repository_alias`. A repository that has
-moved is checked against the namespace it lives in now. Nothing is cached.
+repository; and the `repository` row `<namespace>/<name>` names. A
+repository is never renamed or moved (ADR-0771), so that address is fixed for
+its life. Nothing is cached.
 
 A name nobody holds is not a repository until something is written to it.
 Reading it creates nothing: a member whose role may push gets the empty
@@ -187,8 +187,7 @@ a database (deployed spike 8's bearer-token Worker, kept outside the
 repository) injects its own; every rule after the decision is the same code.
 
 The route resolves names to ids and lists from Postgres, so the store takes
-an id where ADR-0546 sketches `(namespace, name)`, and has no `list`: a rename
-or a move is a row update and an alias, with no storage call. `apps/api` binds
+an id where ADR-0546 sketches `(namespace, name)`, and has no `list`. `apps/api` binds
 Cloudflare Artifacts (`worker/git-repositories.ts`, whose `objects` are
 `worker/artifacts-objects.ts`: refs from Artifacts' receive-pack
 advertisement, objects through the binding by kind, and every ref move as one
@@ -205,12 +204,6 @@ the repository or anywhere else, and a clean environment. Its LFS objects come
 from `createDiskLfsStore` (`src/lfs/disk-lfs-store.ts`), at
 `<root>/<repository id>/<aa>/<bb>/<oid>`, admitted only when their sha256
 matches.
-
-`renameRepository` and `moveRepository` (`src/repositories.ts`) are the
-`manage` role's rename and move, each leaving an alias for the old
-`<namespace>/<name>`. They are internal: the package does not export them, and
-no route or screen mounts them yet.
-A move also needs `push` in the destination.
 
 ## The authorization server
 

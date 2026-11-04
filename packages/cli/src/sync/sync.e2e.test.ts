@@ -20,7 +20,7 @@
  * - T6: a held index lock stops sync with nothing changed; concurrent syncs
  *   are serialized and a rejected push is retried, so every run succeeds
  * - T7: a rewritten remote main stops sync before it merges
- * - T8: a binary both sides replaced lands as a conflict copy (decision 44)
+ * - T8: of a binary both sides replaced, the later write wins (ADR-0771)
  * - clone, status, forget, sync of every synced library folder, and --watch,
  *   which a change under a hidden path never wakes, and which a stop signal
  *   in the middle of a round ends only after the round finishes
@@ -32,6 +32,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	realpathSync,
 	renameSync,
@@ -702,27 +703,32 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'T8: a binary both clones replaced lands as a conflict copy beside it',
+		'T8: a binary both clones replaced keeps the later write, the other in history',
 		async () => {
 			const first = randomBytes(4096);
 			const second = randomBytes(4096);
 			write(A, 'media/clip.webm', first);
 			write(B, 'media/clip.webm', second);
 			expect((await sync(A)).code).toBe(0);
-			const copied = await syncJson(B);
-			expect(copied.code).toBe(0);
-			const sibling = `media/clip (conflict ${sha256(second).slice(0, 7)}).webm`;
-			expect(copied.status.notes).toContain(`conflict copy: ${sibling}`);
+			const earlier = (await quiet(REMOTE, 'rev-parse', 'main')).trim();
+			const later = await syncJson(B);
+			expect(later.code).toBe(0);
+			expect(later.status.notes).toContain(
+				"media/clip.webm: kept this computer's version, the later write",
+			);
 			expect((await sync(A)).code).toBe(0);
 			for (const dir of [A, B]) {
 				expect(sha256(readFileSync(join(dir, 'media/clip.webm')))).toBe(
-					sha256(first),
+					sha256(second),
 				);
-				expect(sha256(readFileSync(join(dir, sibling)))).toBe(sha256(second));
+				expect(readdirSync(join(dir, 'media')).sort()).toEqual([
+					'clip.webm',
+					'raw.webm',
+				]);
 			}
 			expect(
-				await quiet(REMOTE, 'cat-file', '-p', `main:${sibling}`),
-			).toContain(sha256(second));
+				await quiet(REMOTE, 'cat-file', '-p', `${earlier}:media/clip.webm`),
+			).toContain(sha256(first));
 			expect(await tree(A)).toBe(await tree(B));
 			for (const dir of [A, B, C, REMOTE])
 				expect((await git(dir, 'fsck', '--full', '--no-progress')).code).toBe(
@@ -1174,7 +1180,7 @@ describe('epicenter sync over stock git', () => {
 		expect(read(dir, '.gitattributes')).toBe(attributes);
 	});
 
-	test('a conflicting Git control file stops with the command that merges it, not a conflict copy', async () => {
+	test('a conflicting Git control file stops with the command that merges it', async () => {
 		for (const dir of [A, B])
 			expect((await syncJson(dir)).status.status).toBe('synced');
 		write(A, '.gitignore', 'local rules\n');

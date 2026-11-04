@@ -1,7 +1,6 @@
 /**
  * Git LFS pointers: how every non-note file in a data folder reads in Git
- * (decision 40). A conflict copy of a binary file is named from the losing
- * pointer's oid (`conflictSibling` in `settle.ts`).
+ * (decision 40).
  *
  * Ported from `claude/repository-v2` `core/markdown.ts` at `c32dd466`.
  */

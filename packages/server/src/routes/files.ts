@@ -24,21 +24,21 @@
  *   arrival winning a key both changed; the body by line, one conflict
  *   block per clash; the incoming note's key order kept and other keys
  *   appended (decision 47), since the server holds no contract;
- * - any other file lands by compare-and-swap (`settlePointer`), and a
- *   racing replace lands beside it as a conflict copy (`conflictSibling`);
+ * - any other file is kept whole (`settlePointer`): the later write wins,
+ *   and the version that lost stays in history (ADR-0771);
  * - an edit beats a delete.
  *
  * The first commit of a repository also holds `REPOSITORY_ATTRIBUTES` as
  * `.gitattributes` (decision 59), unless the write brings its own, so a
  * desktop clone of a repository the web made runs Git LFS.
  *
- * The reply is `{ commit, paths, blobs, outcomes }`: where each file landed
- * and the Git blob id there. The server keeps nothing about a request once
+ * The reply is `{ commit, paths, blobs, outcomes }`: each file's path, the
+ * Git blob id there, and what happened to it. The server keeps nothing about a request once
  * it answers (decision 68). A device that lost the reply sends the same
  * create again, which is judged like any write: identical bytes already at
  * the path land as nothing (`unchanged`, no commit), and other bytes merge
- * as two creates (a note gets at most one conflict block per clash, a
- * binary lands as a conflict copy).
+ * as two creates (a note gets at most one conflict block per clash, and
+ * a binary's later bytes win).
  */
 
 import {
@@ -47,7 +47,6 @@ import {
 	storedWithLfs,
 } from '@epicenter/definition/contract';
 import {
-	conflictSibling,
 	settle,
 	settlePointer,
 	writePointer,
@@ -129,18 +128,17 @@ export type Outcome =
 	| 'written'
 	| 'merged'
 	| 'conflict'
-	| 'conflict-copy'
 	| 'unchanged'
 	| 'deleted'
 	| 'kept';
 
 export type Receipt = {
 	commit: string;
-	/** Where each file of the request landed (a conflict copy's own path), in order. */
+	/** Each file's path, in the request's order. */
 	paths: string[];
-	/** The Git blob id at each landed path, the `base` of a later write; null where a delete landed. */
+	/** The Git blob id at each path, the `base` of a later write; null where a delete landed. */
 	blobs: Record<string, string | null>;
-	outcomes: { path: string; landed: string; outcome: Outcome }[];
+	outcomes: { path: string; outcome: Outcome }[];
 	attempts?: number;
 };
 
@@ -317,12 +315,12 @@ export async function applyWrite({
 					);
 			}
 			const unchanged = (outcome: Outcome) => {
-				outcomes.push({ path: file.path, landed: file.path, outcome });
+				outcomes.push({ path: file.path, outcome });
 				landedBlobs[file.path] = current?.oid ?? null;
 			};
 
 			if ('lfs' in file || !isNotePath(file.path)) {
-				// Every file that is not a note: compare-and-swap, never a merge.
+				// Every file that is not a note: kept whole, the later write winning.
 				const incoming =
 					'lfs' in file
 						? writePointer(file.lfs)
@@ -330,41 +328,17 @@ export async function applyWrite({
 							? null
 							: file.text;
 				const settled = settlePointer(baseText, currentText, incoming);
-				if ('text' in settled) {
-					if (settled.text === currentText)
-						unchanged(
-							incoming === null && currentText !== null ? 'kept' : 'unchanged',
-						);
-					else {
-						land(file.path, settled.text);
-						outcomes.push({
-							path: file.path,
-							landed: file.path,
-							outcome: settled.text === null ? 'deleted' : 'written',
-						});
-					}
-					continue;
-				}
-				if (!('lfs' in file))
-					return json(
-						{
-							error: 'conflict',
-							path: file.path,
-							current: current?.oid ?? null,
-							message: `${file.path} changed since base; read it and write again`,
-						},
-						409,
+				if (settled === currentText)
+					unchanged(
+						incoming === null && currentText !== null ? 'kept' : 'unchanged',
 					);
-				const sibling = conflictSibling(file.path, file.lfs.oid);
-				const there = await lookup(objects, root, sibling);
-				const pointer = makeObject('blob', incoming as string);
-				if (there?.oid === pointer.oid) landedBlobs[sibling] = pointer.oid;
-				else land(sibling, incoming);
-				outcomes.push({
-					path: file.path,
-					landed: sibling,
-					outcome: 'conflict-copy',
-				});
+				else {
+					land(file.path, settled);
+					outcomes.push({
+						path: file.path,
+						outcome: settled === null ? 'deleted' : 'written',
+					});
+				}
 				continue;
 			}
 
@@ -385,7 +359,6 @@ export async function applyWrite({
 			if (raced) merged = true;
 			outcomes.push({
 				path: file.path,
-				landed: file.path,
 				outcome:
 					settled.text === null
 						? 'deleted'
@@ -397,7 +370,7 @@ export async function applyWrite({
 			});
 		}
 
-		const paths = outcomes.map((o) => o.landed);
+		const paths = outcomes.map((o) => o.path);
 		// A repository's first commit holds the standard attributes
 		// (decision 59), unless the write brings its own.
 		if (

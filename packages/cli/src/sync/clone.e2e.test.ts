@@ -223,7 +223,7 @@ test('clone onto an occupied app folder publishes one commit on the remote histo
 	}
 }, 60_000);
 
-test('first sync merges settings.md and keeps both versions of a non-note file', async () => {
+test('first sync merges settings.md and keeps the local version of a non-note file', async () => {
 	const f = fixture();
 	try {
 		const source = await f.remote(
@@ -251,15 +251,9 @@ test('first sync merges settings.md and keeps both versions of a non-note file',
 		expect(note).toContain('local version');
 		expect(note).toContain('remote version');
 		expect(readFileSync(join(target, 'media/asset.bin'), 'utf8')).toBe(
-			'remote bytes',
+			'local bytes',
 		);
-		const copies = readdirSync(join(target, 'media')).filter((name) =>
-			name.startsWith('asset (conflict '),
-		);
-		expect(copies).toHaveLength(1);
-		expect(
-			readFileSync(join(target, 'media', copies[0] as string), 'utf8'),
-		).toBe('local bytes');
+		expect(readdirSync(join(target, 'media'))).toEqual(['asset.bin']);
 		expect((await f.git(target, 'ls-files', '-u')).stdout.trim()).toBe('');
 	} finally {
 		f.cleanup();

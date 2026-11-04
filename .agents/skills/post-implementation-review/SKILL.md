@@ -33,7 +33,7 @@ behavior checks, not a subsystem inventory. A structural refactor needs enough
 of the affected system to establish where its state and rules now belong.
 Identify the files that support a finding; no fixed report layout is required.
 Load the focused skill for the touched surface, such as `testing`,
-`typescript`, `svelte`, or `yjs`, and escalate ownership, lifecycle, API, or
+`typescript`, or `svelte`, and escalate ownership, lifecycle, API, or
 package-boundary decisions to [rethink](../rethink/SKILL.md).
 
 Before accepting the final shape, replay the change as if designing it from

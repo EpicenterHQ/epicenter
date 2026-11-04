@@ -25,14 +25,10 @@ export type ResourceAccess = {
 	 */
 	role: RepositoryRole;
 	clientId: string;
-	/**
-	 * The namespace the role is in: the requested one, or, when the request
-	 * names a repository that has moved, the namespace it lives in now.
-	 */
+	/** The namespace the role is in, as requested. */
 	namespaceId: string;
 	/**
-	 * The repository the requested name resolves to, by its name or by an
-	 * alias a move or rename left (ADR-0546); null when the request named
+	 * The repository the requested name names; null when the request named
 	 * none, or no repository has that name.
 	 */
 	repository: { id: string; name: string } | null;
@@ -109,7 +105,6 @@ type AccessRow = {
 	has_scope: boolean;
 	in_target: boolean;
 	role: RepositoryRole | null;
-	namespace_id: string;
 	repository_id: string | null;
 	repository_name: string | null;
 };
@@ -117,10 +112,9 @@ type AccessRow = {
 /**
  * Decide one request. Returns the account and its role in `namespaceId`, or
  * the refusal to send. When the request names a `repository`, the same
- * statement resolves `<namespaceId>/<repository>` through `repository`, then
- * `repository_alias`; a repository that has moved is checked against the
- * namespace it lives in now, never the one in the old URL. An account that
- * is not a member of that namespace takes its role from a grant on the
+ * statement looks up `<namespaceId>/<repository>`, an address fixed for the
+ * repository's life (ADR-0771). An account that is not a member of that
+ * namespace takes its role from a grant on the
  * repository (`reader` or `writer`); a grant names an existing repository,
  * so it never creates one. A grant's target (`*`, or `ns:<id>`) applies to
  * the repository's namespace like a membership's: a token granted for one
@@ -171,37 +165,26 @@ export async function authorizeResourceRequest(
 	const now = utcNow();
 	const name = repository ?? null;
 	const { rows } = await db.execute<AccessRow>(sql`
-		with named as (
-			select r.id, r.namespace_id, r.name, 0 as via_alias
-			from repository r
-			where r.namespace_id = ${namespaceId} and r.name = ${name}
-			union all
-			select r.id, r.namespace_id, r.name, 1 as via_alias
-			from repository_alias a
-			join repository r on r.id = a.repository_id
-			where a.namespace_id = ${namespaceId} and a.name = ${name}
-			order by via_alias
-			limit 1
-		)
 		select t.user_id as account_id,
 		       t.client_id,
 		       t.resources = array[${audience}]::text[] as has_audience,
 		       ${scope} = any(t.scopes) as has_scope,
-		       coalesce(t.reference_id in ('*', 'ns:' || coalesce(n.namespace_id, ${namespaceId})), false) as in_target,
+		       coalesce(t.reference_id in ('*', 'ns:' || ${namespaceId}), false) as in_target,
 		       coalesce(
 		         m.role,
 		         case g.level when 'write' then 'writer' when 'read' then 'reader' end
 		       ) as role,
-		       coalesce(n.namespace_id, ${namespaceId}) as namespace_id,
-		       n.id as repository_id,
-		       n.name as repository_name
+		       r.id as repository_id,
+		       r.name as repository_name
 		from oauth_access_token t
-		left join named n on true
+		left join repository r
+		       on r.namespace_id = ${namespaceId}
+		      and r.name = ${name}
 		left join namespace_member m
 		       on m.account_id = t.user_id
-		      and m.namespace_id = coalesce(n.namespace_id, ${namespaceId})
+		      and m.namespace_id = ${namespaceId}
 		left join repository_grant g
-		       on g.repository_id = n.id
+		       on g.repository_id = r.id
 		      and g.account_id = t.user_id
 		left join session s on s.id = t.session_id
 		where t.token = ${hash}
@@ -237,7 +220,7 @@ export async function authorizeResourceRequest(
 		accountId: row.account_id,
 		role: row.role,
 		clientId: row.client_id,
-		namespaceId: row.namespace_id,
+		namespaceId,
 		repository:
 			row.repository_id !== null && row.repository_name !== null
 				? { id: row.repository_id, name: row.repository_name }

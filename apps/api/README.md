@@ -280,14 +280,13 @@ local connection string. `bun run test` runs each test file isolated
 [ADR-0547](../../docs/adr/0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md)).
 The route authorizes each request from the access token and the namespace
 membership, and creates a repository on its first push; `packages/server`'s
-README has the routes and refusals. Tables `repository` and
-`repository_alias` (migration `0004_hosted_repositories`) hold names, ids,
-and the aliases a rename or a move leaves.
+README has the routes and refusals. Table `repository` (migration
+`0004_hosted_repositories`) holds names and ids. A repository is never renamed
+or moved (ADR-0771), so its `<namespace>/<name>` is fixed for its life.
 
 The Worker stores each repository in the Artifacts namespace of its
 environment (`epicenter-production`; `ARTIFACTS_NAMESPACE`), named by its
-immutable id, so a rename or a move never reaches Artifacts and no URL shows
-an id. It reaches
+immutable id, so no URL shows an id. It reaches
 `https://<ARTIFACTS_ACCOUNT_ID>.artifacts.cloudflare.net/git/<ARTIFACTS_NAMESPACE>/<id>.git`
 with a token it mints and caches per repository and scope: 24 hours, renewed an
 hour early, `read` for a fetch and `write` for the receiver's own writes. The

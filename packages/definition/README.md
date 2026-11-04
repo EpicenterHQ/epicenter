@@ -21,7 +21,7 @@ The package is six subpaths.
 | --- | --- |
 | `@epicenter/definition/contract` | `defineContract`, path templates (`fill`, `match`), `compileContract`, `checkContract`, the `Client<T>` types every opener returns, and `updateNote`, the rule for an edit that meets a `Conflict` |
 | `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
-| `@epicenter/definition/merge` | `settle`, the note merge the server and the merge driver run, plus conflict blocks, conflict copies and Git hashes |
+| `@epicenter/definition/merge` | `settle`, the note merge the server and the merge driver run, plus conflict blocks and Git hashes |
 | `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files, and `timeOf()`, when a `timeId` was made |
 | `@epicenter/definition/site` | The names a site derives: the app registry (`APPS`, dev ports, `localUrl`, `resolveOAuthAudiences`), an app's folder, repository and data identifier from its production site (ADR-0722), and the repository name grammar |
 | `@epicenter/definition/site/app-data` | The application-data root on this machine (`epicenterDataRoot`), an app's directory below it, and `isAppId` |
@@ -97,8 +97,8 @@ Pay Alice later
 A front matter key both sides set goes to the later arrival. The body merges
 by line, then by word within a line both sides changed; two different changes
 at the same spot make one conflict block of whole lines. An edit beats a
-delete. A binary file never merges: `settlePointer` lands it, or names a
-conflict copy `<stem> (conflict <hash7>).<ext>` with `conflictSibling`.
+delete. A binary file never merges: `settlePointer` lands the later write,
+and the version it replaced stays in history (ADR-0771).
 Whatever `settle` writes is in house style.
 
 ### How a folder is stored in Git

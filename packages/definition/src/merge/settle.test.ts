@@ -16,7 +16,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { findConflicts } from './conflict.js';
-import { conflictSibling, settle, settlePointer } from './settle.js';
+import { settle, settlePointer } from './settle.js';
 
 const parties = {
 	current: { author: 'main', time: 't1' },
@@ -184,56 +184,31 @@ describe('decision 15: two different insertions at one spot are one clash, as in
 	});
 });
 
-describe('settlePointer: a blob write lands only over the blob its writer saw', () => {
+describe('settlePointer: the later blob write wins, and an edit beats a delete', () => {
 	const [a, b, c] = ['pointer a', 'pointer b', 'pointer c'];
 	test('create, replace and delete land where nothing moved', () => {
-		expect(settlePointer(null, null, a)).toEqual({ text: a });
-		expect(settlePointer(a, a, b)).toEqual({ text: b });
-		expect(settlePointer(a, a, null)).toEqual({ text: null });
+		expect(settlePointer(null, null, a)).toBe(a);
+		expect(settlePointer(a, a, b)).toBe(b);
+		expect(settlePointer(a, a, null)).toBe(null);
 	});
-	test('a create over a file added elsewhere is lost, unless it is the same bytes', () => {
-		expect(settlePointer(null, b, a)).toEqual({ lost: true });
-		expect(settlePointer(null, a, a)).toEqual({ text: a });
+	test('a create over a file added elsewhere wins (ADR-0771)', () => {
+		expect(settlePointer(null, b, a)).toBe(a);
+		expect(settlePointer(null, a, a)).toBe(a);
 	});
-	test('a replace over a file that changed is lost', () => {
-		expect(settlePointer(a, b, c)).toEqual({ lost: true });
+	test('a replace over a file that changed wins (ADR-0771)', () => {
+		expect(settlePointer(a, b, c)).toBe(c);
 	});
 	test('a replace over a file that went brings it back: an edit beats a delete (decision 15)', () => {
-		expect(settlePointer(a, null, c)).toEqual({ text: c });
+		expect(settlePointer(a, null, c)).toBe(c);
 	});
-	test('a delete that does not land leaves the file, with no refusal', () => {
-		expect(settlePointer(a, b, null)).toEqual({ text: b });
+	test('a delete of a file changed since leaves the file, with no refusal', () => {
+		expect(settlePointer(a, b, null)).toBe(b);
 	});
 	test('a delete then a create at one path are two writes that each pass', () => {
-		expect(settlePointer(a, a, null)).toEqual({ text: null });
-		expect(settlePointer(null, null, b)).toEqual({ text: b });
-	});
-	test('a lost write is named beside its file from the original stem and its bytes, the stem shortened to fit', () => {
-		const oid = 'abcdef0123'.repeat(6).slice(0, 64);
-		expect(conflictSibling('photos/cat.png', oid)).toBe(
-			'photos/cat (conflict abcdef0).png',
-		);
-		expect(conflictSibling('photos/cat (conflict 1234567).png', oid)).toBe(
-			'photos/cat (conflict abcdef0).png',
-		);
-		expect(conflictSibling('README', oid, 8)).toBe(
-			'README (conflict abcdef01)',
-		);
-		expect(conflictSibling('.env.local', oid)).toBe(
-			'.env (conflict abcdef0).local',
-		);
-		const long = conflictSibling(`a/${'é'.repeat(200)}.webm`, oid);
-		expect(new TextEncoder().encode(long.slice(2)).length).toBeLessThanOrEqual(
-			255,
-		);
-		expect(long.endsWith(' (conflict abcdef0).webm')).toBe(true);
-		expect(
-			new TextEncoder().encode(
-				conflictSibling(`${'d'.repeat(480)}/x.webm`, oid, 7, 512),
-			).length,
-		).toBeLessThanOrEqual(512);
+		expect(settlePointer(a, a, null)).toBe(null);
+		expect(settlePointer(null, null, b)).toBe(b);
 	});
 	test('a path the writer did not change keeps what is there', () => {
-		expect(settlePointer(a, b, a)).toEqual({ text: b });
+		expect(settlePointer(a, b, a)).toBe(b);
 	});
 });

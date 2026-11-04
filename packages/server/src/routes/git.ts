@@ -31,9 +31,8 @@
  * cloud's (`databaseGitAccess`) is one statement (`authorizeResourceRequest`):
  * the access token, presented as a Bearer token or as the password of Basic
  * credentials, with its audience, scope, and grant target; the namespace
- * membership and its role; and `<namespace>/<name>` resolved through
- * `repository`, then `repository_alias`, so a clone of a moved or renamed
- * repository keeps working. Nothing is cached, so a revoked token or a
+ * membership and its role; and the `repository` row `<namespace>/<name>`
+ * names, an address fixed for its life (ADR-0771). Nothing is cached, so a revoked token or a
  * removed member is refused on the next request.
  *
  * A name nobody has used is not a repository until something is written to
@@ -150,8 +149,7 @@ export type GitRequest = {
 
 /**
  * Where hosted repositories are stored (ADR-0546), by immutable id. The
- * rows, names, aliases, and listing live in Postgres, so a rename or a move
- * never reaches the store.
+ * rows, names, and listing live in Postgres.
  */
 export type GitHost = {
 	/**
@@ -225,7 +223,7 @@ export type GitAccess = {
 /**
  * The hosted cloud's access: one statement (`authorizeResourceRequest`)
  * over the token, its grant, the namespace membership and the repository's
- * name or alias; a first write inserts the `repository` row after its
+ * name; a first write inserts the `repository` row after its
  * storage. Reads `c.var.db`, which `mountGitHost`'s `setup` installs.
  */
 export const databaseGitAccess: GitAccess = {
