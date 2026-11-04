@@ -7,6 +7,7 @@
  * window's is `auth.tauri.ts`.
  */
 import {
+	type AuthClient,
 	createBrowserOAuth,
 	epicenterCloud,
 	selfHostedServer,
@@ -28,6 +29,9 @@ const client = createBrowserOAuth({
 	scope: 'openid profile email ai folders:read folders:write',
 	accountManagement: !SELF_HOST_ORIGIN,
 });
+
+/** The sign-in itself, which `hosted` reads at every use. */
+export const account: AuthClient = client;
 
 /** The browser client itself, which also completes a sign-in on `/auth/callback`. */
 export const browserAuth = fromAuth(client);

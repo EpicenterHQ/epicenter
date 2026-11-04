@@ -28,29 +28,30 @@ src/lib/platform/
 export type CreateServices = (client: Client<Whispering>) => WhisperingServices;
 
 // services.tauri.ts
-export const createServices: CreateServices = (client) => ({ capture, transcribe, transform, connections, … });
+export const createServices: CreateServices = (client) => ({ capture, ai, preferences, … });
 ```
 
 Shared code imports `createServices` from `#platform/services` once, where
-the app is assembled. A desktop-only helper (`fetch.tauri.ts`) is
-imported by the desktop leaf directly, never through a seam. A capability
-only one build has is an optional member of the contract
-(`connections.useLocal?`), not a second seam.
+the app is assembled. A desktop-only helper (`shellFetch` from
+`@epicenter/ai/tauri`) is imported by the desktop leaf directly, never
+through a seam. A capability only one build has is `null` in the other
+(`localSpeech()` on the web), not a second seam.
 
 Each leaf exports the same names with the same declared shape, so a consumer
 sees one contract whichever leaf the build selects. Check
 `package.json#imports` for the current seam list rather than copying it when
 adding or moving a service.
 
-## A smaller seam for one capability
+## A capability that picks its own implementation
 
-When only one capability differs, give it its own seam rather than a
-services object. Vocab's `#platform/connections` exports `openConnections`:
-the web leaf is `createBrowserConnections` from `@epicenter/ai/connections`
-(browser storage, keys included); the desktop leaf keeps the endpoint list in
-`connections.md` in the AppData root and each key in the keychain under the
-connection's id, applying a key only while the connection still names the
-endpoint it was saved for.
+When a capability package owns both implementations, the package picks one
+by the same `tauri` condition and the app calls one name with no seam of its
+own (ADR-0765). `customEndpoints()` from `@epicenter/ai` resolves the
+package's `#device-settings` import: the web leaf keeps the person's
+connections in browser storage, keys included; the desktop leaf keeps the
+endpoint list in `connections.md` in the AppData root and each key in the
+keychain under the connection's id, applying a key only while the
+connection still names the endpoint it was saved for.
 
 ## Desktop services and the shared crates
 

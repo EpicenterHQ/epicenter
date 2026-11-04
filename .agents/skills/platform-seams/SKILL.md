@@ -37,7 +37,10 @@ the store choice is never buried in data code:
 `#platform/services` (`createServices(client)`: the shell's microphone and
 the keychain on the desktop, the WebView's microphone and `localStorage` on
 the web), `#platform/auth` (`createTauriAuth` over `epicenter-account`, or
-browser OAuth), and Vocab's `#platform/connections`.
+browser OAuth). A capability package that owns both implementations picks
+one by the same condition in its own package "imports" (`@epicenter/ai`'s
+`#device-settings`, behind `customEndpoints()`), so the app needs no seam
+for it.
 
 **Which build this is, for words only.** `#platform/variant` exports a
 constant (`'online'`, `'local'`, or `'desktop'`) for the few sentences that

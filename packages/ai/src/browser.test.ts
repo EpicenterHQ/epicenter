@@ -5,8 +5,8 @@
  * event matching derive from the same key and are not exercised here.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { createBrowserConnections } from './ai-connections.js';
 import { createBrowserModelChoices } from './choices.js';
+import { createBrowserConnections } from './device-settings.js';
 
 const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
 

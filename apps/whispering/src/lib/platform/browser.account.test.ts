@@ -1,4 +1,4 @@
-/** Browser hosted inference sends through the signed-in account's `fetch`, as the desktop's does through the shell. */
+/** Browser hosted inference sends through the signed-in account's `fetch`, as the desktop's does through the shell, and follows sign-out without a new merge. */
 import { afterEach, expect, test } from 'bun:test';
 import { epicenterCloud, selfHostedServer } from '@epicenter/account';
 import type { Client } from '@epicenter/definition/contract';
@@ -84,15 +84,15 @@ afterEach(() => {
 	sent.length = 0;
 });
 
-test('Epicenter’s models are sent with the account’s bearer, and signed out nothing is sent', async () => {
-	const browser = createServices(client);
+test('Epicenter’s models are sent with the account’s bearer, and once signed out the same endpoint sends nothing', async () => {
+	const { ai } = createServices(client);
 	const origin = new URL(server.baseURL).origin;
-	const signedIn = browser.endpoints.hosted();
-	expect(signedIn.baseUrl).toBe(`${origin}/v1`);
-	expect(signedIn.models().length).toBeGreaterThan(0);
-	expect(
-		(await signedIn.fetch('chat/completions', { method: 'POST' })).ok,
-	).toBe(true);
+	const hosted = ai.endpoints().find(({ id }) => id === 'hosted')!;
+	expect(hosted.baseUrl).toBe(`${origin}/v1`);
+	expect(hosted.models().length).toBeGreaterThan(0);
+	expect((await hosted.fetch('chat/completions', { method: 'POST' })).ok).toBe(
+		true,
+	);
 	expect(sent).toEqual([
 		{
 			url: `${origin}/v1/chat/completions`,
@@ -102,10 +102,10 @@ test('Epicenter’s models are sent with the account’s bearer, and signed out 
 
 	expectOk(await getAuth().signOut());
 	sent.length = 0;
-	const signedOut = browser.endpoints.hosted();
-	expect(signedOut.baseUrl).toBeUndefined();
-	expect(signedOut.models()).toEqual([]);
-	const refusal = await signedOut
+	expect(ai.endpoints().find(({ id }) => id === 'hosted')).toBe(hosted);
+	expect(hosted.baseUrl).toBe(`${origin}/v1`);
+	expect(hosted.models()).toEqual([]);
+	const refusal = await hosted
 		.fetch('chat/completions', { method: 'POST' })
 		.catch((cause: Error) => cause);
 	expect(refusal).toBeInstanceOf(Error);

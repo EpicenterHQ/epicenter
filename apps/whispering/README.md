@@ -252,7 +252,8 @@ bun build:whispering:desktop   # a local, unsigned macOS app bundle
 Its Tauri shell derives `~/Epicenter/whispering` and names it the Data root, or
 `~/Epicenter Dev/whispering` in development. The page opens this folder,
 making it when missing for now. Whispering opens its AppData root for shortcut
-overrides and the connected endpoints. A failed open shows the shared recovery screen with Retry. The
+overrides; the connected endpoints there are `@epicenter/ai`'s
+(`customEndpoints()`). A failed open shows the shared recovery screen with Retry. The
 status details and Settings show the shell's folder path. **Set up in
 Epicenter** enrolls the folder for local history; connecting a repository
 there enables transfer. Whispering never syncs it itself.
@@ -293,7 +294,8 @@ whose desktop leaf went missing.
   Settings), which takes the recording's audio as an upload.
 - **Connections** are AppData's `connections.md`, with no key in it, and
   **keys** are credential-store entries, one per connection
-  (`createKeychainConnections` from `@epicenter/ai/tauri`). A debug build
+  (`customEndpoints()` from `@epicenter/ai`, whose desktop build keeps them
+  through `createKeychainConnections` from `@epicenter/ai/tauri`). A debug build
   started with `EPICENTER_SECRETS_FILE=<path>` keeps the keys in that file
   instead.
 - **Sign-in** is `so.epicenter.whispering.native` through the shared

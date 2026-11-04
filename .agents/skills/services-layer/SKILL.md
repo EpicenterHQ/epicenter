@@ -9,7 +9,7 @@ metadata:
 # Services Layer
 
 Grounded in Whispering's `#platform/services` (`apps/whispering/src/lib/platform/`)
-and Vocab's `#platform/connections`. Read the app's own `package.json`
+and `@epicenter/ai`'s `#device-settings` (`customEndpoints()`). Read the app's own `package.json`
 "imports" and its platform types file before changing a service.
 
 ## Product Sentence

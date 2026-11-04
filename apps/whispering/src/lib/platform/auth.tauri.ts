@@ -7,17 +7,25 @@
  * account's requests itself (`account_fetch`), so this page never holds a
  * token. Made on first use.
  */
+import type { AuthClient } from '@epicenter/account';
 import { fromAuth } from '@epicenter/account/svelte';
 import { createTauriAuth } from '@epicenter/account/tauri';
 import type { PlatformAuth } from './types.js';
 
-let made: { auth: PlatformAuth; ready: Promise<void> } | undefined;
+let made:
+	| { account: AuthClient; auth: PlatformAuth; ready: Promise<void> }
+	| undefined;
 
 function make() {
 	if (made) return made;
 	const { client, ready } = createTauriAuth();
-	made = { auth: fromAuth(client), ready };
+	made = { account: client, auth: fromAuth(client), ready };
 	return made;
+}
+
+/** The sign-in itself, which `hosted` reads at every use. */
+export function getAccount(): AuthClient {
+	return make().account;
 }
 
 export function getAuth(): PlatformAuth {

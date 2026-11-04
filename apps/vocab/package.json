@@ -9,10 +9,6 @@
 			"tauri": "./src/lib/auth.tauri.ts",
 			"default": "./src/lib/auth.ts"
 		},
-		"#platform/connections": {
-			"tauri": "./src/lib/connections.tauri.ts",
-			"default": "./src/lib/connections.ts"
-		},
 		"#platform/root": {
 			"tauri": "./src/lib/root.tauri.ts",
 			"default": "./src/lib/root.ts"

@@ -4,24 +4,22 @@
  *
  * - `shortcuts.md`: this computer's override of the data folder's
  *   `shortcuts.md` (the contract's `shortcuts`), key by key.
- * - `connections.md`: the endpoints the person connected, each one's id,
- *   name, base URL and models, never a key (`connectionsCollection` from
- *   `@epicenter/ai/tauri`, which keeps each key in the credential store).
+ *
+ * The endpoints the person connected are `@epicenter/ai`'s, in its own
+ * `connections.md` beside these (`customEndpoints()`).
  *
  * A reader resolves a note with a shallow spread, where it reads it: the
  * defaults, then the data folder's keys, then this computer's (`keysOf`
  * each).
  */
-import { connectionsCollection } from '@epicenter/ai/tauri';
 import { defineContract, type Version } from '@epicenter/definition/contract';
 import { whispering } from './contract.js';
 
 export const whisperingSettings = defineContract({
 	description:
-		"Whispering on this computer: its `shortcuts.md` overrides the data folder's, and `connections.md` lists the endpoints connected here, whose keys are in the credential store.",
+		"Whispering on this computer: its `shortcuts.md` overrides the data folder's.",
 	collections: {
 		shortcuts: whispering.collections.shortcuts,
-		connections: connectionsCollection,
 	},
 });
 

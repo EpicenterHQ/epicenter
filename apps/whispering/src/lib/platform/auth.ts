@@ -8,6 +8,8 @@
  * opening any files.
  */
 import {
+	type AuthClient,
+	type CallbackAuthClient,
 	createBrowserOAuth,
 	epicenterCloud,
 	selfHostedServer,
@@ -21,10 +23,10 @@ const server = SELF_HOST_ORIGIN
 	? selfHostedServer(SELF_HOST_ORIGIN)
 	: epicenterCloud(APP_URLS.API);
 
-let auth: PlatformAuth | undefined;
+let made: { account: CallbackAuthClient; auth: PlatformAuth } | undefined;
 
-export function getAuth(): PlatformAuth {
-	if (auth) return auth;
+function make() {
+	if (made) return made;
 	const client = createBrowserOAuth({
 		server,
 		clientId: APPS.WHISPERING.id,
@@ -34,11 +36,20 @@ export function getAuth(): PlatformAuth {
 		// A timer must not navigate away in the middle of a recording.
 		automaticRenewal: false,
 	});
-	auth = fromAuth(client);
-	return auth;
+	made = { account: client, auth: fromAuth(client) };
+	return made;
+}
+
+/** The sign-in itself, which `hosted` reads at every use. */
+export function getAccount(): AuthClient {
+	return make().account;
+}
+
+export function getAuth(): PlatformAuth {
+	return make().auth;
 }
 
 if (import.meta.hot) {
-	import.meta.hot.dispose(() => auth?.[Symbol.dispose]());
+	import.meta.hot.dispose(() => made?.auth[Symbol.dispose]());
 	import.meta.hot.accept(() => import.meta.hot?.invalidate());
 }

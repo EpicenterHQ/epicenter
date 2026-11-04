@@ -39,12 +39,10 @@
 		<p class="font-medium">{copy[operation].title}</p>
 		<ModelPicker
 			ai={whispering.ai}
-			connections={whispering.connections}
+			can={CAN[operation]}
 			value={choice}
 			onSelect={select}
-			can={CAN[operation]}
 			placeholder="Choose a model"
-			problem={whispering.connectionsProblem ?? null}
 		/>
 	</div>
 	<p class="text-xs text-muted-foreground" data-testid="model-{operation}-status">

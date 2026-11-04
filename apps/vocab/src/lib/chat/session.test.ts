@@ -84,10 +84,7 @@ async function setup({ question = false } = {}) {
 			);
 		},
 	});
-	const ai = {
-		current: fromAi(openAi([tutorEndpoint])),
-		ready: Promise.resolve(),
-	};
+	const ai = fromAi(openAi([tutorEndpoint]));
 	const choices = sessionDouble<ChatOptions['choices']>({
 		get: () => ({ endpoint: 'tutor', model: 'test-model' }),
 		set: () => {},

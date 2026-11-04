@@ -13,8 +13,8 @@
  *   repository, and this browser's connections; no browser device (OPFS),
  *   since nothing is kept in the browser, and no desktop folder
  * - The desktop build carries the window's folder, the shell's sign-in,
- *   and the keychain connections, and none of the web's browser sign-in or
- *   repository
+ *   and the keychain connections (`@epicenter/ai`'s desktop settings), and
+ *   none of the web's browser sign-in or repository
  */
 import { expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -49,7 +49,6 @@ async function bundle(desktop: boolean) {
 const webLeaves = [
 	'root.ts',
 	'auth.ts',
-	'connections.ts',
 	'components/OnlineRoot.svelte',
 	'components/Online.svelte',
 	'components/OnlineChrome.svelte',
@@ -58,8 +57,6 @@ const webLeaves = [
 const desktopLeaves = [
 	'root.tauri.ts',
 	'auth.tauri.ts',
-	'connections.tauri.ts',
-	'folder.tauri.ts',
 	'components/Startup.svelte',
 	'components/DesktopRoot.svelte',
 	'components/DesktopChrome.svelte',
@@ -80,6 +77,7 @@ test(
 		expect(modules.some(folderModule('tauri.ts'))).toBe(false);
 		expect(modules.some(packageModule('account/src/tauri.ts'))).toBe(false);
 		expect(modules.some(packageModule('ai/src/tauri.ts'))).toBe(false);
+		expect(modules.some(packageModule('ai/src/device-settings.ts'))).toBe(true);
 	},
 	BUNDLE_TIMEOUT,
 );
@@ -96,6 +94,9 @@ test(
 		expect(modules.some(folderModule('epicenter-sync.ts'))).toBe(true);
 		expect(modules.some(packageModule('account/src/tauri.ts'))).toBe(true);
 		expect(modules.some(packageModule('ai/src/tauri.ts'))).toBe(true);
+		expect(modules.some(packageModule('ai/src/device-settings.tauri.ts'))).toBe(
+			true,
+		);
 		expect(modules.some(folderModule('remote.ts'))).toBe(false);
 		expect(modules.some(folderModule('browser.ts'))).toBe(false);
 		expect(modules.some(packageModule('account/src/browser-oauth.ts'))).toBe(

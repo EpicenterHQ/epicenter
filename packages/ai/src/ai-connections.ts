@@ -1,14 +1,22 @@
 /**
- * The endpoints a person connected on this device: each a base URL, an
- * optional key, and the models they chose. The records are the person's
- * settings; `endpoint(record)` is the `custom` endpoint a record makes, which
- * an app passes to `openAi` beside its other endpoints.
+ * `@epicenter/ai/connections`: the store of the endpoints a person
+ * connected on a device, each a base URL, an optional key, and the models
+ * they chose. The records are the person's settings; `endpoint(record)` is
+ * the `custom` endpoint a record makes. An app merges them as one entry,
+ * `customEndpoints()` from `@epicenter/ai`, which keeps them where its build
+ * keeps settings; `customEndpointsOf` makes that entry over any store, as a
+ * test does over memory.
  */
 
 import { nanoid } from 'nanoid';
 import { createLogger } from 'wellcrafted/logger';
 import { custom } from './custom.js';
 import type { Endpoint } from './endpoint.js';
+
+export {
+	type CustomEndpoints,
+	customEndpointsOf,
+} from './custom-endpoints.js';
 
 const log = createLogger('ai-connections');
 
@@ -293,43 +301,4 @@ export function createAiConnections({
 			return closing;
 		},
 	};
-}
-
-/** This browser's connections live under this key. */
-const BROWSER_STORAGE_KEY = 'epicenter/ai';
-
-/** The connections a person made in this browser, kept in its storage for this site, keys included. */
-export function createBrowserConnections() {
-	return createAiConnections({
-		storage: window.localStorage,
-		storageKey: BROWSER_STORAGE_KEY,
-		locks: navigator.locks,
-		publishStorage() {
-			window.dispatchEvent(
-				new CustomEvent('epicenter-ai-connections', {
-					detail: BROWSER_STORAGE_KEY,
-				}),
-			);
-		},
-		subscribeStorage(listener) {
-			const changed = (event: StorageEvent) => {
-				if (
-					event.storageArea === window.localStorage &&
-					(event.key === `${BROWSER_STORAGE_KEY}.app-ai-connections` ||
-						event.key === null)
-				)
-					listener();
-			};
-			const local = (event: Event) => {
-				if ((event as CustomEvent<string>).detail === BROWSER_STORAGE_KEY)
-					listener();
-			};
-			window.addEventListener('storage', changed);
-			window.addEventListener('epicenter-ai-connections', local);
-			return () => {
-				window.removeEventListener('storage', changed);
-				window.removeEventListener('epicenter-ai-connections', local);
-			};
-		},
-	});
 }

@@ -16,21 +16,18 @@
  * (ADR-0700).
  *
  *
- * The models are one merge of endpoints (`openAi`, ADR-0757): Epicenter's
- * hosted models through the account signed in now, the connections the
- * person saved with their keys, then what runs on this computer. The person
- * chooses one model for transcription and one for text; a request captures
- * that choice when it is prepared and goes there alone (`inference.ts`).
+ * The models are the build's one merge of endpoints (`services.ai`,
+ * ADR-0757): Epicenter's hosted models through the account signed in now,
+ * the connections the person saved with their keys, then what runs on this
+ * computer, each followed as it changes. The person chooses one model for
+ * transcription and one for text; a request captures that choice when it is
+ * prepared and goes there alone (`inference.ts`).
  *
  * Closing waits for nothing here: `dispose` refuses new work and late
  * answers and returns. A recording under way ends with the page.
  */
-import { type ModelChoice, openAi } from '@epicenter/ai';
+import type { ModelChoice } from '@epicenter/ai';
 import type { ModelChoices } from '@epicenter/ai/choices';
-import type {
-	AiConnectionSnapshot,
-	AiConnections,
-} from '@epicenter/ai/connections';
 import { fromAi } from '@epicenter/ai/svelte';
 import type { Client } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
@@ -100,12 +97,6 @@ export function createWhispering({
 
 	// --- models, microphone -------------------------------------------------
 
-	/** The person's saved connections, once opened; their keys never reach this page on the desktop. */
-	let connections = $state.raw<AiConnections | null>(null);
-	let records = $state.raw<readonly AiConnectionSnapshot[]>([]);
-	let connectionsError = $state<string | undefined>();
-	let stopRecords: (() => void) | undefined;
-	let connectionReadId = 0;
 	let choices: ModelChoices | undefined;
 	let stopChoices: (() => void) | undefined;
 	let chosenModels = $state.raw<Record<Operation, ModelChoice | null>>({
@@ -113,16 +104,10 @@ export function createWhispering({
 		text: null,
 	});
 
-	/** Every endpoint merged now, in the picker's order. Signing in or saving a connection merges again. */
-	const merged = $derived.by(() => {
-		const saved = connections;
-		return openAi([
-			services.endpoints.hosted(),
-			...(saved ? records.map((record) => saved.endpoint(record)) : []),
-			services.endpoints.local,
-		]);
-	});
-	const ai = $derived(fromAi(merged));
+	/** Every model this page can reach, in the picker's order; sign-in and a saved connection reach it as they happen. */
+	const ai = fromAi(services.ai);
+	/** Why the saved connections could not be read, if they could not; tracks in Svelte. */
+	const connectionsProblem = () => ai.custom?.problem() ?? undefined;
 
 	/** The model chosen for `operation` now, as where a request would go, or why there is none. */
 	function chosen(operation: Operation): Chosen {
@@ -135,16 +120,16 @@ export function createWhispering({
 						? 'No transcription model is chosen, so nothing was sent. Choose one in Settings, then transcribe.'
 						: 'Choose a text model in Settings to run this.',
 			};
-		const endpoint = merged
+		const endpoint = services.ai
 			.endpoints()
 			.find((candidate) => candidate.id === choice.endpoint);
 		if (endpoint === undefined)
 			return {
 				kind: 'unset',
 				reason: `The ${operation} model chosen, ${choice.model}, is at an endpoint that is not set up on this device${
-					connectionsError === undefined
+					connectionsProblem() === undefined
 						? ''
-						: ` (the saved connections could not be read: ${connectionsError})`
+						: ` (the saved connections could not be read: ${connectionsProblem()})`
 				}. Choose a model in Settings.`,
 			};
 		const target: Target = {
@@ -160,31 +145,9 @@ export function createWhispering({
 		return resolveRecipe(recipe, chosen('text'));
 	}
 
-	/** Open the saved connections, or open them again after a failed read. */
-	async function readConnections() {
-		const current = ++connectionReadId;
-		try {
-			const opened = await services.endpoints.openConnections();
-			if (disposed || current !== connectionReadId) {
-				void opened.close();
-				return;
-			}
-			stopRecords?.();
-			void connections?.close();
-			connections = opened;
-			stopRecords = opened.subscribe((next) => {
-				records = next;
-			});
-			connectionsError = undefined;
-		} catch (cause) {
-			if (disposed || current !== connectionReadId) return;
-			connectionsError = describe(cause);
-		}
-	}
-
 	/** Read this device's model choices, and follow them as they change. */
 	function readChoices() {
-		const opened = services.endpoints.openChoices();
+		const opened = services.openChoices();
 		choices = opened;
 		const read = () => {
 			chosenModels = {
@@ -216,13 +179,13 @@ export function createWhispering({
 	const transcribe = (
 		target: Target,
 		audio: () => Promise<Result<Audio, string>>,
-	) => transcribeAt(() => merged, target, audio);
+	) => transcribeAt(() => services.ai, target, audio);
 
 	/** Send a transformation to `target`, through the endpoints merged when it is sent. */
 	const transform = (
 		target: Target,
 		request: { prompt: string; input: string },
-	) => transformAt(() => merged, target, request);
+	) => transformAt(() => services.ai, target, request);
 
 	/** A capture under way, writing recording `id`'s audio. */
 	type Take = { id: string; capture: Capture };
@@ -328,8 +291,6 @@ export function createWhispering({
 		if (disposed) return;
 		disposed = true;
 		input.close();
-		stopRecords?.();
-		void connections?.close();
 		stopChoices?.();
 		choices?.[Symbol.dispose]();
 		if (captureState.phase === 'starting') {
@@ -347,17 +308,11 @@ export function createWhispering({
 		set sidebarOpen(open: boolean) {
 			sidebarOpen = open;
 		},
-		/** Every model this page can reach now, for the picker; tracks in Svelte. */
-		get ai() {
-			return ai;
-		},
-		/** The person's saved connections, once opened, for the picker to add, edit and remove. */
-		get connections() {
-			return connections;
-		},
-		/** Why the saved connections could not be opened, if they could not. */
+		/** Every model this page can reach now, with the person's connections, for the picker; tracks in Svelte. */
+		ai,
+		/** Why the saved connections could not be read, if they could not. */
 		get connectionsProblem() {
-			return connectionsError;
+			return connectionsProblem();
 		},
 		/** The model chosen for `operation`, or null when none is. */
 		choice(operation: Operation): ModelChoice | null {
@@ -397,7 +352,7 @@ export function createWhispering({
 				try {
 					if (disposed) throw new Error(STOPPED);
 					readChoices();
-					await readConnections();
+					await services.ai.custom()?.ready;
 					// The saved choice only: no microphone is opened or listed at launch.
 					if (disposed) throw new Error(STOPPED);
 					await input.load();
@@ -479,8 +434,8 @@ export function createWhispering({
 		/** Stop: the microphone is released, the audio finished at its path, and its note written. */
 		stopRecording: finishRecording,
 
-		/** Open the saved connections again, as after a failed read. */
-		readConnections,
+		/** Read the saved connections again, as after a failed read. */
+		readConnections: () => services.ai.custom()?.reopen() ?? Promise.resolve(),
 	};
 }
 

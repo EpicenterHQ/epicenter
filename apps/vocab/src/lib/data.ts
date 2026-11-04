@@ -15,6 +15,9 @@ import type { Vocab } from './contract.js';
  */
 export const VOCAB_MODEL = 'gemini-3.5-flash' satisfies ServableModel;
 
+/** The tutor's model when the learner has chosen none: Epicenter's, once signed in. */
+export const HOSTED_TUTOR = { endpoint: 'hosted', model: VOCAB_MODEL };
+
 /**
  * The English vocabulary tutor's system prompt. Messages remain plain text
  * during streaming and render as Markdown when a response finishes.

@@ -5,10 +5,10 @@ import {
 	createConversation,
 } from '@epicenter/ai/agent';
 import type { ModelChoices } from '@epicenter/ai/choices';
+import type { ReactiveAi } from '@epicenter/ai/svelte';
 import { bindAgentConversation } from '@epicenter/svelte';
 import { createSubscriber } from 'svelte/reactivity';
-import { HOSTED_TUTOR, type VocabAi } from '../ai.svelte.js';
-import { tutorPrompt, VOCAB_SYSTEM_PROMPT } from '../data.js';
+import { HOSTED_TUTOR, tutorPrompt, VOCAB_SYSTEM_PROMPT } from '../data.js';
 import { createChatMessageStore, type MessageList } from './messages.svelte.js';
 import { withTutorOpening } from './opening.js';
 
@@ -24,7 +24,8 @@ export function createVocabChat({
 	messages: MessageList;
 	chatId: string;
 	focus: readonly { text: string }[];
-	ai: Pick<VocabAi, 'current' | 'ready'>;
+	/** Every model Vocab can reach (`$lib/ai.js`). */
+	ai: Pick<ReactiveAi, 'models' | 'custom' | 'chat'>;
 	choices: ModelChoices;
 }) {
 	const observeChoices = createSubscriber((update) => choices.onChange(update));
@@ -52,7 +53,7 @@ export function createVocabChat({
 	function canChat(choice: ModelChoice | null): choice is ModelChoice {
 		return (
 			choice !== null &&
-			ai.current.models.some(
+			ai.models.some(
 				(model) =>
 					model.endpoint === choice.endpoint &&
 					model.id === choice.model &&
@@ -73,7 +74,7 @@ export function createVocabChat({
 		const choice = target();
 		if (!canChat(choice)) return false;
 		runTurn = {
-			ai: ai.current,
+			ai,
 			endpoint: choice.endpoint,
 			model: choice.model,
 			systemPrompts: [
@@ -210,7 +211,8 @@ export function createVocabChat({
 			const admitted = new AbortController();
 			asking = admitted;
 			try {
-				await ai.ready;
+				// A connection the learner chose answers once the saved ones are read.
+				await ai.custom?.ready;
 				if (admitted.signal.aborted) return;
 				if (hasNothingToAsk() || !captureTarget()) return;
 				dismissedError = null;

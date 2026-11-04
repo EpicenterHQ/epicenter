@@ -17,9 +17,12 @@ import { mock } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { hosted } from '@epicenter/ai';
+import { hosted, type LiveAccount, openAi } from '@epicenter/ai';
 import { createModelChoices } from '@epicenter/ai/choices';
-import { createAiConnections } from '@epicenter/ai/connections';
+import {
+	createAiConnections,
+	customEndpointsOf,
+} from '@epicenter/ai/connections';
 import type { Client } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
 import { audioDurationMs, RecorderError } from '@epicenter/recorder';
@@ -183,6 +186,13 @@ function streamed(text: string): Response {
 const refused = (message: string) =>
 	Response.json({ error: { message } }, { status: 500 });
 
+/** No one signed in, as a test's account stays. */
+export const SIGNED_OUT: LiveAccount = {
+	baseURL: 'https://api.epicenter.test',
+	getState: () => ({ status: 'signed-out' }),
+	onStateChange: () => () => {},
+};
+
 /** Memory standing in for this site's storage, which tells every opener of it of each write, as a page's other tabs hear. */
 function memoryStorage() {
 	const values = new Map<string, string>();
@@ -294,13 +304,12 @@ export async function openTestServices({
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 		}),
-		endpoints: {
-			hosted: () => hosted(null),
-			local: [],
-			openConnections: async () => openConnections(),
-			openChoices,
-			note: 'test',
-		},
+		ai: openAi([
+			hosted(SIGNED_OUT),
+			customEndpointsOf(async () => openConnections()),
+		]),
+		openChoices,
+		connectionsNote: 'test',
 		preferences: {
 			microphone: async () => undefined,
 			setMicrophone: async () => undefined,
