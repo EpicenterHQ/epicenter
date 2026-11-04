@@ -5,22 +5,11 @@
  */
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-// Relative, not `@epicenter/definition/merge`: the spike adds no workspace
-// package, so the lockfile stays as it is.
-import { settle } from '../definition/src/merge/index.ts';
+import { type SettleInput, settleNote } from './settle-note.ts';
 
+export { type SettleInput, settleNote };
 export type SyncRemote = { url: string; token?: string; lfsUrl?: string };
 export type SyncOptions = { remote?: SyncRemote; machine: string };
-export type SettleInput = {
-	path: string;
-	base?: string;
-	current: string;
-	incoming: string;
-	currentAuthor: string;
-	currentTime: string;
-	incomingAuthor: string;
-	incomingTime: string;
-};
 export type SyncRound = {
 	status: 'synced' | 'retry' | 'stopped';
 	head?: string;
@@ -34,17 +23,6 @@ type Addon = {
 };
 
 export const addon = createRequire(import.meta.url)(join(import.meta.dir, 'sync_core.node')) as Addon;
-
-/** `settle` as the core calls it: the merged text of one note. */
-export function settleNote(input: SettleInput): string {
-	const settled = settle(input.base ?? null, input.current, input.incoming, {
-		parties: {
-			current: { author: input.currentAuthor, time: input.currentTime },
-			incoming: { author: input.incomingAuthor, time: input.incomingTime },
-		},
-	});
-	return settled.text ?? input.current;
-}
 
 /** One round for `folder`, notes merged by `settle`. */
 export function syncRound(folder: string, options: SyncOptions): SyncRound {
