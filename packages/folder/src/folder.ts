@@ -260,7 +260,8 @@ export type Folder<TContract extends Contract> = FolderLifecycle & {
  */
 export type OpenFolderOptions = {
 	site: string;
-	account?: FolderAccount;
+	/** Null or absent where the build has no account (`connectAccount()` on the desktop). */
+	account?: FolderAccount | null;
 };
 
 /**

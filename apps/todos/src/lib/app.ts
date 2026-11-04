@@ -19,5 +19,5 @@ const signIn = connectAccount();
 
 export const account = signIn && reactive(signIn);
 export const folder = reactive(
-	openFolder(todos, { site: APPS.TODOS.url, ...(signIn && { account: signIn }) }),
+	openFolder(todos, { site: APPS.TODOS.url, account: signIn }),
 );

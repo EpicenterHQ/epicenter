@@ -40,7 +40,7 @@ export type {
  * ```
  */
 export const openFolder: OpenFolder = (contract, options) => {
-	if (options?.account === undefined)
+	if (!options?.account)
 		return createFolder(contract, () => openDevice(contract), {
 			close: (client) => closeDevice(client),
 		});
