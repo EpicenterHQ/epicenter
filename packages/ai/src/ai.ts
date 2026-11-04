@@ -1,8 +1,40 @@
 import type { Account } from '@epicenter/account';
 import { createInference, validateInferenceDestination } from './inference.js';
 
+export {
+	AiError,
+	type ChatChunk,
+	type ChatMessage,
+	type ChatRequest,
+	type ChatTool,
+	type Client,
+	createClient,
+	type Embeddings,
+	type EmbeddingsRequest,
+	type ToolCall,
+	type ToolCallDelta,
+	type Transcription,
+	type TranscriptionRequest,
+} from './client.js';
 export { type CodexConnection, createCodexAi } from './codex-ai.js';
+export { custom } from './custom.js';
+export {
+	type Capability,
+	type Endpoint,
+	type EndpointFetch,
+	type EndpointModel,
+	guessCapabilities,
+	openAiCompatible,
+	type Source,
+} from './endpoint.js';
 export { createEndpointAi } from './endpoint-ai.js';
+export { hosted } from './hosted.js';
+export {
+	type EndpointEntry,
+	type Model,
+	type ModelChoice,
+	openAi,
+} from './open-ai.js';
 export {
 	type Ai,
 	ReplyError,
