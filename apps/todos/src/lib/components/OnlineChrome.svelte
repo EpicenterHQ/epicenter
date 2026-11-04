@@ -26,7 +26,7 @@
 
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
-		if (auth.getState().status === 'reauth-required')
+		if (auth.state().status === 'reauth-required')
 			return {
 				label: 'Sign in again',
 				detail: 'Sign in again to edit your repository.',
@@ -56,8 +56,8 @@
 	</StatusRow>
 </StatusPopover>
 <div class="ml-auto flex min-w-0 items-center gap-2">
-	{#if auth.getState().status !== 'signed-out'}
-		{#if auth.getState().status === 'reauth-required'}
+	{#if auth.state().status !== 'signed-out'}
+		{#if auth.state().status === 'reauth-required'}
 			<Button size="sm" onclick={() => void signIn()}>Sign in again</Button>
 		{/if}
 		<Button variant="ghost" size="sm" onclick={() => void signOut()}>Sign out</Button>

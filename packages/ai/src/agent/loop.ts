@@ -111,10 +111,10 @@ export type ConversationHandle = {
 	send(
 		content: string,
 	): Promise<Result<void, ConversationAdmissionError | MessageSaveError>>;
-	/** Abort the model turn, or cancel the one a pending `send` would start. */
-	stop(): void;
-	/** Run a model turn over the saved transcript. Ignored while busy or unsaved. */
-	retry(): void;
+	/** Abort the model turn, or cancel the one a pending `send` would start; answers once no turn runs. */
+	stop(): Promise<void>;
+	/** Run a model turn over the saved transcript, answering once it ends. Ignored while busy or unsaved. */
+	retry(): Promise<void>;
 	/**
 	 * Write `unsaved` again under the same ids. Never runs the model or a tool,
 	 * and never writes a message the collection already confirmed.
@@ -270,6 +270,8 @@ export function createConversation({
 	let turn: AgentMessage[] | null = null;
 	let error: ConversationError | null = null;
 	let controller: AbortController | null = null;
+	/** The model turn running now, or the last one; settled once it ended. */
+	let running: Promise<void> = Promise.resolve();
 	let streamingId: string | null = null;
 	let unsaved: AgentMessage[] = [];
 	let saveError: MessageSaveError | null = null;
@@ -522,17 +524,19 @@ export function createConversation({
 				notify();
 				return saved;
 			}
-			void runTurn(admitted);
+			running = runTurn(admitted);
 			return saved;
 		},
-		stop() {
+		async stop() {
 			controller?.abort();
+			await running;
 		},
-		retry() {
+		async retry() {
 			if (refusal() !== null) return;
 			isBusy = true;
 			controller = new AbortController();
-			void runTurn(controller);
+			running = runTurn(controller);
+			await running;
 		},
 		async save() {
 			if (isDisposed || isBusy) {

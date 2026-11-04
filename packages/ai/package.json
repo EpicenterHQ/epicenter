@@ -17,14 +17,12 @@
 		"./connections": "./src/ai-connections.ts",
 		"./picker": "./src/picker/index.ts",
 		"./providers": "./src/providers.ts",
-		"./svelte": "./src/svelte/index.ts",
 		"./tauri": "./src/tauri.ts"
 	},
 	"dependencies": {
 		"@epicenter/account": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/local": "workspace:*",
-		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@tanstack/svelte-query": "catalog:",

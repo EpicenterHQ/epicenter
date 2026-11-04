@@ -13,8 +13,6 @@
 		"reactive state"
 	],
 	"exports": {
-		"./client": "./src/client.svelte.ts",
-		"./leave-guard": "./src/leave-guard.ts",
 		"./note-repair": "./src/note-repair.svelte",
 		"./unsaved-edit": "./src/unsaved-edit.svelte",
 		"./status-line": "./src/status-line.ts",
@@ -25,7 +23,6 @@
 		"./desktop-startup": "./src/desktop-startup.svelte",
 		"./folder-onboarding": "./src/folder-onboarding.svelte",
 		"./reactive": "./src/reactive.ts",
-		"./tracked": "./src/tracked.ts",
 		"./when-open": "./src/when-open.svelte"
 	},
 	"dependencies": {

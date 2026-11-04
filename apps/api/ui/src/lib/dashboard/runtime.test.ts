@@ -206,18 +206,18 @@ for (const successor of ['bob', 'alice']) {
 		const dashboards: ReturnType<typeof createDashboardRuntime>[] = [];
 		try {
 			await auth.refresh();
-			const oldState = auth.getState();
+			const oldState = auth.state();
 			if (oldState.status === 'signed-out') throw new Error('Expected Alice');
 			const old = createDashboardRuntime(oldState.account);
 			dashboards.push(old);
 			const pending = old.billing.overview.fetch();
 			await oldStarted.promise;
 			expectOk(await auth.signOut());
-			expect(auth.getState().status).toBe('signed-out');
+			expect(auth.state().status).toBe('signed-out');
 			old[Symbol.dispose]();
 			cookie = successor;
 			await auth.refresh();
-			const newState = auth.getState();
+			const newState = auth.state();
 			if (newState.status === 'signed-out')
 				throw new Error('Expected successor');
 			expect(newState.account).not.toBe(oldState.account);

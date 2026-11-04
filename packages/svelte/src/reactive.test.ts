@@ -7,9 +7,8 @@
  * Key behaviors:
  * - A synchronous method read tracks while an effect reads it, and lets go
  *   when the last reader stops; outside an effect it is a snapshot
- * - An async action (a promise, an async iterable) passes through untracked
- * - A synchronous action called while tracking subscribes the effect, and
- *   `untrack` keeps it out
+ * - An action answers a promise or an async iterable, so it passes through
+ *   untracked, even when an effect calls it
  * - `get(args)` answering `undefined` still tracks
  * - Held capabilities, methods and returned data keep their identity
  * - A returned capability is adapted with its own `subscribe`, and making
@@ -21,7 +20,7 @@ import './svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import { defineContract } from '@epicenter/definition/contract';
 import { openFolder } from '@epicenter/folder';
-import { flushSync, untrack } from 'svelte';
+import { flushSync } from 'svelte';
 import { reactive } from './reactive.js';
 
 const { follow } = await import('./reactive.test-support.svelte.js');
@@ -82,7 +81,7 @@ test('a synchronous method read tracks while an effect reads it, and lets go whe
 	expect(raw.listeners.size).toBe(0);
 });
 
-test('an async action passes through untracked: called in an effect, it subscribes nothing', async () => {
+test('an action passes through untracked: called in an effect, it subscribes nothing', async () => {
 	const raw = {
 		...source(),
 		save: async () => 'saved',
@@ -103,26 +102,6 @@ test('an async action passes through untracked: called in an effect, it subscrib
 	for await (const chunk of run.values[0] ?? []) chunks.push(chunk);
 	expect(chunks).toEqual(['chunk']);
 	run.stop();
-});
-
-test('a synchronous action called while tracking subscribes the effect; untrack keeps it out', async () => {
-	let refreshed = 0;
-	const raw = { ...source(), refresh: () => void refreshed++ };
-	const adapted = reactive(raw);
-
-	const tracked = follow(() => adapted.refresh());
-	flushSync();
-	expect(raw.listeners.size).toBe(1);
-	raw.bump();
-	flushSync();
-	expect(refreshed).toBe(2);
-	tracked.stop();
-	await Bun.sleep(0);
-
-	const untracked = follow(() => untrack(() => adapted.refresh()));
-	flushSync();
-	expect(raw.listeners.size).toBe(0);
-	untracked.stop();
 });
 
 test('get(args) that answers undefined still tracks, so its reader sees the note once it lands', async () => {
@@ -190,7 +169,7 @@ test('a plain object held without a subscribe inherits its holder’s, and its a
 // The capabilities with hand-written adapters today, as stubs of their shapes
 // ============================================================================
 
-test('an openAi-shaped capability: models() tracks, chat streams and transcribe answers untracked, refresh is an action', async () => {
+test('an openAi-shaped capability: models() tracks, refresh, chat and transcribe are actions an effect calls untracked', async () => {
 	const changes = source();
 	let models = [{ id: 'small' }];
 	const raw = {
@@ -198,7 +177,7 @@ test('an openAi-shaped capability: models() tracks, chat streams and transcribe 
 		models: () => models,
 		endpoints: () => [{ id: 'hosted' }],
 		custom: () => null,
-		refresh: () => {},
+		refresh: async () => {},
 		async *chat() {
 			yield { data: 'Hi', error: null };
 		},
@@ -216,6 +195,7 @@ test('an openAi-shaped capability: models() tracks, chat streams and transcribe 
 	await Bun.sleep(0);
 
 	const acting = follow(() => {
+		void ai.refresh();
 		void ai.transcribe();
 		return ai.chat();
 	});
@@ -225,7 +205,7 @@ test('an openAi-shaped capability: models() tracks, chat streams and transcribe 
 	acting.stop();
 });
 
-test('an auth-shaped capability: getState() tracks, its account passes through untouched, actions and dispose carry through', async () => {
+test('an auth-shaped capability: state() tracks, its account passes through untouched, actions and dispose carry through', async () => {
 	const changes = source();
 	const account = {
 		baseURL: 'https://api.epicenter.so',
@@ -239,7 +219,7 @@ test('an auth-shaped capability: getState() tracks, its account passes through u
 	let disposed = false;
 	const raw = {
 		subscribe: changes.subscribe,
-		getState: () => state,
+		state: () => state,
 		baseURL: 'https://api.epicenter.so',
 		startSignIn: async () => ({ data: undefined, error: null }),
 		[Symbol.dispose]: () => {
@@ -247,13 +227,13 @@ test('an auth-shaped capability: getState() tracks, its account passes through u
 		},
 	};
 	const auth = reactive(raw);
-	const status = follow(() => auth.getState().status);
+	const status = follow(() => auth.state().status);
 	flushSync();
 	state = { status: 'signed-in', account };
 	changes.bump();
 	flushSync();
 	expect(status.values).toEqual(['signed-out', 'signed-in']);
-	expect(auth.getState().account).toBe(account);
+	expect(auth.state().account).toBe(account);
 	expect(auth.baseURL).toBe(raw.baseURL);
 	expect((await auth.startSignIn()).error).toBeNull();
 	auth[Symbol.dispose]();

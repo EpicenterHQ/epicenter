@@ -74,8 +74,11 @@ export type FolderState =
 	| {
 			readonly status: 'failed';
 			readonly error: OpenFolderError;
-			/** Open again; does nothing once the folder moved on. */
-			retry(): void;
+			/**
+			 * Open again, answering once that attempt settles; does nothing,
+			 * and answers at once, when the folder moved on.
+			 */
+			retry(): Promise<void>;
 	  }
 	| { readonly status: 'closed' };
 
@@ -187,6 +190,8 @@ export type FolderFiles<TCollection extends Collection> = Reads<
 > & {
 	/** The entry `args` names, as shown. */
 	get(args: PlaceholdersOf<TCollection>): FileEntryOf<TCollection> | undefined;
+	/** The file `args` names with its bytes, read now. */
+	read(args: PlaceholdersOf<TCollection>): Waits<FileClient<TCollection>['get']>;
 	/** Every entry, read now. */
 	list(): Waits<FileClient<TCollection>['list']>;
 	create(
@@ -264,7 +269,7 @@ export type OpenFolderOptions = {
  * account for its life; a new account is a new page.
  */
 export type FolderAccount = {
-	getState(): {
+	state(): {
 		account?:
 			| {
 					readonly baseURL: string;
@@ -403,12 +408,13 @@ function folderOver<TContract extends Contract>(
 		});
 	}
 
+	/** Open, answering once the attempt settled and its state is set. */
 	function start() {
 		const opening = open().catch(
 			(cause: unknown): Opened => OpenFolderError.StorageUnavailable({ cause }),
 		);
 		attempt = opening;
-		void opening.then((opened) => {
+		return opening.then((opened) => {
 			// Disposing closes what this attempt opens.
 			if (disposed || attempt !== opening) return;
 			set(
@@ -422,11 +428,11 @@ function folderOver<TContract extends Contract>(
 
 	/** A failure's retry: it opens again only while that failure is the state. */
 	function retryFailure() {
-		const retry = () => {
+		const retry = async () => {
 			if (disposed || state.status !== 'failed' || state.retry !== retry)
 				return;
 			set({ status: 'opening' });
-			start();
+			await start();
 		};
 		return retry;
 	}
@@ -443,7 +449,7 @@ function folderOver<TContract extends Contract>(
 			folderCollection(collection, current as () => Promise<Opened>, hold),
 		);
 	}
-	start();
+	void start();
 
 	const lifecycle: FolderLifecycle = {
 		state: () => state,
@@ -769,7 +775,15 @@ function folderCollection(
 							subscribe: reads.subscribe,
 						}),
 				}
-			: { ...reads, ...methods };
+			: {
+					...reads,
+					...methods,
+					async read(args: Args) {
+						const collection = await raw();
+						if (collection.error !== null) return collection;
+						return collection.data.get(args as never);
+					},
+				};
 
 	return {
 		collection,

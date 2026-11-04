@@ -1,8 +1,8 @@
 /**
  * `@epicenter/ai/agent`: a UI-free agent loop over values. It takes a
  * contract's messages collection (`messagesCollection`), the chat it is,
- * `ai`, the model, the system prompt, and the tools as an array; its Svelte
- * adapter is `fromConversation` in `@epicenter/ai/svelte`.
+ * `ai`, the model, the system prompt, and the tools as an array. Svelte
+ * reads a conversation through `reactive` from `@epicenter/svelte/reactive`.
  */
 
 export {

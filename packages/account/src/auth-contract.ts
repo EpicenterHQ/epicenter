@@ -34,12 +34,12 @@ export type AuthState =
 
 /** Auth selects accounts; applications hold the Account they opened. */
 export type AuthClient = {
-	getState(): AuthState;
+	state(): AuthState;
 	/** Reconcile this client's state with its credential owner. */
 	refresh(): Promise<void>;
 	baseURL: string;
 	accountManagementUrl?: typeof createAccountManagementUrl;
-	/** Call `listener` whenever `getState()` may answer differently; returns the unsubscribe. */
+	/** Call `listener` whenever `state()` may answer differently; returns the unsubscribe. */
 	subscribe(listener: () => void): () => void;
 	startSignIn(options?: {
 		reauthenticate?: boolean;
@@ -64,7 +64,7 @@ export type CallbackAuthClient = AuthClient & {
 	>;
 };
 
-/** Narrow the callback capability on either a plain client or a UI facade. */
+/** Whether `client` (or the client as `reactive` adapts it) completes its sign-in on a callback page. */
 export function isCallbackAuthClient<
 	TClient extends Pick<AuthClient, 'startSignIn'>,
 >(

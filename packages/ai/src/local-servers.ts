@@ -101,9 +101,7 @@ export function localServers({
 					timer = undefined;
 				};
 			},
-			refresh() {
-				void probe();
-			},
+			refresh: probe,
 		};
 	});
 }

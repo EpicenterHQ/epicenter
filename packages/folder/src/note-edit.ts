@@ -38,10 +38,10 @@ export type NoteEdit<TCollection extends Collection> = {
 	saving(): boolean;
 	/** What was typed and is not yet shown as saved, by field; null while the editor shows the note. */
 	typed(): NotePatch<TCollection> | null;
-	/** Send what was typed again, over the note as shown now. */
-	retry(): void;
+	/** Send what was typed again, over the note as shown now; answers as `landed()` does. */
+	retry(): Promise<Result<void, ClientError | OpenFolderError>>;
 	/** Show the note again, dropping what was typed; a save already out still lands. */
-	discard(): void;
+	discard(): Promise<void>;
 	/** Answers once the newest typed value's save does: at once when nothing typed is waiting. */
 	landed(): Promise<Result<void, ClientError | OpenFolderError>>;
 	/** Call `listener` when a read may answer differently: the editor's own, or the note's. */
@@ -201,6 +201,16 @@ export function editNote({
 			set: (value: unknown) => set(field, value),
 		});
 
+	async function landed(): Promise<Result<void, ClientError | OpenFolderError>> {
+		while (typed !== null) {
+			const ticket = newest;
+			const result = await latest;
+			if (ticket !== newest) continue;
+			return result.error === null ? Ok(undefined) : Err(result.error);
+		}
+		return Ok(undefined);
+	}
+
 	return {
 		fields,
 		exists: () => shown() !== undefined,
@@ -208,27 +218,21 @@ export function editNote({
 		saving: () => sending > 0,
 		typed: () => typed,
 		retry() {
-			if (typed === null) return;
-			error = null;
-			send();
-			notify();
+			if (typed !== null) {
+				error = null;
+				send();
+				notify();
+			}
+			return landed();
 		},
-		discard() {
+		async discard() {
 			typed = null;
 			error = null;
 			base = undefined;
 			pending = {};
 			notify();
 		},
-		async landed(): Promise<Result<void, ClientError | OpenFolderError>> {
-			while (typed !== null) {
-				const ticket = newest;
-				const result = await latest;
-				if (ticket !== newest) continue;
-				return result.error === null ? Ok(undefined) : Err(result.error);
-			}
-			return Ok(undefined);
-		},
+		landed,
 		subscribe(listener: () => void) {
 			listeners.add(listener);
 			const stopNotes = subscribe(listener);

@@ -10,7 +10,7 @@ const auth = createBrowserOAuth({
 	scope: 'openid profile email ai',
 	accountManagement: true,
 });
-const state = auth.getState();
+const state = auth.state();
 if (state.status !== 'signed-out') {
 	const account = state.account;
 	// Keep this Account for the lifetime of the opened application.
@@ -154,15 +154,15 @@ that same Account. An online root captures the Account once and opens its
 store over it, keyed on the Account so a new one opens a new store. A Svelte app can export one
 `fromAuth(client)` facade and read `auth.state` in both places: component setup
 gets a snapshot, while a template, derived value, or effect tracks changes.
-The plain client keeps its explicit `getState()` method; the Svelte facade
+The plain client keeps its explicit `state()` method; the Svelte facade
 exposes `state` instead and carries through the other methods. A component with
 imperative work on auth changes can subscribe directly with `subscribe`, whose
-listener reads `getState()` again.
+listener reads `state()` again.
 It exposes `refresh()`, which rereads the saved OAuth cell. A focus check can
 await it.
 
 Use the plain client in framework-independent packages and CLIs with no Svelte
-app owner, or when testing the core client. Its `getState()` call makes each
+app owner, or when testing the core client. Its `state()` call makes each
 snapshot read explicit. In a Svelte app, keep that client private in the app's
 auth module and export only the facade:
 

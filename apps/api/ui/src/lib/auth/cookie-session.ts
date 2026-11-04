@@ -163,7 +163,7 @@ export function createCookieSessionAuth({
 
 	const auth = {
 		baseURL: origin,
-		getState: () => state,
+		state: () => state,
 		subscribe(listener: () => void) {
 			listeners.add(listener);
 			return () => {

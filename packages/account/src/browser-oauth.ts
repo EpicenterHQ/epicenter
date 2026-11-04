@@ -667,7 +667,7 @@ export function createBrowserOAuth({
 	sync();
 
 	return {
-		getState: () => state,
+		state: () => state,
 		async refresh() {
 			sync();
 		},

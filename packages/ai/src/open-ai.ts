@@ -163,9 +163,9 @@ export function openAi(entries: readonly EndpointEntry[]) {
 				held.clear();
 			};
 		},
-		/** Ask every endpoint that probes to look again, such as when a picker opens. */
-		refresh(): void {
-			for (const endpoint of endpoints()) endpoint.refresh?.();
+		/** Ask every endpoint that probes to look again, such as when a picker opens; answers once every look is done. */
+		async refresh(): Promise<void> {
+			await Promise.all(endpoints().map((endpoint) => endpoint.refresh?.()));
 		},
 		/** Stream a chat completion from the named endpoint. */
 		async *chat(

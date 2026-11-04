@@ -3,8 +3,8 @@
  * own names and its own type. A capability reads through methods and
  * accessors and says it changed through one `subscribe(listener)` that
  * returns the unsubscribe (a folder, a collection, a note editor, an auth
- * client, `openAi`); `reactive(capability)` answers the same capability,
- * whose synchronous reads track.
+ * client, `openAi`); `reactive(capability)` answers a copy of it, made
+ * once, whose reads track.
  *
  * ```ts
  * // src/lib/app.ts
@@ -15,16 +15,19 @@
  * {#each folder.todos.items() as todo (todo.id)}…{/each}
  * ```
  *
- * The rules, applied to whatever the capability holds:
+ * It reads the capability's shape (ADR-0769). Everything a capability does
+ * is one of four verbs, and each answers in its own form: creating answers a
+ * capability with its own `subscribe`, reading answers a value at once,
+ * acting answers a promise (or an async iterable), and listening answers the
+ * unsubscribe. So the rules, applied to each member the capability has, are:
  *
- * - A synchronous read tracks the nearest `subscribe`: a method call whose
- *   answer is not a promise or an async iterable, and an accessor's get.
- *   It tracks through `createSubscriber`, so the subscription starts only
- *   while something reads in a tracking context (a template, `$derived`, an
+ * - A read tracks the nearest `subscribe`: a method call whose answer is
+ *   not a promise or an async iterable, and an accessor's get. It tracks
+ *   through `createSubscriber`, so the subscription starts only while
+ *   something reads in a tracking context (a template, `$derived`, an
  *   effect) and stops when the last reader goes; a read elsewhere is a
  *   snapshot.
- * - An async action (a promise or an async iterable) passes through,
- *   untracked.
+ * - An action passes through, untracked, even when an effect calls it.
  * - An object with its own `subscribe`, held or returned (a collection, an
  *   editor), is adapted with that `subscribe`, once: the same object always
  *   answers the same adaptation. Calling the method that returns one does
@@ -34,11 +37,12 @@
  *   capability's.
  * - What a read answers (arrays, entries, a state object) passes through
  *   untouched: the capability's own values, at their own identity.
+ * - `subscribe` and the symbol-keyed members (`Symbol.dispose`) carry
+ *   through as they are: listening, and the language's own protocols.
  *
- * A read and an action that answers synchronously look alike until called,
- * so a synchronous action called while tracking (`ai.refresh()` in an
- * `$effect`) subscribes the effect to its capability. Call such an action
- * from a handler, or inside `untrack`.
+ * The copy is made from the capability's own members when it is adapted. A
+ * capability is a plain object its factory made whole, so nothing is added
+ * later for the copy to miss.
  *
  * React reads the same capability without this module:
  * `useSyncExternalStore(folder.todos.subscribe, folder.todos.items)`.
@@ -89,27 +93,12 @@ const isAsync = (value: unknown) =>
 			Symbol.asyncIterator
 		] === 'function');
 
-/** The descriptor `key` has on `target` or its prototypes. */
-function descriptorOf(target: object, key: PropertyKey) {
-	for (
-		let owner: object | null = target;
-		owner !== null;
-		owner = Object.getPrototypeOf(owner)
-	) {
-		const descriptor = Object.getOwnPropertyDescriptor(owner, key);
-		if (descriptor !== undefined) return descriptor;
-	}
-	return undefined;
-}
-
-/** `target`, its reads tracking `subscribe`. */
+/** A copy of `target` whose reads track `subscribe`, made once. */
 function adapt<T extends object>(target: T, subscribe: Subscribe): T {
 	if (adapted.has(target)) return target;
 	const known = adaptations.get(target);
 	if (known !== undefined) return known as T;
 	const track = createSubscriber((update) => subscribe(update));
-	/** Each method as adapted, by name, beside the function it adapts. */
-	const methods = new Map<PropertyKey, [Function, Function]>();
 
 	/** A read's answer: a capability adapted, anything else tracked and passed through. */
 	function answer(value: unknown) {
@@ -118,34 +107,39 @@ function adapt<T extends object>(target: T, subscribe: Subscribe): T {
 		return value;
 	}
 
-	function method(key: PropertyKey, fn: Function) {
-		const known = methods.get(key);
-		if (known?.[0] === fn) return known[1];
-		const call = (...args: unknown[]) => {
-			const value: unknown = fn.apply(target, args);
-			return isAsync(value) ? value : answer(value);
-		};
-		methods.set(key, [fn, call]);
-		return call;
+	/** The member `key` holding `value`, as the copy holds it. */
+	function member(key: PropertyKey, value: unknown): unknown {
+		if (typeof value === 'function') {
+			if (key === 'subscribe' || typeof key === 'symbol')
+				return value.bind(target);
+			return (...args: unknown[]) => {
+				const answered: unknown = value.apply(target, args);
+				return isAsync(answered) ? answered : answer(answered);
+			};
+		}
+		if (!isObject(value)) return value;
+		if (subscribes(value)) return own(value);
+		if (isPlain(value)) return adapt(value, subscribe);
+		return value;
 	}
 
-	const proxy = new Proxy(target, {
-		get(target, key) {
-			const descriptor = descriptorOf(target, key);
-			if (descriptor?.get !== undefined)
-				return answer(descriptor.get.call(target));
-			const value: unknown = descriptor?.value;
-			if (key === 'subscribe') return value;
-			if (typeof value === 'function') return method(key, value);
-			if (isObject(value) && subscribes(value)) return own(value);
-			if (isObject(value) && isPlain(value)) return adapt(value, subscribe);
-			return value;
-		},
-		set(target, key, value) {
-			return Reflect.set(target, key, value, target);
-		},
-	});
-	adaptations.set(target, proxy);
-	adapted.add(proxy);
-	return proxy;
+	const copy = Object.create(Object.getPrototypeOf(target)) as T;
+	adaptations.set(target, copy);
+	adapted.add(copy);
+	for (const key of Reflect.ownKeys(target)) {
+		const { get, set, value, enumerable } =
+			Object.getOwnPropertyDescriptor(target, key) ?? {};
+		Object.defineProperty(
+			copy,
+			key,
+			get || set
+				? {
+						enumerable,
+						get: get && (() => answer(get.call(target))),
+						set: set && ((next: unknown) => set.call(target, next)),
+					}
+				: { enumerable, value: member(key, value) },
+		);
+	}
+	return copy;
 }
