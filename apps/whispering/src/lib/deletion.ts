@@ -95,18 +95,20 @@ function resultsOf(
 	id: string,
 ): Result<NoteRef[], string> {
 	const unknown = [
-		...files.transcriptions.invalid,
-		...files.transformation_runs.invalid,
+		...files.transcriptions.invalid(),
+		...files.transformation_runs.invalid(),
 	].map((note) => note.path);
 	if (unknown.length > 0)
 		return Err(
 			`Some results cannot be told apart from this recording’s, because they do not read: ${unknown.join(', ')}. Repair or delete them first, so none is left naming a recording that is gone.`,
 		);
 	return Ok([
-		...files.transcriptions.items
+		...files.transcriptions
+			.items()
 			.filter((note) => note.recordingId === id)
 			.map((note) => ({ collection: 'transcriptions' as const, id: note.id })),
-		...files.transformation_runs.items
+		...files.transformation_runs
+			.items()
 			.filter((note) => note.recordingId === id)
 			.map((note) => ({
 				collection: 'transformation_runs' as const,
@@ -123,9 +125,9 @@ export function captureDeletion(
 	{ files, busy }: DeletionContext,
 	note: NoteRef,
 ): Result<Deletion, string> {
-	const invalid = files[note.collection].invalid.find(
-		(item) => item.id === note.id,
-	);
+	const invalid = files[note.collection]
+		.invalid()
+		.find((item) => item.id === note.id);
 	if (invalid !== undefined) {
 		if (note.collection === 'recordings') {
 			const why = busy(note.id);
@@ -159,8 +161,8 @@ export function captureDeletion(
 			if (recipe === undefined)
 				return Err('This transformation is no longer listed.');
 			const results = [
-				...files.transformation_runs.items,
-				...files.text_runs.items,
+				...files.transformation_runs.items(),
+				...files.text_runs.items(),
 			].filter((run) => run.transformationId === note.id).length;
 			return Ok({
 				kind: 'transformation',

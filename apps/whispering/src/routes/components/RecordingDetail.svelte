@@ -74,7 +74,7 @@
 				<ArrowLeftIcon />
 			</Button>
 		{/if}
-		{#if recording.exists}
+		{#if recording.exists()}
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={recording.fields.title}
@@ -90,7 +90,7 @@
 			</Button>
 		{/if}
 	</div>
-	{#if recording.error}
+	{#if recording.error()}
 		<div class="px-4 pt-2"><UnsavedEdit edit={recording} /></div>
 	{/if}
 
@@ -98,7 +98,7 @@
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 			<NoteRepair {repair} />
 		</div>
-	{:else if !recording.exists}
+	{:else if !recording.exists()}
 		<p class="flex-1 px-4 py-4 text-sm text-muted-foreground" role="status">This recording is no longer listed.</p>
 	{:else}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3 sm:px-4">

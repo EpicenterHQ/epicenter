@@ -14,8 +14,8 @@ import {
 	epicenterCloud,
 	selfHostedServer,
 } from '@epicenter/account';
-import { fromAuth } from '@epicenter/account/svelte';
 import { APPS, resolveOAuthAudiences } from '@epicenter/definition/site';
+import { reactive } from '@epicenter/svelte/reactive';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/vite-config/app-urls';
 import type { PlatformAuth } from './types.js';
 
@@ -36,7 +36,7 @@ function make() {
 		// A timer must not navigate away in the middle of a recording.
 		automaticRenewal: false,
 	});
-	made = { account: client, auth: fromAuth(client) };
+	made = { account: client, auth: reactive(client) };
 	return made;
 }
 

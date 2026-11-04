@@ -205,7 +205,7 @@ export function createRuns({
 		if (shown !== undefined) return resolve(shown);
 		const recipe = files.transformations.get({ id });
 		if (recipe === undefined)
-			return files.transformations.invalid.some((note) => note.id === id)
+			return files.transformations.invalid().some((note) => note.id === id)
 				? resolve(undefined)
 				: 'This transformation is no longer listed.';
 		return resolve(recipe);
@@ -348,7 +348,7 @@ export function createRuns({
 			const recording = files.recordings.get({ id });
 			if (recording === undefined)
 				return fail(
-					files.recordings.invalid.some((note) => note.id === id)
+					files.recordings.invalid().some((note) => note.id === id)
 						? 'The recording needs repair before it is transcribed.'
 						: 'The recording is no longer listed.',
 				);

@@ -138,19 +138,21 @@ export function createLibrary({
 	// --- reads -----------------------------------------------------------------
 
 	const entries = $derived(
-		files.recordings.items.toSorted(newest((note) => note.recordedAt)),
+		files.recordings.items().toSorted(newest((note) => note.recordedAt)),
 	);
 	const transformations = $derived(
-		files.transformations.items.toSorted(byTitle),
+		files.transformations.items().toSorted(byTitle),
 	);
 	const transcriptions = $derived(
-		files.transcriptions.items.toSorted(newest((note) => note.createdAt)),
+		files.transcriptions.items().toSorted(newest((note) => note.createdAt)),
 	);
 	const transformationRuns = $derived(
-		files.transformation_runs.items.toSorted(newest((note) => note.createdAt)),
+		files.transformation_runs
+			.items()
+			.toSorted(newest((note) => note.createdAt)),
 	);
 	const textRuns = $derived(
-		files.text_runs.items.toSorted(newest((note) => note.createdAt)),
+		files.text_runs.items().toSorted(newest((note) => note.createdAt)),
 	);
 	const transcriptsByRecording = $derived.by(() => {
 		const byRecording = new Map<string, (typeof transcriptions)[number][]>();
@@ -162,9 +164,9 @@ export function createLibrary({
 		return byRecording;
 	});
 	const repairs = $derived([
-		...repairsOf('recordings', files.recordings.invalid),
-		...repairsOf('transcriptions', files.transcriptions.invalid),
-		...repairsOf('transformation_runs', files.transformation_runs.invalid),
+		...repairsOf('recordings', files.recordings.invalid()),
+		...repairsOf('transcriptions', files.transcriptions.invalid()),
+		...repairsOf('transformation_runs', files.transformation_runs.invalid()),
 	]);
 
 	let selectedId = $state<string | undefined>();
@@ -175,7 +177,7 @@ export function createLibrary({
 	// Recordings that are gone are no longer selected in the table.
 	const stopPruning = $effect.root(() => {
 		$effect(() => {
-			if (files.recordings.loading) return;
+			if (files.recordings.loading()) return;
 			const present = new Set(entries.map((note) => note.id));
 			if (ui.recordingSelected.some((id) => !present.has(id)))
 				ui.recordingSelected = ui.recordingSelected.filter((id) =>
@@ -228,7 +230,7 @@ export function createLibrary({
 		ui,
 		/** Why the recordings could not be listed (this browser keeps no private storage, say). */
 		get error() {
-			return files.recordings.error ?? null;
+			return files.recordings.error() ?? null;
 		},
 		/** Whether Whispering is closing, so nothing new starts. */
 		get closing() {
@@ -251,7 +253,7 @@ export function createLibrary({
 		},
 		/** Whether the recordings have not been listed yet. */
 		get listing() {
-			return files.recordings.loading;
+			return files.recordings.loading();
 		},
 		/** Recordings, transcripts and their results that do not read, with why. */
 		get repairs() {
@@ -290,7 +292,7 @@ export function createLibrary({
 			return {
 				id,
 				note: transformations.find((note) => note.id === id),
-				repair: files.transformations.invalid.find((note) => note.id === id),
+				repair: files.transformations.invalid().find((note) => note.id === id),
 			};
 		},
 		openRecording,
@@ -310,7 +312,7 @@ export function createLibrary({
 		},
 		/** Transformation notes that do not read, with why. */
 		get transformationRepairs(): Repair[] {
-			return repairsOf('transformations', files.transformations.invalid);
+			return repairsOf('transformations', files.transformations.invalid());
 		},
 		/** Results made from one transcript, newest first. */
 		outputsFor(transcriptionId: string) {
@@ -336,7 +338,7 @@ export function createLibrary({
 		},
 		/** Notes in `text_runs/` that do not read as results. */
 		get textRepairs(): Repair[] {
-			return repairsOf('text_runs', files.text_runs.invalid);
+			return repairsOf('text_runs', files.text_runs.invalid());
 		},
 		/** Where recording `id`'s audio is, read reactively. */
 		audioOf: files.audioOf,

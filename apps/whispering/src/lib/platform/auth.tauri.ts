@@ -8,8 +8,8 @@
  * token. Made on first use.
  */
 import type { AuthClient } from '@epicenter/account';
-import { fromAuth } from '@epicenter/account/svelte';
 import { createTauriAuth } from '@epicenter/account/tauri';
+import { reactive } from '@epicenter/svelte/reactive';
 import type { PlatformAuth } from './types.js';
 
 let made:
@@ -19,7 +19,7 @@ let made:
 function make() {
 	if (made) return made;
 	const { client, ready } = createTauriAuth();
-	made = { account: client, auth: fromAuth(client), ready };
+	made = { account: client, auth: reactive(client), ready };
 	return made;
 }
 

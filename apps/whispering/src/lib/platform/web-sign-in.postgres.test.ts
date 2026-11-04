@@ -176,7 +176,7 @@ test('one Whispering sign-in transcribes over the API and reaches no repository'
 	if (!isCallbackAuthClient(auth)) throw new Error('Expected the web client');
 	expectOk(await auth.completeSignIn());
 
-	const state = auth.state;
+	const state = auth.state();
 	if (state.status !== 'signed-in')
 		throw new Error('Expected a signed-in account');
 	expect(state.account.principalId).toBe(person.id as never);

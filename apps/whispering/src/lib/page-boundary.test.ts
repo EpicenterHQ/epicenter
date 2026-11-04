@@ -152,14 +152,13 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 				specifier === 'yjs' ||
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
-				// Notes are read and edited through the contract's client as
-				// Svelte state; the other shared pieces are the leave guard, the
-				// header status and an edit's unsaved notice.
+				// Notes are read and edited through the contract's client as a
+				// folder, which `reactive` reads as Svelte state; the other shared
+				// pieces are the header status and an edit's unsaved notice.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
-						'@epicenter/svelte/client',
-						'@epicenter/svelte/leave-guard',
 						'@epicenter/svelte/note-repair',
+						'@epicenter/svelte/reactive',
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',
@@ -202,10 +201,10 @@ test('WhisperingApp composes Whispering over the client it is given', () => {
 	])
 		expect(callers(name)).toEqual(['routes/components/WhisperingApp.svelte']);
 	expect(callers('createServices')).toEqual(['lib/whispering.svelte.ts']);
-	// Each build wraps its store once, where its Startup opened it
-	// (decision 87); the desktop root also wraps its AppData root, for the
-	// shortcut's notes.
-	expect(callers('fromClient')).toEqual([
+	// Each build reads its store as a folder once, where its Startup opened
+	// it (decision 87); the desktop root also reads its AppData root as one,
+	// for the shortcut's notes.
+	expect(callers('folderOf')).toEqual([
 		'lib/components/DesktopRoot.svelte',
 		'lib/components/LocalStartup.svelte',
 	]);
@@ -241,7 +240,7 @@ test('the app group has every page, and every page reads its library from contex
 		).toContain('getLibrary()');
 	}
 	// The variant's Startup opens the store and hands the app its client,
-	// wrapped once for Svelte there.
+	// and the client as a folder, made once there.
 	const layout = files.find(
 		(file) => file.path === 'routes/(app)/+layout.svelte',
 	)?.text;

@@ -1,20 +1,20 @@
 /**
- * Whispering's files over one contract client: the note lists, and each
- * recording's audio beside them. The web build hands in this browser's
- * device (opened by `routes/components/Startup.svelte`); which client it
- * is is the variant root's choice, never this module's, so another variant
- * passes its own.
+ * Whispering's files over one contract client, read as a folder: the note
+ * lists, and each recording's audio beside them. The web build hands in
+ * this browser's device (opened by `LocalStartup`), the desktop its data
+ * folder (`DesktopRoot`); which client it is is the variant root's choice,
+ * never this module's, so another variant passes its own.
  *
- * Reads are Svelte state: each list lists and listens only while something
- * reactive reads it. Writes answer a `Result`; the caller presents failures.
+ * Reads are Svelte state through `reactive`: each list lists and listens
+ * only while something reactive reads it. Writes answer a `Result`; the
+ * caller presents failures.
  */
 import type {
-	Client,
 	InvalidNoteOf,
 	NoteOf,
 	Version,
 } from '@epicenter/definition/contract';
-import type { ReactiveClient, ReactiveNotes } from '@epicenter/svelte/client';
+import type { Folder, FolderNotes } from '@epicenter/folder/core';
 import { createContext } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
@@ -70,7 +70,7 @@ export type AudioBytes = {
 
 /** Each note collection, as the pages read it. */
 export type NoteLists = {
-	readonly [K in NoteName]: ReactiveNotes<Collections[K]>;
+	readonly [K in NoteName]: FolderNotes<Collections[K]>;
 };
 
 /** The recordings a page edits, set by `WhisperingApp` over its store. */
@@ -119,22 +119,21 @@ function readable(audio: RecordingAudio): Result<AudioFile, string> {
 }
 
 /**
- * Whispering's files over `client`, which every page reads and edits:
- * listed and written through `files`, the same client as Svelte state
- * (wrapped once where the store was opened), and audio bytes read through
- * `client`. A recording under way has no note yet, so nothing here names it.
+ * Whispering's files as every page reads and edits them: `files` is the
+ * store's client as a folder through `reactive`, made once where the store
+ * was opened. A recording under way has no note yet, so nothing here names
+ * it.
  */
-export function filesOf(
-	client: Client<Whispering>,
-	files: ReactiveClient<Whispering>,
-): WhisperingFiles {
+export function filesOf(files: Folder<Whispering>): WhisperingFiles {
 	const { audio } = files;
 
 	function audioOf(id: string): RecordingAudio {
-		const playable = audio.items.filter(
-			(file) =>
-				file.id === id && audioMimeTypeOf(`x.${file.ext}`) !== undefined,
-		);
+		const playable = audio
+			.items()
+			.filter(
+				(file) =>
+					file.id === id && audioMimeTypeOf(`x.${file.ext}`) !== undefined,
+			);
 		const [file, ...more] = playable;
 		if (file !== undefined && more.length === 0)
 			return {
@@ -143,7 +142,7 @@ export function filesOf(
 			};
 		if (file !== undefined)
 			return { kind: 'ambiguous', exts: playable.map(({ ext }) => ext).sort() };
-		return audio.loading ? { kind: 'listing' } : { kind: 'absent' };
+		return audio.loading() ? { kind: 'listing' } : { kind: 'absent' };
 	}
 
 	return {
@@ -156,7 +155,7 @@ export function filesOf(
 		async readAudio(id) {
 			const { data: file, error } = readable(audioOf(id));
 			if (error !== null) return Err(error);
-			const read = await client.audio.get({ id, ext: file.ext });
+			const read = await audio.read({ id, ext: file.ext });
 			if (read.error !== null) return Err(read.error.message);
 			return Ok({
 				bytes: read.data.bytes,
@@ -167,7 +166,7 @@ export function filesOf(
 			});
 		},
 		async deleteAudio(id) {
-			for (const { ext } of audio.items.filter((file) => file.id === id)) {
+			for (const { ext } of audio.items().filter((file) => file.id === id)) {
 				const deleted = await audio.delete({ id, ext });
 				if (deleted.error && deleted.error.name !== 'NotFound')
 					return Err(deleted.error.message);
