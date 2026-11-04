@@ -174,7 +174,7 @@ The callback route, components, and app-owned services can share that facade.
 Read `auth.state` in component setup or an event handler for a snapshot; read
 it in a template, derived value, or effect to track changes. The callback
 capability guard `isCallbackAuthClient(auth)` also accepts the facade. Vocab's
-[`auth.svelte.ts`](../../apps/vocab/src/lib/auth.svelte.ts) and Whispering's
+[`auth.ts`](../../apps/vocab/src/lib/auth.ts) and Whispering's
 [`#platform/auth`](../../apps/whispering/src/lib/platform/auth.ts) show the
 single-export pattern.
 
