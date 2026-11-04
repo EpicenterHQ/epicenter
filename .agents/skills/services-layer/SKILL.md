@@ -56,6 +56,9 @@ and the shared crates, never through a credential in the page:
   keeps both connections as one entry; Vocab keeps each key under its
   connection's id and the endpoint list in `connections.md` in AppData.
   Never put a key in a settings note, the data folder, or WebView storage.
+  [ADR-0740](../../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)
+  moves every credential into one file in the app's AppData; until that
+  lands, the keychain is the place.
 - **The account** is a relay: requests go through `account.fetch`, which
   the shell sends with `account_fetch` and a token the page never sees.
 - **Other requests** to a custom endpoint leave through the shell

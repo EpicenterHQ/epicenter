@@ -99,10 +99,10 @@ When creating a new package in `packages/`, follow this exact structure.
 Key conventions:
 
 - `exports` only, no `main`/`types`: modern resolvers ignore `main`/`types` when `exports` is present. The entry point is `./src/index.ts`; there is no build step, consumers import the source directly.
-- Use `"workspace:*"` for internal deps (e.g., `"@epicenter/workspace": "workspace:*"`).
+- Use `"workspace:*"` for internal deps (e.g., `"@epicenter/definition": "workspace:*"`).
 - Use `"catalog:"` for shared versions managed in the root `package.json` catalogs.
-- `peerDependencies` for packages consumers must also install (e.g., `yjs`).
-- `license`: default `AGPL-3.0-or-later` (everything Epicenter ships or runs). Use `MIT` only if the package is meant for third-party developers to embed in their own software (the toolkit). See `docs/licensing/licensing-strategy.md`; `bun run check:licenses` fails if an MIT package can reach an AGPL one.
+- `peerDependencies` for packages consumers must also install (e.g., `svelte` in `@epicenter/account`, optional for a consumer without Svelte).
+- `license`: `AGPL-3.0-or-later`. Before adding an MIT package, read "If MIT returns" in `docs/licensing/licensing-strategy.md`.
 
 ### `tsconfig.json`
 
@@ -119,6 +119,6 @@ A leaf config picks a tier and adds nothing that repeats a base. For a Bun libra
 }
 ```
 
-A Svelte or browser library extends `../../tsconfig.dom.json` instead. For all eight leaf tiers, the never-redeclare list, and the module strategy, see the `tsconfig` skill.
+A Svelte or browser library extends `../../tsconfig.dom.json` instead. For all seven leaf tiers, the never-redeclare list, and the module strategy, see the `tsconfig` skill.
 
 After creating the package, run `bun install` from the repo root to register it in the workspace.
