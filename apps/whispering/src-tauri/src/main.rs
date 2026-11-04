@@ -52,6 +52,8 @@ fn main() {
             epicenter_account::account::account_fetch_cancel,
             epicenter_account::keychain::keychain_get,
             epicenter_account::keychain::keychain_set,
+            epicenter_account::connection::connection_fetch,
+            epicenter_account::connection::connection_fetch_cancel,
             http::send_request,
             shortcut::set_shortcut,
         ])
@@ -82,11 +84,15 @@ mod tests {
         assert_eq!(ACCOUNT.scope, AccountApp::HOSTED_MODELS);
     }
 
-    /// The build script declares every account command, `send_request` and
-    /// `set_shortcut`, and nothing else.
+    /// The build script declares every account and connection command,
+    /// `send_request` and `set_shortcut`, and nothing else.
     #[test]
-    fn the_declared_commands_are_the_accounts_send_request_and_set_shortcut() {
-        let mut expected = epicenter_account::COMMANDS.to_vec();
+    fn the_declared_commands_are_the_accounts_connections_send_request_and_set_shortcut() {
+        let mut expected = [
+            epicenter_account::COMMANDS,
+            epicenter_account::CONNECTION_COMMANDS,
+        ]
+        .concat();
         expected.extend(["send_request", "set_shortcut"]);
         assert_eq!(COMMANDS, expected.as_slice());
     }

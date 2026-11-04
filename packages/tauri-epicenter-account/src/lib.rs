@@ -1,18 +1,21 @@
 //! Sign-in with Epicenter and the OS keychain for Epicenter's standalone
 //! desktop apps (`epicenter-standalone`), shared so each app names only who
-//! it is. The page's side is `createTauriAuth` from `@epicenter/account/tauri`,
-//! an `AuthClient` over these commands.
+//! it is. The page's side of the sign-in is `createTauriAuth` from
+//! `@epicenter/account/tauri`, an `AuthClient` over these commands; the
+//! page's side of the provider keys is `@epicenter/ai/tauri`.
 //!
 //! - `account`: the native sign-in (RFC 8252 loopback with PKCE in the system
 //!   browser), the refresh token in the keychain, and `account_fetch`, which
 //!   sends the page's requests to Epicenter's API with a token the page never
 //!   holds.
 //! - `keychain`: the one way an app reaches the keychain, for the refresh
-//!   token and for the API keys a page saves (`keychain_get`, `keychain_set`).
-//! - `connection`: `connection_fetch`, which sends the page's requests to an
-//!   endpoint the person connected, with the key the keychain keeps for it,
-//!   to that key's endpoint only. An app that connects endpoints also
-//!   registers `CONNECTION_COMMANDS`.
+//!   token and for the provider keys a page saves (`keychain_get`,
+//!   `keychain_set`).
+//! - `connection`: `connection_fetch`, the shell's one fetch for the page:
+//!   it sends a request to an endpoint the person connected, with the key
+//!   the keychain keeps for it, to that key's endpoint only, or with no key
+//!   to a server on this computer. An app that reaches endpoints other than
+//!   Epicenter's registers `CONNECTION_COMMANDS`, the provider keys' commands.
 //!
 //! ```ignore
 //! const ACCOUNT: AccountApp = AccountApp {
@@ -49,12 +52,17 @@ pub const COMMANDS: &[&str] = &[
     "account_sign_out",
     "account_fetch",
     "account_fetch_cancel",
-    "keychain_get",
-    "keychain_set",
 ];
 
-/// The commands an app that connects endpoints adds to `COMMANDS`.
-pub const CONNECTION_COMMANDS: &[&str] = &["connection_fetch", "connection_fetch_cancel"];
+/// The commands an app that reaches endpoints other than Epicenter's adds to
+/// `COMMANDS`: the provider keys in the keychain, and the fetch that sends
+/// with them.
+pub const CONNECTION_COMMANDS: &[&str] = &[
+    "keychain_get",
+    "keychain_set",
+    "connection_fetch",
+    "connection_fetch_cancel",
+];
 
 /// Manage `app`'s account, against Epicenter's deployment
 /// (`deployment_origin`), its keychain under the bundle `identifier`, and
