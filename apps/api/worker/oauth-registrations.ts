@@ -10,7 +10,6 @@
  */
 import {
 	APPS,
-	LOCAL_APPS,
 	localUrl,
 	resolveOAuthAudiences,
 } from '@epicenter/definition/site';
@@ -127,20 +126,6 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 				...(local ? [localUrl(app)] : []),
 			]),
 		),
-		// A local deployment also serves the apps that have no production
-		// origin (a demo), at their dev origin only.
-		...(local
-			? Object.values(LOCAL_APPS).map((app) =>
-					browserClient(
-						{
-							clientId: app.id,
-							name: app.name,
-							resources: firstPartyResources,
-						},
-						[localUrl(app)],
-					),
-				)
-			: []),
 		...NATIVE_APPS.map((app) => nativeClient(app, audiences.api)),
 		// The desktop app signs in through a loopback redirect on any port
 		// (RFC 8252), and holds the only refresh token a first-party app keeps.
