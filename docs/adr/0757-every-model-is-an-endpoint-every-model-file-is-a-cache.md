@@ -163,6 +163,7 @@ one shared speech server runs an existing one and adds it as a
 - The hosted source is present and empty when signed out, where ADR-0754
   made it `null`. A settings screen explains an empty hosted list from
   `account.current()`.
+<!-- doc-path-check: ignore-next-line (the guide was deleted; the endpoint work writes its replacement) -->
 - `docs/guides/self-hosted-transcription-speaches.md` still names
   `@epicenter/client`, which merged into `@epicenter/ai`; it is rewritten
   with the endpoint work, where a Speaches server is a `custom(key)`
