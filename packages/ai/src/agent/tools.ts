@@ -1,4 +1,5 @@
 import type { JsonValue } from 'wellcrafted/json';
+import type { ChatTool } from '../client.js';
 
 export type AgentToolDefinition = {
 	name: string;
@@ -88,4 +89,39 @@ export function defaultApprovalDecision(
 	definition: AgentToolDefinition,
 ): ApprovalDecision {
 	return definition.kind === 'mutation' ? 'ask' : 'auto';
+}
+
+/**
+ * The tools offered to the model, as OpenAI tool definitions. `kind` and
+ * `title` are the loop's and never reach the model.
+ *
+ * OpenAI requires `function.parameters` to be a JSON Schema object. A missing
+ * schema becomes the empty object schema, and a bare object schema gains
+ * `properties` and `required`, which some providers reject when absent. A
+ * schema that is not an object throws, which fails the turn.
+ */
+export function toChatTools(definitions: AgentToolDefinition[]): ChatTool[] {
+	return definitions.map((definition) => ({
+		type: 'function',
+		function: {
+			name: definition.name,
+			...(definition.description !== undefined && {
+				description: definition.description,
+			}),
+			parameters: toParameters(definition.inputSchema),
+		},
+	}));
+}
+
+function toParameters(schema: JsonValue | undefined): Record<string, unknown> {
+	if (schema === undefined) return { type: 'object', properties: {} };
+	if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) {
+		throw new Error('Tool input schema must be a JSON Schema object.');
+	}
+	if (schema.type !== 'object') return schema;
+	return {
+		...schema,
+		properties: schema.properties ?? {},
+		required: schema.required ?? [],
+	};
 }

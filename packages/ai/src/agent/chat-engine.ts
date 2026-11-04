@@ -1,24 +1,15 @@
 /**
- * The agent loop's engine over `ai.chat`: the loop's transcript and tools go
- * out as an OpenAI chat request, and the streamed chunks come back as the
- * loop's {@link EngineChunk}s, with each tool call reduced from its deltas.
+ * The agent loop's engine over `ai.chat`. The loop's request is already an
+ * OpenAI chat request less the model and system prompts, which this adds. The
+ * streamed chunks come back as the loop's {@link EngineChunk}s, with each tool
+ * call reduced from its deltas and the finish reason checked.
  */
 
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { JsonValue } from 'wellcrafted/json';
-import type {
-	ChatChunk,
-	ChatMessage,
-	ChatTool,
-	ToolCallDelta,
-} from '../client.js';
+import type { ChatChunk, ChatMessage, ToolCallDelta } from '../client.js';
 import type { Ai } from '../open-ai.js';
-import type {
-	AgentEngine,
-	AgentEngineToolDefinition,
-	EngineChunk,
-	ModelMessage,
-} from './engine.js';
+import type { AgentEngine, EngineChunk } from './engine.js';
 
 /** What one turn sends: through which AI, to which model, under which system prompts. */
 export type ChatTurn = {
@@ -30,68 +21,6 @@ export type ChatTurn = {
 
 /** A tool call accumulated across one or more deltas. */
 type PendingToolCall = { id: string; name: string; args: string };
-
-/** Map one transcript message to its OpenAI chat shape. */
-function toChatMessage(message: ModelMessage): ChatMessage {
-	if (message.role === 'user') {
-		return { role: 'user', content: message.content };
-	}
-	if (message.role === 'tool') {
-		return {
-			role: 'tool',
-			tool_call_id: message.toolCallId ?? '',
-			content: message.content,
-		};
-	}
-	const toolCalls = message.toolCalls ?? [];
-	return {
-		role: 'assistant',
-		content: message.content,
-		...(toolCalls.length > 0 && {
-			tool_calls: toolCalls.map((call) => ({
-				id: call.id,
-				type: 'function' as const,
-				function: {
-					name: call.function.name,
-					arguments: call.function.arguments,
-				},
-			})),
-		}),
-	};
-}
-
-/** Map one tool definition to its OpenAI chat shape. */
-function toChatTool(definition: AgentEngineToolDefinition): ChatTool {
-	return {
-		type: 'function',
-		function: {
-			name: definition.name,
-			...(definition.description !== undefined && {
-				description: definition.description,
-			}),
-			parameters: toParameters(definition.inputSchema),
-		},
-	};
-}
-
-/**
- * OpenAI requires `function.parameters` to be a JSON Schema object. Default a
- * missing schema to the empty object schema, and default `properties`/`required`
- * on a bare object schema, which some providers reject when absent.
- */
-function toParameters(schema: unknown): Record<string, unknown> {
-	if (schema === undefined) return { type: 'object', properties: {} };
-	if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) {
-		throw new Error('Tool input schema must be a JSON Schema object.');
-	}
-	const object = schema as Record<string, unknown>;
-	if (object.type !== 'object') return object;
-	return {
-		...object,
-		properties: object.properties ?? {},
-		required: object.required ?? [],
-	};
-}
 
 /** Accumulate one `tool_calls[]` delta into the in-flight calls. */
 function accumulateToolCall(
@@ -216,16 +145,14 @@ export function createChatEngine({
 						...systemPrompts.map(
 							(content): ChatMessage => ({ role: 'system', content }),
 						),
-						...request.messages.map(toChatMessage),
+						...request.messages,
 					],
-					...(request.tools.length > 0 && {
-						tools: request.tools.map(toChatTool),
-					}),
+					...(request.tools.length > 0 && { tools: request.tools }),
 				},
 				{ signal },
 			);
 		} catch (cause) {
-			// No model chosen, or a tool schema that is not one: the turn fails.
+			// No model chosen: the turn fails.
 			yield {
 				type: 'run-error',
 				message: extractErrorMessage(cause),

@@ -25,9 +25,7 @@ export {
 	type AgentToolResultPart,
 	agentMessageText,
 	isPersistableMessage,
-	type ModelMessage,
-	type ModelToolCall,
-	toModelMessages,
+	toChatMessages,
 } from './message.js';
 export {
 	type AgentToolCall,
@@ -39,4 +37,5 @@ export {
 	NO_TOOLS,
 	resolveApprovedToolCall,
 	type ToolCatalog,
+	toChatTools,
 } from './tools.js';
