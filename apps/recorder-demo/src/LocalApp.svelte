@@ -10,7 +10,6 @@
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
 	import { closeDevice } from '@epicenter/folder/browser';
-	import { guardLeave } from '@epicenter/svelte/leave-guard';
 	import { onDestroy, onMount } from 'svelte';
 	import { recorder } from '@epicenter/recorder/browser';
 	import Header from './Header.svelte';
@@ -22,9 +21,6 @@
 	// This page's one store: its Worker starts at the first call.
 	let { device }: { device: Client<RecorderContract> } = $props();
 	onDestroy(() => closeDevice(device));
-
-	// Leaving while a save is out asks first.
-	onMount(guardLeave);
 
 	/** Why what a closed tab cut off could not be finished, if it could not. */
 	let cutOff = $state<string | null>(null);

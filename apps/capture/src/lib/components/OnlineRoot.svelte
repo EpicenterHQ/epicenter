@@ -13,6 +13,7 @@
 
 	let { children }: { children: Snippet } = $props();
 	const auth = webAuth();
+	const state = $derived(auth.state());
 
 	async function signIn() {
 		const { error } = await auth.startSignIn();
@@ -20,9 +21,9 @@
 	}
 </script>
 
-{#if auth.state.status !== 'signed-out'}
-	{#key auth.state.account}
-		<Online account={auth.state.account}>{@render children()}</Online>
+{#if state.status !== 'signed-out'}
+	{#key state.account}
+		<Online account={state.account}>{@render children()}</Online>
 	{/key}
 {:else}
 	<Empty.Root class="h-dvh">

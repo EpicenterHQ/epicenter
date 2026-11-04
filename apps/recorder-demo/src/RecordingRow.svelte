@@ -1,24 +1,20 @@
 <!--
-	One recording, read and edited through its list's client:
+	One recording, read and edited through its list's store:
 	its title to rename, its audio to play, and Delete.
 -->
 <script lang="ts">
-	import type { Client } from '@epicenter/definition/contract';
-	import type { ReactiveClient } from '@epicenter/svelte/client';
+	import type { Folder } from '@epicenter/folder/core';
 	import { onDestroy } from 'svelte';
 	import type { Recorder } from './contract.ts';
 	import type { RecordingRow } from './lib/recordings.ts';
 
 	const {
 		row,
-		client,
 		files,
 	}: {
 		row: RecordingRow;
-		/** The list's client, which this row reads its audio's bytes through. */
-		client: Client<Recorder>;
-		/** The list's client as Svelte state, which this row edits through. */
-		files: ReactiveClient<Recorder>;
+		/** The list's store, which this row edits and reads its audio's bytes through. */
+		files: Folder<Recorder>;
 	} = $props();
 
 	type Note = NonNullable<RecordingRow['note']>;
@@ -38,7 +34,7 @@
 	async function play() {
 		if (row.ext === null) return;
 		status = 'Loading…';
-		const audio = await client.audio.get({ id: row.id, ext: row.ext });
+		const audio = await files.audio.read({ id: row.id, ext: row.ext });
 		if (audio.error !== null) {
 			status = audio.error.message;
 			return;

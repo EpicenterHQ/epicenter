@@ -10,13 +10,13 @@
  * `so.epicenter.recorder-demo`, which only a local deployment registers.
  */
 import { createBrowserOAuth, selfHostedServer } from '@epicenter/account';
-import { fromAuth } from '@epicenter/account/svelte';
 import {
 	API_BUN_DEV_PORT,
 	LOCAL_APPS,
 	localUrl,
 	resolveOAuthAudiences,
 } from '@epicenter/definition/site';
+import { reactive } from '@epicenter/svelte/reactive';
 import { SELF_HOST_ORIGIN } from '@epicenter/vite-config/app-urls';
 
 const server = selfHostedServer(
@@ -31,7 +31,8 @@ const client = createBrowserOAuth({
 	accountManagement: false,
 });
 
-export const auth = fromAuth(client);
+/** The sign-in, read through `reactive`: its `state()` tracks in Svelte. */
+export const auth = reactive(client);
 
 if (import.meta.hot) {
 	import.meta.hot.dispose(() => client[Symbol.dispose]());

@@ -2,7 +2,9 @@
 	The recorder over one client, the variant's store for the page's life:
 	Record and Stop, then what the store still needs (the note, and the
 	audio if it was held in the page), and below them the client's
-	recordings (`Library`). The variant passes its store and how it records
+	recordings (`Library`), all through the client read as a folder
+	(`folderOf`); while one of its writes is out, leaving the page asks
+	first. The variant passes its store and how it records
 	(`lib/record.ts`): the local one this browser's files, written as it
 	records; the online one the repository, written at Stop. This component
 	never chooses.
@@ -10,7 +12,10 @@
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
 	import { timeId } from '@epicenter/definition/ids';
-	import { fromClient } from '@epicenter/svelte/client';
+	import { folderOf } from '@epicenter/folder/core';
+	import { reactive } from '@epicenter/svelte/reactive';
+	import { onMount } from 'svelte';
+	import { on } from 'svelte/events';
 	import Library from './Library.svelte';
 	import type { Recorder } from './contract.ts';
 	import type { Record, Take } from './lib/record.ts';
@@ -28,9 +33,17 @@
 		where: string;
 	} = $props();
 
-	// The one Svelte state over the client, for this recorder and its list.
+	// The client read as a folder through `reactive`, once, for this
+	// recorder and its list: what they show, write and play.
 	// svelte-ignore state_referenced_locally
-	const files = fromClient(client);
+	const files = reactive(folderOf(client));
+
+	// Leaving while a write to the store is out asks first.
+	onMount(() =>
+		on(window, 'beforeunload', (event) => {
+			if (files.saving()) event.preventDefault();
+		}),
+	);
 
 	let problem = $state<string | null>(null);
 	let recording = $state<{ id: string; at: Date; take: Take } | null>(null);
@@ -173,4 +186,4 @@
 		{/if}
 	</p>
 {/each}
-<Library {client} {files} />
+<Library {files} />

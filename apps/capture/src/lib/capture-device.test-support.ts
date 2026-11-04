@@ -6,7 +6,7 @@
  * writes until released, the way a lost connection or a slow write would.
  *
  * Import `svelte-dom.test-support.js` (or `svelte-modules`) first: the store
- * and `fromClient` need Svelte's client runtime.
+ * and `reactive` need Svelte's client runtime.
  */
 import {
 	mkdir,
@@ -20,11 +20,12 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Client, ClientError } from '@epicenter/definition/contract';
+import { folderOf } from '@epicenter/folder/core';
 import { openDevice } from '@epicenter/folder/node';
 import { unwrap } from 'wellcrafted/result';
 import { type Capture, capture } from './model/index.js';
 
-const { fromClient } = await import('@epicenter/svelte/client');
+const { reactive } = await import('@epicenter/svelte/reactive');
 const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 );
@@ -93,11 +94,12 @@ export async function openCaptures(files: Files = {}) {
 		},
 	};
 
-	const list = fromClient(client).captures;
+	// The folder over the client, read through `reactive`, as the variant's root reads it.
+	const list = reactive(folderOf(client)).captures;
 	const captures = createCaptures(list);
 	// Read the list in an effect, as the page does, so it lists and listens.
-	const watching = follow(() => [list.items, list.invalid, list.loading]);
-	await until(() => !list.loading);
+	const watching = follow(() => [list.items(), list.invalid(), list.loading()]);
+	await until(() => !list.loading());
 
 	return {
 		captures,
