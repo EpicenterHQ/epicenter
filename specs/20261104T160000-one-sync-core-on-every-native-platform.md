@@ -296,6 +296,43 @@ Open: Whispering's web build is local only even when signed in, which
 differs from R9; unifying the two HTTP relays moves Whispering's provider
 keys from the page into the shell (as Vocab's are, per ADR-0740).
 
+## Proposals under discussion (2026-11-04, not decided)
+
+**The rule behind the composition: an app declares what it is and what it
+needs; the platform supplies where, how and when.** What it is: its contract
+and site. What it needs: capabilities (folder, account, recorder, ai). Where:
+the visible root (ADR-0752). How: the implementation the build picks (desktop,
+phone, web). When: sync moments (ADR-0750). The iOS build of the core is why
+this holds across platforms: a phone is another implementation, not another
+app.
+
+**An app's layout.** `contract.ts` (published as `/contract.json` by the
+build), `app.ts` (one composition for every platform), `routes/`, and
+`native/` only for what no capability covers.
+
+**Autolinking.** Saying "this app records" takes three edits today
+(`package.json`, `main.rs`, the Tauri capability file). A capability package
+declares its Rust plugin in its `package.json`, and the build generates the
+shell's `main.rs` and permissions from the app's dependencies, as React
+Native's autolinking links native modules. `src-tauri/` shrinks to `native/`.
+
+**A template, not a wrapper.** `epicenter new` writes the common `app.ts`
+into the app instead of an `@epicenter/app` package wrapping the primitives:
+the composition is a few lines, and a wrapper would grow an option for every
+knob.
+
+**AI sources.** `ai.custom` (the person's provider keys, always), `ai.hosted`
+(the account's models, `null` signed out), `ai.local` (this computer's models,
+`null` on the web), and `ai.models` listing every available model tagged by
+source. Default order to confirm: local, hosted, custom.
+
+**Execution.** Two independent tracks in separate worktrees: package moves
+first (`ai` merge, `account` rename with `principal`, `capture` into its app,
+`constants` split, one shell crate), and the core (transport, async binding,
+repack, lock, `settle` port). They meet in the wiring; autolinking and the
+template follow; a phone app waits for the first app whose main use is on a
+phone away from a network.
+
 ## Phones
 
 - iOS gives each app a sandbox that the system does not evict, visible in the
