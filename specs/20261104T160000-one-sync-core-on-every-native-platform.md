@@ -202,6 +202,29 @@ older core refuses a newer folder ("update Whispering"); a lock compatible
 with today's during migration (`fcntl` locks on Linux); sign-in and the
 consent screen in every app; the napi and iOS build matrix.
 
+### Refinement: the shell syncs, app code never does (2026-11-04)
+
+`keep_synced` handles made app code babysit a syncing object, which is sync
+as a role again. Instead `folder.sync()` runs one round, and the shell that
+already opens the Data root decides when: after a save (debounced), every 30
+seconds, on reconnect, and on "Sync now". That timing lives once in the core.
+App code contains no sync code; Epicenter's shell runs the same loop over
+every consented library folder; the CLI runs one round or `--watch`. A
+program's account is fixed for its lifetime and passed once to
+`Folder::open`, so `sync()` takes no arguments.
+
+```rust
+let folder = Folder::open(path, &account)?;
+folder.sync()?;   // Synced | Retry | Stopped { command }
+for folder in &held { folder.sync()?; }   // an app holds one; Epicenter holds the library
+```
+
+Two crates, one per boundary: `epicenter-core` (items, settle, roots, sync,
+credentials; built native, as WebAssembly with only settle and the item
+codec, and as a Node-API library for the CLI) and `tauri-plugin-epicenter`
+(commands, events, the shell's sync timing; replaces today's folder plugin).
+The native host stays the CLI subcommand `epicenter native-host`.
+
 ## Phones
 
 - iOS gives each app a sandbox that the system does not evict, visible in the
