@@ -22,7 +22,7 @@
 	const notes = getNotes();
 	const folders = getFolders();
 
-	const visible = $derived(notes.items.filter((note) => shownIn(app.filter, note)).toSorted(newestFirst));
+	const visible = $derived(notes.items().filter((note) => shownIn(app.filter, note)).toSorted(newestFirst));
 	const selectedId = $derived(app.selected?.collection === 'notes' ? app.selected.id : undefined);
 
 	const heading = $derived.by(() => {
@@ -64,10 +64,10 @@
 	</div>
 
 	<div class="min-h-0 flex-1 overflow-y-auto p-2">
-		{#if notes.invalid.length > 0}
+		{#if notes.invalid().length > 0}
 			<section aria-label="Needs repair">
 				<h3 class="px-2 pt-2 pb-1 text-xs font-medium text-destructive">Needs repair</h3>
-				{#each notes.invalid as file (file.id)}
+				{#each notes.invalid() as file (file.id)}
 					<button
 						class="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left hover:bg-accent/40"
 						class:bg-accent={selectedId === file.id}
@@ -84,7 +84,7 @@
 			</section>
 		{/if}
 
-		{#if visible.length === 0 && !notes.loading}
+		{#if visible.length === 0 && !notes.loading()}
 			<p class="p-6 text-center text-sm text-muted-foreground">
 				{app.filter.query.trim() === '' ? 'No notes here yet. Press + to create one.' : 'No notes match.'}
 			</p>
@@ -133,7 +133,7 @@
 													No folder
 												</ContextMenu.Item>
 												<ContextMenu.Separator />
-												{#each folders.items.toSorted(byName) as folder (folder.id)}
+												{#each folders.items().toSorted(byName) as folder (folder.id)}
 													<ContextMenu.Item
 														onSelect={() => void report('move the note', notes.update({ id: note.id }, { folderId: folder.id }))}
 													>

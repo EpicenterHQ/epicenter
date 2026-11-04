@@ -17,7 +17,7 @@
 	// The parent keys this view by the folder.
 	// svelte-ignore state_referenced_locally
 	const id = shownId;
-	const invalid = $derived(folders.invalid.find((file) => file.id === id));
+	const invalid = $derived(folders.invalid().find((file) => file.id === id));
 	const repaired = $derived(folders.get({ id }));
 
 	function confirmDelete() {

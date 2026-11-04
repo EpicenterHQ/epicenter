@@ -14,9 +14,10 @@
 
 	let { unreadable }: ChromeProps = $props();
 	const auth = webAuth();
+	const state = $derived(auth.state());
 
 	const status = $derived.by((): StatusLine => {
-		if (auth.state.status === 'reauth-required')
+		if (state.status === 'reauth-required')
 			return {
 				label: 'Sign in again',
 				detail: 'Sign in again to edit your repository.',
@@ -47,8 +48,8 @@
 </StatusPopover>
 <div class="ml-auto flex min-w-0 items-center gap-1">
 	<LightSwitch variant="ghost" />
-	{#if auth.state.status !== 'signed-out'}
-		{#if auth.state.status === 'reauth-required'}
+	{#if state.status !== 'signed-out'}
+		{#if state.status === 'reauth-required'}
 			<Button size="sm" onclick={() => void signIn()}>Sign in again</Button>
 		{/if}
 		<Button variant="ghost" size="sm" onclick={() => void signOut()}>Sign out</Button>
