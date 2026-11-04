@@ -129,7 +129,7 @@ export const keychain = {
  * The note that lists a desktop app's connected endpoints in its AppData
  * root, never synced: each one's id, name, base URL and models, in the
  * person's order, and never a key. An id is also the keychain name its key
- * is saved under. An app adds it to its AppData contract as `connections`.
+ * is saved under. `customEndpoints()` keeps it through `@epicenter/local`.
  */
 export const connectionsCollection = {
 	path: 'connections.md',
@@ -151,8 +151,11 @@ export const connectionsCollection = {
 	required: ['connections'],
 } as const;
 
-/** The client of an app's `connections.md`. */
-export type ConnectionsFile = NoteClient<typeof connectionsCollection>;
+/** The note client of an app's `connections.md`: as much as the connections read and write. */
+export type ConnectionsFile = Pick<
+	NoteClient<typeof connectionsCollection>,
+	'get' | 'create' | 'update' | 'subscribe'
+>;
 
 /** What the keychain keeps for one connection: its key, and the endpoint it was entered for. */
 type SavedKey = { endpoint: string; key: string };

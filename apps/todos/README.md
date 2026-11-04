@@ -74,21 +74,26 @@ shared recovery screen with Retry. The files remain when the app is removed.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
-(`openDataFolder(todos, site)`) with no sign-in: Todos makes no
+(`openFolder(todos, { site })`, whose `tauri` leaf opens the Data root) with
+no sign-in: Todos makes no
 inference calls, and Epicenter can keep the folder's local history. Its header
 says whether Epicenter manages the folder, offers **Set up in Epicenter** until it does
 (`syncWithEpicenter({ contract })`, the contract at `APPS.TODOS.url`'s
 `contract.json`), and shows the shell's folder path in the status details. Closing the window or quitting does not wait.
 
-The variant is chosen at build time through the `#platform/root` seam, as
-[the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant)
-describes: `desktopVariant()` in `vite.config.ts`, `tsconfig.tauri.json`, and
-`src/lib/platform.test.ts`, which names a seam whose desktop leaf went
-missing.
+The build picks the folder: `openFolder` from `@epicenter/folder` resolves
+to its desktop leaf under the `tauri` condition that `desktopVariant()` in
+`vite.config.ts` turns on, and to the web leaf otherwise. Two things are
+Todos' own and differ by build, through `#platform/*` seams
+([the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant));
+`tsconfig.tauri.json` typechecks the desktop leaves, and
+`src/lib/platform.test.ts` names a seam or capability whose desktop leaf
+went missing.
 
 | Seam | Web leaf | Desktop leaf |
 | --- | --- | --- |
-| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in, which sets the todos) and the account | `root.tauri.ts`: `Startup` (the two roots or the recovery screen, which sets the todos) and its sync |
+| `#platform/account` | `account.ts`: `connectAccount()`, the browser sign-in | `account.tauri.ts`: none, `null` |
+| `#platform/chrome` | `OnlineChrome.svelte`: the repository's status and the account | `DesktopChrome.svelte`: the folder's local history status and Set up in Epicenter |
 
 ## The native CLI
 
@@ -105,40 +110,48 @@ name, and never commits or contacts a server.
 ## How it is wired
 
 ```text
+src/lib/app.ts                 the page's values: account (#platform/account) and
+                               folder = fromClient(openFolder(todos, { site, account })),
+                               and an import.meta.hot dispose that closes them, which
+                               accept-then-invalidate makes Vite run on each edit
 routes/+layout.svelte          every page: the chrome and the leave guard
-routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
-                               around Startup from #platform/root
-  OnlineRoot.svelte            web: signed out, a sign-in; signed in,
-    Online.svelte              {#key account}: setTodos(fromClient(openRemote(todos, { account, site: APPS.TODOS.url })).todos)
-  Startup.svelte               desktop: DesktopStartup over the contract
-    DesktopRoot.svelte         setTodos(fromClient(device).todos), setFolderSync
-routes/(app)/+page.svelte      TodosApp over the todos the root set (getTodos)
-  TodosApp.svelte              header (Chrome from #platform/root), the list, the open todo
+routes/(app)/+layout.svelte    signed out on the web: SignIn; otherwise
+                               <Opening app="Todos" {folder}> (spinner, Recovery, pages)
+routes/(app)/+page.svelte      TodosApp
+  TodosApp.svelte              header (Chrome from #platform/chrome), the list, the open todo
 routes/auth/callback           finishes sign-in, outside (app), then returns to /
 ```
 
-Components read and write only through the todos the variant's root set
-(`setTodos` where it opens the store, `getTodos` in `src/lib/todos.ts`
-reads them), never a client of their own; only the variant's root chooses
-the store.
+Every component imports what it reads from `$lib/app.js` (`folder.todos`),
+never a client of its own; only `app.ts` opens the store
+([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+On the web the folder is the account's copy: it opens once the account is
+signed in, and a new account is a new page (sign-in returns through
+`/auth/callback`, which reloads).
 
 | Path | Role |
 | --- | --- |
+| `src/lib/app.ts` | The account and the folder, opened once for the page. |
 | `src/lib/contract.ts` | The contract. |
-| `src/lib/todos.ts` | A todo's file, label and order (open first, then done, each oldest first), and the list's context. |
-| `src/lib/components/OnlineRoot.svelte`, `Online.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account and sets its todos (`setTodos`); the header's status and account. |
-| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/desktop-startup`); the folder's todos set for every page (`setTodos`); the header's local history status, Set up in Epicenter, and the shell's folder path. |
-| `src/lib/components/TodosApp.svelte` | The header, the list, and the open todo, over the todos the root set. |
+| `src/lib/todos.ts` | A todo's file, label and order (open first, then done, each oldest first). |
+| `src/lib/account.ts`, `account.tauri.ts` | The web build's sign-in; none on the desktop. |
+| `src/lib/components/SignIn.svelte`, `OnlineChrome.svelte` | The web app's signed-out page; the header's status and account. |
+| `src/lib/components/DesktopChrome.svelte` | The header's local history status, Set up in Epicenter, and the folder's path (`folder.displayPath`). |
+| `src/lib/components/TodosApp.svelte` | The header, the list, and the open todo, over `folder.todos`. |
 
 ## Tests
 
 ```sh
-bun run --cwd apps/todos test        # contract, order, both builds' seams, the native CLI
+bun run --cwd apps/todos test        # contract, order, the list over a memory folder, both builds' seams, the native CLI
 bun run --cwd apps/todos typecheck   # app (web and desktop leaves), scripts, end to end
 bun x playwright test -c apps/todos/playwright.config.ts                    # both engines
 bun x playwright test -c apps/todos/playwright.config.ts --project=webkit   # one
 bun run --cwd apps/todos build:native && cargo test -p todos -p epicenter-standalone
 ```
+
+`bun run test` passes `--conditions=test`, so `$lib/app.js` opens a folder
+in memory and a signed-out account: a component test seeds the folder
+through its ordinary methods (`folder.todos.create`) and mocks no module.
 
 The desktop shell's tests compile against `build-desktop/` (`frontendDist`),
 so they need `build:native` first. They check its identity, its name (so its

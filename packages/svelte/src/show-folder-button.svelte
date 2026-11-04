@@ -1,8 +1,12 @@
+<!--
+	A button that shows a folder's place in the file manager (`reveal`, from
+	the folder or the shell), and why not when it cannot.
+-->
 <script lang="ts">
-	import { revealRoot, type Root } from '@epicenter/folder/tauri';
 	import { Button } from '@epicenter/ui/button';
+	import type { Result } from 'wellcrafted/result';
 
-	let { root }: { root: Root } = $props();
+	let { reveal }: { reveal: () => Promise<Result<null, { message: string }>> } = $props();
 	let problem = $state<string>();
 	let showing = $state(false);
 	const label = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent)
@@ -12,7 +16,7 @@
 	async function show() {
 		showing = true;
 		problem = undefined;
-		const { error } = await revealRoot(root);
+		const { error } = await reveal();
 		if (error !== null) problem = error.message;
 		showing = false;
 	}

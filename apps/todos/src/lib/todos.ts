@@ -1,12 +1,8 @@
 /**
  * What Todos knows of a todo: its file, its label and its order. The list
- * the components read (`getTodos`) is one store's todos: the desktop
- * window's folder, or the person's repository in a browser; the variant's
- * root sets it where it opens the store (`DesktopRoot`, `Online`).
+ * the components read is the folder's (`folder.todos` from `$lib/app`).
  */
 import type { NoteOf } from '@epicenter/definition/contract';
-import type { ReactiveNotes } from '@epicenter/svelte/client';
-import { createContext } from 'svelte';
 import { type Todos, todos } from './contract.js';
 
 /** Todos' one collection: a note per todo. */
@@ -25,6 +21,3 @@ export const labelOf = (todo: Pick<Todo, 'id' | 'title'>) =>
 /** Open todos first, then done ones, each oldest first (ids sort by when they were made). */
 export const openFirst = (a: Todo, b: Todo) =>
 	Number(a.done) - Number(b.done) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-
-/** The list every component of a page reads and edits: its store's todos. */
-export const [getTodos, setTodos] = createContext<ReactiveNotes<TodoNotes>>();

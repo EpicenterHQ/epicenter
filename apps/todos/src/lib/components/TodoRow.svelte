@@ -5,9 +5,10 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { toast } from '@epicenter/ui/sonner';
-	import { getTodos, labelOf, type Todo } from '$lib/todos.js';
+	import { folder } from '$lib/app.js';
+	import { labelOf, type Todo } from '$lib/todos.js';
 
-	const todos = getTodos();
+	const { todos } = folder;
 
 	let {
 		todo,

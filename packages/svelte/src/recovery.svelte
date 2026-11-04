@@ -1,6 +1,12 @@
+<!--
+	Why an app's folder (or, on the desktop, its settings) did not open, with
+	Retry, and Show in Finder where the folder has a place to show
+	(`reveal`). `<Opening>` and the desktop startup render it.
+-->
 <script lang="ts">
-	import type { OpenDeviceError } from '@epicenter/folder/tauri';
+	import type { OpenFolderError } from '@epicenter/folder/core';
 	import { Button } from '@epicenter/ui/button';
+	import type { Result } from 'wellcrafted/result';
 	import ShowFolderButton from './show-folder-button.svelte';
 
 	const {
@@ -8,15 +14,18 @@
 		error,
 		appDataError = false,
 		retry,
+		reveal = null,
 	}: {
 		/** The app's name, as people know it (`Capture`). */
 		app: string;
-		/** Why the root did not open. */
-		error: OpenDeviceError;
+		/** Why the folder did not open. */
+		error: OpenFolderError;
 		/** Whether the AppData root failed before the data folder opened. */
 		appDataError?: boolean;
-		/** Open the roots again. */
+		/** Open again. */
 		retry: () => void;
+		/** Show the folder's place in the file manager; null where it has none. */
+		reveal?: (() => Promise<Result<null, { message: string }>>) | null;
 	} = $props();
 
 	const retrying = $derived($effect.pending() > 0);
@@ -32,6 +41,6 @@
 	{/if}
 	<div class="flex flex-wrap items-center gap-2">
 		<Button disabled={retrying} onclick={retry}>{retrying ? 'Retrying…' : 'Retry'}</Button>
-		<ShowFolderButton root={appDataError ? 'AppData' : 'Data'} />
+		{#if reveal}<ShowFolderButton {reveal} />{/if}
 	</div>
 </main>

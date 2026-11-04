@@ -1,20 +1,28 @@
 <!--
-	Todos' root, which decides the store (decision 78): the variant's
-	`Startup` (`#platform/root`) opens it before any page under it renders,
-	and the boundary shows the UI kit's spinner until it has. The web app's is
-	the person's repository behind sign-in; the desktop window's is the folder
-	Todos keeps its todos in. The sign-in callback is outside this group.
+	Todos' root over its folder (ADR-0766): `<Opening>` shows a spinner while
+	the folder opens, Recovery when it cannot, and the pages once it has. On
+	the web the folder is the signed-in person's repository, so a signed-out
+	page asks to sign in instead. The sign-in callback is outside this group.
 -->
 <script lang="ts">
-	import { Startup } from '#platform/root';
-	import { Loading } from '@epicenter/ui/loading';
+	import Opening from '@epicenter/svelte/opening';
+	import { trackReads } from '@epicenter/svelte/tracked';
+	import { account, folder } from '$lib/app.js';
+	import SignIn from '$lib/components/SignIn.svelte';
 
 	let { children } = $props();
+
+	/** The web build's sign-in, read as it changes; the desktop window has none. */
+	function sessionOf(signIn: NonNullable<typeof account>) {
+		return trackReads((listener) => signIn.subscribe(listener), {
+			state: () => signIn.getState(),
+		});
+	}
+	const session = account && sessionOf(account);
 </script>
 
-<svelte:boundary>
-	{#snippet pending()}
-		<Loading class="h-dvh" />
-	{/snippet}
-	<Startup>{@render children()}</Startup>
-</svelte:boundary>
+{#if account && session?.state.status === 'signed-out'}
+	<SignIn {account} />
+{:else}
+	<Opening app="Todos" {folder}>{@render children()}</Opening>
+{/if}

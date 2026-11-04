@@ -9,7 +9,7 @@ import { createLogger } from 'wellcrafted/logger';
 import { Ok, type Result } from 'wellcrafted/result';
 import { withAgentsNote } from './agents-note.js';
 import { storeOf } from './device/client.js';
-import type { OpenDeviceError } from './errors.js';
+import type { OpenFolderError } from './errors.js';
 import { openDevice } from './tauri.js';
 
 const log = createLogger('folder/desktop');
@@ -20,7 +20,7 @@ export type FolderRequest = { ok: true } | { ok: false; message: string };
 /** Open an app's machine-local settings contract at its AppData root. */
 export async function openAppData<TContract extends Contract>(
 	contract: TContract,
-): Promise<Result<Client<TContract>, OpenDeviceError>> {
+): Promise<Result<Client<TContract>, OpenFolderError>> {
 	return openDevice(contract, { root: 'AppData' });
 }
 
@@ -35,7 +35,7 @@ export async function openAppData<TContract extends Contract>(
 export async function openDataFolder<TContract extends Contract>(
 	contract: TContract,
 	site: string,
-): Promise<Result<Client<TContract>, OpenDeviceError>> {
+): Promise<Result<Client<TContract>, OpenFolderError>> {
 	const opened = await openDevice(contract, { root: 'Data' });
 	if (opened.error !== null) return opened;
 	await refreshAgentsNote(opened.data, contract, `${site}/contract.json`);

@@ -20,7 +20,7 @@ import { Ok, type Result } from 'wellcrafted/result';
 import { createDeviceClient } from './device/client.js';
 import { checkStore, formatStore } from './device/folder-tools.js';
 import { nodeStore } from './device/node-store.js';
-import { OpenDeviceError } from './errors.js';
+import { OpenFolderError } from './errors.js';
 
 /**
  * The typed client of `contract` over the directory at `path`, made now
@@ -31,16 +31,16 @@ import { OpenDeviceError } from './errors.js';
 export async function openDevice<TContract extends Contract>(
 	contract: TContract,
 	{ path }: { path: string },
-): Promise<Result<Client<TContract>, OpenDeviceError>> {
+): Promise<Result<Client<TContract>, OpenFolderError>> {
 	try {
 		await mkdir(path, { recursive: true });
 		if (!(await stat(path)).isDirectory())
-			return OpenDeviceError.Unreadable({
+			return OpenFolderError.Unreadable({
 				folder: path,
 				cause: 'it is not a directory',
 			});
 	} catch (cause) {
-		return OpenDeviceError.Unreadable({ folder: path, cause });
+		return OpenFolderError.Unreadable({ folder: path, cause });
 	}
 	return Ok(createDeviceClient(contract, nodeStore(path)));
 }

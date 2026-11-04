@@ -12,13 +12,14 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { ChangeListener, ChangeSource } from './changes.js';
 import { createDeviceClient } from './device/client.js';
 import { tauriStore } from './device/tauri-store.js';
-import { OpenDeviceError, RevealRootError } from './errors.js';
+import { OpenFolderError, RevealRootError } from './errors.js';
 import {
 	commands,
 	type FolderEvent,
 	type Root,
 } from './native/bindings.gen.js';
 import { rootRefusal } from './native/open-refusal.js';
+import { openOf, recordOpen } from './native/opens.js';
 
 export {
 	type FolderRequest,
@@ -26,7 +27,7 @@ export {
 	openDataFolder,
 } from './desktop-folder.js';
 export { syncedWithEpicenter, syncWithEpicenter } from './epicenter-sync.js';
-export { OpenDeviceError } from './errors.js';
+export { OpenFolderError } from './errors.js';
 export type { Root } from './native/bindings.gen.js';
 
 /**
@@ -36,7 +37,7 @@ export type { Root } from './native/bindings.gen.js';
  * nothing is there; a link whose target is gone is `Disconnected`, and
  * nothing is made.
  *
- * An `Err` says why nothing opened (`OpenDeviceError`); a contract that is
+ * An `Err` says why nothing opened (`OpenFolderError`); a contract that is
  * not well formed throws.
  *
  * ```ts
@@ -47,28 +48,17 @@ export type { Root } from './native/bindings.gen.js';
 export async function openDevice<TContract extends Contract>(
 	contract: TContract,
 	{ root }: { root: Root },
-): Promise<Result<Client<TContract>, OpenDeviceError>> {
+): Promise<Result<Client<TContract>, OpenFolderError>> {
 	if (!isTauri())
-		return OpenDeviceError.StorageUnavailable({
+		return OpenFolderError.StorageUnavailable({
 			cause: 'openDevice from /tauri runs only in a Tauri window',
 		});
 	const opened = await openRoot(root);
 	if (opened.error !== null) return rootRefusal(opened.error.cause);
 	const { path, watch } = opened.data;
 	const device = createDeviceClient(contract, tauriStore({ root, watch }));
-	opens.set(device, { root, path });
+	recordOpen(device, { root, path });
 	return Ok(device);
-}
-
-/** The root each client opened, and the path the shell answered for it. */
-const opens = new WeakMap<object, { root: Root; path: string }>();
-
-/** What `openDevice` from `/tauri` recorded for `device`, or a throw. */
-function openOf(device: Client<Contract>) {
-	const open = opens.get(device);
-	if (open === undefined)
-		throw new Error('expected a client openDevice from /tauri returned');
-	return open;
 }
 
 /**
@@ -83,7 +73,8 @@ export function rootOf(device: Client<Contract>): Root {
 /**
  * The path of `device`'s root as the shell named it
  * (`/Users/me/Epicenter/whispering`), to show a person. No command takes
- * it. Throws for a client `openDevice` from `/tauri` did not return.
+ * it. Throws for a client `openDevice` from `/tauri` did not return; a
+ * folder answers its own (`folder.displayPath()`).
  */
 export function displayPath(device: Client<Contract>): string {
 	return openOf(device).path;

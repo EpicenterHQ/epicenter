@@ -21,6 +21,7 @@
 	import {
 		openAppData,
 		openDataFolder,
+		revealRoot,
 	} from '@epicenter/folder/tauri';
 	import type { Snippet } from 'svelte';
 	import Recovery from './recovery.svelte';
@@ -63,9 +64,9 @@
 </script>
 
 {#if appData?.error}
-	<Recovery {app} error={appData.error} appDataError {retry} />
+	<Recovery {app} error={appData.error} appDataError {retry} reveal={() => revealRoot('AppData')} />
 {:else if device?.error}
-	<Recovery {app} error={device.error} {retry} />
+	<Recovery {app} error={device.error} {retry} reveal={() => revealRoot('Data')} />
 {:else if device !== null}
 	{@render children(appData?.data, device.data, site)}
 {/if}

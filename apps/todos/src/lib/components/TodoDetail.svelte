@@ -17,10 +17,11 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { toast } from '@epicenter/ui/sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+	import { folder } from '$lib/app.js';
 	import { todos as contract } from '$lib/contract.js';
-	import { getTodos, labelOf, todoPath } from '$lib/todos.js';
+	import { labelOf, todoPath } from '$lib/todos.js';
 
-	const todos = getTodos();
+	const { todos } = folder;
 	let {
 		id: shownId,
 		onBack,

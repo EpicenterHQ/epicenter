@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md): an asynchronous opener that resolves to a ready App, so no caller holds anything while it opens; a capability is now handed over at once, and the `openApp` and `App` that record described exist nowhere in code.
 - **Amends:** [ADR-0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) at its consequence "A reader outside `<Opening>` sees the opening state and handles it" and at the action row of the standard shape: a read answers at every moment without checking `state()`, every async method on a folder or its collections waits for the open, and only `<Opening>` and Recovery read `state()`.
 - **Relates:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) (a dependent takes the folder as a value), [ADR-0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) (the shape every capability shares).
-- **Unbuilt:** all of it: the folder's reads answering while opening, its actions waiting for the open, `retry()` restarting what waiting actions wait for, and dependents built on that. Built in W2 of the plan in `specs/20261104T160000-one-sync-core-on-every-native-platform.md`, starting with Todos.
+- **Unbuilt:** dependents built on the waiting actions, such as Whispering's recovery of unfinished recordings and `createRecorder(folder)`. Built in W2 of the plan in `specs/20261104T160000-one-sync-core-on-every-native-platform.md`, starting with Todos.
 
 ## Context
 

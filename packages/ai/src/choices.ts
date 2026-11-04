@@ -7,10 +7,10 @@
  * back to another endpoint.
  *
  * Where choices are kept is the build's: `modelChoices()` from
- * `@epicenter/ai` keeps them in this browser's storage on the web and in
- * `models.md` in the app's AppData root on the desktop, beside the
- * connections they name. `createModelChoices` makes the same value over any
- * place, as a test does over memory.
+ * `@epicenter/ai` keeps them in `models.md` in the app's place for this
+ * computer's state (`@epicenter/local`: AppData on the desktop, beside the
+ * connections they name, and this browser's storage on the web).
+ * `createModelChoices` makes the same value over any place.
  */
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';

@@ -1,0 +1,27 @@
+{
+	"name": "@epicenter/local",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Where a capability keeps its own state on this computer: one place per app, picked by the build.",
+	"type": "module",
+	"exports": {
+		".": {
+			"test": "./src/memory.ts",
+			"tauri": "./src/tauri.ts",
+			"default": "./src/browser.ts"
+		}
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test --isolate"
+	},
+	"dependencies": {
+		"@tauri-apps/api": "catalog:",
+		"wellcrafted": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

@@ -2,9 +2,15 @@
 	"name": "@epicenter/folder",
 	"version": "0.0.1",
 	"private": true,
-	"description": "Open an app's files as its contract's typed client: in a browser origin, a directory in Bun or Tauri, or a hosted repository.",
+	"description": "Open an app's folder as its contract's collections: the desktop's data folder, this browser's storage, the account's copy, a directory in Bun, or memory under test.",
 	"type": "module",
 	"exports": {
+		".": {
+			"test": "./src/open-folder.memory.ts",
+			"tauri": "./src/open-folder.tauri.ts",
+			"default": "./src/open-folder.ts"
+		},
+		"./core": "./src/folder.ts",
 		"./browser": "./src/browser.ts",
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",

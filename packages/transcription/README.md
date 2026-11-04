@@ -41,9 +41,10 @@ directly bypasses this path. Other platforms run the ordinary event loop.
 
 ## Settings and model files
 
-Each app owns its settings at its own
-`app.path().app_local_data_dir()/local-transcription.json`: the directory named
-by the app's bundle identifier, so `so.epicenter.whispering` and
+Each app owns its settings at the top of its AppData root,
+`app.path().app_data_dir()/local-transcription.json`, where every capability
+keeps its state on this computer: the directory named by the app's bundle
+identifier, so `so.epicenter.whispering` and
 `so.epicenter.whispering.dev` keep separate choices. Plugin setup fails if that
 directory cannot be resolved. The file holds the active model and the unload
 policy; both are device-local and never synchronize. The active model is

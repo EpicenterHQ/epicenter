@@ -3,9 +3,7 @@
  * The shell answers the path, which the page only shows; focus refreshes
  * whether Epicenter manages the folder.
  */
-import type { Client, Contract } from '@epicenter/definition/contract';
 import {
-	displayPath,
 	type FolderRequest,
 	syncedWithEpicenter,
 	syncWithEpicenter,
@@ -15,17 +13,11 @@ import { on } from 'svelte/events';
 
 /**
  * Call while a component initializes; it listens for the window's focus for
- * that component's life. `device` is the data folder's client, and
+ * that component's life. `path` is the data folder's path as the shell named
+ * it (`folder.displayPath`, or `displayPath(device)` for a client), and
  * `site` is the app's production site.
  */
-export function folderSync({
-	device,
-	site,
-}: {
-	device: Client<Contract>;
-	site: string;
-}) {
-	const path = displayPath(device);
+export function folderSync({ path, site }: { path: string; site: string }) {
 	let managed = $state(false);
 	let request = $state<{ tone: 'requested' | 'failed'; message: string }>();
 	let asking = $state(false);
