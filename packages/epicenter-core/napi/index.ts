@@ -1,17 +1,17 @@
 /**
- * The sync core's Node-API addon, typed, with `settle` from
- * `@epicenter/definition` as its note merge. Build the addon first:
- * `bun packages/epicenter-core/napi/build.ts`.
+ * `@epicenter/core`: the sync core's Node-API addon, typed, with `settle`
+ * from `@epicenter/definition` as its note merge. Build the addon first:
+ * `bun run --cwd packages/epicenter-core build`.
+ *
+ * The addon is loaded with a `require` of a literal relative path, the form
+ * `bun build --compile` follows to embed a `.node` file in the executable,
+ * so the compiled `epicenter` carries the core and needs no file beside it.
  *
  * `sync` resolves when the round ends and never rejects for a stop: a
  * round the network or a held lock interrupted is `retry`, and one a
  * person or agent must act on is `stopped`, with `message` saying why.
  */
-import { createRequire } from 'node:module';
-import { join } from 'node:path';
-// Relative until a program loads the addon and this directory becomes a
-// workspace package that declares `@epicenter/definition`.
-import { settle } from '../../definition/src/merge/index.ts';
+import { settle } from '@epicenter/definition/merge';
 
 /** One note both sides changed, as the core hands it to `settle`. */
 export type SettleInput = {
@@ -60,9 +60,7 @@ export type Addon = {
 	libgit2Version(): string;
 };
 
-export const addon = createRequire(import.meta.url)(
-	join(import.meta.dir, 'epicenter_core.node'),
-) as Addon;
+export const addon: Addon = require('./epicenter_core.node');
 
 /** `settle` as the core calls it: the merged text of one note. */
 export function settleNote(input: SettleInput): string {

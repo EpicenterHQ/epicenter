@@ -1,0 +1,23 @@
+{
+	"name": "@epicenter/core",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The sync core (ADR-0751) as a Node-API addon for Bun, with settle from @epicenter/definition as its note merge.",
+	"type": "module",
+	"exports": {
+		".": "./napi/index.ts"
+	},
+	"scripts": {
+		"build": "bun napi/build.ts",
+		"typecheck": "tsc --noEmit",
+		"test": "bun napi/build.ts && bun test napi"
+	},
+	"dependencies": {
+		"@epicenter/definition": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}
