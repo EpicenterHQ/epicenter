@@ -113,13 +113,16 @@ Svelte's deep proxy can break handles whose methods rely on `this` being the ori
 
 ## Project-specific application
 
-For contract apps, the variant's root startup opens the store, wraps it once
-(`fromClient(client)`), and sets each collection its components read in that
-collection's app-owned context. On the desktop,
-`DesktopStartup` from `@epicenter/svelte/desktop-startup` awaits `openAppData`
-and then `openDataFolder` under the layout's `<svelte:boundary>`, and renders
-`Recovery` when either cannot open; the online web root wraps `openRemote`.
-Key editors by note identity so each mounted editor owns one edit. See
+For contract apps, `src/lib/app.ts` exports the capabilities as module
+values ([ADR-0766](../../../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+`openFolder(contract)` returns at once; readiness is `folder.state()`
+(opening, ready, or failed with a typed error), and the root layout renders
+`<Opening {folder}>`, whose Retry calls `folder.retry()`. Any code imports
+`folder`; none passes it through context. Apps not yet moved still open the
+store in their variant's `Startup` (on the desktop, `DesktopStartup` from
+`@epicenter/svelte/desktop-startup` awaits `openAppData` and then
+`openDataFolder`) and set each collection in an app-owned context; keep that
+pattern in such an app until it moves. Key editors by note identity so each mounted editor owns one edit. See
 [Contract reads and editing](#contract-reads-and-editing).
 
 ## Imperative Widgets: Own The Whole Runtime Boundary
@@ -350,10 +353,13 @@ TanStack Table into an infinite loop. See
 # Contract reads and editing
 
 `fromClient(client)` gives each collection tracked `items`, `invalid`,
-`loading`, and `error`. The root that opens the client (the desktop root, the
-local web startup's child, or the online root) wraps it once and sets one
-app-owned `createContext` pair per collection its components read, during
-its setup and never after an `await`:
+`loading`, and `error`. Under ADR-0766 collections are expected to come
+straight off the module-level `folder`, each with its own loading state
+(Todos settles the shape first). In an app not yet moved, the root that
+opens the client (the desktop root, the local web startup's child, or the
+online root) wraps it once and sets one app-owned `createContext` pair per
+collection its components read, during its setup and never after an
+`await`:
 
 ```ts
 // src/lib/todos.ts

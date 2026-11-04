@@ -17,6 +17,8 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   passes its client to `WhisperingApp` as `client`. Components read through
   the library (`getLibrary`) and edit a note through its collection's
   context (`getRecordings().edit({ id })`), never a client of their own.
+  ADR-0766 replaces `Startup` and these contexts with the `folder` that
+  `src/lib/app.ts` exports.
 - **The build chooses the variant.** Everything that differs is a
   `#platform/*` leaf (`root`, `services`, `auth`, `variant`; `*.tauri.ts`
   and `components/Desktop*.svelte` for the desktop). No runtime
@@ -36,10 +38,17 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   auth from `#platform/auth`
   (`src/lib/platform/`). Nothing under `src/` imports Node or Bun, and only
   the desktop leaves import Tauri.
-- **One mounted app lifetime per page.** `WhisperingApp` makes Whispering
-  and its library once; route changes and sign-in keep them. Keep product
-  state out of module-level variables. `dispose` refuses new work and late
-  replies and waits for nothing; a recording under way ends with the page.
+- **Capabilities are module values; product state is the app's own.**
+  `src/lib/app.ts` exports the capabilities (`folder`, `account`, `ai`,
+  `choices`, `recorder`) as module values opened once per page, and code
+  imports them rather than receiving them through context
+  ([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+  Until Whispering moves there, the `Startup` and `#platform/services` above
+  still open them. Product state lives in Whispering's own objects, created
+  once: `WhisperingApp` makes Whispering and its library, and route changes
+  and sign-in keep them. Keep other product state out of module-level
+  variables. `dispose` refuses new work and late replies and waits for
+  nothing; a recording under way ends with the page.
 - **A recording's note is written once, after Stop, when its audio is at
   its path** (on the desktop, once the shell has encoded it), so a note
   never names audio that is not there and the library never lists a take in

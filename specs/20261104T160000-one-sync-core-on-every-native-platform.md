@@ -355,6 +355,20 @@ hides its platforms behind one name, may autolink a Rust plugin, and may
 export a `./svelte` adapter `fromX` built on one shared helper (amends
 ADR-0754).
 
+Then a ninth, [ADR-0766](../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md),
+after the prototypes on `claude/proto-app-root` and `claude/proto-sync-open`:
+an app's capabilities are module values, opened synchronously.
+`openFolder(contract)` returns at once with `state()` (opening, ready, or
+failed with a typed error), `retry()` and `subscribe`, in place of
+`openDataFolder`, `openAppData`, `openDevice` and `openRemote`;
+`src/lib/app.ts` exports `folder`, `account`, `ai`, `choices` and the rest
+with one `import.meta.hot?.dispose(...)`, and no `openApp()`, context or
+`App` type; the root layout renders `<Opening {folder}>`; each capability
+keeps its own per-computer state; a `test` build condition gives in-memory
+capabilities; and `device` means hardware only in code (amends ADR-0753,
+ADR-0754, ADR-0756, ADR-0765). The `app.ts` example above, with its
+`await openFolder`, is the shape it replaced.
+
 **Execution.** Two independent tracks in separate worktrees: package moves
 (`ai` merge, `account` rename with `principal`, `capture` into its app,
 `constants` split, one shell crate), now running on branch
@@ -519,12 +533,12 @@ after the extension's saves and on its Sync button (ADR-0750).
    every capability's plugin, so `bun dev:<app>` needs no Tauri build.
    Release builds still generate each app's own shell.
 
-### 6. Choosing by value (ADR-0765)
+### 6. Choosing by value (ADR-0765, ADR-0766)
 
-Each item closes one entry of ADR-0765's `Unbuilt` line and deletes the
-named pair it replaces.
+Each item closes one entry of an `Unbuilt` line and deletes the named pair
+it replaces.
 
-**Wave A: AI by value.**
+**W1: AI by value** (branch `claude/w1-values`).
 
 1. **`hosted` holds the live account.** It reads the account at use instead
    of taking `Account | undefined` at construction, so sign-in reaches it
@@ -538,25 +552,45 @@ named pair it replaces.
 4. **Model choices as device settings, keyed by job.** `'chat'`,
    `'transcribe'`, and so on, in place of `createModelChoices` scopes and
    defaults written beside each read, such as Vocab's `'tutor'`.
-
-**Wave B: one name per capability.**
-
-5. **`openFolder(contract)`**, picked by the build, in place of
-   `openDataFolder`, `openAppData` and `openDevice`.
-6. **`connectAccount()`**, picked by the build, in place of
-   `createBrowserOAuth` and `createTauriAuth`; `VocabAuth` and Whispering's
-   `PlatformAuth` go.
-7. **Startup owns both roots**: the data folder and AppData that
-   `packages/svelte/src/desktop-startup.svelte` opens today, so each app's
-   `Platform` keeps only its `Callback`.
-8. **One shared helper under every `fromX`**, with `fromAuth` (renamed
+5. **One shared helper under every `fromX`**, with `fromAuth` (renamed
    `fromAccount`), `fromAi` and `fromClient` on it.
 
-**Wave C: the remaining named choices.**
+**W2: capabilities as module values, opened synchronously (ADR-0766).**
+Todos goes first and settles the shapes; each later app follows them.
 
-9. **The agent's tools as an array and its messages as a contract
-   collection.**
-10. **One `file` field for transcription**, in place of a `file` or a
+6. **Todos.** `openFolder(contract)` returns at once with `state()`,
+   `retry()` and `subscribe`, picked by the build (browser storage, the
+   desktop folder, Node paths). `src/lib/app.ts` exports `folder` and
+   `account`; the root layout renders `<Opening {folder}>` from
+   `@epicenter/svelte`; its `Startup`, `DesktopStartup` and the
+   `getTodos`/`setTodos` context go. This step confirms whether collections
+   come straight off the folder (`folder.todos`), each with its own loading
+   state. Under the `test` condition `folder` is a memory folder and
+   `account` is signed out; the component tests seed them and mock no
+   module.
+7. **`connectAccount()`**, picked by the build, in place of
+   `createBrowserOAuth` and `createTauriAuth`; `VocabAuth` and Whispering's
+   `PlatformAuth` go.
+8. **Per-computer state in its capability.** `modelChoices()`,
+   `customEndpoints()`, shortcut overrides and transcription's settings
+   keep themselves in AppData through the shell on the desktop and in
+   browser storage on the web; transcription's settings leave
+   `app_local_data_dir()`. `openAppData` is deleted.
+9. **Every other app moves**: Capture, Honeycrisp, Messages, Vocab and
+   Whispering, each deleting its `Startup` and per-collection contexts. The
+   online web passes the account to `openFolder`, and `openRemote` goes.
+   `packages/svelte/src/desktop-startup.svelte` is deleted with the last
+   user.
+10. **The names.** `device` means hardware only in code: `openDevice`,
+    `DeviceStore`, `test.device` and `OpenDeviceError` become `folder`
+    names; `local` means only "on this computer"; on screen a folder not
+    yet synced is "On this computer".
+
+**W3: the remaining named choices.**
+
+11. **The agent's tools as an array and its messages as a contract
+    collection.**
+12. **One `file` field for transcription**, in place of a `file` or a
     `path`.
-11. **`recorder.placesWhole` leaves app code**
+13. **`recorder.placesWhole` leaves app code**
     (`apps/whispering/src/lib/microphone.ts`).

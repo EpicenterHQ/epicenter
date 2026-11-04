@@ -20,6 +20,10 @@ for the layout and page flow, and verify it against the code.
   says. Leaves and the components they import use relative imports, not
   `$lib`, so `platform.test.ts` can bundle them. Do not add another store,
   cache, or save queue.
+  [ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)
+  replaces the variant roots and these contexts: `src/lib/app.ts` exports
+  `folder` (one `openFolder(contract)`, the account's copy on the web), and
+  components import it. Until Honeycrisp moves, keep the pattern above.
 - A change to the layout is a change to `src/lib/contract.ts`, then
   `bun run contract`; the fit test fails until the two agree. No migration or
   compatibility code: there is no earlier data to read (decision 72).
