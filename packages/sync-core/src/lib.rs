@@ -468,6 +468,12 @@ pub fn merge_remote(repo: &Repository, theirs: Oid, options: &Options, remote: &
     Ok(())
 }
 
+/// The linked libgit2's version.
+pub fn libgit2_version() -> (u32, u32, u32) {
+    let v = git2::Version::get().libgit2_version();
+    (v.0 as u32, v.1 as u32, v.2 as u32)
+}
+
 fn iso_now() -> String {
     iso(SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0))
 }
