@@ -32,6 +32,29 @@ fn roots(repo: &Repository, head: &str) -> usize {
     walk.filter(|id| repo.find_commit(*id.as_ref().unwrap()).unwrap().parent_count() == 0).count()
 }
 
+/// The same matrix the CLI's e2e checks with `git check-attr`, read by libgit2.
+#[test]
+fn libgit2_reads_the_repository_attributes_as_git_does() {
+    let world = World::new();
+    let a = world.folder("a");
+    write(&a, ".gitattributes", ATTRIBUTES);
+    let repo = epicenter_sync_core::open_or_init(&a).unwrap();
+    for (path, lfs) in [
+        ("media/clip.webm", true),
+        ("photo.PNG", true),
+        (".gitattributes", false),
+        (".obsidian/workspace.json", false),
+        ("sub/.trash/a.webm", false),
+        ("notes/meeting notes.md", false),
+        ("NOTES/LOUD.MD", false),
+        ("data.csv", true),
+    ] {
+        assert_eq!(epicenter_sync_core::worktree::stored_with_lfs(&repo, path).unwrap(), lfs, "{path}");
+    }
+    let merge = repo.get_attr(Path::new("notes/a.md"), "merge", git2::AttrCheckFlags::FILE_THEN_INDEX).unwrap();
+    assert_eq!(merge, Some("epicenter"));
+}
+
 #[test]
 fn first_round_commits_lfs_pointers_and_pushes_to_an_empty_remote() {
     let world = World::new();

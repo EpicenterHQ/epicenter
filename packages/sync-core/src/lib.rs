@@ -148,11 +148,26 @@ pub struct Round {
 pub fn sync_round(folder: &Path, options: &Options) -> Round {
     let mut notes = Vec::new();
     let outcome = open_or_init(folder).and_then(|repo| {
-        let head = round(&repo, options, &mut notes)?;
-        Ok((repo, head))
+        // New objects collect in memory and land as one pack before any ref
+        // names them: 10,000 loose-object writes cost seconds on APFS.
+        let odb = repo.odb()?;
+        let pack = odb.add_new_mempack_backend(1000)?;
+        let persist = || -> Result<(), Error> {
+            let mut buf = git2::Buf::new();
+            pack.dump(&repo, &mut buf)?;
+            // An empty dump is a pack header with no objects.
+            if buf.len() > 32 {
+                let mut writer = odb.packwriter()?;
+                std::io::Write::write_all(&mut writer, &buf)?;
+                writer.commit()?;
+            }
+            pack.reset()?;
+            Ok(())
+        };
+        round(&repo, options, &mut notes, &persist)
     });
     match outcome {
-        Ok((_, head)) => Round { status: Status::Synced, head: Some(head.to_string()), notes, message: None },
+        Ok(head) => Round { status: Status::Synced, head: Some(head.to_string()), notes, message: None },
         Err(e) => {
             let head = Repository::open(folder)
                 .ok()
@@ -174,7 +189,10 @@ pub fn open_or_init(folder: &Path) -> Result<Repository, Error> {
     Ok(Repository::init_opts(folder, &opts)?)
 }
 
-fn round(repo: &Repository, options: &Options, notes: &mut Vec<String>) -> Result<Oid, Error> {
+/// Writes the objects made so far where every Git reads them; called before a ref names them.
+pub type Persist<'a> = &'a dyn Fn() -> Result<(), Error>;
+
+fn round(repo: &Repository, options: &Options, notes: &mut Vec<String>, persist: Persist) -> Result<Oid, Error> {
     if repo.state() != git2::RepositoryState::Clean {
         return Err(Error::stopped(format!("a Git operation is in progress ({:?}); finish or abort it, then sync.", repo.state())));
     }
@@ -187,14 +205,14 @@ fn round(repo: &Repository, options: &Options, notes: &mut Vec<String>) -> Resul
     let had_history = repo.refname_to_id(MAIN).is_ok();
     let sig = signature(repo)?;
     if !had_history && remote_main.is_some() {
-        first_contact(repo, remote_main.unwrap(), options, remote, notes)?;
+        first_contact(repo, remote_main.unwrap(), options, remote, notes, persist)?;
     } else {
         let message = if had_history {
             format!("epicenter sync {}", iso_now())
         } else {
             format!("Added from {}", options.machine)
         };
-        if commit_working_tree(repo, &sig, &message)?.is_some() {
+        if commit_working_tree(repo, &sig, &message, persist)?.is_some() {
             notes.push("committed local changes".into());
         }
     }
@@ -208,7 +226,7 @@ fn round(repo: &Repository, options: &Options, notes: &mut Vec<String>) -> Resul
         }
         let remote_main = repo.refname_to_id(REMOTE_MAIN).ok();
         if let Some(theirs) = remote_main {
-            merge_remote(repo, theirs, options, remote, notes)?;
+            merge_remote(repo, theirs, options, remote, notes, persist)?;
         }
         let Ok(head) = repo.refname_to_id(MAIN) else {
             notes.push("nothing to sync: the folder and the remote are empty".into());
@@ -323,7 +341,7 @@ fn signature(repo: &Repository) -> Result<Signature<'static>, Error> {
 }
 
 /// Commit the working tree on `main` if it differs from `main`'s tree.
-pub fn commit_working_tree(repo: &Repository, sig: &Signature, message: &str) -> Result<Option<Oid>, Error> {
+pub fn commit_working_tree(repo: &Repository, sig: &Signature, message: &str, persist: Persist) -> Result<Option<Oid>, Error> {
     let mut index = repo.index()?;
     worktree::snapshot(repo, &mut index)?;
     let tree = index.write_tree()?;
@@ -333,7 +351,9 @@ pub fn commit_working_tree(repo: &Repository, sig: &Signature, message: &str) ->
         return Ok(None);
     }
     let parents: Vec<&Commit> = parent.iter().collect();
-    let id = repo.commit(Some(MAIN), sig, sig, message, &repo.find_tree(tree)?, &parents)?;
+    let id = repo.commit(None, sig, sig, message, &repo.find_tree(tree)?, &parents)?;
+    persist()?;
+    repo.reference(MAIN, id, true, "sync: commit")?;
     Ok(Some(id))
 }
 
@@ -370,7 +390,7 @@ fn download(repo: &Repository, remote: &Remote, old: Option<&git2::Tree>, new: &
 }
 
 /// ADR-0735: build this folder's first commit on top of the remote's `main`.
-pub fn first_contact(repo: &Repository, theirs: Oid, options: &Options, remote: Option<&Remote>, notes: &mut Vec<String>) -> Result<Oid, Error> {
+pub fn first_contact(repo: &Repository, theirs: Oid, options: &Options, remote: Option<&Remote>, notes: &mut Vec<String>, persist: Persist) -> Result<Oid, Error> {
     let root = repo.workdir().expect("a working tree").to_path_buf();
     let remote_tree = repo.find_commit(theirs)?.tree()?;
     // The remote's control files first, so its attributes decide what is LFS here.
@@ -410,6 +430,7 @@ pub fn first_contact(repo: &Repository, theirs: Oid, options: &Options, remote: 
     } else {
         repo.commit(None, &sig, &sig, &format!("Added from {}", options.machine), &tree, &[&parent])?
     };
+    persist()?;
     repo.reference(MAIN, id, true, "sync: first contact")?;
     let mut index = repo.index()?;
     index.clear()?;
@@ -420,7 +441,7 @@ pub fn first_contact(repo: &Repository, theirs: Oid, options: &Options, remote: 
 }
 
 /// Merge the fetched `origin/main` into `main` and update the working tree.
-pub fn merge_remote(repo: &Repository, theirs: Oid, options: &Options, remote: &Remote, notes: &mut Vec<String>) -> Result<(), Error> {
+pub fn merge_remote(repo: &Repository, theirs: Oid, options: &Options, remote: &Remote, notes: &mut Vec<String>, persist: Persist) -> Result<(), Error> {
     let ours = repo.refname_to_id(MAIN)?;
     if ours == theirs || repo.graph_descendant_of(ours, theirs)? {
         repo.reference(LAST_SEEN, theirs, true, "sync: seen")?;
@@ -456,6 +477,7 @@ pub fn merge_remote(repo: &Repository, theirs: Oid, options: &Options, remote: &
             &[&repo.find_commit(ours)?, &their_commit],
         )?
     };
+    persist()?;
     let new_tree = repo.find_commit(id)?.tree()?;
     download(repo, remote, Some(&our_tree), &new_tree, notes)?;
     // The working tree still matches `ours` unless something wrote since the
