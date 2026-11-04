@@ -30,8 +30,9 @@
 	"dependencies": {
 		"@better-auth/oauth-provider": "catalog:",
 		"@better-auth/passkey": "catalog:",
-		"@epicenter/auth": "workspace:*",
-		"@epicenter/constants": "workspace:*",
+		"@epicenter/account": "workspace:*",
+		"@epicenter/ai": "workspace:*",
+		"@epicenter/definition": "workspace:*",
 		"better-auth": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"@tanstack/svelte-query-devtools": "catalog:",

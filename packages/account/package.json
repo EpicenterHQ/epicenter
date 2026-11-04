@@ -1,0 +1,36 @@
+{
+	"name": "@epicenter/account",
+	"version": "0.1.1",
+	"private": true,
+	"type": "module",
+	"description": "An app's Epicenter account: sign-in, the account-bound fetch, and the PrincipalId that keys every storage partition.",
+	"exports": {
+		".": "./src/index.ts",
+		"./svelte": "./src/svelte/auth.svelte.ts",
+		"./tauri": "./src/tauri.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@tauri-apps/api": "catalog:",
+		"arktype": "catalog:",
+		"wellcrafted": "catalog:"
+	},
+	"devDependencies": {
+		"better-auth": "catalog:",
+		"@types/bun": "catalog:",
+		"typescript": "catalog:",
+		"svelte": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later",
+	"peerDependencies": {
+		"svelte": "^5"
+	},
+	"peerDependenciesMeta": {
+		"svelte": {
+			"optional": true
+		}
+	}
+}

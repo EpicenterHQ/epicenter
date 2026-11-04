@@ -20,9 +20,9 @@ and the person's connections with `createAiConnections`; an app calls the
 ones its platform and sign-in allow.
 
 The auth package already has the shape the other packages need. The client
-`createBrowserOAuth` returns (`packages/auth/src/browser-oauth.ts`) reads
+`createBrowserOAuth` returns (`packages/account/src/browser-oauth.ts`) reads
 through `getState()` and notifies through `onStateChange(fn)`. `fromAuth`
-(`packages/auth/src/svelte/auth.svelte.ts`) wraps it for Svelte: a `state`
+(`packages/account/src/svelte/auth.svelte.ts`) wraps it for Svelte: a `state`
 getter that subscribes through `createSubscriber` only while something reads
 it. AGENTS.md's read-API rule asks for explicit read methods in ordinary
 TypeScript and allows getters in Svelte adapters.

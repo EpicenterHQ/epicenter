@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { agentMessageText } from '@epicenter/agent';
+	import { agentMessageText } from '@epicenter/ai/agent';
 	import { InferencePicker } from '@epicenter/ai/picker';
 	import * as Chat from '@epicenter/ui/chat';
 	import { Button } from '@epicenter/ui/button';
@@ -9,8 +9,8 @@
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import { toast } from '@epicenter/ui/sonner';
 	import { onDestroy, onMount } from 'svelte';
-	import type { AgentMessage } from '@epicenter/agent';
-	import type { Account } from '@epicenter/auth';
+	import type { AgentMessage } from '@epicenter/ai/agent';
+	import type { Account } from '@epicenter/account';
 	import { auth } from '#platform/auth';
 	import { createVocabChat } from '$lib/chat/session.svelte.js';
 	import type { MessageList } from '$lib/chat/messages.svelte.js';

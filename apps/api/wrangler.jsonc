@@ -47,7 +47,7 @@
 	// --- Vars: non-secret config accessible via env ---
 	// The public origin (Better Auth baseURL, OAuth issuer, token audience) is
 	// intentionally NOT here. It never changes for the hosted cloud, so the
-	// worker bakes `PRODUCTION_API_URL` from @epicenter/constants and local dev
+	// worker bakes `PRODUCTION_API_URL` from @epicenter/definition/site and local dev
 	// overrides it via `API_PUBLIC_ORIGIN` (apps/api/scripts/dev.ts). This keeps
 	// a single source of truth in TypeScript instead of a duplicated string.
 	//

@@ -18,7 +18,7 @@ clash by install order would give two machines two different trees.
 The app's site already carries a unique name: its host. Today the first-party
 apps' hosts are subdomains of `epicenter.so`, and Zhongwen, which is not an
 Epicenter app, lives at `https://zhongwen.bradenwong.com` with the AppData
-identifier `com.bradenwong.zhongwen` (`packages/constants/src/apps.ts`).
+identifier `com.bradenwong.zhongwen` (`packages/definition/src/site/apps.ts`).
 `APP_NAME` in `packages/definition/src/contract/contract.ts` accepts only
 lowercase letters, digits and `-`, so a contract cannot name itself by a host.
 

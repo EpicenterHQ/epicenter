@@ -1,7 +1,7 @@
 <!-- One capture as its text and thoughts. One editor of its note (`edit`) holds both until each save answers. -->
 <script lang="ts">
 	import { variant } from '#platform/variant';
-	import { captureBody } from '@epicenter/capture';
+	import { captureBody } from '../model/index.js';
 	import { describeIssues } from '@epicenter/definition/contract';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';

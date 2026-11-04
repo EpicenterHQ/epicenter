@@ -17,13 +17,13 @@
  */
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { composeBody } from '@epicenter/capture';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	type CapturesHarness,
 	openCaptures,
 	until,
 } from './capture-device.test-support.js';
+import { composeBody } from './model/index.js';
 
 const { locateThought } = await import('./capture-actions.svelte.ts');
 const { captureText } = await import('./captures.svelte.ts');

@@ -11,7 +11,7 @@
  *   clients carry both the production and the local origin
  */
 import { describe, expect, test } from 'bun:test';
-import { resolveOAuthAudiences } from '@epicenter/constants/apps';
+import { resolveOAuthAudiences } from '@epicenter/definition/site';
 import { buildFirstPartyClients } from './oauth-registrations.js';
 
 const PRODUCTION = 'https://api.epicenter.so';

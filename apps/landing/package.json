@@ -15,7 +15,6 @@
 	"dependencies": {
 		"@astrojs/check": "0.9.9",
 		"@astrojs/svelte": "8.1.2",
-		"@epicenter/constants": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@tailwindcss/vite": "catalog:",
 		"arktype": "catalog:",

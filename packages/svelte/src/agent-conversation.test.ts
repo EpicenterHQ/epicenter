@@ -16,7 +16,7 @@ import { expect, test } from 'bun:test';
 import type {
 	ConversationHandle,
 	ConversationSnapshot,
-} from '@epicenter/agent';
+} from '@epicenter/ai/agent';
 
 const { bindAgentConversation } = await import(
 	'./agent-conversation.svelte.ts'

@@ -26,7 +26,7 @@ const leaf = (name: string) => (path: string) =>
 	path.endsWith(`apps/todos/src/lib/${name}`);
 const folderModule = (name: string) => (path: string) =>
 	path.endsWith(`packages/folder/src/${name}`);
-const authModule = (path: string) => path.includes('packages/auth/src/');
+const authModule = (path: string) => path.includes('packages/account/src/');
 
 /** The modules a build of the seams pulls in, as the web or the desktop build. */
 async function bundle(desktop: boolean) {

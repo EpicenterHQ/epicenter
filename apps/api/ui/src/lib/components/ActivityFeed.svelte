@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { providerLabel } from '@epicenter/constants/ai-providers';
+	import { providerLabel } from '@epicenter/ai/providers';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Skeleton } from '@epicenter/ui/skeleton';
 	import * as Table from '@epicenter/ui/table';

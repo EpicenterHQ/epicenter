@@ -8,7 +8,7 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { specToEnvExampleLines } from '@epicenter/constants/provider-credentials';
+import { specToEnvExampleLines } from '../src/provider-credentials.ts';
 import { QB_SPEC } from '../src/qb-credentials.ts';
 
 /** Extract the `NAME=` variable names from `.env.example`-style lines. */

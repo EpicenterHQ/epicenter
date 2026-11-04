@@ -20,8 +20,8 @@
  * connection selection never changes where microphone audio is sent.
  */
 
-import { TranscribeError } from '@epicenter/client';
-import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
+import { TranscribeError } from '@epicenter/ai/openai';
+import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
 import {
 	createVadRecorder,
 	type RecorderError,

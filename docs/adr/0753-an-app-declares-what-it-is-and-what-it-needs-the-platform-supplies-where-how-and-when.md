@@ -33,6 +33,7 @@ built without OpenSSL it compiles for `aarch64-apple-ios` and
 `aarch64-apple-ios-sim`, passes every native round test, and links at 2.56 MB
 (5.77 MB with OpenSSL). A Rust transport registered for `https` through
 `git2::transport::register` carries a whole round
+<!-- doc-path-check: ignore-next-line -->
 (`packages/sync-core/tests/transport.rs` on that branch).
 
 ## Decision

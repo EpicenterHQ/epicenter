@@ -1,4 +1,4 @@
-import type { Account } from '@epicenter/auth';
+import type { Account } from '@epicenter/account';
 import { createInference, validateInferenceDestination } from './inference.js';
 
 export { type CodexConnection, createCodexAi } from './codex-ai.js';

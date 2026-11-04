@@ -14,7 +14,7 @@ import {
 	type ListedNamespace,
 	type RepositoryGrant,
 	repositoryUrl,
-} from '@epicenter/constants/repositories';
+} from '@epicenter/definition/site';
 import { sql } from 'drizzle-orm';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';

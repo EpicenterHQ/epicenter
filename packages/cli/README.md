@@ -212,7 +212,7 @@ credentials and the note merge driver on each Git invocation.
 
 `auth` is ADR-0558's, against ADR-0549's authorization server at the
 deployment's API origin: `EPICENTER_API_URL`, or `https://api.epicenter.so`
-(`resolveOAuthAudiences` in `@epicenter/constants/apps` names its API and
+(`resolveOAuthAudiences` in `@epicenter/definition/site` names its API and
 Git audiences; Rust passes the shell's configured origin). The CLI holds two
 grants, each one keychain entry under `so.epicenter.auth` named
 `<grant> <origin>`, holding the refresh token and the access tokens cached

@@ -36,7 +36,7 @@
  * The library remains billing-agnostic; everything here is cloud-only.
  */
 
-import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
+import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
 import type { CloudEnv } from '@epicenter/server';
 import { createMiddleware } from 'hono/factory';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';

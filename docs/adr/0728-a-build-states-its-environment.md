@@ -39,7 +39,7 @@ any other value is an error at startup.
 - The `dev`-label refusal and the debug-only override are gone from the
   standalone shell.
 - Each app's development configuration carries one more key, which the
-  identity test in `packages/constants/src/standalone-identity.test.ts`
+  identity test in `packages/definition/src/site/standalone-identity.test.ts`
   checks.
 
 ## Considered alternatives

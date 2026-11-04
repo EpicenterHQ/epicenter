@@ -72,7 +72,7 @@ const desktopLeaves = [
 const desktopPackages = [
 	'folder/src/tauri.ts',
 	'recorder/src/tauri.ts',
-	'auth/src/tauri.ts',
+	'account/src/tauri.ts',
 	'tauri-plugin-epicenter-transcription/guest-js/bindings.gen.ts',
 ];
 

@@ -7,8 +7,8 @@
  * account's requests itself (`account_fetch`), so this page never holds a
  * token. Made on first use.
  */
-import { fromAuth } from '@epicenter/auth/svelte';
-import { createTauriAuth } from '@epicenter/auth/tauri';
+import { fromAuth } from '@epicenter/account/svelte';
+import { createTauriAuth } from '@epicenter/account/tauri';
 import type { PlatformAuth } from './types.js';
 
 let made: { auth: PlatformAuth; ready: Promise<void> } | undefined;

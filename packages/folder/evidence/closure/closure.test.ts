@@ -48,15 +48,13 @@ describe('what the TypeScript program loads', () => {
 				.filter((file) => file.startsWith(`${PACKAGES}/`))
 				.map((file) => relative(PACKAGES, file).split('/')[0]);
 			expect([...new Set(workspace)].sort()).toEqual(
-				name === 'folder'
-					? ['constants', 'definition', 'folder']
-					: ['definition'],
+				name === 'folder' ? ['definition', 'folder'] : ['definition'],
 			);
 			const forbidden = files.filter(
 				(file) =>
 					/node_modules\/(\.bun\/)?(@y[+/]|yjs|lib0|y-protocols|openai|better-auth)/.test(
 						file,
-					) || /\/packages\/(app|auth|recorder|sync|client)\//.test(file),
+					) || /\/packages\/(account|ai|app|recorder|sync)\//.test(file),
 			);
 			expect(forbidden).toEqual([]);
 		},

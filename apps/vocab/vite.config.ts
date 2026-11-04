@@ -1,4 +1,4 @@
-import { APPS } from '@epicenter/constants/apps';
+import { APPS } from '@epicenter/definition/site';
 // VAD fetches these files from `/vad/*` at runtime (they are not bundled). The
 // recorder package owns the VAD capability and resolves the asset source paths
 // from its own pinned dependency tree; we just copy them into the served `/vad/`

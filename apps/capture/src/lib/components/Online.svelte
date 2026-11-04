@@ -5,9 +5,9 @@
 	retires this one.
 -->
 <script lang="ts">
-	import type { Account } from '@epicenter/auth';
-	import { capture } from '@epicenter/capture';
-	import { APPS } from '@epicenter/constants/apps';
+	import type { Account } from '@epicenter/account';
+	import { capture } from '../model/index.js';
+	import { APPS } from '@epicenter/definition/site';
 	import { openRemote } from '@epicenter/folder/remote';
 	import { fromClient } from '@epicenter/svelte/client';
 	import type { Snippet } from 'svelte';

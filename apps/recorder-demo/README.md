@@ -35,7 +35,7 @@ The contract is `src/contract.ts`: a note per recording at
 
 The online variant signs in as `so.epicenter.recorder-demo`, for the
 server's Git audience only, a client only a local API registers
-(`LOCAL_APPS` in `@epicenter/constants/apps`), and it must be served on its
+(`LOCAL_APPS` in `@epicenter/definition/site`), and it must be served on its
 registered origin, `http://localhost:5214`. The demo has no hosted
 capability, so the local variant never signs in. The hosted API does not
 serve web writes yet, so the online variant runs against the local Bun API.

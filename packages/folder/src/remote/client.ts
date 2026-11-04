@@ -30,10 +30,6 @@
  */
 
 import {
-	isNamespaceId,
-	isRepositoryName,
-} from '@epicenter/constants/repositories';
-import {
 	type Client,
 	ClientError,
 	type CompiledCollection,
@@ -44,6 +40,7 @@ import {
 } from '@epicenter/definition/contract';
 import { gitBlobHash } from '@epicenter/definition/merge';
 import type { CanonicalDocument } from '@epicenter/definition/note';
+import { isNamespaceId, isRepositoryName } from '@epicenter/definition/site';
 import type { InferError } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { createChanges, forCollection } from '../changes.js';

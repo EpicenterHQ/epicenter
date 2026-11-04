@@ -27,7 +27,7 @@ import {
 	type RepositoryListing,
 	type RepositoryPath,
 	repositoryGrantsUrl,
-} from '@epicenter/constants/repositories';
+} from '@epicenter/definition/site';
 import {
 	type AuthContext,
 	accessToken,

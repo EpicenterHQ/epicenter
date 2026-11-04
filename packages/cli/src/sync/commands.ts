@@ -17,13 +17,13 @@
 import { type FSWatcher, watch as watchDirectory } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { basename, resolve, sep } from 'node:path';
+import { isHiddenPath } from '@epicenter/definition/contract';
 import {
 	isRepositoryName,
 	parseRepositoryPath,
 	parseRepositoryUrl,
 	repositoryUrl,
-} from '@epicenter/constants/repositories';
-import { isHiddenPath } from '@epicenter/definition/contract';
+} from '@epicenter/definition/site';
 import type { GrantKind } from '../auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
 import { type DiscoveredFolder, discoveredFolders } from './discovery.ts';

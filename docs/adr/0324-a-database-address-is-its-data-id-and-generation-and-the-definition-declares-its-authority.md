@@ -97,7 +97,7 @@ the handle, so the two local-storage scopes cannot silently diverge.
 decided that "the app id in a broker request is self-claimed, so an app that
 claims another's id reaches that app's SQLite files and its secrets," and this
 segment is on the same footing: it partitions storage by naming and never by
-enforcement. What `isAppId` (`packages/constants/src/app-id.ts`) buys is that a
+enforcement. What `isAppId` (`packages/definition/src/site/app-id.ts`) buys is that a
 claim can never contain a `/` and be read as another application's address.
 
 The opening application's id is not the data id, and `openDatabase` takes both.

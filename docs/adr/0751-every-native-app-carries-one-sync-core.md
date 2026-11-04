@@ -43,6 +43,7 @@ round, stock `git status` is clean and `git fsck` passes. `bun build
 statically and 2.5 MiB without.
 
 Timings for a folder of 10,000 items, against today's CLI
+<!-- doc-path-check: ignore-next-line -->
 (`packages/sync-core/bench/compare.ts` on the spike branch):
 
 | Round | Core | CLI |

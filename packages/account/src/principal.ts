@@ -1,0 +1,36 @@
+import { type } from 'arktype';
+import type { Brand } from 'wellcrafted/brand';
+
+/**
+ * The authenticated principal id, and the partition key everything derives from.
+ *
+ * It is the principal Better Auth resolved for the request. By definition,
+ * every server path, R2 key, local database name, and HKDF derivation label
+ * uses this value as the partition key.
+ *
+ * The type is declared first and the validator is annotated to it, so the brand
+ * is written once and the schema conforms to it rather than the reverse. Both
+ * carry one PascalCase name. Use {@link PrincipalId} directly inside schemas
+ * (`principalId: PrincipalId`); at trusted call sites brand a known `string`
+ * via {@link asPrincipalId}.
+ */
+export type PrincipalId = string & Brand<'PrincipalId'>;
+export const PrincipalId = type('string').as<PrincipalId>();
+
+/**
+ * The stable identity of one account, without credentials or network access.
+ * A device store may use this identity without any transport or synchronization.
+ */
+export type AccountIdentity = {
+	readonly authorityId: string;
+	readonly principalId: PrincipalId;
+};
+
+/**
+ * Syntactic sugar for `value as PrincipalId`. The function body is a single typed
+ * cast; the constrained `string` parameter is what earns it over a raw `as`
+ * (callers can't accidentally widen to `unknown`). The only place in the
+ * codebase where `as PrincipalId` appears.
+ */
+export const asPrincipalId = (value: string): PrincipalId =>
+	value as PrincipalId;

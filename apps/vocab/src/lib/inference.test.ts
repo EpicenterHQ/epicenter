@@ -10,7 +10,7 @@
  * - A hosted or catalog failure is reported and leaves the other usable
  */
 import { expect, test } from 'bun:test';
-import type { Account } from '@epicenter/auth';
+import type { Account } from '@epicenter/account';
 import { openVocabInference } from './inference.js';
 
 type Openers = NonNullable<Parameters<typeof openVocabInference>[1]>;

@@ -10,7 +10,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { RepositoryListing } from '@epicenter/constants/repositories';
+import type { RepositoryListing } from '@epicenter/definition/site';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { type Client, Pool } from 'pg';
 import { registerFirstPartyClients } from '../auth/oauth-registrations.js';

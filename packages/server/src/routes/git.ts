@@ -83,7 +83,7 @@ import {
 	type RepositoryGrantRevoked,
 	type RepositoryGrants,
 	type RepositoryListing,
-} from '@epicenter/constants/repositories';
+} from '@epicenter/definition/site';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import { every } from 'hono/combine';
 import { createMiddleware } from 'hono/factory';

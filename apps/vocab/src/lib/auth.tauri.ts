@@ -7,8 +7,8 @@
  * the refresh token in the keychain, and sends each of the account's
  * requests itself (`account_fetch`), so this page never holds a token.
  */
-import { fromAuth } from '@epicenter/auth/svelte';
-import { createTauriAuth } from '@epicenter/auth/tauri';
+import { fromAuth } from '@epicenter/account/svelte';
+import { createTauriAuth } from '@epicenter/account/tauri';
 import type { VocabAuth } from './platform.js';
 
 const { client, ready } = createTauriAuth();

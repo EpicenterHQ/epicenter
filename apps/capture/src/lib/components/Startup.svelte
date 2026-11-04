@@ -4,9 +4,9 @@
 -->
 <script lang="ts">
 	import DesktopStartup from '@epicenter/svelte/desktop-startup';
-	import { APPS } from '@epicenter/constants/apps';
+	import { APPS } from '@epicenter/definition/site';
 	import type { Snippet } from 'svelte';
-	import { capture } from '@epicenter/capture';
+	import { capture } from '../model/index.js';
 		import DesktopRoot from './DesktopRoot.svelte';
 
 	let { children: pages }: { children: Snippet } = $props();

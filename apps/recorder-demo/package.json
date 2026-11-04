@@ -15,8 +15,8 @@
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
-		"@epicenter/auth": "workspace:*",
-		"@epicenter/constants": "workspace:*",
+		"@epicenter/account": "workspace:*",
+		"@epicenter/vite-config": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/recorder": "workspace:*",

@@ -2,14 +2,16 @@
 	"name": "@epicenter/definition",
 	"version": "0.0.1",
 	"private": true,
-	"description": "An app's file contract, note text, merge, and ids.",
+	"description": "An app's file contract, note text, merge, ids, and the names its site derives.",
 	"type": "module",
 	"sideEffects": false,
 	"exports": {
 		"./contract": "./src/contract/index.ts",
 		"./ids": "./src/ids.ts",
 		"./merge": "./src/merge/index.ts",
-		"./note": "./src/note/index.ts"
+		"./note": "./src/note/index.ts",
+		"./site": "./src/site/index.ts",
+		"./site/app-data": "./src/site/app-data.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",

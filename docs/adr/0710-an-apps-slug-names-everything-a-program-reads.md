@@ -43,7 +43,7 @@ repository or document  <account>/whispering                <account>/whispering
 site                    https://whispering.epicenter.so     the local dev URL
 ```
 
-The site URL comes from `APPS` in `packages/constants/src/apps.ts`.
+The site URL comes from `APPS` in `packages/definition/src/site/apps.ts`.
 
 **`defaultDataFolder` returns `<root>/<contract name>`.** It reads the
 contract's `name`, the same string `clone` already uses, so both open one

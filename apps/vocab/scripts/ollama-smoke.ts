@@ -30,10 +30,8 @@
  *   OLLAMA_API_KEY    Bearer key for a hosted endpoint (omit for local Ollama)
  */
 
-import {
-	type AgentEngineRequest,
-	createOpenAiAgentEngine,
-} from '@epicenter/client';
+import type { AgentEngineRequest } from '@epicenter/ai/agent';
+import { createOpenAiAgentEngine } from '@epicenter/ai/openai';
 import OpenAI from 'openai';
 import { VOCAB_SYSTEM_PROMPT } from '../vocab.js';
 

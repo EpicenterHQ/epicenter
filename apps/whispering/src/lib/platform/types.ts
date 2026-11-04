@@ -12,8 +12,8 @@
  *   connections, and preferences, which own no files.
  * - `#platform/auth` (`PlatformAuth`): the optional sign-in with Epicenter.
  */
-import type { AuthClient } from '@epicenter/auth';
-import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
+import type { AuthClient } from '@epicenter/account';
+import type { ReactiveAuthClient } from '@epicenter/account/svelte';
 import type { Client } from '@epicenter/definition/contract';
 import type { ReactiveClient } from '@epicenter/svelte/client';
 import type { Component, Snippet } from 'svelte';

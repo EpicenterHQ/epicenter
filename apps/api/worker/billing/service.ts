@@ -25,11 +25,8 @@
  * registry (ADR-0137), not the provider balance.
  */
 
-import {
-	MODELS_BY_ID,
-	type ServableModel,
-} from '@epicenter/constants/ai-providers';
-import type { PrincipalId } from '@epicenter/principal';
+import type { PrincipalId } from '@epicenter/account';
+import { MODELS_BY_ID, type ServableModel } from '@epicenter/ai/providers';
 import type { CloudEnv } from '@epicenter/server';
 import type { Context } from 'hono';
 import { Err, Ok, type Result } from 'wellcrafted/result';

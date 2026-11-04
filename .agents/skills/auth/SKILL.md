@@ -1,6 +1,6 @@
 ---
 name: auth
-description: 'Epicenter auth packages: `@epicenter/auth` and the Svelte adapter at `@epicenter/auth/svelte`, direct sessions, identity state, account-bound fetch/WebSocket, and fixed library page bootstrap and deliberate departure. Use when editing Epicenter auth clients, session state, hosted sign-in, or how a route boots from auth.'
+description: 'Epicenter account package: `@epicenter/account` and the Svelte adapter at `@epicenter/account/svelte`, direct sessions, identity state, account-bound fetch/WebSocket, and fixed library page bootstrap and deliberate departure. Use when editing Epicenter auth clients, session state, hosted sign-in, or how a route boots from auth.'
 metadata:
   author: epicenter
   version: '10.0'
@@ -11,7 +11,7 @@ metadata:
 Better Auth owns hosted sessions and social-provider login. Epicenter clients
 hold signed session bearers behind stable Accounts. A self-hosted server is `apps/api` on Bun with Postgres and issues the same sessions.
 
-Read `packages/auth/README.md` and `packages/auth/src/auth-contract.ts`
+Read `packages/account/README.md` and `packages/account/src/auth-contract.ts`
 before changing client API shape. The README owns the explanation; the contract
 owns the signatures. Do not reconstruct OAuth grants, refresh-token rotation,
 client registrations, or a cookie-only dashboard client.
@@ -72,7 +72,7 @@ Preserve these guarantees:
 - Retry, erase, blob, and inference work uses the captured Account, never a new
   read of mutable auth state.
 
-Use `packages/auth/src/account-lifetime.test.ts` for lifetime schedules and
+Use `packages/account/src/account-lifetime.test.ts` for lifetime schedules and
 `apps/epicenter/src/account-transport.test.ts` for real loopback HTTP and sockets.
 Retain delayed blob and stream regressions when replacing credential fixtures.
 

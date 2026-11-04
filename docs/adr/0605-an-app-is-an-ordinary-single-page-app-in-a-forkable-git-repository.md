@@ -143,7 +143,7 @@ author's source.**
   merge and commits there. A failed build leaves the branch where it was.
 - An app's name is the last segment of its address (ADR-0602) with a
   leading `app-` removed, made into a repository name by `toRepositoryName`
-  (`packages/constants/src/repositories.ts`) and cut to 96 characters, so
+  (`packages/definition/src/site/repositories.ts`) and cut to 96 characters, so
   that `app-` and the name stay within `MAX_REPOSITORY_NAME_LENGTH`, 100:
   `github.com/alice/kanban` and `github.com/alice/app-kanban` both have the
   name `kanban`. Installing names the app's first folder by it (ADR-0586),

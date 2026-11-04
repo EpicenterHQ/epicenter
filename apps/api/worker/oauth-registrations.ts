@@ -5,7 +5,7 @@
  * not in the shared library.
  *
  * The deployment names the authority (ADR-0326). Its audiences come from
- * `resolveOAuthAudiences` in `@epicenter/constants/apps`, which the
+ * `resolveOAuthAudiences` in `@epicenter/definition/site`, which the
  * `epicenter` CLI reads too.
  */
 import {
@@ -13,7 +13,7 @@ import {
 	LOCAL_APPS,
 	localUrl,
 	resolveOAuthAudiences,
-} from '@epicenter/constants/apps';
+} from '@epicenter/definition/site';
 import type { FirstPartyClient } from '@epicenter/server';
 import { isLocalDeployment } from './trusted-origins.js';
 

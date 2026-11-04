@@ -13,7 +13,6 @@
 	},
 	"dependencies": {
 		"@beeper/desktop-api": "^6.0.0",
-		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"wellcrafted": "catalog:",

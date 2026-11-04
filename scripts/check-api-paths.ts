@@ -1,13 +1,13 @@
 /**
  * Fail when a wire URL path Epicenter serves or calls is hardcoded outside
- * packages/constants.
+ * packages/server/src/api-routes.ts.
  *
  * Every wire URL path lives in one place:
- * packages/constants/src/api-routes.ts. Consumers import patterns and
+ * packages/server/src/api-routes.ts. Consumers import patterns and
  * URL builders from there.
  *
  * Excluded:
- *   - The constants files themselves (they ARE the source of truth).
+ *   - The route file itself (it IS the source of truth).
  *   - *.test.ts / *.test.tsx (mock URL matchers may reference paths verbatim).
  *   - JSDoc/comment lines (descriptive prose, not constructions).
  *
@@ -34,13 +34,13 @@ const EXCLUDED_DIRS = new Set([
 	'.svelte-kit',
 ]);
 
-// A quoted route literal for a path @epicenter/constants owns. `([^a-z]|$)`
+// A quoted route literal for a path @epicenter/server/api-routes owns. `([^a-z]|$)`
 // keeps `/api/sessions-of-mine` style prefixes from matching.
 const HARDCODED_PATH = /['"`]\/api\/(session|rooms|ai)([^a-z]|$)/;
 
 // The next two regexes test the full `path:line:content` record, exactly as
 // the workflow's `grep -v` filters did.
-const ALLOWED_RECORD = /packages\/constants\/src\/api-routes\.ts/;
+const ALLOWED_RECORD = /packages\/server\/src\/api-routes\.ts/;
 const COMMENT_RECORD = /^[^:]+:[0-9]+:[ \t\v\f\r]*(\*|\/\/|\/\*)/;
 
 const isScannedFile = (name: string): boolean =>
@@ -89,6 +89,6 @@ for (const record of violations) {
 }
 console.error(
 	'\n::error::Hardcoded API path literal found. Use API_ROUTES.* from\n' +
-		'@epicenter/constants/api-routes instead.',
+		'@epicenter/server/api-routes instead.',
 );
 process.exit(1);

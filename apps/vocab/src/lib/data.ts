@@ -1,5 +1,5 @@
-import type { AgentMessage } from '@epicenter/agent';
-import type { ServableModel } from '@epicenter/constants/ai-providers';
+import type { AgentMessage } from '@epicenter/ai/agent';
+import type { ServableModel } from '@epicenter/ai/providers';
 import type { NoteOf } from '@epicenter/definition/contract';
 import type { Vocab } from './contract.js';
 

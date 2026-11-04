@@ -4,7 +4,7 @@
 	files.
 -->
 <script lang="ts">
-	import { isCallbackAuthClient } from '@epicenter/auth';
+	import { isCallbackAuthClient } from '@epicenter/account';
 	import { Loading } from '@epicenter/ui/loading';
 	import { onMount } from 'svelte';
 	import { getAuth } from '../platform/auth.js';

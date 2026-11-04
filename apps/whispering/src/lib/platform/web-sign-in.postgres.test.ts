@@ -18,12 +18,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isCallbackAuthClient } from '@epicenter/auth';
+import { isCallbackAuthClient } from '@epicenter/account';
 import {
 	APPS,
 	localUrl,
 	resolveOAuthAudiences,
-} from '@epicenter/constants/apps';
+} from '@epicenter/definition/site';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	type CloudEnv,

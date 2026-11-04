@@ -234,7 +234,7 @@ disposable Postgres clusters and drives them with real access tokens.
 `/auth/*` routes only; see `packages/server/README.md` for the policy. This app
 names what is deployment-specific:
 
-- **Audiences**, from `resolveOAuthAudiences` in `@epicenter/constants/apps`,
+- **Audiences**, from `resolveOAuthAudiences` in `@epicenter/definition/site`,
   which the `epicenter` CLI reads too. Hosted, they are
   `https://api.epicenter.so` and `https://git.epicenter.so`. Any other origin
   (local dev, self-host) serves both from itself: `<origin>` and

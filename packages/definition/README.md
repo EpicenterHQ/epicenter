@@ -2,17 +2,20 @@
 
 An app's file contract and the pure rules every Epicenter tool applies to it:
 the layout, the note codec, and the merge
-([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
-`@epicenter/folder`'s openers, the `epicenter` CLI, and the server all import
-these.
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)),
+plus the names an app's site derives.
+`@epicenter/folder`'s openers, the `epicenter` CLI, the server, and the apps
+all import these.
 
 It is inert. Importing it acquires nothing, and it knows no storage. Its
 dependencies are `typebox`, `wellcrafted`, `yaml` (the note codec) and
-`nanoid` (the name helpers).
+`nanoid` (the name helpers). The one exception is
+`@epicenter/definition/site/app-data`, which reads the OS to name the
+application-data root and so runs only in Bun or Node.
 
 ## The file contract
 
-The package is four subpaths.
+The package is six subpaths.
 
 | Subpath | What it holds |
 | --- | --- |
@@ -20,6 +23,12 @@ The package is four subpaths.
 | `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
 | `@epicenter/definition/merge` | `settle`, the note merge the server and the merge driver run, plus conflict blocks, conflict copies and Git hashes |
 | `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files, and `timeOf()`, when a `timeId` was made |
+| `@epicenter/definition/site` | The names a site derives: the app registry (`APPS`, dev ports, `localUrl`, `resolveOAuthAudiences`), an app's folder, repository and data identifier from its production site (ADR-0722), and the repository name grammar |
+| `@epicenter/definition/site/app-data` | The application-data root on this machine (`epicenterDataRoot`), an app's directory below it, and `isAppId` |
+
+`fixtures/app-names.json` holds the site naming cases. `site/app-names.test.ts`
+and the standalone desktop shell (`packages/tauri-epicenter-standalone`) both
+read it, so the TypeScript and Rust derivations cannot drift.
 
 ```ts
 import { checkContract, defineContract } from '@epicenter/definition/contract';
@@ -127,6 +136,6 @@ published contract validates exactly as the field does in memory.
 ## Commands
 
 ```sh
-bun test          # the contract, note codec, merge, and ids
+bun test          # the contract, note codec, merge, ids, and site names
 bun run typecheck
 ```

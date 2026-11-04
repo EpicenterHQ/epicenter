@@ -7,7 +7,7 @@ import {
 	type AgentMessage,
 	type AgentMessageStore,
 	AgentMessageStoreError,
-} from '@epicenter/agent';
+} from '@epicenter/ai/agent';
 import { sameValue } from '@epicenter/definition/note';
 import type { ReactiveNotes } from '@epicenter/svelte/client';
 import { untrack } from 'svelte';

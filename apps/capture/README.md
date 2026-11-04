@@ -5,7 +5,7 @@ dated capture, add thoughts to it later, and see everything newest first.
 Each capture is a Markdown note at `captures/<id>.md`: `capturedAt` in front
 matter, then its text and its thoughts as a bullet list under
 `## Thoughts`. That layout is Capture's contract, `capture` in
-[`packages/capture`](../../packages/capture/README.md), published unchanged
+[`src/lib/model`](src/lib/model/README.md), published unchanged
 as `static/contract.json` (`bun run contract` rewrites it after a change), the
 file `epicenter check <url>/contract.json <dir>` checks a folder against. Any
 program that writes the layout is a valid writer.
@@ -165,7 +165,7 @@ missing.
 
 | Command | What it checks |
 | --- | --- |
-| `bun test packages/capture` | The contract and the body codec. |
+| `bun test apps/capture/src/lib/model` | The contract and the body codec. |
 | `bun run --cwd apps/capture typecheck` | App, scripts, and end-to-end types. |
 | `bun run --cwd apps/capture test` | The contract's fit, the store and mounted components over a stand-in client (a folder client in a temporary directory), and both builds' seams. |
 | `cargo test -p capture -p epicenter-standalone` | The desktop shell: its capability, the derived data folder and opening refusals. |

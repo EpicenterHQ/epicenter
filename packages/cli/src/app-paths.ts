@@ -20,7 +20,7 @@ import { isAbsolute, join } from 'node:path';
 import {
 	EPICENTER_BUNDLE_IDENTIFIER,
 	epicenterDataRoot,
-} from '@epicenter/constants/app-data';
+} from '@epicenter/definition/site/app-data';
 
 declare const __EPICENTER_BUILD_ENVIRONMENT__: string;
 

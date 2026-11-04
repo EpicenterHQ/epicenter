@@ -4,7 +4,7 @@
  * `openRemote` against the real server app: the authorization server on a
  * disposable Postgres, a `Bun.serve` listener, the disk Git and LFS stores,
  * and an access token from a real code grant. The account is a stand-in for
- * `@epicenter/auth`'s: it carries the token, can be retired, and records
+ * `@epicenter/account`'s: it carries the token, can be retired, and records
  * every request. A miss here is a write landing over a version its writer
  * never read.
  *
@@ -22,7 +22,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Account } from '@epicenter/auth';
+import type { Account } from '@epicenter/account';
 import { defineContract, type Version } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
 import {
@@ -145,7 +145,7 @@ afterAll(async () => {
 type Sent = { method: string; url: string; body: unknown };
 
 /**
- * A signed-in person's account, as `@epicenter/auth` gives one: every
+ * A signed-in person's account, as `@epicenter/account` gives one: every
  * request to the server carries the token, and none leaves once retired.
  */
 async function signIn(label: string) {

@@ -7,7 +7,7 @@
  *   authorization server's own pages. Only the Better Auth session cookie,
  *   from the server's own origin, reaches it; no access token does.
  */
-import { asPrincipalId } from '@epicenter/principal';
+import { asPrincipalId } from '@epicenter/account';
 import type { Session, User } from 'better-auth';
 import type { MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';

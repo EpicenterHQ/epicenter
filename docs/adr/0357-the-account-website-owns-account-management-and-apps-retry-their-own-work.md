@@ -60,7 +60,7 @@ before allowing the targeted flow to continue. A mismatch asks the person to
 sign into the intended account. The context grants no authority, transfers no
 credential, and never silently switches accounts. A direct website visit
 manages the website's signed-in account. `createAccountManagementUrl` in
-`packages/auth/src/account-management.ts` builds these links.
+`packages/account/src/account-management.ts` builds these links.
 
 ## Consequences
 
@@ -101,7 +101,7 @@ The desktop intercepts new-window requests for exact hosted account routes
 and opens the system browser while denying an embedded popup. Other window
 navigation remains restricted.
 
-Local verification uses `packages/auth/smoke/dashboard.browser.mjs`: real
+Local verification uses `packages/account/smoke/dashboard.browser.mjs`: real
 Chromium and Better Auth sessions with disposable memory data and local billing
 fixtures. It covers target continuity, mismatch refusal, immediate visibility
 and window-focus refresh, query retry, preview failure, simulated purchase

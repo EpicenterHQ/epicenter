@@ -8,7 +8,7 @@
 <script lang="ts">
 	import { createBrowserInferenceSelections } from '@epicenter/ai/selections';
 	import { createInferenceCatalog } from '@epicenter/ai/picker';
-	import { toHostedCatalog } from '@epicenter/constants/ai-providers';
+	import { toHostedCatalog } from '@epicenter/ai/providers';
 	import { auth } from '#platform/auth';
 	import { Chrome } from '#platform/root';
 	import { Button } from '@epicenter/ui/button';

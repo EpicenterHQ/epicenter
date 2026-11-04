@@ -38,7 +38,7 @@ Include only execution-critical detail:
 
 1. Start the answer with `/goal` when the user asks for the goal text.
 2. Make completion judgeable by someone who can only read the transcript.
-3. Prefer exact checks over vague proof: "`bun test packages/auth` exits 0" beats "tests pass."
+3. Prefer exact checks over vague proof: "`bun test packages/account` exits 0" beats "tests pass."
 4. Point long requirements at a file instead of pasting them into the goal.
 5. Ask for checkpoints when the work spans multiple turns.
 6. Bound repeated failure: after three failed attempts on the same check, report the root cause and next decision.

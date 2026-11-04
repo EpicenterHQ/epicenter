@@ -5,7 +5,7 @@
  * `settings.md`: machine-local, never synced, read and written through
  * Vocab's settings contract (`vocabSettings`). Each API key is in the
  * keychain under the connection's id (`keychain` from
- * `@epicenter/auth/tauri`), saved with the endpoint it was entered for
+ * `@epicenter/account/tauri`), saved with the endpoint it was entered for
  * (ADR-0564: an endpoint is stored with its key). Nothing about connections
  * is in the data folder, which Epicenter syncs, or in `settings.md`.
  *
@@ -16,6 +16,9 @@
  * cannot send a key somewhere else, and no record here carries a key; a
  * record says only whether its key applies (`hasApiKey`).
  */
+
+import type { AuthFetch } from '@epicenter/account';
+import { connectionFetch, keychain } from '@epicenter/account/tauri';
 import {
 	type AiConnectionRecord,
 	type AiConnectionSnapshot,
@@ -23,8 +26,6 @@ import {
 	type CustomConnectionInput,
 	openConnectionCatalog,
 } from '@epicenter/ai/connections';
-import type { AuthFetch } from '@epicenter/auth';
-import { connectionFetch, keychain } from '@epicenter/auth/tauri';
 import type { Client, Version } from '@epicenter/definition/contract';
 import { nanoid } from '@epicenter/definition/ids';
 import { openAppData } from '@epicenter/folder/tauri';

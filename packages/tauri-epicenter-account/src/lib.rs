@@ -1,6 +1,6 @@
 //! Sign-in with Epicenter and the OS keychain for Epicenter's standalone
 //! desktop apps (`epicenter-standalone`), shared so each app names only who
-//! it is. The page's side is `createTauriAuth` from `@epicenter/auth/tauri`,
+//! it is. The page's side is `createTauriAuth` from `@epicenter/account/tauri`,
 //! an `AuthClient` over these commands.
 //!
 //! - `account`: the native sign-in (RFC 8252 loopback with PKCE in the system

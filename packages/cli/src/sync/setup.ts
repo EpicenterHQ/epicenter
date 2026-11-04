@@ -22,15 +22,15 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import {
-	EPICENTER_BUNDLE_IDENTIFIER,
-	epicenterDataRoot,
-} from '@epicenter/constants/app-data';
+import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import {
 	isPersonalFolderName,
 	suggestLibraryLinkName,
-} from '@epicenter/constants/app-names';
-import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
+} from '@epicenter/definition/site';
+import {
+	EPICENTER_BUNDLE_IDENTIFIER,
+	epicenterDataRoot,
+} from '@epicenter/definition/site/app-data';
 import { resolveAppPaths } from '../app-paths.ts';
 import { canonicalPath, containsPath, reservedSegment } from './admission.ts';
 import { type CredentialFor, config, git, must } from './git.ts';

@@ -1,5 +1,5 @@
-import { API_ROUTES } from '@epicenter/constants/api-routes';
 import type { ApiApp } from '@epicenter/local-books/http/api';
+import { API_ROUTES } from '@epicenter/server/api-routes';
 import { regex } from 'arkregex';
 import { hc, type InferRequestType } from 'hono/client';
 

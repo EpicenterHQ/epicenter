@@ -33,7 +33,7 @@ import { join } from 'node:path';
 import {
 	EPICENTER_API_URL,
 	resolveOAuthAudiences,
-} from '@epicenter/constants/apps';
+} from '@epicenter/definition/site';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { resolveAppPaths } from './app-paths.ts';

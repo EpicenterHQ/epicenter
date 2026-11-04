@@ -5,7 +5,7 @@
 	header (`setFolderSync`).
 -->
 <script lang="ts">
-	import type { Capture } from '@epicenter/capture';
+	import type { Capture } from '../model/index.js';
 	import type { Client } from '@epicenter/definition/contract';
 	import { fromClient } from '@epicenter/svelte/client';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';

@@ -86,7 +86,7 @@ whole note from text that reads and fits, in house style. `updateNote`
 over a client.
 
 `openRemote(contract, { account, site })` returns the same client over the
-signed-in person's repository for the app, `<git audience>/~/<name derived from site>.git`, through `account.fetch` (any `@epicenter/auth` `Account`). A
+signed-in person's repository for the app, `<git audience>/~/<name derived from site>.git`, through `account.fetch` (any `@epicenter/account` `Account`). A
 remote version is the Git blob id on `main`, and every write is one commit.
 It keeps nothing on the device: it works online only, and stops when the
 account is retired.

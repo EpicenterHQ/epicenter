@@ -59,7 +59,7 @@ test('passes allowlisted mirrors, comments, tests, and excluded dirs', () => {
 		// Source-of-truth files are allowed verbatim.
 		write(
 			dir,
-			'packages/constants/src/api-routes.ts',
+			'packages/server/src/api-routes.ts',
 			"export const SESSION = '/api/session';\n",
 		);
 		// Comment lines are prose, not constructions.

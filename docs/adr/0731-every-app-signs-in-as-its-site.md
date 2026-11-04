@@ -27,7 +27,7 @@ run `epicenter auth token`) avoids the keychain problem but cannot tell which
 program is calling, so its consent list would trust a name the caller chose,
 and an app without the engine could not sign in, against principle 6.
 
-The web already signs in by origin. `packages/auth/src/browser-oauth.ts`
+The web already signs in by origin. `packages/account/src/browser-oauth.ts`
 holds no refresh token: it renews by navigating to the authorize endpoint with
 `prompt=none`, and the server answers from the browser's epicenter.so session
 and the grant it remembers. Each app still passes `clientId`, `resources`,
@@ -74,7 +74,7 @@ Revoking a decision invalidates everything below it.
 
 **On the desktop the shell holds the refresh token, in a file only the person
 can read, in the app's AppData.** The page never sees a token; it gets
-`account.fetch`, which the shell relays (`packages/auth/src/tauri.ts`). One
+`account.fetch`, which the shell relays (`packages/account/src/tauri.ts`). One
 binary reads and writes each file, so no program prompts another.
 
 **A machine groups its sign-ins by the computer's name.** A native grant

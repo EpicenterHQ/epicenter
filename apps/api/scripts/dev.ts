@@ -1,6 +1,6 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { APPS, localUrl } from '@epicenter/constants/apps';
+import { APPS, localUrl } from '@epicenter/definition/site';
 import type { Unstable_RawConfig as WranglerConfig } from 'wrangler';
 
 const apiRoot = resolve(import.meta.dir, '..');

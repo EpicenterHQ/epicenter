@@ -5,8 +5,8 @@
  * and name the captured principal, so the server can refuse a changed cookie.
  */
 import { expect, test } from 'bun:test';
-import type { Account } from '@epicenter/auth';
-import { asPrincipalId } from '@epicenter/principal';
+import type { Account } from '@epicenter/account';
+import { asPrincipalId } from '@epicenter/account';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { accountKeys } from '../account/queries.js';

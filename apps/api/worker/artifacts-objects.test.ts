@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { randomBytes } from 'node:crypto';
-import { resolveOAuthAudiences } from '@epicenter/constants/apps';
+import { resolveOAuthAudiences } from '@epicenter/definition/site';
 import {
 	type CloudEnv,
 	FLUSH,

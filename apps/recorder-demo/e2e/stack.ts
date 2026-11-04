@@ -9,7 +9,7 @@
  *   bun apps/recorder-demo/e2e/stack.ts --demo   # `bun run demo`
  */
 import { join, resolve } from 'node:path';
-import { LOCAL_APPS, localUrl } from '@epicenter/constants/apps';
+import { LOCAL_APPS, localUrl } from '@epicenter/definition/site';
 import { runAppStack } from '../../../packages/cli/src/app-stack.test-support.ts';
 
 const appDir = resolve(import.meta.dir, '..');

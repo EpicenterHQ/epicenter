@@ -37,7 +37,7 @@ files, `git`, and the `epicenter` CLI on the machine it runs on. Chat access
 from Claude.ai or ChatGPT to hosted folders is given up.
 
 **A deployment has two token audiences, `api` and `git`.**
-`resolveOAuthAudiences` in `packages/constants/src/apps.ts` returns
+`resolveOAuthAudiences` in `packages/definition/src/site/apps.ts` returns
 `{ api, git }`; `OAuthAudiences` in `packages/server/src/auth/oauth-policy.ts`
 names the same two. Each allows every scope in `OAUTH_SCOPES`.
 

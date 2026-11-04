@@ -1,7 +1,7 @@
-import { ListModelsError } from '@epicenter/client';
 import OpenAI from 'openai';
 import { createSubscriber } from 'svelte/reactivity';
 import { Ok, type Result, tryAsync, unwrap } from 'wellcrafted/result';
+import { ListModelsError } from '../openai/index.js';
 import type { InferenceSources } from '../target.js';
 import {
 	accountInferenceId,
