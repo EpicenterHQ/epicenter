@@ -25,7 +25,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
-		"test": "bun test --isolate --conditions=browser --conditions=svelte --path-ignore-patterns='**/*.postgres.test.ts' src",
+		"test": "bun test --isolate --conditions=browser --conditions=svelte --conditions=test --path-ignore-patterns='**/*.postgres.test.ts' src",
 		"test:postgres": "bun test --isolate ./src/lib/platform/web-sign-in.postgres.test.ts",
 		"test:e2e": "playwright test -c playwright.config.ts",
 		"build": "NODE_ENV=production vite build",
@@ -64,6 +64,7 @@
 		"@epicenter/ai": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/local": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/transcription": "workspace:*",

@@ -5,22 +5,38 @@
  * a press does (`onShortcut`).
  *
  * The key is `toggleRecording` in `shortcuts.md`, resolved with a shallow
- * spread: the default, then the data folder's note (synced with the files),
- * then the AppData root's (this computer only). Rust never reads the note
- * (decision 89): once both notes are read, and whenever the resolved key
- * changes, the page asks the shell to hold it (`set_shortcut`).
+ * spread: the default, then the data folder's note (the contract's
+ * `shortcuts`, which travels with the files), then this computer's
+ * (`localFile('shortcuts.md')` from `@epicenter/local`: the app's place for
+ * this computer's state, which the build picks and app code never opens).
+ * Rust never reads the note (decision 89): once both notes are read, and
+ * whenever the resolved key changes, the page asks the shell to hold it
+ * (`set_shortcut`).
  */
+import {
+	type NoteOf,
+	noteText,
+	readNoteText,
+} from '@epicenter/definition/contract';
 import type { Folder, FolderNotes } from '@epicenter/folder/core';
+import { localFile } from '@epicenter/local';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { createContext } from 'svelte';
 import { extractErrorMessage } from 'wellcrafted/error';
-import type { Whispering } from '../contract.js';
-import {
-	keysOf,
-	SHORTCUT_DEFAULTS,
-	type WhisperingSettings,
-} from '../settings.tauri.js';
+import { type Whispering, whispering } from '../contract.js';
+
+type Shortcuts = Whispering['collections']['shortcuts'];
+const SHORTCUTS: Shortcuts = whispering.collections.shortcuts;
+
+/** `shortcuts.md` when neither note holds a key. */
+const SHORTCUT_DEFAULTS = { toggleRecording: 'CommandOrControl+Shift+;' };
+
+/** The keys a `shortcuts.md` note sets; none for no note. */
+const keysOf = (note: { toggleRecording?: string } | null | undefined) =>
+	note?.toggleRecording === undefined
+		? {}
+		: { toggleRecording: note.toggleRecording };
 
 const isMac = navigator.userAgent.includes('Mac');
 
@@ -113,29 +129,69 @@ function hold(accelerator: string): Promise<string | null> {
 	);
 }
 
+
+/** This computer's `shortcuts.md` as last read: the key it sets, if any, and its body. */
+type Here = { readonly toggleRecording?: string; readonly body: string };
+
 /**
- * The global shortcut over the window's two roots, each the folder the
- * desktop root made once and read through `reactive`. Call while a component initializes: it holds
- * the resolved key for that component's life.
+ * The global shortcut over `folder`, the data folder read through
+ * `reactive`, and this computer's `shortcuts.md`. Call while a component
+ * initializes: it follows this computer's note and holds the resolved key
+ * for that component's life.
  */
-export function globalShortcut({
-	appData,
-	device,
-}: {
-	appData: Folder<WhisperingSettings>;
-	device: Folder<Whispering>;
-}) {
-	const here = $derived(appData.shortcuts.get({}));
+export function globalShortcut({ folder }: { folder: Folder<Whispering> }) {
+	const file = localFile('shortcuts.md');
+	/** This computer's note: undefined until read, null when there is none. */
+	let here = $state<Here | null>();
+	/** Why this computer's note could not be read, if it could not. */
+	let unreadable = $state<string | null>(null);
+	/** The newest read, so an older answer never replaces a newer one. */
+	let reads = 0;
+
+	/** Read this computer's note: its keys and body, or why it does not read. */
+	async function readHere(): Promise<
+		{ note: Here | null; version: string } | { problem: string }
+	> {
+		const read = await file.read();
+		if (read.error !== null) return { problem: read.error.message };
+		if (read.data === null) return { note: null, version: 'absent' };
+		const note = readNoteText(SHORTCUTS, read.data.text);
+		if (note.error !== null)
+			return {
+				problem: `This computer's shortcuts.md does not read: ${note.error.message}`,
+			};
+		return {
+			note: { ...keysOf(note.data.fields), body: note.data.body },
+			version: read.data.version,
+		};
+	}
+
+	async function follow() {
+		const read = ++reads;
+		const answered = await readHere();
+		if (read !== reads) return;
+		if ('problem' in answered) {
+			unreadable = answered.problem;
+			here = null;
+			return;
+		}
+		unreadable = null;
+		here = answered.note;
+	}
+
+	$effect(() => {
+		void follow();
+		return file.subscribe(() => void follow());
+	});
+
 	const shortcuts = $derived({
 		...SHORTCUT_DEFAULTS,
-		...keysOf(device.shortcuts.get({})),
+		...keysOf(folder.shortcuts.get({})),
 		...keysOf(here),
 	});
 	/** The key alone, so a note read again with the same key asks the shell nothing. */
 	const accelerator = $derived(shortcuts.toggleRecording);
-	const read = $derived(
-		!appData.shortcuts.loading() && !device.shortcuts.loading(),
-	);
+	const read = $derived(here !== undefined && !folder.shortcuts.loading());
 	/** The shell's answer for the last key asked for. */
 	let held = $state<{ accelerator: string; problem: string | null }>();
 
@@ -147,11 +203,8 @@ export function globalShortcut({
 		});
 	});
 
-	/** Set `toggleRecording` in `notes` to `key`, making the note when there is none. */
-	async function write(
-		notes: FolderNotes<Whispering['collections']['shortcuts']>,
-		key: string,
-	) {
+	/** Set `toggleRecording` in the data folder's note to `key`, making the note when there is none. */
+	async function writeSynced(notes: FolderNotes<Shortcuts>, key: string) {
 		const written =
 			notes.get({}) === undefined
 				? await notes.create({ toggleRecording: key })
@@ -159,8 +212,29 @@ export function globalShortcut({
 		return written.error === null ? null : written.error.message;
 	}
 
+	/**
+	 * Set `toggleRecording` in this computer's note to `key`, or drop it for
+	 * undefined, keeping the note's body, over the version just read.
+	 */
+	async function writeHere(key: string | undefined) {
+		const current = await readHere();
+		if ('problem' in current) return current.problem;
+		const text = noteText(SHORTCUTS, {
+			toggleRecording: key,
+			body: current.note?.body ?? '',
+			version: '',
+		} as NoteOf<Shortcuts>);
+		if (text.error !== null) return text.error.message;
+		const written = await file.write(text.data, current.version);
+		if (written.error !== null) return written.error.message;
+		if (written.data === 'stale')
+			return "This computer's shortcuts.md changed while it was saved. Save again.";
+		await follow();
+		return null;
+	}
+
 	return {
-		/** True once both roots' `shortcuts.md` were read (or found absent). */
+		/** True once both `shortcuts.md` notes were read (or found absent). */
 		get read() {
 			return read;
 		},
@@ -176,16 +250,22 @@ export function globalShortcut({
 		get onThisComputer() {
 			return here?.toggleRecording !== undefined;
 		},
-		/** Why the shell does not hold the resolved key, or null while it does (or has not answered). */
+		/**
+		 * Why the shell does not hold the resolved key, or why this computer's
+		 * note does not read; null while neither is so (or the shell has not
+		 * answered).
+		 */
 		get problem() {
-			return held?.accelerator === accelerator ? held.problem : null;
+			return (
+				(held?.accelerator === accelerator ? held.problem : null) ?? unreadable
+			);
 		},
 		/**
 		 * Make `typed` the shortcut: in the data folder's `shortcuts.md`
 		 * (synced with the files, so this computer's override is removed), or,
-		 * `onThisComputer`, in the AppData root's. The shell must hold it
-		 * first, so a key that does not parse or that another app holds is
-		 * never written. Answers why it was not saved, or null.
+		 * `onThisComputer`, in this computer's. The shell must hold it first,
+		 * so a key that does not parse or that another app holds is never
+		 * written. Answers why it was not saved, or null.
 		 */
 		async save(
 			typed: string,
@@ -199,23 +279,16 @@ export function globalShortcut({
 				void hold(accelerator);
 				return refused;
 			}
-			const unsaved = await write(
-				onThisComputer ? appData.shortcuts : device.shortcuts,
-				key,
-			);
-			if (
-				unsaved === null &&
-				!onThisComputer &&
-				here?.toggleRecording !== undefined
-			) {
-				const cleared = await appData.shortcuts.update(
-					{},
-					{ toggleRecording: undefined },
-				);
-				if (cleared.error !== null) return cleared.error.message;
+			const unsaved = onThisComputer
+				? await writeHere(key)
+				: await writeSynced(folder.shortcuts, key);
+			if (unsaved !== null) {
+				void hold(accelerator);
+				return unsaved;
 			}
-			if (unsaved !== null) void hold(accelerator);
-			return unsaved;
+			if (!onThisComputer && here?.toggleRecording !== undefined)
+				return writeHere(undefined);
+			return null;
 		},
 	};
 }

@@ -251,9 +251,10 @@ bun build:whispering:desktop   # a local, unsigned macOS app bundle
 
 Its Tauri shell derives `~/Epicenter/whispering` and names it the Data root, or
 `~/Epicenter Dev/whispering` in development. The page opens this folder,
-making it when missing for now. Whispering opens its AppData root for shortcut
-overrides; the connected endpoints there are `@epicenter/ai`'s
-(`customEndpoints()`). A failed open shows the shared recovery screen with Retry. The
+making it when missing for now. What this computer alone keeps, the
+shortcut's override, the connected endpoints and the model choices, each
+capability keeps in its own file on this computer (`localFile` from
+`@epicenter/local`, in AppData); the page opens no AppData root. A failed open shows the shared recovery screen with Retry. The
 status details and Settings show the shell's folder path. **Set up in
 Epicenter** enrolls the folder for local history; connecting a repository
 there enables transfer. Whispering never syncs it itself.
@@ -304,8 +305,9 @@ whose desktop leaf went missing.
 - **The global shortcut** starts and stops a recording from any app:
   `toggleRecording` in `shortcuts.md`, `CommandOrControl+Shift+;` by
   default. It resolves with a shallow spread, `{ ...defaults, ...data,
-  ...appData }`: the data folder's note travels with the files, and the
-  AppData root's (Settings' **Only on this computer**) overrides it here.
+  ...here }`: the data folder's note travels with the files, and this
+  computer's `shortcuts.md` (`localFile('shortcuts.md')`, Settings' **Only
+  on this computer**) overrides it here.
   Settings writes the data folder's note by default, and removes this
   computer's override when it does. The shell never reads the note: the
   page asks it to hold the resolved key (`set_shortcut`) at startup and

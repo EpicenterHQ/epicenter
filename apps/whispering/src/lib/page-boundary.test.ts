@@ -204,8 +204,7 @@ test('WhisperingApp composes Whispering over the client it is given', () => {
 		expect(callers(name)).toEqual(['routes/components/WhisperingApp.svelte']);
 	expect(callers('createServices')).toEqual(['lib/whispering.svelte.ts']);
 	// Each build reads its store as a folder once, where its Startup opened
-	// it (decision 87); the desktop root also reads its AppData root as one,
-	// for the shortcut's notes.
+	// it (decision 87).
 	expect(callers('folderOf')).toEqual([
 		'lib/components/DesktopRoot.svelte',
 		'lib/components/LocalStartup.svelte',

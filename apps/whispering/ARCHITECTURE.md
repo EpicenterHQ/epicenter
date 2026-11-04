@@ -31,7 +31,7 @@ src-tauri/                   the desktop app's shell
   (`reactive(folderOf(client))`, decision 87), and hands both to
   `<WhisperingApp {client} {files}>`:
   `LocalStartup` awaits this browser's device; `DesktopStartup` awaits the
-  AppData root and the data folder, or renders the recovery screen. Its
+  data folder, or renders the recovery screen. Its
   pages are `/`, `/recordings` and `/transformations`.
 - `routes/auth/callback/` is outside the group, so it opens no files: it
   renders the build's `Callback`, which finishes a web sign-in and loads the
@@ -44,8 +44,7 @@ src-tauri/                   the desktop app's shell
   choices, the saved connections and the saved microphone), renders the frame (sidebar or bottom bar, and
   the header with its status line), and disposes both when it leaves. It is
   also the leave guard: every note is written through the folder, so while
-  the folder is `saving()` leaving the page asks first. `DesktopRoot` guards
-  the AppData folder, where the shortcut is saved, the same way.
+  the folder is `saving()` leaving the page asks first.
 
 Nothing below `WhisperingApp` knows which store it is; where only a
 sentence differs, a component reads `variant` from `#platform/variant`.
@@ -59,8 +58,7 @@ the files unless Whispering itself is closing.
 `LocalStartup`, `openDataFolder` only in `DesktopStartup`; nothing
 calls `openRemote` or imports `@epicenter/folder/remote`; `createWhispering`,
 `filesOf` and `createLibrary` only in `WhisperingApp`; `folderOf` only
-where each build's store is opened (`LocalStartup`, `DesktopRoot`, which
-also reads the AppData root as a folder); auth only through `#platform/auth`; services only through
+where each build's store is opened (`LocalStartup`, `DesktopRoot`); auth only through `#platform/auth`; services only through
 `#platform/services`; and nothing from Node or Bun, Tauri only in the desktop
 leaves.
 

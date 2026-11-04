@@ -60,7 +60,6 @@ const desktopLeaves = [
 	'platform/auth.tauri.ts',
 	'platform/services.tauri.ts',
 	'platform/shortcut.tauri.svelte.ts',
-	'settings.tauri.ts',
 	'components/DesktopStartup.svelte',
 	'components/DesktopRoot.svelte',
 	'components/DesktopChrome.svelte',
@@ -76,9 +75,10 @@ const desktopPackages = [
 	'transcription/guest-js/local-speech.ts',
 	'transcription/guest-js/bindings.gen.ts',
 	'ai/src/device-settings.tauri.ts',
+	'local/src/tauri.ts',
 ];
 /** What only the web build may carry from the shared packages: the leaves the `tauri` condition replaces. */
-const webPackages = ['ai/src/device-settings.ts'];
+const webPackages = ['ai/src/device-settings.ts', 'local/src/browser.ts'];
 
 test(
 	'the web build carries the local variant and nothing of the desktop',

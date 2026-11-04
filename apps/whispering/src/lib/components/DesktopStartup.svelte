@@ -1,7 +1,8 @@
 <!--
-	Whispering's desktop startup: its two roots (`DesktopStartup` from
-	`@epicenter/svelte`), then the app over the data folder (`DesktopRoot`,
-	then `children`).
+	Whispering's desktop startup: its data folder (`DesktopStartup` from
+	`@epicenter/svelte`), then the app over it (`DesktopRoot`, then
+	`children`). This computer's own state, such as the shortcut's override,
+	is each capability's own (`localFile` from `@epicenter/local`).
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
@@ -10,18 +11,17 @@
 	import DesktopStartup from '@epicenter/svelte/desktop-startup';
 	import type { Snippet } from 'svelte';
 	import { type Whispering, whispering } from '../contract.js';
-	import { whisperingSettings } from '../settings.tauri.js';
 	import DesktopRoot from './DesktopRoot.svelte';
 
 	let { children: outer }: { children: Snippet<[Client<Whispering>, Folder<Whispering>]> } = $props();
 </script>
 
-<DesktopStartup app="Whispering" settings={whisperingSettings} contract={whispering} site={APPS.WHISPERING.url}>
-	{#snippet children(appData, device, site)}
-		{#if appData}<DesktopRoot {appData} {device} {site}>
+<DesktopStartup app="Whispering" contract={whispering} site={APPS.WHISPERING.url}>
+	{#snippet children(_appData, device, site)}
+		<DesktopRoot {device} {site}>
 			{#snippet children(files)}
 				{@render outer(device, files)}
 			{/snippet}
-		</DesktopRoot>{/if}
+		</DesktopRoot>
 	{/snippet}
 </DesktopStartup>

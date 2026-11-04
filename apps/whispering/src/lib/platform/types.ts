@@ -32,7 +32,7 @@ export type Variant = 'local' | 'desktop';
  * `Startup` opens the store and renders the app over it (`children`, given
  * the store's client and that client read as a folder through `reactive`,
  * once, where it was made: decision 87), or says why it could not: this browser's storage on
- * the web; on the desktop the AppData root and then the data folder, or the
+ * the web; on the desktop the data folder, or the
  * recovery screen. `Chrome` is the header's account of the store (where the
  * recordings are, and on the desktop whether Epicenter syncs them). `Settings`
  * is what only this build's settings have, above the models, or null.

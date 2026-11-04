@@ -19,8 +19,9 @@
  * - `shortcuts.md` is the one settings note: `toggleRecording`, the desktop
  *   app's global shortcut in the global-shortcut plugin's spelling
  *   (`CommandOrControl+Shift+;`). It travels with the files, and a
- *   computer may override it in its own AppData `shortcuts.md`
- *   (`settings.tauri.ts`); the web app has no global shortcut and leaves it.
+ *   computer may override it in its own `shortcuts.md`
+ *   (`platform/shortcut.tauri.svelte.ts`); the web app has no global
+ *   shortcut and leaves it.
  *
  * The models it uses, its connections (where requests go, and their keys)
  * and the chosen microphone belong to a device, so they stay out of its
