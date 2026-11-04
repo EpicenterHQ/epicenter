@@ -109,8 +109,7 @@ ends with the page.
 
 ## Inputs and levels on the desktop
 
-A desktop page opens no microphone of its own
-([ADR-0571](../../docs/adr/0571-on-desktop-rust-owns-the-microphone-and-the-page-never-opens-one.md)).
+A desktop page opens no microphone of its own.
 `@epicenter/recorder/tauri` asks the shell for the inputs and for a level:
 
 ```ts

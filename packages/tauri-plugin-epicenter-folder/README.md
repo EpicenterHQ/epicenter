@@ -254,9 +254,8 @@ leaves nothing behind: not
 its staged file, and not a directory it made, unless another writer put
 something in it.
 
-A folder has no repository until its first commit, Sync or Save version
-([ADR-0535](../../docs/adr/0535-an-existing-folder-opens-with-its-own-declaration.md)),
-and saving never makes one: a put stages in `.epicenter`, so it makes
+A folder has no repository until `epicenter init` and no commit until its
+first sync, and saving never makes either: a put stages in `.epicenter`, so it makes
 nothing in the root but the files saved, their directories, and
 `.epicenter`, nothing beside the root, and nothing in `.git` is reachable, with or without `HEAD` (`page_files.rs`).
 
@@ -342,9 +341,6 @@ file or the new one. A late change is refused as `ShuttingDown` and writes nothi
   lock spans them. A writer in another process that changes a path in that
   instant is not seen, and its save can be replaced; Git history keeps what
   sync committed.
-- A compromised page keeps the powers the engine needs: it can move the
-  branch, reset the index, and change or delete any data path. Each is
-  visible and repairable from the reflog and the remote.
 - Epicenter ships for macOS only
   ([ADR-0567](../../docs/adr/0567-epicenter-ships-for-macos-only-for-now.md)).
 

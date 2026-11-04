@@ -116,7 +116,7 @@ opened. It does not need any `epicenter-folder` permission.
 
 - `.`: the generated bindings (`commands` and the wire types), such as
   `commands.listInferenceModels()` and
-  `commands.transcribeFile(modelId, path, hints)`.
+  `commands.transcribeFile(modelId, root, path, hints)`.
 - `./local-models`: `createLocalModels(commands?)`, a per-mount controller for
   the administration commands. Rust owns downloads; the page owns only its
   intent to activate a model after one finishes. Stopping waiting withdraws that

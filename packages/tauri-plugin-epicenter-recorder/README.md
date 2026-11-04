@@ -1,8 +1,7 @@
 # tauri-plugin-epicenter-recorder
 
 The desktop shell's microphone. It lists the inputs, reads one's level, and
-records: a page in the shell opens no microphone of its own
-([ADR-0571](../../docs/adr/0571-on-desktop-rust-owns-the-microphone-and-the-page-never-opens-one.md)).
+records: a page in the shell opens no microphone of its own.
 A recording is written from the first sample
 into a folder the recording window opened
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
