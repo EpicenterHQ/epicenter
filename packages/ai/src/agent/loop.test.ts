@@ -1,9 +1,9 @@
 /**
  * Agent Conversation Loop Tests
  *
- * The loop over a stand-in messages collection (a `NoteClient` of
- * `messagesCollection` whose writes a test can hold open, refuse, or blow
- * up) and a stand-in `ai` whose `chat` streams what each test's engine says.
+ * The loop over a stand-in messages collection (what a conversation calls
+ * on a folder's `messagesCollection`, whose writes a test can hold open,
+ * refuse, or blow up) and a stand-in `ai` whose `chat` streams what each test's engine says.
  *
  * Key behaviors:
  * - Finished turns persist while aborted or failed turns do not
@@ -17,18 +17,17 @@
  * - Disposal stops following the collection; writes in flight still land
  */
 import { describe, expect, test } from 'bun:test';
-import { ClientError, type NoteClient } from '@epicenter/definition/contract';
+import { ClientError } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { AiError, type ChatChunk, type ChatRequest } from '../client.js';
 import type { Ai } from '../open-ai.js';
-import { createConversation } from './loop.js';
+import { type ConversationMessages, createConversation } from './loop.js';
 import {
 	type AgentMessage,
 	agentMessageText,
 	isPersistableMessage,
 	type MessageNote,
-	type MessagesCollection,
 } from './message.js';
 import type { EngineChunk } from './stream.js';
 import type { AgentTool } from './tools.js';
@@ -69,15 +68,8 @@ function makeMessages(initial: AgentMessage[] = []) {
 		for (const observer of observers) observer();
 	};
 	const messages = {
-		fieldNames: ['role', 'createdAt', 'parts'],
 		async list() {
 			return Ok({ items: [...values.values()].map(noteOf), invalid });
-		},
-		async get({ id }: { chat: string; id: string }) {
-			const message = values.get(id);
-			return message
-				? Ok(noteOf(message))
-				: ClientError.NotFound({ path: `messages/${CHAT}/${id}.md` });
 		},
 		async create(value: MessageNote) {
 			const { chat: _chat, body: _body, ...rest } = value;
@@ -101,7 +93,7 @@ function makeMessages(initial: AgentMessage[] = []) {
 				observers.delete(handler);
 			};
 		},
-	} as unknown as NoteClient<MessagesCollection>;
+	} as unknown as ConversationMessages;
 	return { messages, values, observers, attempts, control, invalid, put };
 }
 
@@ -191,7 +183,7 @@ async function settle(handle: {
 
 /** A conversation over `messages` and `engine`, with its options beside. */
 function open(
-	messages: NoteClient<MessagesCollection>,
+	messages: ConversationMessages,
 	engine: Engine,
 	options: Partial<Parameters<typeof createConversation>[0]> = {},
 ) {

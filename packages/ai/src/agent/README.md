@@ -2,13 +2,16 @@
 
 `@epicenter/ai/agent` is the UI-free agent loop. It takes values: a contract's messages collection, the chat it is, `ai`, the model, the system prompt, and the tools as an array.
 
+The collection is the app's folder's (`folder.messages`). The loop calls only `list`, `create` and `subscribe` on it (`ConversationMessages`), so a collection client passes too. It lists the chat's messages itself each time the collection changes, and reads the note at a path again with `list` when a create finds it occupied, rather than trusting what the folder shows.
+
 ```ts
 import { createConversation, messagesCollection } from '@epicenter/ai/agent';
 
 // The app's contract: `messages: messagesCollection`, one note per finished
-// message at `messages/{chat}/{id}.md`.
+// message at `messages/{chat}/{id}.md`. `folder` is the app's folder
+// (`openFolder` from `@epicenter/folder`).
 const conversation = createConversation({
-	messages: client.messages,
+	messages: folder.messages,
 	chat: chatId,
 	ai,
 	model: () => choices.get('chat'),

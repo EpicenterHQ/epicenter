@@ -9,6 +9,7 @@ export {
 	ConversationAdmissionError,
 	type ConversationError,
 	type ConversationHandle,
+	type ConversationMessages,
 	type ConversationOptions,
 	type ConversationSnapshot,
 	createConversation,
