@@ -95,15 +95,11 @@ This gives per-model cost precision without cluttering the Autumn dashboard with
 **How it works**: Autumn's `check()` with `sendEvent: true` uses `requiredBalance` as the deduction amount. With `creditCost: 1`, passing `requiredBalance: 5` deducts exactly 5 credits from the pool.
 
 ```typescript
-// Runtime cost table (in worker/billing/ai-model-pricing.ts, not autumn.config.ts)
-const MODEL_CREDITS: Record<string, number> = {
-  'gpt-4o-mini': 1,      // cheap model = 1 credit
-  'claude-sonnet-4': 5,  // mid-range = 5 credits
-  'claude-opus-4': 30,   // expensive = 30 credits
-};
+// Each model's cost is its `credits` in the model catalog
+// (`AI_MODELS` in packages/ai/src/providers.ts), not autumn.config.ts.
 
 // Dynamic deduction
-const credits = MODEL_CREDITS[model];
+const { credits } = MODELS_BY_ID[model];
 await autumn.check({
   customerId,
   featureId: 'ai_usage',      // single feature for all models
@@ -114,7 +110,7 @@ await autumn.check({
 
 **Refund on error**: Use `track({ featureId: 'ai_usage', value: -credits })` to refund the exact amount.
 
-**Blocking expensive models**: Omit them from `MODEL_CREDITS`. Unknown models → `getModelCredits()` returns `undefined` → 400.
+**Blocking models**: A model absent from `AI_MODELS` is refused as `AiChatError.UnknownModel`. On the free plan, a model whose `credits` exceed `FREE_TIER_MAX_CREDITS_PER_CALL` is refused as `AiChatError.ModelRequiresPaidPlan` (`reserveAiChat` in `apps/api/worker/billing/service.ts`).
 
 ---
 
@@ -330,7 +326,7 @@ if (!allowed) return c.json(error, 402);
 5. **All IDs are snake_case**: Autumn's pricing agent convention. Don't use kebab-case.
 6. **`autoEnable` triggers on customer creation**: Not on first `check()`. Ensure the middleware calls `getOrCreate` before checking.
 7. **Multiple keys per environment**: Autumn supports multiple active secret keys for rotation. Generate a new key, update secrets, then revoke the old key.
-8. **Use proportional billing**: One metered feature (`ai_usage`) with `creditCost: 1` and dynamic `requiredBalance` per model. Per-model costs live in `worker/billing/ai-model-pricing.ts`, not autumn.config.ts. This avoids cluttering the dashboard with dozens of features.
+8. **Use proportional billing**: One metered feature (`ai_usage`) with `creditCost: 1` and dynamic `requiredBalance` per model. Per-model costs are each model's `credits` in `packages/ai/src/providers.ts`, not autumn.config.ts. This avoids cluttering the dashboard with dozens of features.
 
 ---
 
@@ -340,7 +336,7 @@ if (!allowed) return c.json(error, 402);
 |------|---------|
 | `apps/api/autumn.config.ts` | Feature, credit system, and plan definitions |
 | `apps/api/worker/billing/autumn.ts` | `createAutumnClient(env)` SDK adapter and provider error mapping |
-| `apps/api/worker/billing/ai-model-pricing.ts` | Model string to proportional credit cost mapping |
+| `packages/ai/src/providers.ts` | The model catalog, with each model's credit cost |
 | `apps/api/worker/billing/service.ts` | Billing domain operations, reservations, dashboard DTOs, and storage sync |
 | `apps/api/worker/billing/policies.ts` | AI credit charging and asset storage billing policies |
 | `apps/api/worker/billing/routes.ts` | `/api/billing/*` routes and billing auth mount |
