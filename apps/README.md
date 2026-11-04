@@ -87,8 +87,9 @@ read in context, as the desktop root does over its folder:
 <!-- apps/vocab/src/lib/components/Online.svelte -->
 <script lang="ts">
   const { account, children } = $props();
-  const files = reactive(folderOf(openRemote(vocab, { account, site: APPS.VOCAB.url })));
-  setEntryList(files.entries); // adapted once, where it is made
+  const client = openRemote(vocab, { account, site: APPS.VOCAB.url });
+  const folder = reactive(folderOf(client)); // adapted once, where it is made
+  setEntryList(folder.entries);
 </script>
 
 {@render children()}
