@@ -1,0 +1,34 @@
+# The sync core every native Epicenter program links (ADR-0751): one round
+# over libgit2 with Git LFS, first contact, and the note merge supplied by the
+# host. A workspace of its own, excluded from the root one: the Node-API
+# binding needs `panic = "unwind"` (the root aborts), and the core keeps a
+# size-tuned release profile.
+[workspace]
+resolver = "2"
+members = ["."]
+
+[package]
+name = "epicenter-core"
+version = "0.0.1"
+description = "One sync round for an Epicenter folder: commit, fetch, first contact, merge, LFS, push"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[dependencies]
+# No `https` and no `ssh`: libgit2 links no TLS and no OpenSSL, which is what
+# lets the core build for iOS.
+git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
+sha2 = "0.10"
+ureq = { version = "2", default-features = false, features = ["tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"

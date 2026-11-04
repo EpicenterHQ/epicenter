@@ -26,6 +26,9 @@ exclude = [
     "apps/epicenter/src-tauri",
     "apps/epicenter/bench/backend-latency",
     "apps/epicenter/scripts/release-check",
+    # The sync core and its Node-API binding: a workspace of its own, since
+    # the binding must unwind on a panic and this one aborts.
+    "packages/epicenter-core",
 ]
 
 # Every standalone app aborts on an unexpected panic in release. Errors
