@@ -52,8 +52,12 @@ policy; both are device-local and never synchronize.
 
 Model files live in the shared Hugging Face cache (`~/.cache/huggingface/hub`,
 or under `HF_HOME`), so every app and Hugging Face tool on the machine reuses
-one download. The plugin never deletes a cached model; `reveal_model` shows its
-folder so the person can remove it with Hugging Face's tools.
+one download. That cache is a cache (ADR-0757): `remove_model` deletes a
+model's file from it when the person asks, unloading the model first, and any
+app or tool that used the file downloads it again. It removes every snapshot
+pointer that resolves to the model's bytes and the blob, and keeps a file of
+the same name with other bytes. A model still downloading is refused `Busy`.
+`reveal_model` shows a model's folder.
 
 ## Transcribing a file
 
@@ -87,6 +91,22 @@ loading a model. Otherwise the answer is `transcribed`, naming the exact model
 that ran and which hints it applied. The inference job owns its input until it
 finishes, even when the page stops waiting.
 
+## Transcribing an upload
+
+`transcribe_audio(model_id, audio, hints)` transcribes audio the page holds,
+such as a dictation's blob, sent as base64. Rust decodes the bytes where they
+arrive and writes nothing to disk. Audio that is not base64 is an
+`AudioReadError`; then the model is checked and the bytes decoded as in
+`transcribe_file`.
+
+## Memory
+
+A transcription loads its model on first use and keeps it resident under the
+unload policy. `load_model(model_id)` loads a catalog model now so the next
+transcription with it starts warm, replacing any other resident model;
+`unload_model(model_id)` drops it once a transcription with it finishes. Its
+file stays in the cache.
+
 Downloads work the same way: stopping the page's wait does not stop the
 transfer. The worker keeps a per-model reservation until it finishes, so another
 request for that model is answered `Busy`; another process holding the cache's
@@ -101,9 +121,12 @@ There is no default grant. Every permission is prefixed
 | --- | --- | --- |
 | Inference | `list_inference_models` | `allow-list-inference-models` |
 | Inference | `transcribe_file` | `allow-transcribe-file` |
+| Inference | `transcribe_audio` | `allow-transcribe-audio` |
+| Memory | `load_model`, `unload_model` | `allow-load-model`, `allow-unload-model` |
 | Navigation | `open_model_settings` | `allow-open-model-settings` |
 | Administration | `list_models` | `allow-list-models` |
 | Administration | `download_model` | `allow-download-model` |
+| Administration | `remove_model` | `allow-remove-model` |
 | Administration | `reveal_model` | `allow-reveal-model` |
 | Administration | `get_active_model`, `set_active_model` | `allow-get-active-model`, `allow-set-active-model` |
 | Administration | `get_unload_policy`, `set_unload_policy` | `allow-get-unload-policy`, `allow-set-unload-policy` |
@@ -128,11 +151,13 @@ opened. It does not need any `epicenter-folder` permission.
 - `localSpeech()` (the `.` export): this app's transcribe.cpp as an
   `@epicenter/ai` endpoint (ADR-0757), or `null` outside the desktop app. Its
   `fetch` answers `audio/transcriptions` and `models` in-process through
-  `transcribe_file` and `list_inference_models`; a transcription names its
-  audio by `path` in the data folder, since the plugin reads the file where it
-  is, and a request without one is refused. A refusal answers as an OpenAI
-  error whose `code` is the `TranscriptionError` name. `download(id)` runs
-  `download_model` and then lists the model. It imports only types from
+  `transcribe_audio` (an uploaded `file`) or `transcribe_file` (a `path` in
+  the data folder, read where it is) and `list_inference_models`. A refusal
+  answers as an OpenAI error whose `code` is the `TranscriptionError` name.
+  The handle carries the local lifecycle the OpenAI vocabulary cannot say:
+  `download(id)` and `remove(id)` run `download_model` and `remove_model`
+  and then list the models again; `load(id)` and `unload(id)` run
+  `load_model` and `unload_model`. It imports only types from
   `@epicenter/ai`.
 
 ## Building an app

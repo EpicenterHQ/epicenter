@@ -6,15 +6,18 @@
  * `openAi([... , localSpeech()])` lists its installed models beside every
  * other endpoint's.
  *
- * The plugin reads audio from a file in the app's data folder, so a
- * transcription request names the file by `path` (a folder-relative data
- * path, such as `recordings/20261031T101500123.wav`) instead of uploading
- * it. A request without a path is refused.
+ * A transcription request uploads its audio as `file`, as any OpenAI client
+ * does (a dictation's blob, or a recording read from the folder), and the
+ * plugin decodes the bytes where they arrive. A request may instead name a
+ * file already in the app's data folder by `path` (folder-relative, such as
+ * `recordings/20261031T101500123.wav`), which the plugin reads where it is.
  *
- * The endpoint also carries what the OpenAI vocabulary cannot say: `download`
- * fetches a catalog model into the shared Hugging Face cache, after which
- * the endpoint lists it. An app that offers downloads keeps the endpoint in
- * a `const` and passes the same value to `openAi`.
+ * The endpoint also carries what the OpenAI vocabulary cannot say, a model's
+ * local lifecycle: `download` fetches a catalog model into the shared Hugging
+ * Face cache, `remove` deletes it from that cache (a cache other apps and
+ * tools share, so one that used it downloads it again), and `load` and
+ * `unload` move it in and out of memory. An app that offers them keeps the
+ * endpoint in a `const` and passes the same value to `openAi`.
  *
  * It imports only types from `@epicenter/ai`: capabilities never import each
  * other's code.
@@ -31,7 +34,13 @@ import {
 
 export type LocalSpeechCommands = Pick<
 	typeof bindings,
-	'listInferenceModels' | 'transcribeFile' | 'downloadModel'
+	| 'listInferenceModels'
+	| 'transcribeFile'
+	| 'transcribeAudio'
+	| 'downloadModel'
+	| 'removeModel'
+	| 'loadModel'
+	| 'unloadModel'
 >;
 
 /** How each refusal answers over HTTP; the error's name is its code. */
@@ -47,6 +56,13 @@ const STATUS = {
 
 function failure(status: number, code: string, message: string) {
 	return Response.json({ error: { message, code } }, { status });
+}
+
+function toBase64(bytes: Uint8Array): string {
+	let binary = '';
+	for (let start = 0; start < bytes.length; start += 0x8000)
+		binary += String.fromCharCode(...bytes.subarray(start, start + 0x8000));
+	return btoa(binary);
 }
 
 /** The posted form, whether the client handed over a `FormData` or a serialized body. */
@@ -132,25 +148,36 @@ export function localSpeech({
 				);
 			const form = await formOf(init);
 			const model = form?.get('model');
-			const file = form?.get('path');
+			const dataPath = form?.get('path');
+			const file = form?.get('file');
 			if (typeof model !== 'string' || !model)
 				return failure(
 					400,
 					'model-required',
 					'Name a model to transcribe with.',
 				);
-			if (typeof file !== 'string' || !file)
-				return failure(
-					400,
-					'path-required',
-					"Local speech transcribes a file in the app's data folder; send its path.",
-				);
 			const language = form?.get('language');
 			const prompt = form?.get('prompt');
-			const { data, error } = await native.transcribeFile(model, root, file, {
+			const hints = {
 				language: typeof language === 'string' && language ? language : null,
 				initialPrompt: typeof prompt === 'string' && prompt ? prompt : null,
-			});
+			};
+			let answer: Awaited<ReturnType<typeof native.transcribeFile>>;
+			if (typeof dataPath === 'string' && dataPath)
+				answer = await native.transcribeFile(model, root, dataPath, hints);
+			else if (file instanceof Blob)
+				answer = await native.transcribeAudio(
+					model,
+					toBase64(new Uint8Array(await file.arrayBuffer())),
+					hints,
+				);
+			else
+				return failure(
+					400,
+					'file-required',
+					'Send the audio to transcribe as `file`.',
+				);
+			const { data, error } = answer;
 			init?.signal?.throwIfAborted();
 			if (error !== null)
 				return failure(STATUS[error.name], error.name, error.message);
@@ -177,6 +204,25 @@ export function localSpeech({
 			const result = await native.downloadModel(modelId, channel);
 			await read();
 			return result;
+		},
+		/**
+		 * Delete a model's file from the shared Hugging Face cache, unloading
+		 * it first. The cache is shared: another app or Hugging Face tool that
+		 * used the file downloads it again. The endpoint then lists the model
+		 * no longer and tells subscribers.
+		 */
+		async remove(modelId: string) {
+			const result = await native.removeModel(modelId);
+			await read();
+			return result;
+		},
+		/** Load a model into memory now, so its next transcription starts warm. */
+		load(modelId: string) {
+			return native.loadModel(modelId);
+		},
+		/** Drop a model from memory; its file stays in the cache. */
+		unload(modelId: string) {
+			return native.unloadModel(modelId);
 		},
 	};
 }

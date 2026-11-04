@@ -15,9 +15,18 @@ export const commands = {
 	 */
 	downloadModel: (modelId: string, onProgress: Channel<DownloadProgress>) => typedError<null, CatalogError>(__TAURI_INVOKE("plugin:epicenter-transcription|download_model", { modelId, onProgress })),
 	/**
+	 *  Remove a model's file from the shared Hugging Face cache, which is a
+	 *  cache (ADR-0757): any app or Hugging Face tool that used the file
+	 *  downloads it again. The model is unloaded first, after any transcription
+	 *  with it finishes, and a model still downloading is refused `Busy`.
+	 *  Removing a model that is not there succeeds. The active-model choice is
+	 *  kept; it reads as unavailable until the model is downloaded again.
+	 */
+	removeModel: (modelId: string) => typedError<null, CatalogError>(__TAURI_INVOKE("plugin:epicenter-transcription|remove_model", { modelId })),
+	/**
 	 *  Show a downloaded model's folder in the shared Hugging Face cache, such as
 	 *  `models--handy-computer--whisper-tiny-gguf`, so the user can see where it
-	 *  lives and remove it themselves. This plugin never deletes a model.
+	 *  lives.
 	 *
 	 *  The folder, not the file: the file is a symlink into the repo's `blobs/`,
 	 *  and the file manager would select the 64-hex blob it resolves to. Deleting
@@ -86,6 +95,27 @@ export const commands = {
 	 */
 	transcribeFile: (modelId: string, root: Root, path: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|transcribe_file", { modelId, root, path, hints })),
 	/**
+	 *  Transcribe audio the page holds (an upload, such as a dictation's blob),
+	 *  base64-encoded, with the exact catalog model `model_id`. The bytes are
+	 *  decoded where they arrive; nothing is written to disk. Audio that is not
+	 *  base64 is an `AudioReadError`; then an unknown or uninstalled model is
+	 *  refused before the audio is decoded, and audio that does not decode is an
+	 *  `AudioReadError`. The active-model
+	 *  setting is neither read nor changed.
+	 */
+	transcribeAudio: (modelId: string, audio: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|transcribe_audio", { modelId, audio, hints })),
+	/**
+	 *  Load `model_id` into memory now, so the next transcription with it starts
+	 *  warm. It replaces any other resident model and stays under the unload
+	 *  policy. An unknown or uninstalled model is refused.
+	 */
+	loadModel: (modelId: string) => typedError<null, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|load_model", { modelId })),
+	/**
+	 *  Drop `model_id` from memory if it is resident, after any transcription
+	 *  with it finishes. Its file stays in the cache.
+	 */
+	unloadModel: (modelId: string) => typedError<null, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|unload_model", { modelId })),
+	/**
 	 *  Open this app's model settings through the callback given to
 	 *  `Builder::open_settings`. Refused when the app gave none.
 	 */
@@ -147,7 +177,7 @@ export type AppliedHints = {
 	initialPrompt: boolean,
 };
 
-export type CatalogError = { name: "UnknownModel"; message: string } | { name: "Busy"; message: string } | { name: "DownloadingElsewhere"; message: string } | { name: "DownloadFailed"; message: string } | { name: "RevealFailed"; message: string };
+export type CatalogError = { name: "UnknownModel"; message: string } | { name: "Busy"; message: string } | { name: "DownloadingElsewhere"; message: string } | { name: "DownloadFailed"; message: string } | { name: "RevealFailed"; message: string } | { name: "RemoveFailed"; message: string };
 
 /**
  *  Cumulative download progress for one model: bytes received so far across all

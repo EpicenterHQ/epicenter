@@ -114,17 +114,42 @@ test('a plugin refusal answers as an OpenAI error with its name as the code', as
 	});
 });
 
-test('an upload without a path is refused before any command runs', async () => {
+test('an uploaded file is transcribed through transcribe_audio, as its bytes', async () => {
 	reset();
+	replies.transcribe_audio = () => ({
+		outcome: 'transcribed',
+		text: 'dictated',
+		modelId: 'whisper-tiny',
+		applied: { language: null, initialPrompt: true },
+	});
 	const body = new FormData();
 	body.set('model', 'whisper-tiny');
-	body.set('file', new File(['x'], 'a.webm'));
+	body.set('prompt', 'Vocab');
+	body.set('file', new File([new Uint8Array([0, 1, 254, 255])], 'a.webm'));
 	const response = await localSpeech()!.fetch('audio/transcriptions', {
 		method: 'POST',
 		body,
 	});
+	expect(response.status).toBe(200);
+	expect(await response.json()).toEqual({ text: 'dictated' });
+	expect(calls.at(-1)).toEqual({
+		command: 'plugin:epicenter-transcription|transcribe_audio',
+		args: {
+			modelId: 'whisper-tiny',
+			audio: btoa(String.fromCharCode(0, 1, 254, 255)),
+			hints: { language: null, initialPrompt: 'Vocab' },
+		},
+	});
+});
+
+test('a request with neither audio nor a path is refused before any command runs', async () => {
+	reset();
+	const response = await localSpeech()!.fetch(
+		'audio/transcriptions',
+		form({ model: 'whisper-tiny' }),
+	);
 	expect(response.status).toBe(400);
-	expect((await response.json()).error.code).toBe('path-required');
+	expect((await response.json()).error.code).toBe('file-required');
 	expect(calls).toEqual([]);
 	expect(
 		(await localSpeech()!.fetch('chat/completions', { method: 'POST' })).status,
@@ -152,6 +177,47 @@ test('download fetches through download_model, then lists the new model', async 
 		{ id: 'whisper-small', can: ['transcribe'] },
 	]);
 	expect(told).toBe(1);
+});
+
+test('remove deletes through remove_model, then lists the model no longer', async () => {
+	reset();
+	replies.remove_model = () => {
+		installed = [];
+		return null;
+	};
+	const speech = localSpeech()!;
+	let told = 0;
+	speech.subscribe?.(() => told++);
+	await Bun.sleep(0);
+	expect(speech.models()).toEqual([
+		{ id: 'whisper-tiny', can: ['transcribe'] },
+	]);
+	expect(await speech.remove('whisper-tiny')).toEqual({
+		data: null,
+		error: null,
+	});
+	expect(calls).toContainEqual({
+		command: 'plugin:epicenter-transcription|remove_model',
+		args: { modelId: 'whisper-tiny' },
+	});
+	expect(speech.models()).toEqual([]);
+	expect(told).toBe(2);
+});
+
+test('load and unload name the model to the plugin', async () => {
+	reset();
+	replies.load_model = () => null;
+	replies.unload_model = () => null;
+	const speech = localSpeech()!;
+	await speech.load('whisper-tiny');
+	await speech.unload('whisper-tiny');
+	expect(calls.map(({ command, args }) => [command, args])).toEqual([
+		['plugin:epicenter-transcription|load_model', { modelId: 'whisper-tiny' }],
+		[
+			'plugin:epicenter-transcription|unload_model',
+			{ modelId: 'whisper-tiny' },
+		],
+	]);
 });
 
 test('outside the desktop app there is no local speech', () => {

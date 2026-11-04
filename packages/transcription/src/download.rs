@@ -49,6 +49,14 @@ impl Drop for Reservation {
 }
 
 impl Downloads {
+    /// Whether `id` is downloading now.
+    pub(crate) fn has(&self, id: &str) -> bool {
+        self.0
+            .lock()
+            .expect("download reservations poisoned")
+            .contains(id)
+    }
+
     /// Reserve before queueing; dropping even an unstarted closure releases it.
     pub(crate) fn worker<T>(
         &self,
