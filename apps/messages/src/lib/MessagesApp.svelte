@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
-	import { fromClient } from '@epicenter/svelte/client';
+	import { folderOf } from '@epicenter/folder/core';
+	import { reactive } from '@epicenter/svelte/reactive';
 	import type { Messages } from './contract.js';
 	import { setDevice } from './device.js';
 	import { Badge } from '@epicenter/ui/badge';
@@ -12,10 +13,11 @@
 	import { type Backend, createDemoBackend, requestBeeper } from './backend.js';
 	import ConversationView from './Conversation.svelte';
 	let { device }: { device: Client<Messages> } = $props();
-	// One client for the app's life: `Startup` opened it, and it is wrapped
-	// once for Svelte here, where it is set for every component under it.
+	// One client for the app's life: `Startup` opened it, and it is read as a
+	// folder through `reactive` once, here, where it is set for every
+	// component under it.
 	// svelte-ignore state_referenced_locally
-	const { files } = setDevice({ client: device, files: fromClient(device) });
+	const { files } = setDevice({ client: device, files: reactive(folderOf(device)) });
 	const queryClient = new QueryClient();
 	setQueryClientContext(queryClient);
 	const demo = createDemoBackend();
@@ -43,12 +45,12 @@
 	const current = $derived(all.find((chat) => chat.id === selected));
 	const draftPreviews = $derived.by(() => {
 		const previews = new Map<string, { label: string; text: string }>();
-		for (const draft of files.drafts.items) {
+		for (const draft of files.drafts.items()) {
 			if (draft.mode !== backend.mode || draft.profile !== backend.profile) continue;
 			const text = draft.body.trim().replace(/\s+/g, ' ');
 			if (text) previews.set(draft.chatId, { label: 'Draft', text });
 		}
-		for (const attempt of files.attempts.items) {
+		for (const attempt of files.attempts.items()) {
 			if (attempt.state !== 'sending' || attempt.mode !== backend.mode || attempt.profile !== backend.profile) continue;
 			previews.set(attempt.chatId, { label: 'Check send', text: attempt.body.trim().replace(/\s+/g, ' ') });
 		}
@@ -78,6 +80,13 @@
 		onError: () => { notice = 'Could not remove the saved Beeper connection.'; },
 	}));
 </script>
+
+<!-- Leaving while a save is out asks first. -->
+<svelte:window
+	onbeforeunload={(event) => {
+		if (files.saving()) event.preventDefault();
+	}}
+/>
 
 <main class="flex h-dvh min-h-0 flex-col overflow-hidden">
 	<header class="flex flex-wrap items-center gap-3 border-b px-4 py-3">

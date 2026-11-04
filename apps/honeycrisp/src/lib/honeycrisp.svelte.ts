@@ -1,6 +1,6 @@
 /**
  * Honeycrisp's state over one store's two collections, notes and folders.
- * The root that passes the client chooses the store (the person's
+ * The root that sets them chooses the store (the person's
  * `honeycrisp` repository on the web, ADR-0700, or the desktop window's
  * folder). Honeycrisp adds its orders, what the lists and the detail show,
  * and the actions that span both collections.
@@ -12,7 +12,7 @@
  */
 import type { NoteOf } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import type { ReactiveNotes } from '@epicenter/svelte/client';
+import type { FolderNotes } from '@epicenter/folder/core';
 import { createContext } from 'svelte';
 import { type Honeycrisp, honeycrisp } from './contract.js';
 import { displayTitle } from './note-source.js';
@@ -69,12 +69,12 @@ export function shownIn(filter: Filter, note: Note) {
 	return `${note.title ?? ''}\n${note.body}`.toLowerCase().includes(needle);
 }
 
-/** The notes every component of a page reads and edits: its store's, set by the variant's root. */
+/** The notes every component of a page reads and edits: its store's, as `reactive` adapts them, set by the variant's root. */
 export const [getNotes, setNotes] =
-	createContext<ReactiveNotes<NoteCollection>>();
-/** The folders every component of a page reads and edits: its store's, set by the variant's root. */
+	createContext<FolderNotes<NoteCollection>>();
+/** The folders every component of a page reads and edits: its store's, as `reactive` adapts them, set by the variant's root. */
 export const [getFolders, setFolders] =
-	createContext<ReactiveNotes<FolderCollection>>();
+	createContext<FolderNotes<FolderCollection>>();
 
 /**
  * What a Honeycrisp page shows over its store's notes and folders: the
@@ -86,8 +86,8 @@ export function createHoneycrisp({
 	notes,
 	folders,
 }: {
-	notes: ReactiveNotes<NoteCollection>;
-	folders: ReactiveNotes<FolderCollection>;
+	notes: FolderNotes<NoteCollection>;
+	folders: FolderNotes<FolderCollection>;
 }) {
 	let filter = $state<Filter>({ folderId: null, query: '' });
 	let selected = $state.raw<Selection | undefined>();

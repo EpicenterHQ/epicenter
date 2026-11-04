@@ -5,7 +5,7 @@
  * the person has checked it. Nothing is ever resent on its own.
  */
 import type { Client, ClientError } from '@epicenter/definition/contract';
-import type { ReactiveClient } from '@epicenter/svelte/client';
+import type { Folder, OpenFolderError } from '@epicenter/folder/core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Backend } from './backend.js';
@@ -13,19 +13,20 @@ import type { Messages } from './contract.js';
 
 /**
  * This page's device as a send uses it: its client, to read straight from
- * storage, and that client as the page shows it (`fromClient`, wrapped once
- * where `MessagesApp` sets the device), to write through.
+ * storage, and that client read as a folder, as the page shows it
+ * (`reactive(folderOf(client))`, made once where `MessagesApp` sets the
+ * device), to write through.
  */
 export type Device = {
 	client: Client<Messages>;
-	files: ReactiveClient<Messages>;
+	files: Folder<Messages>;
 };
 
 export const DraftError = defineErrors({
 	Refused: ({ message }: { message: string }) => ({ message }),
 });
 type DraftError = InferErrors<typeof DraftError>;
-type Failure = ClientError | DraftError;
+type Failure = ClientError | OpenFolderError | DraftError;
 
 export async function draftId(
 	backend: Pick<Backend, 'mode' | 'profile'>,
@@ -109,7 +110,7 @@ async function storageAgrees(device: Device, id: string) {
 		listed.data.items.find(named) ?? listed.data.invalid.find(named);
 	const shown =
 		device.files.attempts.get({ id }) ??
-		device.files.attempts.invalid.find(named);
+		device.files.attempts.invalid().find(named);
 	return stored?.version === shown?.version ? null : changedAttempt();
 }
 
@@ -134,7 +135,7 @@ export async function sendDraft(
 		const named = (note: { id: string }) => note.id === id;
 		const attempt = files.attempts.get({ id });
 		if (
-			files.attempts.invalid.some(named) ||
+			files.attempts.invalid().some(named) ||
 			(attempt !== undefined && !matches(attempt, backend, chatId))
 		)
 			return DraftError.Refused({
@@ -142,7 +143,7 @@ export async function sendDraft(
 			});
 		if (attempt?.state === 'sending') return unresolved();
 		if (attempt?.attemptId !== previousAttemptId) return changedAttempt();
-		if (files.drafts.invalid.some(named))
+		if (files.drafts.invalid().some(named))
 			return DraftError.Refused({
 				message: 'This draft needs Markdown repair before sending.',
 			});
@@ -233,7 +234,7 @@ export async function recoverDraft(
 		const named = (note: { id: string }) => note.id === id;
 		const attempt = files.attempts.get({ id });
 		if (
-			files.attempts.invalid.some(named) ||
+			files.attempts.invalid().some(named) ||
 			(attempt !== undefined && !matches(attempt, backend, chatId))
 		)
 			return DraftError.Refused({
@@ -250,7 +251,7 @@ export async function recoverDraft(
 			{ state: 'acknowledged' },
 		);
 		if (checked.error !== null) return checked;
-		if (!keep || !composerEmpty() || files.drafts.invalid.some(named))
+		if (!keep || !composerEmpty() || files.drafts.invalid().some(named))
 			return Ok(undefined);
 		const restored = files.drafts.get({ id })
 			? await files.drafts.update({ id }, { body: attempt.body })

@@ -4,13 +4,13 @@
  * the desktop window's under the `tauri` condition (`bun run build:native`).
  * Each leaf annotates against these types, so both stay one shape.
  */
-import type { ReactiveNotes } from '@epicenter/svelte/client';
+import type { FolderNotes } from '@epicenter/folder/core';
 import type { Component, Snippet } from 'svelte';
 import type { NoteCollection } from './honeycrisp.svelte.js';
 
 /** What the header tells `Chrome`: why the notes or folders did not list, if they did not. */
 export type ChromeProps = {
-	unreadable: ReactiveNotes<NoteCollection>['error'];
+	unreadable: ReturnType<FolderNotes<NoteCollection>['error']>;
 };
 
 /** What the sign-in callback's page is given: where the app starts. */

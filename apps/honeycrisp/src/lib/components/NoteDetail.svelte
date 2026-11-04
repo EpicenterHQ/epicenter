@@ -23,7 +23,7 @@
 	// The parent keys this view by the note.
 	// svelte-ignore state_referenced_locally
 	const id = shownId;
-	const invalid = $derived(notes.invalid.find((file) => file.id === id));
+	const invalid = $derived(notes.invalid().find((file) => file.id === id));
 	/** A note just made opens ready to write in. */
 	const isNew = app.takeNew(id);
 	const edit = notes.edit({ id });
@@ -34,12 +34,12 @@
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
-	{#if edit.error !== null}
+	{#if edit.error() !== null}
 		<div class="px-3 py-2">
 			<UnsavedEdit {edit} />
 		</div>
 	{/if}
-	{#if edit.exists}
+	{#if edit.exists()}
 		{@const folderId = edit.fields.folderId}
 		<div class="flex flex-wrap items-center gap-2 border-b px-3 py-2">
 			<Input
@@ -54,7 +54,7 @@
 				bind:value={() => optionOf(folderId), (option) => (edit.fields.folderId = folderOf(option))}
 			>
 				<option value="">No folder</option>
-				{#each folders.items.toSorted(byName) as folder (folder.id)}
+				{#each folders.items().toSorted(byName) as folder (folder.id)}
 					<option value={optionOf(folder.id)}>{folderLabel(folder)}</option>
 				{/each}
 				{#if folderId !== undefined && folders.get({ id: folderId }) === undefined}
