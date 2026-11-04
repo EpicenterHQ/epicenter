@@ -64,8 +64,13 @@ attempts/<id>.md    the latest send from that composer: chatId, profile, mode,
 
 `<id>` is `<mode>-<sha256 of mode, profile and chat>`, so demo and live
 drafts never share a file. The files are this browser's for the origin
-Messages is served on (OPFS, `openDevice` from `@epicenter/folder/browser`),
-for good.
+Messages is served on (OPFS), for good: `src/lib/app.ts` opens them once
+for the page, `openFolder(messages)` with no account
+([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)),
+and every component and the send workflow (`drafts.ts`) read and write
+through that `folder`. The page renders under `<WhenOpen>`, which shows a
+spinner while the files open, Recovery when they cannot, and asks before
+the page is left while a save is out.
 
 Messages is local only: of the variants an app may have
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)),

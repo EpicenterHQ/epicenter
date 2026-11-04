@@ -1,5 +1,7 @@
 /**
- * Messages' send workflow, over a real device folder.
+ * Messages' send workflow, over a folder on disk (the page's is this
+ * browser's files): another tab's write is a file written beside it, and a
+ * storage failure is its client's.
  *
  * The attempt must land before Beeper is asked, an uncertain send needs an
  * explicit check, and the composer's typing after Send stays.
@@ -17,10 +19,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Client, ClientError } from '@epicenter/definition/contract';
-import { folderOf } from '@epicenter/folder/core';
+import { createFolder, type Folder } from '@epicenter/folder/core';
 import { openDevice } from '@epicenter/folder/node';
 import { flushSync } from 'svelte';
-import { unwrap } from 'wellcrafted/result';
+import { Ok, unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type Backend, createDemoBackend } from './backend.js';
 import { type Messages, messages } from './contract.js';
@@ -30,41 +32,47 @@ const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 );
 const { draftId, recoverDraft, sendDraft } = await import('./drafts.js');
-type Device = import('./drafts.js').Device;
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
 });
 
-/** A device over a fresh folder, holding an empty draft for Maya's demo chat. */
+/**
+ * A folder over a fresh directory, read through `reactive` as the page
+ * reads its own, holding an empty draft for Maya's demo chat. `wrap`
+ * changes what its client answers.
+ */
 async function setup(
 	wrap: (client: Client<Messages>) => Client<Messages> = (client) => client,
 ) {
 	const root = await mkdtemp(join(tmpdir(), 'messages-drafts-'));
 	cleanup.push(() => rm(root, { recursive: true, force: true }));
 	const client = unwrap(await openDevice(messages, { path: root }));
-	const device: Device = { client, files: reactive(folderOf(wrap(client))) };
+	const folder: Folder<Messages> = reactive(
+		createFolder(messages, async () => Ok(wrap(client))),
+	);
+	cleanup.push(() => folder[Symbol.dispose]());
 	const backend = createDemoBackend();
 	const id = await draftId(backend, 'demo-maya');
 	expectOk(
-		await device.files.drafts.create({
+		await folder.drafts.create({
 			id,
 			chatId: 'demo-maya',
 			profile: backend.profile,
 			mode: backend.mode,
 		}),
 	);
-	return { root, device, backend, id };
+	return { root, folder, backend, id };
 }
 
-/** Keep `device`'s collections listing and following changes, as an open page does. */
-function watch(device: Device) {
+/** Keep `folder`'s collections listing and following changes, as an open page does. */
+function watch(folder: Folder<Messages>) {
 	const followed = follow(() => [
-		device.files.drafts.items(),
-		device.files.drafts.invalid(),
-		device.files.attempts.items(),
-		device.files.attempts.invalid(),
+		folder.drafts.items(),
+		folder.drafts.invalid(),
+		folder.attempts.items(),
+		folder.attempts.invalid(),
 	]);
 	cleanup.push(followed.stop);
 }
@@ -77,21 +85,22 @@ async function until(check: () => boolean) {
 	expect(check()).toBe(true);
 }
 
-const saveDraft = (device: Device, id: string, body: string) =>
-	device.files.drafts.update({ id }, { body });
-const attemptOf = (device: Device, id: string) =>
-	device.files.attempts.get({ id });
-const draftOf = (device: Device, id: string) => device.files.drafts.get({ id });
+const saveDraft = (folder: Folder<Messages>, id: string, body: string) =>
+	folder.drafts.update({ id }, { body });
+const attemptOf = (folder: Folder<Messages>, id: string) =>
+	folder.attempts.get({ id });
+const draftOf = (folder: Folder<Messages>, id: string) =>
+	folder.drafts.get({ id });
 
 function send(
-	device: Device,
+	folder: Folder<Messages>,
 	id: string,
 	backend: Backend,
 	text: string,
-	previousAttemptId = attemptOf(device, id)?.attemptId,
+	previousAttemptId = attemptOf(folder, id)?.attemptId,
 	unchanged = () => true,
 ) {
-	return sendDraft(device, {
+	return sendDraft(folder, {
 		id,
 		chatId: 'demo-maya',
 		backend,
@@ -102,14 +111,14 @@ function send(
 }
 
 function check(
-	device: Device,
+	folder: Folder<Messages>,
 	id: string,
 	backend: Backend,
 	checkedAttemptId: string,
 	keep = true,
 	composerEmpty = () => true,
 ) {
-	return recoverDraft(device, {
+	return recoverDraft(folder, {
 		id,
 		chatId: 'demo-maya',
 		backend,
@@ -135,24 +144,24 @@ function counting(backend: Backend) {
 }
 
 test('an uncertain attempt holds its text and blocks resending until checked', async () => {
-	const { device, backend, id, root } = await setup();
+	const { folder, backend, id, root } = await setup();
 	const text = 'A draft with Markdown and "quotes".';
-	expectOk(await saveDraft(device, id, text));
+	expectOk(await saveDraft(folder, id, text));
 	backend.failNext();
-	expectErr(await send(device, id, backend, text));
-	expect(attemptOf(device, id)).toMatchObject({ state: 'sending', body: text });
-	expect(draftOf(device, id)?.body).toBe('');
+	expectErr(await send(folder, id, backend, text));
+	expect(attemptOf(folder, id)).toMatchObject({ state: 'sending', body: text });
+	expect(draftOf(folder, id)?.body).toBe('');
 	expect(await readFile(join(root, `attempts/${id}.md`), 'utf8')).toContain(
 		'state: sending',
 	);
-	expectErr(await send(device, id, backend, text));
+	expectErr(await send(folder, id, backend, text));
 	expectOk(
-		await check(device, id, backend, attemptOf(device, id)?.attemptId ?? ''),
+		await check(folder, id, backend, attemptOf(folder, id)?.attemptId ?? ''),
 	);
-	expect(draftOf(device, id)?.body).toBe(text);
-	expect(attemptOf(device, id)?.state).toBe('acknowledged');
-	expectOk(await send(device, id, backend, text));
-	expect(attemptOf(device, id)?.state).toBe('accepted');
+	expect(draftOf(folder, id)?.body).toBe(text);
+	expect(attemptOf(folder, id)?.state).toBe('acknowledged');
+	expectOk(await send(folder, id, backend, text));
+	expect(attemptOf(folder, id)?.state).toBe('accepted');
 });
 
 test('demo and live drafts use different IDs', async () => {
@@ -164,7 +173,7 @@ test('demo and live drafts use different IDs', async () => {
 
 test('a failed attempt write never contacts Beeper', async () => {
 	const unavailable = ClientError.Unavailable({ cause: 'no disk' });
-	const { device, backend, id } = await setup((client) => ({
+	const { folder, backend, id } = await setup((client) => ({
 		...client,
 		attempts: {
 			...client.attempts,
@@ -173,20 +182,20 @@ test('a failed attempt write never contacts Beeper', async () => {
 		},
 	}));
 	const counted = counting(backend);
-	expectOk(await saveDraft(device, id, 'Must not send'));
+	expectOk(await saveDraft(folder, id, 'Must not send'));
 	expect(
-		expectErr(await send(device, id, counted.backend, 'Must not send')).message,
+		expectErr(await send(folder, id, counted.backend, 'Must not send')).message,
 	).toBe('Nothing was sent: the attempt could not be saved.');
 	expect(counted.sends).toBe(0);
 });
 
 test('two concurrent sends reach Beeper once', async () => {
-	const { device, backend, id } = await setup();
+	const { folder, backend, id } = await setup();
 	const counted = counting(backend);
-	expectOk(await saveDraft(device, id, 'Only once'));
+	expectOk(await saveDraft(folder, id, 'Only once'));
 	const [first, second] = await Promise.all([
-		send(device, id, counted.backend, 'Only once'),
-		send(device, id, counted.backend, 'Only once'),
+		send(folder, id, counted.backend, 'Only once'),
+		send(folder, id, counted.backend, 'Only once'),
 	]);
 	expectOk(first);
 	expectErr(second);
@@ -194,7 +203,7 @@ test('two concurrent sends reach Beeper once', async () => {
 });
 
 test('typing after Send survives the receipt', async () => {
-	const { device, backend, id } = await setup();
+	const { folder, backend, id } = await setup();
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const gated: Backend = {
@@ -207,23 +216,23 @@ test('typing after Send survives the receipt', async () => {
 			return backend.request(request);
 		},
 	};
-	expectOk(await saveDraft(device, id, 'First reply'));
-	const sending = send(device, id, gated, 'First reply');
+	expectOk(await saveDraft(folder, id, 'First reply'));
+	const sending = send(folder, id, gated, 'First reply');
 	await reached.promise;
-	expectOk(await saveDraft(device, id, 'Next reply'));
+	expectOk(await saveDraft(folder, id, 'Next reply'));
 	release.resolve();
 	expectOk(await sending);
-	expect(draftOf(device, id)?.body).toBe('Next reply');
-	expect(attemptOf(device, id)?.state).toBe('accepted');
+	expect(draftOf(folder, id)?.body).toBe('Next reply');
+	expect(attemptOf(folder, id)?.state).toBe('accepted');
 });
 
 test('typing after Send is not cleared before Beeper is contacted', async () => {
-	const { device, backend, id } = await setup();
+	const { folder, backend, id } = await setup();
 	const counted = counting(backend);
-	expectOk(await saveDraft(device, id, 'Next reply'));
+	expectOk(await saveDraft(folder, id, 'Next reply'));
 	expectOk(
 		await send(
-			device,
+			folder,
 			id,
 			counted.backend,
 			'First reply',
@@ -231,13 +240,13 @@ test('typing after Send is not cleared before Beeper is contacted', async () => 
 			() => false,
 		),
 	);
-	expect(draftOf(device, id)?.body).toBe('Next reply');
-	expect(attemptOf(device, id)?.state).toBe('accepted');
+	expect(draftOf(folder, id)?.body).toBe('Next reply');
+	expect(attemptOf(folder, id)?.state).toBe('accepted');
 	expect(counted.sends).toBe(1);
 });
 
 test('a stale recovery cannot restore an accepted send', async () => {
-	const { device, backend, id } = await setup();
+	const { folder, backend, id } = await setup();
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	let sends = 0;
@@ -252,40 +261,40 @@ test('a stale recovery cannot restore an accepted send', async () => {
 			return backend.request(request);
 		},
 	};
-	expectOk(await saveDraft(device, id, 'One reply'));
-	const sending = send(device, id, gated, 'One reply');
+	expectOk(await saveDraft(folder, id, 'One reply'));
+	const sending = send(folder, id, gated, 'One reply');
 	await reached.promise;
 	const recovering = check(
-		device,
+		folder,
 		id,
 		gated,
-		attemptOf(device, id)?.attemptId ?? '',
+		attemptOf(folder, id)?.attemptId ?? '',
 	);
 	release.resolve();
 	expectOk(await sending);
 	expectOk(await recovering);
-	expect(draftOf(device, id)?.body).toBe('');
-	expect(attemptOf(device, id)?.state).toBe('accepted');
+	expect(draftOf(folder, id)?.body).toBe('');
+	expect(attemptOf(folder, id)?.state).toBe('accepted');
 	expect(sends).toBe(1);
 });
 
 test('checking an older identical attempt cannot acknowledge a newer one', async () => {
-	const { device, backend, id } = await setup();
-	expectOk(await saveDraft(device, id, 'Same reply'));
+	const { folder, backend, id } = await setup();
+	expectOk(await saveDraft(folder, id, 'Same reply'));
 	backend.failNext();
-	expectErr(await send(device, id, backend, 'Same reply'));
-	const oldId = attemptOf(device, id)?.attemptId ?? '';
-	expectOk(await check(device, id, backend, oldId));
+	expectErr(await send(folder, id, backend, 'Same reply'));
+	const oldId = attemptOf(folder, id)?.attemptId ?? '';
+	expectOk(await check(folder, id, backend, oldId));
 	backend.failNext();
-	expectErr(await send(device, id, backend, 'Same reply'));
-	expect(attemptOf(device, id)?.attemptId).not.toBe(oldId);
-	expectErr(await check(device, id, backend, oldId));
-	expect(attemptOf(device, id)?.state).toBe('sending');
+	expectErr(await send(folder, id, backend, 'Same reply'));
+	expect(attemptOf(folder, id)?.attemptId).not.toBe(oldId);
+	expectErr(await check(folder, id, backend, oldId));
+	expect(attemptOf(folder, id)?.state).toBe('sending');
 });
 
 test('a failed clear sends nothing and acknowledges the attempt', async () => {
 	let failClear = false;
-	const { device, backend, id } = await setup((client) => ({
+	const { folder, backend, id } = await setup((client) => ({
 		...client,
 		drafts: {
 			...client.drafts,
@@ -296,86 +305,82 @@ test('a failed clear sends nothing and acknowledges the attempt', async () => {
 		},
 	}));
 	const counted = counting(backend);
-	expectOk(await saveDraft(device, id, 'Prepared reply'));
+	expectOk(await saveDraft(folder, id, 'Prepared reply'));
 	failClear = true;
 	expect(
-		expectErr(await send(device, id, counted.backend, 'Prepared reply'))
+		expectErr(await send(folder, id, counted.backend, 'Prepared reply'))
 			.message,
 	).toContain('Nothing was sent');
 	expect(counted.sends).toBe(0);
-	expect(draftOf(device, id)?.body).toBe('Prepared reply');
-	expect(attemptOf(device, id)?.state).toBe('acknowledged');
+	expect(draftOf(folder, id)?.body).toBe('Prepared reply');
+	expect(attemptOf(folder, id)?.state).toBe('acknowledged');
 });
 
 test('broken draft front matter refuses a send', async () => {
-	const { device, backend, id, root } = await setup();
-	watch(device);
+	const { folder, backend, id, root } = await setup();
+	watch(folder);
 	const counted = counting(backend);
 	await writeFile(
 		join(root, `drafts/${id}.md`),
 		'---\nchatId: [\n---\nOriginal',
 	);
-	await until(() => device.files.drafts.invalid().some((note) => note.id === id));
+	await until(() => folder.drafts.invalid().some((note) => note.id === id));
 	expect(
-		expectErr(await send(device, id, counted.backend, 'Edited')).message,
+		expectErr(await send(folder, id, counted.backend, 'Edited')).message,
 	).toBe('This draft needs Markdown repair before sending.');
 	expect(counted.sends).toBe(0);
 });
 
 test('an attempt on storage the page has not seen refuses a send', async () => {
-	const { device, backend, id, root } = await setup();
+	const { folder, backend, id, root } = await setup();
 	// Nothing follows the page's attempts, so it shows none: another tab's write it has not heard of.
 	await Bun.write(
 		join(root, `attempts/${id}.md`),
 		'---\nstate: sending\n---\nAnother send',
 	);
 	expect(
-		expectErr(await send(device, id, backend, 'Must not send')).message,
+		expectErr(await send(folder, id, backend, 'Must not send')).message,
 	).toContain('Another send');
 });
 
 test('an attempt rewritten with a byte-order mark does not block the next send', async () => {
-	const { device, backend, id, root } = await setup();
-	watch(device);
-	expectOk(await saveDraft(device, id, 'First reply'));
-	expectOk(await send(device, id, backend, 'First reply'));
+	const { folder, backend, id, root } = await setup();
+	watch(folder);
+	expectOk(await saveDraft(folder, id, 'First reply'));
+	expectOk(await send(folder, id, backend, 'First reply'));
 	const path = join(root, `attempts/${id}.md`);
-	const before = attemptOf(device, id)?.version;
+	const before = attemptOf(folder, id)?.version;
 	await writeFile(path, `﻿${await readFile(path, 'utf8')}`);
 	await until(() => {
-		const shown = attemptOf(device, id);
+		const shown = attemptOf(folder, id);
 		return shown !== undefined && shown.version !== before;
 	});
-	expectOk(await saveDraft(device, id, 'Second reply'));
-	expectOk(await send(device, id, backend, 'Second reply'));
+	expectOk(await saveDraft(folder, id, 'Second reply'));
+	expectOk(await send(folder, id, backend, 'Second reply'));
 });
 
 test('a failed storage read asks to try again', async () => {
-	const { device, backend, id } = await setup();
-	const unreadable: Device = {
-		...device,
-		client: {
-			...device.client,
-			attempts: {
-				...device.client.attempts,
-				list: async () => ClientError.Unavailable({ cause: 'read failed' }),
-			},
+	const { folder, backend, id } = await setup((client) => ({
+		...client,
+		attempts: {
+			...client.attempts,
+			list: async () => ClientError.Unavailable({ cause: 'read failed' }),
 		},
-	};
+	}));
 	expect(
-		expectErr(await send(unreadable, id, backend, 'Must not send')).message,
+		expectErr(await send(folder, id, backend, 'Must not send')).message,
 	).toBe('Could not check storage; try again.');
 });
 
 test('a changed draft chatId cannot redirect a send', async () => {
-	const { device, backend, id } = await setup();
+	const { folder, backend, id } = await setup();
 	const counted = counting(backend);
 	expectOk(
-		await device.files.drafts.update(
+		await folder.drafts.update(
 			{ id },
 			{ chatId: 'demo-noah', body: 'Private reply' },
 		),
 	);
-	expectErr(await send(device, id, counted.backend, 'Private reply'));
+	expectErr(await send(folder, id, counted.backend, 'Private reply'));
 	expect(counted.sends).toBe(0);
 });
