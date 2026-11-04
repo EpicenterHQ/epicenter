@@ -70,13 +70,11 @@ export async function initCommand(
 	dir: string | undefined,
 	options: Options,
 	json: boolean,
-	grant: GrantKind,
 ) {
 	const { init } = await import('./setup.ts');
 	try {
 		const initialized = await init(dir ?? '.', {
 			name: typeof options.name === 'string' ? options.name : undefined,
-			credential: credentialFor(grant),
 		});
 		reportSetup('init', initialized, json);
 		return EXIT.ok;

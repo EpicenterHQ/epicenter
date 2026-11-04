@@ -15,8 +15,8 @@
  * - T0: init and sync refuse a folder inside an enclosing repository
  * - T1, T2: notes merge by `settle` in the core; the later arrival wins a key
  * - T3: an edit beats a delete, both ways
- * - T4, T5: every non-note file travels as an LFS pointer; a round writes
- *   back the LFS settings a clone lost
+ * - T4, T5: every non-note file travels as an LFS pointer; a round gives a
+ *   clone's pointer files their bytes and writes back the LFS settings it lost
  * - T6: a held index lock stops sync with nothing changed; concurrent syncs
  *   are serialized and a rejected push is retried, so every run succeeds
  * - T7: a rewritten remote main stops sync before it merges
@@ -530,15 +530,18 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'T5: init repairs a clone missing its bytes, and a round writes back the filters it lost',
+		'T5: a round gives a clone without LFS its bytes, and writes back the filters it lost',
 		async () => {
 			await git(BOX, 'clone', '-q', REMOTE, C);
 			await connect(C, 'carol');
 			expect(
 				read(C, 'media/clip.webm').startsWith('version https://git-lfs'),
 			).toBe(true);
-			const pulled = await init(C);
-			expect(pulled.out).toContain('git lfs pull (1 pointer file');
+			expect((await init(C)).code).toBe(0);
+			const restored = await syncJson(C);
+			expect(restored.status.notes).toContain(
+				'restored 1 files checked out as LFS pointers',
+			);
 			expect(sha256(readFileSync(join(C, 'media/clip.webm')))).toBe(
 				sha256(clip),
 			);
@@ -730,7 +733,7 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
-		'clone: git clone, then init, then the LFS bytes, synced for sync',
+		'clone: one round restores the repository with its LFS bytes, synced for sync',
 		async () => {
 			const D = join(HOME, 'Epicenter', 'D');
 			// The clone reads LFS bytes from the URL the global config names for this remote.
@@ -1134,11 +1137,6 @@ describe('epicenter sync over stock git', () => {
 		expect(await quiet(dir, 'config', '--get', 'remote.origin.url')).toBe(url);
 		expect((await cli('connect', dir, url)).out).toContain(
 			'origin already set',
-		);
-		await git(dir, 'config', '--unset-all', 'remote.origin.fetch');
-		expect((await cli('connect', dir, url)).code).toBe(0);
-		expect(await quiet(dir, 'config', '--get', 'remote.origin.fetch')).toBe(
-			'+refs/heads/*:refs/remotes/origin/*',
 		);
 		expect((await cli('connect', dir, `file://${other}`)).code).toBe(2);
 		await git(dir, 'config', 'lfs.url', lfs.url);

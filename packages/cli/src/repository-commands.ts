@@ -8,14 +8,14 @@
  *
  * The credential is an access token for the deployment's Git audience, from
  * the grant the command runs under (`--desktop` selects the desktop app's).
- * Every `git` this binary runs itself, a clone, a sync's fetch and push, and
- * their LFS transfers, gets it as one Bearer header, outside every argument,
- * and only for an `https` remote (`hostedCredentials`), so a refresh always
- * runs in this process and never in a `git` it started (ADR-0565). A
- * person's own `git` gets it from the credential helper, which only
- * `epicenter auth login` writes, globally.
+ * Every round the sync core runs for this binary, a clone's or a sync's,
+ * sends it as one Bearer header on each Git and LFS request to the remote's
+ * origin (`hostedCredentials`), so a refresh always runs in this process
+ * (ADR-0565). A person's own `git` gets it from the credential helper, which
+ * only `epicenter auth login` writes, globally.
  */
 
+import { locate } from '@epicenter/core';
 import {
 	type GrantLevel,
 	isRepositoryName,
@@ -35,7 +35,7 @@ import {
 	type GrantKind,
 } from './auth.ts';
 import { EXIT, fail, writeJson, writeOut } from './output.ts';
-import { type CredentialFor, config } from './sync/git.ts';
+import type { CredentialFor } from './sync/git.ts';
 
 /**
  * The credential for a remote of this deployment's hosted Git, asked for by
@@ -179,8 +179,13 @@ async function repositoryOf(
 		return isRepositoryName(own) ? { namespace: '~', name: own } : undefined;
 	const named = parseRepositoryPath(target);
 	if (named !== undefined) return named;
-	const url = await config(target, 'remote.origin.url').catch(() => null);
-	return url === null
+	let url: string | undefined;
+	try {
+		url = locate(target)?.origin;
+	} catch {
+		// A path the core cannot open names no repository.
+	}
+	return url === undefined
 		? undefined
 		: parseRepositoryUrl(ctx.deployment.audiences.git, url);
 }

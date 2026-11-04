@@ -22,7 +22,7 @@ import { existsSync, statSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { resolve } from 'node:path';
-import { locate, sync } from '@epicenter/core';
+import { locate, type SyncRound, sync } from '@epicenter/core';
 import type { CredentialFor } from './git.ts';
 
 export type SyncStatus = 'synced' | 'retry' | 'stopped';
@@ -73,19 +73,36 @@ export async function syncFolder(
 		return stopped(
 			`${folder} is not its own synced repository. Run epicenter init ${folder} again.`,
 		);
-	const url = found.origin;
+	const ran = await round(target, found.origin, credential);
+	return {
+		folder,
+		status: ran.status,
+		...(ran.head === undefined ? {} : { head: ran.head }),
+		notes: ran.notes,
+		...(ran.message === undefined ? {} : { message: ran.message }),
+	};
+}
+
+/**
+ * One round in the core for the repository at `target`, with `url` as its
+ * origin (none: a round that commits locally) and the token `credential`
+ * gives for it. No admission: `clone` runs it in a folder it just made.
+ */
+export async function round(
+	target: string,
+	url: string | undefined,
+	credential?: CredentialFor,
+): Promise<SyncRound> {
 	const auth = url === undefined ? undefined : await credential?.(url);
-	const round = await sync(target, {
+	return sync(target, {
 		machine: machine(),
 		...(url === undefined
 			? {}
-			: { remote: { url, ...(auth === undefined ? {} : { token: auth.token }) } }),
+			: {
+					remote: {
+						url,
+						...(auth === undefined ? {} : { token: auth.token }),
+					},
+				}),
 	});
-	return {
-		folder,
-		status: round.status,
-		...(round.head === undefined ? {} : { head: round.head }),
-		notes: round.notes,
-		...(round.message === undefined ? {} : { message: round.message }),
-	};
 }

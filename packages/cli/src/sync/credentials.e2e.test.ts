@@ -8,13 +8,12 @@
  * through `EPICENTER_TEST_SECRETS`, so none refreshes.
  *
  * Key behaviors:
- * - Fetch, push, and every LFS request carry one `Authorization: Bearer`
- *   header, the token of the grant the command runs under (`--desktop`
- *   selects the desktop app's)
- * - No `git` transfers anything, and the token is never in a `git` command
- *   line or the CLI's output
- * - `init` writes no credential helper into the folder, with or without
- *   `--desktop`
+ * - Clone, fetch, push, and every LFS request carry one
+ *   `Authorization: Bearer` header, the token of the grant the command runs
+ *   under (`--desktop` selects the desktop app's)
+ * - The CLI starts no `git` at all, and the token is never in its output
+ * - `init` and `clone` write no credential helper into the folder, with or
+ *   without `--desktop`
  *
  * The sandbox is sync.e2e's: its own `HOME`, `GIT_CONFIG_GLOBAL`, and
  * `GIT_CEILING_DIRECTORIES` at the sandbox, so no person's configuration or
@@ -224,7 +223,7 @@ const carried = (from: number, grant: keyof typeof TOKENS) =>
 			),
 		);
 
-test('fetch, push, and LFS carry the grant’s Bearer token; no folder keeps a credential', async () => {
+test('clone, fetch, push, and LFS carry the grant’s Bearer token; no folder keeps a credential', async () => {
 	const remote = `${origin}/git/${NAMESPACE}/notes.git`;
 	const A = join(BOX, 'A');
 	const B = join(BOX, 'B');
@@ -258,11 +257,18 @@ test('fetch, push, and LFS carry the grant’s Bearer token; no folder keeps a c
 	);
 	expect(carried(from, 'desktop')).toEqual([]);
 
-	// A second folder's first sync and its LFS download, under the desktop grant.
-	ok(await epicenter('init', B, '--name', 'B folder', '--desktop'));
-	expect((await git(B, 'remote', 'add', 'origin', remote)).code).toBe(0);
+	// Clone and its LFS download, under the desktop grant.
 	from = requests.length;
-	ok(await epicenter('sync', B, '--desktop'));
+	ok(
+		await epicenter(
+			'clone',
+			`${NAMESPACE}/notes`,
+			B,
+			'--name',
+			'B folder',
+			'--desktop',
+		),
+	);
 	expect(new Uint8Array(readFileSync(join(B, 'audio', 'first.bin')))).toEqual(
 		new Uint8Array(first),
 	);
@@ -296,12 +302,8 @@ test('fetch, push, and LFS carry the grant’s Bearer token; no folder keeps a c
 
 	// No request went without a token, and no token was in an argument or the output.
 	expect(requests.filter((request) => request.grant === 'none')).toEqual([]);
-	expect(existsSync(ARGV_LOG)).toBe(true);
-	const argv = readFileSync(ARGV_LOG, 'utf8');
-	// Every sync ran in the core: no git fetched or pushed.
-	expect(argv).not.toMatch(/^(fetch|push|lfs|clone)\b/m);
-	for (const token of Object.values(TOKENS)) {
-		expect(argv).not.toContain(token);
+	// The CLI started no git: init, clone, and sync ran in the core.
+	expect(existsSync(ARGV_LOG)).toBe(false);
+	for (const token of Object.values(TOKENS))
 		for (const output of outputs) expect(output).not.toContain(token);
-	}
 }, 120_000);

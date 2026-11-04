@@ -17,9 +17,11 @@ bun run epicenter check path/to/contract.json path/to/folder   # from the reposi
 `init`, `connect`, `clone`, `sync`, `status`, and `forget` keep a data folder's history
 in Git
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
-`sync` runs each round in the sync core, `@epicenter/core`
+`init`, `connect`, `clone`, `sync`, and `forget` run in the sync core,
+`@epicenter/core`
 ([ADR-0751](../../docs/adr/0751-every-native-app-carries-one-sync-core.md)),
-with no `git` or `git-lfs` program:
+with no `git` or `git-lfs` program; only `status` still runs the system
+`git`:
 
 ```sh
 ~/.epicenter/bin/epicenter clone <namespace>/recorder-demo ~/Epicenter/recorder-demo
@@ -83,8 +85,9 @@ owner's 12-character id (`epicenter repos` lists them).
   gets no credential: the core asks no credential helper.
   `credentials.e2e.test.ts` holds this to a stand-in on `127.0.0.1` that
   refuses any request without the token.
-- `epicenter clone <namespace>/<name> [<dir>]` first clones into a temporary
-  folder. Without `<dir>`, it reads the cloned `AGENTS.md` contract URL and
+- `epicenter clone <namespace>/<name> [<dir>]` first restores the repository
+  into a temporary folder with one round, its LFS bytes included. Without
+  `<dir>`, it reads the restored `AGENTS.md` contract URL and
   derives a path under `~/Epicenter` from the app's site. Without a contract,
   a host-shaped repository name produces an owner folder; another name is
   used directly. Cloning onto an occupied folder enrolls it with that remote
@@ -115,20 +118,22 @@ in-memory keychain with a signed-in grant through `EPICENTER_TEST_SECRETS`'s
 ## Sync
 
 `init`, `connect`, `sync`, `clone`, `forget`, `status`, and the hidden `merge-driver`
-live in `src/sync/`. `sync` runs its rounds in the sync core: `@epicenter/core`
-loads the Rust core (`packages/epicenter-core`) through Node-API, embedded in
-the compiled binary, and supplies `settle` from
+live in `src/sync/`. All but `status` and `merge-driver` run in the sync
+core: `@epicenter/core` loads the Rust core (`packages/epicenter-core`)
+through Node-API, embedded in the compiled binary, and supplies `settle` from
 `@epicenter/definition/merge` as its note merge. Apps write files, and a
-round commits them, cleaning every LFS file itself. The other commands run
-the system `git` through `runGit` in `@epicenter/folder/bun`, which runs no
-hooks.
+round commits them, cleaning every LFS file itself. `status` runs the system
+`git` through `runGit` in `@epicenter/folder/bun`, which runs no hooks, for
+the queries the core has no read-only form of.
 
 - `init [<dir>] [--name <name>]` sets up or repairs a data folder and says what it changed.
   It first refuses a folder inside a `.git` or `.epicenter` directory, by
   any segment of its canonical path in any case, the folder core's
   admission rule (`src/sync/admission.ts`, held to the folder plugin's
-  `fixtures/reserved-directories.json`); `~/.notes` is a folder. Then
-  `git init` when needed; Epicenter's blocks in the folder's
+  `fixtures/reserved-directories.json`); `~/.notes` is a folder. Then the
+  core's `open`: a repository on `main` with no commit when there is none,
+  and the local Git LFS filter values it lacks, with no hooks or saved merge
+  driver; Epicenter's blocks in the folder's
   `.gitattributes` and `.gitignore` (`src/sync/managed-block.ts`). The
   attributes block is `REPOSITORY_ATTRIBUTES` from
   `@epicenter/definition/contract`, which the server writes in a
@@ -137,19 +142,20 @@ hooks.
   directories are exempt. The ignore block is `REPOSITORY_IGNORE`, in
   `managed-block.ts`: `.DS_Store` and `.epicenter/` (a device's unfinished
   writes) are never committed, and sync leaves `.epicenter/` out itself
-  even when `.gitignore` does not name it. Init makes no commit.
-  Then local LFS filter values, with no hooks or saved merge driver;
-  `git lfs pull` for files checked out as pointers. A folder inside another
-  repository is refused. Its own repository records `epicenter.synced = true`
+  even when `.gitignore` does not name it. Init makes no commit, and the
+  next sync gives files checked out as LFS pointers their bytes. A folder
+  inside another repository is refused. Its own repository records `epicenter.synced = true`
   in local configuration. A folder outside the library needs `--name` for
   its library link; a folder deeper than the scan does too. A name that could
   be an app or owner host is refused, regardless of case. For example,
   `--name "Obsidian Vault"` works, while `--name notes` does not. A taken
   name is refused with both paths before the folder changes. Init refuses an unfinished Git
   operation, unmerged entries, or a branch other than `main` before changing
-  the control files.
+  anything, naming the command that resolves it.
 - `connect <dir> <repository>` adds Git `origin` to an enrolled folder. It
-  leaves an existing matching origin alone and refuses a different one.
+  leaves an existing matching origin alone and refuses a different one, or
+  one that pushes elsewhere; a new origin forgets the last remote `main`
+  seen.
   The first sync fetches remote `main` before pushing; without an origin, sync
   still commits local changes.
 - `sync [<dir>]` runs one round per folder, or for every synced folder found in the library
@@ -186,9 +192,12 @@ hooks.
   A stop lets the round under way finish, for at most a minute
   (`ROUND_GRACE_MS` in `src/stop.ts`), and begins no other, so a merge is
   never cut off.
-- `status [<dir>]` reads `git status --porcelain` for the folder and the
-  ahead and behind counts against the last fetched `origin/main`, and fetches
-  and writes nothing. Without `<dir>` it scans the environment's library root and one owner level, like
+- `status [<dir>]` finds the repository, its consent, and its origin
+  through the core, then reads the branch, the commit, `git status
+  --porcelain` for the folder, and the ahead and behind counts against the
+  last fetched `origin/main` with the system `git`: the core's only view of
+  the working tree is the round's snapshot, which stores what it reads. It
+  fetches and writes nothing. Without `<dir>` it scans the environment's library root and one owner level, like
   `sync`; with `--json` it prints one `{"status": {...}}` line per candidate,
   in path order. Dead links, unreadable folders, repositories Git cannot
   read, carry `{"folder", "problem"}`. Sync without a
@@ -244,7 +253,7 @@ from the server's userinfo, which `auth status` reports without a network
 request. Each sign-in records a random generation; token refresh keeps it
 unchanged. The device
 login leaves Git configuration alone. `sync` and `clone` supply the grant's
-token for hosted HTTPS remotes on each transfer. The hidden
+token to the core for a hosted remote's rounds. The hidden
 `auth git-credential` command can still answer an explicit Git credential
 request.
 
@@ -315,7 +324,7 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/commands.ts` | Every command, with its usage. |
 | `src/parse.ts` | The hand-written parser. |
 | `src/contract-commands.ts` | `check` and `format` against an app's contract, over `@epicenter/folder/node`. |
-| `src/sync/` | `init`, `connect`, `sync`, `status`, `clone`, `forget`, and the merge driver; `sync` over the sync core. |
+| `src/sync/` | `init`, `connect`, `sync`, `status`, `clone`, `forget`, and the merge driver, over the sync core; `status` and the merge driver over the system `git`. |
 | `src/stop.ts` | The one stop-signal handler: cleanups at once, then unfinished refreshes, then exit. |
 | `src/repository-commands.ts` | `repos`, and the token `sync` and `clone` send to the deployment's Git. |
 | `src/app-paths.ts` | Where the Epicenter folder, the sign-in locks, and the engine live, by the shell's rule. |

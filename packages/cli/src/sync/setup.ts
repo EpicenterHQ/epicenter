@@ -1,14 +1,16 @@
 /**
  * `epicenter init` and `epicenter forget`: put a data folder under
- * Epicenter's history, or take it out (decisions 36, 39, 41).
+ * Epicenter's history, or take it out (decisions 36, 39, 41), through the
+ * sync core, with no `git` program.
  *
  * `init` is set-up-or-repair and idempotent: each step checks first, changes
  * only what is missing or wrong, and says what it changed. A folder inside a
  * `.git` or `.epicenter` directory is refused before anything is made
- * (`refuseReservedDirectory`). A folder inside
- * another repository's working tree is refused. Consent to sync is recorded
- * as `epicenter.synced = true` in the folder's local repository configuration.
- *
+ * (`refuseReservedDirectory`). A folder inside another repository's working
+ * tree is refused, and so is a repository in a state only a person can
+ * finish, with the command that does (the core's `open`). Consent to sync
+ * is recorded as `epicenter.synced = true` in the folder's local repository
+ * configuration (ADR-0750).
  */
 
 import { existsSync } from 'node:fs';
@@ -22,6 +24,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
+import { locate, open, setSynced } from '@epicenter/core';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import {
 	isPersonalFolderName,
@@ -33,9 +36,7 @@ import {
 } from '@epicenter/definition/site/app-data';
 import { resolveAppPaths } from '../app-paths.ts';
 import { canonicalPath, containsPath, reservedSegment } from './admission.ts';
-import { type CredentialFor, config, git, must } from './git.ts';
 import { REPOSITORY_IGNORE, withEpicenterBlock } from './managed-block.ts';
-import { repositoryProblem } from './repository-state.ts';
 
 /**
  * The folder is protected state, a library root, home, or inside another repository.
@@ -102,46 +103,14 @@ export async function refuseReservedDirectory(input: string): Promise<void> {
 	}
 }
 
-const LFS_CONFIG = {
-	'filter.lfs.clean': 'git-lfs clean -- %f',
-	'filter.lfs.smudge': 'git-lfs smudge -- %f',
-	'filter.lfs.process': 'git-lfs filter-process',
-	'filter.lfs.required': 'true',
-} as const;
-
 /** The top of the repository `folder` is in, links resolved, or null. */
-export async function repositoryRoot(folder: string): Promise<string | null> {
-	const top = await git(folder, ['rev-parse', '--show-toplevel']);
-	return top.code === 0 ? realpath(top.stdout.trim()) : null;
-}
-
-/**
- * Environment that names a committer where the person's Git configuration
- * names none, so a first commit on a fresh computer still lands.
- */
-export async function identity(cwd: string): Promise<Record<string, string>> {
-	const [name, email] = await Promise.all([
-		git(cwd, ['config', '--get', 'user.name']),
-		git(cwd, ['config', '--get', 'user.email']),
-	]);
-	return {
-		...(name.code === 0
-			? {}
-			: { GIT_AUTHOR_NAME: 'Epicenter', GIT_COMMITTER_NAME: 'Epicenter' }),
-		...(email.code === 0
-			? {}
-			: {
-					GIT_AUTHOR_EMAIL: 'epicenter@localhost',
-					GIT_COMMITTER_EMAIL: 'epicenter@localhost',
-				}),
-	};
+export function repositoryRoot(folder: string): string | null {
+	return locate(folder)?.root ?? null;
 }
 
 export type InitOptions = {
 	/** Library link name for a folder outside the scan. */
 	readonly name?: string;
-	/** The token for a remote, asked for by its URL, to pull LFS bytes. */
-	readonly credential?: CredentialFor;
 };
 
 export type Initialized = {
@@ -163,11 +132,8 @@ export async function init(
 	options: InitOptions = {},
 ): Promise<Initialized> {
 	const prepared = await prepareFolder(input, options);
-	const target = await realpath(prepared.folder);
-	if ((await config(target, 'epicenter.synced')) !== 'true') {
-		await must(target, ['config', '--local', 'epicenter.synced', 'true']);
+	if (setSynced(await realpath(prepared.folder), true))
 		prepared.changed.push('epicenter.synced = true');
-	}
 	return prepared;
 }
 
@@ -210,16 +176,16 @@ async function ensureDiscoverable(
 }
 
 /** Set up Git and LFS, and make the folder reachable before recording consent. */
-export async function prepareFolder(
+async function prepareFolder(
 	input: string,
-	{ credential, name }: InitOptions = {},
+	{ name }: InitOptions = {},
 ): Promise<Initialized> {
 	await refuseReservedDirectory(input);
 	const folder = resolve(input);
 	if (!existsSync(folder)) {
 		let parent = dirname(folder);
 		while (!existsSync(parent)) parent = dirname(parent);
-		const enclosing = await repositoryRoot(await realpath(parent));
+		const enclosing = repositoryRoot(await realpath(parent));
 		if (enclosing !== null)
 			throw new Refused(
 				`${folder} is inside the Git repository ${enclosing}; choose a folder outside it.`,
@@ -278,11 +244,6 @@ export async function prepareFolder(
 				);
 		}
 	}
-	const lfs = await git(undefined, ['lfs', 'version']);
-	if (lfs.code !== 0)
-		throw new Error(
-			'Git LFS is unavailable; install git-lfs, check that git lfs version works, then retry this command.',
-		);
 	await mkdir(folder, { recursive: true });
 	const target = await realpath(folder);
 	const { discoveredFolders } = await import('./discovery.ts');
@@ -296,19 +257,22 @@ export async function prepareFolder(
 	const changed: string[] = [];
 	const warnings: string[] = [];
 
-	// 1. The folder must be its own repository.
-	const top = await repositoryRoot(target);
+	// 1. The folder must be its own repository, on `main` with nothing in
+	// progress, with the Git LFS filter settings: values, not paths or
+	// hooks (ADR-0733). Sync moves LFS objects itself.
+	const top = repositoryRoot(target);
 	if (top !== null && top !== target)
 		throw new Refused(
 			`${folder} is inside the Git repository ${top}; choose a folder outside it.`,
 		);
-	if (top === null) {
-		await must(target, ['init', '-q', '-b', 'main']);
-		changed.push('git init');
+	let opened: ReturnType<typeof open>;
+	try {
+		opened = open(target);
+	} catch (error) {
+		throw new Refused(error instanceof Error ? error.message : String(error));
 	}
-	const root = (await repositoryRoot(target)) as string;
-	const problem = await repositoryProblem(root);
-	if (problem !== null) throw new Refused(problem);
+	if (opened.initialized) changed.push('git init');
+	for (const key of opened.configured) changed.push(`${key} set`);
 	// 2. Epicenter's blocks of the folder's committed attributes and ignore rules.
 	const managed = [
 		['.gitattributes', REPOSITORY_ATTRIBUTES],
@@ -324,34 +288,8 @@ export async function prepareFolder(
 		}
 	}
 
-	// 3. LFS filters are values, not paths or hooks. Sync pushes LFS objects itself.
-	for (const [key, value] of Object.entries(LFS_CONFIG)) {
-		if ((await config(target, key)) === value) continue;
-		await must(target, ['config', '--local', key, value]);
-		changed.push(`${key} set`);
-	}
-
-	// 5. Files checked out as pointers (a clone made without LFS) get their bytes.
-	const pointers = (await git(target, ['lfs', 'ls-files'])).stdout
-		.split('\n')
-		.filter((line) => / - /.test(line));
-	if (pointers.length > 0) {
-		const url = await config(target, 'remote.origin.url');
-		const pulled = await git(target, ['lfs', 'pull'], {
-			// The system git carries a token only over https.
-			credential: url?.startsWith('https://')
-				? await credential?.(url)
-				: undefined,
-		});
-		if (pulled.code === 0)
-			changed.push(
-				`git lfs pull (${pointers.length} pointer file(s) replaced)`,
-			);
-		else warnings.push(`git lfs pull failed: ${pulled.stderr.trim()}`);
-	}
-
 	await ensureDiscoverable(target, changed, name, suggestion);
-	return { folder, repository: root, changed, warnings };
+	return { folder, repository: target, changed, warnings };
 }
 
 /**
@@ -364,13 +302,7 @@ export async function forget(
 	const folder = resolve(input);
 	const target = await realpath(folder).catch(() => null);
 	const changed: string[] = [];
-	const root = target === null ? null : await repositoryRoot(target);
-	if (root !== null && root === target) {
-		for (const key of ['epicenter.synced']) {
-			if ((await config(target, key)) === null) continue;
-			await must(target, ['config', '--local', '--unset-all', key]);
-			changed.push(`${key} unset`);
-		}
-	}
+	if (target !== null && repositoryRoot(target) === target)
+		if (setSynced(target, false)) changed.push('epicenter.synced unset');
 	return { folder, changed };
 }
