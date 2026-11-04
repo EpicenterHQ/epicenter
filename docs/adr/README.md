@@ -956,3 +956,4 @@ When you add an ADR, add its row here.
 | [0759](0759-an-apps-native-shell-is-generated-on-every-build.md) | An app's native shell is generated on every build | Accepted (amends 0753 and 0756) |
 | [0760](0760-global-shortcuts-are-a-capability.md) | Global shortcuts are a capability | Accepted (amends 0753 and 0755) |
 | [0761](0761-sync-never-merges-two-unrelated-histories.md) | Sync never merges two unrelated histories | Accepted (amends 0735) |
+| [0762](0762-epicenter-is-made-of-standards-and-places.md) | Epicenter is made of standards and places | Accepted |

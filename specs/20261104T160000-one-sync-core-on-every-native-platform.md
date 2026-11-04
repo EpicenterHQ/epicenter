@@ -55,6 +55,7 @@ in its folder (`~/Epicenter/tabs/<id>.md`, contract path `{id}.md`).
 | An app's native shell is linked from its capabilities | ADR-0756 |
 | Every model is an endpoint; every model file is a cache | ADR-0757 |
 | Epicenter adapts to what you already have and owns only what nothing else can | ADR-0758 |
+| Epicenter is made of standards and places | ADR-0762 |
 | An app's native shell is generated on every build | ADR-0759 |
 | Global shortcuts are a capability | ADR-0760 |
 
@@ -325,15 +326,21 @@ The founder accepted the proposals made here as four records:
 
 ## Decided later (2026-11-04)
 
-The founder accepted five more records:
+The founder accepted six more records:
 
 | Record | Decision |
 | --- | --- |
-| [ADR-0757](../docs/adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) | Every model is an endpoint; every model file is a cache: `openAi([...endpoints])`, one OpenAI-compatible request vocabulary over `openAiCompatible` and in-process `localSpeech()`, model files in the Hugging Face cache (amends ADR-0754) |
+| [ADR-0757](../docs/adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) | Every model is an endpoint; every model file is a cache: `openAi([...endpoints])`, an endpoint is `{ id, fetch, models() }` with a Fetch API `fetch`, one client posting the OpenAI-compatible vocabulary through it, `localSpeech()` an in-process fetch, model files in the Hugging Face cache (amends ADR-0754) |
 | [ADR-0758](../docs/adr/0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) | Epicenter adapts to what you already have and owns only what nothing else can: syncing folders and the merge rule |
 | [ADR-0759](../docs/adr/0759-an-apps-native-shell-is-generated-on-every-build.md) | An app's native shell is generated on every build and never committed; app-specific native code lives in `modules/<name>/`; a development host for `bun dev:<app>` (amends ADR-0753, ADR-0756) |
 | [ADR-0760](../docs/adr/0760-global-shortcuts-are-a-capability.md) | Global shortcuts are a capability, `@epicenter/shortcut` (amends ADR-0753, ADR-0755) |
 | [ADR-0761](../docs/adr/0761-sync-never-merges-two-unrelated-histories.md) | Sync never merges two unrelated histories; offline commits merge as branches of one history (amends ADR-0735) |
+| [ADR-0762](../docs/adr/0762-epicenter-is-made-of-standards-and-places.md) | Epicenter is made of standards and places: interfaces are standards someone else maintains, and programs meet only in shared places |
+
+Open, not decided: whether the agent loop speaks the OpenAI vocabulary
+directly instead of its own message types (`packages/ai/src/agent/engine.ts`,
+translated by the 280 lines of `packages/ai/src/openai/agent-engine.ts`),
+pending a measurement of that translation code (ADR-0762).
 
 **Execution.** Two independent tracks in separate worktrees: package moves
 (`ai` merge, `account` rename with `principal`, `capture` into its app,
@@ -442,11 +449,13 @@ after the extension's saves and on its Sync button (ADR-0750).
 ### 5. Capabilities and the generated shell
 
 1. **`@epicenter/ai` as endpoints (ADR-0757).** `openAi([...])`, the
-   endpoint interface with per-model capabilities (`chat`, `transcribe`,
-   `embed`), `openAiCompatible({ url, credential })` with its
-   configurations `hosted(account)`, `custom(key)` and `localServers()`,
-   and one HTTP client, `@epicenter/ai/openai`. On the desktop its requests
-   go through the shell's one fetch: Whispering's
+   endpoint shape `{ id, fetch, models() }` with per-model capabilities
+   (`chat`, `transcribe`, `embed`), `hosted(account)` (`account.fetch` at
+   `<origin>/v1`), `custom(key)` (the shell's fetch on the desktop) and
+   `localServers()` (plain `fetch` to localhost), and one client,
+   `@epicenter/ai/openai`, posting OpenAI-shaped requests through
+   `endpoint.fetch`. On the desktop keyed requests go through the shell's
+   one fetch: Whispering's
    `apps/whispering/src-tauri/src/http.rs` and
    `packages/tauri-epicenter-account/src/relay.rs` become one relay.
    Whispering's per-provider routing (about 620 lines in
@@ -455,9 +464,9 @@ after the extension's saves and on its Sync button (ADR-0750).
    `openAi([...])` array.
 2. **`@epicenter/transcription` exposing `localSpeech()`.** The
    transcription plugin's package renamed from
-   `@epicenter/transcription-native`; its endpoint runs transcribe.cpp in
-   the app's process, and its handle carries download, remove, load, and
-   unload. `docs/guides/self-hosted-transcription-speaches.md` is stale
+   `@epicenter/transcription-native`; its endpoint's fetch answers
+   `/audio/transcriptions` by calling transcribe.cpp in the app's process,
+   and its handle carries download, remove, load, and unload. `docs/guides/self-hosted-transcription-speaches.md` is stale
    after the package moves (it imports `transcribe` from
    `@epicenter/client`) and is rewritten here, with a Speaches server as a
    `custom(key)` endpoint.

@@ -42,6 +42,10 @@ Epicenter, where it exists, is the library over them.
 11. **Epicenter adapts to what you already have and owns only what nothing
     else can:** syncing folders and the merge rule
     ([ADR-0758](adr/0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md)).
+12. **Epicenter is made of standards and places.** Its interfaces are
+    standards someone else maintains, and its programs meet only in shared
+    places, never by calling each other
+    ([ADR-0762](adr/0762-epicenter-is-made-of-standards-and-places.md)).
 
 This page describes where Epicenter is going and links the records that decide
 each part. Most of it is not built yet; each record's `Unbuilt` line says what
@@ -92,6 +96,18 @@ plain Git, other hosts are your own remotes, sign-in is standard OAuth per
 app, and files are folders you can see. Where ADR-0741 says Epicenter
 reconciles only the states it made, ADR-0758 says it builds only what no
 existing tool provides.
+
+Its inward form: Epicenter is made of standards and places
+([ADR-0762](adr/0762-epicenter-is-made-of-standards-and-places.md)). Its
+interfaces are standards someone else maintains: Git, the Fetch API and the
+OpenAI-compatible vocabulary, OAuth, Markdown with front matter, JSON Schema,
+the Hugging Face cache, and folders. Its programs meet only in shared places,
+the folder for sync and the model cache for models, never by calling each
+other. Epicenter invents only what no standard covers: the names derived from
+a site, the merge rule `settle`, and the sync core. A new design answers two
+questions: which standard, and which shared place? Whether the agent loop
+should speak the OpenAI vocabulary directly instead of its own message types
+is open, pending a measurement of the translation code.
 
 ## Identity and names
 
@@ -155,13 +171,15 @@ export const ai = openAi([
   in.
 - **Every model is an endpoint; every model file is a cache**
   ([ADR-0757](adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)).
-  Requests use the OpenAI-compatible vocabulary (chat, transcription,
-  embeddings), and each model says which it can do. Hosted inference, your
-  provider keys, and Ollama and LM Studio on this computer are one HTTP
-  client pointed at different URLs; on the desktop its requests go through
-  the shell, so keys stay out of the page. `localSpeech()` runs
-  transcribe.cpp inside the app with no port, and is the only source with a
-  handle, for downloading, removing, loading, and unloading a model.
+  An endpoint is `{ id, fetch, models() }`, where `fetch` is a Fetch API
+  function, and one client posts OpenAI-compatible requests (chat,
+  transcription, embeddings) through it; each model says which it can do.
+  Hosted inference uses `account.fetch`, your provider keys use the shell's
+  fetch on the desktop so keys stay out of the page, Ollama and LM Studio
+  use plain `fetch` to localhost, and `localSpeech()` supplies an in-process
+  fetch that calls transcribe.cpp with no port. `localSpeech()` is the only
+  source with a handle, for downloading, removing, loading, and unloading a
+  model.
   `ai.models()` lists every model in the array's order. Apps share model
   files through the Hugging Face cache, never a server Epicenter runs.
 - **Reads are methods, with one `subscribe` per capability.** A Svelte
