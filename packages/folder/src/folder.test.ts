@@ -299,6 +299,7 @@ test('a folder over a client already open is ready at once and closes nothing', 
 	await client.todos.create({ id: 'a', title: 'Milk', done: false });
 	const folder = folderOf(client);
 	expect(folder.reveal).toBeNull();
+	expect(folder.displayPath()).toBeNull();
 	expect(folder.todos.fieldNames).toEqual(['title', 'done']);
 	folder.todos.subscribe(() => {});
 	await tick();

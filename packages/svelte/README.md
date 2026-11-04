@@ -78,7 +78,7 @@ A component imports the folder and reads it:
 
 ```svelte
 <script lang="ts">
-  import { folder } from '$lib/app';
+  import { folder } from '$lib/app.js';
 </script>
 
 {#each folder.todos.items as todo (todo.id)}<TodoRow {todo} />{/each}

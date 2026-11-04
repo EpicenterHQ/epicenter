@@ -120,6 +120,13 @@ export type FolderLifecycle = {
 	 * browser's storage, the account's copy, memory).
 	 */
 	readonly reveal: (() => Promise<Result<null, RevealFolderError>>) | null;
+	/**
+	 * Where the folder is, to show a person: the desktop data folder's path
+	 * as the shell named it, once it opened. Null before, and where the
+	 * folder has no path (this browser's storage, the account's copy,
+	 * memory). No command takes it.
+	 */
+	displayPath(): string | null;
 	/** Close what the folder opened; every later action is `Unavailable`. */
 	[Symbol.dispose](): void;
 };
@@ -171,7 +178,13 @@ export type OpenFolder = <TContract extends Contract>(
 ) => Folder<TContract>;
 
 /** The lifecycle members, which no collection may be named. */
-const RESERVED = new Set(['state', 'subscribe', 'retry', 'reveal']);
+const RESERVED = new Set([
+	'state',
+	'subscribe',
+	'retry',
+	'reveal',
+	'displayPath',
+]);
 
 /** An open that answers the client, or why nothing opened. */
 export type FolderOpen<TContract extends Contract> = () => Promise<
@@ -191,9 +204,11 @@ export function createFolder<TContract extends Contract>(
 	{
 		close = () => {},
 		reveal = null,
+		displayPath = () => null,
 	}: {
 		close?: (client: Client<TContract>) => void;
 		reveal?: FolderLifecycle['reveal'];
+		displayPath?: FolderLifecycle['displayPath'];
 	} = {},
 ): Folder<TContract> {
 	const { data: compiled, error } = compileContract(contract);
@@ -201,7 +216,7 @@ export function createFolder<TContract extends Contract>(
 	return folderOver(
 		compiled.collections.map(({ name, kind, keys }) => ({ name, kind, keys })),
 		open,
-		{ close, reveal },
+		{ close, reveal, displayPath },
 	);
 }
 
@@ -224,6 +239,7 @@ export function folderOf<TContract extends Contract>(
 	return folderOver(declared, async () => Ok(client), {
 		close: () => {},
 		reveal: null,
+		displayPath: () => null,
 	});
 }
 
@@ -241,9 +257,11 @@ function folderOver<TContract extends Contract>(
 	{
 		close,
 		reveal,
+		displayPath,
 	}: {
 		close: (client: Client<TContract>) => void;
 		reveal: FolderLifecycle['reveal'];
+		displayPath: FolderLifecycle['displayPath'];
 	},
 ): Folder<TContract> {
 	type Opened = Result<Client<TContract>, OpenFolderError>;
@@ -308,6 +326,7 @@ function folderOver<TContract extends Contract>(
 			start();
 		},
 		reveal,
+		displayPath,
 		[Symbol.dispose]() {
 			if (disposed) return;
 			disposed = true;

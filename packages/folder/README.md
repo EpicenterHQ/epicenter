@@ -40,6 +40,7 @@ export const folder = openFolder(todos, { site: APPS.TODOS.url });
 | `folder.state()` | `opening`, `ready`, or `failed` with the typed `OpenFolderError`; the same object until it changes |
 | `folder.subscribe(fn)` | hears `state()` change; returns the unsubscribe |
 | `folder.retry()` | opens again after a failure; does nothing otherwise |
+| `folder.displayPath()` | the desktop data folder's path as the shell named it, to show a person, once it opened; null before, and on the web and in memory |
 | `folder.reveal` | shows the desktop's data folder in the file manager, even when it did not open; null on the web and in memory |
 | `folder[Symbol.dispose]()` | closes what it opened, even an open still under way |
 | `folder.todos.items()`, `invalid()`, `loading()`, `error()` | answer at once: empty and loading while the folder opens; listed while something subscribes to the collection |

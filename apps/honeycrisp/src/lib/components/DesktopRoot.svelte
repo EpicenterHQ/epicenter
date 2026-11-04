@@ -5,6 +5,7 @@
 	folder's sync for the header (`setFolderSync`).
 -->
 <script lang="ts">
+	import { displayPath } from '@epicenter/folder/tauri';
 	import type { Honeycrisp } from '../contract.js';
 	import type { Client } from '@epicenter/definition/contract';
 	import { fromClient } from '@epicenter/svelte/client';
@@ -24,7 +25,7 @@
 	setNotes(files.notes);
 	setFolders(files.folders);
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ device, site }));
+	setFolderSync(folderSync({ path: displayPath(device), site }));
 </script>
 
 {@render children()}

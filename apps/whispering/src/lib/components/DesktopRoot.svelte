@@ -8,6 +8,7 @@
 	the one place it is (decision 87).
 -->
 <script lang="ts">
+	import { displayPath } from '@epicenter/folder/tauri';
 	import type { Client } from '@epicenter/definition/contract';
 	import { fromClient, type ReactiveClient } from '@epicenter/svelte/client';
 	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
@@ -31,7 +32,7 @@
 
 	// Fixed for the component's life: Startup makes a new one for new roots.
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ device, site }));
+	setFolderSync(folderSync({ path: displayPath(device), site }));
 	// svelte-ignore state_referenced_locally
 	const files = fromClient(device);
 	// svelte-ignore state_referenced_locally

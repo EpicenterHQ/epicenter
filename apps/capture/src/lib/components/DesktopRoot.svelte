@@ -5,6 +5,7 @@
 	header (`setFolderSync`).
 -->
 <script lang="ts">
+	import { displayPath } from '@epicenter/folder/tauri';
 	import type { Capture } from '../model/index.js';
 	import type { Client } from '@epicenter/definition/contract';
 	import { fromClient } from '@epicenter/svelte/client';
@@ -22,7 +23,7 @@
 	// svelte-ignore state_referenced_locally
 	setCaptureList(fromClient(device).captures);
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ device, site }));
+	setFolderSync(folderSync({ path: displayPath(device), site }));
 </script>
 
 {@render children()}

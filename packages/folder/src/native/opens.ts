@@ -13,6 +13,11 @@ export function recordOpen(target: object, opened: Opened): void {
 	opens.set(target, opened);
 }
 
+/** The path `target` opened at, or null when it has not opened. */
+export function pathOf(target: object): string | null {
+	return opens.get(target)?.path ?? null;
+}
+
 /** What `target` opened; throws for anything the desktop did not open, or a folder not open yet. */
 export function openOf(target: object): Opened {
 	const opened = opens.get(target);

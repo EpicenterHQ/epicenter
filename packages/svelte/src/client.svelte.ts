@@ -46,7 +46,7 @@
  *
  * ```svelte
  * <script lang="ts">
- * 	import { folder } from '$lib/app';
+ * 	import { folder } from '$lib/app.js';
  * 	const todo = folder.todos.edit({ id });
  * </script>
  *
@@ -252,6 +252,8 @@ export type ReactiveFolder<TContract extends Contract> = ReactiveClient<
 	retry(): void;
 	/** Show the folder's place in the file manager, where it has one. */
 	readonly reveal: FolderLifecycle['reveal'];
+	/** Where the folder is, to show a person, once it opened; null where it has no path. */
+	readonly displayPath: string | null;
 };
 
 /** Each source's adapter, so a folder or client is bridged once however many readers ask. */
@@ -289,22 +291,33 @@ export function fromClient<TContract extends Contract>(
 		if (typeof collection === 'object' && collection !== null)
 			collections[name] = fromCollection(collection as Raw);
 	const adapted = isFolder(source)
-		? Object.defineProperties(collections, {
-				state: {
-					enumerable: false,
-					get: ((track) => () => {
-						track();
-						return folder.state();
-					})(createTracker(folder.subscribe)),
-				},
-				retry: { enumerable: false, value: () => folder.retry() },
-				reveal: { enumerable: false, value: folder.reveal },
-			})
+		? lifecycleOf(folder, collections)
 		: collections;
 	adapters.set(source, adapted);
 	// SAFETY: each collection is adapted by the kind it is (a note
 	// collection has `replace`), which is the kind its contract path gives it.
 	return adapted as unknown as ReactiveFolder<TContract>;
+}
+
+/** `collections` with the folder's lifecycle beside them: `state` and `displayPath` track. */
+function lifecycleOf(folder: Folder<Contract>, collections: object) {
+	const track = createTracker(folder.subscribe);
+	return Object.defineProperties(collections, {
+		state: {
+			get() {
+				track();
+				return folder.state();
+			},
+		},
+		displayPath: {
+			get() {
+				track();
+				return folder.displayPath();
+			},
+		},
+		retry: { value: () => folder.retry() },
+		reveal: { value: folder.reveal },
+	});
 }
 
 /** Either kind of folder collection, as this module calls it. */

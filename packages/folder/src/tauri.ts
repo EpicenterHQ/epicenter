@@ -13,7 +13,6 @@ import type { ChangeListener, ChangeSource } from './changes.js';
 import { createDeviceClient } from './device/client.js';
 import { tauriStore } from './device/tauri-store.js';
 import { OpenFolderError, RevealRootError } from './errors.js';
-import type { FolderLifecycle } from './folder.js';
 import {
 	commands,
 	type FolderEvent,
@@ -65,21 +64,19 @@ export async function openDevice<TContract extends Contract>(
 /**
  * The root `device` was opened at, by name: what the window's other native
  * commands take to reach the same folder. Throws for a client `openDevice`
- * from `/tauri` did not return, or a folder that has not opened.
+ * from `/tauri` did not return.
  */
-export function rootOf(device: Client<Contract> | FolderLifecycle): Root {
+export function rootOf(device: Client<Contract>): Root {
 	return openOf(device).root;
 }
 
 /**
  * The path of `device`'s root as the shell named it
  * (`/Users/me/Epicenter/whispering`), to show a person. No command takes
- * it. Throws for a client `openDevice` from `/tauri` did not return, or a
- * folder that has not opened.
+ * it. Throws for a client `openDevice` from `/tauri` did not return; a
+ * folder answers its own (`folder.displayPath()`).
  */
-export function displayPath(
-	device: Client<Contract> | FolderLifecycle,
-): string {
+export function displayPath(device: Client<Contract>): string {
 	return openOf(device).path;
 }
 

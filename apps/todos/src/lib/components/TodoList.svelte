@@ -11,10 +11,11 @@
 	import { Input } from '@epicenter/ui/input';
 	import { toast } from '@epicenter/ui/sonner';
 	import { describeIssues } from '@epicenter/definition/contract';
-	import { getTodos, openFirst } from '$lib/todos.js';
+	import { folder } from '$lib/app.js';
+	import { openFirst } from '$lib/todos.js';
 	import TodoRow from './TodoRow.svelte';
 
-	const todos = getTodos();
+	const { todos } = folder;
 	const shown = $derived(todos.items.toSorted(openFirst));
 
 	let {

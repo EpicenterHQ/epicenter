@@ -1,6 +1,6 @@
 <!--
-	Todos itself, in either variant: the header, the list, and the open todo,
-	over the todos the root set (`getTodos`), the desktop folder's or the
+	Todos itself, in either build: the header, the list, and the open todo,
+	over the folder's todos (`$lib/app`), the desktop folder's or the
 	repository's. Which
 	todo is open is the URL's `?todo=<id>`, so it survives a reload and the
 	breakpoint.

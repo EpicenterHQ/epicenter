@@ -7,6 +7,7 @@
 	pages follow; nothing renders again.
 -->
 <script lang="ts">
+	import { displayPath } from '@epicenter/folder/tauri';
 	import type { Vocab } from '../contract.js';
 	import type { Client } from '@epicenter/definition/contract';
 	import { fromClient } from '@epicenter/svelte/client';
@@ -24,7 +25,7 @@
 	// svelte-ignore state_referenced_locally
 	setMessageList(device.messages);
 	// svelte-ignore state_referenced_locally
-	setFolderSync(folderSync({ device, site }));
+	setFolderSync(folderSync({ path: displayPath(device), site }));
 </script>
 
 {@render children()}
