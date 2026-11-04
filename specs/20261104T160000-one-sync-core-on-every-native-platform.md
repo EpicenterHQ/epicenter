@@ -240,6 +240,9 @@ The native host stays the CLI subcommand `epicenter native-host`.
 
 ## The package map (audit, 2026-11-04)
 
+Decided in ADR-0755 (the map and the moves) and ADR-0754 (the composition
+rule).
+
 Three seats (one Codex, two Claude) audited the 22 packages by kind, callers
 and caller code. The founder accepted the experience seat's map: 11
 TypeScript packages and 4 Rust crates (plus the transcription build helper).
@@ -272,7 +275,7 @@ the copied startup and chrome components collapse into `svelte`.
 **Composition rule: values in, availability out.** A capability takes what it
 needs as values and never imports another capability; what it can do right
 now is a value that is present or `null`. The account is live
-(`account.current: Account | null`), so capabilities receive the account,
+(`account.current()` returns `Account | null`), so capabilities receive the account,
 never a snapshot, and follow sign-in without a reload (only the online web,
 whose data depends on the account, reloads).
 
@@ -280,7 +283,7 @@ whose data depends on the account, reloads).
 export const account = connectAccount();
 export const folder = await openFolder(whispering);
 export const ai = openAi({ account, local: localModels }); // localModels: null on the web
-// ai.custom: always; ai.hosted: null until signed in; ai.local: null on the web
+// ai.custom(): always; ai.hosted(): null until signed in; ai.local(): null on the web
 ```
 
 Build-time selection: a capability's `.` export is
@@ -296,39 +299,21 @@ Open: Whispering's web build is local only even when signed in, which
 differs from R9; unifying the two HTTP relays moves Whispering's provider
 keys from the page into the shell (as Vocab's are, per ADR-0740).
 
-## Proposals under discussion (2026-11-04, not decided)
+## Proposals decided (2026-11-04)
 
-**The rule behind the composition: an app declares what it is and what it
-needs; the platform supplies where, how and when.** What it is: its contract
-and site. What it needs: capabilities (folder, account, recorder, ai). Where:
-the visible root (ADR-0752). How: the implementation the build picks (desktop,
-phone, web). When: sync moments (ADR-0750). The iOS build of the core is why
-this holds across platforms: a phone is another implementation, not another
-app.
+The founder accepted the proposals made here as four records:
 
-**An app's layout.** `contract.ts` (published as `/contract.json` by the
-build), `app.ts` (one composition for every platform), `routes/`, and
-`native/` only for what no capability covers.
-
-**Autolinking.** Saying "this app records" takes three edits today
-(`package.json`, `main.rs`, the Tauri capability file). A capability package
-declares its Rust plugin in its `package.json`, and the build generates the
-shell's `main.rs` and permissions from the app's dependencies, as React
-Native's autolinking links native modules. `src-tauri/` shrinks to `native/`.
-
-**A template, not a wrapper.** `epicenter new` writes the common `app.ts`
-into the app instead of an `@epicenter/app` package wrapping the primitives:
-the composition is a few lines, and a wrapper would grow an option for every
-knob.
-
-**AI sources.** `ai.custom` (the person's provider keys, always), `ai.hosted`
-(the account's models, `null` signed out), `ai.local` (this computer's models,
-`null` on the web), and `ai.models` listing every available model tagged by
-source. Default order to confirm: local, hosted, custom.
+| Record | Decision |
+| --- | --- |
+| [ADR-0753](../docs/adr/0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) | An app declares what it is and what it needs; the platform supplies where, how and when (amends ADR-0719) |
+| [ADR-0754](../docs/adr/0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) | A capability takes what it needs as values and shows what it can do now as values, including AI's sources in the order local, hosted, custom |
+| [ADR-0755](../docs/adr/0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) | Epicenter's packages are capabilities, formats, framework layers and programs (the map above) |
+| [ADR-0756](../docs/adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md) | An app's native shell is linked from its capabilities: autolinking, `native/`, the app layout, and `epicenter new` in place of a wrapper |
 
 **Execution.** Two independent tracks in separate worktrees: package moves
-first (`ai` merge, `account` rename with `principal`, `capture` into its app,
-`constants` split, one shell crate), and the core (transport, async binding,
+(`ai` merge, `account` rename with `principal`, `capture` into its app,
+`constants` split, one shell crate), now running on branch
+`claude/package-moves`, and the core (transport, async binding,
 repack, lock, `settle` port). They meet in the wiring; autolinking and the
 template follow; a phone app waits for the first app whose main use is on a
 phone away from a network.

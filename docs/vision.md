@@ -4,35 +4,41 @@ Every app keeps your things as files in its own folder, under the root your
 device shows you; one sync core moves those folders through your account; and
 Epicenter, where it exists, is the library over them.
 
-1. **An app is its site.** Its address is its identity, and every name a
+1. **An app declares what it is and what it needs; the platform supplies
+   where, how and when.** What it is: its contract and site. What it needs:
+   capabilities, composed in its `app.ts`. Where: the visible root. How: the
+   implementation the build picks for desktop, phone, or web. When: the sync
+   moments
+   ([ADR-0753](adr/0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md)).
+2. **An app is its site.** Its address is its identity, and every name a
    program uses derives from it
    ([ADR-0722](adr/0722-an-apps-names-derive-from-its-sites-host.md),
    [ADR-0723](adr/0723-an-apps-site-is-found-by-convention.md)).
-2. **What you keep is items, files in the app's folder.** Live state, such
+3. **What you keep is items, files in the app's folder.** Live state, such
    as a whiteboard several people draw on at once, is a document synced
    through your account; no app has live state yet
    ([ADR-0742](adr/0742-items-are-what-you-keep-documents-are-whats-live.md)).
-3. **Every app's folder sits under the root your device shows you.** A phone
+4. **Every app's folder sits under the root your device shows you.** A phone
    supplies it ("On My iPhone > Whispering"); on a computer, Epicenter names
    it `~/Epicenter`
    ([ADR-0752](adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md)).
-4. **Sync is like save.** Any program can do it, at the moments you'd
+5. **Sync is like save.** Any program can do it, at the moments you'd
    expect: when an app opens, after you save, when you come back to it, and
    when you ask. No program owns it
    ([ADR-0750](adr/0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md),
    [ADR-0751](adr/0751-every-native-app-carries-one-sync-core.md)).
-5. **Each app signs in as its site.** The account asks once per app and
+6. **Each app signs in as its site.** The account asks once per app and
    remembers ([ADR-0731](adr/0731-every-app-signs-in-as-its-site.md)).
-6. **Apps work alone; Epicenter is the library over them.** It shows every
+7. **Apps work alone; Epicenter is the library over them.** It shows every
    folder, syncs every one you turned sync on for, and carries the CLI for
    agents and terminals
    ([ADR-0751](adr/0751-every-native-app-carries-one-sync-core.md)).
-7. **The web is online; offline needs an installed app**
+8. **The web is online; offline needs an installed app**
    ([ADR-0746](adr/0746-the-web-is-online-offline-needs-an-installed-app.md)).
-8. **Epicenter reconciles what it made, and names the command for everything
+9. **Epicenter reconciles what it made, and names the command for everything
    else** ([ADR-0741](adr/0741-epicenter-reconciles-only-states-it-made.md)).
-9. **Boundaries go where people already expect them**
-   ([ADR-0749](adr/0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md)).
+10. **Boundaries go where people already expect them**
+    ([ADR-0749](adr/0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md)).
 
 This page describes where Epicenter is going and links the records that decide
 each part. Most of it is not built yet; each record's `Unbuilt` line says what
@@ -41,7 +47,12 @@ is missing. [Positioning](positioning.md) owns what Epicenter claims today.
 ## Principles
 
 Every change to the data model is checked against eight principles
-([ADR-0719](adr/0719-every-change-to-the-data-model-is-checked-against-eight-principles.md)):
+([ADR-0719](adr/0719-every-change-to-the-data-model-is-checked-against-eight-principles.md)).
+They serve the first rule above: an app declares what it is and what it
+needs, and the platform supplies where, how and when
+([ADR-0753](adr/0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md)).
+A change that makes an app name a path, branch on a platform, or choose when
+to sync says why.
 
 1. Your records are files or documents. A database is only ever a cache.
 2. One field language, one export format.
@@ -93,6 +104,52 @@ Development builds use the same names under `~/Epicenter Dev` and
 every path from the site's address and the environment, so no program stores a
 location or needs a registry. People see the app's own name, "Whispering", in
 its window and menus.
+
+## How an app is built
+
+An app is four things
+([ADR-0756](adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md)):
+
+```txt
+<app>/
+  contract.ts     what the app's files are; the build publishes it as /contract.json
+  app.ts          the capabilities it needs, composed once for every platform
+  routes/         its screens
+  native/         Rust for features no capability covers, such as Whispering's global shortcut
+```
+
+`app.ts` composes capabilities by passing values
+([ADR-0754](adr/0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md)):
+
+```ts
+export const account = connectAccount();
+export const folder = await openFolder(whispering);
+export const ai = openAi({ account, local: localModels }); // localModels is null on the web
+```
+
+- **A capability never imports another.** It takes what it needs as values,
+  and the account it takes is live, so sign-in reaches every capability
+  without a reload.
+- **What a capability can do now is a value or `null`.** `ai.hosted()` is
+  `null` when signed out, and `ai.local()` is `null` on the web.
+  `ai.models()` lists every usable model, local first, then hosted, then the
+  person's own keys.
+- **Reads are methods, with one `subscribe` per capability.** A Svelte
+  adapter such as `fromAi` turns them into getters.
+- **Packages are capabilities, formats, framework layers, and programs**
+  ([ADR-0755](adr/0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md)).
+  The capabilities are `folder`, `account`, `recorder`, `ai`, and
+  `transcription`; the format is `definition`; the framework layers are
+  `svelte`, `ui`, and `vite-config`; the programs are `cli` and `server`.
+  A capability keeps its TypeScript, its Rust plugin, and its Svelte settings
+  in one directory, and the desktop build picks its desktop code by the
+  `tauri` condition.
+- **The native shell is linked from the capabilities.** A capability
+  declares its Rust plugin, and the build writes the shell's `main.rs` and
+  permissions from the app's dependencies, as React Native's autolinking
+  does. Adding `@epicenter/recorder` is the whole edit.
+- **`epicenter new` writes the common `app.ts`.** No wrapper package stands
+  between an app and its capabilities.
 
 ## Two stores
 
@@ -289,7 +346,7 @@ Epicenter. What the account adds:
 
 | Piece | Job |
 | --- | --- |
-| An app | Reads and writes its stores. An app with collections needs no account and no Epicenter to save locally. Once you sign in and turn on sync, it syncs its own folder through the sync core it carries. A document app would work locally and sync once you sign in. |
+| An app | Declares its contract and composes its capabilities in `app.ts`; reads and writes its stores. An app with collections needs no account and no Epicenter to save locally. Once you sign in and turn on sync, it syncs its own folder through the sync core it carries. A document app would work locally and sync once you sign in. |
 | The sync core | `epicenter-core`, in Rust over libgit2: one round of commit, fetch, merge with `settle`, Git LFS, and push. Every native app links it through `tauri-plugin-epicenter`, and the CLI loads it through Node-API ([ADR-0751](adr/0751-every-native-app-carries-one-sync-core.md)). |
 | A browser extension | Saves items through Epicenter's native host over Chrome native messaging; without Epicenter it keeps them in its own storage and hands them over when Epicenter appears ([ADR-0745](adr/0745-a-browser-extension-writes-through-the-local-epicenter-engine.md)). |
 | The app's site | Publishes `/contract.json`, and optionally `/SKILL.md` ([ADR-0723](adr/0723-an-apps-site-is-found-by-convention.md)). "Get the app" opens the site. |
@@ -394,6 +451,11 @@ Agreed direction, built after the folder work:
   ([ADR-0750](adr/0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md)):
   open, save, return, and Sync, in every app and in Epicenter, and a line in
   each folder's `AGENTS.md` telling agents to sync before and after.
+- **Packages by kind, and shells linked from capabilities**
+  ([ADR-0755](adr/0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md),
+  [ADR-0756](adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md)):
+  the package moves, then `tauri-plugin-epicenter`, autolinking, and
+  `epicenter new`.
 - **Browser extensions save through Epicenter's native host** over Chrome
   native messaging
   ([ADR-0745](adr/0745-a-browser-extension-writes-through-the-local-epicenter-engine.md)).
@@ -416,6 +478,10 @@ Agreed direction, built after the folder work:
 - One program that syncs for the others, and a file watcher, interval timer,
   or background service to sync
   ([ADR-0750](adr/0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md)).
+- A capability that imports another, or an `@epicenter/app` package that
+  wraps them
+  ([ADR-0754](adr/0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md),
+  [ADR-0756](adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md)).
 - A Git program shipped inside an app
   ([ADR-0751](adr/0751-every-native-app-carries-one-sync-core.md)).
 - Machine state or Epicenter's paths in your Git configuration, or machine
