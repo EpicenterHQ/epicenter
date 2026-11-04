@@ -84,7 +84,7 @@ describe('the variant root decides the one store', () => {
 		);
 		const online = await Bun.file(join(components, 'Online.svelte')).text();
 		expect(online).toMatch(
-			/const files = fromClient\(openRemote\(vocab, \{ account, site: APPS\.VOCAB\.url \}\)\);\s*setEntryList\(files\.entries\);/,
+			/const client = openRemote\(vocab, \{ account, site: APPS\.VOCAB\.url \}\);\s*const files = fromClient\(client\);\s*setEntryList\(files\.entries\);/,
 		);
 	});
 

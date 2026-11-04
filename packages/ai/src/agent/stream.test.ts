@@ -1,6 +1,6 @@
 /**
- * The chat engine builds an OpenAI chat request from the
- * transcript and tool catalog, and parses the streamed reply into the loop's
+ * One step (`streamStep`) sends an OpenAI chat request of the step's messages
+ * and tools, and parses the streamed reply into the loop's
  * {@link EngineChunk} vocabulary. A fake `fetch` captures the request body and
  * returns a canned OpenAI SSE stream, so this exercises the real request builder
  * and the real defensive tool-call reducer without a network.
@@ -12,10 +12,13 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import type { ChatMessage, ChatTool } from '../client.js';
 import { custom } from '../custom.js';
 import { openAi } from '../open-ai.js';
-import { createChatEngine } from './chat-engine.js';
-import type { AgentEngineRequest, EngineChunk } from './engine.js';
+import { type EngineChunk, streamStep } from './stream.js';
+
+/** What a step is asked: the transcript and the tools, before the system prompts. */
+type StepRequest = { messages: ChatMessage[]; tools: ChatTool[] };
 
 /** Build an OpenAI SSE response: one `data:` frame per chunk, then `[DONE]`. */
 function openAiSse(chunks: object[]): Response {
@@ -64,7 +67,7 @@ function toolCalls(chunks: EngineChunk[]) {
 
 const GATEWAY = 'https://example.test/v1';
 
-/** The engine over one custom endpoint at `baseURL`, sent through `fetch` with `apiKey`. */
+/** A step over one custom endpoint at `baseURL`, sent through `fetch` with `apiKey`, the system prompts first as the loop sends them. */
 function engineOver({
 	fetch,
 	baseURL,
@@ -81,12 +84,24 @@ function engineOver({
 	const ai = openAi([
 		custom({ id: 'test', baseUrl: baseURL, key: apiKey, fetch }),
 	]);
-	return createChatEngine({
-		turn: () => ({ ai, endpoint: 'test', model, systemPrompts }),
-	});
+	return (request: StepRequest, signal: AbortSignal) =>
+		streamStep(
+			{
+				ai,
+				model: { endpoint: 'test', model },
+				messages: [
+					...systemPrompts.map(
+						(content): ChatMessage => ({ role: 'system', content }),
+					),
+					...request.messages,
+				],
+				tools: request.tools,
+			},
+			signal,
+		);
 }
 
-describe('createChatEngine', () => {
+describe('streamStep', () => {
 	test('sends the system prompts before the transcript, with the tools as given, streaming', async () => {
 		const { fetch, calls } = capturingFetch(
 			openAiSse([
@@ -101,7 +116,7 @@ describe('createChatEngine', () => {
 			systemPrompts: ['be brief'],
 		});
 
-		const request: AgentEngineRequest = {
+		const request: StepRequest = {
 			messages: [
 				{ role: 'user', content: 'weather?' },
 				{

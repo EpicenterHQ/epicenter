@@ -23,10 +23,6 @@ export const ChatHistoryError = defineErrors({
 		cause,
 	}),
 	InvalidFocus: () => ({ message: 'Choose one to three saved expressions.' }),
-	Taken: ({ path }: { path: string }) => ({
-		message: `Another message is already saved at '${path}'.`,
-		path,
-	}),
 });
 export type ChatHistoryError = InferErrors<typeof ChatHistoryError>;
 

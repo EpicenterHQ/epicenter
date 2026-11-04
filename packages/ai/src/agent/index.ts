@@ -1,20 +1,19 @@
-/** `@epicenter/ai/agent`: a UI-free agent loop over explicit host capabilities. */
+/**
+ * `@epicenter/ai/agent`: a UI-free agent loop over values. It takes a
+ * contract's messages collection (`messagesCollection`), the chat it is,
+ * `ai`, the model, the system prompt, and the tools as an array; its Svelte
+ * adapter is `fromConversation` in `@epicenter/ai/svelte`.
+ */
 
-export { type ChatTurn, createChatEngine } from './chat-engine.js';
-export type {
-	AgentEngine,
-	AgentEngineRequest,
-	EngineChunk,
-} from './engine.js';
 export {
-	type AgentMessageStore,
-	AgentMessageStoreError,
 	ConversationAdmissionError,
 	type ConversationError,
 	type ConversationHandle,
 	type ConversationOptions,
 	type ConversationSnapshot,
 	createConversation,
+	MessageSaveError,
+	type UnreadableMessage,
 } from './loop.js';
 export {
 	type AgentMessage,
@@ -25,17 +24,13 @@ export {
 	type AgentToolResultPart,
 	agentMessageText,
 	isPersistableMessage,
-	toChatMessages,
+	type MessageNote,
+	type MessagesCollection,
+	messagesCollection,
 } from './message.js';
-export {
-	type AgentToolCall,
-	type AgentToolDefinition,
-	type AgentToolOutcome,
-	type Approval,
-	type ApprovalDecision,
-	defaultApprovalDecision,
-	NO_TOOLS,
-	resolveApprovedToolCall,
-	type ToolCatalog,
-	toChatTools,
+export type {
+	AgentTool,
+	AgentToolCall,
+	AgentToolOutcome,
+	Approve,
 } from './tools.js';

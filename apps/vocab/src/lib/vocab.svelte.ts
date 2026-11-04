@@ -7,10 +7,15 @@
  * that one client, so a chat's focus words and its messages are always that
  * client's.
  */
+
+import type { NoteClient } from '@epicenter/definition/contract';
 import { createContext } from 'svelte';
 import { type ChatList, createChats } from './chat/chats.js';
-import type { MessageList } from './chat/messages.svelte.js';
+import type { Vocab } from './contract.js';
 import { createEntries, type EntryList } from './entries.svelte.js';
+
+/** Every chat's finished messages, as the client keeps them: each tutor conversation lists and writes its own. */
+export type MessageList = NoteClient<Vocab['collections']['messages']>;
 
 /** The page's words, set by the variant's root. */
 export const [getEntryList, setEntryList] = createContext<EntryList>();

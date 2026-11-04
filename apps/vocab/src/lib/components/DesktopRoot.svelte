@@ -21,7 +21,8 @@
 	const files = fromClient(device);
 	setEntryList(files.entries);
 	setChatList(files.chats);
-	setMessageList(files.messages);
+	// svelte-ignore state_referenced_locally
+	setMessageList(device.messages);
 	// svelte-ignore state_referenced_locally
 	setFolderSync(folderSync({ device, site }));
 </script>

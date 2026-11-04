@@ -1,4 +1,3 @@
-import type { AgentMessage } from '@epicenter/ai/agent';
 import type { ServableModel } from '@epicenter/ai/providers';
 import type { NoteOf } from '@epicenter/definition/contract';
 import type { Vocab } from './contract.js';
@@ -52,7 +51,6 @@ export const STAGE_LABELS: Record<Stage, string> = {
 /** A note of each of Vocab's collections, as read. */
 export type EntryNote = NoteOf<Vocab['collections']['entries']>;
 export type ChatNote = NoteOf<Vocab['collections']['chats']>;
-export type MessageNote = NoteOf<Vocab['collections']['messages']>;
 
 /**
  * One saved word. `id` is its file's name, the SHA-256 of `text`; `note` is
@@ -102,11 +100,4 @@ export function readChat(note: ChatNote): Chat {
 		createdAt,
 		focus: focus.map(({ entryId, text }) => ({ entryId, text })),
 	};
-}
-
-/** A finished message as the tutor loop holds it: a plain copy, its own. */
-export function readMessage(note: MessageNote): AgentMessage {
-	const { id, role, createdAt, parts } = note;
-	// SAFETY: the contract's parts are the agent's parts, as JSON.
-	return structuredClone({ id, role, createdAt, parts }) as AgentMessage;
 }

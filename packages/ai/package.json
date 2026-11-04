@@ -14,11 +14,10 @@
 		".": "./src/index.ts",
 		"./agent": "./src/agent/index.ts",
 		"./choices": "./src/choices.ts",
-		"./codex": "./src/codex/index.ts",
 		"./connections": "./src/ai-connections.ts",
 		"./picker": "./src/picker/index.ts",
 		"./providers": "./src/providers.ts",
-		"./svelte": "./src/svelte/ai.svelte.ts",
+		"./svelte": "./src/svelte/index.ts",
 		"./tauri": "./src/tauri.ts"
 	},
 	"dependencies": {

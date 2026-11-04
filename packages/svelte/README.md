@@ -174,5 +174,6 @@ on `todo.error` and is also returned to stop the action. After teardown,
 
 **Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through the client's writes like any editor. Agents may write files directly; their changes reach editors through the client's listeners.
 
-The package also exports agent conversation bindings and status display
-helpers. Those are independent of file editing.
+The package also exports status display helpers, independent of file
+editing. A conversation's adapter is `fromConversation` in
+`@epicenter/ai/svelte`, on the same `trackReads`.

@@ -14,7 +14,7 @@
 	import type { Account } from '@epicenter/account';
 	import { auth } from '#platform/auth';
 	import { createVocabChat } from '$lib/chat/session.svelte.js';
-	import type { MessageList } from '$lib/chat/messages.svelte.js';
+	import type { MessageList } from '$lib/vocab.svelte.js';
 	import type { Entries } from '$lib/entries.svelte.js';
 	import { ai, choices } from '$lib/ai.js';
 	import DictationButton from './DictationButton.svelte';

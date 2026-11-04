@@ -1,114 +1,101 @@
+/**
+ * The agent's tools are values: an array of `{ name, description, input,
+ * mutates?, run }`. A tool the host leaves out of the array is denied: the
+ * model is never offered it, and a call naming it runs nothing. A tool that
+ * `mutates` runs only once the host's `approve` answers yes.
+ */
 import type { JsonValue } from 'wellcrafted/json';
 import type { ChatTool } from '../client.js';
 
-export type AgentToolDefinition = {
-	name: string;
-	title?: string;
-	description?: string;
-	inputSchema?: JsonValue;
-	kind: 'query' | 'mutation';
-};
-
-export type AgentToolCall = {
-	toolCallId: string;
-	toolName: string;
-	input: JsonValue;
-};
-
+/** What a tool answers: its content for the model, details for the person, and whether it failed. */
 export type AgentToolOutcome = {
 	content: string;
 	details?: JsonValue;
 	isError: boolean;
 };
 
-/** A live catalog injected by the host. */
-export type ToolCatalog = {
-	definitions(): AgentToolDefinition[];
-	resolve(call: AgentToolCall, signal: AbortSignal): Promise<AgentToolOutcome>;
+/** One call the model asked for. */
+export type AgentToolCall = {
+	toolCallId: string;
+	toolName: string;
+	input: JsonValue;
 };
 
-export type ApprovalDecision = 'auto' | 'ask' | 'deny';
-
-export type Approval = {
-	decide(
-		call: AgentToolCall,
-		definition: AgentToolDefinition,
-	): ApprovalDecision;
-	request(
-		call: AgentToolCall,
-		definition: AgentToolDefinition,
-	): Promise<boolean>;
+/** One tool the model may call. */
+export type AgentTool = {
+	name: string;
+	/** What the model reads to decide when to call it. */
+	description?: string;
+	/** The JSON Schema object of its input; none takes no input. */
+	input?: { readonly [key: string]: JsonValue };
+	/** Whether it changes anything: then it runs only once `approve` answers yes. */
+	mutates?: boolean;
+	/** Run the call. A rejection ends the turn, as a failed stream does. */
+	run(
+		input: JsonValue,
+		options: { signal: AbortSignal },
+	): Promise<AgentToolOutcome>;
 };
 
-export async function resolveApprovedToolCall({
+/** Ask the person whether a tool that `mutates` may run this call. */
+export type Approve = (
+	call: AgentToolCall,
+	tool: AgentTool,
+) => Promise<boolean>;
+
+/**
+ * Run `call` with the tool of its name among `tools`. A name not offered
+ * runs nothing. A tool that mutates asks `approve` first, and with no
+ * `approve` it is refused, so nothing changes without the person's yes.
+ */
+export async function runTool({
 	tools,
-	approval,
+	approve,
 	call,
 	signal,
 }: {
-	tools: ToolCatalog;
-	approval: Approval;
+	tools: readonly AgentTool[];
+	approve: Approve | undefined;
 	call: AgentToolCall;
 	signal: AbortSignal;
 }): Promise<AgentToolOutcome> {
-	const definition = tools
-		.definitions()
-		.find((candidate) => candidate.name === call.toolName);
-	if (!definition) {
+	const tool = tools.find((candidate) => candidate.name === call.toolName);
+	if (!tool)
 		return {
 			content: `No tool named ${call.toolName} is available.`,
 			isError: true,
 		};
-	}
-
-	const decision = approval.decide(call, definition);
-	if (decision === 'deny') {
-		return { content: 'Denied by policy.', isError: true };
-	}
-	if (decision === 'ask') {
-		const approved = await approval.request(call, definition);
-		if (signal.aborted) {
+	if (tool.mutates) {
+		if (!approve)
+			return {
+				content: 'Not run: nothing asks the person to approve a change.',
+				isError: true,
+			};
+		const approved = await approve(call, tool);
+		if (signal.aborted)
 			return { content: 'Stopped before the tool ran.', isError: true };
-		}
 		if (!approved) return { content: 'Denied by the user.', isError: true };
 	}
-
-	return tools.resolve(call, signal);
-}
-
-export const NO_TOOLS: ToolCatalog = {
-	definitions: () => [],
-	resolve: async (call) => ({
-		content: `No tool named ${call.toolName} is available.`,
-		isError: true,
-	}),
-};
-
-export function defaultApprovalDecision(
-	_call: AgentToolCall,
-	definition: AgentToolDefinition,
-): ApprovalDecision {
-	return definition.kind === 'mutation' ? 'ask' : 'auto';
+	return tool.run(call.input, { signal });
 }
 
 /**
- * The tools offered to the model, as OpenAI tool definitions. `kind` and
- * `title` are the loop's and never reach the model.
+ * The tools offered to the model, as OpenAI tool definitions.
  *
- * OpenAI requires `function.parameters` to be a JSON Schema object. A missing
- * schema becomes the empty object schema, and a bare object schema gains
- * `properties` and `required`, which some providers reject when absent. A
- * schema that is not an object throws, which fails the turn.
+ * OpenAI requires `function.parameters` to be a JSON Schema object. A
+ * missing schema becomes the empty object schema, and a bare object schema
+ * gains `properties` and `required`, which some providers reject when
+ * absent. A schema that is not an object throws, which fails the turn.
  */
-export function toChatTools(definitions: AgentToolDefinition[]): ChatTool[] {
-	return definitions.map((definition) => ({
+export function toChatTools(tools: readonly AgentTool[]): ChatTool[] {
+	return tools.map((tool) => ({
 		type: 'function',
 		function: {
-			name: definition.name,
-			...(definition.description !== undefined && {
-				description: definition.description,
+			name: tool.name,
+			...(tool.description !== undefined && {
+				description: tool.description,
 			}),
-			parameters: toParameters(definition.inputSchema),
+			parameters: toParameters(tool.input),
 		},
 	}));
 }

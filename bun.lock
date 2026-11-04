@@ -570,7 +570,6 @@
       "name": "@epicenter/svelte",
       "version": "0.3.0",
       "dependencies": {
-        "@epicenter/ai": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/ui": "workspace:*",

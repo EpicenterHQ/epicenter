@@ -1,51 +1,64 @@
 /**
- * Tier-1 smoke test for the OpenAI-compatible inference method (ADR-0049/0050)
- * against a local Ollama, with no auth, no API, and no UI.
- *
- * It builds the same agent engine Vocab chat uses (`createChatEngine`) over a
- * `custom` endpoint pointed at Ollama. A green run verifies the system prompts,
- * the client's streaming, and the tool-call reducer against a real server.
- *
- * It doubles as a model-comparison harness: pass a model and a prompt.
+ * Smoke test of Vocab's tutor loop against a local Ollama, with no auth, no
+ * API, and no UI: the real `createConversation` over a `custom` endpoint
+ * pointed at Ollama, with Vocab's messages in a temporary folder. It prints
+ * the messages each step sends and the transcript it saves, so a multi-turn
+ * bug can be seen without the page.
  *
  *   ollama serve                       # in another terminal
  *   ollama pull qwen3                  # or qwen3:8b, glm4, ...
- *   bun run apps/vocab/scripts/ollama-smoke.ts qwen3 "How do I say 'thank you'?"
+ *   bun run apps/vocab/scripts/ollama-smoke.ts qwen3 "How do I say 'thank you'?" "And 'please'?"
  *
- * It also drives any hosted OpenAI-compatible endpoint (z.ai for GLM, Moonshot
- * for Kimi K2, OpenRouter, ...) by pointing OLLAMA_BASE_URL at it and setting
- * OLLAMA_API_KEY. The big coding models are too large to serve locally, so this
- * is the realistic path for them:
+ * It also drives any hosted OpenAI-compatible endpoint (z.ai for GLM,
+ * Moonshot for Kimi K2, OpenRouter, ...) by pointing OLLAMA_BASE_URL at it
+ * and setting OLLAMA_API_KEY:
  *
  *   OLLAMA_BASE_URL=https://api.z.ai/api/paas/v4 \
  *   OLLAMA_API_KEY=$ZAI_KEY \
  *   bun run apps/vocab/scripts/ollama-smoke.ts glm-4.6 "How do I say 'thank you'?"
- *
- *   OLLAMA_BASE_URL=https://api.moonshot.ai/v1 \
- *   OLLAMA_API_KEY=$MOONSHOT_KEY \
- *   bun run apps/vocab/scripts/ollama-smoke.ts kimi-k2-0905 "..."
  *
  * Env:
  *   OLLAMA_BASE_URL   OpenAI-compatible base URL (default http://localhost:11434/v1)
  *   OLLAMA_API_KEY    Bearer key for a hosted endpoint (omit for local Ollama)
  */
 
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createClient, custom, openAi } from '@epicenter/ai';
-import { type AgentEngineRequest, createChatEngine } from '@epicenter/ai/agent';
+import { agentMessageText, createConversation } from '@epicenter/ai/agent';
+import { openDevice } from '@epicenter/folder/node';
+import { unwrap } from 'wellcrafted/result';
+import { tutorOpening } from '../src/lib/chat/opening.js';
+import { vocab } from '../src/lib/contract.js';
 import { VOCAB_SYSTEM_PROMPT } from '../src/lib/data.js';
 
-const model = process.argv[2] ?? 'qwen3';
-const userPrompt =
-	process.argv[3] ?? 'Teach me how to order coffee in Mandarin. Keep it short.';
+const [model = 'qwen3', ...prompts] = process.argv.slice(2);
+if (prompts.length === 0)
+	prompts.push('Teach me how to order coffee in Mandarin. Keep it short.');
 const baseUrl = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1';
 const apiKey = process.env.OLLAMA_API_KEY;
-const endpoint = custom({ id: 'smoke', baseUrl, key: apiKey });
 
-/**
- * Fail fast with a readable message if Ollama is not up or the model is not
- * pulled, instead of letting the engine surface a raw connection error mid
- * stream.
- */
+let step = 0;
+const endpoint = custom({
+	id: 'smoke',
+	baseUrl,
+	key: apiKey,
+	// Print what each step sends, then send it.
+	async fetch(url, init) {
+		if (url.endsWith('/chat/completions')) {
+			const body = JSON.parse(String(init?.body)) as {
+				messages: { role: string; content: unknown }[];
+			};
+			console.log(`\n--- step ${++step}: messages sent ---`);
+			for (const message of body.messages)
+				console.log(`  [${message.role}] ${JSON.stringify(message.content)}`);
+		}
+		return fetch(url, init);
+	},
+});
+
+/** Fail fast with a readable message when the server is down or lacks the model. */
 async function preflight(): Promise<void> {
 	const { data: available, error } = await createClient(endpoint).listModels();
 	if (error?.name === 'Unreachable')
@@ -53,72 +66,66 @@ async function preflight(): Promise<void> {
 			`Cannot reach an OpenAI-compatible server at ${baseUrl}. Is \`ollama serve\` running? (${error.message})`,
 		);
 	if (error !== null) {
-		// Some hosted endpoints don't expose /models or gate it; warn and let the
-		// real chat request be the source of truth instead of hard-failing here.
 		console.warn(
 			`! GET ${baseUrl}/models failed (${error.message}); skipping the model-present check.\n`,
 		);
 		return;
 	}
-	const present = available.some(
-		(id) => id === model || id.startsWith(`${model}:`),
-	);
-	if (!present) {
+	if (!available.some((id) => id === model || id.startsWith(`${model}:`)))
 		console.warn(
-			`! Model "${model}" is not in the server's list (${available.join(', ') || 'none'}).`,
+			`! Model "${model}" is not in the server's list (${available.join(', ') || 'none'}). If this is Ollama, run: ollama pull ${model}\n`,
 		);
-		console.warn(`! If this is Ollama, run: ollama pull ${model}\n`);
-	}
+}
+
+/** Resolve once the conversation neither generates nor saves. */
+function settled(conversation: ReturnType<typeof createConversation>) {
+	const active = () =>
+		conversation.snapshot().isGenerating || conversation.snapshot().isSaving;
+	return new Promise<void>((resolve) => {
+		if (!active()) return resolve();
+		const stop = conversation.subscribe(() => {
+			if (active()) return;
+			stop();
+			resolve();
+		});
+	});
 }
 
 async function main(): Promise<void> {
 	await preflight();
-
-	const ai = openAi([endpoint]);
-	const engine = createChatEngine({
-		turn: () => ({
-			ai,
-			endpoint: endpoint.id,
-			model,
-			systemPrompts: [VOCAB_SYSTEM_PROMPT],
-		}),
-	});
-
-	// Vocab is capability-free: one user turn, an empty tool catalog, one text step.
-	const request: AgentEngineRequest = {
-		messages: [{ role: 'user', content: userPrompt }],
-		tools: [],
-	};
-
-	console.log(`> model:   ${model}`);
-	console.log(`> backend: ${baseUrl}`);
-	console.log(`> user:    ${userPrompt}\n`);
-
-	let text = '';
-	let toolCalls = 0;
-	for await (const chunk of engine(request, new AbortController().signal)) {
-		if (chunk.type === 'text-delta') {
-			text += chunk.delta;
-			process.stdout.write(chunk.delta);
-		} else if (chunk.type === 'tool-call') {
-			toolCalls += 1;
-		} else if (chunk.type === 'run-error') {
-			console.error(
-				`\n\n✗ run-error${chunk.code ? ` [${chunk.code}]` : ''}: ${chunk.message}`,
-			);
-			process.exit(1);
+	const root = await mkdtemp(join(tmpdir(), 'vocab-smoke-'));
+	try {
+		const client = unwrap(await openDevice(vocab, { path: root }));
+		const conversation = createConversation({
+			messages: client.messages,
+			chat: 'smoke',
+			ai: openAi([endpoint]),
+			model: () => ({ endpoint: endpoint.id, model }),
+			system: VOCAB_SYSTEM_PROMPT,
+			prepare: tutorOpening,
+		});
+		console.log(`> model:   ${model}`);
+		console.log(`> backend: ${baseUrl}`);
+		for (const prompt of prompts) {
+			console.log(`\n========== learner: ${JSON.stringify(prompt)} ==========`);
+			const { error } = await conversation.send(prompt);
+			if (error !== null) throw new Error(error.message, { cause: error });
+			await settled(conversation);
+			const failure = conversation.snapshot().error;
+			if (failure)
+				throw new Error(
+					`${failure.code ? `[${failure.code}] ` : ''}${failure.message}`,
+				);
 		}
+		console.log('\n========== saved transcript ==========');
+		for (const message of conversation.snapshot().messages)
+			console.log(
+				`[${message.role}] ${JSON.stringify(agentMessageText(message))}`,
+			);
+		conversation[Symbol.dispose]();
+	} finally {
+		await rm(root, { recursive: true, force: true });
 	}
-
-	if (text.length === 0) {
-		console.error(
-			'\n✗ Stream finished with no text. The model returned nothing.',
-		);
-		process.exit(1);
-	}
-	console.log(
-		`\n\n✓ ok — streamed ${text.length} chars${toolCalls ? `, ${toolCalls} tool call(s)` : ''}.`,
-	);
 }
 
 main().catch((error: unknown) => {

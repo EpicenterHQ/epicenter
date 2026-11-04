@@ -1,8 +1,8 @@
 /**
  * `/v1/chat/completions`: the OpenAI-compatible inference gateway (ADR-0049,
  * ADR-0050). One swappable inference server speaking the OpenAI Chat Completions
- * wire. The client agent loop (`createChatEngine` over `@epicenter/ai`'s
- * `hosted` endpoint) points at this by base URL; pointing it elsewhere (Ollama,
+ * wire. The client agent loop (`createConversation` from `@epicenter/ai/agent`, over
+ * the `hosted` endpoint) points at this by base URL; pointing it elsewhere (Ollama,
  * OpenRouter, a self-hosted gateway) is another endpoint, not code.
  *
  * It is a pure passthrough proxy: resolve the provider from the model catalog,

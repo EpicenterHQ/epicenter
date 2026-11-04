@@ -1,15 +1,10 @@
 import type { ModelChoice, ModelChoices } from '@epicenter/ai';
-import {
-	type ChatTurn,
-	createChatEngine,
-	createConversation,
-} from '@epicenter/ai/agent';
-import type { ReactiveAi } from '@epicenter/ai/svelte';
-import { bindAgentConversation } from '@epicenter/svelte';
+import { createConversation } from '@epicenter/ai/agent';
+import { fromConversation, type ReactiveAi } from '@epicenter/ai/svelte';
 import { createTracker } from '@epicenter/svelte/tracked';
 import { tutorPrompt, VOCAB_SYSTEM_PROMPT } from '../data.js';
-import { createChatMessageStore, type MessageList } from './messages.svelte.js';
-import { withTutorOpening } from './opening.js';
+import type { MessageList } from '../vocab.svelte.js';
+import { tutorOpening } from './opening.js';
 
 /** One active tutor conversation for the lifetime of its keyed view. */
 export function createVocabChat({
@@ -29,7 +24,8 @@ export function createVocabChat({
 	choices: ModelChoices<'chat'>;
 }) {
 	const observeChoices = createTracker(choices.subscribe);
-	let runTurn: ChatTurn | null = null;
+	/** The model the next turn uses, captured when it is asked for. */
+	let chosen: ModelChoice | null = null;
 	let draft = $state('');
 	// The submitted text stays in the draft until its message is saved.
 	let submittedDraft: string | null = null;
@@ -38,7 +34,6 @@ export function createVocabChat({
 	// A tutor request being prepared: reserved when asked, before any await, so
 	// a second click finds it. Stop and disposal abort it before the tutor starts.
 	let asking = $state<AbortController | null>(null);
-	const store = createChatMessageStore(messages, chatId);
 
 	/**
 	 * A message's file receipt arrived. Clear the submitted text, unless the
@@ -71,30 +66,22 @@ export function createVocabChat({
 	function captureTarget(): boolean {
 		const choice = target();
 		if (!canChat(choice)) return false;
-		runTurn = {
-			ai,
-			endpoint: choice.endpoint,
-			model: choice.model,
-			systemPrompts: [
-				focus.length
-					? tutorPrompt(focus, loop.messages.length === 0)
-					: VOCAB_SYSTEM_PROMPT,
-			],
-		};
+		chosen = choice;
 		return true;
 	}
 
-	const provider = createChatEngine({
-		turn: () => {
-			if (!runTurn) throw new Error('Choose a model before running a turn.');
-			return runTurn;
-		},
-	});
-	const loop = bindAgentConversation(
+	const loop = fromConversation(
 		createConversation({
-			store,
-			engine: withTutorOpening(provider),
-			generateId: () => crypto.randomUUID(),
+			messages,
+			chat: chatId,
+			ai,
+			model: () => chosen,
+			// Focus is model context, not a transcript message; an empty chat opens.
+			system: (transcript) =>
+				focus.length
+					? tutorPrompt(focus, transcript.length === 0)
+					: VOCAB_SYSTEM_PROMPT,
+			prepare: tutorOpening,
 		}),
 	);
 	// Saving and unsaved messages hold the conversation as a live turn does.
@@ -147,7 +134,7 @@ export function createVocabChat({
 		},
 		/** Message files of this chat that are not shown and not sent to the tutor. */
 		get unreadable() {
-			return store.unreadable;
+			return loop.unreadable;
 		},
 		get target() {
 			return target();
@@ -183,8 +170,10 @@ export function createVocabChat({
 		async sendMessage() {
 			const submitted = draft;
 			const text = submitted.trim();
-			if (!text || loop.messages.length === 0 || isBusy() || !captureTarget())
-				return;
+			if (!text) return;
+			// A reply needs the chat's saved messages, which list once it opens.
+			await loop.ready;
+			if (loop.messages.length === 0 || isBusy() || !captureTarget()) return;
 			const { error } = await loop.send(text);
 			if (error?.name === 'NotAdmitted') return;
 			submittedDraft = submitted;
@@ -209,8 +198,9 @@ export function createVocabChat({
 			const admitted = new AbortController();
 			asking = admitted;
 			try {
-				// A connection the learner chose answers once the saved ones are read.
-				await ai.custom?.ready;
+				// A connection the learner chose answers once the saved ones are
+				// read, and what to ask depends on the chat's saved messages.
+				await Promise.all([ai.custom?.ready, loop.ready]);
 				if (admitted.signal.aborted) return;
 				if (hasNothingToAsk() || !captureTarget()) return;
 				dismissedError = null;

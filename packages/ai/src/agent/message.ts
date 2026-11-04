@@ -1,5 +1,69 @@
+import type { NoteOf } from '@epicenter/definition/contract';
 import type { JsonValue } from 'wellcrafted/json';
 import type { ChatMessage, ToolCall } from '../client.js';
+
+const text = { type: 'string' } as const;
+
+/**
+ * The collection a contract keeps an agent's finished messages in, one note
+ * per message: `messages/{chat}/{id}.md`, holding who wrote it, when
+ * (milliseconds), and its parts (text, and the model's tool calls and their
+ * results). An app adds it to its contract (`messages: messagesCollection`)
+ * and hands the collection's client to `createConversation`.
+ */
+export const messagesCollection = {
+	path: 'messages/{chat}/{id}.md',
+	fields: {
+		role: { enum: ['user', 'assistant'] },
+		createdAt: { type: 'number' },
+		parts: {
+			type: 'array',
+			items: {
+				anyOf: [
+					{
+						type: 'object',
+						properties: { type: { const: 'text' }, text },
+						required: ['type', 'text'],
+					},
+					{
+						type: 'object',
+						properties: {
+							type: { const: 'tool-call' },
+							toolCallId: text,
+							toolName: text,
+							input: {},
+						},
+						required: ['type', 'toolCallId', 'toolName', 'input'],
+					},
+					{
+						type: 'object',
+						properties: {
+							type: { const: 'tool-result' },
+							toolCallId: text,
+							toolName: text,
+							content: text,
+							details: {},
+							isError: { type: 'boolean' },
+						},
+						required: ['type', 'toolCallId', 'toolName', 'content', 'isError'],
+					},
+				],
+			},
+		},
+	},
+	required: ['role', 'createdAt', 'parts'],
+} as const;
+export type MessagesCollection = typeof messagesCollection;
+
+/** One message's note, as the collection reads it. */
+export type MessageNote = NoteOf<MessagesCollection>;
+
+/** A message note as the loop holds it: a plain copy, its own. */
+export function readMessage(note: MessageNote): AgentMessage {
+	const { id, role, createdAt, parts } = note;
+	// SAFETY: the collection's parts are the agent's parts, as JSON.
+	return structuredClone({ id, role, createdAt, parts }) as AgentMessage;
+}
 
 export type AgentTextPart = { type: 'text'; text: string };
 
