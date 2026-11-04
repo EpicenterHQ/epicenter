@@ -1,5 +1,7 @@
 /** A plain Git helper configured only inside integration tests' temporary homes. */
-import { shellQuote } from './sync/git.ts';
+
+/** One argument for `sh`, single-quoted: Git runs a `!` credential helper through the shell. */
+const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
 export function configureTestGitHelper(
 	origin: string,

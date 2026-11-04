@@ -1,4 +1,11 @@
-/** Clone into a temporary sibling before choosing the app's folder. */
+/**
+ * `epicenter clone`: restore a repository into a temporary sibling with one
+ * round of the sync core, which checks out the remote's `main` and its LFS
+ * bytes (ADR-0735's restore, with nothing to add), then name the folder
+ * from its `AGENTS.md` and move it into place. Cloning onto an occupied
+ * folder is the consent to sync it with that remote: its files go on top of
+ * the remote's `main` in the same round's first contact.
+ */
 
 import { existsSync } from 'node:fs';
 import {
@@ -20,17 +27,21 @@ import {
 	isRepositoryName,
 	relativeFolderPath,
 } from '@epicenter/definition/site';
+import { connect as attach, locate, open } from '@epicenter/core';
 import { resolveAppPaths } from '../app-paths.ts';
 import { connect } from './connect.ts';
-import { config, git, originPushUrl } from './git.ts';
 import {
 	type Initialized,
 	type InitOptions,
 	init,
 	refuseReservedDirectory,
-	repositoryRoot,
 } from './setup.ts';
-import { type SyncResult, syncFolder } from './sync.ts';
+import {
+	type CredentialFor,
+	round,
+	type SyncResult,
+	syncFolder,
+} from './sync.ts';
 
 export type CloneSource = {
 	readonly url: string;
@@ -43,7 +54,10 @@ export type CloneResult = Initialized & {
 	readonly sync?: SyncResult;
 };
 
-export type CloneOptions = InitOptions;
+export type CloneOptions = InitOptions & {
+	/** The token for the remote, asked for by its URL. */
+	readonly credential?: CredentialFor;
+};
 
 export function localSource(source: string): CloneSource | undefined {
 	if (
@@ -106,25 +120,13 @@ async function nameFromNote(folder: string, fallback: string): Promise<Named> {
 	};
 }
 
-async function cloneInto(url: string, target: string, options: InitOptions) {
-	const cloned = await git(
-		undefined,
-		[
-			'clone',
-			'-q',
-			'--no-recurse-submodules',
-			'--template=',
-			'--',
-			url,
-			target,
-		],
-		{
-			env: { GIT_LFS_SKIP_SMUDGE: '1' },
-			credential: await options.credential?.(url),
-		},
-	);
-	if (cloned.code !== 0)
-		throw new Error(cloned.stderr.trim() || `git clone exited ${cloned.code}`);
+/** Restore `url` into the empty folder `target`: a repository, its origin, and one round. */
+async function cloneInto(url: string, target: string, options: CloneOptions) {
+	open(target);
+	attach(target, url);
+	const restored = await round(target, url, options.credential);
+	if (restored.status !== 'synced')
+		throw new Error(restored.message ?? `the clone of ${url} did not finish`);
 }
 
 async function destination(target: string) {
@@ -154,24 +156,19 @@ async function joinExisting(
 ): Promise<CloneResult> {
 	await refuseReservedDirectory(target);
 	const canonical = await realpath(target);
-	const root = await repositoryRoot(target);
-	if (root !== null && root !== canonical)
+	const found = locate(canonical);
+	if (found !== null && found.root !== canonical)
 		throw new Error(
-			`${target} is inside the repository ${root}; cannot sync ${url}`,
+			`${target} is inside the repository ${found.root}; cannot sync ${url}`,
 		);
-	if (root !== null) {
-		const current = await config(root, 'remote.origin.url');
-		if (current !== null && current !== url)
-			throw new Error(
-				`${target} has remote ${current}; cannot sync remote ${url}`,
-			);
-		if (current === url && (await originPushUrl(root)) !== url)
-			throw new Error(`${target} fetches from ${url} but pushes elsewhere`);
-	}
+	if (found?.origin !== undefined && found.origin !== url)
+		throw new Error(
+			`${target} has remote ${found.origin}; cannot sync remote ${url}`,
+		);
 	const setup = await init(target, options);
 	await connect(target, url);
 	const sync = await syncFolder(target, options);
-	return { ...setup, alreadyCloned: root !== null, sync };
+	return { ...setup, alreadyCloned: found !== null, sync };
 }
 
 async function createParents(path: string, created: string[]) {

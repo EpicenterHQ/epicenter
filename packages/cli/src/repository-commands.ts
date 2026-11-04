@@ -8,14 +8,14 @@
  *
  * The credential is an access token for the deployment's Git audience, from
  * the grant the command runs under (`--desktop` selects the desktop app's).
- * Every `git` this binary runs itself, a clone, a sync's fetch and push, and
- * their LFS transfers, gets it as one Bearer header, outside every argument,
- * and only for an `https` remote (`hostedCredentials`), so a refresh always
- * runs in this process and never in a `git` it started (ADR-0565). A
- * person's own `git` gets it from the credential helper, which only
- * `epicenter auth login` writes, globally.
+ * Every round the sync core runs for this binary, a clone's or a sync's,
+ * sends it as one Bearer header on each Git and LFS request to the remote's
+ * origin (`hostedCredentials`), so a refresh always runs in this process
+ * (ADR-0565). A person's own `git` gets it from the credential helper, which
+ * only `epicenter auth login` writes, globally.
  */
 
+import { locate } from '@epicenter/core';
 import {
 	type GrantLevel,
 	isRepositoryName,
@@ -35,13 +35,15 @@ import {
 	type GrantKind,
 } from './auth.ts';
 import { EXIT, fail, writeJson, writeOut } from './output.ts';
-import { type CredentialFor, config } from './sync/git.ts';
+import type { CredentialFor } from './sync/sync.ts';
 
 /**
  * The credential for a remote of this deployment's hosted Git, asked for by
  * URL as each transfer starts: the grant's access token for the Git
- * audience, sent only to an `https` remote. Any other remote gets none, so
- * Git uses the person's own sign-in. Nothing is created here: the server
+ * audience, sent only over `https`, or over `http` to this computer (a
+ * development API on `localhost`). Any other remote gets none: the sync
+ * core asks no credential helper, so it reaches only a remote that needs no
+ * sign-in, such as a local repository. Nothing is created here: the server
  * answers a name nobody holds as an empty repository, so the sync's fetch
  * finds nothing, and its push creates the repository.
  */
@@ -51,7 +53,7 @@ export function hostedCredentials(
 ): CredentialFor {
 	return async (url) => {
 		if (
-			!url.startsWith('https://') ||
+			!carriesTokens(url) ||
 			parseRepositoryUrl(ctx.deployment.audiences.git, url) === undefined
 		)
 			return undefined;
@@ -61,8 +63,19 @@ export function hostedCredentials(
 			ctx.deployment.audiences.git,
 		);
 		if (error !== null) throw new Error(error.message);
-		return { url, token: data.token };
+		return { token: data.token };
 	};
+}
+
+/** Whether a token may travel to `url`: `https`, or `http` that never leaves this computer. */
+function carriesTokens(url: string): boolean {
+	if (url.startsWith('https://')) return true;
+	if (!URL.canParse(url)) return false;
+	const { protocol, hostname } = new URL(url);
+	return (
+		protocol === 'http:' &&
+		['localhost', '127.0.0.1', '[::1]'].includes(hostname)
+	);
 }
 
 async function refusal(response: Response, url: string): Promise<string> {
@@ -166,8 +179,13 @@ async function repositoryOf(
 		return isRepositoryName(own) ? { namespace: '~', name: own } : undefined;
 	const named = parseRepositoryPath(target);
 	if (named !== undefined) return named;
-	const url = await config(target, 'remote.origin.url').catch(() => null);
-	return url === null
+	let url: string | undefined;
+	try {
+		url = locate(target)?.origin;
+	} catch {
+		// A path the core cannot open names no repository.
+	}
+	return url === undefined
 		? undefined
 		: parseRepositoryUrl(ctx.deployment.audiences.git, url);
 }

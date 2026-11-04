@@ -3,13 +3,14 @@
 //! a merge from the other. Git's own locks, such as `index.lock`, guard one
 //! operation each.
 //!
-//! The TypeScript CLI takes the same file as an exclusive SQLite
-//! transaction (`holdingFileLock` in `packages/cli/src/file-lock.ts`), and
-//! both must exclude each other while both exist. SQLite's unix VFS locks a
-//! database with `fcntl` record locks on fixed bytes past 1 GiB: the
-//! pending byte at `0x40000000`, the reserved byte after it, and a 510-byte
-//! shared range after that. The core takes an `fcntl` write lock on those
-//! same 512 bytes, so either side finds the other's lock. `flock` would not
+//! The `epicenter` CLI runs its rounds through this core, but a CLI built
+//! before it took the same file as an exclusive SQLite transaction, and
+//! one may still be installed beside a newer app, so the core keeps
+//! excluding it. SQLite's unix VFS locks a database with `fcntl` record
+//! locks on fixed bytes past 1 GiB: the pending byte at `0x40000000`, the
+//! reserved byte after it, and a 510-byte shared range after that. The core
+//! takes an `fcntl` write lock on those same 512 bytes, so either side finds
+//! the other's lock. `flock` would not
 //! do: on Linux `flock` and `fcntl` locks are independent and never see
 //! each other (on macOS they interact, which would hide the bug there).
 //!
@@ -33,8 +34,8 @@ use crate::Error;
 /// The lock file's name in the repository's common Git directory.
 pub const LOCK_FILE: &str = "epicenter-sync.lock";
 
-/// How long a round waits for another program's round, as `TURN_WAIT_MS`
-/// in `packages/cli/src/sync/sync.ts` does.
+/// How long a round waits for another program's round before it ends
+/// `Retry`: two minutes, as the CLI always waited.
 pub const TURN_WAIT: Duration = Duration::from_secs(120);
 
 /// SQLite's `PENDING_BYTE`, where its lock bytes start, and their count.

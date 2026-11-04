@@ -1,22 +1,14 @@
-/** Find repository candidates at the library root and one owner level down. */
+/**
+ * Find repository candidates at the library root and one owner level down,
+ * reading each one's repository and consent through the sync core.
+ */
 
 import { lstat, readdir, realpath, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { type Located, locate } from '@epicenter/core';
 import { resolveAppPaths } from '../app-paths.ts';
-import { git } from './git.ts';
-import { repositoryRoot } from './setup.ts';
 
 export type DiscoveredFolder = { folder: string; problem?: string };
-
-async function localConfig(
-	folder: string,
-	key: string,
-): Promise<string | null> {
-	const result = await git(folder, ['config', '--local', '--get', key]);
-	if (result.code === 0) return result.stdout.trim();
-	if (result.code === 1) return null;
-	throw new Error(result.stderr.trim() || 'not in a Git repository');
-}
 
 function reason(error: unknown): string {
 	const code =
@@ -65,30 +57,25 @@ export async function discoveredFolders(): Promise<DiscoveredFolder[]> {
 		}
 		if (seen.has(target)) return;
 		seen.add(target);
-		let root: string | null = null;
-		let gitProblem: string | undefined;
+		let repository: Located | null = null;
 		try {
-			root = await repositoryRoot(target);
-		} catch (error) {
-			gitProblem = reason(error);
+			repository = locate(target);
+		} catch {
+			// A `.git` the core cannot open, such as a malformed `.git`
+			// file, is no repository; the checks below name what is there.
 		}
-		if (root === target) {
-			try {
-				const synced = await localConfig(target, 'epicenter.synced');
-				found.push({
-					folder,
-					...(synced === 'true'
-						? {}
-						: { problem: 'its repository is not set up for sync' }),
-				});
-			} catch (error) {
-				found.push({ folder, problem: reason(error) });
-			}
+		if (repository?.root === target) {
+			found.push({
+				folder,
+				...(repository.synced
+					? {}
+					: { problem: 'its repository is not set up for sync' }),
+			});
 			return;
 		}
 		try {
 			await lstat(join(target, '.git'));
-			found.push({ folder, problem: gitProblem ?? 'not in a Git repository' });
+			found.push({ folder, problem: 'not in a Git repository' });
 			return;
 		} catch (error) {
 			if (reason(error) !== 'not on disk') {
@@ -97,11 +84,7 @@ export async function discoveredFolders(): Promise<DiscoveredFolder[]> {
 			}
 		}
 		if (owner) {
-			if (link)
-				found.push({
-					folder,
-					problem: gitProblem ?? 'not in a Git repository',
-				});
+			if (link) found.push({ folder, problem: 'not in a Git repository' });
 			return;
 		}
 		const before = found.length;
@@ -110,7 +93,7 @@ export async function discoveredFolders(): Promise<DiscoveredFolder[]> {
 		}))
 			await inspect(child, true);
 		if (link && found.length === before)
-			found.push({ folder, problem: gitProblem ?? 'not in a Git repository' });
+			found.push({ folder, problem: 'not in a Git repository' });
 	};
 	for (const child of await children(resolveAppPaths().folderDir))
 		await inspect(child, false);

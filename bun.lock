@@ -470,6 +470,7 @@
       },
       "dependencies": {
         "@beeper/desktop-api": "^6.0.0",
+        "@epicenter/core": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "typebox": "catalog:",
@@ -493,6 +494,17 @@
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
         "yaml": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/epicenter-core": {
+      "name": "@epicenter/core",
+      "version": "0.0.1",
+      "dependencies": {
+        "@epicenter/definition": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
@@ -913,6 +925,8 @@
     "@epicenter/capture-app": ["@epicenter/capture-app@workspace:apps/capture"],
 
     "@epicenter/cli": ["@epicenter/cli@workspace:packages/cli"],
+
+    "@epicenter/core": ["@epicenter/core@workspace:packages/epicenter-core"],
 
     "@epicenter/definition": ["@epicenter/definition@workspace:packages/definition"],
 

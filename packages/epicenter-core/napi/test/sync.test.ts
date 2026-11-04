@@ -5,8 +5,7 @@
  * from `@epicenter/definition` as the note merge. The spike's synchronous
  * binding deadlocked here: it blocked the thread the server answers on.
  *
- * Run `bun packages/epicenter-core/napi/build.ts` first, or the suite
- * builds a debug addon itself.
+ * `bun run --cwd packages/epicenter-core test` builds the addon first.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
@@ -19,14 +18,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { REPOSITORY_ATTRIBUTES } from '../../../definition/src/contract/storage.ts';
-import {
-	findConflicts,
-	parsePointer,
-} from '../../../definition/src/merge/index.ts';
+import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
+import { findConflicts, parsePointer } from '@epicenter/definition/merge';
 import { startRemote, type TestRemote } from './remote.test-support.ts';
 
-const HERE = join(import.meta.dir, '..');
 const BOX = realpathSync(mkdtempSync(join(tmpdir(), 'epicenter-core-bun-')));
 const TOKEN = 'test-token-1234';
 const WAV = new Uint8Array([82, 73, 70, 70, 1, 2, 3, 4]);
@@ -68,13 +63,6 @@ function sync(folder: string, machine: string, token: string | null = TOKEN) {
 }
 
 beforeAll(async () => {
-	if (!existsSync(join(HERE, 'epicenter_core.node'))) {
-		const built = Bun.spawnSync(['bun', join(HERE, 'build.ts'), '--debug'], {
-			stdout: 'inherit',
-			stderr: 'inherit',
-		});
-		if (built.exitCode !== 0) throw new Error('the addon did not build');
-	}
 	core = await import('../index.ts');
 	const root = join(BOX, 'remote');
 	Bun.spawnSync([

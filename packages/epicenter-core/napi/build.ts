@@ -1,7 +1,8 @@
 /**
  * Build the Node-API addon and place it at `epicenter_core.node` beside
- * `index.ts`: `bun packages/epicenter-core/napi/build.ts [--debug]`. Set
- * `CARGO` to choose the cargo that builds it.
+ * `index.ts`: `bun run --cwd packages/epicenter-core build [--debug]`. The
+ * CLI's `compile` and `test` scripts run it first. Set `CARGO` to choose the
+ * cargo that builds it.
  */
 import { copyFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';

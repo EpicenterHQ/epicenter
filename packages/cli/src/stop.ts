@@ -3,17 +3,15 @@
  * (`SIGTERM`, `SIGINT`, `SIGHUP`), which the desktop shell sends when the
  * page that started the command reloads or its window closes, and when it
  * restarts its sync service. The handler is installed by the first
- * `onStop`, `finishBeforeExit`, or `stopWhenStdinCloses`; until then a stop
- * signal ends the process as it would any program.
+ * `finishBeforeExit` or `stopWhenStdinCloses`; until then a stop signal
+ * ends the process as it would any program.
  *
  * On a stop signal the process first waits for the work it must not cut
  * off, each piece at most the grace it asked for: a token refresh's keychain
  * write (ADR-0565), `STOP_GRACE_MS`, and a sync round, `ROUND_GRACE_MS`.
  * Work such a piece begins after the signal, such as the refresh a round
  * asks for, is waited for too; a command checks `isStopping` before it
- * begins another piece of its own. Then the command's cleanups run (sync
- * ends every `git` still running, ADR-0559), and the process exits
- * `128 + n`.
+ * begins another piece of its own. Then the process exits `128 + n`.
  *
  * A command the desktop starts for the app's whole life cannot rely on a
  * signal: an app that crashes or is killed sends none. Such a command calls
@@ -35,25 +33,16 @@ const STOP_SIGNALS = { SIGTERM: 15, SIGINT: 2, SIGHUP: 1 } as const;
 export const STOP_GRACE_MS = 2_000;
 
 /**
- * How long a stop signal waits for a sync round already running. A round
- * cut off in its merge leaves Git's index lock and the merge driver's
- * scratch files behind, or a merge in progress, and every later round stops
- * on them until a person clears them.
+ * How long a stop signal waits for a sync round already running. The round
+ * runs in this process, in the sync core, so an exit ends it wherever it
+ * is; one cut off between writing a merge's files and moving `main` leaves
+ * the working tree ahead of `main`, which the next round commits as a local
+ * edit instead of the merge.
  */
 export const ROUND_GRACE_MS = 60_000;
 
-const cleanups = new Set<() => void>();
 /** Each piece of unfinished work, with the grace it asked for. */
 const unfinished = new Map<Promise<void>, number>();
-
-/**
- * Run `cleanup` when a stop signal ends this process, once the unfinished
- * work has finished or run out of time.
- */
-export function onStop(cleanup: () => void) {
-	cleanups.add(cleanup);
-	exitOnStop();
-}
 
 /**
  * Run `work` so that a stop signal waits for it to finish, at most `graceMs`
@@ -121,17 +110,9 @@ function exitOnStop() {
 		process.on(signal, () => stop(number));
 }
 
-/** Wait for unfinished work, run every cleanup, and exit `128 + number`. */
+/** Wait for unfinished work, then exit `128 + number`. */
 function stop(number: number) {
 	if (stopping) return;
 	stopping = true;
-	void unfinishedSettled(Date.now()).then(() => {
-		for (const cleanup of cleanups)
-			try {
-				cleanup();
-			} catch {
-				// One cleanup that fails must not keep the others from running.
-			}
-		process.exit(128 + number);
-	});
+	void unfinishedSettled(Date.now()).then(() => process.exit(128 + number));
 }

@@ -404,3 +404,152 @@ fn a_folder_that_tracks_another_remote_is_refused() {
     assert_eq!(round.status, Status::Stopped);
     assert!(round.message.unwrap().contains("someone-else"));
 }
+
+fn sync_without_remote(folder: &Path, machine: &str) -> epicenter_core::Round {
+    epicenter_core::sync_round(
+        folder,
+        &epicenter_core::Options {
+            remote: None,
+            machine: machine.into(),
+            merge: &StandIn,
+            turn_wait: epicenter_core::lock::TURN_WAIT,
+        },
+    )
+}
+
+#[test]
+fn history_rounds_made_before_an_origin_meets_the_remote_by_first_contact() {
+    let world = World::new();
+    let a = seed_a(&world);
+    let pushed = world.synced(&a, "A").head.unwrap();
+
+    let b = world.folder("b");
+    write(&b, ".gitattributes", ATTRIBUTES);
+    write(&b, "notes/only-b.md", "---\ntitle: B\n---\nfrom b\n");
+    let local = sync_without_remote(&b, "B");
+    assert_eq!(local.status, Status::Synced);
+    assert_eq!(
+        local.notes.last().map(String::as_str),
+        Some("no remote: committed locally")
+    );
+    write(&b, "notes/later.md", "---\ntitle: Later\n---\nstill offline\n");
+    assert_eq!(sync_without_remote(&b, "B").status, Status::Synced);
+
+    let round = world.synced(&b, "B");
+    let repo = Repository::open(&b).unwrap();
+    let head = round.head.unwrap();
+    let commit = repo.find_commit(git2::Oid::from_str(&head).unwrap()).unwrap();
+    assert_eq!(commit.message(), Some("Added from B"));
+    assert_eq!(commit.parent_id(0).unwrap().to_string(), pushed);
+    assert_eq!(roots(&repo, &head), 1, "the offline commits do not travel");
+    assert_eq!(read(&b, "notes/only-a.md"), "---\ntitle: A\n---\nfrom a\n");
+    assert_eq!(
+        remote_blob(&world, "notes/later.md").unwrap(),
+        b"---\ntitle: Later\n---\nstill offline\n"
+    );
+}
+
+#[test]
+fn a_history_epicenter_did_not_make_is_refused_with_the_command_that_resolves_it() {
+    let world = World::new();
+    let a = seed_a(&world);
+    world.synced(&a, "A");
+
+    let b = world.folder("b");
+    write(&b, "mine.md", "---\ntitle: Mine\n---\n");
+    let repo = Repository::init(&b).unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(Path::new("mine.md")).unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    let me = git2::Signature::now("Me", "me@example.invalid").unwrap();
+    let mine = repo
+        .commit(Some("refs/heads/main"), &me, &me, "my own start", &tree, &[])
+        .unwrap();
+    repo.set_head("refs/heads/main").unwrap();
+
+    let round = world.sync(&b, "B");
+    assert_eq!(round.status, Status::Stopped);
+    let message = round.message.unwrap();
+    assert!(message.contains("\"my own start\""), "{message}");
+    assert!(message.contains("rebase --root --onto origin/main"), "{message}");
+    assert_eq!(repo.refname_to_id("refs/heads/main").unwrap(), mine);
+}
+
+#[test]
+fn a_file_checked_out_as_its_lfs_pointer_gets_its_bytes_and_stays_a_pointer_in_git() {
+    let world = World::new();
+    let a = seed_a(&world);
+    let pushed = world.synced(&a, "A").head.unwrap();
+
+    // libgit2 runs no LFS filter, so its clone leaves the pointer, as a
+    // stock clone without `git-lfs` does.
+    let c = world.dir.path().join("c");
+    Repository::clone(&world.remote().url, &c).unwrap();
+    let pointer = std::fs::read(c.join("photos/cat.png")).unwrap();
+    assert_eq!(Pointer::parse(&pointer), Some(Pointer::of(PNG_A)));
+
+    let round = world.synced(&c, "C");
+    assert!(
+        round
+            .notes
+            .contains(&"restored 1 files checked out as LFS pointers".to_string()),
+        "{:?}",
+        round.notes
+    );
+    assert_eq!(std::fs::read(c.join("photos/cat.png")).unwrap(), PNG_A);
+    assert_eq!(round.head.as_deref(), Some(pushed.as_str()), "nothing to commit");
+    // The next round reads the bytes through the stat cache: nothing changed.
+    assert!(world.synced(&c, "C").notes.is_empty());
+
+    // A pointer the stat cache does not cover is committed as itself.
+    write(&c, "photos/cat.png", &pointer);
+    let again = world.synced(&c, "C");
+    assert_eq!(again.head.as_deref(), Some(pushed.as_str()));
+    assert_eq!(std::fs::read(c.join("photos/cat.png")).unwrap(), PNG_A);
+}
+
+#[test]
+fn an_empty_folder_meeting_an_empty_remote_commits_nothing() {
+    let world = World::new();
+    let a = world.folder("a");
+    let round = world.synced(&a, "A");
+    assert_eq!(round.head, None);
+    assert!(world.remote_repo().refname_to_id("refs/heads/main").is_err());
+    assert!(Repository::open(&a)
+        .unwrap()
+        .refname_to_id("refs/heads/main")
+        .is_err());
+}
+
+#[test]
+fn rounds_racing_to_a_local_remote_lose_no_commit() {
+    let world = World::new();
+    let a = seed_a(&world);
+    world.synced(&a, "A");
+    let b = world.folder("b");
+    world.synced(&b, "B");
+    std::thread::scope(|scope| {
+        for (folder, name) in [(&a, "A"), (&b, "B")] {
+            let world = &world;
+            scope.spawn(move || {
+                for round in 0..8 {
+                    write(
+                        folder,
+                        &format!("notes/{name}-{round}.md"),
+                        format!("---\ntitle: {name} {round}\n---\n"),
+                    );
+                    let done = world.sync(folder, name);
+                    assert_ne!(done.status, Status::Stopped, "{:?}", done.message);
+                }
+            });
+        }
+    });
+    world.synced(&a, "A");
+    world.synced(&b, "B");
+    for name in ["A", "B"] {
+        for round in 0..8 {
+            let path = format!("notes/{name}-{round}.md");
+            assert!(remote_blob(&world, &path).is_some(), "{path} was lost");
+        }
+    }
+}

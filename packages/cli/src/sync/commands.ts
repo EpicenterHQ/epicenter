@@ -8,10 +8,10 @@
  * folder synced, 1 a round to run again (a lock, the network, the remote
  * still moving), 2 a folder stopped for a person or agent.
  *
- * A hosted `https` remote on this deployment's Git origin gets the grant's
- * token as a Bearer header on each transfer (`hostedCredentials`); any other
- * remote uses the person's own Git credentials. Init writes no credential
- * into a clone.
+ * A remote on this deployment's Git origin gets the grant's token, which
+ * the sync core sends as a Bearer header on each request
+ * (`hostedCredentials`); any other remote gets none. Nothing writes a
+ * credential into a folder.
  */
 
 import { type FSWatcher, watch as watchDirectory } from 'node:fs';
@@ -27,11 +27,10 @@ import {
 import type { GrantKind } from '../auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
 import { type DiscoveredFolder, discoveredFolders } from './discovery.ts';
-import type { CredentialFor } from './git.ts';
 import { mergeDriver } from './merge-driver.ts';
 import { Refused } from './setup.ts';
 import type { FolderStatus } from './status.ts';
-import type { SyncResult } from './sync.ts';
+import type { CredentialFor, SyncResult } from './sync.ts';
 
 type Options = Record<string, string | true>;
 
@@ -70,13 +69,11 @@ export async function initCommand(
 	dir: string | undefined,
 	options: Options,
 	json: boolean,
-	grant: GrantKind,
 ) {
 	const { init } = await import('./setup.ts');
 	try {
 		const initialized = await init(dir ?? '.', {
 			name: typeof options.name === 'string' ? options.name : undefined,
-			credential: credentialFor(grant),
 		});
 		reportSetup('init', initialized, json);
 		return EXIT.ok;
@@ -282,22 +279,10 @@ export async function syncCommand(
 ) {
 	const [
 		{ syncFolder },
-		{ endGitCommands },
-		{
-			finishBeforeExit,
-			isStopping,
-			onStop,
-			ROUND_GRACE_MS,
-			stopWhenStdinCloses,
-		},
-	] = await Promise.all([
-		import('./sync.ts'),
-		import('@epicenter/folder/bun'),
-		import('../stop.ts'),
-	]);
+		{ finishBeforeExit, isStopping, ROUND_GRACE_MS, stopWhenStdinCloses },
+	] = await Promise.all([import('./sync.ts'), import('../stop.ts')]);
 	// A stop lets the folder's round under way finish and begins no other, so
-	// a merge is never cut off; then every git still running ends (ADR-0559).
-	onStop(endGitCommands);
+	// a merge is never cut off.
 	const credential = credentialFor(grant);
 	const folders = async (): Promise<DiscoveredFolder[]> =>
 		dir === undefined ? discoveredFolders() : [{ folder: resolve(dir) }];

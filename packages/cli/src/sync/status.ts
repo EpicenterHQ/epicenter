@@ -1,18 +1,28 @@
 /**
- * `epicenter status [<dir>]`: a thin read of the folder's Git state. It runs
- * `git status --porcelain` over what sync would commit (`COMMITTED`: the
- * folder, never its unfinished writes in `.epicenter`), compares `HEAD`
- * with the last fetched `origin/main`, and names whether the folder is
- * synced.
- * Without `<dir>` the command scans the library for synced folders.
- * It fetches nothing and writes nothing.
+ * `epicenter status [<dir>]`: a thin read of the folder's Git state. The
+ * sync core finds the repository, its consent, and its origin; the system
+ * `git` reports the branch, the commit, `git status --porcelain` over what
+ * sync would commit (`COMMITTED`: the folder, never its unfinished writes in
+ * `.epicenter`), and the counts against the last fetched `origin/main`,
+ * which the core has no read-only query for. Without `<dir>` the command
+ * scans the library for synced folders. It fetches nothing and writes
+ * nothing.
  */
 
 import { realpath, stat } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
-import { config, git } from './git.ts';
-import { repositoryRoot } from './setup.ts';
-import { COMMITTED, MAGIC } from './sync.ts';
+import { locate } from '@epicenter/core';
+import { STATE_DIRECTORY } from '@epicenter/folder/bun';
+import { git } from './git.ts';
+
+/**
+ * What a round commits: the data folder's own paths, never its unfinished
+ * writes in `STATE_DIRECTORY` at any depth, whatever the folder's
+ * `.gitignore` says. The exclusion is pathspec magic, so
+ * `GIT_LITERAL_PATHSPECS` from the environment is turned off for it.
+ */
+const COMMITTED = ['--', '.', `:(exclude,glob)**/${STATE_DIRECTORY}/**`];
+const MAGIC = { env: { GIT_LITERAL_PATHSPECS: '0' } };
 
 export type FolderStatus = {
 	readonly folder: string;
@@ -86,13 +96,12 @@ export async function folderStatus(
 ): Promise<FolderStatus | null> {
 	const folder = resolve(input);
 	const target = await realpath(folder);
-	const root = await repositoryRoot(target);
-	if (root === null) return null;
-	const [branch, head, adopted, remote, porcelain, counts] = await Promise.all([
+	const found = locate(target);
+	if (found === null) return null;
+	const root = found.root;
+	const [branch, head, porcelain, counts] = await Promise.all([
 		git(root, ['symbolic-ref', '-q', '--short', 'HEAD']),
 		git(root, ['rev-parse', '-q', '--verify', 'HEAD']),
-		config(root, 'epicenter.synced'),
-		config(root, 'remote.origin.url'),
 		git(
 			target,
 			['status', '--porcelain=v1', '-z', '--untracked-files=all', ...COMMITTED],
@@ -134,9 +143,9 @@ export async function folderStatus(
 		repository: root,
 		branch: branch.code === 0 ? branch.stdout.trim() : null,
 		head: head.code === 0 ? head.stdout.trim() : null,
-		adopted: root === target && adopted === 'true',
+		adopted: root === target && found.synced,
 		changes,
-		remote,
+		remote: found.origin ?? null,
 		ahead: ahead ?? null,
 		behind: behind ?? null,
 	};
