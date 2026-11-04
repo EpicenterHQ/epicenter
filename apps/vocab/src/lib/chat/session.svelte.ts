@@ -93,11 +93,15 @@ export function createVocabChat({
 		const { isGenerating, isSaving, unsaved } = loop.snapshot();
 		return asking !== null || isGenerating || isSaving || unsaved.length > 0;
 	};
-	/** The tutor is asked only for an opening or for an unanswered learner message. */
+	/**
+	 * The tutor is asked only for an opening or for an unanswered learner
+	 * message. An empty transcript asks for an opening only once the chat's
+	 * saved messages were listed: before that, empty may mean not read yet.
+	 */
 	const hasNothingToAsk = () => {
-		const { messages } = loop.snapshot();
+		const { messages, listed } = loop.snapshot();
 		return messages.length === 0
-			? focus.length === 0
+			? focus.length === 0 || !listed
 			: messages.at(-1)?.role !== 'user';
 	};
 
@@ -196,7 +200,9 @@ export function createVocabChat({
 		},
 		/**
 		 * Ask the tutor for the opening, or for the answer to the last learner
-		 * message. The loop reads the mirror's current transcript.
+		 * message, over the transcript as the folder shows it. Until the
+		 * chat's saved messages were listed, an empty chat asks nothing and a
+		 * turn ends as `Unlisted`; retrying once they are listed asks again.
 		 */
 		async retry() {
 			if (disposed || isBusy()) return;

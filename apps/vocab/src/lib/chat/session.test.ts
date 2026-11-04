@@ -2,12 +2,14 @@ import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import { custom, openAi } from '@epicenter/ai';
 import type { AgentMessage } from '@epicenter/ai/agent';
+import { createFolder, OpenFolderError } from '@epicenter/folder/core';
 import { expectOk } from 'wellcrafted/testing';
 
 const { openVocabFolder, until } = await import('../vocab.test-support.js');
 const { createVocabChat } = await import('./session.svelte.js');
 const { reactive } = await import('@epicenter/svelte/reactive');
 const { startChat } = await import('./chats.js');
+const { vocab } = await import('../contract.js');
 
 type ChatOptions = Parameters<typeof createVocabChat>[0];
 function sessionDouble<T extends object>(members: Partial<T>): T {
@@ -28,7 +30,7 @@ const asked: AgentMessage = {
 	parts: [{ type: 'text', text: 'Is this right?' }],
 };
 
-async function setup({ question = false } = {}) {
+async function setup({ question = false, offline = false } = {}) {
 	const folder = await openVocabFolder();
 	const chatId = expectOk(
 		await startChat(folder.lists.chats, [{ entryId: 'entry', text: 'lucid' }]),
@@ -91,7 +93,12 @@ async function setup({ question = false } = {}) {
 		subscribe: () => () => {},
 	});
 	const chat = createVocabChat({
-		messages: folder.messages,
+		// Offline, a folder that does not open: its messages are never listed.
+		messages: offline
+			? createFolder(vocab, async () =>
+					OpenFolderError.StorageUnavailable({ cause: 'offline' }),
+				).messages
+			: folder.messages,
 		chatId,
 		focus: [{ text: 'lucid' }],
 		ai,
@@ -265,6 +272,18 @@ test('an opening is not asked twice over a chat that already has one', async () 
 	expect(context.chat.messages.map((message) => message.role)).toEqual([
 		'assistant',
 	]);
+	context.chat[Symbol.dispose]();
+	await context.folder[Symbol.asyncDispose]();
+});
+
+test('an empty chat whose messages were never listed asks for no opening', async () => {
+	const context = await setup({ offline: true });
+	await context.chat.retry();
+	await settle(context.chat);
+	expect(context.requests).toBe(0);
+	expect(context.chat.messages).toEqual([]);
+	expect(context.chat.error).toBeNull();
+	expect(context.chat.canAsk).toBe(false);
 	context.chat[Symbol.dispose]();
 	await context.folder[Symbol.asyncDispose]();
 });
