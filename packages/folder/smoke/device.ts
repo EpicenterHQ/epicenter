@@ -1,7 +1,7 @@
 /**
  * A folder at this browser's storage (`home` from the web `@epicenter/folder`)
- * in real engines: OPFS through the store's one Worker, in Playwright
- * Chromium and WebKit. Run with Bun:
+ * in real engines: OPFS called from the page, in Playwright Chromium and
+ * WebKit. Run with Bun:
  *
  *   bun packages/folder/smoke/device.ts            # both engines
  *   bun packages/folder/smoke/device.ts webkit     # one
@@ -12,14 +12,13 @@
  * 1. A note lands in house style at its contract path, and 5 MB of audio
  *    reads back byte for byte, named by its stamp; a write there expecting
  *    nothing is `'stale'`. The store conformance checks
- *    (`store.conformance.ts`) pass, a second store's Worker writing as
- *    another tab.
+ *    (`store.conformance.ts`) pass, a second store writing as another tab.
  * 2. A second tab reads the same files.
  * 3. Below the folder, two tabs racing a write over one version: one lands,
  *    one is `'stale'`; racing a write where nothing is at one path, likewise.
- *    The Web Lock per path is what serializes them across the tabs' Workers.
+ *    The Web Lock per path is what serializes them across the tabs.
  *    Two writes racing within one tab take turns under the same lock.
- * 4. A write in one tab reaches the other tab's listeners (the Worker's
+ * 4. A write in one tab reaches the other tab's listeners (the store's
  *    broadcast), and the writing tab's own listeners before it resolves.
  * 5. A listing taken while files are being deleted answers, without the
  *    files that went (a file removed mid-walk is skipped, not a failure).
@@ -53,10 +52,6 @@ async function bundle(entry: string) {
 }
 
 const client = await bundle(join(import.meta.dir, 'device-client.ts'));
-// The client asks for its Worker at `new URL('./opfs-worker.ts', import.meta.url)`.
-const worker = await bundle(
-	join(import.meta.dir, '../src/device/opfs-worker.ts'),
-);
 const javascript = { headers: { 'content-type': 'text/javascript' } };
 const server = Bun.serve({
 	hostname: '127.0.0.1',
@@ -65,8 +60,6 @@ const server = Bun.serve({
 		switch (new URL(request.url).pathname) {
 			case '/device-client.js':
 				return new Response(client, javascript);
-			case '/opfs-worker.ts':
-				return new Response(worker, javascript);
 			default:
 				return new Response(
 					'<!doctype html><title>Device smoke</title><script type="module" src="/device-client.js"></script>',

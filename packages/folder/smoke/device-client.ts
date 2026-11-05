@@ -8,8 +8,8 @@
  * ADR-0775), so the steps that race writes over one version, or where
  * nothing was expected, go below it: a second store of the same place,
  * whose write answers `'stale'` when the path no longer holds what it was
- * made over. That store has its own Worker, so its writes reach this
- * page's folder as another writer's do.
+ * made over. That store names its own writes on the broadcast
+ * channel, so they reach this page's folder as another writer's do.
  */
 import { defineContract } from '@epicenter/definition/contract';
 import { opfsStore } from '../src/device/opfs-store.js';
@@ -119,8 +119,7 @@ let heardAudio = 0;
 const smoke = {
 	/**
 	 * The store conformance checks over this browser's private files: the
-	 * store under test, and a second store with its own Worker writing as
-	 * another tab would. Answers each check's failure, or `ok`.
+	 * store under test, and a second store writing as another tab would. Answers each check's failure, or `ok`.
 	 */
 	async conformance() {
 		const answers: Record<string, string> = {};
@@ -265,7 +264,7 @@ const smoke = {
 	/**
 	 * Two writes of `id` over one version, then two writes where nothing is
 	 * at one new path, each pair racing within this page through one store:
-	 * the Worker's per-path Web Lock lets exactly one of each land.
+	 * the store's per-path Web Lock lets exactly one of each land.
 	 */
 	async raceInOnePage(id: string) {
 		const store = await belowFolder();

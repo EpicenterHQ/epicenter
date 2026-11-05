@@ -167,8 +167,8 @@ an `OpenFolderError`, which fails the folder. Every `OpenFolderError` is
 something waiting will not fix: `Refused` (a place a folder can never be),
 `Unreadable` (there but not openable), `Disconnected` (a link to a drive
 that is not connected: the person connects it, then retries) and
-`StorageUnavailable` (no Worker, a browser that gives the page no private
-storage, not a Tauri window, a shell that named no root or did not answer).
+`StorageUnavailable` (a browser that gives the page no private storage, not
+a Tauri window, a shell that named no root or did not answer).
 The account's repository waits for sign-in; a listing or write that cannot
 reach it is `unavailable()`.
 
@@ -179,8 +179,8 @@ online web variant the repository, and its desktop variant the data folder,
 which only `epicenter sync` moves. Sign-in grants capabilities, never
 storage.
 
-In the browser, one dedicated Worker owns the origin's private file system,
-with a Web Lock per path. A browser that gives the page no private storage
+In the browser, the page calls the origin's private file system itself
+(ADR-0784), with a Web Lock per path around each write. A browser that gives the page no private storage
 (WebKit's ephemeral contexts, Safari's private windows) fails the open with
 `StorageUnavailable`, its cause a `DeviceError.StorageRefused`. In a Tauri
 window the folder works over the root the shell named, through the folder
@@ -204,7 +204,7 @@ watched, until the notify Durable Object replaces the poll. See
 `src/remote/`.
 
 The folder hears every write it makes before the write resolves, and
-outside writes as they come: other tabs through the Worker's
+outside writes as they come: other tabs through the
 `epicenter-device` broadcast channel, the shell's watcher in Tauri, a
 recursive watch in Bun (which stages a probe in `.epicenter/saves` until it
 hears one, so a change made while it started is not lost), and the

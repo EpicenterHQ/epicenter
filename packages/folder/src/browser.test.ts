@@ -17,14 +17,15 @@ test('a browser that gives the page no private storage fails the open, saying so
 	});
 });
 
-test('a closed store stops its Worker, and every later call is Unavailable', async () => {
+test('a store whose storage is refused answers Unavailable, and once closed says so', async () => {
 	const store = opfsStore();
-	// Starts the Worker; Bun has no private file system, so it answers either way.
-	await store.list(['']);
-	store.close();
-	const after = await store.list(['']);
-	expect(after.error).toMatchObject({
+	expect((await store.list([''])).error).toMatchObject({
 		name: 'Unavailable',
-		cause: { name: 'WorkerFailed' },
+		cause: { name: 'StorageRefused' },
+	});
+	store.close();
+	expect((await store.list([''])).error).toMatchObject({
+		name: 'Unavailable',
+		cause: { name: 'Closed' },
 	});
 });

@@ -113,7 +113,7 @@ test('an open held waits, and one refused fails until undone and retried', async
 	const place = memory();
 	const release = memoryFiles(place).holdOpen();
 	const undo = memoryFiles(place).refuseOpen(
-		OpenFolderError.StorageUnavailable({ cause: 'no Worker' }).error,
+		OpenFolderError.StorageUnavailable({ cause: 'no private storage' }).error,
 	);
 	const folder = openFolder(todos, place);
 	await Bun.sleep(5);

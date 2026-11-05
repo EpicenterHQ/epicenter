@@ -7,7 +7,8 @@
  *
  * - `saves/`: a save's bytes waiting to be renamed over its target, under a
  *   name `scratchName` makes. Always safe to delete when no app runs; the
- *   desktop shell's open removes ones an hour old (`sweep_scratch`).
+ *   desktop shell's open removes ones an hour old (`sweep_scratch`), and so
+ *   does this browser's store at its first call (`isStaleSave`).
  * - `recordings/<target path>`: a desktop recording, from its first sample
  *   until it stops or the next open recovers it. It may hold audio until the
  *   app opens once, so nothing sweeps it. Only the desktop shell writes
@@ -17,9 +18,7 @@
  * data: no watcher reports it and `epicenter sync` never commits it. This
  * module is the one place TypeScript spells the layout, as far as a page
  * writes it (`saves/`); the folder core's `state.rs` spells all of it, and
- * `fixtures/state-layout.json` holds both to it. The OPFS worker, which
- * imports nothing, keeps its own copy of `.epicenter/saves`, held to the
- * same fixture.
+ * `fixtures/state-layout.json` holds both to it.
  */
 
 /** The directory at the top of a folder that holds its unfinished writes. */
@@ -48,10 +47,26 @@ let staged = 0;
  * base 36, around this process's id. The desktop shell's sweep reads a
  * name of this shape, and only this shape, for its age (`is_stale_scratch`
  * in the folder core), so a save a crash stopped is removed at its next
- * open. The OPFS worker, which imports nothing, names its own the same way
- * (`stagedName`).
+ * open; `isStaleSave` reads it the same way.
  */
 export const scratchName = () => {
 	engine ??= crypto.randomUUID().replaceAll('-', '');
 	return `${Date.now().toString(36)}-${engine}-${(staged++).toString(36)}`;
 };
+
+/** How old a staged file must be before it is swept: its writer stopped. */
+const STALE_SAVE_MS = 60 * 60 * 1000;
+
+const STAGED_NAME = /^([0-9a-z]+)-[0-9a-f]{32}-[0-9a-z]+$/;
+
+/**
+ * Whether the staged file `name` was made more than an hour before `now`,
+ * as the folder core's `is_stale_scratch` reads it. A name no host made is
+ * never stale.
+ */
+export function isStaleSave(name: string, now: number): boolean {
+	const time = STAGED_NAME.exec(name)?.[1];
+	if (time === undefined) return false;
+	const created = Number.parseInt(time, 36);
+	return Number.isSafeInteger(created) && now - created > STALE_SAVE_MS;
+}
