@@ -1,15 +1,15 @@
 /**
  * The shell's side of a desktop app's connections, as the page sees it: a
- * connection's fetch and the keychain, over a stand-in shell.
+ * connection's fetch and its key, over a stand-in shell.
  *
  * Key behaviors:
  * - A connection's fetch names the connection and sends no key; the shell's
  *   refusals and failures arrive as `ConnectionFetchError`
- * - A page's keys go to the keychain by name
+ * - A connection's key goes to the shell, which keeps it; the page never reads it back
  */
 import { describe, expect, test } from 'bun:test';
 import type { TauriShell } from '@epicenter/account/tauri';
-import { connectionFetch, keychain } from './tauri.js';
+import { connectionFetch, connectionKey } from './tauri.js';
 
 type Sent = { command: string; args?: Record<string, unknown> };
 type Listener = (message: unknown) => void;
@@ -136,18 +136,25 @@ describe('a connection’s fetch', () => {
 	});
 });
 
-describe('the keychain', () => {
-	test('reads and saves a page’s keys by name', async () => {
-		const { fake, sent } = shell((command) =>
-			command === 'keychain_get' ? { openai: 'sk-1' } : null,
-		);
-		expect(await keychain.get(['openai', 'groq'], fake)).toEqual({
-			openai: 'sk-1',
-		});
-		await keychain.set('groq', null, fake);
+describe('a connection’s key', () => {
+	test('goes to the shell with its endpoint, moves, and is forgotten, never read back', async () => {
+		const { fake, sent } = shell(() => null);
+		await connectionKey.set('groq', 'https://api.groq.com/v1', 'sk-1', fake);
+		await connectionKey.move('groq', 'https://api.groq.com/v1', 'https://b/v1', fake);
+		await connectionKey.set('groq', '', null, fake);
 		expect(sent).toEqual([
-			{ command: 'keychain_get', args: { names: ['openai', 'groq'] } },
-			{ command: 'keychain_set', args: { name: 'groq', value: null } },
+			{
+				command: 'connection_key_set',
+				args: { id: 'groq', endpoint: 'https://api.groq.com/v1', key: 'sk-1' },
+			},
+			{
+				command: 'connection_key_move',
+				args: { id: 'groq', from: 'https://api.groq.com/v1', to: 'https://b/v1' },
+			},
+			{
+				command: 'connection_key_set',
+				args: { id: 'groq', endpoint: '', key: null },
+			},
 		]);
 	});
 });

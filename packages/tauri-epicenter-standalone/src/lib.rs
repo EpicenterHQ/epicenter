@@ -4,7 +4,9 @@
 //! the folder plugin (`Root`, ADR-0725). Its **AppData root** is the
 //! operating system's application data directory for the app, one per
 //! installation, never synced and never chosen; its settings notes sit at
-//! its top (`settings.md`, `shortcuts.md`). Its **data root** is the
+//! its top (`settings.md`, `shortcuts.md`), beside `epicenter-account`'s
+//! `credentials.json` and `account.json` in an app that signs in. Its
+//! **data root** is the
 //! person's files, `<library root>/<name>`: the name comes from the app's
 //! bundle identifier, the reversed host of its production site, and the
 //! library root is `~/Epicenter`, or `~/Epicenter Dev` for a development

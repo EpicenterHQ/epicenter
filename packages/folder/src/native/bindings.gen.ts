@@ -23,7 +23,7 @@ export const commands = {
 	 *  Every regular file in `root` at or below each of `under` (a directory or
 	 *  a file path; empty is the whole root), `.git` aside, hidden ones
 	 *  included, none of them followed, each with its version and size
-	 *  (`storage::list`).
+	 *  (`storage::list`). The shell's own credentials are left out.
 	 */
 	listFolder: (root: Root, under: string[]) => typedError<ListedFile[], FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root, under })),
 	/**

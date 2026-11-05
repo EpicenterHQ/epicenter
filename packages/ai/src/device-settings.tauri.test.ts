@@ -1,6 +1,6 @@
 /**
  * The desktop's keys (`device-settings.tauri.ts`): the shell holds each
- * connection's key, over a stand-in shell.
+ * connection's key in the app's credentials file, over a stand-in shell.
  *
  * Key behaviors:
  * - A key is handed to the shell with the endpoint it was entered for; the
@@ -22,16 +22,23 @@ mock.module('@tauri-apps/api/core', () => ({
 	transformCallback: () => 0,
 	invoke: async (command: string, args?: Record<string, unknown>) => {
 		switch (command) {
-			case 'keychain_get':
-				return Object.fromEntries(
-					(args as { names: string[] }).names
-						.filter((name) => kept.has(name))
-						.map((name) => [name, kept.get(name)]),
-				);
-			case 'keychain_set': {
-				const value = args?.value as string | null;
-				if (value === null) kept.delete(args?.name as string);
-				else kept.set(args?.name as string, value);
+			case 'connection_key_set': {
+				const { id, endpoint, key } = args as {
+					id: string;
+					endpoint: string;
+					key: string | null;
+				};
+				if (key === null) kept.delete(id);
+				else kept.set(id, JSON.stringify({ endpoint, key }));
+				return null;
+			}
+			case 'connection_key_move': {
+				const { id, from, to } = args as { id: string; from: string; to: string };
+				const saved = kept.get(id);
+				if (saved === undefined) return null;
+				const entry = JSON.parse(saved) as { endpoint: string; key: string };
+				if (entry.endpoint === from)
+					kept.set(id, JSON.stringify({ endpoint: to, key: entry.key }));
 				return null;
 			}
 			case 'connection_fetch': {

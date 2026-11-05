@@ -42,15 +42,14 @@ fn main() {
         .plugin(tauri_plugin_epicenter_recorder::init())
         .plugin(tauri_plugin_epicenter_transcription::init())
         .plugin(shortcut::listener());
-    let app = epicenter_account::manage(builder, ACCOUNT, &context.config().identifier)
+    let app = epicenter_account::manage(builder, ACCOUNT)
         .invoke_handler(tauri::generate_handler![
-            epicenter_account::account::account_state,
             epicenter_account::account::account_sign_in,
             epicenter_account::account::account_sign_out,
             epicenter_account::account::account_fetch,
             epicenter_account::account::account_fetch_cancel,
-            epicenter_account::keychain::keychain_get,
-            epicenter_account::keychain::keychain_set,
+            epicenter_account::connection::connection_key_set,
+            epicenter_account::connection::connection_key_move,
             epicenter_account::connection::connection_fetch,
             epicenter_account::connection::connection_fetch_cancel,
             shortcut::set_shortcut,

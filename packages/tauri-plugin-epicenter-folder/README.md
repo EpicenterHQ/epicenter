@@ -177,6 +177,11 @@ as its vectors (`core/src/storage_outcomes.json`) show:
   listing each parent.
 - A file where a directory should be is `NotADirectory` naming it, and a
   directory where a file should be is `NotAFile`.
+- `credentials.json` at the top of the AppData root is the shell's own: the
+  refresh token and provider keys
+  [`epicenter-account`](../tauri-epicenter-account/README.md) keeps
+  (ADR-0740). A listing leaves it out, and a read or a put of it is
+  `InvalidPath`. The name anywhere else is an ordinary file.
 
 A storage refusal or failure is a `StorageError`: `InvalidPath`, `NotFound`,
 `NotAFile`, `NotADirectory`, or `Io` with the operation and the system's

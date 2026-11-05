@@ -15,6 +15,8 @@
 //!   nothing behind a link whose target is gone; every storage command on
 //!   such a root answers `Disconnected` with the link's folder and target.
 //! - Two roots are separate: a file in one is never read through the other.
+//! - The shell's own credentials, `credentials.json` at the top of the
+//!   AppData root, are never listed, read, or written by a page.
 //! - Storage reaches the data paths of the root and nothing else: never
 //!   `.git`, never outside it, never through a link. A save stages in the
 //!   root's `.epicenter/saves` and makes no `.git`; a `.git` file or link
@@ -306,6 +308,93 @@ fn storage_behind_a_dangling_link_is_disconnected_and_makes_nothing() {
         .is_string(),
         true
     );
+}
+
+/// `credentials.json` at the top of the AppData root is the shell's own
+/// (`epicenter-account`): a page never lists, reads, writes, or removes it.
+/// The same name anywhere else is an ordinary file.
+#[test]
+fn a_page_never_reaches_the_shells_credentials() {
+    let fixture = fixture("credentials");
+    let main = fixture.window("main");
+    open_root(&main, Root::AppData).unwrap();
+    open_root(&main, Root::Data).unwrap();
+    let secret = br#"{"key:conn-1":"{\"endpoint\":\"https://api.example.com\",\"key\":\"sk-1\"}"}"#;
+    std::fs::write(fixture.app_data.join("credentials.json"), secret).unwrap();
+    std::fs::write(fixture.app_data.join("account.json"), b"{}").unwrap();
+    std::fs::create_dir(fixture.app_data.join("notes")).unwrap();
+    std::fs::write(fixture.app_data.join("notes/credentials.json"), b"mine").unwrap();
+
+    let listed = |under: &str| -> Vec<String> {
+        let mut paths: Vec<String> = invoke(
+            &main,
+            "list_folder",
+            json!({ "root": "AppData", "under": [under] }),
+        )
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| file["path"].as_str().unwrap().to_string())
+        .collect();
+        paths.sort();
+        paths
+    };
+    assert_eq!(listed(""), ["account.json", "notes/credentials.json"]);
+    assert!(listed("credentials.json").is_empty());
+
+    let refused = json!({
+        "name": "InvalidPath",
+        "path": "credentials.json",
+        "reason": "it is the shell's own credentials"
+    });
+    assert_eq!(
+        response(
+            &main,
+            "read_folder_file",
+            InvokeBody::Json(json!({ "path": "credentials.json", "root": "AppData" })),
+            Default::default(),
+        )
+        .unwrap_err(),
+        refused
+    );
+    for remove in [false, true] {
+        let mut headers = put_headers("credentials.json", remove, None);
+        headers.insert("root", encoded("AppData"));
+        headers.insert("expected", encoded("any"));
+        assert_eq!(
+            request(
+                &main,
+                "put_folder_file",
+                InvokeBody::Raw(b"{}".to_vec()),
+                headers
+            )
+            .unwrap_err(),
+            refused,
+            "remove: {remove}"
+        );
+    }
+    assert_eq!(
+        std::fs::read(fixture.app_data.join("credentials.json")).unwrap(),
+        secret
+    );
+
+    // Below the top of AppData, and in the data root, the name is the page's.
+    let InvokeResponseBody::Raw(bytes) = response(
+        &main,
+        "read_folder_file",
+        InvokeBody::Json(json!({ "path": "notes/credentials.json", "root": "AppData" })),
+        Default::default(),
+    )
+    .unwrap() else {
+        panic!("the bytes came back as JSON");
+    };
+    assert!(bytes.ends_with(b"\0mine"));
+    assert_eq!(
+        put(&main, "credentials.json", Some(b"data"), None).unwrap(),
+        "landed"
+    );
+    assert_eq!(read_file(&main, "credentials.json").unwrap(), b"data");
 }
 
 /// Asking Epicenter about a folder works for a root the page opened.

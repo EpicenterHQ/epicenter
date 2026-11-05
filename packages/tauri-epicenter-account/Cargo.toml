@@ -1,7 +1,7 @@
 [package]
 name = "epicenter-account"
 version = "0.0.1"
-description = "Sign-in with Epicenter and the OS keychain for Epicenter's standalone desktop apps"
+description = "Sign-in with Epicenter and the credentials file for Epicenter's standalone desktop apps"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"
@@ -12,10 +12,9 @@ publish = false
 tauri = "2.12"
 # Opens the sign-in page in the system browser, from Rust only (no plugin).
 tauri-plugin-opener = "2.5"
-# The OS keychain: macOS Keychain, Windows Credential Manager, Secret Service.
-keyring = "4"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
 futures-util = "0.3"
+log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

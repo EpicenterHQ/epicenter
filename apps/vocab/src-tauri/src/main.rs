@@ -4,11 +4,13 @@
 //! (`openFolder` from `@epicenter/folder`, whose `tauri` leaf opens the Data
 //! root). The AppData root holds `connections.md`, the endpoints the learner
 //! connected (`customEndpoints` from `@epicenter/ai`), whose keys are in
-//! the keychain; the page's requests to them are sent from here, with the
-//! key, through `epicenter-account`'s `connection_fetch`. It signs in only for
+//! the shell's `credentials.json` beside it, which the page never reads; the
+//! page's requests to them are sent from here, with the key, through
+//! `epicenter-account`'s `connection_fetch`. It signs in only for
 //! Epicenter's hosted tutor models and dictation, through
-//! `epicenter-account`, whose token the page never holds. It asks Epicenter
-//! to sync the folder and never syncs it itself.
+//! `epicenter-account`, whose token the page never holds; who is signed in
+//! is `account.json` in the AppData root, which only the shell writes. It
+//! asks Epicenter to sync the folder and never syncs it itself.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -35,15 +37,14 @@ const ACCOUNT: AccountApp = AccountApp {
 fn main() {
     let context = tauri::generate_context!();
     let builder = epicenter_standalone::builder(VOCAB);
-    epicenter_account::manage(builder, ACCOUNT, &context.config().identifier)
+    epicenter_account::manage(builder, ACCOUNT)
         .invoke_handler(tauri::generate_handler![
-            epicenter_account::account::account_state,
             epicenter_account::account::account_sign_in,
             epicenter_account::account::account_sign_out,
             epicenter_account::account::account_fetch,
             epicenter_account::account::account_fetch_cancel,
-            epicenter_account::keychain::keychain_get,
-            epicenter_account::keychain::keychain_set,
+            epicenter_account::connection::connection_key_set,
+            epicenter_account::connection::connection_key_move,
             epicenter_account::connection::connection_fetch,
             epicenter_account::connection::connection_fetch_cancel,
         ])
@@ -114,14 +115,20 @@ mod tests {
     }
 
     /// The window reaches its roots and Epicenter's sync request through the
-    /// folder plugin, by name, and calls exactly the commands the build
-    /// script declares. No capability names a folder.
+    /// folder plugin, by name, hears its roots' changes, and calls exactly
+    /// the commands the build script declares. No capability names a folder.
     #[test]
     fn the_capability_grants_plugins_and_the_declared_commands_and_no_folder() {
         let capability = read(include_str!("../capabilities/vocab.json"));
         assert_eq!(capability["windows"], json!(["vocab:*"]));
         assert_eq!(capability["local"], true);
-        let mut expected: Vec<String> = ["epicenter-folder:default"].map(String::from).to_vec();
+        let mut expected: Vec<String> = [
+            "epicenter-folder:default",
+            "core:event:allow-listen",
+            "core:event:allow-unlisten",
+        ]
+        .map(String::from)
+        .to_vec();
         expected.extend(
             COMMANDS
                 .iter()

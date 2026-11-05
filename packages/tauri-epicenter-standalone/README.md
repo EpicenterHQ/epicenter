@@ -18,7 +18,10 @@ plugin; nothing is granted or stored
 
 - **AppData** is the operating system's application data directory, used by
   apps with machine-local settings such as shortcuts or connections. The
-  page's first open makes it.
+  page's first open makes it. An app that signs in keeps its secrets there
+  too: [`epicenter-account`](../tauri-epicenter-account/README.md) writes
+  `credentials.json`, which no page reaches, and `account.json`, who is
+  signed in, which the page reads like any setting.
 - **Data** is `<library root>/<name>`. The name comes from the app's bundle
   identifier, the reversed host of its site (`so.epicenter.whispering` is
   `~/Epicenter/whispering`). The library root is `~/Epicenter`, or

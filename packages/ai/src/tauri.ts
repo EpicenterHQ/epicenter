@@ -3,12 +3,11 @@
  * app, and the requests sent with them. The keys belong to the custom
  * endpoints they unlock, so they live here and not with the account.
  *
- * - `keychain`: the shell's credential store, where each key is saved under
- *   a name of the page's own (`keychain_get`, `keychain_set` in
- *   `epicenter-account`). The page writes a key and never reads one back to
- *   send it.
+ * - `connectionKey`: a connection's key, handed to the shell, which keeps it
+ *   in the app's credentials file (ADR-0740). The page writes a key and
+ *   never reads one back.
  * - `connectionFetch(id)`: the `fetch` of one connected endpoint. The shell
- *   (`connection_fetch`) reads the key saved under `id`, adds it, and sends
+ *   (`connection_fetch`) reads the key kept for `id`, adds it, and sends
  *   only to the endpoint it was saved for, so the page never holds the key
  *   and no endpoint needs to allow the window's origin (CORS). A connection
  *   with no saved key is sent with none.
@@ -40,8 +39,8 @@ export const ConnectionFetchError = defineErrors({
 	SchemeRefused: ({ message }: { message: string }) => ({ message }),
 	/** Not on the origin of the endpoint the connection's key was saved for. */
 	OriginRefused: ({ message }: { message: string }) => ({ message }),
-	/** The keychain could not be read. */
-	KeychainFailed: ({ message }: { message: string }) => ({ message }),
+	/** The app's credentials could not be read. */
+	CredentialsFailed: ({ message }: { message: string }) => ({ message }),
 	/** The endpoint could not be reached, or its answer broke off. */
 	SendFailed: ({ message }: { message: string }) => ({ message }),
 });
@@ -62,7 +61,7 @@ function connectionFailure(cause: unknown) {
 
 /**
  * The `fetch` of one connected endpoint (`connection` is its id): each
- * request goes to the shell, which reads the key the keychain keeps for the
+ * request goes to the shell, which reads the key it keeps for the
  * connection, sends the request only to the endpoint that key was saved for
  * and with the key, and streams the answer back. The page sends no
  * credential, and no endpoint needs to allow this window's origin (CORS). A
@@ -92,12 +91,21 @@ export const shellFetch: Send = (input, init) =>
 	connectionFetch(null)(input, init);
 
 /**
- * The keys a page saves in the keychain under names of its own (a
- * connection's id): letters, digits, `_` and `-`.
+ * A connection's key, handed to the shell, which keeps it in the app's
+ * credentials file and sends each of the connection's requests with it
+ * (ADR-0740). The page writes a key and never reads one back: which
+ * endpoint it was entered for is recorded in `connections.md`. A
+ * connection's id is letters, digits, `_` and `-`.
  */
-export const keychain = {
-	get: (names: string[], shell: TauriShell = tauriShell) =>
-		shell.invoke<Record<string, string>>('keychain_get', { names }),
-	set: (name: string, value: string | null, shell: TauriShell = tauriShell) =>
-		shell.invoke<void>('keychain_set', { name, value }),
+export const connectionKey = {
+	/** Keep `key` for connection `id`, entered for `endpoint`; null forgets it. */
+	set: (
+		id: string,
+		endpoint: string,
+		key: string | null,
+		shell: TauriShell = tauriShell,
+	) => shell.invoke<void>('connection_key_set', { id, endpoint, key }),
+	/** The key kept for `id`, when it was entered for `from`, applies to `to` from now. */
+	move: (id: string, from: string, to: string, shell: TauriShell = tauriShell) =>
+		shell.invoke<void>('connection_key_move', { id, from, to }),
 };

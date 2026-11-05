@@ -9,15 +9,24 @@
 //!   by Google's sign-in. The client is the app's native client,
 //!   `so.epicenter.<app>.native` (decision 84), registered by the deployment
 //!   (`apps/api/worker/oauth-registrations.ts`).
-//! - The refresh token is kept in the keychain (`keychain.rs`), never in the
+//! - The refresh token is kept in the app's credentials file
+//!   (`credentials.rs`), read from it when a token is needed, never by the
 //!   page. Access tokens live in this process's memory, for the API audience
 //!   only.
+//! - Who is signed in is a setting only this side writes: `account.json` at
+//!   the top of the app's AppData directory, `{ origin, principalId,
+//!   refused }` (`Identity`). It is written at startup, once the grant is
+//!   read, and whenever it changes: a sign-in, a sign-out, the server
+//!   refusing the refresh token. The page reads it like any setting, and the
+//!   folder plugin's watch of the AppData root tells every window it
+//!   changed.
 //! - The page's requests go through `account_fetch`: the API trusts no
 //!   `tauri://localhost` origin (`apps/api/worker/trusted-origins.ts`), and the
 //!   bearer token stays here. Only URLs on the deployment's origin are sent.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
@@ -28,7 +37,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::keychain::Secrets;
+use crate::credentials::{self, Access, Secrets};
 use crate::relay::{self, send_event, RelayEvent, Requests};
 
 /// Who signs in: one constant per app, in its `main.rs`.
@@ -72,7 +81,10 @@ fn origin_of(url: &str) -> String {
 // ---------------------------------------------------------------------------
 // The grant
 
-/// What the keychain keeps for the sign-in, under `account:<origin>`.
+/// The identity file's name, at the top of the app's AppData directory.
+pub const IDENTITY_FILE: &str = "account.json";
+
+/// What the credentials file keeps for the sign-in, under `account:<origin>`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredGrant {
@@ -80,12 +92,23 @@ struct StoredGrant {
     principal_id: String,
 }
 
-/// Who is signed in, as the page sees it. No token.
+/// Who is signed in, as `account_sign_in` answers it. No token.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignedIn {
     pub origin: String,
     pub principal_id: String,
+}
+
+/// `account.json`, who is signed in as the page reads it: the deployment's
+/// origin, the principal or `null` signed out, and whether the server
+/// refused the refresh token, so only signing in again helps. No token.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Identity {
+    pub origin: String,
+    pub principal_id: Option<String>,
+    pub refused: bool,
 }
 
 struct Grant {
@@ -102,6 +125,8 @@ pub struct Account {
     origin: String,
     http: reqwest::Client,
     secrets: Arc<dyn Secrets>,
+    /// `account.json`, settled once the app runs (`identify_at`).
+    identity: OnceLock<PathBuf>,
     grant: tokio::sync::Mutex<Option<Option<Grant>>>,
     /// The sign-in waiting for its browser tab, which a newer one stops.
     signing_in: Mutex<Option<tokio::task::AbortHandle>>,
@@ -118,6 +143,7 @@ impl Account {
                 .build()
                 .expect("an HTTP client"),
             secrets,
+            identity: OnceLock::new(),
             grant: tokio::sync::Mutex::new(None),
             signing_in: Mutex::new(None),
             requests: Requests::default(),
@@ -128,7 +154,44 @@ impl Account {
         format!("account:{}", self.origin)
     }
 
-    /// The grant, read from the keychain the first time.
+    /// Write who is signed in to `path` from now on; the first call wins.
+    pub fn identify_at(&self, path: PathBuf) {
+        let _ = self.identity.set(path);
+    }
+
+    /// Who `grant` says is signed in.
+    fn identity(&self, grant: Option<&Grant>) -> Identity {
+        Identity {
+            origin: self.origin.clone(),
+            principal_id: grant.map(|grant| grant.stored.principal_id.clone()),
+            refused: grant.is_some_and(|grant| grant.refused),
+        }
+    }
+
+    /// Write `account.json` for `grant`, whole. Callers hold the grant's
+    /// lock, so the file follows the grant's changes in order.
+    async fn publish(&self, grant: Option<&Grant>) -> Result<(), String> {
+        let path =
+            self.identity.get().cloned().ok_or_else(|| {
+                "Where this app keeps who is signed in is not known yet.".to_string()
+            })?;
+        let text =
+            serde_json::to_string_pretty(&self.identity(grant)).expect("an identity serializes");
+        credentials::blocking(move || {
+            credentials::write_whole(&path, text.as_bytes(), Access::Default)
+                .map_err(|error| format!("{} could not be written: {error}", path.display()))
+        })
+        .await
+    }
+
+    /// Read the grant from the credentials file and write who it says is
+    /// signed in: the app's startup.
+    pub(crate) async fn publish_loaded(&self) -> Result<(), String> {
+        let grant = self.loaded().await?;
+        self.publish(grant.as_ref().and_then(Option::as_ref)).await
+    }
+
+    /// The grant, read from the credentials file the first time.
     async fn loaded(&self) -> Result<tokio::sync::MutexGuard<'_, Option<Option<Grant>>>, String> {
         let mut grant = self.grant.lock().await;
         if grant.is_none() {
@@ -206,6 +269,10 @@ impl Account {
         if status == 400 && answer.error.as_deref() == Some("invalid_grant") {
             grant.refused = true;
             grant.access = None;
+            // The request is refused either way; the page also hears it here.
+            if let Err(message) = self.publish(Some(grant)).await {
+                log::warn!("The refused sign-in could not be recorded: {message}");
+            }
             return Err(Refusal::Reauth);
         }
         let tokens = answer.tokens(status).map_err(Refusal::Unavailable)?;
@@ -523,43 +590,58 @@ async fn sign_in(account: Arc<Account>) -> Result<SignedIn, String> {
         origin: account.origin.clone(),
         principal_id: stored.principal_id.clone(),
     };
-    *account.grant.lock().await = Some(Some(Grant {
+    let mut grant = account.grant.lock().await;
+    *grant = Some(Some(Grant {
         stored,
         access: Some((tokens.access_token, renew_at(tokens.expires_in))),
         refused: false,
     }));
+    account
+        .publish(grant.as_ref().and_then(Option::as_ref))
+        .await?;
     Ok(signed_in)
+}
+
+impl Account {
+    /// Forget the sign-in on this computer, say so in `account.json`, and
+    /// ask the server to revoke it (waiting at most five seconds; the local
+    /// sign-out happens either way).
+    async fn sign_out(&self) -> Result<(), String> {
+        let mut grant = self.loaded().await?;
+        let refresh = grant
+            .as_ref()
+            .and_then(Option::as_ref)
+            .map(|grant| grant.stored.refresh_token.clone());
+        self.store(None).await?;
+        *grant = Some(None);
+        // Signed out here even when the file could not say so; the server
+        // is still asked to revoke.
+        let published = self.publish(None).await;
+        drop(grant);
+        if let Some(refresh) = refresh {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(5),
+                self.post_form(
+                    "/oauth2/revoke",
+                    &[
+                        ("token", &refresh),
+                        ("token_type_hint", "refresh_token"),
+                        ("client_id", self.app.client_id),
+                    ],
+                ),
+            )
+            .await;
+        }
+        published
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Commands
 
-/// Who is signed in, from the keychain; `None` signed out. `refused` says
-/// the server ended the sign-in and only signing in again helps.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccountState {
-    pub origin: String,
-    pub signed_in: Option<SignedIn>,
-    pub refused: bool,
-}
-
-#[tauri::command]
-pub async fn account_state(account: State<'_, Arc<Account>>) -> Result<AccountState, String> {
-    let grant = account.loaded().await?;
-    let current = grant.as_ref().and_then(Option::as_ref);
-    Ok(AccountState {
-        origin: account.origin.clone(),
-        signed_in: current.map(|grant| SignedIn {
-            origin: account.origin.clone(),
-            principal_id: grant.stored.principal_id.clone(),
-        }),
-        refused: current.is_some_and(|grant| grant.refused),
-    })
-}
-
-/// Sign in through the system browser. A second call replaces a sign-in
-/// still waiting for its browser tab.
+/// Sign in through the system browser, and write who signed in to
+/// `account.json`. A second call replaces a sign-in still waiting for its
+/// browser tab.
 #[tauri::command]
 pub async fn account_sign_in(account: State<'_, Arc<Account>>) -> Result<SignedIn, String> {
     // Commands run on Tauri's Tokio runtime, so the task can be stopped by
@@ -581,33 +663,12 @@ pub async fn account_sign_in(account: State<'_, Arc<Account>>) -> Result<SignedI
     }
 }
 
-/// Forget the sign-in on this computer and ask the server to revoke it
-/// (waiting at most five seconds; the local sign-out happens either way).
+/// Forget the sign-in on this computer, write `account.json` signed out,
+/// and ask the server to revoke it (waiting at most five seconds; the local
+/// sign-out happens either way).
 #[tauri::command]
 pub async fn account_sign_out(account: State<'_, Arc<Account>>) -> Result<(), String> {
-    let mut grant = account.loaded().await?;
-    let refresh = grant
-        .as_ref()
-        .and_then(Option::as_ref)
-        .map(|grant| grant.stored.refresh_token.clone());
-    account.store(None).await?;
-    *grant = Some(None);
-    drop(grant);
-    if let Some(refresh) = refresh {
-        let _ = tokio::time::timeout(
-            Duration::from_secs(5),
-            account.post_form(
-                "/oauth2/revoke",
-                &[
-                    ("token", &refresh),
-                    ("token_type_hint", "refresh_token"),
-                    ("client_id", account.app.client_id),
-                ],
-            ),
-        )
-        .await;
-    }
-    Ok(())
+    account.sign_out().await
 }
 
 /// One request the page sends on the account. `body` is base64.
@@ -914,6 +975,115 @@ mod tests {
             .unwrap(),
             serde_json::json!({ "kind": "error", "message": "m", "refusal": "reauth-required" })
         );
+    }
+
+    /// An account against `origin` whose credentials hold `stored`, writing
+    /// who is signed in under `dir`.
+    fn account_in(dir: &std::path::Path, origin: &str, stored: Option<&StoredGrant>) -> Account {
+        let secrets = Arc::new(crate::credentials::Memory::default());
+        if let Some(stored) = stored {
+            secrets
+                .set(
+                    &format!("account:{origin}"),
+                    Some(&serde_json::to_string(stored).unwrap()),
+                )
+                .unwrap();
+        }
+        let account = Account::new(VOCAB, origin.to_string(), secrets);
+        account.identify_at(dir.join(IDENTITY_FILE));
+        account
+    }
+
+    fn identity_in(dir: &std::path::Path) -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join(IDENTITY_FILE)).unwrap()).unwrap()
+    }
+
+    fn grant() -> StoredGrant {
+        StoredGrant {
+            refresh_token: "r".into(),
+            principal_id: "p".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_writes_who_the_credentials_say_is_signed_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let origin = "https://api.epicenter.so";
+        account_in(dir.path(), origin, Some(&grant()))
+            .publish_loaded()
+            .await
+            .unwrap();
+        assert_eq!(
+            identity_in(dir.path()),
+            serde_json::json!({ "origin": origin, "principalId": "p", "refused": false })
+        );
+        account_in(dir.path(), origin, None)
+            .publish_loaded()
+            .await
+            .unwrap();
+        assert_eq!(
+            identity_in(dir.path()),
+            serde_json::json!({ "origin": origin, "principalId": null, "refused": false })
+        );
+    }
+
+    /// The revoke goes to a port nothing listens on, so the sign-out is
+    /// local only, as it is offline.
+    #[tokio::test]
+    async fn a_sign_out_forgets_the_grant_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let origin = "http://127.0.0.1:9";
+        let account = account_in(dir.path(), origin, Some(&grant()));
+        account.publish_loaded().await.unwrap();
+        assert_eq!(identity_in(dir.path())["principalId"], "p");
+        account.sign_out().await.unwrap();
+        assert_eq!(
+            identity_in(dir.path()),
+            serde_json::json!({ "origin": origin, "principalId": null, "refused": false })
+        );
+        assert_eq!(account.secrets.get(&account.entry()).unwrap(), None);
+        assert_eq!(account.access_token(false).await, Err(Refusal::SignedOut));
+    }
+
+    /// The token endpoint refuses the refresh token: `account.json` says so,
+    /// and the account asks for a new sign-in without asking the server again.
+    #[tokio::test]
+    async fn a_refused_refresh_is_written_as_refused() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = stream.read(&mut buffer).await.unwrap();
+                head.extend_from_slice(&buffer[..read]);
+            }
+            let body = r#"{"error":"invalid_grant"}"#;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            String::from_utf8_lossy(&head).into_owned()
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let account = account_in(dir.path(), &origin, Some(&grant()));
+        account.publish_loaded().await.unwrap();
+        assert_eq!(identity_in(dir.path())["refused"], false);
+        assert_eq!(account.access_token(false).await, Err(Refusal::Reauth));
+        assert!(server.await.unwrap().starts_with("POST /auth/oauth2/token"));
+        assert_eq!(
+            identity_in(dir.path()),
+            serde_json::json!({ "origin": origin, "principalId": "p", "refused": true })
+        );
+        // Refused once is refused until a sign-in: no second request.
+        assert_eq!(account.access_token(false).await, Err(Refusal::Reauth));
     }
 
     #[test]

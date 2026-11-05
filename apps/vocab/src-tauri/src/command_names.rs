@@ -6,13 +6,12 @@
 /// time for the host.
 #[allow(dead_code)]
 const COMMANDS: &[&str] = &[
-    "account_state",
     "account_sign_in",
     "account_sign_out",
     "account_fetch",
     "account_fetch_cancel",
-    "keychain_get",
-    "keychain_set",
+    "connection_key_set",
+    "connection_key_move",
     "connection_fetch",
     "connection_fetch_cancel",
 ];

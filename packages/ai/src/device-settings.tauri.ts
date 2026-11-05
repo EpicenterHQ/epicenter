@@ -8,7 +8,7 @@
  */
 import type { ConnectionKeys } from './device-settings.js';
 import { custom } from './custom.js';
-import { connectionFetch, keychain } from './tauri.js';
+import { connectionFetch, connectionKey } from './tauri.js';
 
 export type { ConnectionKeys } from './device-settings.js';
 
@@ -24,14 +24,7 @@ export const connectionKeys: ConnectionKeys = {
 			fetch: connectionFetch(record.id),
 			models: record.models,
 		}),
-	set: (id, endpoint, key) =>
-		keychain.set(id, key === null ? null : JSON.stringify({ endpoint, key })),
-	async move(id, from, to) {
-		const text = (await keychain.get([id]))[id];
-		if (text === undefined) return;
-		const kept = JSON.parse(text) as { endpoint?: string; key?: string };
-		if (kept.endpoint !== from || typeof kept.key !== 'string') return;
-		await keychain.set(id, JSON.stringify({ endpoint: to, key: kept.key }));
-	},
+	set: (id, endpoint, key) => connectionKey.set(id, endpoint, key),
+	move: (id, from, to) => connectionKey.move(id, from, to),
 	subscribe: () => () => {},
 };

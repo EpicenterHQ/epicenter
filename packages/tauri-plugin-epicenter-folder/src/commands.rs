@@ -8,7 +8,10 @@
 //! opened it (`Roots::opened`), cloned when the command is admitted, so
 //! nothing that happens meanwhile redirects it. A root it cannot use is a
 //! `RootError` (`Disconnected` for a link whose target is gone), and a
-//! storage refusal or failure a `StorageError` (`FolderError`). Every command that touches
+//! storage refusal or failure a `StorageError` (`FolderError`). The shell's
+//! own credentials, `credentials.json` at the top of the AppData root
+//! (`epicenter-account`, ADR-0740), are never listed, read, or written by a
+//! page: `InvalidPath`. Every command that touches
 //! the disk runs on the blocking pool, never on the thread that drives the
 //! windows. The folder's Git is not here: the `epicenter` CLI runs it
 //! (ADR-0559).
@@ -57,6 +60,27 @@ impl From<StorageError> for FolderError {
     fn from(error: StorageError) -> Self {
         Self::Storage(error)
     }
+}
+
+/// The shell's own credentials, at the top of the AppData root: the refresh
+/// token and the provider keys `epicenter-account` keeps (ADR-0740), which
+/// no page reaches.
+const CREDENTIALS: &str = "credentials.json";
+
+/// Whether `path` in `root` is the shell's own credentials.
+fn is_credentials(root: Root, path: &str) -> bool {
+    root == Root::AppData && path == CREDENTIALS
+}
+
+/// Refuse the shell's own credentials to a page.
+fn refuse_credentials(root: Root, path: &str) -> Result<(), StorageError> {
+    if !is_credentials(root, path) {
+        return Ok(());
+    }
+    Err(StorageError::InvalidPath {
+        path: path.to_string(),
+        reason: "it is the shell's own credentials".to_string(),
+    })
 }
 
 fn failed(path: &str, operation: &str, message: String) -> StorageError {
@@ -222,7 +246,7 @@ fn opened<R: Runtime>(webview: &Webview<R>, root: Root) -> Result<Directory, Fol
 /// Every regular file in `root` at or below each of `under` (a directory or
 /// a file path; empty is the whole root), `.git` aside, hidden ones
 /// included, none of them followed, each with its version and size
-/// (`storage::list`).
+/// (`storage::list`). The shell's own credentials are left out.
 #[tauri::command]
 #[specta::specta]
 pub async fn list_folder<R: Runtime>(
@@ -232,7 +256,11 @@ pub async fn list_folder<R: Runtime>(
 ) -> Result<Vec<ListedFile>, FolderError> {
     let directory = opened(&webview, root)?;
     blocking(
-        move || storage::list(directory.root(), &under).map_err(FolderError::from),
+        move || {
+            let mut listing = storage::list(directory.root(), &under)?;
+            listing.retain(|file| !is_credentials(root, &file.path));
+            Ok(listing)
+        },
         |message| Err(failed("", "list", message).into()),
     )
     .await
@@ -242,13 +270,15 @@ pub async fn list_folder<R: Runtime>(
 /// then the file bytes return in one raw `ArrayBuffer`, rather than as a JSON
 /// array of numbers. tauri-specta cannot type a raw response, so the
 /// generated bindings leave this command out and `device/tauri-store.ts`
-/// invokes it by name; `init` dispatches it beside the typed commands.
+/// invokes it by name; `init` dispatches it beside the typed commands. The
+/// shell's own credentials are refused.
 #[tauri::command]
 pub async fn read_folder_file<R: Runtime>(
     webview: Webview<R>,
     path: String,
     root: Root,
 ) -> Result<tauri::ipc::Response, FolderError> {
+    refuse_credentials(root, &path)?;
     let directory = opened(&webview, root)?;
     let at = path.clone();
     blocking(
@@ -281,7 +311,8 @@ pub async fn read_folder_file<R: Runtime>(
 /// path take turns from the check to the change (`storage::put`).
 /// tauri-specta cannot type a raw request, so the generated bindings leave
 /// this command out and `device/tauri-store.ts` invokes it by name; `init`
-/// dispatches it beside the typed commands.
+/// dispatches it beside the typed commands. The shell's own credentials are
+/// refused.
 #[tauri::command]
 pub async fn put_folder_file<R: Runtime>(
     webview: Webview<R>,
@@ -325,6 +356,7 @@ pub async fn put_folder_file<R: Runtime>(
             })?)
         }
     };
+    refuse_credentials(root, &path)?;
     let operation = if remove { "remove" } else { "write" };
     let directory = opened(&webview, root)?;
     let at = path.clone();

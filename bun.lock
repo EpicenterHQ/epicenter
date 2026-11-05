@@ -404,6 +404,7 @@
       "name": "@epicenter/account",
       "version": "0.1.1",
       "dependencies": {
+        "@epicenter/local": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",
