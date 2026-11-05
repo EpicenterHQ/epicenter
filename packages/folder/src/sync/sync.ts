@@ -30,6 +30,13 @@
  * written there) and at the end, so a sync stopped anywhere reruns from
  * what landed: a merged note written locally merges next time against the
  * repository's version it already holds, never twice into markers.
+ *
+ * Two syncs of one folder may run at once (an app and the CLI), with no
+ * lock: every write either makes is over the version it read, so the
+ * second to write a file finds it `'stale'` and keeps it. Each manifest
+ * save is over the version its sync read too; one that finds another
+ * sync's save reads it, lays over it the files whose write this sync
+ * landed, saves that, and runs again from it (`savedManifest`).
  */
 import {
 	ClientError,
@@ -58,10 +65,27 @@ export type Manifest = {
 	at?: Record<string, Base>;
 };
 
-/** Where a manifest is kept between syncs. */
+/** The version of a saved manifest, which the next save is written over; `'absent'` before the first. */
+export type ManifestVersion = Version | 'absent';
+
+/**
+ * Where a manifest is kept between syncs. Each save is written over the
+ * version its sync read, as any file is (ADR-0798), so two syncs of one
+ * folder running at once never overwrite each other's manifest.
+ */
 export type ManifestStore = {
-	read(): Promise<Result<Manifest, Unavailable>>;
-	write(manifest: Manifest): Promise<Result<void, Unavailable>>;
+	read(): Promise<
+		Result<{ manifest: Manifest; version: ManifestVersion }, Unavailable>
+	>;
+	/**
+	 * Save `manifest` while the saved one is still at `over`, answering the
+	 * new version, or `'stale'` when another sync saved first, and nothing
+	 * changed.
+	 */
+	write(
+		manifest: Manifest,
+		over: ManifestVersion,
+	): Promise<Result<Version | 'stale', Unavailable>>;
 };
 
 /** The manifest of a store never synced. */
@@ -73,52 +97,48 @@ export const MANIFEST_PATH = '.epicenter/synced.json';
 /** A manifest held in memory, for a test or the web's memory store. */
 export function memoryManifest(initial: Manifest = emptyManifest()) {
 	let current = structuredClone(initial);
+	let version: ManifestVersion = 'absent';
+	let saves = 0;
 	return {
 		async read() {
-			return Ok(structuredClone(current));
+			return Ok({ manifest: structuredClone(current), version });
 		},
-		async write(manifest: Manifest) {
+		async write(manifest: Manifest, over: ManifestVersion) {
+			if (over !== version) return Ok('stale' as const);
 			current = structuredClone(manifest);
-			return Ok(undefined);
+			version = `saved-${++saves}` as Version;
+			return Ok(version);
 		},
 		/** The manifest as last written. */
 		current: () => structuredClone(current),
 	} satisfies ManifestStore & { current(): Manifest };
 }
 
-/**
- * The manifest kept at `MANIFEST_PATH` in `store`, written over the
- * version last read: a second sync of one folder running at once finds it
- * `Unavailable` rather than overwriting the first's.
- */
+/** The manifest kept at `MANIFEST_PATH` in `store`, read and written as any file there. */
 export function storeManifest(store: Store): ManifestStore {
-	let version: Version | 'absent' = 'absent';
 	return {
 		async read() {
 			const read = await store.read([MANIFEST_PATH]);
 			if (read.error !== null) return read;
 			const [file] = read.data;
-			if (file === undefined || 'gone' in file) {
-				version = 'absent';
-				return Ok(emptyManifest());
-			}
-			version = file.version;
+			if (file === undefined || 'gone' in file)
+				return Ok({ manifest: emptyManifest(), version: 'absent' as const });
 			try {
-				return Ok(JSON.parse(new TextDecoder().decode(file.bytes)) as Manifest);
+				const manifest = JSON.parse(decoder.decode(file.bytes)) as Manifest;
+				return Ok({ manifest, version: file.version });
 			} catch (cause) {
 				return ClientError.Unavailable({ cause });
 			}
 		},
-		async write(manifest) {
-			const bytes = new TextEncoder().encode(JSON.stringify(manifest));
-			const written = await store.write(MANIFEST_PATH, bytes, version);
+		async write(manifest, over) {
+			const bytes = encoder.encode(JSON.stringify(manifest));
+			const written = await store.write(MANIFEST_PATH, bytes, over);
 			if (written.error !== null) return written;
-			if (written.data === 'stale' || written.data === null)
+			if (written.data === null)
 				return ClientError.Unavailable({
-					cause: `${MANIFEST_PATH} changed during the sync: another sync of this folder is running`,
+					cause: `the write of ${MANIFEST_PATH} landed nothing`,
 				});
-			version = written.data;
-			return Ok(undefined);
+			return Ok(written.data);
 		},
 	};
 }
@@ -178,7 +198,8 @@ export async function sync({
 }): Promise<Result<SyncReport, Unavailable>> {
 	const read = await manifest.read();
 	if (read.error !== null) return read;
-	let state = read.data;
+	let state = read.data.manifest;
+	const saved = savedManifest(manifest, read.data.version);
 	const report: SyncReport = {
 		outcome: 'retry',
 		passes: 0,
@@ -191,7 +212,13 @@ export async function sync({
 	};
 	while (report.passes < passes) {
 		report.passes++;
-		const ran = await syncPass({ local, remote, manifest, state, report });
+		const ran = await syncPass({
+			local,
+			remote,
+			manifest: saved,
+			state,
+			report,
+		});
 		if (ran.error !== null) return ran;
 		state = ran.data.state;
 		if (ran.data.done) {
@@ -212,6 +239,65 @@ export async function sync({
 			...new Map(report.refused.map((file) => [file.path, file])).values(),
 		],
 	});
+}
+
+/** What a sync landed in one pass: the files and bases it holds, and the paths whose write landed. */
+type Landings = {
+	files: Record<string, Version>;
+	at: Record<string, Base>;
+	landed: ReadonlySet<string>;
+};
+
+/**
+ * The manifest as one sync saves it: over the version it last read or
+ * saved. When another sync of the folder saved first, it reads that one,
+ * lays over it, path by path, the files whose write this sync landed, each
+ * with the base it agreed at, and saves that: this sync's landings are
+ * never lost or merged twice, and the other's stand. The sync then runs
+ * again from what was saved.
+ */
+function savedManifest(store: ManifestStore, first: ManifestVersion) {
+	let version = first;
+	return {
+		/** Save `next`: null when it was saved as it is, else the manifest saved in its place. */
+		async save(
+			next: Manifest,
+			landings: Landings,
+		): Promise<Result<Manifest | null, Unavailable>> {
+			let saving = next;
+			for (let tries = 0; tries < 8; tries++) {
+				const written = await store.write(saving, version);
+				if (written.error !== null) return written;
+				if (written.data !== 'stale') {
+					version = written.data;
+					return Ok(saving === next ? null : saving);
+				}
+				const read = await store.read();
+				if (read.error !== null) return read;
+				version = read.data.version;
+				saving = overlay(read.data.manifest, landings);
+			}
+			return ClientError.Unavailable({
+				cause: `${MANIFEST_PATH} kept changing: other syncs of this folder are running`,
+			});
+		},
+	};
+}
+
+/** `theirs`, with the file and base of each path in `landed` taken from this sync's. */
+function overlay(theirs: Manifest, { files, at, landed }: Landings): Manifest {
+	const nextFiles = { ...theirs.files };
+	const nextAt = { ...theirs.at };
+	for (const path of landed) {
+		const version = files[path];
+		if (version === undefined) delete nextFiles[path];
+		else nextFiles[path] = version;
+		const base = at[path];
+		if (base !== undefined) nextAt[path] = base;
+	}
+	return Object.keys(nextAt).length === 0
+		? { commit: theirs.commit, files: nextFiles }
+		: { commit: theirs.commit, files: nextFiles, at: nextAt };
 }
 
 /** What a pass decided for one path. */
@@ -248,7 +334,7 @@ async function syncPass({
 }: {
 	local: Store;
 	remote: Repository;
-	manifest: ManifestStore;
+	manifest: ReturnType<typeof savedManifest>;
 	state: Manifest;
 	report: SyncReport;
 }): Promise<Result<{ state: Manifest; done: boolean }, Unavailable>> {
@@ -430,6 +516,11 @@ async function syncPass({
 	for (const step of steps)
 		if (step.kind === 'settle') settled(step.path, step.local, step.remote);
 
+	/** The paths whose write this pass landed, on either side. */
+	const landed = new Set<string>();
+	/** Save `next`: null when it was saved as it is, else what another sync of this folder saved, with this pass's landings. */
+	const save = (next: Manifest) => manifest.save(next, { files, at, landed });
+
 	const kept: string[] = [];
 	const pushes: (Step & { kind: 'push' })[] = steps.filter(
 		(step): step is Step & { kind: 'push' } => step.kind === 'push',
@@ -445,6 +536,7 @@ async function syncPass({
 		// Merged here, not yet in the repository: changed locally, against the version merged with.
 		delete files[step.path];
 		at[step.path] = { commit: head, version: step.remote };
+		landed.add(step.path);
 		report.merged.push(step.path);
 		if (step.conflict) report.conflicts.push(step.path);
 		pushes.push({
@@ -454,8 +546,9 @@ async function syncPass({
 			local: written.data,
 			over: step.remote,
 		});
-		const saved = await manifest.write({ commit: state.commit, files, at });
+		const saved = await save({ commit: state.commit, files, at });
 		if (saved.error !== null) return saved;
+		if (saved.data !== null) return Ok({ state: saved.data, done: false });
 	}
 
 	const pulls = steps.filter(
@@ -488,6 +581,7 @@ async function syncPass({
 			continue;
 		}
 		settled(step.path, written.data, versionOf(file));
+		landed.add(step.path);
 		report.pulled.push(step.path);
 	}
 
@@ -516,8 +610,9 @@ async function syncPass({
 		report.kept.push(...kept);
 	}
 	if (pulls.length > 0 || kept.length > 0) {
-		const saved = await manifest.write({ commit: state.commit, files, at });
+		const saved = await save({ commit: state.commit, files, at });
 		if (saved.error !== null) return saved;
+		if (saved.data !== null) return Ok({ state: saved.data, done: false });
 	}
 
 	// Then the repository, in batches of one commit each.
@@ -539,15 +634,16 @@ async function syncPass({
 	}
 	if (batch.length > 0) batches.push(batch);
 	for (const group of batches) {
-		const landed = await writeBatch(remote, group, report);
-		if (landed.error !== null) return landed;
-		if (landed.data === null) continue;
-		if (landed.data === 'stale') {
-			const saved = await manifest.write({ commit: state.commit, files, at });
+		const wrote = await writeBatch(remote, group, report);
+		if (wrote.error !== null) return wrote;
+		if (wrote.data === null) continue;
+		if (wrote.data === 'stale') {
+			const kept = { commit: state.commit, files, at };
+			const saved = await save(kept);
 			if (saved.error !== null) return saved;
-			return Ok({ state: { commit: state.commit, files, at }, done: false });
+			return Ok({ state: saved.data ?? kept, done: false });
 		}
-		const { steps: written, receipt } = landed.data;
+		const { steps: written, receipt } = wrote.data;
 		for (const step of written) {
 			if (step.local === null) delete files[step.path];
 			else files[step.path] = step.local;
@@ -555,22 +651,28 @@ async function syncPass({
 				commit: receipt.commit,
 				version: receipt.versions[step.path] ?? null,
 			};
+			landed.add(step.path);
 			report.pushed.push(step.path);
 		}
 	}
 
 	// 4. Agreed at the commit read: a file agreed there needs no entry of its own.
-	for (const [path, base] of Object.entries(at))
-		if (base.commit === head) delete at[path];
+	const elsewhere = Object.fromEntries(
+		Object.entries(at).filter(([, base]) => base.commit !== head),
+	);
 	const next: Manifest =
-		Object.keys(at).length === 0
+		Object.keys(elsewhere).length === 0
 			? { commit: head, files }
-			: { commit: head, files, at };
-	if (JSON.stringify(next) !== JSON.stringify(state)) {
-		const written = await manifest.write(next);
-		if (written.error !== null) return written;
-	}
-	return Ok({ state: next, done: true });
+			: { commit: head, files, at: elsewhere };
+	if (JSON.stringify(next) === JSON.stringify(state))
+		return Ok({ state: next, done: true });
+	const saved = await save(next);
+	if (saved.error !== null) return saved;
+	return Ok(
+		saved.data === null
+			? { state: next, done: true }
+			: { state: saved.data, done: false },
+	);
 }
 
 /**

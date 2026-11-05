@@ -6,6 +6,7 @@
 export { localStoreOf } from '../folder.js';
 export {
 	type BatchReceipt,
+	type BatchRefusal,
 	type BatchWrite,
 	memoryRepository,
 	type RemoteFile,
@@ -17,6 +18,7 @@ export {
 	MANIFEST_PATH,
 	type Manifest,
 	type ManifestStore,
+	type ManifestVersion,
 	memoryManifest,
 	type SyncReport,
 	storeManifest,

@@ -78,6 +78,71 @@ async function synced(world: World, path = 'todos/a.md', text = todo) {
 	return { a, b };
 }
 
+/**
+ * Two syncs of one computer at once, after both computers changed one
+ * note's line and each added files: the sync started `held` saves its
+ * manifest only once the other has finished, so the other's save lands
+ * first. Both answer `synced`, and then both computers hold every file and
+ * one conflict block.
+ */
+async function twoSyncsAtOnce(world: World, held: 'first' | 'second') {
+	const text = note('title: "A"\n', 'one\ntwo\nthree\n');
+	const { a, b } = await synced(world, 'todos/a.md', text);
+	await b.write('todos/a.md', text.replace('two', 'from B'));
+	await b.write('todos/b.md', note('title: "B"\n'));
+	await syncOf(world, b);
+	await a.write('todos/a.md', text.replace('two', 'from A'));
+	await a.write('todos/new.md', note('title: "New"\n'));
+	await a.write('audio/r.webm', 'recorded on A');
+
+	let finished = () => {};
+	const otherFinished = new Promise<void>((resolve) => {
+		finished = resolve;
+	});
+	const waiting: ManifestStore = {
+		read: () => a.manifest.read(),
+		async write(manifest, over) {
+			await otherFinished;
+			return a.manifest.write(manifest, over);
+		},
+	};
+	const run = (manifest: ManifestStore) =>
+		sync({ local: a.store, remote: world.repository, manifest });
+	const reports =
+		held === 'first'
+			? await Promise.all([
+					run(waiting),
+					run(a.manifest).finally(() => finished()),
+				])
+			: await Promise.all([
+					run(a.manifest).finally(() => finished()),
+					run(waiting),
+				]);
+	const [waited, ran] = (held === 'first' ? reports : reports.reverse()).map(
+		(report) => expectOk(report),
+	);
+	expect(ran?.outcome).toBe('synced');
+	// Its first save found the other's: it ran again from that.
+	expect(waited).toMatchObject({ outcome: 'synced' });
+	expect(waited?.passes).toBeGreaterThan(1);
+
+	await syncOf(world, b);
+	await syncOf(world, a);
+	await syncOf(world, b);
+	expect(await contents(b)).toEqual(await contents(a));
+	expect(await a.paths()).toEqual([
+		'audio/r.webm',
+		'todos/a.md',
+		'todos/b.md',
+		'todos/new.md',
+	]);
+	expect(await b.read('audio/r.webm')).toBe('recorded on A');
+	const merged = await a.read('todos/a.md');
+	expect(markers(merged)).toBe(1);
+	expect(merged).toContain('from A');
+	expect(merged).toContain('from B');
+}
+
 export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 	async 'first contact: both sides get every file, and two creates of one note merge'(
 		world,
@@ -211,9 +276,9 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		};
 		const manifest: ManifestStore = {
 			read: () => a.manifest.read(),
-			write(next) {
+			write(next, over) {
 				saves++;
-				return a.manifest.write(next);
+				return a.manifest.write(next, over);
 			},
 		};
 		const again = expectOk(await sync({ local: a.store, remote, manifest }));
@@ -425,10 +490,10 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		let saves = 0;
 		const failing: ManifestStore = {
 			read: () => a.manifest.read(),
-			async write(manifest) {
+			async write(manifest, over) {
 				if (++saves === 2)
 					return ClientError.Unavailable({ cause: 'disk full' });
-				return a.manifest.write(manifest);
+				return a.manifest.write(manifest, over);
 			},
 		};
 		expectErr(
@@ -443,5 +508,17 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		await syncOf(world, b);
 		expect(markers(await a.read('todos/a.md'))).toBe(1);
 		expect(await contents(b)).toEqual(await contents(a));
+	},
+
+	async 'two syncs of one folder at once, the later-started saving first: both land, nothing lost, one conflict block'(
+		world,
+	) {
+		await twoSyncsAtOnce(world, 'first');
+	},
+
+	async 'two syncs of one folder at once, the earlier-started saving first: both land, nothing lost, one conflict block'(
+		world,
+	) {
+		await twoSyncsAtOnce(world, 'second');
 	},
 };
