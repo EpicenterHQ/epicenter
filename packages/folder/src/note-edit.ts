@@ -42,7 +42,10 @@ export type NoteEdit<TCollection extends Collection> = {
 	 * that does not read included), and empty where there is none. Setting
 	 * it saves it: a text whose front matter parses is written in house
 	 * style, and one that does not is written as typed and shows in
-	 * `invalid()` until it is repaired.
+	 * `invalid()` until it is repaired. After a save lands, `text` keeps
+	 * showing what was typed for as long as the file is what that save
+	 * left and differs from the typing in house style alone, so house style
+	 * never rewrites text while it is typed; a change merged in shows.
 	 */
 	text: string;
 	/** Whether a note that reads is listed at the editor's path; false while missing, deleted or not reading. */
@@ -95,6 +98,12 @@ export function editNote({
 	/** What was typed and not yet shown as landed: fields, and the whole text. */
 	let typed: Args | null = null;
 	let typedText: string | null = null;
+	/**
+	 * The whole text last typed and landed, and the file it left: `text`
+	 * keeps showing the typing while the file is still what it left (house
+	 * style may differ from it), so a save never rewrites text being typed.
+	 */
+	let landedText: { typed: string; left: string | null } | null = null;
 	/** Fields typed since the last save that landed: what the next save sends. */
 	let pending: Args = {};
 	let pendingText: string | null = null;
@@ -135,14 +144,20 @@ export function editNote({
 		queued = true;
 		out++;
 		/** What this save sent, as it last ran. */
-		let sent: { fields: Args; text: string | null } = {
+		let sent: { fields: Args; text: string | null; alone: boolean } = {
 			fields: {},
 			text: null,
+			alone: false,
 		};
 		void save(
 			(text, exists) => {
 				queued = false;
-				sent = { fields: { ...pending }, text: pendingText };
+				sent = {
+					fields: { ...pending },
+					text: pendingText,
+					// Only the typed text, over the file it began from: what lands differs from it in house style alone.
+					alone: text === textBegan && Object.keys(pending).length === 0,
+				};
 				let next = text;
 				if (sent.text !== null) next = codec.edit(next, textBegan, sent.text);
 				if (Object.keys(sent.fields).length > 0) {
@@ -161,6 +176,8 @@ export function editNote({
 				if (pendingText === sent.text) pendingText = null;
 				// Typing that goes on is made over what this save left.
 				const left = seen?.text ?? null;
+				landedText =
+					sent.text !== null && sent.alone ? { typed: sent.text, left } : null;
 				if ('body' in pending) bodyBegan = left;
 				if (pendingText !== null) textBegan = left;
 				typed = Object.keys(pending).length === 0 ? null : { ...pending };
@@ -204,6 +221,7 @@ export function editNote({
 		discard() {
 			typed = null;
 			typedText = null;
+			landedText = null;
 			pending = {};
 			pendingText = null;
 			notify();
@@ -225,7 +243,11 @@ export function editNote({
 	Object.defineProperty(editor, 'text', {
 		enumerable: true,
 		get() {
-			return typedText ?? shownText() ?? '';
+			if (typedText !== null) return typedText;
+			const now = shownText();
+			if (landedText !== null && landedText.left === now)
+				return landedText.typed;
+			return now ?? '';
 		},
 		set(value: string) {
 			if (pendingText === null) textBegan = shownText();

@@ -9,7 +9,8 @@
  * - A typed field takes this write; another writer's change to other
  *   fields stays; a body typed over a body changed since merges by lines
  * - `text` is the note's whole text, one that does not read included;
- *   typing it saves it as typed, settled against the text it began from
+ *   typing it saves it, settled against the text it began from, and the
+ *   typing stays shown while the file is what its save left
  * - The editor shows the newest typing until its save lands; `discard`
  *   shows the note; a save that cannot land waits, keeping the typing
  * - `fields` are the contract's fields and the body, and `exists()` says
@@ -183,7 +184,16 @@ test('text is the whole note, one that does not read included, and typing it sav
 	);
 	await until(() => todo.exists());
 	expect(folder.todos.invalid()).toEqual([]);
-	expect(todo.text).toBe(note('title: Milk\ndone: false\n', 'Body\n'));
+	// What was typed stays shown while the file is what its save left.
+	expect(todo.text).toBe(note('done: false\ntitle: Milk\n', 'Body\n'));
+	// A change made elsewhere shows.
+	await outside.write(
+		'todos/a.md',
+		note('title: Oat milk\ndone: false\n', 'Body\n'),
+	);
+	await until(
+		() => todo.text === note('title: Oat milk\ndone: false\n', 'Body\n'),
+	);
 	stop();
 });
 
@@ -206,6 +216,10 @@ test('whole text typed over a note changed since the typing began is settled, ke
 	await todo.landed();
 	expect(outside.read('todos/a.md')).toBe(
 		note('title: Milk\ndone: true\n', 'zero\none\ntwo\n'),
+	);
+	// The editor shows what was merged in, not only what was typed.
+	await until(
+		() => todo.text === note('title: Milk\ndone: true\n', 'zero\none\ntwo\n'),
 	);
 	stop();
 });
