@@ -5,6 +5,7 @@
 - **Amends:** [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) at "A write fails only as `Invalid` or `Unavailable`": a write never fails; [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) at the folder's states and at an action answering the open's error: the folder's state is its lifecycle and whether its store is available, and a write waits through both.
 - **Relates:** [ADR-0768](0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md) (retry belongs to a failure), [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) (the web is online), [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) (a contract states what a reader expects and owns nothing).
 - **Amended by:** [ADR-0778](0778-a-page-connects-once-and-then-reads-synchronously.md) at a collection's `loading()`: listings are made per folder in one connection, and it goes.
+- **Amended by:** [ADR-0782](0782-a-waiting-write-the-folder-will-not-make-rejects.md) at the writes waiting when the folder fails or closes: each rejects with `FolderClosed`.
 - **Unbuilt:** no place answers a temporary open failure yet: every `OpenFolderError` is one waiting will not fix.
 
 ## Context
