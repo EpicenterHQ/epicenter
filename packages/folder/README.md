@@ -178,7 +178,7 @@ The places are separate stores, and nothing moves between them
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
 an app's web build keeps the account's repository and nothing in the
 browser ([ADR-0786](../../docs/adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md)),
-and its desktop build the data folder, which sync moves.
+and its desktop window the data folder, which sync moves.
 
 In a Tauri window the folder works over the root the shell named, through the folder
 plugin's commands, each naming that root by name, never by path; the shell

@@ -4,7 +4,7 @@ A standalone Epicenter app is its own small Tauri program over a folder it
 owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
 shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines.
 On the page, `openFolder(contract, home({ site }))` from `@epicenter/folder`
-opens the data folder in the desktop build, `settings` from
+opens the data folder in a Tauri window, `settings` from
 `@epicenter/local` is this computer's settings in AppData, and
 `syncWithEpicenter` and `syncedWithEpicenter` from `@epicenter/folder/tauri`
 manage Epicenter enrollment. The page's recovery and sync UI is in

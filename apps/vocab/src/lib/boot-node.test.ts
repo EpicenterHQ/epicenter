@@ -3,9 +3,10 @@
  * `src/lib/app.ts` is the one place that opens the store: one folder for
  * the page's life (`openFolder`), the learner's repository on the web and
  * the data folder on the desktop. The `(app)` layout renders the pages over
- * it, or the sign-in while the web build is signed out; the callback page
- * and its ancestor layouts mount no app; and no source opens a store of its
- * own. Which leaves each build carries is `platform.test.ts`'s.
+ * it, or the sign-in while the repository's account is signed out; the
+ * callback page and its ancestor layouts mount no app; and no source opens
+ * a store of its own. What the web's first load carries is
+ * `scripts/first-load.test.ts`'s.
  */
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';

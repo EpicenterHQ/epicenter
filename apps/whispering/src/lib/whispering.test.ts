@@ -1,7 +1,6 @@
 /**
- * Whispering over its files, as the mounted app reads and writes them: the
- * web build's local variant, over this browser's files (a place in memory
- * stands in for OPFS). Nothing here uploads or syncs (ADR-0700).
+ * Whispering over its files, as the mounted app reads and writes them in a
+ * browser (a place in memory stands in for the person's repository).
  *
  * Key behaviors:
  * - A recording's audio lands at Stop, and its note, with its length, once
