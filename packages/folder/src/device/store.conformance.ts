@@ -133,20 +133,26 @@ export const storeChecks: Record<string, (subject: StoreSubject) => Promise<void
 	async 'a hint never precedes readable bytes'({ store, outside, hearingMs }) {
 		const path = fresh('hint.md');
 		await outside(path, bytes('old'));
-		const reads: Promise<string | null>[] = [];
+		/** What the read each hint started answered, in the order heard; undefined until it answers. */
+		const answered: (string | null | undefined)[] = [];
 		const stop = ok(
 			await store.watch((paths) => {
-				if (paths === 'all' || paths.includes(path))
-					reads.push(readOne(store, path).then(textOf));
+				if (paths !== 'all' && !paths.includes(path)) return;
+				const at = answered.push(undefined) - 1;
+				void readOne(store, path).then((file) => {
+					answered[at] = textOf(file);
+				});
 			}),
 		);
 		try {
 			await outside(path, bytes('new'));
-			check(await until(() => reads.length > 0, hearingMs), 'the change is heard');
-			// Writes from before the watch may still be heard; the last hint is this one.
-			await until(() => false, Math.min(hearingMs, 200));
-			const answered = await Promise.all(reads);
-			check(answered.at(-1) === 'new', `a read the moment it was heard answers the change (${answered.join(', ')})`);
+			// A hint for the write before the watch may still arrive first, and
+			// its read rightly answers the old bytes; the change's own hint comes
+			// after, however late, and a read the moment it is heard answers it.
+			check(
+				await until(() => answered.at(-1) === 'new', hearingMs),
+				`a read the moment it was heard answers the change (${answered.join(', ')})`,
+			);
 		} finally {
 			stop();
 			await outside(path, null);

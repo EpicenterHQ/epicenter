@@ -12,7 +12,8 @@
  *   typing it saves it, settled against the text it began from, and the
  *   typing stays shown while the file is what its save left
  * - The editor shows the newest typing until its save lands; `discard`
- *   shows the note; a save that cannot land waits, keeping the typing
+ *   shows the note; a save that cannot land waits, keeping the typing,
+ *   and one the folder will not make rejects `landed()` with `FolderClosed`
  * - `fields` are the contract's fields and the body, and `exists()` says
  *   whether a note that reads is listed
  * - An editor nobody listens to holds nothing
@@ -266,6 +267,26 @@ test('a save that cannot land waits, the typing still shown, and lands when the 
 	);
 	expect(folder.unavailable()).toBeNull();
 	stop();
+});
+
+test('a save the folder will not make rejects landed() with FolderClosed, and the typing stays shown', async () => {
+	const { folder, outside } = await inMemory();
+	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
+	const stop = await listening(folder);
+	const todo = folder.todos.edit({ id: 'a' });
+	outside.refuse('offline');
+	todo.fields.title = 'Oat milk';
+	await until(() => folder.unavailable() !== null);
+	const waiting = todo.landed();
+	stop();
+	folder[Symbol.dispose]();
+	// Rejected, not left unhandled: the keystroke's own save is the editor's.
+	await expect(waiting).rejects.toMatchObject({
+		name: 'FolderClosed',
+		status: 'closed',
+	});
+	expect(todo.fields.title).toBe('Oat milk');
+	expect(outside.read('todos/a.md')).toBe(note('title: Milk\ndone: false\n'));
 });
 
 test('an editor holds nothing of its own: it reads what the folder holds, heard or not', async () => {
