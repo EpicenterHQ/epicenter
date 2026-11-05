@@ -973,8 +973,9 @@ When you add an ADR, add its row here.
 | [0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) | A write never fails: the folder keeps it until it lands | Accepted (amends 0767 and 0774; amended by 0778 and 0782) |
 | [0776](0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md) | A note's name is its file name, and a rename is a set and a delete | Accepted |
 | [0777](0777-a-capability-has-no-ready-promise.md) | A capability has no ready promise | Accepted (amends 0767; amended by 0778) |
-| [0778](0778-a-page-connects-once-and-then-reads-synchronously.md) | A page connects once, and then reads synchronously | Accepted (amends 0767, 0775, and 0777; amended by 0779) |
+| [0778](0778-a-page-connects-once-and-then-reads-synchronously.md) | A page connects once, and then reads synchronously | Accepted (amends 0767, 0775, and 0777; amended by 0779 and 0783) |
 | [0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) | A store is four verbs, and a browser recording lands whole | Accepted (amends 0773 and 0778) |
 | [0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) | A surface uses what its platform gives, and parity is not a goal | Accepted |
 | [0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) | Apps branch on what a capability offers, and one build serves every surface | Accepted (amends 0701, 0755, and 0766) |
 | [0782](0782-a-waiting-write-the-folder-will-not-make-rejects.md) | A waiting write the folder will not make rejects | Accepted (amends 0775) |
+| [0783](0783-a-secret-lives-in-the-apps-credentials-file-and-is-read-by-the-request-that-uses-it.md) | A secret lives in the app's credentials file, and is read by the request that uses it | Accepted (amends 0778) |
