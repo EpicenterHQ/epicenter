@@ -22,7 +22,7 @@ export { openFolder } from './open-folder.js';
 export type { Place } from './place.js';
 
 /** A new, empty place in memory; like every `home`, it says its account needs the repository. */
-export function home(options?: HomeOptions): Place {
-	options?.account?.need('repository');
+export function home({ account }: HomeOptions): Place {
+	account?.need('repository');
 	return memory();
 }

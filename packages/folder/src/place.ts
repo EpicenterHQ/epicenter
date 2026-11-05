@@ -45,11 +45,11 @@ export function openingOf(at: Place, contract: Contract): Opening {
  * What `home` takes. `site` is the app's production site: in a Tauri window
  * the data folder's `AGENTS.md` links its published contract, and in a
  * browser it names the account's repository. `account` is that
- * repository's; the data folder uses none, and opens whatever is passed.
+ * repository's, which a browser needs; the data folder opens without one.
  */
 export type HomeOptions = {
 	site: string;
-	/** Absent, a browser opens this browser's storage instead (Messages). */
+	/** The account whose repository a browser opens; a Tauri window's folder opens without one. */
 	account?: FolderAccount | null;
 };
 

@@ -6,8 +6,8 @@
  *
  * Key behaviors:
  * - A `.epicenter` literal in production code fails, with file and line
- * - The owning modules, the OPFS worker's copy, tests, test support, Rust
- *   test modules, comments, docs, and dotted names that contain the word pass
+ * - The owning modules, tests, test support, smoke runs, Rust test modules,
+ *   comments, docs, and dotted names that contain the word pass
  */
 
 import { expect, test } from 'bun:test';

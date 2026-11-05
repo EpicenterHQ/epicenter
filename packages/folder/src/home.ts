@@ -12,7 +12,6 @@ import { Ok } from 'wellcrafted/result';
 import {
 	type FolderAccount,
 	type HomeOptions,
-	openingOf,
 	type Place,
 	place,
 } from './place.js';
@@ -37,26 +36,26 @@ export type { Place } from './place.js';
  * opens once the account is signed in and keeps that account for the page's
  * life; a request after its sign-out is `Unavailable`. Given an account, it
  * says the account needs the app's repository (ADR-0792): the browser's
- * folder, and what a Tauri window's folder syncs with (ADR-0785).
- *
- * Messages, which has no site and no account yet, still opens this
- * browser's storage with `home()`; it leaves with Messages' drafts
- * (ADR-0784, ADR-0786).
+ * folder, and what a Tauri window's folder syncs with (ADR-0785). A
+ * browser keeps nothing of an app (ADR-0786), so there `home` needs the
+ * account.
  *
  * ```ts
  * export const folder = openFolder(todos, home({ site: APPS.TODOS.url, account }));
  * ```
  */
-export function home(options?: HomeOptions): Place {
-	options?.account?.need('repository');
-	if (isTauri()) return dataFolder(options?.site);
-	return options?.account
-		? repository(options.account, options.site)
-		: browserStorage();
+export function home({ site, account }: HomeOptions): Place {
+	account?.need('repository');
+	if (isTauri()) return dataFolder(site);
+	if (!account)
+		throw new TypeError(
+			"A browser opens the app's repository, so home needs its account.",
+		);
+	return repository(account, site);
 }
 
 /** The app's data folder, its code loaded when the folder opens. */
-function dataFolder(site: string | undefined): Place {
+function dataFolder(site: string): Place {
 	return place((contract) => {
 		let path: string | null = null;
 		return {
@@ -90,15 +89,5 @@ function repository(account: FolderAccount, site: string): Place {
 					if (answer()) stop();
 				});
 			}),
-	}));
-}
-
-/** This browser's storage (OPFS), its code loaded when the folder opens. */
-function browserStorage(): Place {
-	return place((contract) => ({
-		async open() {
-			const { browserStorage } = await import('./browser.js');
-			return openingOf(browserStorage(), contract).open();
-		},
 	}));
 }

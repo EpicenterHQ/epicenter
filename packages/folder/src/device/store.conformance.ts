@@ -1,10 +1,9 @@
 /**
  * What every store answers the same way (ADR-0778, ADR-0779), as checks any
  * runner calls: `bun test` over memory, a directory, the desktop shell's
- * commands over an emulated shell, and the repository on a real server
- * (`remote.postgres.test.ts`), and Playwright over this browser's private
- * files (`smoke/device.ts`). Each check throws when the store does not
- * hold, so it needs no test framework.
+ * commands over an emulated shell, a served directory, and the repository
+ * on a real server (`remote.postgres.test.ts`). Each check throws when the
+ * store does not hold, so it needs no test framework.
  *
  * - The four verbs: a create where nothing is, a write over the version
  *   read, `'stale'` over any other, a removal, a listing below the paths

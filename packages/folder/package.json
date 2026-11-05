@@ -19,8 +19,7 @@
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server-tests.json",
-		"test": "bun test --isolate",
-		"smoke:device": "bun smoke/device.ts"
+		"test": "bun test --isolate"
 	},
 	"dependencies": {
 		"@epicenter/definition": "workspace:*",

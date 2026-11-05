@@ -14,24 +14,24 @@ server commits each web write.
 
 ## Variants
 
-An app has up to three variants, each with one store for its life, and
-builds only the ones it needs. Nothing moves between stores; signing in
-grants capabilities, never storage.
+An app has one build, which serves the web and its desktop window
+([ADR-0781](../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md));
+each surface has one store for the page's life. Every web app is online
+and keeps nothing in the browser
+([ADR-0786](../docs/adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md)).
 
-Every variant opens its folder the same way, `openFolder(contract,
-home({ site, account }))` from `@epicenter/folder`, and the build and the
-account pick which store `home` is:
+Every surface opens its folder the same way, `openFolder(contract,
+home({ site, account }))` from `@epicenter/folder`, and `home` picks its
+store where the page runs:
 
-| Variant | Store | `home` gets |
+| Surface | Store | The account |
 | --- | --- | --- |
-| Desktop | a folder on the computer (the `tauri` build) | any account, or none: it is ignored |
-| Local web | this browser's files (OPFS), for good | no account |
-| Online web | the person's repository, behind sign-in | the signed-in account |
+| Desktop (a Tauri window) | a folder on the computer | optional: signing in syncs the folder ([ADR-0785](../docs/adr/0785-a-desktop-app-signs-in-to-sync-its-own-folder.md)) |
+| Web | the person's repository, behind sign-in | required |
 
-| App | Variants |
+| App | Surfaces |
 | --- | --- |
-| Capture, Honeycrisp, Todos, Vocab | online web, desktop |
-| Whispering | local web, desktop |
+| Capture, Honeycrisp, Todos, Vocab, Whispering | web, desktop |
 | Messages | local (a program on the computer where Beeper Desktop runs) |
 
 The variants need not promise the same things
@@ -118,15 +118,14 @@ enrolls the folder for local history; connecting a repository there enables tran
 | App | Surfaces | Desktop folder | Contract |
 | --- | --- | --- | --- |
 | Epicenter | Folders, Settings | none | none |
-| [Todos](todos/README.md) | online web; desktop | `~/Epicenter/todos` | `todos`: `todos` |
-| [Capture](capture/README.md) | online web; desktop | `~/Epicenter/capture` | `capture`: `captures` |
-| [Honeycrisp](honeycrisp/README.md) | online web; desktop | `~/Epicenter/honeycrisp` | `honeycrisp`: `notes`, `folders` |
-| [Vocab](vocab/README.md) | online web; desktop | `~/Epicenter/vocab` | `vocab`: `entries`, `chats`, `messages` |
-| [Whispering](whispering/README.md) | local web; desktop | `~/Epicenter/whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
+| [Todos](todos/README.md) | web; desktop | `~/Epicenter/todos` | `todos`: `todos` |
+| [Capture](capture/README.md) | web; desktop | `~/Epicenter/capture` | `capture`: `captures` |
+| [Honeycrisp](honeycrisp/README.md) | web; desktop | `~/Epicenter/honeycrisp` | `honeycrisp`: `notes`, `folders` |
+| [Vocab](vocab/README.md) | web; desktop | `~/Epicenter/vocab` | `vocab`: `entries`, `chats`, `messages` |
+| [Whispering](whispering/README.md) | web; desktop | `~/Epicenter/whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
 | [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: `<AppData>/apps/so.epicenter.messages`, which its program owns | `messages`: `drafts`, `attempts` |
 
-A local web app keeps its files in the origin's OPFS; an online web app
-keeps none in the browser. The Epicenter app keeps no data of its own; its
+A web app keeps none of its files in the browser. The Epicenter app keeps no data of its own; its
 library root, `~/Epicenter` (`~/Epicenter Dev` for a development build, whose
 `tauri.dev.conf.json` states `"environment": "development"`), holds the
 standalone apps' folders. A

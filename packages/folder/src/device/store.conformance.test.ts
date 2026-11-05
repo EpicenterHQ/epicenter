@@ -2,9 +2,8 @@
  * The store conformance checks (`store.conformance.ts`) over every store
  * Bun can run: memory, a directory, the desktop shell's commands over an
  * emulated shell whose watcher is a directory watch, and a directory a
- * program serves (`served/`) over HTTP. The repository runs
- * them in `remote.postgres.test.ts`, and this browser's private files in
- * `smoke/device.ts`.
+ * program serves (`served/`) over HTTP. The repository runs them in
+ * `remote.postgres.test.ts`.
  */
 import { afterAll, describe, mock, test } from 'bun:test';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';

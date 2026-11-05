@@ -1,8 +1,8 @@
 /**
  * A place's store: four verbs over bytes at paths (ADR-0779), answered by
- * memory (`memory-store.ts`), a directory in Bun (`node-store.ts`), this
- * origin's private file system (`opfs-store.ts`), a root the desktop shell
- * named (`tauri-store.ts`), and a repository on the server
+ * memory (`memory-store.ts`), a directory in Bun (`node-store.ts`), a root
+ * the desktop shell named (`tauri-store.ts`), a directory a program serves
+ * its page (`served/store.ts`), and a repository on the server
  * (`remote/store.ts`). Paths are relative and `/`-separated, the same paths
  * a desktop folder holds. A store knows nothing of contracts, notes, or what
  * a page holds: the folder composes its connection from these verbs.
