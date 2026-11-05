@@ -967,4 +967,4 @@ When you add an ADR, add its row here.
 | [0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) | Svelte reads every capability through one reactive copy | Accepted (amends 0765 and 0766) |
 | [0770](0770-teams-own-repositories-and-sharing-is-membership.md) | Teams own repositories, and sharing is membership | Accepted (amends 0547, 0594, 0612, 0708, and 0732; amended by 0771 and 0772) |
 | [0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) | Plain files let Epicenter refuse renames, attachment conflict copies, and a second store | Accepted (amends 0612, 0705, 0707, 0708, 0709, 0715, 0716, 0734, 0739, 0742, and 0770) |
-| [0772](0772-each-team-has-a-root-folder-found-by-the-team-inside-it.md) | Each team has a root folder, found by the team inside it | Accepted (amends 0721, 0752, and 0770) |
+| [0772](0772-epicenter-finds-every-folder-by-what-it-says-inside.md) | Epicenter finds every folder by what it says inside | Accepted (amends 0715, 0721, 0722, 0752, and 0770) |
