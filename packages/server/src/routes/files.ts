@@ -264,12 +264,14 @@ export async function applyWrite({
 			main === ZERO_OID
 				? null
 				: ((await readCommit(objects, main))?.tree ?? null);
+		// Each tree on the way is read and indexed once for the whole batch.
+		const lookupIn = treeLookup(objects, root);
 		const changes = new Map<string, Change>();
 		const blobs: PackObject[] = [];
 		const landedBlobs: Record<string, string | null> = {};
 
 		for (const file of request.files) {
-			const current = (await lookup(objects, root, file.path))?.oid ?? null;
+			const current = (await lookupIn(file.path))?.oid ?? null;
 			if (current !== file.base)
 				return json(
 					file.base === null
