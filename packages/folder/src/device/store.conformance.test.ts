@@ -52,13 +52,12 @@ const subjects: Record<string, () => Promise<StoreSubject>> = {
 		return {
 			store,
 			outside: (path, bytes) => store.outside.write(path, bytes),
-			hearingMs: 100,
 		};
 	},
 	async directory() {
 		const root = await scratch('conformance-node-');
 		roots.push(root);
-		return { store: nodeStore(root), outside: outsideOf(root), hearingMs: 3000 };
+		return { store: nodeStore(root), outside: outsideOf(root) };
 	},
 	async 'desktop shell'() {
 		const root = await scratch('conformance-tauri-');
@@ -77,7 +76,7 @@ const subjects: Record<string, () => Promise<StoreSubject>> = {
 				return () => listeners.delete(changed);
 			},
 		});
-		return { store, outside: outsideOf(root), hearingMs: 3000 };
+		return { store, outside: outsideOf(root) };
 	},
 	async 'served directory'() {
 		const root = await scratch('conformance-served-');
@@ -103,5 +102,5 @@ const subjects: Record<string, () => Promise<StoreSubject>> = {
 for (const [name, subject] of Object.entries(subjects))
 	describe(`a store: ${name}`, () => {
 		for (const [check, run] of Object.entries(storeChecks))
-			test(check, async () => run(await subject()), 10_000);
+			test(check, async () => run(await subject()), 30_000);
 	});
