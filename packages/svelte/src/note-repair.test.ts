@@ -104,3 +104,64 @@ test('problems follow the typed text, and Save repair writes it as typed until i
 	target.remove();
 	stop();
 });
+
+test('typing while a save lands stays typed, and a save the folder will not make keeps the typing', async () => {
+	let land!: () => void;
+	let refuse!: (error: Error) => void;
+	const edit = {
+		text: '',
+		landed: () =>
+			new Promise<void>((resolve, reject) => {
+				land = resolve;
+				refuse = reject;
+			}),
+	};
+	const target = document.createElement('div');
+	document.body.append(target);
+	let repaired = 0;
+	const view = mount(NoteRepair, {
+		target,
+		props: {
+			contract: todos,
+			note: { path: 'todos/a.md', issues: [], text: '---\ntitle: [Milk\n---\n' },
+			edit,
+			onRepaired: () => repaired++,
+		},
+	});
+	flushSync();
+	const textarea = target.querySelector('textarea') as HTMLTextAreaElement;
+	const type = (text: string) => {
+		textarea.value = text;
+		textarea.dispatchEvent(new Event('input', { bubbles: true }));
+		flushSync();
+	};
+	const submit = () => {
+		(target.querySelector('form') as HTMLFormElement).requestSubmit();
+		flushSync();
+	};
+	const saveButton = () =>
+		[...target.querySelectorAll('button')].find(
+			(button) => button.textContent === 'Save repair',
+		) as HTMLButtonElement;
+
+	type('---\ntitle: Milk\n---\n');
+	submit();
+	expect(edit.text).toBe('---\ntitle: Milk\n---\n');
+	type('---\ntitle: Milk\ndone: true\n---\n');
+	land();
+	await Bun.sleep(0);
+	flushSync();
+	expect(textarea.value).toBe('---\ntitle: Milk\ndone: true\n---\n');
+	expect(repaired).toBe(1);
+
+	submit();
+	refuse(new Error('FolderClosed'));
+	await Bun.sleep(0);
+	flushSync();
+	expect(textarea.value).toBe('---\ntitle: Milk\ndone: true\n---\n');
+	expect(saveButton().disabled).toBe(false);
+	expect(repaired).toBe(1);
+
+	await unmount(view);
+	target.remove();
+});
