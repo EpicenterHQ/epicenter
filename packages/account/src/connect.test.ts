@@ -5,7 +5,8 @@
  * Key behaviors:
  * - In a browser, sign-in asks for the audiences and scopes of every need
  *   declared, the API's first when anything reaches it
- * - A need declared after the account was first used throws
+ * - A need declared after the account was made is asked for at the next
+ *   sign-in
  * - In a Tauri window every app signs in through the shell
  */
 import { afterEach, expect, mock, test } from 'bun:test';
@@ -81,14 +82,18 @@ test('in a browser, every need is asked for once, the API first', async () => {
 	});
 });
 
-test('a need declared after the account was first used throws', () => {
-	browserPage();
+test('a need declared after the account was made is asked for at the next sign-in', async () => {
+	const sent = browserPage();
 	const account = connectAccount({ clientId: 'so.epicenter.todos', api: API });
 	account.need('repository');
 	expect(account.state().status).toBe('signed-out');
-	account.need('repository');
-	expect(() => account.need('ai')).toThrow(TypeError);
+	account.need('ai');
+	await account.startSignIn();
 	account[Symbol.dispose]();
+	expect(new URL(sent.url).searchParams.getAll('resource')).toEqual([
+		API,
+		`${API}/git`,
+	]);
 });
 
 test('in a Tauri window every app signs in through the shell', () => {

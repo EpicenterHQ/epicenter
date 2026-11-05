@@ -6,11 +6,10 @@
  * `home({ site, account })` needs the app's repository, `hosted(account)`
  * the AI gateway, and `openProfile(account)` the person's name and email.
  *
- * - In a browser the account is a browser OAuth client, made at its first
- *   use with the audiences and scopes those needs add up to
- *   (`browserGrant`). `app.ts` makes every capability when it loads, so a
- *   need declared after the account was first used is a mistake, and
- *   throws.
+ * - In a browser the account is a browser OAuth client that asks for the
+ *   audiences and scopes those needs add up to (`browserGrant`), read at
+ *   each sign-in. `app.ts` makes every capability when it loads, so every
+ *   need is known before anyone can sign in.
  * - In a Tauri window the app signs in through the shell
  *   (`createTauriAuth`, whose requests load the shell's relay when made),
  *   to sync its folder and to use hosted models (ADR-0785). The shell's
@@ -20,8 +19,7 @@
  */
 import { resolveOAuthAudiences } from '@epicenter/definition/site';
 import { isTauri } from '@tauri-apps/api/core';
-import { createAccountManagementUrl } from './account-management.js';
-import type { AuthClient, CallbackAuthClient } from './auth-contract.js';
+import type { AuthClient } from './auth-contract.js';
 import { epicenterCloud, selfHostedServer } from './auth-server.js';
 import { createBrowserOAuth } from './browser-oauth.js';
 import { createTauriAuth } from './tauri.js';
@@ -55,9 +53,9 @@ export type ConnectAccountOptions = {
 };
 
 /**
- * This page's sign-in. In a browser nothing is read or scheduled until its
- * first use; in a Tauri window it reads `account.json` once the settings
- * connected.
+ * This page's sign-in. Making it in a browser reads `localStorage` and,
+ * with `automaticRenewal`, schedules renewals; in a Tauri window it reads
+ * `account.json` once the settings connected.
  *
  * ```ts
  * const account = connectAccount({ clientId: 'so.epicenter.todos', api: APP_URLS.API, selfHosted: SELF_HOST_ORIGIN });
@@ -74,36 +72,18 @@ export function connectAccount({
 	const server = selfHosted
 		? selfHostedServer(selfHosted)
 		: epicenterCloud(api);
+	const audiences = resolveOAuthAudiences(server.baseURL);
 	const needs = new Set<AccountNeed>();
-	let made: CallbackAuthClient | undefined;
-	const client = () =>
-		(made ??= createBrowserOAuth({
-			server,
-			clientId,
-			...browserGrant(needs, resolveOAuthAudiences(server.baseURL)),
-			accountManagement: !selfHosted,
-			automaticRenewal,
-		}));
-	const account: AppAccount & CallbackAuthClient = {
-		need(need) {
-			if (made !== undefined && !needs.has(need))
-				throw new TypeError(
-					`A capability needs the account's ${need} after the account was first used; make it in app.ts.`,
-				);
-			needs.add(need);
-		},
-		baseURL: server.baseURL,
-		...(selfHosted ? {} : { accountManagementUrl: createAccountManagementUrl }),
-		state: () => client().state(),
-		refresh: () => client().refresh(),
-		subscribe: (listener) => client().subscribe(listener),
-		startSignIn: (options) => client().startSignIn(options),
-		completeSignIn: () => client().completeSignIn(),
-		signOut: () => client().signOut(),
-		getProfile: () => client().getProfile(),
-		[Symbol.dispose]: () => made?.[Symbol.dispose](),
-	};
-	return account;
+	const client = createBrowserOAuth({
+		server,
+		clientId,
+		grant: () => browserGrant(needs, audiences),
+		accountManagement: !selfHosted,
+		automaticRenewal,
+	});
+	return Object.assign(client, {
+		need: (need: AccountNeed) => void needs.add(need),
+	});
 }
 
 /**
