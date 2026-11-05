@@ -8,6 +8,7 @@
 - **Relates:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) (a dependent takes the folder as a value), [ADR-0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) (the shape every capability shares).
 - **Amended by:** [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) at the folder's states and an action answering the open's error: the state is its lifecycle and whether its store is available, and a write waits through both.
 - **Amended by:** [ADR-0777](0777-a-capability-has-no-ready-promise.md) at what a capability exposes of its first load: no `ready` promise; its actions wait.
+- **Amended by:** [ADR-0778](0778-a-page-connects-once-and-then-reads-synchronously.md) at a capability loading on its own: a page's stores load in one connection, which `<WhenOpen>` waits for.
 - **Unbuilt:** dependents built on the waiting actions, such as Whispering's recovery of unfinished recordings and `createRecorder(folder)`. Built in W2 of the plan in `specs/20261104T160000-one-sync-core-on-every-native-platform.md`, starting with Todos.
 
 ## Context
