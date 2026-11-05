@@ -344,6 +344,30 @@ describe('receivePush', () => {
 		expect(await r.push(one)).toContain(`ok ${MAIN}`);
 	});
 
+	test('a push adding a name that differs only in case from one in its tree is refused, and says which', async () => {
+		const r = await setup();
+		const one = await r.commit({ 'notes/a.md': 'a\n' });
+		await r.push(one);
+		// Made with fast-import, told case matters: on a disk that ignores case, a work tree holds one of the two.
+		const data = (text: string) => `data ${Buffer.byteLength(text)}\n${text}\n`;
+		await box.ok(
+			r.work,
+			['-c', 'core.ignorecase=false', 'fast-import', '--quiet'],
+			[
+				'commit refs/heads/clash\ncommitter Ada <ada@example.invalid> 1700000000 +0000\n',
+				data('clash'),
+				`from ${one}\n`,
+				'M 100644 inline notes/A.md\n',
+				data('A\n'),
+			].join(''),
+		);
+		const clash = (await box.ok(r.work, ['rev-parse', 'clash'])).trim();
+		const refused = await r.push(clash);
+		expect(refused).toContain('notes/A.md in');
+		expect(refused).toContain('differs only in case from notes/a.md');
+		expect(await r.main()).toBe(one);
+	});
+
 	test('a pointer lands only once its object is uploaded', async () => {
 		const r = await setup();
 		const audio = new TextEncoder().encode('opus bytes');

@@ -21,7 +21,12 @@
  * holds its `base`, and otherwise the whole write is refused, `409 occupied`
  * for a create where a file is and `409 stale` for a path that moved since
  * its writer read it. The writer then reads what is there and writes again
- * over it, so every merge runs on the computer of the person writing.
+ * over it, so every merge runs on the computer of the person writing. A
+ * write that would add a name differing only in case from one the
+ * repository then holds at that place is refused, `409 case_collision`
+ * with the `path` and the name `held` (`caseClash`): a disk that ignores
+ * case could not keep the two apart. A rename that changes only case is a
+ * delete and a create, in one write or the delete first.
  *
  * Each request reads `main`, checks every file's `base` against it, builds
  * one commit, and moves `main` only if it has not moved, retrying from the
@@ -57,6 +62,7 @@ import {
 } from '../git/objects.js';
 import { writePack } from '../git/pack.js';
 import {
+	CaseCollision,
 	type Change,
 	diffTrees,
 	editTree,
@@ -322,6 +328,16 @@ export async function applyWrite({
 			try {
 				tree = await editTree(objects, root, changes, written);
 			} catch (cause) {
+				if (cause instanceof CaseCollision)
+					return json(
+						{
+							error: 'case_collision',
+							path: cause.path,
+							held: cause.held,
+							message: cause.message,
+						},
+						409,
+					);
 				return json(
 					{
 						error: 'invalid_write',
