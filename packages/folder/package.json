@@ -7,7 +7,6 @@
 	"exports": {
 		".": {
 			"test": "./src/home.memory.ts",
-			"tauri": "./src/home.tauri.ts",
 			"default": "./src/home.ts"
 		},
 		"./core": "./src/core.ts",

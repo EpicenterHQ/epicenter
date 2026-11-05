@@ -435,7 +435,9 @@ test('on the web, a folder over an account opens once the account is signed in',
 		| { baseURL: string; signal: AbortSignal; fetch: typeof fetch }
 		| undefined;
 	const listeners = new Set<() => void>();
+	const needs: string[] = [];
 	const account = {
+		need: (need: 'repository') => void needs.push(need),
 		state: () => ({ account: signedIn }),
 		subscribe(listener: () => void) {
 			listeners.add(listener);
@@ -448,6 +450,7 @@ test('on the web, a folder over an account opens once the account is signed in',
 		todos,
 		home({ site: 'https://todos.epicenter.so', account }),
 	);
+	expect(needs).toEqual(['repository']);
 	await tick();
 	expect(folder.state()).toEqual({ status: 'opening' });
 	signedIn = {

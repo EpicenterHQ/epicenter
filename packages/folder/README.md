@@ -27,7 +27,7 @@ A Svelte app reads it through `reactive` from
 
 | Import | Purpose |
 | --- | --- |
-| `@epicenter/folder` | `openFolder(contract, place)`, and `home({ site, account }?)`, the app's own place, which the build picks: the desktop's data folder (`tauri`), this browser's storage or, with an `account`, the account's repository (`default`), and a new place in memory under the `test` condition. |
+| `@epicenter/folder` | `openFolder(contract, place)`, and `home({ site, account }?)`, the app's own place, which the package picks when it runs ([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)): in a Tauri window the app's data folder, whose code loads when it opens; in a browser the account's repository (or, given no account, this browser's storage, which only Messages still opens); and a new place in memory under the `test` condition. |
 | `@epicenter/folder/core` | The folder's types (`Folder`, `FolderNotes`, `FolderFiles`, `FolderLifecycle`, `FolderState`, `NoteEdit`, `Unavailable`, `Place`, ...), `OpenFolderError`, and the `FolderNotOpen` and `FolderClosed` errors, the same on every build, for a library that takes a folder or a collection. |
 | `@epicenter/folder/node` | `directory(path)`, a directory as a place, for scripts and tests (Bun or Node), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/memory` | `memory()`, a new place in memory, and `memoryFiles(placeOrFolder)`, the world outside it, for a test. |
@@ -299,7 +299,7 @@ committer, over the system `git` this package's `runGit` runs.
 
 | Path | Responsibility |
 | --- | --- |
-| `src/home.ts`, `home.tauri.ts`, `home.memory.ts` | The root entry, one leaf per build: `openFolder` and that build's `home`. |
+| `src/home.ts`, `home.memory.ts`, `data-folder.ts` | The root entry and its `test` leaf: `openFolder` and `home`; the data folder `home` loads in a Tauri window. |
 | `src/core.ts`, `node.ts`, `memory.ts`, `tauri.ts`, `bun.ts` | The other public entries. |
 | `src/open-folder.ts`, `place.ts`, `folder.ts`, `errors.ts`, `note-edit.ts`, `note-codec.ts` | `openFolder` over a place, what a place is, the folder's connection, replica and write queue, its errors, the note editor, and how a note's change becomes the text written. |
 | `src/device/` | The store contract and its conformance checks, the device stores (memory, Bun, OPFS, Tauri), and `check`/`format`. |
