@@ -6,6 +6,8 @@
 - **Relates:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (one merge for a save and for sync, which this returns to), [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) (the later write to an attachment wins), [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) (no history before the first sync).
 - **Amended by:** [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) at "A write fails only as `Invalid` or `Unavailable`": a write never fails; the folder keeps it until it lands.
 - **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at a folder committed "while the Epicenter app runs" and at `append`: a folder is committed at each round its app runs, and no store appends.
+- **Amended by:** [ADR-0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) at `settle` having two implementations: it has one.
+- **Amended by:** [ADR-0794](0794-a-sync-round-asks-its-host-to-settle-checks-out-only-what-did-not-move-and-retries-rather-than-guess.md) at a file other than a note named by its Git LFS object id: a store names it by a stamp, with the object id beside it.
 - **Unbuilt:** one content name per file on every store: device stores still name a note by the sha256 of its bytes, since the desktop shell's checked writes compare sha256 (a non-note file's sha256 is already its Git LFS object id). The version stays internal to the folder, so this changes no app.
 
 ## Context
