@@ -5,7 +5,7 @@
  */
 
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
-import { variant } from '#platform/variant';
+import { folder } from './app.js';
 import type { Captures } from './captures.svelte.js';
 
 /** Ask before deleting the capture `id`; confirming closes it and deletes it as shown then. */
@@ -15,7 +15,7 @@ export function confirmDelete(captures: Captures, id: string) {
 	confirmationDialog.open({
 		title: 'Delete this capture?',
 		description:
-			variant === 'desktop'
+			folder.reveal !== null
 				? `${named}and its thoughts are deleted from Capture's folder. If Epicenter syncs it, its Git history keeps them.`
 				: `${named}and its thoughts are deleted from your repository. Its Git history keeps them.`,
 		confirm: {

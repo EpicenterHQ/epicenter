@@ -1,5 +1,5 @@
 <!--
-	`#platform/chrome` in the web build: the header's account of its store,
+	When the folder is the person's repository: the header's account of its store,
 	the person's repository, online only, whether it answers, and the
 	account.
 -->
@@ -11,8 +11,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { account, folder } from '../app.js';
 
-	// The web build always has an account: its folder is the account's copy.
-	const auth = account!;
+	const auth = account;
 	const state = $derived(auth.state());
 
 	const status = $derived.by((): StatusLine => {

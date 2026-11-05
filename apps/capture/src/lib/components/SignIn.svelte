@@ -4,12 +4,12 @@
 	Signing in leaves the page and comes back to a new one.
 -->
 <script lang="ts">
-	import type { CallbackAuthClient } from '@epicenter/account';
+	import type { AuthClient } from '@epicenter/account';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { toast } from '@epicenter/ui/sonner';
 
-	let { account }: { account: CallbackAuthClient } = $props();
+	let { account }: { account: AuthClient } = $props();
 
 	async function signIn() {
 		const { error } = await account.startSignIn();

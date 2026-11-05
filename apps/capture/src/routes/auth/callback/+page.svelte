@@ -3,6 +3,7 @@
 	app always starts with one account for the page's whole life.
 -->
 <script lang="ts">
+	import { isCallbackAuthClient } from '@epicenter/account';
 	import { resolve } from '$app/paths';
 	import { Loading } from '@epicenter/ui/loading';
 	import { account } from '$lib/app.js';
@@ -10,9 +11,10 @@
 	let errorMessage = $state<string | null>(null);
 
 	$effect(() => {
-		// Only the web build has a sign-in to finish; the desktop never comes here.
+		// Only a browser's sign-in ends here; a Tauri window's ends in the shell.
+		if (!isCallbackAuthClient(account)) return;
 		void account
-			?.completeSignIn()
+			.completeSignIn()
 			.then(({ data, error }) => {
 				if (error !== null) errorMessage = error.message;
 				else window.location.replace(data.returnTo ?? resolve('/'));

@@ -7,7 +7,6 @@
 	whose Thoughts read opens as a capture once what was typed has landed.
 -->
 <script lang="ts">
-	import { variant } from '#platform/variant';
 	import { capture, capturePath } from '../model/index.js';
 	import { describeIssues, readNoteText } from '@epicenter/definition/contract';
 	import { Badge } from '@epicenter/ui/badge';
@@ -111,7 +110,7 @@
 			<Empty.Header>
 				<Empty.Title>This capture is no longer here</Empty.Title>
 				<Empty.Description>
-					{#if variant === 'desktop'}
+					{#if folder.reveal !== null}
 						It was deleted, here or by another program using Capture's folder.
 					{:else}
 						It was deleted, here, in another tab, or on another device.

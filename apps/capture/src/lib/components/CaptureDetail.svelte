@@ -4,7 +4,6 @@
 	(ADR-0775).
 -->
 <script lang="ts">
-	import { variant } from '#platform/variant';
 	import { captureBody } from '../model/index.js';
 	import { describeIssues } from '@epicenter/definition/contract';
 	import * as Alert from '@epicenter/ui/alert';
@@ -168,7 +167,7 @@
 				<Empty.Header>
 					<Empty.Title>This capture is no longer here</Empty.Title>
 					<Empty.Description>
-						{#if variant === 'desktop'}
+						{#if folder.reveal !== null}
 							It was deleted, here or by another program using Capture's folder.
 						{:else}
 							It was deleted, here, in another tab, or on another device.

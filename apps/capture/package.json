@@ -4,20 +4,6 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
-	"imports": {
-		"#platform/account": {
-			"tauri": "./src/lib/account.tauri.ts",
-			"default": "./src/lib/account.ts"
-		},
-		"#platform/chrome": {
-			"tauri": "./src/lib/components/DesktopChrome.svelte",
-			"default": "./src/lib/components/OnlineChrome.svelte"
-		},
-		"#platform/variant": {
-			"tauri": "./src/lib/variant.tauri.ts",
-			"default": "./src/lib/variant.ts"
-		}
-	},
 	"scripts": {
 		"dev": "vite dev",
 		"build": "NODE_ENV=production vite build",
