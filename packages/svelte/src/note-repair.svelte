@@ -53,12 +53,19 @@
 				),
 	);
 
+	/** Save the text as it stands; what is typed while it lands stays typed. A save the folder will not make (`FolderClosed`) keeps the typing. */
 	async function save() {
+		const saved = text;
 		saving = true;
-		edit.text = text;
-		await edit.landed();
-		saving = false;
-		typed = null;
+		edit.text = saved;
+		try {
+			await edit.landed();
+		} catch {
+			return;
+		} finally {
+			saving = false;
+		}
+		if (typed === saved) typed = null;
 		onRepaired?.();
 	}
 </script>

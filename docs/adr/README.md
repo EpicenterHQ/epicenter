@@ -910,7 +910,7 @@ When you add an ADR, add its row here.
 | [0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) | An app's folder resolves against a fixed library root | Accepted (amends 0670 and 0701) |
 | [0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) | One Epicenter engine per machine syncs every app's folder | Accepted (amends 0642; amended by 0733, 0750, and 0751) |
 | [0714](0714-a-files-extension-decides-how-every-folder-merges-it.md) | A file's extension decides how every folder merges it | Superseded by 0734 |
-| [0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) | The Epicenter app browses every folder and document a person has | Accepted (amends 0635 and 0701; amended by 0721 and 0736) |
+| [0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) | The Epicenter app browses every folder and document a person has | Accepted (amends 0635 and 0701; amended by 0721, 0736, and 0790) |
 | [0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md) | Agents edit a document through one-shot CLI commands | Accepted |
 | [0717](0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md) | An Epicenter app is a site that publishes a contract | Superseded by 0723 |
 | [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Accepted (amends 0642 and 0700; amended by 0721, 0731, 0732, 0733, and 0751) |
@@ -967,7 +967,7 @@ When you add an ADR, add its row here.
 | [0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) | Svelte reads every capability through one reactive copy | Accepted (amends 0765 and 0766) |
 | [0770](0770-teams-own-repositories-and-sharing-is-membership.md) | Teams own repositories, and sharing is membership | Accepted (amends 0547, 0594, 0612, 0708, and 0732; amended by 0771 and 0772) |
 | [0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) | Plain files let Epicenter refuse renames, attachment conflict copies, and a second store | Accepted (amends 0612, 0705, 0707, 0708, 0709, 0715, 0716, 0734, 0739, 0742, and 0770) |
-| [0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) | A folder says what it is in AGENTS.md, and this computer keeps the rest | Accepted (amends 0711, 0715, 0721, 0722, 0752, and 0770; amended by 0787) |
+| [0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) | A folder says what it is in AGENTS.md, and this computer keeps the rest | Accepted (amends 0711, 0715, 0721, 0722, 0752, and 0770; amended by 0787 and 0791) |
 | [0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) | A folder opens at a place, every place is a store, and the server never merges | Accepted (amends 0700, 0746, and 0766; amended by 0774, 0779, 0786, and 0787) |
 | [0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) | One write makes it so, and settles a change the way sync does | Accepted (amends 0700, 0769, and 0773; amended by 0775 and 0787) |
 | [0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) | A write never fails: the folder keeps it until it lands | Accepted (amends 0767 and 0774; amended by 0778 and 0782) |
@@ -976,11 +976,15 @@ When you add an ADR, add its row here.
 | [0778](0778-a-page-connects-once-and-then-reads-synchronously.md) | A page connects once, and then reads synchronously | Accepted (amends 0767, 0775, and 0777; amended by 0779 and 0783) |
 | [0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) | A store is four verbs, and a browser recording lands whole | Accepted (amends 0773 and 0778; amended by 0786 and 0788) |
 | [0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) | A surface uses what its platform gives, and parity is not a goal | Accepted |
-| [0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) | Apps branch on what a capability offers, and one build serves every surface | Accepted (amends 0701, 0755, and 0766; amended by 0784 and 0785) |
+| [0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) | Apps branch on what a capability offers, and one build serves every surface | Accepted (amends 0701, 0755, and 0766; amended by 0784, 0785, and 0792) |
 | [0782](0782-a-waiting-write-the-folder-will-not-make-rejects.md) | A waiting write the folder will not make rejects | Accepted (amends 0775) |
 | [0783](0783-a-secret-lives-in-the-apps-credentials-file-and-is-read-by-the-request-that-uses-it.md) | A secret lives in the app's credentials file, and is read by the request that uses it | Accepted (amends 0778; amended by 0787) |
 | [0784](0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md) | Whispering is the web's local app, and Messages is a program on this computer | Accepted (amends 0746 and 0781; amended by 0786) |
 | [0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) | A desktop app signs in to sync its own folder | Accepted (amends 0781; amended by 0787) |
 | [0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) | Every web app is online, and browser storage leaves the platform | Accepted (amends 0746, 0773, 0779, and 0784; amended by 0788) |
 | [0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) | Records that assumed a running engine or a build-time choice follow ADR-0750 and ADR-0781 | Accepted (amends 0732, 0744, 0746, 0749, 0751, 0753, 0763, 0765, 0766, 0772, 0773, 0774, 0783, and 0785) |
-| [0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) | Everything in a folder syncs, and a recording's audio is kept in one of three places | Accepted (amends 0779 and 0786) |
+| [0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) | Everything in a folder syncs, and a recording's audio is kept in one of three places | Accepted (amends 0779 and 0786; amended by 0789) |
+| [0789](0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md) | A conflict is a mark on its note, resolved in the repair editor | Accepted (amends 0788) |
+| [0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) | The Epicenter app is a library over every folder, and the CLI answers its queries | Accepted (amends 0715) |
+| [0791](0791-a-folders-first-sync-places-it-in-its-teams-folder.md) | A folder's first sync places it in its team's folder | Accepted (amends 0772) |
+| [0792](0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md) | An account asks for what the capabilities that take it need | Accepted (amends 0781) |

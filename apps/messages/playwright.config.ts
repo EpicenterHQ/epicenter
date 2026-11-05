@@ -5,9 +5,9 @@
  *
  * `webServer` builds Messages and serves it with its own local program
  * (`e2e/serve.ts`, over `scripts/serve.ts`) on `http://127.0.0.1:5189`,
- * which must be free, with a fake Beeper behind it. Messages never signs
- * in, so no API runs. Both engines run in a persistent profile, the only
- * kind in which WebKit opens OPFS.
+ * which must be free, with its drafts in a scratch directory
+ * (`e2e/folder.ts`) and a fake Beeper behind it. Messages never signs in,
+ * so no API runs.
  */
 import { defineConfig } from 'playwright/test';
 

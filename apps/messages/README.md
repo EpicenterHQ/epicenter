@@ -2,30 +2,32 @@
 
 Read conversations and send text replies through Beeper Desktop, in
 Epicenter's own interface. Messages is a program you run on the computer
-where Beeper Desktop runs: a small local server serves the page and answers
-its Beeper requests through the Epicenter CLI, which keeps the Beeper token
-in the device keychain. It always starts with fictional demo chats.
+where Beeper Desktop runs
+([ADR-0784](../../docs/adr/0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md)):
+a small local server serves the page, keeps its drafts in a directory it
+owns, and answers its Beeper requests through the Epicenter CLI, which keeps
+the Beeper token in the device keychain. It always starts with fictional
+demo chats.
 
 ```sh
 bun run --cwd apps/messages start    # build, then serve http://127.0.0.1:5188
 ```
 
-A page loaded once reopens offline: Kit registers `src/service-worker.js`
-(the shared `cacheSite` from `@epicenter/vite-config/offline`), which caches
-the page and its static files and passes everything else through, and
-`static/site.webmanifest` makes it installable (decision 85). Messages has
-no icons of its own, so the manifest names none.
+Messages has no service worker, no web manifest, and keeps nothing in the
+browser: the page works while its program runs, and its drafts are the
+program's.
 
 Epicenter no longer hosts apps
 ([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)), and
-Beeper Desktop listens only on this computer, so a page served from anywhere
-else (`bun dev:messages`, a static host) shows the demo only and says how to
-start Messages for live Beeper.
+Beeper Desktop listens only on this computer. `bun dev:messages` serves the
+page with Vite, keeps demo drafts in a development directory, and shows the
+demo only; live Beeper says how to start Messages. A page served from
+anywhere else has no drafts' directory, and shows Recovery saying so.
 
 ## Run and check safely
 
 ```sh
-bun dev:messages                                     # demo only, port 5188
+bun dev:messages                                     # demo only, port 5188, development drafts
 bun run --cwd apps/messages typecheck
 bun run --cwd apps/messages test
 bun x playwright test -c apps/messages/playwright.config.ts
@@ -33,17 +35,16 @@ bun test packages/cli/src/messages.test.ts
 ```
 
 The end-to-end suite builds Messages and serves it with its own local
-program on port 5189 (which must be free), with a fake Beeper in place of the
-CLI's connection, in Chromium and WebKit. It covers drafts in this browser
-(created, edited, cleared, kept across a reload, and made and edited offline
-in demo mode), demo sends and their check, repair, `epicenter check` of the
-browser's files, live Beeper through the local program, and reopening the
-page offline from its service worker (in Chromium with
-`context.setOffline`; WebKit under Playwright blocks an offline navigation
-before any service worker sees it, so there it checks that the worker
-controls the page and has cached it). No check reads the keychain, needs
-a real Beeper account, or reaches a real recipient. Demo replies and incoming
-messages stay in memory and reset on reload.
+program on port 5189 (which must be free), its drafts in a scratch directory
+(`e2e/folder.ts`) and a fake Beeper in place of the CLI's connection, in
+Chromium and WebKit. It covers drafts in the program's directory (created,
+edited, cleared, kept across a reload, and waiting while the program cannot
+be reached, then landing), demo sends and their check, repair of a file
+another program broke, `epicenter check` of the directory, live Beeper
+through the local program, and a browser holding none of the site's data
+showing the drafts. No check reads the keychain, touches the drafts Messages
+keeps for real, needs a real Beeper account, or reaches a real recipient.
+Demo replies and incoming messages stay in memory and reset on reload.
 
 The Community garden conversation includes a generated photo you can
 enlarge, and Noah's a downloadable fictional route file. Both are bundled
@@ -63,14 +64,22 @@ attempts/<id>.md    the latest send from that composer: chatId, profile, mode,
 ```
 
 `<id>` is `<mode>-<sha256 of mode, profile and chat>`, so demo and live
-drafts never share a file. The files are this browser's for the origin
-Messages is served on (OPFS), for good: `src/lib/app.ts` opens them once
-for the page, `openFolder(messages, home())` with no site or account
+drafts never share a file. The files live in Messages' own directory under
+Epicenter's application data, `<data root>/apps/so.epicenter.messages`
+(`messagesFolder()` in `scripts/serve.ts`; on macOS
+`~/Library/Application Support/so.epicenter/apps/so.epicenter.messages`,
+and `EPICENTER_DATA_DIR` names the root instead), not under `~/Epicenter`:
+nothing syncs them. `bun dev:messages` keeps its own under the development
+root (`so.epicenter.dev`). The program owns the directory, and the page
+reaches it only through the program, at `/folder` on the origin that served
+it: `src/lib/app.ts` opens it once for the page,
+`openFolder(messages, served('/folder'))` from `@epicenter/folder/served`
 ([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)),
 and every component and the send workflow (`drafts.ts`) read and write
 through that `folder`. The page renders under `<WhenOpen>`, which shows a
-spinner after 150 ms while the files open, Recovery when they cannot (a
-private window keeps no files), and asks before the page is left while a
+spinner after 150 ms while the files open, says when the program cannot be
+reached and that changes will save once it can, shows Recovery when nothing
+at `/folder` keeps Messages' files, and asks before the page is left while a
 save is out. Every read of the files inside it is synchronous.
 
 Messages is local only: of the variants an app may have
@@ -83,7 +92,7 @@ at once, offline or not. Messages never signs in, and nothing uploads.
 | Data | Where |
 | --- | --- |
 | Conversations, messages, accounts, delivery | Beeper; read into an in-memory query cache, never kept here |
-| The current reply, the latest send | `drafts/`, `attempts/` in this browser |
+| The current reply, the latest send | `drafts/`, `attempts/` in Messages' directory on this computer |
 | Beeper access token | The device keychain, through the Epicenter CLI (`openBeeper` in `@epicenter/cli/messages`) |
 | Selection, filter, loaded pages, connection mode | Memory; every launch begins in demo mode |
 
@@ -112,9 +121,10 @@ one. Disconnect removes the saved token; it does not revoke the token Beeper
 issued or delete drafts. Beeper must keep running on this computer.
 
 The local program (`apps/messages/scripts/serve.ts`) listens on `127.0.0.1` only and
-answers `POST /beeper` only when the request names its own host (so a
-DNS-rebound name cannot reach it), comes from its own origin (so another site
-open in the browser cannot), and is JSON. It runs each operation as
+answers `POST /beeper` and its drafts' directory (`POST /folder/<verb>`,
+`serveDirectory` from `@epicenter/folder/serve`) only when the request names
+its own host (so a DNS-rebound name cannot reach it), comes from its own
+origin (so another site open in the browser cannot), and is JSON. It runs each operation as
 `epicenter messages --json` does: validated against the protocol, with the
 Beeper endpoint fixed to `http://127.0.0.1:23373` and SDK retries off. Tokens
 never appear in command arguments, files, browser storage, or error output.
@@ -154,7 +164,10 @@ empty. A stale check cannot restore an accepted send or acknowledge a newer
 attempt. Reload, reconnect, and draft saves never resend.
 
 This is send recovery on one computer, not an outbox: it does not make Beeper
-idempotent, and editing attempt files by hand can defeat it.
+idempotent, and editing attempt files by hand can defeat it. The Web Lock
+holds this browser's tabs; two browsers open on Messages at once share the
+directory, and step 1 is all that stands between their sends, so two sends
+in the same instant from two browsers can both reach Beeper.
 
 References: [Beeper Desktop API](https://developers.beeper.com/desktop-api/),
 [authentication](https://developers.beeper.com/desktop-api/auth/).

@@ -1,19 +1,22 @@
 /**
  * Messages' local program: it serves the built page, and answers Beeper
- * operations only to that page.
+ * operations and its drafts' directory only to that page.
  *
  * Key behaviors:
  * - Files of the build are served, any other route gets the app's page, and
  *   no path reaches outside the build
  * - A Beeper operation from the page's own origin, naming the server's own
  *   host, as JSON, is answered; anything else is refused before it is read
+ * - The drafts' directory answers the page the same way, and nothing else
+ * - The drafts live in Messages' own directory under Epicenter's
+ *   application data, never under `~/Epicenter`
  */
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BeeperAnswer } from '@epicenter/cli/messages-protocol';
-import { serveMessages } from './serve.ts';
+import { messagesFolder, serveMessages } from './serve.ts';
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -27,9 +30,11 @@ async function start() {
 		join(root, 'contract.json'),
 		'{"collections":{"messages":{"path":"messages/{id}.md"}}}',
 	);
+	const folder = await mkdtemp(join(tmpdir(), 'messages-folder-'));
 	const asked: unknown[] = [];
 	const server = serveMessages({
 		root,
+		folder,
 		port: 0,
 		async answer(input) {
 			asked.push(input);
@@ -37,11 +42,12 @@ async function start() {
 		},
 	});
 	cleanup.push(async () => {
-		await server.stop(true);
+		await server.stop();
 		await rm(root, { recursive: true, force: true });
+		await rm(folder, { recursive: true, force: true });
 	});
 	const origin = `http://127.0.0.1:${server.port}`;
-	return { origin, asked };
+	return { origin, asked, folder };
 }
 
 test('the build is served, any other route gets the app, and nothing outside the build is reachable', async () => {
@@ -97,4 +103,50 @@ test('a Beeper operation from anywhere else is refused unread', async () => {
 	).toBe(403);
 	expect((await ask({ origin }, 'GET')).status).toBe(405);
 	expect(asked).toEqual([]);
+});
+
+test('the drafts’ directory answers the page, and only the page', async () => {
+	const { origin, folder } = await start();
+	const json = { 'content-type': 'application/json' };
+	const write = (headers: Record<string, string>) =>
+		fetch(`${origin}/folder/write`, {
+			method: 'POST',
+			headers,
+			body: JSON.stringify({
+				path: 'drafts/a.md',
+				bytes: btoa('---\nchatId: c\n---\nHi'),
+				over: 'absent',
+			}),
+		});
+	expect((await write(json)).status).toBe(403);
+	expect(
+		(await write({ ...json, origin: 'https://elsewhere.example' })).status,
+	).toBe(403);
+	expect((await fetch(`${origin}/folder/list`)).status).toBe(405);
+	expect(
+		await readFile(join(folder, 'drafts/a.md'), 'utf8').catch(() => null),
+	).toBeNull();
+
+	const landed = await write({ ...json, origin });
+	expect(landed.status).toBe(200);
+	expect(await readFile(join(folder, 'drafts/a.md'), 'utf8')).toBe(
+		'---\nchatId: c\n---\nHi',
+	);
+});
+
+test('the drafts live in Messages’ own directory under Epicenter’s application data', () => {
+	const saved = process.env.EPICENTER_DATA_DIR;
+	process.env.EPICENTER_DATA_DIR = '/data/epicenter';
+	try {
+		expect(messagesFolder()).toBe('/data/epicenter/apps/so.epicenter.messages');
+	} finally {
+		if (saved === undefined) delete process.env.EPICENTER_DATA_DIR;
+		else process.env.EPICENTER_DATA_DIR = saved;
+	}
+	const development = messagesFolder('development');
+	if (saved === undefined && process.platform === 'darwin')
+		expect(development).toEndWith(
+			'/Library/Application Support/so.epicenter.dev/apps/so.epicenter.messages',
+		);
+	expect(development).not.toContain('/Epicenter/');
 });

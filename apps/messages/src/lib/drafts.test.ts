@@ -1,8 +1,8 @@
 /**
- * Messages' send workflow, over a folder in memory (the page's is this
- * browser's files): another tab's write is a file written at the same place
- * (`memoryFiles`), and storage out of reach is one the place refuses, so
- * the folder's writes there wait.
+ * Messages' send workflow, over a folder in memory (the page's is the
+ * directory its program owns): another tab's write is a file written at
+ * the same place (`memoryFiles`), and storage out of reach is one the
+ * place refuses, so the folder's writes there wait.
  *
  * The attempt must land before Beeper is asked, an uncertain send needs an
  * explicit check, and the composer's typing after Send stays.

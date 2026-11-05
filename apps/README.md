@@ -123,7 +123,7 @@ enrolls the folder for local history; connecting a repository there enables tran
 | [Honeycrisp](honeycrisp/README.md) | online web; desktop | `~/Epicenter/honeycrisp` | `honeycrisp`: `notes`, `folders` |
 | [Vocab](vocab/README.md) | online web; desktop | `~/Epicenter/vocab` | `vocab`: `entries`, `chats`, `messages` |
 | [Whispering](whispering/README.md) | local web; desktop | `~/Epicenter/whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
-| [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: the origin's OPFS | `messages`: `drafts`, `attempts` |
+| [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: `<AppData>/apps/so.epicenter.messages`, which its program owns | `messages`: `drafts`, `attempts` |
 
 A local web app keeps its files in the origin's OPFS; an online web app
 keeps none in the browser. The Epicenter app keeps no data of its own; its
@@ -154,9 +154,10 @@ application. For the naming rationale, see
 ## Messages and Beeper
 
 [Messages](messages/README.md) keeps its drafts and send attempts as notes of
-its own contract on the device. Conversation history stays in Beeper and is
-read into memory. Messages runs as a local program on the computer where
-Beeper Desktop runs (`bun run --cwd apps/messages start`): its server answers
-the page's Beeper requests through the Epicenter CLI, which keeps the token in
-the device keychain. It starts with fictional demo chats, and a page served
-any other way shows only those.
+its own contract in a directory its program owns on this computer, outside
+the library. Conversation history stays in Beeper and is read into memory.
+Messages runs as a local program on the computer where Beeper Desktop runs
+(`bun run --cwd apps/messages start`): its server answers the page's
+requests of its drafts' directory, and its Beeper requests through the
+Epicenter CLI, which keeps the token in the device keychain. It starts with
+fictional demo chats, and `bun dev:messages` shows only those.
