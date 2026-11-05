@@ -79,6 +79,7 @@ function fakeAccount() {
 	};
 	const account: LiveAccount = {
 		baseURL: 'https://api.epicenter.test/',
+		need() {},
 		state: () => state,
 		subscribe(listener) {
 			listeners.add(listener);

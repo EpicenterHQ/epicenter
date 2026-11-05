@@ -427,6 +427,7 @@
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@tanstack/svelte-query": "catalog:",
+        "@tauri-apps/api": "catalog:",
         "nanoid": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",

@@ -1,7 +1,9 @@
 /**
- * `@epicenter/ai/tauri`: the person's provider keys in a standalone desktop
- * app, and the requests sent with them. The keys belong to the custom
- * endpoints they unlock, so they live here and not with the account.
+ * The person's provider keys in a Tauri window, and the requests sent with
+ * them. The keys belong to the custom endpoints they unlock, so they live
+ * here and not with the account. `connection-keys.ts` and
+ * `local-servers.ts` load this module with their first request, so a
+ * browser never loads it.
  *
  * - `connectionKey`: a connection's key, handed to the shell, which keeps it
  *   in the app's credentials file (ADR-0740). The page writes a key and
@@ -20,9 +22,8 @@ import {
 	messageOf,
 	relayThroughShell,
 	type ShellRelay,
-	type TauriShell,
-	tauriShell,
-} from '@epicenter/account/tauri';
+} from '@epicenter/account/relay';
+import { type TauriShell, tauriShell } from '@epicenter/account/tauri';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 /** A Fetch API function, as an endpoint sends with it. */

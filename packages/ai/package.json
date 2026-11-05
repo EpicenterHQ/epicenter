@@ -4,19 +4,12 @@
 	"private": true,
 	"type": "module",
 	"license": "AGPL-3.0-or-later",
-	"imports": {
-		"#device-settings": {
-			"tauri": "./src/device-settings.tauri.ts",
-			"default": "./src/device-settings.ts"
-		}
-	},
 	"exports": {
 		".": "./src/index.ts",
 		"./agent": "./src/agent/index.ts",
 		"./choices": "./src/choices.ts",
 		"./picker": "./src/picker/index.ts",
-		"./providers": "./src/providers.ts",
-		"./tauri": "./src/tauri.ts"
+		"./providers": "./src/providers.ts"
 	},
 	"dependencies": {
 		"@epicenter/account": "workspace:*",
@@ -26,6 +19,7 @@
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
+		"@tauri-apps/api": "catalog:",
 		"nanoid": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
@@ -37,7 +31,7 @@
 		"typescript": "catalog:"
 	},
 	"scripts": {
-		"typecheck": "svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json",
+		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
 		"test": "bun test --isolate --conditions=browser --conditions=test"
 	}
 }

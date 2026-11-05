@@ -1,8 +1,10 @@
 /**
- * The desktop's keys (`device-settings.tauri.ts`): the shell holds each
- * connection's key in the app's credentials file, over a stand-in shell.
+ * The keys in a Tauri window (`connection-keys.ts` when `isTauri()`): the
+ * shell holds each connection's key in the app's credentials file, over a
+ * stand-in shell.
  *
  * Key behaviors:
+ * - The keys say the shell sends each request (`relayed`)
  * - A key is handed to the shell with the endpoint it was entered for; the
  *   page holds none, and a connection's endpoint sends through the shell by
  *   its id
@@ -62,7 +64,7 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
-const { connectionKeys } = await import('./device-settings.tauri.js');
+const { connectionKeys } = await import('./connection-keys.js');
 
 const record = {
 	id: 'c1',
@@ -72,6 +74,7 @@ const record = {
 };
 
 test('a key goes to the shell with its endpoint, and a request goes through the shell by id', async () => {
+	expect(connectionKeys.relayed).toBe(true);
 	await connectionKeys.set('c1', record.baseUrl, 'sk-secret');
 	expect(JSON.parse(kept.get('c1') ?? '{}')).toEqual({
 		endpoint: record.baseUrl,
