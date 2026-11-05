@@ -4,7 +4,7 @@
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) at "A write fails only as `Invalid` or `Unavailable`": a write never fails; [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) at the folder's states and at an action answering the open's error: the folder's state is its lifecycle and whether its store is available, and a write waits through both.
 - **Relates:** [ADR-0768](0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md) (retry belongs to a failure), [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) (the web is online), [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) (a contract states what a reader expects and owns nothing).
-- **Unbuilt:** all of it: `set`, `delete` and `edit`'s saves answering `Promise<void>`; the folder's ordered queue of waiting writes and its retry; `unavailable` in the opening and open states, a temporary open failure retried on its own, and each collection's `error()` deleted; writing an off-contract value; throwing on a name that would leave its collection; deleting the conversation's `unsaved`, `saveError`, `save()` and `MessageSaveError`, Whispering's recording held in the page with "Save again", and Capture's failed-write states; Whispering's `AGENTS.md` lines on an outbox and on a recording kept in the page.
+- **Unbuilt:** all of it: `set`, `delete` and `edit`'s saves answering `Promise<void>`; the folder's ordered queue of waiting writes and its retry; `folder.unavailable()`, a temporary open failure retried on its own, and each collection's `error()` deleted; writing an off-contract value; throwing on a name that would leave its collection; deleting the conversation's `unsaved`, `saveError`, `save()` and `MessageSaveError`, Whispering's recording held in the page with "Save again", and Capture's failed-write states; Whispering's `AGENTS.md` lines on an outbox and on a recording kept in the page.
 
 ## Context
 
@@ -27,29 +27,37 @@ their data is here, and whether it is reaching its store now.
 
 ## Decision
 
-**The folder's state is its lifecycle and whether its store is available.**
+**A folder answers three questions, one read each.**
+
+```ts
+folder.state();        // is my data here: opening, open, failed (with retry), or closed
+folder.unavailable();  // is it reaching its store now: an Unavailable saying why, or null
+folder.saving();       // is anything of mine still out: landing, or waiting for the store
+```
 
 ```ts
 type FolderState =
-	| { status: 'opening'; unavailable: Unavailable | null }
-	| { status: 'open'; unavailable: Unavailable | null }
+	| { status: 'opening' }
+	| { status: 'open' }
 	| { status: 'failed'; error: OpenFolderError; retry(): Promise<void> }
 	| { status: 'closed' };
-folder.saving(); // a write is out: landing, or waiting for the store
 ```
 
-`unavailable` says the store cannot be reached or written now, and why.
+`unavailable()` says the store cannot be reached or written now, and why.
 While opening, the folder keeps trying; while open, what it shows may be
-old and writes wait. Either way it clears on its own. `failed` is only what
-waiting will not fix, such as no storage in a private window or access
-taken away, and its `retry()` is for after the person has acted. A
-collection's `error()` goes: it was this same fact. Its `loading()` stays
-until listings are made per folder.
+old and writes wait. Either way it clears on its own, and it is null once
+the folder failed or closed. Availability does not depend on the
+lifecycle, so it is not part of the state: `<WhenOpen>` reads `state()`, and
+an indicator of waiting changes reads `unavailable()` and `saving()`.
+`failed` is only what waiting will not fix, such as no storage in a private
+window or access taken away, and its `retry()` is for after the person has
+acted. A collection's `error()` goes: it was the same fact as
+`unavailable()`. Its `loading()` stays until listings are made per folder.
 
 **A write is a promise the folder keeps.** `set`, `delete`, and an editor's
 save answer once the change has landed, and never fail. While a write
 cannot land, the folder holds it, with every later write, in the order they
-were made, and tries again; `saving()` stays true and `unavailable` says
+were made, and tries again; `saving()` stays true and `unavailable()` says
 why. A write made while the folder is opening waits for it to open.
 Resending is safe because a `set` makes the same result however often it
 lands. When the folder moves to `failed` or `closed`, the writes waiting

@@ -962,7 +962,7 @@ When you add an ADR, add its row here.
 | [0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) | Reaching a model is `@epicenter/ai`'s alone, in the OpenAI vocabulary | Accepted (amends 0740, 0755, 0757, and 0762) |
 | [0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) | Choose by value, not by name; every capability has the same shape | Accepted (amends 0754; amended by 0766 and 0769) |
 | [0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) | An app's capabilities are module values, opened synchronously | Accepted (amends 0753, 0754, 0756, and 0765; amended by 0767, 0768, and 0769) |
-| [0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md, 0775) | An async lifecycle is modeled as synchronous state; actions wait on their own | Accepted (supersedes 0410; amends 0766; amended by 0768 and 0775) |
+| [0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md, 0775) | An async lifecycle is modeled as synchronous state; actions wait on their own | Accepted (supersedes 0410; amends 0766; amended by 0768, 0775, and 0777) |
 | [0768](0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md) | Retry belongs to a failure, and editing `app.ts` reloads the page | Accepted (amends 0766 and 0767) |
 | [0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) | Svelte reads every capability through one reactive copy | Accepted (amends 0765 and 0766) |
 | [0770](0770-teams-own-repositories-and-sharing-is-membership.md) | Teams own repositories, and sharing is membership | Accepted (amends 0547, 0594, 0612, 0708, and 0732; amended by 0771 and 0772) |
@@ -972,3 +972,4 @@ When you add an ADR, add its row here.
 | [0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) | One write makes it so, and settles a change the way sync does | Accepted (amends 0700, 0769, and 0773; amended by 0775) |
 | [0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) | A write never fails: the folder keeps it until it lands | Accepted (amends 0767 and 0774) |
 | [0776](0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md) | A note's name is its file name, and a rename is a set and a delete | Accepted |
+| [0777](0777-a-capability-has-no-ready-promise.md) | A capability has no ready promise | Accepted (amends 0767) |
