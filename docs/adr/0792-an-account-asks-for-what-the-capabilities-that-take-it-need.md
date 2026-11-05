@@ -4,7 +4,7 @@
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) at "An app asks for an account for what it uses, and a place says whether it uses one": every capability that takes the account says what it needs, and the app lists nothing.
 - **Relates:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) (a capability takes what it needs as values), [ADR-0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) and [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) (consent and the grant), [ADR-0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) (sync needs sign-in).
-- **Unbuilt:** all of it: the account taking needs from the capabilities given it; `home` and the AI capability declaring theirs; sign-in requesting their union; replacing a `uses` list.
+- **Unbuilt:** a Tauri window's sign-in asking for the needs its capabilities declared: the shell's sign-in asks for its own grant.
 
 ## Context
 
