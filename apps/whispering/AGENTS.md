@@ -26,10 +26,17 @@ Signing in with Epicenter is optional and grants capabilities only. Read
 - **Sign-in grants capabilities, never storage.** It asks for the API
   audience and `ai` only (`src/lib/platform/account.ts`), and `app.ts`
   gives `home` no account. Do not add a Git
-  audience, a `folders:*` scope, an uploader, an
-  outbox, a cache of uploaded audio, a repository view, or a switcher.
+  audience, a `folders:*` scope, an uploader, a cache of uploaded audio, a
+  repository view, or a switcher.
   Nothing a sign-in or sign-out does touches the files.
   `src/lib/page-boundary.test.ts` enforces this; keep it passing.
+- **The folder keeps writes until they land; Whispering holds none.** A
+  write (`set`, `delete`, an editor's save) answers once it has landed and
+  never fails (ADR-0775): while the store is out of reach the folder keeps
+  it, in order, and `<WhenOpen>` says so. Await a write where order
+  matters (a recording's audio, then its note). Do not add an outbox, a
+  failed-write state, or anything else that keeps a note, an answer, or a
+  recording in the page to save again.
 - **No migration or compatibility code** (decision 72). Nothing reads an
   earlier build's IndexedDB folder or Yjs store. Do not add a second store
   or a cache of notes.
@@ -57,11 +64,9 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   folder's listing, never on its `state()`; do not add another path that
   writes a recording's note. Its note holds facts only:
   never add a status, pending, or interrupted field. Store no audio path in
-  a note: the audio is `recordings/<id>.<ext>`; refuse ambiguous matches. A
-  recording the browser cannot keep stays in the page to save again or
-  download.
-- **A result is created when its answer arrives,** with an id fixed when the
-  run starts. Saving an answer again must not call the endpoint or create a
+  a note: the audio is `recordings/<id>.<ext>`; refuse ambiguous matches.
+- **A result is written when its answer arrives,** under an id fixed when
+  the run starts, so its write never calls the endpoint again or makes a
   second note. A transformation never writes its transcript. A result on
   pasted text names no recording and never takes part in deleting one.
 - **A lost reply is not a refusal.** When an answer never arrives, report the
@@ -76,8 +81,10 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   or written, including inside an error message. A request goes only to the
   endpoint it was prepared for, and only while it is still at the address it
   had then; nothing falls back to another.
-- **Ids are identity.** Never rename a note's file; change its title. Ids come
-  from `timeId()`.
+- **Recordings keep their names.** A note's name is its file name
+  (ADR-0776), and Whispering names every note by a `timeId()` stem (the
+  `id` placeholder). Results point at a recording by that name, so never
+  rename a recording's files; change its title.
 - **Every recording is a microphone take.** Tests fake the microphone in
   their own support code (the e2e suite's `fakeMicrophone`, the unit tests'
   fixture device); the product has no stand-in for it.

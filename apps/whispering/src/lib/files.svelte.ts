@@ -7,14 +7,11 @@
  * (`folder.recordings.edit({ id })`).
  *
  * Reads are Svelte state through `reactive`: each list lists and listens
- * only while something reactive reads it. Writes answer a `Result`; the
- * caller presents failures.
+ * only while something reactive reads it. A write answers once it has
+ * landed and never fails: while the store is out of reach the folder keeps
+ * it, and `<WhenOpen>` says so (ADR-0775).
  */
-import type {
-	InvalidNoteOf,
-	NoteOf,
-	Version,
-} from '@epicenter/definition/contract';
+import type { InvalidNoteOf, NoteOf } from '@epicenter/definition/contract';
 import type { Folder, FolderNotes } from '@epicenter/folder/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from './audio-format.js';
@@ -28,7 +25,7 @@ type Collections = Whispering['collections'];
  */
 export type NoteName = Exclude<keyof Collections, 'audio' | 'shortcuts'>;
 
-/** A note of `name` as the lists show it: its fields, body and version. */
+/** A note of `name` as the lists show it: its fields and body. */
 export type Listed<TName extends NoteName> = NoteOf<Collections[TName]>;
 export type RecordingNote = Listed<'recordings'>;
 export type TranscriptionNote = Listed<'transcriptions'>;
@@ -45,8 +42,6 @@ export type InvalidNote<TName extends NoteName> = InvalidNoteOf<
 export type AudioFile = {
 	readonly id: string;
 	readonly ext: string;
-	/** Its version as listed. */
-	readonly version: Version;
 };
 
 /** Whether a recording's audio can be read. */
@@ -79,8 +74,8 @@ export type WhisperingFiles = NoteLists & {
 	audioOf(id: string): RecordingAudio;
 	/** Recording `id`'s audio bytes. */
 	readAudio(id: string): Promise<Result<AudioBytes, string>>;
-	/** Delete recording `id`'s audio files, over the versions listed. */
-	deleteAudio(id: string): Promise<Result<void, string>>;
+	/** Delete recording `id`'s audio files, as listed. */
+	deleteAudio(id: string): Promise<void>;
 };
 
 const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -125,10 +120,7 @@ export function filesOf(files: Folder<Whispering>): WhisperingFiles {
 			);
 		const [file, ...more] = playable;
 		if (file !== undefined && more.length === 0)
-			return {
-				kind: 'here',
-				file: { id, ext: file.ext, version: file.version },
-			};
+			return { kind: 'here', file: { id, ext: file.ext } };
 		if (file !== undefined)
 			return { kind: 'ambiguous', exts: playable.map(({ ext }) => ext).sort() };
 		return audio.loading() ? { kind: 'listing' } : { kind: 'absent' };
@@ -146,6 +138,8 @@ export function filesOf(files: Folder<Whispering>): WhisperingFiles {
 			if (error !== null) return Err(error);
 			const read = await audio.read({ id, ext: file.ext });
 			if (read.error !== null) return Err(read.error.message);
+			if (read.data === null)
+				return Err('This recording’s audio is no longer there.');
 			return Ok({
 				bytes: read.data.bytes,
 				ext: file.ext,
@@ -155,12 +149,8 @@ export function filesOf(files: Folder<Whispering>): WhisperingFiles {
 			});
 		},
 		async deleteAudio(id) {
-			for (const { ext } of audio.items().filter((file) => file.id === id)) {
-				const deleted = await audio.delete({ id, ext });
-				if (deleted.error && deleted.error.name !== 'NotFound')
-					return Err(deleted.error.message);
-			}
-			return Ok(undefined);
+			for (const { ext } of audio.items().filter((file) => file.id === id))
+				await audio.delete({ id, ext });
 		},
 	};
 }

@@ -8,9 +8,11 @@
  *
  * What lives only in this window is what is happening: a request under way,
  * why one failed (Run again sends the same request), and an answer whose
- * note could not be created (Save again creates it, without another
- * request). A reload loses them. Waiting for an endpoint never delays
- * closing; an answer that arrives after closing keeps nothing.
+ * note is being written. A write never fails: while the store is out of
+ * reach the folder keeps it until it lands (ADR-0775), so nothing here
+ * holds an answer to save again. A reload loses a request under way.
+ * Waiting for an endpoint never delays closing; an answer that arrives
+ * after closing keeps nothing.
  *
  * A run sends what the person sees: the recipe and transcript text a page
  * shows, typing included, or else the notes as listed. Where it goes is
@@ -39,15 +41,8 @@ export type RunState =
 	| { readonly kind: 'running' }
 	/** Nothing was received. Run again sends the same request. */
 	| { readonly kind: 'failed'; readonly message: string }
-	/**
-	 * The answer arrived and its note is being created, or `message` says why
-	 * it was not. Save again creates it, without another request.
-	 */
-	| {
-			readonly kind: 'unsaved';
-			readonly text: string;
-			readonly message: string | undefined;
-	  };
+	/** The answer arrived and its note is being written; the run ends when it lands. */
+	| { readonly kind: 'saving' };
 
 /** The fields a result note is created with, besides its id and body. */
 type TranscriptionFields = {
@@ -133,27 +128,24 @@ export function createRuns({
 	const recordingOf = (run: Fields) =>
 		run.collection === 'text_runs' ? undefined : run.fields.recordingId;
 
-	/** Create `run`'s note with `text` as its body; a failure keeps the answer here. */
+	/**
+	 * Write `run`'s note with `text` as its body, under the id fixed when the
+	 * run started, and end the run once it lands. It never fails (ADR-0775).
+	 */
 	async function keep(run: Run, text: string) {
-		const unsaved = (message: string | undefined) =>
-			runs.set(run.key, { ...run, state: { kind: 'unsaved', text, message } });
-		unsaved(undefined);
+		runs.set(run.key, { ...run, state: { kind: 'saving' } });
 		if (refused() !== undefined) return;
-		const value = { id: run.noteId, ...run.fields, body: resultBody(text) };
-		let created: Result<unknown, { name: string; message: string }>;
-		try {
-			created = await (
-				files[run.collection].create as (
-					value: unknown,
-				) => Promise<Result<unknown, { name: string; message: string }>>
-			)(value);
-		} catch (cause) {
-			created = Err({ name: 'Failed', message: describe(cause) });
-		}
-		// Occupied: an earlier save of this answer landed, its reply lost.
-		if (created.error === null || created.error.name === 'Occupied')
-			runs.delete(run.key);
-		else unsaved(created.error.message);
+		const notes = files[run.collection] as {
+			set(
+				args: { id: string },
+				changes: Record<string, unknown>,
+			): Promise<void>;
+		};
+		await notes.set(
+			{ id: run.noteId },
+			{ ...run.fields, body: resultBody(text) },
+		);
+		runs.delete(run.key);
 	}
 
 	/** Send `run`'s request, then keep its answer. */
@@ -188,13 +180,10 @@ export function createRuns({
 		await keep(run, answer.data.text);
 	}
 
-	/** Whether a run under `key` is out or keeping its answer, so another does not start. */
+	/** Whether a run under `key` is out or writing its answer, so another does not start. */
 	const underWay = (key: string) => {
 		const state = runs.get(key)?.state;
-		return (
-			state?.kind === 'running' ||
-			(state?.kind === 'unsaved' && state.message === undefined)
-		);
+		return state?.kind === 'running' || state?.kind === 'saving';
 	};
 
 	/** The recipe to send: the one shown, or else its note as listed. */
@@ -257,15 +246,9 @@ export function createRuns({
 					run.collection !== 'transcriptions' && run.state.kind === 'running',
 			);
 		},
-		/** Answers that arrived and whose note could not be created. */
-		get unwritten(): number {
-			return [...runs.values()].filter(
-				({ state }) => state.kind === 'unsaved' && state.message !== undefined,
-			).length;
-		},
 		/**
 		 * Why a recording cannot be deleted now: a request for it is out, or a
-		 * result of it is being kept. Either would leave a result naming a
+		 * result of it is being written. Either would leave a result naming a
 		 * recording that is gone.
 		 */
 		busy(id: string): string | undefined {
@@ -285,18 +268,11 @@ export function createRuns({
 					requests.delete(run.key);
 				}
 		},
-		/** Forget a failed run, or an answer that was not kept. */
+		/** Forget a failed run. */
 		dismiss(key: string) {
 			if (underWay(key)) return;
 			runs.delete(key);
 			requests.delete(key);
-		},
-		/** Create the note of an answer that could not be kept, once more. Nothing is sent. */
-		async saveAgain(key: string): Promise<void> {
-			const run = runs.get(key);
-			if (run?.state.kind !== 'unsaved' || run.state.message === undefined)
-				return;
-			await keep(run, run.state.text);
 		},
 		/**
 		 * Send a failed run's request again, to the target it was made for. An

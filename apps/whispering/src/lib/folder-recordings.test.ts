@@ -14,7 +14,7 @@ import type { Folder } from '@epicenter/folder/core';
 import { directory } from '@epicenter/folder/node';
 import type { Recorder } from '@epicenter/recorder';
 import { Ok } from 'wellcrafted/result';
-import { expectErr, expectOk } from 'wellcrafted/testing';
+import { expectOk } from 'wellcrafted/testing';
 import { type Whispering, whispering } from './contract.js';
 import { finishCutOffRecordings, keepRecording } from './folder-recordings.js';
 import { createMicrophoneDevice } from './microphone.js';
@@ -75,20 +75,17 @@ const desktopRecover =
 			unplaced: [],
 		});
 
-test('Stop writes the note once, with its length, beside its audio', async () => {
+test('Stop writes the note, with its length, beside its audio', async () => {
 	const { path, files } = await folder();
 	const id = '20261031T093000000';
 	await writeFile(join(path, `recordings/${id}.webm`), 'placed by the shell');
-	expectOk(await keepRecording(files, kept(id, 1000.4)));
+	await keepRecording(files, kept(id, 1000.4));
 	const note = await noteOf(files, id);
 	expect([note.title, note.durationMs]).toEqual(['Standup', 1000]);
 	// Plain Markdown beside the audio.
 	expect(await readFile(join(path, `recordings/${id}.md`), 'utf8')).toContain(
 		'durationMs: 1000',
 	);
-	// A second note for the same id is refused, never written over the first.
-	expectErr(await keepRecording(files, { ...kept(id), title: 'Other' }));
-	expect((await noteOf(files, id)).title).toBe('Standup');
 });
 
 test('the next launch gives a cut-off recording its note, with the length recovery answered or read from its audio', async () => {
@@ -102,7 +99,7 @@ test('the next launch gives a cut-off recording its note, with the length recove
 	// One the shell placed after its page left, and one kept normally.
 	await writeFile(join(path, 'recordings/left.wav'), toneWav({ seconds: 3 }));
 	await writeFile(join(path, 'recordings/done.wav'), toneWav({ seconds: 1 }));
-	expectOk(await keepRecording(files, kept('done')));
+	await keepRecording(files, kept('done'));
 
 	expect(
 		expectOk(await finishCutOffRecordings(files, { recover })).noted.sort(),
@@ -155,7 +152,7 @@ test('recovery is asked about exactly the audio no note names, and names only wh
 		},
 	});
 	await writeFile(join(path, 'recordings/done.webm'), 'kept');
-	expectOk(await keepRecording(files, kept('done')));
+	await keepRecording(files, kept('done'));
 	expect(expectOk(await finishCutOffRecordings(files, capture))).toEqual({
 		noted: [],
 		unplaced: [],

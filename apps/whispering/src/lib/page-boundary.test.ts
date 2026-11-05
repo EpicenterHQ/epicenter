@@ -167,8 +167,8 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 				specifier.startsWith('@epicenter/sync') ||
 				// Notes are read and edited through the contract's client as a
 				// folder, which `reactive` reads as Svelte state; the other shared
-				// pieces are the root over the folder, the header status and an
-				// edit's unsaved notice.
+				// pieces are the root over the folder, the header status and a
+				// note's repair.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
 						'@epicenter/svelte/note-repair',
@@ -176,7 +176,6 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',
-						'@epicenter/svelte/unsaved-edit',
 						'@epicenter/svelte/when-open',
 					].includes(specifier)) ||
 				// The store package, by any entry. Files come through the

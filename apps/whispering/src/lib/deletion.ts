@@ -187,30 +187,32 @@ type RunContext = {
 	deleted(note: NoteRef): void;
 };
 
-async function deleteNote(
-	{ files, deleted }: RunContext,
-	note: NoteRef,
-): Promise<string | undefined> {
-	const { error } = await files[note.collection].delete({ id: note.id });
-	if (error !== null && error.name !== 'NotFound') return error.message;
+async function deleteNote({ files, deleted }: RunContext, note: NoteRef) {
+	await files[note.collection].delete({ id: note.id });
 	deleted(note);
-	return undefined;
 }
 
 /**
  * Delete what was confirmed, checking a recording's results against the
- * lists again first: one saved since the person was asked keeps it.
+ * lists again first: one saved since the person was asked keeps it. Each
+ * delete answers once it has landed and never fails (ADR-0775), so the
+ * files go in order: results, the note, then the audio.
  */
 export async function runDeletion(
 	context: RunContext,
 	deletion: Deletion,
 ): Promise<string | undefined> {
-	if (deletion.kind === 'transformation')
-		return deleteNote(context, {
+	if (deletion.kind === 'transformation') {
+		await deleteNote(context, {
 			collection: 'transformations',
 			id: deletion.id,
 		});
-	if (deletion.kind !== 'recording') return deleteNote(context, deletion.note);
+		return undefined;
+	}
+	if (deletion.kind !== 'recording') {
+		await deleteNote(context, deletion.note);
+		return undefined;
+	}
 	const { id } = deletion;
 	const { data: now, error } = resultsOf(context.files, id);
 	if (error !== null) return error;
@@ -218,21 +220,11 @@ export async function runDeletion(
 	if (now.some((result) => !confirmed.has(notePath(result))))
 		return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
 	// Results first, so none is ever left naming a recording that is gone.
-	const leftovers: string[] = [];
-	for (const result of deletion.results) {
-		const problem = await deleteNote(context, result);
-		if (problem !== undefined)
-			leftovers.push(`${notePath(result)}: ${problem}`);
-	}
-	if (leftovers.length > 0)
-		return `The recording was kept, because some of its results could not be deleted: ${leftovers.join(', ')}.`;
-	const refused = await deleteNote(context, { collection: 'recordings', id });
-	if (refused !== undefined) return refused;
+	for (const result of deletion.results) await deleteNote(context, result);
+	await deleteNote(context, { collection: 'recordings', id });
 	context.dropFailed(id);
-	const audio = await context.files.deleteAudio(id);
-	return audio.error === null
-		? undefined
-		: `The recording was deleted, but its audio was not: ${audio.error}`;
+	await context.files.deleteAudio(id);
+	return undefined;
 }
 
 const count = (n: number, one: string, many: string) =>

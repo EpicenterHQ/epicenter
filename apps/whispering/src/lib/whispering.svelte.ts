@@ -254,14 +254,14 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			recorderError = error.message;
 			return;
 		}
-		const kept = await keepRecording(files, {
+		// The audio is at its path, so its note goes after it, and lands in
+		// order: the folder keeps it until it does (ADR-0775).
+		await keepRecording(files, {
 			id: take.id,
 			title: defaultTitle(at),
 			recordedAt: at.toISOString(),
 			durationMs: stopped.durationMs,
 		});
-		if (kept.error !== null && !disposed)
-			recorderError = `The recording was kept, but its note could not be written: ${kept.error}`;
 	}
 
 	/**

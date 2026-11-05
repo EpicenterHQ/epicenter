@@ -68,10 +68,7 @@ type Source = Pick<
 
 function statusOf(whispering: Source, id: string): RecordingStatus {
 	const state = whispering.transcriptionRun(id)?.state;
-	if (
-		state?.kind === 'running' ||
-		(state?.kind === 'unsaved' && state.message === undefined)
-	)
+	if (state?.kind === 'running' || state?.kind === 'saving')
 		return 'transcribing';
 	if (state !== undefined) return 'failed';
 	return whispering.resultsFor(id).length > 0 ? 'transcribed' : 'untranscribed';
@@ -335,9 +332,7 @@ export async function transcribeRows(
 						refused ??
 						(state?.kind === 'failed'
 							? state.message
-							: state?.kind === 'unsaved' && state.message !== undefined
-								? `Its answer arrived, but could not be saved yet: ${state.message}`
-								: 'No transcript is listed for it. Open the recording to see why.'),
+							: 'No transcript is listed for it. Open the recording to see why.'),
 				});
 		}
 		onProgress?.(++done);

@@ -5,22 +5,20 @@
 	library the pages read (`createLibrary` over `filesOf(folder)`), the
 	product state each page reads from context, and the frame around the
 	pages. Every note is written through the folder, whose `saving()` the
-	root's leave guard reads. Made once for the page; it stops taking work
-	when it leaves.
+	root's leave guard reads; when its files cannot be reached, the root's
+	`<WhenOpen>` says so, and writes wait for them. Made once for the page;
+	it stops taking work when it leaves.
 -->
 <script lang="ts">
-	import * as Alert from '@epicenter/ui/alert';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import { variant } from '#platform/variant';
 	import { ai, choices, folder, recorder } from '$lib/app.js';
 	import { filesOf } from '$lib/files.svelte.js';
 	import { createLibrary, setLibrary } from '$lib/library.svelte.js';
 	import { localPreferences } from '$lib/microphone-preference.js';
-	import { sentences } from '$lib/sentences.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import BottomNav from './BottomNav.svelte';
@@ -56,23 +54,6 @@
 
 {#snippet header()}
 	<AppHeader />
-	{#if library.error}
-		<Alert.Root variant="warning" class="rounded-none" data-testid="device-unavailable">
-			{#if variant === 'desktop'}
-				<Alert.Title>Whispering cannot read its data folder</Alert.Title>
-				<Alert.Description>{sentences(library.error.message, 'Check that the folder is still there and readable, or choose another in Settings.')}</Alert.Description>
-			{:else}
-				<Alert.Title>This browser is not keeping files for Whispering</Alert.Title>
-				<Alert.Description>
-					{sentences(
-						library.error.message,
-						'Recording is off, since there is nowhere to keep it.',
-						'A private window never keeps files: open Whispering in a regular window to record.',
-					)}
-				</Alert.Description>
-			{/if}
-		</Alert.Root>
-	{/if}
 {/snippet}
 
 {#if failed !== null}

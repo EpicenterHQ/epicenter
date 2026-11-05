@@ -23,8 +23,9 @@
  * 6. The page, loaded once, reopens offline from its service worker's
  *    cache (decision 85), with this browser's recordings.
  * 7. Where the browser keeps no files (WebKit's ephemeral context, as a
- *    Safari private window), one banner says why and that recording is
- *    off: no hint invites a click and no recovery failure repeats it.
+ *    Safari private window), the root's one status line says the files
+ *    cannot be reached: no hint invites a click and no recovery failure
+ *    repeats it.
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -548,7 +549,7 @@ test('6. the page, loaded once, reopens offline from its service worker', async 
 	}
 });
 
-test('7. where the browser keeps no files, one banner says recording is off', async ({
+test('7. where the browser keeps no files, one status line says the files cannot be reached', async ({
 	playwright,
 	browserName,
 	stack,
@@ -562,11 +563,9 @@ test('7. where the browser keeps no files, one banner says recording is off', as
 		await fakeMicrophone(ephemeralContext);
 		const ephemeral = await ephemeralContext.newPage();
 		await ephemeral.goto(`${stack.app}/`);
-		const banner = ephemeral.getByTestId('device-unavailable');
-		await expect(banner).toContainText(
-			'(e.g. out of memory). Recording is off, since there is nowhere to keep it.',
+		await expect(ephemeral.getByTestId('unreachable')).toContainText(
+			"Can't reach Whispering's files right now (This browser gives the page no private file storage",
 		);
-		await expect(banner).not.toContainText('..');
 		await expect(ephemeral.getByTestId('start-recording')).toBeVisible();
 		await expect(ephemeral.getByText('Click to record')).toHaveCount(0);
 		await expect(ephemeral.getByTestId('recorder-error')).toHaveCount(0);

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { toast } from '@epicenter/ui/sonner';
@@ -33,7 +32,7 @@
 	// svelte-ignore state_referenced_locally
 	const id = shownId;
 
-	/** The transcript's fields, its text included: as typed until its save answers, else as the note holds them. */
+	/** The transcript's fields, its text included: as typed until its save lands, else as the note holds them. */
 	const transcript = folder.transcriptions.edit({ id });
 	const text = $derived(transcript.fields.body ?? '');
 
@@ -65,7 +64,6 @@
 		aria-label="Transcript of {formatTime(transcript.fields.createdAt) || id}"
 		data-testid="transcript-text"
 	/>
-	<UnsavedEdit edit={transcript} />
 	<footer class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 		<span>{formatTime(transcript.fields.createdAt) || 'Unknown time'} · {transcript.fields.model}</span>
 		<span class="ml-auto flex items-center gap-1">

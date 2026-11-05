@@ -48,9 +48,8 @@ repository, and there is no other view
   they are made.
 - Changes another tab makes show without a reload.
 - A note at one of these paths that does not read is listed under "Needs
-  repair" with why and its text. Saving fixed text there replaces the note,
-  written in house style; text that still does not fit is refused and stays
-  to fix.
+  repair" with why and its text. Saving fixed text there writes it; text
+  that still does not fit is written as typed and stays listed to fix.
 
 The header's status line says where the recordings are: "On this browser".
 In Safari (any WebKit browser, by `navigator.vendor`) whose storage for the
@@ -115,8 +114,9 @@ only the ticked rows shown.
 A recording's details hold its player, its transcripts (each edited where it
 is read, with Copy, Transform, and Delete), its notes, and File details:
 where it is kept, which files it has, and when it was made. The title and
-every text save as you type; a save that fails stays in its editor with
-**Save again**, **Discard**, and **Copy**.
+every text save as you type. A save never fails: while the files cannot be
+reached, a line at the top of the page says so, and every change waits, in
+order, until they can.
 
 Deleting a recording deletes its note, its audio, its transcripts, and the
 results made from them. It is refused while a request for
@@ -131,9 +131,9 @@ transcribed until you press it. While the request is out, the recording says
 so. If no answer comes, it says why with **Run again** (the same request, to
 the same endpoint and model, and only while that endpoint is still where it
 was) and
-**Dismiss**. If the answer arrives but cannot be kept, it stays in the window
-with **Save again** (no second request), **Copy**, and **Discard**, and the
-header counts it until then; a reload loses it.
+**Dismiss**. When the answer arrives its transcript is saved, and the
+recording says so until it is; while the files cannot be reached, the save
+waits until they can, with no second request.
 
 ### Transformations
 

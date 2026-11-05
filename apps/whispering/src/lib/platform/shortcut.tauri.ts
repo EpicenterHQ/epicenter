@@ -212,15 +212,6 @@ export function openShortcut(
 		changed();
 	}
 
-	/** Set `toggleRecording` in the data folder's note to `key`, making the note when there is none. */
-	async function writeSynced(key: string) {
-		const written =
-			notes.get({}) === undefined
-				? await notes.create({ toggleRecording: key })
-				: await notes.update({}, { toggleRecording: key });
-		return written.error === null ? null : written.error.message;
-	}
-
 	/**
 	 * Set `toggleRecording` in this computer's note to `key`, or drop it for
 	 * undefined, keeping the note's body, over the version just read.
@@ -231,7 +222,6 @@ export function openShortcut(
 		const text = noteText(SHORTCUTS, {
 			toggleRecording: key,
 			body: current.note?.body ?? '',
-			version: '',
 		} as NoteOf<Shortcuts>);
 		if (text.error !== null) return text.error.message;
 		const written = await file.write(text.data, current.version);
@@ -273,7 +263,9 @@ export function openShortcut(
 		 * (synced with the files, so this computer's override is removed), or,
 		 * `onThisComputer`, in this computer's. The shell must hold it first,
 		 * so a key that does not parse or that another app holds is never
-		 * written. Answers why it was not saved, or null.
+		 * written. The data folder's note is written with `set`, which never
+		 * fails (ADR-0775); this computer's can be refused. Answers why it was
+		 * not saved, or null.
 		 */
 		async save(
 			typed: string,
@@ -287,15 +279,13 @@ export function openShortcut(
 				void hold(accelerator());
 				return refused;
 			}
-			const unsaved = onThisComputer
-				? await writeHere(key)
-				: await writeSynced(key);
-			if (unsaved !== null) {
-				void hold(accelerator());
+			if (onThisComputer) {
+				const unsaved = await writeHere(key);
+				if (unsaved !== null) void hold(accelerator());
 				return unsaved;
 			}
-			if (!onThisComputer && here?.toggleRecording !== undefined)
-				return writeHere(undefined);
+			await notes.set({}, { toggleRecording: key });
+			if (here?.toggleRecording !== undefined) return writeHere(undefined);
 			return null;
 		},
 		/** Stop following both notes; the shell keeps the key it holds. */

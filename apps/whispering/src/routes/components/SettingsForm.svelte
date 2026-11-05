@@ -5,7 +5,7 @@
 	import { Settings } from '#platform/components';
 	import { connectionsNote, variant } from '#platform/variant';
 	import { evictionNote, readPersisted } from '$lib/eviction-note.js';
-	import { getLibrary } from '$lib/library.svelte.js';
+	import { folder } from '$lib/app.js';
 	import { getWhispering, type Operation } from '$lib/whispering.svelte.js';
 	import AccountStatus from './AccountStatus.svelte';
 	import ModelSetting from './ModelSetting.svelte';
@@ -23,7 +23,6 @@
 	let { only }: { only?: Operation } = $props();
 
 	const whispering = getWhispering();
-	const library = getLibrary();
 	let persisted = $state<boolean>();
 	onMount(() => {
 		let current = true;
@@ -38,7 +37,7 @@
 		evictionNote({
 			variant,
 			vendor: navigator.vendor,
-			storageWorks: library.error === null,
+			storageWorks: folder.unavailable() === null,
 			persisted,
 		}),
 	);

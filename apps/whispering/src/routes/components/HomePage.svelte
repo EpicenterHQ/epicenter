@@ -27,7 +27,7 @@
 	const transcript = $derived(latest ? library.resultsFor(latest.id)[0] : undefined);
 	/** A transcription of it in this window, and what became of it. */
 	const run = $derived(latest ? library.transcriptionRun(latest.id) : undefined);
-	const transcribing = $derived(run?.state.kind === 'running' || (run?.state.kind === 'unsaved' && run.state.message === undefined));
+	const transcribing = $derived(run?.state.kind === 'running' || run?.state.kind === 'saving');
 	const model = $derived(whispering.choice('transcription')?.model);
 
 	/** The transformation chosen beside the recorder, as the lists and the text model have it now. */

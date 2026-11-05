@@ -11,18 +11,14 @@
  */
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import { expectOk } from 'wellcrafted/testing';
 
 const { account, ai, folder, shortcut } = await import('./app.js');
 
 test('the folder opens while the account is signed out, and keeps what is written to it', async () => {
 	expect(account.state().status).toBe('signed-out');
-	expectOk(
-		await folder.recordings.create({
-			id: '20261104T090000000',
-			title: 'Standup',
-			recordedAt: '2026-11-04T09:00:00.000Z',
-		}),
+	await folder.recordings.set(
+		{ id: '20261104T090000000' },
+		{ title: 'Standup', recordedAt: '2026-11-04T09:00:00.000Z' },
 	);
 	expect(folder.state().status).toBe('open');
 	expect(folder.recordings.get({ id: '20261104T090000000' })?.title).toBe(

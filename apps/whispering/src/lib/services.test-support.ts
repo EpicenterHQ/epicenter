@@ -79,13 +79,8 @@ export function createFixtureDevice({
 						return RecorderError.Failed({ cause });
 					}
 					if (fixture.bytes.byteLength === 0) return RecorderError.Empty();
-					const written = await audio.create({
-						id,
-						ext,
-						bytes: fixture.bytes,
-					});
-					if (written.error !== null)
-						return RecorderError.Refused({ reason: written.error.message });
+					// The audio lands before Stop answers, as the recorder's does.
+					await audio.set({ id, ext }, fixture.bytes);
 					return Ok({
 						// The fixture's own length when it can be read, not the wait before Stop.
 						durationMs:

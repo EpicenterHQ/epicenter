@@ -29,7 +29,8 @@ export const EVICTION_NOTE = sentences(
 /**
  * The line to show, or undefined: only in the web build, only in WebKit,
  * only while this browser keeps Whispering's files at all (a private window
- * keeps none, and the banner says so), and only while they are not
+ * keeps none, and the root's status line says the files cannot be
+ * reached), and only while they are not
  * persistent. `persisted` is undefined until the browser answers, or when
  * it cannot, and then nothing is said.
  */

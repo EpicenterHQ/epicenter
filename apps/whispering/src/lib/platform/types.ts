@@ -30,13 +30,10 @@ export type Variant = 'local' | 'desktop';
  * the web app makes.
  */
 export type Platform = {
-	Chrome: Component<ChromeProps>;
+	Chrome: Component;
 	Settings: Component | null;
 	Callback: Component<CallbackProps>;
 };
-
-/** What the header tells `Chrome`: answers whose result could not be kept, which outrank where the recordings are. */
-export type ChromeProps = { unwrittenAnswers: number };
 
 /** What the sign-in callback's page is given: where the app starts. */
 export type CallbackProps = { home: string };

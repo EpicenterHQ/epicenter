@@ -41,17 +41,22 @@ export type KeptRecording = {
 	readonly durationMs?: number;
 };
 
-/** Write the note of a recording whose audio is at its path. */
-export async function keepRecording(
+/**
+ * Write the note of a recording whose audio is at its path, answering once
+ * it has landed. It never fails: while the store is out of reach the folder
+ * keeps it (ADR-0775). An id is a `timeId()` stem, so no other note is at
+ * its path.
+ */
+export function keepRecording(
 	files: Pick<Files, 'recordings'>,
-	{ durationMs, ...note }: KeptRecording,
-): Promise<Result<void, string>> {
-	const created = await files.recordings.create(
+	{ id, durationMs, ...fields }: KeptRecording,
+): Promise<void> {
+	return files.recordings.set(
+		{ id },
 		durationMs === undefined
-			? note
-			: { ...note, durationMs: Math.max(0, Math.round(durationMs)) },
+			? fields
+			: { ...fields, durationMs: Math.max(0, Math.round(durationMs)) },
 	);
-	return created.error === null ? Ok(undefined) : Err(created.error.message);
 }
 
 /** The extensions a recording's audio is kept under: Opus in WebM on the desktop, AAC in MP4 or Opus in WebM in a browser, and WAV. */
@@ -99,13 +104,13 @@ export async function finishCutOffRecordings(
 	for (const { id, durationMs } of recovered.data.whole) {
 		if (named.has(id)) continue;
 		named.add(id);
-		const kept = await keepRecording(files, {
+		await keepRecording(files, {
 			id,
 			title: 'Recovered recording',
 			recordedAt: (timeOf(id) ?? new Date()).toISOString(),
 			durationMs: durationMs ?? (await measured(files, id)),
 		});
-		if (kept.error === null) noted.push(id);
+		noted.push(id);
 	}
 	return Ok({ noted, unplaced: recovered.data.unplaced });
 }
@@ -117,7 +122,8 @@ async function measured(
 ): Promise<number | undefined> {
 	for (const ext of RECORDED) {
 		const audio = await files.audio.read({ id, ext });
-		if (audio.error === null) return audioDurationMs(audio.data.bytes, ext);
+		if (audio.error === null && audio.data !== null)
+			return audioDurationMs(audio.data.bytes, ext);
 	}
 	return undefined;
 }
