@@ -7,6 +7,7 @@
  * directories and the server's repository.
  *
  * - First contact puts both sides' files on both; two creates of one note merge.
+ * - Every visible file syncs, the contract's or not; a hidden one never does.
  * - An unchanged sync reads no file and saves no manifest.
  * - Fields merge by key: different fields both land, one field takes the later sync's.
  * - A body merges by lines; a clash is one block of Git's markers.
@@ -114,6 +115,54 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 			'todos/b.md',
 			'todos/same.md',
 		]);
+	},
+
+	async 'a file outside the contract syncs both ways: AGENTS.md and a person’s own files'(
+		world,
+	) {
+		const a = await world.device();
+		const b = await world.device();
+		await a.write('AGENTS.md', '# Todos\n\nKeep it short.\n');
+		await a.write('mine/plan.txt', 'draft');
+		await a.write('mine/photo.jpg', new Uint8Array([0xff, 0xd8, 0xff]));
+		await syncOf(world, a);
+		expect((await syncOf(world, b)).pulled).toEqual([
+			'AGENTS.md',
+			'mine/photo.jpg',
+			'mine/plan.txt',
+		]);
+		await b.write('AGENTS.md', '# Todos\n\nKeep it shorter.\n');
+		await b.write('mine/plan.txt', 'draft, edited');
+		await b.write('mine/photo.jpg', null);
+		await syncOf(world, b);
+		await syncOf(world, a);
+		expect(await contents(a)).toEqual({
+			'AGENTS.md': '# Todos\n\nKeep it shorter.\n',
+			'mine/plan.txt': 'draft, edited',
+		});
+		expect(await contents(b)).toEqual(await contents(a));
+	},
+
+	async 'a hidden file never syncs, in either direction'(world) {
+		const a = await world.device();
+		const b = await world.device();
+		await a.write('todos/a.md', todo);
+		await a.write('.notes/secret.md', 'only on A');
+		await a.write('todos/.draft.md', 'only on A');
+		await b.write('.notes/secret.md', 'only on B');
+		await syncOf(world, a);
+		await syncOf(world, b);
+		await syncOf(world, a);
+		const held = expectOk(await world.repository.snapshot()).files.map(
+			({ path }) => path,
+		);
+		expect(held).toContain('todos/a.md');
+		expect(
+			held.filter((path) => path.includes('secret') || path.includes('draft')),
+		).toEqual([]);
+		expect(await b.read('todos/.draft.md')).toBeNull();
+		expect(await a.read('.notes/secret.md')).toBe('only on A');
+		expect(await b.read('.notes/secret.md')).toBe('only on B');
 	},
 
 	async 'an unchanged sync reads no file and saves no manifest'(world) {

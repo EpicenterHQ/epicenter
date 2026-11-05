@@ -5,14 +5,15 @@
  * with a manifest in memory, syncing through a memory repository: the
  * algorithm with no disk, network, or server. Then again with each
  * computer's local side the connected folder over its memory store
- * (`localStoreOf`), which answers from what the folder holds.
+ * (`localStoreOf`), which answers from what the folder holds: every
+ * visible file, the contract's and any other.
  * `sync.postgres.test.ts` runs the same scenarios over directories and the
  * server's repository.
  *
  * Key behaviors: those of `sync.scenarios.ts`.
  */
 import { expect, test } from 'bun:test';
-import { defineContract } from '@epicenter/definition/contract';
+import { defineContract, isHiddenPath } from '@epicenter/definition/contract';
 import { expectOk } from 'wellcrafted/testing';
 import { memoryStore } from '../device/memory-store.js';
 import type { Version } from '../device/store.js';
@@ -34,7 +35,7 @@ function memoryWorld(): World {
 				write: store.outside.write,
 				read: async (path) => store.outside.read(path),
 				paths: async () =>
-					store.outside.paths().filter((path) => !path.startsWith('.')),
+					store.outside.paths().filter((path) => !isHiddenPath(path)),
 			};
 		},
 	};
@@ -61,15 +62,11 @@ function folderWorld(): World {
 			return {
 				store: localStoreOf(folder),
 				manifest: memoryManifest(),
-				async write(path, content) {
-					await outside.write(path, content);
-					// The folder lists again what it heard, as its own refresh does.
-					await folder.todos.list();
-					await folder.audio.list();
-				},
+				// The folder hears it, and its listing reads what it heard first.
+				write: outside.write,
 				read: async (path) => outside.read(path),
 				paths: async () =>
-					outside.paths().filter((path) => !path.startsWith('.')),
+					outside.paths().filter((path) => !isHiddenPath(path)),
 			};
 		},
 	};
@@ -78,25 +75,47 @@ function folderWorld(): World {
 for (const [name, run] of Object.entries(syncScenarios))
 	test(`${name} (through the open folder)`, () => run(folderWorld()));
 
-test('the open folder as a store holds the contract: a path outside it is stale, and a write it makes is listed at once', async () => {
+test('the open folder as a store lists every visible file, holds only the contract as items, and never lists a hidden one', async () => {
 	const place = memory();
+	const outside = memoryFiles(place);
+	await outside.write('AGENTS.md', '# Todos\n');
+	await outside.write('mine/plan.txt', 'by hand');
+	await outside.write('.DS_Store', 'finder');
 	const folder = openFolder(contract, place);
 	const store = localStoreOf(folder);
-	expectOk(await store.list(['']));
+	expect(
+		expectOk(await store.list(['']))
+			.map(({ path }) => path)
+			.sort(),
+	).toEqual(['AGENTS.md', 'mine/plan.txt']);
+
 	const bytes = new TextEncoder().encode('---\ntitle: "A"\n---\n');
-	expect(expectOk(await store.write('stray/a.md', bytes, 'absent'))).toBe(
-		'stale',
-	);
-	expect(memoryFiles(place).paths()).toEqual([]);
 	const landed = expectOk(
 		await store.write('todos/a.md', bytes, 'absent'),
 	) as Version;
-	expect(landed).toBeString();
-	expect(expectOk(await store.list(['todos']))).toEqual([
+	const stray = expectOk(
+		await store.write('stray/b.md', bytes, 'absent'),
+	) as Version;
+	expect(
+		expectOk(await store.write('.epicenter/x', bytes, 'absent')),
+	).toBeString();
+	expect(expectOk(await store.list(['todos', 'stray']))).toEqual([
 		{ path: 'todos/a.md', version: landed, size: bytes.byteLength },
+		{ path: 'stray/b.md', version: stray, size: bytes.byteLength },
 	]);
-	const [read] = expectOk(await store.read(['todos/a.md']));
-	expect(read).toEqual({ path: 'todos/a.md', bytes, version: landed });
+	expect(folder.todos.items().map(({ id }) => id)).toEqual(['a']);
+	// Another program's file is read from the store, and heard before the next listing.
+	await outside.write('mine/plan.txt', 'edited');
+	const [plan] = expectOk(await store.read(['mine/plan.txt']));
+	if (plan === undefined || 'gone' in plan) throw new Error('expected a file');
+	expect(new TextDecoder().decode(plan.bytes)).toBe('edited');
+	expect(expectOk(await store.list(['mine']))).toEqual([
+		{ path: 'mine/plan.txt', version: plan.version, size: 6 },
+	]);
 	expect(expectOk(await store.write('todos/a.md', null, landed))).toBeNull();
-	expect(expectOk(await store.list(['']))).toEqual([]);
+	expect(
+		expectOk(await store.list(['']))
+			.map(({ path }) => path)
+			.sort(),
+	).toEqual(['AGENTS.md', 'mine/plan.txt', 'stray/b.md']);
 });
