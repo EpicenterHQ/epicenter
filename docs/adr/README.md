@@ -946,7 +946,7 @@ When you add an ADR, add its row here.
 | [0748](0748-epicenter-ships-a-portable-git-inside-the-app.md) | Epicenter ships a portable Git inside the app | Superseded by 0751 |
 | [0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) | Epicenter draws its boundaries where people already expect them | Accepted (amended by 0750 and 0787) |
 | [0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) | Sync is like save: any program can sync a folder, and none owns it | Accepted (amends 0328, 0713, 0745, and 0749) |
-| [0751](0751-every-native-app-carries-one-sync-core.md) | Every native app carries one sync core | Accepted (supersedes 0748; amends 0713, 0718, 0719, 0733, and 0747; amended by 0787 and 0790) |
+| [0751](0751-every-native-app-carries-one-sync-core.md) | Every native app carries one sync core | Accepted (supersedes 0748; amends 0713, 0718, 0719, 0733, and 0747; amended by 0787) |
 | [0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) | An app's folder sits under the platform's visible root of app folders | Accepted |
 | [0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) | An app declares what it is and what it needs; the platform supplies where, how and when | Accepted (amends 0719; amended by 0759, 0760, 0766, and 0787) |
 | [0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) | A capability takes what it needs as values and shows what it can do now as values | Accepted (amended by 0757, 0765, and 0766) |
@@ -967,7 +967,7 @@ When you add an ADR, add its row here.
 | [0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) | Svelte reads every capability through one reactive copy | Accepted (amends 0765 and 0766) |
 | [0770](0770-teams-own-repositories-and-sharing-is-membership.md) | Teams own repositories, and sharing is membership | Accepted (amends 0547, 0594, 0612, 0708, and 0732; amended by 0771 and 0772) |
 | [0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) | Plain files let Epicenter refuse renames, attachment conflict copies, and a second store | Accepted (amends 0612, 0705, 0707, 0708, 0709, 0715, 0716, 0734, 0739, 0742, and 0770) |
-| [0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) | A folder says what it is in AGENTS.md, and this computer keeps the rest | Accepted (amends 0711, 0715, 0721, 0722, 0752, and 0770; amended by 0787) |
+| [0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) | A folder says what it is in AGENTS.md, and this computer keeps the rest | Accepted (amends 0711, 0715, 0721, 0722, 0752, and 0770; amended by 0787 and 0791) |
 | [0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) | A folder opens at a place, every place is a store, and the server never merges | Accepted (amends 0700, 0746, and 0766; amended by 0774, 0779, 0786, and 0787) |
 | [0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) | One write makes it so, and settles a change the way sync does | Accepted (amends 0700, 0769, and 0773; amended by 0775 and 0787) |
 | [0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) | A write never fails: the folder keeps it until it lands | Accepted (amends 0767 and 0774; amended by 0778 and 0782) |
@@ -976,7 +976,7 @@ When you add an ADR, add its row here.
 | [0778](0778-a-page-connects-once-and-then-reads-synchronously.md) | A page connects once, and then reads synchronously | Accepted (amends 0767, 0775, and 0777; amended by 0779 and 0783) |
 | [0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) | A store is four verbs, and a browser recording lands whole | Accepted (amends 0773 and 0778; amended by 0786 and 0788) |
 | [0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) | A surface uses what its platform gives, and parity is not a goal | Accepted |
-| [0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) | Apps branch on what a capability offers, and one build serves every surface | Accepted (amends 0701, 0755, and 0766; amended by 0784 and 0785) |
+| [0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) | Apps branch on what a capability offers, and one build serves every surface | Accepted (amends 0701, 0755, and 0766; amended by 0784, 0785, and 0792) |
 | [0782](0782-a-waiting-write-the-folder-will-not-make-rejects.md) | A waiting write the folder will not make rejects | Accepted (amends 0775) |
 | [0783](0783-a-secret-lives-in-the-apps-credentials-file-and-is-read-by-the-request-that-uses-it.md) | A secret lives in the app's credentials file, and is read by the request that uses it | Accepted (amends 0778; amended by 0787) |
 | [0784](0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md) | Whispering is the web's local app, and Messages is a program on this computer | Accepted (amends 0746 and 0781; amended by 0786) |
@@ -985,4 +985,6 @@ When you add an ADR, add its row here.
 | [0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) | Records that assumed a running engine or a build-time choice follow ADR-0750 and ADR-0781 | Accepted (amends 0732, 0744, 0746, 0749, 0751, 0753, 0763, 0765, 0766, 0772, 0773, 0774, 0783, and 0785) |
 | [0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) | Everything in a folder syncs, and a recording's audio is kept in one of three places | Accepted (amends 0779 and 0786; amended by 0789) |
 | [0789](0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md) | A conflict is a mark on its note, resolved in the repair editor | Accepted (amends 0788) |
-| [0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-is-its-engine.md) | The Epicenter app is a library over every folder, and the CLI is its engine | Accepted (amends 0715 and 0751) |
+| [0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) | The Epicenter app is a library over every folder, and the CLI answers its queries | Accepted (amends 0715) |
+| [0791](0791-a-folders-first-sync-places-it-in-its-teams-folder.md) | A folder's first sync places it in its team's folder | Accepted (amends 0772) |
+| [0792](0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md) | An account asks for what the capabilities that take it need | Accepted (amends 0781) |
