@@ -57,7 +57,7 @@ test('a note that does not fit is listed as invalid, and completing a missing to
 
 		const missing = await native(root, 'complete', 'missing');
 		expect(missing.exitCode).toBe(1);
-		expect(missing.json()).toEqual({ error: 'Nothing is at todos/missing.md' });
+		expect(missing.json()).toEqual({ error: 'No todo is at todos/missing.md' });
 		expect(existsSync(join(root, 'todos/missing.md'))).toBe(false);
 	} finally {
 		await rm(root, { recursive: true, force: true });

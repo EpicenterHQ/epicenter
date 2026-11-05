@@ -9,6 +9,7 @@ import { timeId } from '@epicenter/definition/ids';
 import { openFolder } from '@epicenter/folder';
 import { directory } from '@epicenter/folder/node';
 import { todos } from '../src/lib/contract.ts';
+import { todoPath } from '../src/lib/todos.ts';
 
 const [root, command, ...args] = process.argv.slice(2);
 if (root === undefined || command === undefined) {
@@ -48,16 +49,9 @@ async function main(): Promise<number> {
 				print({ error: 'create needs a title' });
 				return 2;
 			}
-			const created = await folder.todos.create({
-				id: timeId(),
-				title,
-				done: false,
-			});
-			if (created.error !== null) {
-				print({ error: created.error.message });
-				return 1;
-			}
-			print({ created: created.data.id });
+			const id = timeId();
+			await folder.todos.set({ id }, { title, done: false });
+			print({ created: id });
 			return 0;
 		}
 		case 'complete': {
@@ -66,12 +60,17 @@ async function main(): Promise<number> {
 				print({ error: 'complete needs an id' });
 				return 2;
 			}
-			// Made over the note as read now: `NotFound` when there is none.
-			const completed = await folder.todos.update({ id }, { done: true });
-			if (completed.error !== null) {
-				print({ error: completed.error.message });
+			// `set` makes a note where none is: complete only a todo that is there.
+			const listed = await folder.todos.list();
+			if (listed.error !== null) {
+				print({ error: listed.error.message });
 				return 1;
 			}
+			if (folder.todos.get({ id }) === undefined) {
+				print({ error: `No todo is at ${todoPath(id)}` });
+				return 1;
+			}
+			await folder.todos.set({ id }, { done: true });
 			print({ completed: id });
 			return 0;
 		}

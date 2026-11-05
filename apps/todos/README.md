@@ -26,13 +26,15 @@ copy to fall back on
 - Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show
   without a reload.
 - A note at a todo's path that does not read as a todo is listed under
-  "Needs repair" with its text. Saving fixed text there replaces the note,
-  written in house style; text that still does not fit is refused.
+  "Needs repair" with its text. Saving text there writes it as typed: text
+  that fits repairs the note, and text that still does not fit stays listed
+  with what is wrong.
 
 The title, notes and Done of the open todo are one editor of its note
-(`todos.edit({ id })`): they save as you type or click, one save at a time,
-and a save that fails stays in the editor with Save again, Discard and Copy.
-Done in the list saves at once and says when it fails.
+(`todos.edit({ id })`): they save as you type or click, one save at a time.
+Done in the list saves at once (`todos.set`). A save never fails: while the
+repository cannot be reached, the folder keeps the changes in order and
+sends them when it can, and the page says so (`<WhenOpen>`).
 
 The app signs in as `so.epicenter.todos` for the server's Git audience only
 (`src/lib/auth.ts`, made on first use, and only by the web build). The
@@ -106,6 +108,8 @@ bun apps/todos/scripts/native.ts /tmp/todos complete <id>
 It opens Todos' folder at the directory (`openFolder(todos, directory(path))`,
 `directory` from `@epicenter/folder/node`), keeps front matter keys and
 notes Todos does not name, and never commits or contacts a server.
+`complete` lists the todos first and changes only one that is there, since
+`set` would make a note where none is.
 
 ## How it is wired
 
@@ -152,7 +156,7 @@ bun run --cwd apps/todos build:native && cargo test -p todos -p epicenter-standa
 
 `bun run test` passes `--conditions=test`, so `$lib/app.js` opens a folder
 in memory and a signed-out account: a component test seeds the folder
-through its ordinary methods (`folder.todos.create`) and mocks no module.
+through its ordinary methods (`folder.todos.set`) and mocks no module.
 
 The desktop shell's tests compile against `build-desktop/` (`frontendDist`),
 so they need `build:native` first. They check its identity, its name (so its

@@ -9,7 +9,6 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
-	import { toast } from '@epicenter/ui/sonner';
 	import { describeIssues } from '@epicenter/definition/contract';
 	import { folder } from '$lib/app.js';
 	import { openFirst } from '$lib/todos.js';
@@ -38,17 +37,10 @@
 		if (typed === '' || adding) return;
 		adding = true;
 		try {
-			const { data, error } = await todos.create({
-				id: timeId(),
-				title: typed,
-				done: false,
-			});
-			if (error !== null) {
-				toast.error('Could not add todo', { description: error.message });
-				return;
-			}
+			const id = timeId();
+			await todos.set({ id }, { title: typed, done: false });
 			title = '';
-			onOpen?.(data.id);
+			onOpen?.(id);
 		} finally {
 			adding = false;
 		}

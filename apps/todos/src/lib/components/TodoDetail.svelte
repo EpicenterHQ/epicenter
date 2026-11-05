@@ -1,13 +1,11 @@
 <!--
 	The open todo as one immediate editor (`todos.edit`): its title, notes
 	and whether it is done, and Delete. A note at its path that does not
-	read as a todo shows its text and why, and is repaired as text
-	(`NoteRepair`, saved with `replace` over the version the repair began
-	from) or deleted.
+	read as a todo shows its text and why, and is repaired as text through
+	the same editor's whole text (`NoteRepair`), or deleted.
 -->
 <script lang="ts">
 	import NoteRepair from '@epicenter/svelte/note-repair';
-	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -15,7 +13,6 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { toast } from '@epicenter/ui/sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { folder } from '$lib/app.js';
 	import { todos as contract } from '$lib/contract.js';
@@ -44,12 +41,9 @@
 			title: `Delete “${label}”?`,
 			description: `This deletes ${path}.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
-			async onConfirm() {
-				const { error } = await todos.delete({ id });
-				if (error !== null) {
-					toast.error('Could not delete todo', { description: error.message });
-					return;
-				}
+			// The folder keeps the delete until it lands: close the todo now.
+			onConfirm() {
+				void todos.delete({ id });
 				onDeleted?.();
 			},
 		});
@@ -72,11 +66,6 @@
 {/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
-	{#if todo.error() !== null}
-		<div class="px-4 py-2">
-			<UnsavedEdit edit={todo} />
-		</div>
-	{/if}
 	{#if todo.exists()}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
@@ -114,11 +103,7 @@
 		</div>
 		{#if invalid.text !== null}
 			<div class="flex min-h-48 flex-1 flex-col px-3 py-3 sm:px-4">
-				<NoteRepair
-					{contract}
-					note={invalid}
-					replace={(text, options) => todos.replace({ id }, text, options)}
-				/>
+				<NoteRepair {contract} note={invalid} edit={todo} />
 			</div>
 		{/if}
 		{@render fileBar(`${id}.md`)}

@@ -15,7 +15,8 @@
  * 3. A title edited on the desktop and synced shows with no reload; notes
  *    edited in the browser reach the desktop's next sync.
  * 4. A note the desktop wrote that does not read as a todo shows with its
- *    text, and saving fixed text there repairs it.
+ *    text; text saved there that still does not fit is written and stays
+ *    to fix, and text that fits repairs it.
  * 5. Signing out asks for a sign-in again, and the browser holds nothing.
  */
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -220,10 +221,19 @@ test('4. a note that does not read as a todo shows with its text, and is repaire
 	const text = detail().getByLabel('Text of todos/call.md');
 	await expect(text).toHaveValue(broken);
 
-	// Text that still does not fit is refused, and stays to fix.
+	// Text that still does not fit is written as typed, and stays to fix.
 	await text.fill('---\ntitle: Call mom\n---\nSunday\n');
 	await detail().getByRole('button', { name: 'Save repair' }).click();
-	await expect(detail().getByRole('alert')).toContainText('done');
+	await expect(
+		detail().getByRole('list', { name: 'Problems' }),
+	).toContainText('done is missing');
+	await expect(text).toHaveValue('---\ntitle: Call mom\n---\nSunday\n');
+	await expect
+		.poll(async () => {
+			await sync(stack, person, clone);
+			return readFile(join(clone, 'todos/call.md'), 'utf8');
+		})
+		.toBe('---\ntitle: Call mom\n---\nSunday\n');
 
 	await text.fill('---\ntitle: Call mom\ndone: false\n---\nSunday\n');
 	await detail().getByRole('button', { name: 'Save repair' }).click();
