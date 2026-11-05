@@ -33,7 +33,7 @@ A Svelte app reads it through `reactive` from
 | `@epicenter/folder/memory` | `memory()`, a new place in memory, and `memoryFiles(placeOrFolder)`, the world outside it, for a test. |
 | `@epicenter/folder/served` | `served(url)`, the directory the program serving this page keeps on this computer, reached through that program (Messages; ADR-0784). |
 | `@epicenter/folder/serve` | `serveDirectory(path)`, the program's half: it answers its page's store verbs over a directory, in Bun or Node. |
-| `@epicenter/folder/sync` | `sync({ local, remote, manifest })`, ADR-0803's prototype: a store synced with a repository's history through a manifest at `.epicenter/synced.json`, merging notes with `@epicenter/definition/front-matter`. Nothing runs it yet. |
+| `@epicenter/folder/sync` | `sync({ local, remote, manifest })`, ADR-0803's prototype: a store synced with a repository's history through a manifest at `.epicenter/synced.json`, merging notes with `@epicenter/definition/front-matter`. `localStoreOf(folder)` is an open folder as the local store: it lists and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Nothing runs it yet. |
 | `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager, and `syncWithEpicenter` and `syncedWithEpicenter` for Epicenter enrollment. What a capability keeps for this computer goes to AppData through `settings` from [`@epicenter/local`](../local/README.md), not through a folder. |
 | `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 

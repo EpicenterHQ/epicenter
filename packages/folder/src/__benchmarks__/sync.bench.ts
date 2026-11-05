@@ -2,9 +2,11 @@
  * `sync` at 10,000 notes, timed as ADR-0751 timed the Rust core's rounds:
  * first sync (push everything), unchanged, 10 edits, restore (an empty
  * folder pulls everything), and merge (10 notes changed on both sides).
- * Two worlds: memory stores with a memory repository (the algorithm
- * alone), and directories in Bun with the server's repository on
- * Postgres (what a desktop or the CLI would do).
+ * Three worlds: memory stores with a memory repository (the algorithm
+ * alone), directories in Bun with the server's repository on Postgres (what
+ * the CLI does), and the same directories opened as folders, syncing
+ * through `localStoreOf` (what an app does: its local side is what the
+ * folder already holds).
  *
  *   bun src/__benchmarks__/sync.bench.ts
  *
@@ -13,11 +15,15 @@
  */
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { defineContract } from '@epicenter/definition/contract';
 import { startRepositoryServer } from '../../../server/src/test-helpers/repository-server.js';
 import { memoryStore } from '../device/memory-store.js';
 import { nodeStore } from '../device/node-store.js';
 import type { Store } from '../device/store.js';
+import { localStoreOf } from '../folder.js';
 import { scratch } from '../git.test-support.js';
+import { directory } from '../node.js';
+import { openFolder } from '../open-folder.js';
 import { repositoryStore } from '../remote/store.js';
 import { memoryRepository, type Repository } from '../sync/repository.js';
 import {
@@ -58,6 +64,8 @@ type Device = {
 	store: Store;
 	manifest: ManifestStore;
 	write(path: string, text: string): Promise<void>;
+	/** Wait until the device has heard what `write` did outside it, before a sync is timed. */
+	settle?(): Promise<void>;
 };
 
 type World = {
@@ -83,28 +91,45 @@ async function memoryWorld(): Promise<World> {
 	};
 }
 
-async function serverWorld(): Promise<World> {
+const contract = defineContract({
+	collections: { todos: { path: 'todos/{id}.md' } },
+});
+
+async function serverWorld(asFolder: boolean): Promise<World> {
 	const server = await startRepositoryServer();
 	const account = await server.signIn('bench');
 	const roots: string[] = [];
+	const folders: Disposable[] = [];
 	return {
-		name: 'directory with the server',
+		name: asFolder
+			? 'open folder over a directory with the server'
+			: 'directory with the server',
 		repository: repositoryStore(account, '~/bench'),
 		async device() {
 			const root = await scratch('epicenter-sync-bench-');
 			roots.push(root);
 			const store = nodeStore(root);
+			const write = async (path: string, text: string) => {
+				const target = join(root, path);
+				await mkdir(dirname(target), { recursive: true });
+				await writeFile(target, text);
+			};
+			if (!asFolder) return { store, manifest: storeManifest(store), write };
+			const folder = openFolder(contract, directory(root));
+			folders.push(folder);
 			return {
-				store,
+				store: localStoreOf(folder),
+				// The manifest is kept beside the files, by the plain store.
 				manifest: storeManifest(store),
-				async write(path, text) {
-					const target = join(root, path);
-					await mkdir(dirname(target), { recursive: true });
-					await writeFile(target, text);
+				write,
+				// List again what the watcher may not have delivered yet.
+				settle: async () => {
+					await folder.todos.list();
 				},
 			};
 		},
 		async stop() {
+			for (const folder of folders) folder[Symbol.dispose]();
 			for (const root of roots)
 				await rm(root, { recursive: true, force: true });
 			await server.stop();
@@ -125,6 +150,7 @@ type Row = {
 async function measure(world: World) {
 	const rows: Row[] = [];
 	async function run(label: string, device: Device, note = '') {
+		await device.settle?.();
 		const spent = { local: { ms: 0 }, remote: { ms: 0 }, manifest: { ms: 0 } };
 		const start = performance.now();
 		const report = await sync({
@@ -177,7 +203,11 @@ async function measure(world: World) {
 	return rows;
 }
 
-for (const make of [memoryWorld, serverWorld]) {
+for (const make of [
+	memoryWorld,
+	() => serverWorld(false),
+	() => serverWorld(true),
+]) {
 	const world = await make();
 	try {
 		const rows = await measure(world);
