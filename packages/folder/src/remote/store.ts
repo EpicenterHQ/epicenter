@@ -19,15 +19,11 @@
  * too: what a reader can show changed with it.
  */
 
-import {
-	ClientError,
-	storedWithLfs,
-	type Version,
-} from '@epicenter/definition/contract';
+import { ClientError, storedWithLfs } from '@epicenter/definition/contract';
 import { isNamespaceId, isRepositoryName } from '@epicenter/definition/site';
 import { Ok } from 'wellcrafted/result';
 import { createChanges } from '../changes.js';
-import type { DeviceStore } from '../device/store.js';
+import type { DeviceStore, Version } from '../device/store.js';
 import {
 	createWire,
 	type FileWrite,

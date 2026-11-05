@@ -275,17 +275,17 @@ const recordingAt = (path: string, ext: string) => ({
  */
 const start: Recorder['start'] = async ({ files, path, input, signal }) => {
 	const expected = recordingAt(path, extensionOf(requestedType() ?? ''));
-	// Appending nothing to nothing is `NotFound` only where the files append.
+	// Adding nothing to a file lands only where one is, and answers only where the files append.
 	const probed = await files.append(expected, new Uint8Array(), {
 		create: false,
 		announce: false,
 	});
-	if (probed.error === null)
+	if (probed.error !== null)
+		return RecorderError.Unavailable({ reason: probed.error.message });
+	if (probed.data)
 		return RecorderError.Refused({
 			reason: `a file is already at ${path}.${expected.ext}`,
 		});
-	if (probed.error.name !== 'NotFound')
-		return RecorderError.Unavailable({ reason: probed.error.message });
 	const releaseLock = await hold(lockOf(path));
 	if (releaseLock === null)
 		return RecorderError.Busy({
@@ -322,21 +322,22 @@ const start: Recorder['start'] = async ({ files, path, input, signal }) => {
 				catch: (cause) => RecorderError.Failed({ cause }),
 			});
 			if (readError !== null) return fail(readError, 'streamFailed');
-			const { error } = await files.append(file, new Uint8Array(buffer), {
-				create: !created,
-				announce: false,
-			});
-			if (error === null) {
+			const { data: landed, error } = await files.append(
+				file,
+				new Uint8Array(buffer),
+				{ create: !created, announce: false },
+			);
+			if (landed) {
 				created = true;
 				return;
 			}
 			const at = `${path}.${file.ext}`;
 			const reason =
-				error.name === 'NotFound'
-					? `${at} was removed while it recorded`
-					: error.name === 'Occupied'
-						? `a file is already at ${at}`
-						: error.message;
+				error !== null
+					? error.message
+					: created
+						? `${at} was removed while it recorded`
+						: `a file is already at ${at}`;
 			fail(RecorderError.Refused({ reason }).error, 'storageFailed');
 		});
 	};
@@ -405,9 +406,9 @@ const recover: Recorder['recover'] = async ({ files, under, unnamed }) => {
 		if (releaseLock === null) continue;
 		try {
 			const read = await files.read({ id, ext });
-			if (read.error?.name === 'NotFound') continue;
 			if (read.error !== null)
 				return RecorderError.Failed({ cause: read.error });
+			if (read.data === null) continue;
 			const whole = repairAudio(read.data.bytes, ext);
 			// Already whole, or not audio that reads.
 			if (whole === undefined) {
@@ -417,19 +418,8 @@ const recover: Recorder['recover'] = async ({ files, under, unnamed }) => {
 				});
 				continue;
 			}
-			const written = await files.update(
-				{ id, ext },
-				{ bytes: whole },
-				{ over: read.data.version },
-			);
-			// Changed or removed since it was read: someone else has it now.
-			if (
-				written.error?.name === 'Conflict' ||
-				written.error?.name === 'NotFound'
-			)
-				continue;
-			if (written.error !== null)
-				return RecorderError.Failed({ cause: written.error });
+			// This tab holds the recording's lock: no other tab writes it now.
+			await files.set({ id, ext }, whole);
 			recovered.push({
 				path,
 				durationMs: audioDurationMs(whole, ext) ?? null,

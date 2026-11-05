@@ -20,9 +20,6 @@
 	const entries = createEntries(folder.entries);
 	const chats = createChats(folder.chats);
 
-	/** Why the words or chats did not list, if they did not; the build's `Chrome` says it. */
-	const listError = $derived(folder.entries.error() ?? folder.chats.error());
-
 	const SECTIONS = [
 		{ id: 'words', label: 'Words', icon: BookOpenIcon },
 		{ id: 'chat', label: 'Chat', icon: MessageCircleIcon },
@@ -81,7 +78,7 @@
 	<header class="contents md:flex md:items-center md:gap-2 md:border-b md:px-4 md:py-2">
 		<div class="flex items-center justify-between gap-2 border-b px-4 py-2 md:contents">
 			<h1 class="text-lg font-semibold">Vocab</h1>
-			<Chrome unreadable={listError} />
+			<Chrome />
 		</div>
 		<!--
 			Chat resumes the open chat; with none open, the chat section shows the

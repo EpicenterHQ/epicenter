@@ -1,26 +1,19 @@
 /**
  * `@epicenter/definition/contract`: an app's file layout as plain data, the
- * typed client it derives, the path functions every opener shares, the
+ * shapes of the notes and files it derives, the path functions every opener shares, the
  * check `epicenter check` runs, and a note as text (`noteText`,
  * `readNoteText`) for apps that edit one whole.
  */
 export { checkContract, type FileIssue } from './check.js';
 export {
-	type Client,
 	ClientError,
-	type CollectionClient,
 	type FieldsOf,
-	type FileClient,
 	type FileEntryOf,
 	type FileOf,
 	type InvalidNoteOf,
-	type NoteClient,
 	type NoteOf,
 	type NotePatch,
-	type Over,
 	type PlaceholdersOf,
-	type Subscribe,
-	type Version,
 } from './client.js';
 export {
 	type Collection,
@@ -53,4 +46,3 @@ export {
 	TemplateError,
 	templatesOverlap,
 } from './templates.js';
-export { updateNote } from './update-note.js';

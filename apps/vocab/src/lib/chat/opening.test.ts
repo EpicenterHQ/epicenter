@@ -55,7 +55,7 @@ test('empty tutor opening supplies model content without storing a learner messa
 	};
 	const chat = open(folder, respond);
 	chat.retry();
-	await settle(chat);
+	await settle(chat, folder.lists);
 	expect(requests).toHaveLength(1);
 	expect(requests[0]?.messages).toEqual([
 		{ role: 'user', content: 'Begin our conversation.' },
@@ -102,12 +102,12 @@ test('stopped opening saves no partial answer and retries from empty history', a
 	first.retry();
 	while (first.snapshot().streaming === null) await Bun.sleep(1);
 	first.stop();
-	await settle(first);
+	await settle(first, folder.lists);
 	expect(folder.files.paths('messages')).toEqual([]);
 	first[Symbol.dispose]();
 	const reopened = open(folder, respond);
 	reopened.retry();
-	await settle(reopened);
+	await settle(reopened, folder.lists);
 	expect(calls).toBe(2);
 	expect(reopened.snapshot().messages.map((message) => message.role)).toEqual([
 		'assistant',

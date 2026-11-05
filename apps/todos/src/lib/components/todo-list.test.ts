@@ -30,8 +30,8 @@ function target() {
 }
 
 test('the list shows the folder’s todos, open ones first', async () => {
-	await folder.todos.create({ id: '001', title: 'Milk', done: true });
-	await folder.todos.create({ id: '002', title: 'Eggs', done: false });
+	await folder.todos.set({ id: '001' }, { title: 'Milk', done: true });
+	await folder.todos.set({ id: '002' }, { title: 'Eggs', done: false });
 	const main = target();
 	const view = mount(TodoList, { target: main, props: {} });
 	await settle();

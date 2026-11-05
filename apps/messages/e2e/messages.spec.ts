@@ -12,7 +12,8 @@
  * 3. A demo send records its attempt before Beeper is asked; one with no
  *    confirmation shows Check send, and checking it keeps the text as a draft.
  * 4. A draft another program broke shows its text, with what is wrong as
- *    typed, and saving fixed text repairs it.
+ *    typed; text that still does not fit is saved as typed and stays to
+ *    repair, and saving fixed text repairs it.
  * 5. This browser's files fit the published contract (`epicenter check`).
  * 6. Live Beeper goes through the local program: connect, read, send.
  * 7. The page, loaded once, reopens offline from its service worker's
@@ -257,17 +258,22 @@ test('4. a draft another program broke shows its text, and is repaired', async (
 	await expect(text).toHaveValue(broken);
 	await expect(composer()).toHaveCount(0);
 
-	// What is wrong follows the text as typed; text that still does not fit is refused.
-	await text.fill(
-		'---\nchatId: demo-maya\nprofile: fictional-v1\n---\nMaybe eleven?',
-	);
+	// What is wrong follows the text as typed; text that still does not fit
+	// is saved as typed, and the draft stays to repair.
+	const stillBroken =
+		'---\nchatId: demo-maya\nprofile: fictional-v1\n---\nMaybe eleven?';
+	await text.fill(stillBroken);
 	await expect(repair.getByRole('list', { name: 'Problems' })).toContainText(
 		'mode is missing',
 	);
 	await repair.getByRole('button', { name: 'Save repair' }).click();
-	await expect(
-		repair.getByRole('alert').filter({ hasText: 'Not saved' }),
-	).toBeVisible();
+	await expect
+		.poll(() => opfsText(page, `drafts/${maya}.md`))
+		.toBe(stillBroken);
+	await expect(repair.getByRole('list', { name: 'Problems' })).toContainText(
+		'mode',
+	);
+	await expect(composer()).toHaveCount(0);
 
 	await text.fill(draftNote('Maybe eleven?'));
 	await expect(repair.getByText('This text reads.')).toBeVisible();

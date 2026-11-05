@@ -77,18 +77,13 @@ async function preflight(): Promise<void> {
 		);
 }
 
-/** Resolve once the conversation neither generates nor saves. */
-function settled(conversation: ReturnType<typeof createConversation>) {
-	const active = () =>
-		conversation.snapshot().isGenerating || conversation.snapshot().isSaving;
-	return new Promise<void>((resolve) => {
-		if (!active()) return resolve();
-		const stop = conversation.subscribe(() => {
-			if (active()) return;
-			stop();
-			resolve();
-		});
-	});
+/** Resolve once the conversation no longer generates and the folder's writes have landed. */
+async function settled(
+	conversation: ReturnType<typeof createConversation>,
+	folder: { saving(): boolean },
+) {
+	while (conversation.snapshot().isGenerating || folder.saving())
+		await new Promise((resolve) => setTimeout(resolve, 20));
 }
 
 async function main(): Promise<void> {
@@ -111,7 +106,7 @@ async function main(): Promise<void> {
 			console.log(`\n========== learner: ${JSON.stringify(prompt)} ==========`);
 			const { error } = await conversation.send(prompt);
 			if (error !== null) throw new Error(error.message, { cause: error });
-			await settled(conversation);
+			await settled(conversation, folder);
 			const failure = conversation.snapshot().error;
 			if (failure)
 				throw new Error(

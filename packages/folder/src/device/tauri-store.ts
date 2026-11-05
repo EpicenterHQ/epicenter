@@ -20,7 +20,7 @@
  * then reads again and finds its own bytes.
  */
 
-import { ClientError, type Version } from '@epicenter/definition/contract';
+import { ClientError } from '@epicenter/definition/contract';
 import { invoke } from '@tauri-apps/api/core';
 import { Ok } from 'wellcrafted/result';
 import { type ChangeSource, createChanges } from '../changes.js';
@@ -30,7 +30,7 @@ import {
 	type PutOutcome,
 	type Root,
 } from '../native/bindings.gen.js';
-import type { DeviceStore } from './store.js';
+import type { DeviceStore, Version } from './store.js';
 
 /**
  * The store of the root named `root`, hearing changes from `watch` (the

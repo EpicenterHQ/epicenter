@@ -1,11 +1,11 @@
 <!--
 	One recording: its audio, transcripts, and notes. Its fields are one
 	editor of the note the lists show (`folder.recordings.edit`): what was typed
-	shows until its save answers, then the note again. A recording whose note
-	does not read shows its text, to repair.
+	shows until its save lands, then the note again. A save never fails; the
+	folder keeps it until it lands. A recording whose note does not read shows
+	its text, to repair.
 -->
 <script lang="ts">
-	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -53,7 +53,7 @@
 
 	const results = $derived(library.resultsFor(own));
 	const run = $derived(library.transcriptionRun(own));
-	const transcribing = $derived(run?.state.kind === 'running' || (run?.state.kind === 'unsaved' && run.state.message === undefined));
+	const transcribing = $derived(run?.state.kind === 'running' || run?.state.kind === 'saving');
 	const audio = $derived(library.audioOf(own));
 
 	function when(value: string) {
@@ -90,10 +90,6 @@
 			</Button>
 		{/if}
 	</div>
-	{#if recording.error()}
-		<div class="px-4 pt-2"><UnsavedEdit edit={recording} /></div>
-	{/if}
-
 	{#if repair}
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 			<NoteRepair {repair} />

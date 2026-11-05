@@ -11,7 +11,7 @@
  * - paced: a keystroke, then until the list row shows it (the save landed
  *   and the list redrew), timed together.
  *
- * It reads and writes only through the DOM and `folder.todos.create`, so it
+ * It reads and writes only through the DOM and `folder.todos.set`, so it
  * measures any version of the components and the folder.
  */
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
@@ -29,11 +29,10 @@ const ROUNDS = 5;
 
 const idOf = (index: number) => String(index).padStart(4, '0');
 for (let index = 0; index < COUNT; index++)
-	await folder.todos.create({
-		id: idOf(index),
-		title: `Todo ${index}`,
-		done: index % 3 === 0,
-	});
+	await folder.todos.set(
+		{ id: idOf(index) },
+		{ title: `Todo ${index}`, done: index % 3 === 0 },
+	);
 
 const main = document.createElement('main');
 document.body.append(main);

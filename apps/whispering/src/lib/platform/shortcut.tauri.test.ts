@@ -63,7 +63,7 @@ const note = (key: string) => `---\ntoggleRecording: "${key}"\n---\n`;
 /** The shortcut over a new data folder and this computer's note, `shortcuts.md` written in each where given. */
 async function open({ data, mine }: { data?: string; mine?: string } = {}) {
 	const folder = openFolder(whispering, memory());
-	if (data) await folder.shortcuts.create({ toggleRecording: data });
+	if (data) await folder.shortcuts.set({}, { toggleRecording: data });
 	if (mine) await here.write(note(mine), 'absent');
 	const shortcut = openShortcut(folder);
 	// Its folder is followed for the page's life; a test's ends with the test.

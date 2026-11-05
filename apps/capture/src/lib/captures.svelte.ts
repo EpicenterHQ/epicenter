@@ -6,23 +6,17 @@
  * `$lib/app`), one store's for the page's whole life: the person's
  * `capture` repository (ADR-0700), or the desktop window's folder. Add
  * writes a capture to that store, where it is a commit. The timeline shows
- * the list newest first.
+ * the list newest first. A write never fails: while the store cannot be
+ * reached the folder keeps it, and `<WhenOpen>` says so (ADR-0775).
  */
 
-import {
-	type ClientError,
-	describeIssues,
-	noteText,
-} from '@epicenter/definition/contract';
+import { describeIssues } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import type { FolderNotes, OpenFolderError } from '@epicenter/folder/core';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { Ok, type Result } from 'wellcrafted/result';
+import type { FolderNotes } from '@epicenter/folder/core';
 import type { TextRange } from './capture-actions.svelte.js';
 import {
 	type CaptureNote,
 	type CaptureNotes,
-	capture,
 	captureBody,
 	capturePath,
 	composeBody,
@@ -59,12 +53,6 @@ export type Repair = {
 export type NotText = { readonly id: string; readonly path: string };
 export type Deletion = { readonly id: string; readonly title: string };
 
-export const CaptureError = defineErrors({
-	Refused: ({ message }: { message: string }) => ({ message }),
-});
-export type CaptureError = InferErrors<typeof CaptureError>;
-export type Failure = ClientError | OpenFolderError | CaptureError;
-
 export function instantOf(value: unknown): Date | undefined {
 	if (typeof value !== 'string') return undefined;
 	const time = new Date(value);
@@ -85,10 +73,6 @@ export function newestFirst(
 	}
 	return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
-
-/** The house-style text of a capture as shown: its file's text when Capture or Epicenter wrote it. */
-export const captureText = (note: CaptureNote) =>
-	noteText(capture.collections.captures, note);
 
 /** The text and thoughts of a capture's body, or why its Thoughts are ambiguous. */
 export const readCaptureBody = (note: Pick<CaptureNote, 'body'>) =>
@@ -170,35 +154,39 @@ export function createCaptures(list: CaptureList) {
 			++navigation;
 			opened = undefined;
 		},
-		/** Add `text` as a new capture, then open it at Add a thought. */
-		async create(text: string): Promise<Result<{ id: string }, Failure>> {
-			if (text.trim() === '')
-				return CaptureError.Refused({ message: 'Write something first.' });
+		/**
+		 * Add `text` as a new capture, then, once it has landed, open it at Add
+		 * a thought; answers its id. Blank text writes nothing and answers
+		 * undefined.
+		 */
+		async create(text: string): Promise<string | undefined> {
+			if (text.trim() === '') return undefined;
 			const requested = ++navigation;
 			const now = new Date();
 			const id = timeId(now);
-			const created = await list.create({
-				id,
-				capturedAt: now.toISOString(),
-				body: composeBody(text).body,
-			});
-			if (created.error !== null) return created;
+			await list.set(
+				{ id },
+				{ capturedAt: now.toISOString(), body: composeBody(text).body },
+			);
 			go(requested, id, 'capture', 'new-thought');
-			return Ok({ id });
+			return id;
 		},
 		deletionFor(id: string): Deletion {
 			const note = list.get({ id });
 			const reading = note && readCaptureBody(note).data;
 			return { id, title: reading?.text.trim().slice(0, 60) ?? '' };
 		},
-		/** Delete the capture as shown; one changed elsewhere since is a `Conflict`, and stays. */
-		async delete(deletion: Deletion) {
-			const deleted = await list.delete({ id: deletion.id });
-			if (deleted.error === null && opened?.id === deletion.id) {
+		/**
+		 * Close the capture if it is open, and delete it as shown, answering
+		 * once the delete has landed. One changed elsewhere since it was shown
+		 * is kept with that change, as sync keeps it.
+		 */
+		delete(deletion: Deletion): Promise<void> {
+			if (opened?.id === deletion.id) {
 				++navigation;
 				opened = undefined;
 			}
-			return deleted;
+			return list.delete({ id: deletion.id });
 		},
 	};
 }

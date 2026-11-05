@@ -2,7 +2,7 @@
  * `@epicenter/folder` under the `test` condition: `home()` is a new, empty
  * place in memory, whatever the options, so a folder opened at it is ready
  * a microtask from now. A test seeds it through the folder's ordinary
- * methods (`await folder.todos.create(...)`) and mocks no module; what only
+ * methods (`await folder.todos.set(...)`) and mocks no module; what only
  * the world outside the folder does (another program writing a file, a
  * write that waits or fails) it does through `memoryFiles(folder)` from
  * `@epicenter/folder/memory`. Each call is a new place.

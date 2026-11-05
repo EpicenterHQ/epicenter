@@ -14,21 +14,21 @@
 	import { folder } from '../app.js';
 
 	let {
-		unreadable,
 		pendingNewTodo,
 	}: {
-		/** Why the todos did not list, if they did not. */
-		unreadable: { message: string } | null;
 		/** Whether a typed new todo is still waiting for Add. */
 		pendingNewTodo: boolean;
 	} = $props();
+
+	/** Why the folder's store cannot be reached now, if it cannot. */
+	const unavailable = $derived(folder.unavailable());
 
 	// `<WhenOpen>` renders the pages, and so this, only over the open folder.
 	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.TODOS.url });
 
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
-		if (unreadable !== null) return { label: 'Not readable here', detail: unreadable.message, tone: 'error' };
+		if (unavailable !== null) return { label: 'Not reachable', detail: unavailable.message, tone: 'error' };
 		if (sync.managed) return { label: 'Kept by Epicenter', tone: 'good' };
 		return { label: 'On this computer', tone: 'neutral' };
 	});

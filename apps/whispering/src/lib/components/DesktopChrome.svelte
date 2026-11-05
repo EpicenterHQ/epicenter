@@ -15,20 +15,15 @@
 	import { onMount } from 'svelte';
 	import { folder } from '../app.js';
 	import { onShortcut } from '../platform/shortcut.tauri.js';
-	import type { ChromeProps } from '../platform/types.js';
-	import { headerStatus } from '../status.js';
 	import { getWhispering } from '../whispering.svelte.js';
-
-	let { unwrittenAnswers }: ChromeProps = $props();
 
 	// `<WhenOpen>` renders the app, and so this, only over the open data folder.
 	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.WHISPERING.url });
 	const whispering = getWhispering();
 
-	const kept = $derived<StatusLine>(
+	const status = $derived<StatusLine>(
 		sync.managed ? { label: 'Kept by Epicenter', tone: 'good' } : { label: 'On this computer', tone: 'neutral' },
 	);
-	const status = $derived(headerStatus({ unwrittenAnswers }, kept));
 
 	onMount(() =>
 		onShortcut(() => {

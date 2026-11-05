@@ -5,11 +5,10 @@
  */
 
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
-import { toast } from '@epicenter/ui/sonner';
 import { variant } from '#platform/variant';
 import type { Captures } from './captures.svelte.js';
 
-/** Ask before deleting the capture `id`; the delete acts on the capture as shown when it runs. */
+/** Ask before deleting the capture `id`; confirming closes it and deletes it as shown then. */
 export function confirmDelete(captures: Captures, id: string) {
 	const deletion = captures.deletionFor(id);
 	const named = deletion.title ? `“${deletion.title}” ` : 'This capture ';
@@ -23,12 +22,7 @@ export function confirmDelete(captures: Captures, id: string) {
 			text: 'Delete',
 			variant: 'destructive',
 		},
-		onConfirm: async () => {
-			const deleted = await captures.delete(deletion);
-			if (deleted.error !== null)
-				toast.error('Could not delete this capture', {
-					description: deleted.error.message,
-				});
-		},
+		// The folder keeps the delete until it lands: nothing to wait for here.
+		onConfirm: () => void captures.delete(deletion),
 	});
 }

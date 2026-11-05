@@ -6,7 +6,6 @@
  * - Open todos come first, then done ones, each oldest first
  */
 import { expect, test } from 'bun:test';
-import type { Version } from '@epicenter/definition/contract';
 import { openFirst, type Todo } from './todos.js';
 
 const todo = (id: string, done: boolean): Todo => ({
@@ -14,7 +13,6 @@ const todo = (id: string, done: boolean): Todo => ({
 	title: id.toUpperCase(),
 	done,
 	body: '',
-	version: '' as Version,
 });
 
 test('open todos come first, then done ones, each oldest first', () => {

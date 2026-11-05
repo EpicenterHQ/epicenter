@@ -13,10 +13,10 @@
 	import { account } from '../app.js';
 
 	let {
-		unreadable,
+		unavailable,
 	}: {
-		/** Why the notes or folders did not list, if they did not. */
-		unreadable: { message: string } | null;
+		/** Why the store cannot be reached now (`folder.unavailable()`), if it cannot. */
+		unavailable: { message: string } | null;
 	} = $props();
 
 	// The web build always has an account: its folder is the account's copy.
@@ -30,7 +30,7 @@
 				detail: 'Sign in again to edit your repository.',
 				tone: 'warning',
 			};
-		if (unreadable !== null) return { label: 'Offline', detail: unreadable.message, tone: 'warning' };
+		if (unavailable !== null) return { label: 'Offline', detail: unavailable.message, tone: 'warning' };
 		return { label: 'Online', tone: 'good' };
 	});
 

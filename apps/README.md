@@ -5,8 +5,10 @@ An app's data is a layout of files that its contract describes
 record of that layout
 ([ADR-0700](../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 An app opens its folder through `@epicenter/folder`, which gives it each of
-the contract's collections, with `list`, `get`, `create`, `update` and
-`delete`; any program that writes the layout is a valid writer. Apps never
+the contract's collections, read with `items`, `get` and `list` and written
+with `set` and `delete`, which never fail: the folder keeps a write until it
+lands ([ADR-0775](../docs/adr/0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md)).
+Any program that writes the layout is a valid writer. Apps never
 commit: Epicenter (`epicenter sync`) commits a folder on a computer, and the
 server commits each web write.
 
@@ -77,8 +79,9 @@ shows where the files are. Components import `folder` from `$lib/app.js` and
 never know which store it is.
 
 UI components read a collection off `folder`, sort with the app's own
-order, and read and write through it: `items()`, `invalid()` (notes that do not read, with their
-text), and writes made over the version shown. The component that shows a
+order, and read and write through it: `items()`, `invalid()` (notes that
+do not read, with their text), and `set` and `delete`, which settle a change
+another writer made since the way sync does. The component that shows a
 note makes one editor of it (`todos.edit({ id })`), gates on `exists()`,
 and binds its `fields`. See [Todos](todos/README.md),
 [Capture](capture/README.md) and the

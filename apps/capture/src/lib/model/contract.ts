@@ -38,7 +38,7 @@ export type Capture = typeof capture;
 /** Capture's one collection: a note per capture. */
 export type CaptureNotes = Capture['collections']['captures'];
 
-/** A capture as read: its `id`, `capturedAt`, any other front matter, `body` and `version`. */
+/** A capture as read: its `id`, `capturedAt`, any other front matter, and `body`. */
 export type CaptureNote = NoteOf<CaptureNotes>;
 
 /** A note at a capture's path that does not read as one, with its text. */

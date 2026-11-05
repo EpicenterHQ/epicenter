@@ -12,7 +12,7 @@
  * import { directory } from '@epicenter/folder/node';
  *
  * const folder = openFolder(recorder, directory('/Users/me/Recordings'));
- * const note = await folder.recordings.create({ id: timeId(), title: 'Standup' });
+ * await folder.recordings.set({ id: timeId() }, { title: 'Standup' });
  * ```
  */
 import { mkdir, stat } from 'node:fs/promises';

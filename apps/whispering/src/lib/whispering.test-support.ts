@@ -2,13 +2,7 @@
 import { openFolder } from '@epicenter/folder';
 import type { Place } from '@epicenter/folder/core';
 import { whispering as contract } from './contract.js';
-import type { Library } from './library.svelte.js';
 import type { TestCapabilities } from './services.test-support.js';
-import { headerStatus, ON_THIS_BROWSER } from './status.js';
-
-/** The header's status line over `library`, as the web app's Chrome words it. */
-export const headerLine = (library: Library) =>
-	headerStatus({ unwrittenAnswers: library.unwrittenAnswers }, ON_THIS_BROWSER);
 
 /**
  * Same construction as the app's root (`WhisperingApp`): Whispering and its
@@ -47,6 +41,8 @@ export async function createTestWhispering({
 		library.entries.map((note) => library.audioOf(note.id)),
 	]);
 	return {
+		/** The folder the app reads and writes, as `app.ts`'s: its state, and a note's editor. */
+		folder,
 		whispering,
 		library,
 		close() {

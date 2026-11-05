@@ -60,7 +60,7 @@ export type RecordingStart = {
  */
 export type AudioFiles = Pick<
 	FolderFiles<{ path: '{id}.{ext}' }>,
-	'list' | 'read' | 'update' | 'append'
+	'list' | 'read' | 'set' | 'append'
 >;
 
 /**

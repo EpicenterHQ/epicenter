@@ -125,8 +125,9 @@ The check and the move of `main` are one compare-and-swap step: when any
 path no longer holds its `base`, nothing lands and the write is `409`,
 `occupied` for a create where a file is, `stale` for a path that changed.
 The writer reads what is there and writes again over it; the folder does
-this for a note update (`updateNote`). Writing the bytes a path already
-holds lands as nothing, and a write that changes nothing makes no commit. A
+this for every write, settling a note's body with `settle` (ADR-0774).
+Writing the bytes a path already holds lands as nothing, and a write that
+changes nothing makes no commit. A
 body over 16 MiB is 413 `too_large`. A writer that lost the reply and sends
 the same write again is judged like any other, and finds its own bytes when
 it reads.

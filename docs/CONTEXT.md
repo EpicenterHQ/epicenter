@@ -134,17 +134,18 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | Transaction or publication | Atomic storage work that acknowledges local state. This publication is unrelated to the retired app-owned schema publication. |
 | Cache | Data rebuilt without losing saved work. Unlanded edits and uncertain pending commits are not caches. |
 
-A client's write lands only while the file holds the version its writer
-read. Another writer's change since is a `Conflict`: a change to a different
-field is carried over, and a same-field `Conflict` keeps the typed text for
-retry (overwrite) or discard (take theirs). A client runs no Git merge;
-`epicenter sync` does.
+A folder's write (`set`, `delete`, an editor's save) reads the file just
+before writing it and writes over exactly what it read; when the file moved
+in between, it reads and applies the change again. The fields a write names
+take it, and a body changed since the folder showed the note merges by
+lines with `settle`, as sync merges it (ADR-0774). A write never fails: the
+folder keeps it, in order, until it lands, and `folder.unavailable()` says
+why it waits (ADR-0775). A folder runs no Git merge; `epicenter sync` does.
 
 A Svelte view binds its controls to the open note's editor (`notes.edit`),
-which shows each typed field until its save answers, then follows the client
-again. A failed save keeps that
-text and its error beside the control for retry or discard. In-memory edits
-do not survive a crash. See [the folder package](../packages/folder/README.md)
+which shows each typed field until its save lands, then follows the folder
+again. Writes waiting for the store live in the page's memory and do not
+survive a crash; the leave guard asks before the page closes. See [the folder package](../packages/folder/README.md)
 and [the Svelte adapter](../packages/svelte/README.md).
 
 During `epicenter sync`, stock `git merge` runs `epicenter merge-driver` on

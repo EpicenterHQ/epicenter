@@ -12,12 +12,12 @@
  * or reads wait or fail, and the folder's open waiting or failing.
  * `memoryFiles` from `@epicenter/folder/memory` hands it to a test.
  */
-import { ClientError, type Version } from '@epicenter/definition/contract';
+import { ClientError } from '@epicenter/definition/contract';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { ChangeListener } from '../changes.js';
 import type { OpenFolderError } from '../errors.js';
 import { hashBytes } from '../hash.js';
-import type { DeviceStore } from './store.js';
+import type { DeviceStore, Unavailable, Version } from './store.js';
 
 /** What a test does to a folder in memory from outside it. */
 export type MemoryFiles = {
@@ -47,8 +47,12 @@ export type MemoryFiles = {
 	refuseReads(reason: string, options?: { under?: string }): () => void;
 	/** Make every open of a folder at this place wait until the returned release is called. */
 	holdOpen(): () => void;
-	/** Fail every open of a folder at this place with `error` until the returned undo is called. */
-	refuseOpen(error: OpenFolderError): () => void;
+	/**
+	 * Fail every open of a folder at this place with `error` until the
+	 * returned undo is called: an `OpenFolderError` fails the folder, and
+	 * `Unavailable` is a temporary failure it tries again on its own.
+	 */
+	refuseOpen(error: OpenFolderError | Unavailable): () => void;
 };
 
 /** Whether `path` is below `under` (everything is below no directory). */
@@ -114,7 +118,7 @@ function refusals() {
 export function memoryStore(): DeviceStore & {
 	outside: MemoryFiles;
 	/** Open the store for a folder: once nothing holds the open, the store or the error set. */
-	opened(): Promise<Result<DeviceStore, OpenFolderError>>;
+	opened(): Promise<Result<DeviceStore, OpenFolderError | Unavailable>>;
 } {
 	const files = new Map<string, { bytes: Uint8Array; version: Version }>();
 	let stamps = 0;
@@ -124,7 +128,7 @@ export function memoryStore(): DeviceStore & {
 	const opens = gate();
 	const writeRefusals = refusals();
 	const readRefusals = refusals();
-	let openRefusal: OpenFolderError | null = null;
+	let openRefusal: OpenFolderError | Unavailable | null = null;
 
 	/** The version `bytes` would be, null for a removal. */
 	const versionOf = async (bytes: Uint8Array | null) =>

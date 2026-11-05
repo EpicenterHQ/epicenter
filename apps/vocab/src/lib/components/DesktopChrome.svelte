@@ -18,18 +18,12 @@
 	import { account, folder } from '../app.js';
 	import AccountMenu from './AccountMenu.svelte';
 
-	let {
-		unreadable,
-	}: {
-		/** Why the words or chats did not list, if they did not. */
-		unreadable: { message: string } | null;
-	} = $props();
-
 	// `<WhenOpen>` renders the pages, and so this, only over the open folder.
 	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.VOCAB.url });
 
 	const status = $derived.by((): StatusLine => {
-		if (unreadable !== null) return { label: 'Not readable here', detail: unreadable.message, tone: 'error' };
+		const unavailable = folder.unavailable();
+		if (unavailable !== null) return { label: 'Not readable here', detail: unavailable.message, tone: 'error' };
 		if (sync.managed) return { label: 'Kept by Epicenter', tone: 'good' };
 		return { label: 'On this computer', tone: 'neutral' };
 	});

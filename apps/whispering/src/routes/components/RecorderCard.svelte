@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getLibrary } from '$lib/library.svelte.js';
+	import { folder } from '$lib/app.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -16,12 +16,10 @@
 	 * still being saved included: it reaches the library once its audio is
 	 * placed (on the desktop the shell encodes it after Stop). Three small
 	 * controls sit at its lower right on wide windows and below the hint on
-	 * narrow ones. Where the files cannot be read (a private window keeps
-	 * none) the banner above says recording is off, so no hint invites a
-	 * click.
+	 * narrow ones. While the files cannot be reached (a private window keeps
+	 * none) the root's status line says so, and no hint invites a click.
 	 */
 	const whispering = getWhispering();
-	const library = getLibrary();
 
 	const active = $derived(whispering.recorder.phase === 'recording');
 	const pending = $derived(whispering.recorder.phase === 'starting' || whispering.recorder.phase === 'stopping');
@@ -101,7 +99,7 @@
 			Starting…
 		{:else if whispering.recorder.phase === 'stopping'}
 			Stopping…
-		{:else if !library.error}
+		{:else if !folder.unavailable()}
 			Click to record. Click again to save.
 		{/if}
 	</p>

@@ -19,7 +19,7 @@ The package is six subpaths.
 
 | Subpath | What it holds |
 | --- | --- |
-| `@epicenter/definition/contract` | `defineContract`, path templates (`fill`, `match`), `compileContract`, `checkContract`, the `Client<T>` types every opener returns, and `updateNote`, the rule for an edit that meets a `Conflict` |
+| `@epicenter/definition/contract` | `defineContract`, path templates (`fill`, `match`), `compileContract`, `checkContract`, the shapes of a contract's notes and files (`NoteOf`, `FileEntryOf`, `InvalidNoteOf`, `NotePatch`), and a note as text (`noteText`, `readNoteText`) |
 | `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
 | `@epicenter/definition/merge` | `settle`, the note merge the server and the merge driver run, plus conflict blocks and Git hashes |
 | `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files, and `timeOf()`, when a `timeId` was made |
@@ -57,15 +57,18 @@ A contract describes the app's collections. The app's site names its repository.
 
 A collection whose path ends in `.md` holds notes: front matter `fields` as
 JSON Schema properties, with JSON Schema's own `required`, plus a body. Any
-other path holds files. A note reads as `{ ...placeholders, ...fields, body,
-version }` and a file as `{ ...placeholders, bytes, version }`; every update
-and delete passes back the `version` it read as `over`.
+other path holds files. A note reads as `{ ...placeholders, ...fields, body }`
+and a file as `{ ...placeholders }`, with its `bytes` when read whole. No read
+carries a version and no write takes one: the folder reads a file just
+before it writes it, and settles a change made since with `settle`
+([ADR-0774](../../docs/adr/0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md)).
 
 ### Merging a note
 
 `settle(base, current, incoming, { parties })` is the one note merge. Sync
-runs it on the desktop, and `epicenter merge-driver` runs it for
-`git merge`; the server never merges (ADR-0773). `incoming` is the later
+runs it on the desktop, `epicenter merge-driver` runs it for `git merge`,
+and a folder runs it when a note changed between showing it and writing it;
+the server never merges (ADR-0773). `incoming` is the later
 arrival:
 
 ```ts

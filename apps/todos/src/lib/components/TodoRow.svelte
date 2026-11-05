@@ -4,7 +4,6 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
-	import { toast } from '@epicenter/ui/sonner';
 	import { folder } from '$lib/app.js';
 	import { labelOf, type Todo } from '$lib/todos.js';
 
@@ -21,11 +20,6 @@
 		onOpen?: (id: string) => void;
 	} = $props();
 
-	async function toggleDone() {
-		const { error } = await todos.update({ id: todo.id }, { done: !todo.done });
-		if (error !== null)
-			toast.error('Could not update todo', { description: error.message });
-	}
 	const label = $derived(labelOf(todo));
 </script>
 
@@ -37,7 +31,7 @@
 >
 	<div class="flex items-center gap-2">
 		<Checkbox
-			bind:checked={() => todo.done, () => void toggleDone()}
+			bind:checked={() => todo.done, () => void todos.set({ id: todo.id }, { done: !todo.done })}
 			aria-label="{todo.done ? 'Reopen' : 'Complete'} {label}"
 		/>
 		<Button

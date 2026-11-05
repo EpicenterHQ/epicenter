@@ -88,25 +88,31 @@ Tauri only in the desktop leaves.
 ## The files
 
 `files.svelte.ts` gives the pages one folder's note collections
-(`files.<collection>`, whose reads `items()`, `invalid()`, `loading()` and
-`error()` track through `reactive`) and its recordings' audio.
+(`files.<collection>`, whose reads `items()`, `invalid()` and `loading()`
+track through `reactive`) and its recordings' audio. Every write (`set`,
+`delete`, an editor's save) answers once it has landed and never fails:
+while the store is out of reach the folder keeps it, in order, and the
+root's `<WhenOpen>` says so from `folder.unavailable()` and
+`folder.saving()` (ADR-0775). Whispering holds no write of its own.
 A recording's note is written through the same folder
 (`folder-recordings.ts`), so the lists show it as soon as it lands. The library
 sorts each list (`newest`, `byTitle`). Each list lists and listens only while
 something reactive reads it; a read outside an effect is a snapshot.
 
 - A page edits one note with one editor from the folder itself
-  (`folder.recordings.edit({ id })`): its saves go one at a time,
-  over what the person saw when typing began, so another writer's change to
-  a field not typed is kept and a change to a typed one surfaces as a
-  conflict.
+  (`folder.recordings.edit({ id })`): its saves go one at a time, each
+  typed field taking this write and another writer's change to a field not
+  typed kept; a body typed over a change made elsewhere is merged by lines
+  (ADR-0774).
 - A note that does not read is in the list's `invalid()`, with its issues and
   text; `library.repairs` gathers those of recordings, transcriptions and
   transformation runs, and the transformations page shows its own and text
-  runs'. `replace` repairs one from text.
+  runs'. `NoteRepair.svelte` repairs one from text through the note's
+  editor (`edit.text`); text that still does not read is written as typed
+  and stays listed.
 
 Audio is a file collection, `recordings/{id}.{ext}`. `files.audioOf(id)`
-answers `here` with one file (its extension and version), `ambiguous` for
+answers `here` with one file (its extension), `ambiguous` for
 more than one extension, `absent`, or `listing`. `files.readAudio(id)` reads
 its bytes through the folder (`audio.read`).
 
@@ -133,12 +139,14 @@ A recording has no note while it records: the record screen
 (`RecorderCard.svelte`) shows the take. Stop releases the microphone and
 answers once the audio is at its path, with how long it plays; the note
 (`title` from the start time, `recordedAt`, `capture`, `durationMs`) is
-written then (`keepRecording` in `folder-recordings.ts`), so the library
-gains the row then and every note names audio that is there. On the
+written then with `set` (`keepRecording` in `folder-recordings.ts`), after
+the audio has landed, so the library gains the row then and every note
+names audio that is there. While the store is out of reach the note waits
+in the folder; a page closed first leaves the audio for the next start. On the
 desktop Stop finishes the file and places it in the same few milliseconds
 for a recording of any length, so nothing waits after Stop. A recording
-that wrote no audio (the store refused it, or nothing was captured), or
-whose audio could not be placed, leaves no note.
+that wrote no audio (the browser's storage refused an append, or nothing
+was captured), or whose audio could not be placed, leaves no note.
 Recording never waits on the network. Where the browser keeps no files (a
 private window) the recorder refuses before any microphone opens.
 
@@ -176,11 +184,12 @@ it runs on (`transcriptions:<recording>`, `transformation_runs:<transcript>:<rec
 result's id (`timeId`) and its target (the endpoint and model chosen then)
 when it starts. Its state lives in this window: `running`, `failed` (Run
 again resends the same request to the same target, and fails with why when
-that endpoint was removed or moved since), or `unsaved` (the answer arrived; its note
-is being created, or why it was not; Save again creates it with the same id
-and sends nothing, and `Occupied` means an earlier save landed). When the
-answer arrives the result note is created in the files with every field
-fixed and the answer as its body, so a result note always holds an answer.
+that endpoint was removed or moved since), or `saving` (the answer arrived
+and its note is on its way to the files; the run ends when it lands). When
+the answer arrives the result note is written with `set` under the id fixed
+at the start, every field fixed and the answer as its body, so a result
+note always holds an answer. The write never fails, so no answer is held
+here to save again.
 
 - Transcription reads the audio through `files.readAudio` only once the
   target's endpoint is known to be where it was, and checks again before it
@@ -243,12 +252,14 @@ results; a result or a note that does not read goes alone.
 
 ## Status and closing
 
-The header's status line (`status.ts`) says where the recordings are kept,
-"On this browser"; an answer not saved outranks it.
+The header's status line (each variant's `Chrome`) says where the
+recordings are kept: "On this browser" on the web. Whether the files can be
+reached now is the root's (`<WhenOpen>`), not the header's.
 
-`dispose` refuses new work and late answers, releases a test microphone, and
-revokes held recordings' URLs; it waits for nothing. A recording under way
-ends with the page.
+`dispose` refuses new work and late answers and releases a test microphone;
+it waits for nothing. A recording under way ends with the page, and a write
+still waiting in the folder then is lost; the root's leave guard asks before
+the page is left while one is out.
 
 ## Tests
 

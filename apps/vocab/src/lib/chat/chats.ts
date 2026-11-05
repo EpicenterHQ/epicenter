@@ -1,9 +1,5 @@
 import type { FolderNotes } from '@epicenter/folder/core';
-import {
-	defineErrors,
-	extractErrorMessage,
-	type InferErrors,
-} from 'wellcrafted/error';
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Vocab } from '../contract.js';
 import {
@@ -19,10 +15,6 @@ import {
 export type ChatList = FolderNotes<Vocab['collections']['chats']>;
 
 export const ChatHistoryError = defineErrors({
-	NotSaved: ({ cause }: { cause: unknown }) => ({
-		message: `This chat was not saved: ${extractErrorMessage(cause)}`,
-		cause,
-	}),
 	InvalidFocus: () => ({ message: 'Choose one to three saved expressions.' }),
 });
 export type ChatHistoryError = InferErrors<typeof ChatHistoryError>;
@@ -61,6 +53,7 @@ export function listingOf(
 	};
 }
 
+/** Save a new chat of `focus`, answering once it has landed; a focus of none or more than three is refused. */
 export async function startChat(
 	chats: ChatList,
 	focus: readonly FocusItem[],
@@ -76,8 +69,8 @@ export async function startChat(
 		createdAt: new Date().toISOString(),
 		focus: focus.map(({ entryId, text }) => ({ entryId, text })),
 	};
-	const { error } = await chats.create({ ...chat, body: '' });
-	return error ? ChatHistoryError.NotSaved({ cause: error }) : Ok(chat);
+	await chats.set({ id: chat.id }, { createdAt: chat.createdAt, focus: chat.focus });
+	return Ok(chat);
 }
 
 export function createChats(list: ChatList) {

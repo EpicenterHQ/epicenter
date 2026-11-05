@@ -10,18 +10,19 @@
  * OPFS, opfs-probe/RESULTS.md):
  *
  * 1. A note lands in house style at its contract path, and 5 MB of audio
- *    reads back byte for byte, its version the sha256 of its bytes.
+ *    reads back byte for byte, its version the sha256 of its bytes; a write
+ *    there expecting nothing is `'stale'`.
  * 2. A second tab reads the same files.
- * 3. Two tabs racing an update over one version: one lands, one `Conflict`.
- *    Two tabs racing a create of one path: one lands, one `Occupied`. The
- *    Web Lock per path is what serializes them across the tabs' Workers.
+ * 3. Below the folder, two tabs racing a write over one version: one lands,
+ *    one is `'stale'`; racing a write where nothing is at one path, likewise.
+ *    The Web Lock per path is what serializes them across the tabs' Workers.
  *    Two writes racing within one tab take turns under the same lock.
  * 4. A write in one tab reaches the other tab's listeners (the Worker's
  *    broadcast), and the writing tab's own listeners before it resolves.
  * 5. A listing taken while files are being deleted answers, without the
  *    files that went (a file removed mid-walk is skipped, not a failure).
  * 6. A file appended a piece at a time (a recording) reads back whole, every
- *    read taken while it grows answers, a second create is `Occupied`, and the
+ *    read taken while it grows answers, a second create answers false, and the
  *    other tab hears it made and announced, not each piece.
  * 7. Nothing is left staged, and the files survive a reload and a restart.
  *
@@ -116,10 +117,12 @@ try {
 			);
 			check(seeded.callerBytesIntact, "a write detached the caller's bytes");
 			check(
-				seeded.occupied === 'Occupied',
-				`second create: ${seeded.occupied}`,
+				seeded.occupied === 'stale',
+				`a write where the note is, expecting nothing: ${seeded.occupied}`,
 			);
-			steps.push('note in house style; 5 MB audio round trip; Occupied');
+			steps.push(
+				'note in house style; 5 MB audio round trip; a write where nothing was expected is stale',
+			);
 
 			const b = await page(context);
 			const seen = await b.evaluate(() => deviceSmoke.read('r1'));
@@ -136,7 +139,7 @@ try {
 				b.evaluate(() => deviceSmoke.listen()),
 			]);
 			const toldSelf = await a.evaluate(async () => {
-				await deviceSmoke.create('told', 'Told');
+				await deviceSmoke.set('told', 'Told');
 				return deviceSmoke.heard();
 			});
 			// The folder shows its own write before the write answers.
@@ -152,7 +155,7 @@ try {
 				b.evaluate((over) => deviceSmoke.update('r1', 'From B', over), over),
 			]);
 			check(
-				[...updates].sort().join() === 'Conflict,landed',
+				[...updates].sort().join() === 'landed,stale',
 				`racing updates: ${updates}`,
 			);
 			const creates = await Promise.all([
@@ -160,15 +163,15 @@ try {
 				b.evaluate(() => deviceSmoke.create('race', 'B')),
 			]);
 			check(
-				[...creates].sort().join() === 'Occupied,landed',
+				[...creates].sort().join() === 'landed,stale',
 				`racing creates: ${creates}`,
 			);
 			steps.push(`two tabs racing: updates ${updates}, creates ${creates}`);
 			const oneTab = await a.evaluate(() => deviceSmoke.raceInOnePage('same'));
 			check(
 				!('error' in oneTab) &&
-					[...oneTab.updates].sort().join() === 'Conflict,landed' &&
-					[...oneTab.creates].sort().join() === 'Occupied,landed',
+					[...oneTab.updates].sort().join() === 'landed,stale' &&
+					[...oneTab.creates].sort().join() === 'landed,stale',
 				`racing in one tab: ${JSON.stringify(oneTab)}`,
 			);
 			steps.push(
@@ -193,7 +196,7 @@ try {
 			check(
 				appended.problem === null &&
 					appended.readFailures.length === 0 &&
-					appended.again === 'Occupied' &&
+					appended.again === 'stale' &&
 					appended.announced === 'landed' &&
 					appended.whole,
 				`appending: ${JSON.stringify(appended)}`,

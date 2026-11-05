@@ -9,17 +9,17 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
-	import { account } from '../app.js';
+	import { account, folder } from '../app.js';
 
 	let {
-		unreadable,
 		pendingNewTodo,
 	}: {
-		/** Why the todos did not list, if they did not. */
-		unreadable: { message: string } | null;
 		/** Whether a typed new todo is still waiting for Add. */
 		pendingNewTodo: boolean;
 	} = $props();
+
+	/** Why the folder's store cannot be reached now, if it cannot. */
+	const unavailable = $derived(folder.unavailable());
 
 	// The web build always has an account: its folder is the account's copy.
 	const auth = account!;
@@ -32,7 +32,7 @@
 				detail: 'Sign in again to edit your repository.',
 				tone: 'warning',
 			};
-		if (unreadable !== null) return { label: 'Offline', detail: unreadable.message, tone: 'warning' };
+		if (unavailable !== null) return { label: 'Offline', detail: unavailable.message, tone: 'warning' };
 		return { label: 'Online', tone: 'good' };
 	});
 

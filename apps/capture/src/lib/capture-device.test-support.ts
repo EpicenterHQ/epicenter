@@ -2,9 +2,9 @@
  * Capture's page state (`createCaptures`) over a folder at a new place in
  * memory (`@epicenter/folder/memory`), in place of the folder the page is
  * given, read through `reactive` as `$lib/app` reads its own. The folder's
- * writes can be made to fail, or to wait until released, the way a lost
- * connection or a slow write would, and another program can write its
- * files.
+ * writes can be made to wait, refused by the store or held until released,
+ * the way a lost connection or a slow write would, and another program can
+ * write its files.
  *
  * Import `svelte-dom.test-support.js` (or `svelte-modules`) first: the store
  * and `reactive` need Svelte's client runtime.
@@ -41,7 +41,7 @@ export async function until(
 
 /**
  * The capture store over a folder holding `files`, as the page composes it.
- * Writes fail or wait on command.
+ * Writes wait on command.
  */
 export async function openCaptures(files: Files = {}) {
 	const place = memory();
@@ -66,8 +66,8 @@ export async function openCaptures(files: Files = {}) {
 		writeElsewhere: (path: string, text: string) => outside.write(path, text),
 		/** Delete `path` in the folder as another tab or program would. */
 		deleteElsewhere: (path: string) => outside.write(path, null),
-		/** Fail every write until the returned function is called. */
-		failWrites: (reason = 'the disk is full') => outside.refuse(reason),
+		/** Refuse every write, which waits and tries again, until the returned function is called. */
+		refuseWrites: (reason = 'the disk is full') => outside.refuse(reason),
 		/** Hold every write until the returned function is called. */
 		holdWrites: () => outside.hold(),
 		async close() {

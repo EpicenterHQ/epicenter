@@ -13,9 +13,9 @@
  * - A read the shell answers `NotFound` is no file
  */
 import { afterEach, expect, mock, test } from 'bun:test';
-import type { Version } from '@epicenter/definition/contract';
 import { expectOk } from 'wellcrafted/testing';
 import { hashBytes } from '../hash.js';
+import type { Version } from './store.js';
 
 let putHeaders: Record<string, string> | undefined;
 let readArgs: { path?: string; root?: string } | undefined;

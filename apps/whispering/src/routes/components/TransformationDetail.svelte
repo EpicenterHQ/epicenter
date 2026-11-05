@@ -5,7 +5,6 @@
 	A transformation whose note does not read shows its text, to repair.
 -->
 <script lang="ts">
-	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import * as Collapsible from '@epicenter/ui/collapsible';
 	import * as Field from '@epicenter/ui/field';
@@ -51,7 +50,7 @@
 	/** Why its note does not read, when it does not. */
 	const repair = $derived(library.transformationRepairs.find((item) => item.id === own));
 
-	/** The model as typed until its save answers, else as the note holds it. */
+	/** The model as typed until its save lands, else as the note holds it. */
 	const modelText = $derived(recipe.fields.model ?? '');
 	/** The recipe as its fields show it, typing included. */
 	const shown = $derived<RecipeRow | undefined>(
@@ -203,10 +202,6 @@
 			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="transformation-title-text">{own}</h2>
 		{/if}
 	</div>
-	{#if recipe.error()}
-		<div class="px-4 pt-2"><UnsavedEdit edit={recipe} /></div>
-	{/if}
-
 	{#if repair}
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 			<NoteRepair {repair} />

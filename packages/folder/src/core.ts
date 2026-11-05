@@ -12,9 +12,9 @@ export type {
 	FolderLifecycle,
 	FolderNotes,
 	FolderState,
-	NoteBase,
 	NoteEdit,
 	NoteEditOptions,
 	RevealFolderError,
+	Unavailable,
 } from './folder.js';
 export type { Place } from './place.js';

@@ -1,9 +1,10 @@
 <!--
 	The page's leave guard: while `folder.saving()` (a write from its call, or
-	an editor's keystroke, until it answers), leaving the page asks first (a
+	an editor's keystroke, until it lands), leaving the page asks first (a
 	browser's "Leave site?"). Closing a desktop window does not ask the page,
 	so a local write still out then is a small, rare loss at the edge
-	(ADR-0702).
+	(ADR-0702). Writes waiting for an unreachable store live in the page's
+	memory, so the guard matters most then (ADR-0775).
 
 	```svelte
 	<LeaveGuard {folder} />

@@ -68,6 +68,13 @@ export const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this refuses
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
+/**
+ * Characters a file system refuses in a name (Windows, and so a synced
+ * folder's other computers): a value filled in never holds one, though a
+ * file another program made with one still matches.
+ */
+const REFUSED_BY_SOME_DISK = /[:*?"<>|]/;
+
 /** A path segment, or a placeholder value, that cannot escape, hide, or break its segment. */
 function isUsableSegment(value: string) {
 	return (
@@ -184,7 +191,7 @@ export function match(
 	return out;
 }
 
-/** The path `template` names for these placeholder values; refuses a value `match` could not read back. */
+/** The path `template` names for these placeholder values; refuses a value `match` could not read back, or one a disk refuses. */
 export function fill(
 	template: Template,
 	params: Record<string, unknown>,
@@ -203,6 +210,7 @@ export function fill(
 			if (
 				typeof value !== 'string' ||
 				!isUsableSegment(value) ||
+				REFUSED_BY_SOME_DISK.test(value) ||
 				(!last && `${value}${after}`.indexOf(after) !== value.length)
 			)
 				return TemplateError.InvalidValue({ param, value });

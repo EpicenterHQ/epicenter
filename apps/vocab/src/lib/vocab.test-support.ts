@@ -4,8 +4,8 @@
  * chats and messages as the page reads them (read through `reactive`), the
  * words and chats kept listing as an open page keeps them, the place's files
  * as another program reads and writes them (`memoryFiles`, which also holds
- * the folder's writes or refuses them below one directory, the way a slow
- * write or a lost connection would), and another program's folder at the
+ * the folder's writes, or refuses them below one directory so they wait the
+ * way they wait for a lost connection), and another program's folder at the
  * same place.
  *
  * Import after `svelte-modules.test-support.js`, which compiles the runes.
@@ -71,13 +71,11 @@ export async function until(check: () => boolean, timeout = 4000) {
 	}
 }
 
-/** Wait until a conversation neither generates nor saves. */
-export async function settle(conversation: {
-	snapshot(): { isGenerating: boolean; isSaving: boolean };
-}) {
-	while (
-		conversation.snapshot().isGenerating ||
-		conversation.snapshot().isSaving
-	)
+/** Wait until a conversation no longer generates and its folder's writes have landed. */
+export async function settle(
+	conversation: { snapshot(): { isGenerating: boolean } },
+	folder: { saving(): boolean },
+) {
+	while (conversation.snapshot().isGenerating || folder.saving())
 		await new Promise<void>((resolve) => setImmediate(resolve));
 }

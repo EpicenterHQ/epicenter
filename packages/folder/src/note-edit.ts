@@ -3,105 +3,118 @@
  * (`folder.todos.edit({ id })`): a plain object with its own reads, actions
  * and `subscribe`, which any framework adapts the way it adapts the folder.
  *
+ * Typing a field, the body, or the note's whole text saves it. Saves go
+ * through the folder's queue in order, one at a time, and each sends
+ * everything typed since the last that landed, so a burst of keystrokes is
+ * a few writes. A save never fails: while the store is out of reach it
+ * waits, and the editor keeps showing what was typed (ADR-0775). Each typed
+ * field takes this write; a body or whole text typed over a note that
+ * changed since the typing began is settled with `settle`, against the
+ * text the editor began from (ADR-0774), so neither side is lost.
+ *
  * The editor holds nothing while nobody listens: its `subscribe` is the
  * collection's (which lists while someone listens) plus its own changes, so
  * an editor nobody reads is garbage like any object, and needs no teardown.
  */
 import type {
-	ClientError,
 	Collection,
 	FieldsOf,
 	NotePatch,
-	Version,
 } from '@epicenter/definition/contract';
 import { sameValue } from '@epicenter/definition/note';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { OpenFolderError } from './errors.js';
+import type { Seen } from './device/client.js';
+import type { noteCodec } from './note-codec.js';
 
 const log = createLogger('folder');
 
 /**
  * One note as an immediate editor. `fields` holds each declared field and
- * `body`: each shows what was typed until its save answers, then the note,
- * and setting one saves it. The rest says whether the note is there and how
- * its saves stand.
+ * `body`, and `text` the whole note: each shows what was typed until its
+ * save lands, then the note, and setting one saves it.
  */
 export type NoteEdit<TCollection extends Collection> = {
 	/** The note's fields and body to read and bind; one accessor each, live for the editor's life. */
 	readonly fields: NotePatch<TCollection>;
+	/**
+	 * The note's whole text, front matter and body, to read and bind: what
+	 * was typed until it lands, else the file as the folder shows it (one
+	 * that does not read included), and empty where there is none. Setting
+	 * it saves it: a text whose front matter parses is written in house
+	 * style, and one that does not is written as typed and shows in
+	 * `invalid()` until it is repaired. After a save lands, `text` keeps
+	 * showing what was typed for as long as the file is what that save
+	 * left and differs from the typing in house style alone, so house style
+	 * never rewrites text while it is typed; a change merged in shows.
+	 */
+	text: string;
 	/** Whether a note that reads is listed at the editor's path; false while missing, deleted or not reading. */
 	exists(): boolean;
-	/** Why the newest save failed; null while none has. What was typed stays. */
-	error(): ClientError | OpenFolderError | null;
-	/** Whether a save is out: from the keystroke until it answers. */
+	/** Whether a save is out: from the keystroke until it lands. */
 	saving(): boolean;
-	/** What was typed and is not yet shown as saved, by field; null while the editor shows the note. */
-	typed(): NotePatch<TCollection> | null;
-	/** Send what was typed again, over the note as shown now; answers as `landed()` does. */
-	retry(): Promise<Result<void, ClientError | OpenFolderError>>;
-	/** Show the note again, dropping what was typed; a save already out still lands. */
-	discard(): Promise<void>;
-	/** Answers once the newest typed value's save does: at once when nothing typed is waiting. */
-	landed(): Promise<Result<void, ClientError | OpenFolderError>>;
+	/** What was typed and is not yet shown as landed, by field (`text` for the whole note); null while the editor shows the note. */
+	typed(): (NotePatch<TCollection> & { text?: string }) | null;
+	/** Show the note again, dropping what was typed and not yet sent; a save already out still lands. */
+	discard(): void;
+	/** Answers once everything typed so far has landed: at once when nothing is waiting. */
+	landed(): Promise<void>;
 	/** Call `listener` when a read may answer differently: the editor's own, or the note's. */
 	subscribe(listener: () => void): () => void;
 };
 
 /** What `edit` takes beside the note's placeholders. */
 export type NoteEditOptions<TCollection extends Collection> = {
-	/** Make the note on the first save when none is shown: these fields, and what was typed. */
+	/** The fields a save gives the note when none is there yet, beside what was typed. */
 	create?: () => FieldsOf<TCollection> & { body?: string };
 };
 
-type Entry = { [key: string]: unknown; version: Version };
 type Args = Record<string, unknown>;
-type Saved = Result<unknown, ClientError | OpenFolderError>;
 
 /**
- * The editor of the note `args` names, over the collection's own writes
- * (settled, not held) and reads. Each keystroke is held by `hold` from the
- * moment it is typed until its save answers.
+ * The editor over the note the collection shows as `shown()`. `save`
+ * queues one write with the folder, whose text `next` makes, at the moment
+ * it runs, from the text there; `landed` hears what it left.
  */
 export function editNote({
-	args,
-	options,
 	fieldNames,
+	options,
+	codec,
 	shown,
-	create,
-	update,
-	hold,
+	save,
 	subscribe,
 }: {
-	args: Args;
-	options: { create?: () => Args };
 	fieldNames: readonly string[];
-	/** The note `args` names, as the collection shows it. */
-	shown: () => Entry | undefined;
-	create: (value: Args) => Promise<Saved>;
-	update: (args: Args, patch: Args, options: { base?: Entry }) => Promise<Saved>;
-	hold: <T>(write: Promise<T>) => Promise<T>;
+	options: { create?: () => Args };
+	codec: ReturnType<typeof noteCodec>;
+	/** The note at the editor's path, as the collection shows it. */
+	shown: () => Seen | undefined;
+	save: (
+		next: (text: string | null, exists: boolean) => string | null,
+		landed: (seen: Seen | null) => void,
+	) => Promise<void>;
 	/** The collection's `subscribe`, which lists while someone listens. */
 	subscribe: (listener: () => void) => () => void;
 }) {
-	/** What was typed and not yet shown as saved, by field; none shows the note. */
+	/** What was typed and not yet shown as landed: fields, and the whole text. */
 	let typed: Args | null = null;
-	let error: ClientError | OpenFolderError | null = null;
-	/** Keystrokes whose save has not answered. */
-	let sending = 0;
-	/** The fields typed since the last save that landed: what the next save sends. */
-	let pending: Args = {};
+	let typedText: string | null = null;
 	/**
-	 * What this run of typing is made over: the version shown when it began,
-	 * and each typed field as shown when its typing began. None between runs.
+	 * The whole text last typed and landed, and the file it left: `text`
+	 * keeps showing the typing while the file is still what it left (house
+	 * style may differ from it), so a save never rewrites text being typed.
 	 */
-	let base: Entry | undefined;
-	/** The newest keystroke's number: only its save is sent, and only its answer shown. */
-	let newest = 0;
-	/** The newest keystroke's save, answered once what it shows is shown. */
-	let latest: Promise<Saved> = Promise.resolve(Ok(undefined));
-	/** The saves, one at a time. */
-	let running: Promise<unknown> = Promise.resolve();
+	let landedText: { typed: string; left: string | null } | null = null;
+	/** Fields typed since the last save that landed: what the next save sends. */
+	let pending: Args = {};
+	let pendingText: string | null = null;
+	/** The note's text when typing of the body, or of the whole text, began (null: no note). */
+	let bodyBegan: string | null = null;
+	let textBegan: string | null = null;
+	/** A save is queued and has not started: a keystroke now joins it. */
+	let queued = false;
+	/** Saves queued or running. */
+	let out = 0;
+	let waiters: (() => void)[] = [];
 	const listeners = new Set<() => void>();
 
 	function notify() {
@@ -113,126 +126,111 @@ export function editNote({
 			}
 	}
 
-	/** Write `patch`: a new note when none is there to write over and `create` says how. */
-	async function write(patch: Args): Promise<Saved> {
-		if (options.create && base === undefined && !shown()) {
-			const created = await create({ ...options.create(), ...args, ...patch });
-			if (created.error?.name !== 'Occupied') return created;
-		}
-		return update(args, patch, base ? { base } : {});
+	const shownText = () => shown()?.text ?? null;
+	const waitingToSend = () =>
+		pendingText !== null || Object.keys(pending).length > 0;
+
+	/** Everything typed has landed: tell whoever waits. */
+	function settled() {
+		if (out > 0 || waitingToSend()) return;
+		const done = waiters;
+		waiters = [];
+		for (const resolve of done) resolve();
 	}
 
-	/**
-	 * After an older save of `patch` landed as `saved`, what the next save is
-	 * made over: `saved`, unless a field still waiting changed under it since
-	 * its typing began, which the next save must then surface as a clash.
-	 */
-	function after(saved: Entry, patch: Args): Entry {
-		if (base === undefined) return saved;
-		const was = base;
-		const moved = Object.keys(pending).some(
-			(field) => !(field in patch) && !sameValue(saved[field], was[field]),
-		);
-		if (!moved) return saved;
-		return {
-			...was,
-			...Object.fromEntries(
-				Object.keys(patch).map((field) => [field, saved[field]]),
-			),
-		};
-	}
-
+	/** Queue a save, unless one waiting to start will carry this keystroke. */
 	function send() {
-		const ticket = ++newest;
-		base ??= shown();
-		const saved = running.then(async (): Promise<Saved> => {
-			// A newer keystroke is waiting: its save carries this one's typing.
-			if (ticket !== newest) return Ok(undefined);
-			const patch = { ...pending };
-			if (Object.keys(patch).length === 0) return Ok(undefined);
-			const written = await write(patch);
-			if (written.error === null) {
-				for (const [field, value] of Object.entries(patch))
-					if (sameValue(pending[field], value)) delete pending[field];
-				base =
-					ticket === newest ? undefined : after(written.data as Entry, patch);
-			} else if (written.error.name === 'Conflict') base = undefined;
-			return written;
-		});
-		running = saved.catch(() => {});
-		sending++;
-		latest = hold(saved)
-			.finally(() => {
-				sending--;
-				notify();
-			})
-			.then((result) => {
-				// Shown unless a newer keystroke or a discard has moved on.
-				if (ticket === newest && typed !== null) {
-					if (result.error === null) typed = null;
-					else error = result.error;
-					notify();
+		if (queued) return;
+		queued = true;
+		out++;
+		/** What this save sent, as it last ran. */
+		let sent: { fields: Args; text: string | null; alone: boolean } = {
+			fields: {},
+			text: null,
+			alone: false,
+		};
+		void save(
+			(text, exists) => {
+				queued = false;
+				sent = {
+					fields: { ...pending },
+					text: pendingText,
+					// Only the typed text, over the file it began from: what lands differs from it in house style alone.
+					alone: text === textBegan && Object.keys(pending).length === 0,
+				};
+				let next = text;
+				if (sent.text !== null) next = codec.edit(next, textBegan, sent.text);
+				if (Object.keys(sent.fields).length > 0) {
+					const change =
+						!exists && options.create
+							? { ...options.create(), ...sent.fields }
+							: sent.fields;
+					next = codec.set(next, bodyBegan, change);
 				}
-				return result;
-			});
+				return next;
+			},
+			(seen) => {
+				for (const [field, value] of Object.entries(sent.fields))
+					if (field in pending && sameValue(pending[field], value))
+						delete pending[field];
+				if (pendingText === sent.text) pendingText = null;
+				// Typing that goes on is made over what this save left.
+				const left = seen?.text ?? null;
+				landedText =
+					sent.text !== null && sent.alone ? { typed: sent.text, left } : null;
+				if ('body' in pending) bodyBegan = left;
+				if (pendingText !== null) textBegan = left;
+				typed = Object.keys(pending).length === 0 ? null : { ...pending };
+				typedText = pendingText;
+			},
+		).finally(() => {
+			out--;
+			notify();
+			settled();
+		});
 	}
 
-	function set(field: string, value: unknown) {
-		if (!(field in pending)) {
-			const note = shown();
-			if (note !== undefined) base = { ...(base ?? note), [field]: note[field] };
-		}
+	function setField(field: string, value: unknown) {
+		if (field === 'body' && !('body' in pending)) bodyBegan = shownText();
 		pending[field] = value;
 		typed = { ...typed, [field]: value };
-		error = null;
 		send();
 		notify();
 	}
 
-	/** Each field and the body: what was typed until its save answers, else the note as shown. */
+	/** Each field and the body: what was typed until its save lands, else the note as shown. */
 	const fields = {};
 	for (const field of [...fieldNames, 'body'])
 		Object.defineProperty(fields, field, {
 			enumerable: true,
 			get() {
 				if (typed !== null && field in typed) return typed[field];
-				return shown()?.[field];
+				return shown()?.item?.[field];
 			},
-			set: (value: unknown) => set(field, value),
+			set: (value: unknown) => setField(field, value),
 		});
 
-	async function landed(): Promise<Result<void, ClientError | OpenFolderError>> {
-		while (typed !== null) {
-			const ticket = newest;
-			const result = await latest;
-			if (ticket !== newest) continue;
-			return result.error === null ? Ok(undefined) : Err(result.error);
-		}
-		return Ok(undefined);
-	}
-
-	return {
+	const editor = {
 		fields,
-		exists: () => shown() !== undefined,
-		error: () => error,
-		saving: () => sending > 0,
-		typed: () => typed,
-		retry() {
-			if (typed !== null) {
-				error = null;
-				send();
-				notify();
-			}
-			return landed();
-		},
-		async discard() {
+		exists: () => (shown()?.item ?? null) !== null,
+		saving: () => out > 0,
+		typed: () =>
+			typed === null && typedText === null
+				? null
+				: { ...typed, ...(typedText === null ? {} : { text: typedText }) },
+		discard() {
 			typed = null;
-			error = null;
-			base = undefined;
+			typedText = null;
+			landedText = null;
 			pending = {};
+			pendingText = null;
 			notify();
+			settled();
 		},
-		landed,
+		landed() {
+			if (out === 0 && !waitingToSend()) return Promise.resolve();
+			return new Promise<void>((resolve) => waiters.push(resolve));
+		},
 		subscribe(listener: () => void) {
 			listeners.add(listener);
 			const stopNotes = subscribe(listener);
@@ -242,4 +240,22 @@ export function editNote({
 			};
 		},
 	};
+	Object.defineProperty(editor, 'text', {
+		enumerable: true,
+		get() {
+			if (typedText !== null) return typedText;
+			const now = shownText();
+			if (landedText !== null && landedText.left === now)
+				return landedText.typed;
+			return now ?? '';
+		},
+		set(value: string) {
+			if (pendingText === null) textBegan = shownText();
+			pendingText = value;
+			typedText = value;
+			send();
+			notify();
+		},
+	});
+	return editor;
 }

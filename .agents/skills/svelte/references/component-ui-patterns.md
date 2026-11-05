@@ -234,10 +234,11 @@ The view that shows a note makes one editor of it during setup
 (`const todo = folder.todos.edit({ id })`),
 gates on `todo.exists()`, and reads every value through `todo.fields` rather
 than a second `get` or a prop. Bind its fields
-(`bind:value={todo.fields.title}`, `bind:checked={todo.fields.done}`) and
-render `<UnsavedEdit edit={todo} />` for inline failure, retry, discard, and
-Copy. A control outside the open note's view, such as a list row's toggle,
-writes with `update`, computing toggles from the value shown. Keep
+(`bind:value={todo.fields.title}`, `bind:checked={todo.fields.done}`); a
+note edited whole binds `todo.text`. Saves never fail, so the view shows no
+save error: `<WhenOpen>` says when the store is out of reach. A control
+outside the open note's view, such as a list row's toggle, writes with
+`set(args, changes)`, computing toggles from the value shown. Keep
 unsubmitted Add, Send, or Save form input with the form.
 
 Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel

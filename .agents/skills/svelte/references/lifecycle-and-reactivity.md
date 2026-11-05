@@ -389,7 +389,6 @@ reading):
   <Input bind:value={todo.fields.title} />
   <Textarea bind:value={todo.fields.body} />
   <Checkbox bind:checked={todo.fields.done} />
-  <UnsavedEdit edit={todo} />
 {:else}
   <p>This todo is no longer here.</p>
 {/if}
@@ -400,14 +399,15 @@ as a prop; `get` is for lists, code that is not the note's view, and the
 rare view that needs the saved note beside what is typed (Capture's export
 waits for the save, then reads the file's text from `get`). `fields` stays
 live, so `const { fields } = todo` is fine. Keep
-derived filters in `$derived`. The editor's saves go one at a time; the
-newest carries every field typed since the last that landed, made over the
-note as the person saw it when each field's typing began. Another writer's
-change to a field not typed is carried over; their change to a typed field
-is a `Conflict`, after which the collection shows theirs, the typing stays,
-and a second save applies over it. Code that is not typing, such as a list
-row's toggle, writes with `update`, and its returned result belongs to that
-action. Keep an app-level context only for state that is not a collection
+derived filters in `$derived`. The editor's saves go through the folder's
+queue one at a time; the newest carries everything typed since the last that
+landed. A typed field takes this write, another writer's change to a field
+not typed stays, and a body changed elsewhere since the typing began merges
+by lines. A save never fails: while the store cannot be reached it waits,
+the typing stays shown, and `<WhenOpen>` says the store is out of reach
+(`folder.unavailable()`), so a view shows no save error of its own. Code
+that is not typing, such as a list row's toggle, writes with
+`set(args, changes)`, which answers once it has landed. Keep an app-level context only for state that is not a collection
 (selection, a recorder), named for what it holds.
 
 ### Template Props

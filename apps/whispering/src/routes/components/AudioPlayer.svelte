@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type AudioFile, getLibrary } from '$lib/library.svelte.js';
 
-	/** Play recording `id`'s audio. A file that changes is read again. */
+	/** Play recording `id`'s audio, read again when it is listed under another extension. */
 	let { id, file, label }: {
 		id: string;
 		/** The audio file the recording has, as listed. */
@@ -15,7 +15,7 @@
 
 	// Each read owns its URL until the file changes or this player leaves.
 	$effect(() => {
-		void [file.ext, file.version];
+		void file.ext;
 		current = undefined;
 		problem = undefined;
 		let url: string | undefined;

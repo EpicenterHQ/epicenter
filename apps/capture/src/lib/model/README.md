@@ -31,7 +31,7 @@ keys are kept. Capture has no settings and no other files.
 
 Any folder over the contract (`openFolder` from `@epicenter/folder`, at
 any place) reads a capture as a `CaptureNote`:
-`id`, `capturedAt`, any other front matter keys, `body`, and `version`. A file
+`id`, `capturedAt`, any other front matter keys, and `body`. A file
 at a capture's path whose front matter does not parse or fit is listed in
 `invalid` as an `InvalidCapture`, with its text, not dropped. Every write is
 in house style (decision 29). Ids are `timeId()` from
@@ -121,9 +121,9 @@ needs no thought IDs.
 
 `captureBody.locate(body)` answers where each thought sits in the body, as
 `Span`s of offsets from its bullet marker to the end of its last line with
-content. After the app explicitly saves the shown body, it combines those spans
-with the note's text (`noteText` from `@epicenter/definition/contract`) to
-select a thought's lines in Edit as text.
+content. Once the shown body has landed, the app combines those spans with the
+note's file text (the editor's `text`) to select a thought's lines in Edit
+as text.
 
 `excerpt(text)` shortens capture text for a list.
 

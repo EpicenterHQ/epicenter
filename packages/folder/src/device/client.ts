@@ -1,80 +1,97 @@
 /**
- * The one typed client a contract derives (`Client<T>` from
- * `@epicenter/definition/contract`), over any place's store: memory, this
- * browser's storage, the desktop's folder, a directory, or the account's
- * repository. A folder holds it (`openFolder`); nothing outside this
+ * A contract's collections over any place's store (memory, this browser's
+ * storage, the desktop's folder, a directory, or the account's
+ * repository): what each holds as the folder shows it, and the one write
+ * every folder write is made of. A folder holds this; nothing outside this
  * package does.
  *
- * Every note this writes is in house style (decision 29): the contract's
- * keys first in its order, any other keys after them sorted, block YAML,
- * the body untouched. Reads are lenient: a note written by hand, in any key
- * order, reads, and its next write through here formats it.
+ * A read gives each file's version, and `write` lands only over the version
+ * read (or where nothing is), so a write never replaces bytes its writer
+ * did not see: the store answers `'stale'` instead, and the folder reads
+ * again (ADR-0774). Every version comes from the store and stays inside
+ * this package. No store merges (ADR-0773): what landed is what was sent.
  *
- * Every update and delete carries the version its writer read (`over`), and
- * the store lands it only while the file still holds that version, so a
- * write never replaces bytes its writer did not see. A file deleted since it
- * was read is a `Conflict` whose `current` is null. Every version comes from
- * the store: a device's names a file's sha256, a repository's its Git blob.
- * No store merges (ADR-0773): what landed is what was sent.
- *
- * A collection's listeners hear every change that lands through this client
+ * Reads are lenient: a note written by hand, in any key order, reads, and
+ * one whose front matter does not parse or fit is shown as invalid with its
+ * text. A collection's listeners hear every write that lands through here
  * before the write resolves, and the store's outside changes (other tabs,
  * the shell's watcher, other programs) as they come, each only when it
  * touches a path the contract gives the collection.
  */
 import {
-	type Client,
-	ClientError,
 	type CompiledCollection,
 	type CompiledContract,
 	type Contract,
 	compileContract,
-	type Version,
 } from '@epicenter/definition/contract';
-import { Ok } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import { createChanges, forCollection } from '../changes.js';
-import {
-	createdFields,
-	defined,
-	invalidNote,
-	noteCodec,
-	noteValue,
-	type Params,
-	paramsOf,
-	pathOf,
-	type Value,
-} from '../note-codec.js';
-import type { DeviceLanded, DeviceStore } from './store.js';
-
-const encoder = new TextEncoder();
+import { noteCodec, type Params, paramsOf } from '../note-codec.js';
+import type { DeviceStore, Unavailable, Version } from './store.js';
 
 /** How many notes a listing reads at once. */
 const READS_AT_ONCE = 8;
 
-/** The store under each client `createDeviceClient` made, for `storeOf`. */
-const stores = new WeakMap<object, DeviceStore>();
+/** An entry as an app reads it: a note's placeholders, fields and body, or a file's placeholders. */
+export type Entry = Record<string, unknown>;
 
-/** The store under a client `createDeviceClient` made. */
-export function storeOf(device: object): DeviceStore {
-	const store = stores.get(device);
-	if (store === undefined)
-		throw new Error('expected a client that createDeviceClient made');
-	return store;
-}
+/** A file as last read: where it is, its version, and what the folder shows of it. */
+export type Seen = {
+	path: string;
+	params: Params;
+	version: Version;
+	/** A note's text, null when it is not UTF-8; null for any other file. */
+	text: string | null;
+	/** What `items()` shows: a note that reads, or a file's placeholders; null for a note that does not read. */
+	item: Entry | null;
+	/** What `invalid()` shows of a note that does not read; null otherwise. */
+	invalid: Entry | null;
+};
 
-/** Whether `a` and `b` hold the same bytes. */
-function sameBytes(a: Uint8Array, b: Uint8Array) {
-	if (a.byteLength !== b.byteLength) return false;
-	for (let index = 0; index < a.byteLength; index++)
-		if (a[index] !== b[index]) return false;
-	return true;
-}
+/** A file read now: its bytes, and what the folder shows of it. */
+export type Read = Seen & { bytes: Uint8Array };
 
-/** The version a write of bytes landed: never null, which only a removal lands. */
-function landedVersion({ landed }: DeviceLanded) {
-	if (landed === null) throw new Error('a write of bytes landed nothing');
-	return landed;
-}
+/** One collection of a contract over a store. */
+export type CollectionFiles = {
+	kind: 'note' | 'file';
+	/** The fields the contract declares, in its order (none for a file collection). */
+	keys: readonly string[];
+	compiled: CompiledCollection;
+	/** The path `args` names, or why it names none. */
+	pathOf(args: Params): Result<string, { message: string }>;
+	/** The placeholders `args` holds. */
+	paramsOf(args: Params): Params;
+	/** Every file the collection holds, reading only the notes whose stamp changed since the last listing. */
+	list(): Promise<Result<Seen[], Unavailable>>;
+	/** The file at `path` now, or null when nothing is there. */
+	read(path: string): Promise<Result<Read | null, Unavailable>>;
+	/**
+	 * Write `bytes` at `path`, or remove the file for null, over `over`, the
+	 * version read there (null for nothing there): what landed, null for a
+	 * removal, or `'stale'` when the path no longer holds `over`.
+	 */
+	write(
+		path: string,
+		bytes: Uint8Array | null,
+		over: Version | null,
+	): Promise<Result<Seen | null | 'stale', Unavailable>>;
+	/** Add `bytes` to the end of the file at `path`, where the store can; `'stale'` when it is not as `create` says. */
+	append:
+		| ((
+				path: string,
+				bytes: Uint8Array,
+				options: { create: boolean; announce: boolean },
+		  ) => Promise<Result<'landed' | 'stale', Unavailable>>)
+		| null;
+	/** Hear that the collection's files changed; returns the stop. */
+	subscribe(listener: () => void): () => void;
+};
+
+/** A contract's collections over a store, and the store, to close. */
+export type DeviceClient = {
+	collections: ReadonlyMap<string, CollectionFiles>;
+	store: DeviceStore;
+};
 
 /** Run `task` over `items`, at most `limit` at once, keeping their order. */
 async function eachAtMost<T, R>(
@@ -97,28 +114,23 @@ async function eachAtMost<T, R>(
 }
 
 /**
- * The client of `contract` over `store`. A contract that is not well formed
- * throws: one written in code is a bug to fix, not a state to handle.
+ * The collections of `contract` over `store`. A contract that is not well
+ * formed throws: one written in code is a bug to fix, not a state to handle.
  */
-export function createDeviceClient<TContract extends Contract>(
-	contract: TContract,
+export function createDeviceClient(
+	contract: Contract,
 	outside: DeviceStore,
-): Client<TContract> {
+): DeviceClient {
 	const { data: compiled, error } = compileContract(contract);
 	if (error !== null) throw new Error(error.message, { cause: error });
 	const store = observed(outside);
-	const clients: Record<string, unknown> = {};
+	const collections = new Map<string, CollectionFiles>();
 	for (const collection of compiled.collections)
-		clients[collection.name] = {
-			...(collection.kind === 'note'
-				? noteClient(compiled, collection, store)
-				: fileClient(compiled, collection, store)),
-			subscribe: (listener: () => void) =>
-				store.watch(forCollection(compiled, collection.name, listener)),
-		};
-	const client = clients as Client<TContract>;
-	stores.set(client, store);
-	return client;
+		collections.set(
+			collection.name,
+			collectionFiles(compiled, collection, store),
+		);
+	return { collections, store: outside };
 }
 
 /**
@@ -163,118 +175,81 @@ function directoryOf(collection: CompiledCollection): string {
 	return literal.join('/');
 }
 
-/**
- * The paths of `collection` in `store`, with their placeholder values and
- * stamps. A path is the collection's only when the contract's claim gives
- * it to that collection.
- */
-async function claimed(
+function collectionFiles(
 	compiled: CompiledContract,
 	collection: CompiledCollection,
 	store: DeviceStore,
-) {
-	const { data: listed, error } = await store.list(directoryOf(collection));
-	if (error !== null) return { data: null, error };
-	const out: {
-		path: string;
-		params: Params;
-		stamp: string;
-		version?: Version;
-	}[] = [];
-	for (const { path, stamp, version } of listed.sort((a, b) =>
-		a.path < b.path ? -1 : 1,
-	)) {
-		const claim = compiled.claim(path);
-		if (claim?.collection.name === collection.name)
-			out.push({ path, params: claim.params, stamp, version });
-	}
-	return Ok(out);
-}
-
-/** A `Conflict` naming the version now at `path`, null when nothing is there. */
-async function conflict(store: DeviceStore, path: string) {
-	const { data: current, error } = await store.read(path);
-	if (error !== null) return { data: null, error };
-	return ClientError.Conflict({ path, current: current?.version ?? null });
-}
-
-/** Remove the file at `path` while it holds `over`. */
-async function remove(store: DeviceStore, path: string, over: Version) {
-	const { data: outcome, error } = await store.write(path, null, {
-		version: over,
-	});
-	if (error !== null) return { data: null, error };
-	if (outcome === 'stale') return conflict(store, path);
-	return Ok(undefined);
-}
-
-/** A note as a listing shows it: one that reads, or one that does not. */
-type Listed =
-	| { item: ReturnType<typeof noteValue> }
-	| { invalid: ReturnType<typeof invalidNote> };
-
-function noteClient(
-	compiled: CompiledContract,
-	collection: CompiledCollection,
-	store: DeviceStore,
-) {
+): CollectionFiles {
 	const codec = noteCodec(collection);
+	const kind = collection.kind === 'note' ? 'note' : 'file';
 
-	/** The document in `bytes`, when it parses and its fields fit. */
-	function decode(path: string, bytes: Uint8Array) {
-		const text = codec.text(path, bytes);
-		if (text.error !== null) return text;
-		return codec.decode(path, text.data);
-	}
-
-	/** `document` in house style as bytes, when its fields fit. */
-	function encode(path: string, document: Parameters<typeof codec.encode>[1]) {
-		const encoded = codec.encode(path, document);
-		if (encoded.error !== null) return encoded;
-		return Ok({
-			bytes: encoder.encode(encoded.data.text),
-			document: encoded.data.document,
-		});
-	}
-
-	/** Each note as last read, by path, kept while the stamp a listing gives is unchanged. */
-	const known = new Map<string, { stamp: string; entry: Listed }>();
-
-	/** The note in `bytes` as a listing shows it: an item, or an invalid entry with its text. */
-	function listed(
+	/** What the folder shows of the file at `path` holding `bytes`. */
+	function seen(
 		path: string,
 		params: Params,
 		bytes: Uint8Array,
 		version: Version,
-	): Listed {
-		const text = codec.text(path, bytes);
-		const decoded = text.error === null ? codec.decode(path, text.data) : text;
+	): Seen {
+		if (kind === 'file')
+			return { path, params, version, text: null, item: params, invalid: null };
+		const text = codec.text(bytes);
+		const decoded =
+			text === null ? codec.unreadable() : codec.decode(path, text);
 		if (decoded.error !== null)
 			return {
-				invalid: invalidNote(
-					params,
-					path,
-					decoded.error.issues,
-					text.data,
-					version,
-				),
+				path,
+				params,
+				version,
+				text,
+				item: null,
+				invalid: { ...params, path, issues: decoded.error.issues, text },
 			};
-		return { item: noteValue(params, decoded.data, version) };
+		return {
+			path,
+			params,
+			version,
+			text,
+			// Fields first: a front matter key cannot shadow a placeholder or the body.
+			item: { ...decoded.data.fields, ...params, body: decoded.data.body },
+			invalid: null,
+		};
 	}
 
+	/** Each file as last read, by path, kept while the stamp a listing gives is unchanged. */
+	const known = new Map<string, { stamp: string; seen: Seen }>();
+
 	return {
-		fieldNames: collection.keys,
-		/** Every note, reading only those whose stamp changed since the last listing. */
+		kind,
+		keys: collection.keys,
+		compiled: collection,
+		pathOf: (args) => collection.pathOf(args),
+		paramsOf: (args) => paramsOf(collection, args),
 		async list() {
-			const { data: paths, error } = await claimed(compiled, collection, store);
+			const { data: listed, error } = await store.list(directoryOf(collection));
 			if (error !== null) return { data: null, error };
-			const stale = paths.filter(
-				({ path, stamp }) => known.get(path)?.stamp !== stamp,
+			const paths: {
+				path: string;
+				params: Params;
+				stamp: string;
+				version?: Version;
+			}[] = [];
+			for (const { path, stamp, version } of listed.sort((a, b) =>
+				a.path < b.path ? -1 : 1,
+			)) {
+				const claim = compiled.claim(path);
+				if (claim?.collection.name === collection.name)
+					paths.push({ path, params: claim.params, stamp, version });
+			}
+			// A file collection whose store lists versions spares reading every file's bytes.
+			const unread = paths.filter(
+				({ path, stamp, version }) =>
+					known.get(path)?.stamp !== stamp &&
+					!(kind === 'file' && version !== undefined),
 			);
-			const reads = await eachAtMost(stale, READS_AT_ONCE, ({ path }) =>
+			const reads = await eachAtMost(unread, READS_AT_ONCE, ({ path }) =>
 				store.read(path),
 			);
-			for (const [index, { path, params }] of stale.entries()) {
+			for (const [index, { path, params }] of unread.entries()) {
 				const read = reads[index];
 				if (read === undefined) continue;
 				if (read.error !== null) return read;
@@ -283,218 +258,55 @@ function noteClient(
 				else
 					known.set(path, {
 						stamp: read.data.stamp,
-						entry: listed(path, params, read.data.bytes, read.data.version),
+						seen: seen(path, params, read.data.bytes, read.data.version),
 					});
 			}
 			const present = new Set(paths.map(({ path }) => path));
 			for (const path of known.keys())
 				if (!present.has(path)) known.delete(path);
-			const items: ReturnType<typeof noteValue>[] = [];
-			const unfit: ReturnType<typeof invalidNote>[] = [];
-			for (const { path } of paths) {
-				const entry = known.get(path)?.entry;
-				if (entry === undefined) continue;
-				if ('item' in entry) items.push(entry.item);
-				else unfit.push(entry.invalid);
-			}
-			return Ok({ items, invalid: unfit });
-		},
-		async get(args: Params) {
-			const path = pathOf(collection, args);
-			if (path.error !== null) return path;
-			const read = await store.read(path.data);
-			if (read.error !== null) return read;
-			if (read.data === null) return ClientError.NotFound({ path: path.data });
-			const decoded = decode(path.data, read.data.bytes);
-			if (decoded.error !== null) return decoded;
-			return Ok(
-				noteValue(paramsOf(collection, args), decoded.data, read.data.version),
-			);
-		},
-		async create({ body = '', ...value }: Value) {
-			const path = pathOf(collection, value);
-			if (path.error !== null) return path;
-			const params = paramsOf(collection, value);
-			if (typeof body !== 'string')
-				return codec.invalid(path.data, 'body', 'The body is not a string');
-			const encoded = encode(path.data, {
-				fields: createdFields(collection, value),
-				body,
-			});
-			if (encoded.error !== null) return encoded;
-			const written = await store.write(
-				path.data,
-				encoded.data.bytes,
-				'absent',
-			);
-			if (written.error !== null) return written;
-			if (written.data === 'stale')
-				return ClientError.Occupied({ path: path.data });
-			return Ok(
-				noteValue(params, encoded.data.document, landedVersion(written.data)),
-			);
-		},
-		async update(args: Params, patch: Value, { over }: { over: Version }) {
-			const path = pathOf(collection, args);
-			if (path.error !== null) return path;
-			const read = await store.read(path.data);
-			if (read.error !== null) return read;
-			if (read.data === null || read.data.version !== over)
-				return ClientError.Conflict({
-					path: path.data,
-					current: read.data?.version ?? null,
-				});
-			const text = codec.text(path.data, read.data.bytes);
-			if (text.error !== null) return text;
-			const parsed = codec.parse(path.data, text.data);
-			if (parsed.error !== null) return parsed;
-			const { body = parsed.data.body, version: _version, ...changes } = patch;
-			if (typeof body !== 'string')
-				return codec.invalid(path.data, 'body', 'The body is not a string');
-			const encoded = encode(path.data, {
-				fields: defined({ ...parsed.data.fields, ...changes }),
-				body,
-			});
-			if (encoded.error !== null) return encoded;
-			const params = paramsOf(collection, args);
-			if (sameBytes(encoded.data.bytes, read.data.bytes))
-				return Ok(noteValue(params, encoded.data.document, over));
-			const written = await store.write(path.data, encoded.data.bytes, {
-				version: over,
-			});
-			if (written.error !== null) return written;
-			if (written.data === 'stale') return conflict(store, path.data);
-			return Ok(
-				noteValue(params, encoded.data.document, landedVersion(written.data)),
-			);
-		},
-		async replace(args: Params, text: string, { over }: { over: Version }) {
-			const path = pathOf(collection, args);
-			if (path.error !== null) return path;
-			if (typeof text !== 'string')
-				return codec.invalid(path.data, undefined, 'The text is not a string');
-			const decoded = codec.decode(path.data, text);
-			if (decoded.error !== null) return decoded;
-			const encoded = encode(path.data, decoded.data);
-			if (encoded.error !== null) return encoded;
-			const params = paramsOf(collection, args);
-			const written = await store.write(path.data, encoded.data.bytes, {
-				version: over,
-			});
-			if (written.error !== null) return written;
-			if (written.data === 'stale') return conflict(store, path.data);
-			return Ok(
-				noteValue(params, encoded.data.document, landedVersion(written.data)),
-			);
-		},
-		async delete(args: Params, { over }: { over: Version }) {
-			const path = pathOf(collection, args);
-			if (path.error !== null)
-				return ClientError.NotFound({ path: collection.template.source });
-			return remove(store, path.data, over);
-		},
-	};
-}
-
-function fileClient(
-	compiled: CompiledContract,
-	collection: CompiledCollection,
-	store: DeviceStore,
-) {
-	/** Versions by path, kept while the stamp a listing gives is unchanged. */
-	const known = new Map<string, { stamp: string; version: Version }>();
-	/** A path no placeholders could name holds nothing. */
-	const nowhere = () =>
-		ClientError.NotFound({ path: collection.template.source });
-
-	return {
-		async list() {
-			const { data: paths, error } = await claimed(compiled, collection, store);
-			if (error !== null) return { data: null, error };
-			const items: (Params & { version: Version })[] = [];
-			for (const { path, params, stamp, version } of paths) {
-				// A store that lists versions spares reading every file's bytes.
-				if (version !== undefined) {
-					items.push({ ...params, version });
+			const out: Seen[] = [];
+			for (const { path, params, version } of paths) {
+				if (kind === 'file' && version !== undefined) {
+					out.push({
+						path,
+						params,
+						version,
+						text: null,
+						item: params,
+						invalid: null,
+					});
 					continue;
 				}
-				const cached = known.get(path);
-				if (cached?.stamp === stamp) {
-					items.push({ ...params, version: cached.version });
-					continue;
-				}
-				const read = await store.read(path);
-				if (read.error !== null) return read;
-				if (read.data === null) continue;
-				known.set(path, { stamp: read.data.stamp, version: read.data.version });
-				items.push({ ...params, version: read.data.version });
+				const entry = known.get(path)?.seen;
+				if (entry !== undefined) out.push(entry);
 			}
-			return Ok({ items });
+			return Ok(out);
 		},
-		async get(args: Params) {
-			const path = collection.pathOf(args);
-			if (path.error !== null) return nowhere();
-			const read = await store.read(path.data);
+		async read(path) {
+			const params = compiled.claim(path)?.params ?? {};
+			const read = await store.read(path);
 			if (read.error !== null) return read;
-			if (read.data === null) return ClientError.NotFound({ path: path.data });
+			if (read.data === null) return Ok(null);
 			const { bytes, version } = read.data;
-			return Ok({ ...paramsOf(collection, args), bytes, version });
+			return Ok({ ...seen(path, params, bytes, version), bytes });
 		},
-		async create({ bytes, ...value }: Value) {
-			const path = pathOf(collection, value);
-			if (path.error !== null) return path;
-			if (!(bytes instanceof Uint8Array))
-				return ClientError.Invalid({
-					path: path.data,
-					issues: [{ field: 'bytes', message: 'bytes is not a Uint8Array' }],
-				});
-			const written = await store.write(path.data, bytes, 'absent');
+		async write(path, bytes, over) {
+			const written = await store.write(
+				path,
+				bytes,
+				over === null ? 'absent' : { version: over },
+			);
 			if (written.error !== null) return written;
-			if (written.data === 'stale')
-				return ClientError.Occupied({ path: path.data });
-			return Ok({
-				...paramsOf(collection, value),
-				version: landedVersion(written.data),
-			});
+			if (written.data === 'stale') return Ok('stale');
+			const { landed } = written.data;
+			if (bytes === null || landed === null) return Ok(null);
+			const params = compiled.claim(path)?.params ?? {};
+			return Ok(seen(path, params, bytes, landed));
 		},
-		async update(
-			args: Params,
-			{ bytes }: { bytes: Uint8Array },
-			{ over }: { over: Version },
-		) {
-			const path = collection.pathOf(args);
-			if (path.error !== null) return nowhere();
-			const written = await store.write(path.data, bytes, { version: over });
-			if (written.error !== null) return written;
-			if (written.data === 'stale') return conflict(store, path.data);
-			return Ok({
-				...paramsOf(collection, args),
-				version: landedVersion(written.data),
-			});
-		},
-		async delete(args: Params, { over }: { over: Version }) {
-			const path = collection.pathOf(args);
-			if (path.error !== null) return nowhere();
-			return remove(store, path.data, over);
-		},
-		async append(
-			args: Params,
-			bytes: Uint8Array,
-			options: { create: boolean; announce: boolean },
-		) {
-			const path = collection.pathOf(args);
-			if (path.error !== null) return nowhere();
-			if (store.append === undefined)
-				return ClientError.Unavailable({
-					cause: 'this folder’s storage cannot add to the end of a file',
-				});
-			const appended = await store.append(path.data, bytes, options);
-			if (appended.error !== null) return appended;
-			if (appended.data === 'stale')
-				return options.create
-					? ClientError.Occupied({ path: path.data })
-					: ClientError.NotFound({ path: path.data });
-			return Ok(undefined);
-		},
+		append: store.append
+			? (path, bytes, options) => store.append!(path, bytes, options)
+			: null,
+		subscribe: (listener) =>
+			store.watch(forCollection(compiled, collection.name, listener)),
 	};
 }

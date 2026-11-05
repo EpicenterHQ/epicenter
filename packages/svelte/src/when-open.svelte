@@ -1,8 +1,12 @@
 <!--
-	The root of an app over its folder (ADR-0766, ADR-0767): the only reader
-	of the folder's lifecycle, rendering the pages when the folder is open.
-	While it opens, a spinner; when it failed, Recovery with the typed error,
-	whose Retry is the failure's own `retry()`; once it is closed, nothing.
+	The root of an app over its folder (ADR-0766, ADR-0767, ADR-0775): the
+	only reader of the folder's lifecycle, rendering the pages when the folder
+	is open. While it opens, a spinner, and why the store cannot be reached
+	when it cannot (the folder keeps trying); when it failed, Recovery with
+	the typed error, whose Retry is the failure's own `retry()`; once it is
+	closed, nothing. While open and the store cannot be reached, a status
+	line says so, and whether changes are waiting for it (`unavailable()`
+	and `saving()`).
 
 	It is also the page's leave guard: while the folder is `saving()`,
 	leaving the page asks first (a browser's "Leave site?"). Closing a
@@ -36,21 +40,41 @@
 		/** The app's name, as people know it (`Todos`). */
 		app: string;
 		/** The folder, adapted by `reactive`: its state tracks. */
-		folder: Pick<FolderLifecycle, 'state' | 'saving' | 'reveal'>;
+		folder: Pick<FolderLifecycle, 'state' | 'unavailable' | 'saving' | 'reveal'>;
 		/** The pages, once the folder is open. */
 		children: Snippet;
 	} = $props();
 
 	const state = $derived(folder.state());
+	const unavailable = $derived(folder.unavailable());
+	/** Why the store cannot be reached, in the store's own words: its cause's message. */
+	const reason = $derived.by(() => {
+		const cause = unavailable?.cause;
+		if (cause instanceof Error) return cause.message;
+		if (typeof cause === 'object' && cause !== null && 'message' in cause && typeof cause.message === 'string')
+			return cause.message;
+		return cause === undefined || cause === null ? '' : String(cause);
+	});
 </script>
 
 <LeaveGuard {folder} />
 
 {#if state.status === 'opening'}
 	<Loading class="h-dvh" />
+	{#if unavailable}
+		<p class="fixed inset-x-0 bottom-6 px-6 text-center text-sm text-muted-foreground" role="status" data-testid="unreachable">
+			Can't reach {app}'s files yet{reason ? ` (${reason})` : ''}. Still trying.
+		</p>
+	{/if}
 {:else if state.status === 'failed'}
 	<Recovery {app} error={state.error} retry={state.retry} reveal={folder.reveal} />
 {:else if state.status === 'open'}
+	{#if unavailable}
+		<p class="bg-muted px-4 py-1 text-center text-xs text-muted-foreground" role="status" data-testid="unreachable">
+			Can't reach {app}'s files right now{reason ? ` (${reason})` : ''}.
+			{folder.saving() ? 'Your changes will save once they can be reached.' : 'What you see may be out of date.'}
+		</p>
+	{/if}
 	<svelte:boundary>
 		{@render children()}
 		{#snippet failed(error, reset)}

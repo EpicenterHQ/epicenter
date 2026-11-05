@@ -6,9 +6,10 @@
  *   house style (decision 29). A note an Epicenter tool wrote holds exactly
  *   this; one written by hand may differ in key order, quoting or comments,
  *   which its next write normalizes anyway.
- * - `readNoteText(collection, text)`: `text` read the way `replace` reads
- *   it, so an editor can say, as the person types, whether saving it would
- *   be accepted and why not.
+ * - `readNoteText(collection, text)`: `text` read as a note of the
+ *   collection, so an editor can say, as the person types, whether the
+ *   note it saves will read, and why not. Saving never refuses it: a note
+ *   that does not read is written as typed and shows as invalid.
  *
  * Both take the collection as the contract declares it. An invalid note's
  * own text is in `list().invalid[].text`; these are for the notes that read.
@@ -18,7 +19,7 @@
  * const shown = noteText(capture.collections.captures, note);
  * const typed = readNoteText(capture.collections.captures, draft);
  * if (typed.error !== null) showIssues(typed.error.issues);
- * else await notes.replace({ id }, draft);
+ * editor.text = draft; // saved either way
  * ```
  */
 import type { InferError } from 'wellcrafted/error';
@@ -59,8 +60,7 @@ const invalid = (field: string | undefined, message: string) =>
 
 /**
  * The house-style text of `note`, a note of `collection` as read: its
- * fields (placeholders and version are its path and state, not front
- * matter) and its body. `Invalid` only when a field holds a value front
+ * fields (placeholders are its path, not front matter) and its body. `Invalid` only when a field holds a value front
  * matter cannot, which a note as read never does.
  */
 export function noteText<TCollection extends Collection>(
@@ -68,11 +68,9 @@ export function noteText<TCollection extends Collection>(
 	note: NoteOf<TCollection>,
 ): Result<string, Invalid> {
 	const { keys, template } = compiledOf(collection);
-	const {
-		body,
-		version: _version,
-		...rest
-	} = note as Record<string, unknown> & { body: string };
+	const { body, ...rest } = note as Record<string, unknown> & {
+		body: string;
+	};
 	const fields = Object.fromEntries(
 		Object.entries(rest).filter(
 			([key, value]) => !template.params.includes(key) && value !== undefined,
@@ -85,7 +83,7 @@ export function noteText<TCollection extends Collection>(
 }
 
 /**
- * `text` read as a note of `collection`, the way `replace` reads it: its
+ * `text` read as a note of `collection`: its
  * front matter fields and its body when the front matter parses and the
  * fields fit, else `Invalid` with every issue (`path` null: no file is
  * named yet).

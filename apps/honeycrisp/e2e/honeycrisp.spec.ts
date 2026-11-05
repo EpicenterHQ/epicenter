@@ -16,8 +16,8 @@
  * 3. A body edited on the desktop and synced shows in the open note with no
  *    reload; text typed in the browser reaches the desktop in house style.
  * 4. A note the desktop wrote that does not read as a note shows with its
- *    text; text that still does not fit is refused, and fixed text repairs
- *    it.
+ *    text; text that still does not fit says why as it is typed, and fixed
+ *    text repairs it.
  * 5. Signing out asks for a sign-in again, and the browser holds nothing.
  */
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -306,10 +306,11 @@ test('4. a note that does not read as a note shows with its text, and is repaire
 	const text = detail().getByLabel('Text of notes/call.md');
 	await expect(text).toHaveValue(broken);
 
-	// Text that still does not fit is refused, and stays to fix.
+	// Text that still does not fit says why before it is saved.
 	await text.fill('---\ntitle: Call mom\n---\nSunday\n');
-	await detail().getByRole('button', { name: 'Save repair' }).click();
-	await expect(detail().getByRole('alert')).toContainText('createdAt');
+	await expect(detail().getByRole('list', { name: 'Problems' })).toContainText(
+		'createdAt',
+	);
 
 	await text.fill(
 		'---\ntitle: Call mom\ncreatedAt: 2026-10-31T09:00:00.000Z\n---\nSunday\n',

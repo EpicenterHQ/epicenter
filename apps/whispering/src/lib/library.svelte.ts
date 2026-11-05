@@ -7,16 +7,15 @@
  * Notes that read are listed to edit; the rest are named, with why and
  * their text, for repair. Nothing here holds text ahead of the files: what
  * a person types is an edit in the component that shows it, and each write
- * answers once it landed. The caller of a write presents a failure. A
- * transcription or recipe run lives in this window until its answer
- * arrives, and its result is created then, in the files
- * (`runs.svelte.ts`).
+ * answers once it landed and never fails (ADR-0775): while the store is out
+ * of reach the folder keeps it, and `<WhenOpen>` says so. A transcription
+ * or recipe run lives in this window until its answer arrives, and its
+ * result is written then, in the files (`runs.svelte.ts`).
  *
  * The library is made when the app's pages open and let go when they
  * close. Leaving waits for nothing and refuses nothing: a run under way
  * still keeps its answer in the files, unless Whispering itself is closing.
  */
-import type { Version } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
 import { createContext } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
@@ -228,10 +227,6 @@ export function createLibrary({
 
 	return {
 		ui,
-		/** Why the recordings could not be listed (this browser keeps no private storage, say). */
-		get error() {
-			return files.recordings.error() ?? null;
-		},
 		/** Whether Whispering is closing, so nothing new starts. */
 		get closing() {
 			return whispering.closing;
@@ -355,15 +350,10 @@ export function createLibrary({
 		get recipeRuns() {
 			return runs.recipeRuns;
 		},
-		/** Answers that arrived and whose note could not be created; each is saved again when asked. */
-		get unwrittenAnswers() {
-			return runs.unwritten;
-		},
 		transcribe: runs.transcribe,
 		transform: runs.transform,
 		transformText: runs.transformText,
 		runAgain: runs.runAgain,
-		saveAgain: runs.saveAgain,
 		dismissRun: runs.dismiss,
 
 		// ------------------------------------------------------------------
@@ -384,27 +374,12 @@ export function createLibrary({
 			const why = refused();
 			if (why !== undefined) return why;
 			const id = timeId();
-			const { error } = await files.transformations.create({
-				id,
-				title,
-				model: null,
-				body: prompt,
-			});
-			if (error !== null) return error.message;
+			await files.transformations.set(
+				{ id },
+				{ title, model: null, body: prompt },
+			);
 			openTransformation(id);
 			return undefined;
-		},
-
-		/**
-		 * Replace note `ref` with `text`, as a repair, over `over` (by default
-		 * the version shown): it must read as one, and it is written in house
-		 * style.
-		 */
-		replace(ref: NoteRef, text: string, options?: { over?: Version }) {
-			const why = refused();
-			if (why !== undefined)
-				return Promise.resolve(Err({ name: 'Closing', message: why }));
-			return files[ref.collection].replace({ id: ref.id }, text, options);
 		},
 
 		/**

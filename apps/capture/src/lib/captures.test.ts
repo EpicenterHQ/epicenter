@@ -7,17 +7,17 @@
  * Key behaviors:
  * - Add writes one finished capture at `captures/<timeId>.md`, in house
  *   style, to the list's store, and opens it at Add a thought
- * - Blank or failed Add leaves no file
+ * - Blank Add leaves no file
  * - The timeline orders by the instant captured and lists files to repair
  *   and files that are not text
  * - A body edit keeps unknown front matter keys and writes house style
  * - Another writer's change reaches the timeline
  * - `locateThought` finds a thought's lines in the note's text
- * - A delete removes the file and closes it; a failed one keeps it
+ * - A delete closes the capture and removes the file; one made while the
+ *   store cannot be reached waits and lands once it can
  */
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	type CapturesHarness,
 	openCaptures,
@@ -26,7 +26,6 @@ import {
 import { composeBody } from './model/index.js';
 
 const { locateThought } = await import('./capture-actions.svelte.ts');
-const { captureText } = await import('./captures.svelte.ts');
 
 const harnesses: CapturesHarness[] = [];
 afterEach(async () => {
@@ -44,7 +43,7 @@ const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n
 
 test('Add writes one finished capture in house style to the store, and opens Add a thought', async () => {
 	const h = await open();
-	const { id } = expectOk(await h.captures.create('Hello\nworld'));
+	const id = (await h.captures.create('Hello\nworld')) ?? '';
 	expect(id).toMatch(
 		/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-z]{8}$/,
 	);
@@ -63,14 +62,9 @@ test('Add writes one finished capture in house style to the store, and opens Add
 	expect(await h.files()).toEqual([`captures/${id}.md`]);
 });
 
-test('blank and failed Add leave no file and keep the timeline empty', async () => {
+test('blank Add leaves no file and keeps the timeline empty', async () => {
 	const h = await open();
-	expect(expectErr(await h.captures.create(' ')).name).toBe('Refused');
-	const restore = h.failWrites();
-	expect(expectErr(await h.captures.create('Keep me')).name).toBe(
-		'Unavailable',
-	);
-	restore();
+	expect(await h.captures.create(' ')).toBeUndefined();
 	expect(h.captures.timeline.rows).toEqual([]);
 	expect(h.captures.opened).toBeUndefined();
 	expect(await h.files()).toEqual([]);
@@ -109,9 +103,7 @@ test('a body edit keeps unknown front matter keys and writes house style', async
 		'zeta: last\n# comment\ncustom: kept\nalpha: first',
 	);
 	const h = await open({ [PATH]: original });
-	expectOk(
-		await h.list.update({ id: 'one' }, { body: composeBody('Changed').body }),
-	);
+	await h.list.set({ id: 'one' }, { body: composeBody('Changed').body });
 	expect(await h.text(PATH)).toBe(
 		`---\ncapturedAt: "${AT}"\nalpha: first\ncustom: kept\nzeta: last\n---\n${composeBody('Changed').body}`,
 	);
@@ -123,7 +115,7 @@ test('opening another capture while Add saves keeps that capture open', async ()
 	const adding = h.captures.create('New capture');
 	h.captures.open('one', 'capture');
 	release();
-	expectOk(await adding);
+	await adding;
 	expect(h.captures.opened?.id).toBe('one');
 });
 
@@ -139,33 +131,33 @@ test('locateThought refuses a stale list and finds the thought’s lines in the 
 	const h = await open({ [PATH]: HAND });
 	const note = h.list.get({ id: 'one' });
 	if (note === undefined) throw new Error('fixture must read');
-	const text = expectOk(captureText(note));
+	const text = HAND;
 	expect(locateThought(text, note.body, 0, ['other'])).toBeUndefined();
 	const range = locateThought(text, note.body, 0, ['first']);
 	expect(range).toBeDefined();
 	expect(text.slice(range?.start, range?.end)).toBe('- first');
 });
 
-test('delete removes the file and closes it, and a later update cannot recreate it', async () => {
+test('delete closes the capture and removes the file', async () => {
 	const h = await open({ [PATH]: HAND });
 	h.captures.open('one', 'capture');
-	expectOk(await h.captures.delete(h.captures.deletionFor('one')));
+	await h.captures.delete(h.captures.deletionFor('one'));
 	expect(h.captures.opened).toBeUndefined();
 	expect(h.list.get({ id: 'one' })).toBeUndefined();
-	expect(
-		expectErr(await h.list.update({ id: 'one' }, { body: 'later' })).name,
-	).toBe('NotFound');
 	expect(await h.text(PATH)).toBeNull();
 });
 
-test('a failed delete keeps the capture and a retry deletes it', async () => {
+test('a delete made while the store cannot be reached closes the capture, waits, and lands once it can', async () => {
 	const h = await open({ [PATH]: HAND });
+	h.captures.open('one', 'capture');
 	const deletion = h.captures.deletionFor('one');
 	expect(deletion.title).toBe('Text');
-	const restore = h.failWrites();
-	expect(expectErr(await h.captures.delete(deletion)).name).toBe('Unavailable');
+	const undo = h.refuseWrites();
+	const deleting = h.captures.delete(deletion);
+	expect(h.captures.opened).toBeUndefined();
+	await Bun.sleep(20);
 	expect(await h.text(PATH)).toBe(HAND);
-	restore();
-	expectOk(await h.captures.delete(deletion));
+	undo();
+	await deleting;
 	expect(await h.text(PATH)).toBeNull();
 });

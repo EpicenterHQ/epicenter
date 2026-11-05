@@ -4,7 +4,7 @@
  * captures, as `CaptureApp` makes it, the capture `one` as saved, and the
  * world outside the folder (`outside`, from `@epicenter/folder/memory`):
  * another program writing or deleting a file, which can be one that does
- * not read, and the disk making the folder's own writes wait or fail.
+ * not read, and the disk making the folder's own writes wait.
  *
  * Import `svelte-dom.test-support.js` first: the folder and `reactive`
  * need Svelte's client runtime.
@@ -14,7 +14,7 @@ import { expectOk } from 'wellcrafted/testing';
 
 const { flushSync } = await import('svelte');
 const { folder } = await import('../../app.js');
-const { captureText, createCaptures } = await import(
+const { createCaptures } = await import(
 	'../../captures.svelte.ts'
 );
 const { capturePath } = await import('../../model/index.js');
@@ -24,10 +24,9 @@ export const ONE = { id: 'one' };
 
 /**
  * The world outside the folder: `write(path, text)` as another program
- * would, unchecked; `hold()` and `refuse(reason)` the folder's own writes.
- * A test that holds or refuses undoes it in `finally`: `clear` empties the
- * folder with the folder's own writes, which a hold left in place would
- * stall and a refusal would fail.
+ * would, unchecked; `hold()` and `refuse(reason)` make the folder's own
+ * writes wait. A test that holds or refuses undoes it in `finally`: `clear`
+ * empties the folder with the folder's own writes, which either would stall.
  */
 export const outside = memoryFiles(folder);
 
@@ -54,10 +53,9 @@ export async function saved() {
 	return listed.items.find((note) => note.id === ONE.id);
 }
 
-/** The capture `one`'s text as saved, in house style, or null when there is none. */
+/** The text of the capture `one`'s file, read or not, or null when there is none. */
 export async function savedText() {
-	const note = await saved();
-	return note === undefined ? null : expectOk(captureText(note));
+	return outside.read(capturePath(ONE.id));
 }
 
 /** Write the file of the capture `one` as `text`, as another program would. */
@@ -74,9 +72,7 @@ export const remove = () => outside.write(capturePath(ONE.id), null);
 export async function clear() {
 	const listed = expectOk(await folder.captures.list());
 	for (const note of [...listed.items, ...listed.invalid])
-		expectOk(
-			await folder.captures.delete({ id: note.id }, { over: note.version }),
-		);
+		await folder.captures.delete({ id: note.id });
 }
 
 /** A new page state over the folder's captures, as `CaptureApp` makes it. */

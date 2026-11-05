@@ -4,11 +4,7 @@
  * and adding, editing, and deleting a word.
  */
 import type { FolderNotes } from '@epicenter/folder/core';
-import {
-	defineErrors,
-	extractErrorMessage,
-	type InferErrors,
-} from 'wellcrafted/error';
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Vocab } from './contract.js';
 import {
@@ -25,10 +21,6 @@ export const EntryError = defineErrors({
 	Taken: ({ path }: { path: string }) => ({
 		message: `A different file is already saved at '${path}', so this word was not added.`,
 		path,
-	}),
-	NotSaved: ({ cause }: { cause: unknown }) => ({
-		message: `This word was not saved: ${extractErrorMessage(cause)}`,
-		cause,
 	}),
 });
 export type EntryError = InferErrors<typeof EntryError>;
@@ -68,10 +60,47 @@ export function wordsOf(notes: readonly EntryNote[]): Entry[] {
 }
 
 export function createEntries(list: EntryList) {
+	/** The add before this one: adds run one at a time, so each finds the word the last one saved. */
+	let adding: Promise<unknown> = Promise.resolve();
+
+	/** Answers once the words were listed: until then `get` shows no word at all. */
+	function listed(): Promise<void> {
+		if (!list.loading()) return Promise.resolve();
+		return new Promise((resolve) => {
+			const stop = list.subscribe(() => {
+				if (list.loading()) return;
+				stop();
+				resolve();
+			});
+		});
+	}
+
+	async function addNow(
+		text: string,
+	): Promise<Result<'added' | 'present', EntryError>> {
+		const exact = text.trim().toWellFormed();
+		if (exact === '') return EntryError.Empty();
+		await listed();
+		if (list.items().some((note) => note.text === exact))
+			return Ok('present');
+		const id = await wordId(exact);
+		// No listed word has this text, so a note at its path is another word or one that does not read.
+		if (
+			list.get({ id }) !== undefined ||
+			list.invalid().some((note) => note.id === id)
+		)
+			return EntryError.Taken({ path: entryPath(id) });
+		await list.set(
+			{ id },
+			{ text: exact, stage: 'new', createdAt: new Date().toISOString() },
+		);
+		return Ok('added');
+	}
+
 	return {
 		/**
 		 * The word notes themselves: a card edits its word's note through them
-		 * (`notes.edit`), and a repair replaces the text of one that does not read.
+		 * (`notes.edit`), and a repair edits the text of one that does not read.
 		 */
 		notes: list,
 		get words() {
@@ -89,45 +118,23 @@ export function createEntries(list: EntryList) {
 				.sort((a, b) => a.path.localeCompare(b.path));
 		},
 		/**
-		 * Trim and normalize an expression, then save it under its SHA-256 id.
-		 * Exact text already listed answers `present`; a different file at that
-		 * id answers `Taken`. A file there that cannot be read now (offline)
-		 * answers `NotSaved`: the folder says what refused a create only once
-		 * it shows it. Lone surrogates become U+FFFD.
+		 * Trim and normalize an expression, then save it under its SHA-256 id,
+		 * answering once it has landed. Lone surrogates become U+FFFD. A word
+		 * is added only after the words were listed and `get` shows none with
+		 * its text: one there answers `present`, and a different note at its
+		 * path (another word, or one that does not read) answers `Taken`. The
+		 * same word added on two computers before they sync is one word, with
+		 * the later add's stage (ADR-0774).
 		 */
-		async add(text: string): Promise<Result<'added' | 'present', EntryError>> {
-			const exact = text.trim().toWellFormed();
-			if (exact === '') return EntryError.Empty();
-			if (list.items().some((note) => note.text === exact))
-				return Ok('present');
-			const id = await wordId(exact);
-			/** What is at `id` already: this word, another file, or nothing. */
-			const judge = () => {
-				const word = list.get({ id });
-				if (word !== undefined)
-					return word.text === exact
-						? Ok('present' as const)
-						: EntryError.Taken({ path: entryPath(id) });
-				return list.invalid().some((note) => note.id === id)
-					? EntryError.Taken({ path: entryPath(id) })
-					: null;
-			};
-			const before = judge();
-			if (before) return before;
-			const { error } = await list.create({
-				id,
-				text: exact,
-				stage: 'new',
-				createdAt: new Date().toISOString(),
-				body: '',
-			});
-			if (error?.name === 'Occupied')
-				return judge() ?? EntryError.Taken({ path: entryPath(id) });
-			return error ? EntryError.NotSaved({ cause: error }) : Ok('added');
+		add(text: string): Promise<Result<'added' | 'present', EntryError>> {
+			const added = adding.then(() => addNow(text));
+			adding = added;
+			return added;
 		},
-		/** Set only the learner's stage, over the word as shown. */
-		setStage(id: string, stage: Stage) {
-			return list.update({ id }, { stage });
+		/** Set only the learner's stage, on a word the folder shows: a word deleted elsewhere is not made again. */
+		async setStage(id: string, stage: Stage) {
+			if (list.get({ id }) === undefined) return;
+			await list.set({ id }, { stage });
 		},
 		delete(id: string) {
 			return list.delete({ id });

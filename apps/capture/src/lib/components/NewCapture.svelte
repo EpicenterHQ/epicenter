@@ -1,12 +1,12 @@
 <!--
 	New capture: the text typed here is this form's until Add writes it as a
 	finished capture, which then opens at Add a thought. Nothing is written
-	before Add, and leaving the timeline clears it. A failed Add keeps it.
+	before Add, and leaving the timeline clears it. Add waits until the
+	capture has landed, so while the store cannot be reached the text stays.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
-	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import type { Captures } from '$lib/captures.svelte.js';
 
@@ -20,10 +20,9 @@
 	async function add() {
 		if (locked || text.trim() === '') return;
 		adding = true;
-		const { error } = await captures.create(text);
+		await captures.create(text);
 		adding = false;
-		if (error === null) text = '';
-		else toast.error('Could not add capture', { description: error.message });
+		text = '';
 	}
 </script>
 

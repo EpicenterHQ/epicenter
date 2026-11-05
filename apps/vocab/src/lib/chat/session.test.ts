@@ -2,25 +2,12 @@ import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import { custom, openAi } from '@epicenter/ai';
 import type { AgentMessage } from '@epicenter/ai/agent';
-import { openFolder } from '@epicenter/folder';
-import { OpenFolderError } from '@epicenter/folder/core';
-import { memory, memoryFiles } from '@epicenter/folder/memory';
 import { expectOk } from 'wellcrafted/testing';
 
 const { openVocabFolder, until } = await import('../vocab.test-support.js');
 const { createVocabChat } = await import('./session.svelte.js');
 const { reactive } = await import('@epicenter/svelte/reactive');
 const { startChat } = await import('./chats.js');
-const { vocab } = await import('../contract.js');
-
-/** A folder at a place that never opens, offline. */
-function offlineFolder() {
-	const place = memory();
-	memoryFiles(place).refuseOpen(
-		OpenFolderError.StorageUnavailable({ cause: 'offline' }).error,
-	);
-	return openFolder(vocab, place);
-}
 
 type ChatOptions = Parameters<typeof createVocabChat>[0];
 function sessionDouble<T extends object>(members: Partial<T>): T {
@@ -41,15 +28,36 @@ const asked: AgentMessage = {
 	parts: [{ type: 'text', text: 'Is this right?' }],
 };
 
-async function setup({ question = false, offline = false } = {}) {
+/** The tutor's endpoint, and Epicenter's hosted one, as the chat reaches them. */
+const TUTOR = { endpoint: 'tutor', model: 'test-model' };
+const HOSTED = { endpoint: 'hosted', model: 'hosted-tutor' };
+
+async function setup({
+	saved = [welcome],
+	unlisted = false,
+	choices = sessionDouble<ChatOptions['choices']>({
+		get: () => TUTOR,
+		set: async () => {},
+		subscribe: () => () => {},
+		ready: Promise.resolve(),
+	}),
+}: {
+	/** The chat's messages saved before it opens. */
+	saved?: AgentMessage[];
+	/** The chat's messages cannot be listed until `listable()` is called. */
+	unlisted?: boolean;
+	/** The learner's model choices; by default the tutor's, already read. */
+	choices?: ChatOptions['choices'];
+} = {}) {
 	const folder = await openVocabFolder();
 	const chatId = expectOk(
 		await startChat(folder.lists.chats, [{ entryId: 'entry', text: 'lucid' }]),
 	).id;
-	for (const message of question ? [welcome, asked] : [welcome])
-		expectOk(
-			await folder.messages.create({ chat: chatId, ...message, body: '' }),
-		);
+	for (const { id, ...message } of saved)
+		await folder.messages.set({ chat: chatId, id }, message);
+	const listable = unlisted
+		? folder.files.refuseReads('offline', { under: 'messages' })
+		: () => {};
 	let requests = 0;
 	const tutor = {
 		finishReason: 'stop',
@@ -97,15 +105,22 @@ async function setup({ question = false, offline = false } = {}) {
 			);
 		},
 	});
-	const ai = reactive(openAi([tutorEndpoint]));
-	const choices = sessionDouble<ChatOptions['choices']>({
-		get: () => ({ endpoint: 'tutor', model: 'test-model' }),
-		set: async () => {},
-		subscribe: () => () => {},
+	let hostedRequests = 0;
+	const hostedEndpoint = custom({
+		id: HOSTED.endpoint,
+		baseUrl: 'https://hosted.test/v1',
+		models: [HOSTED.model],
+		fetch: async () => {
+			hostedRequests++;
+			return Response.json(
+				{ error: { message: 'The hosted tutor was asked.' } },
+				{ status: 500 },
+			);
+		},
 	});
+	const ai = reactive(openAi([tutorEndpoint, hostedEndpoint]));
 	const chat = createVocabChat({
-		// Offline, a folder that does not open: its messages are never listed.
-		messages: offline ? offlineFolder().messages : folder.messages,
+		messages: folder.messages,
 		chatId,
 		focus: [{ text: 'lucid' }],
 		ai,
@@ -116,25 +131,30 @@ async function setup({ question = false, offline = false } = {}) {
 		folder,
 		chatId,
 		tutor,
+		listable,
 		get requests() {
 			return requests;
+		},
+		get hostedRequests() {
+			return hostedRequests;
+		},
+		/** Wait until the tutor no longer answers and the folder's writes have landed. */
+		async settle() {
+			while (chat.isGenerating || folder.lists.saving())
+				await new Promise<void>((resolve) => setImmediate(resolve));
 		},
 	};
 }
 
-async function settle(chat: ReturnType<typeof createVocabChat>) {
-	while (chat.isGenerating || chat.isSaving)
-		await new Promise<void>((resolve) => setImmediate(resolve));
-}
-
-test('a submitted draft stays until its message is saved, then clears', async () => {
-	const { chat, folder } = await setup();
+test('a submitted draft stays until the conversation takes it, then clears', async () => {
+	const context = await setup();
+	const { chat, folder } = context;
 	chat.inputValue = 'It was a lucid talk.';
 	const sending = chat.sendMessage();
 	expect(chat.inputValue).toBe('It was a lucid talk.');
 	await sending;
 	expect(chat.inputValue).toBe('');
-	await settle(chat);
+	await context.settle();
 	expect(chat.messages.map((message) => message.role)).toEqual([
 		'assistant',
 		'user',
@@ -144,8 +164,9 @@ test('a submitted draft stays until its message is saved, then clears', async ()
 	folder[Symbol.dispose]();
 });
 
-test('typing while a message saves keeps the newer draft', async () => {
-	const { chat, folder } = await setup();
+test('typing while a message is sent keeps the newer draft', async () => {
+	const context = await setup();
+	const { chat, folder } = context;
 	const release = folder.files.hold();
 	chat.inputValue = 'First message';
 	const sending = chat.sendMessage();
@@ -153,64 +174,40 @@ test('typing while a message saves keeps the newer draft', async () => {
 	release();
 	await sending;
 	expect(chat.inputValue).toBe('Next draft');
-	await settle(chat);
+	await context.settle();
 	chat[Symbol.dispose]();
 	folder[Symbol.dispose]();
 });
 
-test('a refused learner message stays available and asks no tutor until saved', async () => {
+test('a message sent while the store is out of reach is answered, and both land once it is back', async () => {
 	const context = await setup();
-	const undo = context.folder.files.refuse('refused by the test', {
-		under: 'messages',
-	});
+	const back = context.folder.files.refuse('offline', { under: 'messages' });
 	context.chat.inputValue = 'Is this lucid?';
 	await context.chat.sendMessage();
-	expect(context.requests).toBe(0);
-	expect(context.chat.inputValue).toBe('Is this lucid?');
-	expect(context.chat.unsaved).toHaveLength(1);
-	undo();
-	await context.chat.saveAgain();
 	expect(context.chat.inputValue).toBe('');
-	expect(context.chat.unsaved).toHaveLength(0);
-	expect(context.requests).toBe(0);
-	context.chat[Symbol.dispose]();
-	context.folder[Symbol.dispose]();
-});
-
-test('a refused tutor answer is retried without another tutor request', async () => {
-	const context = await setup();
-	// The learner's message saves; once the tutor is asked, its answer's save is refused.
-	const answering = Promise.withResolvers<void>();
-	context.tutor.held = answering.promise;
-	context.chat.inputValue = 'Is this lucid?';
-	const sending = context.chat.sendMessage();
-	await until(() => context.requests === 1);
-	const undo = context.folder.files.refuse('refused by the test', {
-		under: 'messages',
-	});
-	answering.resolve();
-	await sending;
-	await settle(context.chat);
-	expect(context.requests).toBe(1);
-	expect(context.chat.unsaved.map((message) => message.role)).toEqual([
+	await until(() => context.requests === 1 && !context.chat.isGenerating);
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
+		'assistant',
+		'user',
 		'assistant',
 	]);
-	undo();
-	await context.chat.saveAgain();
-	expect(context.chat.unsaved).toHaveLength(0);
+	expect(context.folder.lists.saving()).toBe(true);
+	expect(context.folder.files.paths('messages')).toHaveLength(1);
+	back();
+	await context.settle();
+	expect(context.folder.files.paths('messages')).toHaveLength(3);
 	expect(context.requests).toBe(1);
 	context.chat[Symbol.dispose]();
 	context.folder[Symbol.dispose]();
 });
 
 test('an answer cut off at the output limit saves nothing', async () => {
-	const context = await setup({ question: true });
+	const context = await setup({ saved: [welcome, asked] });
 	context.tutor.finishReason = 'length';
 	await context.chat.retry();
-	await settle(context.chat);
+	await context.settle();
 	expect(context.requests).toBe(1);
 	expect(context.chat.error?.code).toBe('length');
-	expect(context.chat.unsaved).toEqual([]);
 	expect(context.chat.messages.map((message) => message.role)).toEqual([
 		'assistant',
 		'user',
@@ -221,13 +218,12 @@ test('an answer cut off at the output limit saves nothing', async () => {
 });
 
 test('a failed tutor request saves nothing and can be retried', async () => {
-	const context = await setup({ question: true });
+	const context = await setup({ saved: [welcome, asked] });
 	context.tutor.status = 500;
 	await context.chat.retry();
-	await settle(context.chat);
+	await context.settle();
 	expect(context.requests).toBe(1);
 	expect(context.chat.error).not.toBeNull();
-	expect(context.chat.unsaved).toEqual([]);
 	expect(context.chat.canAsk).toBe(true);
 	expect(context.folder.files.paths('messages')).toHaveLength(2);
 	context.chat[Symbol.dispose]();
@@ -235,7 +231,7 @@ test('a failed tutor request saves nothing and can be retried', async () => {
 });
 
 test('a stopped answer is never saved after the rest arrives', async () => {
-	const context = await setup({ question: true });
+	const context = await setup({ saved: [welcome, asked] });
 	const answering = Promise.withResolvers<void>();
 	context.tutor.held = answering.promise;
 	await context.chat.retry();
@@ -243,9 +239,8 @@ test('a stopped answer is never saved after the rest arrives', async () => {
 	context.chat.stop();
 	answering.resolve();
 	await Promise.all(context.tutor.answers);
-	await settle(context.chat);
+	await context.settle();
 	expect(context.chat.streaming).toBeNull();
-	expect(context.chat.unsaved).toEqual([]);
 	expect(context.chat.messages.map((message) => message.role)).toEqual([
 		'assistant',
 		'user',
@@ -255,22 +250,21 @@ test('a stopped answer is never saved after the rest arrives', async () => {
 	context.folder[Symbol.dispose]();
 });
 
-test('stopping while the learner message saves prevents the tutor start', async () => {
+test('stopping an answer to a sent message keeps the message and saves no answer', async () => {
 	const context = await setup();
-	const release = context.folder.files.hold();
+	const answering = Promise.withResolvers<void>();
+	context.tutor.held = answering.promise;
 	context.chat.inputValue = 'It was a lucid talk.';
-	const sending = context.chat.sendMessage();
-	await until(() => context.chat.isSaving);
+	await context.chat.sendMessage();
+	await until(() => context.chat.streaming !== null);
 	context.chat.stop();
-	release();
-	await sending;
-	await settle(context.chat);
-	expect(context.requests).toBe(0);
+	answering.resolve();
+	await Promise.all(context.tutor.answers);
+	await context.settle();
 	expect(context.chat.messages.map((message) => message.role)).toEqual([
 		'assistant',
 		'user',
 	]);
-	expect(context.chat.unsaved).toEqual([]);
 	expect(context.chat.canAsk).toBe(true);
 	expect(context.folder.files.paths('messages')).toHaveLength(2);
 	context.chat[Symbol.dispose]();
@@ -280,7 +274,7 @@ test('stopping while the learner message saves prevents the tutor start', async 
 test('an opening is not asked twice over a chat that already has one', async () => {
 	const context = await setup();
 	await context.chat.retry();
-	await settle(context.chat);
+	await context.settle();
 	expect(context.requests).toBe(0);
 	expect(context.chat.messages.map((message) => message.role)).toEqual([
 		'assistant',
@@ -289,14 +283,66 @@ test('an opening is not asked twice over a chat that already has one', async () 
 	context.folder[Symbol.dispose]();
 });
 
-test('an empty chat whose messages were never listed asks for no opening', async () => {
-	const context = await setup({ offline: true });
-	await context.chat.retry();
-	await settle(context.chat);
+test('an empty chat asks for its opening only once its messages are listed', async () => {
+	const context = await setup({ saved: [], unlisted: true });
+	expect(context.chat.canAsk).toBe(false);
+	const asking = context.chat.retry();
+	await Bun.sleep(50);
 	expect(context.requests).toBe(0);
 	expect(context.chat.messages).toEqual([]);
-	expect(context.chat.error).toBeNull();
-	expect(context.chat.canAsk).toBe(false);
+	context.listable();
+	await asking;
+	await context.settle();
+	expect(context.requests).toBe(1);
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
+		'assistant',
+	]);
 	context.chat[Symbol.dispose]();
 	context.folder[Symbol.dispose]();
+});
+
+test('a learner whose own model is read after the chat opens is never sent to the hosted tutor', async () => {
+	/** Choices as `modelChoices` answers them: the default until the saved ones are read. */
+	let read = false;
+	const reading = Promise.withResolvers<void>();
+	const choices = sessionDouble<ChatOptions['choices']>({
+		get: () => (read ? TUTOR : HOSTED),
+		set: async () => {},
+		subscribe: () => () => {},
+		ready: reading.promise,
+	});
+	const context = await setup({ saved: [], choices });
+	const opening = context.chat.retry();
+	await Bun.sleep(50);
+	expect(context.requests + context.hostedRequests).toBe(0);
+	read = true;
+	reading.resolve();
+	await opening;
+	await context.settle();
+	expect(context.hostedRequests).toBe(0);
+	expect(context.requests).toBe(1);
+
+	read = false;
+	const again = Promise.withResolvers<void>();
+	const later = await setup({
+		choices: sessionDouble<ChatOptions['choices']>({
+			get: () => (read ? TUTOR : HOSTED),
+			set: async () => {},
+			subscribe: () => () => {},
+			ready: again.promise,
+		}),
+	});
+	later.chat.inputValue = 'Is this right?';
+	const sending = later.chat.sendMessage();
+	await Bun.sleep(50);
+	read = true;
+	again.resolve();
+	await sending;
+	await later.settle();
+	expect(later.hostedRequests).toBe(0);
+	expect(later.requests).toBe(1);
+	for (const each of [context, later]) {
+		each.chat[Symbol.dispose]();
+		each.folder[Symbol.dispose]();
+	}
 });

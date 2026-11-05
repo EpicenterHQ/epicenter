@@ -1,10 +1,11 @@
 /**
  * EntryCard over a word note in a stand-in folder: the note is the note's
  * body, edited as typed (`entries.notes.edit`), and the stage and delete
- * write through the same notes.
+ * write through the same notes. While the store is out of reach, each
+ * waits, and lands once it is back.
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
-import { expect, spyOn, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	click,
@@ -15,7 +16,6 @@ const { openVocabFolder, until } = await import(
 	'../../lib/vocab.test-support.js'
 );
 const { createEntries } = await import('../../lib/entries.svelte.js');
-const { toast } = await import('@epicenter/ui/sonner');
 const { confirmationDialog } = await import(
 	'@epicenter/ui/confirmation-dialog'
 );
@@ -53,9 +53,8 @@ async function setup() {
 		entries,
 		/** The word as the list shows it. */
 		word: () => folder.lists.entries.get({ id }),
-		/** Refuse every write to the words until the returned undo. */
-		refuseEntries: () =>
-			folder.files.refuse('refused by the test', { under: 'entries' }),
+		/** Make every write to the words wait, as for a lost connection, until the returned undo. */
+		refuseEntries: () => folder.files.refuse('offline', { under: 'entries' }),
 		id,
 		card,
 		target,
@@ -99,35 +98,20 @@ test('typing again during a note save keeps the newer value', async () => {
 	await context.close();
 });
 
-test('a failed note keeps its typed text and can retry or discard', async () => {
+test('a note typed while the store is out of reach stays as typed, and lands once it is back', async () => {
 	const context = await setup();
-	let undo = context.refuseEntries();
+	const back = context.refuseEntries();
 	const note = noteOf(context.target);
-	type(note, 'failed text');
-	await until(
-		() => context.target.textContent?.includes('Not saved:') ?? false,
-	);
+	type(note, 'typed offline');
+	await until(() => context.folder.lists.saving());
+	await Bun.sleep(20);
 	flushSync();
-	expect(note.value).toBe('failed text');
-	expect(context.target.textContent).toContain('Not saved:');
-	expect(context.target.textContent).toContain('Save again');
+	expect(note.value).toBe('typed offline');
 	expect(context.word()?.body).toBe('');
-	undo();
-	click(context.target, 'Save again');
-	await until(() => context.word()?.body === 'failed text');
+	back();
+	await until(() => context.word()?.body === 'typed offline');
 	flushSync();
-	expect(context.target.textContent).not.toContain('Not saved:');
-	undo = context.refuseEntries();
-	type(note, 'another attempt');
-	await until(
-		() => context.target.textContent?.includes('Not saved:') ?? false,
-	);
-	flushSync();
-	expect(note.value).toBe('another attempt');
-	click(context.target, 'Discard');
-	flushSync();
-	expect(note.value).toBe('failed text');
-	expect(context.target.textContent).not.toContain('Not saved:');
+	expect(note.value).toBe('typed offline');
 	await context.close();
 });
 
@@ -144,22 +128,19 @@ test('note and stage updates merge over one path', async () => {
 	await context.close();
 });
 
-test('failed stage and delete commands show their errors', async () => {
+test('a stage and a delete made while the store is out of reach land, in order, once it is back', async () => {
 	const context = await setup();
-	context.refuseEntries();
-	const errorToast = spyOn(toast, 'error');
-	try {
-		click(context.target, 'Understand');
-		await until(() => errorToast.mock.calls.length === 1);
-		expect(errorToast.mock.calls[0]?.[0]).toBe('The stage was not saved');
-		click(context.target, 'Delete');
-		await confirmationDialog.confirm();
-		expect(errorToast.mock.calls[1]?.[0]).toBe('The word was not deleted');
-		expect(context.word()).toBeDefined();
-	} finally {
-		errorToast.mockRestore();
-		await context.close();
-	}
+	const back = context.refuseEntries();
+	click(context.target, 'Understand');
+	click(context.target, 'Delete');
+	const deleting = confirmationDialog.confirm();
+	await Bun.sleep(20);
+	expect(context.word()?.stage).toBe('new');
+	back();
+	await deleting;
+	expect(context.word()).toBeUndefined();
+	expect(context.folder.files.paths('entries')).toEqual([]);
+	await context.close();
 });
 
 test('Delete asks first; Cancel changes nothing, and confirming deletes the word', async () => {

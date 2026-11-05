@@ -30,22 +30,11 @@ export function createVocabChat({
 	/** The model the next turn uses, captured when it is asked for. */
 	let chosen: ModelChoice | null = null;
 	let draft = $state('');
-	// The submitted text stays in the draft until its message is saved.
-	let submittedDraft: string | null = null;
 	let dismissedError = $state<string | null>(null);
 	let disposed = false;
 	// A tutor request being prepared: reserved when asked, before any await, so
 	// a second click finds it. Stop and disposal abort it before the tutor starts.
 	let asking = $state<AbortController | null>(null);
-
-	/**
-	 * A message's file receipt arrived. Clear the submitted text, unless the
-	 * learner has typed since.
-	 */
-	function releaseSubmittedDraft() {
-		if (draft === submittedDraft) draft = '';
-		submittedDraft = null;
-	}
 
 	/** Whether a merged endpoint offers `choice` as a chat model now. */
 	function canChat(choice: ModelChoice | null): choice is ModelChoice {
@@ -88,11 +77,7 @@ export function createVocabChat({
 			prepare: tutorOpening,
 		}),
 	);
-	// Saving and unsaved messages hold the conversation as a live turn does.
-	const isBusy = () => {
-		const { isGenerating, isSaving, unsaved } = loop.snapshot();
-		return asking !== null || isGenerating || isSaving || unsaved.length > 0;
-	};
+	const isBusy = () => asking !== null || loop.snapshot().isGenerating;
 	/**
 	 * The tutor is asked only for an opening or for an unanswered learner
 	 * message. An empty transcript asks for an opening only once the chat's
@@ -126,20 +111,6 @@ export function createVocabChat({
 			const { error } = loop.snapshot();
 			return error && error.message !== dismissedError ? error : null;
 		},
-		/** Whole messages not yet confirmed as notes. */
-		get unsaved() {
-			return loop.snapshot().unsaved;
-		},
-		get isSaving() {
-			return loop.snapshot().isSaving;
-		},
-		/**
-		 * Why a message in `unsaved` has no file. Set until `saveAgain` succeeds.
-		 * Never a tutor failure; those are `error`.
-		 */
-		get saveError() {
-			return loop.snapshot().saveError;
-		},
 		/** Message files of this chat that are not shown and not sent to the tutor. */
 		get unreadable() {
 			return loop.snapshot().unreadable;
@@ -172,37 +143,29 @@ export function createVocabChat({
 			return choices.set('chat', next);
 		},
 		/**
-		 * Save the draft as a learner message, then ask the tutor. A failed save
-		 * asks nothing: the draft stays and the message waits in `unsaved`.
+		 * Hand the draft to the folder as a learner message, then ask the
+		 * tutor. The draft clears once the conversation takes it, unless the
+		 * learner has typed since; one it does not take stays.
 		 */
 		async sendMessage() {
 			const submitted = draft;
 			const text = submitted.trim();
 			if (!text) return;
-			// A reply needs the chat's saved messages, which list once it opens.
-			await loop.ready;
+			// A reply needs the chat's saved messages, which list once it opens,
+			// and the learner's saved model, which answers its default until read.
+			await Promise.all([loop.ready, choices.ready]);
 			if (loop.snapshot().messages.length === 0 || isBusy() || !captureTarget())
 				return;
 			const { error } = await loop.send(text);
-			if (error?.name === 'NotAdmitted') return;
-			submittedDraft = submitted;
+			if (error !== null) return;
 			dismissedError = null;
-			if (error === null) releaseSubmittedDraft();
-		},
-		/**
-		 * Save the messages in `unsaved` again, under the same files. Never asks
-		 * the tutor; that stays the learner's separate step.
-		 */
-		async saveAgain() {
-			if (loop.snapshot().unsaved.length === 0) return;
-			const { error } = await loop.save();
-			if (error === null) releaseSubmittedDraft();
+			if (draft === submitted) draft = '';
 		},
 		/**
 		 * Ask the tutor for the opening, or for the answer to the last learner
-		 * message, over the transcript as the folder shows it. Until the
-		 * chat's saved messages were listed, an empty chat asks nothing and a
-		 * turn ends as `Unlisted`; retrying once they are listed asks again.
+		 * message, over the transcript as the folder shows it. It waits until
+		 * the chat's saved messages were listed, which the folder tries again
+		 * while the store is out of reach, and then asks only what is unasked.
 		 */
 		async retry() {
 			if (disposed || isBusy()) return;
@@ -210,8 +173,9 @@ export function createVocabChat({
 			asking = admitted;
 			try {
 				// A connection the learner chose answers once the saved ones are
+				// read, the learner's saved model answers its default until it is
 				// read, and what to ask depends on the chat's saved messages.
-				await Promise.all([ai.custom()?.ready, loop.ready]);
+				await Promise.all([ai.custom()?.ready, choices.ready, loop.ready]);
 				if (admitted.signal.aborted) return;
 				if (hasNothingToAsk() || !captureTarget()) return;
 				dismissedError = null;

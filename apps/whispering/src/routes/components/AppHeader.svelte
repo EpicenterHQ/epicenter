@@ -12,14 +12,12 @@
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import { page } from '$app/state';
 	import { Chrome } from '#platform/components';
-	import { getLibrary } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { pageAt } from './nav-items.js';
 	import RecorderClock from './RecorderClock.svelte';
 	import SettingsForm from './SettingsForm.svelte';
 
 	const whispering = getWhispering();
-	const library = getLibrary();
 
 	/** The home page has the large recorder; every other page gets this compact one. */
 	const onHome = $derived(pageAt(page.url.pathname) === 'home');
@@ -47,7 +45,7 @@
 		<span class="min-w-0 truncate text-xs text-destructive" role="alert" title={whispering.recorderError}>{whispering.recorderError}</span>
 	{/if}
 
-	<Chrome unwrittenAnswers={library.unwrittenAnswers} />
+	<Chrome />
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">
 		<Popover.Root>
