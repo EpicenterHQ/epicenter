@@ -2,11 +2,12 @@
 	The reply to one conversation: its draft note's body as an immediate
 	editor, created by the first keystroke (selecting a conversation makes no
 	file), and the latest send attempt with its recovery. A draft or attempt
-	that does not read is shown as text to repair.
+	that does not read is shown as text to repair through its editor. Saves
+	never fail: while storage cannot be reached they wait, and Send waits for
+	the draft to land first.
 -->
 <script lang="ts">
 	import NoteRepair from '@epicenter/svelte/note-repair';
-	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -29,13 +30,13 @@
 	const reply = drafts.edit({ id: draftId }, {
 		create: () => ({ chatId, profile: backend.profile, mode: backend.mode }),
 	});
+	const attemptEdit = attempts.edit({ id: draftId });
 	const typed = () => reply.fields.body ?? '';
 	const pending = $derived(attempt?.state === 'sending');
 	let message = $state('');
 	const send = createMutation(() => ({
 		mutationFn: async ({ text, previousAttemptId }: { text: string; previousAttemptId: string | undefined }) => {
-			const landed = await reply.landed();
-			if (landed.error !== null) { message = 'Nothing was sent: the draft could not be saved.'; return; }
+			await reply.landed();
 			const result = await sendDraft(folder, {
 				id: draftId, chatId, backend, text, previousAttemptId,
 				unchanged: () => typed() === text,
@@ -54,7 +55,7 @@
 			});
 			message = result.error?.message ?? '';
 		},
-		onError: () => { message = 'The checked outcome could not be saved. Check Beeper before sending again.'; },
+		onError: () => { message = 'Could not record the check. Check Beeper before sending again.'; },
 	}));
 </script>
 
@@ -73,13 +74,13 @@
 	{:else if brokenAttempt}
 		<section class="space-y-2" aria-label="Send attempt to repair">
 			<p role="alert" class="text-sm text-destructive">The latest send attempt needs Markdown repair before sending again.</p>
-			<NoteRepair {contract} note={brokenAttempt} replace={(text, options) => attempts.replace({ id: draftId }, text, options)} />
+			<NoteRepair {contract} note={brokenAttempt} edit={attemptEdit} />
 		</section>
 	{/if}
 	{#if brokenDraft}
 		<section class="space-y-2" aria-label="Draft to repair">
 			<p role="alert" class="text-sm text-destructive">This draft needs Markdown repair before composing.</p>
-			<NoteRepair {contract} note={brokenDraft} replace={(text, options) => drafts.replace({ id: draftId }, text, options)} />
+			<NoteRepair {contract} note={brokenDraft} edit={reply} />
 		</section>
 	{:else}
 		<label for="reply" class="sr-only">Message</label>
@@ -88,6 +89,5 @@
 			<Button disabled={send.isPending || recover.isPending || pending || !!brokenAttempt || !typed().trim()} onclick={() => send.mutate({ text: typed(), previousAttemptId: attempt?.attemptId })}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
 		</div>
 	{/if}
-	<UnsavedEdit edit={reply} />
 	{#if message}<p role="status" class="text-sm">{message}</p>{/if}
 </div>

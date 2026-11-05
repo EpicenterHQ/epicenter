@@ -90,15 +90,16 @@ Selecting a conversation creates no file; the first keystroke creates its
 draft (`drafts.edit` with `create`), and each keystroke after updates it.
 Emptying the composer clears the draft (its note stays, with an empty
 body); no action deletes a draft's note. The
-composer keeps typed text until its save answers; a failed save keeps it with
-Save again, Discard, and Copy. The conversation list shows a **Draft**
+composer keeps typed text until its save lands. A save never fails: while
+the files cannot be written it waits, `<WhenOpen>` says changes are waiting,
+and Send waits for the draft to land (ADR-0775). The conversation list shows a **Draft**
 preview of a non-empty draft, and **Check send** for an unconfirmed attempt,
 for the current mode and connection only.
 
 A draft or attempt that does not read as one (another program edited it) is
-shown as its text, with what is wrong as typed, and saved fixed with
-**Save repair** (`replace`); text that still does not fit is refused and
-stays to fix.
+shown as its text, with what is wrong as typed, and saved with **Save
+repair** through the note's editor (`edit.text`). Text that still does not
+fit is saved as typed and stays shown to repair, with its new problems.
 
 ## Connect Beeper
 
@@ -134,18 +135,19 @@ A send captures the text on screen and the attempt shown, waits for the
 composer's typing to land, then, serialized per draft in the tab and by a Web
 Lock across tabs:
 
-1. reads the attempts from storage and refuses when they differ from what
-   the page shows (another tab sent first);
-2. refuses an unconfirmed or changed attempt, a draft or attempt that needs
+1. reads the attempts from storage, so the page shows another tab's send
+   it had not heard of, and refuses when they cannot be read;
+2. refuses an unconfirmed attempt, one other than the attempt shown when
+   Send was pressed (another tab sent first), a draft or attempt that needs
    repair, and a draft that names another conversation or connection;
 3. saves a new **sending** attempt, and clears the draft only when the text
-   on screen is unchanged; if the clear fails, nothing is sent and the
-   attempt is acknowledged;
+   on screen is unchanged, waiting for each to land: a save never fails,
+   and while the files cannot be written Beeper is not asked;
 4. asks Beeper, and records Beeper's pending id on the attempt when it
    accepts.
 
-If Beeper does not confirm, or the receipt cannot be saved, the attempt stays
-unconfirmed and the person must check Beeper. **I checked** acknowledges the
+If Beeper does not confirm, or the page closes before its receipt lands,
+the attempt stays unconfirmed and the person must check Beeper. **I checked** acknowledges the
 attempt shown; **keep as draft** restores its text when the composer is
 empty. A stale check cannot restore an accepted send or acknowledge a newer
 attempt. Reload, reconnect, and draft saves never resend.
