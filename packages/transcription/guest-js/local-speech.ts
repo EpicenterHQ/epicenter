@@ -1,11 +1,12 @@
 /**
- * `localSpeech()` in a desktop app (the `tauri` condition; the web's is
- * `local-speech.web.ts`, which answers null): transcribe.cpp inside this
- * app's process as an AI endpoint (ADR-0757). Its `fetch` answers the
- * OpenAI-compatible `audio/transcriptions` and `models` requests in-process
- * by calling this plugin's commands, so there is no port another program
- * could call, and `openAi([... , localSpeech()])` lists its installed models
- * beside every other endpoint's.
+ * `localSpeech()`: transcribe.cpp inside this app's process as an AI
+ * endpoint (ADR-0757) in a Tauri window, and null in a browser, where there
+ * is none; the same `openAi([... , localSpeech()])` skips it. Its `fetch`
+ * answers the OpenAI-compatible `audio/transcriptions` and `models` requests
+ * in-process by calling this plugin's commands, so there is no port another
+ * program could call, and `openAi` lists its installed models beside every
+ * other endpoint's. The plugin's bindings load with the first command, so a
+ * browser never loads them (ADR-0781).
  *
  * A transcription uploads its audio as `file`, as any OpenAI client does (a
  * dictation's blob, or a recording read from the folder), and the plugin
@@ -27,13 +28,13 @@
  */
 
 import type { Endpoint, EndpointModel } from '@epicenter/ai';
-import { Channel } from '@tauri-apps/api/core';
-import {
+import { Channel, isTauri } from '@tauri-apps/api/core';
+import type {
 	commands as bindings,
-	type DownloadProgress,
-	type ModelInfo,
-	type TranscriptionError,
-	type UnloadPolicy,
+	DownloadProgress,
+	ModelInfo,
+	TranscriptionError,
+	UnloadPolicy,
 } from './bindings.gen.js';
 
 export type LocalSpeechCommands = Pick<
@@ -49,6 +50,22 @@ export type LocalSpeechCommands = Pick<
 	| 'getUnloadPolicy'
 	| 'setUnloadPolicy'
 >;
+
+/** The plugin's commands, its bindings loaded with the first call. */
+const plugin = () =>
+	import('./bindings.gen.js').then((module) => module.commands);
+const pluginCommands: LocalSpeechCommands = {
+	listModels: async () => (await plugin()).listModels(),
+	listInferenceModels: async () => (await plugin()).listInferenceModels(),
+	transcribeAudio: async (...args) => (await plugin()).transcribeAudio(...args),
+	downloadModel: async (...args) => (await plugin()).downloadModel(...args),
+	removeModel: async (...args) => (await plugin()).removeModel(...args),
+	revealModel: async (...args) => (await plugin()).revealModel(...args),
+	loadModel: async (...args) => (await plugin()).loadModel(...args),
+	unloadModel: async (...args) => (await plugin()).unloadModel(...args),
+	getUnloadPolicy: async () => (await plugin()).getUnloadPolicy(),
+	setUnloadPolicy: async (...args) => (await plugin()).setUnloadPolicy(...args),
+};
 
 /** How each refusal answers over HTTP; the error's name is its code. */
 const STATUS = {
@@ -81,12 +98,18 @@ async function formOf(init: RequestInit | undefined): Promise<FormData | null> {
 	}
 }
 
+/** This app's in-process speech endpoint in a Tauri window; null in a browser. */
+export function localSpeech(): LocalSpeech | null {
+	return isTauri() ? openLocalSpeech() : null;
+}
+
 /**
- * This app's in-process speech endpoint, with its models' local lifecycle.
+ * This app's in-process speech endpoint, with its models' local lifecycle,
+ * for code that runs only in a Tauri window (the model settings).
  * `commands` stand in for the plugin in tests.
  */
-export function localSpeech({
-	commands = bindings,
+export function openLocalSpeech({
+	commands = pluginCommands,
 }: {
 	commands?: LocalSpeechCommands;
 } = {}) {
@@ -233,4 +256,4 @@ export function localSpeech({
 		},
 	};
 }
-export type LocalSpeech = ReturnType<typeof localSpeech>;
+export type LocalSpeech = ReturnType<typeof openLocalSpeech>;
