@@ -4,7 +4,8 @@
 	"version": "0.0.1",
 	"identifier": "so.epicenter.capture",
 	"build": {
-		"frontendDist": "../build-desktop"
+		"frontendDist": "../build",
+		"beforeBuildCommand": "bun run build"
 	},
 	"app": {
 		"windows": [],

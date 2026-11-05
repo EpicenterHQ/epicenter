@@ -11,14 +11,13 @@
 		"test:postgres": "bun test --isolate ./src/lib/web-sign-in.postgres.test.ts",
 		"test:e2e": "playwright test -c playwright.config.ts",
 		"build": "NODE_ENV=production vite build",
-		"build:native": "EPICENTER_DESKTOP=1 WHISPERING_BUILD_DIR=build-desktop NODE_ENV=production vite build",
-		"dev:desktop": "bun run build:native && tauri dev --config src-tauri/tauri.dev.conf.json",
-		"build:desktop": "bun run build:native && tauri build --bundles app",
+		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
+		"build:desktop": "tauri build --bundles app",
 		"check": "bun run typecheck",
 		"contract": "bun scripts/write-contract.ts",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"license": "AGPL-3.0-or-later",
 	"devDependencies": {

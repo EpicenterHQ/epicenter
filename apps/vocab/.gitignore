@@ -25,5 +25,3 @@ vite.config.ts.timestamp-*
 test-results
 playwright-report
 
-# The desktop window's page build (`bun run build:native`), which src-tauri loads
-/build-desktop

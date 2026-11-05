@@ -3,8 +3,8 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /**
  * Where a build writes the static app, when not `build/`: the end-to-end
- * stack builds against a test server into a scratch directory, and the
- * desktop window's build (`bun run build:native`) writes `build-desktop/`.
+ * stack builds against a test server into a scratch directory. The desktop
+ * window loads `build/`, the same build the web serves.
  */
 const out = process.env.VOCAB_BUILD_DIR;
 

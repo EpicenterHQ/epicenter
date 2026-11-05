@@ -29,14 +29,14 @@ mod tests {
     use super::*;
 
     /// The bundle is `so.epicenter.honeycrisp`, which names its folder,
-    /// `~/Epicenter/honeycrisp`, and it loads the desktop page, never the web
-    /// build.
+    /// `~/Epicenter/honeycrisp`, and it loads the one build the web serves
+    /// (ADR-0781).
     #[test]
     fn honeycrisp_is_its_own_app_with_a_folder_named_for_it() {
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(config["identifier"], "so.epicenter.honeycrisp");
         assert_eq!(config["productName"], HONEYCRISP.title);
-        assert_eq!(config["build"]["frontendDist"], "../build-desktop");
+        assert_eq!(config["build"]["frontendDist"], "../build");
         let dev: Value = serde_json::from_str(include_str!("../tauri.dev.conf.json")).unwrap();
         assert_eq!(dev["identifier"], "so.epicenter.honeycrisp.dev");
         // The environment is stated, never read from the identifier.

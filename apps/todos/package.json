@@ -8,9 +8,8 @@
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
 		"build": "NODE_ENV=production vite build",
-		"build:native": "EPICENTER_DESKTOP=1 TODOS_BUILD_DIR=build-desktop NODE_ENV=production vite build",
-		"dev:desktop": "bun run build:native && tauri dev --config src-tauri/tauri.dev.conf.json",
-		"build:desktop": "bun run build:native && tauri build --bundles app",
+		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
+		"build:desktop": "tauri build --bundles app",
 		"preview": "vite preview",
 		"demo": "bun e2e/stack.ts --demo",
 		"contract": "bun scripts/write-contract.ts",
@@ -18,7 +17,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun test --isolate --conditions=browser --conditions=svelte --conditions=test src scripts",
 		"test:e2e": "playwright test -c playwright.config.ts",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json && tsc -p tsconfig.scripts.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
