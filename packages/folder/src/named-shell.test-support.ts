@@ -134,7 +134,7 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 			const parsed: DeviceExpectation =
 				expected === 'absent'
 					? 'absent'
-					: { sha256: expected.slice('sha256:'.length) as Version };
+					: { version: expected.slice('sha256:'.length) as Version };
 			if (control.refuseNext > 0) {
 				control.refuseNext -= 1;
 				throw {
@@ -144,7 +144,8 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 					message: 'the disk refused the write',
 				} satisfies StorageError;
 			}
-			return answered(
+			// The shell answers only whether the write landed.
+			const outcome = await answered(
 				'write',
 				path,
 				storageFor(args).write(
@@ -153,6 +154,7 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 					parsed,
 				),
 			);
+			return outcome === 'stale' ? outcome : 'landed';
 		},
 	};
 

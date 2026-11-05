@@ -24,7 +24,7 @@ import {
 import { Ok } from 'wellcrafted/result';
 import { createChanges } from '../changes.js';
 import type { Changed, Reply } from './opfs-worker.js';
-import type { DeviceExpectation, DeviceStore } from './store.js';
+import type { DeviceExpectation, DeviceLanded, DeviceStore } from './store.js';
 
 /**
  * The broadcast channel every device store and worker of this origin shares.
@@ -174,7 +174,7 @@ export function opfsStore(): DeviceStore {
 				owned === null ? [] : [owned.buffer],
 			);
 			if (written.error !== null) return written;
-			return Ok(written.data as 'landed' | 'stale');
+			return Ok(written.data as DeviceLanded | 'stale');
 		},
 		async append(path, bytes, { create, announce }) {
 			const owned = bytes.slice();

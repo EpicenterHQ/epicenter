@@ -400,7 +400,7 @@ test("an appended file's listeners hear it made and announced, not every piece",
 		list: async () =>
 			Ok([...files.keys()].map((path) => ({ path, stamp: '' }))),
 		read: async () => Ok(null),
-		write: async () => Ok('landed'),
+		write: async () => Ok({ landed: null }),
 		async append(path, added, { create }) {
 			const there = files.get(path);
 			if (create === (there !== undefined)) return Ok('stale');

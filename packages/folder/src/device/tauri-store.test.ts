@@ -15,6 +15,7 @@
 import { afterEach, expect, mock, test } from 'bun:test';
 import type { Version } from '@epicenter/definition/contract';
 import { expectOk } from 'wellcrafted/testing';
+import { hashBytes } from '../hash.js';
 
 let putHeaders: Record<string, string> | undefined;
 let readArgs: { path?: string; root?: string } | undefined;
@@ -71,16 +72,16 @@ test('a listing and a read keep the shell stamps, and each names the root', asyn
 	expect(expectOk(await store().read('notes/missing.md'))).toBeNull();
 });
 
-test('a write sends each expectation in its own spelling: absent or a tagged hash', async () => {
+test('a write sends each expectation in its own spelling: absent or a tagged version', async () => {
 	expect(
 		expectOk(await store().write('a.md', new Uint8Array([1]), 'absent')),
-	).toBe('landed');
+	).toEqual({ landed: (await hashBytes(new Uint8Array([1]))) as Version });
 	expect(putHeaders?.expected).toBe('absent');
 	expect(putHeaders?.path).toBe(encodeURIComponent('a.md'));
 	expect(putHeaders?.root).toBe(encodeURIComponent(ROOT));
 	expectOk(
 		await store().write('a.md', null, {
-			sha256: 'exact-hash' as Version,
+			version: 'exact-hash' as Version,
 		}),
 	);
 	expect(putHeaders?.expected).toBe('sha256:exact-hash');

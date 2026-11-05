@@ -305,21 +305,22 @@ async function write(
 		const holds =
 			expected === 'absent'
 				? current === null
-				: current?.version === expected.sha256;
+				: current?.version === expected.version;
 		if (!holds) return 'stale';
 		if (bytes === null) {
 			const found = await fileAt(path);
 			if (found !== null) await found.parent.removeEntry(found.name);
-			return 'landed';
+			return { landed: null };
 		}
+		const landed = { landed: await sha256(bytes) };
 		if (current !== null) {
 			const found = await fileAt(path);
 			if (found === null) return 'stale';
 			await writeWhole(found.handle, bytes);
-			return 'landed';
+			return landed;
 		}
 		await createWhole(path, bytes);
-		return 'landed';
+		return landed;
 	});
 }
 
@@ -416,7 +417,7 @@ async function answer(request: Request): Promise<unknown> {
 				request.bytes,
 				request.expected,
 			);
-			if (outcome === 'landed') announce(request.path, request.from);
+			if (outcome !== 'stale') announce(request.path, request.from);
 			return outcome;
 		}
 		case 'append': {
