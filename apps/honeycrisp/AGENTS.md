@@ -5,20 +5,20 @@ for the layout and page flow, and verify it against the code.
 
 ## The files are the data
 
-- Honeycrisp has two variants, one store each, and the build picks it,
-  never a run-time check
-  ([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)):
+- Honeycrisp has two stores, and `home` from `@epicenter/folder` picks one
+  where the page runs; the app never asks which platform it is on
+  ([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md),
+  [ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)):
   `src/lib/app.ts` exports `folder`, one
   `openFolder(honeycrisp, home({ site, account }))`, which is the signed-in
-  person's repository in the web build and the window's folder on the
-  desktop, which never signs in. Every read and write goes through it:
+  person's repository in a browser and the window's folder in a Tauri
+  window, which offers no sign-in yet. Every read and write goes through it:
   components import `folder` from `$lib/app.js` and read `folder.notes` and
   `folder.folders`. Only `app.ts` opens the store; components never import
-  a client or know which store they are over, and only the header's
-  `Chrome` (`#platform/chrome`) says. The web app keeps nothing in the
-  browser: no device, OPFS, uploader, or service worker (ADR-0700). Seam
-  leaves use relative imports, not `$lib`, so `platform.test.ts` can bundle
-  them. Do not add another store, cache, or save queue.
+  a client or know which store they are over, and only the header says,
+  branching on `folder.reveal` (`FolderChrome` or `RepositoryChrome`). One
+  build serves the web and the desktop. The web app keeps nothing in the browser: no device, uploader, or service
+  worker (ADR-0700). Do not add another store, cache, or save queue.
 - A change to the layout is a change to `src/lib/contract.ts`, then
   `bun run contract`; the fit test fails until the two agree. No migration or
   compatibility code: there is no earlier data to read (decision 72).

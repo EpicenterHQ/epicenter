@@ -1,37 +1,45 @@
 # Whispering App
 
-Whispering has two variants (decision 77), the same pages over the
-`whispering` contract's files (`src/lib/contract.ts`): the web build, which
-keeps them in this browser's storage for good, and the desktop app
-(`src-tauri/`), which keeps them in a data folder on the computer that
-Epicenter may sync. Nothing syncs, uploads, or moves between stores
+Whispering has two variants (decision 77), the same pages from one build
+over the `whispering` contract's files (`src/lib/contract.ts`): in a browser
+the signed-in person's `whispering` repository, which the page keeps none
+of
+([ADR-0786](../../docs/adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md)),
+and in the desktop app (`src-tauri/`) a data folder on the computer that
+Epicenter may sync. Whispering itself moves nothing between stores
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
-Signing in with Epicenter is optional and grants capabilities only. Read
-`README.md` for behavior and `ARCHITECTURE.md` for structure.
+On the web the sign-in holds the recordings; in the desktop app it is
+optional and adds Epicenter's models. Read `README.md` for behavior and
+`ARCHITECTURE.md` for structure.
 
 ## Constraints
 
 - **One store, chosen in one place.** `src/lib/app.ts` opens it,
-  `openFolder(whispering, home({ site }))`, whose place the build picks (this browser's
-  storage on the web, the data folder on the desktop, memory under `test`),
+  `openFolder(whispering, home({ site, account }))`, whose place `home`
+  picks where the page runs (the account's repository in a browser, the
+  data folder in a Tauri window, memory under `test`),
   and `src/routes/(app)/+layout.svelte` renders the app over it and this
-  computer's settings with `<WhenOpen>`, so every read inside is
+  computer's settings with `<WhenOpen>`, or `SignIn` over a signed-out
+  repository, so every read inside is
   synchronous; do not add a ready, loading, or start gate. Components read
   through the library (`getLibrary`) and edit
   a note through the folder (`folder.recordings.edit({ id })`), never a
   store of their own.
-- **The build chooses the variant.** Everything that differs is a
-  `#platform/*` leaf (`account`, `computer`, `components`, `variant`; `*.tauri.ts`
-  and `components/Desktop*.svelte` for the desktop). No runtime
-  `isTauri()` branching. Leaves and what they import use relative imports,
-  not `$lib`, so `src/lib/platform/platform.test.ts` can bundle them.
-- **Sign-in grants capabilities, never storage.** It asks for the API
-  audience and `ai` only (`src/lib/platform/account.ts`), and `app.ts`
-  gives `home` no account. Do not add a Git
-  audience, a `folders:*` scope, an uploader, a cache of uploaded audio, a
-  repository view, or a switcher.
-  Nothing a sign-in or sign-out does touches the files.
-  `src/lib/page-boundary.test.ts` enforces this; keep it passing.
+- **Branch on what a capability offers, never on the platform**
+  ([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)).
+  One build serves the browser and the Tauri window. A capability a
+  surface cannot give is `null` there (`speech`, `shortcut`), and a view
+  shows it only where it is (`{#if shortcut}`); where the store matters, a
+  view reads `folder.reveal` (`FolderChrome` or `RepositoryChrome`,
+  `FolderSettings`). Only `src/lib/shortcut.ts` calls `isTauri()` or
+  imports Tauri, and it loads the shell's event code when it listens; a
+  static import of a desktop module from shared code puts it in the web's
+  first load, which `scripts/first-load.test.ts` refuses.
+- **The browser keeps nothing.** No service worker, no browser store of
+  notes or audio, no uploader of its own, and no cache of uploaded audio: a
+  take goes to the repository through the folder at Stop. Sign-in and
+  sign-out never touch the files. `src/lib/page-boundary.test.ts` enforces
+  the page's boundaries; keep it passing.
 - **The folder keeps writes until they land; Whispering holds none.** A
   write (`set`, `delete`, an editor's save) answers once it has landed and
   never fails while the folder lives (ADR-0775): while the store is out of
@@ -43,11 +51,11 @@ Signing in with Epicenter is optional and grants capabilities only. Read
 - **No migration or compatibility code** (decision 72). Nothing reads an
   earlier build's IndexedDB folder or Yjs store. Do not add a second store
   or a cache of notes.
-- **Capabilities through the seam.** What differs by build in capture, the
-  models on this computer and the shortcut comes from `#platform/computer`,
-  the sign-in from `#platform/account` (`src/lib/platform/`), and `app.ts`
-  alone makes the capabilities from them. Nothing under `src/` imports Node
-  or Bun, and only the desktop leaves import Tauri.
+- **Capabilities come from their packages.** The recorder, the models on
+  this computer and the sign-in come from `@epicenter/recorder`,
+  `@epicenter/ai`, `@epicenter/transcription` and `@epicenter/account`,
+  each of which decides where the page runs, and `app.ts` alone makes the
+  capabilities from them. Nothing under `src/` imports Node or Bun.
 - **Capabilities are module values; product state is the app's own.**
   `src/lib/app.ts` exports the capabilities (`folder`, `account`, `ai`,
   `choices`, `settings`, `speech`, `recorder`, `shortcut`) as module values opened once
@@ -63,8 +71,8 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   its path** (on the desktop, once the shell has encoded it), so a note
   never names audio that is not there and the library never lists a take in
   progress. A browser keeps a take in memory until Stop, so a crash or a
-  closed tab loses it; do not add streaming writes, locks, or recovery to
-  the web build (ADR-0780). On the desktop, audio a quit or a crash left
+  closed tab loses it; do not add streaming writes, locks, or recovery in
+  a browser (ADR-0779, ADR-0780). On the desktop, audio a quit or a crash left
   without a note gets one on the next launch, in the background
   (`finishCutOffRecordings` in `folder-recordings.ts`); do not add another
   path that writes a recording's note. Its note holds facts only:
@@ -98,10 +106,10 @@ Signing in with Epicenter is optional and grants capabilities only. Read
 
 ## Checks
 
-From `apps/whispering`: `bun run typecheck` (both builds' leaves),
+From `apps/whispering`: `bun run typecheck`,
 `bun run test` (Svelte's browser runtime; the lists notify nothing on the
 server runtime), `bun run build`, `cargo test -p whispering` (after
-`bun run build:native`),
+`bun run build`),
 and `bun run test:e2e` (Playwright in Chromium and WebKit over the local
 stack; port 1420 must be free). `bun run test:postgres` checks the sign-in
 against a real authorization server. Unit tests run under the `test`

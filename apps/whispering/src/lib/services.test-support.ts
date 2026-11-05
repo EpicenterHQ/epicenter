@@ -5,7 +5,7 @@
  * provider.
  *
  * The files are a place in memory (`memory()` from `@epicenter/folder/memory`)
- * holding the contract's files at the paths the browser's OPFS holds them:
+ * holding the contract's files at the paths the repository holds them:
  * the app opens its folder there, the fixture device writes through a
  * folder of its own there, and a test writes or refuses as another program
  * through `memoryFiles`.
