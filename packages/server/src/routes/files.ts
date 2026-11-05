@@ -5,7 +5,7 @@
  * ```txt
  * GET  <git>/<ns>/<name>.git/epicenter/changes?since=<commit>  folders:read   the commit main is at, and the paths changed since
  * GET  <git>/<ns>/<name>.git/epicenter/files?root=<dir>&…       folders:read   every file under each <dir>
- * POST <git>/<ns>/<name>.git/epicenter/read                     folders:read   the files at { paths }, in one request
+ * POST <git>/<ns>/<name>.git/epicenter/read                     folders:read   the files at { paths, at? }, in one request
  * POST <git>/<ns>/<name>.git/epicenter/writes                   folders:write  one commit
  * ```
  *
@@ -388,7 +388,9 @@ export async function listRepositoryFiles(
 	const tree = (await readCommit(objects, main))?.tree ?? null;
 	const wanted = [...new Set(folders as string[])].filter(
 		(folder, _, all) =>
-			!all.some((other) => other !== folder && (other === '' || under(other, folder))),
+			!all.some(
+				(other) => other !== folder && (other === '' || under(other, folder)),
+			),
 	);
 	const entries: { oid: string; path: string }[] = [];
 	for (const folder of wanted) {
@@ -418,15 +420,18 @@ async function readLfsPointer(objects: GitObjects, oid: string) {
 export const MAX_READ_PATHS = 10_000;
 
 /**
- * The files at `paths` on one commit of `main`, in the request's order:
- * each note's text, each other file's LFS object, or `gone` where nothing
- * is. One request answers a folder's contents (ADR-0779).
+ * The files at `paths` on one commit, in the request's order: each note's
+ * text, each other file's LFS object, or `gone` where nothing is. One
+ * request answers a folder's contents (ADR-0779). The commit is `main`, or
+ * `at` when the body names one: a sync reads a note's base where both
+ * sides last agreed (ADR-0803). An `at` this repository does not hold is
+ * `404 unknown_commit`.
  */
 export async function readRepositoryFiles(
 	objects: GitObjects,
 	body: unknown,
 ): Promise<Response> {
-	const paths = (body as { paths?: unknown } | null)?.paths;
+	const { paths, at } = (body ?? {}) as { paths?: unknown; at?: unknown };
 	if (
 		!Array.isArray(paths) ||
 		paths.length > MAX_READ_PATHS ||
@@ -439,21 +444,43 @@ export async function readRepositoryFiles(
 			},
 			400,
 		);
-	const main = (await objects.refs()).get(MAIN) ?? null;
-	const tree = main
-		? ((await readCommit(objects, main))?.tree ?? null)
+	if (at != null && (typeof at !== 'string' || !OID.test(at)))
+		return json(
+			{ error: 'invalid_request', message: 'at is a commit id' },
+			400,
+		);
+	const commit =
+		typeof at === 'string' ? at : ((await objects.refs()).get(MAIN) ?? null);
+	const tree = commit
+		? ((await readCommit(objects, commit))?.tree ?? undefined)
 		: null;
+	if (tree === undefined)
+		return json(
+			{
+				error: 'unknown_commit',
+				message: `${commit} is not a commit of this repository`,
+			},
+			404,
+		);
 	const lookupIn = treeLookup(objects, tree);
 	const files = await Promise.all(
 		(paths as string[]).map(async (path) => {
 			const entry = await lookupIn(path);
 			if (!entry) return { path, gone: true };
 			if (storedWithLfs(path))
-				return { path, blob: entry.oid, lfs: await readLfsPointer(objects, entry.oid) };
-			return { path, blob: entry.oid, text: await readText(objects, entry.oid) };
+				return {
+					path,
+					blob: entry.oid,
+					lfs: await readLfsPointer(objects, entry.oid),
+				};
+			return {
+				path,
+				blob: entry.oid,
+				text: await readText(objects, entry.oid),
+			};
 		}),
 	);
-	return json({ commit: main, files });
+	return json({ commit, files });
 }
 
 /**
@@ -479,7 +506,9 @@ export async function readRepositoryChanges(
 			400,
 		);
 	const before =
-		from === null ? null : ((await readCommit(objects, from))?.tree ?? undefined);
+		from === null
+			? null
+			: ((await readCommit(objects, from))?.tree ?? undefined);
 	if (before === undefined) return json({ commit: main, paths: null });
 	const after = main ? ((await readCommit(objects, main))?.tree ?? null) : null;
 	return json({ commit: main, paths: await diffTrees(objects, before, after) });

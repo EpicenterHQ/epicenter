@@ -492,9 +492,17 @@ describe('GET changes', () => {
 		});
 		const second = await repo.write({
 			files: [
-				{ path: 'dir/b.md', base: first.body.blobs['dir/b.md'] ?? null, text: 'B\n' },
+				{
+					path: 'dir/b.md',
+					base: first.body.blobs['dir/b.md'] ?? null,
+					text: 'B\n',
+				},
 				{ path: 'dir/c/d.md', base: null, text: 'd\n' },
-				{ path: 'a.md', base: first.body.blobs['a.md'] as string, delete: true },
+				{
+					path: 'a.md',
+					base: first.body.blobs['a.md'] as string,
+					delete: true,
+				},
 			],
 		});
 		expect(await changes(first.body.commit)).toEqual({
@@ -522,14 +530,18 @@ describe('GET files and POST read', () => {
 			],
 		});
 		const list = async (roots: string[]) =>
-			((await (await listRepositoryFiles(repo.objects, roots)).json()) as {
-				files: { path: string; lfs?: unknown }[];
-			}).files;
+			(
+				(await (await listRepositoryFiles(repo.objects, roots)).json()) as {
+					files: { path: string; lfs?: unknown }[];
+				}
+			).files;
 		const listed = await list(['rec']);
 		expect(listed.map((f) => f.path)).toEqual(['rec/a.md', 'rec/a.webm']);
 		expect(listed[1]?.lfs).toEqual(audio);
 		expect(
-			(await list(['rec', 'other/b.md', 'rec/a.md', 'none'])).map((f) => f.path),
+			(await list(['rec', 'other/b.md', 'rec/a.md', 'none'])).map(
+				(f) => f.path,
+			),
 		).toEqual(['rec/a.md', 'rec/a.webm', 'other/b.md']);
 		const read = (await (
 			await readRepositoryFiles(repo.objects, {
@@ -549,5 +561,45 @@ describe('GET files and POST read', () => {
 			commit: null,
 			files: [],
 		});
+	});
+
+	test('reads paths as an earlier commit held them, and refuses a commit the repository does not hold', async () => {
+		const repo = await repository();
+		const first = await repo.write({
+			files: [{ path: 'a.md', base: null, text: 'first\n' }],
+		});
+		const second = await repo.write({
+			files: [
+				{
+					path: 'a.md',
+					base: first.body.blobs['a.md'] ?? null,
+					text: 'second\n',
+				},
+				{ path: 'b.md', base: null, text: 'b\n' },
+			],
+		});
+		const read = async (at?: unknown) => {
+			const response = await readRepositoryFiles(repo.objects, {
+				paths: ['a.md', 'b.md'],
+				at,
+			});
+			return {
+				status: response.status,
+				body: (await response.json()) as unknown,
+			};
+		};
+		expect((await read(first.body.commit)).body).toEqual({
+			commit: first.body.commit,
+			files: [
+				{ path: 'a.md', blob: first.body.blobs['a.md'], text: 'first\n' },
+				{ path: 'b.md', gone: true },
+			],
+		});
+		expect((await read()).body).toMatchObject({
+			commit: second.body.commit,
+			files: [{ text: 'second\n' }, { text: 'b\n' }],
+		});
+		expect((await read('0'.repeat(40))).status).toBe(404);
+		expect((await read('main')).status).toBe(400);
 	});
 });

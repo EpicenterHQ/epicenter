@@ -1,5 +1,5 @@
 {
 	"extends": "./tsconfig.json",
-	"include": ["src/**/*.postgres.test.ts"],
+	"include": ["src/**/*.postgres.test.ts", "src/__benchmarks__/**/*.ts"],
 	"exclude": []
 }

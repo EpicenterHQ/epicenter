@@ -3,8 +3,9 @@
  *
  * The compiler resolves the complete Folder and definition programs, including
  * tests and type imports. Neither may pull in App, authentication, or Yjs.
- * The Folder tests that run against the real server (`*.postgres.test.ts`)
- * are their own program (`tsconfig.server-tests.json`), outside this one.
+ * The Folder tests and benchmarks that run against the real server
+ * (`*.postgres.test.ts`, `src/__benchmarks__/`) are their own program
+ * (`tsconfig.server-tests.json`), outside this one.
  * Runtime adapter isolation is covered by the emitted Vite bundle tests.
  */
 import { describe, expect, test } from 'bun:test';
