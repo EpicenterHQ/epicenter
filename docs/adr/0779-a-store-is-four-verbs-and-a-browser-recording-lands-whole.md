@@ -1,10 +1,10 @@
-# 0779. A store is four verbs, and a recording is its own writer
+# 0779. A store is four verbs, and a browser recording lands whole
 
 - **Status:** Accepted (2026-11-05)
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0778](0778-a-page-connects-once-and-then-reads-synchronously.md) at the store contract (`connect`, `Heard` with `paths`, `everything` and `files`, and `append?`): a store has four verbs, and connecting is the page's; [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) at "append where they can" and "A file collection appends where its store can": no store and no collection appends.
-- **Relates:** [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (programs meet in shared places), [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) (`.epicenter/` holds unfinished writes), [ADR-0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) (a capability read through `subscribe`).
-- **Unbuilt:** all of it: the four verbs on every store and the conformance suite over them; the page composing the connection from them; `read` of many paths in one request on the server; deleting `append` from stores, `FolderFiles` and the recorder's use of `folder.audio`; the browser recorder's own worker writing to `.epicenter/recordings/` and moving the file into place.
+- **Relates:** [ADR-0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) (a guarantee that needs a process outliving the page is the installed app's), [ADR-0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) (a capability read through `subscribe`).
+- **Unbuilt:** all of it: the four verbs on every store and the conformance suite over them; the page composing the connection from them; `read` of many paths in one request on the server; deleting `append` from stores and `FolderFiles`; the browser recorder keeping a take in memory and writing it once at Stop, with its duration from its own clock, and deleting its streaming writes, its Web Locks, its `recover`, its use of `repairAudio`, and the browser half of Whispering's finishing of cut-off recordings.
 
 ## Context
 
@@ -15,8 +15,14 @@ because only this browser's storage had it, for one use: writing a
 recording while it records. Both put the page's work into the store. A
 snapshot is a listing and a read; contents in a change only save the read
 that follows; an optional verb makes every caller ask whether it is there.
-The desktop shell already records into `.epicenter/recordings/<path>` and
-moves the finished file into place, as a writer of its own.
+
+`append` existed because the browser's recorder kept a take through a
+crash or a closed tab: it wrote each second into this browser's storage as
+it arrived, held a Web Lock per take, and on the next open cut a
+half-written MP4 or WebM back to its last whole piece (`repairAudio`) and
+finished it. On the desktop the shell records, and it outlives the page: it
+places a take itself when the page reloads or closes. The browser's
+machinery imitated that process.
 
 ## Decision
 
@@ -48,22 +54,19 @@ differently; Svelte reads it through `createSubscriber` (`reactive`), React
 through `useSyncExternalStore`, plain code through `subscribe` and its
 reads. Nothing above the folder talks to a store.
 
-**A recording is its own writer.** No store and no collection appends. The
-browser's recorder writes the recording in its own worker to
-`.epicenter/recordings/<path>` in this browser's storage, as the desktop
-shell does on disk, and at Stop moves the file into place under the same
-per-path lock the folder's worker takes, and says so on the channel the
-folder hears. The folder hears a finished recording as it hears any change.
-A recording a closed page cut off stays in `.epicenter/recordings/` until
-the next open finishes it.
+**A browser recording lands whole.** The page's recorder keeps a take's
+pieces in memory, as `MediaRecorder` hands them over, and at Stop writes
+the take once with `set`; its duration comes from its own clock. While a
+take runs, the leave guard asks before the page closes. A take a crash or a
+closed tab cuts off is lost; keeping one through that is the desktop app's
+(ADR-0780).
 
 ## Consequences
 
 - Four verbs, one conformance suite, and no question of whether a store
   can do something.
-- `append`, the recorder's use of the folder for it, and the file
-  collection's `append` go.
-- The recorder and the folder are two writers of one place, as the desktop
-  shell and the page already are.
+- `append`, the file collection's `append`, and the browser recorder's
+  streaming writes, locks, recovery and container repair go.
 - A change costs a read after its hint, even where the place had the
   contents.
+- A browser take is in memory until Stop.
