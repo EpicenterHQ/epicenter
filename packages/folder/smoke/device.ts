@@ -139,7 +139,8 @@ try {
 				await deviceSmoke.create('told', 'Told');
 				return deviceSmoke.heard();
 			});
-			check(toldSelf === 1, `own write heard ${toldSelf} times`);
+			// The folder shows its own write before the write answers.
+			check(toldSelf >= 1, `own write heard ${toldSelf} times`);
 			await b.waitForFunction(() => deviceSmoke.heard() > 0, null, {
 				timeout: 5000,
 			});

@@ -60,20 +60,29 @@ async function opfsText(path: string) {
 	return file.text();
 }
 
+/** Wait until a collection's first listing answered, so what is heard after is a change. */
+async function listed(loading: () => boolean) {
+	while (loading()) await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
 /** How many times this page's listener heard the recordings change. */
 let heard = 0;
 /** How many times this page's listener heard the audio change. */
 let heardAudio = 0;
 
 const smoke = {
-	/** Start hearing the recordings change, from this tab or another. */
-	listen() {
+	/** Start hearing the recordings change, from this tab or another, once they are listed. */
+	async listen() {
 		folder.recordings.subscribe(() => heard++);
+		await listed(() => folder.recordings.loading());
+		heard = 0;
 	},
 	heard: () => heard,
-	/** Start hearing the audio change, from this tab or another. */
-	listenAudio() {
+	/** Start hearing the audio change, from this tab or another, once it is listed. */
+	async listenAudio() {
 		folder.audio.subscribe(() => heardAudio++);
+		await listed(() => folder.audio.loading());
+		heardAudio = 0;
 	},
 	heardAudio: () => heardAudio,
 	/**
