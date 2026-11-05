@@ -971,3 +971,4 @@ When you add an ADR, add its row here.
 | [0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) | A folder opens at a place, every place is a store, and the server never merges | Accepted (amends 0700, 0746, and 0766; amended by 0774) |
 | [0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) | One write makes it so, and settles a change the way sync does | Accepted (amends 0700, 0769, and 0773; amended by 0775) |
 | [0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) | A write never fails: the folder keeps it until it lands | Accepted (amends 0767 and 0774) |
+| [0776](0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md) | A note's name is its file name, and a rename is a set and a delete | Accepted |

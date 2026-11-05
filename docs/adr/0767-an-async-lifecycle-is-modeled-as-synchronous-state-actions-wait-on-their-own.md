@@ -6,7 +6,7 @@
 - **Amends:** [ADR-0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) at its consequence "A reader outside `<Opening>` sees the opening state and handles it" and at the action row of the standard shape: a read answers at every moment without checking `state()`, every async method on a folder or its collections waits for the open, and only `<Opening>` and Recovery read `state()`.
 - **Amended by:** [ADR-0768](0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md) at `folder.state()`, `folder.retry()` and `<Opening>`: the states are `opening`, `open`, `failed` (carrying `retry()`) and `closed`, and the root is `<WhenOpen>`.
 - **Relates:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) (a dependent takes the folder as a value), [ADR-0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) (the shape every capability shares).
-- **Amended by:** [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) at the folder's `open` state and an action answering the open's error: an open folder says why its writes wait, and a write waits through a failed open.
+- **Amended by:** [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) at the folder's states and an action answering the open's error: the state is its lifecycle and whether its store is available, and a write waits through both.
 - **Unbuilt:** dependents built on the waiting actions, such as Whispering's recovery of unfinished recordings and `createRecorder(folder)`. Built in W2 of the plan in `specs/20261104T160000-one-sync-core-on-every-native-platform.md`, starting with Todos.
 
 ## Context
