@@ -48,7 +48,8 @@ mod tests {
     }
 
     /// The window reaches its roots, and Epicenter's sync request and status,
-    /// through the folder plugin, by name; nothing else. No capability names
+    /// through the folder plugin, by name, and hears the folder's changes as
+    /// the shell's events; nothing else. No capability names
     /// a folder. Each configuration lists its capabilities, so nothing in
     /// `capabilities/` is enabled implicitly.
     #[test]
@@ -59,7 +60,11 @@ mod tests {
         assert_eq!(capability["local"], true);
         assert_eq!(
             capability["permissions"],
-            json!(["epicenter-folder:default"])
+            json!([
+                "epicenter-folder:default",
+                "core:event:allow-listen",
+                "core:event:allow-unlisten"
+            ])
         );
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let dev: Value = serde_json::from_str(include_str!("../tauri.dev.conf.json")).unwrap();
