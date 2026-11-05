@@ -229,10 +229,9 @@ the `epicenter` CLI, and the app built against that API on
 `http://localhost:1420` (which must be free). With no account, it records
 (audio and note land in OPFS and nothing else does), edits a title and a
 transcript, transcribes over a stubbed custom endpoint, and deletes a
-recording, then reloads; it watches a recording's audio file appear and
-grow in OPFS while it records, with no note yet, reloads mid-recording, and
-sees the next start give it a note with the length of what was written;
-offline, it records
+recording, then reloads; it sees nothing written while a take records, a
+reload mid-recording lose the take, and a stopped take land as its audio
+and note together; offline, it records
 and edits; it shows the
 Safari line in Settings in WebKit and not in Chromium, and the
 Epicenter's transcription model refused until sign-in, then, signed in, sending the
