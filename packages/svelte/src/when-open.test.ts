@@ -8,12 +8,14 @@
  * - Recovery's Retry reopens the folder, and only the folder
  * - A page that throws shows the page error, never the folder's Recovery
  * - Leaving the page asks first while the folder is saving
+ * - While the store cannot be reached, a status line says so: why opening
+ *   waits, and, once open, that changes are waiting
  * - A folder wrapped by `reactive` at module scope stays reactive in a
  *   component that reads it, and an editor's fields bind to inputs
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import { defineContract } from '@epicenter/definition/contract';
+import { ClientError, defineContract } from '@epicenter/definition/contract';
 import { openFolder } from '@epicenter/folder';
 import { OpenFolderError } from '@epicenter/folder/core';
 import { memory, memoryFiles } from '@epicenter/folder/memory';
@@ -47,6 +49,7 @@ function controlled() {
 		raw,
 		folder: {
 			state: () => adapted.state(),
+			unavailable: () => adapted.unavailable(),
 			saving: () => adapted.saving(),
 			todos: adapted.todos,
 			reveal: async () => {
@@ -55,6 +58,7 @@ function controlled() {
 			},
 		},
 		revealed,
+		world,
 		/** Fail the open waiting now with `error`. */
 		fail(error: OpenFolderError) {
 			undo();
@@ -177,7 +181,7 @@ test('a folder wrapped once at module scope stays reactive in a component that r
 	flushSync();
 	await settle();
 	expect(main.textContent).toBe('0 todos');
-	await app.raw.todos.create({ id: 'a', title: 'Milk', done: false });
+	await app.raw.todos.set({ id: 'a' }, { title: 'Milk', done: false });
 	await settle();
 	expect(main.textContent).toBe('1 todos');
 	await unmount(view);
@@ -195,21 +199,56 @@ test('leaving the page asks first while the folder is saving, and not once it is
 		return leaving.defaultPrevented;
 	};
 	expect(leavingAsks()).toBe(false);
-	const saving = folder.todos.replace({ id: 'a' }, 'text', {
-		over: 'v' as never,
-	});
+	const saving = folder.todos.set({ id: 'a' }, { body: 'text' });
 	expect(leavingAsks()).toBe(true);
 	await saving;
 	expect(leavingAsks()).toBe(false);
 	await unmount(view);
 	// Unmounted, it asks nothing.
-	void folder.todos.replace({ id: 'a' }, 'text', { over: 'v' as never });
+	void folder.todos.set({ id: 'a' }, { body: 'more' });
 	expect(leavingAsks()).toBe(false);
+});
+
+test('while the store cannot be reached, a status line says why opening waits, and that changes are waiting once open', async () => {
+	const { folder, world, open } = controlled();
+	const main = target();
+	const view = mount(WhenOpenHost, { target: main, props: { folder } });
+	const unreachable = () =>
+		main.querySelector('[data-testid="unreachable"]')?.textContent ?? null;
+	const reachable = world.refuseOpen(
+		ClientError.Unavailable({ cause: 'offline' }).error,
+	);
+	open();
+	for (let turn = 0; turn < 100 && unreachable() === null; turn++)
+		await settle();
+	expect(unreachable()).toContain('offline');
+	expect(main.querySelector('[data-testid="pages"]')).toBeNull();
+	reachable();
+	for (
+		let turn = 0;
+		turn < 200 && main.querySelector('[data-testid="pages"]') === null;
+		turn++
+	) {
+		await Bun.sleep(10);
+		flushSync();
+	}
+	expect(unreachable()).toBeNull();
+
+	const undo = world.refuse('disk full');
+	const saving = folder.todos.set({ id: 'a' }, { body: 'text' });
+	for (let turn = 0; turn < 100 && unreachable() === null; turn++)
+		await settle();
+	expect(unreachable()).toContain('Your changes will save');
+	undo();
+	await saving;
+	flushSync();
+	expect(unreachable()).toBeNull();
+	await unmount(view);
 });
 
 test('an editor on the module-scope folder binds its fields to inputs, saves what is typed, and shows a change made elsewhere', async () => {
 	type Edit = Parameters<Parameters<typeof TodoEditor>[1]['expose']>[0];
-	await app.raw.todos.create({ id: 'b', title: 'Eggs', done: false });
+	await app.raw.todos.set({ id: 'b' }, { title: 'Eggs', done: false });
 	let editor: Edit | undefined;
 	const main = target();
 	const view = mount(TodoEditor, {
@@ -237,7 +276,7 @@ test('an editor on the module-scope folder binds its fields to inputs, saves wha
 	expect(main.querySelector('[data-testid="title"]')?.textContent).toBe(
 		'Brown eggs',
 	);
-	expect((await editor.landed()).error).toBeNull();
+	await editor.landed();
 	await settle();
 	expect(main.querySelector('[data-testid="saving"]')).toBeNull();
 	const saved = (await app.raw.todos.list()).data?.items.find(
@@ -246,8 +285,7 @@ test('an editor on the module-scope folder binds its fields to inputs, saves wha
 	expect(saved).toMatchObject({ title: 'Brown eggs', done: true });
 
 	// A write behind the editor's back: the bound input shows it.
-	const raw = await app.raw.todos.update({ id: 'b' }, { title: 'Duck eggs' });
-	expect(raw.error).toBeNull();
+	await app.raw.todos.set({ id: 'b' }, { title: 'Duck eggs' });
 	await settle();
 	expect(input.value).toBe('Duck eggs');
 	await unmount(view);

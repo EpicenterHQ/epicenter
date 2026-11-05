@@ -111,7 +111,7 @@ test('get(args) that answers undefined still tracks, so its reader sees the note
 	const shown = follow(() => folder.todos.get({ id: 'a' })?.title);
 	flushSync();
 	expect(shown.values).toEqual([undefined]);
-	await folder.todos.create({ id: 'a', title: 'Milk', done: false });
+	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
 	await until(() => shown.values.at(-1) === 'Milk');
 	shown.stop();
 });
@@ -130,7 +130,7 @@ test('held capabilities, methods and returned data keep their identity', async (
 	expect(folder.todos.items).toBe(folder.todos.items);
 	const { todos: collection } = folder;
 	expect(collection).toBe(folder.todos);
-	await folder.todos.create({ id: 'a', title: 'Milk', done: false });
+	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
 	expect(folder.todos.items()).toBe(raw.todos.items());
 	expect(folder.todos.get({ id: 'a' })).toBe(raw.todos.get({ id: 'a' }));
 	expect(folder.state()).toBe(raw.state());
@@ -139,7 +139,7 @@ test('held capabilities, methods and returned data keep their identity', async (
 
 test('a returned capability is adapted with its own subscribe, and making it tracks nothing', async () => {
 	const folder = reactive(openFolder(todos, memory()));
-	await folder.todos.create({ id: 'a', title: 'Milk', done: false });
+	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
 	const made = follow(() => folder.todos.edit({ id: 'a' }));
 	flushSync();
 	const todo = made.values[0];
@@ -147,7 +147,7 @@ test('a returned capability is adapted with its own subscribe, and making it tra
 	expect(made.values).toHaveLength(1);
 
 	const exists = follow(() => todo.exists());
-	await folder.todos.create({ id: 'b', title: 'Eggs', done: false });
+	await folder.todos.set({ id: 'b' }, { title: 'Eggs', done: false });
 	await until(() => exists.values.at(-1) === true);
 	// The collection changed and the editor was heard; the effect that made it never reran.
 	expect(made.values).toHaveLength(1);
@@ -157,7 +157,7 @@ test('a returned capability is adapted with its own subscribe, and making it tra
 
 test('a plain object held without a subscribe inherits its holder’s, and its accessors set the capability’s', async () => {
 	const folder = reactive(openFolder(todos, memory()));
-	await folder.todos.create({ id: 'a', title: 'Milk', done: false });
+	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
 	const todo = folder.todos.edit({ id: 'a' });
 	expect(todo.fields).toBe(todo.fields);
 	const title = follow(() => todo.fields.title);
@@ -167,7 +167,7 @@ test('a plain object held without a subscribe inherits its holder’s, and its a
 	flushSync();
 	expect(title.values.at(-1)).toBe('Oat milk');
 	expect(todo.typed()).toEqual({ title: 'Oat milk' });
-	expect((await todo.landed()).error).toBeNull();
+	await todo.landed();
 	expect(folder.todos.get({ id: 'a' })?.title).toBe('Oat milk');
 	title.stop();
 });

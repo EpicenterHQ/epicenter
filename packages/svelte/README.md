@@ -3,8 +3,8 @@
 This package reads Epicenter's capabilities in Svelte 5: any capability
 through one adapter, `reactive` (`@epicenter/svelte/reactive`), and the
 folder through the root that renders the pages when it is open
-(`<WhenOpen>`). It also holds the folder's shared interface: Recovery, a note
-editor's unsaved edit, and the status display.
+(`<WhenOpen>`). It also holds the folder's shared interface: Recovery, a
+note's repair as text (`<NoteRepair>`), and the status display.
 
 ## One adapter for every capability
 
@@ -47,18 +47,24 @@ so it holds no hot-reload lines:
 export const folder = reactive(openFolder(todos, home({ site: APPS.TODOS.url })));
 ```
 
-Each collection reads `items()`, `invalid()` (notes), `loading()`, `error()`
-and `get(args)`, the entry shown. Its writes are made over the version
-shown. The folder reads `state()` and `saving()`, and has `reveal`. The
-reads are the folder's own (`@epicenter/folder`): a collection lists only
-while something reads it, and follows every change the folder hears. While
-the folder opens, a collection is empty and `loading()`, and a write waits
-for the open, answering the open's typed error when it fails
+Each collection reads `items()`, `invalid()` (notes), `loading()` and
+`get(args)`, the entry shown, and writes with `set` and `delete`, which
+answer once they land and never fail
+([ADR-0774](../../docs/adr/0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md),
+[ADR-0775](../../docs/adr/0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md)).
+The folder reads `state()`, `unavailable()` and `saving()`, and has
+`reveal`. The reads are the folder's own (`@epicenter/folder`): a
+collection lists only while something reads it, and follows every change
+the folder hears. While the folder opens, a collection is empty and
+`loading()`, and a write waits for the open
 ([ADR-0767](../../docs/adr/0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md)).
 
 The root layout renders `<WhenOpen>` from `@epicenter/svelte/when-open`, the
-only reader of `state()`. It shows a spinner while the folder opens, and
-`Recovery` with the typed error when it failed. Recovery offers Retry (the
+only reader of `state()`. It shows a spinner while the folder opens, with
+why the store cannot be reached when `unavailable()` says so, and
+`Recovery` with the typed error when it failed. While the folder is open
+and its store cannot be reached, a status line says so, and whether
+changes are waiting for it. Recovery offers Retry (the
 failed state's `retry()`) and Show in Finder where `folder.reveal` is not
 null. Once the folder is open it shows the pages, and once it is closed it
 shows nothing. The pages sit inside one plain `<svelte:boundary>`, whose page
@@ -70,8 +76,9 @@ error never shows the folder's Recovery.
 
 `<WhenOpen>` also renders the page's leave guard, `<LeaveGuard {folder} />`
 from `@epicenter/svelte/leave-guard`. While `folder.saving()`, from a
-write's call or an editor's keystroke until it answers, leaving the page
-asks "Leave site?". A desktop window does not ask the page and closes at
+write's call or an editor's keystroke until it lands, leaving the page
+asks "Leave site?". Writes waiting for an unreachable store live only in the
+page's memory, so this is what keeps them. A desktop window does not ask the page and closes at
 once, so a local write still out then is a small, rare loss.
 
 A component imports the folder and reads it:
@@ -98,43 +105,42 @@ reads and binds every value through `fields`, rather than a second
   <Input bind:value={todo.fields.title} />
   <Textarea bind:value={todo.fields.body} />
   <Checkbox bind:checked={todo.fields.done} />
-  <UnsavedEdit edit={todo} />
 {:else}
   <p>This todo is no longer here.</p>
 {/if}
 ```
 
 An editor holds nothing while nobody reads it and needs no teardown; typing
-into one whose component is gone still saves. A view that needs the saved note beside what is typed (its
-version, or the text a save left on disk) reads it with
-`folder.todos.get({ id })`.
+into one whose component is gone still saves. A view that needs the saved
+note beside what is typed reads it with `folder.todos.get({ id })`.
 
-An editor that holds a whole-note draft saves it with
-`folder.todos.replace({ id }, draft, { over })`, where `over` is the version
-the draft began from, so another writer's change since is a `Conflict`
-instead of being overwritten; without `over`, `replace` writes over the
-version shown.
+An editor of the whole note binds `todo.text`: its front matter and body as
+one text. Setting it saves it, settled with any change made since the
+typing began; a text whose front matter does not parse is saved as typed
+and the note shows in `invalid()`. `<NoteRepair>` from
+`@epicenter/svelte/note-repair` repairs such a note through it:
+
+```svelte
+<NoteRepair contract={todos} note={invalid} edit={folder.todos.edit({ id })} />
+```
 
 ## Keep typed text in an edit
 
 A note's editor shows each field the person typed until the save carrying
-it answers, then follows the collection again. Saves go one at a time; the
-newest carries every field typed since the last that landed, so a title and
-a body typed together never clash with each other. An older answer cannot
-clear newer typing. Another writer's change to a field not typed is carried
-over; their change to a typed field is a `Conflict`, and the typing stays. A
-failed save keeps the typed fields (`todo.typed()`) and the error
-(`todo.error()`); `<UnsavedEdit edit={todo} />` from
-`@epicenter/svelte/unsaved-edit` shows it inline with Save again, Discard,
-and Copy for the title and body typed. Code that is not typing, such as a
-list row's checkbox or a workflow, writes with `update` and handles its own
-returned error near the action.
+it lands, then follows the collection again. Saves go through the folder's
+queue one at a time; the newest carries everything typed since the last
+that landed, so a title and a body typed together never clash with each
+other. A typed field takes this write; another writer's change to a field
+not typed stays, and a body changed elsewhere since the typing began merges
+by lines. A save never fails: while the store cannot be reached it waits,
+and the typed fields stay shown (`todo.typed()`). Code that is not typing,
+such as a list row's checkbox or a workflow, writes with
+`folder.todos.set(args, changes)`.
 
-Call `await todo.landed()` when an action needs to know the newest typed
-values saved, such as before sending them over a network. A failure remains
-on `todo.error()` and is also returned to stop the action.
+Call `await todo.landed()` when an action needs the newest typed values
+saved, such as before sending them over a network.
 
-**Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through the client's writes like any editor. Agents may write files directly; their changes reach editors through the client's listeners.
+**Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through the folder's writes like any editor. Agents may write files directly; their changes reach editors through the folder's listeners.
 
 The package also exports status display helpers, independent of file
 editing.

@@ -15,7 +15,6 @@
 	"exports": {
 		"./leave-guard": "./src/leave-guard.svelte",
 		"./note-repair": "./src/note-repair.svelte",
-		"./unsaved-edit": "./src/unsaved-edit.svelte",
 		"./status-line": "./src/status-line.ts",
 		"./status-popover": "./src/status-popover.svelte",
 		"./status-row": "./src/status-row.svelte",

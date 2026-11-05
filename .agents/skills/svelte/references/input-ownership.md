@@ -22,8 +22,8 @@ render-time snapshot back into the owner or merge it with outside changes in
 the control.
 
 A checkbox, select, or button in that view binds the editor's field too; one
-outside it, such as a list row's toggle, writes with `update`. A failed save
-stays with its editor, shown beside it by `<UnsavedEdit>`. Codecs
+outside it, such as a list row's toggle, writes with `set`. A save never
+fails; the folder keeps it until it lands (ADR-0775). Codecs
 transform representations; they do not become another current-content owner.
 
 ## Explicit submission

@@ -32,7 +32,7 @@
  *   connected or removed are heard until the listener is removed
  */
 import { afterEach, expect, setSystemTime, test } from 'bun:test';
-import { ClientError, type Version } from '@epicenter/definition/contract';
+import { ClientError } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { recorder } from './browser.js';
@@ -207,21 +207,15 @@ function memoryFiles(initial: Record<string, Uint8Array> = {}) {
 	const heard: string[] = [];
 	let unavailable: string | undefined;
 	const refuse = () => ClientError.Unavailable({ cause: unavailable });
-	const versionOf = (bytes: Uint8Array) => `v${bytes.join('.')}` as Version;
 	const pathOf = ({ id, ext }: { id: string; ext: string }) =>
 		`recordings/${id}.${ext}`;
 	const files: AudioFiles = {
 		async list() {
 			if (unavailable) return refuse();
 			const items = [];
-			for (const [path, bytes] of held) {
+			for (const path of held.keys()) {
 				const named = /^recordings\/([^/]+)\.([^./]+)$/.exec(path);
-				if (named?.[1] && named[2])
-					items.push({
-						id: named[1],
-						ext: named[2],
-						version: versionOf(bytes),
-					});
+				if (named?.[1] && named[2]) items.push({ id: named[1], ext: named[2] });
 			}
 			return Ok({ items });
 		},
@@ -229,33 +223,23 @@ function memoryFiles(initial: Record<string, Uint8Array> = {}) {
 			if (unavailable) return refuse();
 			const path = pathOf(args);
 			const bytes = held.get(path);
-			if (bytes === undefined) return ClientError.NotFound({ path });
-			return Ok({ ...args, bytes, version: versionOf(bytes) });
+			if (bytes === undefined) return Ok(null);
+			return Ok({ ...args, bytes });
 		},
-		async update(args, { bytes }, { over } = {}) {
-			if (unavailable) return refuse();
+		async set(args, bytes) {
 			const path = pathOf(args);
-			const there = held.get(path);
-			// Recovery writes only over the version it read.
-			if (there === undefined || versionOf(there) !== over)
-				return ClientError.Conflict({
-					path,
-					current: there === undefined ? null : versionOf(there),
-				});
 			held.set(path, bytes);
 			heard.push(`write ${path}`);
-			return Ok({ ...args, version: versionOf(bytes) });
 		},
 		async append(args, bytes, { create, announce }) {
 			if (unavailable) return refuse();
 			const path = pathOf(args);
 			const there = held.get(path);
-			if (create && there !== undefined) return ClientError.Occupied({ path });
-			if (!create && there === undefined) return ClientError.NotFound({ path });
+			if (create === (there !== undefined)) return Ok(false);
 			held.set(path, new Uint8Array([...(there ?? []), ...bytes]));
 			if (create || announce)
 				heard.push(`${create ? 'made' : 'finished'} ${path}`);
-			return Ok(undefined);
+			return Ok(true);
 		},
 	};
 	return {
