@@ -17,7 +17,8 @@
  * 3. A stage changed on the desktop and synced shows with no reload; a note
  *    edited in the browser reaches the desktop.
  * 4. A word note the desktop wrote that does not read is listed with its
- *    text, and saving fixed text repairs it.
+ *    text; text that still does not read is saved as typed and stays to
+ *    repair, and saving fixed text repairs it.
  * 5. Signing out asks for a sign-in again, and the browser holds nothing.
  */
 import { createHash } from 'node:crypto';
@@ -256,13 +257,20 @@ test('4. a word note that does not read is listed with its text, and repaired', 
 	const text = repair.getByLabel('Text of entries/broken.md');
 	await expect(text).toHaveValue(broken);
 
-	// What is wrong follows the text as typed; text that still does not fit is refused.
-	await text.fill('---\ntext: opaque\n---\nhard to see through\n');
+	// What is wrong follows the text as typed; text that still does not fit
+	// is saved as typed, and the card stays with what is wrong with it now.
+	const partly = '---\ntext: opaque\n---\nhard to see through\n';
+	await text.fill(partly);
 	await expect(repair.getByRole('list', { name: 'Problems' })).toContainText(
 		'stage is missing',
 	);
 	await repair.getByRole('button', { name: 'Save repair' }).click();
-	await expect(repair.getByRole('alert')).toContainText('Not saved');
+	await expect(repair.getByRole('button', { name: 'Save repair' })).toBeEnabled();
+	await expect(text).toHaveValue(partly);
+	await expect(repair.getByRole('list', { name: 'Problems' })).toContainText(
+		'stage',
+	);
+	await expect(repairs).toContainText('entries/broken.md');
 
 	const fixed =
 		'---\ntext: opaque\nstage: new\ncreatedAt: "2026-10-31T00:00:00.000Z"\n---\nhard to see through\n';

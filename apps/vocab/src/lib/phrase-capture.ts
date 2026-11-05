@@ -13,10 +13,10 @@ const ELEMENT = 1;
 const TEXT = 3;
 
 /**
- * Marks the element holding one phrase source: a completed tutor message that
- * Vocab has saved. Its value is the message's ID. The conversation view
- * is the only writer of this attribute, so an unsaved or arriving message
- * never carries it.
+ * Marks the element holding one phrase source: a completed tutor message,
+ * which the folder keeps until it is saved. Its value is the message's ID.
+ * The conversation view is the only writer of this attribute, so a learner's
+ * message or one still arriving never carries it.
  */
 const SOURCE = '[data-phrase-source]';
 /** Marks page furniture beside a message, such as its button. */

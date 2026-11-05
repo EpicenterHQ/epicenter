@@ -4,7 +4,6 @@
 	import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
 	import * as Chat from '@epicenter/ui/chat';
 	import { Button } from '@epicenter/ui/button';
-	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { Markdown } from '@epicenter/ui/markdown';
 	import * as InputGroup from '@epicenter/ui/input-group';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
@@ -57,7 +56,6 @@
 	onDestroy(() => chat[Symbol.dispose]());
 
 	const lastMessage = $derived(chat.messages.at(-1));
-	const unsavedIds = $derived(new Set(chat.unsaved.map((unsaved) => unsaved.id)));
 </script>
 
 <PhraseCapture root={list} {entries} resetKey={`${chat.messages.length}:${chat.isGenerating}`} />
@@ -67,15 +65,11 @@
 		<!-- Render Markdown only after the answer settles. -->
 		<div class="vocab-reply whitespace-pre-wrap">{agentMessageText(msg)}</div>
 	{:else}
-		<!-- A tutor answer is a phrase source only once its note is saved:
-		     an unsaved one stays readable and copyable without the marker. -->
-		{@const saved = !unsavedIds.has(msg.id)}
-		<div data-phrase-source={saved ? msg.id : undefined}>
+		<!-- A finished tutor answer is a phrase source: the folder keeps its note until it lands. -->
+		<div data-phrase-source={msg.id}>
 			<Markdown class="vocab-reply" content={agentMessageText(msg)} />
 		</div>
-		{#if saved}
-			<Button class="mt-1" variant="ghost" size="xs" data-capture-skip data-save-phrase={msg.id}>Save a phrase</Button>
-		{/if}
+		<Button class="mt-1" variant="ghost" size="xs" data-capture-skip data-save-phrase={msg.id}>Save a phrase</Button>
 	{/if}
 {/snippet}
 
@@ -100,7 +94,7 @@
 				{:else if chat.isThinking}
 					<Chat.Bubble variant="received" style="max-width: 100%"><Chat.BubbleMessage typing /></Chat.Bubble>
 				{/if}
-					{#if lastMessage?.role === 'user' && !chat.isGenerating && chat.unsaved.length === 0}
+					{#if lastMessage?.role === 'user' && !chat.isGenerating}
 						<div class="flex justify-start px-2 py-1">
 							<Button variant="ghost" class="text-muted-foreground" disabled={!chat.canAsk} onclick={() => chat.retry()}>
 								<RotateCcwIcon class="size-3" />
@@ -119,25 +113,6 @@
 		<p role="alert" class="border-t px-3 py-2 text-xs text-destructive">
 			{chat.unreadable.length} saved {chat.unreadable.length === 1 ? 'message of this chat is' : 'messages of this chat are'} not shown because Vocab cannot read {chat.unreadable.length === 1 ? 'it' : 'them'}. The tutor does not see {chat.unreadable.length === 1 ? 'it' : 'them'} either. Nothing was removed.
 		</p>
-	{/if}
-
-	{#if chat.saveError}
-		<!-- A storage failure, kept apart from tutor failures below: saving again never asks the tutor. -->
-		<div role="alert" class="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-destructive">
-			<span>
-				{#if chat.isSaving}
-					Saving again...
-				{:else if chat.unsaved[0]?.role === 'user'}
-					Your message is not saved, so the tutor has not been asked. Copy it or save again before you leave this chat.
-				{:else}
-					The tutor's answer is not saved. Copy it or save again before you leave this chat.
-				{/if}
-			</span>
-			<div class="flex gap-1">
-				<Button variant="ghost" size="sm" disabled={chat.isSaving} onclick={() => chat.saveAgain()}>Save again</Button>
-				<CopyButton variant="ghost" size="sm" tabindex={0} text={chat.unsaved.map(agentMessageText).join('\n\n')}>Copy</CopyButton>
-			</div>
-		</div>
 	{/if}
 
 	{#if chat.error?.code === 'Unauthorized'}
@@ -171,7 +146,7 @@
 	{#if !chat.canServe}
 		<p class="px-3 pb-1 text-xs text-muted-foreground">Choose a model to chat. Connect your own endpoint in the picker{signedIn ? '' : ", or sign in for Epicenter's hosted models"}.</p>
 	{/if}
-	<form class="border-t bg-background px-2 py-2" aria-label="Chat message" aria-busy={chat.isSaving} onsubmit={(event) => { event.preventDefault(); void chat.sendMessage(); }}>
+	<form class="border-t bg-background px-2 py-2" aria-label="Chat message" onsubmit={(event) => { event.preventDefault(); void chat.sendMessage(); }}>
 		<InputGroup.Root>
 			<InputGroup.Textarea
 				class="max-h-40 overflow-y-auto"

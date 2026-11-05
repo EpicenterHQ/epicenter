@@ -4,10 +4,13 @@
  * Key behaviors:
  * - Adding trims and normalizes, names the note by the text's SHA-256, and
  *   answers `present` for a word already saved; two adds make one word
- * - A different file at the word's path is `Taken`; when what is there
- *   cannot be read, the word is `NotSaved`, not `Taken`
- * - A stage change keeps keys and body it does not name; the note is the body
- * - A note that does not read is listed to repair, and `replace` repairs it
+ * - A word is added only after the words were listed and `get` shows none
+ * - A different file at the word's path is `Taken`
+ * - An add while the store is out of reach waits, and lands once it is back
+ * - A stage change keeps keys and body it does not name, and never makes a
+ *   word deleted elsewhere again; the note is the body
+ * - A note that does not read is listed to repair; text saved through its
+ *   editor is written as typed, and repairs it once it reads
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
@@ -18,6 +21,8 @@ const { createEntries } = await import('./entries.svelte.js');
 
 const note = (text: string, stage = 'new', body = '') =>
 	`---\ntext: ${text}\nstage: ${stage}\ncreatedAt: 2026-01-01T00:00:00.000Z\n---\n${body}`;
+const hashOf = (text: string) =>
+	new Bun.CryptoHasher('sha256').update(text).digest('hex');
 
 test('add trims, replaces lone surrogates, and lists the saved word before answering', async () => {
 	using folder = await openVocabFolder();
@@ -25,7 +30,7 @@ test('add trims, replaces lone surrogates, and lists the saved word before answe
 	expect(expectOk(await entries.add('  lucid  '))).toBe('added');
 	expect(entries.words.map((entry) => entry.text)).toEqual(['lucid']);
 	const id = entries.words[0]?.id ?? '';
-	expect(id).toBe(new Bun.CryptoHasher('sha256').update('lucid').digest('hex'));
+	expect(id).toBe(hashOf('lucid'));
 	expect(folder.files.read(`entries/${id}.md`)).toMatch(
 		/^---\ntext: lucid\nstage: new\ncreatedAt: "\S+"\n---\n$/,
 	);
@@ -51,27 +56,41 @@ test('concurrent adds create one word', async () => {
 	expect(folder.files.paths('entries')).toHaveLength(1);
 });
 
+test('an add waits for the words to be listed, so a saved word is present, not added again', async () => {
+	const id = hashOf('lucid');
+	const saved = note('lucid', 'usable', 'My note');
+	using folder = await openVocabFolder({ [`entries/${id}.md`]: saved });
+	// A folder nothing has listed yet: its `get` shows no word until it is.
+	const entries = createEntries(folder.other().entries);
+	expect(expectOk(await entries.add('lucid'))).toBe('present');
+	expect(folder.files.read(`entries/${id}.md`)).toBe(saved);
+});
+
 test('a different file at the hashed path is Taken', async () => {
 	using folder = await openVocabFolder();
 	const entries = createEntries(folder.lists.entries);
 	expectOk(await entries.add('lucid'));
 	const id = entries.words[0]?.id ?? '';
-	expectOk(await folder.lists.entries.update({ id }, { text: 'other' }));
+	await folder.lists.entries.set({ id }, { text: 'other' });
 	expect((await entries.add('lucid')).error?.name).toBe('Taken');
 });
 
-test('a word whose path is taken by a file that cannot be read now is NotSaved, not Taken', async () => {
+test('an add while the store is out of reach waits, and lands once it is back', async () => {
 	using folder = await openVocabFolder();
 	const entries = createEntries(folder.lists.entries);
-	// Offline: another word's file lands at lucid's path while nothing below
-	// `entries` reads, so the create finds the path taken by what it cannot see.
-	folder.files.refuseReads('offline', { under: 'entries' });
-	const id = new Bun.CryptoHasher('sha256').update('lucid').digest('hex');
-	await folder.files.write(`entries/${id}.md`, note('opaque'));
-	expect((await entries.add('lucid')).error).toMatchObject({
-		name: 'NotSaved',
-		cause: { name: 'Unavailable' },
+	const back = folder.files.refuse('offline', { under: 'entries' });
+	let answered = false;
+	const adding = entries.add('lucid').then((result) => {
+		answered = true;
+		return result;
 	});
+	await until(() => folder.lists.saving());
+	await Bun.sleep(20);
+	expect(answered).toBe(false);
+	expect(folder.files.paths('entries')).toEqual([]);
+	back();
+	expect(expectOk(await adding)).toBe('added');
+	expect(folder.files.paths('entries')).toEqual([`entries/${hashOf('lucid')}.md`]);
 });
 
 test('a stage change keeps what it does not name, and the note is the body', async () => {
@@ -85,18 +104,21 @@ test('a stage change keeps what it does not name, and the note is the body', asy
 	const entries = createEntries(folder.lists.entries);
 	await until(() => entries.words.length === 1);
 	expect(entries.words[0]?.note).toBe('My note');
-	expectOk(await entries.setStage(id, 'usable'));
+	await entries.setStage(id, 'usable');
 	expect(folder.files.read(`entries/${id}.md`)).toBe(
 		'---\ntext: lucid\nstage: usable\ncreatedAt: "2026-01-01T00:00:00.000Z"\nextra: kept\n---\nMy note',
 	);
-	expectOk(await folder.lists.entries.update({ id }, { body: 'New note' }));
+	await folder.lists.entries.set({ id }, { body: 'New note' });
 	expect(entries.words[0]?.note).toBe('New note');
-	expectOk(await entries.delete(id));
+	await entries.delete(id);
 	expect(entries.words).toEqual([]);
+	expect(folder.files.paths('entries')).toEqual([]);
+	// A stage pressed on a word that is gone makes no note.
+	await entries.setStage(id, 'new');
 	expect(folder.files.paths('entries')).toEqual([]);
 });
 
-test('a note that does not read is listed to repair, and replace repairs it', async () => {
+test('a note that does not read is listed to repair, and its text saved as typed repairs it once it reads', async () => {
 	using folder = await openVocabFolder({
 		'entries/broken.md': '---\ntext: [lucid\n---\nclear',
 	});
@@ -108,21 +130,14 @@ test('a note that does not read is listed to repair, and replace repairs it', as
 		text: '---\ntext: [lucid\n---\nclear',
 	});
 	expect(entries.repairs[0]?.reason.length).toBeGreaterThan(0);
-	entries.repair.start('broken');
-	expect(
-		(
-			await folder.lists.entries.replace(
-				{ id: 'broken' },
-				'---\ntext: lucid\n---\n',
-			)
-		).error?.name,
-	).toBe('Invalid');
-	expectOk(
-		await folder.lists.entries.replace(
-			{ id: 'broken' },
-			note('lucid', 'new', 'clear'),
-		),
-	);
+	const edit = folder.lists.entries.edit({ id: 'broken' });
+	// Text that still does not fit is written, and the note stays to repair.
+	edit.text = '---\ntext: lucid\n---\n';
+	await edit.landed();
+	expect(folder.files.read('entries/broken.md')).toBe('---\ntext: lucid\n---\n');
+	expect(entries.repairs.map(({ id }) => id)).toEqual(['broken']);
+	edit.text = note('lucid', 'new', 'clear');
+	await edit.landed();
 	expect(entries.repairs).toEqual([]);
 	expect(entries.words[0]).toMatchObject({ id: 'broken', note: 'clear' });
 });

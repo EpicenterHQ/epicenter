@@ -3,8 +3,10 @@
  *
  * Key behaviors:
  * - The note is listed by path, and Repair as text opens its text
- * - Save repair writes the fixed text in house style, and the card gives
- *   way to the word once it reads
+ * - Save repair writes the fixed text, and the card gives way to the word
+ *   once it reads
+ * - Text that still does not read is saved as typed, and the card stays
+ *   with what is wrong with it now
  * - Switching repairs shows the selected note's text
  * - A note deleted elsewhere while open says so, and the card closes
  */
@@ -78,6 +80,24 @@ test('a broken word is repaired as text and shows as a word again', async () => 
 	).toBe('clear');
 });
 
+test('text that still does not read is saved as typed, and the card stays with its problems', async () => {
+	await using context = await setup({
+		'entries/broken.md': '---\ntext: [lucid\n---\nclear',
+	});
+	const { target, entries, folder } = context;
+	entries.repair.start('broken');
+	flushSync();
+	const partly = '---\ntext: lucid\n---\nclear';
+	type(context.textOf('entries/broken.md'), partly);
+	click(target, 'Save repair');
+	await until(() => folder.files.read('entries/broken.md') === partly);
+	await until(() => entries.repairs[0]?.text === partly);
+	flushSync();
+	expect(entries.repair.open).toBe('broken');
+	expect(context.textOf('entries/broken.md')?.value).toBe(partly);
+	expect(target.textContent).toContain('stage');
+});
+
 test('switching repairs shows the selected note’s text', async () => {
 	await using context = await setup({
 		'entries/a.md': 'broken a',
@@ -100,10 +120,9 @@ test('a note deleted elsewhere while open says so, and the card closes', async (
 	context.entries.repair.start('broken');
 	flushSync();
 	const other = context.folder.other();
-	const listed = await other.entries.list();
-	const broken = listed.data?.invalid[0];
-	if (broken?.id !== 'broken') throw new Error('the broken note is not listed');
-	await other.entries.delete({ id: 'broken' }, { over: broken.version });
+	// Another program deletes the note it shows.
+	await other.entries.list();
+	await other.entries.delete({ id: 'broken' });
 	await until(
 		() => context.target.textContent?.includes('is no longer here') ?? false,
 	);

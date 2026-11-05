@@ -1,7 +1,9 @@
 <!--
 	A word note that does not read, repaired as text (`NoteRepair`): what is
-	wrong shows as the learner types, and Save repair writes the fixed text
-	(`replace`); the card closes once it reads as a word again.
+	wrong shows as the learner types, and Save repair saves the text through
+	the note's editor (`edit.text`). Text that still does not read is saved
+	as typed and the card stays open with its new problems; the card closes
+	once the note reads as a word again.
 -->
 <script lang="ts">
 	import NoteRepair from '@epicenter/svelte/note-repair';
@@ -12,12 +14,15 @@
 	let { entries, id }: { entries: Entries; id: string } = $props();
 	const list = $derived(entries.notes);
 	const note = $derived(list.invalid().find((candidate) => candidate.id === id));
+	// The parent keys this card by the note's id, and `entries` is the page's for its life.
+	// svelte-ignore state_referenced_locally
+	const edit = entries.notes.edit({ id });
 </script>
 
 <section class="flex flex-col gap-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair entries/{id}.md">
 	{#if note}
 		<p><code>{note.path}</code> is not a valid word, so its note and stage cannot be shown. Fix its text and save it.</p>
-		<NoteRepair contract={vocab} {note} replace={(text, options) => list.replace({ id }, text, options)} onRepaired={() => entries.repair.close()} />
+		<NoteRepair contract={vocab} {note} {edit} onRepaired={() => { if (list.get({ id })) entries.repair.close(); }} />
 	{:else}
 		<p>
 			<code>entries/{id}.md</code>

@@ -40,7 +40,7 @@ function exchange() {
 			'<div class="bubble"><div id="learner">Is "terse" the same?</div></div>' +
 			// vocab-check: ignore-next-line (Tailwind typography class)
 			'<div class="bubble"><div data-phrase-source="two"><div class="prose"><p>  by and large  </p></div></div></div>' +
-			'<div class="bubble"><div id="unsaved"><p>an unsaved answer</p></div></div>' +
+			'<div class="bubble"><div id="unmarked"><p>an unmarked answer</p></div></div>' +
 			'<div class="bubble"><div id="streaming">a partial rep</div></div>' +
 			'</div></body>',
 	);
@@ -139,8 +139,8 @@ test('a selection across messages, lines, or text that is not a saved tutor mess
 	// Two saved tutor messages.
 	expect(select(at('laconic', 0), at('by and large', 1))).toBeUndefined();
 	expect(select([one, 0], [two, two.childNodes.length])).toBeUndefined();
-	// A learner message, an unsaved answer, and a reply that is still arriving.
-	for (const id of ['#learner', '#unsaved p', '#streaming']) {
+	// A learner message, an answer without the marker, and a reply that is still arriving.
+	for (const id of ['#learner', '#unmarked p', '#streaming']) {
 		const element = document.querySelector(id);
 		if (!element) throw new Error(`the fixture has no ${id}`);
 		expect(
@@ -148,7 +148,7 @@ test('a selection across messages, lines, or text that is not a saved tutor mess
 		).toBeUndefined();
 	}
 	// A saved message together with any of them.
-	expect(select(at('by and large', 0), at('unsaved', 1))).toBeUndefined();
+	expect(select(at('by and large', 0), at('unmarked', 1))).toBeUndefined();
 	expect(select(at('by and large', 0), at('partial', 1))).toBeUndefined();
 	expect(select(at('ephemeral', 0), at('terse', 1))).toBeUndefined();
 	// Two paragraphs, two lines of one paragraph, or two list items.

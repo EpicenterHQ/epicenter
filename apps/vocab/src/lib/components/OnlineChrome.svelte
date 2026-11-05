@@ -7,21 +7,15 @@
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import { toast } from '@epicenter/ui/sonner';
-	import { account } from '../app.js';
+	import { account, folder } from '../app.js';
 	import AccountMenu from './AccountMenu.svelte';
-
-	let {
-		unreadable,
-	}: {
-		/** Why the words or chats did not list, if they did not. */
-		unreadable: { message: string } | null;
-	} = $props();
 
 	/** Whether the repository answers, in a line; `problem` says why it is a warning. */
 	const status = $derived.by((): { label: string; problem?: string } => {
 		if (account.state().status === 'reauth-required')
 			return { label: 'Sign in again', problem: 'Sign in again to see and edit your repository.' };
-		return unreadable === null ? { label: 'Online' } : { label: 'Offline', problem: unreadable.message };
+		const unavailable = folder.unavailable();
+		return unavailable === null ? { label: 'Online' } : { label: 'Offline', problem: unavailable.message };
 	});
 
 	async function signInAgain() {

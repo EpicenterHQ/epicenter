@@ -1,8 +1,5 @@
 import { expect, test } from 'bun:test';
-import type { Version } from '@epicenter/definition/contract';
 import { focusWord, readEntry } from './data.js';
-
-const version = 'v' as Version;
 
 test('a word reads its note from the body', () => {
 	expect(
@@ -12,7 +9,6 @@ test('a word reads its note from the body', () => {
 			stage: 'new',
 			createdAt: '2026-01-01T00:00:00.000Z',
 			body: 'clear',
-			version,
 		}),
 	).toEqual({
 		id: 'a',

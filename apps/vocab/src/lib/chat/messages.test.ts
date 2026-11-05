@@ -7,6 +7,8 @@
  * Key behaviors:
  * - A message is one note named by its own id, in its chat
  * - Text and tool parts read back whole; each chat reads only its own
+ * - A message sent while the store is out of reach shows, and lands once
+ *   it is back
  * - Chats list newest first; a refused focus writes nothing
  * - Notes that do not read are reported, never hidden among valid ones
  * - Another program's new message is heard
@@ -38,7 +40,7 @@ test('a sent message is one note in its chat, named by its own id', async () => 
 	using folder = await openVocabFolder();
 	const conversation = conversationOf(folder, 'chat-a');
 	expectOk(await conversation.send('你好 🌿'));
-	await settle(conversation);
+	await settle(conversation, folder.lists);
 	const [path] = folder.files.paths('messages');
 	expect(path).toStartWith('messages/chat-a/');
 	const text = folder.files.read(path!);
@@ -73,13 +75,8 @@ test('multiline Markdown and tool parts read back whole', async () => {
 			},
 		],
 	};
-	expectOk(
-		await folder.other().messages.create({
-			chat: 'chat-a',
-			...value,
-			body: '',
-		}),
-	);
+	const { id, ...fields } = value;
+	await folder.other().messages.set({ chat: 'chat-a', id }, fields);
 	const conversation = conversationOf(folder, 'chat-a');
 	await conversation.ready;
 	expect(conversation.snapshot().unreadable).toEqual([]);
@@ -109,13 +106,20 @@ test('each chat reads only its own messages', async () => {
 	second[Symbol.dispose]();
 });
 
-test('a refused save answers WriteFailed and keeps the message unsaved', async () => {
+test('a message sent while the store is out of reach shows, and lands once it is back', async () => {
 	using folder = await openVocabFolder();
-	folder.files.refuse('refused by the test', { under: 'messages' });
+	const back = folder.files.refuse('offline', { under: 'messages' });
 	const conversation = conversationOf(folder, 'chat-a');
-	expect(expectErr(await conversation.send('x')).name).toBe('WriteFailed');
-	expect(conversation.snapshot().unsaved).toHaveLength(1);
+	expectOk(await conversation.send('x'));
+	expect(conversation.snapshot().messages).toHaveLength(1);
+	await Bun.sleep(20);
+	expect(folder.lists.saving()).toBe(true);
 	expect(folder.files.paths('messages')).toEqual([]);
+	back();
+	await settle(conversation, folder.lists);
+	expect(folder.files.paths('messages')).toEqual([
+		`messages/chat-a/${conversation.snapshot().messages[0]?.id}.md`,
+	]);
 	conversation[Symbol.dispose]();
 });
 
@@ -159,7 +163,7 @@ test('notes that do not read are reported with their path, never hiding valid on
 	});
 	const conversation = conversationOf(folder, 'chat-a');
 	expectOk(await conversation.send('saved'));
-	await settle(conversation);
+	await settle(conversation, folder.lists);
 	expect(conversation.snapshot().messages).toHaveLength(1);
 	const { unreadable } = conversation.snapshot();
 	expect(unreadable).toHaveLength(1);
@@ -181,14 +185,9 @@ test('a message another program saves is heard', async () => {
 	await conversation.ready;
 	let changes = 0;
 	const stop = conversation.subscribe(() => changes++);
-	expectOk(
-		await folder.other().messages.create({
-			chat: 'chat-a',
-			id: 'one',
-			role: 'user',
-			createdAt: 1,
-			parts: [{ type: 'text', text: 'outside' }],
-		}),
+	await folder.other().messages.set(
+		{ chat: 'chat-a', id: 'one' },
+		{ role: 'user', createdAt: 1, parts: [{ type: 'text', text: 'outside' }] },
 	);
 	await until(() => conversation.snapshot().messages.length === 1);
 	stop();
