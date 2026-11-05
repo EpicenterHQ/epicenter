@@ -62,6 +62,13 @@ export type ShellRelay = {
 	failure(cause: unknown): unknown;
 };
 
+/** `headers` as name and value pairs, read without the iterable DOM types a server build lacks. */
+function entriesOf(headers: Headers): [string, string][] {
+	const entries: [string, string][] = [];
+	headers.forEach((value, name) => entries.push([name, value]));
+	return entries;
+}
+
 /** The id of a request in flight, unique among every relay of this page. */
 let lastRequest = 0;
 
@@ -145,7 +152,7 @@ export async function relayThroughShell(
 					id,
 					url: request.url,
 					method: request.method,
-					headers: [...request.headers],
+					headers: entriesOf(request.headers),
 					body,
 				},
 				onEvent: channel,
