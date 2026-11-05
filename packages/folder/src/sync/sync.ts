@@ -38,8 +38,13 @@ import {
 } from '@epicenter/definition/contract';
 import { merge3 } from '@epicenter/definition/front-matter';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { Store, Unavailable, Version } from '../device/store.js';
-import type { BatchWrite, RemoteFile, Repository } from './repository.js';
+import {
+	type Store,
+	type Unavailable,
+	type Version,
+	within,
+} from '../device/store.js';
+import type { BatchReceipt, RemoteFile, Repository } from './repository.js';
 
 /** Where a file's agreed state is: a commit (null: before the first) and the version the repository held there (null: nothing). */
 export type Base = { commit: string | null; version: Version | null };
@@ -132,6 +137,12 @@ export type SyncReport = {
 	conflicts: string[];
 	/** Files another program wrote locally during the sync: kept, and merged by the next one. */
 	kept: string[];
+	/**
+	 * Files the repository refused, and why: a path that differs only in
+	 * case from one it holds. Kept here, and refused again by every sync
+	 * until a person renames one.
+	 */
+	refused: { path: string; reason: string }[];
 };
 
 const READ_CHUNK = 2000;
@@ -176,6 +187,7 @@ export async function sync({
 		merged: [],
 		conflicts: [],
 		kept: [],
+		refused: [],
 	};
 	while (report.passes < passes) {
 		report.passes++;
@@ -196,6 +208,9 @@ export async function sync({
 		merged: once(report.merged),
 		conflicts: once(report.conflicts),
 		kept: once(report.kept),
+		refused: [
+			...new Map(report.refused.map((file) => [file.path, file])).values(),
+		],
 	});
 }
 
@@ -524,24 +539,21 @@ async function syncPass({
 	}
 	if (batch.length > 0) batches.push(batch);
 	for (const group of batches) {
-		const writes: BatchWrite[] = group.map(({ path, bytes, over }) => ({
-			path,
-			bytes,
-			over,
-		}));
-		const landed = await remote.writeAll(writes);
+		const landed = await writeBatch(remote, group, report);
 		if (landed.error !== null) return landed;
+		if (landed.data === null) continue;
 		if (landed.data === 'stale') {
 			const saved = await manifest.write({ commit: state.commit, files, at });
 			if (saved.error !== null) return saved;
 			return Ok({ state: { commit: state.commit, files, at }, done: false });
 		}
-		for (const step of group) {
+		const { steps: written, receipt } = landed.data;
+		for (const step of written) {
 			if (step.local === null) delete files[step.path];
 			else files[step.path] = step.local;
 			at[step.path] = {
-				commit: landed.data.commit,
-				version: landed.data.versions[step.path] ?? null,
+				commit: receipt.commit,
+				version: receipt.versions[step.path] ?? null,
 			};
 			report.pushed.push(step.path);
 		}
@@ -559,4 +571,43 @@ async function syncPass({
 		if (written.error !== null) return written;
 	}
 	return Ok({ state: next, done: true });
+}
+
+/**
+ * Write `steps` to the repository in one commit, leaving out every path it
+ * refuses, which `report` names: the steps that landed with the receipt,
+ * `'stale'` when a path moved, or null when every path was refused.
+ */
+async function writeBatch(
+	remote: Repository,
+	steps: (Step & { kind: 'push' })[],
+	report: SyncReport,
+): Promise<
+	Result<
+		| { steps: (Step & { kind: 'push' })[]; receipt: BatchReceipt }
+		| 'stale'
+		| null,
+		Unavailable
+	>
+> {
+	let writing = steps;
+	while (writing.length > 0) {
+		const landed = await remote.writeAll(
+			writing.map(({ path, bytes, over }) => ({ path, bytes, over })),
+		);
+		if (landed.error !== null) return landed;
+		if (landed.data === 'stale') return Ok('stale');
+		if (!('refused' in landed.data))
+			return Ok({ steps: writing, receipt: landed.data });
+		// A path the repository will never take: report it, and write the rest.
+		const { refused, reason } = landed.data;
+		const out = writing.filter(({ path }) => within(path, [refused]));
+		if (out.length === 0)
+			return ClientError.Unavailable({
+				cause: `the repository refused ${refused}, which this sync did not write: ${reason}`,
+			});
+		for (const { path } of out) report.refused.push({ path, reason });
+		writing = writing.filter((step) => !out.includes(step));
+	}
+	return Ok(null);
 }

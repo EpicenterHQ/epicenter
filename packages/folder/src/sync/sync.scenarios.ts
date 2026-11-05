@@ -8,6 +8,8 @@
  *
  * - First contact puts both sides' files on both; two creates of one note merge.
  * - Every visible file syncs, the contract's or not; a hidden one never does.
+ * - A path differing only in case from one the repository holds is refused
+ *   and reported, and stays on its computer.
  * - An unchanged sync reads no file and saves no manifest.
  * - Fields merge by key: different fields both land, one field takes the later sync's.
  * - A body merges by lines; a clash is one block of Git's markers.
@@ -163,6 +165,37 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		expect(await b.read('todos/.draft.md')).toBeNull();
 		expect(await a.read('.notes/secret.md')).toBe('only on A');
 		expect(await b.read('.notes/secret.md')).toBe('only on B');
+	},
+
+	async 'a path differing only in case from one the repository holds is refused, reported, and kept'(
+		world,
+	) {
+		const a = await world.device();
+		const b = await world.device();
+		await a.write('todos/a.md', todo);
+		await syncOf(world, a);
+		const mine = note('title: "Mine"\n');
+		await b.write('todos/A.md', mine);
+		await b.write('todos/b.md', note('title: "B"\n'));
+		const report = await syncOf(world, b);
+		expect(report).toMatchObject({
+			outcome: 'synced',
+			pushed: ['todos/b.md'],
+			refused: [
+				{
+					path: 'todos/A.md',
+					reason: expect.stringContaining('differs only in case'),
+				},
+			],
+		});
+		expect(await b.read('todos/A.md')).toBe(mine);
+		// Refused again by the next sync, never dropped.
+		expect((await syncOf(world, b)).refused.map(({ path }) => path)).toEqual([
+			'todos/A.md',
+		]);
+		await syncOf(world, a);
+		expect(await a.paths()).toEqual(['todos/a.md', 'todos/b.md']);
+		expect(await a.read('todos/a.md')).toBe(todo);
 	},
 
 	async 'an unchanged sync reads no file and saves no manifest'(world) {
