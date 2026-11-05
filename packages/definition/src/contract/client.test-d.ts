@@ -4,20 +4,19 @@
  *
  * What these prove: placeholders come from the path (`{id}.{ext}` gives both),
  * fields come from plain JSON Schema with `required` deciding optionality,
- * a `.md` path gives a note client and any other a file client, `create`
- * takes placeholders and value in one object, and every write needs `over`.
+ * nested fields keep their shape, and no read carries a version. The
+ * folder's writes are typed in `@epicenter/folder`'s own type tests.
  */
 import { Type } from 'typebox';
-import type { Result } from 'wellcrafted/result';
 import {
-	type Client,
 	defineContract,
+	type FieldsOf,
 	type FileEntryOf,
 	type FileOf,
 	type InvalidNoteOf,
 	type NoteOf,
+	type NotePatch,
 	type PlaceholdersOf,
-	type Version,
 } from './index.js';
 import type { ConformanceIssue } from './issues.js';
 
@@ -65,109 +64,35 @@ export type Reads = [
 				status?: 'draft' | 'done';
 				recordedAt?: string;
 				body: string;
-				version: Version;
 			}
 		>
 	>,
 	Expect<
 		Equal<
 			NoteOf<Recorder['collections']['journal']>,
-			{ date: string; body: string; version: Version }
+			{ date: string; body: string }
+		>
+	>,
+	Expect<Equal<FileOf<Audio>, { id: string; ext: string; bytes: Uint8Array }>>,
+	Expect<Equal<FileEntryOf<Audio>, { id: string; ext: string }>>,
+	Expect<
+		Equal<
+			InvalidNoteOf<Recordings>,
+			{
+				id: string;
+				path: string;
+				issues: ConformanceIssue[];
+				text: string | null;
+			}
 		>
 	>,
 	Expect<
 		Equal<
-			FileOf<Audio>,
-			{ id: string; ext: string; bytes: Uint8Array; version: Version }
+			NotePatch<Recorder['collections']['settings']>,
+			{ theme?: string; body?: string }
 		>
-	>,
-	Expect<
-		Equal<FileEntryOf<Audio>, { id: string; ext: string; version: Version }>
 	>,
 ];
-
-declare const client: Client<Recorder>;
-declare const version: Version;
-
-export async function writes() {
-	const created = await client.recordings.create({ id: 'a', title: 'Standup' });
-	const createdType: Expect<
-		Equal<
-			typeof created extends Result<infer T, unknown> ? T : never,
-			NoteOf<Recordings>
-		>
-	> = true;
-	await client.recordings.create({ id: 'a', title: 'x', body: 'Body\n' });
-	await client.recordings.update(
-		{ id: 'a' },
-		{ durationMs: 5 },
-		{ over: version },
-	);
-	await client.recordings.update(
-		{ id: 'a' },
-		{ body: 'new' },
-		{ over: version },
-	);
-	await client.recordings.delete({ id: 'a' }, { over: version });
-	await client.audio.create({ id: 'a', ext: 'webm', bytes: new Uint8Array() });
-	await client.audio.update(
-		{ id: 'a', ext: 'webm' },
-		{ bytes: new Uint8Array() },
-		{ over: version },
-	);
-	await client.settings.create({ theme: 'dark' });
-	await client.settings.get({});
-	await client.recordings.replace({ id: 'a' }, '---\ntitle: x\n---\n', {
-		over: version,
-	});
-	const stop: () => void = client.recordings.subscribe(() => {});
-	const stopAudio: () => void = client.audio.subscribe(() => {});
-	stop();
-	stopAudio();
-	const listed = await client.recordings.list();
-	if (listed.error === null) {
-		const invalid: InvalidNoteOf<Recordings>[] = listed.data.invalid;
-		const invalidType: Expect<
-			Equal<
-				InvalidNoteOf<Recordings>,
-				{
-					id: string;
-					path: string;
-					issues: ConformanceIssue[];
-					text: string | null;
-					version: Version;
-				}
-			>
-		> = true;
-		const titles: string[] = listed.data.items.map((note) => note.title);
-		return [createdType, invalidType, invalid, titles];
-	}
-	return [createdType];
-}
-
-export async function refusals() {
-	// @ts-expect-error: a required field is missing from create
-	await client.recordings.create({ id: 'a' });
-	// @ts-expect-error: a placeholder is missing from create
-	await client.recordings.create({ title: 'x' });
-	// @ts-expect-error: {id}.{ext} needs both placeholders
-	await client.audio.create({ id: 'a', bytes: new Uint8Array() });
-	// @ts-expect-error: a field's type comes from its JSON Schema
-	await client.recordings.create({ id: 'a', title: 1 });
-	const other = { status: 'other' } as const;
-	// @ts-expect-error: an enum field takes only its values
-	await client.recordings.update({ id: 'a' }, other, { over: version });
-	// @ts-expect-error: an update must pass the version it read
-	await client.recordings.update({ id: 'a' }, { title: 'x' });
-	// @ts-expect-error: a delete must pass the version it read
-	await client.audio.delete({ id: 'a', ext: 'webm' });
-	// @ts-expect-error: a version is not any string
-	await client.recordings.delete({ id: 'a' }, { over: 'abc' });
-	// @ts-expect-error: a file collection has no body
-	await client.audio.create({ id: 'a', ext: 'webm', body: '' });
-	// @ts-expect-error: a collection the contract does not declare
-	client.photos;
-}
 
 /** Nested fields: an array of objects, a union of objects told apart by a `const`, and any JSON (`{}`). */
 const tutor = defineContract({
@@ -240,13 +165,13 @@ export type Nested = [
 	>,
 ];
 
-export async function nestedRefusals(tutorClient: Client<Tutor>) {
+export const nestedRefusals = [
 	// @ts-expect-error: a nested object needs its required keys
-	await tutorClient.chats.create({ id: 'c', focus: [{ entryId: 'a' }] });
-	await tutorClient.messages.create({
-		chat: 'c',
-		id: 'm',
+	{ focus: [{ entryId: 'a' }] } satisfies FieldsOf<
+		Tutor['collections']['chats']
+	>,
+	{
 		// @ts-expect-error: a part is one of the union's objects
 		parts: [{ type: 'image' }],
-	});
-}
+	} satisfies FieldsOf<Tutor['collections']['messages']>,
+];

@@ -70,14 +70,34 @@ describe('match and fill', () => {
 		expect(match(tasks, path)).toEqual({ project: 'acme', stem: 'fix-login' });
 	});
 
-	test('fill refuses values that would escape or hide their segment', () => {
-		for (const bad of ['a/b', '', '.hidden', '..', 'a\\b', 'a\nb', 'a\0b']) {
+	test('fill refuses values that would escape or hide their segment, or that a disk refuses', () => {
+		for (const bad of [
+			'a/b',
+			'',
+			'.hidden',
+			'..',
+			'a\\b',
+			'a\nb',
+			'a\0b',
+			'a:b',
+			'a*b',
+			'a?b',
+			'a"b',
+			'a<b',
+			'a>b',
+			'a|b',
+		]) {
 			const error = expectErr(fill(tasks, { project: bad, stem: 'x' }));
 			expect(error.name).toBe('InvalidValue');
 		}
 		expect(expectErr(fill(tasks, { project: 'acme' })).name).toBe(
 			'InvalidValue',
 		);
+		// A file another program named so still belongs to the collection.
+		expect(match(tasks, 'projects/a:b/tasks/x.md')).toEqual({
+			project: 'a:b',
+			stem: 'x',
+		});
 	});
 
 	test('bad templates are refused', () => {

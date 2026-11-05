@@ -19,11 +19,15 @@
 import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ClientError, Version } from '@epicenter/definition/contract';
+import type { ClientError } from '@epicenter/definition/contract';
 import type { InferError } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import { nodeStore } from './device/node-store.js';
-import type { DeviceExpectation, DeviceStore } from './device/store.js';
+import type {
+	DeviceExpectation,
+	DeviceStore,
+	Version,
+} from './device/store.js';
 import type {
 	FolderError,
 	Root,

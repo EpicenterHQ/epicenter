@@ -45,7 +45,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { ClientError, type Version } from '@epicenter/definition/contract';
+import { ClientError } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { createChanges } from '../changes.js';
 import { hashBytes } from '../hash.js';
@@ -53,7 +53,7 @@ import { watchDirectory } from '../native/watch.js';
 import { createPathTurns } from '../path-turns.js';
 import { pathProblem, readablePath, writableExistingPath } from '../paths.js';
 import { STATE_DIRECTORY, savesDirectory, scratchName } from '../state.js';
-import type { DeviceExpectation, DeviceStore } from './store.js';
+import type { DeviceExpectation, DeviceStore, Version } from './store.js';
 
 /** This process's writers to each path, taking turns from the check to the change. */
 const turns = createPathTurns();

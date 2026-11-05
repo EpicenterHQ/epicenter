@@ -1,25 +1,26 @@
 /**
- * A folder's collection reads and writes over a real device client in a
- * temporary directory (`createFolder` over it): what an app shows of a contract's files,
- * and how its writes land in what it shows. Moved here from the Svelte
- * adapter's tests once the work moved into the folder.
+ * A folder's collection reads and writes: what an app shows of a
+ * contract's files, and how one write (`set`, `delete`) makes it so
+ * (ADR-0774, ADR-0775).
  *
  * Key behaviors:
- * - A collection lists and follows its files only while something listens
- * - Changes heard through `subscribe` reach readers; a listing a change
- *   interrupted never replaces a newer one
- * - A listing that fails is tried again while someone listens, so a passing
- *   storage failure does not leave the list frozen
- * - A write shows at once, without waiting for a listing; a create refused
- *   as `Occupied` shows what is there instead, and answers `Unavailable`
- *   when what is there cannot be read
- * - `update` carries an edit over another writer's other fields, and after a
- *   clash shows theirs, so saving again applies over it
- * - Invalid notes are shown with their text, and `replace` repairs one;
- *   a draft's `replace` over the version it began from refuses a change since
- * - A write is `saving()` on the folder from its call until it answers
- * - A file collection appends where its store can, heard when the file is
- *   made and announced; elsewhere `append` is `Unavailable`
+ * - A collection lists and follows its files only while something listens,
+ *   and a failing listing is tried again while someone listens
+ * - A write shows once it lands, without waiting for a listing
+ * - `set` gives a note the fields named and keeps the rest; named fields
+ *   take this write; a body changed since it was shown merges by lines
+ * - A write reads just before writing; when the file moved in between, it
+ *   reads and applies the change again
+ * - A value that does not fit the contract is written and shows as
+ *   invalid; a change to a note whose front matter does not parse keeps
+ *   the note and adds the change as a conflict block
+ * - A name that would leave the collection throws before anything is
+ *   written
+ * - `delete` of a note gone is fine; one changed since shown is kept
+ * - Writes land in order; one that cannot land waits, with `saving()` and
+ *   `unavailable()` saying so, and lands when the store is back
+ * - A file collection's `set` is the later write winning, and `append`
+ *   works where the store can
  *
  * See also:
  * - `note-edit.test.ts` for the note editor
@@ -28,25 +29,15 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-	type Client,
-	ClientError,
-	type Contract,
-	defineContract,
-	type NoteClient,
-} from '@epicenter/definition/contract';
+import { defineContract } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
-import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createDeviceClient } from './device/client.js';
-import type { DeviceStore } from './device/store.js';
-import { directoryClient } from './directory.test-support.js';
+import { expectOk } from 'wellcrafted/testing';
+import { memoryStore } from './device/memory-store.js';
+import type { DeviceStore, Version } from './device/store.js';
 import { createFolder } from './folder.js';
-
-/** `client`, already open, as a folder of `contract`. */
-const over = <TContract extends Contract>(
-	contract: TContract,
-	client: Client<TContract>,
-) => createFolder(contract, async () => Ok(client));
+import { memory, memoryFiles } from './memory.js';
+import { directory } from './node.js';
+import { openFolder } from './open-folder.js';
 
 const todos = defineContract({
 	collections: {
@@ -58,8 +49,6 @@ const todos = defineContract({
 		attachments: { path: 'todos/{id}.{ext}' },
 	},
 });
-type Todos = typeof todos;
-type TodoNotes = NoteClient<Todos['collections']['todos']>;
 
 const folders: string[] = [];
 afterEach(async () => {
@@ -67,17 +56,6 @@ afterEach(async () => {
 		folders.splice(0).map((path) => rm(path, { recursive: true, force: true })),
 	);
 });
-
-async function folder() {
-	const root = await mkdtemp(join(tmpdir(), 'epicenter-folder-writes-'));
-	folders.push(root);
-	return {
-		root,
-		/** A client of the folder, as another tab or program would hold. */
-		open: () => directoryClient(todos, root),
-		text: (path: string) => readFile(join(root, path), 'utf8'),
-	};
-}
 
 async function until(check: () => boolean) {
 	for (let turn = 0; turn < 300 && !check(); turn++) await Bun.sleep(5);
@@ -94,29 +72,38 @@ function watch<T>(
 	return { values, stop };
 }
 
-/** `client`'s todos, counting listings and live subscriptions, with listings that can be held. */
-function counted(client: Client<Todos>) {
-	const counts = { lists: 0, subscribed: 0 };
+/** A folder in memory, and the world outside it. */
+function inMemory() {
+	const place = memory();
+	const folder = openFolder(todos, place);
+	return { folder, outside: memoryFiles(place), place };
+}
+
+/** A store in memory counting listings and live watches, with listings that can be held. */
+function counted() {
+	const store = memoryStore();
+	const counts = { lists: 0, watching: 0 };
 	let hold: Promise<void> | null = null;
-	const todos: TodoNotes = {
-		...client.todos,
-		async list() {
+	const wrapped: DeviceStore = {
+		...store,
+		async list(under) {
 			counts.lists++;
-			const listed = await client.todos.list();
+			const listed = await store.list(under);
 			if (hold) await hold;
 			return listed;
 		},
-		subscribe(listener) {
-			counts.subscribed++;
-			const stop = client.todos.subscribe(listener);
+		watch(listener) {
+			counts.watching++;
+			const stop = store.watch(listener);
 			return () => {
-				counts.subscribed--;
+				counts.watching--;
 				stop();
 			};
 		},
 	};
 	return {
-		client: { ...client, todos } as Client<Todos>,
+		folder: createFolder(todos, async () => Ok(wrapped)),
+		outside: store.outside,
 		counts,
 		/** Hold every listing from now on, already read, until the returned release. */
 		hold() {
@@ -130,324 +117,301 @@ function counted(client: Client<Todos>) {
 	};
 }
 
+const note = (fields: string, body = '') => `---\n${fields}---\n${body}`;
+
 test('a collection lists and follows its files only while something listens', async () => {
-	const { open } = await folder();
-	const device = await open();
-	const { client, counts } = counted(device);
-	const files = over(todos, client);
-
-	expect(files.todos.items()).toEqual([]);
-	expect(files.todos.loading()).toBe(true);
+	const { folder, outside, counts } = counted();
+	expect(folder.todos.items()).toEqual([]);
+	expect(folder.todos.loading()).toBe(true);
 	await Bun.sleep(5);
-	expect(counts).toEqual({ lists: 0, subscribed: 0 });
+	expect(counts).toEqual({ lists: 0, watching: 0 });
 
-	const titles = watch(files.todos.subscribe, () =>
-		files.todos.items().map(({ title }) => title),
+	const titles = watch(folder.todos.subscribe, () =>
+		folder.todos.items().map(({ title }) => title),
 	);
-	await until(() => !files.todos.loading());
-	expect(counts.subscribed).toBe(1);
-	expect(counts.lists).toBeGreaterThanOrEqual(1);
+	await until(() => !folder.todos.loading());
+	expect(counts.watching).toBe(1);
 	expect(titles.values.at(-1)).toEqual([]);
 
-	expectOk(await device.todos.create({ id: 'a', title: 'Milk', done: false }));
+	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
 	await until(() => titles.values.at(-1)?.[0] === 'Milk');
 
 	titles.stop();
-	expect(counts.subscribed).toBe(0);
+	expect(counts.watching).toBe(0);
 });
 
 test('a listing that fails is tried again while someone listens, with no change to prompt it', async () => {
-	const { open } = await folder();
-	const device = await open();
-	expectOk(await device.todos.create({ id: 'a', title: 'Milk', done: false }));
-	let failing = 1;
-	let lists = 0;
-	const files = over(todos, {
-		...device,
-		todos: {
-			...device.todos,
-			async list() {
-				lists++;
-				if (failing <= 0) return device.todos.list();
-				failing--;
-				return ClientError.Unavailable({ cause: 'storage is busy' });
-			},
-			// No change is ever heard: only a retry can list again.
-			subscribe: () => () => {},
-		},
-	} as Client<Todos>);
-	const read = () => ({
-		titles: files.todos.items().map(({ title }) => title),
-		error: files.todos.error()?.name ?? null,
-	});
-
-	const shown = watch(files.todos.subscribe, read);
-	await until(() => shown.values.at(-1)?.error === 'Unavailable');
-	expect(shown.values.at(-1)?.titles).toEqual([]);
-	await until(() => shown.values.at(-1)?.titles[0] === 'Milk');
-	expect(shown.values.at(-1)?.error).toBeNull();
-	expect(lists).toBe(2);
+	const { folder, outside } = inMemory();
+	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
+	const undo = outside.refuseReads('storage is busy');
+	const shown = watch(folder.subscribe, () => folder.unavailable()?.name);
+	const titles = watch(folder.todos.subscribe, () =>
+		folder.todos.items().map(({ title }) => title),
+	);
+	await until(() => shown.values.at(-1) === 'Unavailable');
+	expect(titles.values.at(-1)).toEqual([]);
+	undo();
+	await until(() => titles.values.at(-1)?.[0] === 'Milk');
+	expect(folder.unavailable()).toBeNull();
+	titles.stop();
 	shown.stop();
-
-	// Nobody listens: a failing listing is not tried again.
-	failing = Number.POSITIVE_INFINITY;
-	const again = watch(files.todos.subscribe, read);
-	await until(() => again.values.at(-1)?.error === 'Unavailable');
-	again.stop();
-	const after = lists;
-	await Bun.sleep(1200);
-	expect(lists).toBe(after);
 });
 
-test('a write shows at once, before any listing', async () => {
-	const { open } = await folder();
-	const { client, hold } = counted(await open());
-	const files = over(todos, client);
+test('a write shows once it lands, before any listing', async () => {
+	const { folder, hold } = counted();
 	const shown = watch(
-		files.todos.subscribe,
-		() => files.todos.get({ id: 'a' })?.title,
+		folder.todos.subscribe,
+		() => folder.todos.get({ id: 'a' })?.title,
 	);
-	await until(() => !files.todos.loading());
+	await until(() => !folder.todos.loading());
 	const release = hold();
 
-	expectOk(await files.todos.create({ id: 'a', title: 'Milk', done: false }));
+	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
 	expect(shown.values.at(-1)).toBe('Milk');
-	expectOk(await files.todos.update({ id: 'a' }, { title: 'Oat milk' }));
+	await folder.todos.set({ id: 'a' }, { title: 'Oat milk' });
 	expect(shown.values.at(-1)).toBe('Oat milk');
-	expectOk(await files.todos.delete({ id: 'a' }));
+	await folder.todos.delete({ id: 'a' });
 	expect(shown.values.at(-1)).toBeUndefined();
 
 	release();
 	shown.stop();
 });
 
-test('a create refused as Occupied shows what is there, before it answers', async () => {
-	const { open } = await folder();
-	const elsewhere = await open();
-	const files = over(todos, await open());
-	expectOk(
-		await elsewhere.todos.create({ id: 'a', title: 'Theirs', done: false }),
+test('set makes a note where none is, and changes only the fields it names', async () => {
+	const { folder, outside } = inMemory();
+	await folder.todos.set(
+		{ id: 'a' },
+		{ title: 'Milk', done: false, body: 'Two\n' },
 	);
-	const refused = expectErr(
-		await files.todos.create({ id: 'a', title: 'Mine', done: false }),
+	expect(outside.read('todos/a.md')).toBe(
+		note('title: Milk\ndone: false\n', 'Two\n'),
 	);
-	expect(refused.name).toBe('Occupied');
-	expect(files.todos.get({ id: 'a' })?.title).toBe('Theirs');
-	expect(files.todos.items()).toHaveLength(1);
+	await folder.todos.set({ id: 'a' }, { done: true });
+	expect(outside.read('todos/a.md')).toBe(
+		note('title: Milk\ndone: true\n', 'Two\n'),
+	);
+	// Twice is once.
+	await folder.todos.set({ id: 'a' }, { done: true });
+	expect(outside.read('todos/a.md')).toBe(
+		note('title: Milk\ndone: true\n', 'Two\n'),
+	);
 });
 
-test('a refusal the folder cannot read again answers Unavailable, not the refusal', async () => {
-	const { open } = await folder();
-	const device = await open();
-	const files = over(todos, {
-		...device,
-		todos: {
-			...device.todos,
-			create: async () => ClientError.Occupied({ path: 'todos/a.md' }),
-			get: async () => ClientError.Unavailable({ cause: 'offline' }),
-		},
-	} as Client<Todos>);
-	const refused = expectErr(
-		await files.todos.create({ id: 'a', title: 'Mine', done: false }),
+test('another writer’s change to another field stays; a field both changed takes this write', async () => {
+	const { folder, outside } = inMemory();
+	folder.todos.subscribe(() => {});
+	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
+	await outside.write('todos/a.md', note('title: Oat milk\ndone: true\n'));
+	// The folder has not listed their change yet: this write is made over what it showed.
+	await folder.todos.set({ id: 'a' }, { done: false });
+	expect(outside.read('todos/a.md')).toBe(
+		note('title: Oat milk\ndone: false\n'),
 	);
-	expect(refused).toMatchObject({ name: 'Unavailable', cause: 'offline' });
-	expect(files.todos.get({ id: 'a' })).toBeUndefined();
 });
 
-test('a listing a change interrupted never replaces a newer one', async () => {
-	const { open } = await folder();
-	const device = await open();
-	const { client, hold } = counted(device);
-	const files = over(todos, client);
-	const shown = watch(
-		files.todos.subscribe,
-		() => files.todos.get({ id: 'a' })?.title,
+test('a write that meets a change made after it read reads again and applies its change', async () => {
+	const { folder, outside } = inMemory();
+	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
+	const release = outside.hold();
+	const writing = folder.todos.set({ id: 'a' }, { done: true });
+	await Bun.sleep(5);
+	await outside.write(
+		'todos/a.md',
+		note('title: Bread\ndone: false\n', 'Theirs\n'),
 	);
-	await until(() => !files.todos.loading());
-
-	// A change arrives, and its listing is read but held...
-	const release = hold();
-	expectOk(await device.todos.create({ id: 'b', title: 'Bread', done: false }));
-	await Bun.sleep(20);
-	// ...while a write lands that the held listing does not have.
-	expectOk(await files.todos.create({ id: 'a', title: 'Milk', done: false }));
 	release();
-	await until(() => files.todos.items().length === 2);
-	expect(shown.values.slice(shown.values.indexOf('Milk'))).not.toContain(
-		undefined,
+	await writing;
+	expect(outside.read('todos/a.md')).toBe(
+		note('title: Bread\ndone: true\n', 'Theirs\n'),
 	);
-	shown.stop();
 });
 
-test('update carries an edit over another writer’s other field; after a clash it shows theirs and saves over it', async () => {
-	const { open, text } = await folder();
-	const files = over(todos, await open());
-	const other = await open();
-	const shown = watch(files.todos.subscribe, () =>
-		files.todos.get({ id: 'a' }),
+test('a body changed since it was shown merges by lines, and a clash keeps both in a block', async () => {
+	const { folder, outside } = inMemory();
+	folder.todos.subscribe(() => {});
+	const fields = 'title: Milk\ndone: false\n';
+	await folder.todos.set(
+		{ id: 'a' },
+		{ title: 'Milk', done: false, body: 'one\ntwo\nthree\n' },
 	);
-	await until(() => !files.todos.loading());
-	const created = expectOk(
-		await files.todos.create({ id: 'a', title: 'Milk', done: false }),
-	);
-
-	expectOk(
-		await other.todos.update(
-			{ id: 'a' },
-			{ done: true },
-			{ over: created.version },
-		),
-	);
-	// Shown before the change is heard: the edit is made over `created`.
-	expectOk(
-		await files.todos.update(
-			{ id: 'a' },
-			{ title: 'Oat milk' },
-			{ base: created },
-		),
-	);
-	expect(await text('todos/a.md')).toBe(
-		'---\ntitle: Oat milk\ndone: true\n---\n',
+	await outside.write('todos/a.md', note(fields, 'one\ntwo\nthree\nfour\n'));
+	await folder.todos.set({ id: 'a' }, { body: 'zero\none\ntwo\nthree\n' });
+	expect(outside.read('todos/a.md')).toBe(
+		note(fields, 'zero\none\ntwo\nthree\nfour\n'),
 	);
 
-	const now = expectOk(await other.todos.get({ id: 'a' }));
-	expectOk(
-		await other.todos.update(
-			{ id: 'a' },
-			{ title: 'Soy milk' },
-			{ over: now.version },
-		),
+	await until(
+		() => folder.todos.get({ id: 'a' })?.body.startsWith('zero') ?? false,
 	);
-	const clash = expectErr(
-		await files.todos.update(
-			{ id: 'a' },
-			{ title: 'Rice milk' },
-			{ base: now },
-		),
+	await outside.write(
+		'todos/a.md',
+		note(fields, 'zero\nONE\ntwo\nthree\nfour\n'),
 	);
-	expect(clash.name).toBe('Conflict');
-	expect(shown.values.at(-1)?.title).toBe('Soy milk');
-	expectOk(await files.todos.update({ id: 'a' }, { title: 'Rice milk' }));
-	expect(await text('todos/a.md')).toBe(
-		'---\ntitle: Rice milk\ndone: true\n---\n',
+	await folder.todos.set(
+		{ id: 'a' },
+		{ body: 'zero\nuno\ntwo\nthree\nfour\n' },
 	);
-	shown.stop();
+	const text = outside.read('todos/a.md') ?? '';
+	expect(text).toContain('<<<<<<< current');
+	expect(text).toContain('ONE');
+	expect(text).toContain('uno');
 });
 
-test('an invalid note shows with its text, and replace repairs it at once', async () => {
-	const { open, root } = await folder();
-	const files = over(todos, await open());
-	const broken = '---\ntitle: [unclosed\n---\nKept.\n';
-	await Bun.write(join(root, 'todos/a.md'), broken);
-	const invalid = watch(files.todos.subscribe, () =>
-		files.todos.invalid().map(({ id, text }) => ({ id, text })),
+test('writes queued one after another never clash with each other', async () => {
+	const { folder, outside } = inMemory();
+	folder.todos.subscribe(() => {});
+	const first = folder.todos.set(
+		{ id: 'a' },
+		{ title: 'Milk', done: false, body: 'one\n' },
 	);
-	await until(() => invalid.values.at(-1)?.length === 1);
-	expect(invalid.values.at(-1)).toEqual([{ id: 'a', text: broken }]);
-
-	const repaired = expectOk(
-		await files.todos.replace(
-			{ id: 'a' },
-			'---\ntitle: Fixed\ndone: false\n---\nKept.\n',
-		),
+	const second = folder.todos.set({ id: 'a' }, { body: 'two\n' });
+	const third = folder.todos.set({ id: 'a' }, { body: 'three\n' });
+	await Promise.all([first, second, third]);
+	expect(outside.read('todos/a.md')).toBe(
+		note('title: Milk\ndone: false\n', 'three\n'),
 	);
-	expect(invalid.values.at(-1)).toEqual([]);
-	expect(files.todos.get({ id: 'a' })).toEqual(repaired);
-	invalid.stop();
+	const made = folder.todos.set({ id: 'b' }, { title: 'Eggs', done: false });
+	const gone = folder.todos.delete({ id: 'b' });
+	await Promise.all([made, gone]);
+	expect(outside.read('todos/b.md')).toBeNull();
 });
 
-test('replace over the version a draft began from refuses another writer’s change since, then shows theirs', async () => {
-	const { open, root, text } = await folder();
-	const files = over(todos, await open());
-	await Bun.write(
-		join(root, 'todos/a.md'),
-		'---\ntitle: Milk\ndone: false\n---\n',
-	);
-	const shown = watch(
-		files.todos.subscribe,
-		() => files.todos.get({ id: 'a' })?.title,
-	);
-	await until(() => shown.values.at(-1) === 'Milk');
-	const began = files.todos.get({ id: 'a' })?.version;
-
-	// Another writer changes it while the draft is open, and the folder hears it.
-	await Bun.write(
-		join(root, 'todos/a.md'),
-		'---\ntitle: Oat milk\ndone: false\n---\n',
-	);
-	await until(() => shown.values.at(-1) === 'Oat milk');
-
-	const draft = '---\ntitle: Soy milk\ndone: false\n---\n';
-	const refused = expectErr(
-		await files.todos.replace({ id: 'a' }, draft, { over: began }),
-	);
-	expect(refused.name).toBe('Conflict');
-	expect(await text('todos/a.md')).toBe(
-		'---\ntitle: Oat milk\ndone: false\n---\n',
-	);
-	// Saving again over what is shown now replaces theirs, on purpose.
-	expectOk(await files.todos.replace({ id: 'a' }, draft));
-	expect(await text('todos/a.md')).toBe(draft);
-	shown.stop();
+test('a value that does not fit the contract is written, and shows as invalid', async () => {
+	const { folder, outside } = inMemory();
+	folder.todos.subscribe(() => {});
+	await folder.todos.set({ id: 'a' }, { title: 5 as never });
+	expect(outside.read('todos/a.md')).toBe(note('title: 5\n'));
+	await until(() => folder.todos.invalid().length === 1);
+	expect(folder.todos.invalid()[0]).toMatchObject({
+		id: 'a',
+		text: note('title: 5\n'),
+	});
+	// A set of the fields that fit repairs it.
+	await folder.todos.set({ id: 'a' }, { title: 'Five', done: false });
+	expect(folder.todos.invalid()).toEqual([]);
+	expect(folder.todos.get({ id: 'a' })?.title).toBe('Five');
 });
 
-test('a write is saving on the folder from its call until it answers, and the folder hears both', async () => {
-	const { open } = await folder();
-	const device = await open();
-	expectOk(await device.todos.create({ id: 'a', title: '', done: false }));
-	const files = over(todos, device);
-	await until(() => files.state().status === 'open');
-	const saving = watch(files.subscribe, () => files.saving());
+test('a change to a note whose front matter does not parse keeps it, and adds the change as a block', async () => {
+	const { folder, outside } = inMemory();
+	await outside.write('todos/a.md', note('title: [\n', 'Kept\n'));
+	await folder.todos.set({ id: 'a' }, { done: true });
+	const text = outside.read('todos/a.md') ?? '';
+	expect(text.startsWith(note('title: [\n', 'Kept\n'))).toBe(true);
+	expect(text).toContain('done: true');
+	expect(text).toContain('<<<<<<< current');
+});
 
-	const updating = files.todos.update({ id: 'a' }, { done: true });
-	expect(files.saving()).toBe(true);
-	expectOk(await updating);
-	expect(files.saving()).toBe(false);
-	expect(saving.values).toEqual([false, true, false]);
+test('a name that would leave the collection throws before anything is written', async () => {
+	const { folder, outside } = inMemory();
+	for (const id of ['', 'a/b', '..', '.hidden', 'a:b', 'a?b', 'a|b', 'a\nb'])
+		expect(() =>
+			folder.todos.set({ id }, { title: 'x', done: false }),
+		).toThrow();
+	expect(() => folder.todos.delete({ id: '../x' })).toThrow();
+	expect(() =>
+		folder.attachments.set({ id: 'a', ext: 'b/c' }, new Uint8Array()),
+	).toThrow();
+	expect(() =>
+		folder.todos.set({ id: 'a' }, { title: (() => {}) as never }),
+	).toThrow();
+	expect(folder.saving()).toBe(false);
+	expect(outside.paths()).toEqual([]);
+	expect(folder.todos.get({ id: 'a/b' })).toBeUndefined();
+});
+
+test('delete: one already gone is gone, one changed since shown is kept, and one never shown is removed', async () => {
+	const { folder, outside } = inMemory();
+	await folder.todos.delete({ id: 'none' });
+	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
+	await folder.todos.delete({ id: 'a' });
+	expect(outside.read('todos/a.md')).toBeNull();
+
+	folder.todos.subscribe(() => {});
+	await folder.todos.set({ id: 'b' }, { title: 'Eggs', done: false });
+	await outside.write('todos/b.md', note('title: Eggs\ndone: true\n'));
+	await folder.todos.delete({ id: 'b' });
+	expect(outside.read('todos/b.md')).toBe(note('title: Eggs\ndone: true\n'));
+	expect(folder.todos.get({ id: 'b' })?.done).toBe(true);
+});
+
+test('a write that cannot land waits, in order, saying why, and lands when the store is back', async () => {
+	const { folder, outside } = inMemory();
+	const saving = watch(folder.subscribe, () => folder.saving());
+	const undo = outside.refuse('disk full');
+	let landed = 0;
+	const first = folder.todos
+		.set({ id: 'a' }, { title: 'One', done: false })
+		.then(() => landed++);
+	const second = folder.todos
+		.set({ id: 'a' }, { title: 'Two' })
+		.then(() => landed++);
+	await until(() => folder.unavailable()?.name === 'Unavailable');
+	expect(folder.unavailable()).toMatchObject({ cause: 'disk full' });
+	expect(folder.saving()).toBe(true);
+	expect(landed).toBe(0);
+	undo();
+	await Promise.all([first, second]);
+	expect(outside.read('todos/a.md')).toBe(note('title: Two\ndone: false\n'));
+	expect(folder.unavailable()).toBeNull();
+	expect(folder.saving()).toBe(false);
+	expect(saving.values.at(0)).toBe(false);
+	expect(saving.values.at(-1)).toBe(false);
 	saving.stop();
 });
 
-test('a file collection lists its entries without bytes, and writes over what it shows', async () => {
-	const { open } = await folder();
-	const files = over(todos, await open());
-	const shown = watch(files.attachments.subscribe, () =>
-		files.attachments.items(),
+test('a write is saving on the folder from its call until it lands', async () => {
+	const { folder } = inMemory();
+	const saving = watch(folder.subscribe, () => folder.saving());
+	const writing = folder.todos.set({ id: 'a' }, { title: '', done: false });
+	expect(folder.saving()).toBe(true);
+	await writing;
+	expect(folder.saving()).toBe(false);
+	expect(
+		saving.values.filter((value, index, all) => value !== all[index - 1]),
+	).toEqual([false, true, false]);
+	saving.stop();
+});
+
+test('a file collection lists entries without bytes; set is the later write, and delete keeps a change since shown', async () => {
+	const { folder, outside } = inMemory();
+	const shown = watch(folder.attachments.subscribe, () =>
+		folder.attachments.items(),
 	);
-	await until(() => !files.attachments.loading());
-	const created = expectOk(
-		await files.attachments.create({
-			id: 'a',
-			ext: 'png',
-			bytes: new Uint8Array([1]),
-		}),
+	await until(() => !folder.attachments.loading());
+	const at = { id: 'a', ext: 'png' };
+	await folder.attachments.set(at, new Uint8Array([1]));
+	expect(shown.values.at(-1)).toEqual([at]);
+	await outside.write('todos/a.png', new Uint8Array([9]));
+	await folder.attachments.set(at, new Uint8Array([2]));
+	expect(expectOk(await folder.attachments.read(at))?.bytes).toEqual(
+		new Uint8Array([2]),
 	);
-	expect(shown.values.at(-1)).toEqual([created]);
-	expect(files.attachments.get({ id: 'a', ext: 'png' })).toEqual(created);
-	const updated = expectOk(
-		await files.attachments.update(
-			{ id: 'a', ext: 'png' },
-			{ bytes: new Uint8Array([2]) },
-		),
+	await outside.write('todos/a.png', new Uint8Array([3]));
+	await folder.attachments.delete(at);
+	expect(expectOk(await folder.attachments.read(at))?.bytes).toEqual(
+		new Uint8Array([3]),
 	);
-	expect(shown.values.at(-1)).toEqual([updated]);
-	expectOk(await files.attachments.delete({ id: 'a', ext: 'png' }));
+	await until(() => shown.values.at(-1)?.length === 1);
+	await folder.attachments.delete(at);
 	expect(shown.values.at(-1)).toEqual([]);
 	shown.stop();
 });
 
-test('a write over a note the folder has not listed reads it first', async () => {
-	const { open, text, root } = await folder();
-	const device = await open();
-	expectOk(await device.todos.create({ id: 'a', title: 'Milk', done: false }));
-	const files = over(todos, device);
-	expectOk(await files.todos.update({ id: 'a' }, { done: true }));
-	expect(await text('todos/a.md')).toBe('---\ntitle: Milk\ndone: true\n---\n');
-	expect(expectErr(await files.todos.delete({ id: 'none' })).name).toBe(
-		'NotFound',
+test('over a directory, a write over a note the folder has not listed reads it first', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'epicenter-folder-writes-'));
+	folders.push(root);
+	const folder = openFolder(todos, directory(root));
+	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
+	const other = openFolder(todos, directory(root));
+	await other.todos.set({ id: 'a' }, { done: true });
+	expect(await readFile(join(root, 'todos/a.md'), 'utf8')).toBe(
+		note('title: Milk\ndone: true\n'),
 	);
-	await writeFile(join(root, 'todos/b.md'), '---\ntitle: [\n---\n');
-	expectOk(
-		await files.todos.replace({ id: 'b' }, '---\ntitle: B\ndone: false\n---\n'),
+	await writeFile(join(root, 'todos/b.md'), note('title: [\n'));
+	await other.todos.set({ id: 'b' }, { title: 'B', done: false });
+	expect(await readFile(join(root, 'todos/b.md'), 'utf8')).toContain(
+		'<<<<<<< current',
 	);
 });
 
@@ -455,8 +419,18 @@ test('a file collection appends where its store can, and its listeners hear an a
 	const held = new Map<string, Uint8Array>();
 	const store: DeviceStore = {
 		list: async () =>
-			Ok([...held.keys()].map((path) => ({ path, stamp: path }))),
-		read: async () => Ok(null),
+			Ok(
+				[...held].map(([path, bytes]) => ({
+					path,
+					stamp: `${path}:${bytes.length}`,
+				})),
+			),
+		async read(path) {
+			const bytes = held.get(path);
+			if (bytes === undefined) return Ok(null);
+			const stamp = `${path}:${bytes.length}`;
+			return Ok({ bytes, version: stamp as Version, stamp });
+		},
 		write: async () => Ok({ landed: null }),
 		async append(path, added, { create }) {
 			const there = held.get(path);
@@ -466,44 +440,43 @@ test('a file collection appends where its store can, and its listeners hear an a
 		},
 		watch: () => () => {},
 	};
-	const files = over(todos, createDeviceClient(todos, store));
+	const folder = createFolder(todos, async () => Ok(store));
 	let heard = 0;
-	const stop = files.attachments.subscribe(() => heard++);
+	const stop = folder.attachments.subscribe(() => heard++);
 	const at = { id: 'a', ext: 'm4a' };
 	const piece = (create: boolean, announce = false) =>
-		files.attachments.append(at, new Uint8Array([1]), { create, announce });
+		folder.attachments.append(at, new Uint8Array([1]), { create, announce });
 
-	expectOk(await piece(true));
-	expect(expectErr(await piece(true)).name).toBe('Occupied');
-	expectOk(await piece(false));
-	expectOk(await piece(false));
+	expect(expectOk(await piece(true))).toBe(true);
+	expect(expectOk(await piece(true))).toBe(false);
+	expect(expectOk(await piece(false))).toBe(true);
+	expect(expectOk(await piece(false))).toBe(true);
 	await Bun.sleep(20);
 	const heardBefore = heard;
 	expectOk(await piece(false, true));
 	await until(() => heard > heardBefore);
 	expect(held.get('todos/a.m4a')).toEqual(new Uint8Array([1, 1, 1, 1]));
 	expect(
-		expectErr(
-			await files.attachments.append(
+		expectOk(
+			await folder.attachments.append(
 				{ id: 'b', ext: 'm4a' },
 				new Uint8Array([2]),
-				{ create: false, announce: true },
+				{
+					create: false,
+					announce: true,
+				},
 			),
-		).name,
-	).toBe('NotFound');
+		),
+	).toBe(false);
 	stop();
 });
 
 test('a file collection over a store that cannot append answers Unavailable', async () => {
-	const { open } = await folder();
-	const files = over(todos, await open());
-	expect(
-		expectErr(
-			await files.attachments.append(
-				{ id: 'a', ext: 'm4a' },
-				new Uint8Array([1]),
-				{ create: true, announce: false },
-			),
-		).name,
-	).toBe('Unavailable');
+	const { folder } = inMemory();
+	const appended = await folder.attachments.append(
+		{ id: 'a', ext: 'm4a' },
+		new Uint8Array([1]),
+		{ create: true, announce: false },
+	);
+	expect(appended.error?.name).toBe('Unavailable');
 });

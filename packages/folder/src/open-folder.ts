@@ -1,12 +1,10 @@
 /**
  * `openFolder(contract, place)`: the one way to a folder, on every build
  * (ADR-0773). The place says where (`home`, `directory`, or `memory` under
- * test); the folder is the typed client over that place's store, opening
- * at once.
+ * test); the folder holds the contract's collections over that place's
+ * store, opening at once.
  */
 import type { Contract } from '@epicenter/definition/contract';
-import { Ok } from 'wellcrafted/result';
-import { createDeviceClient, storeOf } from './device/client.js';
 import { createFolder, type Folder } from './folder.js';
 import { openingOf, type Place } from './place.js';
 
@@ -27,19 +25,10 @@ export function openFolder<TContract extends Contract>(
 	place: Place,
 ): Folder<TContract> {
 	const opening = openingOf(place, contract);
-	const folder = createFolder(
-		contract,
-		async () => {
-			const opened = await opening.open();
-			if (opened.error !== null) return opened;
-			return Ok(createDeviceClient(contract, opened.data));
-		},
-		{
-			close: (client) => storeOf(client).close?.(),
-			reveal: opening.reveal ?? null,
-			displayPath: opening.displayPath,
-		},
-	);
+	const folder = createFolder(contract, opening.open, {
+		reveal: opening.reveal ?? null,
+		displayPath: opening.displayPath,
+	});
 	Object.defineProperty(folder, PLACE, { value: place });
 	return folder;
 }

@@ -13,10 +13,10 @@
  *
  * await memoryFiles(folder).write('todos/a.md', '---\ntitle: [\n---\n'); // a file that does not read
  * const release = memoryFiles(folder).hold(); // the next writes wait
- * const undo = memoryFiles(folder).refuse('disk full', { under: 'todos' }); // the next writes there fail
+ * const undo = memoryFiles(folder).refuse('disk full', { under: 'todos' }); // the next writes there wait, and unavailable() says why
  *
  * const place = memory();
- * memoryFiles(place).refuseOpen(OpenFolderError.StorageUnavailable({ cause: 'offline' }).error);
+ * memoryFiles(place).refuseOpen(OpenFolderError.StorageUnavailable({ cause: 'no Worker' }).error);
  * const offline = openFolder(todos, place); // fails to open until the refusal is undone
  * ```
  */

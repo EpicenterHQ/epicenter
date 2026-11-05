@@ -15,7 +15,7 @@
  * Other tabs' writes arrive on the broadcast channel the Worker posts every
  * landed change to (`CHANGES`); a store skips the ones it asked for itself.
  */
-import { ClientError, type Version } from '@epicenter/definition/contract';
+import { ClientError } from '@epicenter/definition/contract';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -24,7 +24,12 @@ import {
 import { Ok } from 'wellcrafted/result';
 import { createChanges } from '../changes.js';
 import type { Changed, Reply } from './opfs-worker.js';
-import type { DeviceExpectation, DeviceLanded, DeviceStore } from './store.js';
+import type {
+	DeviceExpectation,
+	DeviceLanded,
+	DeviceStore,
+	Version,
+} from './store.js';
 
 /**
  * The broadcast channel every device store and worker of this origin shares.

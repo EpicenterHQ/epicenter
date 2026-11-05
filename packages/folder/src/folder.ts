@@ -1,67 +1,64 @@
 /**
  * The folder `openFolder(contract, place)` returns, on every build (ADR-0766,
- * ADR-0767, ADR-0773): handed over at once, already opening, with its lifecycle as
- * synchronous state and its collections directly on it (`folder.todos`).
+ * ADR-0767, ADR-0773, ADR-0774, ADR-0775): handed over at once, already
+ * opening, with its state as synchronous reads and its collections directly
+ * on it (`folder.todos`).
  *
- * - `state()` is `opening`, `open`, `failed` with the typed open error and
- *   the `retry()` that opens again, or `closed` once disposed: the same
- *   object until it changes, and `subscribe` hears it change.
- * - `saving()` is whether a write is out, from the call (or the keystroke)
- *   until it answers; `subscribe` hears it start and stop, so a page's
- *   leave guard reads it instead of counting writes of its own.
+ * - `state()` is where the folder is in its life: `opening`, `open`,
+ *   `failed` with the open's error and the `retry()` for after the person
+ *   acted, or `closed` after dispose. It is the same object until it
+ *   changes. A temporary failure to open is tried again on its own; only
+ *   what waiting will not fix fails.
+ * - `unavailable()` is why the store cannot be reached or written now, else
+ *   null: while opening the folder keeps trying, and while open what it
+ *   shows may be old and writes wait. Always null once failed or closed.
+ * - `saving()` is whether a write is out: made and not yet landed, waiting
+ *   for the store or its turn.
  * - A collection's reads answer at every moment: `items()` is empty and
- *   `loading()` true while the folder opens, and `get(args)` is the entry
+ *   `loading()` true until the first listing, and `get(args)` is the entry
  *   shown.
- * - Every write is made over the version shown, unless it names another,
- *   and puts what landed into what is shown before it answers. A note
- *   `update` follows `updateNote`: carried over another writer's change to
- *   other fields; a `Conflict` when they changed the same one, and then the
- *   folder shows theirs, so saving again applies over it.
- * - A note write's refusal (`Conflict`, `NotFound`, a create's `Occupied`)
- *   answers only once the folder shows what refused it: `get(args)` after
- *   the answer is the note there now. When it cannot be read again, the
- *   write answers `Unavailable` instead. A file collection does not keep
- *   this promise yet: it answers the refusal and lists again behind it.
- * - Every async method waits for the open, then runs. When the open fails it
- *   answers `Err(OpenFolderError)`, so each action's error type includes the
- *   open's; a retry starts a new attempt for the actions called after it.
- *   Once the folder is disposed, every action answers `Unavailable`, one
- *   still waiting for the open included.
- * - `notes.edit(args)` is one note as an immediate editor (`NoteEdit`).
+ * - A write (`set`, `delete`, an editor's save) answers once it has landed,
+ *   and never fails. The folder keeps every write, in the order made, and
+ *   while one cannot land it waits and tries again; a write made while the
+ *   folder opens waits for the open. When the folder fails or closes, the
+ *   writes waiting then are not made, and their promises never answer.
+ * - A write reads the file just before writing it and writes over exactly
+ *   what it read; when the file moved in between, it reads and applies the
+ *   change again (`note-codec.ts` says how a note's change settles).
  *
  * Only an interface reads `state()` (`<WhenOpen>` from `@epicenter/svelte`);
- * everything else reads and acts, and its actions wait. Nothing here knows a
- * framework: `reactive(folder)` from `@epicenter/svelte/reactive` tracks the
- * reads as they are.
- *
- * This module is the same on every build: `openFolder` hands `createFolder`
- * the open of a place (the desktop's data folder, this browser's storage,
- * the account's repository, a directory, or memory under `test`), as the
- * typed client over that place's store.
+ * everything else reads and acts. Nothing here knows a framework:
+ * `reactive(folder)` from `@epicenter/svelte/reactive` tracks the reads as
+ * they are.
  */
 import {
-	type Client,
 	ClientError,
 	type Collection,
+	type CompiledCollection,
 	type Contract,
 	compileContract,
-	type FileClient,
 	type FileEntryOf,
+	type FileOf,
 	type InvalidNoteOf,
-	type NoteClient,
 	type NoteOf,
 	type NotePatch,
 	type PlaceholdersOf,
-	updateNote,
-	type Version,
 } from '@epicenter/definition/contract';
-import { sameValue } from '@epicenter/definition/note';
-import type { InferError } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import {
+	type CollectionFiles,
+	createDeviceClient,
+	type DeviceClient,
+	type Entry,
+	type Seen,
+} from './device/client.js';
+import type { DeviceStore, Unavailable } from './device/store.js';
 import { OpenFolderError, type RevealRootError } from './errors.js';
+import { noteCodec } from './note-codec.js';
 import { editNote, type NoteEdit, type NoteEditOptions } from './note-edit.js';
 
+export type { Unavailable } from './device/store.js';
 export { OpenFolderError } from './errors.js';
 export type { NoteEdit, NoteEditOptions } from './note-edit.js';
 
@@ -70,13 +67,10 @@ export type RevealFolderError = RevealRootError;
 
 const log = createLogger('folder');
 
-type Unavailable = InferError<typeof ClientError.Unavailable>;
-type Occupied = InferError<typeof ClientError.Occupied>;
-type NotFound = InferError<typeof ClientError.NotFound>;
-
 /**
  * Where the folder is in its life. Retrying belongs to a failure, so only
- * the failed state carries `retry()`.
+ * the failed state carries `retry()`. Whether the store can be reached now
+ * is `unavailable()`, beside it.
  */
 export type FolderState =
 	| { readonly status: 'opening' }
@@ -85,19 +79,12 @@ export type FolderState =
 			readonly status: 'failed';
 			readonly error: OpenFolderError;
 			/**
-			 * Open again, answering once that attempt settles; does nothing,
-			 * and answers at once, when the folder moved on.
+			 * Open again, once the person has acted, answering once that attempt
+			 * settles; does nothing, and answers at once, when the folder moved on.
 			 */
 			retry(): Promise<void>;
 	  }
 	| { readonly status: 'closed' };
-
-/** What `TMethod` answers, or the open's typed error: a folder's method waits for the open. */
-type Waits<TMethod> = TMethod extends (
-	...args: never[]
-) => Promise<Result<infer TData, infer TError>>
-	? Promise<Result<TData, TError | OpenFolderError>>
-	: never;
 
 /**
  * The reads every collection of a folder answers at once, and the one way
@@ -107,10 +94,8 @@ type Waits<TMethod> = TMethod extends (
 type Reads<TItem> = {
 	/** The entries as last listed, and written here since; empty until the first listing. */
 	items(): readonly TItem[];
-	/** True until the first listing answers, which waits for the open. */
+	/** True until the first listing lands, which waits for the open; a listing that cannot reach the store is tried again while something listens. */
 	loading(): boolean;
-	/** Why the last listing failed (the open's error, when it failed); null once one answers. What was listed stays. */
-	error(): Unavailable | OpenFolderError | null;
 	/**
 	 * Call `listener` when a read may answer differently; returns the
 	 * unsubscribe. The first listener starts listing, the last one's
@@ -119,80 +104,51 @@ type Reads<TItem> = {
 	subscribe(listener: () => void): () => void;
 };
 
-/** A note as shown, or the version and fields an edit was made over. */
-export type NoteBase<TCollection extends Collection> = {
-	version: Version;
-} & NotePatch<TCollection>;
+/** Why an action that reads now could not answer. */
+type ReadError = Unavailable | OpenFolderError;
 
 /**
- * A note collection of a folder: its reads, and its writes, each waiting
- * for the open and made over the note as shown unless told otherwise.
- *
- * A write's refusal (`Conflict`, `NotFound`, a create's `Occupied`) answers
- * only once `get(args)` shows what refused it: the note read again, or
- * nothing when it is gone. When that read answers `Unavailable` the write
- * answers it instead, so a refusal always means the folder shows its
- * reason. A note there that does not read keeps the refusal.
+ * A note collection of a folder: its reads, and its writes, each answering
+ * once it has landed and never failing (ADR-0775).
  */
 export type FolderNotes<TCollection extends Collection> = Reads<
 	NoteOf<TCollection>
 > & {
 	/** The fields the contract declares, in its order: an editor's `fields` are these and `body`. */
-	fieldNames: NoteClient<TCollection>['fieldNames'];
+	fieldNames: readonly string[];
 	/** The notes at the collection's paths that do not read, with their text. */
 	invalid(): readonly InvalidNoteOf<TCollection>[];
 	/** The note `args` names, as shown. */
 	get(args: PlaceholdersOf<TCollection>): NoteOf<TCollection> | undefined;
-	/** Every note, read now. */
-	list(): Waits<NoteClient<TCollection>['list']>;
-	create(
-		value: Parameters<NoteClient<TCollection>['create']>[0],
-	): Waits<NoteClient<TCollection>['create']>;
+	/** Every note, read now, and shown. */
+	list(): Promise<
+		Result<
+			{ items: NoteOf<TCollection>[]; invalid: InvalidNoteOf<TCollection>[] },
+			ReadError
+		>
+	>;
 	/**
-	 * Write `patch` over `base`, by default the note as shown: what a person
-	 * acting on what they see saw. An editor that shows typed text instead
-	 * passes what was shown when the typing began (`edit` does).
+	 * Make the note `args` names have `changes`: the fields named take these
+	 * values (`undefined` removes one), the body is replaced when given, and
+	 * the rest stay; the note is made when none is there. A body that
+	 * changed since the folder showed the note merges with this one by
+	 * lines. A value that does not fit the contract is written, and the
+	 * note shows in `invalid()`. Throws, before anything is written, for a
+	 * name that would leave the collection or a value front matter cannot
+	 * hold.
 	 */
-	update(
+	set(
 		args: PlaceholdersOf<TCollection>,
-		patch: NotePatch<TCollection>,
-		options?: { base?: NoteBase<TCollection> },
-	): Waits<NoteClient<TCollection>['update']>;
+		changes: NotePatch<TCollection>,
+	): Promise<void>;
 	/**
-	 * Replace the whole note with `text`, over `over`, by default the version
-	 * shown (valid or not). An editor that shows a draft passes the version
-	 * its draft began from, so another writer's change since is a `Conflict`
-	 * (the folder then shows theirs), not overwritten.
+	 * Remove the note `args` names. One already gone is gone; one changed
+	 * since the folder showed it is kept with that change, as sync keeps it.
 	 */
-	replace(
-		args: PlaceholdersOf<TCollection>,
-		text: string,
-		options?: { over?: Version },
-	): Waits<NoteClient<TCollection>['replace']>;
-	/** Delete the note, over `over`, by default the version shown. */
-	delete(
-		args: PlaceholdersOf<TCollection>,
-		options?: { over?: Version },
-	): Waits<NoteClient<TCollection>['delete']>;
+	delete(args: PlaceholdersOf<TCollection>): Promise<void>;
 	/**
-	 * The note `args` names as an immediate editor (`NoteEdit`).
-	 *
-	 * Saves go one at a time, and only the newest waiting is sent, carrying
-	 * every field typed since the last save that landed; only the newest
-	 * save's answer is shown. Each is made over the note as shown when this
-	 * run of typing began (each field as shown when its own typing began),
-	 * then over the editor's own last save that landed, so the editor never
-	 * clashes with itself, another writer's change to fields not typed is
-	 * carried over, and their change to a typed field surfaces as a
-	 * `Conflict` (the folder then shows theirs) with the typed text kept.
-	 * Saving again after that (`retry`, or typing on) applies over theirs.
-	 * Each keystroke counts in the folder's `saving()` from the moment it is
-	 * typed until its save answers.
-	 *
-	 * With `create`, the note need not exist yet: a save while none is shown
-	 * creates it, with `create()`'s fields and what was typed (a draft that
-	 * starts with its first keystroke). When another writer created it first
-	 * (`Occupied`), what was typed is written over theirs as an ordinary save.
+	 * The note `args` names as an immediate editor (`NoteEdit`): its fields
+	 * and body one by one, or its whole text. See `note-edit.ts`.
 	 */
 	edit(
 		args: PlaceholdersOf<TCollection>,
@@ -200,48 +156,40 @@ export type FolderNotes<TCollection extends Collection> = Reads<
 	): NoteEdit<TCollection>;
 };
 
-/** A file collection of a folder: its reads (entries without bytes), and its writes, each waiting for the open. */
+/** A file collection of a folder: its reads (entries without bytes), and its writes. */
 export type FolderFiles<TCollection extends Collection> = Reads<
 	FileEntryOf<TCollection>
 > & {
 	/** The entry `args` names, as shown. */
 	get(args: PlaceholdersOf<TCollection>): FileEntryOf<TCollection> | undefined;
-	/** The file `args` names with its bytes, read now. */
+	/** The file `args` names with its bytes, read now: null when nothing is there. */
 	read(
 		args: PlaceholdersOf<TCollection>,
-	): Waits<FileClient<TCollection>['get']>;
-	/** Every entry, read now. */
-	list(): Waits<FileClient<TCollection>['list']>;
-	create(
-		value: Parameters<FileClient<TCollection>['create']>[0],
-	): Waits<FileClient<TCollection>['create']>;
-	/** Write `patch` over `over`, by default the version shown. */
-	update(
-		args: PlaceholdersOf<TCollection>,
-		patch: { bytes: Uint8Array },
-		options?: { over?: Version },
-	): Waits<FileClient<TCollection>['update']>;
-	/** Delete the file, over `over`, by default the version shown. */
-	delete(
-		args: PlaceholdersOf<TCollection>,
-		options?: { over?: Version },
-	): Waits<FileClient<TCollection>['delete']>;
+	): Promise<Result<FileOf<TCollection> | null, ReadError>>;
+	/** Every entry, read now, and shown. */
+	list(): Promise<Result<{ items: FileEntryOf<TCollection>[] }, ReadError>>;
+	/**
+	 * Write `bytes` as the file `args` names, over whatever is there: the
+	 * later write to a file wins (ADR-0771). Throws, before anything is
+	 * written, for a name that would leave the collection.
+	 */
+	set(args: PlaceholdersOf<TCollection>, bytes: Uint8Array): Promise<void>;
+	/** Remove the file. One already gone is gone; one changed since the folder showed it is kept. */
+	delete(args: PlaceholdersOf<TCollection>): Promise<void>;
 	/**
 	 * Add `bytes` to the end of the file `args` names, for a file written
-	 * while it is made, such as a recording. With `create` the file is made
-	 * with these bytes, never over one that is there (`Occupied`); without,
-	 * the bytes go after what is there (`NotFound` when it went). Listeners
-	 * hear the file when it is made, and after that only an append with
-	 * `announce`. Only this browser's storage appends: anywhere else the
-	 * answer is `Unavailable`.
+	 * while it is made, such as a recording: true once they landed, false
+	 * when the file was not as `create` says (with `create`, a file was
+	 * already there; without, the file went). Listeners hear the file when
+	 * it is made, and after that only an append with `announce`. Only this
+	 * browser's storage appends: anywhere else the answer is `Unavailable`.
+	 * It is not queued with the folder's writes, and answers a failure.
 	 */
 	append(
 		args: PlaceholdersOf<TCollection>,
 		bytes: Uint8Array,
 		options: { create: boolean; announce: boolean },
-	): Promise<
-		Result<undefined, Occupied | NotFound | Unavailable | OpenFolderError>
-	>;
+	): Promise<Result<boolean, ReadError>>;
 };
 
 /** A folder's collection: notes for a path ending in `.md`, files for any other. */
@@ -255,11 +203,15 @@ export type FolderLifecycle = {
 	/** Where the folder is in its life: the same object until it changes. */
 	state(): FolderState;
 	/**
-	 * Whether a write is out: a collection's write from its call, or an
-	 * editor's keystroke, until it answers. A page's leave guard reads it.
+	 * Why the store cannot be reached or written now, else null: while
+	 * opening the folder keeps trying, and while open what it shows may be
+	 * old and writes wait. It clears on its own; always null once failed or
+	 * closed.
 	 */
+	unavailable(): Unavailable | null;
+	/** Whether a write is out: made and not yet landed. A page's leave guard reads it. */
 	saving(): boolean;
-	/** Call `listener` when `state()`, `saving()` or `displayPath()` changes; returns the unsubscribe. */
+	/** Call `listener` when `state()`, `unavailable()`, `saving()` or `displayPath()` changes; returns the unsubscribe. */
 	subscribe(listener: () => void): () => void;
 	/**
 	 * Show the folder's place in the file manager, even when it did not open:
@@ -274,7 +226,10 @@ export type FolderLifecycle = {
 	 * memory). No command takes it.
 	 */
 	displayPath(): string | null;
-	/** Close what the folder opened: `state()` is `closed`, and every later action is `Unavailable`. */
+	/**
+	 * Close what the folder opened: `state()` is `closed`, the writes waiting
+	 * are not made, and a later write throws.
+	 */
 	[Symbol.dispose](): void;
 };
 
@@ -288,52 +243,86 @@ export type Folder<TContract extends Contract> = FolderLifecycle & {
 /** The lifecycle members, which no collection may be named. */
 const RESERVED = new Set([
 	'state',
+	'unavailable',
 	'saving',
 	'subscribe',
 	'reveal',
 	'displayPath',
 ]);
 
-/** What an action runs on: the open client, why nothing opened, or `Unavailable` once disposed. */
-type Current<TContract extends Contract> = Result<
-	Client<TContract>,
-	OpenFolderError | Unavailable
+/**
+ * An open of a place's store: the store, a temporary failure the folder
+ * tries again on its own (`Unavailable`), or what waiting will not fix.
+ */
+export type FolderOpen = () => Promise<
+	Result<DeviceStore, OpenFolderError | Unavailable>
 >;
 
-/** An open that answers the client, or why nothing opened. */
-export type FolderOpen<TContract extends Contract> = () => Promise<
-	Result<Client<TContract>, OpenFolderError>
->;
+/** How long after a failure the folder tries again, doubling per failure up to the most. */
+const RETRY_FIRST_MS = 500;
+const RETRY_MOST_MS = 30_000;
+const backoff = (failures: number) =>
+	Math.min(RETRY_FIRST_MS * 2 ** failures, RETRY_MOST_MS);
+
+/** One write in the folder's queue: run until it lands, over the open store. */
+type Job = {
+	/** Make the write, answering once it landed or why the store could not be reached. */
+	run(client: DeviceClient): Promise<Result<void, Unavailable>>;
+	resolve(): void;
+	reject(cause: unknown): void;
+};
+
+/** What a collection is given by its folder. */
+type Host = {
+	/** The open client, waiting while the folder opens; why there is none once it failed or closed. */
+	opened(): Promise<Result<DeviceClient, ReadError>>;
+	/** Queue a write at `path`; throws once the folder is disposed. */
+	enqueue(path: string, run: Job['run']): Promise<void>;
+	/** Whether a write at `path` is queued and not yet run: a later one there is made over its result. */
+	queuedAt(path: string): boolean;
+	/** Count an append in `saving()` until it settles. */
+	hold<T>(work: Promise<T>): Promise<T>;
+	/** Say whether the collection's last listing could reach the store. */
+	listed(name: string, unavailable: Unavailable | null): void;
+};
 
 /**
- * The folder over `open`, which is called now, and again on each retry
- * after a failure. `close` releases a client that opened once the folder is
- * disposed, even one that opens after; `reveal` shows the folder's place,
- * where it has one. A contract with a collection named like a lifecycle
- * member throws.
+ * The folder of `contract` over `open`, which is called now, again after a
+ * temporary failure, and again on each retry after a failure that waiting
+ * will not fix. `reveal` shows the folder's place, where it has one. A
+ * contract with a collection named like a lifecycle member throws.
  */
 export function createFolder<TContract extends Contract>(
 	contract: TContract,
-	open: FolderOpen<TContract>,
+	open: FolderOpen,
 	{
-		close = () => {},
 		reveal = null,
 		displayPath = () => null,
 	}: {
-		close?: (client: Client<TContract>) => void;
 		reveal?: FolderLifecycle['reveal'];
 		displayPath?: FolderLifecycle['displayPath'];
 	} = {},
 ): Folder<TContract> {
 	const { data: compiled, error } = compileContract(contract);
 	if (error !== null) throw new Error(error.message, { cause: error });
-	type Opened = Result<Client<TContract>, OpenFolderError>;
+
+	let phase: 'opening' | 'open' | 'failed' | 'closed' = 'opening';
+	let client: DeviceClient | null = null;
+	let failure: { error: OpenFolderError; retry(): Promise<void> } | null = null;
+	/** Why the store could not be reached: by the open, the writes, and each collection's listing. */
+	let opening: Unavailable | null = null;
+	let writing: Unavailable | null = null;
+	const listing = new Map<string, Unavailable>();
 	let state: FolderState = { status: 'opening' };
-	let attempt: Promise<Opened>;
-	let disposed = false;
-	/** Writes out: from the call or keystroke until it answers. */
-	let out = 0;
+	let unavailable: Unavailable | null = null;
+	/** Bumped by each open attempt, so a superseded one stands down. */
+	let attempts = 0;
+	const queue: { job: Job; path: string }[] = [];
+	let draining = false;
+	let appending = 0;
 	const listeners = new Set<() => void>();
+	/** Waiting for the next change of the folder's state. */
+	const waiting = new Set<() => void>();
 	const collections = new Map<string, ReturnType<typeof folderCollection>>();
 
 	function notify() {
@@ -345,75 +334,191 @@ export function createFolder<TContract extends Contract>(
 			}
 	}
 
-	function set(next: FolderState) {
-		state = next;
+	/** Answers at the next change of the folder's state, or after `ms` when given. */
+	function changed(ms?: number) {
+		return new Promise<void>((resolve) => {
+			const timer = ms === undefined ? undefined : setTimeout(() => done(), ms);
+			const done = () => {
+				clearTimeout(timer);
+				waiting.delete(done);
+				resolve();
+			};
+			waiting.add(done);
+		});
+	}
+
+	/**
+	 * Set `state()` and `unavailable()` from what is known, keeping the state
+	 * object while its status and failure are the same.
+	 */
+	function refresh() {
+		const reachable =
+			phase === 'opening' || phase === 'open'
+				? (opening ?? writing ?? listing.values().next().value ?? null)
+				: null;
+		const next: FolderState =
+			phase === 'failed' && failure !== null
+				? { status: 'failed', ...failure }
+				: { status: phase === 'failed' ? 'opening' : phase };
+		const sameState =
+			next.status === state.status &&
+			(!('error' in next) || ('error' in state && next.error === state.error));
+		if (sameState && reachable === unavailable) return;
+		if (!sameState) state = next;
+		unavailable = reachable;
+		for (const done of [...waiting]) done();
 		notify();
 	}
 
-	/** Count `write` in `saving()` until it settles, landed or refused; answers it as it is. */
-	function hold<T>(write: Promise<T>): Promise<T> {
-		if (out++ === 0) notify();
-		return write.finally(() => {
-			if (--out === 0) notify();
-		});
-	}
+	/** Whether open attempt `attempt` should stand down: the folder closed, or a newer attempt began. */
+	const superseded = (attempt: number) =>
+		phase === 'closed' || attempt !== attempts;
 
-	/** Open, answering once the attempt settled and its state is set. */
-	function start() {
-		const opening = open().catch(
-			(cause: unknown): Opened => OpenFolderError.StorageUnavailable({ cause }),
-		);
-		attempt = opening;
-		return opening.then((opened) => {
-			// Disposing closes what this attempt opens.
-			if (disposed || attempt !== opening) return;
-			set(
-				opened.error === null
-					? { status: 'open' }
-					: { status: 'failed', error: opened.error, retry: retryFailure() },
+	/** Open, trying again after a temporary failure, until the store opens or the open fails for good. */
+	async function start() {
+		const attempt = ++attempts;
+		for (let failures = 0; ; failures++) {
+			if (superseded(attempt)) return;
+			const opened = await open().catch((cause: unknown) =>
+				OpenFolderError.StorageUnavailable({ cause }),
 			);
-			for (const collection of collections.values()) collection.opened();
-		});
+			if (superseded(attempt)) {
+				if (opened.error === null) opened.data.close?.();
+				return;
+			}
+			if (opened.error === null) {
+				client = createDeviceClient(contract, opened.data);
+				phase = 'open';
+				opening = null;
+				writing = null;
+				listing.clear();
+				refresh();
+				for (const collection of collections.values()) collection.opened();
+				return;
+			}
+			if (opened.error.name === 'Unavailable') {
+				opening = opened.error;
+				refresh();
+				await changed(backoff(failures));
+				continue;
+			}
+			phase = 'failed';
+			opening = null;
+			failure = { error: opened.error, retry: retryFailure() };
+			drop();
+			refresh();
+			return;
+		}
 	}
 
 	/** A failure's retry: it opens again only while that failure is the state. */
 	function retryFailure() {
 		const retry = async () => {
-			if (disposed || state.status !== 'failed' || state.retry !== retry)
-				return;
-			set({ status: 'opening' });
+			if (phase !== 'failed' || failure?.retry !== retry) return;
+			phase = 'opening';
+			failure = null;
+			refresh();
 			await start();
 		};
 		return retry;
 	}
 
-	/** The open client for an action, or why there is none; once disposed, `Unavailable` on every build. */
-	async function current(): Promise<Current<TContract>> {
-		const opened = await attempt;
-		if (disposed)
-			return ClientError.Unavailable({ cause: 'The folder was closed.' });
-		return opened;
+	/** The writes waiting are not made: the folder failed or closed. Their promises never answer. */
+	function drop() {
+		if (queue.length === 0) return;
+		queue.length = 0;
+		notify();
 	}
 
+	/** Run the queued writes in order, each until it lands, waiting while the store is out of reach. */
+	async function drain() {
+		if (draining) return;
+		draining = true;
+		try {
+			let failures = 0;
+			while (queue.length > 0) {
+				while (phase === 'opening') await changed();
+				const head = queue[0];
+				if (phase !== 'open' || client === null || head === undefined) {
+					drop();
+					return;
+				}
+				let ran: Result<void, Unavailable>;
+				try {
+					ran = await head.job.run(client);
+				} catch (cause) {
+					queue.shift();
+					head.job.reject(cause);
+					if (queue.length === 0) notify();
+					continue;
+				}
+				if (ran.error !== null) {
+					if (phase !== 'open') continue;
+					writing = ran.error;
+					refresh();
+					await changed(backoff(failures++));
+					continue;
+				}
+				failures = 0;
+				if (writing !== null) {
+					writing = null;
+					refresh();
+				}
+				queue.shift();
+				head.job.resolve();
+				if (queue.length === 0) notify();
+			}
+		} finally {
+			draining = false;
+		}
+	}
+
+	const host: Host = {
+		async opened() {
+			while (phase === 'opening') await changed();
+			if (phase === 'open' && client !== null) return Ok(client);
+			if (phase === 'failed' && failure !== null) return Err(failure.error);
+			return ClientError.Unavailable({ cause: 'The folder was closed.' });
+		},
+		enqueue(path, run) {
+			if (phase === 'closed')
+				throw new Error(
+					'The folder was disposed: a write made after it has nowhere to land.',
+				);
+			return new Promise<void>((resolve, reject) => {
+				queue.push({ job: { run, resolve, reject }, path });
+				if (queue.length === 1) notify();
+				void drain();
+			});
+		},
+		queuedAt: (path) => queue.some((queued) => queued.path === path),
+		hold(work) {
+			if (appending++ === 0 && queue.length === 0) notify();
+			return work.finally(() => {
+				if (--appending === 0 && queue.length === 0) notify();
+			});
+		},
+		listed(name, unavailable) {
+			const was = listing.get(name) ?? null;
+			if (was === unavailable) return;
+			if (unavailable === null) listing.delete(name);
+			else listing.set(name, unavailable);
+			refresh();
+		},
+	};
 	for (const collection of compiled.collections) {
 		if (RESERVED.has(collection.name))
 			throw new Error(
 				`A folder cannot have a collection named ${collection.name}: it is the folder's own.`,
 			);
-		collections.set(
-			collection.name,
-			folderCollection(
-				collection,
-				current as () => Promise<Current<Contract>>,
-				hold,
-			),
-		);
+		collections.set(collection.name, folderCollection(collection, host));
 	}
 	void start();
 
 	const lifecycle: FolderLifecycle = {
 		state: () => state,
-		saving: () => out > 0,
+		unavailable: () => unavailable,
+		saving: () => queue.length > 0 || appending > 0,
 		subscribe(listener) {
 			listeners.add(listener);
 			return () => {
@@ -423,14 +528,14 @@ export function createFolder<TContract extends Contract>(
 		reveal,
 		displayPath,
 		[Symbol.dispose]() {
-			if (disposed) return;
-			disposed = true;
-			set({ status: 'closed' });
+			if (phase === 'closed') return;
+			phase = 'closed';
+			drop();
+			refresh();
 			listeners.clear();
 			for (const collection of collections.values()) collection.stop();
-			void attempt.then((opened) => {
-				if (opened.error === null) close(opened.data);
-			});
+			client?.store.close?.();
+			client = null;
 		},
 	};
 	return Object.assign(
@@ -441,72 +546,31 @@ export function createFolder<TContract extends Contract>(
 	) as Folder<TContract>;
 }
 
-/** A collection as a folder needs it: its name, its kind, and a note's declared fields. */
-type Declared = {
-	name: string;
-	kind: 'note' | 'file';
-	keys: readonly string[];
-};
-
-/** An entry as listed: its placeholders, fields and version. */
-type Entry = { [key: string]: unknown; version: Version };
-type Args = Record<string, unknown>;
-/** A file collection's client, and the append its store may have. */
-type Files = FileClient<Collection> & {
-	append(
-		args: Args,
-		bytes: Uint8Array,
-		options: { create: boolean; announce: boolean },
-	): Promise<Result<undefined, Occupied | NotFound | Unavailable>>;
-};
-/** Either kind of collection client, as this module calls it. */
-type Raw = NoteClient<Collection> | Files;
-type Answer = Result<unknown, ClientError | OpenFolderError>;
-
-/** How long after a failed listing it is tried again, doubling per failure up to the most. */
-const RETRY_FIRST_MS = 500;
-const RETRY_MOST_MS = 30_000;
-
-/** Whether `entry` is the one `args` (placeholders, or a created value) names. */
-const names = (entry: Entry, args: Args) =>
-	Object.entries(args).every(
-		([key, value]) => key === 'bytes' || sameValue(entry[key], value),
-	);
+type Args = Record<string, string>;
 
 /**
- * The collection `declared` names in the client `current()` answers: its
- * reads, listed while someone listens, and its writes, each waiting for the
- * open, made over what is shown, and counted by `hold`. `opened()` is told
- * each time an open attempt settles, and `stop()` when the folder is
- * disposed.
+ * The collection `declared` names: its reads, listed while someone listens,
+ * and its writes, each queued with the folder's. `opened()` is told when the
+ * folder opens, and `stop()` when it is disposed.
  */
-function folderCollection(
-	declared: Declared,
-	current: () => Promise<Current<Contract>>,
-	hold: <T>(write: Promise<T>) => Promise<T>,
-) {
+function folderCollection(declared: CompiledCollection, host: Host) {
 	const { name } = declared;
-	let items: Entry[] = [];
-	let invalid: Entry[] = [];
+	const isNote = declared.kind === 'note';
+	const codec = noteCodec(declared);
+	/** What the folder shows, by path, in listing order. */
+	let shown = new Map<string, Seen>();
+	let items: readonly Entry[] = [];
+	let invalid: readonly Entry[] = [];
 	let loading = true;
-	let error: Unavailable | OpenFolderError | null = null;
 	const listeners = new Set<() => void>();
 	/** The open collection's own change source, while someone listens. */
 	let stopSource: (() => void) | undefined;
-	/** Waiting for the open before following it. */
 	let following = false;
-	let listing = false;
+	let listingNow = false;
 	let again = false;
 	/** Listings that failed in a row, and the try after the last one. */
 	let failures = 0;
 	let retry: ReturnType<typeof setTimeout> | undefined;
-
-	/** The collection's client once the folder opened, or why there is none. */
-	async function raw(): Promise<Result<Raw, OpenFolderError | Unavailable>> {
-		const opened = await current();
-		if (opened.error !== null) return opened;
-		return Ok(opened.data[name] as Raw);
-	}
 
 	function notify() {
 		for (const listener of [...listeners])
@@ -517,60 +581,89 @@ function folderCollection(
 			}
 	}
 
+	/** Recompute what `items()` and `invalid()` answer from `shown`, and tell listeners. */
+	function shownChanged() {
+		const valid: Entry[] = [];
+		const unfit: Entry[] = [];
+		for (const seen of shown.values()) {
+			if (seen.item !== null) valid.push(seen.item);
+			else if (seen.invalid !== null) unfit.push(seen.invalid);
+		}
+		items = valid;
+		invalid = unfit;
+		notify();
+	}
+
+	/** Show what landed at `path`: a file, or nothing. */
+	function show(path: string, seen: Seen | null) {
+		if (seen === null) {
+			if (!shown.delete(path)) return;
+		} else shown.set(path, seen);
+		shownChanged();
+	}
+
+	/** The collection's files once the folder opened, or why there are none. */
+	async function files(): Promise<Result<CollectionFiles, ReadError>> {
+		const opened = await host.opened();
+		if (opened.error !== null) return opened;
+		return Ok(opened.data.collections.get(name) as CollectionFiles);
+	}
+
+	/** List now, show it, and say whether the store could be reached. */
+	async function listNow(): Promise<Result<Seen[], ReadError>> {
+		const collection = await files();
+		if (collection.error !== null) return collection;
+		const listed = await collection.data.list();
+		// A listing someone follows is tried again until it lands, so its failure is the folder's to say.
+		if (listeners.size > 0 || listed.error === null)
+			host.listed(name, listed.error);
+		if (listed.error !== null) return listed;
+		const same =
+			!loading &&
+			listed.data.length === shown.size &&
+			listed.data.every(
+				(seen) => shown.get(seen.path)?.version === seen.version,
+			);
+		if (same) return listed;
+		shown = new Map(listed.data.map((seen) => [seen.path, seen]));
+		loading = false;
+		shownChanged();
+		return listed;
+	}
+
 	/** List again, as long as changes keep arriving while a listing runs. */
 	async function reload() {
 		clearTimeout(retry);
 		retry = undefined;
-		if (listing) {
+		if (listingNow) {
 			again = true;
 			return;
 		}
-		listing = true;
+		listingNow = true;
+		let failed = false;
 		try {
 			do {
 				again = false;
-				const collection = await raw();
-				const listed =
-					collection.error === null ? await collection.data.list() : collection;
-				if (again) continue;
-				if (listed.error !== null) {
-					error = listed.error;
-					failures++;
-				} else {
-					items = listed.data.items as Entry[];
-					invalid = (
-						'invalid' in listed.data ? listed.data.invalid : []
-					) as Entry[];
-					error = null;
-					failures = 0;
-				}
-				loading = false;
-				notify();
+				const listed = await listNow();
+				failed = listed.error?.name === 'Unavailable';
 			} while (again);
 		} finally {
-			listing = false;
+			listingNow = false;
 		}
-		// A failed open is tried again by its state's `retry()`, not by the listing.
-		if (failures > 0 && listeners.size > 0 && error?.name === 'Unavailable')
-			retry = setTimeout(
-				() => void reload(),
-				Math.min(RETRY_FIRST_MS * 2 ** (failures - 1), RETRY_MOST_MS),
-			);
+		failures = failed ? failures + 1 : 0;
+		if (failed && listeners.size > 0)
+			retry = setTimeout(() => void reload(), backoff(failures - 1));
 	}
 
-	/**
-	 * Follow the open collection's changes and list it, once the folder
-	 * opened and while someone listens; after a failed open, list to show
-	 * why, and follow again when an attempt settles (`opened`).
-	 */
+	/** Follow the open collection's changes and list it, once the folder opened and while someone listens. */
 	async function follow() {
 		if (following || stopSource !== undefined) return;
 		following = true;
-		const collection = await raw();
+		const collection = await files();
 		following = false;
 		if (listeners.size === 0 || stopSource !== undefined) return;
-		if (collection.error === null)
-			stopSource = collection.data.subscribe(() => void reload());
+		if (collection.error !== null) return;
+		stopSource = collection.data.subscribe(() => void reload());
 		void reload();
 	}
 
@@ -580,153 +673,142 @@ function folderCollection(
 		clearTimeout(retry);
 		retry = undefined;
 		failures = 0;
+		// Nobody follows it now, so nothing tries it again: it no longer speaks for the folder.
+		host.listed(name, null);
 	}
 
-	/** The entry `args` names, as shown. */
-	const shown = (args: Args) => items.find((item) => names(item, args));
-
-	/** Show `entry` where `args` named one, or as a new one. */
-	function put(entry: Entry, args: Args) {
-		const at = items.findIndex((item) => names(item, args));
-		items = at === -1 ? [...items, entry] : items.with(at, entry);
-		invalid = invalid.filter((item) => !names(item, args));
-		notify();
+	/** The path `args` names; throws for one that would leave the collection. */
+	function pathOf(args: Args): string {
+		const path = declared.pathOf(args);
+		if (path.error !== null)
+			throw new Error(
+				`${JSON.stringify(args)} names no file of ${declared.template.source}: ${path.error.message}`,
+			);
+		return path.data;
 	}
 
-	/** Show nothing where `args` named something. */
-	function drop(args: Args) {
-		items = items.filter((item) => !names(item, args));
-		invalid = invalid.filter((item) => !names(item, args));
-		notify();
+	/** The path `args` names, or null: a read never throws. */
+	function pathOrNull(args: Args) {
+		const path = declared.pathOf(args);
+		return path.error === null ? path.data : null;
 	}
 
 	/**
-	 * After a write, show what it answered: what landed, or, after a
-	 * `Conflict`, a `NotFound` or a create's `Occupied`, what refused it.
-	 *
-	 * A note's refusal answers only once the folder shows what refused it: the
-	 * note is read again and shown (or dropped, when nothing is there). When
-	 * that read answers `Unavailable`, the folder cannot show it, so the write
-	 * answers that `Unavailable` instead of a refusal the caller could not
-	 * act on. A note that is there but does not read keeps the refusal. Files
-	 * only start a listing, and answer the refusal before it shows.
+	 * What a write at `path` is made over: the file as shown when it was made,
+	 * or, when a write there is already queued, as shown when this one runs
+	 * (what that write landed), so the folder never clashes with itself.
 	 */
-	async function settle(
-		collection: Raw,
-		args: Args,
-		written: Answer,
-	): Promise<Answer> {
-		if (written.error === null) {
-			if (written.data === undefined) drop(args);
-			else put(written.data as Entry, args);
-			return written;
-		}
-		const { name } = written.error;
-		if (name !== 'Conflict' && name !== 'NotFound' && name !== 'Occupied')
-			return written;
-		if (!('replace' in collection)) {
-			if (listeners.size > 0) void reload();
-			return written;
-		}
-		// A create's `args` is the whole value; the note is named by its placeholders.
-		const at = name === 'Occupied' ? placeholdersOf(args) : args;
-		const now = await collection.get(at as never);
-		if (now.error === null) put(now.data as Entry, at);
-		else if (now.error.name === 'NotFound') drop(at);
-		else if (now.error.name === 'Unavailable') return now;
-		return written;
+	function baseAt(path: string): () => Seen | undefined {
+		const now = shown.get(path);
+		return host.queuedAt(path) ? () => shown.get(path) : () => now;
 	}
 
-	/** The placeholders of a note's created value: what is not a field or the body. */
-	const placeholdersOf = (value: Args): Args =>
-		Object.fromEntries(
-			Object.entries(value).filter(
-				([key]) => key !== 'body' && !declared.keys.includes(key),
-			),
+	/**
+	 * Queue a write at `path` that turns what is there (`current`, null for
+	 * nothing) into the bytes to write, null to remove the file, or `'keep'`
+	 * to leave it: made over exactly what was read, and applied again when
+	 * the file moved in between. `first` is what the first try is made over
+	 * without reading (null: nothing), when the folder knows it; `landed`
+	 * hears what the write left at the path.
+	 */
+	function write(
+		path: string,
+		next: (current: Seen | null) => Uint8Array | null | 'keep',
+		first: () => Seen | null | undefined,
+		landed: (seen: Seen | null) => void = () => {},
+	) {
+		return host.enqueue(path, async (client) => {
+			const collection = client.collections.get(name) as CollectionFiles;
+			let current: Seen | null | undefined = first();
+			/** Whether `current` was read now, not taken from what is shown. */
+			let read = false;
+			for (;;) {
+				if (current === undefined) {
+					const now = await collection.read(path);
+					if (now.error !== null) return now;
+					current = now.data;
+					read = true;
+				}
+				const bytes = next(current);
+				if (bytes === 'keep' || (bytes === null && current === null)) {
+					// Nothing to change in what is shown: make sure of it in what is there.
+					if (!read) {
+						current = undefined;
+						continue;
+					}
+					show(path, current);
+					landed(current);
+					return Ok(undefined);
+				}
+				const written = await collection.write(
+					path,
+					bytes,
+					current?.version ?? null,
+				);
+				if (written.error !== null) return written;
+				if (written.data !== 'stale') {
+					show(path, written.data);
+					landed(written.data);
+					return Ok(undefined);
+				}
+				current = undefined;
+				read = false;
+			}
+		});
+	}
+
+	/**
+	 * Queue a write of the note at `path` whose text `next` makes from the
+	 * text there (null for nothing, or for a note that is not UTF-8), first
+	 * over the note shown, without reading it.
+	 */
+	function writeNote(
+		path: string,
+		next: (text: string | null, exists: boolean) => string | null,
+		landed?: (seen: Seen | null) => void,
+	) {
+		return write(
+			path,
+			(current) => {
+				const text = current?.text ?? null;
+				const written = next(text, current !== null);
+				return written === null || written === text
+					? 'keep'
+					: codec.bytes(written);
+			},
+			() => {
+				const seen = shown.get(path);
+				return seen === undefined || seen.text === null ? null : seen;
+			},
+			landed,
 		);
-
-	/** What a write is made over: the entry shown (valid or not), or else as read now. */
-	async function baseOf(
-		collection: Raw,
-		args: Args,
-	): Promise<Result<Entry, ClientError>> {
-		const entry = shown(args) ?? invalid.find((item) => names(item, args));
-		if (entry !== undefined) return Ok(entry);
-		const listed = await collection.list();
-		const found = [
-			...(listed.data?.items ?? []),
-			...((listed.data && 'invalid' in listed.data
-				? listed.data.invalid
-				: []) as Entry[]),
-		].find((item) => names(item as Entry, args));
-		if (found !== undefined) return Ok(found as Entry);
-		// Not listed: `get` answers why (`NotFound`, or the listing's own refusal).
-		const read = await collection.get(args as never);
-		if (read.error !== null) return read;
-		return Ok(read.data as Entry);
 	}
 
-	/** The version a write passes: `over` when given, else the one shown. */
-	async function overOf(
-		collection: Raw,
-		args: Args,
-		over: Version | undefined,
-	): Promise<Result<Version, ClientError>> {
-		if (over !== undefined) return Ok(over);
-		const base = await baseOf(collection, args);
-		return base.error === null ? Ok(base.data.version) : base;
+	/** Remove the file at `path` unless it changed since `base` was shown. */
+	function remove(path: string, base: () => Seen | undefined) {
+		return write(
+			path,
+			(current) => {
+				const was = base();
+				if (
+					current !== null &&
+					was !== undefined &&
+					current.version !== was.version
+				)
+					return 'keep';
+				return null;
+			},
+			base,
+		);
 	}
-
-	/**
-	 * A write to the open collection: `write` once the folder opened, its
-	 * answer shown over `args` (the placeholders, or a created value). Not
-	 * held: the public method holds it, or the editor's keystroke does.
-	 */
-	async function writeTo(
-		args: Args,
-		write: (collection: Raw) => Promise<Answer>,
-	): Promise<Answer> {
-		const collection = await raw();
-		if (collection.error !== null) return collection;
-		return settle(collection.data, args, await write(collection.data));
-	}
-
-	const writes = {
-		create: (value: Args) =>
-			writeTo(value, (collection) => collection.create(value as never)),
-		update: (args: Args, patch: Args, { base }: { base?: Entry } = {}) =>
-			writeTo(args, async (collection) => {
-				const from = base ? Ok(base) : await baseOf(collection, args);
-				if (from.error !== null) return from;
-				if ('replace' in collection)
-					return updateNote(collection, args as never, patch as never, {
-						base: from.data as never,
-					});
-				return collection.update(args as never, patch as never, {
-					over: from.data.version,
-				});
-			}),
-		replace: (args: Args, text: string, { over }: { over?: Version } = {}) =>
-			writeTo(args, async (collection) => {
-				if (!('replace' in collection))
-					throw new Error('replace is a note collection’s alone');
-				const version = await overOf(collection, args, over);
-				if (version.error !== null) return version;
-				return collection.replace(args as never, text, { over: version.data });
-			}),
-		delete: (args: Args, { over }: { over?: Version } = {}) =>
-			writeTo(args, async (collection) => {
-				const version = await overOf(collection, args, over);
-				if (version.error !== null) return version;
-				return collection.delete(args as never, { over: version.data });
-			}),
-	};
 
 	const reads = {
 		items: () => items,
 		loading: () => loading,
-		error: () => error,
-		get: shown,
+		get(args: Args) {
+			const path = pathOrNull(args);
+			return path === null ? undefined : (shown.get(path)?.item ?? undefined);
+		},
 		subscribe(listener: () => void) {
 			listeners.add(listener);
 			if (listeners.size === 1) void follow();
@@ -736,63 +818,107 @@ function folderCollection(
 			};
 		},
 	};
-	const methods = {
-		async list() {
-			const collection = await raw();
-			return collection.error === null ? collection.data.list() : collection;
-		},
-		create: (value: Args) => hold(writes.create(value)),
-		update: (args: Args, patch: Args, options?: { base?: Entry }) =>
-			hold(writes.update(args, patch, options)),
-		delete: (args: Args, options?: { over?: Version }) =>
-			hold(writes.delete(args, options)),
-	};
-	const collection =
-		declared.kind === 'note'
-			? {
-					fieldNames: declared.keys,
-					...reads,
-					invalid: () => invalid,
-					...methods,
-					replace: (args: Args, text: string, options?: { over?: Version }) =>
-						hold(writes.replace(args, text, options)),
-					edit: (args: Args, options: { create?: () => Args } = {}) =>
-						editNote({
-							args,
-							options,
-							fieldNames: declared.keys,
-							shown: () => shown(args),
-							create: writes.create,
-							update: writes.update,
-							hold,
-							subscribe: reads.subscribe,
-						}),
-				}
-			: {
-					...reads,
-					...methods,
-					async read(args: Args) {
-						const collection = await raw();
-						if (collection.error !== null) return collection;
-						return collection.data.get(args as never);
-					},
-					append: (
-						args: Args,
-						bytes: Uint8Array,
-						options: { create: boolean; announce: boolean },
-					) =>
-						hold(
-							(async () => {
-								const collection = await raw();
-								if (collection.error !== null) return collection;
-								return (collection.data as Files).append(args, bytes, options);
-							})(),
-						),
-				};
+
+	const collection = isNote
+		? {
+				fieldNames: declared.keys,
+				...reads,
+				invalid: () => invalid,
+				async list() {
+					const listed = await listNow();
+					if (listed.error !== null) return listed;
+					return Ok({ items: [...items], invalid: [...invalid] });
+				},
+				set(args: Args, changes: Record<string, unknown>) {
+					const path = pathOf(args);
+					const change = { ...changes };
+					// A value front matter cannot hold throws now, not in the queue.
+					codec.set(null, null, change);
+					const base = baseAt(path);
+					return writeNote(path, (text) =>
+						codec.set(text, base()?.text ?? text, change),
+					);
+				},
+				delete(args: Args) {
+					const path = pathOf(args);
+					return remove(path, baseAt(path));
+				},
+				edit: (args: Args, options: NoteEditOptions<Collection> = {}) => {
+					const path = pathOf(args);
+					return editNote({
+						fieldNames: declared.keys,
+						options,
+						codec,
+						shown: () => shown.get(path),
+						save: (next, landed) => writeNote(path, next, landed),
+						subscribe: reads.subscribe,
+					});
+				},
+			}
+		: {
+				...reads,
+				async list() {
+					const listed = await listNow();
+					if (listed.error !== null) return listed;
+					return Ok({ items: [...items] });
+				},
+				async read(args: Args) {
+					const path = pathOrNull(args);
+					if (path === null) return Ok(null);
+					const collection = await files();
+					if (collection.error !== null) return collection;
+					const read = await collection.data.read(path);
+					if (read.error !== null) return read;
+					if (read.data === null) return Ok(null);
+					return Ok({ ...read.data.params, bytes: read.data.bytes });
+				},
+				set(args: Args, bytes: Uint8Array) {
+					const path = pathOf(args);
+					if (!(bytes instanceof Uint8Array))
+						throw new TypeError(
+							`A file of ${declared.template.source} is bytes.`,
+						);
+					// The later write wins: over whatever is there, first over what is shown, without reading.
+					return write(
+						path,
+						() => bytes,
+						() => shown.get(path) ?? null,
+					);
+				},
+				delete(args: Args) {
+					const path = pathOf(args);
+					return remove(path, baseAt(path));
+				},
+				append(
+					args: Args,
+					bytes: Uint8Array,
+					options: { create: boolean; announce: boolean },
+				) {
+					const path = pathOf(args);
+					return host.hold(
+						(async (): Promise<Result<boolean, ReadError>> => {
+							const collection = await files();
+							if (collection.error !== null) return collection;
+							if (collection.data.append === null)
+								return ClientError.Unavailable({
+									cause:
+										'this folder’s storage cannot add to the end of a file',
+								});
+							const appended = await collection.data.append(
+								path,
+								bytes,
+								options,
+							);
+							if (appended.error !== null) return appended;
+							return Ok(appended.data === 'landed');
+						})(),
+					);
+				},
+			};
 
 	return {
 		collection,
-		/** An open attempt settled: follow it for whoever listens. */
+		/** The folder opened: follow it for whoever listens. */
 		opened() {
 			if (listeners.size > 0) void follow();
 		},

@@ -7,15 +7,19 @@
  */
 import type { Contract } from '@epicenter/definition/contract';
 import type { Result } from 'wellcrafted/result';
-import type { DeviceStore } from './device/store.js';
+import type { DeviceStore, Unavailable } from './device/store.js';
 import type { OpenFolderError, RevealRootError } from './errors.js';
 
 const OPENING = Symbol('epicenter.place');
 
 /** What a place gives the folder opened at it. */
 export type Opening = {
-	/** Open the place's store: called when the folder opens, and again on each retry after a failure. */
-	open(): Promise<Result<DeviceStore, OpenFolderError>>;
+	/**
+	 * Open the place's store: called when the folder opens, again after a
+	 * temporary failure (`Unavailable`, which the folder retries on its own),
+	 * and on each retry after a failure that waiting will not fix.
+	 */
+	open(): Promise<Result<DeviceStore, OpenFolderError | Unavailable>>;
 	/** Show the place in the file manager, even when it did not open: only the desktop's data folder has one. */
 	reveal?: () => Promise<Result<null, RevealRootError>>;
 	/** Where the place is, to show a person, once it opened: only the desktop's data folder has one. */

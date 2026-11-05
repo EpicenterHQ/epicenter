@@ -11,12 +11,21 @@
  * file still holds it. The store checks that where the write lands, right
  * before the change.
  */
-import type { ClientError, Version } from '@epicenter/definition/contract';
+import type { ClientError } from '@epicenter/definition/contract';
+import type { Brand } from 'wellcrafted/brand';
 import type { InferError } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import type { ChangeListener } from '../changes.js';
 
-type Unavailable = InferError<typeof ClientError.Unavailable>;
+export type Unavailable = InferError<typeof ClientError.Unavailable>;
+
+/**
+ * The version of a file a read saw: a device's sha256 of its bytes, the
+ * repository's Git blob id (a note) or Git LFS object id (any other file).
+ * Opaque and internal: the folder compares it and writes over it, and no
+ * app ever holds one (ADR-0774).
+ */
+export type Version = string & Brand<'Version'>;
 
 /**
  * What a device write expects at its path, the version its writer read:

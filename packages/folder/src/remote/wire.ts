@@ -16,7 +16,7 @@
  * `fetch`, with only the headers the server's answer names.
  */
 
-import { ClientError, type Version } from '@epicenter/definition/contract';
+import { ClientError } from '@epicenter/definition/contract';
 import { lfsOid } from '@epicenter/definition/merge';
 import { resolveOAuthAudiences } from '@epicenter/definition/site';
 import {
@@ -25,6 +25,7 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
+import type { Version } from '../device/store.js';
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
