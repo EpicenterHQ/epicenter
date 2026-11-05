@@ -236,11 +236,15 @@ export function createWire(account: RemoteAccount, repository: string) {
 				paths: answer.paths as string[] | null,
 			});
 		},
-		/** Every file on `main` at or below each of `roots` (`''`: the whole repository). */
-		async list(
-			roots: readonly string[],
-		): Promise<
-			Result<{ path: string; blob: Version; lfs?: LfsObject }[], Unavailable>
+		/** Every file on `main` at or below each of `roots` (`''`: the whole repository), and the commit listed. */
+		async list(roots: readonly string[]): Promise<
+			Result<
+				{
+					commit: string | null;
+					files: { path: string; blob: Version; lfs?: LfsObject }[];
+				},
+				Unavailable
+			>
 		> {
 			const query = roots
 				.map((root) => `root=${encodeURIComponent(root)}`)
@@ -253,23 +257,45 @@ export function createWire(account: RemoteAccount, repository: string) {
 			const answer = await body(sent.data);
 			if (!isRecord(answer) || !Array.isArray(answer.files))
 				return refused(sent.data);
-			return Ok(answer.files as { path: string; blob: Version; lfs?: LfsObject }[]);
+			return Ok({
+				commit: typeof answer.commit === 'string' ? answer.commit : null,
+				files: answer.files as {
+					path: string;
+					blob: Version;
+					lfs?: LfsObject;
+				}[],
+			});
 		},
-		/** The files at `paths` on one commit of `main`, in one request: each one's blob and text or LFS object, or `gone`. */
+		/**
+		 * The files at `paths` on one commit, in one request: each one's blob
+		 * and text or LFS object, or `gone`. The commit is `main`'s, or `at`.
+		 */
 		async read(
 			paths: readonly string[],
-		): Promise<Result<(RemoteFile | { path: string; gone: true })[], Unavailable>> {
+			at?: string,
+		): Promise<
+			Result<
+				{
+					commit: string | null;
+					files: (RemoteFile | { path: string; gone: true })[];
+				},
+				Unavailable
+			>
+		> {
 			const sent = await send(`${remote}/epicenter/read`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ paths }),
+				body: JSON.stringify({ paths, at }),
 			});
 			if (sent.error !== null) return sent;
 			if (!sent.data.ok) return refused(sent.data);
 			const answer = await body(sent.data);
 			if (!isRecord(answer) || !Array.isArray(answer.files))
 				return refused(sent.data);
-			return Ok(answer.files as (RemoteFile | { path: string; gone: true })[]);
+			return Ok({
+				commit: typeof answer.commit === 'string' ? answer.commit : null,
+				files: answer.files as (RemoteFile | { path: string; gone: true })[],
+			});
 		},
 		/**
 		 * One write request: at most one commit on `main`, or a refusal. The

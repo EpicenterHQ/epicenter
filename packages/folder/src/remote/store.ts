@@ -23,7 +23,8 @@
 import { ClientError, storedWithLfs } from '@epicenter/definition/contract';
 import { isNamespaceId, isRepositoryName } from '@epicenter/definition/site';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { FileRead, Store, Unavailable, Version } from '../device/store.js';
+import type { FileRead, Unavailable, Version } from '../device/store.js';
+import type { BatchWrite, RemoteFile, Repository } from '../sync/repository.js';
 import {
 	createWire,
 	type FileWrite,
@@ -57,7 +58,7 @@ export function repositoryStore(
 	account: RemoteAccount,
 	repository: string,
 	{ pollMs = POLL_MS }: { pollMs?: number } = {},
-): Store {
+): Repository {
 	const [owner = '', name = '', extra] = repository.split('/');
 	if (
 		extra !== undefined ||
@@ -69,9 +70,50 @@ export function repositoryStore(
 		);
 	const wire = createWire(account, repository);
 
-	/** One file's write: the receipt, `'stale'` for a refusal of its expectation. */
-	async function send(file: FileWrite) {
-		const written = await wire.write({ files: [file] });
+	/**
+	 * The files at `paths` on `main`, or at the commit `at`, in one request:
+	 * a note's text as bytes, and an attachment's bytes downloaded only with
+	 * `attachments` (null otherwise).
+	 */
+	async function readFiles(
+		paths: readonly string[],
+		at: string | undefined,
+		attachments: boolean,
+	): Promise<Result<RemoteFile[], Unavailable>> {
+		if (paths.length === 0) return Ok([]);
+		const read = await wire.read(paths, at);
+		if (read.error !== null) return read;
+		const files: RemoteFile[] = [];
+		for (const file of read.data.files) {
+			if ('gone' in file) {
+				files.push({ path: file.path, gone: true });
+				continue;
+			}
+			const { path, blob, text, lfs } = file;
+			if (typeof text === 'string') {
+				files.push({ path, version: blob, bytes: encoder.encode(text) });
+				continue;
+			}
+			if (!lfs)
+				return refused({
+					status: 200,
+					code: 'not_lfs',
+					message: `${path} is not a Git LFS pointer`,
+				});
+			if (!attachments) {
+				files.push({ path, version: blob, bytes: null });
+				continue;
+			}
+			const bytes = await wire.download(lfs);
+			if (bytes.error !== null) return bytes;
+			files.push({ path, version: blob, bytes: bytes.data });
+		}
+		return Ok(files);
+	}
+
+	/** One write request: the receipt, `'stale'` for a refusal of its expectation. */
+	async function send(files: FileWrite[]) {
+		const written = await wire.write({ files });
 		if (written.error !== null) return written;
 		const answer: WriteAnswer = written.data;
 		if (answer.landed) return Ok(answer.receipt);
@@ -85,7 +127,7 @@ export function repositoryStore(
 			const listed = await wire.list(under);
 			if (listed.error !== null) return listed;
 			return Ok(
-				listed.data.map(({ path, blob, lfs }) => ({
+				listed.data.files.map(({ path, blob, lfs }) => ({
 					path,
 					version: blob,
 					size: lfs?.size ?? null,
@@ -93,31 +135,15 @@ export function repositoryStore(
 			);
 		},
 		async read(paths): Promise<Result<FileRead[], Unavailable>> {
-			if (paths.length === 0) return Ok([]);
-			const read = await wire.read(paths);
+			const read = await readFiles(paths, undefined, true);
 			if (read.error !== null) return read;
-			const files: FileRead[] = [];
-			for (const file of read.data) {
-				if ('gone' in file) {
-					files.push({ path: file.path, gone: true });
-					continue;
-				}
-				const { path, blob, text, lfs } = file;
-				if (typeof text === 'string') {
-					files.push({ path, bytes: encoder.encode(text), version: blob });
-					continue;
-				}
-				if (!lfs)
-					return refused({
-						status: 200,
-						code: 'not_lfs',
-						message: `${path} is not a Git LFS pointer on main`,
-					});
-				const bytes = await wire.download(lfs);
-				if (bytes.error !== null) return bytes;
-				files.push({ path, bytes: bytes.data, version: blob });
-			}
-			return Ok(files);
+			return Ok(
+				read.data.map((file) =>
+					'gone' in file || file.bytes === null
+						? { path: file.path, gone: true as const }
+						: { path: file.path, bytes: file.bytes, version: file.version },
+				),
+			);
 		},
 		async write(path, bytes, over) {
 			if (bytes === null) {
@@ -125,9 +151,10 @@ export function repositoryStore(
 				if (over === 'absent') {
 					const there = await wire.read([path]);
 					if (there.error !== null) return there;
-					return Ok(there.data[0] && 'gone' in there.data[0] ? null : 'stale');
+					const [file] = there.data.files;
+					return Ok(file && 'gone' in file ? null : 'stale');
 				}
-				const sent = await send({ path, delete: true, base: over });
+				const sent = await send([{ path, delete: true, base: over }]);
 				if (sent.error !== null) return sent;
 				return Ok(sent.data === 'stale' ? sent.data : null);
 			}
@@ -140,7 +167,7 @@ export function repositoryStore(
 				if (lfs === undefined) throw new Error('one object for one file');
 				file = { path, lfs, base };
 			} else file = { path, text: decoder.decode(bytes), base };
-			const sent = await send(file);
+			const sent = await send([file]);
 			if (sent.error !== null) return sent;
 			if (sent.data === 'stale') return sent;
 			const landed = sent.data.blobs[path] as Version | null | undefined;
@@ -151,6 +178,58 @@ export function repositoryStore(
 					message: `the write of ${path} landed no file there`,
 				});
 			return Ok(landed);
+		},
+		async changes(since) {
+			return wire.changes(since ?? undefined);
+		},
+		async snapshot() {
+			const listed = await wire.list(['']);
+			if (listed.error !== null) return listed;
+			return Ok({
+				commit: listed.data.commit,
+				files: listed.data.files.map(({ path, blob, lfs }) => ({
+					path,
+					version: blob,
+					size: lfs?.size ?? null,
+				})),
+			});
+		},
+		readAt(paths, commit, { attachments }) {
+			return readFiles(paths, commit, attachments);
+		},
+		async writeAll(writes) {
+			const attachments = writes.filter(
+				(write): write is BatchWrite & { bytes: Uint8Array } =>
+					write.bytes !== null && storedWithLfs(write.path),
+			);
+			const uploaded = await wire.upload(attachments.map(({ bytes }) => bytes));
+			if (uploaded.error !== null) return uploaded;
+			const objects = new Map(
+				attachments.map(({ path }, index) => [path, uploaded.data[index]]),
+			);
+			const files: FileWrite[] = [];
+			for (const { path, bytes, over } of writes) {
+				const base = over === 'absent' ? null : over;
+				const lfs = objects.get(path);
+				if (bytes === null) {
+					// Removing nothing where nothing is lands as nothing.
+					if (base !== null) files.push({ path, delete: true, base });
+				} else if (lfs !== undefined) files.push({ path, lfs, base });
+				else files.push({ path, text: decoder.decode(bytes), base });
+			}
+			if (files.length === 0)
+				return refused({
+					status: 200,
+					code: 'no_files',
+					message: 'a batch write names no file to change',
+				});
+			const sent = await send(files);
+			if (sent.error !== null) return sent;
+			if (sent.data === 'stale') return sent;
+			return Ok({
+				commit: sent.data.commit,
+				versions: sent.data.blobs as Record<string, Version | null>,
+			});
 		},
 		async watch(changed) {
 			if (account.signal.aborted)
