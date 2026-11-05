@@ -94,7 +94,6 @@ const subjects: Record<string, () => Promise<StoreSubject>> = {
 		return {
 			store: servedStore(`http://127.0.0.1:${server.port}/folder`),
 			outside: outsideOf(root),
-			hearingMs: 3000,
 		};
 	},
 };
