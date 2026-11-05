@@ -48,22 +48,25 @@ Roadmap language stays out of heroes.
 
 ## What Epicenter is
 
-- Apps whose data is a folder: one Markdown file per row, settings included,
-  `epicenter.json` for the folder's declaration, and Git history
+- Apps whose data is a folder: one Markdown file per row, an `AGENTS.md`
+  that names the app's published contract, and Git history
   ([ADR-0534](adr/0534-data-folders-are-the-only-data-model.md)).
-- A desktop app that opens to your folders, lists them, edits their rows, and
-  opens each in the apps whose shape it fits
+- A macOS app, Epicenter, that opens to your folders, lists them, sets each
+  up to sync, syncs them while it runs, and shares them
   ([ADR-0537](adr/0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md)).
-- A folder engine, `@epicenter/folder`, that opens the same folder in a
-  browser, in the desktop app, and in a Bun script.
+- A folder engine, `@epicenter/folder`, that opens an app's folder on disk in
+  its desktop app and in a Bun script, and the signed-in account's
+  repository for that app in a browser.
 
 ## What Epicenter is not
 
-- Not cloud-first: a folder works on one machine with no account, and syncs
-  only when a person syncs it.
-- Not a real-time collaboration engine: a sync is an explicit Git transfer,
-  and overlapping edits are decided by a person
-  ([ADR-0548](adr/0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md)).
+- Not cloud-first: a desktop app's folder works on one machine with no
+  account, and syncs only once a person sets it up to sync.
+- Not a real-time collaboration engine: a sync is a round of Git commit,
+  fetch, merge, and push. A field both sides changed takes the later write,
+  and edits that clash in a note's body stay side by side in a conflict
+  block for a person to resolve
+  ([`@epicenter/definition`](../packages/definition/README.md#merging-a-note)).
 - Not encrypted end to end: whoever runs the Git server a folder syncs with can
   read it. See the [trust model](trust-model.md).
 
@@ -74,9 +77,9 @@ Every public claim must be provable by inspecting the repository:
 | Claim | Proof |
 | --- | --- |
 | "We ship" | Whispering installs on macOS, Windows, and Linux through normal release channels. |
-| "Files you own" | A folder's rows are Markdown files with YAML frontmatter, its settings are rows too, and its history is a Git repository (`packages/folder`). |
-| "Any tool can edit them" | The desktop shell reads every change from disk; an edit made outside the app appears in it (`tauri-plugin-epicenter-folder`, ADR-0548). |
-| "Syncs over plain Git with a server you choose" | A folder's remote is `remote.origin.url` in its own Git configuration (ADR-0521, ADR-0532). |
+| "Files you own" | A folder's rows are Markdown files with YAML front matter (`packages/folder`), and once a person sets it up to sync, its history is a Git repository that `epicenter sync` commits to (`packages/cli`). |
+| "Any tool can edit them" | The desktop shell watches the folder, so an edit made outside the app appears in it (`tauri-plugin-epicenter-folder`); a note an edit leaves outside the contract shows as invalid, with its text, for repair (`packages/folder`). |
+| "Syncs over plain Git with a server you choose" | A folder's remote is `origin` in its own Git configuration, which `epicenter connect` or plain `git remote add` sets to any Git URL (`packages/cli`, ADR-0532). |
 | "Bring your own model" | AI features accept user-provided API keys. |
 
 ## Vocabulary
