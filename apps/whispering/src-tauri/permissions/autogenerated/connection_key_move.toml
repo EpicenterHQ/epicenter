@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connection-key-move"
+description = "Enables the connection_key_move command without any pre-configured scope."
+commands.allow = ["connection_key_move"]
+
+[[permission]]
+identifier = "deny-connection-key-move"
+description = "Denies the connection_key_move command without any pre-configured scope."
+commands.deny = ["connection_key_move"]

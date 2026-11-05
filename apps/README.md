@@ -34,6 +34,13 @@ account pick which store `home` is:
 | Whispering | local web, desktop |
 | Messages | local (a program on the computer where Beeper Desktop runs) |
 
+The variants need not promise the same things
+([ADR-0780](../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
+A guarantee that needs a process outliving the page is the desktop's:
+keeping a recording through a crash or a closed window, recording in the
+background, a global shortcut, and syncing a folder offline. Each app's
+README says what its web build does not promise.
+
 Each desktop variant is a Tauri program of its own
 ([ADR-0701](../docs/adr/0701-apps-run-as-separate-programs.md)). Capture,
 Honeycrisp, Todos, Vocab and Whispering share the
@@ -59,9 +66,13 @@ export const folder = reactive(
 );
 ```
 
-The app's layout renders the pages over the folder with `<WhenOpen>` from
-`@epicenter/svelte`: a spinner while it opens, Recovery with Retry when it
-cannot, the pages once it has, and the leave guard while a write is out.
+The page connects once to its stores: the folder and, where the app keeps
+any, this computer's settings (`settings` from `@epicenter/local`), passed
+to `<WhenOpen>` from `@epicenter/svelte` beside the folder
+([ADR-0778](../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
+`<WhenOpen>` shows a spinner after 150 ms while they connect, Recovery with
+Retry when one cannot, the pages once both have, and the leave guard while
+a write is out. Every read inside it is synchronous.
 An online web build asks a signed-out person to sign in first:
 
 ```svelte

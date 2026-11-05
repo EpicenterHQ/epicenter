@@ -10,10 +10,10 @@
  *    (`m4a` or `webm`) and its note and nothing else; its title and
  *    transcript are edited, it is transcribed over a custom endpoint (a
  *    stub), one is deleted with its files, and all of it survives a reload.
- * 2. A recording is written into this browser's files as it records: its
- *    audio file grows while it runs, and its note waits for Stop. A reload
- *    mid-recording keeps what was written, and the next start gives it its
- *    note, its length read from the audio (decision 84).
+ * 2. A take lands whole at Stop (ADR-0779): nothing is written while it
+ *    records, and leaving the page mid-recording (past the leave guard,
+ *    where the engine shows it) loses the take, which the web does not
+ *    promise to keep (ADR-0780).
  * 3. Offline, recording and editing still work, and survive a reload.
  * 4. Transcription over the Epicenter account needs a sign-in; signed in, it
  *    sends the account's API token (to a stub) and keeps the transcript
@@ -23,14 +23,18 @@
  * 6. The page, loaded once, reopens offline from its service worker's
  *    cache (decision 85), with this browser's recordings.
  * 7. Where the browser keeps no files (WebKit's ephemeral context, as a
- *    Safari private window), the root's one status line says the files
- *    cannot be reached: no hint invites a click and no recovery failure
- *    repeats it.
+ *    Safari private window), the folder does not open, and the page says
+ *    why instead of offering a recorder that could keep nothing.
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type BrowserContext, expect, type Page } from 'playwright/test';
+import {
+	type BrowserContext,
+	type Dialog,
+	expect,
+	type Page,
+} from 'playwright/test';
 import {
 	emptyOpfs,
 	epicenter,
@@ -228,17 +232,12 @@ test('1. on this browser, a recording is kept as its audio and note, edited, tra
 	await page.evaluate((baseUrl) => {
 		localStorage.clear();
 		// One saved connection, keyless, chosen for transcription, as Settings
-		// would save them.
+		// would save them in this computer's `connections.md`.
 		localStorage.setItem(
-			'epicenter/ai.app-ai-connections',
-			JSON.stringify({
-				version: 1,
-				connections: [
-					{ id: 'stub', name: 'Stub', baseUrl, models: ['whisper-1'] },
-				],
-			}),
+			'epicenter.local/connections.md',
+			`---\nconnections:\n  - id: stub\n    name: Stub\n    baseUrl: ${baseUrl}\n    models:\n      - whisper-1\n---\n`,
 		);
-		// This computer's `models.md` (`localFile` from `@epicenter/local`).
+		// This computer's `models.md` (`settings` from `@epicenter/local`).
 		localStorage.setItem(
 			'epicenter.local/models.md',
 			'---\nchoices:\n  - job: transcribe\n    endpoint: stub\n    model: whisper-1\n---\n',
@@ -320,42 +319,40 @@ test('1. on this browser, a recording is kept as its audio and note, edited, tra
 	);
 });
 
-test('2. a recording is written into this browser’s files as it records, and a reload mid-recording keeps it and gives it its note', async () => {
+test('2. a take lands whole at Stop, and leaving mid-recording loses it', async () => {
 	await page.goto(app);
-	const before = await recordingIds();
 	const filesBefore = await pathsUnder('recordings/');
 	await page.getByTestId('start-recording').click();
 	await expect(page.getByTestId('stop-recording')).toBeVisible();
-	// Its audio appears within a piece (about a second), then grows.
-	const newAudio = async () =>
-		(await pathsUnder('recordings/')).filter(
-			(path) => !path.endsWith('.md') && !filesBefore.includes(path),
-		);
-	await expect.poll(async () => (await newAudio()).length).toBe(1);
-	const [audioPath] = await newAudio();
-	expect(audioPath).toMatch(/\.(m4a|webm)$/);
-	const id = audioPath!.slice('recordings/'.length).replace(/\.[^.]+$/, '');
-	await expect
-		.poll(async () => (await audioFileOf(id))?.size ?? 0)
-		.toBeGreaterThan(0);
-	const first = (await audioFileOf(id))!;
-	await expect
-		.poll(async () => (await audioFileOf(id))?.size ?? 0, { timeout: 10_000 })
-		.toBeGreaterThan(first.size);
-	const grown = (await audioFileOf(id))!.size;
-	// Its note waits for Stop.
-	expect(await recordingIds()).toEqual(before);
+	// Several pieces in: still nothing written, its audio or its note.
+	await page.waitForTimeout(2500);
+	expect(await pathsUnder('recordings/')).toEqual(filesBefore);
 
-	// A reload while it records ends the page; what was written stays, and
-	// the next start gives it its note, its length read from the audio.
-	await page.reload();
+	// Leaving while a take runs (past the leave guard, where the engine
+	// shows it) loses the take.
+	const asked: string[] = [];
+	const accept = (dialog: Dialog) => {
+		asked.push(dialog.type());
+		void dialog.accept();
+	};
+	page.on('dialog', accept);
+	try {
+		await page.reload();
+	} finally {
+		page.off('dialog', accept);
+	}
 	await expect(page.getByTestId('start-recording')).toBeVisible();
-	await expect
-		.poll(() => opfsText(page, `recordings/${id}.md`))
-		.toMatch(/^durationMs: [1-9]\d*$/m);
-	expect((await audioFileOf(id))!.size).toBeGreaterThanOrEqual(grown);
-	await pageLink('Recordings').click();
-	await expect(row(id)).toBeVisible();
+	expect(asked.every((type) => type === 'beforeunload')).toBe(true);
+	expect(await pathsUnder('recordings/')).toEqual(filesBefore);
+
+	// Stopped, a take lands as its audio and its note together.
+	const id = await record();
+	expect(
+		(await pathsUnder(`recordings/${id}.`)).map((path) =>
+			path.endsWith('.md') ? 'note' : 'audio',
+		),
+	).toEqual(expect.arrayContaining(['audio', 'note']));
+	expect((await audioFileOf(id))?.size ?? 0).toBeGreaterThan(0);
 });
 
 test('3. offline, recording and editing still work, and survive a reload', async () => {
@@ -549,7 +546,7 @@ test('6. the page, loaded once, reopens offline from its service worker', async 
 	}
 });
 
-test('7. where the browser keeps no files, one status line says the files cannot be reached', async ({
+test('7. where the browser keeps no files, the folder does not open and the page says why', async ({
 	playwright,
 	browserName,
 	stack,
@@ -563,12 +560,12 @@ test('7. where the browser keeps no files, one status line says the files cannot
 		await fakeMicrophone(ephemeralContext);
 		const ephemeral = await ephemeralContext.newPage();
 		await ephemeral.goto(`${stack.app}/`);
-		await expect(ephemeral.getByTestId('unreachable')).toContainText(
-			"Can't reach Whispering's files right now (This browser gives the page no private file storage",
+		const recovery = ephemeral.getByTestId('recovery');
+		await expect(recovery).toContainText('Whispering could not open its folder');
+		await expect(recovery).toContainText(
+			'This browser gives the page no private file storage',
 		);
-		await expect(ephemeral.getByTestId('start-recording')).toBeVisible();
-		await expect(ephemeral.getByText('Click to record')).toHaveCount(0);
-		await expect(ephemeral.getByTestId('recorder-error')).toHaveCount(0);
+		await expect(ephemeral.getByTestId('start-recording')).toHaveCount(0);
 	} finally {
 		await browser.close();
 	}

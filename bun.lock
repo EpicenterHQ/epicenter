@@ -327,6 +327,7 @@
         "@epicenter/ai": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
+        "@epicenter/local": "workspace:*",
         "@epicenter/recorder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
@@ -403,6 +404,7 @@
       "name": "@epicenter/account",
       "version": "0.1.1",
       "dependencies": {
+        "@epicenter/local": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",
@@ -567,6 +569,7 @@
       "dependencies": {
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
+        "@epicenter/local": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@tauri-apps/api": "catalog:",

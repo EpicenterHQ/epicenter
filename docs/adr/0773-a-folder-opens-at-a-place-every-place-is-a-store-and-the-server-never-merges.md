@@ -6,7 +6,6 @@
 - **Relates:** [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) (the folder's synchronous reads), [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) (teams), [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) (the later write to an attachment wins), [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) (a folder says what it is), [ADR-0620](0620-history-in-a-repository-only-grows.md) (a push is a fast-forward).
 - **Amended by:** [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) at the folder carrying an edit over a change with `updateNote`: it settles it with `settle`.
 - **Amended by:** [ADR-0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) at "append where they can" and a file collection's `append`: no store and no collection appends; a browser recording lands whole.
-- **Unbuilt:** stale `openDataFolder` comments in `apps/whispering/src-tauri/src/main.rs` and `packages/tauri-epicenter-standalone/src/lib.rs`.
 
 ## Context
 

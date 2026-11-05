@@ -13,6 +13,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@epicenter/local": "workspace:*",
 		"@tauri-apps/api": "catalog:",
 		"arktype": "catalog:",
 		"wellcrafted": "catalog:"

@@ -4,8 +4,9 @@
  * (ADR-0774, ADR-0775).
  *
  * Key behaviors:
- * - A collection lists and follows its files only while something listens,
- *   and a failing listing is tried again while someone listens
+ * - A folder lists once, when it connects, and hears its files from then
+ *   until it is disposed; a connection whose listing fails is tried again,
+ *   opening meanwhile
  * - A write shows once it lands, without waiting for a listing
  * - `set` gives a note the fields named and keeps the rest; named fields
  *   take this write; a body changed since it was shown merges by lines
@@ -19,8 +20,7 @@
  * - `delete` of a note gone is fine; one changed since shown is kept
  * - Writes land in order; one that cannot land waits, with `saving()` and
  *   `unavailable()` saying so, and lands when the store is back
- * - A file collection's `set` is the later write winning, and `append`
- *   works where the store can
+ * - A file collection's `set` is the later write winning
  *
  * See also:
  * - `note-edit.test.ts` for the note editor
@@ -33,7 +33,7 @@ import { defineContract } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { memoryStore } from './device/memory-store.js';
-import type { DeviceStore, Version } from './device/store.js';
+import type { Store } from './device/store.js';
 import { createFolder } from './folder.js';
 import { memory, memoryFiles } from './memory.js';
 import { directory } from './node.js';
@@ -72,19 +72,20 @@ function watch<T>(
 	return { values, stop };
 }
 
-/** A folder in memory, and the world outside it. */
-function inMemory() {
+/** A folder in memory, connected, and the world outside it. */
+async function inMemory() {
 	const place = memory();
 	const folder = openFolder(todos, place);
+	await until(() => folder.state().status === 'open');
 	return { folder, outside: memoryFiles(place), place };
 }
 
-/** A store in memory counting listings and live watches, with listings that can be held. */
-function counted() {
+/** A connected folder over a store in memory counting listings and live watches, with listings that can be held. */
+async function counted() {
 	const store = memoryStore();
 	const counts = { lists: 0, watching: 0 };
 	let hold: Promise<void> | null = null;
-	const wrapped: DeviceStore = {
+	const wrapped: Store = {
 		...store,
 		async list(under) {
 			counts.lists++;
@@ -92,17 +93,20 @@ function counted() {
 			if (hold) await hold;
 			return listed;
 		},
-		watch(listener) {
+		async watch(listener) {
 			counts.watching++;
-			const stop = store.watch(listener);
-			return () => {
+			const stop = await store.watch(listener);
+			if (stop.error !== null) return stop;
+			return Ok(() => {
 				counts.watching--;
-				stop();
-			};
+				stop.data();
+			});
 		},
 	};
+	const folder = createFolder(todos, async () => Ok(wrapped));
+	await until(() => folder.state().status === 'open');
 	return {
-		folder: createFolder(todos, async () => Ok(wrapped)),
+		folder,
 		outside: store.outside,
 		counts,
 		/** Hold every listing from now on, already read, until the returned release. */
@@ -119,51 +123,58 @@ function counted() {
 
 const note = (fields: string, body = '') => `---\n${fields}---\n${body}`;
 
-test('a collection lists and follows its files only while something listens', async () => {
-	const { folder, outside, counts } = counted();
-	expect(folder.todos.items()).toEqual([]);
-	expect(folder.todos.loading()).toBe(true);
-	await Bun.sleep(5);
-	expect(counts).toEqual({ lists: 0, watching: 0 });
-
+test('a folder lists once when it connects, and hears its files from then until it is disposed', async () => {
+	const { folder, outside, counts } = await counted();
+	expect(counts).toEqual({ lists: 1, watching: 1 });
 	const titles = watch(folder.todos.subscribe, () =>
 		folder.todos.items().map(({ title }) => title),
 	);
-	await until(() => !folder.todos.loading());
-	expect(counts.watching).toBe(1);
 	expect(titles.values.at(-1)).toEqual([]);
 
 	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
 	await until(() => titles.values.at(-1)?.[0] === 'Milk');
+	// A change is read again by its path, never by listing again.
+	expect(counts.lists).toBe(1);
 
 	titles.stop();
+	folder[Symbol.dispose]();
 	expect(counts.watching).toBe(0);
 });
 
-test('a listing that fails is tried again while someone listens, with no change to prompt it', async () => {
-	const { folder, outside } = inMemory();
+test('a connection whose listing fails is tried again, the folder opening meanwhile', async () => {
+	const place = memory();
+	const outside = memoryFiles(place);
 	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
 	const undo = outside.refuseReads('storage is busy');
+	const folder = openFolder(todos, place);
 	const shown = watch(folder.subscribe, () => folder.unavailable()?.name);
-	const titles = watch(folder.todos.subscribe, () =>
-		folder.todos.items().map(({ title }) => title),
-	);
 	await until(() => shown.values.at(-1) === 'Unavailable');
-	expect(titles.values.at(-1)).toEqual([]);
+	expect(folder.state().status).toBe('opening');
 	undo();
-	await until(() => titles.values.at(-1)?.[0] === 'Milk');
+	await until(() => folder.state().status === 'open');
+	expect(folder.todos.items().map(({ title }) => title)).toEqual(['Milk']);
 	expect(folder.unavailable()).toBeNull();
-	titles.stop();
 	shown.stop();
 });
 
+test('a change heard that cannot be read is tried again, and what the folder shows stays meanwhile', async () => {
+	const { folder, outside } = await inMemory();
+	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
+	const undo = outside.refuseReads('storage is busy');
+	await outside.write('todos/a.md', note('title: Oat milk\ndone: false\n'));
+	await until(() => folder.unavailable() !== null);
+	expect(folder.todos.get({ id: 'a' })?.title).toBe('Milk');
+	undo();
+	await until(() => folder.todos.get({ id: 'a' })?.title === 'Oat milk');
+	expect(folder.unavailable()).toBeNull();
+});
+
 test('a write shows once it lands, before any listing', async () => {
-	const { folder, hold } = counted();
+	const { folder, hold } = await counted();
 	const shown = watch(
 		folder.todos.subscribe,
 		() => folder.todos.get({ id: 'a' })?.title,
 	);
-	await until(() => !folder.todos.loading());
 	const release = hold();
 
 	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
@@ -178,7 +189,7 @@ test('a write shows once it lands, before any listing', async () => {
 });
 
 test('set makes a note where none is, and changes only the fields it names', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	await folder.todos.set(
 		{ id: 'a' },
 		{ title: 'Milk', done: false, body: 'Two\n' },
@@ -198,7 +209,7 @@ test('set makes a note where none is, and changes only the fields it names', asy
 });
 
 test('another writer’s change to another field stays; a field both changed takes this write', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	folder.todos.subscribe(() => {});
 	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
 	await outside.write('todos/a.md', note('title: Oat milk\ndone: true\n'));
@@ -210,7 +221,7 @@ test('another writer’s change to another field stays; a field both changed tak
 });
 
 test('a write that meets a change made after it read reads again and applies its change', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
 	const release = outside.hold();
 	const writing = folder.todos.set({ id: 'a' }, { done: true });
@@ -227,7 +238,7 @@ test('a write that meets a change made after it read reads again and applies its
 });
 
 test('a body changed since it was shown merges by lines, and a clash keeps both in a block', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	folder.todos.subscribe(() => {});
 	const fields = 'title: Milk\ndone: false\n';
 	await folder.todos.set(
@@ -258,7 +269,7 @@ test('a body changed since it was shown merges by lines, and a clash keeps both 
 });
 
 test('writes queued one after another never clash with each other', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	folder.todos.subscribe(() => {});
 	const first = folder.todos.set(
 		{ id: 'a' },
@@ -277,7 +288,7 @@ test('writes queued one after another never clash with each other', async () => 
 });
 
 test('a value that does not fit the contract is written, and shows as invalid', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	folder.todos.subscribe(() => {});
 	await folder.todos.set({ id: 'a' }, { title: 5 as never });
 	expect(outside.read('todos/a.md')).toBe(note('title: 5\n'));
@@ -293,7 +304,7 @@ test('a value that does not fit the contract is written, and shows as invalid', 
 });
 
 test('a change to a note whose front matter does not parse keeps it, and adds the change as a block', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	await outside.write('todos/a.md', note('title: [\n', 'Kept\n'));
 	await folder.todos.set({ id: 'a' }, { done: true });
 	const text = outside.read('todos/a.md') ?? '';
@@ -303,7 +314,7 @@ test('a change to a note whose front matter does not parse keeps it, and adds th
 });
 
 test('a name that would leave the collection throws before anything is written', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	for (const id of ['', 'a/b', '..', '.hidden', 'a:b', 'a?b', 'a|b', 'a\nb'])
 		expect(() =>
 			folder.todos.set({ id }, { title: 'x', done: false }),
@@ -321,7 +332,7 @@ test('a name that would leave the collection throws before anything is written',
 });
 
 test('delete: one already gone is gone, one changed since shown is kept, and one never shown is removed', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	await folder.todos.delete({ id: 'none' });
 	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
 	await folder.todos.delete({ id: 'a' });
@@ -336,7 +347,7 @@ test('delete: one already gone is gone, one changed since shown is kept, and one
 });
 
 test('a write that cannot land waits, in order, saying why, and lands when the store is back', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	const saving = watch(folder.subscribe, () => folder.saving());
 	const undo = outside.refuse('disk full');
 	let landed = 0;
@@ -361,7 +372,7 @@ test('a write that cannot land waits, in order, saying why, and lands when the s
 });
 
 test('a write is saving on the folder from its call until it lands', async () => {
-	const { folder } = inMemory();
+	const { folder } = await inMemory();
 	const saving = watch(folder.subscribe, () => folder.saving());
 	const writing = folder.todos.set({ id: 'a' }, { title: '', done: false });
 	expect(folder.saving()).toBe(true);
@@ -374,11 +385,10 @@ test('a write is saving on the folder from its call until it lands', async () =>
 });
 
 test('a file collection lists entries without bytes; set is the later write, and delete keeps a change since shown', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	const shown = watch(folder.attachments.subscribe, () =>
 		folder.attachments.items(),
 	);
-	await until(() => !folder.attachments.loading());
 	const at = { id: 'a', ext: 'png' };
 	await folder.attachments.set(at, new Uint8Array([1]));
 	expect(shown.values.at(-1)).toEqual([at]);
@@ -413,70 +423,4 @@ test('over a directory, a write over a note the folder has not listed reads it f
 	expect(await readFile(join(root, 'todos/b.md'), 'utf8')).toContain(
 		'<<<<<<< current',
 	);
-});
-
-test('a file collection appends where its store can, and its listeners hear an announced append', async () => {
-	const held = new Map<string, Uint8Array>();
-	const store: DeviceStore = {
-		list: async () =>
-			Ok(
-				[...held].map(([path, bytes]) => ({
-					path,
-					stamp: `${path}:${bytes.length}`,
-				})),
-			),
-		async read(path) {
-			const bytes = held.get(path);
-			if (bytes === undefined) return Ok(null);
-			const stamp = `${path}:${bytes.length}`;
-			return Ok({ bytes, version: stamp as Version, stamp });
-		},
-		write: async () => Ok({ landed: null }),
-		async append(path, added, { create }) {
-			const there = held.get(path);
-			if (create === (there !== undefined)) return Ok('stale');
-			held.set(path, new Uint8Array([...(there ?? []), ...added]));
-			return Ok('landed');
-		},
-		watch: () => () => {},
-	};
-	const folder = createFolder(todos, async () => Ok(store));
-	let heard = 0;
-	const stop = folder.attachments.subscribe(() => heard++);
-	const at = { id: 'a', ext: 'm4a' };
-	const piece = (create: boolean, announce = false) =>
-		folder.attachments.append(at, new Uint8Array([1]), { create, announce });
-
-	expect(expectOk(await piece(true))).toBe(true);
-	expect(expectOk(await piece(true))).toBe(false);
-	expect(expectOk(await piece(false))).toBe(true);
-	expect(expectOk(await piece(false))).toBe(true);
-	await Bun.sleep(20);
-	const heardBefore = heard;
-	expectOk(await piece(false, true));
-	await until(() => heard > heardBefore);
-	expect(held.get('todos/a.m4a')).toEqual(new Uint8Array([1, 1, 1, 1]));
-	expect(
-		expectOk(
-			await folder.attachments.append(
-				{ id: 'b', ext: 'm4a' },
-				new Uint8Array([2]),
-				{
-					create: false,
-					announce: true,
-				},
-			),
-		),
-	).toBe(false);
-	stop();
-});
-
-test('a file collection over a store that cannot append answers Unavailable', async () => {
-	const { folder } = inMemory();
-	const appended = await folder.attachments.append(
-		{ id: 'a', ext: 'm4a' },
-		new Uint8Array([1]),
-		{ create: true, announce: false },
-	);
-	expect(appended.error?.name).toBe('Unavailable');
 });

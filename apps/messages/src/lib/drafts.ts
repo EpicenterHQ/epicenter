@@ -42,30 +42,13 @@ const fieldsFor = (backend: Backend, chatId: string) => ({
 	mode: backend.mode,
 });
 
-/** Only send and recovery workflows write attempts: one at a time per draft, per folder. */
-const turns = new WeakMap<Folder<Messages>, Map<string, Promise<void>>>();
-async function withDraft<T>(
-	folder: Folder<Messages>,
-	id: string,
-	action: () => Promise<T>,
-) {
-	let queue = turns.get(folder);
-	if (!queue) {
-		queue = new Map();
-		turns.set(folder, queue);
-	}
-	const previous = queue.get(id) ?? Promise.resolve();
-	const turn = Promise.withResolvers<void>();
-	queue.set(id, turn.promise);
-	await previous.catch(() => {});
-	try {
-		return typeof navigator !== 'undefined' && navigator.locks
-			? await navigator.locks.request(`messages-send-${id}`, action)
-			: await action();
-	} finally {
-		turn.resolve();
-		if (queue.get(id) === turn.promise) queue.delete(id);
-	}
+/**
+ * Only send and recovery workflows write attempts: one at a time per draft,
+ * across this browser's tabs and within each, in the order asked
+ * (`navigator.locks` queues both).
+ */
+function withDraft<T>(id: string, action: () => Promise<T>): Promise<T> {
+	return navigator.locks.request(`messages-send-${id}`, action) as Promise<T>;
 }
 
 const unresolved = () =>
@@ -91,8 +74,8 @@ function matches(
 
 /**
  * Show the attempts as storage holds them now: another tab may have written
- * one before this page heard of it (`list()` reads now, and shows what it
- * read). The checks after it then compare the attempt the person saw, by
+ * one before this page heard of it (`list()` lists and reads the attempts
+ * again, and shows what it read). The checks after it then compare the attempt the person saw, by
  * its `attemptId`, with the one stored.
  */
 async function readAttempts(folder: Folder<Messages>) {
@@ -118,7 +101,6 @@ export async function sendDraft(
 	{ id, chatId, backend, text, previousAttemptId, unchanged }: SendInput,
 ): Promise<Result<string, DraftError>> {
 	return withDraft(
-		folder,
 		id,
 		async (): Promise<Result<string, DraftError>> => {
 			const unread = await readAttempts(folder);
@@ -196,7 +178,7 @@ export async function recoverDraft(
 	folder: Folder<Messages>,
 	{ id, chatId, backend, checkedAttemptId, keep, composerEmpty }: RecoverInput,
 ): Promise<Result<void, DraftError>> {
-	return withDraft(folder, id, async (): Promise<Result<void, DraftError>> => {
+	return withDraft(id, async (): Promise<Result<void, DraftError>> => {
 		const unread = await readAttempts(folder);
 		if (unread) return unread;
 		const named = (note: { id: string }) => note.id === id;

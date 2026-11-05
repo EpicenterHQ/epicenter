@@ -46,8 +46,6 @@ export type AudioFile = {
 
 /** Whether a recording's audio can be read. */
 export type RecordingAudio =
-	/** Nothing has been listed yet. */
-	| { readonly kind: 'listing' }
 	| { readonly kind: 'here'; readonly file: AudioFile }
 	/** No audio file has the recording's id. */
 	| { readonly kind: 'absent' }
@@ -98,8 +96,6 @@ function readable(audio: RecordingAudio): Result<AudioFile, string> {
 		return Err(
 			`More than one audio file has this recording’s id (${audio.exts.join(', ')}). Keep one.`,
 		);
-	if (audio.kind === 'listing')
-		return Err('This recording’s audio has not been listed yet.');
 	return Err('This recording has no audio file.');
 }
 
@@ -123,7 +119,7 @@ export function filesOf(files: Folder<Whispering>): WhisperingFiles {
 			return { kind: 'here', file: { id, ext: file.ext } };
 		if (file !== undefined)
 			return { kind: 'ambiguous', exts: playable.map(({ ext }) => ext).sort() };
-		return audio.loading() ? { kind: 'listing' } : { kind: 'absent' };
+		return { kind: 'absent' };
 	}
 
 	return {

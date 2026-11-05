@@ -78,7 +78,7 @@ test('multiline Markdown and tool parts read back whole', async () => {
 	const { id, ...fields } = value;
 	await folder.other().messages.set({ chat: 'chat-a', id }, fields);
 	const conversation = conversationOf(folder, 'chat-a');
-	await conversation.ready;
+	await until(() => conversation.snapshot().messages.length === 1);
 	expect(conversation.snapshot().unreadable).toEqual([]);
 	expect(conversation.snapshot().messages).toEqual([value]);
 	conversation[Symbol.dispose]();
@@ -182,7 +182,6 @@ test('notes that do not read are reported with their path, never hiding valid on
 test('a message another program saves is heard', async () => {
 	using folder = await openVocabFolder();
 	const conversation = conversationOf(folder, 'chat-a');
-	await conversation.ready;
 	let changes = 0;
 	const stop = conversation.subscribe(() => changes++);
 	await folder.other().messages.set(

@@ -1,8 +1,8 @@
 /**
  * A recording's note over a real folder (a `/node` directory, the same
  * layout the desktop window opens through the shell): written once at Stop, when
- * its audio is at its path, and given on the next launch to audio a quit, a
- * crash, or a closed tab left without one, with the length recovery
+ * its audio is at its path, and given on the next desktop launch to audio a
+ * quit or a crash left without one, with the length recovery
  * answered, measured from its bytes when it answered none.
  */
 import { afterEach, expect, test } from 'bun:test';
@@ -130,8 +130,8 @@ test('audio whose length does not read is still given a note, without a length',
 test('recovery is asked about exactly the audio no note names, and names only what it answers', async () => {
 	const { path, files } = await folder();
 	const asked: (readonly string[])[] = [];
-	// The browser recorder's recovery: every one of `unnamed` no tab is
-	// writing, leaving out `writing`, whose Web Lock another tab holds.
+	// A recorder's recovery that answers every one of `unnamed` but
+	// `writing`, which it does not count as whole.
 	const recover: Recorder['recover'] = async ({ unnamed }) => {
 		asked.push(unnamed);
 		return Ok({
@@ -153,15 +153,20 @@ test('recovery is asked about exactly the audio no note names, and names only wh
 	});
 	await writeFile(join(path, 'recordings/done.webm'), 'kept');
 	await keepRecording(files, kept('done'));
-	expect(expectOk(await finishCutOffRecordings(files, capture))).toEqual({
+	expect(expectOk(await finishCutOffRecordings(files, { recover: capture.recover! }))).toEqual({
 		noted: [],
 		unplaced: [],
 	});
 	expect(asked).toEqual([[]]);
 
-	await writeFile(join(path, 'recordings/cut.webm'), 'a closed tab left it');
+	await writeFile(join(path, 'recordings/cut.webm'), 'a quit left it');
 	await writeFile(join(path, 'recordings/writing.webm'), 'still recording');
-	expect(expectOk(await finishCutOffRecordings(files, capture)).noted).toEqual([
+	// The folder hears another program's files through its watch.
+	for (let turn = 0; turn < 400; turn++) {
+		if (expectOk(await files.audio.list()).items.length === 3) break;
+		await Bun.sleep(10);
+	}
+	expect(expectOk(await finishCutOffRecordings(files, { recover: capture.recover! })).noted).toEqual([
 		'cut',
 	]);
 	expect(asked.at(-1)?.toSorted()).toEqual([

@@ -18,6 +18,9 @@
  *   it without a new one. Nothing sends a request until the person asks.
  * - `choices` is this computer's model for each job, `'transcribe'` and
  *   `'chat'`.
+ * - `settings` is this computer's settings, which `<WhenOpen>` connects to
+ *   beside the folder: the model choices, the connections, the microphone
+ *   and, on the desktop, the shortcut override are read at once from then.
  * - `speech` is transcription in this app's process on the desktop, null on
  *   the web: the handle `ai` merges and Settings administers.
  * - `recorder` records from the microphone into `folder.audio`, as it records.
@@ -26,6 +29,7 @@
 import { customEndpoints, hosted, modelChoices, openAi } from '@epicenter/ai';
 import { APPS } from '@epicenter/definition/site';
 import { home, openFolder } from '@epicenter/folder';
+import { settings as computer } from '@epicenter/local';
 import { reactive } from '@epicenter/svelte/reactive';
 import { localSpeech } from '@epicenter/transcription';
 import { connectAccount } from '#platform/account';
@@ -48,6 +52,7 @@ export const ai = reactive(
 	openAi([hosted(signIn), customEndpoints(), localModelServers(), speech]),
 );
 export const choices = reactive(modelChoices<'transcribe' | 'chat'>());
+export const settings = reactive(computer);
 export const recorder = createMicrophoneDevice({
 	files: folder.audio,
 	recorder: microphone,

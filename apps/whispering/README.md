@@ -41,9 +41,9 @@ without an account and works offline. Nothing syncs, uploads, or moves to a
 repository, and there is no other view
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
-- A recording is kept as it records: its audio written a piece at a time,
-  its note with its length at Stop (see [Recording](#recording)).
-  Recording never waits on the network.
+- A recording lands whole at Stop: its audio, then its note with its
+  length (see [Recording](#recording)). Recording never waits on the
+  network.
 - Transcripts, transformations, and their results are kept beside it when
   they are made.
 - Changes another tab makes show without a reload.
@@ -92,15 +92,18 @@ the optional sign-in).
 
 ### Recording
 
-Press the microphone on Home to start and again to stop. The audio is
-written into this browser's files as it records, about a second at a time
-(AAC in `.m4a`, else Opus in `.webm`); Stop keeps a note beside it titled
-with the time and holding its length, and the recording appears in the
-list. A refresh, a crash, or a closed tab keeps what was recorded up to the
-cut: the next start cuts a half-written file back to its last whole second
-and gives it a note ("Recovered recording") with the length of what was
-written. A browser that keeps no files for the site (a private window)
-cannot record; the app says why before any microphone opens.
+Press the microphone on Home to start and again to stop. The take is kept
+in the page's memory while it records (AAC in `.m4a`, else Opus in
+`.webm`); Stop writes the audio into this browser's files at once, then a
+note beside it titled with the time and holding its length, and the
+recording appears in the list. While a take runs, leaving the page asks
+first.
+
+The web app does not promise to keep a take through a crash or a closed
+tab: one cut off that way is lost. The desktop app keeps it
+([ADR-0780](../../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
+A browser that keeps no files for the site (a private window) cannot open
+Whispering's files, and the app says why.
 
 ### Recordings
 
@@ -163,7 +166,8 @@ Three controls sit beside the microphone on Home:
   microphones** does. A chosen microphone that is not connected refuses the
   recording; no other is used in its place. **Test microphone** shows its
   level and records nothing. The choice applies to the next recording and is
-  kept in this site's `localStorage`, never in Whispering's files.
+  kept in this computer's settings (`microphone.json`: this site's
+  `localStorage`, or AppData on the desktop), never in Whispering's files.
 - **Transcription model.** The transcription part of Settings, the same
   choice.
 - **Post-processing.** None, or one of your transformations. Choosing sends
@@ -177,9 +181,11 @@ endpoint Whispering can reach (ADR-0757): Epicenter's once you sign in, each
 connection you saved (a provider's base URL and an optional key), Ollama and
 LM Studio when they run on this computer, and on the desktop transcription
 in the app itself. The same picker adds, edits and removes a connection.
-Choices and connections stay on this device, never in Whispering's files:
-in this site's `localStorage`, or on the desktop AppData's `models.md` and
-`connections.md`, with each key in the credential store.
+Choices and connections stay on this computer, never in Whispering's
+files: `models.md` and `connections.md` in this computer's settings (this
+site's `localStorage`, or AppData on the desktop), with each key in this
+site's `connection-keys.json`, or on the desktop in the app's
+`credentials.json`.
 
 - Nothing is sent until you press Transcribe or Run. Choosing a model sends
   nothing; adding a connection may ask its endpoint which models it serves.
@@ -223,10 +229,9 @@ the `epicenter` CLI, and the app built against that API on
 `http://localhost:1420` (which must be free). With no account, it records
 (audio and note land in OPFS and nothing else does), edits a title and a
 transcript, transcribes over a stubbed custom endpoint, and deletes a
-recording, then reloads; it watches a recording's audio file appear and
-grow in OPFS while it records, with no note yet, reloads mid-recording, and
-sees the next start give it a note with the length of what was written;
-offline, it records
+recording, then reloads; it sees nothing written while a take records, a
+reload mid-recording lose the take, and a stopped take land as its audio
+and note together; offline, it records
 and edits; it shows the
 Safari line in Settings in WebKit and not in Chromium, and the
 Epicenter's transcription model refused until sign-in, then, signed in, sending the
@@ -252,9 +257,11 @@ bun build:whispering:desktop   # a local, unsigned macOS app bundle
 Its Tauri shell derives `~/Epicenter/whispering` and names it the Data root, or
 `~/Epicenter Dev/whispering` in development. The page opens this folder,
 making it when missing for now. What this computer alone keeps, the
-shortcut's override, the connected endpoints and the model choices, each
-capability keeps in its own file on this computer (`localFile` from
-`@epicenter/local`, in AppData); the page opens no AppData root. A failed open shows the shared recovery screen with Retry. The
+shortcut's override, the connected endpoints, the model choices and the
+microphone, is this computer's settings (`settings` from `@epicenter/local`:
+files in AppData, written only by the shell), which the page connects to
+beside the folder. A failed open shows the shared recovery screen with
+Retry. The
 status details and Settings show the shell's folder path. **Set up in
 Epicenter** enrolls the folder for local history; connecting a repository
 there enables transfer. Whispering never syncs it itself.
@@ -274,9 +281,9 @@ build-time seams:
 page's life: the folder (`openFolder`, which the build also picks: this
 browser's storage, or the data folder), the account, the models
 (connections and `localSpeech()` are picked by their own packages' builds),
-the recorder, and the shortcut. The root renders the pages over the open
-folder (`<WhenOpen>` from `@epicenter/svelte`), or the recovery screen when
-it cannot open.
+the recorder, the settings, and the shortcut. The root renders the pages
+once the folder and the settings are open (`<WhenOpen>` from
+`@epicenter/svelte`), or the recovery screen when one cannot open.
 
 `src/lib/platform/platform.test.ts` bundles both builds and names a seam
 whose desktop leaf went missing.
@@ -286,12 +293,14 @@ whose desktop leaf went missing.
   in WebM in the data folder from the first sample and places it at
   `recordings/<id>.webm` when Stop answers, in the same few milliseconds
   for a recording of any length. The call is the web build's,
-  `recorder.start({ folder, path })` from `@epicenter/recorder`, imported
+  `recorder.start({ files, path })` from `@epicenter/recorder`, imported
   from `/tauri` here and `/browser` there (decision 84). The note, with its
-  length, is written once Stop has answered (`folder-recordings.ts`); a
-  recording a quit or a crash cut off is finished and placed on the next
-  launch, before any page shows, and given its note there. The shell records into the data folder it opened
-  for the page; the page names only the recording's path.
+  length, is written once Stop has answered (`folder-recordings.ts`). A
+  recording a quit or a crash cut off is finished, placed and given its
+  note on the next launch, in the background beside the pages; it is at no
+  data path until then, so nothing lists it first. The shell records into
+  the data folder it opened for the page; the page names only the
+  recording's path.
 - **Requests** to a connection, and to Ollama and LM Studio, leave from
   Rust through the shell's one fetch (`connection_fetch` in
   `epicenter-account`), which adds a connection's key and sends only to the
@@ -300,12 +309,14 @@ whose desktop leaf went missing.
   holds); transcription on this computer runs in the app
   (`localSpeech()` from `@epicenter/transcription`, models downloaded in
   Settings), which takes the recording's audio as an upload.
-- **Connections** are AppData's `connections.md`, with no key in it, and
-  **keys** are credential-store entries, one per connection
-  (`customEndpoints()` from `@epicenter/ai`, whose desktop build keeps them
-  through `createKeychainConnections` from `@epicenter/ai/tauri`). A debug build
-  started with `EPICENTER_SECRETS_FILE=<path>` keeps the keys in that file
-  instead.
+- **Connections** are AppData's `connections.md`, which records the
+  endpoint each key was entered for and never the key
+  (`customEndpoints()` from `@epicenter/ai`). **Keys** are in the app's
+  `credentials.json` in AppData, which the shell keeps and no page reads
+  (`connection_key_set`,
+  [ADR-0740](../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)).
+  A debug build started with `EPICENTER_SECRETS_FILE=<path>` keeps its
+  credentials in that file instead.
 - **Sign-in** is `so.epicenter.whispering.native` through the shared
   [`epicenter-account`](../../packages/tauri-epicenter-account/README.md)
   crate, in the system browser.
@@ -313,7 +324,7 @@ whose desktop leaf went missing.
   `toggleRecording` in `shortcuts.md`, `CommandOrControl+Shift+;` by
   default. It resolves with a shallow spread, `{ ...defaults, ...data,
   ...here }`: the data folder's note travels with the files, and this
-  computer's `shortcuts.md` (`localFile('shortcuts.md')`, Settings' **Only
+  computer's `shortcuts.md` (`settings.file('shortcuts.md')`, Settings' **Only
   on this computer**) overrides it here.
   Settings writes the data folder's note by default, and removes this
   computer's override when it does. The shell never reads the note: the
@@ -334,6 +345,8 @@ build script declares, and how an accelerator parses.
 
 - Syncing, uploading, or moving recordings to a repository or another
   device, and a view of a repository.
+- In the web app, keeping a take through a crash or a closed tab, recording
+  in the background, and a global shortcut: these are the desktop app's.
 - A Files view, a Source tab for notes that read, renaming files, and files
   outside the contract. A note that does not read is repaired as text where
   it is listed.

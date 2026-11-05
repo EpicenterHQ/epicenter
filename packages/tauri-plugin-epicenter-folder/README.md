@@ -134,16 +134,18 @@ rename; Git history is the backstop
 
 ## Storage
 
-A page's folder storage (`DeviceStore` in `@epicenter/folder`'s
-`device/store.ts`, through `device/tauri-store.ts`) is these commands, one
-per method, each one IPC call
-([ADR-0581](../../docs/adr/0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md)):
+A page's folder storage (`Store` in `@epicenter/folder`'s
+`device/store.ts`, four verbs, through `device/tauri-store.ts`) is these
+commands, each one IPC call
+([ADR-0581](../../docs/adr/0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md),
+[ADR-0779](../../docs/adr/0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md)):
 
 | Method | Command | Answers |
 | --- | --- | --- |
-| `list()` | `list_folder(root)` | `{ path, stamp }[]`, every file, `.git` aside; hidden files, `.epicenter`'s included, are listed for the reader to skip |
-| `read(path)` | `read_folder_file(root, path)` | the stamp, a zero byte, then the file bytes, raw |
-| `write(path, bytes, expected)` | `put_folder_file`, raw body and headers | `"landed"` or `"stale"` |
+| `list(under)` | `list_folder(root, under)` | `{ path, version, size }[]`, every file at or below each of `under`, `.git` aside; hidden files, `.epicenter`'s included, are listed for the reader to skip |
+| `read(paths)` | `read_folder_file(root, path)`, once per path | the stamp, a zero byte, then the file bytes, raw |
+| `write(path, bytes, over)` | `put_folder_file`, raw body and headers | `{ landed: stamp }` or `"stale"` |
+| `watch(changed)` | none: the root's watch, which `open_root` started | the `folder-changed` events for the root |
 
 A storage command answers a `FolderError`: a `RootError` when its root
 cannot be used, and a `StorageError` (below) when the operation refuses or
@@ -177,6 +179,11 @@ as its vectors (`core/src/storage_outcomes.json`) show:
   listing each parent.
 - A file where a directory should be is `NotADirectory` naming it, and a
   directory where a file should be is `NotAFile`.
+- `credentials.json` at the top of the AppData root is the shell's own: the
+  refresh token and provider keys
+  [`epicenter-account`](../tauri-epicenter-account/README.md) keeps
+  (ADR-0740). A listing leaves it out, and a read or a put of it is
+  `InvalidPath`. The name anywhere else is an ordinary file.
 
 A storage refusal or failure is a `StorageError`: `InvalidPath`, `NotFound`,
 `NotAFile`, `NotADirectory`, or `Io` with the operation and the system's

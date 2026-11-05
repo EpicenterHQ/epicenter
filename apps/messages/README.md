@@ -69,8 +69,9 @@ for the page, `openFolder(messages, home())` with no site or account
 ([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)),
 and every component and the send workflow (`drafts.ts`) read and write
 through that `folder`. The page renders under `<WhenOpen>`, which shows a
-spinner while the files open, Recovery when they cannot, and asks before
-the page is left while a save is out.
+spinner after 150 ms while the files open, Recovery when they cannot (a
+private window keeps no files), and asks before the page is left while a
+save is out. Every read of the files inside it is synchronous.
 
 Messages is local only: of the variants an app may have
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)),

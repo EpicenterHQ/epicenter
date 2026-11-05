@@ -176,7 +176,6 @@ export function createLibrary({
 	// Recordings that are gone are no longer selected in the table.
 	const stopPruning = $effect.root(() => {
 		$effect(() => {
-			if (files.recordings.loading()) return;
 			const present = new Set(entries.map((note) => note.id));
 			if (ui.recordingSelected.some((id) => !present.has(id)))
 				ui.recordingSelected = ui.recordingSelected.filter((id) =>
@@ -245,10 +244,6 @@ export function createLibrary({
 		/** Recordings that read, newest first. */
 		get entries() {
 			return entries;
-		},
-		/** Whether the recordings have not been listed yet. */
-		get listing() {
-			return files.recordings.loading();
 		},
 		/** Recordings, transcripts and their results that do not read, with why. */
 		get repairs() {

@@ -13,7 +13,7 @@ import { openRoot } from './native/root.js';
 import { type HomeOptions, type Place, place } from './place.js';
 import { revealRoot } from './tauri.js';
 
-export { OpenFolderError } from './errors.js';
+export { FolderClosed, FolderNotOpen, OpenFolderError } from './errors.js';
 export type {
 	Folder,
 	FolderCollection,

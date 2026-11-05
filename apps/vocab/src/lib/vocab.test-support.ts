@@ -29,14 +29,15 @@ export async function openVocabFolder(initial: Record<string, string> = {}) {
 		await files.write(path, text);
 	const others: Folder<Vocab>[] = [];
 	// As the page reads them: the folder, read through `reactive`.
-	const lists = reactive(openFolder(vocab, place));
+	const opened = openFolder(vocab, place);
+	await opened.entries.list();
+	const lists = reactive(opened);
 	const followed = follow(() => [
 		lists.entries.items(),
 		lists.entries.invalid(),
 		lists.chats.items(),
 		lists.chats.invalid(),
 	]);
-	await until(() => !lists.entries.loading() && !lists.chats.loading());
 	return {
 		lists,
 		/** Every chat's messages, as a conversation is given them (`folder.messages`). */

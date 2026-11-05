@@ -8,8 +8,8 @@
  * `/tauri`), and nothing here chooses between them: in a browser the page's
  * own microphone, on the desktop the shell's (ADR-0571), which lists inputs
  * by name without access and asks for access itself, so it has no `allow`.
- * Either way the recording is written into the folder as it records, at
- * `recordings/<id>.<ext>`.
+ * Either way the recording lands at `recordings/<id>.<ext>` when it stops;
+ * only the desktop's shell keeps a take through a quit, so only it recovers.
  *
  * A chosen microphone is asked for by the exact ID the recorder listed it
  * under. When that one cannot be opened, the answer is a refusal: no other
@@ -31,6 +31,7 @@ export function createMicrophoneDevice({
 	/** Lists, tests, and records from the microphone. */
 	recorder: Recorder;
 }): CaptureDevice {
+	const { recover } = recorder;
 	return {
 		inputs: recorder,
 		async start({ id, input, signal }) {
@@ -52,22 +53,24 @@ export function createMicrophoneDevice({
 				},
 			});
 		},
-		async recover(unnamed) {
-			// Which of these is whole, and where else a cut-off one waits, is
-			// the recorder's to know.
-			const { data, error } = await recorder.recover({
-				files,
-				under: DIRECTORY,
-				unnamed,
-			});
-			if (error !== null) return Err(error);
-			return Ok({
-				whole: data.recovered.map(({ path, durationMs }) => ({
-					id: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
-					durationMs,
-				})),
-				unplaced: data.unplaced,
-			});
-		},
+		...(recover && {
+			async recover(unnamed: readonly string[]) {
+				// Which of these is whole, and where else a cut-off one waits, is
+				// the recorder's to know.
+				const { data, error } = await recover({
+					files,
+					under: DIRECTORY,
+					unnamed,
+				});
+				if (error !== null) return Err(error);
+				return Ok({
+					whole: data.recovered.map(({ path, durationMs }) => ({
+						id: path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
+						durationMs,
+					})),
+					unplaced: data.unplaced,
+				});
+			},
+		}),
 	};
 }

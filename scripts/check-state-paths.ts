@@ -8,9 +8,7 @@
  * nowhere else.
  *
  * Exempt:
- *   - The two modules themselves, and the OPFS worker's one inlined copy
- *     (`opfs-worker.ts`, which imports nothing), which `state.test.ts` holds
- *     to the shared layout.
+ *   - The two modules themselves.
  *   - Tests and test support: `*.test.ts` and friends, `*_tests.rs`,
  *     `tests.rs`, `testing.rs`, a Rust `#[cfg(test)] mod` block, and
  *     `smoke/`, `e2e/` and `tests/` directories.
@@ -30,10 +28,9 @@ const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
 	encoding: 'utf8',
 }).trim();
 
-/** The modules that own the layout, and the worker's verified copy. */
+/** The modules that own the layout. */
 const OWNERS = new Set([
 	'packages/folder/src/state.ts',
-	'packages/folder/src/device/opfs-worker.ts',
 	'packages/tauri-plugin-epicenter-folder/core/src/state.rs',
 ]);
 

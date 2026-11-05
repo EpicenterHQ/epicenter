@@ -6,8 +6,11 @@
  * Typing a field, the body, or the note's whole text saves it. Saves go
  * through the folder's queue in order, one at a time, and each sends
  * everything typed since the last that landed, so a burst of keystrokes is
- * a few writes. A save never fails: while the store is out of reach it
- * waits, and the editor keeps showing what was typed (ADR-0775). Each typed
+ * a few writes. A save never fails while the folder lives: while the store
+ * is out of reach it waits, and the editor keeps showing what was typed
+ * (ADR-0775). When the folder fails or closes first, the save is not made
+ * and `landed()` rejects with `FolderClosed` (ADR-0782); what was typed
+ * stays, and is sent again by the next keystroke or `landed()`. Each typed
  * field takes this write; a body or whole text typed over a note that
  * changed since the typing began is settled with `settle`, against the
  * text the editor began from (ADR-0774), so neither side is lost.
@@ -23,7 +26,7 @@ import type {
 } from '@epicenter/definition/contract';
 import { sameValue } from '@epicenter/definition/note';
 import { createLogger } from 'wellcrafted/logger';
-import type { Seen } from './device/client.js';
+import type { Seen } from './folder.js';
 import type { noteCodec } from './note-codec.js';
 
 const log = createLogger('folder');
@@ -56,7 +59,11 @@ export type NoteEdit<TCollection extends Collection> = {
 	typed(): (NotePatch<TCollection> & { text?: string }) | null;
 	/** Show the note again, dropping what was typed and not yet sent; a save already out still lands. */
 	discard(): void;
-	/** Answers once everything typed so far has landed: at once when nothing is waiting. */
+	/**
+	 * Answers once everything typed so far has landed: at once when nothing
+	 * is waiting. Rejects with `FolderClosed` when the folder fails or closes
+	 * before it lands.
+	 */
 	landed(): Promise<void>;
 	/** Call `listener` when a read may answer differently: the editor's own, or the note's. */
 	subscribe(listener: () => void): () => void;
@@ -114,7 +121,9 @@ export function editNote({
 	let queued = false;
 	/** Saves queued or running. */
 	let out = 0;
-	let waiters: (() => void)[] = [];
+	/** Whoever waits in `landed()`. */
+	let waiters: { resolve: () => void; reject: (cause: unknown) => void }[] =
+		[];
 	const listeners = new Set<() => void>();
 
 	function notify() {
@@ -135,7 +144,7 @@ export function editNote({
 		if (out > 0 || waitingToSend()) return;
 		const done = waiters;
 		waiters = [];
-		for (const resolve of done) resolve();
+		for (const { resolve } of done) resolve();
 	}
 
 	/** Queue a save, unless one waiting to start will carry this keystroke. */
@@ -183,11 +192,21 @@ export function editNote({
 				typed = Object.keys(pending).length === 0 ? null : { ...pending };
 				typedText = pendingText;
 			},
-		).finally(() => {
-			out--;
-			notify();
-			settled();
-		});
+		)
+			.then(undefined, (cause: unknown) => {
+				// The folder failed or closed first (`FolderClosed`): this save
+				// is not made, what was typed stays pending, and whoever waits
+				// hears why.
+				queued = false;
+				const failing = waiters;
+				waiters = [];
+				for (const { reject } of failing) reject(cause);
+			})
+			.finally(() => {
+				out--;
+				notify();
+				settled();
+			});
 	}
 
 	function setField(field: string, value: unknown) {
@@ -229,7 +248,12 @@ export function editNote({
 		},
 		landed() {
 			if (out === 0 && !waitingToSend()) return Promise.resolve();
-			return new Promise<void>((resolve) => waiters.push(resolve));
+			const waiting = new Promise<void>((resolve, reject) =>
+				waiters.push({ resolve, reject }),
+			);
+			// Typing a save that was not made left behind: send it again.
+			if (out === 0) send();
+			return waiting;
 		},
 		subscribe(listener: () => void) {
 			listeners.add(listener);

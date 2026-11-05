@@ -3,10 +3,10 @@
  * writes a repository's files through these, and never holds a copy of it.
  *
  * ```txt
- * GET  <git>/<ns>/<name>.git/epicenter/head              folders:read   the commit main is at
- * GET  <git>/<ns>/<name>.git/epicenter/files?root=<dir>   folders:read   every file under <dir>
- * GET  <git>/<ns>/<name>.git/epicenter/file?path=<path>   folders:read   one file
- * POST <git>/<ns>/<name>.git/epicenter/writes             folders:write  one commit
+ * GET  <git>/<ns>/<name>.git/epicenter/changes?since=<commit>  folders:read   the commit main is at, and the paths changed since
+ * GET  <git>/<ns>/<name>.git/epicenter/files?root=<dir>&…       folders:read   every file under each <dir>
+ * POST <git>/<ns>/<name>.git/epicenter/read                     folders:read   the files at { paths }, in one request
+ * POST <git>/<ns>/<name>.git/epicenter/writes                   folders:write  one commit
  * ```
  *
  * A write is `{ root?, files }`, each file one of
@@ -56,7 +56,14 @@ import {
 	ZERO_OID,
 } from '../git/objects.js';
 import { writePack } from '../git/pack.js';
-import { type Change, editTree, listFiles, lookup } from '../git/tree-edit.js';
+import {
+	type Change,
+	diffTrees,
+	editTree,
+	listFiles,
+	lookup,
+	treeLookup,
+} from '../git/tree-edit.js';
 import { LFS_OID, type LfsObject, type LfsStore } from '../lfs/lfs-store.js';
 
 const OID = /^[0-9a-f]{40}$/;
@@ -357,22 +364,16 @@ export async function applyWrite({
 }
 
 /**
- * The commit `main` is at (`{ commit }`, null before the first write): one
- * ref read, cheap enough for a client to poll to learn that `main` moved.
+ * Every file at or below each of `roots` (a folder or a file path; `''`
+ * or none: the whole repository), with each pointer's LFS object, all from
+ * one commit of `main`.
  */
-export async function readRepositoryHead(
-	objects: GitObjects,
-): Promise<Response> {
-	return json({ commit: (await objects.refs()).get(MAIN) ?? null });
-}
-
-/** Every file under `root`, with each pointer's LFS object. */
 export async function listRepositoryFiles(
 	objects: GitObjects,
-	root: unknown,
+	roots: readonly unknown[],
 ): Promise<Response> {
-	const folder = readRoot(root);
-	if (folder === null)
+	const folders = (roots.length === 0 ? [''] : roots).map(readRoot);
+	if (folders.some((folder) => folder === null))
 		return json(
 			{ error: 'invalid_request', message: 'root is not a folder path' },
 			400,
@@ -380,47 +381,101 @@ export async function listRepositoryFiles(
 	const main = (await objects.refs()).get(MAIN);
 	if (main === undefined) return json({ commit: null, files: [] });
 	const tree = (await readCommit(objects, main))?.tree ?? null;
-	const entries = await listFiles(objects, tree, folder);
+	const wanted = [...new Set(folders as string[])].filter(
+		(folder, _, all) =>
+			!all.some((other) => other !== folder && (other === '' || under(other, folder))),
+	);
+	const entries: { oid: string; path: string }[] = [];
+	for (const folder of wanted) {
+		const file = folder === '' ? null : await lookup(objects, tree, folder);
+		if (file !== null) entries.push({ oid: file.oid, path: folder });
+		else entries.push(...(await listFiles(objects, tree, folder)));
+	}
 	const files = await Promise.all(
 		entries.map(async ({ path, oid }) => {
 			if (!storedWithLfs(path)) return { path, blob: oid };
-			const found = await objects.read(oid, 'blob', {
-				maxBytes: MAX_POINTER_BYTES,
-			});
-			const pointer = found?.bytes ? readPointer(found.bytes) : null;
+			const pointer = await readLfsPointer(objects, oid);
 			return pointer ? { path, blob: oid, lfs: pointer } : { path, blob: oid };
 		}),
 	);
 	return json({ commit: main, files });
 }
 
-/** One file: a note's text, or another file's LFS object. */
-export async function readRepositoryFile(
+/** The LFS object the pointer blob `oid` names, or null when it names none. */
+async function readLfsPointer(objects: GitObjects, oid: string) {
+	const found = await objects.read(oid, 'blob', {
+		maxBytes: MAX_POINTER_BYTES,
+	});
+	return found?.bytes ? readPointer(found.bytes) : null;
+}
+
+/** The most paths one read request may name. */
+export const MAX_READ_PATHS = 10_000;
+
+/**
+ * The files at `paths` on one commit of `main`, in the request's order:
+ * each note's text, each other file's LFS object, or `gone` where nothing
+ * is. One request answers a folder's contents (ADR-0779).
+ */
+export async function readRepositoryFiles(
 	objects: GitObjects,
-	path: unknown,
+	body: unknown,
 ): Promise<Response> {
-	if (pathProblem(path) !== null)
+	const paths = (body as { paths?: unknown } | null)?.paths;
+	if (
+		!Array.isArray(paths) ||
+		paths.length > MAX_READ_PATHS ||
+		paths.some((path) => pathProblem(path) !== null)
+	)
 		return json(
-			{ error: 'invalid_request', message: 'path is not a repository path' },
+			{
+				error: 'invalid_request',
+				message: `paths is a list of at most ${MAX_READ_PATHS} repository paths`,
+			},
 			400,
 		);
-	const p = path as string;
-	const main = (await objects.refs()).get(MAIN);
-	const tree = main ? ((await readCommit(objects, main))?.tree ?? null) : null;
-	const entry = await lookup(objects, tree, p);
-	if (!entry)
-		return json({ error: 'not_found', message: `${p} is not on main` }, 404);
-	if (storedWithLfs(p)) {
-		const found = await objects.read(entry.oid, 'blob', {
-			maxBytes: MAX_POINTER_BYTES,
-		});
-		const pointer = found?.bytes ? readPointer(found.bytes) : null;
-		return json({ commit: main, path: p, blob: entry.oid, lfs: pointer });
-	}
-	return json({
-		commit: main,
-		path: p,
-		blob: entry.oid,
-		text: await readText(objects, entry.oid),
-	});
+	const main = (await objects.refs()).get(MAIN) ?? null;
+	const tree = main
+		? ((await readCommit(objects, main))?.tree ?? null)
+		: null;
+	const lookupIn = treeLookup(objects, tree);
+	const files = await Promise.all(
+		(paths as string[]).map(async (path) => {
+			const entry = await lookupIn(path);
+			if (!entry) return { path, gone: true };
+			if (storedWithLfs(path))
+				return { path, blob: entry.oid, lfs: await readLfsPointer(objects, entry.oid) };
+			return { path, blob: entry.oid, text: await readText(objects, entry.oid) };
+		}),
+	);
+	return json({ commit: main, files });
+}
+
+/**
+ * Where `main` is (`commit`, null before the first write), and the paths
+ * that changed since the commit `since` names: every path whose blob
+ * differs between the two trees. `paths` is null when `since` is not
+ * given, or names no commit this repository holds, so the reader takes a
+ * new listing; `[]` when `main` is still there. A poller asks this every
+ * few seconds (ADR-0778).
+ */
+export async function readRepositoryChanges(
+	objects: GitObjects,
+	since: unknown,
+): Promise<Response> {
+	const main = (await objects.refs()).get(MAIN) ?? null;
+	if (since === undefined || since === null)
+		return json({ commit: main, paths: null });
+	const from = since === '' ? null : String(since);
+	if (from === main) return json({ commit: main, paths: [] });
+	if (from !== null && !OID.test(from))
+		return json(
+			{ error: 'invalid_request', message: 'since is a commit id' },
+			400,
+		);
+	const before =
+		from === null ? null : ((await readCommit(objects, from))?.tree ?? undefined);
+	if (before === undefined) return json({ commit: main, paths: null });
+	const after = main ? ((await readCommit(objects, main))?.tree ?? null) : null;
+	return json({ commit: main, paths: await diffTrees(objects, before, after) });
 }

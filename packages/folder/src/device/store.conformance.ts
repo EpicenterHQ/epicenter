@@ -1,0 +1,197 @@
+/**
+ * What every store answers the same way (ADR-0778, ADR-0779), as checks any
+ * runner calls: `bun test` over memory, a directory, the desktop shell's
+ * commands over an emulated shell, and the repository on a real server
+ * (`remote.postgres.test.ts`), and Playwright over this browser's private
+ * files (`smoke/device.ts`). Each check throws when the store does not
+ * hold, so it needs no test framework.
+ *
+ * - The four verbs: a create where nothing is, a write over the version
+ *   read, `'stale'` over any other, a removal, a listing below the paths
+ *   asked for, and a read that says what is gone; a listing and a read name
+ *   one file's bytes by one version.
+ * - Arming before listing: once `watch` answered, a write from outside is
+ *   heard, and the listing after it shows it.
+ * - A hint never precedes readable bytes: a read made the moment a path is
+ *   heard answers the change.
+ * - A write racing a read of one path: the read answers whole bytes of one
+ *   side with their own version, and the read after the hint answers the
+ *   write.
+ */
+import type { Result } from 'wellcrafted/result';
+import type { FileRead, Store, Version } from './store.js';
+
+/** A store under test, and the world outside it. */
+export type StoreSubject = {
+	store: Store;
+	/** Write `bytes` at `path`, or remove it for null, as another program, tab or person would. */
+	outside(path: string, bytes: Uint8Array | null): Promise<void>;
+	/** How long a change from outside may take to be heard: a poll's period, or a watcher's latency. */
+	hearingMs: number;
+};
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+const bytes = (text: string) => encoder.encode(text);
+
+function check(holds: boolean, what: string): asserts holds {
+	if (!holds) throw new Error(`The store does not hold: ${what}`);
+}
+
+/** The data of a store answer, or a thrown failure. */
+function ok<T>(answer: Result<T, unknown>): T {
+	if (answer.error !== null)
+		throw new Error(`The store answered a failure: ${JSON.stringify(answer.error)}`);
+	return answer.data as T;
+}
+
+async function readOne(store: Store, path: string) {
+	const [file] = ok(await store.read([path]));
+	check(file !== undefined && file.path === path, `a read answers ${path}`);
+	return file;
+}
+
+const textOf = (file: FileRead) => ('gone' in file ? null : decoder.decode(file.bytes));
+
+/** Wait until `done()` or `ms` passed; answers whether it is done. */
+async function until(done: () => boolean, ms: number) {
+	const end = Date.now() + ms;
+	while (!done() && Date.now() < end)
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	return done();
+}
+
+/** A path no other check or run uses. */
+const fresh = (name: string) =>
+	`conformance/${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}/${name}`;
+
+/** Every check, by name, in the order they run. */
+export const storeChecks: Record<string, (subject: StoreSubject) => Promise<void>> = {
+	async 'the four verbs'({ store }) {
+		const note = fresh('a.md');
+		const audio = note.replace(/a\.md$/, 'a.webm');
+		const made = ok(await store.write(note, bytes('one'), 'absent'));
+		check(typeof made === 'string', 'a create lands with a version');
+		check(
+			ok(await store.write(note, bytes('two'), 'absent')) === 'stale',
+			'a create where a file is is stale',
+		);
+		const read = await readOne(store, note);
+		check(textOf(read) === 'one' && !('gone' in read) && read.version === made, 'a read names what landed');
+		const replaced = ok(await store.write(note, bytes('two'), made as Version));
+		check(typeof replaced === 'string' && replaced !== made, 'a write over the version read lands');
+		check(
+			ok(await store.write(note, bytes('three'), made as Version)) === 'stale',
+			'a write over a version no longer there is stale',
+		);
+		const sound = ok(await store.write(audio, new Uint8Array([1, 2, 3]), 'absent'));
+		check(typeof sound === 'string', 'an attachment lands');
+		const directory = note.slice(0, note.lastIndexOf('/'));
+		const listed = ok(await store.list([directory]));
+		const byPath = new Map(listed.map((file) => [file.path, file]));
+		check(listed.length === 2, 'a listing names only the files below the paths asked for');
+		check(byPath.get(note)?.version === replaced, 'a listing and a write name a note alike');
+		check(byPath.get(audio)?.version === sound, 'a listing and a write name an attachment alike');
+		const [again, attached] = ok(await store.read([note, audio]));
+		check(
+			again !== undefined && !('gone' in again) && again.version === byPath.get(note)?.version,
+			'a listing and a read name a note alike',
+		);
+		check(
+			attached !== undefined && !('gone' in attached) && attached.version === sound,
+			'a listing and a read name an attachment alike',
+		);
+		check(ok(await store.list([note])).length === 1, 'a file path lists that file');
+		check(ok(await store.write(audio, null, sound as Version)) === null, 'a removal lands');
+		check('gone' in (await readOne(store, audio)), 'a read of a removed file is gone');
+		check(ok(await store.write(note, null, replaced as Version)) === null, 'a note is removed');
+		check(ok(await store.list([directory])).length === 0, 'nothing is listed after');
+	},
+
+	async 'arming before listing'({ store, outside, hearingMs }) {
+		const path = fresh('heard.md');
+		const heard: (readonly string[] | 'all')[] = [];
+		const stop = ok(await store.watch((paths) => heard.push(paths)));
+		try {
+			await outside(path, bytes('from outside'));
+			check(
+				await until(
+					() => heard.some((paths) => paths === 'all' || paths.includes(path)),
+					hearingMs,
+				),
+				'a write from outside after watch answered is heard',
+			);
+			const listed = ok(await store.list([path]));
+			check(listed.length === 1, 'the listing after it shows the write');
+			check(textOf(await readOne(store, path)) === 'from outside', 'and reads it new');
+		} finally {
+			stop();
+			await outside(path, null);
+		}
+	},
+
+	async 'a hint never precedes readable bytes'({ store, outside, hearingMs }) {
+		const path = fresh('hint.md');
+		await outside(path, bytes('old'));
+		/** What the read each hint started answered, in the order heard; undefined until it answers. */
+		const answered: (string | null | undefined)[] = [];
+		const stop = ok(
+			await store.watch((paths) => {
+				if (paths !== 'all' && !paths.includes(path)) return;
+				const at = answered.push(undefined) - 1;
+				void readOne(store, path).then((file) => {
+					answered[at] = textOf(file);
+				});
+			}),
+		);
+		try {
+			await outside(path, bytes('new'));
+			// A hint for the write before the watch may still arrive first, and
+			// its read rightly answers the old bytes; the change's own hint comes
+			// after, however late, and a read the moment it is heard answers it.
+			check(
+				await until(() => answered.at(-1) === 'new', hearingMs),
+				`a read the moment it was heard answers the change (${answered.join(', ')})`,
+			);
+		} finally {
+			stop();
+			await outside(path, null);
+		}
+	},
+
+	async 'a write racing a read of one path'({ store, outside, hearingMs }) {
+		const path = fresh('race.md');
+		await outside(path, bytes('before '.repeat(4096)));
+		const before = await readOne(store, path);
+		check(!('gone' in before), 'the file is there');
+		let heard = false;
+		const stop = ok(
+			await store.watch((paths) => {
+				if (paths === 'all' || paths.includes(path)) heard = true;
+			}),
+		);
+		try {
+			const [raced] = await Promise.all([
+				readOne(store, path),
+				outside(path, bytes('after '.repeat(4096))),
+			]);
+			const text = textOf(raced);
+			check(
+				text === 'before '.repeat(4096) || text === 'after '.repeat(4096),
+				'a read racing a write answers one side whole',
+			);
+			if (text === 'before '.repeat(4096) && !('gone' in raced))
+				check(raced.version === before.version, 'the old bytes keep their version');
+			check(await until(() => heard, hearingMs), 'the write is heard');
+			const after = await readOne(store, path);
+			check(textOf(after) === 'after '.repeat(4096), 'the read after the hint answers the write');
+			check(
+				!('gone' in after) && after.version !== before.version,
+				'the new bytes have a new version',
+			);
+		} finally {
+			stop();
+			await outside(path, null);
+		}
+	},
+};

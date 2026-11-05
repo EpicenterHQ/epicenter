@@ -1,156 +1,127 @@
 /**
- * `@epicenter/ai/choices`: the person's model choice for each job, as a
- * device setting. A job is a key an app names (`'chat'`, `'transcribe'`, or
- * its own), and its choice names an endpoint and a model there
- * (`ModelChoice`). A choice whose endpoint is gone stays saved and is still
- * answered, so a caller checks it against `ai.models()` and nothing falls
- * back to another endpoint.
+ * `@epicenter/ai/choices`: the person's model choice for each job, kept in
+ * `models.md` in this computer's settings (`@epicenter/local`: AppData on
+ * the desktop, beside the connections it names; this browser's storage on
+ * the web). A job is a key an app names (`'chat'`, `'transcribe'`, or its
+ * own), and its choice names an endpoint and a model there (`ModelChoice`).
+ * A choice whose endpoint is gone stays saved and is still answered, so a
+ * request to it fails at that endpoint and nothing falls back to another.
  *
- * Where choices are kept is the build's: `modelChoices()` from
- * `@epicenter/ai` keeps them in `models.md` in the app's place for this
- * computer's state (`@epicenter/local`: AppData on the desktop, beside the
- * connections they name, and this browser's storage on the web).
- * `createModelChoices` makes the same value over any place.
+ * The page reads choices once the settings connected (`<WhenOpen>`), so
+ * `get` is the truth, never a stand-in: the saved choice, else the app's
+ * default for the job, else null. When `models.md` does not read, `get`
+ * answers null, and `require`, which an action that decides on a choice
+ * reads, fails with `SettingError.Invalid` naming the file; saving a new
+ * choice replaces it.
  */
-import { extractErrorMessage } from 'wellcrafted/error';
-import { createLogger } from 'wellcrafted/logger';
+import { settings } from '@epicenter/local';
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import { Ok, type Result } from 'wellcrafted/result';
 import type { ModelChoice } from './open-ai.js';
+import { SettingError, settingNote } from './setting-note.js';
 
-const log = createLogger('ai/choices');
+export { SettingError } from './setting-note.js';
 
-/** The choices a place holds: one per job. */
-export type SavedChoices = Readonly<Record<string, ModelChoice>>;
+const text = { type: 'string' } as const;
 
-/** Where choices are kept. */
-export type ChoicesPlace = {
-	/** Every choice saved now. */
-	read(): Promise<SavedChoices>;
-	/** Save `choice` for `job` over what is saved now, and answer every choice saved then. */
-	save(job: string, choice: ModelChoice): Promise<SavedChoices>;
-	/** Call `listener` when another window or program changed what is saved. */
-	watch?(listener: () => void): () => void;
-};
+/** `models.md`: one entry per job, naming an endpoint and a model there. */
+export const modelsCollection = {
+	path: 'models.md',
+	fields: {
+		choices: {
+			type: 'array',
+			items: {
+				type: 'object',
+				properties: { job: text, endpoint: text, model: text },
+				required: ['job', 'endpoint', 'model'],
+			},
+		},
+	},
+	required: ['choices'],
+} as const;
 
-/** The person's model choice for each job, on this device. */
+export const ChoiceError = defineErrors({
+	/** No model is chosen for the job, and the app names no default. */
+	NoChoice: ({ job }: { job: string }) => ({
+		message: `Choose a model for ${job} first.`,
+		job,
+	}),
+});
+export type ChoiceError = InferErrors<typeof ChoiceError>;
+
+/** The person's model choice for each job, on this computer. */
 export type ModelChoices<TJob extends string = string> = {
-	/** The choice saved for `job`, else the app's default for it, else null. */
+	/** The choice saved for `job`, else the app's default for it, else null; null too while `models.md` does not read. */
 	get(job: TJob): ModelChoice | null;
-	/** Save `choice` for `job`. Rejects, and changes nothing, when it cannot be saved. */
+	/** The choice for `job`, for an action that decides on it: why there is none, naming `models.md` when it does not read. */
+	require(job: TJob): Result<ModelChoice, ChoiceError | SettingError>;
+	/** Why `models.md` does not read, or null. */
+	problem(): SettingError | null;
+	/** Save `choice` for `job`, keeping the others; replaces a `models.md` that does not read. Rejects when it cannot be saved. */
 	set(job: TJob, choice: ModelChoice): Promise<void>;
 	/** Call `listener` when a choice may have changed; returns the unsubscribe. */
 	subscribe(listener: () => void): () => void;
-	/** Settles once the saved choices were read, or could not be. */
-	readonly ready: Promise<void>;
-	/** Why the saved choices could not be read, or null. While it is set, only defaults answer. */
-	problem(): string | null;
-	[Symbol.dispose](): void;
 };
 
-function invalid(): never {
-	throw new Error('Invalid persisted model choices.');
-}
-
-/** One choice as saved: exactly an endpoint and a model. */
-function choiceOf(value: unknown): ModelChoice {
-	if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
-	const entry = value as Record<string, unknown>;
-	if (
-		Object.keys(entry).some((key) => !['endpoint', 'model'].includes(key)) ||
-		typeof entry.endpoint !== 'string' ||
-		typeof entry.model !== 'string'
-	)
-		invalid();
-	return { endpoint: entry.endpoint, model: entry.model };
-}
-
-/** Validate saved choices, keeping a choice whose endpoint is gone. */
-export function validateModelChoices(value: unknown): SavedChoices {
-	if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
-	return Object.fromEntries(
-		Object.entries(value).map(([job, choice]) => [job, choiceOf(choice)]),
-	);
-}
-
-/** The choices for each job over `place`, with the app's `defaults` for a job none was saved for. */
-export function createModelChoices<TJob extends string = string>(
-	place: ChoicesPlace,
+/**
+ * The model this computer's person chose for each job; `defaults` answers
+ * a job none was chosen for.
+ */
+export function modelChoices<TJob extends string = string>(
 	defaults: Partial<Record<TJob, ModelChoice>> = {},
 ): ModelChoices<TJob> {
-	let saved: SavedChoices = {};
-	let problem: string | null = null;
-	let disposed = false;
-	let writes: Promise<unknown> = Promise.resolve();
-	const listeners = new Set<() => void>();
+	const note = settingNote(modelsCollection, settings.file('models.md'));
 
-	function assertOpen() {
-		if (disposed) throw new Error('Model choices are disposed.');
-	}
-	function notify() {
-		for (const listener of [...listeners]) {
-			try {
-				listener();
-			} catch (cause) {
-				log.error(new Error('A model choices subscriber failed.', { cause }));
-			}
-		}
-	}
-	function adopt(next: SavedChoices) {
-		if (JSON.stringify(next) === JSON.stringify(saved) && problem === null)
-			return;
-		saved = next;
-		problem = null;
-		notify();
-	}
-	async function reread() {
-		try {
-			const next = await place.read();
-			if (!disposed) adopt(next);
-		} catch (cause) {
-			if (disposed) return;
-			problem = extractErrorMessage(cause);
-			notify();
-		}
+	/** Every saved choice by job, or why `models.md` does not read. */
+	function saved(): Result<Map<string, ModelChoice>, SettingError> {
+		const read = note.get();
+		if (read.error !== null) return read;
+		return Ok(
+			new Map(
+				(read.data?.choices ?? []).map(({ job, endpoint, model }) => [
+					job,
+					{ endpoint, model },
+				]),
+			),
+		);
 	}
 
-	const ready = reread();
-	const unwatch = place.watch?.(() => {
-		if (!disposed) void reread();
-	});
+	function chosen(job: TJob): Result<ModelChoice | null, SettingError> {
+		const read = saved();
+		if (read.error !== null) return read;
+		const choice =
+			read.data.get(job) ??
+			(Object.hasOwn(defaults, job) ? defaults[job] : undefined);
+		return Ok(choice ? { ...choice } : null);
+	}
+
+	/** Saves run one at a time, each over what the one before it left. */
+	let saving: Promise<unknown> = Promise.resolve();
 
 	return {
-		get(job) {
-			assertOpen();
-			const choice = Object.hasOwn(saved, job)
-				? saved[job]
-				: Object.hasOwn(defaults, job)
-					? defaults[job]
-					: undefined;
-			return choice ? { ...choice } : null;
+		get: (job) => chosen(job).data ?? null,
+		require(job) {
+			const read = chosen(job);
+			if (read.error !== null) return read;
+			if (read.data === null) return ChoiceError.NoChoice({ job });
+			return Ok(read.data);
 		},
-		set(job, choice) {
-			assertOpen();
-			const exact = choiceOf(choice);
-			const write = writes.then(async () => {
-				const next = await place.save(job, exact);
-				if (!disposed) adopt(next);
+		problem: () => saved().error,
+		set(job, { endpoint, model }) {
+			const save = saving.then(async () => {
+				await settings.file('models.md').connected();
+				const kept = saved().data ?? new Map<string, ModelChoice>();
+				kept.set(job, { endpoint, model });
+				await note.set({
+					choices: [...kept].map(([name, choice]) => ({
+						job: name,
+						...choice,
+					})),
+				});
 			});
-			writes = write.catch(() => {});
-			return write;
+			saving = save.catch(() => {});
+			return save;
 		},
-		subscribe(listener) {
-			assertOpen();
-			listeners.add(listener);
-			return () => {
-				listeners.delete(listener);
-			};
-		},
-		ready,
-		problem: () => problem,
-		[Symbol.dispose]() {
-			if (disposed) return;
-			disposed = true;
-			listeners.clear();
-			unwatch?.();
-		},
+		subscribe: (listener) => note.subscribe(listener),
 	};
 }

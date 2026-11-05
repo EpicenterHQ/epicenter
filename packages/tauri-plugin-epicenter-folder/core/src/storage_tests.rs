@@ -66,7 +66,7 @@ fn an_expectation_is_parsed_by_its_own_spelling() {
         hash.clone(),
         "sha256:absent".to_string(),
         format!("sha256:{}", hash.to_uppercase()),
-        "any".to_string(),
+        "anything".to_string(),
         "present".to_string(),
         String::new(),
     ] {
@@ -77,14 +77,56 @@ fn an_expectation_is_parsed_by_its_own_spelling() {
 #[test]
 fn list_and_read_report_the_same_stamp_and_a_write_changes_it() {
     let (_temp, root) = folder("storage-stamp", &[("note.txt", b"old")]);
-    let initial = list(&root).unwrap()[0].stamp.clone();
+    let initial = list(&root, &[String::new()]).unwrap()[0].version.clone();
     assert_eq!(read(&root, "note.txt").unwrap().stamp, initial);
 
     let landed = put(&root, "note.txt", b(b"new"), Some(&sha256(b"old"))).unwrap();
     assert_eq!(landed, PutOutcome::Landed);
-    let published = list(&root).unwrap()[0].stamp.clone();
+    let published = list(&root, &[String::new()]).unwrap()[0].version.clone();
     assert_ne!(published, initial);
     assert_eq!(read(&root, "note.txt").unwrap().stamp, published);
+}
+
+#[test]
+fn an_attachment_is_named_by_the_stamp_that_landed_and_written_over_it() {
+    let (_temp, root) = folder("storage-landing", &[("todos/a.md", b"note")]);
+    let Landing::Landed(stamp) = put_landing(&root, "audio.webm", b(b"one"), &Expectation::Absent).unwrap() else {
+        panic!("a create lands");
+    };
+    let listing = list(&root, &["audio.webm".to_string(), "todos".to_string()]).unwrap();
+    let version = |path: &str| {
+        listing
+            .iter()
+            .find(|file| file.path == path)
+            .map(|file| file.version.clone())
+            .unwrap()
+    };
+    assert_eq!(version("audio.webm"), stamp);
+    assert_eq!(version("todos/a.md"), sha256(b"note"));
+    assert_eq!(read(&root, "audio.webm").unwrap().stamp, stamp);
+    let over = Expectation::parse(&format!("stamp:{stamp}")).unwrap();
+    assert!(matches!(
+        put_landing(&root, "audio.webm", b(b"two"), &over).unwrap(),
+        Landing::Landed(next) if next != stamp
+    ));
+    assert_eq!(
+        put_landing(&root, "audio.webm", b(b"three"), &over).unwrap(),
+        Landing::Stale
+    );
+    assert_eq!(fs::read(root.join("audio.webm")).unwrap(), b"two");
+}
+
+#[test]
+fn a_write_expecting_any_replaces_whatever_is_there() {
+    let (_temp, root) = folder("storage-any", &[("models.md", b"old")]);
+    let any = Expectation::parse("any").unwrap();
+    assert_eq!(super::put(&root, "models.md", b(b"new"), &any).unwrap(), PutOutcome::Landed);
+    assert_eq!(fs::read(root.join("models.md")).unwrap(), b"new");
+    assert_eq!(super::put(&root, "fresh.md", b(b"made"), &any).unwrap(), PutOutcome::Landed);
+    assert_eq!(fs::read(root.join("fresh.md")).unwrap(), b"made");
+    assert_eq!(super::put(&root, "fresh.md", None, &any).unwrap(), PutOutcome::Landed);
+    assert!(!root.join("fresh.md").exists());
+    assert_eq!(super::put(&root, "fresh.md", None, &any).unwrap(), PutOutcome::Landed);
 }
 
 /// What most cases here expect: the file whose SHA-256 is `if_match`, or
@@ -136,7 +178,7 @@ fn invalid(path: &str) -> impl Fn(&StorageError) -> bool + '_ {
 /// Hidden files are listed, unfinished writes included: whoever reads a
 /// listing skips them. Only Git's own directory is left out.
 #[test]
-fn a_listing_leaves_out_git_at_the_root_lists_hidden_files_and_follows_no_link() {
+fn a_listing_leaves_out_git_at_the_root_and_links_and_lists_hidden_files() {
     let (_temp, root) = folder(
         "storage-list",
         &[
@@ -150,16 +192,14 @@ fn a_listing_leaves_out_git_at_the_root_lists_hidden_files_and_follows_no_link()
     fs::create_dir_all(root.join("empty")).unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink(root.join("todos"), root.join("linked")).unwrap();
-    let mut listing = list(&root).unwrap();
+    let mut listing = list(&root, &[String::new()]).unwrap();
     listing.sort_by(|a, b| a.path.cmp(&b.path));
-    let mut files = vec![
+    let files = vec![
         ".epicenter/saves/staged",
         "kv.json",
         "todos/.DS_Store",
         "todos/a.md",
     ];
-    #[cfg(unix)]
-    files.insert(2, "linked");
     assert_eq!(
         listing
             .iter()
@@ -1020,7 +1060,7 @@ fn storage_follows_the_outcome_vectors() {
                     },
                 )
             }
-            "list" => list(&root).map(|mut listing| {
+            "list" => list(&root, &[String::new()]).map(|mut listing| {
                 listing.sort_by(|a, b| a.path.cmp(&b.path));
                 json!(listing
                     .iter()
@@ -1084,14 +1124,14 @@ fn listing_tolerates_subdirectories_removed_during_its_walk_but_not_a_missing_ro
             }
         }
     });
-    let results: Vec<_> = (0..100).map(|_| list(&root)).collect();
+    let results: Vec<_> = (0..100).map(|_| list(&root, &[String::new()])).collect();
     stopped.store(true, Ordering::Relaxed);
     worker.join().unwrap();
     for result in results {
         assert!(result.unwrap().iter().any(|file| file.path == "keep.md"));
     }
     fs::remove_dir_all(&root).unwrap();
-    assert!(list(&root).is_err());
+    assert!(list(&root, &[String::new()]).is_err());
 }
 
 thread_local! {
@@ -1122,7 +1162,7 @@ fn a_subdirectory_removed_mid_read_is_unlisted_and_a_root_removed_mid_read_is_an
         &[("keep.md", b"kept"), ("gone/note.md", b"gone")],
     );
     REMOVED_MID_READ.set(Some(root.join("gone")));
-    let listing = list(&root).unwrap();
+    let listing = list(&root, &[String::new()]).unwrap();
     assert_eq!(
         listing
             .iter()
@@ -1134,7 +1174,7 @@ fn a_subdirectory_removed_mid_read_is_unlisted_and_a_root_removed_mid_read_is_an
 
     REMOVED_MID_READ.set(Some(root.clone()));
     assert!(matches!(
-        list(&root),
+        list(&root, &[String::new()]),
         Err(StorageError::Io { path, operation, .. }) if path.is_empty() && operation == "list"
     ));
 }

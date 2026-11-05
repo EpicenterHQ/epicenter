@@ -1,21 +1,24 @@
-//! Sign-in with Epicenter and the OS keychain for Epicenter's standalone
-//! desktop apps (`epicenter-standalone`), shared so each app names only who
-//! it is. The page's side of the sign-in is `createTauriAuth` from
-//! `@epicenter/account/tauri`, an `AuthClient` over these commands; the
-//! page's side of the provider keys is `@epicenter/ai/tauri`.
+//! Sign-in with Epicenter and the credentials file for Epicenter's
+//! standalone desktop apps (`epicenter-standalone`), shared so each app names
+//! only who it is. The page's side of the sign-in is `createTauriAuth` from
+//! `@epicenter/account/tauri`; the page's side of the provider keys is
+//! `@epicenter/ai/tauri`.
 //!
 //! - `account`: the native sign-in (RFC 8252 loopback with PKCE in the system
-//!   browser), the refresh token in the keychain, and `account_fetch`, which
-//!   sends the page's requests to Epicenter's API with a token the page never
-//!   holds.
-//! - `keychain`: the one way an app reaches the keychain, for the refresh
-//!   token and for the provider keys a page saves (`keychain_get`,
-//!   `keychain_set`).
-//! - `connection`: `connection_fetch`, the shell's one fetch for the page:
-//!   it sends a request to an endpoint the person connected, with the key
-//!   the keychain keeps for it, to that key's endpoint only, or with no key
-//!   to a server on this computer. An app that reaches endpoints other than
-//!   Epicenter's registers `CONNECTION_COMMANDS`, the provider keys' commands.
+//!   browser), the refresh token in the credentials file, `account.json`,
+//!   which says who is signed in, and `account_fetch`, which sends the page's
+//!   requests to Epicenter's API with a token the page never holds.
+//! - `credentials`: the app's one place for secrets, `credentials.json` at
+//!   the top of its AppData directory (mode `0600`, ADR-0740), holding the
+//!   refresh token and the provider keys a page saves. The shell reads it
+//!   when a request needs a secret; no page reads it.
+//! - `connection`: the provider keys' write-only commands
+//!   (`connection_key_set`, `connection_key_move`), and `connection_fetch`,
+//!   the shell's one fetch for the page: it sends a request to an endpoint
+//!   the person connected, with the key the credentials file keeps for it,
+//!   to that key's endpoint only, or with no key to a server on this
+//!   computer. An app that reaches endpoints other than Epicenter's registers
+//!   `CONNECTION_COMMANDS`.
 //!
 //! ```ignore
 //! const ACCOUNT: AccountApp = AccountApp {
@@ -24,10 +27,9 @@
 //!     scope: AccountApp::HOSTED_MODELS,
 //! };
 //!
-//! let context = tauri::generate_context!();
-//! epicenter_account::manage(builder, ACCOUNT, &context.config().identifier)
+//! epicenter_account::manage(builder, ACCOUNT)
 //!     .invoke_handler(tauri::generate_handler![
-//!         epicenter_account::account::account_state,
+//!         epicenter_account::account::account_sign_in,
 //!         // … every name in `COMMANDS`
 //!     ])
 //! ```
@@ -37,17 +39,20 @@
 
 pub mod account;
 pub mod connection;
-pub mod keychain;
+pub mod credentials;
 mod relay;
 
 use std::sync::Arc;
 
-pub use account::{deployment_origin, Account, AccountApp};
+use tauri::plugin::TauriPlugin;
+use tauri::{Manager, Runtime};
+
+pub use account::{deployment_origin, Account, AccountApp, Identity, IDENTITY_FILE};
 pub use connection::Connections;
+pub use credentials::{Credentials, CREDENTIALS_FILE};
 
 /// Every command this crate gives a window, as its `build.rs` declares them.
 pub const COMMANDS: &[&str] = &[
-    "account_state",
     "account_sign_in",
     "account_sign_out",
     "account_fetch",
@@ -55,26 +60,49 @@ pub const COMMANDS: &[&str] = &[
 ];
 
 /// The commands an app that reaches endpoints other than Epicenter's adds to
-/// `COMMANDS`: the provider keys in the keychain, and the fetch that sends
-/// with them.
+/// `COMMANDS`: saving the provider keys, and the fetch that sends with them.
 pub const CONNECTION_COMMANDS: &[&str] = &[
-    "keychain_get",
-    "keychain_set",
+    "connection_key_set",
+    "connection_key_move",
     "connection_fetch",
     "connection_fetch_cancel",
 ];
 
 /// Manage `app`'s account, against Epicenter's deployment
-/// (`deployment_origin`), its keychain under the bundle `identifier`, and
-/// its connections' requests.
-pub fn manage<R: tauri::Runtime>(
-    builder: tauri::Builder<R>,
-    app: AccountApp,
-    identifier: &str,
-) -> tauri::Builder<R> {
-    let secrets = keychain::for_app(identifier);
+/// (`deployment_origin`), with its credentials and `account.json` in the
+/// app's AppData directory, and its connections' requests. Both files are
+/// placed once the app runs.
+pub fn manage<R: Runtime>(builder: tauri::Builder<R>, app: AccountApp) -> tauri::Builder<R> {
+    let credentials = Arc::new(Credentials::default());
+    let account = Arc::new(Account::new(app, deployment_origin(), credentials.clone()));
     builder
-        .manage(keychain::AppSecrets(secrets.clone()))
-        .manage(Arc::new(Connections::new(secrets.clone())))
-        .manage(Arc::new(Account::new(app, deployment_origin(), secrets)))
+        .manage(Arc::new(Connections::new(credentials.clone())))
+        .manage(account.clone())
+        .plugin(place(credentials, account))
+}
+
+/// Place the credentials file and `account.json` at the top of the app's
+/// AppData directory, then write who the credentials say is signed in.
+fn place<R: Runtime>(credentials: Arc<Credentials>, account: Arc<Account>) -> TauriPlugin<R> {
+    tauri::plugin::Builder::new("epicenter-account")
+        .setup(move |app, _api| {
+            // A startup that cannot name AppData says so itself
+            // (`epicenter-standalone`); until then a secret reads as an error.
+            let app_data = match app.path().app_data_dir() {
+                Ok(app_data) => app_data,
+                Err(error) => {
+                    log::warn!("The account has no AppData directory: {error}");
+                    return Ok(());
+                }
+            };
+            credentials.resolve(credentials::path_in(&app_data));
+            account.identify_at(app_data.join(IDENTITY_FILE));
+            tauri::async_runtime::spawn(async move {
+                if let Err(message) = account.publish_loaded().await {
+                    log::warn!("Who is signed in could not be written: {message}");
+                }
+            });
+            Ok(())
+        })
+        .build()
 }

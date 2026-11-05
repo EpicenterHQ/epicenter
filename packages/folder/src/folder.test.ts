@@ -5,12 +5,14 @@
  * memory store whose open each test settles by hand.
  *
  * Key behaviors:
- * - It is handed over opening; reads answer at once (empty, loading)
+ * - It is handed over opening; a read of a collection before it connected
+ *   throws `FolderNotOpen`
  * - A write made while opening waits for the open, then lands
  * - A temporary failure to open (`Unavailable`) is tried again on its own,
  *   and says why in `unavailable()`; any other failure is `failed`
- * - `retry()` opens again; a failure drops the writes waiting then
- * - A listened collection lists once open, and shows its own writes
+ * - `retry()` opens again; a failure rejects the writes waiting then with
+ *   `FolderClosed`, and so does disposing
+ * - A collection shows what the connection read, and its own writes
  * - Disposing closes the store, even one that opens after; a later write
  *   throws, and a later read answers `Unavailable`
  */
@@ -18,8 +20,8 @@ import { describe, expect, test } from 'bun:test';
 import { ClientError, defineContract } from '@epicenter/definition/contract';
 import { type Err, Ok, type Result } from 'wellcrafted/result';
 import { memoryStore } from './device/memory-store.js';
-import type { DeviceStore, Unavailable } from './device/store.js';
-import { OpenFolderError } from './errors.js';
+import type { Store, Unavailable } from './device/store.js';
+import { FolderClosed, FolderNotOpen, OpenFolderError } from './errors.js';
 import { createFolder, type FolderState } from './folder.js';
 import { memory, memoryFiles } from './memory.js';
 import { openFolder } from './open-folder.js';
@@ -34,18 +36,18 @@ const todos = defineContract({
 		attachments: { path: 'attachments/{id}.{ext}' },
 	},
 });
-type Opened = Result<DeviceStore, OpenFolderError | Unavailable>;
+type Opened = Result<Store, OpenFolderError | Unavailable>;
 
 /** A folder whose opens the test settles: each `open()` call waits on the next deferred answer. */
 function controlled() {
 	const answers: ((opened: Opened) => void)[] = [];
-	const closed: DeviceStore[] = [];
+	const closed: Store[] = [];
 	const folder = createFolder(
 		todos,
 		() => new Promise<Opened>((resolve) => answers.push(resolve)),
 	);
 	const store = () => {
-		const made: DeviceStore = {
+		const made: Store = {
 			...memoryStore(),
 			close: () => {
 				closed.push(made);
@@ -57,7 +59,7 @@ function controlled() {
 		folder,
 		closed,
 		/** Settle the latest open attempt with a new memory store, answered. */
-		open(opened: DeviceStore = store()) {
+		open(opened: Store = store()) {
 			answers.at(-1)?.(Ok(opened));
 			return opened;
 		},
@@ -84,14 +86,14 @@ function retry(folder: { state(): FolderState }) {
 }
 
 describe('opening', () => {
-	test('is handed over opening, and its collections read empty and loading', () => {
+	test('is handed over opening, and a read of its collections before it connected throws', () => {
 		const { folder } = controlled();
 		expect(folder.state()).toEqual({ status: 'opening' });
 		expect(folder.unavailable()).toBeNull();
 		expect(folder.saving()).toBe(false);
-		expect(folder.todos.items()).toEqual([]);
-		expect(folder.todos.invalid()).toEqual([]);
-		expect(folder.todos.loading()).toBe(true);
+		expect(() => folder.todos.items()).toThrow(FolderNotOpen);
+		expect(() => folder.todos.invalid()).toThrow(FolderNotOpen);
+		expect(() => folder.todos.get({ id: 'a' })).toThrow(FolderNotOpen);
 		expect(folder.todos.fieldNames).toEqual(['title', 'done']);
 	});
 
@@ -169,24 +171,38 @@ describe('a failed open', () => {
 		expect((await folder.todos.list()).error?.name).toBe('Disconnected');
 	});
 
-	test('drops the writes waiting, which are not made after a retry opens', async () => {
+	test('rejects the writes waiting with FolderClosed, which are not made after a retry opens', async () => {
 		const { folder, fail, open } = controlled();
-		let answered = false;
-		void folder.todos
-			.set({ id: 'a' }, { title: 'Milk', done: false })
-			.then(() => {
-				answered = true;
-			});
+		const waiting = folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
 		expect(folder.saving()).toBe(true);
 		fail();
-		await tick();
+		expect(await waiting.catch((error: unknown) => error)).toBeInstanceOf(
+			FolderClosed,
+		);
 		expect(folder.saving()).toBe(false);
+		// A write made while it is failed is not kept either.
+		expect(
+			await folder.todos
+				.set({ id: 'b' }, { title: 'Bread', done: false })
+				.catch((error: unknown) => error),
+		).toMatchObject({ name: 'FolderClosed', status: 'failed' });
 		const opening = retry(folder);
 		const store = open();
 		await opening;
 		await tick();
-		expect(answered).toBe(false);
-		expect((await store.read('todos/a.md')).data).toBeNull();
+		expect((await store.read(['todos/a.md'])).data).toEqual([
+			{ path: 'todos/a.md', gone: true },
+		]);
+	});
+
+	test('disposing rejects the writes waiting with FolderClosed', async () => {
+		const { folder } = controlled();
+		const waiting = folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
+		folder[Symbol.dispose]();
+		expect(await waiting.catch((error: unknown) => error)).toMatchObject({
+			name: 'FolderClosed',
+			status: 'closed',
+		});
 	});
 
 	test('an open that throws fails as StorageUnavailable', async () => {
@@ -288,7 +304,7 @@ describe('a startup job made beside the folder', () => {
 });
 
 describe('reads', () => {
-	test('a listened collection lists once open, and shows its own writes', async () => {
+	test('a collection shows what the connection read, and its own writes', async () => {
 		const { folder, open } = controlled();
 		const store = memoryStore();
 		await store.outside.write(
@@ -299,7 +315,7 @@ describe('reads', () => {
 		let heard = 0;
 		const stop = folder.todos.subscribe(() => heard++);
 		await tick();
-		expect(folder.todos.loading()).toBe(false);
+		expect(folder.state().status).toBe('open');
 		expect(folder.todos.items().map((todo) => todo.title)).toEqual(['Milk']);
 		const before = folder.todos.items();
 		expect(folder.todos.items()).toBe(before);
@@ -312,18 +328,19 @@ describe('reads', () => {
 		stop();
 	});
 
-	test('a listing that cannot reach the store says why in unavailable(), until one can', async () => {
-		const folder = openFolder(todos, memory());
-		const undo = memoryFiles(folder).refuseReads('offline');
-		folder.todos.subscribe(() => {});
+	test('a connection that cannot list the store stays opening and says why, until one can', async () => {
+		const place = memory();
+		const undo = memoryFiles(place).refuseReads('offline');
+		const folder = openFolder(todos, place);
 		await tick();
 		await tick();
-		expect(folder.state()).toEqual({ status: 'open' });
+		expect(folder.state()).toEqual({ status: 'opening' });
 		expect(folder.unavailable()).toMatchObject({ cause: 'offline' });
 		undo();
 		await after(600);
+		expect(folder.state()).toEqual({ status: 'open' });
 		expect(folder.unavailable()).toBeNull();
-		expect(folder.todos.loading()).toBe(false);
+		expect(folder.todos.items()).toEqual([]);
 	});
 
 	test('a file collection lists its entries without bytes', async () => {
@@ -436,7 +453,13 @@ test('on the web, a folder over an account opens once the account is signed in',
 	signedIn = {
 		baseURL: 'https://api.epicenter.so',
 		signal: new AbortController().signal,
-		fetch: (async () => new Response(null, { status: 503 })) as never,
+		// An empty repository: main is nowhere, and nothing is listed.
+		fetch: (async (url: string) =>
+			Response.json(
+				String(url).includes('/epicenter/changes')
+					? { commit: null, paths: null }
+					: { commit: null, files: [] },
+			)) as never,
 	};
 	for (const listener of [...listeners]) listener();
 	await tick();

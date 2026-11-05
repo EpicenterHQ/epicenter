@@ -9,7 +9,7 @@
  * <git>/<ns>/<name>.git/git-upload-pack            POST  folders:read, read
  * <git>/<ns>/<name>.git/git-receive-pack           POST  folders:write, push (rewrite: owner); the receiver, receive.ts
  * <git>/<ns>/<name>.git/info/lfs/…                 Git LFS, lfs.ts
- * <git>/<ns>/<name>.git/epicenter/{head,files,file,writes}   the write translator, files.ts
+ * <git>/<ns>/<name>.git/epicenter/{changes,files,read,writes}   the write translator, files.ts
  * <api>/api/repos                                  GET   folders:read on the Git audience: the caller's repositories by namespace
  * <api>/api/repos/<ns|~>/<name>/grants             GET   folders:read, manage: the repository's grants
  * <api>/api/repos/<ns|~>/<name>/grants/<person>    PUT { level } grants, DELETE revokes; folders:write, manage
@@ -112,8 +112,9 @@ import {
 	applyWrite,
 	listRepositoryFiles,
 	MAX_WRITE_BYTES,
-	readRepositoryFile,
-	readRepositoryHead,
+	MAX_READ_PATHS,
+	readRepositoryChanges,
+	readRepositoryFiles,
 	readWriteRequest,
 } from './files.js';
 import {
@@ -307,9 +308,9 @@ export type GitEndpoint =
 	| { kind: 'lfs-object'; oid: string; upload: boolean }
 	| { kind: 'lfs-verify' }
 	| { kind: 'lfs-locks' }
-	| { kind: 'head' }
+	| { kind: 'changes' }
 	| { kind: 'files' }
-	| { kind: 'file' }
+	| { kind: 'read' }
 	| { kind: 'writes' };
 
 /** A request under the Git audience, read from its URL. */
@@ -354,9 +355,10 @@ function readEndpoint(
 		return method === 'PUT' || method === 'GET'
 			? { kind: 'lfs-object', oid: object, upload: method === 'PUT' }
 			: undefined;
-	if (rest === 'epicenter/head' && method === 'GET') return { kind: 'head' };
+	if (rest === 'epicenter/changes' && method === 'GET')
+		return { kind: 'changes' };
 	if (rest === 'epicenter/files' && method === 'GET') return { kind: 'files' };
-	if (rest === 'epicenter/file' && method === 'GET') return { kind: 'file' };
+	if (rest === 'epicenter/read' && method === 'POST') return { kind: 'read' };
 	if (rest === 'epicenter/writes' && method === 'POST')
 		return { kind: 'writes' };
 	return undefined;
@@ -611,7 +613,21 @@ export function mountGitHost(
 						? receiveAdvertisement(null)
 						: emptyAdvertisement();
 				}
-				if (endpoint.kind === 'head') return c.json({ commit: null });
+				if (endpoint.kind === 'changes')
+					return c.json({
+						commit: null,
+						paths: c.req.query('since') === '' ? [] : null,
+					});
+				if (endpoint.kind === 'read') {
+					const body = (await c.req.json().catch(() => null)) as {
+						paths?: unknown;
+					} | null;
+					const paths = Array.isArray(body?.paths) ? body.paths : [];
+					return c.json({
+						commit: null,
+						files: paths.map((path) => ({ path, gone: true })),
+					});
+				}
 				if (endpoint.kind === 'files')
 					return c.json({ commit: null, files: [] });
 				if (endpoint.kind === 'lfs-batch' && lfs && batch)
@@ -767,12 +783,28 @@ export function mountGitHost(
 						limits,
 					});
 				}
-				case 'head':
-					return await readRepositoryHead(objects);
+				case 'changes':
+					return await readRepositoryChanges(objects, c.req.query('since'));
 				case 'files':
-					return await listRepositoryFiles(objects, c.req.query('root'));
-				case 'file':
-					return await readRepositoryFile(objects, c.req.query('path'));
+					return await listRepositoryFiles(
+						objects,
+						c.req.queries('root') ?? [],
+					);
+				case 'read': {
+					const raw = await readBody(c.req.raw, MAX_READ_PATHS * 1100);
+					if (raw === null)
+						return refuse(
+							c,
+							413,
+							'too_large',
+							`A read may name at most ${MAX_READ_PATHS} paths.`,
+						);
+					let body: unknown = null;
+					try {
+						body = JSON.parse(new TextDecoder().decode(raw));
+					} catch {}
+					return await readRepositoryFiles(objects, body);
+				}
 				case 'writes': {
 					const raw = await readBody(c.req.raw, MAX_WRITE_BYTES);
 					if (raw === null)

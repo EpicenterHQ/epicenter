@@ -6,7 +6,7 @@
 import type { Contract } from '@epicenter/definition/contract';
 import { createLogger } from 'wellcrafted/logger';
 import { withAgentsNote } from './agents-note.js';
-import type { DeviceStore } from './device/store.js';
+import type { Store } from './device/store.js';
 
 const log = createLogger('folder/desktop');
 
@@ -21,22 +21,24 @@ export type FolderRequest = { ok: true } | { ok: false; message: string };
  * opening its data: it is left as it is.
  */
 export async function refreshAgentsNote(
-	store: DeviceStore,
+	store: Store,
 	contract: Contract,
 	contractUrl: string,
 ): Promise<boolean> {
 	for (let attempt = 0; attempt < 3; attempt++) {
-		const read = await store.read('AGENTS.md');
+		const read = await store.read(['AGENTS.md']);
 		if (read.error !== null) {
 			log.debug('Could not read AGENTS.md', { error: read.error });
 			return false;
 		}
+		const [file] = read.data;
+		const there = file === undefined || 'gone' in file ? null : file;
 		let current: string | null = null;
 		let wanted: string;
 		try {
-			if (read.data !== null)
+			if (there !== null)
 				current = new TextDecoder('utf-8', { fatal: true }).decode(
-					read.data.bytes,
+					there.bytes,
 				);
 			wanted = withAgentsNote(current, contract, contractUrl);
 		} catch (error) {
@@ -47,7 +49,7 @@ export async function refreshAgentsNote(
 		const written = await store.write(
 			'AGENTS.md',
 			new TextEncoder().encode(wanted),
-			read.data === null ? 'absent' : { version: read.data.version },
+			there === null ? 'absent' : there.version,
 		);
 		if (written.error !== null) {
 			log.debug('Could not write AGENTS.md', { error: written.error });

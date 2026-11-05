@@ -54,10 +54,7 @@
 		<p class="text-xs text-muted-foreground" data-testid="eviction-note">{note}</p>
 	{/if}
 	{#if whispering.connectionsProblem}
-		<div class="flex flex-col gap-2 text-xs text-destructive" role="alert" data-testid="connections-problem">
-			<p>The connections saved on this device could not be read, so none is used: {whispering.connectionsProblem}</p>
-			<Button size="xs" variant="outline" class="self-start" onclick={() => void whispering.readConnections()}>Read again</Button>
-		</div>
+		<p class="text-xs text-destructive" role="alert" data-testid="connections-problem">No saved connection is used: {whispering.connectionsProblem}</p>
 	{/if}
 	{#each operations as operation, index (operation)}
 		{#if index > 0}<Separator />{/if}

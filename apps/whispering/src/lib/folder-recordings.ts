@@ -1,22 +1,21 @@
 /**
- * A recording's note (ADR-0543, decision 84). Its audio is written into
- * Whispering's files as it records: on the desktop the shell's Opus in WebM
- * from the first sample, outside its path in the folder's
- * `.epicenter/recordings` until Stop finishes it and places it at
- * `recordings/<id>.webm`; in a browser each piece appended to its file at
- * its path as it arrives. The note is written once, when Stop has answered
- * and the audio is at its path (`keepRecording`), so a note always names
- * audio that is there and holds its length.
+ * A recording's note (ADR-0543, decision 84). Its audio lands at its path
+ * when Stop answers: on the desktop the shell's Opus in WebM, written from
+ * the first sample outside its path in the folder's `.epicenter/recordings`
+ * and placed at `recordings/<id>.webm`; in a browser the take kept in
+ * memory and written once (ADR-0779). The note is written once, when Stop
+ * has answered and the audio is at its path (`keepRecording`), so a note
+ * always names audio that is there and holds its length.
  *
- * A quit, a crash, or a closed tab leaves audio no note names: at its path
- * in a browser, outside it on the desktop. The next start repairs it
- * (`CaptureDevice.recover`, which on the desktop also finishes and places
- * it) and gives each such recording its note (`finishCutOffRecordings`), the
- * only path by which a cut-off recording reaches the library. On the
- * desktop nothing else can read a cut-off recording first: it is at no data
- * path until recovery has finished it. One whose path another file took
- * stays outside it, finished, and is said on every start until a person
- * moves one of the two; nothing deletes it.
+ * On the desktop a quit or a crash leaves audio no note names, outside its
+ * path or at it without its note. The next launch finishes it
+ * (`CaptureDevice.recover`) and gives each such recording its note
+ * (`finishCutOffRecordings`), the only path by which a cut-off recording
+ * reaches the library; nothing else can read one first, since it is at no
+ * data path until it is finished. One whose path another file took stays
+ * outside it, finished, and is said on every launch until a person moves
+ * one of the two; nothing deletes it. A browser keeps nothing through a
+ * crash, so it has none (ADR-0780).
  *
  * Both write through Whispering's folder (`folder` from `app.ts`), so the
  * library shows a note as soon as it lands and the folder's `saving()` (the
@@ -63,24 +62,24 @@ export function keepRecording(
 const RECORDED: readonly string[] = ['wav', 'm4a', 'webm'];
 
 /**
- * Give every recording a quit, a crash, or a closed tab cut off its note.
- * The capture device's `recover` repairs what was cut off (on the desktop it
- * also finishes it and places it at its path) and answers each recording
- * whose audio is whole at its path, with the length it read; any of those no note
- * names is given one, its length measured from its audio when `recover` did
- * not answer one. Audio whose length does not read is still given a note,
- * without a length, so no recording is kept where the library does not
- * list it. Run it before anything records.
+ * Give every desktop recording a quit or a crash cut off its note. The
+ * desktop recorder's `recover` finishes what was cut off, places it at its
+ * path, and answers each recording whose audio is whole at its path, with
+ * the length it read; any of those no note names is given one, its length
+ * measured from its audio when `recover` did not answer one. Audio whose
+ * length does not read is still given a note, without a length, so no
+ * recording is kept where the library does not list it. The desktop runs
+ * it once at launch, in the background.
  *
  * Answers the ids given a note (`noted`), and each recording `recover` kept
  * outside its path because another file is there (`unplaced`), for the
  * caller to say. `Unavailable` is the files refusing to be listed at all,
- * which the library's own listing reports too. Over a folder of a client
- * already open, the open's own error (`OpenFolderError`) never answers.
+ * which the library's own listing reports too; the folder's `OpenFolderError`
+ * answers when it failed or closed.
  */
 export async function finishCutOffRecordings(
 	files: Files,
-	capture: Pick<CaptureDevice, 'recover'>,
+	capture: Required<Pick<CaptureDevice, 'recover'>>,
 ): Promise<
 	Result<
 		{ noted: string[]; unplaced: readonly UnplacedRecording[] },

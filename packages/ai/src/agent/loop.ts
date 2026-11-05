@@ -3,12 +3,17 @@
  * (ADR-0047): it reads the chat's finished messages from the folder's
  * collection, streams each turn from the chosen model through `ai.chat`,
  * runs the tools the host offers, and saves each finished message as its
- * own note. The folder lists and follows the collection while the
- * conversation listens; the conversation keeps no copy of its own.
+ * own note. The folder holds the collection from the moment it connected
+ * (ADR-0778), so a conversation made inside a page reads the saved
+ * transcript at once; it keeps no copy of its own.
  *
- * A message is saved with the folder's `set`, which never fails: the folder
- * keeps it, in order, until it lands (ADR-0775). Whether the store can be
- * reached is the folder's to say, not the conversation's.
+ * A message is saved with the folder's `set`, which never fails while the
+ * folder lives: the folder keeps it, in order, until it lands (ADR-0775).
+ * A turn asks the model only once its message's `set` answered, so an
+ * answer is never saved without its question; when the folder fails or
+ * closes first, the `set` rejects with `FolderClosed` and the turn ends
+ * without asking (ADR-0782). Whether the store can be reached is the
+ * folder's to say, not the conversation's.
  */
 import type { FolderNotes } from '@epicenter/folder/core';
 import {
@@ -66,38 +71,24 @@ export type ConversationSnapshot = {
 	error: ConversationError | null;
 	/** This chat's message notes that do not read. */
 	unreadable: UnreadableMessage[];
-	/**
-	 * Whether the chat's saved messages were ever listed. Until then the
-	 * transcript may be missing what is saved, so a turn waits for the
-	 * listing, and one stopped or disposed while it waits ends with the
-	 * error code `Unlisted`, having asked no model.
-	 */
-	listed: boolean;
 };
 
 export type ConversationHandle = {
 	snapshot(): ConversationSnapshot;
 	subscribe(listener: () => void): () => void;
 	/**
-	 * Settles once the chat's saved messages were first listed, or once the
-	 * conversation is disposed. A listing that cannot reach the store is
-	 * tried again by the folder, and this waits for it.
-	 */
-	readonly ready: Promise<void>;
-	/**
 	 * Save one learner message, then start the model turn in the background.
 	 *
 	 * Answers once the message is handed to the folder, which keeps it
-	 * until it lands; it shows in `snapshot().messages` from then. On `Err`
-	 * nothing was written and no model ran.
+	 * until it lands; it shows in `snapshot().messages` from then. The turn
+	 * asks the model once the message landed; when the folder fails or
+	 * closes first, it ends with the code `FolderClosed`, having asked
+	 * nothing. On `Err` nothing was written and no model ran.
 	 */
 	send(content: string): Promise<Result<void, ConversationAdmissionError>>;
 	/** Abort the model turn, or cancel the one a pending `send` would start; answers once no turn runs. */
 	stop(): Promise<void>;
-	/**
-	 * Run a model turn over the saved transcript, answering once it ends.
-	 * Ignored while busy; it waits for the saved messages to be listed.
-	 */
+	/** Run a model turn over the saved transcript, answering once it ends. Ignored while busy. */
 	retry(): Promise<void>;
 	/** Stops following the collection; writes already in flight still land. */
 	[Symbol.dispose](): void;
@@ -105,13 +96,12 @@ export type ConversationHandle = {
 
 /**
  * What a conversation reads and calls on the folder's messages collection
- * (`folder.messages`, of `messagesCollection`): the notes as the folder
- * shows them, its listing state, and `set`. Subscribing starts the
- * folder's listing.
+ * (`folder.messages`, of `messagesCollection`), once the folder connected:
+ * the notes as the folder holds them, and `set`.
  */
 export type ConversationMessages = Pick<
 	FolderNotes<MessagesCollection>,
-	'items' | 'invalid' | 'loading' | 'subscribe' | 'set'
+	'items' | 'invalid' | 'subscribe' | 'set'
 >;
 
 export type ConversationOptions = {
@@ -159,8 +149,6 @@ export function createConversation({
 	};
 
 	let isDisposed = false;
-	/** Whether the chat's saved messages were ever listed. */
-	let listed = false;
 	let lastCreatedAt = 0;
 	let shownItems: readonly MessageNote[] | null = null;
 	let transcript: AgentMessage[] = [];
@@ -205,16 +193,6 @@ export function createConversation({
 		return unreadable;
 	}
 
-	const { promise: ready, resolve: settleReady } =
-		Promise.withResolvers<void>();
-
-	/** Note the folder's listing: `listed` and `ready` once the first landed. */
-	function observe() {
-		if (messages.loading()) return;
-		listed = true;
-		settleReady();
-	}
-
 	/** A time after every saved message and every one this conversation stamped. */
 	const nextCreatedAt = () => {
 		const latest = persisted().at(-1)?.createdAt ?? 0;
@@ -229,7 +207,8 @@ export function createConversation({
 	 * Save `saving` in order, each as its own note, answering once all have
 	 * landed: the folder keeps them, in order, while the store is out of
 	 * reach. Each shows in `snapshot().messages` from the moment it is handed
-	 * over.
+	 * over. Rejects with `FolderClosed` when the folder fails or closes
+	 * before they land.
 	 */
 	async function save(saving: AgentMessage[]): Promise<void> {
 		if (saving.length === 0) return;
@@ -258,10 +237,8 @@ export function createConversation({
 
 	const unsubscribe = messages.subscribe(() => {
 		if (isDisposed) return;
-		observe();
 		notify();
 	});
-	observe();
 
 	let turn: AgentMessage[] | null = null;
 	let error: ConversationError | null = null;
@@ -291,7 +268,6 @@ export function createConversation({
 			isGenerating: turn !== null,
 			error,
 			unreadable: [...unreadableNow()],
-			listed,
 		};
 	}
 
@@ -367,8 +343,15 @@ export function createConversation({
 		}
 	}
 
-	/** Run one admitted turn to its end, then release the admission. */
-	async function runTurn({ signal }: AbortController): Promise<void> {
+	/**
+	 * Run one admitted turn to its end, then release the admission. `asked`
+	 * is the save of the message the turn answers: the model is asked only
+	 * once it landed.
+	 */
+	async function runTurn(
+		{ signal }: AbortController,
+		asked: Promise<void> = Promise.resolve(),
+	): Promise<void> {
 		const steps: AgentMessage[] = [];
 		error = null;
 		turn = steps;
@@ -377,22 +360,23 @@ export function createConversation({
 		let failure: ConversationError | undefined;
 		let count = 0;
 		try {
-			// Wait for the saved messages, which the folder lists again while
-			// the store is out of reach; a stop ends the wait.
-			await Promise.race([
-				ready,
+			// The question lands before the model is asked; a stop ends the wait.
+			const landed = await Promise.race([
+				asked.then(
+					() => null,
+					(cause: unknown) => cause,
+				),
 				new Promise((resolve) =>
-					signal.addEventListener('abort', resolve, { once: true }),
+					signal.addEventListener('abort', () => resolve(null), {
+						once: true,
+					}),
 				),
 			]);
 			const chosen = model();
-			// Until the saved messages were listed, a turn would answer a
-			// transcript that may be missing them.
-			if (!listed)
+			if (landed !== null)
 				failure = {
-					message:
-						'The saved messages have not been read yet, so the model was not asked.',
-					code: 'Unlisted',
+					message: `The message was not saved, so the model was not asked: ${extractErrorMessage(landed)}`,
+					code: 'FolderClosed',
 				};
 			else if (chosen === null)
 				failure = {
@@ -405,12 +389,7 @@ export function createConversation({
 					: typeof system === 'function'
 						? system(shown())
 						: system;
-			while (
-				failure === undefined &&
-				chosen !== null &&
-				listed &&
-				!signal.aborted
-			) {
+			while (failure === undefined && chosen !== null && !signal.aborted) {
 				if (count++ >= MAX_STEPS) {
 					failure = {
 						message: `Stopped after ${MAX_STEPS} steps without a final answer.`,
@@ -461,7 +440,13 @@ export function createConversation({
 		// order after the learner's message, until it lands; one stopped or
 		// failed is not saved.
 		if (!signal.aborted && failure === undefined)
-			void save(steps.filter(isPersistableMessage));
+			save(steps.filter(isPersistableMessage)).catch((cause) =>
+				log.warn(
+					new Error('An answer was not saved: its folder went away.', {
+						cause,
+					}),
+				),
+			);
 		isBusy = false;
 		notify();
 	}
@@ -474,7 +459,6 @@ export function createConversation({
 				listeners.delete(listener);
 			};
 		},
-		ready,
 		async send(content) {
 			const text = content.trim();
 			const reason = text ? refusal() : 'empty';
@@ -485,8 +469,8 @@ export function createConversation({
 			const admitted = new AbortController();
 			controller = admitted;
 			// Handed to the folder, which keeps it until it lands; the turn
-			// reads it from there or from what is handed over.
-			void save([
+			// asks the model once it has.
+			const asked = save([
 				{
 					id: generateId(),
 					role: 'user',
@@ -494,7 +478,7 @@ export function createConversation({
 					parts: [{ type: 'text', text }],
 				},
 			]);
-			running = runTurn(admitted);
+			running = runTurn(admitted, asked);
 			return Ok(undefined);
 		},
 		async stop() {
@@ -513,7 +497,6 @@ export function createConversation({
 			isDisposed = true;
 			controller?.abort();
 			unsubscribe();
-			settleReady();
 		},
 	};
 }

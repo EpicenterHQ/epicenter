@@ -49,11 +49,11 @@ export async function openCaptures(files: Files = {}) {
 	for (const [path, data] of Object.entries(files))
 		await outside.write(path, data);
 	const folder = openFolder(capture, place);
+	await folder.captures.list();
 	const list = reactive(folder).captures;
 	const captures = createCaptures(list);
 	// Read the list in an effect, as the page does, so it lists and listens.
-	const watching = follow(() => [list.items(), list.invalid(), list.loading()]);
-	await until(() => !list.loading());
+	const watching = follow(() => [list.items(), list.invalid()]);
 
 	return {
 		captures,

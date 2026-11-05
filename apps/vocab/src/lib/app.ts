@@ -17,13 +17,13 @@
  * `ai` is every model Vocab can reach: Ollama and LM Studio on this computer
  * when they run, then Epicenter's hosted models (the tutor's and
  * dictation's) while the learner is signed in, then the endpoints the
- * learner connected on this device. Every entry is live: signing in or out,
- * and a connection added, edited or removed, reach the same `ai`. The
- * connections and the chosen model are this device's settings, not the
- * learner's data (`customEndpoints()` and `modelChoices()`: this browser's
- * storage on the web; on the desktop AppData's `connections.md` and
- * `models.md`, each key in the keychain and every request sent by the
- * shell), and none of this decides where words and chats are kept.
+ * learner connected on this computer. Every entry is live: signing in or
+ * out, and a connection added, edited or removed, reach the same `ai`. The
+ * connections and the chosen model are this computer's settings, not the
+ * learner's data (`customEndpoints()` and `modelChoices()` in
+ * `connections.md` and `models.md`: this browser's storage on the web,
+ * AppData on the desktop, where the shell holds each key and sends every
+ * request), and none of this decides where words and chats are kept.
  */
 import {
 	customEndpoints,
@@ -35,6 +35,7 @@ import {
 import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
 import { APPS } from '@epicenter/definition/site';
 import { home, openFolder } from '@epicenter/folder';
+import { settings as computer } from '@epicenter/local';
 import { reactive } from '@epicenter/svelte/reactive';
 import { connectAccount } from '#platform/account';
 import { vocab } from './contract.js';
@@ -57,7 +58,13 @@ export const ai = reactive(
 );
 
 /**
- * The tutor's model on this device, kept by job (`'chat'`): Epicenter's
+ * The tutor's model on this computer, kept by job (`'chat'`): Epicenter's
  * tutor model until the learner chooses another.
  */
 export const choices = reactive(modelChoices<'chat'>({ chat: HOSTED_TUTOR }));
+
+/**
+ * This computer's settings, which `<WhenOpen>` connects to beside the
+ * folder: the connections and the chosen model are read at once from then.
+ */
+export const settings = reactive(computer);

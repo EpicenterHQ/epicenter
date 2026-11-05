@@ -1,13 +1,18 @@
 //! The page's requests to an endpoint the person connected (an
 //! OpenAI-compatible server they named, with a key they entered), sent from
-//! here with the key the keychain keeps for it.
+//! here with the key the app's credentials file keeps for it.
+//!
+//! The page saves a connection's key and never reads it back:
+//! `connection_key_set` writes `key:<id>` in the credentials file as the
+//! JSON `{ endpoint, key }`, or removes it, and `connection_key_move` points
+//! a saved key at the connection's new endpoint, only from the endpoint it
+//! was saved for.
 //!
 //! A page's own `fetch` is held to CORS, and most such endpoints answer no
 //! `tauri://` page. So the page names the connection and describes the
-//! request, and this sends it: it reads what the keychain keeps for the
-//! connection (`key:<id>`, the JSON `{ endpoint, key }` the page saved),
-//! sends only to that endpoint's origin, and adds the key itself as
-//! `Authorization: Bearer <key>`. A page never sends a credential here, and
+//! request, and this sends it: it reads the connection's saved key from the
+//! credentials file for that request, sends only to the saved endpoint's
+//! origin, and adds the key itself as `Authorization: Bearer <key>`. A page never sends a credential here, and
 //! the connection list a person can edit by hand (Vocab's `connections.md`)
 //! cannot move the key: the endpoint the key goes to is the one saved with
 //! it. A connection with no saved key is sent with none, wherever it names,
@@ -20,7 +25,7 @@
 //! refusal sent with a key comes back whole, with the key removed wherever
 //! its body repeats it, so the page never sees the key in an error.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -30,13 +35,16 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 
-use crate::keychain::{blocking, key_entry, Secrets};
+use crate::credentials::{blocking, Secrets};
 use crate::relay::{self, send_event, RelayEvent, Requests};
 
-/// Managed state: the keys' store, and the requests in flight.
+/// Managed state: the credentials the keys are saved in, and the requests in
+/// flight.
 pub struct Connections {
     http: reqwest::Client,
     secrets: Arc<dyn Secrets>,
+    /// The page's key writes take turns, so a move never undoes a save.
+    saving: Mutex<()>,
     requests: Requests,
 }
 
@@ -67,16 +75,17 @@ pub enum ConnectionFetchError {
     SchemeRefused { message: String },
     /// Not on the origin of the endpoint the connection's key was saved for.
     OriginRefused { message: String },
-    /// The keychain could not be read.
-    KeychainFailed { message: String },
+    /// The app's credentials file could not be read, or the endpoint saved
+    /// with the key is not a URL.
+    CredentialsFailed { message: String },
     /// The endpoint could not be reached, or its answer broke off.
     SendFailed { message: String },
 }
 
 use ConnectionFetchError::*;
 
-/// What the keychain keeps for a connection, as the page saved it.
-#[derive(Debug, Deserialize)]
+/// What the credentials file keeps for a connection, as the page saved it.
+#[derive(Debug, Serialize, Deserialize)]
 struct SavedKey {
     endpoint: String,
     key: String,
@@ -106,7 +115,28 @@ fn scheme_allowed(url: &Url) -> bool {
     }
 }
 
-/// Check `request` against what the keychain keeps for its connection.
+/// The entry the connection `id`'s key is kept under. An id is what a page
+/// mints for a connection (a nanoid, or a provider such as `openai`):
+/// letters, digits, `_` and `-`, at most 64 of them, so it can never name
+/// the account's entry.
+fn key_entry(id: &str) -> Result<String, String> {
+    let valid = !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if !valid {
+        return Err(format!("{id:?} is not a connection id."));
+    }
+    Ok(format!("key:{id}"))
+}
+
+/// Refuse an endpoint a key could never be sent to, before it is saved.
+fn endpoint_url(endpoint: &str) -> Result<Url, String> {
+    Url::parse(endpoint).map_err(|cause| format!("{endpoint} is not a URL: {cause}"))
+}
+
+/// Check `request` against what the credentials file keeps for its connection.
 fn check(
     request: &ConnectionRequest,
     saved: Option<SavedKey>,
@@ -130,7 +160,7 @@ fn check(
     let key = match saved {
         None => None,
         Some(saved) => {
-            let endpoint = Url::parse(&saved.endpoint).map_err(|cause| KeychainFailed {
+            let endpoint = Url::parse(&saved.endpoint).map_err(|cause| CredentialsFailed {
                 message: format!(
                     "The saved endpoint {} is not a URL: {cause}",
                     saved.endpoint
@@ -205,22 +235,75 @@ impl Connections {
                 .build()
                 .expect("an HTTP client"),
             secrets,
+            saving: Mutex::new(()),
             requests: Requests::default(),
         }
     }
 
-    /// `request`, checked against what the keychain keeps for its connection.
-    async fn prepare(&self, request: &ConnectionRequest) -> Result<Checked, ConnectionFetchError> {
+    /// What the credentials file keeps for the connection `id`. An entry
+    /// that does not read holds no key to send.
+    fn saved(&self, id: &str) -> Result<Option<SavedKey>, String> {
+        let entry = key_entry(id)?;
+        Ok(self
+            .secrets
+            .get(&entry)?
+            .and_then(|text| serde_json::from_str::<SavedKey>(&text).ok()))
+    }
+
+    /// Save `key` for the connection `id`, to be sent to `endpoint`'s origin
+    /// only, or forget the connection's key for `None`.
+    fn save_key(&self, id: &str, endpoint: &str, key: Option<&str>) -> Result<(), String> {
+        let entry = key_entry(id)?;
+        let value = match key {
+            None => None,
+            Some(key) => {
+                endpoint_url(endpoint)?;
+                let saved = SavedKey {
+                    endpoint: endpoint.to_owned(),
+                    key: key.to_owned(),
+                };
+                Some(serde_json::to_string(&saved).expect("a saved key serializes"))
+            }
+        };
+        let _held = self.saving.lock().unwrap();
+        self.secrets.set(&entry, value.as_deref())
+    }
+
+    /// Point the connection `id`'s key at `to`, when it was saved for `from`;
+    /// a key saved for any other endpoint, or none, is left as it is.
+    fn move_key(&self, id: &str, from: &str, to: &str) -> Result<(), String> {
+        let entry = key_entry(id)?;
+        endpoint_url(to)?;
+        let _held = self.saving.lock().unwrap();
+        let Some(saved) = self.saved(id)? else {
+            return Ok(());
+        };
+        if saved.endpoint != from {
+            return Ok(());
+        }
+        let moved = SavedKey {
+            endpoint: to.to_owned(),
+            key: saved.key,
+        };
+        let text = serde_json::to_string(&moved).expect("a saved key serializes");
+        self.secrets.set(&entry, Some(&text))
+    }
+
+    /// `request`, checked against what the credentials file keeps for its
+    /// connection, read for this request.
+    async fn prepare(
+        self: &Arc<Self>,
+        request: &ConnectionRequest,
+    ) -> Result<Checked, ConnectionFetchError> {
         let Some(connection) = &request.connection else {
             return check(request, None);
         };
-        let entry = key_entry(connection).map_err(|message| InvalidRequest { message })?;
-        let secrets = self.secrets.clone();
-        let saved = blocking(move || secrets.get(&entry))
+        key_entry(connection).map_err(|message| InvalidRequest { message })?;
+        let connections = self.clone();
+        let connection = connection.clone();
+        let saved = blocking(move || connections.saved(&connection))
             .await
-            .map_err(|message| KeychainFailed { message })?;
-        // An entry that does not read holds no key to send, as the page reads it.
-        let saved = saved.and_then(|text| serde_json::from_str::<SavedKey>(&text).ok());
+            .map_err(|message| CredentialsFailed { message })?;
         check(request, saved)
     }
 }
@@ -277,6 +360,34 @@ pub fn connection_fetch_cancel(connections: State<'_, Arc<Connections>>, id: u32
     connections.requests.cancel(id);
 }
 
+/// Save `key` for the connection `id`, to be sent only to `endpoint`'s
+/// origin, or forget the connection's key for `None`. The page never reads a
+/// key back.
+#[tauri::command]
+pub async fn connection_key_set(
+    connections: State<'_, Arc<Connections>>,
+    id: String,
+    endpoint: String,
+    key: Option<String>,
+) -> Result<(), String> {
+    let connections = connections.inner().clone();
+    blocking(move || connections.save_key(&id, &endpoint, key.as_deref())).await
+}
+
+/// The connection `id` moved from the endpoint `from` to `to`: its key, when
+/// it was saved for `from`, is now sent to `to`. A key saved for another
+/// endpoint stays with it, so a hand-edited connection never moves a key.
+#[tauri::command]
+pub async fn connection_key_move(
+    connections: State<'_, Arc<Connections>>,
+    id: String,
+    from: String,
+    to: String,
+) -> Result<(), String> {
+    let connections = connections.inner().clone();
+    blocking(move || connections.move_key(&id, &from, &to)).await
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -285,7 +396,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     use super::*;
-    use crate::keychain::Memory;
+    use crate::credentials::Memory;
 
     const ENDPOINT: &str = "https://api.example.com/v1";
 
@@ -398,8 +509,89 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_connection_id_names_one_entry_and_never_the_account() {
+        assert_eq!(key_entry("openai").unwrap(), "key:openai");
+        assert_eq!(
+            key_entry("V1StGXR8_Z5jdHi6B-myT").unwrap(),
+            "key:V1StGXR8_Z5jdHi6B-myT"
+        );
+        for id in [
+            "",
+            "../x",
+            "a:b",
+            "account:https://api",
+            "a b",
+            &"x".repeat(65),
+        ] {
+            assert!(key_entry(id).is_err(), "{id}");
+        }
+    }
+
+    fn entry(secrets: &Memory, id: &str) -> Option<serde_json::Value> {
+        secrets
+            .get(&format!("key:{id}"))
+            .unwrap()
+            .map(|text| serde_json::from_str(&text).unwrap())
+    }
+
+    #[test]
+    fn a_key_is_saved_with_its_endpoint_and_removed() {
+        let secrets = Arc::new(Memory::default());
+        let connections = Connections::new(secrets.clone());
+        connections
+            .save_key("conn-1", ENDPOINT, Some("sk-1"))
+            .unwrap();
+        assert_eq!(
+            entry(&secrets, "conn-1"),
+            Some(serde_json::json!({ "endpoint": ENDPOINT, "key": "sk-1" }))
+        );
+        connections.save_key("conn-1", ENDPOINT, None).unwrap();
+        assert_eq!(entry(&secrets, "conn-1"), None);
+        // An id that could name another entry, or an endpoint that is not a
+        // URL, saves nothing.
+        for id in ["", "../account", "account:https://api"] {
+            assert!(
+                connections.save_key(id, ENDPOINT, Some("sk-1")).is_err(),
+                "{id}"
+            );
+        }
+        assert!(connections
+            .save_key("conn-1", "not a url", Some("sk-1"))
+            .is_err());
+        assert_eq!(entry(&secrets, "conn-1"), None);
+    }
+
+    #[test]
+    fn a_key_moves_only_from_the_endpoint_it_was_saved_for() {
+        let secrets = Arc::new(Memory::default());
+        let connections = Connections::new(secrets.clone());
+        let moved = "https://other.example/v1";
+        // Nothing saved: nothing moves, and nothing is made.
+        connections.move_key("conn-1", ENDPOINT, moved).unwrap();
+        assert_eq!(entry(&secrets, "conn-1"), None);
+        connections
+            .save_key("conn-1", ENDPOINT, Some("sk-1"))
+            .unwrap();
+        // From an endpoint the key was not saved for: left as it is.
+        connections
+            .move_key("conn-1", "https://elsewhere.example/v1", moved)
+            .unwrap();
+        assert_eq!(
+            entry(&secrets, "conn-1"),
+            Some(serde_json::json!({ "endpoint": ENDPOINT, "key": "sk-1" }))
+        );
+        connections.move_key("conn-1", ENDPOINT, moved).unwrap();
+        assert_eq!(
+            entry(&secrets, "conn-1"),
+            Some(serde_json::json!({ "endpoint": moved, "key": "sk-1" }))
+        );
+        assert!(connections.move_key("../x", moved, ENDPOINT).is_err());
+        assert!(connections.move_key("conn-1", moved, "not a url").is_err());
+    }
+
     #[tokio::test]
-    async fn a_connection_is_read_from_the_keychain_by_its_id() {
+    async fn a_connection_is_read_from_the_credentials_by_its_id() {
         let secrets = Arc::new(Memory::default());
         secrets
             .set(
@@ -407,7 +599,7 @@ mod tests {
                 Some(&serde_json::json!({ "endpoint": ENDPOINT, "key": "sk-1" }).to_string()),
             )
             .unwrap();
-        let connections = Connections::new(secrets);
+        let connections = Arc::new(Connections::new(secrets));
         let checked = connections
             .prepare(&request(&format!("{ENDPOINT}/models")))
             .await
@@ -422,7 +614,7 @@ mod tests {
         let mut other = request("https://elsewhere.example/v1/models");
         other.connection = Some("conn-2".into());
         assert_eq!(connections.prepare(&other).await.unwrap().key, None);
-        // No connection: no key, and no keychain entry is read.
+        // No connection: no key, and no credential is read.
         other.connection = None;
         assert_eq!(connections.prepare(&other).await.unwrap().key, None);
         other.connection = Some("../account".into());

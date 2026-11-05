@@ -1,7 +1,7 @@
 /**
  * A folder at this browser's storage (`home` from the web `@epicenter/folder`)
- * in real engines: OPFS through the store's one Worker, in Playwright
- * Chromium and WebKit. Run with Bun:
+ * in real engines: OPFS called from the page, in Playwright Chromium and
+ * WebKit. Run with Bun:
  *
  *   bun packages/folder/smoke/device.ts            # both engines
  *   bun packages/folder/smoke/device.ts webkit     # one
@@ -10,24 +10,25 @@
  * OPFS, opfs-probe/RESULTS.md):
  *
  * 1. A note lands in house style at its contract path, and 5 MB of audio
- *    reads back byte for byte, its version the sha256 of its bytes; a write
- *    there expecting nothing is `'stale'`.
+ *    reads back byte for byte, named by its stamp; a write there expecting
+ *    nothing is `'stale'`. The store conformance checks
+ *    (`store.conformance.ts`) pass, a second store writing as another tab.
  * 2. A second tab reads the same files.
  * 3. Below the folder, two tabs racing a write over one version: one lands,
  *    one is `'stale'`; racing a write where nothing is at one path, likewise.
- *    The Web Lock per path is what serializes them across the tabs' Workers.
+ *    The Web Lock per path is what serializes them across the tabs.
  *    Two writes racing within one tab take turns under the same lock.
- * 4. A write in one tab reaches the other tab's listeners (the Worker's
+ * 4. A write in one tab reaches the other tab's listeners (the store's
  *    broadcast), and the writing tab's own listeners before it resolves.
  * 5. A listing taken while files are being deleted answers, without the
  *    files that went (a file removed mid-walk is skipped, not a failure).
- * 6. A file appended a piece at a time (a recording) reads back whole, every
- *    read taken while it grows answers, a second create answers false, and the
- *    other tab hears it made and announced, not each piece.
+ * 6. A take written once (a browser recording at Stop) reads back whole,
+ *    and the other tab hears it.
  * 7. Nothing is left staged, and the files survive a reload and a restart.
  *
- * Then an ephemeral context: Chromium opens OPFS there; WebKit's refusal is
- * `Unavailable` with a `StorageRefused` cause, not a throw.
+ * Then an ephemeral context: Chromium opens OPFS there; WebKit's refusal
+ * fails the folder's open as `StorageUnavailable` with a `StorageRefused`
+ * cause, not a throw.
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -51,10 +52,6 @@ async function bundle(entry: string) {
 }
 
 const client = await bundle(join(import.meta.dir, 'device-client.ts'));
-// The client asks for its Worker at `new URL('./opfs-worker.ts', import.meta.url)`.
-const worker = await bundle(
-	join(import.meta.dir, '../src/device/opfs-worker.ts'),
-);
 const javascript = { headers: { 'content-type': 'text/javascript' } };
 const server = Bun.serve({
 	hostname: '127.0.0.1',
@@ -63,8 +60,6 @@ const server = Bun.serve({
 		switch (new URL(request.url).pathname) {
 			case '/device-client.js':
 				return new Response(client, javascript);
-			case '/opfs-worker.ts':
-				return new Response(worker, javascript);
 			default:
 				return new Response(
 					'<!doctype html><title>Device smoke</title><script type="module" src="/device-client.js"></script>',
@@ -111,9 +106,9 @@ try {
 			);
 			check(
 				seeded.readHash === seeded.expectedAudioHash &&
-					seeded.readVersion === seeded.expectedAudioHash &&
-					seeded.audioVersion === seeded.expectedAudioHash,
-				'audio did not read back byte for byte under its sha256',
+					seeded.readVersion === seeded.audioVersion &&
+					seeded.audioVersion !== seeded.expectedAudioHash,
+				'audio did not read back byte for byte, named by its stamp',
 			);
 			check(seeded.callerBytesIntact, "a write detached the caller's bytes");
 			check(
@@ -123,6 +118,12 @@ try {
 			steps.push(
 				'note in house style; 5 MB audio round trip; a write where nothing was expected is stale',
 			);
+			const conformance = await a.evaluate(() => deviceSmoke.conformance());
+			check(
+				Object.values(conformance).every((answer) => answer === 'ok'),
+				`store conformance: ${JSON.stringify(conformance)}`,
+			);
+			steps.push(`store conformance: ${Object.keys(conformance).join('; ')}`);
 
 			const b = await page(context);
 			const seen = await b.evaluate(() => deviceSmoke.read('r1'));
@@ -190,29 +191,12 @@ try {
 			);
 
 			await b.evaluate(() => deviceSmoke.listenAudio());
-			const appended = await a.evaluate(() =>
-				deviceSmoke.appendPieces('grown', 40),
-			);
-			check(
-				appended.problem === null &&
-					appended.readFailures.length === 0 &&
-					appended.again === 'stale' &&
-					appended.announced === 'landed' &&
-					appended.whole,
-				`appending: ${JSON.stringify(appended)}`,
-			);
-			await b.waitForFunction(() => deviceSmoke.heardAudio() >= 2, null, {
+			const whole = await a.evaluate(() => deviceSmoke.writeTake('grown', 40));
+			check(whole, 'a take written once did not read back whole');
+			await b.waitForFunction(() => deviceSmoke.heardAudio() >= 1, null, {
 				timeout: 5000,
 			});
-			await Bun.sleep(300);
-			const heardAudio = await b.evaluate(() => deviceSmoke.heardAudio());
-			check(
-				heardAudio === 2,
-				`other tab heard the appended file ${heardAudio} times`,
-			);
-			steps.push(
-				`40 pieces appended while ${appended.reads} reads answered; heard made and announced only`,
-			);
+			steps.push('a take of 40 pieces lands once, whole, and the other tab hears it');
 
 			check(
 				(await a.evaluate(() => deviceSmoke.staged())) === 0,
@@ -250,7 +234,7 @@ try {
 				const refusal = await ephemeral.evaluate(() => deviceSmoke.refusal());
 				if (name === 'webkit')
 					check(
-						refusal.name === 'Unavailable' &&
+						refusal.name === 'StorageUnavailable' &&
 							refusal.cause === 'StorageRefused',
 						`WebKit ephemeral: ${JSON.stringify(refusal)}`,
 					);

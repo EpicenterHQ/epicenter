@@ -16,7 +16,7 @@
  * const undo = memoryFiles(folder).refuse('disk full', { under: 'todos' }); // the next writes there wait, and unavailable() says why
  *
  * const place = memory();
- * memoryFiles(place).refuseOpen(OpenFolderError.StorageUnavailable({ cause: 'no Worker' }).error);
+ * memoryFiles(place).refuseOpen(OpenFolderError.StorageUnavailable({ cause: 'no private storage' }).error);
  * const offline = openFolder(todos, place); // fails to open until the refusal is undone
  * ```
  */

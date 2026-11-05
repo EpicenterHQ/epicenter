@@ -20,7 +20,7 @@ import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { scratch } from '../git.test-support.js';
 import { savesDirectory } from '../state.js';
-import type { DeviceLanded } from './store.js';
+import type { Version } from './store.js';
 
 /** Whether the next link or rename fails as one to another file system does. */
 let crossDevice = false;
@@ -55,13 +55,14 @@ const text = (value: string) => new TextEncoder().encode(value);
 
 /** The version `store` reads at `path`, which must hold a file. */
 async function versionIn(store: ReturnType<typeof nodeStore>, path: string) {
-	const read = expectOk(await store.read(path));
-	if (read === null) throw new Error(`nothing is at ${path}`);
+	const [read] = expectOk(await store.read([path]));
+	if (read === undefined || 'gone' in read)
+		throw new Error(`nothing is at ${path}`);
 	return read.version;
 }
 
 /** Whether a write landed or was stale, whatever version it landed. */
-const outcome = (written: DeviceLanded | 'stale') =>
+const outcome = (written: Version | null | 'stale') =>
 	written === 'stale' ? written : 'landed';
 const { chmod, mkdir, readdir, readFile, rm, stat, writeFile } = real;
 
@@ -84,13 +85,13 @@ test('two processes replacing one file each land whole, the last one winning', a
 					const store = nodeStore(root);
 					for (let line = 0; line < Number(rounds); line++) {
 						const bytes = new TextEncoder().encode(('p${id}-' + line + '\\n').repeat(64));
-						const before = await store.read('log.txt');
+						const before = await store.read(['log.txt']);
 						if (before.error !== null) throw new Error(JSON.stringify(before.error));
-						const put = await store.write('log.txt', bytes, { version: before.data.version });
+						const put = await store.write('log.txt', bytes, before.data[0].version);
 						if (put.error !== null) throw new Error(JSON.stringify(put.error));
-						const read = await store.read('log.txt');
+						const read = await store.read(['log.txt']);
 						if (read.error !== null) throw new Error(JSON.stringify(read.error));
-						const lines = new Set(new TextDecoder().decode(read.data.bytes).split('\\n').filter(Boolean));
+						const lines = new Set(new TextDecoder().decode(read.data[0].bytes).split('\\n').filter(Boolean));
 						if (lines.size !== 1) throw new Error('a torn file: ' + [...lines].join(','));
 					}
 					`,
@@ -148,7 +149,7 @@ test('two replacements over one version in one process: one lands, one is stale'
 		const outcomes = await Promise.all(
 			['a', 'b'].map(async (value) =>
 				outcome(
-					expectOk(await store.write('note.md', text(value), { version })),
+					expectOk(await store.write('note.md', text(value), version)),
 				),
 			),
 		);
@@ -219,22 +220,20 @@ test('a save stages inside the folder, makes nothing beside it, and keeps a repl
 		const store = nodeStore(root);
 		expect(
 			expectOk(await store.write('todos/a.md', text('milk'), 'absent')),
-		).toEqual({ landed: await versionIn(store, 'todos/a.md') });
+		).toEqual(await versionIn(store, 'todos/a.md'));
 		expect(await readdir(parent)).toEqual(['notes']);
 		expect((await readdir(root)).sort()).toEqual(['.epicenter', 'todos']);
 		expect(await readdir(savesDirectory(root))).toEqual([]);
-		const listed = expectOk(await store.list());
+		const listed = expectOk(await store.list(['']));
 		expect(listed.map(({ path }) => path)).toEqual(['todos/a.md']);
 
 		if (process.platform === 'win32') return;
 		await chmod(join(root, 'todos/a.md'), 0o755);
 		expect(
 			expectOk(
-				await store.write('todos/a.md', text('oat milk'), {
-					version: await versionIn(store, 'todos/a.md'),
-				}),
+				await store.write('todos/a.md', text('oat milk'), await versionIn(store, 'todos/a.md')),
 			),
-		).toEqual({ landed: await versionIn(store, 'todos/a.md') });
+		).toEqual(await versionIn(store, 'todos/a.md'));
 		expect((await stat(join(root, 'todos/a.md'))).mode & 0o777).toBe(0o755);
 	} finally {
 		await rm(parent, { recursive: true, force: true });
@@ -251,11 +250,9 @@ test('a name only some disks hold is never made; an existing one is replaced ove
 		await writeFile(join(root, 'aux.md'), 'theirs');
 		expect(
 			expectOk(
-				await store.write('aux.md', text('mine'), {
-					version: await versionIn(store, 'aux.md'),
-				}),
+				await store.write('aux.md', text('mine'), await versionIn(store, 'aux.md')),
 			),
-		).toEqual({ landed: await versionIn(store, 'aux.md') });
+		).toEqual(await versionIn(store, 'aux.md'));
 		expect(await readFile(join(root, 'aux.md'), 'utf8')).toBe('mine');
 		expectErr(await store.write('.git/config', text('x'), 'absent'));
 	} finally {
@@ -291,11 +288,11 @@ test('a directory removed during a listing is not listed; a root removed fails t
 		await writeFile(join(root, 'gone/note.md'), 'gone');
 		const store = nodeStore(root);
 		removedBeforeReading = join(root, 'gone');
-		const listed = expectOk(await store.list());
+		const listed = expectOk(await store.list(['']));
 		expect(listed.map(({ path }) => path)).toEqual(['keep.md']);
 
 		removedBeforeReading = root;
-		expectErr(await store.list());
+		expectErr(await store.list(['']));
 	} finally {
 		removedBeforeReading = undefined;
 		await rm(root, { recursive: true, force: true });

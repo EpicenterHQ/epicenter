@@ -63,8 +63,6 @@ test('owners, tests, comments, docs, and dotted names pass', () => {
 	const dir = repoWith({
 		'packages/folder/src/state.ts':
 			"export const STATE_DIRECTORY = '.epicenter';\n",
-		'packages/folder/src/device/opfs-worker.ts':
-			"export const SAVES = ['.epicenter', 'saves'];\n",
 		'packages/tauri-plugin-epicenter-folder/core/src/state.rs':
 			'pub const DIRECTORY: &str = ".epicenter";\n',
 		'packages/folder/src/store.test.ts': "join(root, '.epicenter');\n",

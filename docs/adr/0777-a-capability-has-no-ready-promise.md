@@ -5,7 +5,6 @@
 - **Amends:** [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) at what a capability exposes of its first load: its reads answer at every moment and its actions wait, so nothing exposes a promise of being ready.
 - **Relates:** [ADR-0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) (the four verbs), [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) (a folder's writes wait until they land).
 - **Amended by:** [ADR-0778](0778-a-page-connects-once-and-then-reads-synchronously.md) at reads answering "from what it has so far": a read of stored data answers after the page has connected, and nothing renders before.
-- **Unbuilt:** deleting `ready` from the conversation (`createConversation`), model choices, AI connections (`connections.ready`, `ai.custom().ready`), and their callers in Vocab's session, Whispering, and `device-settings.tauri.ts`.
 
 ## Context
 

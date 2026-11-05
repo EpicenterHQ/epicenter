@@ -2,22 +2,22 @@
  * The recording vocabulary both hosts share (ADR-0543, decision 84), and
  * `Recorder`, the one interface both implement.
  *
- * A recording is a file in the app's store from its first moments, written
- * as it records, so a quit, a crash, or a closed tab keeps the audio up to
- * the cut (`Recorder.start`, `Recording`). `Recorder.recover`, run when the
- * store opens, repairs what a cut left half-written. Every build calls the
- * same `recorder`; which one a build runs is the entry it imports
- * (`@epicenter/recorder/tauri` or `@epicenter/recorder/browser`), chosen by
- * the app's `#platform` seam, never at run time:
+ * A recording lands at its path, whole, when it stops (`Recorder.start`,
+ * `Recording`). Every build calls the same `recorder`; which one a build
+ * runs is the entry it imports (`@epicenter/recorder/tauri` or
+ * `@epicenter/recorder/browser`), chosen by the app's `#platform` seam,
+ * never at run time. The two need not promise the same things (ADR-0780):
  *
  * - On the desktop the shell's recorder encodes the microphone to Opus from
  *   the first sample and writes it, a second at a time, into a WebM in the
  *   data folder's `.epicenter/recordings`; Stop finishes it in place and
- *   places it at `<path>.webm`; recovery finishes one a cut left from its
- *   whole seconds and places it the same way.
- * - In a browser the page appends each piece `MediaRecorder` hands over,
- *   about once a second, to `<path>.m4a` (or `.webm`) in this browser's
- *   private files; recovery cuts a file back to its last whole piece.
+ *   places it at `<path>.webm`. The shell outlives the page, so a quit or a
+ *   crash keeps the take: `Recorder.recover`, the desktop's alone, finishes
+ *   one a cut left from its whole seconds and places it the same way.
+ * - In a browser the page keeps each piece `MediaRecorder` hands over in
+ *   memory, and Stop writes the take once with the folder's `set` at
+ *   `<path>.m4a` (or `.webm`) (ADR-0779). A crash or a closed tab loses the
+ *   take; the leave guard asks before a page closes while one runs.
  *
  * Nothing here says whether a recording is running. That is the live handle
  * a start returns; it ends with the page.
@@ -58,17 +58,12 @@ export type RecordingStart = {
  * `{ id, ext }`, such as Whispering's `folder.audio` at
  * `recordings/{id}.{ext}`, or `reactive`'s copy of it.
  */
-export type AudioFiles = Pick<
-	FolderFiles<{ path: '{id}.{ext}' }>,
-	'list' | 'read' | 'set' | 'append'
->;
+export type AudioFiles = Pick<FolderFiles<{ path: '{id}.{ext}' }>, 'get' | 'set'>;
 
 /**
  * The files a recording is written into, so the audio stays where the rest
  * of the app's files are. On the desktop the shell writes into the data
- * folder itself; in a browser each piece is appended to the collection as
- * the recording runs (`files.append`), which only this browser's storage
- * can do.
+ * folder itself; in a browser Stop writes the take once (`files.set`).
  */
 export type RecordingFiles = {
 	readonly files: AudioFiles;
@@ -99,29 +94,27 @@ export type StoppedRecording = {
 	/** The store-relative path of the audio file, extension included. */
 	readonly path: string;
 	/**
-	 * How long the file plays: on the desktop its samples over their rate, in
-	 * a browser read from the file written (an engine drops the first moments
-	 * of a recording, so the time between Start and Stop is longer).
+	 * How long the take plays: on the desktop its samples over their rate, in
+	 * a browser the recorder's own clock, the time it spent recording with
+	 * its pauses left out.
 	 */
 	readonly durationMs: number;
 };
 
 /**
- * One recording in progress, owned by the page that started it, written
- * into the store as it records: in a browser at `<path>.<ext>`, on the
- * desktop in the folder's `.epicenter/recordings` until `stop` places it at
- * `<path>.webm`. Where its audio is, extension included, is what `stop`
- * answers.
+ * One recording in progress, owned by the page that started it: in a
+ * browser kept in memory until `stop` writes it at `<path>.<ext>`, on the
+ * desktop written into the folder's `.epicenter/recordings` until `stop`
+ * places it at `<path>.webm`. Where its audio is, extension included, is
+ * what `stop` answers.
  */
 export type Recording = {
 	/** Hear that capture ended on its own, including an ending before subscription. `stop` keeps what was captured. Retired by stop. */
 	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;
 	/**
 	 * Finish the recording and release the microphone; answers once its
-	 * file is finished at its path. Nothing deletes a recording: one its
-	 * page leaves without stopping is finished and placed by the shell on
-	 * the desktop, and in a browser is the pieces already written, which
-	 * `recover` repairs.
+	 * file is at its path. One its page leaves without stopping is finished
+	 * and placed by the shell on the desktop, and lost in a browser.
 	 */
 	stop(): Promise<Result<StoppedRecording, RecorderError>>;
 };
@@ -132,8 +125,8 @@ export type RecoveredRecording = {
 	readonly path: string;
 	/**
 	 * How long it plays, as `stop` would have answered: on the desktop as
-	 * its finished file states, in a browser read from the file repaired.
-	 * Null when its audio does not read as the format it is named for.
+	 * its finished file states. Null when its audio does not read as the
+	 * format it is named for.
 	 */
 	readonly durationMs: number | null;
 };
@@ -141,8 +134,7 @@ export type RecoveredRecording = {
 /**
  * A recording `Recorder.recover` finished but did not place, because
  * another file is at its path. Its audio is kept, finished, at `pending`
- * until a person moves one of the two; nothing deletes it. Only the desktop
- * has one: a browser recording is written at its path.
+ * until a person moves one of the two; nothing deletes it.
  */
 export type UnplacedRecording = {
 	/** The store-relative path it was not placed at: another file is there. */
@@ -164,8 +156,7 @@ export type RecoverRecordingsOptions = RecordingFiles & {
 	readonly under: string;
 	/**
 	 * The audio files under `under` that the app keeps no record of yet, by
-	 * store-relative path (`recordings/a.webm`): the only place a browser's
-	 * cut-off recording can be, and on the desktop audio a page left before
+	 * store-relative path (`recordings/a.webm`): audio a page left before
 	 * writing its note.
 	 */
 	readonly unnamed: readonly string[];
@@ -206,20 +197,19 @@ export type Recorder = {
 		options: StartRecordingOptions,
 	) => Promise<Result<Recording, RecorderError>>;
 	/**
-	 * Repair the recordings under a directory that a quit, a crash, or a
-	 * closed tab cut off, leaving any recording still being written alone,
-	 * and answer in `recovered` each recording the app should now record:
-	 * every one it finished and placed, and every one of `unnamed` whose
-	 * audio is whole at its path, with how long it plays when it read that
-	 * (null when it did not). How a build tells a whole recording from a cut
-	 * one is its own: the desktop shell records outside the path and places
-	 * a recording there only whole, so it always looks for cut-off ones;
-	 * a browser writes at the path as it records, so it looks only among
-	 * `unnamed`, past any another tab is still writing. It also answers
+	 * The desktop's alone (ADR-0780): finish the recordings under a
+	 * directory that a quit or a crash cut off, and answer in `recovered`
+	 * each recording the app should now record: every one it finished and
+	 * placed, and every one of `unnamed` whose audio is whole at its path,
+	 * with how long it plays when it read that (null when it did not). The
+	 * shell records outside the path and places a recording there only
+	 * whole, so it always looks for cut-off ones. It also answers
 	 * `unplaced`, every time it runs, each recording it left outside its
 	 * path because another file is there, which an app says to the person.
+	 * A browser keeps a take in memory until Stop, so it has nothing to
+	 * recover.
 	 */
-	readonly recover: (
+	readonly recover?: (
 		options: RecoverRecordingsOptions,
 	) => Promise<Result<Recovery, RecorderError>>;
 	/** The inputs connected now. Opens nothing, and never asks for access. */

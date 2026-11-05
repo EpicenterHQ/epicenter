@@ -1,30 +1,39 @@
 /**
  * The folder `openFolder(contract, place)` returns, on every build (ADR-0766,
- * ADR-0767, ADR-0773, ADR-0774, ADR-0775): handed over at once, already
- * opening, with its state as synchronous reads and its collections directly
- * on it (`folder.todos`).
+ * ADR-0773 to ADR-0779, ADR-0782): handed over at once, already connecting,
+ * with its state as synchronous reads and its collections directly on it
+ * (`folder.todos`).
  *
- * - `state()` is where the folder is in its life: `opening`, `open`,
- *   `failed` with the open's error and the `retry()` for after the person
- *   acted, or `closed` after dispose. It is the same object until it
- *   changes. A temporary failure to open is tried again on its own; only
- *   what waiting will not fix fails.
- * - `unavailable()` is why the store cannot be reached or written now, else
- *   null: while opening the folder keeps trying, and while open what it
- *   shows may be old and writes wait. Always null once failed or closed.
- * - `saving()` is whether a write is out: made and not yet landed, waiting
- *   for the store or its turn.
- * - A collection's reads answer at every moment: `items()` is empty and
- *   `loading()` true until the first listing, and `get(args)` is the entry
- *   shown.
- * - A write (`set`, `delete`, an editor's save) answers once it has landed,
- *   and never fails. The folder keeps every write, in the order made, and
- *   while one cannot land it waits and tries again; a write made while the
- *   folder opens waits for the open. When the folder fails or closes, the
- *   writes waiting then are not made, and their promises never answer.
- * - A write reads the file just before writing it and writes over exactly
- *   what it read; when the file moved in between, it reads and applies the
- *   change again (`note-codec.ts` says how a note's change settles).
+ * **The connection.** Opening a place answers its store (`Store`, four
+ * verbs). The folder then connects: it starts watching, lists the
+ * contract's directories, reads the text of every note there in one
+ * request, and then reads again, one path at a time, every path heard in
+ * between. `state()` is `opening` until that snapshot lands; a listing or
+ * read that cannot reach the store is tried again, `unavailable()` saying
+ * why.
+ *
+ * **One replica.** The folder holds the text of every note in the
+ * contract's directories and the version and size of every other file,
+ * never an attachment's bytes. A change the store hears re-reads only its
+ * paths; `'all'` lists, compares each version with what is held, and reads
+ * what differs, so nothing shows empty while it does. Reads and writes of
+ * one path run one at a time, in the order they began, so a later read of
+ * a path is never older than an earlier one. A note is parsed against the
+ * contract when its collection is first read, and again when it changes.
+ *
+ * **Reads are synchronous once connected.** A collection's `items()`,
+ * `invalid()` and `get(args)` answer what the replica holds; before the
+ * snapshot landed they throw `FolderNotOpen`: nothing that reads a store
+ * renders before `<WhenOpen>`. An action (`list()`, a file's `read()`, any
+ * write) waits for the connection.
+ *
+ * **Writes never fail while the folder lives** (ADR-0775). Every write
+ * waits its turn in one queue, in the order made, reads the file just
+ * before writing it, writes over exactly what it read, and when the file
+ * moved in between, reads and applies its change again (`note-codec.ts`
+ * says how a note's change settles). While a write cannot land it waits and
+ * tries again. When the folder fails or closes, every write still waiting
+ * rejects with `FolderClosed` (ADR-0782).
  *
  * Only an interface reads `state()` (`<WhenOpen>` from `@epicenter/svelte`);
  * everything else reads and acts. Nothing here knows a framework:
@@ -47,19 +56,23 @@ import {
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
-	type CollectionFiles,
-	createDeviceClient,
-	type DeviceClient,
-	type Entry,
-	type Seen,
-} from './device/client.js';
-import type { DeviceStore, Unavailable } from './device/store.js';
-import { OpenFolderError, type RevealRootError } from './errors.js';
-import { noteCodec } from './note-codec.js';
+	type Store,
+	type Unavailable,
+	type Version,
+	within,
+} from './device/store.js';
+import {
+	FolderClosed,
+	FolderNotOpen,
+	OpenFolderError,
+	type RevealRootError,
+} from './errors.js';
+import { decodeNote, noteCodec, type Params } from './note-codec.js';
 import { editNote, type NoteEdit, type NoteEditOptions } from './note-edit.js';
+import { createPathTurns } from './path-turns.js';
 
 export type { Unavailable } from './device/store.js';
-export { OpenFolderError } from './errors.js';
+export { FolderClosed, FolderNotOpen, OpenFolderError } from './errors.js';
 export type { NoteEdit, NoteEditOptions } from './note-edit.js';
 
 /** Why the folder's place could not be shown. */
@@ -87,40 +100,37 @@ export type FolderState =
 	| { readonly status: 'closed' };
 
 /**
- * The reads every collection of a folder answers at once, and the one way
- * to hear them change. While something listens, the collection is listed,
- * and listed again after every change to its files.
+ * The reads every collection of a folder answers at once, once the folder
+ * connected, and the one way to hear them change.
  */
 type Reads<TItem> = {
-	/** The entries as last listed, and written here since; empty until the first listing. */
+	/** The entries the folder holds. Throws `FolderNotOpen` before it connected. */
 	items(): readonly TItem[];
-	/** True until the first listing lands, which waits for the open; a listing that cannot reach the store is tried again while something listens. */
-	loading(): boolean;
-	/**
-	 * Call `listener` when a read may answer differently; returns the
-	 * unsubscribe. The first listener starts listing, the last one's
-	 * unsubscribe stops it.
-	 */
+	/** Call `listener` when a read may answer differently; returns the unsubscribe. */
 	subscribe(listener: () => void): () => void;
 };
 
-/** Why an action that reads now could not answer. */
+/** Why an action that reads could not answer: the folder failed, or closed. */
 type ReadError = Unavailable | OpenFolderError;
 
 /**
  * A note collection of a folder: its reads, and its writes, each answering
- * once it has landed and never failing (ADR-0775).
+ * once it has landed and never failing while the folder lives (ADR-0775).
  */
 export type FolderNotes<TCollection extends Collection> = Reads<
 	NoteOf<TCollection>
 > & {
 	/** The fields the contract declares, in its order: an editor's `fields` are these and `body`. */
 	fieldNames: readonly string[];
-	/** The notes at the collection's paths that do not read, with their text. */
+	/** The notes at the collection's paths that do not read, with their text. Throws `FolderNotOpen` before the folder connected. */
 	invalid(): readonly InvalidNoteOf<TCollection>[];
-	/** The note `args` names, as shown. */
+	/** The note `args` names. Throws `FolderNotOpen` before the folder connected. */
 	get(args: PlaceholdersOf<TCollection>): NoteOf<TCollection> | undefined;
-	/** Every note, read now, and shown. */
+	/**
+	 * Every note, read from the store now, once the folder connected: the
+	 * collection is listed again and what changed is read, for code that must
+	 * see another writer's change it may not have heard yet.
+	 */
 	list(): Promise<
 		Result<
 			{ items: NoteOf<TCollection>[]; invalid: InvalidNoteOf<TCollection>[] },
@@ -135,7 +145,8 @@ export type FolderNotes<TCollection extends Collection> = Reads<
 	 * lines. A value that does not fit the contract is written, and the
 	 * note shows in `invalid()`. Throws, before anything is written, for a
 	 * name that would leave the collection or a value front matter cannot
-	 * hold.
+	 * hold; rejects with `FolderClosed` when the folder fails or closes
+	 * before it lands.
 	 */
 	set(
 		args: PlaceholdersOf<TCollection>,
@@ -160,13 +171,13 @@ export type FolderNotes<TCollection extends Collection> = Reads<
 export type FolderFiles<TCollection extends Collection> = Reads<
 	FileEntryOf<TCollection>
 > & {
-	/** The entry `args` names, as shown. */
+	/** The entry `args` names. Throws `FolderNotOpen` before the folder connected. */
 	get(args: PlaceholdersOf<TCollection>): FileEntryOf<TCollection> | undefined;
 	/** The file `args` names with its bytes, read now: null when nothing is there. */
 	read(
 		args: PlaceholdersOf<TCollection>,
 	): Promise<Result<FileOf<TCollection> | null, ReadError>>;
-	/** Every entry, read now, and shown. */
+	/** Every entry, listed from the store now, once the folder connected. */
 	list(): Promise<Result<{ items: FileEntryOf<TCollection>[] }, ReadError>>;
 	/**
 	 * Write `bytes` as the file `args` names, over whatever is there: the
@@ -176,20 +187,6 @@ export type FolderFiles<TCollection extends Collection> = Reads<
 	set(args: PlaceholdersOf<TCollection>, bytes: Uint8Array): Promise<void>;
 	/** Remove the file. One already gone is gone; one changed since the folder showed it is kept. */
 	delete(args: PlaceholdersOf<TCollection>): Promise<void>;
-	/**
-	 * Add `bytes` to the end of the file `args` names, for a file written
-	 * while it is made, such as a recording: true once they landed, false
-	 * when the file was not as `create` says (with `create`, a file was
-	 * already there; without, the file went). Listeners hear the file when
-	 * it is made, and after that only an append with `announce`. Only this
-	 * browser's storage appends: anywhere else the answer is `Unavailable`.
-	 * It is not queued with the folder's writes, and answers a failure.
-	 */
-	append(
-		args: PlaceholdersOf<TCollection>,
-		bytes: Uint8Array,
-		options: { create: boolean; announce: boolean },
-	): Promise<Result<boolean, ReadError>>;
 };
 
 /** A folder's collection: notes for a path ending in `.md`, files for any other. */
@@ -227,8 +224,8 @@ export type FolderLifecycle = {
 	 */
 	displayPath(): string | null;
 	/**
-	 * Close what the folder opened: `state()` is `closed`, the writes waiting
-	 * are not made, and a later write throws.
+	 * Close what the folder opened: `state()` is `closed`, every write still
+	 * waiting rejects with `FolderClosed`, and a later write throws.
 	 */
 	[Symbol.dispose](): void;
 };
@@ -255,7 +252,7 @@ const RESERVED = new Set([
  * tries again on its own (`Unavailable`), or what waiting will not fix.
  */
 export type FolderOpen = () => Promise<
-	Result<DeviceStore, OpenFolderError | Unavailable>
+	Result<Store, OpenFolderError | Unavailable>
 >;
 
 /** How long after a failure the folder tries again, doubling per failure up to the most. */
@@ -264,27 +261,54 @@ const RETRY_MOST_MS = 30_000;
 const backoff = (failures: number) =>
 	Math.min(RETRY_FIRST_MS * 2 ** failures, RETRY_MOST_MS);
 
-/** One write in the folder's queue: run until it lands, over the open store. */
+/** What the folder holds of one file: its version and size, and a note's text (null when it is not UTF-8). */
+type Held = { version: Version; size: number | null; text?: string | null };
+
+/** An entry as an app reads it: a note's placeholders, fields and body, or a file's placeholders. */
+export type Entry = Record<string, unknown>;
+
+/** One file as a collection shows it. */
+export type Seen = {
+	path: string;
+	params: Params;
+	version: Version;
+	/** A note's text, null when it is not UTF-8; null for any other file. */
+	text: string | null;
+	/** What `items()` shows: a note that reads, or a file's placeholders; null for a note that does not read. */
+	item: Entry | null;
+	/** What `invalid()` shows of a note that does not read; null otherwise. */
+	invalid: Entry | null;
+};
+
+/** What a write found at its path: the version, and a note's text. */
+type Current = { version: Version; text: string | null };
+
+/** What a write makes of what is there (null: nothing): bytes, null to remove it, or `'keep'`. */
+type Next = (current: Current | null) => Uint8Array | null | 'keep';
+
+/** One write in the folder's queue: run until it lands, over the connected store. */
 type Job = {
+	path: string;
 	/** Make the write, answering once it landed or why the store could not be reached. */
-	run(client: DeviceClient): Promise<Result<void, Unavailable>>;
+	run(store: Store): Promise<Result<void, Unavailable>>;
 	resolve(): void;
 	reject(cause: unknown): void;
 };
 
-/** What a collection is given by its folder. */
-type Host = {
-	/** The open client, waiting while the folder opens; why there is none once it failed or closed. */
-	opened(): Promise<Result<DeviceClient, ReadError>>;
-	/** Queue a write at `path`; throws once the folder is disposed. */
-	enqueue(path: string, run: Job['run']): Promise<void>;
-	/** Whether a write at `path` is queued and not yet run: a later one there is made over its result. */
-	queuedAt(path: string): boolean;
-	/** Count an append in `saving()` until it settles. */
-	hold<T>(work: Promise<T>): Promise<T>;
-	/** Say whether the collection's last listing could reach the store. */
-	listed(name: string, unavailable: Unavailable | null): void;
-};
+/**
+ * Where a collection's files all sit: its template's leading literal
+ * segments (`recordings` for `recordings/{id}.md`), the whole path for a
+ * collection of one file (`settings.md`), and `''` for one with a
+ * placeholder at the root.
+ */
+function directoryOf(collection: CompiledCollection): string {
+	const literal: string[] = [];
+	for (const segment of collection.template.segments) {
+		if (!('literal' in segment)) break;
+		literal.push(segment.literal);
+	}
+	return literal.join('/');
+}
 
 /**
  * The folder of `contract` over `open`, which is called now, again after a
@@ -303,27 +327,48 @@ export function createFolder<TContract extends Contract>(
 		displayPath?: FolderLifecycle['displayPath'];
 	} = {},
 ): Folder<TContract> {
-	const { data: compiled, error } = compileContract(contract);
+	const { data, error } = compileContract(contract);
 	if (error !== null) throw new Error(error.message, { cause: error });
+	const compiled = data;
+
+	/** The places the folder holds, each once. */
+	const under = [...new Set(compiled.collections.map(directoryOf))];
+	/** Whether the file at `path` is one the folder holds the text of: a note of a note collection. */
+	const isNote = (path: string) =>
+		compiled.claim(path)?.collection.kind === 'note';
 
 	let phase: 'opening' | 'open' | 'failed' | 'closed' = 'opening';
-	let client: DeviceClient | null = null;
+	/** Whether a snapshot ever landed: reads answer from then. */
+	let connected = false;
+	let store: Store | null = null;
+	let stopWatch: (() => void) | null = null;
 	let failure: { error: OpenFolderError; retry(): Promise<void> } | null = null;
-	/** Why the store could not be reached: by the open, the writes, and each collection's listing. */
+	/** Why the store could not be reached: by the open and connection, the writes, and the reads of what changed. */
 	let opening: Unavailable | null = null;
 	let writing: Unavailable | null = null;
-	const listing = new Map<string, Unavailable>();
+	let reading: Unavailable | null = null;
 	let state: FolderState = { status: 'opening' };
 	let unavailable: Unavailable | null = null;
 	/** Bumped by each open attempt, so a superseded one stands down. */
 	let attempts = 0;
-	const queue: { job: Job; path: string }[] = [];
+	const queue: Job[] = [];
 	let draining = false;
-	let appending = 0;
 	const listeners = new Set<() => void>();
 	/** Waiting for the next change of the folder's state. */
 	const waiting = new Set<() => void>();
 	const collections = new Map<string, ReturnType<typeof folderCollection>>();
+
+	/** The replica: what the folder holds of every file the contract claims, by path. */
+	const held = new Map<string, Held>();
+	/** How many times each path's held state was set: a batch read applies only where it is unchanged. */
+	const generations = new Map<string, number>();
+	/** Each path's reads and writes, one at a time, in the order they began. */
+	const lanes = createPathTurns();
+	/** Paths heard and not yet read again; `'all'` when the store could not say which. */
+	let pending: Set<string> | 'all' = new Set();
+	let catchingUp = false;
+	let catchUpFailures = 0;
+	let catchUpTimer: ReturnType<typeof setTimeout> | undefined;
 
 	function notify() {
 		for (const listener of [...listeners])
@@ -354,7 +399,7 @@ export function createFolder<TContract extends Contract>(
 	function refresh() {
 		const reachable =
 			phase === 'opening' || phase === 'open'
-				? (opening ?? writing ?? listing.values().next().value ?? null)
+				? (opening ?? writing ?? reading ?? null)
 				: null;
 		const next: FolderState =
 			phase === 'failed' && failure !== null
@@ -370,45 +415,270 @@ export function createFolder<TContract extends Contract>(
 		notify();
 	}
 
+	/** Set what the folder holds at `path` (null: nothing), and tell its collection. */
+	function hold(path: string, file: Held | null) {
+		const was = held.get(path);
+		generations.set(path, (generations.get(path) ?? 0) + 1);
+		if (file === null) {
+			if (was === undefined) return;
+			held.delete(path);
+		} else {
+			if (
+				was !== undefined &&
+				was.version === file.version &&
+				was.text === file.text
+			)
+				return;
+			held.set(path, file);
+		}
+		const name = compiled.claim(path)?.collection.name;
+		if (name !== undefined) collections.get(name)?.changed();
+	}
+
+	/** What a read or a write at `path` of `bytes` leaves the folder holding. */
+	function heldOf(path: string, bytes: Uint8Array, version: Version): Held {
+		if (!isNote(path)) return { version, size: bytes.byteLength };
+		const text = decodeNote(bytes);
+		return {
+			version,
+			size: bytes.byteLength,
+			text: text.error === null ? text.data : null,
+		};
+	}
+
 	/** Whether open attempt `attempt` should stand down: the folder closed, or a newer attempt began. */
 	const superseded = (attempt: number) =>
 		phase === 'closed' || attempt !== attempts;
 
-	/** Open, trying again after a temporary failure, until the store opens or the open fails for good. */
-	async function start() {
-		const attempt = ++attempts;
-		for (let failures = 0; ; failures++) {
-			if (superseded(attempt)) return;
-			const opened = await open().catch((cause: unknown) =>
-				OpenFolderError.StorageUnavailable({ cause }),
-			);
-			if (superseded(attempt)) {
-				if (opened.error === null) opened.data.close?.();
-				return;
-			}
-			if (opened.error === null) {
-				client = createDeviceClient(contract, opened.data);
-				phase = 'open';
-				opening = null;
-				writing = null;
-				listing.clear();
-				refresh();
-				for (const collection of collections.values()) collection.opened();
-				return;
-			}
-			if (opened.error.name === 'Unavailable') {
-				opening = opened.error;
-				refresh();
-				await changed(backoff(failures));
+	/**
+	 * Hear the paths the store says changed. While connecting they wait for
+	 * the snapshot; after, each is read again in its lane.
+	 */
+	function hear(paths: readonly string[] | 'all') {
+		if (phase === 'closed') return;
+		if (paths === 'all') pending = 'all';
+		else if (pending !== 'all')
+			for (const path of paths)
+				if (compiled.claim(path) !== null) pending.add(path);
+		if (connected) void catchUp();
+	}
+
+	/**
+	 * Take what the store holds below the contract's places into the
+	 * replica: list, compare each version with what is held, and read the
+	 * notes that differ, in one request. A path whose held state changed
+	 * while the read ran is read again in its lane. Nothing held shows empty
+	 * meanwhile.
+	 */
+	async function snapshot(
+		from: Store,
+		places: readonly string[] = under,
+	): Promise<Result<void, Unavailable>> {
+		const listed = await from.list(places);
+		if (listed.error !== null) return listed;
+		const claimed = listed.data.filter(
+			({ path }) => compiled.claim(path) !== null,
+		);
+		const present = new Set(claimed.map(({ path }) => path));
+		const stale: string[] = [];
+		const began = new Map<string, number>();
+		for (const { path, version, size } of claimed) {
+			if (held.get(path)?.version === version) continue;
+			if (isNote(path)) {
+				stale.push(path);
+				began.set(path, generations.get(path) ?? 0);
+			} else hold(path, { version, size });
+		}
+		// A file the listing missed goes, unless a write of the folder's own is out there.
+		for (const path of [...held.keys()])
+			if (within(path, places) && !present.has(path) && !queuedAt(path))
+				hold(path, null);
+		if (stale.length === 0) return Ok(undefined);
+		const read = await from.read(stale);
+		if (read.error !== null) return read;
+		const again: string[] = [];
+		for (const file of read.data) {
+			if ((generations.get(file.path) ?? 0) !== began.get(file.path)) {
+				again.push(file.path);
 				continue;
 			}
-			phase = 'failed';
-			opening = null;
-			failure = { error: opened.error, retry: retryFailure() };
-			drop();
+			hold(
+				file.path,
+				'gone' in file ? null : heldOf(file.path, file.bytes, file.version),
+			);
+		}
+		for (const path of again) {
+			const reread = await readPath(from, path);
+			if (reread.error !== null) return reread;
+		}
+		return Ok(undefined);
+	}
+
+	/** Whether a write at `path` is queued or running. */
+	const queuedAt = (path: string) => queue.some((job) => job.path === path);
+
+	/** Read `path` again in its lane, and hold what is there. */
+	function readPath(
+		from: Store,
+		path: string,
+	): Promise<Result<void, Unavailable>> {
+		return lanes.run(path, async () => {
+			const read = await from.read([path]);
+			if (read.error !== null) return read;
+			const [file] = read.data;
+			hold(
+				path,
+				file === undefined || 'gone' in file
+					? null
+					: heldOf(path, file.bytes, file.version),
+			);
+			return Ok(undefined);
+		});
+	}
+
+	/**
+	 * Read again what the store said changed: each path in its lane, or, for
+	 * `'all'`, a new snapshot. While the store cannot be reached it tries
+	 * again, `unavailable()` saying why.
+	 */
+	async function catchUp() {
+		if (catchingUp || store === null) return;
+		catchingUp = true;
+		const from = store;
+		let failed: Unavailable | null = null;
+		/** What could not be read this time: tried again after a while, while anything new is read now. */
+		let later: Set<string> | 'all' = new Set();
+		try {
+			while (phase === 'open' && store === from) {
+				const work = pending;
+				if (work !== 'all' && work.size === 0) break;
+				pending = new Set();
+				if (work === 'all') {
+					const taken = await snapshot(from);
+					if (taken.error !== null) {
+						failed = taken.error;
+						later = 'all';
+					}
+					continue;
+				}
+				const answers = await Promise.all(
+					[...work].map(async (path) => ({
+						path,
+						read: await readPath(from, path),
+					})),
+				);
+				for (const { path, read } of answers) {
+					if (read.error === null) continue;
+					failed = read.error;
+					if (later !== 'all') later.add(path);
+				}
+			}
+		} finally {
+			catchingUp = false;
+		}
+		if (phase !== 'open') return;
+		if (failed !== null) {
+			reading = failed;
 			refresh();
+			clearTimeout(catchUpTimer);
+			catchUpTimer = setTimeout(() => {
+				catchUpTimer = undefined;
+				const now = pending as Set<string> | 'all';
+				if (later === 'all') pending = 'all';
+				else if (now !== 'all') for (const path of later) now.add(path);
+				void catchUp();
+			}, backoff(catchUpFailures++));
 			return;
 		}
+		// Nothing failed: what still waits for a retry keeps `unavailable()` set.
+		if (catchUpTimer !== undefined) return;
+		catchUpFailures = 0;
+		if (reading !== null) {
+			reading = null;
+			refresh();
+		}
+	}
+
+	/**
+	 * Open, and connect to the store: watch, take the snapshot, then read
+	 * what was heard meanwhile. A temporary failure is tried again on its
+	 * own, until the folder connects or the open fails for good.
+	 */
+	async function start() {
+		const attempt = ++attempts;
+		let opened: Store | null = null;
+		for (let failures = 0; ; failures++) {
+			if (superseded(attempt)) {
+				opened?.close();
+				return;
+			}
+			if (opened === null) {
+				const answered = await open().catch((cause: unknown) =>
+					OpenFolderError.StorageUnavailable({ cause }),
+				);
+				if (superseded(attempt)) {
+					if (answered.error === null) answered.data.close();
+					return;
+				}
+				if (answered.error !== null && answered.error.name !== 'Unavailable') {
+					phase = 'failed';
+					opening = null;
+					failure = { error: answered.error, retry: retryFailure() };
+					drop('failed');
+					refresh();
+					return;
+				}
+				if (answered.error !== null) {
+					opening = answered.error;
+					refresh();
+					await changed(backoff(failures));
+					continue;
+				}
+				opened = answered.data;
+			}
+			const connection = await connect(opened, attempt);
+			if (connection === 'superseded' || connection.error === null) return;
+			opening = connection.error;
+			refresh();
+			await changed(backoff(failures));
+		}
+	}
+
+	/** Connect to `to`: hear, take the snapshot, and open; or why the store could not be reached. */
+	async function connect(
+		to: Store,
+		attempt: number,
+	): Promise<Result<void, Unavailable> | 'superseded'> {
+		pending = new Set();
+		const watching = await to.watch(hear);
+		if (superseded(attempt)) {
+			if (watching.error === null) watching.data();
+			to.close();
+			return 'superseded';
+		}
+		if (watching.error !== null) return watching;
+		const taken = await snapshot(to);
+		if (superseded(attempt)) {
+			watching.data();
+			to.close();
+			return 'superseded';
+		}
+		if (taken.error !== null) {
+			watching.data();
+			return taken;
+		}
+		store = to;
+		stopWatch = watching.data;
+		connected = true;
+		phase = 'open';
+		opening = null;
+		writing = null;
+		reading = null;
+		refresh();
+		for (const collection of collections.values()) collection.opened();
+		void catchUp();
+		void drain();
+		return Ok(undefined);
 	}
 
 	/** A failure's retry: it opens again only while that failure is the state. */
@@ -423,10 +693,10 @@ export function createFolder<TContract extends Contract>(
 		return retry;
 	}
 
-	/** The writes waiting are not made: the folder failed or closed. Their promises never answer. */
-	function drop() {
+	/** The writes waiting are not made: the folder failed or closed. Each rejects with `FolderClosed`. */
+	function drop(status: 'failed' | 'closed') {
 		if (queue.length === 0) return;
-		queue.length = 0;
+		for (const job of queue.splice(0)) job.reject(new FolderClosed(status));
 		notify();
 	}
 
@@ -439,19 +709,18 @@ export function createFolder<TContract extends Contract>(
 			while (queue.length > 0) {
 				while (phase === 'opening') await changed();
 				const head = queue[0];
-				if (phase !== 'open' || client === null || head === undefined) {
-					drop();
-					return;
-				}
+				if (phase !== 'open' || store === null || head === undefined) return;
 				let ran: Result<void, Unavailable>;
 				try {
-					ran = await head.job.run(client);
+					ran = await head.run(store);
 				} catch (cause) {
-					queue.shift();
-					head.job.reject(cause);
+					if (queue[0] === head) queue.shift();
+					head.reject(cause);
 					if (queue.length === 0) notify();
 					continue;
 				}
+				// The folder failed or closed while it ran: its promise has answered.
+				if (queue[0] !== head) continue;
 				if (ran.error !== null) {
 					if (phase !== 'open') continue;
 					writing = ran.error;
@@ -465,7 +734,7 @@ export function createFolder<TContract extends Contract>(
 					refresh();
 				}
 				queue.shift();
-				head.job.resolve();
+				head.resolve();
 				if (queue.length === 0) notify();
 			}
 		} finally {
@@ -474,36 +743,56 @@ export function createFolder<TContract extends Contract>(
 	}
 
 	const host: Host = {
-		async opened() {
+		async connected() {
 			while (phase === 'opening') await changed();
-			if (phase === 'open' && client !== null) return Ok(client);
+			if (phase === 'open' && store !== null) return Ok(store);
 			if (phase === 'failed' && failure !== null) return Err(failure.error);
 			return ClientError.Unavailable({ cause: 'The folder was closed.' });
 		},
-		enqueue(path, run) {
+		read(what) {
+			if (!connected) throw new FolderNotOpen(what);
+		},
+		async refresh(place) {
+			const ready = await host.connected();
+			if (ready.error !== null) return ready;
+			return snapshot(ready.data, [place]);
+		},
+		held: (path) => held.get(path),
+		params: (path) => compiled.claim(path)?.params ?? {},
+		paths(collection) {
+			const paths: string[] = [];
+			for (const path of held.keys())
+				if (compiled.claim(path)?.collection.name === collection)
+					paths.push(path);
+			return paths.sort();
+		},
+		enqueue(path, write) {
 			if (phase === 'closed')
 				throw new Error(
 					'The folder was disposed: a write made after it has nowhere to land.',
 				);
+			if (phase === 'failed')
+				return Promise.reject(new FolderClosed('failed'));
 			return new Promise<void>((resolve, reject) => {
-				queue.push({ job: { run, resolve, reject }, path });
+				queue.push({
+					path,
+					run: (to) => lanes.run(path, () => write(to)),
+					resolve,
+					reject,
+				});
 				if (queue.length === 1) notify();
 				void drain();
 			});
 		},
-		queuedAt: (path) => queue.some((queued) => queued.path === path),
-		hold(work) {
-			if (appending++ === 0 && queue.length === 0) notify();
-			return work.finally(() => {
-				if (--appending === 0 && queue.length === 0) notify();
+		queuedAt,
+		landed: hold,
+		heldOf,
+		readNow(path) {
+			return lanes.run(path, async () => {
+				if (store === null)
+					return ClientError.Unavailable({ cause: 'The folder was closed.' });
+				return store.read([path]);
 			});
-		},
-		listed(name, unavailable) {
-			const was = listing.get(name) ?? null;
-			if (was === unavailable) return;
-			if (unavailable === null) listing.delete(name);
-			else listing.set(name, unavailable);
-			refresh();
 		},
 	};
 	for (const collection of compiled.collections) {
@@ -518,7 +807,7 @@ export function createFolder<TContract extends Contract>(
 	const lifecycle: FolderLifecycle = {
 		state: () => state,
 		unavailable: () => unavailable,
-		saving: () => queue.length > 0 || appending > 0,
+		saving: () => queue.length > 0,
 		subscribe(listener) {
 			listeners.add(listener);
 			return () => {
@@ -530,12 +819,15 @@ export function createFolder<TContract extends Contract>(
 		[Symbol.dispose]() {
 			if (phase === 'closed') return;
 			phase = 'closed';
-			drop();
+			drop('closed');
 			refresh();
 			listeners.clear();
+			clearTimeout(catchUpTimer);
 			for (const collection of collections.values()) collection.stop();
-			client?.store.close?.();
-			client = null;
+			stopWatch?.();
+			stopWatch = null;
+			store?.close();
+			store = null;
 		},
 	};
 	return Object.assign(
@@ -546,31 +838,57 @@ export function createFolder<TContract extends Contract>(
 	) as Folder<TContract>;
 }
 
+/** What a collection is given by its folder. */
+type Host = {
+	/** The connected store, waiting while the folder opens; why there is none once it failed or closed. */
+	connected(): Promise<Result<Store, ReadError>>;
+	/** Throw `FolderNotOpen` for a read of `what` before the folder connected. */
+	read(what: string): void;
+	/** Once connected, take what the store holds at `place` now into what the folder holds. */
+	refresh(place: string): Promise<Result<void, ReadError>>;
+	/** What the folder holds at `path`. */
+	held(path: string): Held | undefined;
+	/** The placeholders of the file at `path`. */
+	params(path: string): Params;
+	/** The paths the folder holds of `collection`, sorted. */
+	paths(collection: string): string[];
+	/** Queue a write at `path`; throws once the folder is disposed, rejects with `FolderClosed` once it failed. */
+	enqueue(
+		path: string,
+		write: (store: Store) => Promise<Result<void, Unavailable>>,
+	): Promise<void>;
+	/** Whether a write at `path` is queued and not yet done: a later one there is made over its result. */
+	queuedAt(path: string): boolean;
+	/** Hold what a write or a read found at `path` (null: nothing). */
+	landed(path: string, file: Held | null): void;
+	/** What the folder holds of `bytes` read or written at `path`. */
+	heldOf(path: string, bytes: Uint8Array, version: Version): Held;
+	/** Read `path` now, in its lane. */
+	readNow(path: string): ReturnType<Store['read']>;
+};
+
 type Args = Record<string, string>;
 
 /**
- * The collection `declared` names: its reads, listed while someone listens,
- * and its writes, each queued with the folder's. `opened()` is told when the
- * folder opens, and `stop()` when it is disposed.
+ * The collection `declared` names: its reads, parsed from what the folder
+ * holds when first read and again for each path that changed, and its
+ * writes, each queued with the folder's. `changed(path)` is told when what
+ * the folder holds at one of its paths changed, `opened()` when the folder
+ * connected, and `stop()` when it is disposed.
  */
 function folderCollection(declared: CompiledCollection, host: Host) {
 	const { name } = declared;
 	const isNote = declared.kind === 'note';
 	const codec = noteCodec(declared);
-	/** What the folder shows, by path, in listing order. */
-	let shown = new Map<string, Seen>();
+	const listeners = new Set<() => void>();
+	/** Each path as last parsed. */
+	const parsed = new Map<string, Seen>();
+	/** Whether a change waits to be told this turn. */
+	let telling = false;
+	/** Whether a path changed since `items` and `invalid` were made. */
+	let stale = true;
 	let items: readonly Entry[] = [];
 	let invalid: readonly Entry[] = [];
-	let loading = true;
-	const listeners = new Set<() => void>();
-	/** The open collection's own change source, while someone listens. */
-	let stopSource: (() => void) | undefined;
-	let following = false;
-	let listingNow = false;
-	let again = false;
-	/** Listings that failed in a row, and the try after the last one. */
-	let failures = 0;
-	let retry: ReturnType<typeof setTimeout> | undefined;
 
 	function notify() {
 		for (const listener of [...listeners])
@@ -581,100 +899,78 @@ function folderCollection(declared: CompiledCollection, host: Host) {
 			}
 	}
 
-	/** Recompute what `items()` and `invalid()` answer from `shown`, and tell listeners. */
-	function shownChanged() {
+	/** What the collection shows of `file` at `path`. */
+	function seenOf(path: string, file: Held): Seen {
+		const params = host.params(path);
+		if (!isNote)
+			return {
+				path,
+				params,
+				version: file.version,
+				text: null,
+				item: params,
+				invalid: null,
+			};
+		const text = file.text ?? null;
+		const decoded =
+			text === null ? codec.unreadable() : codec.decode(path, text);
+		if (decoded.error !== null)
+			return {
+				path,
+				params,
+				version: file.version,
+				text,
+				item: null,
+				invalid: { ...params, path, issues: decoded.error.issues, text },
+			};
+		return {
+			path,
+			params,
+			version: file.version,
+			text,
+			// Fields first: a front matter key cannot shadow a placeholder or the body.
+			item: { ...decoded.data.fields, ...params, body: decoded.data.body },
+			invalid: null,
+		};
+	}
+
+	/** The note or file at `path` as shown, parsed again when what is held there changed. */
+	function shown(path: string): Seen | undefined {
+		const file = host.held(path);
+		if (file === undefined) {
+			parsed.delete(path);
+			return undefined;
+		}
+		const known = parsed.get(path);
+		if (
+			known !== undefined &&
+			known.version === file.version &&
+			known.text === (file.text ?? null)
+		)
+			return known;
+		const seen = seenOf(path, file);
+		parsed.set(path, seen);
+		return seen;
+	}
+
+	/** Make `items` and `invalid` from what is held, parsing only what changed. */
+	function current() {
+		if (!stale) return;
 		const valid: Entry[] = [];
 		const unfit: Entry[] = [];
-		for (const seen of shown.values()) {
+		const paths = host.paths(name);
+		const present = new Set(paths);
+		for (const path of parsed.keys())
+			if (!present.has(path)) parsed.delete(path);
+		for (const path of paths) {
+			const seen = shown(path);
+			if (seen === undefined) continue;
 			if (seen.item !== null) valid.push(seen.item);
 			else if (seen.invalid !== null) unfit.push(seen.invalid);
 		}
+		stale = false;
 		items = valid;
 		invalid = unfit;
-		notify();
-	}
-
-	/** Show what landed at `path`: a file, or nothing. */
-	function show(path: string, seen: Seen | null) {
-		if (seen === null) {
-			if (!shown.delete(path)) return;
-		} else shown.set(path, seen);
-		shownChanged();
-	}
-
-	/** The collection's files once the folder opened, or why there are none. */
-	async function files(): Promise<Result<CollectionFiles, ReadError>> {
-		const opened = await host.opened();
-		if (opened.error !== null) return opened;
-		return Ok(opened.data.collections.get(name) as CollectionFiles);
-	}
-
-	/** List now, show it, and say whether the store could be reached. */
-	async function listNow(): Promise<Result<Seen[], ReadError>> {
-		const collection = await files();
-		if (collection.error !== null) return collection;
-		const listed = await collection.data.list();
-		// A listing someone follows is tried again until it lands, so its failure is the folder's to say.
-		if (listeners.size > 0 || listed.error === null)
-			host.listed(name, listed.error);
-		if (listed.error !== null) return listed;
-		const same =
-			!loading &&
-			listed.data.length === shown.size &&
-			listed.data.every(
-				(seen) => shown.get(seen.path)?.version === seen.version,
-			);
-		if (same) return listed;
-		shown = new Map(listed.data.map((seen) => [seen.path, seen]));
-		loading = false;
-		shownChanged();
-		return listed;
-	}
-
-	/** List again, as long as changes keep arriving while a listing runs. */
-	async function reload() {
-		clearTimeout(retry);
-		retry = undefined;
-		if (listingNow) {
-			again = true;
-			return;
-		}
-		listingNow = true;
-		let failed = false;
-		try {
-			do {
-				again = false;
-				const listed = await listNow();
-				failed = listed.error?.name === 'Unavailable';
-			} while (again);
-		} finally {
-			listingNow = false;
-		}
-		failures = failed ? failures + 1 : 0;
-		if (failed && listeners.size > 0)
-			retry = setTimeout(() => void reload(), backoff(failures - 1));
-	}
-
-	/** Follow the open collection's changes and list it, once the folder opened and while someone listens. */
-	async function follow() {
-		if (following || stopSource !== undefined) return;
-		following = true;
-		const collection = await files();
-		following = false;
-		if (listeners.size === 0 || stopSource !== undefined) return;
-		if (collection.error !== null) return;
-		stopSource = collection.data.subscribe(() => void reload());
-		void reload();
-	}
-
-	function unfollow() {
-		stopSource?.();
-		stopSource = undefined;
-		clearTimeout(retry);
-		retry = undefined;
-		failures = 0;
-		// Nobody follows it now, so nothing tries it again: it no longer speaks for the folder.
-		host.listed(name, null);
 	}
 
 	/** The path `args` names; throws for one that would leave the collection. */
@@ -687,20 +983,28 @@ function folderCollection(declared: CompiledCollection, host: Host) {
 		return path.data;
 	}
 
-	/** The path `args` names, or null: a read never throws. */
+	/** The path `args` names, or null: a read never throws for a name. */
 	function pathOrNull(args: Args) {
 		const path = declared.pathOf(args);
 		return path.error === null ? path.data : null;
 	}
 
+	/** What the folder holds at `path` as a write sees it: null for nothing. */
+	function currentAt(path: string): Current | null {
+		const file = host.held(path);
+		return file === undefined
+			? null
+			: { version: file.version, text: file.text ?? null };
+	}
+
 	/**
-	 * What a write at `path` is made over: the file as shown when it was made,
-	 * or, when a write there is already queued, as shown when this one runs
+	 * What a write at `path` is made over: the file as held when it was made,
+	 * or, when a write there is already queued, as held when this one runs
 	 * (what that write landed), so the folder never clashes with itself.
 	 */
-	function baseAt(path: string): () => Seen | undefined {
-		const now = shown.get(path);
-		return host.queuedAt(path) ? () => shown.get(path) : () => now;
+	function baseAt(path: string): () => Current | null {
+		const now = currentAt(path);
+		return host.queuedAt(path) ? () => currentAt(path) : () => now;
 	}
 
 	/**
@@ -713,46 +1017,57 @@ function folderCollection(declared: CompiledCollection, host: Host) {
 	 */
 	function write(
 		path: string,
-		next: (current: Seen | null) => Uint8Array | null | 'keep',
-		first: () => Seen | null | undefined,
+		next: Next,
+		first: () => Current | null | undefined,
 		landed: (seen: Seen | null) => void = () => {},
 	) {
-		return host.enqueue(path, async (client) => {
-			const collection = client.collections.get(name) as CollectionFiles;
-			let current: Seen | null | undefined = first();
-			/** Whether `current` was read now, not taken from what is shown. */
-			let read = false;
+		return host.enqueue(path, async (store) => {
+			let current: Current | null | undefined = first();
+			/** Whether `current` was read now, not taken from what is held. */
+			let readNow = false;
 			for (;;) {
 				if (current === undefined) {
-					const now = await collection.read(path);
+					const now = await store.read([path]);
 					if (now.error !== null) return now;
-					current = now.data;
-					read = true;
+					const [file] = now.data;
+					if (file === undefined || 'gone' in file) {
+						host.landed(path, null);
+						current = null;
+					} else {
+						const there = host.heldOf(path, file.bytes, file.version);
+						host.landed(path, there);
+						current = { version: file.version, text: there.text ?? null };
+					}
+					readNow = true;
 				}
 				const bytes = next(current);
 				if (bytes === 'keep' || (bytes === null && current === null)) {
-					// Nothing to change in what is shown: make sure of it in what is there.
-					if (!read) {
+					// Nothing to change in what is held: make sure of it in what is there.
+					if (!readNow) {
 						current = undefined;
 						continue;
 					}
-					show(path, current);
-					landed(current);
+					landed(shown(path) ?? null);
 					return Ok(undefined);
 				}
-				const written = await collection.write(
+				const written = await store.write(
 					path,
 					bytes,
-					current?.version ?? null,
+					current?.version ?? 'absent',
 				);
 				if (written.error !== null) return written;
 				if (written.data !== 'stale') {
-					show(path, written.data);
-					landed(written.data);
+					host.landed(
+						path,
+						bytes === null || written.data === null
+							? null
+							: host.heldOf(path, bytes, written.data),
+					);
+					landed(shown(path) ?? null);
 					return Ok(undefined);
 				}
 				current = undefined;
-				read = false;
+				readNow = false;
 			}
 		});
 	}
@@ -760,7 +1075,7 @@ function folderCollection(declared: CompiledCollection, host: Host) {
 	/**
 	 * Queue a write of the note at `path` whose text `next` makes from the
 	 * text there (null for nothing, or for a note that is not UTF-8), first
-	 * over the note shown, without reading it.
+	 * over the note held, without reading it.
 	 */
 	function writeNote(
 		path: string,
@@ -777,24 +1092,20 @@ function folderCollection(declared: CompiledCollection, host: Host) {
 					: codec.bytes(written);
 			},
 			() => {
-				const seen = shown.get(path);
-				return seen === undefined || seen.text === null ? null : seen;
+				const there = currentAt(path);
+				return there === null || there.text === null ? null : there;
 			},
 			landed,
 		);
 	}
 
-	/** Remove the file at `path` unless it changed since `base` was shown. */
-	function remove(path: string, base: () => Seen | undefined) {
+	/** Remove the file at `path` unless it changed since `base` was held. */
+	function remove(path: string, base: () => Current | null) {
 		return write(
 			path,
 			(current) => {
 				const was = base();
-				if (
-					current !== null &&
-					was !== undefined &&
-					current.version !== was.version
-				)
+				if (current !== null && was !== null && current.version !== was.version)
 					return 'keep';
 				return null;
 			},
@@ -803,30 +1114,44 @@ function folderCollection(declared: CompiledCollection, host: Host) {
 	}
 
 	const reads = {
-		items: () => items,
-		loading: () => loading,
+		items() {
+			host.read(`${name}.items()`);
+			current();
+			return items;
+		},
 		get(args: Args) {
+			host.read(`${name}.get()`);
 			const path = pathOrNull(args);
-			return path === null ? undefined : (shown.get(path)?.item ?? undefined);
+			return path === null ? undefined : (shown(path)?.item ?? undefined);
 		},
 		subscribe(listener: () => void) {
 			listeners.add(listener);
-			if (listeners.size === 1) void follow();
 			return () => {
-				if (!listeners.delete(listener) || listeners.size > 0) return;
-				unfollow();
+				listeners.delete(listener);
 			};
 		},
 	};
+
+	/** Wait for the connection, take what the store holds of the collection now, and make what it shows current. */
+	async function whenConnected(): Promise<Result<void, ReadError>> {
+		const refreshed = await host.refresh(directoryOf(declared));
+		if (refreshed.error !== null) return refreshed;
+		current();
+		return Ok(undefined);
+	}
 
 	const collection = isNote
 		? {
 				fieldNames: declared.keys,
 				...reads,
-				invalid: () => invalid,
+				invalid() {
+					host.read(`${name}.invalid()`);
+					current();
+					return invalid;
+				},
 				async list() {
-					const listed = await listNow();
-					if (listed.error !== null) return listed;
+					const ready = await whenConnected();
+					if (ready.error !== null) return ready;
 					return Ok({ items: [...items], invalid: [...invalid] });
 				},
 				set(args: Args, changes: Record<string, unknown>) {
@@ -849,7 +1174,7 @@ function folderCollection(declared: CompiledCollection, host: Host) {
 						fieldNames: declared.keys,
 						options,
 						codec,
-						shown: () => shown.get(path),
+						shown: () => shown(path),
 						save: (next, landed) => writeNote(path, next, landed),
 						subscribe: reads.subscribe,
 					});
@@ -858,19 +1183,20 @@ function folderCollection(declared: CompiledCollection, host: Host) {
 		: {
 				...reads,
 				async list() {
-					const listed = await listNow();
-					if (listed.error !== null) return listed;
+					const ready = await whenConnected();
+					if (ready.error !== null) return ready;
 					return Ok({ items: [...items] });
 				},
 				async read(args: Args) {
 					const path = pathOrNull(args);
 					if (path === null) return Ok(null);
-					const collection = await files();
-					if (collection.error !== null) return collection;
-					const read = await collection.data.read(path);
+					const connected = await host.connected();
+					if (connected.error !== null) return connected;
+					const read = await host.readNow(path);
 					if (read.error !== null) return read;
-					if (read.data === null) return Ok(null);
-					return Ok({ ...read.data.params, bytes: read.data.bytes });
+					const [file] = read.data;
+					if (file === undefined || 'gone' in file) return Ok(null);
+					return Ok({ ...host.params(path), bytes: file.bytes });
 				},
 				set(args: Args, bytes: Uint8Array) {
 					const path = pathOf(args);
@@ -878,53 +1204,37 @@ function folderCollection(declared: CompiledCollection, host: Host) {
 						throw new TypeError(
 							`A file of ${declared.template.source} is bytes.`,
 						);
-					// The later write wins: over whatever is there, first over what is shown, without reading.
+					// The later write wins: over whatever is there, first over what is held, without reading.
 					return write(
 						path,
 						() => bytes,
-						() => shown.get(path) ?? null,
+						() => currentAt(path),
 					);
 				},
 				delete(args: Args) {
 					const path = pathOf(args);
 					return remove(path, baseAt(path));
 				},
-				append(
-					args: Args,
-					bytes: Uint8Array,
-					options: { create: boolean; announce: boolean },
-				) {
-					const path = pathOf(args);
-					return host.hold(
-						(async (): Promise<Result<boolean, ReadError>> => {
-							const collection = await files();
-							if (collection.error !== null) return collection;
-							if (collection.data.append === null)
-								return ClientError.Unavailable({
-									cause:
-										'this folder’s storage cannot add to the end of a file',
-								});
-							const appended = await collection.data.append(
-								path,
-								bytes,
-								options,
-							);
-							if (appended.error !== null) return appended;
-							return Ok(appended.data === 'landed');
-						})(),
-					);
-				},
 			};
 
 	return {
 		collection,
-		/** The folder opened: follow it for whoever listens. */
+		/** What the folder holds at one of its paths changed: listeners hear it once per turn. */
+		changed() {
+			stale = true;
+			if (telling) return;
+			telling = true;
+			queueMicrotask(() => {
+				telling = false;
+				notify();
+			});
+		},
+		/** The folder connected: whoever listens may read now. */
 		opened() {
-			if (listeners.size > 0) void follow();
+			notify();
 		},
 		stop() {
 			listeners.clear();
-			unfollow();
 		},
 	};
 }

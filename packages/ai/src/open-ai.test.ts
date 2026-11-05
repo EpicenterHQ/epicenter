@@ -6,9 +6,9 @@
  */
 import { expect, test } from 'bun:test';
 import type { Account, AuthState } from '@epicenter/account';
-import { createAiConnections } from './ai-connections.js';
+import { settings } from '@epicenter/local';
 import { custom } from './custom.js';
-import { customEndpointsOf } from './custom-endpoints.js';
+import { customEndpoints } from './custom-endpoints.js';
 import { type Endpoint, openAiCompatible } from './endpoint.js';
 import { hosted, type LiveAccount } from './hosted.js';
 import { openAi } from './open-ai.js';
@@ -293,27 +293,13 @@ test('openAiCompatible takes its models as a live answer', () => {
 	expect(endpoint.models()).toEqual([]);
 });
 
-/** Connections over memory, as a device's storage holds them. */
-function memoryConnections(fetch = recordingFetch().fetch) {
-	const values = new Map<string, string>();
-	return createAiConnections({
-		storage: {
-			getItem: (key) => values.get(key) ?? null,
-			setItem: (key, value) => void values.set(key, value),
-		},
-		storageKey: 'test',
-		fetch,
-	});
-}
-
 test('a live entry is read at every use: a connection added reaches the merge it is in, and nested merges', async () => {
-	const store = memoryConnections();
-	const connections = customEndpointsOf(async () => store);
+	const connections = customEndpoints();
 	const ai = openAi([
 		openAi([connections]),
 		probing('ollama', 'local').endpoint,
 	]);
-	await connections.ready;
+	await settings.file('connections.md').connected();
 	expect(ai.endpoints().map(({ id }) => id)).toEqual(['ollama']);
 	expect(ai.custom()).toBe(connections);
 
@@ -354,23 +340,4 @@ test('an endpoint a live entry adds is subscribed to as it arrives, and one it d
 	stop();
 	expect(second.listeners.size).toBe(0);
 	expect(listeners.size).toBe(0);
-});
-
-test('a live entry whose store cannot be opened lists nothing and says why, until it is read again', async () => {
-	let fail = true;
-	const connections = customEndpointsOf(async () => {
-		if (fail) throw new Error('The disk is gone.');
-		return memoryConnections();
-	});
-	await connections.ready;
-	expect(connections.problem()).toBe('The disk is gone.');
-	expect(connections.endpoints()).toEqual([]);
-	await expect(
-		connections.add({ baseUrl: 'https://x.test/v1' }),
-	).rejects.toThrow('could not be read');
-	fail = false;
-	await connections.reopen();
-	expect(connections.problem()).toBeNull();
-	await connections.add({ baseUrl: 'https://x.test/v1' });
-	expect(connections.endpoints()).toHaveLength(1);
 });

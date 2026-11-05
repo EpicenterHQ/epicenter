@@ -23,10 +23,10 @@ import type { ClientError } from '@epicenter/definition/contract';
 import type { InferError } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import { nodeStore } from './device/node-store.js';
-import type {
-	DeviceExpectation,
-	DeviceStore,
-	Version,
+import {
+	type Store,
+	type Version,
+	versionedByContent,
 } from './device/store.js';
 import type {
 	FolderError,
@@ -87,14 +87,14 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 		/** How many upcoming writes fail before anything lands. */
 		refuseNext: 0,
 	};
-	const stores = new Map<Root, DeviceStore>();
+	const stores = new Map<Root, Store>();
 	for (const [root, path] of Object.entries(roots) as [
 		Root,
 		string | undefined,
 	][])
 		if (path !== undefined) stores.set(root, nodeStore(path));
 	/** The storage of the root a call named, or the plugin's refusal. */
-	function storageFor(args: Record<string, unknown>): DeviceStore {
+	function storageFor(args: Record<string, unknown>): Store {
 		const named = args.root as Root;
 		const refused = control.refuse(named);
 		if (refused !== undefined) throw refused satisfies FolderError;
@@ -117,13 +117,20 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 				throw { name: 'NotNamed', root: named } satisfies RootError;
 			return path;
 		},
-		list_folder: (args) => answered('list', '', storageFor(args).list()),
+		list_folder: (args) =>
+			answered('list', '', storageFor(args).list(args.under as string[])),
 		async read_folder_file(args) {
 			const path = args.path as string;
-			const read = await answered('read', path, storageFor(args).read(path));
-			if (read === null)
+			const [read] = await answered(
+				'read',
+				path,
+				storageFor(args).read([path]),
+			);
+			if (read === undefined || 'gone' in read)
 				throw { name: 'NotFound', path } satisfies StorageError;
-			const { bytes, stamp } = read;
+			// The page names a note by its bytes, and anything else by this stamp.
+			const { bytes } = read;
+			const stamp = versionedByContent(path) ? 'v1:note' : read.version;
 			// The raw response arrives as one `ArrayBuffer`: the stamp, a zero
 			// byte, then the file bytes, as the plugin sends it.
 			const header = new TextEncoder().encode(stamp);
@@ -135,10 +142,10 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 		async put_folder_file(args) {
 			const path = args.path as string;
 			const expected = args.expected as string;
-			const parsed: DeviceExpectation =
+			const parsed =
 				expected === 'absent'
 					? 'absent'
-					: { version: expected.slice('sha256:'.length) as Version };
+					: (expected.slice(expected.indexOf(':') + 1) as Version);
 			if (control.refuseNext > 0) {
 				control.refuseNext -= 1;
 				throw {
@@ -148,7 +155,7 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 					message: 'the disk refused the write',
 				} satisfies StorageError;
 			}
-			// The shell answers only whether the write landed.
+			// The shell answers the stamp that landed, which names an attachment.
 			const outcome = await answered(
 				'write',
 				path,
@@ -158,7 +165,7 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 					parsed,
 				),
 			);
-			return outcome === 'stale' ? outcome : 'landed';
+			return outcome === 'stale' ? outcome : { landed: outcome ?? '' };
 		},
 	};
 

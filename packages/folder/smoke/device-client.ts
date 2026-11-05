@@ -6,18 +6,15 @@
  *
  * The folder's writes never fail and carry no version (ADR-0774,
  * ADR-0775), so the steps that race writes over one version, or where
- * nothing was expected, go below it: the contract's collections over a
- * second store of the same place (`createDeviceClient`), whose write
- * answers `'stale'` when the path no longer holds what it was made over.
- * That store has its own Worker, so its writes reach this page's folder as
- * another writer's do.
+ * nothing was expected, go below it: a second store of the same place,
+ * whose write answers `'stale'` when the path no longer holds what it was
+ * made over. That store names its own writes on the broadcast
+ * channel, so they reach this page's folder as another writer's do.
  */
 import { defineContract } from '@epicenter/definition/contract';
-import {
-	type CollectionFiles,
-	createDeviceClient,
-} from '../src/device/client.js';
-import type { Version } from '../src/device/store.js';
+import { opfsStore } from '../src/device/opfs-store.js';
+import { storeChecks } from '../src/device/store.conformance.js';
+import type { Store, Version } from '../src/device/store.js';
 import { home, openFolder } from '../src/home.js';
 import { openingOf } from '../src/place.js';
 
@@ -38,22 +35,27 @@ const recorder = defineContract({
 const place = home({ site: 'https://recorder.epicenter.so' });
 const folder = openFolder(recorder, place);
 
-/** The collections below the folder, over a store of their own, opened once. */
-let below:
-	| Promise<{ recordings: CollectionFiles; audio: CollectionFiles }>
-	| undefined;
+/** A store of the same place below the folder, opened once. */
+let below: Promise<Store> | undefined;
 function belowFolder() {
 	below ??= openingOf(place, recorder)
 		.open()
 		.then(({ data, error }) => {
 			if (error !== null) throw new Error(error.message);
-			const { collections } = createDeviceClient(recorder, data);
-			return {
-				recordings: collections.get('recordings') as CollectionFiles,
-				audio: collections.get('audio') as CollectionFiles,
-			};
+			return data;
 		});
 	return below;
+}
+
+/** The version at `path` below the folder, or why there is none. */
+async function versionBelow(
+	path: string,
+): Promise<{ error: string } | { version: Version }> {
+	const read = await (await belowFolder()).read([path]);
+	if (read.error !== null) return { error: read.error.message };
+	const [file] = read.data;
+	if (file === undefined || 'gone' in file) return { error: `${path} is missing` };
+	return { version: file.version };
 }
 
 const encoder = new TextEncoder();
@@ -62,9 +64,7 @@ const noteBytes = (title: string) =>
 	encoder.encode(`---\ntitle: ${title}\n---\n`);
 
 /** What a write below the folder answered, by name. */
-const outcome = (
-	written: Awaited<ReturnType<CollectionFiles['write']>>,
-): string =>
+const outcome = (written: Awaited<ReturnType<Store['write']>>): string =>
 	written.error !== null
 		? written.error.name
 		: written.data === 'stale'
@@ -105,26 +105,11 @@ async function opfsText(path: string) {
 	return file.text();
 }
 
-/**
- * Wait until a new listener's first listing answered and was heard (`count`
- * is what the listener heard), so what is heard after is a change. A page
- * that listed before is no longer loading, yet its new listener still
- * hears the listing that starts it; up to a second for it.
- */
-async function listed(loading: () => boolean, count: () => number) {
-	for (let turn = 0; turn < 200 && (loading() || count() === 0); turn++)
+/** Wait until the folder connected, so what is heard after is a change. */
+async function connected() {
+	for (let turn = 0; turn < 400 && folder.state().status !== 'open'; turn++)
 		await new Promise((resolve) => setTimeout(resolve, 5));
 }
-
-/** An append's answer, by name: `false` is a file that was not as `create` said. */
-const appendOutcome = (
-	appended: Awaited<ReturnType<typeof folder.audio.append>>,
-) =>
-	appended.error !== null
-		? appended.error.name
-		: appended.data
-			? 'landed'
-			: 'stale';
 
 /** How many times this page's listener heard the recordings change. */
 let heard = 0;
@@ -132,82 +117,71 @@ let heard = 0;
 let heardAudio = 0;
 
 const smoke = {
+	/**
+	 * The store conformance checks over this browser's private files: the
+	 * store under test, and a second store writing as another tab would. Answers each check's failure, or `ok`.
+	 */
+	async conformance() {
+		const answers: Record<string, string> = {};
+		for (const [name, run] of Object.entries(storeChecks)) {
+			const store = opfsStore();
+			const other = opfsStore();
+			try {
+				await run({
+					store,
+					async outside(path, bytes) {
+						const read = await other.read([path]);
+						if (read.error !== null) throw new Error(read.error.message);
+						const [there] = read.data;
+						const over =
+							there === undefined || 'gone' in there ? 'absent' : there.version;
+						if (bytes === null && over === 'absent') return;
+						const written = await other.write(path, bytes, over);
+						if (written.error !== null || written.data === 'stale')
+							throw new Error(`the other tab's write did not land`);
+					},
+					hearingMs: 2000,
+				});
+				answers[name] = 'ok';
+			} catch (cause) {
+				answers[name] = String(cause);
+			} finally {
+				store.close();
+				other.close();
+			}
+		}
+		return answers;
+	},
 	/** Start hearing the recordings change, from this tab or another, once they are listed. */
 	async listen() {
+		await connected();
 		folder.recordings.subscribe(() => heard++);
-		await listed(
-			() => folder.recordings.loading(),
-			() => heard,
-		);
 		heard = 0;
 	},
 	heard: () => heard,
 	/** Start hearing the audio change, from this tab or another, once it is listed. */
 	async listenAudio() {
+		await connected();
 		folder.audio.subscribe(() => heardAudio++);
-		await listed(
-			() => folder.audio.loading(),
-			() => heardAudio,
-		);
 		heardAudio = 0;
 	},
 	heardAudio: () => heardAudio,
 	/**
-	 * Append `count` pieces of 64 KB to a new file, as a recording does,
-	 * reading it over and over meanwhile: every read must answer. Then a
-	 * second create is `'stale'`, an empty announcing append lands, and the
-	 * file reads back as every piece in order.
+	 * Write a take of `count` pieces of 64 KB once, whole, as the browser
+	 * recorder does at Stop (ADR-0779), and read it back.
 	 */
-	async appendPieces(id: string, count: number) {
+	async writeTake(id: string, count: number) {
 		const at = { id, ext: 'webm' };
-		const pieces = Array.from({ length: count }, (_, index) =>
-			payload(64 * 1024, index + 1),
-		);
-		let done = false;
-		const appending = (async () => {
-			for (const [index, piece] of pieces.entries()) {
-				const appended = await folder.audio.append(at, piece, {
-					create: index === 0,
-					announce: false,
-				});
-				if (appendOutcome(appended) !== 'landed')
-					return `piece ${index}: ${appendOutcome(appended)}`;
-			}
-			return null;
-		})().finally(() => {
-			done = true;
-		});
-		const readFailures: string[] = [];
-		let reads = 0;
-		while (!done) {
-			const read = await folder.audio.read(at);
-			reads++;
-			if (read.error !== null) readFailures.push(read.error.message);
-		}
-		const problem = await appending;
-		const again = await folder.audio.append(at, pieces[0]!, {
-			create: true,
-			announce: false,
-		});
-		const announced = await folder.audio.append(at, new Uint8Array(), {
-			create: false,
-			announce: true,
-		});
-		const read = await folder.audio.read(at);
 		const whole = new Uint8Array(count * 64 * 1024);
-		for (const [index, piece] of pieces.entries())
-			whole.set(piece, index * 64 * 1024);
-		return {
-			problem,
-			reads,
-			readFailures,
-			again: appendOutcome(again),
-			announced: appendOutcome(announced),
-			whole:
-				read.error === null &&
-				read.data !== null &&
-				(await sha256(read.data.bytes)) === (await sha256(whole)),
-		};
+		for (let index = 0; index < count; index++)
+			whole.set(payload(64 * 1024, index + 1), index * 64 * 1024);
+		await folder.audio.set(at, whole);
+		const read = await folder.audio.read(at);
+		return (
+			read.error === null &&
+			read.data !== null &&
+			(await sha256(read.data.bytes)) === (await sha256(whole))
+		);
 	},
 	/**
 	 * Write a note and 5 MB of audio through the folder, read both back with
@@ -223,25 +197,23 @@ const smoke = {
 		const read = await folder.audio.read({ id, ext: 'm4a' });
 		if (read.error !== null) return { error: read.error.message };
 		if (read.data === null) return { error: 'the audio is missing' };
-		const files = await belowFolder();
-		const note = await files.recordings.read(`recordings/${id}.md`);
-		if (note.error !== null) return { error: note.error.message };
-		if (note.data === null) return { error: 'the note is missing' };
-		const audio = await files.audio.read(`recordings/${id}.m4a`);
-		if (audio.error !== null) return { error: audio.error.message };
-		if (audio.data === null) return { error: 'the audio is missing' };
-		const occupied = await files.recordings.write(
+		const note = await versionBelow(`recordings/${id}.md`);
+		if ('error' in note) return note;
+		const audio = await versionBelow(`recordings/${id}.m4a`);
+		if ('error' in audio) return audio;
+		const listed = await (await belowFolder()).list([`recordings/${id}.m4a`]);
+		const occupied = await (await belowFolder()).write(
 			`recordings/${id}.md`,
 			noteBytes('Again'),
-			null,
+			'absent',
 		);
 		return {
 			noteText: await opfsText(`recordings/${id}.md`),
-			noteVersion: note.data.version,
-			audioVersion: audio.data.version,
+			noteVersion: note.version,
+			audioVersion: audio.version,
 			expectedAudioHash: await sha256(bytes),
 			readHash: await sha256(read.data.bytes),
-			readVersion: audio.data.version,
+			readVersion: listed.error === null ? listed.data[0]?.version : null,
 			callerBytesIntact: bytes.byteLength === 5 * 1024 * 1024,
 			occupied: outcome(occupied),
 		};
@@ -271,9 +243,8 @@ const smoke = {
 	},
 	/** One writer's write over `over`, below the folder, for two pages to race. */
 	async update(id: string, title: string, over: string) {
-		const { recordings } = await belowFolder();
 		return outcome(
-			await recordings.write(
+			await (await belowFolder()).write(
 				`recordings/${id}.md`,
 				noteBytes(title),
 				over as Version,
@@ -282,41 +253,44 @@ const smoke = {
 	},
 	/** One writer's write where nothing is, below the folder, for two pages to race on one path. */
 	async create(id: string, title: string) {
-		const { recordings } = await belowFolder();
 		return outcome(
-			await recordings.write(`recordings/${id}.md`, noteBytes(title), null),
+			await (await belowFolder()).write(
+				`recordings/${id}.md`,
+				noteBytes(title),
+				'absent',
+			),
 		);
 	},
 	/**
 	 * Two writes of `id` over one version, then two writes where nothing is
 	 * at one new path, each pair racing within this page through one store:
-	 * the Worker's per-path Web Lock lets exactly one of each land.
+	 * the store's per-path Web Lock lets exactly one of each land.
 	 */
 	async raceInOnePage(id: string) {
-		const { recordings } = await belowFolder();
-		const created = await recordings.write(
+		const store = await belowFolder();
+		const created = await store.write(
 			`recordings/${id}.md`,
 			noteBytes('Read'),
-			null,
+			'absent',
 		);
 		if (created.error !== null) return { error: created.error.message };
 		if (created.data === null || created.data === 'stale')
 			return { error: `the first write answered ${created.data}` };
-		const over = created.data.version;
+		const over = created.data;
 		const updates = await Promise.all(
 			['A', 'B'].map(async (title) =>
 				outcome(
-					await recordings.write(`recordings/${id}.md`, noteBytes(title), over),
+					await store.write(`recordings/${id}.md`, noteBytes(title), over),
 				),
 			),
 		);
 		const creates = await Promise.all(
 			['A', 'B'].map(async (title) =>
 				outcome(
-					await recordings.write(
+					await store.write(
 						`recordings/${id}-new.md`,
 						noteBytes(title),
-						null,
+						'absent',
 					),
 				),
 			),
@@ -360,8 +334,9 @@ const smoke = {
 		const listed = await folder.recordings.list();
 		if (listed.error === null) return { name: null, cause: null };
 		const { error } = listed;
-		if (error.name !== 'Unavailable') return { name: error.name, cause: null };
-		const cause = error.cause as { name?: string } | undefined;
+		const cause = ('cause' in error ? error.cause : undefined) as
+			| { name?: string }
+			| undefined;
 		return { name: error.name, cause: cause?.name ?? null };
 	},
 	/** Files left in the folder's `.epicenter/saves`: none after writes land. */

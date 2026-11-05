@@ -51,8 +51,6 @@
 			</Item.Button>
 		{/each}
 	</Item.Group>
-{:else if folder.captures.loading()}
-	<Loading class="py-12" label="Opening captures…" />
 {:else}
 	<Empty.Root>
 		<Empty.Header>

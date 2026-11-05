@@ -1,12 +1,12 @@
 /**
- * Audio capture for one recording at a time. Every capture writes the
- * recording's audio into Whispering's store as it records, so a quit, a
- * crash, or a closed tab keeps everything up to the cut (decision 84): on
- * the desktop the shell writes Opus in WebM from the first sample outside
- * the recording's path and places it there at Stop, in a browser each piece
- * is appended to this browser's files at its path (`recordings/<id>.<ext>`)
- * as it arrives. Stop answers once the audio is at its path, with how long
- * it plays; and `recover` repairs the audio a cut left half-written.
+ * Audio capture for one recording at a time. Stop answers once the audio is
+ * at its path (`recordings/<id>.<ext>`), with how long it plays. On the
+ * desktop the shell writes Opus in WebM from the first sample outside the
+ * recording's path and places it there at Stop, so a quit or a crash keeps
+ * the take, and `recover` finishes it at the next launch (decision 84). In a
+ * browser the take is kept in memory and written once at Stop; a crash or a
+ * closed tab loses it, and there is nothing to recover (ADR-0779,
+ * ADR-0780).
  *
  * The microphone device (`microphone.ts`) records with `@epicenter/recorder`'s
  * `recorder`, from the entry the build's platform leaf imports, and lists
@@ -65,16 +65,16 @@ export type CaptureDevice = {
 	>;
 	start(options: CaptureStart): Promise<Result<Capture, RecorderError>>;
 	/**
-	 * Repair the audio of recordings a quit, a crash, or a closed tab cut
-	 * off, and answer each recording whose audio is whole at its path and
+	 * The desktop's alone: finish the audio of recordings a quit or a crash
+	 * cut off, and answer each recording whose audio is whole at its path and
 	 * may have no note (`whole`), by id, with how long it plays (null: read
 	 * it to measure). `unnamed` is the audio at its path no note names, by
-	 * store-relative path (`recordings/<id>.<ext>`); one another tab is still
-	 * writing is left out. It also answers each recording kept outside its
-	 * path because another file is there (`unplaced`), which no note can
-	 * name. Where a cut-off recording waits is the recorder's to know.
+	 * store-relative path (`recordings/<id>.<ext>`). It also answers each
+	 * recording kept outside its path because another file is there
+	 * (`unplaced`), which no note can name. Where a cut-off recording waits
+	 * is the recorder's to know.
 	 */
-	recover(
+	recover?(
 		unnamed: readonly string[],
 	): Promise<Result<Recovered, RecorderError>>;
 };

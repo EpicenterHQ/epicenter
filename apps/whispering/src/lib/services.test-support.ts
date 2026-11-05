@@ -10,17 +10,21 @@
  * folder of its own there, and a test writes or refuses as another program
  * through `memoryFiles`.
  *
- * The endpoint is a real `custom` endpoint over a plain function standing
- * where `fetch` would be (ADR-0757), so a test decides each answer and
- * counts each request while the request itself is built and read as in the
- * app.
+ * The endpoint is a connection saved in this computer's settings (memory
+ * under the `test` condition), its requests answered by a plain function
+ * standing where `fetch` would be (ADR-0757), so a test decides each answer
+ * and counts each request while the request itself is built and read as in
+ * the app.
  */
-import { hosted, type LiveAccount, openAi } from '@epicenter/ai';
-import { createModelChoices, type SavedChoices } from '@epicenter/ai/choices';
 import {
-	createAiConnections,
-	customEndpointsOf,
-} from '@epicenter/ai/connections';
+	customEndpoints,
+	hosted,
+	type LiveAccount,
+	modelChoices,
+	openAi,
+} from '@epicenter/ai';
+import { settings } from '@epicenter/local';
+import { outside as computer } from '@epicenter/local/memory';
 import { openFolder } from '@epicenter/folder';
 import type { Folder } from '@epicenter/folder/core';
 import { memory, memoryFiles } from '@epicenter/folder/memory';
@@ -90,7 +94,6 @@ export function createFixtureDevice({
 				},
 			});
 		},
-		recover: async () => Ok({ whole: [], unplaced: [] }),
 	};
 }
 
@@ -189,21 +192,17 @@ export const SIGNED_OUT: LiveAccount = {
 };
 
 /** Memory standing in for this site's storage, which tells every opener of it of each write, as a page's other tabs hear. */
-function memoryStorage() {
-	const values = new Map<string, string>();
-	const listeners = new Set<() => void>();
-	return {
-		getItem: (key: string) => values.get(key) ?? null,
-		setItem(key: string, value: string) {
-			values.set(key, value);
-			for (const listener of [...listeners]) listener();
-		},
-		subscribe(listener: () => void) {
-			listeners.add(listener);
-			return () => void listeners.delete(listener);
-		},
-	};
-}
+/** The page's own `fetch`, and the stub that answers the test endpoint in its place. */
+const pageFetch = globalThis.fetch;
+let answering:
+	| ((url: string, init?: RequestInit) => Promise<Response>)
+	| undefined;
+globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+	const url = String(input instanceof Request ? input.url : input);
+	return answering !== undefined && url.startsWith(TEST_BASE_URL)
+		? answering(url, init)
+		: pageFetch(input, init);
+}) as typeof fetch;
 
 /** The capabilities Whispering is made over, but its folder: the test makes that over its directory. */
 export type TestCapabilities = Omit<WhisperingCapabilities, 'folder'>;
@@ -265,34 +264,24 @@ export async function openTestServices({
 		return new Response('Not found', { status: 404 });
 	}
 
-	// Each opening is its own, as each page lifetime opens its own over the
-	// same storage; the test changes them through one more.
-	const saved = memoryStorage();
-	const openConnections = () =>
-		createAiConnections({
-			storage: saved,
-			storageKey: 'test',
-			fetch,
-			subscribeStorage: saved.subscribe,
-		});
-	const connections = openConnections();
+	// This computer's settings, empty for each test: one saved connection,
+	// answered by the stub, chosen for both jobs.
+	answering = fetch;
+	for (const name of ['connections.md', 'connection-keys.json', 'models.md'])
+		computer.write(name, null);
+	const connections = customEndpoints();
+	await settings.file('connections.md').connected();
 	const connectionId = await connections.add({
 		name: 'Test endpoint',
 		baseUrl: TEST_BASE_URL,
 		models: [TEST_MODELS.transcription, TEST_MODELS.text],
 	});
-	// The device's choices, kept by job, chosen for the stub endpoint.
-	let chosen: SavedChoices = {
-		transcribe: { endpoint: connectionId, model: TEST_MODELS.transcription },
-		chat: { endpoint: connectionId, model: TEST_MODELS.text },
-	};
-	const choices = createModelChoices<'transcribe' | 'chat'>({
-		read: async () => chosen,
-		async save(job, choice) {
-			chosen = { ...chosen, [job]: choice };
-			return chosen;
-		},
+	const choices = modelChoices<'transcribe' | 'chat'>();
+	await choices.set('transcribe', {
+		endpoint: connectionId,
+		model: TEST_MODELS.transcription,
 	});
+	await choices.set('chat', { endpoint: connectionId, model: TEST_MODELS.text });
 
 	const services: TestCapabilities = {
 		capture: createFixtureDevice({
@@ -300,13 +289,10 @@ export async function openTestServices({
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 		}),
-		ai: openAi([
-			hosted(SIGNED_OUT),
-			customEndpointsOf(async () => openConnections()),
-		]),
+		ai: openAi([hosted(SIGNED_OUT), connections]),
 		choices,
 		preferences: {
-			microphone: async () => undefined,
+			microphone: () => undefined,
 			setMicrophone: async () => undefined,
 		},
 	};
@@ -323,10 +309,10 @@ export async function openTestServices({
 		transformed,
 		/** Every transcription request the endpoint stub received, with the audio it carried. */
 		transcribed,
-		/** The device's saved connections, as another page of it would change them, and the id of the one the stub answers. */
+		/** This computer's saved connections, and the id of the one the stub answers. */
 		connections,
 		connectionId,
-		/** This device's model choices, as another page of it would change them. */
+		/** This computer's model choices. */
 		choices,
 		/** Close the files' folder. */
 		close() {

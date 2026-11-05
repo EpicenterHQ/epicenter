@@ -58,7 +58,7 @@
 	// them through `ai` reruns this when one is added, edited or removed.
 	const connections = $derived(ai.custom());
 	const records = $derived(connections?.list() ?? []);
-	/** Why the saved connections could not be read, if they could not. */
+	/** Why the saved connections do not read, naming the file; a connection added replaces it. */
 	const problem = $derived(connections?.problem() ?? null);
 	/** The endpoint a saved connection makes, which on the desktop sends with the key the shell keeps. */
 	const endpointOf = (id: string) =>
@@ -340,10 +340,7 @@
 	</Popover.Trigger>
 	<Popover.Content class="w-80 p-0" align="end">
 		{#if problem}
-			<div role="alert" class="flex items-center justify-between gap-2 p-3 text-xs text-destructive">
-				<span>Your connections could not be read: {problem}</span>
-				<Button variant="ghost" size="xs" onclick={() => void connections?.reopen()}>Read again</Button>
-			</div>
+			<p role="alert" class="p-3 text-xs text-destructive">{problem.message}</p>
 		{/if}
 		{#if view === 'list'}
 			<Command.Root>
@@ -419,11 +416,11 @@
 					<Command.Separator />
 					<Command.Item
 						value="connect a provider"
-						disabled={!connections || problem !== null}
+						disabled={!connections}
 						onSelect={() => (view = 'connect')}
 					>
 						<Plus class="size-4" />
-						<span>{connections && problem === null ? 'Connect a provider...' : 'Saved connections unavailable'}</span>
+						<span>Connect a provider...</span>
 					</Command.Item>
 				</Command.List>
 			</Command.Root>

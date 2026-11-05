@@ -4,8 +4,8 @@ A standalone Epicenter app is its own small Tauri program over a folder it
 owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
 shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines.
 On the page, `openFolder(contract, home({ site }))` from `@epicenter/folder`
-opens the data folder in the desktop build, `localFile(name)` from
-`@epicenter/local` keeps a capability's per-computer state in AppData, and
+opens the data folder in the desktop build, `settings` from
+`@epicenter/local` is this computer's settings in AppData, and
 `syncWithEpicenter` and `syncedWithEpicenter` from `@epicenter/folder/tauri`
 manage Epicenter enrollment. The page's recovery and sync UI is in
 `@epicenter/svelte`.
@@ -18,7 +18,10 @@ plugin; nothing is granted or stored
 
 - **AppData** is the operating system's application data directory, used by
   apps with machine-local settings such as shortcuts or connections. The
-  page's first open makes it.
+  page's first open makes it. An app that signs in keeps its secrets there
+  too: [`epicenter-account`](../tauri-epicenter-account/README.md) writes
+  `credentials.json`, which no page reaches, and `account.json`, who is
+  signed in, which the page reads like any setting.
 - **Data** is `<library root>/<name>`. The name comes from the app's bundle
   identifier, the reversed host of its site (`so.epicenter.whispering` is
   `~/Epicenter/whispering`). The library root is `~/Epicenter`, or

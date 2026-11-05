@@ -234,6 +234,23 @@ pub enum PutOutcome {
     Stale,
 }
 
+/// What a put answers the page: the stamp of the file that
+/// landed (empty for a removal), which names an attachment's version, or
+/// `stale` when the path held something else and nothing changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum Landing {
+    Landed(String),
+    Stale,
+}
+
+/// Whether the page names the file at `path` by the SHA-256 of its bytes (a
+/// note, `.md` in any case) rather than by its stamp (any other file):
+/// `versionedByContent` in `packages/folder/src/device/store.ts`.
+pub fn versioned_by_content(path: &str) -> bool {
+    path.len() >= 3 && path[path.len() - 3..].eq_ignore_ascii_case(".md")
+}
+
 /// The bytes and stamp of one opened file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileRead {
@@ -267,15 +284,29 @@ pub enum Expectation {
     Absent,
     /// A regular file whose bytes have this lowercase hexadecimal SHA-256.
     Sha256(String),
+    /// A regular file whose stamp (`stamp_of`) is this: an attachment's
+    /// version, which names it without reading its bytes.
+    Stamp(String),
+    /// Whatever regular file is there, or nothing: a replacement by the
+    /// path's only writer, such as the shell writing this computer's
+    /// settings.
+    Any,
 }
 
 impl Expectation {
-    /// The page's `expected` header: `absent`, or `sha256:` and a lowercase
-    /// hexadecimal SHA-256. Each case has its own spelling, so a hash is
-    /// never read as a keyword, nor a keyword as a hash.
+    /// The page's `expected` header: `absent`, `sha256:` and a lowercase
+    /// hexadecimal SHA-256, or `stamp:` and a stamp. Each case has its own
+    /// spelling, so a hash is never read as a keyword, nor a keyword as a
+    /// hash.
     pub fn parse(value: &str) -> Result<Self, String> {
+        if let Some(stamp) = value.strip_prefix("stamp:") {
+            if stamp.starts_with("v1:") {
+                return Ok(Self::Stamp(stamp.to_string()));
+            }
+        }
         match value {
             "absent" => Ok(Self::Absent),
+            "any" => Ok(Self::Any),
             _ => match value.strip_prefix("sha256:") {
                 Some(hash)
                     if hash.len() == 64
@@ -286,19 +317,21 @@ impl Expectation {
                     Ok(Self::Sha256(hash.to_string()))
                 }
                 _ => Err(format!(
-                    "expected is {value:?}, not absent, or sha256: and a SHA-256"
+                    "expected is {value:?}, not absent, any, sha256: and a SHA-256, or stamp: and a stamp"
                 )),
             },
         }
     }
 }
 
-/// One file in a listing. Anything that is not a directory is a file here,
-/// a link or a special entry included, none of them followed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+/// One regular file in a listing: its version as the page names it (a
+/// note's SHA-256, any other file's stamp: `versioned_by_content`), and its
+/// size in bytes.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
 pub struct ListedFile {
     pub path: String,
-    pub stamp: String,
+    pub version: String,
+    pub size: f64,
 }
 
 fn io_error(path: &str, operation: &str, message: impl std::fmt::Display) -> StorageError {
@@ -476,14 +509,42 @@ fn spelled_by_listing(root: &Path, names: &[&str]) -> io::Result<bool> {
     Ok(true)
 }
 
-/// Every file below `root`, `.git` at the root aside, without following a
-/// link. Hidden files are listed, unfinished writes in `.epicenter`
-/// included; whoever reads the listing skips them (`isHiddenPath`). A name
-/// that is not text is left out. A directory below the root removed during
-/// the walk is not listed: opening it, or reading its entries (macOS's
-/// `readdir` answers `ENOENT` for one removed mid-read), says it is not
-/// found. Only the root missing fails the listing that way.
-pub fn list(root: &Path) -> Result<Vec<ListedFile>, StorageError> {
+/// Every regular file at or below each of `under` (a directory or a file
+/// path; empty is the whole root), `.git` at the root aside, without
+/// following a link, each with its version (`versioned_by_content`: a note
+/// is read and hashed, any other file named by its stamp) and size. Hidden
+/// files are listed, unfinished writes in `.epicenter` included; whoever
+/// reads the listing skips them (`isHiddenPath`). A name that is not text
+/// is left out, and so is a path asked for that is not readable or passes
+/// through a link. A file or directory removed during the walk is not
+/// listed: opening it, or reading its entries (macOS's `readdir` answers
+/// `ENOENT` for one removed mid-read), says it is not found. Only the root
+/// missing fails the listing that way.
+pub fn list(root: &Path, under: &[String]) -> Result<Vec<ListedFile>, StorageError> {
+    fn describe(at: &Path, path: String) -> io::Result<Option<ListedFile>> {
+        let metadata = match fs::symlink_metadata(at) {
+            Ok(metadata) => metadata,
+            Err(cause) if cause.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(cause) => return Err(cause),
+        };
+        if !metadata.is_file() {
+            return Ok(None);
+        }
+        let version = if versioned_by_content(&path) {
+            match file_sha256(at) {
+                Ok(hash) => hash,
+                Err(cause) if cause.kind() == ErrorKind::NotFound => return Ok(None),
+                Err(cause) => return Err(cause),
+            }
+        } else {
+            stamp_of(&metadata)?
+        };
+        Ok(Some(ListedFile {
+            path,
+            version,
+            size: metadata.len() as f64,
+        }))
+    }
     fn visit(directory: &Path, prefix: &str, listing: &mut Vec<ListedFile>) -> io::Result<()> {
         for entry in fs::read_dir(directory)? {
             #[cfg(test)]
@@ -504,19 +565,50 @@ pub fn list(root: &Path) -> Result<Vec<ListedFile>, StorageError> {
                 }
                 continue;
             }
-            match fs::symlink_metadata(&at) {
-                Ok(metadata) => listing.push(ListedFile {
-                    path,
-                    stamp: stamp_of(&metadata)?,
-                }),
-                Err(cause) if cause.kind() == ErrorKind::NotFound => {}
-                Err(cause) => return Err(cause),
+            if let Some(file) = describe(&at, path)? {
+                listing.push(file);
             }
         }
         Ok(())
     }
+    fn within(path: &str, other: &str) -> bool {
+        other.is_empty() || path == other || path.starts_with(&format!("{other}/"))
+    }
+    let walk = |listing: &mut Vec<ListedFile>| -> io::Result<()> {
+        for prefix in under {
+            // A path below another one asked for is walked once, with it.
+            if under
+                .iter()
+                .any(|other| other != prefix && within(prefix, other))
+            {
+                continue;
+            }
+            if prefix.is_empty() {
+                visit(root, "", listing)?;
+                continue;
+            }
+            if readable_path_problem(prefix).is_some() {
+                continue;
+            }
+            match find(root, prefix)? {
+                Found::Directory => {
+                    match visit(&full(root, prefix), &format!("{prefix}/"), listing) {
+                        Err(cause) if cause.kind() == ErrorKind::NotFound => {}
+                        result => result?,
+                    }
+                }
+                Found::File { .. } => {
+                    if let Some(file) = describe(&full(root, prefix), prefix.clone())? {
+                        listing.push(file);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    };
     let mut listing = Vec::new();
-    visit(root, "", &mut listing).map_err(|cause| io_error("", "list", cause))?;
+    walk(&mut listing).map_err(|cause| io_error("", "list", cause))?;
     Ok(listing)
 }
 
@@ -589,9 +681,14 @@ fn holds(target: &Path, expected: &Expectation) -> io::Result<bool> {
         Err(cause) => return Err(cause),
     };
     match (expected, found) {
+        (Expectation::Any, None) => Ok(true),
+        (Expectation::Any, Some(metadata)) => Ok(metadata.is_file()),
         (Expectation::Absent, found) => Ok(found.is_none()),
         (Expectation::Sha256(hash), Some(metadata)) if metadata.is_file() => {
             Ok(file_sha256(target)? == *hash)
+        }
+        (Expectation::Stamp(stamp), Some(metadata)) if metadata.is_file() => {
+            Ok(stamp_of(&metadata)? == *stamp)
         }
         _ => Ok(false),
     }
@@ -939,7 +1036,8 @@ fn keep_mode(target: &Path, staged: &Path) -> io::Result<()> {
 }
 
 /// Publish `bytes` at `path`, or remove its file for `None`, only while the
-/// path holds what `expected` says. `Stale` when it does not, and nothing
+/// path holds what `expected` says, answering the stamp of the file that
+/// landed (empty for a removal). `Stale` when it does not, and nothing
 /// changed; removing nothing that expects nothing has landed.
 ///
 /// A new file must satisfy the portable rule (`path_problem`). An existing
@@ -959,12 +1057,12 @@ fn keep_mode(target: &Path, staged: &Path) -> io::Result<()> {
 /// the put is `Stale`. On every answer but
 /// `Landed` nothing of the put is left: not the staged file, and not a
 /// directory it made.
-pub fn put(
+pub fn put_landing(
     root: &Path,
     path: &str,
     bytes: Option<&[u8]>,
     expected: &Expectation,
-) -> Result<PutOutcome, StorageError> {
+) -> Result<Landing, StorageError> {
     if let Err(refused) = admit(path) {
         if let Some(reason) = readable_path_problem(path).or_else(|| {
             path.split('/')
@@ -998,17 +1096,17 @@ pub fn put(
     let Some(bytes) = bytes else {
         let _turn = Turn::take(&target);
         if !matches!(landing()?, Found::File { .. }) {
-            return Ok(if *expected == Expectation::Absent {
-                PutOutcome::Landed
+            return Ok(if matches!(expected, Expectation::Absent | Expectation::Any) {
+                Landing::Landed(String::new())
             } else {
-                PutOutcome::Stale
+                Landing::Stale
             });
         }
         if !holds(&target, expected).map_err(|cause| failed(&cause))? {
-            return Ok(PutOutcome::Stale);
+            return Ok(Landing::Stale);
         }
         fs::remove_file(&target).map_err(|cause| failed(&cause))?;
-        return Ok(PutOutcome::Landed);
+        return Ok(Landing::Landed(String::new()));
     };
 
     let found = landing()?;
@@ -1027,14 +1125,23 @@ pub fn put(
         let _ = fs::remove_file(&scratch);
         return Err(error);
     }
-    let published = (|| -> Result<PutOutcome, StorageError> {
+    // A rename or a placing keeps the staged file's stamp: it is what lands.
+    let stamp = match file.metadata().and_then(|metadata| stamp_of(&metadata)) {
+        Ok(stamp) => stamp,
+        Err(cause) => {
+            drop(file);
+            let _ = fs::remove_file(&scratch);
+            return Err(unstaged(cause));
+        }
+    };
+    let published = (|| -> Result<Landing, StorageError> {
         let _turn = Turn::take(&target);
         // Staging took time: walk and check again right before the rename.
         if let Found::UnderFile { ancestor } = landing()? {
             return Err(StorageError::NotADirectory { path: ancestor });
         }
         if !holds(&target, expected).map_err(|cause| failed(&cause))? {
-            return Ok(PutOutcome::Stale);
+            return Ok(Landing::Stale);
         }
         keep_mode(&target, &scratch).map_err(|cause| failed(&cause))?;
         let made = make_parents(root, &names[..names.len() - 1]).map_err(|cause| failed(&cause))?;
@@ -1048,17 +1155,30 @@ pub fn put(
             remove_made(&made);
             // Something appeared at the path after the check, and stays.
             if placing && cause.kind() == ErrorKind::AlreadyExists {
-                return Ok(PutOutcome::Stale);
+                return Ok(Landing::Stale);
             }
             return Err(failed(&rename_failure(path, &cause)));
         }
-        Ok(PutOutcome::Landed)
+        Ok(Landing::Landed(stamp))
     })();
     drop(file);
-    if !matches!(published, Ok(PutOutcome::Landed)) {
+    if !matches!(published, Ok(Landing::Landed(_))) {
         let _ = fs::remove_file(&scratch);
     }
     published
+}
+
+/// `put_landing`, answering only whether the change landed.
+pub fn put(
+    root: &Path,
+    path: &str,
+    bytes: Option<&[u8]>,
+    expected: &Expectation,
+) -> Result<PutOutcome, StorageError> {
+    Ok(match put_landing(root, path, bytes, expected)? {
+        Landing::Landed(_) => PutOutcome::Landed,
+        Landing::Stale => PutOutcome::Stale,
+    })
 }
 
 /// Whether the staged file `name` was made more than an hour before

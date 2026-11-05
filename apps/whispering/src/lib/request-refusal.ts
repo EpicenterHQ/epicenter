@@ -11,7 +11,7 @@ const BEFORE_SEND = new Set([
 	'InvalidRequest',
 	'SchemeRefused',
 	'OriginRefused',
-	'KeychainFailed',
+	'CredentialsFailed',
 	'AccountUnavailable',
 	'SignedOut',
 ]);

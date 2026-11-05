@@ -4,20 +4,27 @@
  * `packages/tauri-epicenter-account`).
  *
  * The shell holds the sign-in: it signs in through the system browser,
- * keeps the refresh token in the keychain, and sends each of the account's
- * requests to Epicenter's API with a token this page never sees
- * (`account_fetch`). So the account's `fetch` here is a relay, and every
- * component reads `auth` the same way as in a browser build.
+ * keeps the refresh token in the app's credentials file (ADR-0740), reads
+ * it when a request needs a token, and sends each of the account's requests
+ * to Epicenter's API with a token this page never sees (`account_fetch`).
+ * So the account's `fetch` here is a relay, and every component reads
+ * `auth` the same way as in a browser build.
+ *
+ * Who is signed in is a setting the shell writes (`account.json` in this
+ * computer's settings, ADR-0778): its origin, the principal, and whether the
+ * server refused the sign-in. The page reads it at once once the settings
+ * connected (`<WhenOpen>`), so it never shows a signed-in person as signed
+ * out while it asks.
  *
  * The shell's other relays read their answers the same way: `relayThroughShell`
  * is the one reader, which `@epicenter/ai/tauri` uses for a connected
  * endpoint's requests (`connection_fetch`).
  *
  * ```ts
- * const { client, ready } = createTauriAuth();
- * export const auth = reactive(client); // from '@epicenter/svelte/reactive'
+ * export const auth = reactive(createTauriAuth()); // from '@epicenter/svelte/reactive'
  * ```
  */
+import { type SettingsFile, settings } from '@epicenter/local';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { Ok } from 'wellcrafted/result';
 import type {
@@ -42,14 +49,31 @@ export const tauriShell: TauriShell = {
 	channel: (onMessage) => new Channel<unknown>(onMessage),
 };
 
-/** `account_state`'s answer. */
-type ShellState = {
+/** `account.json`, the identity the shell writes: who is signed in, and whether the server ended it. */
+type Identity = {
 	origin: string;
-	signedIn: SignedIn | null;
+	principalId: string | null;
 	/** The server ended the sign-in; only signing in again helps. */
 	refused: boolean;
 };
 type SignedIn = { origin: string; principalId: string };
+
+/** The identity in `text`, or signed out for none, or for a file that does not read. */
+function identityIn(text: string | null): Identity | null {
+	if (text === null) return null;
+	try {
+		const value = JSON.parse(text) as Partial<Identity>;
+		if (typeof value.origin !== 'string') return null;
+		return {
+			origin: value.origin,
+			principalId:
+				typeof value.principalId === 'string' ? value.principalId : null,
+			refused: value.refused === true,
+		};
+	} catch {
+		return null;
+	}
+}
 
 /**
  * What the shell sends on a request's channel besides the body's raw chunks
@@ -247,24 +271,22 @@ export function relayFetch(
 }
 
 /**
- * The desktop's `AuthClient` over the shell's account commands. `ready`
- * answers once the shell said who, if anyone, is signed in; until then, and
- * when the shell cannot answer, it is signed out.
+ * The desktop's `AuthClient` over the shell's account commands and the
+ * identity it writes (`account.json` in this computer's settings). Its reads
+ * answer once the settings connected; before, they throw `SettingsNotOpen`.
  */
-export function createTauriAuth(shell: TauriShell = tauriShell): {
-	client: AuthClient;
-	ready: Promise<void>;
-} {
+export function createTauriAuth({
+	shell = tauriShell,
+	identity = settings.file('account.json'),
+}: {
+	shell?: TauriShell;
+	/** Where the shell writes who is signed in; tests stand in for it. */
+	identity?: SettingsFile;
+} = {}): AuthClient {
 	let state: AuthState = { status: 'signed-out' };
-	let baseURL = '';
+	let read: string | null | undefined;
 	let current: { account: Account; lifetime: AbortController } | undefined;
 	const listeners = new Set<() => void>();
-
-	function publish(next: AuthState) {
-		if (next.status === state.status && next.account === state.account) return;
-		state = next;
-		for (const listener of listeners) listener();
-	}
 
 	function retire() {
 		current?.lifetime.abort(
@@ -273,54 +295,58 @@ export function createTauriAuth(shell: TauriShell = tauriShell): {
 		current = undefined;
 	}
 
-	/** Publish `signedIn`, keeping the Account when it is the same person. */
-	function adopt(signedIn: SignedIn, refused: boolean) {
+	/** The Account for `signedIn`, kept while it is the same person at the same origin. */
+	function accountFor(signedIn: SignedIn): Account {
 		const principalId = Principal.assert({ id: signedIn.principalId }).id;
-		let account = current?.account;
-		if (
-			account?.principalId !== principalId ||
-			account.baseURL !== signedIn.origin
-		) {
-			retire();
-			const lifetime = new AbortController();
-			const fetch = relayFetch(
-				shell,
-				signedIn.origin,
-				lifetime.signal,
-				(code) => {
-					if (code === 'reauth-required' && current?.account === opened)
-						publish({ status: 'reauth-required', account: opened });
-				},
-			);
-			const opened: Account = {
-				authorityId: signedIn.origin,
-				principalId,
-				baseURL: signedIn.origin,
-				signal: lifetime.signal,
-				fetch,
-				getProfile: () => getProfileVia(fetch, signedIn.origin),
-			};
-			current = { account: opened, lifetime };
-			account = opened;
-		}
-		publish({ status: refused ? 'reauth-required' : 'signed-in', account });
+		const kept = current?.account;
+		if (kept?.principalId === principalId && kept.baseURL === signedIn.origin)
+			return kept;
+		retire();
+		const lifetime = new AbortController();
+		const fetch = relayFetch(shell, signedIn.origin, lifetime.signal, () => {
+			// The shell rewrites `account.json` when the server refuses the sign-in.
+		});
+		const opened: Account = {
+			authorityId: signedIn.origin,
+			principalId,
+			baseURL: signedIn.origin,
+			signal: lifetime.signal,
+			fetch,
+			getProfile: () => getProfileVia(fetch, signedIn.origin),
+		};
+		current = { account: opened, lifetime };
+		return opened;
 	}
 
-	async function refresh() {
-		const answer = await shell.invoke<ShellState>('account_state');
-		baseURL = answer.origin;
-		if (answer.signedIn) adopt(answer.signedIn, answer.refused);
-		else {
+	/** The state `account.json` says now, kept the same object while it says the same. */
+	function now(): AuthState {
+		const text = identity.text();
+		if (text === read) return state;
+		read = text;
+		const known = identityIn(text);
+		if (known?.principalId) {
+			const account = accountFor({
+				origin: known.origin,
+				principalId: known.principalId,
+			});
+			state = { status: known.refused ? 'reauth-required' : 'signed-in', account };
+		} else {
 			retire();
-			publish({ status: 'signed-out' });
+			state = { status: 'signed-out' };
 		}
+		return state;
 	}
 
-	const client = {
-		state: () => state,
-		refresh,
+	const stop = identity.subscribe(() => {
+		for (const listener of [...listeners]) listener();
+	});
+
+	return {
+		state: now,
+		/** The shell writes who is signed in; the page reads it as it changes. */
+		async refresh() {},
 		get baseURL() {
-			return baseURL;
+			return identityIn(identity.text())?.origin ?? '';
 		},
 		subscribe(listener: () => void) {
 			listeners.add(listener);
@@ -330,7 +356,7 @@ export function createTauriAuth(shell: TauriShell = tauriShell): {
 		},
 		async startSignIn() {
 			try {
-				adopt(await shell.invoke<SignedIn>('account_sign_in'), false);
+				await shell.invoke<SignedIn>('account_sign_in');
 				return Ok(undefined);
 			} catch (cause) {
 				return AuthError.StartSignInFailed({ cause });
@@ -342,19 +368,17 @@ export function createTauriAuth(shell: TauriShell = tauriShell): {
 			} catch (cause) {
 				return AuthError.SignOutFailed({ cause });
 			}
-			retire();
-			publish({ status: 'signed-out' });
 			return Ok(undefined);
 		},
 		async getProfile() {
-			if (state.status === 'signed-out')
+			const known = now();
+			if (known.status === 'signed-out')
 				return AuthError.ProfileUnavailable({ cause: 'signed out' });
-			return state.account.getProfile();
+			return known.account.getProfile();
 		},
 		[Symbol.dispose]() {
+			stop();
 			listeners.clear();
 		},
 	} satisfies AuthClient;
-	const ready = refresh().catch(() => {});
-	return { client, ready };
 }

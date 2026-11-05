@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import { type Contract, defineContract } from '@epicenter/definition/contract';
 import { Ok, unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { DeviceStore } from './device/store.js';
+import type { Store } from './device/store.js';
 import {
 	createNamedShell,
 	type NamedShell,
@@ -76,7 +76,6 @@ const { openRoot } = await import('./native/root.js');
 const { openFolder } = await import('./open-folder.js');
 const { openingOf } = await import('./place.js');
 const { createFolder } = await import('./folder.js');
-const { createDeviceClient } = await import('./device/client.js');
 
 /** The store the desktop's `home` opens for a folder of `contract`, or why it did not open. */
 function openDataStore(contract: Contract, site: string) {
@@ -93,16 +92,23 @@ async function openDevice({ root }: { root: 'Data' | 'AppData' }) {
 /** The folder of `contract` over a store already open. */
 function folderOver<TContract extends Contract>(
 	contract: TContract,
-	store: DeviceStore,
+	store: Store,
 ) {
 	return createFolder(contract, async () => Ok(store));
 }
 
-/** The files of the collection `name` of `contract` over `store`, below the folder. */
-function filesOf(contract: Contract, store: DeviceStore, name: string) {
-	const files = createDeviceClient(contract, store).collections.get(name);
-	if (files === undefined) throw new Error(`no collection ${name}`);
-	return files;
+/** What `store` hears, from now until the returned stop. */
+async function hearing(store: Store) {
+	const heard: (readonly string[] | 'all')[] = [];
+	const stop = expectOk(await store.watch((paths) => heard.push(paths)));
+	return { heard, stop };
+}
+
+/** The version at `path` in `store`, which must hold a file. */
+async function versionIn(store: Store, path: string) {
+	const [file] = expectOk(await store.read([path]));
+	if (file === undefined || 'gone' in file) throw new Error(`nothing at ${path}`);
+	return file.version;
 }
 
 const bytes = (text: string) => new TextEncoder().encode(text);
@@ -237,10 +243,9 @@ test('a storage call on a data folder whose drive went away is Unavailable, with
 	expect(folder.unavailable()).toBeNull();
 	expect(folder.saving()).toBe(false);
 	shell.control.refuse = () => disconnected;
-	expect(expectErr(await folder.notes.list())).toMatchObject(unavailable);
-	expect(
-		expectErr(await filesOf(notes, store, 'notes').read('notes/a.md')),
-	).toMatchObject(unavailable);
+	expect(expectErr(await store.read(['notes/a.md']))).toMatchObject(
+		unavailable,
+	);
 	folder[Symbol.dispose]();
 });
 
@@ -277,56 +282,42 @@ test('each refusal reads as the error a person is shown', async () => {
 });
 
 test("a write over a version the note no longer holds is 'stale' and lands nothing; a current one lands", async () => {
-	const files = filesOf(
-		notes,
-		unwrap(await openDataStore(notes, 'https://notes.example.com')),
-		'notes',
-	);
+	const store = unwrap(await openDataStore(notes, 'https://notes.example.com'));
 	const path = 'notes/a.md';
 	const first = expectOk(
-		await files.write(path, bytes('---\ntitle: One\n---\n'), null),
+		await store.write(path, bytes('---\ntitle: One\n---\n'), 'absent'),
 	);
 	if (first === null || first === 'stale') throw new Error('expected a note');
 	const second = expectOk(
-		await files.write(path, bytes('---\ntitle: Two\n---\n'), first.version),
+		await store.write(path, bytes('---\ntitle: Two\n---\n'), first),
 	);
 	if (second === null || second === 'stale') throw new Error('expected a note');
-	expect(second.item).toEqual({ id: 'a', title: 'Two', body: '' });
 	expect(
-		expectOk(
-			await files.write(path, bytes('---\ntitle: Three\n---\n'), first.version),
-		),
+		expectOk(await store.write(path, bytes('---\ntitle: Three\n---\n'), first)),
 	).toBe('stale');
 	expect(await shell.text(path)).toBe('---\ntitle: Two\n---\n');
-	expect(expectOk(await files.read(path))?.version).toBe(second.version);
-	expect(expectOk(await files.write(path, null, first.version))).toBe('stale');
-	expect(expectOk(await files.write(path, null, second.version))).toBeNull();
+	expect(await versionIn(store, path)).toBe(second);
+	expect(expectOk(await store.write(path, null, first))).toBe('stale');
+	expect(expectOk(await store.write(path, null, second))).toBeNull();
 	expect(await shell.text(path)).toBeUndefined();
 });
 
 test('a create lands only where nothing is, and a version is checked as one', async () => {
 	const store = unwrap(await openDataStore(notes, 'https://notes.example.com'));
-	expect(expectOk(await store.write('a.bin', bytes('two'), 'absent'))).toEqual({
-		landed: expect.any(String),
-	});
+	expect(expectOk(await store.write('a.bin', bytes('two'), 'absent'))).toEqual(
+		expect.any(String),
+	);
 	expect(expectOk(await store.write('a.bin', bytes('other'), 'absent'))).toBe(
 		'stale',
 	);
 	expect(await shell.text('a.bin')).toBe('two');
-	const read = expectOk(await store.read('a.bin'));
+	const [read] = expectOk(await store.read(['a.bin']));
+	if (read === undefined || 'gone' in read) throw new Error('a.bin is there');
 	expect(
-		expectOk(
-			await store.write('a.bin', bytes('three'), {
-				version: read!.version,
-			}),
-		),
-	).toEqual({ landed: expect.any(String) });
+		expectOk(await store.write('a.bin', bytes('three'), read.version)),
+	).toEqual(expect.any(String));
 	expect(
-		expectOk(
-			await store.write('a.bin', bytes('four'), {
-				version: read!.version,
-			}),
-		),
+		expectOk(await store.write('a.bin', bytes('four'), read.version)),
 	).toBe('stale');
 	expect(await shell.text('a.bin')).toBe('three');
 });
@@ -336,8 +327,11 @@ test('another program’s edit is read again, and a write applies its change ove
 		notes,
 		unwrap(await openDataStore(notes, 'https://notes.example.com')),
 	);
+	await until(() => folder.state().status === 'open');
 	await shell.write('notes/b.md', '---\ntitle: From git\n---\n');
-	expect(expectOk(await folder.notes.list()).items).toEqual([
+	emit({ root: 'Data', paths: ['notes/b.md'] });
+	await until(() => folder.notes.items().length === 1);
+	expect(folder.notes.items()).toEqual([
 		{ id: 'b', title: 'From git', body: '' },
 	]);
 	// Another program edits the note after the folder showed it.
@@ -358,18 +352,14 @@ test('another program’s edit is read again, and a write applies its change ove
 });
 
 test('a storage refusal is Unavailable, and the next call tries again', async () => {
-	const files = filesOf(
-		notes,
-		unwrap(await openDataStore(notes, 'https://notes.example.com')),
-		'notes',
-	);
+	const store = unwrap(await openDataStore(notes, 'https://notes.example.com'));
 	const note = bytes('---\ntitle: One\n---\n');
 	shell.control.refuseNext = 1;
-	expect(expectErr(await files.write('notes/a.md', note, null)).name).toBe(
-		'Unavailable',
-	);
+	expect(
+		expectErr(await store.write('notes/a.md', note, 'absent')).name,
+	).toBe('Unavailable');
 	expect(await shell.text('notes/a.md')).toBeUndefined();
-	expectOk(await files.write('notes/a.md', note, null));
+	expectOk(await store.write('notes/a.md', note, 'absent'));
 	expect(await shell.text('notes/a.md')).toBe('---\ntitle: One\n---\n');
 });
 
@@ -381,46 +371,28 @@ test('outside Tauri nothing opens and the shell is never asked', async () => {
 	expect(shell.calls).toEqual([]);
 });
 
-test("the shell's watcher reaches a collection's listeners", async () => {
-	const files = filesOf(
-		notes,
-		unwrap(await openDataStore(notes, 'https://notes.example.com')),
-		'notes',
-	);
-	let heard = 0;
-	const stop = files.subscribe(() => heard++);
+test("the shell's watcher reaches a store's watch, until it stops", async () => {
+	const store = unwrap(await openDataStore(notes, 'https://notes.example.com'));
+	const { heard, stop } = await hearing(store);
 	emit({ root: 'Data', paths: ['notes/a.md'] });
-	expect(heard).toBe(1);
-	emit({ root: 'Data', paths: ['elsewhere/x.md'] });
-	expect(heard).toBe(1);
 	emit({ root: 'Data', paths: null });
-	expect(heard).toBe(2);
+	expect(heard).toEqual([['notes/a.md'], 'all']);
 	stop();
 	emit({ root: 'Data', paths: ['notes/a.md'] });
-	expect(heard).toBe(2);
+	expect(heard).toHaveLength(2);
 });
 
 test('each root hears only its own watcher', async () => {
-	const own = filesOf(
-		notes,
+	const own = await hearing(
 		unwrap(await openDataStore(notes, 'https://notes.example.com')),
-		'notes',
 	);
-	const settings = filesOf(
-		notesSettings,
-		unwrap(await openDevice({ root: 'AppData' })),
-		'settings',
-	);
-	let heard = 0;
-	let heardSettings = 0;
-	const stop = own.subscribe(() => heard++);
-	const stopSettings = settings.subscribe(() => heardSettings++);
+	const settings = await hearing(unwrap(await openDevice({ root: 'AppData' })));
 	emit({ root: 'AppData', paths: ['settings.md'] });
-	expect([heard, heardSettings]).toEqual([0, 1]);
+	expect([own.heard, settings.heard]).toEqual([[], [['settings.md']]]);
 	emit({ root: 'Data', paths: null });
-	expect([heard, heardSettings]).toEqual([1, 1]);
-	stop();
-	stopSettings();
+	expect([own.heard, settings.heard]).toEqual([['all'], [['settings.md']]]);
+	own.stop();
+	settings.stop();
 });
 
 test('two concurrent opens both hear a later root change', async () => {
@@ -428,17 +400,23 @@ test('two concurrent opens both hear a later root change', async () => {
 		openDataStore(notes, 'https://notes.example.com'),
 		openDataStore(notes, 'https://notes.example.com'),
 	]);
-	const heard = { first: 0, second: 0 };
-	const stopFirst = filesOf(notes, unwrap(first), 'notes').subscribe(
-		() => heard.first++,
-	);
-	const stopSecond = filesOf(notes, unwrap(second), 'notes').subscribe(
-		() => heard.second++,
-	);
+	const one = await hearing(unwrap(first));
+	const two = await hearing(unwrap(second));
 	emit({ root: 'Data', paths: ['notes/a.md'] });
-	expect(heard).toEqual({ first: 1, second: 1 });
-	stopFirst();
-	stopSecond();
+	expect([one.heard, two.heard]).toEqual([[['notes/a.md']], [['notes/a.md']]]);
+	one.stop();
+	two.stop();
+});
+
+test("a folder's collection hears a change the shell's watcher names", async () => {
+	const folder = folderOver(
+		notes,
+		unwrap(await openDataStore(notes, 'https://notes.example.com')),
+	);
+	await until(() => folder.state().status === 'open');
+	await shell.write('notes/a.md', '---\ntitle: Outside\n---\n');
+	emit({ root: 'Data', paths: ['notes/a.md'] });
+	await until(() => folder.notes.get({ id: 'a' })?.title === 'Outside');
 });
 
 test('revealRoot sends only the named root to the shell', async () => {

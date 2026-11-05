@@ -200,7 +200,7 @@ function shellMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
 function devicePreferences(saved?: RecordingInput) {
 	const store = { saved, writes: 0 };
 	const preferences: MicrophonePreferences = {
-		microphone: async () => store.saved,
+		microphone: () => store.saved,
 		async setMicrophone(microphone) {
 			store.saved = microphone;
 			store.writes += 1;
@@ -230,7 +230,6 @@ async function open({
 		close();
 		test.close();
 	});
-	await whispering.start();
 	return {
 		whispering,
 		library,
@@ -241,41 +240,6 @@ async function open({
 		test,
 	};
 }
-
-test.each(['choice', 'failure'])(
-	'a saved microphone %s arriving after close changes nothing',
-	async (outcome) => {
-		const { createMicrophoneInput } = await import(
-			'./microphone-input.svelte.js'
-		);
-		const gate = Promise.withResolvers<RecordingInput | undefined>();
-		const microphone = scriptedMicrophone();
-		const { preferences } = devicePreferences();
-		let reads = 0;
-		preferences.microphone = () => {
-			reads++;
-			return gate.promise;
-		};
-		const input = createMicrophoneInput({
-			capture: microphone.device,
-			preferences,
-			recording: () => false,
-		});
-		const loading = input.load();
-		input.close();
-		if (outcome === 'choice') gate.resolve(USB);
-		else gate.reject(new Error('preference read lost'));
-		await loading;
-		await input.load();
-		expect(reads).toBe(1);
-		expect(input.choice).toBeUndefined();
-		expect(input.preferenceProblem).toBeUndefined();
-		expect(input.list).toEqual({ kind: 'unread' });
-		expect(microphone.calls.list).toBe(0);
-		expect(microphone.calls.meter).toEqual([]);
-		expect(microphone.changeListeners.size).toBe(0);
-	},
-);
 
 test('opening a session reads the saved choice and opens, lists, and asks for nothing', async () => {
 	const { input, microphone } = await open({ device: devicePreferences(USB) });
@@ -679,7 +643,6 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 			close();
 			test.close();
 		});
-		await whispering.start();
 		if (holding === 'test') await whispering.input.startTest();
 		else await whispering.startRecording();
 		expect(microphone.open).toEqual(
@@ -716,7 +679,7 @@ function heldPreferences() {
 		answer: (problem?: string) => void;
 	}[] = [];
 	const preferences: MicrophonePreferences = {
-		microphone: async () => undefined,
+		microphone: () => undefined,
 		setMicrophone: (microphone) =>
 			new Promise((answer) => saves.push({ microphone, answer })),
 	};
@@ -785,7 +748,6 @@ test('closing while a choice is being saved releases the microphone at once and 
 		close();
 		test.close();
 	});
-	await whispering.start();
 	const input = whispering.input;
 	const first = input.select(USB);
 	const second = input.select(BUILT_IN);
@@ -809,12 +771,12 @@ test('closing while a choice is being saved releases the microphone at once and 
 
 test('an unreadable saved microphone reports the failure without opening a device or saving a default', async () => {
 	const device = devicePreferences(USB);
-	device.preferences.microphone = async () => {
-		throw new Error('Storage access refused');
+	device.preferences.microphone = () => {
+		throw new Error('microphone.json on this computer is not JSON.');
 	};
 	const { input, microphone } = await open({ device });
 	expect(input.preferenceProblem).toBe(
-		'The saved microphone could not be read: Storage access refused',
+		'The saved microphone could not be read: microphone.json on this computer is not JSON.',
 	);
 	expect(input.choice).toBeUndefined();
 	expect(device.store.saved).toEqual(USB);

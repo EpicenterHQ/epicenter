@@ -153,7 +153,7 @@
 			</div>
 		{/if}
 	{:else}
-		{#if !naming && !folders.loading()}<p class="px-2 py-1 text-xs text-muted-foreground">No folders yet</p>{/if}
+		{#if !naming}<p class="px-2 py-1 text-xs text-muted-foreground">No folders yet</p>{/if}
 	{/each}
 
 	{#if folders.invalid().length > 0}

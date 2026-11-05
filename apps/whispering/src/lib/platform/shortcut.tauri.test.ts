@@ -1,14 +1,14 @@
 /**
  * The desktop's global shortcut (`openShortcut` in `shortcut.tauri.ts`) over the
  * data folder and this computer's `shortcuts.md`, both in memory (a
- * `memory()` place from `@epicenter/folder/memory`, and `localFile` from
- * `@epicenter/local` under the `test` condition), with a stand-in for the
- * shell's `set_shortcut`.
+ * `memory()` place from `@epicenter/folder/memory`, and this computer's
+ * settings from `@epicenter/local` under the `test` condition), with a
+ * stand-in for the shell's `set_shortcut`.
  *
  * Key behaviors:
  * - The key resolves per note: the default, then the data folder's
  *   `shortcuts.md`, then this computer's, key by key
- * - Once both notes are read, and whenever the key changes, the shell is
+ * - Once the folder and the settings connected, and whenever the key changes, the shell is
  *   asked to hold it, and what it refuses is the problem shown
  * - Saving writes the data folder's note and drops this computer's
  *   override, or, "only on this computer", writes this computer's note
@@ -19,7 +19,7 @@
 import { afterEach, expect, mock, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder';
 import { memory } from '@epicenter/folder/memory';
-import { localFile } from '@epicenter/local';
+import { settings } from '@epicenter/local';
 import { whispering } from '../contract.js';
 
 /** Every key the page asked the shell to hold, in order. */
@@ -47,13 +47,12 @@ const { acceleratorOf, labelOf, openShortcut } = await import(
 );
 
 /** This computer's `shortcuts.md`: memory, kept for the process. */
-const here = localFile('shortcuts.md');
+const here = settings.file('shortcuts.md');
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0)) await cleanup();
-	const left = await here.read();
-	if (left.data) await here.write(null, left.data.version);
+	await here.write(null);
 	asked.length = 0;
 	taken.clear();
 });
@@ -64,7 +63,7 @@ const note = (key: string) => `---\ntoggleRecording: "${key}"\n---\n`;
 async function open({ data, mine }: { data?: string; mine?: string } = {}) {
 	const folder = openFolder(whispering, memory());
 	if (data) await folder.shortcuts.set({}, { toggleRecording: data });
-	if (mine) await here.write(note(mine), 'absent');
+	if (mine) await here.write(note(mine));
 	const shortcut = openShortcut(folder);
 	// Its folder is followed for the page's life; a test's ends with the test.
 	cleanups.push(async () => {
@@ -74,7 +73,7 @@ async function open({ data, mine }: { data?: string; mine?: string } = {}) {
 	return {
 		shortcut,
 		folder,
-		mine: async () => (await here.read()).data?.text ?? null,
+		mine: async () => here.text(),
 	};
 }
 

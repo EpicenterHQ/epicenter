@@ -39,9 +39,10 @@ and the global shortcut on the desktop; the WebView's microphone on the
 web), and every app's `#platform/account` (`createTauriAuth` over
 `epicenter-account`, or browser OAuth). `src/lib/app.ts` alone makes the
 capabilities from them. A capability package that owns both implementations picks
-one by the same condition in its own package "imports" (`@epicenter/ai`'s
-`#device-settings`, behind `customEndpoints()`), so the app needs no seam
-for it.
+one by the same condition in its own package "imports" or exports
+(`@epicenter/ai`'s `#device-settings`, behind `customEndpoints()`;
+`@epicenter/local`'s `settings`, AppData on the desktop and
+`localStorage` on the web), so the app needs no seam for it.
 
 **Which build this is, for words only.** `#platform/variant` exports a
 constant (`'online'`, `'local'`, or `'desktop'`) for the few sentences that

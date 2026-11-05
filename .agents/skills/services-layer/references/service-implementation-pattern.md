@@ -33,8 +33,8 @@ Use a factory when it owns construction inputs or state whose lifetime
 matters. Whispering's `createServices(client)` takes the store every service
 writes into. Its capture device (`createMicrophoneDevice` in
 `microphone.ts`, over the build's `recorder`) owns one recording session at
-a time: start, stop, the inputs and their meter, and recovering audio a cut
-left half-written. `recorder.start` in `@epicenter/recorder` returns a
+a time: start, stop, the inputs and their meter, and, on the desktop
+alone, finishing audio a quit or a crash cut off. `recorder.start` in `@epicenter/recorder` returns a
 session object with its own `stop` and `onLevel`.
 
 ## Decision

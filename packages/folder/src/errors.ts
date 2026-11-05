@@ -40,6 +40,37 @@ export const OpenFolderError = defineErrors({
 });
 export type OpenFolderError = InferErrors<typeof OpenFolderError>;
 
+/**
+ * A read of a folder's stored data before the folder connected: a mistake
+ * in the code that made it, since nothing that reads a store renders before
+ * `<WhenOpen>` (ADR-0778). Code that runs before the connection calls an
+ * action, which waits.
+ */
+export class FolderNotOpen extends Error {
+	override readonly name = 'FolderNotOpen';
+	constructor(what: string) {
+		super(
+			`${what} was read before the folder connected: read it once the folder is open (inside <WhenOpen>), or await an action such as list()`,
+		);
+	}
+}
+
+/**
+ * Why a write the folder was keeping is not made: the folder failed or
+ * closed while it waited (ADR-0782). It stops what depended on the write;
+ * the folder's state says why.
+ */
+export class FolderClosed extends Error {
+	override readonly name = 'FolderClosed';
+	constructor(readonly status: 'failed' | 'closed') {
+		super(
+			status === 'failed'
+				? 'The folder failed to open, so a write waiting for it was not made'
+				: 'The folder was closed, so a write waiting for it was not made',
+		);
+	}
+}
+
 /** Why the desktop shell could not show a named root in the file manager. */
 export const RevealRootError = defineErrors({
 	Failed: ({ cause }: { cause: unknown }) => ({

@@ -63,24 +63,11 @@ export function createEntries(list: EntryList) {
 	/** The add before this one: adds run one at a time, so each finds the word the last one saved. */
 	let adding: Promise<unknown> = Promise.resolve();
 
-	/** Answers once the words were listed: until then `get` shows no word at all. */
-	function listed(): Promise<void> {
-		if (!list.loading()) return Promise.resolve();
-		return new Promise((resolve) => {
-			const stop = list.subscribe(() => {
-				if (list.loading()) return;
-				stop();
-				resolve();
-			});
-		});
-	}
-
 	async function addNow(
 		text: string,
 	): Promise<Result<'added' | 'present', EntryError>> {
 		const exact = text.trim().toWellFormed();
 		if (exact === '') return EntryError.Empty();
-		await listed();
 		if (list.items().some((note) => note.text === exact))
 			return Ok('present');
 		const id = await wordId(exact);

@@ -5,16 +5,17 @@
  * hosted tutor models and dictation; the words and chats stay in the data
  * folder either way, which `openFolder` opens whatever account it is given.
  * The shell signs in through the system browser, keeps the refresh token in
- * the keychain, and sends each of the account's requests itself
- * (`account_fetch`), so this page never holds a token. The page reads
- * signed out until the shell answers who, if anyone, is signed in.
+ * the app's credentials file, and sends each of the account's requests
+ * itself (`account_fetch`), so this page never holds a token. Who is signed
+ * in is `account.json` in this computer's settings, which the shell writes
+ * and the page reads once they connected.
  */
 import type { AuthClient } from '@epicenter/account';
 import { createTauriAuth } from '@epicenter/account/tauri';
 
 /** This window's sign-in, through the shell. */
 export function connectAccount(): AuthClient {
-	return createTauriAuth().client;
+	return createTauriAuth();
 }
 
 /**

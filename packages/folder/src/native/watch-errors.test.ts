@@ -1,8 +1,9 @@
 /**
  * Native watch uncertainty invalidates all held/read sources without reading
- * files. Null Linux filenames and watcher errors must not silently lose scope,
- * a hidden path (`isHiddenPath`) never reports a change, and a watcher says
- * once when it is live, so a change made while it started is read.
+ * files. Null Linux filenames and watcher errors must not silently lose scope
+ * (`'all'`), a hidden path (`isHiddenPath`) never reports a change, and a
+ * watcher answers once it is live, so a change made after it answers is
+ * heard.
  */
 import { afterAll, expect, mock, test } from 'bun:test';
 import * as fs from 'node:fs';
@@ -41,9 +42,29 @@ mock.module('node:fs', () => ({
 }));
 const { watchDirectory } = await import('./watch.js');
 
-test('absent filenames and errors reconcile all, while closed callbacks are ignored', () => {
+/** The probes a watcher of `at` has staged so far, by their paths below it. */
+const probes = (at: string) =>
+	fs
+		.readdirSync(join(at, '.epicenter', 'saves'), { withFileTypes: true })
+		.map((entry) => `.epicenter/saves/${entry.name}`);
+
+async function until(check: () => boolean) {
+	for (let turn = 0; turn < 200 && !check(); turn++) await Bun.sleep(5);
+	expect(check()).toBe(true);
+}
+
+/** A watcher of `root` heard live: its probe written and heard; answers its stop. */
+async function live(hints: unknown[]) {
+	const watching = watchDirectory(root, (paths) => hints.push(paths));
+	await until(() => fs.existsSync(join(root, '.epicenter', 'saves')));
+	await until(() => probes(root).length === 1);
+	event('rename', probes(root)[0] ?? '');
+	return watching;
+}
+
+test('absent filenames and errors reconcile all, while closed callbacks are ignored', async () => {
 	const hints: unknown[] = [];
-	const stop = watchDirectory(root)((paths) => hints.push(paths));
+	const stop = await live(hints);
 	event('rename', null);
 	event('change', '');
 	failure();
@@ -51,7 +72,7 @@ test('absent filenames and errors reconcile all, while closed callbacks are igno
 	event('change', join('notes', 'a.md'));
 	event('rename', 'notes');
 	event('change', join('.git', 'index'));
-	expect(hints).toEqual([null, null, null, null, ['notes/a.md'], ['notes']]);
+	expect(hints).toEqual(['all', 'all', 'all', 'all', ['notes/a.md'], ['notes']]);
 	stop();
 	event('change', 'late.md');
 	failure();
@@ -59,9 +80,9 @@ test('absent filenames and errors reconcile all, while closed callbacks are igno
 	expect(closed).toBe(1);
 });
 
-test('a hidden path never reports a change', () => {
+test('a hidden path never reports a change', async () => {
 	const hints: unknown[] = [];
-	const stop = watchDirectory(root)((paths) => hints.push(paths));
+	const stop = await live(hints);
 	// Unfinished writes live in `.epicenter`, so a save does not echo as a
 	// change, and a recording's header rewrite wakes nothing.
 	event('rename', '.epicenter');
@@ -76,43 +97,38 @@ test('a hidden path never reports a change', () => {
 	stop();
 });
 
-/** The probes a watcher of `at` has staged so far, by their paths below it. */
-const probes = (at: string) =>
-	fs
-		.readdirSync(join(at, '.epicenter', 'saves'), { withFileTypes: true })
-		.map((entry) => `.epicenter/saves/${entry.name}`);
-
-async function until(check: () => boolean) {
-	for (let turn = 0; turn < 200 && !check(); turn++) await Bun.sleep(5);
-	expect(check()).toBe(true);
-}
-
-test('a watcher writes a probe until it hears one, then says once that anything may have changed', async () => {
+test('a watcher writes a probe until it hears one, and answers then', async () => {
 	const hints: unknown[] = [];
-	const stop = watchDirectory(root)((paths) => hints.push(paths));
+	let answered = false;
+	const watching = watchDirectory(root, (paths) => hints.push(paths)).then(
+		(stop) => {
+			answered = true;
+			return stop;
+		},
+	);
 	await until(() => fs.existsSync(join(root, '.epicenter', 'saves')));
 	await until(() => probes(root).length === 1);
 	const [probe = ''] = probes(root);
-	// Not live yet: what it hears is reported as ever, and nothing more.
+	// Not live yet: it has not answered, and what it hears is reported as ever.
 	event('change', join('notes', 'a.md'));
+	expect(answered).toBe(false);
 	expect(hints).toEqual([['notes/a.md']]);
 
 	event('rename', probe);
-	expect(hints).toEqual([['notes/a.md'], null]);
-	// Once live, the probe is a hidden path like any other, and is removed.
+	const stop = await watching;
+	// Live: the probe is a hidden path like any other, and is removed.
 	event('change', probe);
-	expect(hints).toHaveLength(2);
+	expect(hints).toEqual([['notes/a.md']]);
 	await until(() => probes(root).length === 0);
 	stop();
 });
 
-test('a folder that takes no probe has its readers list again at once', async () => {
+test('a folder that takes no probe answers at once, saying anything may have changed', async () => {
 	const unwritable = join(base, 'unwritable');
 	fs.mkdirSync(unwritable);
 	fs.writeFileSync(join(unwritable, '.epicenter'), 'not a directory');
 	const hints: unknown[] = [];
-	const stop = watchDirectory(unwritable)((paths) => hints.push(paths));
-	await until(() => hints.length === 1);
-	expect(hints).toEqual([null]);
+	const stop = await watchDirectory(unwritable, (paths) => hints.push(paths));
+	expect(hints).toEqual(['all']);
 	stop();
 });

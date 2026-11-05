@@ -1,100 +1,100 @@
 /**
- * The storage a device client works over: a directory in Bun
- * (`node-store.ts`), this origin's private file system in a browser
- * (`opfs-store.ts`), or a repository on the server (`remote/store.ts`).
- * Paths are relative and `/`-separated, the same paths a desktop folder
- * holds.
+ * A place's store: four verbs over bytes at paths (ADR-0779), answered by
+ * memory (`memory-store.ts`), a directory in Bun (`node-store.ts`), this
+ * origin's private file system (`opfs-store.ts`), a root the desktop shell
+ * named (`tauri-store.ts`), and a repository on the server
+ * (`remote/store.ts`). Paths are relative and `/`-separated, the same paths
+ * a desktop folder holds. A store knows nothing of contracts, notes, or what
+ * a page holds: the folder composes its connection from these verbs.
  *
  * A version names a file's bytes, and only the store that gave it can read
- * it: a device's is their sha256, a repository's the Git blob id on `main`.
- * A write carries the version its writer read and lands only while the
- * file still holds it. The store checks that where the write lands, right
+ * it. A write carries the version its writer read and lands only while the
+ * file still holds it; the store checks that where the write lands, right
  * before the change.
+ *
+ * `storeChecks` (`store.conformance.ts`) holds every store to the same
+ * behavior.
  */
-import type { ClientError } from '@epicenter/definition/contract';
+import { type ClientError, isNotePath } from '@epicenter/definition/contract';
 import type { Brand } from 'wellcrafted/brand';
 import type { InferError } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import type { ChangeListener } from '../changes.js';
 
 export type Unavailable = InferError<typeof ClientError.Unavailable>;
 
 /**
- * The version of a file a read saw: a device's sha256 of its bytes, the
- * repository's Git blob id (a note) or Git LFS object id (any other file).
- * Opaque and internal: the folder compares it and writes over it, and no
- * app ever holds one (ADR-0774).
+ * The version of a file a store answered: the repository's Git blob id (of
+ * a note, or of an attachment's Git LFS pointer); on a device, the sha256 of
+ * a note's bytes, and an attachment's stamp (its size, modification time
+ * and identity), so a listing never reads a recording's bytes to name them
+ * (`versionedByContent`). Opaque and internal: the folder compares it and
+ * writes over it, and no app ever holds one (ADR-0774).
  */
 export type Version = string & Brand<'Version'>;
 
-/**
- * What a device write expects at its path, the version its writer read:
- * nothing (`'absent'`, a create), or the bytes `version` names. Each case
- * is its own shape, so a version can never be read as a keyword.
- */
-export type DeviceExpectation = 'absent' | { readonly version: Version };
+/** One file a listing found: its version, and its size in bytes where the store knows it without reading. */
+export type Listed = {
+	readonly path: string;
+	readonly version: Version;
+	readonly size: number | null;
+};
 
-/** A write that landed: the version now at its path (null for a removal). */
-export type DeviceLanded = { readonly landed: Version | null };
+/** One path a read answered: its bytes and their version, or that nothing is there. */
+export type FileRead =
+	| { readonly path: string; readonly bytes: Uint8Array; readonly version: Version }
+	| { readonly path: string; readonly gone: true };
 
-export type DeviceStore = {
+/** Hear the paths that changed, or `'all'` when the store cannot tell which. */
+export type Changed = (paths: readonly string[] | 'all') => void;
+
+export type Store = {
 	/**
-	 * Every file below the root, at any depth, hidden ones included, each
-	 * with a stamp that changes whenever its bytes do, and its version when
-	 * the store knows it without reading the bytes. Directories are not
-	 * listed. `under` (a directory, `/`-separated) is a hint: a store that
-	 * can list less lists only the files below it, and one that cannot lists
-	 * every file, so a caller still checks each path.
+	 * Every file at or below each of `under` (a directory or a file path;
+	 * `''` is everything), at any depth, hidden ones included for the reader
+	 * to skip, each with its version. Directories are not listed.
 	 */
-	list(
-		under?: string,
-	): Promise<
-		Result<{ path: string; stamp: string; version?: Version }[], Unavailable>
-	>;
-	/** The file at `path`, or null when nothing is there. */
-	read(
-		path: string,
-	): Promise<
-		Result<
-			{ bytes: Uint8Array; version: Version; stamp: string } | null,
-			Unavailable
-		>
-	>;
+	list(under: readonly string[]): Promise<Result<Listed[], Unavailable>>;
+	/**
+	 * The files at `paths`, one answer per path in the same order: its bytes
+	 * and version, or `gone`. The repository answers them in one request.
+	 */
+	read(paths: readonly string[]): Promise<Result<FileRead[], Unavailable>>;
 	/**
 	 * Write `bytes` at `path`, or remove the file for null, only while the
-	 * path holds what `expected` says, and answer the version that landed.
-	 * `'stale'` when it does not, and nothing changed. A new file appears
-	 * whole, never empty first; missing parent directories are made.
+	 * path holds `over` (`'absent'`: nothing), and answer the version that
+	 * landed (null for a removal). `'stale'` when the path holds something
+	 * else, and nothing changed. A new file appears whole, never empty first;
+	 * missing parent directories are made.
 	 */
 	write(
 		path: string,
 		bytes: Uint8Array | null,
-		expected: DeviceExpectation,
-	): Promise<Result<DeviceLanded | 'stale', Unavailable>>;
+		over: Version | 'absent',
+	): Promise<Result<Version | null | 'stale', Unavailable>>;
 	/**
-	 * Add `bytes` to the end of the file at `path`, for a file written while
-	 * it is made, such as a recording. With `create` the file is made with
-	 * these bytes (and its missing directories), never over one that is
-	 * there (`'stale'`); without, the bytes go after what is there, and a
-	 * file that went is `'stale'`. Only this origin's private files have it:
-	 * on the desktop the shell writes a recording itself.
-	 *
-	 * Listeners hear the file when it is made, and after that only an append
-	 * with `announce`: a file that grows every second would otherwise be
-	 * listed, read, and hashed again every second.
+	 * Start hearing changes: answers once it is listening, with the stop.
+	 * From then `changed` hears the paths that changed (another tab, the
+	 * desktop shell's watcher, another program, and maybe this store's own
+	 * writes), or `'all'` when it cannot tell, and only once a read of them
+	 * answers the change.
 	 */
-	append?(
-		path: string,
-		bytes: Uint8Array,
-		options: { create: boolean; announce: boolean },
-	): Promise<Result<'landed' | 'stale', Unavailable>>;
-	/**
-	 * Hear changes made outside this store: by another tab, the desktop
-	 * shell's watcher, or another program. It may also hear this store's own
-	 * writes, and may give null for "something may have changed". Started
-	 * by the first listener, stopped with the last; returns the stop.
-	 */
-	watch(listener: ChangeListener): () => void;
+	watch(changed: Changed): Promise<Result<() => void, Unavailable>>;
 	/** Release what the store holds open; every later call is `Unavailable`. */
-	close?(): void;
+	close(): void;
 };
+
+/**
+ * Whether a device store names the file at `path` by the sha256 of its
+ * bytes (a note: small, and read whole anyway), rather than by its stamp
+ * (an attachment, which the later write wins, ADR-0771: the stamp tells
+ * that it changed without reading what may be a long recording).
+ */
+export const versionedByContent = (path: string) => isNotePath(path);
+
+/** Whether `path` is at or below one of `under` (`''` is everything). */
+export function within(path: string, under: readonly string[]): boolean {
+	return under.some(
+		(prefix) =>
+			prefix === '' || path === prefix || path.startsWith(`${prefix}/`),
+	);
+}

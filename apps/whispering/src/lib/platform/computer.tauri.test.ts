@@ -8,8 +8,10 @@
  * each one function here, and the recorder is a stand-in for its package.
  *
  * A saved connection's place (AppData's `connections.md`, each key in the
- * credential store, every request through the shell) is `@epicenter/ai`'s
- * desktop `customEndpoints()`, tested with that package.
+ * shell's credentials file, every request through the shell) is
+ * `@epicenter/ai`'s `customEndpoints()`, tested with that package. Who is
+ * signed in is `account.json` in this computer's settings, which the shell
+ * writes.
  *
  * Key behaviors:
  * - Epicenter's models go through the account's relay (`account_fetch`)
@@ -63,12 +65,6 @@ mock.module('@tauri-apps/api/core', () => ({
 	invoke: async (command: string, args?: Record<string, unknown>) => {
 		sent.push({ command, args });
 		switch (command) {
-			case 'account_state':
-				return {
-					origin: ORIGIN,
-					signedIn: { origin: ORIGIN, principalId: 'person-1' },
-					refused: false,
-				};
 			case 'account_fetch':
 			case 'connection_fetch': {
 				const request = args?.request as {
@@ -159,6 +155,15 @@ mock.module('@epicenter/transcription', () => desktopSpeech);
 const { hosted, openAi } = await import('@epicenter/ai');
 const { localSpeech } = await import('@epicenter/transcription');
 const { connectAccount } = await import('./account.tauri.js');
+const { settings } = await import('@epicenter/local');
+const { outside } = await import('@epicenter/local/memory');
+
+// Who is signed in, as the shell writes it in this computer's settings.
+outside.write(
+	'account.json',
+	JSON.stringify({ origin: ORIGIN, principalId: 'person-1', refused: false }),
+);
+await settings.file('account.json').connected();
 const { localModelServers, microphone } = await import('./computer.tauri.js');
 const { createMicrophoneDevice } = await import('../microphone.js');
 
@@ -285,7 +290,7 @@ test('the shell’s microphone records recordings/<id> into the data folder, and
 			pending: '.epicenter/recordings/recordings/c.webm',
 		},
 	];
-	expect(expectOk(await capture.recover([]))).toEqual({
+	expect(expectOk(await capture.recover!([]))).toEqual({
 		whole: [
 			{ id: 'a', durationMs: 1500 },
 			{ id: 'b', durationMs: 2500 },
@@ -299,7 +304,7 @@ test('the shell’s microphone records recordings/<id> into the data folder, and
 	});
 	expect(
 		expectOk(
-			await capture.recover(['recordings/a.webm', 'recordings/left.webm']),
+			await capture.recover!(['recordings/a.webm', 'recordings/left.webm']),
 		),
 	).toEqual({
 		whole: [

@@ -4,7 +4,6 @@
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0778](0778-a-page-connects-once-and-then-reads-synchronously.md) at the store contract (`connect`, `Heard` with `paths`, `everything` and `files`, and `append?`): a store has four verbs, and connecting is the page's; [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) at "append where they can" and "A file collection appends where its store can": no store and no collection appends.
 - **Relates:** [ADR-0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) (a guarantee that needs a process outliving the page is the installed app's), [ADR-0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) (a capability read through `subscribe`).
-- **Unbuilt:** all of it: the four verbs on every store and the conformance suite over them; the page composing the connection from them; `read` of many paths in one request on the server; deleting `append` from stores and `FolderFiles`; the browser recorder keeping a take in memory and writing it once at Stop, with its duration from its own clock, and deleting its streaming writes, its Web Locks, its `recover`, its use of `repairAudio`, and the browser half of Whispering's finishing of cut-off recordings.
 
 ## Context
 

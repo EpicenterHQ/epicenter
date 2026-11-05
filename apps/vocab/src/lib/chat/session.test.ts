@@ -34,18 +34,16 @@ const HOSTED = { endpoint: 'hosted', model: 'hosted-tutor' };
 
 async function setup({
 	saved = [welcome],
-	unlisted = false,
 	choices = sessionDouble<ChatOptions['choices']>({
 		get: () => TUTOR,
 		set: async () => {},
 		subscribe: () => () => {},
-		ready: Promise.resolve(),
+		require: () => ({ data: TUTOR, error: null }),
+		problem: () => null,
 	}),
 }: {
 	/** The chat's messages saved before it opens. */
 	saved?: AgentMessage[];
-	/** The chat's messages cannot be listed until `listable()` is called. */
-	unlisted?: boolean;
 	/** The learner's model choices; by default the tutor's, already read. */
 	choices?: ChatOptions['choices'];
 } = {}) {
@@ -55,9 +53,6 @@ async function setup({
 	).id;
 	for (const { id, ...message } of saved)
 		await folder.messages.set({ chat: chatId, id }, message);
-	const listable = unlisted
-		? folder.files.refuseReads('offline', { under: 'messages' })
-		: () => {};
 	let requests = 0;
 	const tutor = {
 		finishReason: 'stop',
@@ -131,7 +126,6 @@ async function setup({
 		folder,
 		chatId,
 		tutor,
-		listable,
 		get requests() {
 			return requests;
 		},
@@ -179,21 +173,23 @@ test('typing while a message is sent keeps the newer draft', async () => {
 	folder[Symbol.dispose]();
 });
 
-test('a message sent while the store is out of reach is answered, and both land once it is back', async () => {
+test('a message sent while the store is out of reach is asked once it lands, and its answer lands after it', async () => {
 	const context = await setup();
 	const back = context.folder.files.refuse('offline', { under: 'messages' });
 	context.chat.inputValue = 'Is this lucid?';
 	await context.chat.sendMessage();
 	expect(context.chat.inputValue).toBe('');
-	await until(() => context.requests === 1 && !context.chat.isGenerating);
+	await until(() => context.folder.lists.unavailable() !== null);
+	// The tutor is not asked about a message that has not landed.
+	expect(context.requests).toBe(0);
 	expect(context.chat.messages.map((message) => message.role)).toEqual([
 		'assistant',
 		'user',
-		'assistant',
 	]);
 	expect(context.folder.lists.saving()).toBe(true);
 	expect(context.folder.files.paths('messages')).toHaveLength(1);
 	back();
+	await until(() => context.requests === 1);
 	await context.settle();
 	expect(context.folder.files.paths('messages')).toHaveLength(3);
 	expect(context.requests).toBe(1);
@@ -283,66 +279,3 @@ test('an opening is not asked twice over a chat that already has one', async () 
 	context.folder[Symbol.dispose]();
 });
 
-test('an empty chat asks for its opening only once its messages are listed', async () => {
-	const context = await setup({ saved: [], unlisted: true });
-	expect(context.chat.canAsk).toBe(false);
-	const asking = context.chat.retry();
-	await Bun.sleep(50);
-	expect(context.requests).toBe(0);
-	expect(context.chat.messages).toEqual([]);
-	context.listable();
-	await asking;
-	await context.settle();
-	expect(context.requests).toBe(1);
-	expect(context.chat.messages.map((message) => message.role)).toEqual([
-		'assistant',
-	]);
-	context.chat[Symbol.dispose]();
-	context.folder[Symbol.dispose]();
-});
-
-test('a learner whose own model is read after the chat opens is never sent to the hosted tutor', async () => {
-	/** Choices as `modelChoices` answers them: the default until the saved ones are read. */
-	let read = false;
-	const reading = Promise.withResolvers<void>();
-	const choices = sessionDouble<ChatOptions['choices']>({
-		get: () => (read ? TUTOR : HOSTED),
-		set: async () => {},
-		subscribe: () => () => {},
-		ready: reading.promise,
-	});
-	const context = await setup({ saved: [], choices });
-	const opening = context.chat.retry();
-	await Bun.sleep(50);
-	expect(context.requests + context.hostedRequests).toBe(0);
-	read = true;
-	reading.resolve();
-	await opening;
-	await context.settle();
-	expect(context.hostedRequests).toBe(0);
-	expect(context.requests).toBe(1);
-
-	read = false;
-	const again = Promise.withResolvers<void>();
-	const later = await setup({
-		choices: sessionDouble<ChatOptions['choices']>({
-			get: () => (read ? TUTOR : HOSTED),
-			set: async () => {},
-			subscribe: () => () => {},
-			ready: again.promise,
-		}),
-	});
-	later.chat.inputValue = 'Is this right?';
-	const sending = later.chat.sendMessage();
-	await Bun.sleep(50);
-	read = true;
-	again.resolve();
-	await sending;
-	await later.settle();
-	expect(later.hostedRequests).toBe(0);
-	expect(later.requests).toBe(1);
-	for (const each of [context, later]) {
-		each.chat[Symbol.dispose]();
-		each.folder[Symbol.dispose]();
-	}
-});

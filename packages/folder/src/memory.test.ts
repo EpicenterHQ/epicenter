@@ -16,7 +16,6 @@
  */
 import { expect, test } from 'bun:test';
 import { ClientError, defineContract } from '@epicenter/definition/contract';
-import { expectErr, expectOk } from 'wellcrafted/testing';
 import { OpenFolderError } from './errors.js';
 import { createFolder } from './folder.js';
 import { memory, memoryFiles } from './memory.js';
@@ -34,7 +33,7 @@ const todos = defineContract({
 });
 
 async function until(check: () => boolean) {
-	for (let turn = 0; turn < 200 && !check(); turn++) await Bun.sleep(1);
+	for (let turn = 0; turn < 2000 && !check(); turn++) await Bun.sleep(1);
 	expect(check()).toBe(true);
 }
 
@@ -88,22 +87,33 @@ test('a refusal below a directory refuses only there, and refused reads answer U
 	await folder.notes.set({ id: 'n' }, {});
 
 	const unread = memoryFiles(folder).refuseReads('offline', { under: 'todos' });
-	expect(expectErr(await folder.todos.list()).name).toBe('Unavailable');
-	expect(expectOk(await folder.notes.list()).items).toHaveLength(1);
+	await memoryFiles(folder).write('todos/b.md', '---\ntitle: Bread\n---\n');
+	await until(() => folder.unavailable()?.name === 'Unavailable');
+	await memoryFiles(folder).write('notes/m.md', '---\n---\n');
+	await until(() => folder.notes.items().length === 2);
+	expect(folder.todos.items()).toHaveLength(1);
 	unread();
-	expect(expectOk(await folder.todos.list()).items).toHaveLength(1);
+	await until(() => folder.todos.items().length === 2);
 	expect(memoryFiles(folder).read('todos/a.md')).toBe(
 		'---\ntitle: Milk\n---\n',
 	);
-	expect(memoryFiles(folder).paths()).toEqual(['notes/n.md', 'todos/a.md']);
-	expect(memoryFiles(folder).paths('notes')).toEqual(['notes/n.md']);
+	expect(memoryFiles(folder).paths()).toEqual([
+		'notes/m.md',
+		'notes/n.md',
+		'todos/a.md',
+		'todos/b.md',
+	]);
+	expect(memoryFiles(folder).paths('notes')).toEqual([
+		'notes/m.md',
+		'notes/n.md',
+	]);
 });
 
 test('an open held waits, and one refused fails until undone and retried', async () => {
 	const place = memory();
 	const release = memoryFiles(place).holdOpen();
 	const undo = memoryFiles(place).refuseOpen(
-		OpenFolderError.StorageUnavailable({ cause: 'no Worker' }).error,
+		OpenFolderError.StorageUnavailable({ cause: 'no private storage' }).error,
 	);
 	const folder = openFolder(todos, place);
 	await Bun.sleep(5);
