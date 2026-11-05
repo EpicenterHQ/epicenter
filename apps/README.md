@@ -34,18 +34,19 @@ store where the page runs:
 | Capture, Honeycrisp, Todos, Vocab, Whispering | web, desktop |
 | Messages | local (a program on the computer where Beeper Desktop runs) |
 
-The variants need not promise the same things
+The surfaces need not promise the same things
 ([ADR-0780](../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
 A guarantee that needs a process outliving the page is the desktop's:
 keeping a recording through a crash or a closed window, recording in the
 background, a global shortcut, and syncing a folder offline. Each app's
 README says what its web build does not promise.
 
-Each desktop variant is a Tauri program of its own
-([ADR-0701](../docs/adr/0701-apps-run-as-separate-programs.md)). Capture,
-Honeycrisp, Todos, Vocab and Whispering share the
+Each desktop app is a Tauri program of its own
+([ADR-0701](../docs/adr/0701-apps-run-as-separate-programs.md)) that loads
+the same build the web serves. Capture, Honeycrisp, Todos, Vocab and
+Whispering share the
 [`epicenter-standalone`](../packages/tauri-epicenter-standalone/README.md)
-crate, which also describes how a web app gains a desktop variant.
+crate, which also describes how a web app gains a desktop window.
 
 ## Svelte app root
 
@@ -58,10 +59,11 @@ Nothing in it awaits, and an edit to it reloads the page
 
 ```ts
 // apps/todos/src/lib/app.ts
-const signIn = connectAccount(); // #platform/account: null where the build never signs in
+const signIn = connectAccount({ clientId: 'so.epicenter.todos', api: APP_URLS.API, selfHosted: SELF_HOST_ORIGIN });
 
-export const account = signIn && reactive(signIn);
+export const account = reactive(signIn);
 export const folder = reactive(
+  // `home` says the account needs the repository (ADR-0792).
   openFolder(todos, home({ site: APPS.TODOS.url, account: signIn })),
 );
 ```
@@ -73,21 +75,25 @@ to `<WhenOpen>` from `@epicenter/svelte` beside the folder
 `<WhenOpen>` shows a spinner after 150 ms while they connect, Recovery with
 Retry when one cannot, the pages once both have, and the leave guard while
 a write is out. Every read inside it is synchronous.
-An online web build asks a signed-out person to sign in first:
+Where the folder is the person's repository, a signed-out person is asked
+to sign in first; a folder on this computer (`folder.reveal`) needs no
+sign-in:
 
 ```svelte
 <!-- apps/todos/src/routes/(app)/+layout.svelte -->
-{#if account?.state().status === 'signed-out'}
+{#if folder.reveal === null && account.state().status === 'signed-out'}
   <SignIn {account} />
 {:else}
   <WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
 {/if}
 ```
 
-What differs by build is a `#platform/*` leaf (the browser's by default, the
-desktop's under the `tauri` condition): the account, and the chrome that
-shows where the files are. Components import `folder` from `$lib/app.js` and
-never know which store it is.
+One build serves every surface
+([ADR-0781](../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)):
+each capability package decides where the page runs, and a view branches
+on what a capability offers, such as the header's `FolderChrome` where
+`folder.reveal` is there and `RepositoryChrome` otherwise. Components
+import `folder` from `$lib/app.js`.
 
 UI components read a collection off `folder`, sort with the app's own
 order, and read and write through it: `items()`, `invalid()` (notes that
@@ -102,8 +108,9 @@ and binds its `fields`. See [Todos](todos/README.md),
 
 The root `bun dev:<app>` scripts start each app's required development
 processes. `bun dev:<app>:desktop` and `bun build:<app>:desktop` start and
-build a desktop variant (`capture`, `honeycrisp`, `todos`, `vocab`,
-`whispering`); they need a Rust toolchain. Each app README names its route
+build a desktop app (`capture`, `honeycrisp`, `todos`, `vocab`,
+`whispering`) over the app's dev server or its `build/`; they need a Rust
+toolchain. Each app README names its route
 and test commands.
 
 ## Where each app's files live

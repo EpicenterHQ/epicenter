@@ -1,123 +1,103 @@
 ---
 name: platform-seams
-description: Apply Epicenter’s `#platform/*` build-time seams, which pick each app variant's leaves (the browser's by default, the desktop's under the `tauri` condition). Use when adding or changing a seam or a variant's root, the build condition, a typecheck leaf, or deciding whether code belongs behind one.
+description: Apply Epicenter's one-build rule, where a capability package decides at run time whether the page is in a Tauri window and loads its desktop implementation when it connects or first acts, and apps branch on what a capability offers. Use when adding or changing a desktop implementation, a capability only some surfaces have, a view only they show, or the desktop shell's build.
 metadata:
   author: epicenter
-  version: '8.0'
+  version: '9.0'
 ---
 
 # Platform seams
 
-An app's web and desktop variants are the same UI built with different
-leaves. A `#platform/*` specifier in the app's `package.json` "imports" names
-two files; the build picks one, and nothing chooses at run time, so the type
-checker, the tests and every bundler resolve each specifier to the same file.
-The worked example is `apps/capture`; the pattern is written up in
-[`epicenter-standalone`'s README](../../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant).
+One build serves the web and the desktop
+([ADR-0781](../../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)).
+The seam between a page and its platform sits inside each capability
+package, never in an app: the package decides where the page runs, and the
+app uses what the capability offers.
 
-## What belongs behind a seam
+## Where the choice lives
 
-**The store needs no seam.** An app has up to three variants, each with
-one store (ADR-0700), and `openFolder(contract, home({ site, account }))` in
-`src/lib/app.ts` picks it: the build picks the `home` implementation (the desktop's
-data folder under `tauri`, the browser's otherwise), and the account picks
-the web's (the person's repository with one, this browser's files without).
-Do not add a `#platform/root` or a `Startup` component. What does differ by
-variant is a leaf:
+**A capability package chooses its implementation when it runs, in two
+steps.**
 
-- `#platform/account`: `connectAccount()`, the build's sign-in, or `null`
-  where the build never signs in.
-- `#platform/chrome`: the header's account of the store (the account on the
-  web, the folder and Sync with Epicenter on the desktop).
-- Whatever else differs by variant in that app: Whispering's
-  `#platform/components` (`Settings`, desktop only, and `Callback`, the page
-  that ends a sign-in).
+1. **Presence, synchronously.** When its module loads, the package asks
+   `isTauri()` from `@tauri-apps/api/core` and makes its value: a
+   capability a surface cannot give is `null` there
+   ([ADR-0780](../../../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
+2. **The desktop implementation, in its asynchronous step.** The desktop
+   code loads with `import()` when the page connects or the capability
+   first acts
+   ([ADR-0778](../../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)),
+   so a browser's first load holds none of it.
 
-**A capability whose implementation differs by build.** Whispering's
-`#platform/computer` (the shell's microphone, its models on this computer
-and the global shortcut on the desktop; the WebView's microphone on the
-web), and every app's `#platform/account` (`createTauriAuth` over
-`epicenter-account`, or browser OAuth). `src/lib/app.ts` alone makes the
-capabilities from them. A capability package that owns both implementations picks
-one by the same condition in its own package "imports" or exports
-(`@epicenter/ai`'s `#device-settings`, behind `customEndpoints()`;
-`@epicenter/local`'s `settings`, AppData on the desktop and
-`localStorage` on the web), so the app needs no seam for it.
+| Package | In a browser | In a Tauri window, loaded when |
+| --- | --- | --- |
+| `@epicenter/local` (`settings`) | `localStorage` | AppData through the shell: its first read, write or watch |
+| `@epicenter/folder` (`home`) | the account's repository | the data folder: the folder opens |
+| `@epicenter/account` (`connectAccount`) | browser OAuth | the shell's sign-in; its relay with the first request |
+| `@epicenter/ai` (`customEndpoints`, `localServers`) | the page's `fetch` and key | the shell's key and fetch: the first request |
+| `@epicenter/recorder` (`recorder`) | the page's microphone | the shell's recorder: the first call |
+| `@epicenter/transcription` (`localSpeech`) | `null` | the generated bindings: the first call |
 
-**Which build this is, for words only.** `#platform/variant` exports a
-constant (`'online'`, `'local'`, or `'desktop'`) for the few sentences that
-name the store. Do not branch behavior on it; put the behavior in a seam.
+A capability with a synchronous read takes it from the settings store, or
+imports its small desktop part directly. `@epicenter/account`'s `tauri.ts`
+is the one such part: it reads who is signed in from `account.json` at
+once, and asks the shell only when the person acts.
 
-Data code never sits behind a seam. UI components take the folder (read
-through `reactive`) they show and never know which store it is.
+## What an app does
 
-## Declaring one
+An app has no `#platform/*` imports, no `tauri` condition, and no build
+per surface. `src/lib/app.ts` makes every capability once, synchronously,
+and the views branch on what each offers:
 
-1. **Map it** in the app's `package.json`, the desktop leaf under `tauri`:
+```svelte
+{#if shortcut}<ShortcutSettings {shortcut} />{/if}
+{#if folder.reveal === null}<RepositoryChrome />{:else}<FolderChrome />{/if}
+```
 
-   ```jsonc
-   "imports": {
-     "#platform/account": { "tauri": "./src/lib/account.tauri.ts", "default": "./src/lib/account.ts" }
-   }
-   ```
+- **Branch on a capability, never on the platform.** `folder.reveal` is
+  there for a folder on this computer; `shortcut` and `speech` are `null`
+  in a browser. App code does not call `isTauri()`; an app-owned
+  capability may, in the module that makes it (Whispering's
+  `src/lib/shortcut.ts`), with its desktop code behind `import()`.
+- **A view only some surfaces show is its own component** under the
+  branch (`ShortcutSettings`, `SpeechSettings`, `FolderSettings`), and
+  imports only what the page may load at once.
+- **Words that differ by surface** follow the same branch: Vocab's
+  `accountPurpose` reads `folder.reveal`.
 
-2. **Import the bare specifier**, never a leaf, with no branch at the call
-   site: `import { connectAccount } from '#platform/account';`. Leaves import with
-   relative paths (no `$lib`), so the bundle test can resolve them.
+## Tests and the `test` condition
 
-3. **Give it a type** both leaves declare: the same signature in each
-   (`export function connectAccount(): CallbackAuthClient | null`), or, for a
-   value such as a component, a type in a shared `platform.ts` both
-   annotate against (`export const Chrome: Platform['Chrome'] = OnlineChrome;`).
-   Use `: Type`, not `satisfies`: `satisfies` keeps the leaf's concrete type,
-   so the two leaves can drift apart without an error at the import.
+The `test` export condition stays
+([ADR-0787](../../../docs/adr/0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md)):
+under `--conditions=test`, `@epicenter/folder`'s root is a folder in memory
+and `@epicenter/local`'s is settings in memory. A test of desktop behavior
+mocks `isTauri` (`mock.module('@tauri-apps/api/core', ...)`) and the
+desktop module it loads.
 
-4. **Build it.** Merge `desktopVariant()` from `@epicenter/vite-config`
-   into `vite.config.ts`. When `EPICENTER_DESKTOP=1` (the app's
-   `build:native`, into `build-desktop/`) it sets
-   `resolve.conditions: ['tauri', ...defaultClientConditions]`. Custom
-   conditions replace Vite's defaults, so the spread is load-bearing. A
-   choice outside module resolution (Whispering's Kit service worker, the
-   build directory) reads `EPICENTER_DESKTOP` in its config file, still at
-   build time.
+`scripts/first-load.test.ts` builds every page source of each app with a
+desktop window (`firstLoadModules` from
+`@epicenter/vite-config/module-graph`) and fails when what loads before any
+`import()` holds a Tauri plugin, the shell's API beyond `core`, or a
+package's desktop implementation. Add a new desktop module's name to its
+`DESKTOP` patterns when it does not match them.
 
-5. **Typecheck both.** Bundler resolution lands on `default`, so the
-   desktop leaves are checked only by `tsconfig.tauri.json` (`extends`
-   `tsconfig.json` with `"customConditions": ["tauri"]`), which the app's
-   `typecheck` runs as a second `svelte-check`.
+## The desktop shell's build
 
-6. **Guard it.** A dropped `tauri` key breaks no build: resolution falls
-   back to `default`, and the desktop app silently ships the browser leaf.
-   A bundle test bundles the seams both ways with `bundledModules` from
-   `@epicenter/vite-config/module-graph` and names the seam whose desktop
-   leaf went missing: `apps/capture/src/lib/platform.test.ts`,
-   `apps/whispering/src/lib/platform/platform.test.ts`. Add each new seam to
-   the app's test-support entry so the test sees it.
-
-## Why not suffixes
-
-The old mechanism put `.browser.ts` / `.tauri.ts` ahead of `.ts` in Vite
-`resolve.extensions`, mirrored by tsconfig `moduleSuffixes`. That was global:
-every bare import was magic, which is how a bare `./fuji` once collided with a
-`fuji.browser.ts`. `#platform/*` is scoped to those specifiers only, so the
-rest of the import graph stays ordinary.
+A desktop app's `src-tauri/tauri.conf.json` loads `../build`, the output
+the web serves, and builds it first (`"beforeBuildCommand": "bun run
+build"`). `tauri.dev.conf.json` loads the app's dev server (`devUrl`),
+which `tauri dev` starts (`"beforeDevCommand": "bun run dev"`). One
+`svelte-check` typechecks every surface.
 
 ## Anti-patterns
 
-- Choosing the store anywhere but a variant's root, or moving files between
-  stores.
-- Detecting the platform at run time (`isTauri()`) to pick a store or a
-  capability in an app that has seams.
-- Branching on `#platform/variant` for behavior.
-- Importing a leaf directly from shared code, or importing a desktop-only
-  symbol through the seam: off the desktop it resolves to the browser leaf.
-  Import it from the `.tauri.ts` module inside another desktop leaf.
-- `$lib` imports inside a leaf.
-- `satisfies` on a leaf instead of a `: Type` annotation.
-- Dropping `...defaultClientConditions`, or copying the condition switch
-  into an app's config instead of `desktopVariant()`.
-- A seam with no `tsconfig.tauri.json` run, or missing from the bundle test.
-- Swapping SvelteKit's `kit.files.routes` per variant. The routes stay the
-  same; the root decides the store.
-- A seam over identity. Whether a person is signed in is run-time state, an
-  `{#if}` in the root, never a leaf.
+- A static import of a desktop module on a page's path: the web's first
+  load carries it. Load it with `import()` in the capability's
+  asynchronous step.
+- A `tauri` export condition, an `imports` seam, or a second build or
+  tsconfig per surface.
+- An app asking where it runs to pick a capability or a store; `home` and
+  `connectAccount` pick.
+- A capability that answers a fake on a surface that lacks it, instead of
+  `null`.
+- Choosing the store anywhere but `home`, or moving files between stores.
