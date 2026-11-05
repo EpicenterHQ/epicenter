@@ -4,15 +4,14 @@
  * through `reactive` here, once, under its own names. Every page, component
  * and module imports what it uses from here.
  *
- * The folder is the one store of the build: the web opens the signed-in
- * learner's `vocab` repository (this browser keeps none of the words or
- * chats, ADR-0700), and the desktop window opens the folder Vocab keeps them
- * in, whatever the account. Under the `test` condition it is a folder in
- * memory.
+ * In a browser the folder is the signed-in learner's `vocab` repository
+ * (this browser keeps none of the words or chats, ADR-0700); in a Tauri
+ * window it is the folder Vocab keeps them in on this computer, whatever the
+ * account. Under the `test` condition it is a folder in memory.
  *
- * The account is on both builds: the web's sign-in holds the repository and
- * adds the hosted models; the desktop's is optional and only adds the hosted
- * models.
+ * The account is there in both: in a browser its sign-in holds the
+ * repository and adds the hosted models and the learner's profile; in a
+ * Tauri window it is optional, adds them, and syncs the folder (ADR-0785).
  *
  * `ai` is every model Vocab can reach: Ollama and LM Studio on this computer
  * when they run, then Epicenter's hosted models (the tutor's and
@@ -21,10 +20,11 @@
  * out, and a connection added, edited or removed, reach the same `ai`. The
  * connections and the chosen model are this computer's settings, not the
  * learner's data (`customEndpoints()` and `modelChoices()` in
- * `connections.md` and `models.md`: this browser's storage on the web,
- * AppData on the desktop, where the shell holds each key and sends every
+ * `connections.md` and `models.md`: this browser's storage in a browser,
+ * AppData in a Tauri window, where the shell holds each key and sends every
  * request), and none of this decides where words and chats are kept.
  */
+import { connectAccount, openProfile } from '@epicenter/account';
 import {
 	customEndpoints,
 	hosted,
@@ -37,13 +37,19 @@ import { APPS } from '@epicenter/definition/site';
 import { home, openFolder } from '@epicenter/folder';
 import { settings as computer } from '@epicenter/local';
 import { reactive } from '@epicenter/svelte/reactive';
-import { connectAccount } from '#platform/account';
+import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/vite-config/app-urls';
 import { vocab } from './contract.js';
 import { HOSTED_TUTOR, VOCAB_MODEL } from './data.js';
 
-const signIn = connectAccount();
+const signIn = connectAccount({
+	clientId: APPS.VOCAB.id,
+	api: APP_URLS.API,
+	selfHosted: SELF_HOST_ORIGIN,
+});
 
 export const account = reactive(signIn);
+/** Who is signed in, by name and email, which the account menu shows. */
+export const profile = openProfile(signIn);
 export const folder = reactive(
 	openFolder(vocab, home({ site: APPS.VOCAB.url, account: signIn })),
 );

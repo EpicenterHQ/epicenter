@@ -9,8 +9,8 @@
 	(ADR-0345).
 -->
 <script lang="ts">
-	import { accountPurpose } from '#platform/account';
 	import WhenOpen from '@epicenter/svelte/when-open';
+	import { accountPurpose } from '$lib/account-purpose.js';
 	import { account, folder, settings } from '$lib/app.js';
 	import SignIn from '$lib/components/SignIn.svelte';
 

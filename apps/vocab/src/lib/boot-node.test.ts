@@ -66,7 +66,7 @@ describe('the callback mounts no app', () => {
 describe('app.ts opens the one store', () => {
 	test('one folder for the page, over the account connectAccount() answers', async () => {
 		const app = await Bun.file(join(source, 'lib/app.ts')).text();
-		expect(app).toMatch(/const signIn = connectAccount\(\);/);
+		expect(app).toMatch(/const signIn = connectAccount\(\{/);
 		expect(app).toMatch(
 			/export const folder = reactive\(\s*openFolder\(vocab, home\(\{ site: APPS\.VOCAB\.url, account: signIn \}\)\),\s*\);/,
 		);

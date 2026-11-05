@@ -1,5 +1,5 @@
 <!--
-	`#platform/chrome` in the desktop window: the header's account of its
+	When the folder is on this computer (`folder.reveal`): the header's account of its
 	store, Vocab's folder on this computer, whether Epicenter manages it, and
 	Set up in Epicenter beside the account, which only adds hosted tutor
 	models and dictation. Vocab never syncs anything itself.

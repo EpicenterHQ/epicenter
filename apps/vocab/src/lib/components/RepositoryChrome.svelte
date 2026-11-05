@@ -1,5 +1,5 @@
 <!--
-	`#platform/chrome` in the web build: the header's account of its store,
+	When the folder is the person's repository: the header's account of its store,
 	whether the learner's repository answers, Sign in again when the sign-in
 	ended, and the account.
 -->
