@@ -1,19 +1,17 @@
 /**
- * The desktop's `customEndpoints()` (`device-settings.tauri.ts`): the
- * connections it keeps in `connections.md` through `@epicenter/local`
- * (memory under the `test` condition, AppData in a desktop build) and the
- * keychain, over a stand-in shell.
+ * The desktop's keys (`device-settings.tauri.ts`): the shell holds each
+ * connection's key, over a stand-in shell.
  *
  * Key behaviors:
- * - The list is `connections.md`, with no key in it; the key is in the
- *   keychain under the connection's id
- * - The connection's endpoint is merged at once and sends through the shell
- *   by its id, with no key from the page
+ * - A key is handed to the shell with the endpoint it was entered for; the
+ *   page holds none, and a connection's endpoint sends through the shell by
+ *   its id
+ * - Moving a key to a changed endpoint keeps it only when it was entered
+ *   for the endpoint it moves from
  */
 import { expect, mock, test } from 'bun:test';
-import { localFile } from '@epicenter/local';
 
-const keychain = new Map<string, string>();
+const kept = new Map<string, string>();
 const relayed: { connection?: string | null; url: string }[] = [];
 
 mock.module('@tauri-apps/api/core', () => ({
@@ -27,13 +25,13 @@ mock.module('@tauri-apps/api/core', () => ({
 			case 'keychain_get':
 				return Object.fromEntries(
 					(args as { names: string[] }).names
-						.filter((name) => keychain.has(name))
-						.map((name) => [name, keychain.get(name)]),
+						.filter((name) => kept.has(name))
+						.map((name) => [name, kept.get(name)]),
 				);
 			case 'keychain_set': {
 				const value = args?.value as string | null;
-				if (value === null) keychain.delete(args?.name as string);
-				else keychain.set(args?.name as string, value);
+				if (value === null) kept.delete(args?.name as string);
+				else kept.set(args?.name as string, value);
 				return null;
 			}
 			case 'connection_fetch': {
@@ -46,60 +44,47 @@ mock.module('@tauri-apps/api/core', () => ({
 					onmessage: (message: unknown) => void;
 				};
 				queueMicrotask(() => {
-					onEvent.onmessage({
-						kind: 'head',
-						status: 200,
-						headers: [['content-type', 'application/json']],
-					});
-					onEvent.onmessage([
-						...new TextEncoder().encode(JSON.stringify({ data: [] })),
-					]);
+					onEvent.onmessage({ kind: 'head', status: 200, headers: [] });
 					onEvent.onmessage({ kind: 'end' });
 				});
 				return null;
 			}
 			default:
-				throw new Error(`Unexpected command ${command}`);
+				throw new Error(`unexpected ${command}`);
 		}
 	},
 }));
 
-const { customEndpoints } = await import('./device-settings.tauri.js');
+const { connectionKeys } = await import('./device-settings.tauri.js');
 
-test('a connection is listed in AppData with no key, its key is in the keychain, and its endpoint sends through the shell by its id', async () => {
-	const connections = customEndpoints();
-	await connections.ready;
-	expect(connections.problem()).toBeNull();
-	const id = await connections.add({
-		name: 'Speaches',
-		baseUrl: 'http://localhost:9000/v1',
-		apiKey: 'sk-secret',
-		models: ['whisper-1'],
-	});
-	const note = (await localFile('connections.md').read()).data?.text ?? '';
-	expect(note).toContain('http://localhost:9000/v1');
-	expect(note).not.toContain('sk-secret');
-	expect(JSON.parse(keychain.get(id) ?? 'null')).toEqual({
-		endpoint: 'http://localhost:9000/v1',
+const record = {
+	id: 'c1',
+	name: 'Mine',
+	baseUrl: 'https://api.example.com/v1',
+	models: ['m'],
+};
+
+test('a key goes to the shell with its endpoint, and a request goes through the shell by id', async () => {
+	await connectionKeys.set('c1', record.baseUrl, 'sk-secret');
+	expect(JSON.parse(kept.get('c1') ?? '{}')).toEqual({
+		endpoint: record.baseUrl,
 		key: 'sk-secret',
 	});
-	expect(connections.list()).toEqual([
-		{
-			id,
-			name: 'Speaches',
-			baseUrl: 'http://localhost:9000/v1',
-			models: ['whisper-1'],
-			hasApiKey: true,
-		},
-	]);
+	expect(connectionKeys.keyOf(record)).toBeUndefined();
+	const endpoint = connectionKeys.endpoint(record);
+	await endpoint.fetch?.(`${record.baseUrl}/models`);
+	expect(relayed.at(-1)).toEqual({
+		connection: 'c1',
+		url: `${record.baseUrl}/models`,
+	});
+	await connectionKeys.set('c1', '', null);
+	expect(kept.has('c1')).toBe(false);
+});
 
-	const [endpoint] = connections.endpoints();
-	expect(endpoint?.id).toBe(id);
-	expect((await endpoint!.fetch('models')).ok).toBe(true);
-	expect(relayed).toEqual([
-		{ connection: id, url: 'http://localhost:9000/v1/models' },
-	]);
-	await connections.remove(id);
-	expect(keychain.has(id)).toBe(false);
-	await connections.close();
+test('a key moves to a changed endpoint only from the one it was entered for', async () => {
+	await connectionKeys.set('c1', 'https://a.test/v1', 'sk');
+	await connectionKeys.move('c1', 'https://other.test/v1', 'https://b.test/v1');
+	expect(JSON.parse(kept.get('c1') ?? '{}').endpoint).toBe('https://a.test/v1');
+	await connectionKeys.move('c1', 'https://a.test/v1', 'https://b.test/v1');
+	expect(JSON.parse(kept.get('c1') ?? '{}').endpoint).toBe('https://b.test/v1');
 });

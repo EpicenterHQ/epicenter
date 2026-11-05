@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
 	import type { OpenFolderError } from '@epicenter/folder/core';
+	import type { SettingsError } from '@epicenter/local';
 	import { Button } from '@epicenter/ui/button';
 	import type { Result } from 'wellcrafted/result';
 	import ShowFolderButton from './show-folder-button.svelte';
@@ -18,9 +19,9 @@
 	}: {
 		/** The app's name, as people know it (`Capture`). */
 		app: string;
-		/** Why the folder did not open. */
-		error: OpenFolderError;
-		/** Whether the AppData root failed before the data folder opened. */
+		/** Why the folder, or this computer's settings, did not open. */
+		error: OpenFolderError | SettingsError;
+		/** Whether this computer's settings failed, not the folder. */
 		appDataError?: boolean;
 		/** Open again. */
 		retry: () => void;

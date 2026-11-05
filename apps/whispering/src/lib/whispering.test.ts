@@ -524,7 +524,7 @@ test('a request whose connection was removed since it was prepared is not sent a
 	expect(test.transcribed).toHaveLength(1);
 	// Nothing is chosen at an endpoint that is gone, so a new request is refused before it starts.
 	expect(await library.transcribe(failed.id)).toContain(
-		'not set up on this device',
+		'not set up on this computer',
 	);
 });
 

@@ -1,43 +1,86 @@
 /**
  * The person's connected endpoints as one live entry of `openAi([...])`:
- * the endpoints their saved connections make, read again whenever one is
- * added, edited or removed, beside the actions that change them. Where the
- * connections are kept is the build's (`customEndpoints()` from
- * `@epicenter/ai`); this turns any store of them into the entry.
+ * the endpoint each saved connection makes, beside the actions that change
+ * them. The list is `connections.md` in this computer's settings
+ * (`@epicenter/local`: AppData on the desktop, this browser's storage on
+ * the web): each connection's id, name, base URL and models, and the
+ * endpoint its key was entered for, never the key. Where a key is kept is
+ * the build's (`#device-settings`): on the desktop the shell holds it and
+ * sends each request with it; on the web the page holds it.
+ *
+ * The page reads the list once the settings connected (`<WhenOpen>`), so
+ * `endpoints()` and `list()` are the truth. When `connections.md` does not
+ * read, nothing is merged and `problem()` names it; adding a connection
+ * replaces it. The actions wait for the connection and run one at a time,
+ * each over what the one before it left.
  */
-import { extractErrorMessage } from 'wellcrafted/error';
-import { createLogger } from 'wellcrafted/logger';
-import type {
-	AiConnectionSnapshot,
-	AiConnections,
-	CustomConnectionInput,
-} from './ai-connections.js';
+import { settings } from '@epicenter/local';
+import { nanoid } from 'nanoid';
+import { connectionKeys } from '#device-settings';
 import type { Endpoint } from './endpoint.js';
+import { type SettingError, settingNote } from './setting-note.js';
 
-const log = createLogger('ai/custom-endpoints');
+/** What a person enters for a connection. */
+export type CustomConnectionInput = {
+	name?: string;
+	baseUrl: string;
+	apiKey?: string;
+	models?: string[];
+};
+
+/** A connection as `connections.md` keeps it: `key` is the endpoint its key was entered for, when it has one. */
+export type ConnectionRecord = {
+	id: string;
+	name: string;
+	baseUrl: string;
+	models: string[];
+	key?: string;
+};
+
+/** A connection as a picker shows it: whether a key applies to it. */
+export type ConnectionSnapshot = Omit<ConnectionRecord, 'key'> & {
+	hasApiKey: boolean;
+};
+
+/** `connections.md`: the person's connections, in their order, never a key. */
+export const connectionsCollection = {
+	path: 'connections.md',
+	fields: {
+		connections: {
+			type: 'array',
+			items: {
+				type: 'object',
+				properties: {
+					id: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,64}$' },
+					name: { type: 'string' },
+					baseUrl: { type: 'string' },
+					models: { type: 'array', items: { type: 'string' } },
+					key: { type: 'string' },
+				},
+				required: ['id', 'name', 'baseUrl', 'models'],
+			},
+		},
+	},
+	required: ['connections'],
+} as const;
 
 /** The person's connected endpoints, as `openAi` merges them and a picker changes them. */
 export type CustomEndpoints = {
-	/** The endpoint each saved connection makes, in the person's order; none until they are read. */
+	/** The endpoint each saved connection makes, in the person's order. */
 	endpoints(): readonly Endpoint[];
 	/** Called when the connections, and so `endpoints()`, may have changed; returns the unsubscribe. */
 	subscribe(listener: () => void): () => void;
 	/** The saved connections, each saying whether a key applies to it. */
-	list(): readonly AiConnectionSnapshot[];
-	/** Why the saved connections could not be read, or null. While it is set, none is merged. */
-	problem(): string | null;
-	/** Settles once the saved connections were read, or could not be. */
-	readonly ready: Promise<void>;
-	/** Read the saved connections again, as after a failed read. */
-	reopen(): Promise<void>;
+	list(): readonly ConnectionSnapshot[];
+	/** Why `connections.md` does not read, or null. While it does not, none is merged. */
+	problem(): SettingError | null;
 	add(input: CustomConnectionInput): Promise<string>;
 	update(id: string, patch: Partial<CustomConnectionInput>): Promise<void>;
 	remove(id: string): Promise<void>;
-	/** Stop following the saved connections. */
-	close(): Promise<void>;
+	reorder(ids: readonly string[]): Promise<void>;
 };
 
-/** The entries `customEndpointsOf` made, so `openAi` can find the one it merged. */
+/** The entries `customEndpoints` made, so `openAi` can find the one it merged. */
 const made = new WeakSet<object>();
 
 /** Whether `entry` is the person's connected endpoints. */
@@ -45,106 +88,138 @@ export function isCustomEndpoints(entry: object): entry is CustomEndpoints {
 	return made.has(entry);
 }
 
-/**
- * The live entry over the store `open` answers. Until it answers, and while
- * it cannot be opened, the entry lists no endpoint and `problem()` says why.
- * An endpoint stays the same value while its connection does not change.
- */
-export function customEndpointsOf(
-	open: () => Promise<AiConnections>,
-): CustomEndpoints {
-	let store: AiConnections | null = null;
-	let records: readonly AiConnectionSnapshot[] = [];
-	let merged: readonly Endpoint[] = [];
-	let problem: string | null = null;
-	let stopRecords: (() => void) | undefined;
-	let closed = false;
-	let attempt = 0;
-	const listeners = new Set<() => void>();
-	/** The endpoint each record made, by the record's saved fields. */
-	const cache = new Map<string, Endpoint>();
+function hostOf(baseUrl: string) {
+	try {
+		return new URL(baseUrl).host;
+	} catch {
+		return 'Connection';
+	}
+}
 
-	function notify() {
-		for (const listener of [...listeners]) {
-			try {
-				listener();
-			} catch (cause) {
-				log.error(
-					new Error('A custom endpoints subscriber failed.', { cause }),
-				);
-			}
-		}
+/** The person's connected endpoints on this computer, as one entry of `openAi([...])`. */
+export function customEndpoints(): CustomEndpoints {
+	const file = settings.file('connections.md');
+	const note = settingNote(connectionsCollection, file);
+	/** The endpoint each record made, by the record and its key, so one stays the same value while neither changes. */
+	let made_: Map<string, Endpoint> = new Map();
+	let shownRecords: readonly ConnectionRecord[] | null = null;
+	let shownEndpoints: readonly Endpoint[] = [];
+
+	function records(): ConnectionRecord[] {
+		const read = note.get();
+		return read.error === null ? [...(read.data?.connections ?? [])] : [];
 	}
 
-	function adopt(next: readonly AiConnectionSnapshot[]) {
-		records = next;
-		const opened = store;
-		const kept = new Map<string, Endpoint>();
-		merged = opened
-			? next.map((record) => {
-					const key = JSON.stringify(record);
-					const endpoint = cache.get(key) ?? opened.endpoint(record);
-					kept.set(key, endpoint);
-					return endpoint;
-				})
-			: [];
-		cache.clear();
-		for (const [key, endpoint] of kept) cache.set(key, endpoint);
-		notify();
+	/** Changes run one at a time, each over what the one before it left. */
+	let changing: Promise<unknown> = Promise.resolve();
+	function change<T>(step: (current: ConnectionRecord[]) => Promise<T>) {
+		const run = changing.then(async () => {
+			await file.connected();
+			return step(records());
+		});
+		changing = run.catch(() => {});
+		return run;
 	}
 
-	async function reopen() {
-		const current = ++attempt;
-		try {
-			const opened = await open();
-			if (closed || current !== attempt) {
-				await opened.close();
-				return;
-			}
-			stopRecords?.();
-			const previous = store;
-			store = opened;
-			problem = null;
-			cache.clear();
-			stopRecords = opened.subscribe(adopt);
-			void previous?.close();
-		} catch (cause) {
-			if (closed || current !== attempt) return;
-			problem = extractErrorMessage(cause);
-			notify();
-		}
-	}
-
-	function opened(): AiConnections {
-		if (!store)
-			throw new Error(
-				problem
-					? `The saved connections could not be read: ${problem}`
-					: 'The saved connections are not read yet.',
-			);
-		return store;
-	}
+	const write = (list: ConnectionRecord[]) => note.set({ connections: list });
 
 	const entry: CustomEndpoints = {
-		endpoints: () => merged,
+		endpoints() {
+			const now = note.get().data?.connections ?? [];
+			if (now === shownRecords) return shownEndpoints;
+			shownRecords = now;
+			const kept = new Map<string, Endpoint>();
+			shownEndpoints = now.map((record) => {
+				const id = `${JSON.stringify(record)}\0${connectionKeys.keyOf(record) ?? ''}`;
+				const endpoint = made_.get(id) ?? connectionKeys.endpoint(record);
+				kept.set(id, endpoint);
+				return endpoint;
+			});
+			made_ = kept;
+			return shownEndpoints;
+		},
 		subscribe(listener) {
-			listeners.add(listener);
+			const stopNote = note.subscribe(listener);
+			const stopKeys = connectionKeys.subscribe(() => {
+				shownRecords = null;
+				listener();
+			});
 			return () => {
-				listeners.delete(listener);
+				stopNote();
+				stopKeys();
 			};
 		},
-		list: () => records,
-		problem: () => problem,
-		ready: reopen(),
-		reopen,
-		add: async (input) => opened().add(input),
-		update: async (id, patch) => opened().update(id, patch),
-		remove: async (id) => opened().remove(id),
-		async close() {
-			closed = true;
-			stopRecords?.();
-			listeners.clear();
-			await store?.close();
+		list: () =>
+			records().map(({ key, ...record }) => ({
+				...record,
+				models: [...record.models],
+				hasApiKey: key === record.baseUrl,
+			})),
+		problem: () => note.get().error,
+		add({ apiKey, ...input }) {
+			return change(async (list) => {
+				const record: ConnectionRecord = {
+					id: nanoid(),
+					name: input.name ?? hostOf(input.baseUrl),
+					baseUrl: input.baseUrl,
+					models: [...(input.models ?? [])],
+				};
+				if (apiKey?.trim()) {
+					await connectionKeys.set(record.id, record.baseUrl, apiKey);
+					record.key = record.baseUrl;
+				}
+				await write([...list, record]);
+				return record.id;
+			});
+		},
+		update(id, { apiKey, ...patch }) {
+			return change(async (list) => {
+				const record = list.find((other) => other.id === id);
+				if (!record) throw new Error('AI connection does not exist.');
+				const next: ConnectionRecord = {
+					...record,
+					...Object.fromEntries(
+						Object.entries(patch).filter(([, value]) => value !== undefined),
+					),
+					models: [...(patch.models ?? record.models)],
+					id,
+				};
+				// A new key is kept for the endpoint it was entered with; an
+				// endpoint changed here keeps the key that applied to it.
+				if (apiKey !== undefined) {
+					await connectionKeys.set(id, next.baseUrl, apiKey.trim() || null);
+					if (apiKey.trim()) next.key = next.baseUrl;
+					else delete next.key;
+				} else if (
+					next.baseUrl !== record.baseUrl &&
+					record.key === record.baseUrl
+				) {
+					await connectionKeys.move(id, record.baseUrl, next.baseUrl);
+					next.key = next.baseUrl;
+				}
+				await write(list.map((other) => (other.id === id ? next : other)));
+			});
+		},
+		remove(id) {
+			return change(async (list) => {
+				await write(list.filter((other) => other.id !== id));
+				await connectionKeys.set(id, '', null);
+			});
+		},
+		reorder(ids) {
+			const order = [...ids];
+			return change(async (list) => {
+				const byId = new Map(list.map((other) => [other.id, other]));
+				if (
+					order.length !== byId.size ||
+					new Set(order).size !== order.length ||
+					order.some((id) => !byId.has(id))
+				)
+					throw new Error(
+						'AI connection order must contain each existing id once.',
+					);
+				await write(order.flatMap((id) => byId.get(id) ?? []));
+			});
 		},
 	};
 	made.add(entry);

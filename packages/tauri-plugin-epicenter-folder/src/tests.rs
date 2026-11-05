@@ -779,7 +779,7 @@ fn a_save_names_the_version_it_read_and_a_hash_is_tagged() {
     for refused in [
         sha256(b"new\n"),
         "sha256:absent".to_string(),
-        "any".to_string(),
+        "anything".to_string(),
         "present".to_string(),
     ] {
         let mut headers = put_headers("a.md", false, None);

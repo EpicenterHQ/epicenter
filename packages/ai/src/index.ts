@@ -5,8 +5,12 @@
  * embeddings.
  */
 
-export { customEndpoints } from '#device-settings';
-export type { ModelChoices } from './choices.js';
+export {
+	ChoiceError,
+	type ModelChoices,
+	modelChoices,
+	SettingError,
+} from './choices.js';
 export {
 	AiError,
 	type ChatChunk,
@@ -23,7 +27,12 @@ export {
 	type TranscriptionRequest,
 } from './client.js';
 export { custom } from './custom.js';
-export type { CustomEndpoints } from './custom-endpoints.js';
+export {
+	type ConnectionSnapshot,
+	type CustomConnectionInput,
+	type CustomEndpoints,
+	customEndpoints,
+} from './custom-endpoints.js';
 export {
 	type Capability,
 	type Endpoint,
@@ -35,7 +44,6 @@ export {
 } from './endpoint.js';
 export { hosted, type LiveAccount } from './hosted.js';
 export { localServers } from './local-servers.js';
-export { modelChoices } from './model-choices.js';
 export {
 	type Ai,
 	type EndpointEntry,

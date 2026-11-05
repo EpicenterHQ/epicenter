@@ -38,7 +38,8 @@ async function setup({
 		get: () => TUTOR,
 		set: async () => {},
 		subscribe: () => () => {},
-		ready: Promise.resolve(),
+		require: () => ({ data: TUTOR, error: null }),
+		problem: () => null,
 	}),
 }: {
 	/** The chat's messages saved before it opens. */
@@ -278,48 +279,3 @@ test('an opening is not asked twice over a chat that already has one', async () 
 	context.folder[Symbol.dispose]();
 });
 
-test('a learner whose own model is read after the chat opens is never sent to the hosted tutor', async () => {
-	/** Choices as `modelChoices` answers them: the default until the saved ones are read. */
-	let read = false;
-	const reading = Promise.withResolvers<void>();
-	const choices = sessionDouble<ChatOptions['choices']>({
-		get: () => (read ? TUTOR : HOSTED),
-		set: async () => {},
-		subscribe: () => () => {},
-		ready: reading.promise,
-	});
-	const context = await setup({ saved: [], choices });
-	const opening = context.chat.retry();
-	await Bun.sleep(50);
-	expect(context.requests + context.hostedRequests).toBe(0);
-	read = true;
-	reading.resolve();
-	await opening;
-	await context.settle();
-	expect(context.hostedRequests).toBe(0);
-	expect(context.requests).toBe(1);
-
-	read = false;
-	const again = Promise.withResolvers<void>();
-	const later = await setup({
-		choices: sessionDouble<ChatOptions['choices']>({
-			get: () => (read ? TUTOR : HOSTED),
-			set: async () => {},
-			subscribe: () => () => {},
-			ready: again.promise,
-		}),
-	});
-	later.chat.inputValue = 'Is this right?';
-	const sending = later.chat.sendMessage();
-	await Bun.sleep(50);
-	read = true;
-	again.resolve();
-	await sending;
-	await later.settle();
-	expect(later.hostedRequests).toBe(0);
-	expect(later.requests).toBe(1);
-	for (const each of [context, later]) {
-		each.chat[Symbol.dispose]();
-		each.folder[Symbol.dispose]();
-	}
-});

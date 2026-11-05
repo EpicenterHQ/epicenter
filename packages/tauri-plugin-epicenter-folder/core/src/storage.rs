@@ -287,6 +287,10 @@ pub enum Expectation {
     /// A regular file whose stamp (`stamp_of`) is this: an attachment's
     /// version, which names it without reading its bytes.
     Stamp(String),
+    /// Whatever regular file is there, or nothing: a replacement by the
+    /// path's only writer, such as the shell writing this computer's
+    /// settings.
+    Any,
 }
 
 impl Expectation {
@@ -302,6 +306,7 @@ impl Expectation {
         }
         match value {
             "absent" => Ok(Self::Absent),
+            "any" => Ok(Self::Any),
             _ => match value.strip_prefix("sha256:") {
                 Some(hash)
                     if hash.len() == 64
@@ -312,7 +317,7 @@ impl Expectation {
                     Ok(Self::Sha256(hash.to_string()))
                 }
                 _ => Err(format!(
-                    "expected is {value:?}, not absent, sha256: and a SHA-256, or stamp: and a stamp"
+                    "expected is {value:?}, not absent, any, sha256: and a SHA-256, or stamp: and a stamp"
                 )),
             },
         }
@@ -676,6 +681,8 @@ fn holds(target: &Path, expected: &Expectation) -> io::Result<bool> {
         Err(cause) => return Err(cause),
     };
     match (expected, found) {
+        (Expectation::Any, None) => Ok(true),
+        (Expectation::Any, Some(metadata)) => Ok(metadata.is_file()),
         (Expectation::Absent, found) => Ok(found.is_none()),
         (Expectation::Sha256(hash), Some(metadata)) if metadata.is_file() => {
             Ok(file_sha256(target)? == *hash)
@@ -1089,7 +1096,7 @@ pub fn put_landing(
     let Some(bytes) = bytes else {
         let _turn = Turn::take(&target);
         if !matches!(landing()?, Found::File { .. }) {
-            return Ok(if *expected == Expectation::Absent {
+            return Ok(if matches!(expected, Expectation::Absent | Expectation::Any) {
                 Landing::Landed(String::new())
             } else {
                 Landing::Stale

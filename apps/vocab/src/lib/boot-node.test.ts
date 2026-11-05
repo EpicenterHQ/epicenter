@@ -76,7 +76,7 @@ describe('app.ts opens the one store', () => {
 	test('the layout asks for a sign-in where the account is required and signed out, and otherwise renders the pages over the folder', async () => {
 		const layout = await Bun.file(join(routes, '(app)/+layout.svelte')).text();
 		expect(layout).toMatch(
-			/\{#if accountPurpose\.required && account\.state\(\)\.status === 'signed-out'\}\s*<SignIn \/>\s*\{:else\}\s*<WhenOpen app="Vocab" \{folder\}>\{@render children\(\)\}<\/WhenOpen>/,
+			/\{#if accountPurpose\.required && account\.state\(\)\.status === 'signed-out'\}\s*<SignIn \/>\s*\{:else\}\s*<WhenOpen app="Vocab" \{folder\} \{settings\}>\{@render children\(\)\}<\/WhenOpen>/,
 		);
 		const page = await Bun.file(join(routes, '(app)/+page.svelte')).text();
 		expect(page).toMatch(/<VocabApp \/>/);

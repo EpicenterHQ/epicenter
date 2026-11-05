@@ -2,14 +2,16 @@
 	"name": "@epicenter/local",
 	"version": "0.0.1",
 	"private": true,
-	"description": "Where a capability keeps its own state on this computer: one place per app, picked by the build.",
+	"description": "This computer's settings for an app, as one store the page connects to once: AppData through the shell on the desktop, this browser's storage on the web.",
 	"type": "module",
 	"exports": {
 		".": {
 			"test": "./src/memory.ts",
 			"tauri": "./src/tauri.ts",
 			"default": "./src/browser.ts"
-		}
+		},
+		"./memory": "./src/memory.ts",
+		"./settings": "./src/settings.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json",

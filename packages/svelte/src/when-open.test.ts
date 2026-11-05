@@ -2,9 +2,11 @@
  * `<WhenOpen>` and the folder adapted once at module scope.
  *
  * Key behaviors:
- * - `<WhenOpen>` shows a spinner while the folder opens, Recovery with the
- *   typed error when it failed, the pages once it is open, and nothing once
- *   it is closed
+ * - `<WhenOpen>` shows a spinner after a moment while the folder opens,
+ *   Recovery with the typed error when it failed, the pages once it is
+ *   open, and nothing once it is closed
+ * - With this computer's settings, the pages wait for them too, and a
+ *   failure to reach them shows Recovery for the settings
  * - Recovery's Retry reopens the folder, and only the folder
  * - A page that throws shows the page error, never the folder's Recovery
  * - Leaving the page asks first while the folder is saving
@@ -19,6 +21,7 @@ import { ClientError, defineContract } from '@epicenter/definition/contract';
 import { openFolder } from '@epicenter/folder';
 import { OpenFolderError } from '@epicenter/folder/core';
 import { memory, memoryFiles } from '@epicenter/folder/memory';
+import { createSettings } from '@epicenter/local/settings';
 import { Ok } from 'wellcrafted/result';
 
 const { flushSync, mount, unmount } = await import('svelte');
@@ -98,6 +101,10 @@ test('a spinner while opening, Recovery with the typed error, and Retry reopens 
 	flushSync();
 	expect(main.querySelector('[data-testid="pages"]')).toBeNull();
 	expect(recovery(main)).toBeNull();
+	// The spinner waits a moment, so a quick open never flashes one.
+	expect(main.querySelector('[aria-live="polite"]')).toBeNull();
+	await Bun.sleep(200);
+	flushSync();
 	expect(main.querySelector('[aria-live="polite"]')).not.toBeNull();
 
 	fail(
@@ -123,6 +130,34 @@ test('a spinner while opening, Recovery with the typed error, and Retry reopens 
 	expect(main.querySelector('[data-testid="pages"]')?.textContent).toBe(
 		'pages',
 	);
+	await unmount(view);
+});
+
+test('the pages wait for this computer’s settings too, and a failure to reach them shows their Recovery', async () => {
+	const { folder, open } = controlled();
+	open();
+	const settings = createSettings({
+		async watch() {
+			throw new Error('the shell did not answer');
+		},
+		async read() {
+			return null;
+		},
+		async write() {},
+	});
+	const file = settings.file('models.md');
+	const main = target();
+	const view = mount(WhenOpenHost, {
+		target: main,
+		props: { folder, settings: reactive(settings) },
+	});
+	flushSync();
+	expect(main.querySelector('[data-testid="pages"]')).toBeNull();
+	await file.connected().catch(() => {});
+	await settle();
+	expect(main.textContent).toContain('Todos could not open its settings');
+	expect(main.textContent).toContain('the shell did not answer');
+	expect(main.querySelector('[data-testid="pages"]')).toBeNull();
 	await unmount(view);
 });
 

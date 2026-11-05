@@ -5,13 +5,12 @@
  * a press does (`onShortcut`).
  *
  * The key is `toggleRecording` in `shortcuts.md`, resolved with a shallow
- * spread: the default, then the data folder's note (the contract's
+ * then the data folder's note (the contract's
  * `shortcuts`, which travels with the files), then this computer's
- * (`localFile('shortcuts.md')` from `@epicenter/local`: the app's place for
- * this computer's state, which the build picks and app code never opens).
- * Rust never reads the note (decision 89): once both notes are read, and
- * whenever the resolved key changes, the page asks the shell to hold it
- * (`set_shortcut`).
+ * (`shortcuts.md` in this computer's settings, `@epicenter/local`: AppData,
+ * whose only writer is the shell). Rust never reads the note (decision 89):
+ * once the folder and the settings connected, and whenever the resolved key
+ * changes, the page asks the shell to hold it (`set_shortcut`).
  *
  * `openShortcut(folder)` is a capability, made once beside the folder in
  * `src/lib/app.ts` and read through `reactive`: reads answer at once, and
@@ -23,7 +22,7 @@ import {
 	readNoteText,
 } from '@epicenter/definition/contract';
 import type { Folder } from '@epicenter/folder/core';
-import { localFile } from '@epicenter/local';
+import { settings } from '@epicenter/local';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -146,25 +145,48 @@ type Here = { readonly toggleRecording?: string; readonly body: string };
 export function openShortcut(
 	folder: Pick<Folder<Whispering>, 'shortcuts' | 'state'>,
 ): GlobalShortcut {
-	const file = localFile('shortcuts.md');
+	const file = settings.file('shortcuts.md');
 	const notes = folder.shortcuts;
-	/** This computer's note: undefined until read, null when there is none. */
-	let here: Here | null | undefined;
-	/** Why this computer's note could not be read, if it could not. */
-	let unreadable: string | null = null;
-	/** The newest read of it, so an older answer never replaces a newer one. */
-	let reads = 0;
+	/** Whether this computer's settings connected, so its note reads at once. */
+	let connected = false;
+	/** The last text of this computer's note, and what it read as. */
+	let parsed: { text: string | null; here: Here | null; problem: string | null } | null =
+		null;
 	/** The last key the shell was asked to hold, and its answer once it came. */
 	let asked: string | undefined;
 	let held: { accelerator: string; problem: string | null } | undefined;
 	const listeners = new Set<() => void>();
 
-	const read = () => here !== undefined && folder.state().status === 'open';
+	/** This computer's note: its keys and body (null when there is none), or why it does not read. */
+	function readHere() {
+		const text = file.text();
+		if (parsed !== null && parsed.text === text) return parsed;
+		if (text === null) parsed = { text, here: null, problem: null };
+		else {
+			const note = readNoteText(SHORTCUTS, text);
+			parsed =
+				note.error === null
+					? {
+							text,
+							here: { ...keysOf(note.data.fields), body: note.data.body },
+							problem: null,
+						}
+					: {
+							text,
+							here: null,
+							problem: `This computer's shortcuts.md does not read: ${note.error.message}`,
+						};
+		}
+		return parsed;
+	}
+
+	const read = () => connected && folder.state().status === 'open';
+	const here = () => (connected ? readHere().here : null);
 	const accelerator = () =>
 		({
 			...SHORTCUT_DEFAULTS,
-			...keysOf(notes.get({})),
-			...keysOf(here),
+			...(read() ? keysOf(notes.get({})) : {}),
+			...keysOf(here()),
 		}).toggleRecording;
 
 	/** Ask the shell to hold the resolved key when it changed. */
@@ -185,56 +207,40 @@ export function openShortcut(
 		for (const listener of [...listeners]) listener();
 	}
 
-	/** Read this computer's note: its keys and body, or why it does not read. */
-	async function readHere(): Promise<
-		{ note: Here | null; version: string } | { problem: string }
-	> {
-		const answered = await file.read();
-		if (answered.error !== null) return { problem: answered.error.message };
-		if (answered.data === null) return { note: null, version: 'absent' };
-		const note = readNoteText(SHORTCUTS, answered.data.text);
-		if (note.error !== null)
-			return {
-				problem: `This computer's shortcuts.md does not read: ${note.error.message}`,
-			};
-		return {
-			note: { ...keysOf(note.data.fields), body: note.data.body },
-			version: answered.data.version,
-		};
-	}
-
-	async function follow() {
-		const turn = ++reads;
-		const answered = await readHere();
-		if (turn !== reads) return;
-		unreadable = 'problem' in answered ? answered.problem : null;
-		here = 'problem' in answered ? null : answered.note;
-		changed();
-	}
-
 	/**
 	 * Set `toggleRecording` in this computer's note to `key`, or drop it for
-	 * undefined, keeping the note's body, over the version just read.
+	 * undefined, keeping the note's body. A note that does not read is
+	 * replaced.
 	 */
 	async function writeHere(key: string | undefined) {
-		const current = await readHere();
-		if ('problem' in current) return current.problem;
+		try {
+			await file.connected();
+		} catch (cause) {
+			return extractErrorMessage(cause);
+		}
 		const text = noteText(SHORTCUTS, {
 			toggleRecording: key,
-			body: current.note?.body ?? '',
+			body: readHere().here?.body ?? '',
 		} as NoteOf<Shortcuts>);
 		if (text.error !== null) return text.error.message;
-		const written = await file.write(text.data, current.version);
-		if (written.error !== null) return written.error.message;
-		if (written.data === 'stale')
-			return "This computer's shortcuts.md changed while it was saved. Save again.";
-		await follow();
+		try {
+			await file.write(text.data);
+		} catch (cause) {
+			return extractErrorMessage(cause);
+		}
+		changed();
 		return null;
 	}
 
 	// Followed for the page's life, as the shell holds the key for it.
-	const stops = [notes.subscribe(changed), file.subscribe(() => void follow())];
-	void follow();
+	const stops = [notes.subscribe(changed), file.subscribe(changed)];
+	void file.connected().then(
+		() => {
+			connected = true;
+			changed();
+		},
+		() => {},
+	);
 
 	return {
 		/** True once both `shortcuts.md` notes were read (or found absent). */
@@ -244,7 +250,7 @@ export function openShortcut(
 		/** The resolved key as a person reads it. */
 		label: () => labelOf(accelerator()),
 		/** Whether this computer's `shortcuts.md` sets the key, overriding the data folder's. */
-		onThisComputer: () => here?.toggleRecording !== undefined,
+		onThisComputer: () => here()?.toggleRecording !== undefined,
 		/**
 		 * Why the shell does not hold the resolved key, or why this computer's
 		 * note does not read; null while neither is so (or the shell has not
@@ -252,7 +258,7 @@ export function openShortcut(
 		 */
 		problem: () =>
 			(held?.accelerator === accelerator() ? held.problem : null) ??
-			unreadable,
+			(connected ? readHere().problem : null),
 		/** Call `listener` when a read may answer differently; returns the unsubscribe. */
 		subscribe(listener: () => void) {
 			listeners.add(listener);
@@ -285,13 +291,12 @@ export function openShortcut(
 				return unsaved;
 			}
 			await notes.set({}, { toggleRecording: key });
-			if (here?.toggleRecording !== undefined) return writeHere(undefined);
+			if (here()?.toggleRecording !== undefined) return writeHere(undefined);
 			return null;
 		},
 		/** Stop following both notes; the shell keeps the key it holds. */
 		[Symbol.dispose]() {
 			for (const stop of stops.splice(0)) stop();
-			reads++;
 		},
 	};
 }

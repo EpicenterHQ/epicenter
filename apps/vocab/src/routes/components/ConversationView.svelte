@@ -50,7 +50,7 @@
 	onMount(() => {
 		if (startOpening) {
 			onOpeningStarted();
-			void chat.retry();
+			chat.retry();
 		}
 	});
 	onDestroy(() => chat[Symbol.dispose]());

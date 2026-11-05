@@ -1,36 +1,44 @@
 /**
- * `@epicenter/local` under the `test` condition: every file in memory, for
- * the life of the process, empty at first. A test writes what it needs
- * through the same `localFile(name)` the code under test reads.
+ * `@epicenter/local` under the `test` condition: this computer's settings
+ * in memory, for the life of the process, empty at first and connected a
+ * turn after the first file is named. A test writes what it needs through
+ * the same `settings.file(name)` the code under test reads, and plays
+ * another window with `outside`.
  */
-import { Ok } from 'wellcrafted/result';
-import { createListeners, type OpenLocalFile } from './local-file.js';
+import { createSettings } from './settings.js';
 
 export {
-	type LocalFile,
-	LocalFileError,
-	type LocalText,
-} from './local-file.js';
+	type Settings,
+	SettingsError,
+	type SettingsFile,
+	SettingsNotOpen,
+	type SettingsState,
+} from './settings.js';
 
-const files = new Map<string, { text: string; version: string }>();
-const own = createListeners();
-let writes = 0;
+const files = new Map<string, string>();
+const listeners = new Set<(names: readonly string[]) => void>();
 
-/** The file `name` in this process's memory. */
-export const localFile: OpenLocalFile = (name) => ({
-	async read() {
-		return Ok(files.get(name) ?? null);
+/** This computer's settings for this app, in memory. */
+export const settings = createSettings({
+	async watch(changed) {
+		listeners.add(changed);
+		return () => listeners.delete(changed);
 	},
-	async write(text, over) {
-		const current = files.get(name);
-		const holds =
-			over === 'absent' ? current === undefined : current?.version === over;
-		if (!holds) return Ok('stale');
-		const version = text === null ? 'absent' : String(++writes);
+	async read(name) {
+		return files.get(name) ?? null;
+	},
+	async write(name, text) {
 		if (text === null) files.delete(name);
-		else files.set(name, { text, version });
-		own.emit(name);
-		return Ok({ version });
+		else files.set(name, text);
 	},
-	subscribe: (listener) => own.add(name, listener),
 });
+
+/** Another window, or a person editing the file: writes `name` and is heard. */
+export const outside = {
+	write(name: string, text: string | null) {
+		if (text === null) files.delete(name);
+		else files.set(name, text);
+		for (const changed of [...listeners]) changed([name]);
+	},
+	read: (name: string) => files.get(name) ?? null,
+};

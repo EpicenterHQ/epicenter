@@ -1,12 +1,15 @@
 <!--
-	The root of an app over its folder (ADR-0766, ADR-0767, ADR-0775): the
-	only reader of the folder's lifecycle, rendering the pages when the folder
-	is open. While it opens, a spinner, and why the store cannot be reached
-	when it cannot (the folder keeps trying); when it failed, Recovery with
-	the typed error, whose Retry is the failure's own `retry()`; once it is
-	closed, nothing. While open and the store cannot be reached, a status
-	line says so, and whether changes are waiting for it (`unavailable()`
-	and `saving()`).
+	The root of an app over its stores (ADR-0766, ADR-0775, ADR-0778): the
+	only reader of their lifecycles, rendering the pages once every store the
+	page connects to is open, its folder and, where it keeps any, this
+	computer's settings. Nothing that reads a store renders before, so every
+	read in a page answers what is stored. While they connect, a spinner
+	after about 150 ms, and why the folder cannot be reached when it cannot
+	(it keeps trying); when one failed, Recovery with the typed error, whose
+	Retry is the failure's own `retry()`; once the folder is closed, nothing.
+	While open and the folder's store cannot be reached, a status line says
+	so, and whether changes are waiting for it (`unavailable()` and
+	`saving()`).
 
 	It is also the page's leave guard: while the folder is `saving()`,
 	leaving the page asks first (a browser's "Leave site?"). Closing a
@@ -18,14 +21,15 @@
 	component catches nothing of the folder's.
 
 	```svelte
-	<WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
+	<WhenOpen app="Vocab" {folder} {settings}>{@render children()}</WhenOpen>
 	```
 
-	`folder` is the app's folder as `reactive` adapts it, the same value the
-	pages read.
+	`folder` and `settings` are the app's own, as `reactive` adapts them, the
+	same values the pages read.
 -->
 <script lang="ts">
 	import type { FolderLifecycle } from '@epicenter/folder/core';
+	import type { Settings } from '@epicenter/local';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
 	import type { Snippet } from 'svelte';
@@ -35,17 +39,24 @@
 	let {
 		app,
 		folder,
+		settings,
 		children,
 	}: {
 		/** The app's name, as people know it (`Todos`). */
 		app: string;
 		/** The folder, adapted by `reactive`: its state tracks. */
 		folder: Pick<FolderLifecycle, 'state' | 'unavailable' | 'saving' | 'reveal'>;
-		/** The pages, once the folder is open. */
+		/** This computer's settings, adapted by `reactive`, when the app keeps any. */
+		settings?: Pick<Settings, 'state'>;
+		/** The pages, once every store is open. */
 		children: Snippet;
 	} = $props();
 
-	const state = $derived(folder.state());
+	/** How long a connection may take before the spinner shows. */
+	const SPINNER_AFTER_MS = 150;
+
+	const folderState = $derived(folder.state());
+	const settingsState = $derived(settings?.state() ?? { status: 'open' as const });
 	const unavailable = $derived(folder.unavailable());
 	/** Why the store cannot be reached, in the store's own words: its cause's message. */
 	const reason = $derived.by(() => {
@@ -55,20 +66,28 @@
 			return cause.message;
 		return cause === undefined || cause === null ? '' : String(cause);
 	});
+
+	let late = $state(false);
+	$effect(() => {
+		const timer = setTimeout(() => (late = true), SPINNER_AFTER_MS);
+		return () => clearTimeout(timer);
+	});
 </script>
 
 <LeaveGuard {folder} />
 
-{#if state.status === 'opening'}
-	<Loading class="h-dvh" />
+{#if folderState.status === 'failed'}
+	<Recovery {app} error={folderState.error} retry={folderState.retry} reveal={folder.reveal} />
+{:else if settingsState.status === 'failed'}
+	<Recovery {app} appDataError error={settingsState.error} retry={settingsState.retry} />
+{:else if folderState.status === 'opening' || settingsState.status === 'opening'}
+	{#if late}<Loading class="h-dvh" />{/if}
 	{#if unavailable}
 		<p class="fixed inset-x-0 bottom-6 px-6 text-center text-sm text-muted-foreground" role="status" data-testid="unreachable">
 			Can't reach {app}'s files yet{reason ? ` (${reason})` : ''}. Still trying.
 		</p>
 	{/if}
-{:else if state.status === 'failed'}
-	<Recovery {app} error={state.error} retry={state.retry} reveal={folder.reveal} />
-{:else if state.status === 'open'}
+{:else if folderState.status === 'open'}
 	{#if unavailable}
 		<p class="bg-muted px-4 py-1 text-center text-xs text-muted-foreground" role="status" data-testid="unreachable">
 			Can't reach {app}'s files right now{reason ? ` (${reason})` : ''}.

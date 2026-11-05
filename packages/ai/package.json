@@ -14,7 +14,6 @@
 		".": "./src/index.ts",
 		"./agent": "./src/agent/index.ts",
 		"./choices": "./src/choices.ts",
-		"./connections": "./src/ai-connections.ts",
 		"./picker": "./src/picker/index.ts",
 		"./providers": "./src/providers.ts",
 		"./tauri": "./src/tauri.ts"

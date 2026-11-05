@@ -20,10 +20,11 @@ export function createVocabChat({
 	chatId: string;
 	focus: readonly { text: string }[];
 	/** Every model Vocab can reach (`$lib/app.js`), read through `reactive`. */
-	ai: Pick<Ai, 'models' | 'custom' | 'chat'>;
+	ai: Pick<Ai, 'chat'>;
 	/**
-	 * The model this device's learner chose for the tutor (`'chat'`), or its
-	 * default (`$lib/app.js`), read through `reactive`.
+	 * The model this computer's learner chose for the tutor (`'chat'`), or its
+	 * default (`$lib/app.js`), read through `reactive` once the settings
+	 * connected.
 	 */
 	choices: ModelChoices<'chat'>;
 }) {
@@ -32,34 +33,28 @@ export function createVocabChat({
 	let draft = $state('');
 	let dismissedError = $state<string | null>(null);
 	let disposed = false;
-	// A tutor request being prepared: reserved when asked, before any await, so
-	// a second click finds it. Stop and disposal abort it before the tutor starts.
-	let asking = $state<AbortController | null>(null);
 
-	/** Whether a merged endpoint offers `choice` as a chat model now. */
-	function canChat(choice: ModelChoice | null): choice is ModelChoice {
-		return (
-			choice !== null &&
-			ai
-				.models()
-				.some(
-					(model) =>
-						model.endpoint === choice.endpoint &&
-						model.id === choice.model &&
-						model.can.includes('chat'),
-				)
-		);
-	}
+	/** Why the tutor was not asked: no model chosen, or `models.md` does not read. */
+	let refused = $state<{ message: string; code: string } | null>(null);
 
-	/** The learner's choice, or Epicenter's tutor model when it is offered. */
+	/**
+	 * The learner's choice, or Epicenter's tutor model by default. The tutor
+	 * is asked at the chosen endpoint, which refuses for itself; what an
+	 * endpoint discovered never admits a request (ADR-0778).
+	 */
 	function target(): ModelChoice | null {
 		return choices.get('chat');
 	}
 
+	/** Capture the model the next turn uses, or say why there is none. */
 	function captureTarget(): boolean {
-		const choice = target();
-		if (!canChat(choice)) return false;
-		chosen = choice;
+		const choice = choices.require('chat');
+		if (choice.error !== null) {
+			refused = { message: choice.error.message, code: choice.error.name };
+			return false;
+		}
+		refused = null;
+		chosen = choice.data;
 		return true;
 	}
 
@@ -77,7 +72,7 @@ export function createVocabChat({
 			prepare: tutorOpening,
 		}),
 	);
-	const isBusy = () => asking !== null || loop.snapshot().isGenerating;
+	const isBusy = () => loop.snapshot().isGenerating;
 	/** The tutor is asked only for an opening or for an unanswered learner message. */
 	const hasNothingToAsk = () => {
 		const { messages } = loop.snapshot();
@@ -93,18 +88,18 @@ export function createVocabChat({
 		get streaming() {
 			return loop.snapshot().streaming;
 		},
-		/** True from the moment the tutor is asked, including model preparation. */
+		/** True from the moment the tutor is asked. */
 		get isGenerating() {
-			return asking !== null || loop.snapshot().isGenerating;
+			return loop.snapshot().isGenerating;
 		},
 		get isThinking() {
-			return asking !== null || loop.snapshot().isThinking;
+			return loop.snapshot().isThinking;
 		},
 		get error() {
-			return loop.snapshot().error;
+			return loop.snapshot().error ?? refused;
 		},
 		get visibleError() {
-			const { error } = loop.snapshot();
+			const error = loop.snapshot().error ?? refused;
 			return error && error.message !== dismissedError ? error : null;
 		},
 		/** Message files of this chat that are not shown and not sent to the tutor. */
@@ -115,11 +110,11 @@ export function createVocabChat({
 			return target();
 		},
 		get canServe() {
-			return canChat(target());
+			return target() !== null;
 		},
 		/** Whether `retry` would ask the tutor now. */
 		get canAsk() {
-			return canChat(target()) && !isBusy() && !hasNothingToAsk();
+			return target() !== null && !isBusy() && !hasNothingToAsk();
 		},
 		get inputValue() {
 			return draft;
@@ -129,7 +124,7 @@ export function createVocabChat({
 		},
 		get canSend() {
 			return (
-				canChat(target()) &&
+				target() !== null &&
 				!isBusy() &&
 				loop.snapshot().messages.length > 0 &&
 				draft.trim().length > 0
@@ -147,8 +142,6 @@ export function createVocabChat({
 			const submitted = draft;
 			const text = submitted.trim();
 			if (!text) return;
-			// The learner's saved model answers its default until read.
-			await choices.ready;
 			if (loop.snapshot().messages.length === 0 || isBusy() || !captureTarget())
 				return;
 			const { error } = await loop.send(text);
@@ -161,37 +154,22 @@ export function createVocabChat({
 		 * message, over the transcript as the folder holds it, asking only
 		 * what is unasked.
 		 */
-		async retry() {
-			if (disposed || isBusy()) return;
-			const admitted = new AbortController();
-			asking = admitted;
-			try {
-				// A connection the learner chose answers once the saved ones are
-				// read, and the learner's saved model answers its default until it is read.
-				await Promise.all([ai.custom()?.ready, choices.ready]);
-				if (admitted.signal.aborted) return;
-				if (hasNothingToAsk() || !captureTarget()) return;
-				dismissedError = null;
-				// Hand the admission to the loop, which reserves its own at once
-				// and answers once its turn ends.
-				asking = null;
-				void loop.retry();
-			} finally {
-				if (asking === admitted) asking = null;
-			}
+		retry() {
+			if (disposed || isBusy() || hasNothingToAsk() || !captureTarget())
+				return;
+			dismissedError = null;
+			// The loop reserves its turn at once; the answer streams in the background.
+			void loop.retry();
 		},
 		stop() {
-			asking?.abort();
-			asking = null;
 			void loop.stop();
 		},
 		dismissError() {
-			dismissedError = loop.snapshot().error?.message ?? null;
+			dismissedError = (loop.snapshot().error ?? refused)?.message ?? null;
 		},
 		[Symbol.dispose]() {
 			if (disposed) return;
 			disposed = true;
-			asking?.abort();
 			loop[Symbol.dispose]();
 		},
 	};

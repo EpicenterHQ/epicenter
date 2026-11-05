@@ -240,14 +240,11 @@ export function createMicrophoneInput({
 		},
 
 		/** Read the saved choice. Opens no microphone and lists nothing. */
-		async load() {
+		load() {
 			if (closed) return;
 			try {
-				const saved = await preferences.microphone();
-				if (closed) return;
-				choice = saved;
+				choice = preferences.microphone();
 			} catch (cause) {
-				if (closed) return;
 				preferenceProblem = `The saved microphone could not be read: ${cause instanceof Error ? cause.message : String(cause)}`;
 			}
 		},

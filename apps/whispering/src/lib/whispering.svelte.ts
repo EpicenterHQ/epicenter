@@ -107,20 +107,19 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 
 	// --- models, microphone -------------------------------------------------
 
-	let stopChoices: (() => void) | undefined;
-	let chosenModels = $state.raw<Record<Operation, ModelChoice | null>>({
-		transcription: null,
-		text: null,
-	});
-
 	/** Every model this page can reach, in the picker's order; sign-in and a saved connection reach it as they happen. */
 	const ai = reactive(capabilities.ai);
-	/** Why the saved connections could not be read, if they could not; tracks in Svelte. */
-	const connectionsProblem = () => ai.custom()?.problem() ?? undefined;
+	/** This computer's model for each job, read at once: the settings connected before the app rendered. */
+	const choices = reactive(capabilities.choices);
+	/** Why the saved connections do not read, naming the file, if they do not; tracks in Svelte. */
+	const connectionsProblem = () => ai.custom()?.problem()?.message;
 
 	/** The model chosen for `operation` now, as where a request would go, or why there is none. */
 	function chosen(operation: Operation): Chosen {
-		const choice = chosenModels[operation];
+		const decided = choices.require(CAN[operation]);
+		if (decided.error?.name === 'Invalid')
+			return { kind: 'unset', reason: decided.error.message };
+		const choice = decided.data;
 		if (choice === null)
 			return {
 				kind: 'unset',
@@ -135,10 +134,8 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		if (endpoint === undefined)
 			return {
 				kind: 'unset',
-				reason: `The ${operation} model chosen, ${choice.model}, is at an endpoint that is not set up on this device${
-					connectionsProblem() === undefined
-						? ''
-						: ` (the saved connections could not be read: ${connectionsProblem()})`
+				reason: `The ${operation} model chosen, ${choice.model}, is at an endpoint that is not set up on this computer${
+					connectionsProblem() === undefined ? '' : ` (${connectionsProblem()})`
 				}. Choose a model in Settings.`,
 			};
 		const target: Target = {
@@ -152,21 +149,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 
 	function resolve(recipe: RecipeRow | undefined): ResolvedRecipe {
 		return resolveRecipe(recipe, chosen('text'));
-	}
-
-	/** Read this device's model choices (kept by job, `CAN`'s), and follow them as they change. */
-	async function readChoices() {
-		const { choices } = capabilities;
-		const read = () => {
-			chosenModels = {
-				transcription: choices.get(CAN.transcription),
-				text: choices.get(CAN.text),
-			};
-		};
-		stopChoices = choices.subscribe(read);
-		read();
-		await choices.ready;
-		read();
 	}
 
 	/** Choose the model `operation` uses from now on. Nothing is sent. */
@@ -296,7 +278,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		if (disposed) return;
 		disposed = true;
 		input.close();
-		stopChoices?.();
 		if (captureState.phase === 'starting') {
 			captureState.attempt.abort();
 			captureState = { phase: 'idle' };
@@ -313,13 +294,13 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		},
 		/** Every model this page can reach now, with the person's connections, for the picker; tracks in Svelte. */
 		ai,
-		/** Why the saved connections could not be read, if they could not. */
+		/** Why the saved connections do not read, naming the file, if they do not. */
 		get connectionsProblem() {
 			return connectionsProblem();
 		},
 		/** The model chosen for `operation`, or null when none is. */
 		choice(operation: Operation): ModelChoice | null {
-			return chosenModels[operation];
+			return choices.get(CAN[operation]);
 		},
 		choose,
 		chosen,
@@ -354,11 +335,8 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			starting ??= (async () => {
 				try {
 					if (disposed) throw new Error(STOPPED);
-					await readChoices();
-					await ai.custom()?.ready;
 					// The saved choice only: no microphone is opened or listed at launch.
-					if (disposed) throw new Error(STOPPED);
-					await input.load();
+					input.load();
 					if (disposed) throw new Error(STOPPED);
 					await completeCutOffRecordings();
 					if (disposed) throw new Error(STOPPED);
@@ -437,8 +415,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		/** Stop: the microphone is released, the audio finished at its path, and its note written. */
 		stopRecording: finishRecording,
 
-		/** Read the saved connections again, as after a failed read. */
-		readConnections: () => ai.custom()?.reopen() ?? Promise.resolve(),
 	};
 }
 

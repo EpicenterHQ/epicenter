@@ -250,7 +250,7 @@ test('the app group has every page, and every page reads its library from contex
 	const layout = files.find(
 		(file) => file.path === 'routes/(app)/+layout.svelte',
 	)?.text;
-	expect(layout).toContain('<WhenOpen app="Whispering" {folder}>');
+	expect(layout).toContain('<WhenOpen app="Whispering" {folder} {settings}>');
 	expect(layout).toContain('<WhisperingApp>');
 	expect(layout).not.toMatch(/import \{[^}]*\baccount\b/);
 	expect(layout).not.toContain('SignIn');

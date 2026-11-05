@@ -66,7 +66,7 @@ fn an_expectation_is_parsed_by_its_own_spelling() {
         hash.clone(),
         "sha256:absent".to_string(),
         format!("sha256:{}", hash.to_uppercase()),
-        "any".to_string(),
+        "anything".to_string(),
         "present".to_string(),
         String::new(),
     ] {
@@ -114,6 +114,19 @@ fn an_attachment_is_named_by_the_stamp_that_landed_and_written_over_it() {
         Landing::Stale
     );
     assert_eq!(fs::read(root.join("audio.webm")).unwrap(), b"two");
+}
+
+#[test]
+fn a_write_expecting_any_replaces_whatever_is_there() {
+    let (_temp, root) = folder("storage-any", &[("models.md", b"old")]);
+    let any = Expectation::parse("any").unwrap();
+    assert_eq!(super::put(&root, "models.md", b(b"new"), &any).unwrap(), PutOutcome::Landed);
+    assert_eq!(fs::read(root.join("models.md")).unwrap(), b"new");
+    assert_eq!(super::put(&root, "fresh.md", b(b"made"), &any).unwrap(), PutOutcome::Landed);
+    assert_eq!(fs::read(root.join("fresh.md")).unwrap(), b"made");
+    assert_eq!(super::put(&root, "fresh.md", None, &any).unwrap(), PutOutcome::Landed);
+    assert!(!root.join("fresh.md").exists());
+    assert_eq!(super::put(&root, "fresh.md", None, &any).unwrap(), PutOutcome::Landed);
 }
 
 /// What most cases here expect: the file whose SHA-256 is `if_match`, or
