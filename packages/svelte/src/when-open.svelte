@@ -47,6 +47,14 @@
 
 	const state = $derived(folder.state());
 	const unavailable = $derived(folder.unavailable());
+	/** Why the store cannot be reached, in the store's own words: its cause's message. */
+	const reason = $derived.by(() => {
+		const cause = unavailable?.cause;
+		if (cause instanceof Error) return cause.message;
+		if (typeof cause === 'object' && cause !== null && 'message' in cause && typeof cause.message === 'string')
+			return cause.message;
+		return cause === undefined || cause === null ? '' : String(cause);
+	});
 </script>
 
 <LeaveGuard {folder} />
@@ -55,7 +63,7 @@
 	<Loading class="h-dvh" />
 	{#if unavailable}
 		<p class="fixed inset-x-0 bottom-6 px-6 text-center text-sm text-muted-foreground" role="status" data-testid="unreachable">
-			{unavailable.message}. Still trying.
+			Can't reach {app}'s files yet{reason ? ` (${reason})` : ''}. Still trying.
 		</p>
 	{/if}
 {:else if state.status === 'failed'}
@@ -63,8 +71,8 @@
 {:else if state.status === 'open'}
 	{#if unavailable}
 		<p class="bg-muted px-4 py-1 text-center text-xs text-muted-foreground" role="status" data-testid="unreachable">
-			Can't reach {app}'s files right now.
-			{folder.saving() ? 'Your changes will save when they are back.' : 'What you see may be out of date.'}
+			Can't reach {app}'s files right now{reason ? ` (${reason})` : ''}.
+			{folder.saving() ? 'Your changes will save once they can be reached.' : 'What you see may be out of date.'}
 		</p>
 	{/if}
 	<svelte:boundary>

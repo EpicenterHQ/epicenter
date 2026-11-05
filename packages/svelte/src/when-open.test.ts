@@ -238,6 +238,7 @@ test('while the store cannot be reached, a status line says why opening waits, a
 	const saving = folder.todos.set({ id: 'a' }, { body: 'text' });
 	for (let turn = 0; turn < 100 && unreachable() === null; turn++)
 		await settle();
+	expect(unreachable()).toContain('(disk full)');
 	expect(unreachable()).toContain('Your changes will save');
 	undo();
 	await saving;
