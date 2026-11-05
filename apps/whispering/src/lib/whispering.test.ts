@@ -30,10 +30,12 @@
  */
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { openFolder } from '@epicenter/folder';
 import { RecorderError } from '@epicenter/recorder';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { CaptureDevice } from './capture.js';
+import { whispering as whisperingContract } from './contract.js';
 import {
 	deferred,
 	eventually,
@@ -381,7 +383,7 @@ test('a start gives a recording a closed tab cut off its note, its length read f
 	expect(opened.whispering.recorderError).toBeUndefined();
 });
 
-test('files that cannot be listed at all are said by the folder alone, not again as a recovery failure', async () => {
+test('files that cannot be listed at all keep the folder opening, saying why', async () => {
 	const test = await openTestServices();
 	cleanups.push(test.close);
 	// A private window: every call is refused, the listing included.
@@ -389,14 +391,11 @@ test('files that cannot be listed at all are said by the folder alone, not again
 		'UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).';
 	test.outside.refuseReads(reason);
 	test.outside.refuse(reason);
-	const opened = await openTestWhispering({
-		services: test.services,
-		place: test.place,
-	});
-	cleanups.push(opened.close);
+	const folder = openFolder(whisperingContract, test.place);
+	cleanups.push(() => folder[Symbol.dispose]());
 
-	await eventually(() => opened.folder.unavailable() !== null);
-	expect(opened.whispering.recorderError).toBeUndefined();
+	await eventually(() => folder.unavailable() !== null);
+	expect(folder.state().status).toBe('opening');
 });
 
 test('a cut-off recording whose repair fails is said, and left for the next start', async () => {

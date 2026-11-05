@@ -25,6 +25,8 @@ export async function createTestWhispering({
 	);
 	const { reactive } = await import('@epicenter/svelte/reactive');
 	const opened = openFolder(contract, place);
+	// The app's pages render once the folder connected (`<WhenOpen>`).
+	await opened.recordings.list();
 	const folder = reactive(opened);
 	const whispering = createWhispering({ folder, ...services });
 	const files = filesOf(folder);

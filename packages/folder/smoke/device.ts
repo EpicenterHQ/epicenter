@@ -28,8 +28,9 @@
  *    other tab hears it made and announced, not each piece.
  * 7. Nothing is left staged, and the files survive a reload and a restart.
  *
- * Then an ephemeral context: Chromium opens OPFS there; WebKit's refusal is
- * `Unavailable` with a `StorageRefused` cause, not a throw.
+ * Then an ephemeral context: Chromium opens OPFS there; WebKit's refusal
+ * fails the folder's open as `StorageUnavailable` with a `StorageRefused`
+ * cause, not a throw.
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -258,7 +259,7 @@ try {
 				const refusal = await ephemeral.evaluate(() => deviceSmoke.refusal());
 				if (name === 'webkit')
 					check(
-						refusal.name === 'Unavailable' &&
+						refusal.name === 'StorageUnavailable' &&
 							refusal.cause === 'StorageRefused',
 						`WebKit ephemeral: ${JSON.stringify(refusal)}`,
 					);

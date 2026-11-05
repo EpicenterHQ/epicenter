@@ -46,8 +46,8 @@ async function until(check: () => boolean) {
 
 const note = (fields: string, body = '') => `---\n${fields}---\n${body}`;
 
-/** A folder in memory, the world outside it, and a count of the writes that reached the store. */
-function inMemory() {
+/** A folder in memory, connected, the world outside it, and a count of the writes that reached the store. */
+async function inMemory() {
 	const store = memoryStore();
 	const counts = { writes: 0, watching: 0 };
 	const counted: Store = {
@@ -67,18 +67,19 @@ function inMemory() {
 		},
 	};
 	const folder = createFolder(todos, async () => Ok(counted));
+	await until(() => folder.state().status === 'open');
 	return { folder, outside: store.outside, counts };
 }
 
 /** Listen to the collection, as a reader would, until the note `a` is shown. */
-async function listening(folder: ReturnType<typeof inMemory>['folder']) {
+async function listening(folder: Awaited<ReturnType<typeof inMemory>>['folder']) {
 	const stop = folder.todos.subscribe(() => {});
 	await until(() => folder.todos.get({ id: 'a' }) !== undefined);
 	return stop;
 }
 
 test('edit sends one save at a time, the newest carrying everything typed since the last landed', async () => {
-	const { folder, outside, counts } = inMemory();
+	const { folder, outside, counts } = await inMemory();
 	await outside.write('todos/a.md', note('title: ""\ndone: false\n'));
 	const stop = await listening(folder);
 	const todo = folder.todos.edit({ id: 'a' });
@@ -103,7 +104,7 @@ test('edit sends one save at a time, the newest carrying everything typed since 
 });
 
 test('a keystroke is saving, on the editor and the folder, at once until it lands', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	await outside.write('todos/a.md', note('title: ""\ndone: false\n'));
 	const stop = await listening(folder);
 	const todo = folder.todos.edit({ id: 'a' });
@@ -126,7 +127,7 @@ test('a keystroke is saving, on the editor and the folder, at once until it land
 });
 
 test('a typed field takes this write, and another writer’s change to another field stays', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
 	const stop = await listening(folder);
 	const todo = folder.todos.edit({ id: 'a' });
@@ -143,7 +144,7 @@ test('a typed field takes this write, and another writer’s change to another f
 });
 
 test('a body typed over a body changed since its typing began merges by lines', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	const fields = 'title: Milk\ndone: false\n';
 	await outside.write('todos/a.md', note(fields, 'one\ntwo\n'));
 	const stop = await listening(folder);
@@ -161,7 +162,7 @@ test('a body typed over a body changed since its typing began merges by lines', 
 });
 
 test('text is the whole note, one that does not read included, and typing it saves it as typed', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	await outside.write('todos/a.md', note('title: [\n', 'Body\n'));
 	const stop = folder.todos.subscribe(() => {});
 	await until(() => folder.todos.invalid().length === 1);
@@ -199,7 +200,7 @@ test('text is the whole note, one that does not read included, and typing it sav
 });
 
 test('whole text typed over a note changed since the typing began is settled, keeping both', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	await outside.write(
 		'todos/a.md',
 		note('title: Milk\ndone: false\n', 'one\n'),
@@ -226,7 +227,7 @@ test('whole text typed over a note changed since the typing began is settled, ke
 });
 
 test('edit shows the newest typing until its save lands, and discard shows the note', async () => {
-	const { folder, outside, counts } = inMemory();
+	const { folder, outside, counts } = await inMemory();
 	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
 	const stop = await listening(folder);
 	const todo = folder.todos.edit({ id: 'a' });
@@ -249,7 +250,7 @@ test('edit shows the newest typing until its save lands, and discard shows the n
 });
 
 test('a save that cannot land waits, the typing still shown, and lands when the store is back', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
 	const stop = await listening(folder);
 	const todo = folder.todos.edit({ id: 'a' });
@@ -267,28 +268,24 @@ test('a save that cannot land waits, the typing still shown, and lands when the 
 	stop();
 });
 
-test('an editor nobody listens to holds nothing: the collection lists only while its editor is heard', async () => {
-	const { folder, outside, counts } = inMemory();
+test('an editor holds nothing of its own: it reads what the folder holds, heard or not', async () => {
+	const { folder, outside, counts } = await inMemory();
 	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
 	const todo = folder.todos.edit({ id: 'a' });
-	await Bun.sleep(5);
-	expect(counts.watching).toBe(0);
-	expect(todo.exists()).toBe(false);
-
-	const stop = todo.subscribe(() => {});
 	await until(() => todo.exists());
+	// The folder hears its files from the open, for every reader at once.
+	expect(counts.watching).toBe(1);
+	const stop = todo.subscribe(() => {});
 	expect(counts.watching).toBe(1);
 	stop();
-	expect(counts.watching).toBe(0);
 });
 
 test('edit’s exists() is whether a note that reads is listed at its path', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	await outside.write('todos/a.md', note('title: Milk\ndone: false\n'));
 	await outside.write('todos/b.md', note('title: [\n'));
 	const listed = folder.todos.edit({ id: 'a' });
 	const unread = folder.todos.edit({ id: 'b' });
-	expect(listed.exists()).toBe(false);
 
 	const stop = listed.subscribe(() => {});
 	await until(() => listed.exists());
@@ -342,9 +339,8 @@ test('edit’s fields are the declared fields and the body, so a field named lik
 });
 
 test('edit with create makes the note on the first save; one made elsewhere first keeps its fields', async () => {
-	const { folder, outside } = inMemory();
+	const { folder, outside } = await inMemory();
 	const stop = folder.todos.subscribe(() => {});
-	await until(() => !folder.todos.loading());
 
 	const create = () => ({ title: 'Draft', done: false });
 	const draft = folder.todos.edit({ id: 'a' }, { create });

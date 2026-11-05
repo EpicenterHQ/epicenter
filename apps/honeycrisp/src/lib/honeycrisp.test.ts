@@ -50,6 +50,7 @@ async function folderWith(files: Record<string, string>) {
 	}
 	const opened = openFolder(honeycrisp, directory(root));
 	cleanups.push(() => opened[Symbol.dispose]());
+	expect((await opened.notes.list()).error).toBeNull();
 	return { root, store: reactive(opened) };
 }
 
@@ -86,7 +87,7 @@ test('notes sort newest first and folders by name', async () => {
 			.toSorted(byName)
 			.map(({ name }) => name),
 	}));
-	await until(() => !store.notes.loading() && !store.folders.loading());
+	await until(() => shown.values.at(-1)?.notes.length === 3);
 	expect(shown.values.at(-1)).toEqual({
 		notes: ['a', 'b', 'c'],
 		folders: ['Home', 'Work'],

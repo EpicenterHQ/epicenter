@@ -41,7 +41,7 @@
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">
-			{#if selection !== undefined && !library.listing}
+			{#if selection !== undefined}
 				<Empty.Title>This recording is no longer listed</Empty.Title>
 				<Empty.Description>It was deleted, here or elsewhere.</Empty.Description>
 			{:else}

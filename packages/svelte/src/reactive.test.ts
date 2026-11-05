@@ -107,7 +107,9 @@ test('an action passes through untracked: called in an effect, it subscribes not
 });
 
 test('get(args) that answers undefined still tracks, so its reader sees the note once it lands', async () => {
-	const folder = reactive(openFolder(todos, memory()));
+	const raw = openFolder(todos, memory());
+	await raw.todos.list();
+	const folder = reactive(raw);
 	const shown = follow(() => folder.todos.get({ id: 'a' })?.title);
 	flushSync();
 	expect(shown.values).toEqual([undefined]);
@@ -252,18 +254,18 @@ test('an auth-shaped capability: state() tracks, its account passes through unto
 test('a conversation-shaped capability: snapshot() tracks, and ready passes through as the same promise', () => {
 	const changes = source();
 	let snapshot = { messages: [] as string[], streaming: false };
-	const ready = Promise.resolve();
+	const landed = Promise.resolve();
 	const raw = {
 		subscribe: changes.subscribe,
 		snapshot: () => snapshot,
-		ready,
+		landed,
 		send: async (text: string) => {
 			snapshot = { ...snapshot, messages: [...snapshot.messages, text] };
 			changes.bump();
 		},
 	};
 	const conversation = reactive(raw);
-	expect(conversation.ready).toBe(ready);
+	expect(conversation.landed).toBe(landed);
 	const messages = follow(() => conversation.snapshot().messages.length);
 	flushSync();
 	void conversation.send('Hola');

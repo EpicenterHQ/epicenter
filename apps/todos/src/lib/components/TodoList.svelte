@@ -71,14 +71,12 @@
 			{#each shown as todo (todo.id)}
 				<TodoRow {todo} selected={open === todo.id} {onOpen} />
 			{:else}
-				{#if !todos.loading()}
-					<li>
-						<Empty.Root>
-							<Empty.Title>No todos yet</Empty.Title>
-							<Empty.Description>Add your first todo above.</Empty.Description>
-						</Empty.Root>
-					</li>
-				{/if}
+				<li>
+					<Empty.Root>
+						<Empty.Title>No todos yet</Empty.Title>
+						<Empty.Description>Add your first todo above.</Empty.Description>
+					</Empty.Root>
+				</li>
 			{/each}
 		</ul>
 

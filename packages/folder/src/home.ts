@@ -15,7 +15,7 @@ import {
 } from './place.js';
 import { repositoryStore } from './remote/store.js';
 
-export { OpenFolderError } from './errors.js';
+export { FolderClosed, FolderNotOpen, OpenFolderError } from './errors.js';
 export type {
 	Folder,
 	FolderCollection,

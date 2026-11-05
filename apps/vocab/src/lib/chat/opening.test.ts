@@ -66,7 +66,6 @@ test('empty tutor opening supplies model content without storing a learner messa
 	expect(folder.files.paths('messages')).toHaveLength(1);
 	chat[Symbol.dispose]();
 	const reopened = open(folder, respond);
-	await reopened.ready;
 	expect(requests).toHaveLength(1);
 	expect(reopened.snapshot().messages.map((message) => message.role)).toEqual([
 		'assistant',

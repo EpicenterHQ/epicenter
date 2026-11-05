@@ -79,7 +79,7 @@
 			</section>
 		{/if}
 
-		{#if visible.length === 0 && !notes.loading()}
+		{#if visible.length === 0}
 			<p class="p-6 text-center text-sm text-muted-foreground">
 				{app.filter.query.trim() === '' ? 'No notes here yet. Press + to create one.' : 'No notes match.'}
 			</p>

@@ -161,6 +161,11 @@ test('recovery is asked about exactly the audio no note names, and names only wh
 
 	await writeFile(join(path, 'recordings/cut.webm'), 'a closed tab left it');
 	await writeFile(join(path, 'recordings/writing.webm'), 'still recording');
+	// The folder hears another program's files through its watch.
+	for (let turn = 0; turn < 400; turn++) {
+		if (expectOk(await files.audio.list()).items.length === 3) break;
+		await Bun.sleep(10);
+	}
 	expect(expectOk(await finishCutOffRecordings(files, capture)).noted).toEqual([
 		'cut',
 	]);

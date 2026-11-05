@@ -4,7 +4,7 @@
  * folder or one of its collections. An app opens its folder with
  * `openFolder` from `@epicenter/folder`.
  */
-export { OpenFolderError } from './errors.js';
+export { FolderClosed, FolderNotOpen, OpenFolderError } from './errors.js';
 export type {
 	Folder,
 	FolderCollection,

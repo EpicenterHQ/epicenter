@@ -12,20 +12,18 @@
  * - A tool left out is denied; a mutating tool runs only on the person's yes
  * - The system prompt and `prepare` shape what each step sends
  * - `send` hands the learner message to the folder and answers at once; the
- *   message shows from then, and once the store can be written it lands,
- *   with the answer after it. The conversation writes each message once; the
- *   folder tries again
+ *   message shows from then. The model is asked only once it landed: while
+ *   the store cannot be written the turn waits, a stop ends the wait with no
+ *   model call, and a folder that closes ends it with `FolderClosed`
+ *   (ADR-0782). The conversation writes each message once; the folder tries
+ *   again
  * - A finished turn hands its answer to the folder and frees the
  *   conversation at once; a later message queues behind the answer
- * - The model is never asked before the chat's saved messages were listed:
- *   offline the turn waits and runs once they are, and a stop ends the wait
- *   with no model call (`Unlisted`)
  * - Disposal stops following the collection; writes already handed over land
  */
 import { describe, expect, test } from 'bun:test';
-import { ClientError, defineContract } from '@epicenter/definition/contract';
+import { defineContract } from '@epicenter/definition/contract';
 import { openFolder } from '@epicenter/folder';
-import type { Place } from '@epicenter/folder/core';
 import { memory, memoryFiles } from '@epicenter/folder/memory';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -86,11 +84,13 @@ async function savedIn(folder: MessagesFolder) {
 }
 
 /**
- * A folder in memory and its messages collection as a conversation is
- * given it, counting each write the conversation asks for (`attempts`).
+ * A folder in memory, connected, and its messages collection as a
+ * conversation is given it, counting each write the conversation asks for
+ * (`attempts`).
  */
-function makeMessages() {
+async function makeMessages() {
 	const folder = openFolder(contract, memory());
+	await folder.messages.list();
 	const attempts: string[] = [];
 	const messages: ConversationMessages = {
 		...folder.messages,
@@ -111,15 +111,6 @@ function makeMessages() {
 		/** Wait until no turn runs and every write handed to the folder landed. */
 		settle: (conversation: Generating) => settle(conversation, folder),
 	};
-}
-
-/** A new place in memory already holding `seed`, saved in this chat. */
-async function placeWith(seed: AgentMessage[]): Promise<Place> {
-	const place = memory();
-	const seeding = openFolder(contract, place);
-	for (const message of seed) await putIn(seeding, message);
-	seeding[Symbol.dispose]();
-	return place;
 }
 
 /** The ids of `messages`, in order. */
@@ -269,7 +260,7 @@ const answeringTool = (name: string, content = name): AgentTool => ({
 
 describe('createConversation', () => {
 	test('assigns ordered timestamps that preserve rapid turns after reopening', async () => {
-		const { messages, settle } = makeMessages();
+		const { messages, settle } = await makeMessages();
 		const engine: Engine = () =>
 			streamOf([{ type: 'text-delta', delta: 'answer' }]);
 		const conversation = open(messages, engine);
@@ -290,7 +281,6 @@ describe('createConversation', () => {
 		expect(new Set(saved.map((message) => message.createdAt)).size).toBe(4);
 		conversation[Symbol.dispose]();
 		const reopened = open(messages, engine);
-		await reopened.ready;
 		expect(
 			reopened.snapshot().messages.map((message) => agentMessageText(message)),
 		).toEqual(['first', 'answer', 'second', 'answer']);
@@ -298,11 +288,10 @@ describe('createConversation', () => {
 	});
 
 	test('a learner message comes after every saved one, even one stamped in the future', async () => {
-		const { messages, put } = makeMessages();
+		const { messages, put } = await makeMessages();
 		const later = Date.now() + 60_000;
 		await put(learner('ahead', 'from a fast clock', later));
 		const conversation = open(messages, () => streamOf([]));
-		await conversation.ready;
 		expectOk(await conversation.send('mine'));
 		const [first, second] = conversation.snapshot().messages;
 		expect(first?.id).toBe('ahead');
@@ -311,7 +300,7 @@ describe('createConversation', () => {
 	});
 
 	test('persists a finished streamed turn and reports send guards', async () => {
-		const { messages, saved, settle } = makeMessages();
+		const { messages, saved, settle } = await makeMessages();
 		const conversation = open(messages, () =>
 			streamOf([
 				{ type: 'text-delta', delta: 'Hello' },
@@ -339,7 +328,7 @@ describe('createConversation', () => {
 	});
 
 	test('streaming snapshots use fresh identities and settle into messages', async () => {
-		const { messages, settle } = makeMessages();
+		const { messages, settle } = await makeMessages();
 		const conversation = open(messages, () =>
 			streamOf([
 				{ type: 'text-delta', delta: 'one' },
@@ -358,7 +347,7 @@ describe('createConversation', () => {
 	});
 
 	test('tool steps re-prompt without an empty in-flight assistant', async () => {
-		const { messages, settle } = makeMessages();
+		const { messages, settle } = await makeMessages();
 		const prompts: Request['messages'][] = [];
 		let step = 0;
 		const engine: Engine = (request) => {
@@ -389,7 +378,7 @@ describe('createConversation', () => {
 	});
 
 	test('a tool step goes back to the model as OpenAI messages and tools', async () => {
-		const { messages, settle } = makeMessages();
+		const { messages, settle } = await makeMessages();
 		const requests: Request[] = [];
 		let step = 0;
 		const engine: Engine = (request) => {
@@ -449,7 +438,7 @@ describe('createConversation', () => {
 	});
 
 	test('the system prompt, from the saved transcript, goes first, and prepare shapes the rest', async () => {
-		const { messages, settle } = makeMessages();
+		const { messages, settle } = await makeMessages();
 		const { engine, prompts } = answering('Welcome!');
 		const seen: number[] = [];
 		const conversation = open(messages, engine, {
@@ -477,7 +466,7 @@ describe('createConversation', () => {
 	});
 
 	test('with no model chosen, a turn fails and asks nothing', async () => {
-		const { messages, settle } = makeMessages();
+		const { messages, settle } = await makeMessages();
 		const { engine, prompts } = answering();
 		const conversation = open(messages, engine, { model: () => null });
 		await conversation.send('hello');
@@ -487,7 +476,7 @@ describe('createConversation', () => {
 	});
 
 	test('a tool schema that is not an object fails the turn', async () => {
-		const { messages, settle } = makeMessages();
+		const { messages, settle } = await makeMessages();
 		const { engine, prompts } = answering();
 		const conversation = open(messages, engine, {
 			tools: [
@@ -507,7 +496,7 @@ describe('createConversation', () => {
 	});
 
 	test('later turns never prompt with the empty assistant being filled', async () => {
-		const { messages, settle } = makeMessages();
+		const { messages, settle } = await makeMessages();
 		const { engine, prompts } = answering('ok');
 		const conversation = open(messages, engine);
 		await conversation.send('one');
@@ -521,7 +510,7 @@ describe('createConversation', () => {
 	});
 
 	test('multiple tools run sequentially in model order', async () => {
-		const { messages, settle } = makeMessages();
+		const { messages, settle } = await makeMessages();
 		let step = 0;
 		const engine: Engine = () =>
 			++step === 1
@@ -561,7 +550,7 @@ describe('createConversation', () => {
 	});
 
 	test('a declined change records the denial without running the tool, and a tool left out runs nothing', async () => {
-		const { messages, settle } = makeMessages();
+		const { messages, settle } = await makeMessages();
 		let step = 0;
 		let ran = false;
 		const engine: Engine = () =>
@@ -606,7 +595,7 @@ describe('createConversation', () => {
 	});
 
 	test('aborting drops the partial assistant and retry starts another turn', async () => {
-		const { messages, saved, settle } = makeMessages();
+		const { messages, saved, settle } = await makeMessages();
 		const streamed = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
 		let calls = 0;
@@ -644,7 +633,7 @@ describe('createConversation', () => {
 	});
 
 	test('runaway tool loops stop after 50 steps without persisting the turn', async () => {
-		const { messages, saved, settle } = makeMessages();
+		const { messages, saved, settle } = await makeMessages();
 		let calls = 0;
 		const engine: Engine = () => {
 			calls++;
@@ -668,7 +657,7 @@ describe('createConversation', () => {
 	});
 
 	test('a failed stream saves nothing of its answer', async () => {
-		const { messages, saved, settle } = makeMessages();
+		const { messages, saved, settle } = await makeMessages();
 		const conversation = open(messages, () =>
 			streamOf([
 				{ type: 'text-delta', delta: 'half an ans' },
@@ -683,7 +672,7 @@ describe('createConversation', () => {
 	});
 
 	test('a tool that rejects ends the turn and leaves the conversation usable', async () => {
-		const { messages, saved, settle } = makeMessages();
+		const { messages, saved, settle } = await makeMessages();
 		let step = 0;
 		const engine: Engine = () =>
 			++step === 1
@@ -714,9 +703,8 @@ describe('createConversation', () => {
 	});
 
 	test('a message another program saves is heard, and disposal stops following the collection', async () => {
-		const { messages, files } = makeMessages();
+		const { messages, files } = await makeMessages();
 		const conversation = open(messages, () => streamOf([]));
-		await conversation.ready;
 		let heard = 0;
 		conversation.subscribe(() => heard++);
 		await files.write(
@@ -737,11 +725,10 @@ describe('createConversation', () => {
 	});
 
 	test("a note of this chat that does not read is listed as unreadable, and another chat's are not", async () => {
-		const { messages, files } = makeMessages();
+		const { messages, files } = await makeMessages();
 		await files.write(`messages/${CHAT}/broken.md`, '---\nrole: user\n---\n');
 		await files.write('messages/other/elsewhere.md', '---\nrole: user\n---\n');
 		const conversation = open(messages, () => streamOf([]));
-		await conversation.ready;
 		const { unreadable } = conversation.snapshot();
 		expect(unreadable.map(({ path }) => path)).toEqual([
 			`messages/${CHAT}/broken.md`,
@@ -752,7 +739,7 @@ describe('createConversation', () => {
 	});
 
 	test('every assistant message rendered live persists after a clean finish', async () => {
-		const { messages, saved, settle } = makeMessages();
+		const { messages, saved, settle } = await makeMessages();
 		const conversation = open(messages, () =>
 			streamOf([{ type: 'text-delta', delta: 'visible' }]),
 		);
@@ -772,7 +759,7 @@ describe('createConversation', () => {
 	});
 
 	test('a saved message never renders twice while its write answers', async () => {
-		const { messages, settle } = makeMessages();
+		const { messages, settle } = await makeMessages();
 		const { engine } = answering();
 		const conversation = open(messages, engine);
 		const seen: string[][] = [];
@@ -799,151 +786,73 @@ describe('createConversation', () => {
 	});
 });
 
-describe('listing', () => {
-	test('the model is never asked before the chat was listed, and a retry then runs over the saved transcript', async () => {
-		const place = await placeWith([learner('saved', 'saved before')]);
-		const release = memoryFiles(place).holdOpen();
-		const folder = openFolder(contract, place);
+describe('a waiting message', () => {
+	test('the model is asked only once the message landed', async () => {
+		const { messages, files, saved, settle } = await makeMessages();
 		const { engine, prompts } = answering();
-		const conversation = open(folder.messages, engine);
-		const retried = conversation.retry();
+		const conversation = open(messages, engine);
+		const release = files.hold();
+		expectOk(await conversation.send('hello'));
+		expect(idsOf(conversation.snapshot().messages)).toEqual(['m1']);
 		await Bun.sleep(20);
 		expect(prompts).toHaveLength(0);
 		expect(conversation.snapshot()).toMatchObject({
-			listed: false,
 			isGenerating: true,
 			isThinking: true,
 		});
 
 		release();
-		await retried;
-		expect(prompts).toEqual([[{ role: 'user', content: 'saved before' }]]);
-		expect(conversation.snapshot().error).toBeNull();
-		expect(idsOf(conversation.snapshot().messages)).toEqual(['saved', 'm1']);
+		await settle(conversation);
+		expect(prompts).toEqual([[{ role: 'user', content: 'hello' }]]);
+		expect(idsOf(await saved())).toEqual(['m1', 'm2']);
 		conversation[Symbol.dispose]();
-		folder[Symbol.dispose]();
 	});
 
-	test('offline, a sent message answers at once and the turn waits for the listing, then runs', async () => {
-		const place = await placeWith([learner('saved', 'saved before')]);
-		const files = memoryFiles(place);
-		const online = files.refuseReads('offline');
-		const folder = openFolder(contract, place);
+	test('a folder that closes while the message waits ends the turn with FolderClosed, asking nothing', async () => {
+		const { folder, messages, files } = await makeMessages();
 		const { engine, prompts } = answering();
-		const conversation = open(folder.messages, engine);
-		expectOk(await conversation.send('hello'));
-		expect(idsOf(conversation.snapshot().messages)).toEqual(['m1']);
-		await until(() => folder.unavailable() !== null);
-		// Writes still land while the listing cannot be read.
-		await until(() => files.read(pathOf('m1')) !== null);
-		expect(prompts).toHaveLength(0);
-		expect(conversation.snapshot()).toMatchObject({
-			listed: false,
-			isGenerating: true,
-		});
-
-		online();
-		await until(() => conversation.snapshot().listed);
-		await settle(conversation, folder);
-		expect(prompts).toEqual([
-			[
-				{ role: 'user', content: 'saved before' },
-				{ role: 'user', content: 'hello' },
-			],
-		]);
-		expect(conversation.snapshot().error).toBeNull();
-		expect(idsOf(await savedIn(folder))).toEqual(['saved', 'm1', 'm2']);
-		conversation[Symbol.dispose]();
-		folder[Symbol.dispose]();
-	});
-
-	test('while the folder cannot reach its store to open, the message waits with the turn, and both go on once it opens', async () => {
-		const place = await placeWith([learner('saved', 'saved before')]);
-		const online = memoryFiles(place).refuseOpen(
-			ClientError.Unavailable({ cause: 'offline' }).error,
-		);
-		const folder = openFolder(contract, place);
-		const { engine, prompts } = answering();
-		const conversation = open(folder.messages, engine);
+		const conversation = open(messages, engine);
+		files.refuse('disk full');
 		expectOk(await conversation.send('hello'));
 		await until(() => folder.unavailable() !== null);
-		expect(folder.state().status).toBe('opening');
-		expect(folder.saving()).toBe(true);
-		expect(prompts).toHaveLength(0);
-		expect(conversation.snapshot()).toMatchObject({
-			listed: false,
-			isGenerating: true,
-		});
-		expect(idsOf(conversation.snapshot().messages)).toEqual(['m1']);
-
-		online();
-		await settle(conversation, folder);
-		expect(conversation.snapshot().listed).toBe(true);
-		expect(prompts).toEqual([
-			[
-				{ role: 'user', content: 'saved before' },
-				{ role: 'user', content: 'hello' },
-			],
-		]);
-		expect(idsOf(await savedIn(folder))).toEqual(['saved', 'm1', 'm2']);
-		conversation[Symbol.dispose]();
 		folder[Symbol.dispose]();
+		await until(() => !conversation.snapshot().isGenerating);
+		expect(prompts).toHaveLength(0);
+		expect(conversation.snapshot().error).toMatchObject({
+			code: 'FolderClosed',
+		});
+		conversation[Symbol.dispose]();
 	});
 
-	test('a stop while the turn waits for the listing ends it with no model call; the message still lands and a retry once listed runs', async () => {
-		const place = memory();
-		const files = memoryFiles(place);
-		const online = files.refuseReads('offline');
-		const folder = openFolder(contract, place);
+	test('a stop while the message waits ends the turn with no model call; the message still lands, and a retry runs', async () => {
+		const { messages, files, saved, settle } = await makeMessages();
 		const { engine, prompts } = answering();
-		const conversation = open(folder.messages, engine);
+		const conversation = open(messages, engine);
+		const release = files.hold();
 		expectOk(await conversation.send('hello'));
 		await conversation.stop();
 		expect(prompts).toHaveLength(0);
 		expect(conversation.snapshot()).toMatchObject({
 			isGenerating: false,
-			listed: false,
-			error: { code: 'Unlisted' },
+			error: null,
 		});
-		expect(idsOf(conversation.snapshot().messages)).toEqual(['m1']);
-		await until(() => files.read(pathOf('m1')) !== null);
 
-		online();
-		await until(() => conversation.snapshot().listed);
+		release();
+		await until(() => files.read(pathOf('m1')) !== null);
 		await conversation.retry();
 		expect(prompts).toEqual([[{ role: 'user', content: 'hello' }]]);
-		expect(conversation.snapshot().error).toBeNull();
-		await settle(conversation, folder);
-		expect(idsOf(await savedIn(folder))).toEqual(['m1', 'm2']);
+		await settle(conversation);
+		expect(idsOf(await saved())).toEqual(['m1', 'm2']);
 		conversation[Symbol.dispose]();
-		folder[Symbol.dispose]();
-	});
-
-	test('ready settles on disposal when the folder never opens, and the waiting turn asks nothing', async () => {
-		const place = memory();
-		memoryFiles(place).holdOpen();
-		const folder = openFolder(contract, place);
-		const { engine, prompts } = answering();
-		const conversation = open(folder.messages, engine);
-		expectOk(await conversation.send('hello'));
-		conversation[Symbol.dispose]();
-		await conversation.ready;
-		await conversation.stop();
-		expect(prompts).toHaveLength(0);
-		expect(conversation.snapshot()).toMatchObject({
-			listed: false,
-			isGenerating: false,
-			error: { code: 'Unlisted' },
-		});
 	});
 });
 
 describe('learner message', () => {
-	test('sent while writes cannot land, it shows at once and lands once they can, in order, with the answer and the next message after it', async () => {
-		const { folder, messages, files, saved, attempts, settle } = makeMessages();
+	test('sent while writes cannot land, it shows at once; once they can it lands, the model answers, and the next message queues behind the answer', async () => {
+		const { folder, messages, files, saved, attempts, settle } =
+			await makeMessages();
 		const { engine, prompts } = answering();
 		const conversation = open(messages, engine);
-		await conversation.ready;
 		const landed: string[] = [];
 		const stopHearing = folder.messages.subscribe(() => {
 			for (const { id } of folder.messages.items())
@@ -953,35 +862,24 @@ describe('learner message', () => {
 		expectOk(await conversation.send('hello'));
 		expect(idsOf(conversation.snapshot().messages)).toEqual(['m1']);
 		await until(() => folder.unavailable() !== null);
-
-		// The chat was listed, so the turn runs over the message the folder holds.
-		await until(() => !conversation.snapshot().isGenerating);
-		expect(prompts).toEqual([[{ role: 'user', content: 'hello' }]]);
-		expect(conversation.snapshot().error).toBeNull();
-		expect(idsOf(conversation.snapshot().messages)).toEqual(['m1', 'm2']);
+		expect(prompts).toHaveLength(0);
 		expect(files.paths('messages')).toEqual([]);
 		expect(folder.saving()).toBe(true);
 
-		// The next message does not wait for the answer to land: it runs over
-		// what the folder holds and queues behind it.
-		expectOk(await conversation.send('another'));
+		writable();
 		await until(() => !conversation.snapshot().isGenerating);
+		expect(prompts).toEqual([[{ role: 'user', content: 'hello' }]]);
+		expect(conversation.snapshot().error).toBeNull();
+
+		// The next message queues behind the answer, and is asked once both landed.
+		expectOk(await conversation.send('another'));
+		await settle(conversation);
+		stopHearing();
 		expect(prompts[1]?.map(({ content }) => content)).toEqual([
 			'hello',
 			'answer',
 			'another',
 		]);
-		expect(idsOf(conversation.snapshot().messages)).toEqual([
-			'm1',
-			'm2',
-			'm3',
-			'm4',
-		]);
-		expect(files.paths('messages')).toEqual([]);
-
-		writable();
-		await settle(conversation);
-		stopHearing();
 		expect(landed).toEqual(['m1', 'm2', 'm3', 'm4']);
 		expect(attempts).toEqual(['m1', 'm2', 'm3', 'm4']);
 		expect(
@@ -994,17 +892,11 @@ describe('learner message', () => {
 			'user:another',
 			'assistant:answer',
 		]);
-		expect(idsOf(conversation.snapshot().messages)).toEqual([
-			'm1',
-			'm2',
-			'm3',
-			'm4',
-		]);
 		expect(prompts).toHaveLength(2);
 	});
 
 	test('overlapping sends and retries admit exactly one', async () => {
-		const { messages, files, saved, attempts, settle } = makeMessages();
+		const { messages, files, saved, attempts, settle } = await makeMessages();
 		const { engine, prompts } = answering();
 		const conversation = open(messages, engine);
 		const release = files.hold();
@@ -1023,8 +915,8 @@ describe('learner message', () => {
 		);
 	});
 
-	test('disposal before the chat was listed lets the learner write land and starts no model turn', async () => {
-		const { folder, messages, files, saved } = makeMessages();
+	test('disposal while the message waits lets it land and starts no model turn', async () => {
+		const { folder, messages, files, saved } = await makeMessages();
 		const { engine, prompts } = answering();
 		const conversation = open(messages, engine);
 		const release = files.hold();
@@ -1046,7 +938,7 @@ describe('learner message', () => {
 
 describe('received answer', () => {
 	test('a fully received answer waits for its writes under the same ids, and lands without the model or a tool running again', async () => {
-		const { folder, messages, files, saved, attempts, settle } = makeMessages();
+		const { folder, messages, files, saved, attempts, settle } = await makeMessages();
 		const { engine, tools, counts } = toolThenAnswer();
 		// The learner message lands; every write after the model starts is refused.
 		let writable: (() => void) | undefined;
@@ -1084,10 +976,14 @@ describe('received answer', () => {
 	});
 
 	test('stop does not discard a fully received answer that is waiting for the folder, and does not wait for it to land', async () => {
-		const { folder, messages, files, saved } = makeMessages();
-		const { engine, prompts } = answering();
-		const conversation = open(messages, engine);
-		const release = files.hold();
+		const { folder, messages, files, saved } = await makeMessages();
+		const { engine: answer, prompts } = answering();
+		// Every write after the question landed waits.
+		let release = () => {};
+		const conversation = open(messages, (request, signal) => {
+			release = files.hold();
+			return answer(request, signal);
+		});
 		expectOk(await conversation.send('hello'));
 		await until(
 			() => prompts.length === 1 && !conversation.snapshot().isGenerating,
@@ -1104,16 +1000,24 @@ describe('received answer', () => {
 	});
 
 	test('disposal while an answer is being written lets every handed-over write land', async () => {
-		const { folder, messages, files, saved } = makeMessages();
+		const { folder, messages, files, saved } = await makeMessages();
 		const { engine, tools, counts } = toolThenAnswer();
-		const conversation = open(messages, engine, { tools });
-		const release = files.hold();
+		// Every write after the question landed waits.
+		let release: (() => void) | undefined;
+		const conversation = open(
+			messages,
+			(request, signal) => {
+				release ??= files.hold();
+				return engine(request, signal);
+			},
+			{ tools },
+		);
 		expectOk(await conversation.send('time?'));
 		await until(
 			() => counts.engine === 2 && !conversation.snapshot().isGenerating,
 		);
 		conversation[Symbol.dispose]();
-		release();
+		release?.();
 		await until(() => !folder.saving());
 		expect(idsOf(await saved())).toEqual(['m1', 'm2', 'm3']);
 	});

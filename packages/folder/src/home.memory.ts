@@ -10,7 +10,7 @@
 import { memory } from './memory.js';
 import type { HomeOptions, Place } from './place.js';
 
-export { OpenFolderError } from './errors.js';
+export { FolderClosed, FolderNotOpen, OpenFolderError } from './errors.js';
 export type {
 	Folder,
 	FolderCollection,

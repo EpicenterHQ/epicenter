@@ -23,7 +23,7 @@ import type {
 } from '@epicenter/definition/contract';
 import { sameValue } from '@epicenter/definition/note';
 import { createLogger } from 'wellcrafted/logger';
-import type { Seen } from './device/client.js';
+import type { Seen } from './folder.js';
 import type { noteCodec } from './note-codec.js';
 
 const log = createLogger('folder');

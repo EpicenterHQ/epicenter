@@ -101,7 +101,6 @@ test('a file that does not read as a capture is listed for repair, not as a capt
 
 test('another writer’s change shows without a reload', async () => {
 	const h = setup();
-	await until(() => !folder.captures.loading());
 	await write(`---\ncapturedAt: ${AT}\n---\nOutside\n`);
 	await until(() => h.target.textContent?.includes('Outside') === true);
 	expect(h.captures.timeline.rows[0]?.id).toBe('one');

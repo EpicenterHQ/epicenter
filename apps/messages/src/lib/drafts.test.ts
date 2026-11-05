@@ -24,6 +24,22 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type Backend, createDemoBackend } from './backend.js';
 import { type Messages, messages } from './contract.js';
 
+// Bun has no Web Locks: a lock per name, granted in the order asked, as a browser grants it.
+if (!('locks' in navigator)) {
+	const held = new Map<string, Promise<unknown>>();
+	Object.defineProperty(navigator, 'locks', {
+		value: {
+			request(name: string, action: () => Promise<unknown>) {
+				const turn = (held.get(name) ?? Promise.resolve())
+					.catch(() => {})
+					.then(action);
+				held.set(name, turn);
+				return turn;
+			},
+		},
+	});
+}
+
 const { reactive } = await import('@epicenter/svelte/reactive');
 const { follow } = await import(
 	'../../../../packages/svelte/src/reactive.test-support.svelte.js'

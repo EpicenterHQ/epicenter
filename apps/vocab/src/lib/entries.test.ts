@@ -56,12 +56,14 @@ test('concurrent adds create one word', async () => {
 	expect(folder.files.paths('entries')).toHaveLength(1);
 });
 
-test('an add waits for the words to be listed, so a saved word is present, not added again', async () => {
+test('a saved word is present, not added again', async () => {
 	const id = hashOf('lucid');
 	const saved = note('lucid', 'usable', 'My note');
 	using folder = await openVocabFolder({ [`entries/${id}.md`]: saved });
-	// A folder nothing has listed yet: its `get` shows no word until it is.
-	const entries = createEntries(folder.other().entries);
+	// Another page's folder, once it connected.
+	const other = folder.other();
+	expect((await other.entries.list()).error).toBeNull();
+	const entries = createEntries(other.entries);
 	expect(expectOk(await entries.add('lucid'))).toBe('present');
 	expect(folder.files.read(`entries/${id}.md`)).toBe(saved);
 });

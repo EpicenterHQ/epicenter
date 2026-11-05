@@ -144,7 +144,7 @@ type Here = { readonly toggleRecording?: string; readonly body: string };
  * hold it.
  */
 export function openShortcut(
-	folder: Pick<Folder<Whispering>, 'shortcuts'>,
+	folder: Pick<Folder<Whispering>, 'shortcuts' | 'state'>,
 ): GlobalShortcut {
 	const file = localFile('shortcuts.md');
 	const notes = folder.shortcuts;
@@ -159,7 +159,7 @@ export function openShortcut(
 	let held: { accelerator: string; problem: string | null } | undefined;
 	const listeners = new Set<() => void>();
 
-	const read = () => here !== undefined && !notes.loading();
+	const read = () => here !== undefined && folder.state().status === 'open';
 	const accelerator = () =>
 		({
 			...SHORTCUT_DEFAULTS,

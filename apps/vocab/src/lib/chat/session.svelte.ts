@@ -78,15 +78,11 @@ export function createVocabChat({
 		}),
 	);
 	const isBusy = () => asking !== null || loop.snapshot().isGenerating;
-	/**
-	 * The tutor is asked only for an opening or for an unanswered learner
-	 * message. An empty transcript asks for an opening only once the chat's
-	 * saved messages were listed: before that, empty may mean not read yet.
-	 */
+	/** The tutor is asked only for an opening or for an unanswered learner message. */
 	const hasNothingToAsk = () => {
-		const { messages, listed } = loop.snapshot();
+		const { messages } = loop.snapshot();
 		return messages.length === 0
-			? focus.length === 0 || !listed
+			? focus.length === 0
 			: messages.at(-1)?.role !== 'user';
 	};
 
@@ -151,9 +147,8 @@ export function createVocabChat({
 			const submitted = draft;
 			const text = submitted.trim();
 			if (!text) return;
-			// A reply needs the chat's saved messages, which list once it opens,
-			// and the learner's saved model, which answers its default until read.
-			await Promise.all([loop.ready, choices.ready]);
+			// The learner's saved model answers its default until read.
+			await choices.ready;
 			if (loop.snapshot().messages.length === 0 || isBusy() || !captureTarget())
 				return;
 			const { error } = await loop.send(text);
@@ -163,9 +158,8 @@ export function createVocabChat({
 		},
 		/**
 		 * Ask the tutor for the opening, or for the answer to the last learner
-		 * message, over the transcript as the folder shows it. It waits until
-		 * the chat's saved messages were listed, which the folder tries again
-		 * while the store is out of reach, and then asks only what is unasked.
+		 * message, over the transcript as the folder holds it, asking only
+		 * what is unasked.
 		 */
 		async retry() {
 			if (disposed || isBusy()) return;
@@ -173,9 +167,8 @@ export function createVocabChat({
 			asking = admitted;
 			try {
 				// A connection the learner chose answers once the saved ones are
-				// read, the learner's saved model answers its default until it is
-				// read, and what to ask depends on the chat's saved messages.
-				await Promise.all([ai.custom()?.ready, choices.ready, loop.ready]);
+				// read, and the learner's saved model answers its default until it is read.
+				await Promise.all([ai.custom()?.ready, choices.ready]);
 				if (admitted.signal.aborted) return;
 				if (hasNothingToAsk() || !captureTarget()) return;
 				dismissedError = null;
