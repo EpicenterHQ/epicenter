@@ -1,11 +1,13 @@
 /**
- * The desktop's global shortcut (`openShortcut` in `shortcut.tauri.ts`) over the
- * data folder and this computer's `shortcuts.md`, both in memory (a
+ * The global shortcut in a Tauri window (`openShortcut` in `shortcut.ts`)
+ * over the data folder and this computer's `shortcuts.md`, both in memory (a
  * `memory()` place from `@epicenter/folder/memory`, and this computer's
  * settings from `@epicenter/local` under the `test` condition), with a
  * stand-in for the shell's `set_shortcut`.
  *
  * Key behaviors:
+ * - A browser has none: `openShortcut` answers null and asks the shell
+ *   nothing
  * - The key resolves per note: the default, then the data folder's
  *   `shortcuts.md`, then this computer's, key by key
  * - Once the folder and the settings connected, and whenever the key changes, the shell is
@@ -20,16 +22,17 @@ import { afterEach, expect, mock, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder';
 import { memory } from '@epicenter/folder/memory';
 import { settings } from '@epicenter/local';
-import { whispering } from '../contract.js';
+import { whispering } from './contract.js';
 
 /** Every key the page asked the shell to hold, in order. */
 const asked: string[] = [];
 /** Keys the shell refuses, as another app holding them would. */
 const taken = new Set<string>();
+let inTauri = true;
 mock.module('@tauri-apps/api/core', () => ({
 	// What other importers of the module name; nothing here calls them.
 	Channel: class {},
-	isTauri: () => true,
+	isTauri: () => inTauri,
 	transformCallback: () => 0,
 	invoke: async (command: string, args: { accelerator: string }) => {
 		expect(command).toBe('set_shortcut');
@@ -42,9 +45,7 @@ mock.module('@tauri-apps/api/event', () => ({
 	listen: async () => () => {},
 }));
 
-const { acceleratorOf, labelOf, openShortcut } = await import(
-	'./shortcut.tauri.js'
-);
+const { acceleratorOf, labelOf, openShortcut } = await import('./shortcut.js');
 
 /** This computer's `shortcuts.md`: memory, kept for the process. */
 const here = settings.file('shortcuts.md');
@@ -65,6 +66,7 @@ async function open({ data, mine }: { data?: string; mine?: string } = {}) {
 	if (data) await folder.shortcuts.set({}, { toggleRecording: data });
 	if (mine) await here.write(note(mine));
 	const shortcut = openShortcut(folder);
+	if (shortcut === null) throw new Error('a Tauri window has a shortcut');
 	// Its folder is followed for the page's life; a test's ends with the test.
 	cleanups.push(async () => {
 		shortcut[Symbol.dispose]();
@@ -195,4 +197,16 @@ test('a label reads as a Mac menu, or as Windows and Linux spell it', () => {
 	expect(labelOf('CommandOrControl+Shift+;', false)).toBe('Ctrl+Shift+;');
 	expect(labelOf('Alt+Space', true)).toBe('⌥Space');
 	expect(labelOf('Control+k', false)).toBe('Ctrl+K');
+});
+
+test('a browser has no global shortcut, and asks the shell nothing', () => {
+	inTauri = false;
+	const folder = openFolder(whispering, memory());
+	try {
+		expect(openShortcut(folder)).toBeNull();
+		expect(asked).toEqual([]);
+	} finally {
+		inTauri = true;
+		folder[Symbol.dispose]();
+	}
 });

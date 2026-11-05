@@ -1,41 +1,16 @@
 <!--
-	Settings only the desktop app has: the data folder Whispering keeps its
-	recordings in (where it is, Set up in Epicenter),
-	the models that transcribe on this computer, and the global shortcut.
+	The global shortcut, where there is one (`shortcut`, null in a browser):
+	the key that starts and stops a recording from any app, where it is set,
+	and a field that records the next one.
 -->
 <script lang="ts">
-	import { APPS } from '@epicenter/definition/site';
-	import { folderSync } from '@epicenter/svelte/folder-sync';
-	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
-	import FolderOnboarding from '@epicenter/svelte/folder-onboarding';
-	import LocalModelAdministration from '@epicenter/transcription/local-model-administration';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { Input } from '@epicenter/ui/input';
 	import { Label } from '@epicenter/ui/label';
-	import { Separator } from '@epicenter/ui/separator';
-	import { folder, shortcut as held, speech } from '../app.js';
-	import { acceleratorOf, labelOf } from '../platform/shortcut.tauri.js';
-	import { getWhispering } from '../whispering.svelte.js';
+	import { acceleratorOf, type GlobalShortcut, labelOf } from '../shortcut.js';
 
-	// `<WhenOpen>` renders the app, and so this, only over the open data folder.
-	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.WHISPERING.url });
-	// The desktop always holds a global shortcut; only the web has none.
-	const shortcut = held!;
-	const whispering = getWhispering();
-
-	// `speech` is the models on this computer: the same handle Whispering's models merge, so a download lists at once.
-	/** The local model in use is Whispering's transcription choice, when it names one here. */
-	const choice = {
-		chosen() {
-			const chosen = whispering.choice('transcription');
-			return speech && chosen?.endpoint === speech.id ? chosen.model : null;
-		},
-		choose: (model: string) =>
-			speech
-				? whispering.choose('transcription', { endpoint: speech.id, model })
-				: Promise.resolve('Nothing transcribes on this computer here.'),
-	};
+	let { shortcut }: { shortcut: GlobalShortcut } = $props();
 
 	/** The keys the person pressed and has not saved; none shows the shortcut as resolved. */
 	let typed = $state<string>();
@@ -75,26 +50,6 @@
 	}
 </script>
 
-<section class="flex flex-col gap-2 text-xs" data-testid="desktop-folder">
-	<p class="text-sm font-medium">Data folder</p>
-	<FolderOnboarding noun="recordings" path={sync.path} pathTestId="desktop-folder-path" />
-	<p class="text-muted-foreground">
-		Plain files: a Markdown note per recording beside its audio. Whispering never syncs them;
-		{#if sync.managed}Epicenter keeps this folder's local history.{:else}Epicenter can keep its history when you ask it to.{/if}
-	</p>
-	<div class="flex flex-wrap items-center gap-2">
-		<FolderSyncActions {sync} />
-	</div>
-</section>
-<Separator />
-<section class="flex flex-col gap-2 text-xs" data-testid="desktop-models">
-	<p class="text-sm font-medium">On this computer</p>
-	<p class="text-muted-foreground">
-		Transcribe without sending audio anywhere: download a model here and use it for Transcription, or choose it below, where it is listed under On this computer.
-	</p>
-	{#if speech}<LocalModelAdministration {speech} {choice} />{/if}
-</section>
-<Separator />
 <section class="flex flex-col gap-2 text-xs" data-testid="desktop-shortcut">
 	<p class="text-sm font-medium">Shortcut</p>
 	<p class="text-muted-foreground">

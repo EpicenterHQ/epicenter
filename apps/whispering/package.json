@@ -2,31 +2,13 @@
 	"name": "@epicenter/whispering",
 	"private": true,
 	"version": "7.11.1",
-	"description": "Voice notes: recordings, transcripts, and transformations are files, kept in this browser for good or, in the desktop app, in a folder on this computer; signing in only adds hosted transcription and AI",
+	"description": "Voice notes: recordings, transcripts, and transformations are files, kept in your Epicenter repository on the web or, in the desktop app, in a folder on this computer",
 	"type": "module",
-	"imports": {
-		"#platform/account": {
-			"tauri": "./src/lib/platform/account.tauri.ts",
-			"default": "./src/lib/platform/account.ts"
-		},
-		"#platform/components": {
-			"tauri": "./src/lib/platform/components.tauri.ts",
-			"default": "./src/lib/platform/components.ts"
-		},
-		"#platform/computer": {
-			"tauri": "./src/lib/platform/computer.tauri.ts",
-			"default": "./src/lib/platform/computer.ts"
-		},
-		"#platform/variant": {
-			"tauri": "./src/lib/platform/variant.tauri.ts",
-			"default": "./src/lib/platform/variant.ts"
-		}
-	},
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
 		"test": "bun test --isolate --conditions=browser --conditions=svelte --conditions=test --path-ignore-patterns='**/*.postgres.test.ts' src",
-		"test:postgres": "bun test --isolate ./src/lib/platform/web-sign-in.postgres.test.ts",
+		"test:postgres": "bun test --isolate ./src/lib/web-sign-in.postgres.test.ts",
 		"test:e2e": "playwright test -c playwright.config.ts",
 		"build": "NODE_ENV=production vite build",
 		"build:native": "EPICENTER_DESKTOP=1 WHISPERING_BUILD_DIR=build-desktop NODE_ENV=production vite build",

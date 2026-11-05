@@ -16,8 +16,8 @@
 	 * still being saved included: it reaches the library once its audio is
 	 * placed (on the desktop the shell encodes it after Stop). Three small
 	 * controls sit at its lower right on wide windows and below the hint on
-	 * narrow ones. While the files cannot be reached (a private window keeps
-	 * none) the root's status line says so, and no hint invites a click.
+	 * narrow ones. While the files cannot be reached (offline, or a sign-in
+	 * that ended) the root's status line says so, and no hint invites a click.
 	 */
 	const whispering = getWhispering();
 

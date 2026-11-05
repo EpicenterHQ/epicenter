@@ -1,11 +1,11 @@
 /**
- * Desktop Capability Tests
+ * Capabilities in a Tauri Window
  *
- * What the desktop window's leaves give `src/lib/app.ts`
- * (`account.tauri.ts`, `computer.tauri.ts`), composed as `app.ts` composes
- * them, over a stand-in shell: Tauri's `invoke` answers from memory, so the
- * account's commands, the shell's fetch and the transcription plugin are
- * each one function here, and the recorder is a stand-in for its package.
+ * What each capability package gives `src/lib/app.ts` when the page runs
+ * in a Tauri window (`isTauri()`), composed as `app.ts` composes them, over
+ * a stand-in shell: Tauri's `invoke` answers from memory, so the account's
+ * commands, the shell's fetch and the transcription plugin are each one
+ * function here, and the shell's recorder is a stand-in for its module.
  *
  * A saved connection's place (AppData's `connections.md`, each key in the
  * shell's credentials file, every request through the shell) is
@@ -22,7 +22,7 @@
  *   repairs by ids, with each repaired recording's length
  */
 import { afterEach, expect, mock, test } from 'bun:test';
-import type { AuthClient } from '@epicenter/account';
+import type { AppAccount, AuthClient } from '@epicenter/account';
 import type { AudioFiles } from '@epicenter/recorder';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
@@ -101,60 +101,59 @@ const audioFiles = {} as AudioFiles;
 
 /** What the recorder was asked to start or repair. */
 const started: unknown[] = [];
-mock.module('@epicenter/recorder/tauri', () => ({
-	recorder: {
-		listInputs: async () =>
-			Ok({ inputs: [{ deviceId: 'coreaudio:usb', label: 'USB' }] }),
-		openMeter: async () => {
-			throw new Error('not opened');
+// The shell's recorder, which `@epicenter/recorder` loads in a Tauri window.
+mock.module(
+	new URL('../../../../packages/recorder/src/tauri.ts', import.meta.url)
+		.pathname,
+	() => ({
+		recorder: {
+			listInputs: async () =>
+				Ok({ inputs: [{ deviceId: 'coreaudio:usb', label: 'USB' }] }),
+			openMeter: async () => {
+				throw new Error('not opened');
+			},
+			start: async (options: { folder: unknown; path: string }) => {
+				started.push(options);
+				return Ok({
+					onEnded: () => () => {},
+					stop: async () =>
+						Ok({ path: `${options.path}.webm`, durationMs: 1500 }),
+				});
+			},
+			recover: async (options: {
+				folder: unknown;
+				under: string;
+				unnamed: readonly string[];
+			}) => {
+				started.push(options);
+				// The shell's recorder: what it placed, then each unnamed one, whole.
+				const placed = [
+					{ path: `${options.under}/a.webm`, durationMs: 1500 },
+					{ path: `${options.under}/b.webm`, durationMs: 2500 },
+				];
+				return Ok({
+					recovered: [
+						...placed,
+						...options.unnamed
+							.filter((path) => !placed.some((entry) => entry.path === path))
+							.map((path) => ({ path, durationMs: null })),
+					],
+					unplaced: [
+						{
+							path: `${options.under}/c.webm`,
+							pending: `.epicenter/recordings/${options.under}/c.webm`,
+						},
+					],
+				});
+			},
 		},
-		start: async (options: { folder: unknown; path: string }) => {
-			started.push(options);
-			return Ok({
-				onEnded: () => () => {},
-				stop: async () =>
-					Ok({ path: `${options.path}.webm`, durationMs: 1500 }),
-			});
-		},
-		recover: async (options: {
-			folder: unknown;
-			under: string;
-			unnamed: readonly string[];
-		}) => {
-			started.push(options);
-			// The shell's recorder: what it placed, then each unnamed one, whole.
-			const placed = [
-				{ path: `${options.under}/a.webm`, durationMs: 1500 },
-				{ path: `${options.under}/b.webm`, durationMs: 2500 },
-			];
-			return Ok({
-				recovered: [
-					...placed,
-					...options.unnamed
-						.filter((path) => !placed.some((entry) => entry.path === path))
-						.map((path) => ({ path, durationMs: null })),
-				],
-				unplaced: [
-					{
-						path: `${options.under}/c.webm`,
-						pending: `.epicenter/recordings/${options.under}/c.webm`,
-					},
-				],
-			});
-		},
-	},
-}));
-
-// The desktop build resolves `@epicenter/transcription` under the `tauri`
-// condition; this run resolves the browser's, so it is pointed at the same leaf.
-const desktopSpeech = await import(
-	'../../../../../packages/transcription/guest-js/local-speech.js'
+	}),
 );
-mock.module('@epicenter/transcription', () => desktopSpeech);
 
-const { hosted, openAi } = await import('@epicenter/ai');
+const { connectAccount } = await import('@epicenter/account');
+const { hosted, localServers, openAi } = await import('@epicenter/ai');
+const { recorder: microphone } = await import('@epicenter/recorder');
 const { localSpeech } = await import('@epicenter/transcription');
-const { connectAccount } = await import('./account.tauri.js');
 const { settings } = await import('@epicenter/local');
 const { outside } = await import('@epicenter/local/memory');
 
@@ -164,12 +163,18 @@ outside.write(
 	JSON.stringify({ origin: ORIGIN, principalId: 'person-1', refused: false }),
 );
 await settings.file('account.json').connected();
-const { localModelServers, microphone } = await import('./computer.tauri.js');
-const { createMicrophoneDevice } = await import('../microphone.js');
+const { createMicrophoneDevice } = await import('./microphone.js');
 
-/** The models `app.ts` merges on the desktop, but the saved connections, which `@epicenter/ai` tests. */
-function openModels(account: AuthClient = connectAccount()) {
-	return openAi([hosted(account), localModelServers(), localSpeech()]);
+/** Whispering's sign-in, as `app.ts` asks for it. */
+const signIn = () =>
+	connectAccount({
+		clientId: 'so.epicenter.whispering',
+		api: ORIGIN,
+	});
+
+/** The models `app.ts` merges in a Tauri window, but the saved connections, which `@epicenter/ai` tests. */
+function openModels(account: AppAccount = signIn()) {
+	return openAi([hosted(account), localServers(), localSpeech()]);
 }
 
 /** Once the shell said who is signed in. */
@@ -196,7 +201,7 @@ const upload = () =>
 	new File([new Uint8Array([1, 2, 3])], 'a.webm', { type: 'audio/webm' });
 
 test('Epicenter’s models go through the account’s relay with no token from the page', async () => {
-	const account = connectAccount();
+	const account = signIn();
 	await signedIn(account);
 	const ai = openModels(account);
 	expect(ai.endpoints().find(({ id }) => id === 'hosted')?.baseUrl).toBe(

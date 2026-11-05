@@ -1,9 +1,7 @@
 <!--
-	The desktop window's header account of its store: the data folder on
-	this computer, whether Epicenter manages it, Set up in Epicenter until it
-	does. Whispering never syncs anything itself. The global shortcut's
-	presses are heard here too: a press starts a recording, or stops the one
-	under way, from any app, as the header's button does.
+	The header's account of the store when the folder is on this computer
+	(`folder.reveal`): the data folder, whether Epicenter manages it, and Set
+	up in Epicenter until it does. Whispering never syncs anything itself.
 -->
 <script lang="ts">
 	import { APPS } from '@epicenter/definition/site';
@@ -12,24 +10,13 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
-	import { onMount } from 'svelte';
 	import { folder } from '../app.js';
-	import { onShortcut } from '../platform/shortcut.tauri.js';
-	import { getWhispering } from '../whispering.svelte.js';
 
 	// `<WhenOpen>` renders the app, and so this, only over the open data folder.
 	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.WHISPERING.url });
-	const whispering = getWhispering();
 
 	const status = $derived<StatusLine>(
 		sync.managed ? { label: 'Kept by Epicenter', tone: 'good' } : { label: 'On this computer', tone: 'neutral' },
-	);
-
-	onMount(() =>
-		onShortcut(() => {
-			if (whispering.recorder.phase === 'idle') void whispering.startRecording();
-			else if (whispering.recorder.phase === 'recording') void whispering.stopRecording();
-		}),
 	);
 </script>
 

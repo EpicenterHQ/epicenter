@@ -1,18 +1,18 @@
 /**
- * Whispering's browser sign-in grants capabilities, never storage
- * (ADR-0700): one sign-in through `connectAccount()`, the client the web build
- * uses, against the real authorization server on a disposable Postgres
+ * Whispering's browser sign-in holds its repository and its hosted models
+ * (ADR-0786): one sign-in through `connectAccount`, as `app.ts` asks for
+ * it, against the real authorization server on a disposable Postgres
  * cluster and a `Bun.serve` listener, with this deployment's first-party
- * registrations. It asks for the API audience alone, with `ai` and no
- * `folders:*` scope; the Account sends a transcription over the API, and
- * the deployment's Git host refuses it, so it cannot reach a repository. No
- * refresh token is left in the browser's storage.
+ * registrations. It asks for the API audience first and the Git audience,
+ * with `ai` and the `folders:*` scopes; the Account sends a transcription
+ * over the API, and the deployment's Git host takes its token for the
+ * person's repository. No refresh token is left in the browser's storage.
  *
  * The browser is played by in-memory storage and a location whose `assign`
  * the test answers as the authorization server would for a signed-in person.
  * Requires initdb and pg_ctl on PATH; never connects to a configured database.
  */
-import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -34,10 +34,10 @@ import {
 	mountGitHost,
 	registerFirstPartyClients,
 	requireAccessToken,
-} from '../../../../../packages/server/src/bun.js';
-import { startDisposablePostgres } from '../../../../../packages/server/src/test-helpers/disposable-postgres.js';
-import { OAuthTestClient } from '../../../../../packages/server/src/test-helpers/oauth-client.js';
-import { buildFirstPartyClients } from '../../../../api/worker/oauth-registrations.js';
+} from '../../../../packages/server/src/bun.js';
+import { startDisposablePostgres } from '../../../../packages/server/src/test-helpers/disposable-postgres.js';
+import { OAuthTestClient } from '../../../../packages/server/src/test-helpers/oauth-client.js';
+import { buildFirstPartyClients } from '../../../api/worker/oauth-registrations.js';
 
 const secret = 'whispering-web-sign-in-secret-0123456789ab';
 const appOrigin = localUrl(APPS.WHISPERING);
@@ -69,13 +69,13 @@ beforeAll(async () => {
 		Bun.resolveSync(
 			'drizzle-orm/node-postgres/migrator',
 			fileURLToPath(
-				new URL('../../../../../packages/server/', import.meta.url),
+				new URL('../../../../packages/server/', import.meta.url),
 			),
 		)
 	);
 	await migrate(createDb(cluster.clients[0]), {
 		migrationsFolder: fileURLToPath(
-			new URL('../../../../api/drizzle/', import.meta.url),
+			new URL('../../../api/drizzle/', import.meta.url),
 		),
 	});
 	const app = createServerApp<CloudEnv>({
@@ -133,7 +133,7 @@ afterAll(async () => {
 	if (scratch) await rm(scratch, { recursive: true, force: true });
 });
 
-test('one Whispering sign-in transcribes over the API and reaches no repository', async () => {
+test('one Whispering sign-in transcribes over the API and reaches the person’s repository', async () => {
 	const person = await oauth.person('whispering-web');
 	const storage = memoryStorage();
 	const attempts = memoryStorage();
@@ -152,17 +152,32 @@ test('one Whispering sign-in transcribes over the API and reaches no repository'
 		location,
 	});
 	// The web build's deployment, as `VITE_EPICENTER_SERVER` names it.
-	process.env.VITE_EPICENTER_SERVER = origin;
-	const { connectAccount } = await import('./account.js');
-	const auth = connectAccount();
+	const { connectAccount, isCallbackAuthClient } = await import(
+		'@epicenter/account'
+	);
+	const auth = connectAccount({
+		clientId: APPS.WHISPERING.id,
+		api: origin,
+		selfHosted: origin,
+		automaticRenewal: false,
+	});
+	if (!isCallbackAuthClient(auth)) throw new Error('a browser sign-in');
+	// What `app.ts` gives the account to, each saying what it needs.
+	const { home } = await import('@epicenter/folder');
+	const { hosted } = await import('@epicenter/ai');
+	home({ site: APPS.WHISPERING.url, account: auth });
+	hosted(auth);
 
 	expectOk(await auth.startSignIn());
 	expect(navigations).toHaveLength(1);
 	// The authorization server answers for the signed-in person.
 	const authorize = new URL(navigations[0]!);
-	expect(authorize.searchParams.getAll('resource')).toEqual([origin]);
+	expect(authorize.searchParams.getAll('resource')).toEqual([
+		origin,
+		`${origin}/git`,
+	]);
 	expect(authorize.searchParams.get('scope')?.split(' ').sort()).toEqual(
-		['ai', 'email', 'openid', 'profile'].sort(),
+		['ai', 'folders:read', 'folders:write', 'offline_access', 'openid'].sort(),
 	);
 	const answer = await oauth.request(
 		`${authorize.pathname}${authorize.search}`,
@@ -191,9 +206,9 @@ test('one Whispering sign-in transcribes over the API and reaches no repository'
 		{ path: '/v1/audio/transcriptions', principal: person.id },
 	]);
 
-	// The Git host takes no token this sign-in holds.
+	// The Git host takes this sign-in's token for the person's repository.
 	const refs = await state.account.fetch(
 		`${origin}/git/~/whispering.git/info/refs?service=git-upload-pack`,
 	);
-	expect(refs.status).toBe(401);
+	expect([401, 403]).not.toContain(refs.status);
 }, 60_000);

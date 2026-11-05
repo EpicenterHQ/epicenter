@@ -1,4 +1,4 @@
-/** The web build's sign-in (`connectAccount()`): Epicenter's hosted models send through its `fetch`, as the desktop's do through the shell, and follow sign-out without a new merge. */
+/** Whispering's sign-in in a browser (`connectAccount` as `app.ts` asks for it): Epicenter's hosted models send through its `fetch`, as a Tauri window's do through the shell, and follow sign-out without a new merge. */
 import { afterEach, expect, test } from 'bun:test';
 import { epicenterCloud, selfHostedServer } from '@epicenter/account';
 import { APPS, resolveOAuthAudiences } from '@epicenter/definition/site';
@@ -62,8 +62,13 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 }) as typeof fetch;
 
 const { hosted: hostedModels, openAi } = await import('@epicenter/ai');
-const { connectAccount } = await import('./account.js');
-const account = connectAccount();
+const { connectAccount } = await import('@epicenter/account');
+const account = connectAccount({
+	clientId: APPS.WHISPERING.id,
+	api: APP_URLS.API,
+	selfHosted: SELF_HOST_ORIGIN,
+	automaticRenewal: false,
+});
 afterEach(() => {
 	sent.length = 0;
 });

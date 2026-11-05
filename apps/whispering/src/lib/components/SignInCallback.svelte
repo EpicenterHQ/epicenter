@@ -1,25 +1,23 @@
 <!--
-	The page that ends a sign-in in the web app: it finishes the sign-in this
-	tab started and loads the page it started from, or `home`. It reads no
+	The page that ends a sign-in: in a browser it finishes the sign-in this
+	tab started and loads the page it started from, or `home`. A Tauri window
+	signs in through the system browser and its shell hears the answer, so it
+	never comes here; if something does send it here, it says so. It reads no
 	files.
 -->
 <script lang="ts">
 	import { isCallbackAuthClient } from '@epicenter/account';
+	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import { onMount } from 'svelte';
 	import { account } from '../app.js';
-	import type { CallbackProps } from '../platform/types.js';
 
-	let { home }: CallbackProps = $props();
+	let { home }: { home: string } = $props();
 
 	let errorMessage = $state<string>();
 
 	onMount(() => {
-		// Only the web build's sign-in returns here; the desktop's shows `DesktopCallback`.
-		if (!isCallbackAuthClient(account)) {
-			errorMessage = 'This sign-in callback is available in the browser app.';
-			return;
-		}
+		if (!isCallbackAuthClient(account)) return;
 		void account.completeSignIn().then(({ data, error }) => {
 			if (error !== null) {
 				errorMessage = error.message;
@@ -30,7 +28,13 @@
 	});
 </script>
 
-{#if errorMessage}
+{#if !isCallbackAuthClient(account)}
+	<Empty.Root class="h-dvh">
+		<Empty.Title>Whispering does not sign in here</Empty.Title>
+		<Empty.Description>Whispering on this computer signs in through your browser, from Settings.</Empty.Description>
+		<a class="text-sm underline" href={home}>Back to Whispering</a>
+	</Empty.Root>
+{:else if errorMessage}
 	<p class="flex h-dvh items-center justify-center px-6 text-center text-sm text-destructive" role="alert">{errorMessage}</p>
 {:else}
 	<Loading class="h-dvh" label="Signing in…" />

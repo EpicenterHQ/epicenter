@@ -18,7 +18,7 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import { tick } from 'svelte';
-	import { connectionsNote } from '#platform/variant';
+	import { connectionsNote } from '$lib/connections-note.js';
 	import type { RecipeRow } from '$lib/recipe.js';
 	import { folder } from '$lib/app.js';
 	import { getLibrary } from '$lib/library.svelte.js';

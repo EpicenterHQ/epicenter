@@ -1,18 +1,22 @@
 /**
- * The global shortcut in the desktop window (`src-tauri/src/shortcut.rs`):
- * which key, where it is set, and the shell's hold on it. The shell holds
- * the key while Whispering runs and sends each press; the page decides what
- * a press does (`onShortcut`).
+ * The global shortcut (`src-tauri/src/shortcut.rs`): which key, where it is
+ * set, and the shell's hold on it. Only a Tauri window has one: a page
+ * cannot hold a key while another app has focus, so `openShortcut` answers
+ * null in a browser (ADR-0780, ADR-0781), and the app shows its settings
+ * and hears its presses only where it is (`{#if shortcut}`). The shell
+ * holds the key while Whispering runs and sends each press; the page
+ * decides what a press does (`onPress`).
  *
  * The key is `toggleRecording` in `shortcuts.md`, resolved with a shallow
- * then the data folder's note (the contract's
- * `shortcuts`, which travels with the files), then this computer's
- * (`shortcuts.md` in this computer's settings, `@epicenter/local`: AppData,
- * whose only writer is the shell). Rust never reads the note (decision 89):
- * once the folder and the settings connected, and whenever the resolved key
- * changes, the page asks the shell to hold it (`set_shortcut`).
+ * merge, each layer over the last: the default, then the data folder's note
+ * (the contract's `shortcuts`, which travels with the files), then this
+ * computer's (`shortcuts.md` in this computer's settings,
+ * `@epicenter/local`: AppData, whose only writer is the shell). Rust never
+ * reads the note (decision 89): once the folder and the settings connected,
+ * and whenever the resolved key changes, the page asks the shell to hold it
+ * (`set_shortcut`).
  *
- * `openShortcut(folder)` is a capability, made once beside the folder in
+ * `openShortcut` makes a capability, once, beside the folder in
  * `src/lib/app.ts` and read through `reactive`: reads answer at once, and
  * `subscribe` hears them change.
  */
@@ -23,11 +27,35 @@ import {
 } from '@epicenter/definition/contract';
 import type { Folder } from '@epicenter/folder/core';
 import { settings } from '@epicenter/local';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { type Whispering, whispering } from '../contract.js';
-import type { GlobalShortcut } from './types.js';
+import { type Whispering, whispering } from './contract.js';
+
+/**
+ * The global shortcut: the key `shortcuts.md` resolves to and the shell's
+ * hold on it. Reads answer at once; `subscribe` hears them change.
+ */
+export type GlobalShortcut = {
+	/** True once both `shortcuts.md` notes were read (or found absent). */
+	read(): boolean;
+	/** The resolved key, in the global-shortcut plugin's spelling. */
+	accelerator(): string;
+	/** The resolved key as a person reads it. */
+	label(): string;
+	/** Whether this computer's `shortcuts.md` sets the key, overriding the data folder's. */
+	onThisComputer(): boolean;
+	/** Why the shell does not hold the resolved key, or why this computer's note does not read. */
+	problem(): string | null;
+	subscribe(listener: () => void): () => void;
+	/** Hear each press of the shortcut, from any app; returns the unsubscribe. */
+	onPress(listener: () => void): () => void;
+	/** Make `typed` the shortcut, in the data folder's note or this computer's; why it was not saved, or null. */
+	save(
+		typed: string,
+		options: { onThisComputer: boolean },
+	): Promise<string | null>;
+	[Symbol.dispose](): void;
+};
 
 type Shortcuts = Whispering['collections']['shortcuts'];
 const SHORTCUTS = whispering.collections.shortcuts;
@@ -132,26 +160,29 @@ function hold(accelerator: string): Promise<string | null> {
 	);
 }
 
-
 /** This computer's `shortcuts.md` as last read: the key it sets, if any, and its body. */
 type Here = { readonly toggleRecording?: string; readonly body: string };
 
 /**
  * The global shortcut over `folder`, the data folder, and this computer's
- * `shortcuts.md`, followed from now on for the page's life. Once both notes
- * are read, and whenever the resolved key changes, the shell is asked to
- * hold it.
+ * `shortcuts.md`, followed from now on for the page's life, or null outside
+ * a Tauri window. Once both notes are read, and whenever the resolved key
+ * changes, the shell is asked to hold it.
  */
 export function openShortcut(
 	folder: Pick<Folder<Whispering>, 'shortcuts' | 'state'>,
-): GlobalShortcut {
+): GlobalShortcut | null {
+	if (!isTauri()) return null;
 	const file = settings.file('shortcuts.md');
 	const notes = folder.shortcuts;
 	/** Whether this computer's settings connected, so its note reads at once. */
 	let connected = false;
 	/** The last text of this computer's note, and what it read as. */
-	let parsed: { text: string | null; here: Here | null; problem: string | null } | null =
-		null;
+	let parsed: {
+		text: string | null;
+		here: Here | null;
+		problem: string | null;
+	} | null = null;
 	/** The last key the shell was asked to hold, and its answer once it came. */
 	let asked: string | undefined;
 	let held: { accelerator: string; problem: string | null } | undefined;
@@ -264,6 +295,7 @@ export function openShortcut(
 			listeners.add(listener);
 			return () => void listeners.delete(listener);
 		},
+		onPress,
 		/**
 		 * Make `typed` the shortcut: in the data folder's `shortcuts.md`
 		 * (synced with the files, so this computer's override is removed), or,
@@ -301,14 +333,16 @@ export function openShortcut(
 	};
 }
 
-/** Hear each press of the global shortcut. Answers the unsubscribe. */
-export function onShortcut(listener: () => void): () => void {
+/** Hear each press of the global shortcut, the shell's event code loaded with the first. Answers the unsubscribe. */
+function onPress(listener: () => void): () => void {
 	let stop: (() => void) | undefined;
 	let stopped = false;
-	void listen('whispering://toggle-recording', listener).then((unlisten) => {
-		if (stopped) unlisten();
-		else stop = unlisten;
-	});
+	void import('@tauri-apps/api/event')
+		.then(({ listen }) => listen('whispering://toggle-recording', listener))
+		.then((unlisten) => {
+			if (stopped) unlisten();
+			else stop = unlisten;
+		});
 	return () => {
 		stopped = true;
 		stop?.();

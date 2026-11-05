@@ -3,10 +3,10 @@
  * Whispering's files, over the inputs the same recorder lists, allows, and
  * tests.
  *
- * `src/lib/app.ts` makes it once, beside the folder, with the `recorder`
- * its build imports (`#platform/computer`: `@epicenter/recorder/browser` or
- * `/tauri`), and nothing here chooses between them: in a browser the page's
- * own microphone, on the desktop the shell's (ADR-0571), which lists inputs
+ * `src/lib/app.ts` makes it once, beside the folder, with `recorder` from
+ * `@epicenter/recorder`, which chooses where the page runs, and nothing
+ * here chooses between them: in a browser the page's own microphone, in a
+ * Tauri window the shell's (ADR-0571), which lists inputs
  * by name without access and asks for access itself, so it has no `allow`.
  * Either way the recording lands at `recordings/<id>.<ext>` when it stops;
  * only the desktop's shell keeps a take through a quit, so only it recovers.

@@ -187,6 +187,7 @@ const refused = (message: string) =>
 /** No one signed in, as a test's account stays. */
 export const SIGNED_OUT: LiveAccount = {
 	baseURL: 'https://api.epicenter.test',
+	need() {},
 	state: () => ({ status: 'signed-out' }),
 	subscribe: () => () => {},
 };
