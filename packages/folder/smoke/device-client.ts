@@ -140,7 +140,6 @@ const smoke = {
 						if (written.error !== null || written.data === 'stale')
 							throw new Error(`the other tab's write did not land`);
 					},
-					hearingMs: 2000,
 				});
 				answers[name] = 'ok';
 			} catch (cause) {

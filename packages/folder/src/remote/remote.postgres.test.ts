@@ -396,7 +396,6 @@ describe('a repository: the store conformance checks', () => {
 						'stale',
 					);
 				},
-				hearingMs: 3000,
 			});
 		}, 30_000);
 });

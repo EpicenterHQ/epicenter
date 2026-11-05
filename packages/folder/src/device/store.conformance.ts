@@ -26,9 +26,15 @@ export type StoreSubject = {
 	store: Store;
 	/** Write `bytes` at `path`, or remove it for null, as another program, tab or person would. */
 	outside(path: string, bytes: Uint8Array | null): Promise<void>;
-	/** How long a change from outside may take to be heard: a poll's period, or a watcher's latency. */
-	hearingMs: number;
 };
+
+/**
+ * How long a check waits for a change to be heard before it fails. A check
+ * answers as soon as the store reports, so this only bounds a report that
+ * never comes: generous, since a poll or a watcher on a loaded machine can
+ * take seconds, and how fast a store hears is not what these checks hold.
+ */
+const HEARD_WITHIN_MS = 15_000;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -108,7 +114,7 @@ export const storeChecks: Record<string, (subject: StoreSubject) => Promise<void
 		check(ok(await store.list([directory])).length === 0, 'nothing is listed after');
 	},
 
-	async 'arming before listing'({ store, outside, hearingMs }) {
+	async 'arming before listing'({ store, outside }) {
 		const path = fresh('heard.md');
 		const heard: (readonly string[] | 'all')[] = [];
 		const stop = ok(await store.watch((paths) => heard.push(paths)));
@@ -117,7 +123,7 @@ export const storeChecks: Record<string, (subject: StoreSubject) => Promise<void
 			check(
 				await until(
 					() => heard.some((paths) => paths === 'all' || paths.includes(path)),
-					hearingMs,
+					HEARD_WITHIN_MS,
 				),
 				'a write from outside after watch answered is heard',
 			);
@@ -130,7 +136,7 @@ export const storeChecks: Record<string, (subject: StoreSubject) => Promise<void
 		}
 	},
 
-	async 'a hint never precedes readable bytes'({ store, outside, hearingMs }) {
+	async 'a hint never precedes readable bytes'({ store, outside }) {
 		const path = fresh('hint.md');
 		await outside(path, bytes('old'));
 		/** What the read each hint started answered, in the order heard; undefined until it answers. */
@@ -150,7 +156,7 @@ export const storeChecks: Record<string, (subject: StoreSubject) => Promise<void
 			// its read rightly answers the old bytes; the change's own hint comes
 			// after, however late, and a read the moment it is heard answers it.
 			check(
-				await until(() => answered.at(-1) === 'new', hearingMs),
+				await until(() => answered.at(-1) === 'new', HEARD_WITHIN_MS),
 				`a read the moment it was heard answers the change (${answered.join(', ')})`,
 			);
 		} finally {
@@ -159,7 +165,7 @@ export const storeChecks: Record<string, (subject: StoreSubject) => Promise<void
 		}
 	},
 
-	async 'a write racing a read of one path'({ store, outside, hearingMs }) {
+	async 'a write racing a read of one path'({ store, outside }) {
 		const path = fresh('race.md');
 		await outside(path, bytes('before '.repeat(4096)));
 		const before = await readOne(store, path);
@@ -182,7 +188,7 @@ export const storeChecks: Record<string, (subject: StoreSubject) => Promise<void
 			);
 			if (text === 'before '.repeat(4096) && !('gone' in raced))
 				check(raced.version === before.version, 'the old bytes keep their version');
-			check(await until(() => heard, hearingMs), 'the write is heard');
+			check(await until(() => heard, HEARD_WITHIN_MS), 'the write is heard');
 			const after = await readOne(store, path);
 			check(textOf(after) === 'after '.repeat(4096), 'the read after the hint answers the write');
 			check(
