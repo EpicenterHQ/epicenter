@@ -7,6 +7,7 @@
 - **Amended by:** [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) at a round asking its host to settle and a round with no live page: a round merges by itself.
 - **Amended by:** [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) at the checks before a local repository: no rquickjs spike or QuickJS; the iOS spike asks whether a native round finishes in the background.
 - **Amended by:** [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) at the founder's decision on a local repository: the lean is a plain folder, which the prototype confirms or refutes.
+- **Amended by:** [ADR-0803](0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) at the store-to-store prototype: it is `sync(local, remote, manifest)` over the store contract.
 - **Unbuilt:** all of it: a failed or unanswered settle ending the round `retry` (it is `stopped` in `packages/epicenter-core/src/merge.rs:90`); the core passing the contract's keys to `settle` (`packages/epicenter-core/napi/index.ts`), with a test that a round and a page settle the same edits identically; one batched settle per round; checkout through the version-checked put, after merging `epicenter-folder-core` into the core; the partial-checkout test in `tests/round.rs`; the shell's moments and a round with no live page; the iOS background spike and the rquickjs spike; the store-to-store prototype.
 
 ## Context

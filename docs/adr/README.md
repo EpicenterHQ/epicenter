@@ -928,7 +928,7 @@ When you add an ADR, add its row here.
 | [0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) | Everything not derived from an app's site is one of five stored kinds | Accepted (amends 0719) |
 | [0731](0731-every-app-signs-in-as-its-site.md) | Every app signs in as its site | Accepted (supersedes 0720; amends 0549, 0606, 0701, and 0719; amended by 0732 and 0740) |
 | [0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) | A grant reaches what the person chooses at consent | Accepted (amends 0718 and 0731; amended by 0787 and 0793) |
-| [0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) | Your own git in an Epicenter folder is plain Git | Accepted (amends 0565, 0713, and 0718; amended by 0748, 0751, and 0795) |
+| [0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) | Your own git in an Epicenter folder is plain Git | Accepted (amends 0565, 0713, and 0718; amended by 0748, 0751, 0795, and 0803) |
 | [0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) | Every file other than a note is kept whole in Git LFS | Accepted (supersedes 0714) |
 | [0735](0735-sync-gives-files-a-history-it-never-merges-two.md) | Sync gives files a history; it never merges two | Accepted (amends 0700 and 0721; amended by 0761) |
 | [0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) | A folder outside the library is enrolled through a link the person names | Accepted (amends 0715 and 0721) |
@@ -989,7 +989,7 @@ When you add an ADR, add its row here.
 | [0791](0791-a-folders-first-sync-places-it-in-its-teams-folder.md) | A folder's first sync places it in its team's folder | Accepted (amends 0772; amended by 0802) |
 | [0792](0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md) | An account asks for what the capabilities that take it need | Accepted (amends 0781) |
 | [0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) | Programs only compose: TypeScript holds what Epicenter means, and Rust holds the OS, Git, and secrets | Accepted (amends 0732, 0751, 0774, 0787, and 0790; amended by 0795 and 0801) |
-| [0794](0794-a-sync-round-asks-its-host-to-settle-checks-out-only-what-did-not-move-and-retries-rather-than-guess.md) | A sync round asks its host to settle, checks out only what did not move, and retries rather than guess | Accepted (amends 0751, 0774, and 0787; amended by 0795, 0801, and 0802) |
+| [0794](0794-a-sync-round-asks-its-host-to-settle-checks-out-only-what-did-not-move-and-retries-rather-than-guess.md) | A sync round asks its host to settle, checks out only what did not move, and retries rather than guess | Accepted (amends 0751, 0774, and 0787; amended by 0795, 0801, 0802, and 0803) |
 | [0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) | Git merges a note's body, and Epicenter merges its front matter by key | Accepted (amends 0700, 0733, 0774, 0789, 0793, and 0794; amended by 0796 and 0797) |
 | [0796](0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md) | A field is a line, its value is JSON, and a write patches only the fields it changes | Accepted (amends 0700, 0774, and 0795; amended by 0797) |
 | [0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) | Front matter is a strict grammar, and anything else is body | Accepted (amends 0787, 0795, and 0796; amended by 0798) |
@@ -998,3 +998,4 @@ When you add an ADR, add its row here.
 | [0800](0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md) | A store's wire speaks HTTP's conditional requests, and apps connect agents to the CLI | Accepted (amends 0798 and 0799) |
 | [0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) | Records from 0763 to 0800 agree on the merge, Rust's part, the marks, and agents | Accepted (amends 0763, 0780, 0788, 0790, 0793, 0794, and 0799) |
 | [0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) | People share spaces, an app works in one at a time, and a folder carries its contract | Accepted (amends 0770, 0772, 0791, and 0794) |
+| [0803](0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) | Clients sync only with Epicenter servers, and sync is a function of two stores | Accepted (amends 0733 and 0794) |
