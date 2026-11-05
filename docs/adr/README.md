@@ -941,7 +941,7 @@ When you add an ADR, add its row here.
 | [0743](0743-tabs-keeps-saved-tabs-as-items-in-a-collection.md) | Tabs keeps saved tabs as items in a collection | Accepted (supersedes 0724) |
 | [0744](0744-sync-diffs-state-because-agents-edit-state.md) | Sync diffs state, because agents edit state | Accepted |
 | [0745](0745-a-browser-extension-writes-through-the-local-epicenter-engine.md) | A browser extension writes through the local Epicenter engine | Accepted (amends 0227 and 0700; amended by 0750) |
-| [0746](0746-the-web-is-online-offline-needs-an-installed-app.md) | The web is online; offline needs an installed app | Accepted |
+| [0746](0746-the-web-is-online-offline-needs-an-installed-app.md) | The web is online; offline needs an installed app | Accepted (amended by 0784) |
 | [0747](0747-git-runs-only-as-git-on-the-desktop.md) | Git runs only as Git, on the desktop | Accepted (amended by 0751) |
 | [0748](0748-epicenter-ships-a-portable-git-inside-the-app.md) | Epicenter ships a portable Git inside the app | Superseded by 0751 |
 | [0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) | Epicenter draws its boundaries where people already expect them | Accepted (amended by 0750) |
@@ -976,6 +976,7 @@ When you add an ADR, add its row here.
 | [0778](0778-a-page-connects-once-and-then-reads-synchronously.md) | A page connects once, and then reads synchronously | Accepted (amends 0767, 0775, and 0777; amended by 0779 and 0783) |
 | [0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) | A store is four verbs, and a browser recording lands whole | Accepted (amends 0773 and 0778) |
 | [0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) | A surface uses what its platform gives, and parity is not a goal | Accepted |
-| [0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) | Apps branch on what a capability offers, and one build serves every surface | Accepted (amends 0701, 0755, and 0766) |
+| [0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) | Apps branch on what a capability offers, and one build serves every surface | Accepted (amends 0701, 0755, and 0766; amended by 0784) |
 | [0782](0782-a-waiting-write-the-folder-will-not-make-rejects.md) | A waiting write the folder will not make rejects | Accepted (amends 0775) |
 | [0783](0783-a-secret-lives-in-the-apps-credentials-file-and-is-read-by-the-request-that-uses-it.md) | A secret lives in the app's credentials file, and is read by the request that uses it | Accepted (amends 0778) |
+| [0784](0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md) | Whispering is the web's local app, and Messages is a program on this computer | Accepted (amends 0746 and 0781) |
