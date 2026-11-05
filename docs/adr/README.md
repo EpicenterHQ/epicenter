@@ -969,12 +969,12 @@ When you add an ADR, add its row here.
 | [0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) | Plain files let Epicenter refuse renames, attachment conflict copies, and a second store | Accepted (amends 0612, 0705, 0707, 0708, 0709, 0715, 0716, 0734, 0739, 0742, and 0770) |
 | [0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) | A folder says what it is in AGENTS.md, and this computer keeps the rest | Accepted (amends 0711, 0715, 0721, 0722, 0752, and 0770; amended by 0787 and 0791) |
 | [0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) | A folder opens at a place, every place is a store, and the server never merges | Accepted (amends 0700, 0746, and 0766; amended by 0774, 0779, 0786, and 0787) |
-| [0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) | One write makes it so, and settles a change the way sync does | Accepted (amends 0700, 0769, and 0773; amended by 0775, 0787, 0793, 0794, 0795, and 0796) |
+| [0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) | One write makes it so, and settles a change the way sync does | Accepted (amends 0700, 0769, and 0773; amended by 0775, 0787, 0793, 0794, 0795, 0796, and 0798) |
 | [0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) | A write never fails: the folder keeps it until it lands | Accepted (amends 0767 and 0774; amended by 0778 and 0782) |
 | [0776](0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md) | A note's name is its file name, and a rename is a set and a delete | Accepted |
 | [0777](0777-a-capability-has-no-ready-promise.md) | A capability has no ready promise | Accepted (amends 0767; amended by 0778) |
 | [0778](0778-a-page-connects-once-and-then-reads-synchronously.md) | A page connects once, and then reads synchronously | Accepted (amends 0767, 0775, and 0777; amended by 0779 and 0783) |
-| [0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) | A store is four verbs, and a browser recording lands whole | Accepted (amends 0773 and 0778; amended by 0786 and 0788) |
+| [0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) | A store is four verbs, and a browser recording lands whole | Accepted (amends 0773 and 0778; amended by 0786, 0788, and 0798) |
 | [0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) | A surface uses what its platform gives, and parity is not a goal | Accepted |
 | [0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) | Apps branch on what a capability offers, and one build serves every surface | Accepted (amends 0701, 0755, and 0766; amended by 0784, 0785, and 0792) |
 | [0782](0782-a-waiting-write-the-folder-will-not-make-rejects.md) | A waiting write the folder will not make rejects | Accepted (amends 0775) |
@@ -992,4 +992,6 @@ When you add an ADR, add its row here.
 | [0794](0794-a-sync-round-asks-its-host-to-settle-checks-out-only-what-did-not-move-and-retries-rather-than-guess.md) | A sync round asks its host to settle, checks out only what did not move, and retries rather than guess | Accepted (amends 0751, 0774, and 0787; amended by 0795) |
 | [0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) | Git merges a note's body, and Epicenter merges its front matter by key | Accepted (amends 0700, 0733, 0774, 0789, 0793, and 0794; amended by 0796 and 0797) |
 | [0796](0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md) | A field is a line, its value is JSON, and a write patches only the fields it changes | Accepted (amends 0700, 0774, and 0795; amended by 0797) |
-| [0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) | Front matter is a strict grammar, and anything else is body | Accepted (amends 0787, 0795, and 0796) |
+| [0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) | Front matter is a strict grammar, and anything else is body | Accepted (amends 0787, 0795, and 0796; amended by 0798) |
+| [0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) | A store patches fields and writes text, and a change is data | Accepted (amends 0774, 0779, and 0797) |
+| [0799](0799-a-folders-contract-is-also-an-mcp-server.md) | A folder's contract is also an MCP server | Accepted |

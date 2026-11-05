@@ -6,6 +6,7 @@
 - **Relates:** [ADR-0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) (a guarantee that needs a process outliving the page is the installed app's), [ADR-0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) (a capability read through `subscribe`).
 - **Amended by:** [ADR-0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) at where a browser recording lands: in the team's repository.
 - **Amended by:** [ADR-0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) at a take landing whole in the folder: its note does, and its audio lands where the person keeps audio.
+- **Amended by:** [ADR-0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) at a store being four verbs: a fifth, `patch`, applies field changes where the file lives.
 
 ## Context
 
