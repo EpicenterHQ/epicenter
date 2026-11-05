@@ -188,6 +188,9 @@ export function nodeStore(root: string): Store {
 
 	/** Every regular file below `directory` (the folder's `prefix`), into `files`. */
 	async function visit(directory: string, prefix: string, files: Listed[]) {
+		// The files of one directory are stamped together; they list in the
+		// order `readdir` gave them, after the directories walked before them.
+		const stamped: Promise<Listed | undefined>[] = [];
 		for (const entry of await readdir(directory, { withFileTypes: true })) {
 			const path = prefix + entry.name;
 			const at = join(directory, entry.name);
@@ -198,10 +201,13 @@ export function nodeStore(root: string): Store {
 					});
 				continue;
 			}
-			if (!entry.isFile()) continue;
-			const listed = await describe(at, path);
-			if (listed !== undefined) files.push(listed);
+			if (entry.isFile()) stamped.push(describe(at, path));
 		}
+		const stamps = Promise.all(stamped);
+		// A walk that throws before the stamps are awaited leaves none unhandled.
+		stamps.catch(() => {});
+		for (const listed of await stamps)
+			if (listed !== undefined) files.push(listed);
 	}
 
 	/** The file at `path` now: its bytes and version from the one file opened, or gone. */
