@@ -17,6 +17,8 @@ import {
 	type CollectionFiles,
 	createDeviceClient,
 } from '../src/device/client.js';
+import { opfsStore } from '../src/device/opfs-store.js';
+import { storeChecks } from '../src/device/store.conformance.js';
 import type { Version } from '../src/device/store.js';
 import { home, openFolder } from '../src/home.js';
 import { openingOf } from '../src/place.js';
@@ -132,6 +134,42 @@ let heard = 0;
 let heardAudio = 0;
 
 const smoke = {
+	/**
+	 * The store conformance checks over this browser's private files: the
+	 * store under test, and a second store with its own Worker writing as
+	 * another tab would. Answers each check's failure, or `ok`.
+	 */
+	async conformance() {
+		const answers: Record<string, string> = {};
+		for (const [name, run] of Object.entries(storeChecks)) {
+			const store = opfsStore();
+			const other = opfsStore();
+			try {
+				await run({
+					store,
+					async outside(path, bytes) {
+						const read = await other.read([path]);
+						if (read.error !== null) throw new Error(read.error.message);
+						const [there] = read.data;
+						const over =
+							there === undefined || 'gone' in there ? 'absent' : there.version;
+						if (bytes === null && over === 'absent') return;
+						const written = await other.write(path, bytes, over);
+						if (written.error !== null || written.data === 'stale')
+							throw new Error(`the other tab's write did not land`);
+					},
+					hearingMs: 2000,
+				});
+				answers[name] = 'ok';
+			} catch (cause) {
+				answers[name] = String(cause);
+			} finally {
+				store.close();
+				other.close();
+			}
+		}
+		return answers;
+	},
 	/** Start hearing the recordings change, from this tab or another, once they are listed. */
 	async listen() {
 		folder.recordings.subscribe(() => heard++);

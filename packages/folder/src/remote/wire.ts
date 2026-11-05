@@ -98,6 +98,7 @@ export type WriteAnswer =
 
 /** One file on `main`: a note's text, or another file's LFS object. */
 export type RemoteFile = {
+	path: string;
 	blob: Version;
 	text?: string;
 	lfs?: LfsObject | null;
@@ -206,49 +207,69 @@ export function createWire(account: RemoteAccount, repository: string) {
 	return {
 		/** The repository's Git remote. */
 		remote,
-		/** The commit `main` is at, null before the repository's first write. */
-		async head(): Promise<Result<string | null, Unavailable>> {
-			const sent = await send(`${remote}/epicenter/head`, { method: 'GET' });
+		/**
+		 * The commit `main` is at (null before the repository's first write),
+		 * and the paths changed since the commit `since`: null when `since`
+		 * is not given or names no commit the repository holds.
+		 */
+		async changes(
+			since?: string | null,
+		): Promise<
+			Result<{ commit: string | null; paths: string[] | null }, Unavailable>
+		> {
+			const query =
+				since === undefined ? '' : `?since=${encodeURIComponent(since ?? '')}`;
+			const sent = await send(`${remote}/epicenter/changes${query}`, {
+				method: 'GET',
+			});
 			if (sent.error !== null) return sent;
 			if (!sent.data.ok) return refused(sent.data);
 			const answer = await body(sent.data);
 			if (
 				!isRecord(answer) ||
-				(typeof answer.commit !== 'string' && answer.commit !== null)
+				(typeof answer.commit !== 'string' && answer.commit !== null) ||
+				(answer.paths !== null && !Array.isArray(answer.paths))
 			)
 				return refused(sent.data);
-			return Ok(answer.commit);
+			return Ok({
+				commit: answer.commit,
+				paths: answer.paths as string[] | null,
+			});
 		},
-		/** Every file on `main` under `root` (`''`: the whole repository). */
+		/** Every file on `main` at or below each of `roots` (`''`: the whole repository). */
 		async list(
-			root: string,
+			roots: readonly string[],
 		): Promise<
 			Result<{ path: string; blob: Version; lfs?: LfsObject }[], Unavailable>
 		> {
-			const sent = await send(
-				`${remote}/epicenter/files?root=${encodeURIComponent(root)}`,
-				{ method: 'GET' },
-			);
+			const query = roots
+				.map((root) => `root=${encodeURIComponent(root)}`)
+				.join('&');
+			const sent = await send(`${remote}/epicenter/files?${query}`, {
+				method: 'GET',
+			});
 			if (sent.error !== null) return sent;
 			if (!sent.data.ok) return refused(sent.data);
 			const answer = await body(sent.data);
 			if (!isRecord(answer) || !Array.isArray(answer.files))
 				return refused(sent.data);
-			return Ok(answer.files as { path: string; blob: Version }[]);
+			return Ok(answer.files as { path: string; blob: Version; lfs?: LfsObject }[]);
 		},
-		/** The file at `path` on `main`, or null when nothing is there. */
-		async read(path: string): Promise<Result<RemoteFile | null, Unavailable>> {
-			const sent = await send(
-				`${remote}/epicenter/file?path=${encodeURIComponent(path)}`,
-				{ method: 'GET' },
-			);
+		/** The files at `paths` on one commit of `main`, in one request: each one's blob and text or LFS object, or `gone`. */
+		async read(
+			paths: readonly string[],
+		): Promise<Result<(RemoteFile | { path: string; gone: true })[], Unavailable>> {
+			const sent = await send(`${remote}/epicenter/read`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ paths }),
+			});
 			if (sent.error !== null) return sent;
-			if (sent.data.status === 404) return Ok(null);
 			if (!sent.data.ok) return refused(sent.data);
 			const answer = await body(sent.data);
-			if (!isRecord(answer) || typeof answer.blob !== 'string')
+			if (!isRecord(answer) || !Array.isArray(answer.files))
 				return refused(sent.data);
-			return Ok(answer as RemoteFile);
+			return Ok(answer.files as (RemoteFile | { path: string; gone: true })[]);
 		},
 		/**
 		 * One write request: at most one commit on `main`, or a refusal. The

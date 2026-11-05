@@ -26,17 +26,15 @@
  * This file imports only types, which compile away, so any bundler can ship
  * it as a Worker.
  */
-import type { DeviceExpectation } from './store.js';
-
 type Request =
-	| { id: number; op: 'list' }
-	| { id: number; op: 'read'; path: string }
+	| { id: number; op: 'list'; under: string[] }
+	| { id: number; op: 'read'; paths: string[] }
 	| {
 			id: number;
 			op: 'write';
 			path: string;
 			bytes: Uint8Array | null;
-			expected: DeviceExpectation;
+			over: string;
 			from: string;
 	  }
 	| {
@@ -199,6 +197,26 @@ async function sha256(bytes: Uint8Array) {
 const stampOf = (file: File) => `${file.size}:${file.lastModified}`;
 
 /**
+ * Whether a file is named by the sha256 of its bytes (a note, `.md` in any
+ * case) rather than by its stamp: `versionedByContent` in `store.ts`, a
+ * copy, since this file imports nothing.
+ */
+const versionedByContent = (path: string) => /\.md$/i.test(path);
+
+/** The version of `file` at `path`, read from its bytes only for a note. */
+async function versionOf(path: string, file: File, bytes?: Uint8Array) {
+	if (!versionedByContent(path)) return stampOf(file);
+	return sha256(bytes ?? new Uint8Array(await file.arrayBuffer()));
+}
+
+/** Whether `path` is at or below one of `under` (`''` is everything). */
+const within = (path: string, under: string[]) =>
+	under.some(
+		(prefix) =>
+			prefix === '' || path === prefix || path.startsWith(`${prefix}/`),
+	);
+
+/**
  * Whether reading `name` in `directory` failed because the entry went
  * meanwhile: this device's own writes move and delete files while a listing
  * or a read runs. Chromium says `NotFoundError`; WebKit says
@@ -222,27 +240,36 @@ async function went(
 }
 
 /**
- * Every file, with its stamp, hidden ones included (a staged write too):
- * whoever reads a listing skips them. Writes run beside a listing, so an
- * entry can go between being named and being read (another tab deletes it
- * while this one lists): it is skipped, as a listing a moment later would
- * skip it, rather than failing the whole listing.
+ * Every file at or below each of `under`, with its version and size,
+ * hidden ones included (a staged write too): whoever reads a listing skips
+ * them. Writes run beside a listing, so an entry can go between being named
+ * and being read (another tab deletes it while this one lists): it is
+ * skipped, as a listing a moment later would skip it, rather than failing
+ * the whole listing.
  */
-async function list() {
-	const files: { path: string; stamp: string }[] = [];
+async function list(under: string[]) {
+	const files: { path: string; version: string; size: number }[] = [];
 	async function walk(directory: FileSystemDirectoryHandle, prefix: string) {
 		try {
 			for await (const [name, handle] of (directory as Directory).entries()) {
 				const path = `${prefix}${name}`;
 				if (handle.kind === 'directory') {
-					await walk(handle as FileSystemDirectoryHandle, `${path}/`);
+					// A directory no path asked for lies below is not walked.
+					if (
+						under.some(
+							(wanted) =>
+								wanted === '' ||
+								within(path, [wanted]) ||
+								wanted.startsWith(`${path}/`),
+						)
+					)
+						await walk(handle as FileSystemDirectoryHandle, `${path}/`);
 					continue;
 				}
+				if (!within(path, under)) continue;
 				try {
-					files.push({
-						path,
-						stamp: stampOf(await (handle as FileSystemFileHandle).getFile()),
-					});
+					const file = await (handle as FileSystemFileHandle).getFile();
+					files.push({ path, version: await versionOf(path, file), size: file.size });
 				} catch (cause) {
 					if (!(await went(cause, directory, name))) throw cause;
 				}
@@ -264,7 +291,7 @@ async function read(path: string) {
 		try {
 			const file = await found.handle.getFile();
 			const bytes = new Uint8Array(await file.arrayBuffer());
-			return { bytes, version: await sha256(bytes), stamp: stampOf(file) };
+			return { bytes, version: await versionOf(path, file, bytes) };
 		} catch (cause) {
 			// An append between taking the file and reading its bytes leaves a
 			// snapshot that no longer reads (Chromium says `NotReadableError`,
@@ -294,33 +321,32 @@ async function changedMidRead(
 	}
 }
 
-async function write(
-	path: string,
-	bytes: Uint8Array | null,
-	expected: DeviceExpectation,
-) {
+/**
+ * Write `bytes` at `path`, or remove the file for null, only while it holds
+ * `over` (`'absent'`: nothing): the version that landed, null for a
+ * removal, or `'stale'`.
+ */
+async function write(path: string, bytes: Uint8Array | null, over: string) {
 	segmentsOf(path);
 	return navigator.locks.request(`epicenter-device:${path}`, async () => {
 		const current = await read(path);
 		const holds =
-			expected === 'absent'
-				? current === null
-				: current?.version === expected.version;
+			over === 'absent' ? current === null : current?.version === over;
 		if (!holds) return 'stale';
 		if (bytes === null) {
 			const found = await fileAt(path);
 			if (found !== null) await found.parent.removeEntry(found.name);
-			return { landed: null };
+			return null;
 		}
-		const landed = { landed: await sha256(bytes) };
 		if (current !== null) {
 			const found = await fileAt(path);
 			if (found === null) return 'stale';
 			await writeWhole(found.handle, bytes);
-			return landed;
-		}
-		await createWhole(path, bytes);
-		return landed;
+		} else await createWhole(path, bytes);
+		// Under the lock, what is there now is what this write made.
+		const landed = await fileAt(path);
+		if (landed === null) throw new Error(`${path} went while it was written`);
+		return versionOf(path, await landed.handle.getFile(), bytes);
 	});
 }
 
@@ -408,15 +434,16 @@ function announce(path: string, from: string) {
 async function answer(request: Request): Promise<unknown> {
 	switch (request.op) {
 		case 'list':
-			return list();
+			return list(request.under);
 		case 'read':
-			return read(request.path);
-		case 'write': {
-			const outcome = await write(
-				request.path,
-				request.bytes,
-				request.expected,
+			return Promise.all(
+				request.paths.map(async (path) => {
+					const found = await read(path);
+					return found === null ? { path, gone: true } : { path, ...found };
+				}),
 			);
+		case 'write': {
+			const outcome = await write(request.path, request.bytes, request.over);
 			if (outcome !== 'stale') announce(request.path, request.from);
 			return outcome;
 		}
@@ -438,8 +465,9 @@ addEventListener('message', async (event) => {
 	try {
 		const value = await answer(request);
 		reply = { id: request.id, ok: true, value };
-		if (request.op === 'read' && value !== null)
-			transfer.push((value as { bytes: Uint8Array }).bytes.buffer);
+		if (request.op === 'read')
+			for (const file of value as { bytes?: Uint8Array }[])
+				if (file.bytes !== undefined) transfer.push(file.bytes.buffer);
 	} catch (cause) {
 		reply = {
 			id: request.id,

@@ -27,10 +27,16 @@ import {
 import { Ok, type Result } from 'wellcrafted/result';
 import { createChanges, forCollection } from '../changes.js';
 import { noteCodec, type Params, paramsOf } from '../note-codec.js';
-import type { DeviceStore, Unavailable, Version } from './store.js';
+import type { Store, Unavailable, Version } from './store.js';
 
-/** How many notes a listing reads at once. */
-const READS_AT_ONCE = 8;
+/** A store that can still add to the end of a file: this browser's, until the recorder writes a take once. */
+type Appending = Store & {
+	append?(
+		path: string,
+		bytes: Uint8Array,
+		options: { create: boolean; announce: boolean },
+	): Promise<Result<'landed' | 'stale', Unavailable>>;
+};
 
 /** An entry as an app reads it: a note's placeholders, fields and body, or a file's placeholders. */
 export type Entry = Record<string, unknown>;
@@ -90,28 +96,8 @@ export type CollectionFiles = {
 /** A contract's collections over a store, and the store, to close. */
 export type DeviceClient = {
 	collections: ReadonlyMap<string, CollectionFiles>;
-	store: DeviceStore;
+	store: Store;
 };
-
-/** Run `task` over `items`, at most `limit` at once, keeping their order. */
-async function eachAtMost<T, R>(
-	items: T[],
-	limit: number,
-	task: (item: T) => Promise<R>,
-): Promise<R[]> {
-	const out: R[] = new Array(items.length);
-	let next = 0;
-	const worker = async () => {
-		while (next < items.length) {
-			const index = next++;
-			out[index] = await task(items[index] as T);
-		}
-	};
-	await Promise.all(
-		Array.from({ length: Math.min(limit, items.length) }, worker),
-	);
-	return out;
-}
 
 /**
  * The collections of `contract` over `store`. A contract that is not well
@@ -119,7 +105,7 @@ async function eachAtMost<T, R>(
  */
 export function createDeviceClient(
 	contract: Contract,
-	outside: DeviceStore,
+	outside: Store,
 ): DeviceClient {
 	const { data: compiled, error } = compileContract(contract);
 	if (error !== null) throw new Error(error.message, { cause: error });
@@ -137,26 +123,45 @@ export function createDeviceClient(
  * `store`, whose listeners also hear every write that lands through it,
  * before the write resolves, so a reader never lags this device's own writes.
  */
-function observed(store: DeviceStore): DeviceStore {
-	const changes = createChanges((emit) => store.watch(emit));
+function observed(store: Appending): Appending {
+	const changes = createChanges((emit) => {
+		let stop: (() => void) | undefined;
+		let stopped = false;
+		void store
+			.watch((paths) => emit(paths === 'all' ? null : paths))
+			.then((watching) => {
+				if (watching.error !== null) return;
+				if (stopped) watching.data();
+				else stop = watching.data;
+			});
+		return () => {
+			stopped = true;
+			stop?.();
+		};
+	});
 	return {
 		list: store.list,
 		read: store.read,
-		async write(path, bytes, expected) {
-			const written = await store.write(path, bytes, expected);
+		async write(path, bytes, over) {
+			const written = await store.write(path, bytes, over);
 			if (written.error === null && written.data !== 'stale')
 				changes.emit([path]);
 			return written;
 		},
 		...(store.append && {
-			async append(path, bytes, options) {
+			async append(
+				path: string,
+				bytes: Uint8Array,
+				options: { create: boolean; announce: boolean },
+			) {
 				const appended = await store.append!(path, bytes, options);
 				if (appended.data === 'landed' && (options.create || options.announce))
 					changes.emit([path]);
 				return appended;
 			},
 		}),
-		watch: changes.watch,
+		watch: async (changed) =>
+			Ok(changes.watch((paths) => changed(paths ?? 'all'))),
 		close: store.close,
 	};
 }
@@ -178,7 +183,7 @@ function directoryOf(collection: CompiledCollection): string {
 function collectionFiles(
 	compiled: CompiledContract,
 	collection: CompiledCollection,
-	store: DeviceStore,
+	store: Appending,
 ): CollectionFiles {
 	const codec = noteCodec(collection);
 	const kind = collection.kind === 'note' ? 'note' : 'file';
@@ -215,8 +220,8 @@ function collectionFiles(
 		};
 	}
 
-	/** Each file as last read, by path, kept while the stamp a listing gives is unchanged. */
-	const known = new Map<string, { stamp: string; seen: Seen }>();
+	/** Each note as last read, by path, kept while the version a listing gives is unchanged. */
+	const known = new Map<string, Seen>();
 
 	return {
 		kind,
@@ -225,48 +230,38 @@ function collectionFiles(
 		pathOf: (args) => collection.pathOf(args),
 		paramsOf: (args) => paramsOf(collection, args),
 		async list() {
-			const { data: listed, error } = await store.list(directoryOf(collection));
+			const { data: listed, error } = await store.list([
+				directoryOf(collection),
+			]);
 			if (error !== null) return { data: null, error };
-			const paths: {
-				path: string;
-				params: Params;
-				stamp: string;
-				version?: Version;
-			}[] = [];
-			for (const { path, stamp, version } of listed.sort((a, b) =>
+			const paths: { path: string; params: Params; version: Version }[] = [];
+			for (const { path, version } of listed.sort((a, b) =>
 				a.path < b.path ? -1 : 1,
 			)) {
 				const claim = compiled.claim(path);
 				if (claim?.collection.name === collection.name)
-					paths.push({ path, params: claim.params, stamp, version });
+					paths.push({ path, params: claim.params, version });
 			}
-			// A file collection whose store lists versions spares reading every file's bytes.
-			const unread = paths.filter(
-				({ path, stamp, version }) =>
-					known.get(path)?.stamp !== stamp &&
-					!(kind === 'file' && version !== undefined),
-			);
-			const reads = await eachAtMost(unread, READS_AT_ONCE, ({ path }) =>
-				store.read(path),
-			);
+			// A file collection's listing names each file: its bytes are not read.
+			const unread =
+				kind === 'file'
+					? []
+					: paths.filter(({ path, version }) => known.get(path)?.version !== version);
+			const reads = await store.read(unread.map(({ path }) => path));
+			if (reads.error !== null) return reads;
 			for (const [index, { path, params }] of unread.entries()) {
-				const read = reads[index];
+				const read = reads.data[index];
 				if (read === undefined) continue;
-				if (read.error !== null) return read;
 				// Removed since the listing: it is no longer the collection's.
-				if (read.data === null) known.delete(path);
-				else
-					known.set(path, {
-						stamp: read.data.stamp,
-						seen: seen(path, params, read.data.bytes, read.data.version),
-					});
+				if ('gone' in read) known.delete(path);
+				else known.set(path, seen(path, params, read.bytes, read.version));
 			}
 			const present = new Set(paths.map(({ path }) => path));
 			for (const path of known.keys())
 				if (!present.has(path)) known.delete(path);
 			const out: Seen[] = [];
 			for (const { path, params, version } of paths) {
-				if (kind === 'file' && version !== undefined) {
+				if (kind === 'file') {
 					out.push({
 						path,
 						params,
@@ -277,28 +272,25 @@ function collectionFiles(
 					});
 					continue;
 				}
-				const entry = known.get(path)?.seen;
+				const entry = known.get(path);
 				if (entry !== undefined) out.push(entry);
 			}
 			return Ok(out);
 		},
 		async read(path) {
 			const params = compiled.claim(path)?.params ?? {};
-			const read = await store.read(path);
+			const read = await store.read([path]);
 			if (read.error !== null) return read;
-			if (read.data === null) return Ok(null);
-			const { bytes, version } = read.data;
+			const [file] = read.data;
+			if (file === undefined || 'gone' in file) return Ok(null);
+			const { bytes, version } = file;
 			return Ok({ ...seen(path, params, bytes, version), bytes });
 		},
 		async write(path, bytes, over) {
-			const written = await store.write(
-				path,
-				bytes,
-				over === null ? 'absent' : { version: over },
-			);
+			const written = await store.write(path, bytes, over ?? 'absent');
 			if (written.error !== null) return written;
 			if (written.data === 'stale') return Ok('stale');
-			const { landed } = written.data;
+			const landed = written.data;
 			if (bytes === null || landed === null) return Ok(null);
 			const params = compiled.claim(path)?.params ?? {};
 			return Ok(seen(path, params, bytes, landed));
@@ -306,7 +298,21 @@ function collectionFiles(
 		append: store.append
 			? (path, bytes, options) => store.append!(path, bytes, options)
 			: null,
-		subscribe: (listener) =>
-			store.watch(forCollection(compiled, collection.name, listener)),
+		subscribe(listener) {
+			const hear = forCollection(compiled, collection.name, listener);
+			let stop: (() => void) | undefined;
+			let stopped = false;
+			void store
+				.watch((paths) => hear(paths === 'all' ? null : paths))
+				.then((watching) => {
+					if (watching.error !== null) return;
+					if (stopped) watching.data();
+					else stop = watching.data;
+				});
+			return () => {
+				stopped = true;
+				stop?.();
+			};
+		},
 	};
 }

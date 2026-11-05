@@ -56,6 +56,7 @@ import {
 } from '../device/client.js';
 import type { Version } from '../device/store.js';
 import { createFolder } from '../folder.js';
+import { storeChecks } from '../device/store.conformance.js';
 import { repositoryStore } from './store.js';
 
 const recorder = defineContract({
@@ -83,6 +84,8 @@ let server: ReturnType<typeof Bun.serve>;
 let sql: Client;
 let pool: Pool;
 let oauth: OAuthTestClient;
+
+const signIn = signInPerson;
 
 beforeAll(async () => {
 	scratch = await mkdtemp(join(tmpdir(), 'epicenter-remote-'));
@@ -286,8 +289,48 @@ async function signInPerson(label: string) {
 	};
 }
 
+/** The file at `path` in the person's own repository, as the server answers a read of it. */
+async function readRaw(account: Account, path: string) {
+	const response = await account.fetch(
+		`${audiences.git}/~/recorder.git/epicenter/read`,
+		{
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ paths: [path] }),
+		},
+	);
+	const { files } = (await response.json()) as {
+		files: { text: string; blob: Version }[];
+	};
+	return files[0]!;
+}
+
+describe('a repository: the store conformance checks', () => {
+	for (const [name, run] of Object.entries(storeChecks))
+		test(name, async () => {
+			const person = await signIn(`conformance-${name.replaceAll(' ', '-')}`);
+			const store = repositoryStore(person.account, '~/recorder', {
+				pollMs: 100,
+			});
+			// Another computer of the same person, writing over what it reads.
+			const other = repositoryStore(person.account, '~/recorder');
+			await run({
+				store,
+				async outside(path, bytes) {
+					const [there] = expectOk(await other.read([path]));
+					const over =
+						there === undefined || 'gone' in there ? 'absent' : there.version;
+					if (bytes === null && over === 'absent') return;
+					expect(expectOk(await other.write(path, bytes, over))).not.toBe(
+						'stale',
+					);
+				},
+				hearingMs: 3000,
+			});
+		}, 30_000);
+});
+
 describe('a repository as a store', () => {
-	const signIn = signInPerson;
 	const site = 'https://recorder.epicenter.so';
 
 	test("another person's repository is reached under their handle, as far as their grant goes", async () => {
@@ -446,11 +489,7 @@ describe('a repository as a store', () => {
 			items: [shown!],
 			invalid: [],
 		});
-		const file = (await (
-			await person.account.fetch(
-				`${audiences.git}/~/recorder.git/epicenter/file?path=${path}`,
-			)
-		).json()) as { text: string; blob: Version };
+		const file = await readRaw(person.account, path);
 		expect(file.text).toBe('---\ntitle: Styled\nzeta: 1\n---\ntext\n');
 		const listed = expectOk(
 			await filesAt({ account: person.account, site }).recordings.list(),
@@ -497,11 +536,8 @@ describe('a repository as a store', () => {
 			body: 'Kept.\n',
 		});
 		expect(folder.recordings.invalid()).toEqual([]);
-		const file = await person.account.fetch(
-			`${audiences.git}/~/recorder.git/epicenter/file?path=${path}`,
-		);
 		// A whole text that reads is written in house style.
-		expect(((await file.json()) as { text: string }).text).toBe(
+		expect((await readRaw(person.account, path)).text).toBe(
 			'---\ntitle: Fixed\nzeta: 1\n---\nKept.\n',
 		);
 		// The broken note's version is no longer there to write over.
@@ -517,7 +553,7 @@ describe('a repository as a store', () => {
 		const person = await signIn('notify');
 		const remote = filesAt({ account: person.account, site });
 		const other = filesAt({ account: person.account, site });
-		const HEAD = /^GET .*\/epicenter\/head$/;
+		const HEAD = /^GET .*\/epicenter\/changes\?since=/;
 		let notes = 0;
 		let audio = 0;
 		const stopNotes = remote.recordings.subscribe(() => notes++);
@@ -625,12 +661,13 @@ describe('a repository as a store', () => {
 					),
 				),
 			);
-		const FILE = /^GET .*\/epicenter\/file\?/;
+		const FILE = /^POST .*\/epicenter\/read$/;
 		const LIST = /^GET .*\/epicenter\/files\?root=recordings$/;
 		person.sent.length = 0;
 		expect(expectOk(await recordings.list())).toHaveLength(2);
 		expect(person.requests(LIST)).toHaveLength(1);
-		expect(person.requests(FILE)).toHaveLength(2);
+		// Both notes in one request.
+		expect(person.requests(FILE)).toHaveLength(1);
 
 		person.sent.length = 0;
 		expectOk(await recordings.list());

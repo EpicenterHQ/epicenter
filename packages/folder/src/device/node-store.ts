@@ -3,14 +3,16 @@
  * store that writes as ADR-0702 decides, without the desktop shell's
  * edge-case checks (the folder core's `storage.rs` stays the strict host).
  *
- * - A write lands only while its path holds the version its writer read
- *   (`DeviceExpectation`), checked right before the change. Its bytes are
- *   staged in the directory's `.epicenter/saves` (`savesDirectory`), so
- *   another program sees the old file or the new one, never part of either.
- *   A replacement is renamed over the path, keeping the replaced file's
- *   permission bits. A create is placed by a hard link, which the file
- *   system refuses when anything has the name, so of writers creating one
- *   path, in any process, exactly one lands.
+ * - A version is a note's sha256 and an attachment's stamp (its size,
+ *   modification time in nanoseconds, and inode: `versionedByContent`). A
+ *   write lands only while its path holds the version its writer read,
+ *   checked right before the change. Its bytes are staged in the
+ *   directory's `.epicenter/saves` (`savesDirectory`), so another program
+ *   sees the old file or the new one, never part of either. A replacement
+ *   is renamed over the path, keeping the replaced file's permission bits.
+ *   A create is placed by a hard link, which the file system refuses when
+ *   anything has the name, so of writers creating one path, in any process,
+ *   exactly one lands.
  * - Within this process, writes to one path take turns from the check to the
  *   change (`createPathTurns`): of two writers over one version, one lands
  *   and the other is `stale`. Across processes nothing holds a path between
@@ -21,10 +23,11 @@
  * - A path that leaves the directory or names `.git` is refused, and a name
  *   only some disks hold (`pathProblem`) is never made; an existing one is
  *   replaced or removed over its version like any other.
- * - A listing is every regular file below the directory, `.git` at its root
- *   aside, hidden ones included for its reader to skip (`isHiddenPath`). A
- *   file or directory removed while it lists is not listed; only the
- *   directory itself missing fails it.
+ * - A listing is every regular file below the directories asked for, `.git`
+ *   at the root aside, hidden ones included for its reader to skip
+ *   (`isHiddenPath`). A file or directory removed while it lists is not
+ *   listed.
+ * - A watch answers once Node's recursive watcher is live (`watchDirectory`).
  *
  * A save a crash stopped leaves its staged file in `saves/`, hidden, never
  * committed, and safe to delete; the desktop shell sweeps it at its next
@@ -47,13 +50,18 @@ import {
 import { dirname, join } from 'node:path';
 import { ClientError } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
-import { createChanges } from '../changes.js';
 import { hashBytes } from '../hash.js';
 import { watchDirectory } from '../native/watch.js';
 import { createPathTurns } from '../path-turns.js';
 import { pathProblem, readablePath, writableExistingPath } from '../paths.js';
 import { STATE_DIRECTORY, savesDirectory, scratchName } from '../state.js';
-import type { DeviceExpectation, DeviceStore, Version } from './store.js';
+import {
+	type Listed,
+	type Store,
+	type Version,
+	versionedByContent,
+	within,
+} from './store.js';
 
 /** This process's writers to each path, taking turns from the check to the change. */
 const turns = createPathTurns();
@@ -62,20 +70,36 @@ const codeOf = (cause: unknown) => (cause as { code?: unknown } | null)?.code;
 
 /** A file's stamp: its size, modification time, and identity, which every save changes. */
 const stampOf = (stats: BigIntStats) =>
-	`${stats.size}:${stats.mtimeNs}:${stats.ino}`;
+	`${stats.size}:${stats.mtimeNs}:${stats.ino}` as Version;
 
-/** The version of the file at `target`, or undefined when nothing is there. */
-async function versionAt(target: string) {
+/** The version of the file at `path` with `stats`, whose bytes are read only for a note. */
+async function versionOf(
+	path: string,
+	stats: BigIntStats,
+	bytes: () => Promise<Uint8Array>,
+): Promise<Version> {
+	return versionedByContent(path)
+		? ((await hashBytes(await bytes())) as Version)
+		: stampOf(stats);
+}
+
+/** The version of the file at `target` (the folder's `path`), or undefined when nothing is there. */
+async function versionAt(target: string, path: string) {
 	try {
-		return await hashBytes(new Uint8Array(await readFile(target)));
+		const stats = await lstat(target, { bigint: true });
+		return await versionOf(
+			path,
+			stats,
+			async () => new Uint8Array(await readFile(target)),
+		);
 	} catch (cause) {
 		if (codeOf(cause) === 'ENOENT') return undefined;
 		throw cause;
 	}
 }
 
-const holds = (version: string | undefined, expected: DeviceExpectation) =>
-	expected === 'absent' ? version === undefined : version === expected.version;
+const holds = (version: Version | undefined, over: Version | 'absent') =>
+	over === 'absent' ? version === undefined : version === over;
 
 /**
  * Put `staged` at `target` only while nothing is there: a hard link, which
@@ -110,119 +134,170 @@ async function place(staged: string, target: string) {
 function refusal(
 	path: string,
 	bytes: Uint8Array | null,
-	expected: DeviceExpectation,
+	over: Version | 'absent',
 ) {
 	const problem = pathProblem(path);
 	if (problem === undefined) return undefined;
 	// An existing nonportable name may be replaced or removed, never made.
-	if (writableExistingPath(path) && (bytes === null || expected !== 'absent'))
+	if (writableExistingPath(path) && (bytes === null || over !== 'absent'))
 		return undefined;
 	return `The path '${path}' is not usable: ${problem}`;
 }
 
 /** The store of the existing directory at `root`. */
-export function nodeStore(root: string): DeviceStore {
+export function nodeStore(root: string): Store {
 	const saves = savesDirectory(root);
 	const unavailable = (cause: unknown) => ClientError.Unavailable({ cause });
 
-	// Every change below the directory, its own writes included. A directory
-	// that is not there has nothing to hear.
-	const changes = createChanges((emit) => {
-		try {
-			return watchDirectory(root)(emit);
-		} catch {
-			return () => {};
-		}
-	});
-
-	/** Land `bytes` at `target` over `expected`, staged in `saves`. */
+	/** Land `bytes` at `target` (the folder's `path`) over `over`, staged in `saves`. */
 	async function save(
 		target: string,
+		path: string,
 		bytes: Uint8Array,
-		expected: DeviceExpectation,
+		over: Version | 'absent',
 	) {
 		const staged = `${saves}/${scratchName()}`;
 		try {
 			await mkdir(saves, { recursive: true, mode: 0o700 });
 			await writeFile(staged, bytes, { flag: 'wx', mode: 0o600 });
 			await mkdir(dirname(target), { recursive: true });
-			const landed = await turns.run(target, async () => {
-				if (expected === 'absent') return place(staged, target);
-				if (!holds(await versionAt(target), expected)) return 'stale' as const;
-				await chmod(staged, (await stat(target)).mode & 0o777);
-				await rename(staged, target);
-				return 'landed' as const;
+			return await turns.run(target, async () => {
+				if (!holds(await versionAt(target, path), over))
+					return 'stale' as const;
+				if (over !== 'absent')
+					await chmod(staged, (await stat(target)).mode & 0o777);
+				// A rename or a link keeps the staged file's stamp: it is what lands.
+				const landed = await versionOf(
+					path,
+					await lstat(staged, { bigint: true }),
+					async () => bytes,
+				);
+				if (over !== 'absent') await rename(staged, target);
+				else if ((await place(staged, target)) === 'stale')
+					return 'stale' as const;
+				return landed;
 			});
-			if (landed === 'stale') return landed;
-			return { landed: (await hashBytes(bytes)) as Version };
 		} finally {
 			await rm(staged, { force: true });
 		}
 	}
 
+	/** The file at `at` (the folder's `path`) as a listing names it, or undefined when it is none. */
+	async function describe(at: string, path: string) {
+		try {
+			const stats = await lstat(at, { bigint: true });
+			if (!stats.isFile()) return undefined;
+			const version = await versionOf(
+				path,
+				stats,
+				async () => new Uint8Array(await readFile(at)),
+			);
+			return { path, version, size: Number(stats.size) } satisfies Listed;
+		} catch (cause) {
+			if (codeOf(cause) === 'ENOENT') return undefined;
+			throw cause;
+		}
+	}
+
+	/** Every regular file below `directory` (the folder's `prefix`), into `files`. */
+	async function visit(directory: string, prefix: string, files: Listed[]) {
+		for (const entry of await readdir(directory, { withFileTypes: true })) {
+			const path = prefix + entry.name;
+			const at = join(directory, entry.name);
+			if (entry.isDirectory()) {
+				if (path !== '.git')
+					await visit(at, `${path}/`, files).catch((cause) => {
+						if (codeOf(cause) !== 'ENOENT') throw cause;
+					});
+				continue;
+			}
+			if (!entry.isFile()) continue;
+			const listed = await describe(at, path);
+			if (listed !== undefined) files.push(listed);
+		}
+	}
+
+	/** The file at `path` now: its bytes and version from the one file opened, or gone. */
+	async function readOne(path: string) {
+		if (!readablePath(path))
+			throw new Error(`The path '${path}' cannot be read safely`);
+		let file: Awaited<ReturnType<typeof open>>;
+		try {
+			file = await open(join(root, path), 'r');
+		} catch (cause) {
+			const code = codeOf(cause);
+			if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'EISDIR')
+				return { path, gone: true as const };
+			throw cause;
+		}
+		try {
+			const stats = await file.stat({ bigint: true });
+			if (!stats.isFile()) return { path, gone: true as const };
+			const bytes = new Uint8Array(await file.readFile());
+			return {
+				path,
+				bytes,
+				version: await versionOf(path, stats, async () => bytes),
+			};
+		} finally {
+			await file.close();
+		}
+	}
+
 	return {
-		async list() {
-			const files: { path: string; stamp: string }[] = [];
-			async function visit(directory: string, prefix: string) {
-				for (const entry of await readdir(directory, { withFileTypes: true })) {
-					const path = prefix + entry.name;
-					const at = join(directory, entry.name);
-					if (entry.isDirectory()) {
-						if (path !== '.git')
-							await visit(at, `${path}/`).catch((cause) => {
-								if (codeOf(cause) !== 'ENOENT') throw cause;
-							});
+		async list(under) {
+			const files: Listed[] = [];
+			// A path below another one asked for is walked once, with it.
+			const prefixes = [...new Set(under)].filter(
+				(prefix, _, all) =>
+					!all.some((other) => other !== prefix && within(prefix, [other])),
+			);
+			try {
+				for (const prefix of prefixes) {
+					if (prefix === '') {
+						await visit(root, '', files);
 						continue;
 					}
-					if (!entry.isFile()) continue;
-					const stats = await lstat(at, { bigint: true }).catch(
-						() => undefined,
-					);
-					if (stats !== undefined) files.push({ path, stamp: stampOf(stats) });
+					const at = join(root, prefix);
+					const stats = await lstat(at).catch((cause: unknown) => {
+						const code = codeOf(cause);
+						if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
+						throw cause;
+					});
+					if (stats === undefined) continue;
+					if (stats.isDirectory())
+						await visit(at, `${prefix}/`, files).catch((cause) => {
+							if (codeOf(cause) !== 'ENOENT') throw cause;
+						});
+					else {
+						const listed = await describe(at, prefix);
+						if (listed !== undefined) files.push(listed);
+					}
 				}
-			}
-			try {
-				await visit(root, '');
 			} catch (cause) {
 				return unavailable(cause);
 			}
 			return Ok(files);
 		},
-		async read(path) {
-			if (!readablePath(path))
-				return unavailable(`The path '${path}' cannot be read safely`);
-			let file: Awaited<ReturnType<typeof open>>;
+		async read(paths) {
 			try {
-				file = await open(join(root, path), 'r');
-			} catch (cause) {
-				const code = codeOf(cause);
-				if (code === 'ENOENT' || code === 'ENOTDIR') return Ok(null);
-				return unavailable(cause);
-			}
-			// The bytes and the stamp come from the one file opened.
-			try {
-				const stats = await file.stat({ bigint: true });
-				const bytes = new Uint8Array(await file.readFile());
-				const version = (await hashBytes(bytes)) as Version;
-				return Ok({ bytes, version, stamp: stampOf(stats) });
+				return Ok(await Promise.all(paths.map(readOne)));
 			} catch (cause) {
 				return unavailable(cause);
-			} finally {
-				await file.close();
 			}
 		},
-		async write(path, bytes, expected) {
-			const refused = refusal(path, bytes, expected);
+		async write(path, bytes, over) {
+			const refused = refusal(path, bytes, over);
 			if (refused !== undefined) return unavailable(refused);
 			const target = join(root, path);
 			try {
-				if (bytes !== null) return Ok(await save(target, bytes, expected));
+				if (bytes !== null) return Ok(await save(target, path, bytes, over));
 				return Ok(
 					await turns.run(target, async () => {
-						const version = await versionAt(target);
-						if (!holds(version, expected)) return 'stale' as const;
+						const version = await versionAt(target, path);
+						if (!holds(version, over)) return 'stale' as const;
 						if (version !== undefined) await rm(target);
-						return { landed: null };
+						return null;
 					}),
 				);
 			} catch (cause) {
@@ -232,6 +307,13 @@ export function nodeStore(root: string): DeviceStore {
 				);
 			}
 		},
-		watch: changes.watch,
+		async watch(changed) {
+			try {
+				return Ok(await watchDirectory(root, changed));
+			} catch (cause) {
+				return unavailable(cause);
+			}
+		},
+		close() {},
 	};
 }

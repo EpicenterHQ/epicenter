@@ -39,7 +39,7 @@ use tauri::{Manager, RunEvent, Runtime};
 
 pub use epicenter_folder_core::admission;
 pub use epicenter_folder_core::directory::{Directory, DirectoryError};
-pub use epicenter_folder_core::storage::{PutOutcome, StorageError};
+pub use epicenter_folder_core::storage::{Landing, PutOutcome, StorageError};
 
 mod command_names;
 mod commands;
@@ -58,7 +58,7 @@ const PLUGIN_NAME: &str = "epicenter-folder";
 /// `../folder/src/native/bindings.gen.ts` are generated from this builder.
 /// `put_folder_file` takes a raw body and `read_folder_file` returns one,
 /// which specta cannot type, so they are dispatched beside these (`init`)
-/// and left out of the bindings. `PutOutcome`, what `put_folder_file`
+/// and left out of the bindings. `Landing`, what `put_folder_file`
 /// answers, is exported for the page.
 fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
@@ -70,7 +70,7 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             epicenter::sync_with_epicenter::<tauri::Wry>,
             epicenter::synced_with_epicenter::<tauri::Wry>,
         ])
-        .typ::<PutOutcome>()
+        .typ::<Landing>()
         .typ::<FolderEvent>()
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }

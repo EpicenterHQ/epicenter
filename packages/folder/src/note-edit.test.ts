@@ -24,7 +24,7 @@ import { expect, test } from 'bun:test';
 import { defineContract } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { memoryStore } from './device/memory-store.js';
-import type { DeviceStore } from './device/store.js';
+import type { Store } from './device/store.js';
 import { createFolder } from './folder.js';
 import { memory, memoryFiles } from './memory.js';
 import { openFolder } from './open-folder.js';
@@ -50,19 +50,20 @@ const note = (fields: string, body = '') => `---\n${fields}---\n${body}`;
 function inMemory() {
 	const store = memoryStore();
 	const counts = { writes: 0, watching: 0 };
-	const counted: DeviceStore = {
+	const counted: Store = {
 		...store,
-		write(...args) {
+		write(path, bytes, over) {
 			counts.writes++;
-			return store.write(...args);
+			return store.write(path, bytes, over);
 		},
-		watch(listener) {
+		async watch(listener) {
 			counts.watching++;
-			const stop = store.watch(listener);
-			return () => {
+			const stop = await store.watch(listener);
+			if (stop.error !== null) return stop;
+			return Ok(() => {
 				counts.watching--;
-				stop();
-			};
+				stop.data();
+			});
 		},
 	};
 	const folder = createFolder(todos, async () => Ok(counted));

@@ -158,7 +158,7 @@ fn a_page_reaches_each_root_by_name_and_each_holds_its_own_files() {
     assert!(!fixture.root.join("theme.md").exists());
     // An absolute path, or any name that is not a root, reaches nothing.
     for named in [json!(fixture.root), json!("data"), json!("Elsewhere")] {
-        assert!(invoke(&main, "list_folder", json!({ "root": named })).is_err());
+        assert!(invoke(&main, "list_folder", json!({ "root": named, "under": [""] })).is_err());
     }
     let mut headers = put_headers("theme.md", false, None);
     headers.insert("root", encoded(fixture.root.to_str().unwrap()));
@@ -185,7 +185,7 @@ fn a_root_is_made_when_missing_and_reached_only_once_opened() {
     std::fs::remove_dir(&fixture.root).unwrap();
     let not_open = json!({ "name": "NotOpen", "root": "Data" });
     assert_eq!(
-        invoke(&main, "list_folder", json!({ "root": "Data" })).unwrap_err(),
+        invoke(&main, "list_folder", json!({ "root": "Data", "under": [""] })).unwrap_err(),
         not_open
     );
     assert_eq!(read_file(&main, "a.md").unwrap_err(), not_open);
@@ -212,7 +212,7 @@ fn a_root_the_shell_did_not_name_is_refused() {
     assert_eq!(open(&main).unwrap_err(), not_named);
     assert_eq!(open_root(&main, Root::Data).unwrap_err(), not_named);
     assert_eq!(
-        invoke(&main, "list_folder", json!({ "root": "Data" })).unwrap_err(),
+        invoke(&main, "list_folder", json!({ "root": "Data", "under": [""] })).unwrap_err(),
         not_named
     );
     assert_eq!(std::fs::read_dir(&directory.0).unwrap().count(), 0);
@@ -267,7 +267,7 @@ fn storage_behind_a_dangling_link_is_disconnected_and_makes_nothing() {
     });
     let every_command = |main: &WebviewWindow<MockRuntime>| {
         assert_eq!(
-            invoke(main, "list_folder", json!({ "root": "Data" })).unwrap_err(),
+            invoke(main, "list_folder", json!({ "root": "Data", "under": [""] })).unwrap_err(),
             disconnected
         );
         assert_eq!(read_file(main, "a.md").unwrap_err(), disconnected);
@@ -302,8 +302,9 @@ fn storage_behind_a_dangling_link_is_disconnected_and_makes_nothing() {
             InvokeBody::Raw(b"a".to_vec()),
             headers
         )
-        .unwrap(),
-        "landed"
+        .unwrap()["landed"]
+        .is_string(),
+        true
     );
 }
 
@@ -590,12 +591,20 @@ fn put(
     bytes: Option<&[u8]>,
     if_match: Option<&str>,
 ) -> Result<Value, Value> {
+    // A landing names the stamp that landed; these tests ask only whether it did.
     request(
         window,
         "put_folder_file",
         InvokeBody::Raw(bytes.unwrap_or_default().to_vec()),
         put_headers(path, bytes.is_none(), if_match),
     )
+    .map(|value| {
+        if value.get("landed").is_some() {
+            json!("landed")
+        } else {
+            value
+        }
+    })
 }
 
 /// The headers of a put in the data root expecting the file whose SHA-256
@@ -856,10 +865,27 @@ fn storage_reaches_the_data_paths_of_the_root_and_nothing_else() {
     write(&fixture, &main, "todos/a.md", "first\n").unwrap();
     std::fs::create_dir(fixture.root.join("empty")).unwrap();
 
-    let mut listed = invoke(&main, "list_folder", json!({ "root": "Data" })).unwrap();
-    assert!(listed[0]["stamp"].as_str().unwrap().starts_with("v1:"));
-    listed[0].as_object_mut().unwrap().remove("stamp");
-    assert_eq!(listed, json!([{ "path": "todos/a.md" }]));
+    // A note is named by its SHA-256, any other file by its stamp.
+    std::fs::write(fixture.root.join("todos/a.bin"), b"bytes").unwrap();
+    let mut listed = invoke(&main, "list_folder", json!({ "root": "Data", "under": ["todos"] })).unwrap();
+    listed
+        .as_array_mut()
+        .unwrap()
+        .sort_by_key(|file| file["path"].as_str().unwrap().to_string());
+    assert!(listed[0]["version"].as_str().unwrap().starts_with("v1:"));
+    listed[0].as_object_mut().unwrap().remove("version");
+    assert_eq!(
+        listed,
+        json!([
+            { "path": "todos/a.bin", "size": 5.0 },
+            { "path": "todos/a.md", "version": sha256(b"first\n"), "size": 6.0 }
+        ])
+    );
+    assert_eq!(
+        invoke(&main, "list_folder", json!({ "root": "Data", "under": ["empty", "todos/a.md"] })).unwrap(),
+        json!([{ "path": "todos/a.md", "version": sha256(b"first\n"), "size": 6.0 }])
+    );
+    std::fs::remove_file(fixture.root.join("todos/a.bin")).unwrap();
     // Every byte value arrives as it is, raw.
     let bytes: Vec<u8> = (0..=255).collect();
     std::fs::write(fixture.root.join("todos/all.bin"), &bytes).unwrap();
@@ -922,8 +948,8 @@ fn a_path_through_a_link_or_naming_one_is_refused() {
             link(path)
         );
     }
-    // A link is listed as a file, never followed.
-    let listed = invoke(&main, "list_folder", json!({ "root": "Data" })).unwrap();
+    // A link is neither listed nor followed: a listing names regular files.
+    let listed = invoke(&main, "list_folder", json!({ "root": "Data", "under": [""] })).unwrap();
     let mut files: Vec<String> = listed
         .as_array()
         .unwrap()
@@ -931,7 +957,7 @@ fn a_path_through_a_link_or_naming_one_is_refused() {
         .map(|file| text(&file["path"]))
         .collect();
     files.sort();
-    assert_eq!(files, ["a.md", "todos"]);
+    assert!(files.is_empty(), "{files:?}");
     assert_eq!(
         std::fs::read(elsewhere.join("secret.md")).unwrap(),
         b"theirs"
@@ -991,7 +1017,7 @@ fn a_folder_with_a_git_file_or_link_opens_and_saves() {
         std::fs::read_to_string(worktree.root.join(".git")).unwrap(),
         gitdir
     );
-    let listed = invoke(&main, "list_folder", json!({ "root": "Data" })).unwrap();
+    let listed = invoke(&main, "list_folder", json!({ "root": "Data", "under": [""] })).unwrap();
     assert_eq!(listed[0]["path"], "todos/a.md");
     assert_eq!(listed.as_array().unwrap().len(), 1);
     assert_eq!(staged(&worktree), Vec::<String>::new());

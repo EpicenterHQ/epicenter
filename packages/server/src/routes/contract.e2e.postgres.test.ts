@@ -203,15 +203,19 @@ function webClient(token: string, namespace: string, name: string) {
 			};
 		},
 		async read(path: string) {
-			const response = await fetch(
-				`${repo}/epicenter/file?path=${encodeURIComponent(path)}`,
-				{ headers: auth },
-			);
-			return (await response.json()) as {
-				blob: string;
-				text?: string;
-				lfs?: { oid: string; size: number };
+			const response = await fetch(`${repo}/epicenter/read`, {
+				method: 'POST',
+				headers: { ...auth, 'content-type': 'application/json' },
+				body: JSON.stringify({ paths: [path] }),
+			});
+			const { files } = (await response.json()) as {
+				files: {
+					blob: string;
+					text?: string;
+					lfs?: { oid: string; size: number };
+				}[];
 			};
+			return files[0]!;
 		},
 	};
 }

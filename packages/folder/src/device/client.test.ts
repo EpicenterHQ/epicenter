@@ -20,14 +20,14 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
-import { Ok } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { hashBytes } from '../hash.js';
 import { directory } from '../node.js';
 import { openFolder } from '../open-folder.js';
 import { type CollectionFiles, createDeviceClient } from './client.js';
 import { nodeStore } from './node-store.js';
-import type { DeviceStore, Version } from './store.js';
+import type { Store, Unavailable, Version } from './store.js';
 
 const recorder = defineContract({
 	collections: {
@@ -182,7 +182,7 @@ test('a file collection takes both placeholders of {id}.{ext}, and its versions 
 	});
 	const listed = expectOk(await audio.list());
 	const read = expectOk(await audio.read('recordings/a.m4a'));
-	expect(listed[0]?.version).toBe(await versionOf(bytes(1, 2, 3)));
+	expect(listed[0]?.version).toEqual(expect.any(String));
 	expect(read?.version).toBe(listed[0]?.version);
 	await folder.audio.set(at, bytes(4, 5));
 	expect(expectOk(await folder.audio.read(at))?.bytes).toEqual(bytes(4, 5));
@@ -286,18 +286,31 @@ test('a write by another program to the folder reaches listeners; a hidden path 
 
 test("an appended file's listeners hear it made and announced, not every piece", async () => {
 	const files = new Map<string, Uint8Array>();
-	const store: DeviceStore = {
+	const store: Store & {
+		append(
+			path: string,
+			added: Uint8Array,
+			options: { create: boolean },
+		): Promise<Result<'landed' | 'stale', Unavailable>>;
+	} = {
 		list: async () =>
-			Ok([...files.keys()].map((path) => ({ path, stamp: '' }))),
-		read: async () => Ok(null),
-		write: async () => Ok({ landed: null }),
+			Ok(
+				[...files.keys()].map((path) => ({
+					path,
+					version: '' as Version,
+					size: 0,
+				})),
+			),
+		read: async (paths) => Ok(paths.map((path) => ({ path, gone: true as const }))),
+		write: async () => Ok(null),
 		async append(path, added, { create }) {
 			const there = files.get(path);
 			if (create === (there !== undefined)) return Ok('stale');
 			files.set(path, new Uint8Array([...(there ?? []), ...added]));
 			return Ok('landed');
 		},
-		watch: () => () => {},
+		watch: async () => Ok(() => {}),
+		close() {},
 	};
 	const audio = createDeviceClient(recorder, store).collections.get(
 		'audio',

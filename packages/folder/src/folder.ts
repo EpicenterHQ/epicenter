@@ -53,7 +53,7 @@ import {
 	type Entry,
 	type Seen,
 } from './device/client.js';
-import type { DeviceStore, Unavailable } from './device/store.js';
+import type { Store, Unavailable } from './device/store.js';
 import { OpenFolderError, type RevealRootError } from './errors.js';
 import { noteCodec } from './note-codec.js';
 import { editNote, type NoteEdit, type NoteEditOptions } from './note-edit.js';
@@ -255,7 +255,7 @@ const RESERVED = new Set([
  * tries again on its own (`Unavailable`), or what waiting will not fix.
  */
 export type FolderOpen = () => Promise<
-	Result<DeviceStore, OpenFolderError | Unavailable>
+	Result<Store, OpenFolderError | Unavailable>
 >;
 
 /** How long after a failure the folder tries again, doubling per failure up to the most. */

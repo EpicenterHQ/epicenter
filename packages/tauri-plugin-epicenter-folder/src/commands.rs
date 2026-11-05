@@ -18,7 +18,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 
-use epicenter_folder_core::storage::{self, ListedFile, PutOutcome, StorageError};
+use epicenter_folder_core::storage::{self, Landing, ListedFile, StorageError};
 use serde::Serialize;
 use specta::Type;
 use tauri::{Emitter, Manager, Runtime, Webview};
@@ -219,17 +219,20 @@ fn opened<R: Runtime>(webview: &Webview<R>, root: Root) -> Result<Directory, Fol
     Ok(webview.state::<Roots>().opened(root)?)
 }
 
-/// Every file below `root`, `.git` aside, hidden ones included, none of
-/// them followed (`storage::list`).
+/// Every regular file in `root` at or below each of `under` (a directory or
+/// a file path; empty is the whole root), `.git` aside, hidden ones
+/// included, none of them followed, each with its version and size
+/// (`storage::list`).
 #[tauri::command]
 #[specta::specta]
 pub async fn list_folder<R: Runtime>(
     webview: Webview<R>,
     root: Root,
+    under: Vec<String>,
 ) -> Result<Vec<ListedFile>, FolderError> {
     let directory = opened(&webview, root)?;
     blocking(
-        move || storage::list(directory.root()).map_err(FolderError::from),
+        move || storage::list(directory.root(), &under).map_err(FolderError::from),
         |message| Err(failed("", "list", message).into()),
     )
     .await
@@ -262,15 +265,15 @@ pub async fn read_folder_file<R: Runtime>(
 }
 
 /// Publish a file's bytes in a root, or remove it, only while the path holds
-/// what the page expects (`storage::put`): a `landed` result with its stamp,
+/// what the page expects (`storage::put_landing`): `{ landed }` with the stamp of the file that landed,
 /// or `stale` when it did not hold that and nothing changed.
 ///
 /// The bytes are the request's raw body, so file content crosses IPC as it
 /// is rather than as a JSON array of numbers. Percent-encoded headers carry
 /// the rest: `path`, `root` (`Data` or `AppData`), `remove` (`true` to
 /// remove the file, when the body is ignored), and `expected`, the version
-/// the page read there (`absent` for a create, or `sha256:` and the SHA-256
-/// of the file: `storage::Expectation`). A JSON array of bytes is accepted
+/// the page read there (`absent` for a create, `sha256:` and the SHA-256 of a note,
+/// or `stamp:` and the stamp of any other file: `storage::Expectation`). A JSON array of bytes is accepted
 /// as well: Tauri sends one when its custom-protocol IPC failed and it fell
 /// back to `postMessage`. Any other body is refused.
 ///
@@ -283,7 +286,7 @@ pub async fn read_folder_file<R: Runtime>(
 pub async fn put_folder_file<R: Runtime>(
     webview: Webview<R>,
     request: tauri::ipc::Request<'_>,
-) -> Result<PutOutcome, FolderError> {
+) -> Result<Landing, FolderError> {
     let header = |name: &str| -> Result<Option<String>, String> {
         let Some(value) = request.headers().get(name) else {
             return Ok(None);
@@ -327,7 +330,7 @@ pub async fn put_folder_file<R: Runtime>(
     let at = path.clone();
     blocking(
         move || {
-            storage::put(directory.root(), &path, bytes.as_deref(), &expected)
+            storage::put_landing(directory.root(), &path, bytes.as_deref(), &expected)
                 .map_err(FolderError::from)
         },
         |message| Err(failed(&at, operation, message).into()),

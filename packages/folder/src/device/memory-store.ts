@@ -14,10 +14,15 @@
  */
 import { ClientError } from '@epicenter/definition/contract';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { ChangeListener } from '../changes.js';
 import type { OpenFolderError } from '../errors.js';
 import { hashBytes } from '../hash.js';
-import type { DeviceStore, Unavailable, Version } from './store.js';
+import {
+	type Changed,
+	type Store,
+	type Unavailable,
+	type Version,
+	within,
+} from './store.js';
 
 /** What a test does to a folder in memory from outside it. */
 export type MemoryFiles = {
@@ -115,15 +120,13 @@ function refusals() {
 	};
 }
 
-export function memoryStore(): DeviceStore & {
+export function memoryStore(): Store & {
 	outside: MemoryFiles;
 	/** Open the store for a folder: once nothing holds the open, the store or the error set. */
-	opened(): Promise<Result<DeviceStore, OpenFolderError | Unavailable>>;
+	opened(): Promise<Result<Store, OpenFolderError | Unavailable>>;
 } {
 	const files = new Map<string, { bytes: Uint8Array; version: Version }>();
-	let stamps = 0;
-	const stampOf = new Map<string, string>();
-	const listeners = new Set<ChangeListener>();
+	const listeners = new Set<Changed>();
 	const writes = gate();
 	const opens = gate();
 	const writeRefusals = refusals();
@@ -143,64 +146,68 @@ export function memoryStore(): DeviceStore & {
 		bytes: Uint8Array | null,
 		version: Version | null,
 	) {
-		if (bytes === null || version === null) {
-			files.delete(path);
-			stampOf.delete(path);
-			return;
-		}
-		files.set(path, { bytes: bytes.slice(), version });
-		stampOf.set(path, String(++stamps));
+		if (bytes === null || version === null) files.delete(path);
+		else files.set(path, { bytes: bytes.slice(), version });
 	}
 
+	/** Every folder at this place hears it, the writer's own included: the change is readable already. */
 	const tell = (path: string) => {
 		for (const listener of [...listeners]) listener([path]);
 	};
 
-	const store: DeviceStore = {
+	const store: Store = {
 		async list(under) {
-			const refused = readRefusals.overlapping(under);
-			if (refused !== null) return ClientError.Unavailable({ cause: refused });
+			for (const directory of under) {
+				const refused = readRefusals.overlapping(directory);
+				if (refused !== null)
+					return ClientError.Unavailable({ cause: refused });
+			}
 			return Ok(
-				[...files.keys()].map((path) => ({
-					path,
-					stamp: stampOf.get(path) ?? '',
-				})),
+				[...files]
+					.filter(([path]) => within(path, under))
+					.map(([path, { bytes, version }]) => ({
+						path,
+						version,
+						size: bytes.byteLength,
+					})),
 			);
 		},
-		async read(path) {
-			const refused = readRefusals.of(path);
-			if (refused !== null) return ClientError.Unavailable({ cause: refused });
-			const file = files.get(path);
-			if (file === undefined) return Ok(null);
-			return Ok({
-				bytes: file.bytes.slice(),
-				version: file.version,
-				stamp: stampOf.get(path) ?? '',
-			});
+		async read(paths) {
+			for (const path of paths) {
+				const refused = readRefusals.of(path);
+				if (refused !== null)
+					return ClientError.Unavailable({ cause: refused });
+			}
+			return Ok(
+				paths.map((path) => {
+					const file = files.get(path);
+					return file === undefined
+						? { path, gone: true as const }
+						: { path, bytes: file.bytes.slice(), version: file.version };
+				}),
+			);
 		},
-		async write(path, bytes, expected) {
+		async write(path, bytes, over) {
 			await writes.wait();
 			const refused = writeRefusals.of(path);
 			if (refused !== null) return ClientError.Unavailable({ cause: refused });
 			const landed = await versionOf(bytes);
-			// No await from here: of two writes over one expectation, one lands.
+			// No await from here: of two writes over one version, one lands.
 			const file = files.get(path);
 			const holds =
-				expected === 'absent'
-					? file === undefined
-					: file?.version === expected.version;
+				over === 'absent' ? file === undefined : file?.version === over;
 			if (!holds) return Ok('stale');
 			put(path, bytes, landed);
-			// Every folder at this place hears it; the writer's client hears its own already.
 			tell(path);
-			return Ok({ landed });
+			return Ok(landed);
 		},
-		watch(listener) {
-			listeners.add(listener);
-			return () => {
-				listeners.delete(listener);
-			};
+		async watch(changed) {
+			listeners.add(changed);
+			return Ok(() => {
+				listeners.delete(changed);
+			});
 		},
+		close() {},
 	};
 
 	return {

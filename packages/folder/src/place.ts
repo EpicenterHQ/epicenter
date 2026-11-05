@@ -2,12 +2,12 @@
  * Where a folder is, as a value (ADR-0773): the app's `home`, a
  * `directory` in Bun or Node, or `memory` under the `test` condition. A
  * place is opaque: only this package makes one, and `openFolder` opens it.
- * Every place opens to a store (`DeviceStore`), and the one typed client
+ * Every place opens to a store (`Store`), and the one typed client
  * gives the folder the contract's notes and files over it.
  */
 import type { Contract } from '@epicenter/definition/contract';
 import type { Result } from 'wellcrafted/result';
-import type { DeviceStore, Unavailable } from './device/store.js';
+import type { Store, Unavailable } from './device/store.js';
 import type { OpenFolderError, RevealRootError } from './errors.js';
 
 const OPENING = Symbol('epicenter.place');
@@ -19,7 +19,7 @@ export type Opening = {
 	 * temporary failure (`Unavailable`, which the folder retries on its own),
 	 * and on each retry after a failure that waiting will not fix.
 	 */
-	open(): Promise<Result<DeviceStore, OpenFolderError | Unavailable>>;
+	open(): Promise<Result<Store, OpenFolderError | Unavailable>>;
 	/** Show the place in the file manager, even when it did not open: only the desktop's data folder has one. */
 	reveal?: () => Promise<Result<null, RevealRootError>>;
 	/** Where the place is, to show a person, once it opened: only the desktop's data folder has one. */

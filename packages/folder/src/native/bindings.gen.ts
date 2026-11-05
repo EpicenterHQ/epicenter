@@ -20,10 +20,12 @@ export const commands = {
 	 */
 	revealRoot: (root: Root) => typedError<null, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|reveal_root", { root })),
 	/**
-	 *  Every file below `root`, `.git` aside, hidden ones included, none of
-	 *  them followed (`storage::list`).
+	 *  Every regular file in `root` at or below each of `under` (a directory or
+	 *  a file path; empty is the whole root), `.git` aside, hidden ones
+	 *  included, none of them followed, each with its version and size
+	 *  (`storage::list`).
 	 */
-	listFolder: (root: Root) => typedError<ListedFile[], FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root })),
+	listFolder: (root: Root, under: string[]) => typedError<ListedFile[], FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root, under })),
 	/**
 	 *  Ask the operating system to open Epicenter with a request to sync the
 	 *  Data folder, after the app opened it, under `contract`, the URL its
@@ -54,19 +56,22 @@ export type FolderEvent = {
 };
 
 /**
- *  One file in a listing. Anything that is not a directory is a file here,
- *  a link or a special entry included, none of them followed.
+ *  What a put answers the page: the stamp of the file that
+ *  landed (empty for a removal), which names an attachment's version, or
+ *  `stale` when the path held something else and nothing changed.
+ */
+export type Landing = { landed: string } | "stale";
+
+/**
+ *  One regular file in a listing: its version as the page names it (a
+ *  note's SHA-256, any other file's stamp: `versioned_by_content`), and its
+ *  size in bytes.
  */
 export type ListedFile = {
 	path: string,
-	stamp: string,
+	version: string,
+	size: number | null,
 };
-
-/**
- *  What a `put` did: changed the file, or found the path holding something
- *  other than what the page expected and changed nothing.
- */
-export type PutOutcome = "landed" | "stale";
 
 /**  A root an app reaches by name. */
 export type Root =

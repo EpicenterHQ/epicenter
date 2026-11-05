@@ -11,9 +11,9 @@ test('a closed store stops its Worker, and every later call is Unavailable', asy
 	});
 	const store = unwrap(await openingOf(browserStorage(), contract).open());
 	// Starts the Worker; Bun has no private file system, so it answers either way.
-	await store.list();
-	store.close?.();
-	const after = await store.list();
+	await store.list(['']);
+	store.close();
+	const after = await store.list(['']);
 	expect(after.error).toMatchObject({
 		name: 'Unavailable',
 		cause: { name: 'WorkerFailed' },

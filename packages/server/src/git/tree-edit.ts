@@ -109,3 +109,43 @@ export async function editTree(
 	written.push(tree);
 	return tree.oid;
 }
+
+/**
+ * Every file path whose entry differs between tree `before` and tree
+ * `after` (null: an empty tree), sorted: added, removed, or changed. A
+ * subtree with the same id on both sides is the same, and is not read.
+ */
+export async function diffTrees(
+	objects: GitObjects,
+	before: string | null,
+	after: string | null,
+): Promise<string[]> {
+	const paths: string[] = [];
+	const entries = async (tree: string | null) =>
+		new Map(
+			((tree === null ? [] : await readTree(objects, tree)) ?? []).map(
+				(entry) => [entry.name, entry],
+			),
+		);
+	const walk = async (
+		left: string | null,
+		right: string | null,
+		dir: string,
+	): Promise<void> => {
+		if (left === right) return;
+		const [was, now] = await Promise.all([entries(left), entries(right)]);
+		for (const name of new Set([...was.keys(), ...now.keys()])) {
+			const a = was.get(name);
+			const b = now.get(name);
+			if (a?.oid === b?.oid && a?.mode === b?.mode) continue;
+			const path = dir === '' ? name : `${dir}/${name}`;
+			const aTree = a?.mode === TREE_MODE ? a.oid : null;
+			const bTree = b?.mode === TREE_MODE ? b.oid : null;
+			if (aTree !== null || bTree !== null) await walk(aTree, bTree, path);
+			if ((a && a.mode !== TREE_MODE) || (b && b.mode !== TREE_MODE))
+				paths.push(path);
+		}
+	};
+	await walk(before, after, '');
+	return paths.sort();
+}

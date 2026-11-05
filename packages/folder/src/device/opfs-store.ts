@@ -21,13 +21,14 @@ import {
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
-import { Ok } from 'wellcrafted/result';
-import { createChanges } from '../changes.js';
-import type { Changed, Reply } from './opfs-worker.js';
+import { Ok, type Result } from 'wellcrafted/result';
+import type { Changed as Broadcast, Reply } from './opfs-worker.js';
 import type {
-	DeviceExpectation,
-	DeviceLanded,
-	DeviceStore,
+	Changed,
+	FileRead,
+	Listed,
+	Store,
+	Unavailable,
 	Version,
 } from './store.js';
 
@@ -52,13 +53,13 @@ export const DeviceError = defineErrors({
 export type DeviceError = InferErrors<typeof DeviceError>;
 
 type Request =
-	| { op: 'list' }
-	| { op: 'read'; path: string }
+	| { op: 'list'; under: string[] }
+	| { op: 'read'; paths: string[] }
 	| {
 			op: 'write';
 			path: string;
 			bytes: Uint8Array | null;
-			expected: DeviceExpectation;
+			over: string;
 			from: string;
 	  }
 	| {
@@ -70,22 +71,23 @@ type Request =
 			from: string;
 	  };
 
-export function opfsStore(): DeviceStore {
+/**
+ * The store over this origin's private files. Until the browser recorder
+ * writes a take once (ADR-0779), it also appends.
+ */
+export function opfsStore(): Store & {
+	append(
+		path: string,
+		bytes: Uint8Array,
+		options: { create: boolean; announce: boolean },
+	): Promise<Result<'landed' | 'stale', Unavailable>>;
+} {
 	let worker: Worker | undefined;
 	let closed = false;
 	let next = 0;
 	const waiting = new Map<number, (reply: Reply) => void>();
 	/** Names this store's writes on the broadcast channel, to skip them there. */
 	const writer = crypto.randomUUID();
-	const changes = createChanges((emit) => {
-		if (typeof BroadcastChannel === 'undefined') return () => {};
-		const channel = new BroadcastChannel(CHANGES);
-		channel.onmessage = ({ data }: MessageEvent<Changed>) => {
-			if (data?.from !== writer)
-				emit(Array.isArray(data?.paths) ? data.paths : null);
-		};
-		return () => channel.close();
-	});
 
 	function start() {
 		// The literal `new Worker(new URL(…, import.meta.url))` is what Vite
@@ -155,31 +157,25 @@ export function opfsStore(): DeviceStore {
 	}
 
 	return {
-		async list() {
-			const listed = await call({ op: 'list' });
+		async list(under) {
+			const listed = await call({ op: 'list', under: [...under] });
 			if (listed.error !== null) return listed;
-			return Ok(listed.data as { path: string; stamp: string }[]);
+			return Ok(listed.data as Listed[]);
 		},
-		async read(path) {
-			const read = await call({ op: 'read', path });
+		async read(paths) {
+			const read = await call({ op: 'read', paths: [...paths] });
 			if (read.error !== null) return read;
-			return Ok(
-				read.data as {
-					bytes: Uint8Array;
-					version: Version;
-					stamp: string;
-				} | null,
-			);
+			return Ok(read.data as FileRead[]);
 		},
-		async write(path, bytes, expected) {
+		async write(path, bytes, over) {
 			// A copy goes to the Worker, so the caller's bytes stay usable.
 			const owned = bytes === null ? null : bytes.slice();
 			const written = await call(
-				{ op: 'write', path, bytes: owned, expected, from: writer },
+				{ op: 'write', path, bytes: owned, over, from: writer },
 				owned === null ? [] : [owned.buffer],
 			);
 			if (written.error !== null) return written;
-			return Ok(written.data as DeviceLanded | 'stale');
+			return Ok(written.data as Version | null | 'stale');
 		},
 		async append(path, bytes, { create, announce }) {
 			const owned = bytes.slice();
@@ -190,7 +186,17 @@ export function opfsStore(): DeviceStore {
 			if (appended.error !== null) return appended;
 			return Ok(appended.data as 'landed' | 'stale');
 		},
-		watch: changes.watch,
+		// The channel is open once made: a change another tab lands after this
+		// answers is heard, and only after the Worker landed it.
+		async watch(changed: Changed) {
+			if (typeof BroadcastChannel === 'undefined') return Ok(() => {});
+			const channel = new BroadcastChannel(CHANGES);
+			channel.onmessage = ({ data }: MessageEvent<Broadcast>) => {
+				if (data?.from !== writer)
+					changed(Array.isArray(data?.paths) ? data.paths : 'all');
+			};
+			return Ok(() => channel.close());
+		},
 		close() {
 			closed = true;
 			worker?.terminate();

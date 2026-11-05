@@ -10,8 +10,10 @@
  * OPFS, opfs-probe/RESULTS.md):
  *
  * 1. A note lands in house style at its contract path, and 5 MB of audio
- *    reads back byte for byte, its version the sha256 of its bytes; a write
- *    there expecting nothing is `'stale'`.
+ *    reads back byte for byte, named by its stamp; a write there expecting
+ *    nothing is `'stale'`. The store conformance checks
+ *    (`store.conformance.ts`) pass, a second store's Worker writing as
+ *    another tab.
  * 2. A second tab reads the same files.
  * 3. Below the folder, two tabs racing a write over one version: one lands,
  *    one is `'stale'`; racing a write where nothing is at one path, likewise.
@@ -111,9 +113,9 @@ try {
 			);
 			check(
 				seeded.readHash === seeded.expectedAudioHash &&
-					seeded.readVersion === seeded.expectedAudioHash &&
-					seeded.audioVersion === seeded.expectedAudioHash,
-				'audio did not read back byte for byte under its sha256',
+					seeded.readVersion === seeded.audioVersion &&
+					seeded.audioVersion !== seeded.expectedAudioHash,
+				'audio did not read back byte for byte, named by its stamp',
 			);
 			check(seeded.callerBytesIntact, "a write detached the caller's bytes");
 			check(
@@ -123,6 +125,12 @@ try {
 			steps.push(
 				'note in house style; 5 MB audio round trip; a write where nothing was expected is stale',
 			);
+			const conformance = await a.evaluate(() => deviceSmoke.conformance());
+			check(
+				Object.values(conformance).every((answer) => answer === 'ok'),
+				`store conformance: ${JSON.stringify(conformance)}`,
+			);
+			steps.push(`store conformance: ${Object.keys(conformance).join('; ')}`);
 
 			const b = await page(context);
 			const seen = await b.evaluate(() => deviceSmoke.read('r1'));

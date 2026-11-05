@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import { type Contract, defineContract } from '@epicenter/definition/contract';
 import { Ok, unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { DeviceStore } from './device/store.js';
+import type { Store } from './device/store.js';
 import {
 	createNamedShell,
 	type NamedShell,
@@ -93,13 +93,13 @@ async function openDevice({ root }: { root: 'Data' | 'AppData' }) {
 /** The folder of `contract` over a store already open. */
 function folderOver<TContract extends Contract>(
 	contract: TContract,
-	store: DeviceStore,
+	store: Store,
 ) {
 	return createFolder(contract, async () => Ok(store));
 }
 
 /** The files of the collection `name` of `contract` over `store`, below the folder. */
-function filesOf(contract: Contract, store: DeviceStore, name: string) {
+function filesOf(contract: Contract, store: Store, name: string) {
 	const files = createDeviceClient(contract, store).collections.get(name);
 	if (files === undefined) throw new Error(`no collection ${name}`);
 	return files;
@@ -306,27 +306,20 @@ test("a write over a version the note no longer holds is 'stale' and lands nothi
 
 test('a create lands only where nothing is, and a version is checked as one', async () => {
 	const store = unwrap(await openDataStore(notes, 'https://notes.example.com'));
-	expect(expectOk(await store.write('a.bin', bytes('two'), 'absent'))).toEqual({
-		landed: expect.any(String),
-	});
+	expect(expectOk(await store.write('a.bin', bytes('two'), 'absent'))).toEqual(
+		expect.any(String),
+	);
 	expect(expectOk(await store.write('a.bin', bytes('other'), 'absent'))).toBe(
 		'stale',
 	);
 	expect(await shell.text('a.bin')).toBe('two');
-	const read = expectOk(await store.read('a.bin'));
+	const [read] = expectOk(await store.read(['a.bin']));
+	if (read === undefined || 'gone' in read) throw new Error('a.bin is there');
 	expect(
-		expectOk(
-			await store.write('a.bin', bytes('three'), {
-				version: read!.version,
-			}),
-		),
-	).toEqual({ landed: expect.any(String) });
+		expectOk(await store.write('a.bin', bytes('three'), read.version)),
+	).toEqual(expect.any(String));
 	expect(
-		expectOk(
-			await store.write('a.bin', bytes('four'), {
-				version: read!.version,
-			}),
-		),
+		expectOk(await store.write('a.bin', bytes('four'), read.version)),
 	).toBe('stale');
 	expect(await shell.text('a.bin')).toBe('three');
 });
@@ -396,6 +389,7 @@ test("the shell's watcher reaches a collection's listeners", async () => {
 	emit({ root: 'Data', paths: null });
 	expect(heard).toBe(2);
 	stop();
+	await Bun.sleep(0);
 	emit({ root: 'Data', paths: ['notes/a.md'] });
 	expect(heard).toBe(2);
 });

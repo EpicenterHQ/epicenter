@@ -18,7 +18,7 @@ import { describe, expect, test } from 'bun:test';
 import { ClientError, defineContract } from '@epicenter/definition/contract';
 import { type Err, Ok, type Result } from 'wellcrafted/result';
 import { memoryStore } from './device/memory-store.js';
-import type { DeviceStore, Unavailable } from './device/store.js';
+import type { Store, Unavailable } from './device/store.js';
 import { OpenFolderError } from './errors.js';
 import { createFolder, type FolderState } from './folder.js';
 import { memory, memoryFiles } from './memory.js';
@@ -34,18 +34,18 @@ const todos = defineContract({
 		attachments: { path: 'attachments/{id}.{ext}' },
 	},
 });
-type Opened = Result<DeviceStore, OpenFolderError | Unavailable>;
+type Opened = Result<Store, OpenFolderError | Unavailable>;
 
 /** A folder whose opens the test settles: each `open()` call waits on the next deferred answer. */
 function controlled() {
 	const answers: ((opened: Opened) => void)[] = [];
-	const closed: DeviceStore[] = [];
+	const closed: Store[] = [];
 	const folder = createFolder(
 		todos,
 		() => new Promise<Opened>((resolve) => answers.push(resolve)),
 	);
 	const store = () => {
-		const made: DeviceStore = {
+		const made: Store = {
 			...memoryStore(),
 			close: () => {
 				closed.push(made);
@@ -57,7 +57,7 @@ function controlled() {
 		folder,
 		closed,
 		/** Settle the latest open attempt with a new memory store, answered. */
-		open(opened: DeviceStore = store()) {
+		open(opened: Store = store()) {
 			answers.at(-1)?.(Ok(opened));
 			return opened;
 		},
@@ -186,7 +186,9 @@ describe('a failed open', () => {
 		await opening;
 		await tick();
 		expect(answered).toBe(false);
-		expect((await store.read('todos/a.md')).data).toBeNull();
+		expect((await store.read(['todos/a.md'])).data).toEqual([
+			{ path: 'todos/a.md', gone: true },
+		]);
 	});
 
 	test('an open that throws fails as StorageUnavailable', async () => {

@@ -12,17 +12,17 @@ import {
 import { formatNote } from '@epicenter/definition/note';
 import { Ok } from 'wellcrafted/result';
 import { decodeNote } from '../note-codec.js';
-import type { DeviceStore } from './store.js';
+import type { Store } from './store.js';
 
 /**
  * Every contract file of `store` checked against `contract`: one issue per
  * problem, in path order. Hidden paths and the root AGENTS.md are excluded.
  * A contract that is not well formed is the error.
  */
-export async function checkStore(contract: unknown, store: DeviceStore) {
+export async function checkStore(contract: unknown, store: Store) {
 	const compiled = compileContract(contract);
 	if (compiled.error !== null) return compiled;
-	const { data: listed, error } = await store.list();
+	const { data: listed, error } = await store.list(['']);
 	if (error !== null) return { data: null, error };
 	const files: { path: string; text?: string }[] = [];
 	const unreadable: FileIssue[] = [];
@@ -35,10 +35,11 @@ export async function checkStore(contract: unknown, store: DeviceStore) {
 			files.push({ path });
 			continue;
 		}
-		const read = await store.read(path);
+		const read = await store.read([path]);
 		if (read.error !== null) return read;
-		if (read.data === null) continue;
-		const text = decodeNote(read.data.bytes);
+		const [file] = read.data;
+		if (file === undefined || 'gone' in file) continue;
+		const text = decodeNote(file.bytes);
 		if (text.error !== null) unreadable.push({ path, message: text.error });
 		else files.push({ path, text: text.data });
 	}
@@ -58,10 +59,10 @@ export async function checkStore(contract: unknown, store: DeviceStore) {
  * not parse is left as it is and named in `refused`, as is one that changed
  * while this ran. Files no collection claims are not touched.
  */
-export async function formatStore(contract: unknown, store: DeviceStore) {
+export async function formatStore(contract: unknown, store: Store) {
 	const compiled = compileContract(contract);
 	if (compiled.error !== null) return compiled;
-	const { data: listed, error } = await store.list();
+	const { data: listed, error } = await store.list(['']);
 	if (error !== null) return { data: null, error };
 	const formatted: string[] = [];
 	const refused: { path: string; reason: string }[] = [];
@@ -70,10 +71,11 @@ export async function formatStore(contract: unknown, store: DeviceStore) {
 	for (const { path } of listed.sort((a, b) => (a.path < b.path ? -1 : 1))) {
 		const claim = compiled.data.claim(path);
 		if (claim?.collection.kind !== 'note') continue;
-		const read = await store.read(path);
+		const read = await store.read([path]);
 		if (read.error !== null) return read;
-		if (read.data === null) continue;
-		const text = decodeNote(read.data.bytes);
+		const [file] = read.data;
+		if (file === undefined || 'gone' in file) continue;
+		const text = decodeNote(file.bytes);
 		if (text.error !== null) {
 			refused.push({ path, reason: text.error });
 			continue;
@@ -93,9 +95,11 @@ export async function formatStore(contract: unknown, store: DeviceStore) {
 			unchanged++;
 			continue;
 		}
-		const written = await store.write(path, encoder.encode(styled.data), {
-			version: read.data.version,
-		});
+		const written = await store.write(
+			path,
+			encoder.encode(styled.data),
+			file.version,
+		);
 		if (written.error !== null) return written;
 		if (written.data === 'stale')
 			refused.push({ path, reason: 'It changed while it was being formatted' });

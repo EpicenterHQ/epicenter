@@ -30,10 +30,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
-import { Ok } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { memoryStore } from './device/memory-store.js';
-import type { DeviceStore, Version } from './device/store.js';
+import type { Store, Unavailable, Version } from './device/store.js';
 import { createFolder } from './folder.js';
 import { memory, memoryFiles } from './memory.js';
 import { directory } from './node.js';
@@ -84,7 +84,7 @@ function counted() {
 	const store = memoryStore();
 	const counts = { lists: 0, watching: 0 };
 	let hold: Promise<void> | null = null;
-	const wrapped: DeviceStore = {
+	const wrapped: Store = {
 		...store,
 		async list(under) {
 			counts.lists++;
@@ -92,13 +92,14 @@ function counted() {
 			if (hold) await hold;
 			return listed;
 		},
-		watch(listener) {
+		async watch(listener) {
 			counts.watching++;
-			const stop = store.watch(listener);
-			return () => {
+			const stop = await store.watch(listener);
+			if (stop.error !== null) return stop;
+			return Ok(() => {
 				counts.watching--;
-				stop();
-			};
+				stop.data();
+			});
 		},
 	};
 	return {
@@ -417,28 +418,39 @@ test('over a directory, a write over a note the folder has not listed reads it f
 
 test('a file collection appends where its store can, and its listeners hear an announced append', async () => {
 	const held = new Map<string, Uint8Array>();
-	const store: DeviceStore = {
+	const store: Store & {
+		append(
+			path: string,
+			added: Uint8Array,
+			options: { create: boolean },
+		): Promise<Result<'landed' | 'stale', Unavailable>>;
+	} = {
 		list: async () =>
 			Ok(
 				[...held].map(([path, bytes]) => ({
 					path,
-					stamp: `${path}:${bytes.length}`,
+					version: `${path}:${bytes.length}` as Version,
+					size: bytes.length,
 				})),
 			),
-		async read(path) {
-			const bytes = held.get(path);
-			if (bytes === undefined) return Ok(null);
-			const stamp = `${path}:${bytes.length}`;
-			return Ok({ bytes, version: stamp as Version, stamp });
-		},
-		write: async () => Ok({ landed: null }),
+		read: async (paths) =>
+			Ok(
+				paths.map((path) => {
+					const bytes = held.get(path);
+					return bytes === undefined
+						? { path, gone: true as const }
+						: { path, bytes, version: `${path}:${bytes.length}` as Version };
+				}),
+			),
+		write: async () => Ok(null),
 		async append(path, added, { create }) {
 			const there = held.get(path);
 			if (create === (there !== undefined)) return Ok('stale');
 			held.set(path, new Uint8Array([...(there ?? []), ...added]));
 			return Ok('landed');
 		},
-		watch: () => () => {},
+		watch: async () => Ok(() => {}),
+		close() {},
 	};
 	const folder = createFolder(todos, async () => Ok(store));
 	let heard = 0;
