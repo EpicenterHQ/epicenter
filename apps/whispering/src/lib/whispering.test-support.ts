@@ -56,11 +56,3 @@ export async function createTestWhispering({
 	};
 }
 
-/** `createTestWhispering`, started as the app root starts it. */
-export async function openTestWhispering(
-	test: Parameters<typeof createTestWhispering>[0],
-) {
-	const opened = await createTestWhispering(test);
-	await opened.whispering.start();
-	return opened;
-}

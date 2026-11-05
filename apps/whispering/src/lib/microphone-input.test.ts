@@ -230,7 +230,6 @@ async function open({
 		close();
 		test.close();
 	});
-	await whispering.start();
 	return {
 		whispering,
 		library,
@@ -644,7 +643,6 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 			close();
 			test.close();
 		});
-		await whispering.start();
 		if (holding === 'test') await whispering.input.startTest();
 		else await whispering.startRecording();
 		expect(microphone.open).toEqual(
@@ -750,7 +748,6 @@ test('closing while a choice is being saved releases the microphone at once and 
 		close();
 		test.close();
 	});
-	await whispering.start();
 	const input = whispering.input;
 	const first = input.select(USB);
 	const second = input.select(BUILT_IN);

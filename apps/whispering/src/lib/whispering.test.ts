@@ -4,15 +4,14 @@
  * stands in for OPFS). Nothing here uploads or syncs (ADR-0700).
  *
  * Key behaviors:
- * - A recording's audio is written into the files as it records, and its
- *   note, with its length, once Stop has answered with its audio at its path
+ * - A recording's audio lands at Stop, and its note, with its length, once
+ *   Stop has answered with its audio at its path
  * - A take is on the record screen until Stop answers, not in the library
  * - While the files refuse writes, a recording waits in the folder and
  *   lands when they take it again, its audio before its note
- * - Audio no note names (a note the page closed before it landed, a
- *   placement that failed, a closed tab) gets its note from the next
- *   start's recovery, which finishes before the start answers, so before
- *   any page reads a recording
+ * - On the desktop, audio no note names (a note the page closed before it
+ *   landed, a placement that failed) gets its note from the next launch's
+ *   recovery, which runs beside the pages; what it cannot complete is said
  * - A transcription sends the recording's audio to the model chosen for it,
  *   and its transcript names that model and where it went
  * - A request goes only to the endpoint it was prepared for: one whose
@@ -44,10 +43,7 @@ import {
 	type TestServicesOptions,
 	toneWav,
 } from './services.test-support.js';
-import {
-	createTestWhispering,
-	openTestWhispering,
-} from './whispering.test-support.js';
+import { createTestWhispering } from './whispering.test-support.js';
 
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -58,7 +54,7 @@ afterEach(async () => {
 async function fixture(options: TestServicesOptions = {}) {
 	const test = await openTestServices(options);
 	cleanups.push(test.close);
-	const opened = await openTestWhispering({
+	const opened = await createTestWhispering({
 		services: test.services,
 		place: test.place,
 	});
@@ -101,11 +97,11 @@ function afterStop(capture: CaptureDevice, after: () => void): CaptureDevice {
 	};
 }
 
-test('a recording’s audio is written as it records, and its note, with its length, once at Stop', async () => {
+test('a recording’s audio lands at Stop, and its note, with its length', async () => {
 	const test = await openTestServices();
 	cleanups.push(test.close);
 	let whenStopped: string[] = [];
-	const opened = await openTestWhispering({
+	const opened = await createTestWhispering({
 		services: {
 			...test.services,
 			capture: afterStop(test.services.capture, () => {
@@ -155,7 +151,7 @@ test('a take is on the record screen, not in the library, until Stop answers wit
 			});
 		},
 	};
-	const { whispering, library } = await openTestWhispering({
+	const { whispering, library } = await createTestWhispering({
 		services: { ...test.services, capture },
 		place: test.place,
 	});
@@ -213,14 +209,14 @@ const namesUnnamed = async (unnamed: readonly string[]) =>
 		unplaced: [],
 	});
 
-test('a recording whose note has not landed when the page closes gets one from the next start, its length read from its audio', async () => {
+test('on the desktop, a recording whose note has not landed when the window closes gets one from the next launch, its length read from its audio', async () => {
 	const test = await openTestServices();
 	cleanups.push(test.close);
 	// The audio lands at Stop; the files refuse every write after it, so the
 	// note waits in the page's folder.
 	let undo = () => {};
 	let stopped = false;
-	const first = await openTestWhispering({
+	const first = await createTestWhispering({
 		services: {
 			...test.services,
 			capture: afterStop(test.services.capture, () => {
@@ -245,7 +241,7 @@ test('a recording whose note has not landed when the page closes gets one from t
 		...test.services,
 		capture: { ...test.services.capture, recover: namesUnnamed },
 	};
-	const next = await openTestWhispering({ services, place: test.place });
+	const next = await createTestWhispering({ services, place: test.place });
 	cleanups.push(next.close);
 	await eventually(() => next.library.entries.length === 1);
 	expect(next.library.entries[0]).toMatchObject({
@@ -254,7 +250,7 @@ test('a recording whose note has not landed when the page closes gets one from t
 	});
 });
 
-test('a recording the shell could not place gets its note when the next start places it', async () => {
+test('a recording the shell could not place gets its note when the next launch places it', async () => {
 	const test = await openTestServices();
 	cleanups.push(test.close);
 	let staged: { id: string; bytes: Uint8Array } | undefined;
@@ -286,7 +282,7 @@ test('a recording the shell could not place gets its note when the next start pl
 		},
 	};
 	const services = { ...test.services, capture };
-	const first = await openTestWhispering({ services, place: test.place });
+	const first = await createTestWhispering({ services, place: test.place });
 	await first.whispering.startRecording();
 	await first.whispering.stopRecording();
 	expect(first.whispering.recorderError).toContain(
@@ -295,7 +291,7 @@ test('a recording the shell could not place gets its note when the next start pl
 	expect(first.library.entries).toHaveLength(0);
 	first.close();
 
-	const next = await openTestWhispering({ services, place: test.place });
+	const next = await createTestWhispering({ services, place: test.place });
 	cleanups.push(next.close);
 	await eventually(() => next.library.entries.length === 1);
 	expect(next.library.entries[0]).toMatchObject({
@@ -305,13 +301,7 @@ test('a recording the shell could not place gets its note when the next start pl
 	expect(next.whispering.recorderError).toBeUndefined();
 });
 
-/**
- * Recovery is the gate: a desktop recording a quit cut off is unreadable
- * until it is finished, so starting completes it and gives it its note
- * before it answers, and the app shows no page (no list, no player, no
- * transcription) until starting has answered.
- */
-test('a start answers only once the cut-off recordings are complete and listed', async () => {
+test('on the desktop the pages do not wait for the cut-off recordings, which are listed once complete', async () => {
 	const test = await openTestServices();
 	cleanups.push(test.close);
 	const recovering = deferred<void>();
@@ -336,51 +326,13 @@ test('a start answers only once the cut-off recordings are complete and listed',
 		place: test.place,
 	});
 	cleanups.push(opened.close);
-	let started = false;
-	const starting = opened.whispering.start().then(() => {
-		started = true;
-	});
 	await eventually(() => asked);
-	await new Promise((resolve) => setTimeout(resolve, 20));
-	expect(started).toBe(false);
+	// The pages read the library while the shell finishes the cut-off audio.
+	expect(opened.library.entries).toEqual([]);
 
 	recovering.resolve();
-	await starting;
-	expect(
-		(await test.files.recordings.list()).data?.items.map(({ id }) => id),
-	).toEqual(['2026-10-31T09-30-00-000Z-cutoffaa']);
 	await eventually(() => opened.library.entries.length === 1);
 	expect(opened.library.entries[0]).toMatchObject({ durationMs: 2000 });
-});
-
-test('a start gives a recording a closed tab cut off its note, its length read from its audio', async () => {
-	const test = await openTestServices();
-	cleanups.push(test.close);
-	const id = '2026-10-31T09-30-00-000Z-cutoffaa';
-	const audio = new Uint8Array(
-		await Bun.file(
-			new URL(
-				'../../../../packages/recorder/src/fixtures/chromium.m4a',
-				import.meta.url,
-			),
-		).arrayBuffer(),
-	);
-	await test.outside.write(`recordings/${id}.m4a`, audio);
-	const services = {
-		...test.services,
-		capture: { ...test.services.capture, recover: namesUnnamed },
-	};
-	const opened = await openTestWhispering({ services, place: test.place });
-	cleanups.push(opened.close);
-
-	await eventually(() => opened.library.entries.length === 1);
-	expect(opened.library.entries[0]).toMatchObject({
-		id,
-		title: 'Recovered recording',
-		recordedAt: '2026-10-31T09:30:00.000Z',
-		durationMs: 960,
-	});
-	expect(opened.whispering.recorderError).toBeUndefined();
 });
 
 test('files that cannot be listed at all keep the folder opening, saying why', async () => {
@@ -398,7 +350,7 @@ test('files that cannot be listed at all keep the folder opening, saying why', a
 	expect(folder.state().status).toBe('opening');
 });
 
-test('a cut-off recording whose repair fails is said, and left for the next start', async () => {
+test('on the desktop, a cut-off recording that cannot be completed is said, and left for the next launch', async () => {
 	const test = await openTestServices();
 	cleanups.push(test.close);
 	await test.outside.write(
@@ -411,19 +363,20 @@ test('a cut-off recording whose repair fails is said, and left for the next star
 			message: 'The recording could not be captured: the disk is full',
 			cause: null,
 		}) as never;
-	const opened = await openTestWhispering({
+	const opened = await createTestWhispering({
 		services: test.services,
 		place: test.place,
 	});
 	cleanups.push(opened.close);
 
+	await eventually(() => opened.whispering.recorderError !== undefined);
 	expect(opened.whispering.recorderError).toBe(
 		'Recordings a quit or a crash cut off could not be completed: The recording could not be captured: the disk is full',
 	);
 	expect(opened.library.entries).toHaveLength(0);
 });
 
-test('a recording kept outside its path, because another file is there, is said with where its audio is, and gets no note', async () => {
+test('on the desktop, a recording kept outside its path, because another file is there, is said with where its audio is, and gets no note', async () => {
 	const test = await openTestServices();
 	cleanups.push(test.close);
 	test.services.capture.recover = async () =>
@@ -437,12 +390,13 @@ test('a recording kept outside its path, because another file is there, is said 
 				},
 			],
 		});
-	const opened = await openTestWhispering({
+	const opened = await createTestWhispering({
 		services: test.services,
 		place: test.place,
 	});
 	cleanups.push(opened.close);
 
+	await eventually(() => opened.whispering.recorderError !== undefined);
 	expect(opened.whispering.recorderError).toBe(
 		'A recording is kept outside the library, because another file is at its path: its audio is at .epicenter/recordings/recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm in this folder, and recordings/2026-10-31T09-30-00-000Z-cutoffaa.webm is another file. Move the other file, and the next start adds it.',
 	);

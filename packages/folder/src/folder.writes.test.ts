@@ -20,8 +20,7 @@
  * - `delete` of a note gone is fine; one changed since shown is kept
  * - Writes land in order; one that cannot land waits, with `saving()` and
  *   `unavailable()` saying so, and lands when the store is back
- * - A file collection's `set` is the later write winning, and `append`
- *   works where the store can
+ * - A file collection's `set` is the later write winning
  *
  * See also:
  * - `note-edit.test.ts` for the note editor
@@ -31,10 +30,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { memoryStore } from './device/memory-store.js';
-import type { Store, Unavailable, Version } from './device/store.js';
+import type { Store } from './device/store.js';
 import { createFolder } from './folder.js';
 import { memory, memoryFiles } from './memory.js';
 import { directory } from './node.js';
@@ -424,81 +423,4 @@ test('over a directory, a write over a note the folder has not listed reads it f
 	expect(await readFile(join(root, 'todos/b.md'), 'utf8')).toContain(
 		'<<<<<<< current',
 	);
-});
-
-test('a file collection appends where its store can, and its listeners hear an announced append', async () => {
-	const held = new Map<string, Uint8Array>();
-	const store: Store & {
-		append(
-			path: string,
-			added: Uint8Array,
-			options: { create: boolean },
-		): Promise<Result<'landed' | 'stale', Unavailable>>;
-	} = {
-		list: async () =>
-			Ok(
-				[...held].map(([path, bytes]) => ({
-					path,
-					version: `${path}:${bytes.length}` as Version,
-					size: bytes.length,
-				})),
-			),
-		read: async (paths) =>
-			Ok(
-				paths.map((path) => {
-					const bytes = held.get(path);
-					return bytes === undefined
-						? { path, gone: true as const }
-						: { path, bytes, version: `${path}:${bytes.length}` as Version };
-				}),
-			),
-		write: async () => Ok(null),
-		async append(path, added, { create }) {
-			const there = held.get(path);
-			if (create === (there !== undefined)) return Ok('stale');
-			held.set(path, new Uint8Array([...(there ?? []), ...added]));
-			return Ok('landed');
-		},
-		watch: async () => Ok(() => {}),
-		close() {},
-	};
-	const folder = createFolder(todos, async () => Ok(store));
-	let heard = 0;
-	const stop = folder.attachments.subscribe(() => heard++);
-	const at = { id: 'a', ext: 'm4a' };
-	const piece = (create: boolean, announce = false) =>
-		folder.attachments.append(at, new Uint8Array([1]), { create, announce });
-
-	expect(expectOk(await piece(true))).toBe(true);
-	expect(expectOk(await piece(true))).toBe(false);
-	expect(expectOk(await piece(false))).toBe(true);
-	expect(expectOk(await piece(false))).toBe(true);
-	await Bun.sleep(20);
-	const heardBefore = heard;
-	expectOk(await piece(false, true));
-	await until(() => heard > heardBefore);
-	expect(held.get('todos/a.m4a')).toEqual(new Uint8Array([1, 1, 1, 1]));
-	expect(
-		expectOk(
-			await folder.attachments.append(
-				{ id: 'b', ext: 'm4a' },
-				new Uint8Array([2]),
-				{
-					create: false,
-					announce: true,
-				},
-			),
-		),
-	).toBe(false);
-	stop();
-});
-
-test('a file collection over a store that cannot append answers Unavailable', async () => {
-	const { folder } = await inMemory();
-	const appended = await folder.attachments.append(
-		{ id: 'a', ext: 'm4a' },
-		new Uint8Array([1]),
-		{ create: true, announce: false },
-	);
-	expect(appended.error?.name).toBe('Unavailable');
 });

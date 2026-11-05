@@ -1,7 +1,7 @@
 /**
- * What the recorder reads in the audio files it writes: how long one plays
- * (`audioDurationMs`), and where one a quit or a closed tab cut off ends
- * cleanly (`repairAudio`).
+ * What the app reads in the audio files a recorder writes: how long one
+ * plays (`audioDurationMs`). The desktop's cut-off recordings, which its
+ * shell finishes, and imported files are measured here.
  *
  * - Opus in WebM, written whole (the desktop's): Info's Duration names the
  *   length that plays.
@@ -17,8 +17,6 @@
  *   cut off ends inside an element; it is whole up to the last element that
  *   is. Its length is read from its last blocks' times.
  *
- * Both browser formats are written in pieces of about a second, and every
- * piece but the last cut is whole, so a repair loses at most that piece.
  * Nothing here decodes audio.
  */
 
@@ -45,27 +43,6 @@ export function audioDurationMs(
 			return mp4DurationMs(bytes);
 		case 'webm':
 			return webmDurationMs(bytes);
-		default:
-			return undefined;
-	}
-}
-
-/**
- * The bytes of a browser recording (`m4a` or `webm`) a quit or a closed tab
- * cut off, up to its last whole piece, so every player reads it to the end.
- * Undefined when nothing needs cutting, or when what is there is not the
- * format, or too little of it to play: such a file is left as it is.
- */
-export function repairAudio(
-	bytes: Uint8Array,
-	ext: string,
-): Uint8Array | undefined {
-	switch (ext.toLowerCase()) {
-		case 'm4a':
-		case 'mp4':
-			return repairMp4(bytes);
-		case 'webm':
-			return repairWebm(bytes);
 		default:
 			return undefined;
 	}
@@ -140,8 +117,9 @@ const childOf = (bytes: Uint8Array, box: Box | undefined, type: string) =>
 	box && boxesIn(bytes, box.body, box.end).find((child) => child.type === type);
 
 /**
- * Where a fragmented MP4 is whole: after its last `mdat`, or after `moov`
- * when no fragment is whole yet. Undefined when it has no `moov`.
+ * Where a fragmented MP4 is whole, which is as far as it plays: after its
+ * last `mdat`, or after `moov` when no fragment is whole yet. Undefined
+ * when it has no `moov`.
  */
 function mp4WholeEnd(bytes: Uint8Array): number | undefined {
 	const boxes = boxesIn(bytes, 0, bytes.length);
@@ -156,12 +134,6 @@ function mp4WholeEnd(bytes: Uint8Array): number | undefined {
 	if (last !== undefined && last.end === bytes.length && last.type !== 'moof')
 		return bytes.length;
 	return whole;
-}
-
-function repairMp4(bytes: Uint8Array): Uint8Array | undefined {
-	const whole = mp4WholeEnd(bytes);
-	if (whole === undefined || whole === bytes.length) return undefined;
-	return bytes.slice(0, whole);
 }
 
 /** A full box's version, and where its fields start. */
@@ -300,9 +272,6 @@ function vint(bytes: Uint8Array, offset: number, keepMarker: boolean) {
 type Element = {
 	readonly id: number;
 	readonly start: number;
-	/** Where its size field starts and how long it is, to rewrite as unknown. */
-	readonly sizeAt: number;
-	readonly sizeLength: number;
 	readonly body: number;
 	/** Its end, or undefined for an unknown size. */
 	readonly end: number | undefined;
@@ -318,8 +287,6 @@ function elementAt(bytes: Uint8Array, offset: number): Element | undefined {
 	return {
 		id: id.value,
 		start: offset,
-		sizeAt: offset + id.length,
-		sizeLength: size.length,
 		body,
 		end: size.unknown ? undefined : body + size.value,
 	};
@@ -328,8 +295,6 @@ function elementAt(bytes: Uint8Array, offset: number): Element | undefined {
 type WebmWalk = {
 	/** Where the file is whole: after the last element read to its end. */
 	readonly whole: number;
-	/** Known-size containers the cut falls inside, whose sizes then must say "unknown". */
-	readonly open: Element[];
 	/** Ticks per millisecond's worth of nanoseconds. */
 	readonly timecodeScale: number;
 	/** Info's Duration, in ticks, when the file states one. */
@@ -348,7 +313,6 @@ function walkWebm(bytes: Uint8Array): WebmWalk | undefined {
 	let timecodeScale = 1_000_000;
 	let duration: number | undefined;
 	const times: number[] = [];
-	const open: Element[] = [];
 	let cluster: { element: Element; timecode: number } | undefined;
 	const segmentEnd = Math.min(segment.end ?? bytes.length, bytes.length);
 	let offset = segment.body;
@@ -397,11 +361,7 @@ function walkWebm(bytes: Uint8Array): WebmWalk | undefined {
 		whole = element.end;
 		offset = element.end;
 	}
-	if (segment.end !== undefined && segment.end > whole) open.push(segment);
-	const lastCluster = cluster?.element;
-	if (lastCluster?.end !== undefined && lastCluster.end > whole)
-		open.push(lastCluster);
-	return { whole, open, timecodeScale, duration, times };
+	return { whole, timecodeScale, duration, times };
 }
 
 /** An EBML float: four or eight bytes, big-endian; undefined for any other length. */
@@ -436,19 +396,6 @@ function blockTime(bytes: Uint8Array, block: Element) {
 	if (track === undefined || block.body + track.length + 2 > block.end!)
 		return undefined;
 	return viewOf(bytes).getInt16(block.body + track.length);
-}
-
-function repairWebm(bytes: Uint8Array): Uint8Array | undefined {
-	const walked = walkWebm(bytes);
-	if (walked === undefined || walked.whole === bytes.length) return undefined;
-	const repaired = bytes.slice(0, walked.whole);
-	// A known size that now runs past the end says "unknown" instead: the
-	// same length of all ones, so nothing else moves.
-	for (const { sizeAt, sizeLength } of walked.open) {
-		repaired[sizeAt] = 0xff >> (sizeLength - 1);
-		repaired.fill(0xff, sizeAt + 1, sizeAt + sizeLength);
-	}
-	return repaired;
 }
 
 function webmDurationMs(bytes: Uint8Array): number | undefined {

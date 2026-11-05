@@ -111,16 +111,6 @@ async function connected() {
 		await new Promise((resolve) => setTimeout(resolve, 5));
 }
 
-/** An append's answer, by name: `false` is a file that was not as `create` said. */
-const appendOutcome = (
-	appended: Awaited<ReturnType<typeof folder.audio.append>>,
-) =>
-	appended.error !== null
-		? appended.error.name
-		: appended.data
-			? 'landed'
-			: 'stale';
-
 /** How many times this page's listener heard the recordings change. */
 let heard = 0;
 /** How many times this page's listener heard the audio change. */
@@ -178,61 +168,21 @@ const smoke = {
 	},
 	heardAudio: () => heardAudio,
 	/**
-	 * Append `count` pieces of 64 KB to a new file, as a recording does,
-	 * reading it over and over meanwhile: every read must answer. Then a
-	 * second create is `'stale'`, an empty announcing append lands, and the
-	 * file reads back as every piece in order.
+	 * Write a take of `count` pieces of 64 KB once, whole, as the browser
+	 * recorder does at Stop (ADR-0779), and read it back.
 	 */
-	async appendPieces(id: string, count: number) {
+	async writeTake(id: string, count: number) {
 		const at = { id, ext: 'webm' };
-		const pieces = Array.from({ length: count }, (_, index) =>
-			payload(64 * 1024, index + 1),
-		);
-		let done = false;
-		const appending = (async () => {
-			for (const [index, piece] of pieces.entries()) {
-				const appended = await folder.audio.append(at, piece, {
-					create: index === 0,
-					announce: false,
-				});
-				if (appendOutcome(appended) !== 'landed')
-					return `piece ${index}: ${appendOutcome(appended)}`;
-			}
-			return null;
-		})().finally(() => {
-			done = true;
-		});
-		const readFailures: string[] = [];
-		let reads = 0;
-		while (!done) {
-			const read = await folder.audio.read(at);
-			reads++;
-			if (read.error !== null) readFailures.push(read.error.message);
-		}
-		const problem = await appending;
-		const again = await folder.audio.append(at, pieces[0]!, {
-			create: true,
-			announce: false,
-		});
-		const announced = await folder.audio.append(at, new Uint8Array(), {
-			create: false,
-			announce: true,
-		});
-		const read = await folder.audio.read(at);
 		const whole = new Uint8Array(count * 64 * 1024);
-		for (const [index, piece] of pieces.entries())
-			whole.set(piece, index * 64 * 1024);
-		return {
-			problem,
-			reads,
-			readFailures,
-			again: appendOutcome(again),
-			announced: appendOutcome(announced),
-			whole:
-				read.error === null &&
-				read.data !== null &&
-				(await sha256(read.data.bytes)) === (await sha256(whole)),
-		};
+		for (let index = 0; index < count; index++)
+			whole.set(payload(64 * 1024, index + 1), index * 64 * 1024);
+		await folder.audio.set(at, whole);
+		const read = await folder.audio.read(at);
+		return (
+			read.error === null &&
+			read.data !== null &&
+			(await sha256(read.data.bytes)) === (await sha256(whole))
+		);
 	},
 	/**
 	 * Write a note and 5 MB of audio through the folder, read both back with

@@ -21,14 +21,13 @@ import {
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import type { Changed as Broadcast, Reply } from './opfs-worker.js';
 import type {
 	Changed,
 	FileRead,
 	Listed,
 	Store,
-	Unavailable,
 	Version,
 } from './store.js';
 
@@ -62,26 +61,10 @@ type Request =
 			over: string;
 			from: string;
 	  }
-	| {
-			op: 'append';
-			path: string;
-			bytes: Uint8Array;
-			create: boolean;
-			announce: boolean;
-			from: string;
-	  };
+;
 
-/**
- * The store over this origin's private files. Until the browser recorder
- * writes a take once (ADR-0779), it also appends.
- */
-export function opfsStore(): Store & {
-	append(
-		path: string,
-		bytes: Uint8Array,
-		options: { create: boolean; announce: boolean },
-	): Promise<Result<'landed' | 'stale', Unavailable>>;
-} {
+/** The store over this origin's private files. */
+export function opfsStore(): Store {
 	let worker: Worker | undefined;
 	let closed = false;
 	let next = 0;
@@ -176,15 +159,6 @@ export function opfsStore(): Store & {
 			);
 			if (written.error !== null) return written;
 			return Ok(written.data as Version | null | 'stale');
-		},
-		async append(path, bytes, { create, announce }) {
-			const owned = bytes.slice();
-			const appended = await call(
-				{ op: 'append', path, bytes: owned, create, announce, from: writer },
-				[owned.buffer],
-			);
-			if (appended.error !== null) return appended;
-			return Ok(appended.data as 'landed' | 'stale');
 		},
 		// The channel is open once made: a change another tab lands after this
 		// answers is heard, and only after the Worker landed it.

@@ -14,10 +14,6 @@
  *   path with `move(parentDirectory, name)`, the one form both engines take,
  *   so it never appears empty first, and a crash leaves no empty file at the
  *   path.
- * - An append (a recording, as it records) makes its file the same way, then
- *   adds each later piece at the end through a sync access handle, opened
- *   and closed for that piece alone, so the file is never held between
- *   pieces and a crash keeps every piece that was written.
  *
  * Every change that lands is posted on the `epicenter-device` broadcast
  * channel (`{ paths, from }`), so the stores of other tabs hear it; `from`
@@ -37,15 +33,7 @@ type Request =
 			over: string;
 			from: string;
 	  }
-	| {
-			id: number;
-			op: 'append';
-			path: string;
-			bytes: Uint8Array;
-			create: boolean;
-			announce: boolean;
-			from: string;
-	  };
+;
 
 /** What the worker posts on `CHANGES` for each change that lands. */
 export type Changed = { paths: string[]; from: string };
@@ -64,20 +52,6 @@ type Directory = FileSystemDirectoryHandle & {
 type MovableFile = FileSystemFileHandle & {
 	move(parent: FileSystemDirectoryHandle, name: string): Promise<void>;
 };
-/**
- * The synchronous access a dedicated Worker has to a file, which TypeScript's
- * DOM library leaves out. Some engines answered `flush` and `close` with
- * promises, so both are awaited.
- */
-type AccessibleFile = FileSystemFileHandle & {
-	createSyncAccessHandle(): Promise<{
-		getSize(): number;
-		write(bytes: Uint8Array, options: { at: number }): number;
-		flush(): void | Promise<void>;
-		close(): void | Promise<void>;
-	}>;
-};
-
 /**
  * Where a new file is staged: `.epicenter/saves`, as `savesDirectory` in
  * `state.ts` builds it. This file imports nothing, so it keeps its own
@@ -368,35 +342,6 @@ async function createWhole(path: string, bytes: Uint8Array) {
 	}
 }
 
-/**
- * Add `bytes` at the end of the file at `path`, or with `create` make it
- * with them. Under the same per-path lock as a write, so a write and an
- * append to one path take turns.
- */
-async function append(path: string, bytes: Uint8Array, create: boolean) {
-	segmentsOf(path);
-	return navigator.locks.request(`epicenter-device:${path}`, async () => {
-		const found = await fileAt(path);
-		if (create) {
-			if (found !== null) return 'stale';
-			await createWhole(path, bytes);
-			return 'landed';
-		}
-		if (found === null) return 'stale';
-		if (bytes.byteLength === 0) return 'landed';
-		const access = await (
-			found.handle as AccessibleFile
-		).createSyncAccessHandle();
-		try {
-			access.write(bytes, { at: access.getSize() });
-			await access.flush();
-		} finally {
-			await access.close();
-		}
-		return 'landed';
-	});
-}
-
 async function writeWhole(handle: FileSystemFileHandle, bytes: Uint8Array) {
 	const writable = await handle.createWritable();
 	try {
@@ -445,12 +390,6 @@ async function answer(request: Request): Promise<unknown> {
 		case 'write': {
 			const outcome = await write(request.path, request.bytes, request.over);
 			if (outcome !== 'stale') announce(request.path, request.from);
-			return outcome;
-		}
-		case 'append': {
-			const outcome = await append(request.path, request.bytes, request.create);
-			if (outcome === 'landed' && (request.create || request.announce))
-				announce(request.path, request.from);
 			return outcome;
 		}
 		default:

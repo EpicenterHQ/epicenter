@@ -187,18 +187,6 @@ export type FolderFiles<TCollection extends Collection> = Reads<
 	set(args: PlaceholdersOf<TCollection>, bytes: Uint8Array): Promise<void>;
 	/** Remove the file. One already gone is gone; one changed since the folder showed it is kept. */
 	delete(args: PlaceholdersOf<TCollection>): Promise<void>;
-	/**
-	 * Add `bytes` to the end of the file `args` names, for a file written
-	 * while it is made, such as a recording: true once they landed, false
-	 * when the file was not as `create` says. Only this browser's storage
-	 * appends: anywhere else the answer is `Unavailable`. It is not queued
-	 * with the folder's writes, and answers a failure.
-	 */
-	append(
-		args: PlaceholdersOf<TCollection>,
-		bytes: Uint8Array,
-		options: { create: boolean; announce: boolean },
-	): Promise<Result<boolean, ReadError>>;
 };
 
 /** A folder's collection: notes for a path ending in `.md`, files for any other. */
@@ -266,15 +254,6 @@ const RESERVED = new Set([
 export type FolderOpen = () => Promise<
 	Result<Store, OpenFolderError | Unavailable>
 >;
-
-/** A store that can still add to the end of a file: this browser's, until the recorder writes a take once. */
-type Appending = Store & {
-	append?(
-		path: string,
-		bytes: Uint8Array,
-		options: { create: boolean; announce: boolean },
-	): Promise<Result<'landed' | 'stale', Unavailable>>;
-};
 
 /** How long after a failure the folder tries again, doubling per failure up to the most. */
 const RETRY_FIRST_MS = 500;
@@ -361,7 +340,7 @@ export function createFolder<TContract extends Contract>(
 	let phase: 'opening' | 'open' | 'failed' | 'closed' = 'opening';
 	/** Whether a snapshot ever landed: reads answer from then. */
 	let connected = false;
-	let store: Appending | null = null;
+	let store: Store | null = null;
 	let stopWatch: (() => void) | null = null;
 	let failure: { error: OpenFolderError; retry(): Promise<void> } | null = null;
 	/** Why the store could not be reached: by the open and connection, the writes, and the reads of what changed. */
@@ -374,7 +353,6 @@ export function createFolder<TContract extends Contract>(
 	let attempts = 0;
 	const queue: Job[] = [];
 	let draining = false;
-	let appending = 0;
 	const listeners = new Set<() => void>();
 	/** Waiting for the next change of the folder's state. */
 	const waiting = new Set<() => void>();
@@ -809,12 +787,6 @@ export function createFolder<TContract extends Contract>(
 		queuedAt,
 		landed: hold,
 		heldOf,
-		hold(work) {
-			if (appending++ === 0 && queue.length === 0) notify();
-			return work.finally(() => {
-				if (--appending === 0 && queue.length === 0) notify();
-			});
-		},
 		readNow(path) {
 			return lanes.run(path, async () => {
 				if (store === null)
@@ -835,7 +807,7 @@ export function createFolder<TContract extends Contract>(
 	const lifecycle: FolderLifecycle = {
 		state: () => state,
 		unavailable: () => unavailable,
-		saving: () => queue.length > 0 || appending > 0,
+		saving: () => queue.length > 0,
 		subscribe(listener) {
 			listeners.add(listener);
 			return () => {
@@ -891,8 +863,6 @@ type Host = {
 	landed(path: string, file: Held | null): void;
 	/** What the folder holds of `bytes` read or written at `path`. */
 	heldOf(path: string, bytes: Uint8Array, version: Version): Held;
-	/** Count an append in `saving()` until it settles. */
-	hold<T>(work: Promise<T>): Promise<T>;
 	/** Read `path` now, in its lane. */
 	readNow(path: string): ReturnType<Store['read']>;
 };
@@ -1244,42 +1214,6 @@ function folderCollection(declared: CompiledCollection, host: Host) {
 				delete(args: Args) {
 					const path = pathOf(args);
 					return remove(path, baseAt(path));
-				},
-				append(
-					args: Args,
-					bytes: Uint8Array,
-					options: { create: boolean; announce: boolean },
-				) {
-					const path = pathOf(args);
-					return host.hold(
-						(async (): Promise<Result<boolean, ReadError>> => {
-							const connected = await host.connected();
-							if (connected.error !== null) return connected;
-							const store = connected.data as Appending;
-							if (store.append === undefined)
-								return ClientError.Unavailable({
-									cause:
-										'this folder’s storage cannot add to the end of a file',
-								});
-							const appended = await store.append(path, bytes, options);
-							if (appended.error !== null) return appended;
-							if (appended.data !== 'landed') return Ok(false);
-							// The folder hears the file made, and announced, as a listing names it.
-							if (options.create || options.announce) {
-								const listed = await store.list([path]);
-								if (listed.error === null) {
-									const [file] = listed.data;
-									host.landed(
-										path,
-										file === undefined
-											? null
-											: { version: file.version, size: file.size },
-									);
-								}
-							}
-							return Ok(true);
-						})(),
-					);
 				},
 			};
 

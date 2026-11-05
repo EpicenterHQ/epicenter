@@ -23,9 +23,8 @@
  *    broadcast), and the writing tab's own listeners before it resolves.
  * 5. A listing taken while files are being deleted answers, without the
  *    files that went (a file removed mid-walk is skipped, not a failure).
- * 6. A file appended a piece at a time (a recording) reads back whole, every
- *    read taken while it grows answers, a second create answers false, and the
- *    other tab hears it made and announced, not each piece.
+ * 6. A take written once (a browser recording at Stop) reads back whole,
+ *    and the other tab hears it.
  * 7. Nothing is left staged, and the files survive a reload and a restart.
  *
  * Then an ephemeral context: Chromium opens OPFS there; WebKit's refusal
@@ -199,29 +198,12 @@ try {
 			);
 
 			await b.evaluate(() => deviceSmoke.listenAudio());
-			const appended = await a.evaluate(() =>
-				deviceSmoke.appendPieces('grown', 40),
-			);
-			check(
-				appended.problem === null &&
-					appended.readFailures.length === 0 &&
-					appended.again === 'stale' &&
-					appended.announced === 'landed' &&
-					appended.whole,
-				`appending: ${JSON.stringify(appended)}`,
-			);
-			await b.waitForFunction(() => deviceSmoke.heardAudio() >= 2, null, {
+			const whole = await a.evaluate(() => deviceSmoke.writeTake('grown', 40));
+			check(whole, 'a take written once did not read back whole');
+			await b.waitForFunction(() => deviceSmoke.heardAudio() >= 1, null, {
 				timeout: 5000,
 			});
-			await Bun.sleep(300);
-			const heardAudio = await b.evaluate(() => deviceSmoke.heardAudio());
-			check(
-				heardAudio === 2,
-				`other tab heard the appended file ${heardAudio} times`,
-			);
-			steps.push(
-				`40 pieces appended while ${appended.reads} reads answered; heard made and announced only`,
-			);
+			steps.push('a take of 40 pieces lands once, whole, and the other tab hears it');
 
 			check(
 				(await a.evaluate(() => deviceSmoke.staged())) === 0,

@@ -57,8 +57,6 @@ export type Operation = 'transcription' | 'text';
 /** What a model must be able to do to be chosen for each operation. */
 export const CAN = { transcription: 'transcribe', text: 'chat' } as const;
 
-export const STOPPED = 'Whispering stopped before it finished starting.';
-
 export type RecorderState =
 	| { readonly phase: 'idle' }
 	| { readonly phase: 'starting' }
@@ -98,7 +96,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	const { folder: files, capture, preferences } = capabilities;
 	/** Whether the sidebar is open on a wide window. Held here so no page owns it. */
 	let sidebarOpen = $state(false);
-	let starting: Promise<void> | undefined;
 
 	/** Cleanup also fences new work and late replies. */
 	let disposed = false;
@@ -195,6 +192,8 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		preferences,
 		recording: () => captureState.phase !== 'idle',
 	});
+	// The saved choice only: no microphone is opened or listed at launch.
+	input.load();
 
 	// --- recording ----------------------------------------------------------
 
@@ -247,19 +246,27 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 	}
 
 	/**
-	 * Repair the audio a quit, a crash, or a closed tab cut off, then give
-	 * each such recording its note. Nothing records here yet, and a
-	 * recording another tab is still writing is left alone. What cannot be
-	 * completed is said and left for the next start; it never stops
-	 * Whispering from starting. A recording kept outside its path because
-	 * another file is there is said with where its audio is, on every start
-	 * until a person moves one of the two. Files that cannot be listed at
-	 * all (a private window keeps none) are not said here: the banner over
-	 * every page says it, from the library's own listing.
+	 * On the desktop, finish the audio a quit or a crash cut off, then give
+	 * each such recording its note. It runs once, beside the pages: a
+	 * cut-off recording is at no data path until it is finished, so nothing
+	 * lists it first. What cannot be completed is said and left for the next
+	 * launch. A recording kept outside its path because another file is
+	 * there is said with where its audio is, on every launch until a person
+	 * moves one of the two. A browser keeps nothing through a crash, so it
+	 * has none to finish (ADR-0780).
 	 */
-	async function completeCutOffRecordings() {
-		const { data, error } = await finishCutOffRecordings(files, capture);
-		if (disposed) return;
+	async function completeCutOffRecordings(
+		recover: NonNullable<CaptureDevice['recover']>,
+	) {
+		const finished = await finishCutOffRecordings(files, { recover }).catch(
+			(cause: unknown) => {
+				// The page left while it ran: its folder takes no more writes.
+				if (disposed) return undefined;
+				throw cause;
+			},
+		);
+		if (finished === undefined || disposed) return;
+		const { data, error } = finished;
 		if (error !== null) {
 			if (error.name !== 'Unavailable')
 				recorderError = `Recordings a quit or a crash cut off could not be completed: ${error.message}`;
@@ -283,6 +290,9 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 			captureState = { phase: 'idle' };
 		}
 	}
+
+
+	if (capture.recover) void completeCutOffRecordings(capture.recover);
 
 	return {
 		/** Whether the sidebar is open on a wide window. */
@@ -323,30 +333,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 
 		get closing() {
 			return disposed;
-		},
-		/**
-		 * Read the model choices, the saved connections and the saved
-		 * microphone choice, and complete the recordings a quit, a crash, or a
-		 * closed tab cut off. Nothing is sent to an endpoint. The app shows its
-		 * pages once this has answered, so nothing lists, plays, or transcribes
-		 * a recording before it is complete.
-		 */
-		start(): Promise<void> {
-			starting ??= (async () => {
-				try {
-					if (disposed) throw new Error(STOPPED);
-					// The saved choice only: no microphone is opened or listed at launch.
-					input.load();
-					if (disposed) throw new Error(STOPPED);
-					await completeCutOffRecordings();
-					if (disposed) throw new Error(STOPPED);
-				} catch (cause) {
-					const stopped = disposed;
-					dispose();
-					throw stopped ? new Error(STOPPED) : cause;
-				}
-			})();
-			return starting;
 		},
 		/**
 		 * Stop new work and late answers, and release the microphone this page
