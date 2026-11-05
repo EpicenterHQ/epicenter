@@ -910,7 +910,7 @@ When you add an ADR, add its row here.
 | [0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) | An app's folder resolves against a fixed library root | Accepted (amends 0670 and 0701) |
 | [0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) | One Epicenter engine per machine syncs every app's folder | Accepted (amends 0642; amended by 0733, 0750, and 0751) |
 | [0714](0714-a-files-extension-decides-how-every-folder-merges-it.md) | A file's extension decides how every folder merges it | Superseded by 0734 |
-| [0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) | The Epicenter app browses every folder and document a person has | Accepted (amends 0635 and 0701; amended by 0721 and 0736) |
+| [0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) | The Epicenter app browses every folder and document a person has | Accepted (amends 0635 and 0701; amended by 0721, 0736, and 0790) |
 | [0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md) | Agents edit a document through one-shot CLI commands | Accepted |
 | [0717](0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md) | An Epicenter app is a site that publishes a contract | Superseded by 0723 |
 | [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Accepted (amends 0642 and 0700; amended by 0721, 0731, 0732, 0733, and 0751) |
@@ -946,7 +946,7 @@ When you add an ADR, add its row here.
 | [0748](0748-epicenter-ships-a-portable-git-inside-the-app.md) | Epicenter ships a portable Git inside the app | Superseded by 0751 |
 | [0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) | Epicenter draws its boundaries where people already expect them | Accepted (amended by 0750 and 0787) |
 | [0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) | Sync is like save: any program can sync a folder, and none owns it | Accepted (amends 0328, 0713, 0745, and 0749) |
-| [0751](0751-every-native-app-carries-one-sync-core.md) | Every native app carries one sync core | Accepted (supersedes 0748; amends 0713, 0718, 0719, 0733, and 0747; amended by 0787) |
+| [0751](0751-every-native-app-carries-one-sync-core.md) | Every native app carries one sync core | Accepted (supersedes 0748; amends 0713, 0718, 0719, 0733, and 0747; amended by 0787 and 0790) |
 | [0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) | An app's folder sits under the platform's visible root of app folders | Accepted |
 | [0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) | An app declares what it is and what it needs; the platform supplies where, how and when | Accepted (amends 0719; amended by 0759, 0760, 0766, and 0787) |
 | [0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) | A capability takes what it needs as values and shows what it can do now as values | Accepted (amended by 0757, 0765, and 0766) |
@@ -983,4 +983,6 @@ When you add an ADR, add its row here.
 | [0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) | A desktop app signs in to sync its own folder | Accepted (amends 0781; amended by 0787) |
 | [0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) | Every web app is online, and browser storage leaves the platform | Accepted (amends 0746, 0773, 0779, and 0784; amended by 0788) |
 | [0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) | Records that assumed a running engine or a build-time choice follow ADR-0750 and ADR-0781 | Accepted (amends 0732, 0744, 0746, 0749, 0751, 0753, 0763, 0765, 0766, 0772, 0773, 0774, 0783, and 0785) |
-| [0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) | Everything in a folder syncs, and a recording's audio is kept in one of three places | Accepted (amends 0779 and 0786) |
+| [0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) | Everything in a folder syncs, and a recording's audio is kept in one of three places | Accepted (amends 0779 and 0786; amended by 0789) |
+| [0789](0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md) | A conflict is a mark on its note, resolved in the repair editor | Accepted (amends 0788) |
+| [0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-is-its-engine.md) | The Epicenter app is a library over every folder, and the CLI is its engine | Accepted (amends 0715 and 0751) |

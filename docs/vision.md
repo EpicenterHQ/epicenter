@@ -70,13 +70,14 @@ path, no platform, and no sync moment. Records:
 - **On a Mac,** Whispering's recordings are files in `~/Epicenter/whispering`,
   which Finder shows. Whispering syncs its folder when it opens, a few seconds
   after you save, when you come back to it, and when you press Sync. The
-  Epicenter app, if you install it, shows every folder and syncs each one you
-  turned sync on for.
+  Epicenter app, if you install it, is the library: every folder by team,
+  each collection as a table you filter with `select * from todos where …`
+  and edit in place, and what needs a look across all of them (ADR-0790).
 - **On an iPhone,** no app exists yet. The first will keep its folder where
   the Files app shows it, "On My iPhone > Whispering", and carry the same sync
   core.
-- **In a browser,** a web app is online, or keeps your things in this browser
-  only, with no sync. Working offline with sync needs an installed app. A
+- **In a browser,** every web app is online: you sign in and it works in your
+  team's repository (ADR-0786). Working offline needs an installed app. A
   browser extension saves through Epicenter on the same computer.
 - **For an agent,** an item is a file it edits directly. Each folder's
   `AGENTS.md` names the app's contract and tells the agent to run
