@@ -35,6 +35,14 @@
  * tries again. When the folder fails or closes, every write still waiting
  * rejects with `FolderClosed` (ADR-0782).
  *
+ * **One replica, read by sync.** `localStoreOf(folder)` is the connected
+ * folder as a store (`sync({ local, remote, manifest })`, ADR-0803): its
+ * listing and a note's read answer from the replica, with the versions it
+ * holds, so a sync that finds nothing changed reads no file; its writes
+ * wait their turn in the folder's queue and update the replica as the
+ * folder's own do. It holds the contract's files: a path outside it, where
+ * it is not hidden, is `'stale'`, never written and never listed.
+ *
  * Only an interface reads `state()` (`<WhenOpen>` from `@epicenter/svelte`);
  * everything else reads and acts. Nothing here knows a framework:
  * `reactive(folder)` from `@epicenter/svelte/reactive` tracks the reads as
@@ -49,6 +57,7 @@ import {
 	type FileEntryOf,
 	type FileOf,
 	type InvalidNoteOf,
+	isHiddenPath,
 	type NoteOf,
 	type NotePatch,
 	type PlaceholdersOf,
@@ -56,6 +65,8 @@ import {
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
+	type FileRead,
+	type Listed,
 	type Store,
 	type Unavailable,
 	type Version,
@@ -79,6 +90,24 @@ export type { NoteEdit, NoteEditOptions } from './note-edit.js';
 export type RevealFolderError = RevealRootError;
 
 const log = createLogger('folder');
+
+const encoder = new TextEncoder();
+
+/** Where a folder keeps its store view; a symbol member, so `reactive`'s copy carries it. */
+const LOCAL = Symbol('epicenter.folderLocalStore');
+
+/**
+ * `folder` (or `reactive`'s copy of it) as a store, for `sync`: its listing
+ * and a note's read answer from what the folder holds, and its writes go
+ * through the folder's own queue. `close` leaves the folder open; dispose
+ * the folder to close it. Throws for anything `createFolder` did not make.
+ */
+export function localStoreOf(folder: object): Store {
+	const view = (folder as { [LOCAL]?: Store })[LOCAL];
+	if (view === undefined)
+		throw new Error('expected a folder made by openFolder or createFolder');
+	return view;
+}
 
 /**
  * Where the folder is in its life. Retrying belongs to a failure, so only
@@ -771,8 +800,7 @@ export function createFolder<TContract extends Contract>(
 				throw new Error(
 					'The folder was disposed: a write made after it has nowhere to land.',
 				);
-			if (phase === 'failed')
-				return Promise.reject(new FolderClosed('failed'));
+			if (phase === 'failed') return Promise.reject(new FolderClosed('failed'));
 			return new Promise<void>((resolve, reject) => {
 				queue.push({
 					path,
@@ -794,6 +822,72 @@ export function createFolder<TContract extends Contract>(
 				return store.read([path]);
 			});
 		},
+	};
+	/** `error` as the store contract's `Unavailable`. */
+	const unavailableFrom = (error: ReadError) =>
+		error.name === 'Unavailable'
+			? error
+			: ClientError.Unavailable({ cause: error }).error;
+
+	const view: Store = {
+		async list(wanted) {
+			const ready = await host.connected();
+			if (ready.error !== null) return Err(unavailableFrom(ready.error));
+			const files: Listed[] = [];
+			for (const [path, { version, size }] of held)
+				if (within(path, wanted)) files.push({ path, version, size });
+			return Ok(files);
+		},
+		async read(paths) {
+			const ready = await host.connected();
+			if (ready.error !== null) return Err(unavailableFrom(ready.error));
+			const answers: FileRead[] = [];
+			for (const path of paths) {
+				const file = held.get(path);
+				if (file?.text != null) {
+					answers.push({
+						path,
+						bytes: encoder.encode(file.text),
+						version: file.version,
+					});
+					continue;
+				}
+				// An attachment's bytes, or a note not held: the store has them.
+				const read = await host.readNow(path);
+				if (read.error !== null) return read;
+				answers.push(...read.data);
+			}
+			return Ok(answers);
+		},
+		async write(path, bytes, over) {
+			const claimed = compiled.claim(path) !== null;
+			if (!claimed && !isHiddenPath(path)) return Ok('stale');
+			let outcome: Version | null | 'stale' = 'stale';
+			try {
+				await host.enqueue(path, async (to) => {
+					const written = await to.write(path, bytes, over);
+					if (written.error !== null) return written;
+					outcome = written.data;
+					if (claimed && written.data !== 'stale')
+						host.landed(
+							path,
+							bytes === null || written.data === null
+								? null
+								: host.heldOf(path, bytes, written.data),
+						);
+					return Ok(undefined);
+				});
+			} catch (cause) {
+				return ClientError.Unavailable({ cause });
+			}
+			return Ok(outcome);
+		},
+		async watch(changed) {
+			const ready = await host.connected();
+			if (ready.error !== null) return Err(unavailableFrom(ready.error));
+			return ready.data.watch(changed);
+		},
+		close() {},
 	};
 	for (const collection of compiled.collections) {
 		if (RESERVED.has(collection.name))
@@ -830,6 +924,7 @@ export function createFolder<TContract extends Contract>(
 			store = null;
 		},
 	};
+	Object.defineProperty(lifecycle, LOCAL, { value: view });
 	return Object.assign(
 		lifecycle,
 		Object.fromEntries(

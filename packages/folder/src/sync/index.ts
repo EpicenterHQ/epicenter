@@ -3,6 +3,7 @@
  * store contract and a manifest (ADR-0803). A prototype: no app or
  * program runs it yet.
  */
+export { localStoreOf } from '../folder.js';
 export {
 	type BatchReceipt,
 	type BatchWrite,
