@@ -22,8 +22,8 @@
 				detail: 'Sign in again to edit your repository.',
 				tone: 'warning',
 			};
-		const unreadable = folder.captures.error();
-		if (unreadable !== null) return { label: 'Offline', detail: unreadable.message, tone: 'warning' };
+		const unavailable = folder.unavailable();
+		if (unavailable !== null) return { label: 'Offline', detail: unavailable.message, tone: 'warning' };
 		return { label: 'Online', tone: 'good' };
 	});
 

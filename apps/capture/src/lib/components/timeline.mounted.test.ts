@@ -4,12 +4,13 @@
  * The real timeline over the app's own folder (`$lib/app`), which the
  * `test` condition makes a folder in memory: New capture, the files it
  * lists, and another writer's change. Each test starts from an empty
- * folder; the files it writes, and a write that fails, are the world
+ * folder; the files it writes, and a write that waits, are the world
  * outside the folder (`outside`).
  *
  * Key behaviors:
  * - New capture writes nothing until Add, then opens Add a thought
- * - A failed Add keeps its form text
+ * - An Add made while the store cannot be reached keeps its form text
+ *   until it lands
  * - A file that does not read is listed to repair, not as a capture
  * - Another writer's change shows without a reload
  * - An Add whose text makes the Thoughts ambiguous opens as text
@@ -66,21 +67,21 @@ test('New capture writes nothing until Add and then opens Add a thought', async 
 	);
 });
 
-test('failed Add keeps its form text and leaves the timeline empty', async () => {
+test('an Add made while the store cannot be reached keeps its form text until it lands', async () => {
 	const h = setup();
 	const undo = outside.refuse('disk full');
 	try {
 		type(field('new-capture'), 'Keep this');
 		submit(field('new-capture')?.form);
-		await until(
-			() =>
-				document.body.textContent?.includes('Could not add capture') === true,
-		);
+		await Bun.sleep(20);
+		flushSync();
 		expect(field('new-capture')?.value).toBe('Keep this');
 		expect(h.captures.timeline.rows).toEqual([]);
 	} finally {
 		undo();
 	}
+	await until(() => field('new-thought') !== null);
+	expect(h.captures.timeline.rows[0]?.preview).toContain('Keep this');
 });
 
 test('a file that does not read as a capture is listed for repair, not as a capture', async () => {

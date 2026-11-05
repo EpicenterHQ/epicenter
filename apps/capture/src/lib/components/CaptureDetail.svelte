@@ -1,9 +1,12 @@
-<!-- One capture as its text and thoughts. One editor of its note (`edit`) holds both until each save answers. -->
+<!--
+	One capture as its text and thoughts. One editor of its note (`edit`)
+	shows both as typed until each save lands; a save never fails
+	(ADR-0775).
+-->
 <script lang="ts">
 	import { variant } from '#platform/variant';
 	import { captureBody } from '../model/index.js';
 	import { describeIssues } from '@epicenter/definition/contract';
-	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -16,7 +19,7 @@
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { createCaptureActions, locateThought } from '$lib/capture-actions.svelte.js';
 	import { folder } from '$lib/app.js';
-	import { type Captures, captureText, instantOf } from '$lib/captures.svelte.js';
+	import { type Captures, instantOf } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 
@@ -37,7 +40,7 @@
 	});
 	/** The file at this capture's path, when it does not read as a capture. */
 	const broken = $derived(folder.captures.invalid().find((file) => file.id === args.id));
-	/** The capture, its body showing what was typed until its save answers. */
+	/** The capture, its body showing what was typed until its save lands. */
 	const edit = folder.captures.edit(args);
 	const actions = createCaptureActions({
 		get value() {
@@ -98,14 +101,14 @@
 		captures.open(args.id, 'text');
 	}
 
-	/** The capture's file text once the typed body has landed, or undefined when it is gone. */
+	/** The capture's file text and body once the typed body has landed, or undefined when it is gone. */
 	async function landedText() {
-		if ((await edit.landed()).error !== null || !active) return undefined;
+		await edit.landed();
+		if (!active) return undefined;
 		// The saved note, not the editor's fields: what the file holds.
 		const saved = folder.captures.get(args);
 		if (saved === undefined) return undefined;
-		const written = captureText(saved);
-		return written.error === null ? { saved, text: written.data } : undefined;
+		return { body: saved.body, text: edit.text };
 	}
 
 	/** Export the capture's file after the typed body saves. */
@@ -122,7 +125,7 @@
 		// Selection ranges come from the saved file, so wait for the typed body.
 		const landed = await landedText();
 		if (!active) return;
-		const range = landed && locateThought(landed.text, landed.saved.body, index, shown);
+		const range = landed && locateThought(landed.text, landed.body, index, shown);
 		if (range === undefined) {
 			actions.refuseChanged();
 			return;
@@ -141,8 +144,6 @@
 		});
 	}
 </script>
-
-<UnsavedEdit {edit} />
 
 {#if reading === undefined}
 	<div class="flex flex-col gap-4">

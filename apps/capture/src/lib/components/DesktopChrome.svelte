@@ -17,9 +17,9 @@
 	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.CAPTURE.url });
 
 	const status = $derived.by((): StatusLine => {
-		const unreadable = folder.captures.error();
-		if (unreadable !== null)
-			return { label: 'Not readable here', detail: unreadable.message, tone: 'error' };
+		const unavailable = folder.unavailable();
+		if (unavailable !== null)
+			return { label: 'Not reachable', detail: unavailable.message, tone: 'error' };
 		if (sync.managed) return { label: 'Kept by Epicenter', tone: 'good' };
 		return { label: 'On this computer', tone: 'neutral' };
 	});

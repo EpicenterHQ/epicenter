@@ -15,8 +15,8 @@
  * 3. A thought added on the desktop and synced shows in the open capture
  *    with no reload; a thought added in the browser reaches the desktop.
  * 4. A note the desktop wrote that does not read as a capture is listed
- *    with its text; Save refuses a fix that still does not fit and repairs
- *    it with one that does.
+ *    with its text; text typed there is saved as typed, a fix that still
+ *    does not fit stays listed with why, and one that fits repairs it.
  * 5. Signing out asks for a sign-in again, and the browser holds nothing.
  */
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -269,17 +269,20 @@ test('4. a note that does not read as a capture is listed with its text, and rep
 		page.getByRole('status', { name: 'Needs repair' }),
 	).toBeVisible();
 
-	// Text that still does not fit is refused, says why, and stays to fix.
-	await text.fill(
-		'---\ncapturedAt: 2026-10-30\n---\n\nFound note\n\n## Thoughts\n',
-	);
-	await page.getByRole('button', { name: 'Save', exact: true }).click();
-	await expect(page.getByRole('alert', { name: 'Not saved' })).toContainText(
+	// Text that still does not fit is saved as typed, says why, and stays to fix.
+	const unfit =
+		'---\ncapturedAt: 2026-10-30\n---\n\nFound note\n\n## Thoughts\n';
+	await text.fill(unfit);
+	await expect(page.getByRole('status', { name: 'Needs repair' })).toContainText(
 		'capturedAt',
 	);
-	await expect(text).toHaveValue(
-		'---\ncapturedAt: 2026-10-30\n---\n\nFound note\n\n## Thoughts\n',
-	);
+	await expect
+		.poll(async () => {
+			await sync(stack, person, clone);
+			return readFile(join(clone, 'captures/found.md'), 'utf8');
+		})
+		// In house style, which may quote the date.
+		.toMatch(/^capturedAt: "?2026-10-30"?$/m);
 
 	await text.fill(
 		'---\ncapturedAt: 2026-10-30T09:00:00Z\n---\n\nFound note\n\n## Thoughts\n',
@@ -287,7 +290,7 @@ test('4. a note that does not read as a capture is listed with its text, and rep
 	await expect(page.getByRole('status', { name: 'Needs repair' })).toHaveCount(
 		0,
 	);
-	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await page.getByRole('button', { name: 'Open as capture' }).click();
 	// It reads as a capture now, and opens as one.
 	await expect(page.getByLabel('Capture text')).toHaveValue('Found note');
 	await back();

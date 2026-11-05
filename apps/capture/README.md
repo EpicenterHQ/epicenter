@@ -42,23 +42,27 @@ write nothing before Add, and leaving clears them. The capture text and the
 thought commands compose over one editor of the note
 (`folder.captures.edit({ id })`), so
 a thought command never loses text typed just before it. Typed text shows
-until its save answers; a save that fails stays with Save again, Discard and
-Copy. Thoughts are identified by their position in the shown list; a move or
-delete refuses a list that changed beneath it.
+until its save lands. A save never fails: while the store cannot be
+reached, the folder keeps it, in order, and sends it when it can, and the
+page says so (`<WhenOpen>`). Thoughts are identified by their position in
+the shown list; a move or delete refuses a list that changed beneath it.
 
-**Edit as text** shows the whole note, front matter included: a capture
-that reads, in house style (`noteText`); a file that does not, as it is. What
-is typed is a draft, checked as it is typed (`readNoteText`, then the
-Thoughts layout). **Save** replaces the whole note (`replace`) over the
-version the draft began from: text whose front matter does not parse or fit
-is refused with why, and a change made elsewhere since is refused rather than
-overwritten, with Save again (replace theirs) or Use the saved text. A saved
-note whose Thoughts read opens as a capture. A thought's Edit as text first
-saves the shown body, then selects that thought's lines.
+**Edit as text** shows the file's whole text, front matter included, as it
+is, through the same kind of editor over the note's whole text
+(`folder.captures.edit({ id }).text`). Typing saves it, in house style
+where its front matter parses: text whose front matter does not parse or
+fit is written, and the capture is listed to repair until it does. Whether
+it reads is checked as it is typed (`readNoteText`, then the Thoughts
+layout). A change made elsewhere since the typing began is settled with
+it, as sync settles it, so neither is lost. **Open as capture** opens it
+once what was typed has landed and its Thoughts read. A thought's Edit as
+text first waits for the shown body to land, then selects that thought's
+lines.
 
-**More** holds Copy capture text, Download file (the note's text once the
-shown body has saved), and Delete capture. Deletion asks first; a deleted
-capture stays in the repository's Git history.
+**More** holds Copy capture text, Download file (the note's file once the
+shown body has landed), and Delete capture. Deletion asks first, then
+closes the capture; a deleted capture stays in the repository's Git
+history.
 
 The timeline lists captures newest first by the instant captured (a
 `capturedAt` with an offset sorts by when it was), then files at a capture's
@@ -181,7 +185,7 @@ went missing.
 | --- | --- |
 | `bun test apps/capture/src/lib/model` | The contract and the body codec. |
 | `bun run --cwd apps/capture typecheck` | App, scripts, and end-to-end types. |
-| `bun run --cwd apps/capture test` | The contract's fit, the page state over a folder at a place in memory (`memory()`), whose writes can fail or wait, the mounted views over the app's memory folder, and both builds' seams. |
+| `bun run --cwd apps/capture test` | The contract's fit, the page state over a folder at a place in memory (`memory()`), whose writes can be made to wait, the mounted views over the app's memory folder, and both builds' seams. |
 | `cargo test -p capture -p epicenter-standalone` | The desktop shell: its capability, the derived data folder and opening refusals. |
 | `bun x playwright test -c apps/capture/playwright.config.ts` | End to end in Chromium and WebKit (below). |
 
@@ -190,7 +194,7 @@ in memory and a signed-out account, and the mounted views read that folder
 and mock no module. What happens outside the folder goes through
 `memoryFiles(folder)` from `@epicenter/folder/memory`: another program
 writing a file (one that does not read, too), and the folder's own writes
-made to wait or fail.
+made to wait.
 
 The end-to-end suite (`e2e/capture.spec.ts`, on the shared stack in
 `packages/cli/src/app-stack.test-support.ts`) walks one person through five
