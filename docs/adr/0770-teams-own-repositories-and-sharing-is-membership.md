@@ -6,6 +6,7 @@
 - **Relates:** [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) (no move, which this keeps), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (an app's repository name comes from its site), [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (apps share data through files in Git).
 - **Amended by:** [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) at "clone, then push" and "owners also rename": a copy is one commit of files, and owners rename a team, never a repository.
 - **Amended by:** [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) at where a team's repositories sit on a computer: in the team's folder under `~/Epicenter`.
+- **Amended by:** [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) at the noun team and consent choosing a team: the noun is space, and consent chooses the spaces an app may reach.
 - **Unbuilt:** all of it: renaming the `namespace` tables to `team` and `team_member`; deleting `repository_grant`, `share` and `unshare`; creating a team, inviting to it, and leaving it; consent offering a team; `GET /api/repos` and `epicenter repos` listing by team.
 
 ## Context
