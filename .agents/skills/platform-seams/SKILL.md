@@ -18,8 +18,8 @@ The worked example is `apps/capture`; the pattern is written up in
 ## What belongs behind a seam
 
 **The store needs no seam.** An app has up to three variants, each with
-one store (ADR-0700), and `openFolder(contract, { site, account })` in
-`src/lib/app.ts` picks it: the build picks the implementation (the desktop's
+one store (ADR-0700), and `openFolder(contract, home({ site, account }))` in
+`src/lib/app.ts` picks it: the build picks the `home` implementation (the desktop's
 data folder under `tauri`, the browser's otherwise), and the account picks
 the web's (the person's repository with one, this browser's files without).
 Do not add a `#platform/root` or a `Startup` component. What does differ by

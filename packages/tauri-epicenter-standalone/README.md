@@ -3,8 +3,8 @@
 A standalone Epicenter app is its own small Tauri program over a folder it
 owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
 shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines.
-On the page, `openFolder(contract, { site })` from `@epicenter/folder` opens
-the data folder in the desktop build, `localFile(name)` from
+On the page, `openFolder(contract, home({ site }))` from `@epicenter/folder`
+opens the data folder in the desktop build, `localFile(name)` from
 `@epicenter/local` keeps a capability's per-computer state in AppData, and
 `syncWithEpicenter` and `syncedWithEpicenter` from `@epicenter/folder/tauri`
 manage Epicenter enrollment. The page's recovery and sync UI is in
@@ -83,8 +83,8 @@ The build chooses them, never a runtime check, and the routes stay the same
 (do not swap SvelteKit's `kit.files.routes`).
 
 1. **Seams.** The store needs none: `src/lib/app.ts` calls
-   `openFolder(contract, { site, account })`, and the `tauri` build of
-   `@epicenter/folder` opens the data folder. In the app's `package.json`,
+   `openFolder(contract, home({ site, account }))`, and the `tauri` build of
+   `@epicenter/folder` makes `home` the data folder. In the app's `package.json`,
    map each thing the variants do differ in to two leaves, the desktop one
    under `tauri`, usually the account and the chrome that shows where the
    files are:

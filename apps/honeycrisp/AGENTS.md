@@ -9,7 +9,7 @@ for the layout and page flow, and verify it against the code.
   never a run-time check
   ([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)):
   `src/lib/app.ts` exports `folder`, one
-  `openFolder(honeycrisp, { site, account })`, which is the signed-in
+  `openFolder(honeycrisp, home({ site, account }))`, which is the signed-in
   person's repository in the web build and the window's folder on the
   desktop, which never signs in. Every read and write goes through it:
   components import `folder` from `$lib/app.js` and read `folder.notes` and

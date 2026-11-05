@@ -44,7 +44,7 @@ so it holds no hot-reload lines:
 
 ```ts
 // src/lib/app.ts
-export const folder = reactive(openFolder(todos, { site: APPS.TODOS.url }));
+export const folder = reactive(openFolder(todos, home({ site: APPS.TODOS.url })));
 ```
 
 Each collection reads `items()`, `invalid()` (notes), `loading()`, `error()`

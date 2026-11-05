@@ -46,7 +46,7 @@ its actions answer promises, and `subscribe` hears a change. A Svelte app
 adapts it once with `reactive` from `@epicenter/svelte/reactive`, and
 `auth.state()` tracks in a template, `$derived` or effect. A capability that
 takes the live account (`hosted(account)` from `@epicenter/ai`,
-`openFolder(contract, { account })`) takes the plain client and reads
+`home({ site, account })` from `@epicenter/folder`) takes the plain client and reads
 `state()` and `subscribe` itself.
 Retain the callback-capable type where a callback route needs it
 (`isCallbackAuthClient`).

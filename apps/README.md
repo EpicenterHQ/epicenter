@@ -4,11 +4,11 @@ An app's data is a layout of files that its contract describes
 (`defineContract` from `@epicenter/definition/contract`), and Git is the
 record of that layout
 ([ADR-0700](../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
-An app opens its store through `@epicenter/folder` as one typed client,
-`Client<Contract>`, with `list`, `get`, `create`, `update` and `delete`; any
-program that writes the layout is a valid writer. Apps never commit:
-Epicenter (`epicenter sync`) commits a folder on a computer, and the server
-commits each web write.
+An app opens its folder through `@epicenter/folder`, which gives it each of
+the contract's collections, with `list`, `get`, `create`, `update` and
+`delete`; any program that writes the layout is a valid writer. Apps never
+commit: Epicenter (`epicenter sync`) commits a folder on a computer, and the
+server commits each web write.
 
 ## Variants
 
@@ -16,11 +16,11 @@ An app has up to three variants, each with one store for its life, and
 builds only the ones it needs. Nothing moves between stores; signing in
 grants capabilities, never storage.
 
-Every variant opens its store the same way, `openFolder(contract, { site,
-account })` from `@epicenter/folder`, and the build and the account pick
-which store that is:
+Every variant opens its folder the same way, `openFolder(contract,
+home({ site, account }))` from `@epicenter/folder`, and the build and the
+account pick which store `home` is:
 
-| Variant | Store | `openFolder` gets |
+| Variant | Store | `home` gets |
 | --- | --- | --- |
 | Desktop | a folder on the computer (the `tauri` build) | any account, or none: it is ignored |
 | Local web | this browser's files (OPFS), for good | no account |
@@ -52,7 +52,9 @@ Nothing in it awaits, and an edit to it reloads the page
 const signIn = connectAccount(); // #platform/account: null where the build never signs in
 
 export const account = signIn && reactive(signIn);
-export const folder = reactive(openFolder(todos, { site: APPS.TODOS.url, account: signIn }));
+export const folder = reactive(
+  openFolder(todos, home({ site: APPS.TODOS.url, account: signIn })),
+);
 ```
 
 The app's layout renders the pages over the folder with `<WhenOpen>` from
@@ -127,9 +129,8 @@ Local Books keeps its QuickBooks replica in SQLite under
 
 Name each product root `<Product>App`: `TodosApp`, `CaptureApp`,
 `HoneycrispApp`, `VocabApp`, `WhisperingApp`, and `MessagesApp`. This
-component receives the store its variant's root opened, as a client or a
-collection of one, and composes the product's state and interface over it;
-nothing under it chooses a store.
+component composes the product's state and interface over the folder
+`src/lib/app.ts` opened; nothing under it chooses a store.
 
 Use `Shell` for surrounding layout and `View` for a screen or representation.
 Keep a specific tool name such as `FolderEditor` for a window within a larger

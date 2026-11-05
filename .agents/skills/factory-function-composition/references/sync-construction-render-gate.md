@@ -169,7 +169,7 @@ Use `whenReady` when your client has sync methods that depend on initialized sta
 
 ## Epicenter capabilities
 
-An Epicenter capability that takes time to open, such as `openFolder(contract)`,
+An Epicenter capability that takes time to open, such as `openFolder(contract, place)`,
 takes neither shape whole
 ([ADR-0767](../../../../docs/adr/0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md)).
 It has no public ready promise. Its lifecycle is synchronous state

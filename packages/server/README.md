@@ -70,8 +70,8 @@ elsewhere (`resolveOAuthAudiences`).
 | `PUT`/`DELETE /api/repos/<namespace>/<name>/grants/<person>` | `folders:write` on the Git audience, the `manage` role (owner) |
 
 `<namespace>` may be `~`, the caller's personal namespace, so a web app reaches
-`<account>/<app>` from its token alone; `openRemote` in `@epicenter/folder/remote`
-uses it.
+`<account>/<app>` from its token alone; a web folder at
+`home({ site, account })` from `@epicenter/folder` uses it.
 
 **Grants.** The owner shares one repository with a person outside its
 namespace: `PUT .../grants/<person>` with `{ "level": "read" | "write" }`

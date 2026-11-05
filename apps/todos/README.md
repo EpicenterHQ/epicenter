@@ -74,14 +74,14 @@ shared recovery screen with Retry. The files remain when the app is removed.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
-(`openFolder(todos, { site })`, whose `tauri` leaf opens the Data root) with
-no sign-in: Todos makes no
+(`openFolder(todos, home({ site, account }))`, whose desktop `home` is the
+Data root) with no sign-in: Todos makes no
 inference calls, and Epicenter can keep the folder's local history. Its header
 says whether Epicenter manages the folder, offers **Set up in Epicenter** until it does
 (`syncWithEpicenter({ contract })`, the contract at `APPS.TODOS.url`'s
 `contract.json`), and shows the shell's folder path in the status details. Closing the window or quitting does not wait.
 
-The build picks the folder: `openFolder` from `@epicenter/folder` resolves
+The build picks the folder: `home` from `@epicenter/folder` resolves
 to its desktop leaf under the `tauri` condition that `desktopVariant()` in
 `vite.config.ts` turns on, and to the web leaf otherwise. Two things are
 Todos' own and differ by build, through `#platform/*` seams
@@ -103,16 +103,16 @@ bun apps/todos/scripts/native.ts /tmp/todos create "Buy milk"
 bun apps/todos/scripts/native.ts /tmp/todos complete <id>
 ```
 
-It opens the directory as the contract's client (`openDevice` from
-`@epicenter/folder/node`), keeps front matter keys and notes Todos does not
-name, and never commits or contacts a server.
+It opens Todos' folder at the directory (`openFolder(todos, directory(path))`,
+`directory` from `@epicenter/folder/node`), keeps front matter keys and
+notes Todos does not name, and never commits or contacts a server.
 
 ## How it is wired
 
 ```text
 src/lib/app.ts                 the page's values, each read through reactive:
                                account (#platform/account) and
-                               folder = reactive(openFolder(todos, { site, account }));
+                               folder = reactive(openFolder(todos, home({ site, account })));
                                editing it, or what it imports, reloads the page
 routes/+layout.svelte          every page: the chrome
 routes/(app)/+layout.svelte    signed out on the web: SignIn; otherwise
