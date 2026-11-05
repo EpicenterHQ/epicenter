@@ -41,9 +41,11 @@ export type DeviceStore = {
 	 * Every file below the root, at any depth, hidden ones included, each
 	 * with a stamp that changes whenever its bytes do, and its version when
 	 * the store knows it without reading the bytes. Directories are not
-	 * listed.
+	 * listed. `under` (a directory, `/`-separated) is a hint: a store that
+	 * can list less lists only the files below it, and one that cannot lists
+	 * every file, so a caller still checks each path.
 	 */
-	list(): Promise<
+	list(under?: string): Promise<
 		Result<{ path: string; stamp: string; version?: Version }[], Unavailable>
 	>;
 	/** The file at `path`, or null when nothing is there. */

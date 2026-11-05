@@ -9,13 +9,14 @@ import type { Contract } from '@epicenter/definition/contract';
 import { hostFromSiteUrl, repositoryName } from '@epicenter/definition/site';
 import { Ok } from 'wellcrafted/result';
 import { closeDevice, holdOpening, openDevice } from './browser.js';
+import { createDeviceClient } from './device/client.js';
 import {
 	createFolder,
 	type FolderAccount,
 	type FolderOpen,
 	type OpenFolder,
 } from './folder.js';
-import { createRemoteClient } from './remote/client.js';
+import { repositoryStore } from './remote/store.js';
 
 export { OpenFolderError } from './errors.js';
 export type {
@@ -72,7 +73,11 @@ function accountCopy<TContract extends Contract>(
 			const answer = (): boolean => {
 				const signedIn = account.state().account;
 				if (signedIn === undefined) return false;
-				resolve(Ok(createRemoteClient(contract, signedIn, repository)));
+				resolve(
+					Ok(
+						createDeviceClient(contract, repositoryStore(signedIn, repository)),
+					),
+				);
 				return true;
 			};
 			if (answer()) return;

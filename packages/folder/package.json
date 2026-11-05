@@ -15,8 +15,7 @@
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",
 		"./node": "./src/node.ts",
-		"./memory": "./src/memory.ts",
-		"./remote": "./src/remote.ts"
+		"./memory": "./src/memory.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server-tests.json",

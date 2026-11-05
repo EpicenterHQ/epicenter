@@ -92,8 +92,8 @@ export function repositoryStore(
 	}
 
 	return {
-		async list() {
-			const listed = await wire.list('');
+		async list(under = '') {
+			const listed = await wire.list(under);
 			if (listed.error !== null) return listed;
 			return Ok(
 				listed.data.map(({ path, blob }) => ({

@@ -1,20 +1,19 @@
 /**
- * Remote Client Tests
+ * Repository Store Tests
  *
- * `openRemote` against the real server app: the authorization server on a
- * disposable Postgres, a `Bun.serve` listener, the disk Git and LFS stores,
- * and an access token from a real code grant. The account is a stand-in for
- * `@epicenter/account`'s: it carries the token, can be retired, and records
- * every request. A miss here is a write landing over a version its writer
- * never read.
- *
- * Each runs twice: through `openRemote`, and through the one typed client
- * over the repository as a device store (`repositoryStore`).
+ * The one typed client over a repository on the real server app
+ * (`createDeviceClient` over `repositoryStore`): the authorization server
+ * on a disposable Postgres, a `Bun.serve` listener, the disk Git and LFS
+ * stores, and an access token from a real code grant. The account is a
+ * stand-in for `@epicenter/account`'s: it carries the token, can be
+ * retired, and records every request. A miss here is a write landing over
+ * a version its writer never read.
  *
  * Key behaviors:
  * - Another person's repository is reached under their handle, as far as their grant goes
- * - The remote client refuses a stale version (`Conflict`) and an occupied path (`Occupied`)
+ * - A stale version is a `Conflict` and an occupied path `Occupied`, even for two creates at once
  * - A note that does not read on main is listed with its text, and `replace` repairs it
+ * - A listing reads only its collection's folder, and only the notes that changed since the last
  * - Listeners hear this client's writes at once and other writers' within a poll of `main`
  * - A retired account makes every call `Unavailable`, never a throw
  *
@@ -26,11 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Account } from '@epicenter/account';
-import {
-	defineContract,
-	type Client as TypedClient,
-	type Version,
-} from '@epicenter/definition/contract';
+import { defineContract, type Version } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
 import { hostFromSiteUrl, repositoryName } from '@epicenter/definition/site';
 import {
@@ -50,7 +45,6 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { startDisposablePostgres } from '../../../server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../server/src/test-helpers/oauth-client.js';
 import { createDeviceClient } from '../device/client.js';
-import { openRemote } from '../remote.js';
 import { repositoryStore } from './store.js';
 
 const recorder = defineContract({
@@ -158,27 +152,18 @@ type Location =
 	| { site: string; repository?: `${string}/${string}` }
 	| { site?: string; repository: `${string}/${string}` };
 
-/** The two ways to the same repository: the remote client, and the one client over a store. */
-const openers: [
-	string,
-	(
-		contract: typeof recorder,
-		options: { account: Account } & Location,
-	) => TypedClient<typeof recorder>,
-][] = [
-	['openRemote', openRemote],
-	[
-		'the device client over repositoryStore',
-		(contract, { account, site, repository }) =>
-			createDeviceClient(
-				contract,
-				repositoryStore(
-					account,
-					repository ?? `~/${repositoryName(hostFromSiteUrl(site ?? ''))}`,
-				),
-			),
-	],
-];
+/** The typed client of `contract` over the repository `account` reaches at `repository`, else the site's own. */
+const openRemote = (
+	contract: typeof recorder,
+	{ account, site, repository }: { account: Account } & Location,
+) =>
+	createDeviceClient(
+		contract,
+		repositoryStore(
+			account,
+			repository ?? `~/${repositoryName(hostFromSiteUrl(site ?? ''))}`,
+		),
+	);
 
 /**
  * A signed-in person's account, as `@epicenter/account` gives one: every
@@ -261,10 +246,8 @@ async function signInPerson(label: string) {
 	};
 }
 
-for (const [label, openRemote] of openers)
-	describe(`the remote client: ${label}`, () => {
-		const signIn = (person: string) =>
-			signInPerson(`${person}-${label.length}`);
+describe('the typed client over a repository', () => {
+		const signIn = signInPerson;
 
 		test("another person's repository is reached under their handle, as far as their grant goes", async () => {
 			const alice = await signIn('shared-owner');
@@ -560,9 +543,7 @@ for (const [label, openRemote] of openers)
 			expect(person.requests(HEAD).length).toBe(polls);
 		}, 30_000);
 
-		// openRemote reads the path, then writes with no base, which merges
-		// into a file that raced it there: both creates land.
-		test.skipIf(label === 'openRemote')(
+		test(
 			'two creates of one path at once: one lands, the other is Occupied',
 			async () => {
 				const person = await signIn('create-race');
@@ -618,6 +599,46 @@ for (const [label, openRemote] of openers)
 			);
 			expect(person.requests(/lfs/)).toEqual([]);
 			expect(person.sent).toHaveLength(1);
+		}, 30_000);
+
+		test("a note listing reads only its collection's folder, and only the notes whose blob changed", async () => {
+			const person = await signIn('list-cache');
+			const remote = openRemote(recorder, {
+				account: person.account,
+				site: 'https://recorder.epicenter.so',
+			});
+			const other = openRemote(recorder, {
+				account: person.account,
+				site: 'https://recorder.epicenter.so',
+			});
+			const ids = [timeId(), timeId()];
+			const created = [];
+			for (const id of ids)
+				created.push(expectOk(await remote.recordings.create({ id, title: id })));
+			const FILE = /^GET .*\/epicenter\/file\?/;
+			const LIST = /^GET .*\/epicenter\/files\?root=recordings$/;
+			person.sent.length = 0;
+			expect(expectOk(await remote.recordings.list()).items).toHaveLength(2);
+			expect(person.requests(LIST)).toHaveLength(1);
+			expect(person.requests(FILE)).toHaveLength(2);
+
+			person.sent.length = 0;
+			expectOk(await remote.recordings.list());
+			expect(person.requests(FILE)).toHaveLength(0);
+
+			const [first] = created;
+			if (first === undefined) throw new Error('expected a note');
+			expectOk(
+				await other.recordings.update(
+					{ id: first.id },
+					{ title: 'Changed' },
+					{ over: first.version },
+				),
+			);
+			person.sent.length = 0;
+			const { items } = expectOk(await remote.recordings.list());
+			expect(person.requests(FILE)).toHaveLength(1);
+			expect(items.find(({ id }) => id === first.id)?.title).toBe('Changed');
 		}, 30_000);
 
 		test('a note write raced by another lands merged, and the client answers with what landed', async () => {

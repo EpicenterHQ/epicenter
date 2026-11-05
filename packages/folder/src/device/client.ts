@@ -149,6 +149,20 @@ function observed(store: DeviceStore): DeviceStore {
 }
 
 /**
+ * The directory a collection's files all sit under: its template's leading
+ * literal directories (`recordings` for `recordings/{id}.md`), the hint a
+ * listing passes so a store that can lists no more than it must.
+ */
+function directoryOf(collection: CompiledCollection): string {
+	const literal: string[] = [];
+	for (const segment of collection.template.segments.slice(0, -1)) {
+		if (!('literal' in segment)) break;
+		literal.push(segment.literal);
+	}
+	return literal.join('/');
+}
+
+/**
  * The paths of `collection` in `store`, with their placeholder values and
  * stamps. A path is the collection's only when the contract's claim gives
  * it to that collection.
@@ -158,7 +172,7 @@ async function claimed(
 	collection: CompiledCollection,
 	store: DeviceStore,
 ) {
-	const { data: listed, error } = await store.list();
+	const { data: listed, error } = await store.list(directoryOf(collection));
 	if (error !== null) return { data: null, error };
 	const out: {
 		path: string;
@@ -192,6 +206,11 @@ async function remove(store: DeviceStore, path: string, over: Version) {
 	if (outcome === 'stale') return conflict(store, path);
 	return Ok(undefined);
 }
+
+/** A note as a listing shows it: one that reads, or one that does not. */
+type Listed =
+	| { item: ReturnType<typeof noteValue> }
+	| { invalid: ReturnType<typeof invalidNote> };
 
 function noteClient(
 	compiled: CompiledContract,
@@ -238,31 +257,65 @@ function noteClient(
 		return Ok(noteValue(params, decoded.data, read.data.version));
 	}
 
+	/** Each note as last read, by path, kept while the stamp a listing gives is unchanged. */
+	const known = new Map<string, { stamp: string; entry: Listed }>();
+
+	/** The note in `bytes` as a listing shows it: an item, or an invalid entry with its text. */
+	function listed(
+		path: string,
+		params: Params,
+		bytes: Uint8Array,
+		version: Version,
+	): Listed {
+		const text = codec.text(path, bytes);
+		const decoded = text.error === null ? codec.decode(path, text.data) : text;
+		if (decoded.error !== null)
+			return {
+				invalid: invalidNote(
+					params,
+					path,
+					decoded.error.issues,
+					text.data,
+					version,
+				),
+			};
+		return { item: noteValue(params, decoded.data, version) };
+	}
+
 	return {
 		fieldNames: collection.keys,
+		/** Every note, reading only those whose stamp changed since the last listing. */
 		async list() {
 			const { data: paths, error } = await claimed(compiled, collection, store);
 			if (error !== null) return { data: null, error };
-			const reads = await eachAtMost(paths, READS_AT_ONCE, ({ path }) =>
+			const stale = paths.filter(
+				({ path, stamp }) => known.get(path)?.stamp !== stamp,
+			);
+			const reads = await eachAtMost(stale, READS_AT_ONCE, ({ path }) =>
 				store.read(path),
 			);
-			const items: ReturnType<typeof noteValue>[] = [];
-			const unfit: ReturnType<typeof invalidNote>[] = [];
-			for (const [index, { path, params }] of paths.entries()) {
+			for (const [index, { path, params }] of stale.entries()) {
 				const read = reads[index];
 				if (read === undefined) continue;
 				if (read.error !== null) return read;
 				// Removed since the listing: it is no longer the collection's.
-				if (read.data === null) continue;
-				const { bytes, version } = read.data;
-				const text = codec.text(path, bytes);
-				const decoded =
-					text.error === null ? codec.decode(path, text.data) : text;
-				if (decoded.error !== null)
-					unfit.push(
-						invalidNote(params, path, decoded.error.issues, text.data, version),
-					);
-				else items.push(noteValue(params, decoded.data, version));
+				if (read.data === null) known.delete(path);
+				else
+					known.set(path, {
+						stamp: read.data.stamp,
+						entry: listed(path, params, read.data.bytes, read.data.version),
+					});
+			}
+			const present = new Set(paths.map(({ path }) => path));
+			for (const path of known.keys())
+				if (!present.has(path)) known.delete(path);
+			const items: ReturnType<typeof noteValue>[] = [];
+			const unfit: ReturnType<typeof invalidNote>[] = [];
+			for (const { path } of paths) {
+				const entry = known.get(path)?.entry;
+				if (entry === undefined) continue;
+				if ('item' in entry) items.push(entry.item);
+				else unfit.push(entry.invalid);
 			}
 			return Ok({ items, invalid: unfit });
 		},
