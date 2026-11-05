@@ -945,7 +945,7 @@ When you add an ADR, add its row here.
 | [0747](0747-git-runs-only-as-git-on-the-desktop.md) | Git runs only as Git, on the desktop | Accepted (amended by 0751) |
 | [0748](0748-epicenter-ships-a-portable-git-inside-the-app.md) | Epicenter ships a portable Git inside the app | Superseded by 0751 |
 | [0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) | Epicenter draws its boundaries where people already expect them | Accepted (amended by 0750 and 0787) |
-| [0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) | Sync is like save: any program can sync a folder, and none owns it | Accepted (amends 0328, 0713, 0745, and 0749) |
+| [0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) | Sync is like save: any program can sync a folder, and none owns it | Accepted (amends 0328, 0713, 0745, and 0749; amended by 0806) |
 | [0751](0751-every-native-app-carries-one-sync-core.md) | Every native app carries one sync core | Superseded by 0804 |
 | [0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) | An app's folder sits under the platform's visible root of app folders | Accepted |
 | [0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) | An app declares what it is and what it needs; the platform supplies where, how and when | Accepted (amends 0719; amended by 0759, 0760, 0766, and 0787) |
@@ -1001,3 +1001,4 @@ When you add an ADR, add its row here.
 | [0803](0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) | Clients sync only with Epicenter servers, and sync is a function of two stores | Accepted (amends 0733 and 0794) |
 | [0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) | A computer keeps a plain folder, and every surface syncs with one TypeScript function | Accepted (supersedes 0751; amends 0733, 0772, 0785, 0788, 0791, 0793, 0794, 0795, and 0801; amended by 0805) |
 | [0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) | A folder is recognized by `epicenter.json`, which is its contract | Accepted (amends 0711, 0772, 0802, and 0804) |
+| [0806](0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md) | An open app checks for changes, and a sync never silently loses an edit | Accepted (amends 0750) |
