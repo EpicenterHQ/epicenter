@@ -13,8 +13,7 @@
  * write never replaces bytes its writer did not see. A file deleted since it
  * was read is a `Conflict` whose `current` is null. Every version comes from
  * the store: a device's names a file's sha256, a repository's its Git blob.
- * A note the store merged with a write that raced this one (a repository
- * does, decision 15) is read back, so the client answers with what landed.
+ * No store merges (ADR-0773): what landed is what was sent.
  *
  * A collection's listeners hear every change that lands through this client
  * before the write resolves, and the store's outside changes (other tabs,
@@ -236,27 +235,6 @@ function noteClient(
 		});
 	}
 
-	/**
-	 * The note a write that landed left at `path`: `document` as sent, or,
-	 * when the store merged it with a write that raced it, the note there now.
-	 */
-	async function landedNote(
-		path: string,
-		params: Params,
-		document: Parameters<typeof noteValue>[1],
-		landed: DeviceLanded,
-	) {
-		if (!landed.merged)
-			return Ok(noteValue(params, document, landedVersion(landed)));
-		const read = await store.read(path);
-		if (read.error !== null) return read;
-		if (read.data === null)
-			return ClientError.Conflict({ path, current: null });
-		const decoded = decode(path, read.data.bytes);
-		if (decoded.error !== null) return decoded;
-		return Ok(noteValue(params, decoded.data, read.data.version));
-	}
-
 	/** Each note as last read, by path, kept while the stamp a listing gives is unchanged. */
 	const known = new Map<string, { stamp: string; entry: Listed }>();
 
@@ -350,7 +328,9 @@ function noteClient(
 			if (written.error !== null) return written;
 			if (written.data === 'stale')
 				return ClientError.Occupied({ path: path.data });
-			return landedNote(path.data, params, encoded.data.document, written.data);
+			return Ok(
+				noteValue(params, encoded.data.document, landedVersion(written.data)),
+			);
 		},
 		async update(args: Params, patch: Value, { over }: { over: Version }) {
 			const path = pathOf(collection, args);
@@ -382,7 +362,9 @@ function noteClient(
 			});
 			if (written.error !== null) return written;
 			if (written.data === 'stale') return conflict(store, path.data);
-			return landedNote(path.data, params, encoded.data.document, written.data);
+			return Ok(
+				noteValue(params, encoded.data.document, landedVersion(written.data)),
+			);
 		},
 		async replace(args: Params, text: string, { over }: { over: Version }) {
 			const path = pathOf(collection, args);
@@ -399,7 +381,9 @@ function noteClient(
 			});
 			if (written.error !== null) return written;
 			if (written.data === 'stale') return conflict(store, path.data);
-			return landedNote(path.data, params, encoded.data.document, written.data);
+			return Ok(
+				noteValue(params, encoded.data.document, landedVersion(written.data)),
+			);
 		},
 		async delete(args: Params, { over }: { over: Version }) {
 			const path = pathOf(collection, args);

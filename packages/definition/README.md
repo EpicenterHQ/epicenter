@@ -63,9 +63,9 @@ and delete passes back the `version` it read as `over`.
 
 ### Merging a note
 
-`settle(base, current, incoming, { parties })` is the one note merge. The
-server runs it when a web write lands on a moved `main`, and
-`epicenter merge-driver` runs it for `git merge`. `incoming` is the later
+`settle(base, current, incoming, { parties })` is the one note merge. Sync
+runs it on the desktop, and `epicenter merge-driver` runs it for
+`git merge`; the server never merges (ADR-0773). `incoming` is the later
 arrival:
 
 ```ts
@@ -97,9 +97,8 @@ Pay Alice later
 A front matter key both sides set goes to the later arrival. The body merges
 by line, then by word within a line both sides changed; two different changes
 at the same spot make one conflict block of whole lines. An edit beats a
-delete. A binary file never merges: `settlePointer` lands the later write,
-and the version it replaced stays in history (ADR-0771).
-Whatever `settle` writes is in house style.
+delete. A binary file never merges. Whatever `settle` writes is in house
+style.
 
 ### How a folder is stored in Git
 

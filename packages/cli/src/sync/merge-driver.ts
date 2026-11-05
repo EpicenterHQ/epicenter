@@ -2,8 +2,8 @@
  * `epicenter merge-driver %O %A %B %P`: a merge driver for `*.md` (decision
  * 42) that a person's own `git` runs when they configure
  * `merge.epicenter.driver` to it (ADR-0733), running `settle` from
- * `@epicenter/definition/merge`, the same note merge the server and the
- * sync core run. Epicenter's own rounds merge in the core and never call it.
+ * `@epicenter/definition/merge`, the same note merge the sync core runs.
+ * Epicenter's own rounds merge in the core and never call it.
  *
  * Which side arrives later (decision 28: the last arrival at the server
  * wins a front matter key). The server's `current` is what `main` already

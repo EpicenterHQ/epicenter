@@ -149,7 +149,7 @@ type LfsAnswer = {
 const sha256 = (bytes: Uint8Array) =>
 	createHash('sha256').update(bytes).digest('hex');
 
-/** A web client of one repository, as `openRemote` will be: every request with the account's token. */
+/** A web client of one repository, as the folder's repository store is: every request with the account's token. */
 function webClient(token: string, namespace: string, name: string) {
 	const repo = `${audiences.git}/${namespace}/${name}.git`;
 	const auth = { authorization: `Bearer ${token}` };
@@ -239,9 +239,10 @@ const capture = (id: string, audio: { oid: string; size: number }) => ({
 	files: [
 		{
 			path: `recordings/${id}.md`,
+			base: null,
 			text: `---\ntitle: Recording ${id}\nrecordedAt: '2026-10-30T22:00:00Z'\n---\nTranscript ${id}.\n`,
 		},
-		{ path: `recordings/${id}.webm`, lfs: audio },
+		{ path: `recordings/${id}.webm`, base: null, lfs: audio },
 	],
 });
 
@@ -250,7 +251,7 @@ describe('the file contract on the local server', () => {
 	let web: ReturnType<typeof webClient>;
 	let first: Receipt;
 
-	test('a web capture (note plus audio) is one commit, and a resend lands as nothing', async () => {
+	test('a web capture (note plus audio) is one commit, and a resend is refused, landing nothing', async () => {
 		web = webClient(owner.token, group, 'whispering');
 		const before = await web.write(
 			capture('a', { oid: sha256(audio), size: audio.length }),
@@ -262,14 +263,13 @@ describe('the file contract on the local server', () => {
 		expect(landed.body.paths).toEqual(['recordings/a.md', 'recordings/a.webm']);
 		first = landed.body;
 		const resent = await web.write(capture('a', object));
-		expect(resent.body).toMatchObject({
-			commit: first.commit,
-			blobs: first.blobs,
+		expect(resent).toMatchObject({
+			status: 409,
+			body: { error: 'occupied', path: 'recordings/a.md' },
 		});
-		expect(resent.body.outcomes.map((o) => o.outcome)).toEqual([
-			'unchanged',
-			'unchanged',
-		]);
+		expect((await web.read('recordings/a.md')).blob).toBe(
+			first.blobs['recordings/a.md'] as string,
+		);
 	}, 60_000);
 
 	test('a desktop clone through stock git gets the audio byte for byte with git lfs pull, and fetches over protocol v2', async () => {
@@ -312,11 +312,11 @@ describe('the file contract on the local server', () => {
 		expect(packets).toMatch(/fetch< [0-9a-f]{40} refs\/heads\/main/);
 	}, 60_000);
 
-	test('racing web writes from one base all land, merged, in a linear history', async () => {
+	test('racing web writes from one base: one lands, the rest are refused, and nothing merges', async () => {
 		const lines = Array.from({ length: 6 }, (_, i) => `line ${i}`);
 		const base = `---\ntitle: Shared\n---\n${lines.join('\n')}\n`;
 		const seeded = await web.write({
-			files: [{ path: 'notes/shared.md', text: base }],
+			files: [{ path: 'notes/shared.md', base: null, text: base }],
 		});
 		const baseBlob = seeded.body.blobs['notes/shared.md'];
 		const before = Number(
@@ -345,12 +345,17 @@ describe('the file contract on the local server', () => {
 				});
 			}),
 		);
-		expect(writes.map((w) => w.status)).toEqual(lines.map(() => 200));
+		expect(writes.map((w) => w.status).sort()).toEqual([
+			200, 409, 409, 409, 409, 409,
+		]);
+		for (const refused of writes.filter((w) => w.status === 409))
+			expect(refused.body.error).toBe('stale');
+		const winner = writes.findIndex((w) => w.status === 200);
 		const final = (await web.read('notes/shared.md')).text as string;
-		for (let i = 0; i < lines.length; i++) {
-			expect(final).toContain(`line ${i} edited by writer ${i}`);
-			expect(final).toMatch(new RegExp(`^w${i}: "yes"$`, 'm'));
-		}
+		for (let i = 0; i < lines.length; i++)
+			expect(final.includes(`line ${i} edited by writer ${i}`)).toBe(
+				i === winner,
+			);
 		expect(final).not.toContain('<<<<<<<');
 		const gitDir = await gitDirOf();
 		expect(
@@ -377,10 +382,7 @@ describe('the file contract on the local server', () => {
 					])
 				).trim(),
 			),
-		).toBe(before + 6);
-		expect(
-			writes.filter((w) => w.body.outcomes[0]?.outcome === 'merged').length,
-		).toBe(5);
+		).toBe(before + 1);
 	}, 60_000);
 
 	test('raw audio is refused, also after a .gitattributes edit; an LFS push and a raw hidden file land', async () => {
@@ -528,19 +530,17 @@ describe('the file contract on the local server', () => {
 		// The rewrite dropped capture b: a resend lands it again.
 		const resent = await web.write(capture('b', object));
 		expect(resent.status).toBe(200);
-		expect(resent.body.outcomes.map((o) => o.outcome)).toEqual([
-			'written',
-			'written',
-		]);
 		expect((await web.read('recordings/b.md')).blob).toBe(
 			tipCapture.body.blobs['recordings/b.md'] as string,
 		);
-		// Capture a is still on main, so its resend lands as nothing.
+		// Capture a is still on main, so its resend is refused.
 		const again = await web.write(
 			capture('a', { oid: sha256(audio), size: audio.length }),
 		);
-		expect(again.body.commit).toBe(resent.body.commit);
-		expect(again.body.blobs).toEqual(first.blobs);
+		expect(again).toMatchObject({ status: 409, body: { error: 'occupied' } });
+		expect((await web.read('recordings/a.md')).blob).toBe(
+			first.blobs['recordings/a.md'] as string,
+		);
 	}, 120_000);
 
 	test('a write body past the cap is refused before it is read whole, and nothing moves', async () => {
@@ -553,7 +553,13 @@ describe('the file contract on the local server', () => {
 			])
 		).trim();
 		const huge = await web.write({
-			files: [{ path: 'notes/huge.md', text: 'x'.repeat(17 * 1024 * 1024) }],
+			files: [
+				{
+					path: 'notes/huge.md',
+					base: null,
+					text: 'x'.repeat(17 * 1024 * 1024),
+				},
+			],
 		});
 		expect(huge.status).toBe(413);
 		expect(huge.body.error).toBe('too_large');
@@ -572,7 +578,7 @@ describe('the file contract on the local server', () => {
 	test("`~` names the caller's personal namespace (decision 46)", async () => {
 		const mine = webClient(owner.token, '~', 'whispering');
 		const written = await mine.write({
-			files: [{ path: 'notes/mine.md', text: 'mine\n' }],
+			files: [{ path: 'notes/mine.md', base: null, text: 'mine\n' }],
 		});
 		expect(written.status).toBe(200);
 		const dir = await desktop(

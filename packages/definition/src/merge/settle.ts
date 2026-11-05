@@ -1,8 +1,7 @@
 /**
- * Settling one path where two histories meet: the one producer of what
- * happened to a file, used by the server when a web write lands on a moved
- * `main` and by the desktop merge driver when `epicenter sync` merges. It
- * returns the text, and whether it wrote a conflict block.
+ * Settling one note where two histories meet: what the desktop merge driver
+ * writes when `epicenter sync` merges. It returns the text, and whether it
+ * wrote a conflict block. The server never merges (ADR-0773).
  *
  * Every conflict is text: overlaps are conflict blocks. A header key
  * both sides set takes the later write's value, `incoming`'s (the write
@@ -13,8 +12,7 @@
  * an edit of the note `base` was: nothing tells the two apart, a visible
  * and repairable result the owner accepted. A block identical to one already in the
  * note is not written again, and one clash is one block however many
- * writes follow it (`merge`'s `continuedBlock`). A blob never merges:
- * `settlePointer` is its rule, the later write winning.
+ * writes follow it (`merge`'s `continuedBlock`). A blob never merges.
  *
  * A merge never breaks a key: the header merges key by key, each key's
  * block whole, and a body after no header is kept from reading as one (a
@@ -55,33 +53,13 @@ const labelled = (
 });
 
 /**
- * Settle a blob path (every file that is not a note), which never merges:
- * the later write wins (ADR-0771), `incoming` (the write arriving now) over
- * `current`, and the version that lost stays in history, as a losing field
- * value does. An edit beats a delete, as for a note (decision 15): a delete
- * of a file changed since its writer read it (`base`) leaves the file, and
- * a replace of a file deleted since brings it back at its path. Writing
- * what is already there lands as nothing, so two writes of the same bytes
- * are one file.
- */
-export function settlePointer(
-	base: string | null,
-	current: string | null,
-	incoming: string | null,
-): string | null {
-	if (incoming === base) return current;
-	if (incoming === null && current !== base) return current;
-	return incoming;
-}
-
-/**
  * Settle `incoming` (the writer's text) against `current` (what is there
  * now), both made from `base`.
  *
  * Whatever settle writes is in house style (decision 29): `keys`, the
  * contract's field order, first, then any other key sorted. Without `keys`
- * (the server, which holds no contract) a note keeps the key order the
- * merge gave it, and only its values are formatted. A note whose header
+ * a note keeps the key order the merge gave it, and only its values are
+ * formatted. A note whose header
  * does not parse is left as merged, for a person to repair. Where nothing
  * is written (`current` stands), `current` is returned as it was.
  */

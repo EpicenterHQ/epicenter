@@ -8,17 +8,10 @@
  * A note travels as text; any other file's bytes travel as a Git LFS object,
  * uploaded before the write names it and downloaded when the file is read.
  *
- * A write lands only while the path holds what its writer expects:
- *
- * - `'absent'` writes over `base: null`, which the server refuses where any
- *   file is, in the step that moves `main`;
- * - a version is checked by reading the path's blob right before the write,
- *   which then carries it as the base. A write that raced another between
- *   that check and the server's commit lands by the server's merge rules
- *   (decision 15): a note merges (`merged`), a file's later write wins
- *   (ADR-0771);
- * - a removal carries its version as the base, and the server keeps a file
- *   changed since (an edit beats a delete), which is `'stale'` here.
+ * A write lands only while the path holds what its writer expects: it
+ * carries that as its `base` (null for `'absent'`), which the server checks
+ * in the step that moves `main`, and a refusal (`occupied` or `stale`) is
+ * `'stale'` here. The server never merges (ADR-0773).
  *
  * Listeners hear, while any listens, every move of `main`: one poller per
  * store reads `main` every `POLL_MS` and stops with the last listener or the
@@ -31,7 +24,6 @@ import {
 	storedWithLfs,
 	type Version,
 } from '@epicenter/definition/contract';
-import { gitBlobHash, writePointer } from '@epicenter/definition/merge';
 import { isNamespaceId, isRepositoryName } from '@epicenter/definition/site';
 import { Ok } from 'wellcrafted/result';
 import { createChanges } from '../changes.js';
@@ -59,7 +51,7 @@ const refused = (answer: {
 }) => ClientError.Unavailable({ cause: RemoteError.Refused(answer).error });
 
 /** A refusal that means the path does not hold what the write expected. */
-const STALE_CODES = new Set(['base_not_found', 'occupied']);
+const STALE_CODES = new Set(['occupied', 'stale']);
 
 /**
  * The store of `repository` (`<owner>/<name>`, `~` for the account's own) as
@@ -130,31 +122,18 @@ export function repositoryStore(
 				}
 				const sent = await send({ path, delete: true, base: expected.version });
 				if (sent.error !== null) return sent;
-				if (sent.data === 'stale') return sent;
-				const outcome = sent.data.outcomes.find((o) => o.path === path);
-				return Ok(outcome?.outcome === 'deleted' ? { landed: null } : 'stale');
+				return Ok(sent.data === 'stale' ? sent.data : { landed: null });
 			}
-			let base: Version | null = null;
-			if (expected !== 'absent') {
-				const there = await wire.read(path);
-				if (there.error !== null) return there;
-				if (there.data?.blob !== expected.version) return Ok('stale');
-				base = expected.version;
-			}
+			const base: Version | null =
+				expected === 'absent' ? null : expected.version;
 			let file: FileWrite;
-			let blobSent: string;
 			if (storedWithLfs(path)) {
 				const uploaded = await wire.upload([bytes]);
 				if (uploaded.error !== null) return uploaded;
 				const [lfs] = uploaded.data;
 				if (lfs === undefined) throw new Error('one object for one file');
 				file = { path, lfs, base };
-				blobSent = gitBlobHash(writePointer(lfs));
-			} else {
-				const text = decoder.decode(bytes);
-				file = { path, text, base };
-				blobSent = gitBlobHash(text);
-			}
+			} else file = { path, text: decoder.decode(bytes), base };
 			const sent = await send(file);
 			if (sent.error !== null) return sent;
 			if (sent.data === 'stale') return sent;
@@ -165,9 +144,7 @@ export function repositoryStore(
 					code: 'no_blob',
 					message: `the write of ${path} landed no file there`,
 				});
-			return Ok(
-				landed === blobSent ? { landed } : { landed, merged: true as const },
-			);
+			return Ok({ landed });
 		},
 		watch: pollMain(account, wire).watch,
 	};

@@ -1,6 +1,6 @@
 /**
- * The write translator (decisions 14, 15, 47, 68): the web reads and writes
- * a repository's files through these, and never holds a copy of it.
+ * The write translator (decisions 14, 47, 68, ADR-0773): the web reads and
+ * writes a repository's files through these, and never holds a copy of it.
  *
  * ```txt
  * GET  <git>/<ns>/<name>.git/epicenter/head              folders:read   the commit main is at
@@ -10,52 +10,40 @@
  * ```
  *
  * A write is `{ root?, files }`, each file one of
- * `{ path, text, base? }` (a note, or a hidden path such as `.gitattributes`),
- * `{ path, lfs: { oid, size }, base? }` (any other file, whose LFS object
+ * `{ path, text, base }` (a note, or a hidden path such as `.gitattributes`),
+ * `{ path, lfs: { oid, size }, base }` (any other file, whose LFS object
  * must already be uploaded and verified), or `{ path, delete: true, base }`.
  * Paths are repository-relative and must lie under `root` when it is given.
  * A body is at most `MAX_WRITE_BYTES` (16 MiB).
- * `base` is the Git blob id the writer read. `base: null` says the writer
- * read nothing there: that create is refused (`409 occupied`) when anything
- * is at the path, checked against the `main` the commit moves, so it is
- * atomic. Without `base` a write is a create that merges with whatever is
- * there, so a device that lost the reply can send it again (decision 68).
  *
- * Each request reads `main`, settles every file against it, builds one
- * commit, and moves `main` only if it has not moved, retrying when it has:
+ * `base` is what the writer read at the path: the Git blob id, or null for
+ * nothing. The server never merges: a file lands only while the path still
+ * holds its `base`, and otherwise the whole write is refused, `409 occupied`
+ * for a create where a file is and `409 stale` for a path that moved since
+ * its writer read it. The writer then reads what is there and writes again
+ * over it, so every merge runs on the computer of the person writing.
  *
- * - a note merges with `settle` (phase 1): front matter by key, the later
- *   arrival winning a key both changed; the body by line, one conflict
- *   block per clash; the incoming note's key order kept and other keys
- *   appended (decision 47), since the server holds no contract;
- * - any other file is kept whole (`settlePointer`): the later write wins,
- *   and the version that lost stays in history (ADR-0771);
- * - an edit beats a delete.
+ * Each request reads `main`, checks every file's `base` against it, builds
+ * one commit, and moves `main` only if it has not moved, retrying from the
+ * check when it has, so the check and the move are one step.
  *
  * The first commit of a repository also holds `REPOSITORY_ATTRIBUTES` as
  * `.gitattributes` (decision 59), unless the write brings its own, so a
  * desktop clone of a repository the web made runs Git LFS.
  *
- * The reply is `{ commit, paths, blobs, outcomes }`: each file's path, the
- * Git blob id there, and what happened to it. The server keeps nothing about a request once
- * it answers (decision 68). A device that lost the reply sends the same
- * create again, which is judged like any write: identical bytes already at
- * the path land as nothing (`unchanged`, no commit), and other bytes merge
- * as two creates (a note gets at most one conflict block per clash, and
- * a binary's later bytes win).
+ * The reply is `{ commit, paths, blobs }`: each file's path and the Git
+ * blob id there, null where a delete landed. Writing the bytes a path
+ * already holds lands as nothing, and a request that changes nothing makes
+ * no commit. The server keeps nothing about a request once it answers
+ * (decision 68): a resend after a lost reply is judged like any write, and
+ * its writer, reading what is there, finds its own bytes.
  */
 
 import {
-	isNotePath,
 	REPOSITORY_ATTRIBUTES,
 	storedWithLfs,
 } from '@epicenter/definition/contract';
-import {
-	settle,
-	settlePointer,
-	writePointer,
-} from '@epicenter/definition/merge';
-import { parseRowSource } from '@epicenter/definition/note';
+import { writePointer } from '@epicenter/definition/merge';
 import { MAX_POINTER_BYTES, readPointer } from '../git/lfs-rule.js';
 import {
 	commitObject,
@@ -119,8 +107,8 @@ function readRoot(root: unknown): string | null {
 }
 
 export type FileWrite =
-	| { path: string; text: string; base?: string | null }
-	| { path: string; lfs: LfsObject; base?: string | null }
+	| { path: string; text: string; base: string | null }
+	| { path: string; lfs: LfsObject; base: string | null }
 	| { path: string; delete: true; base: string };
 
 export type WriteRequest = {
@@ -128,21 +116,12 @@ export type WriteRequest = {
 	files: FileWrite[];
 };
 
-export type Outcome =
-	| 'written'
-	| 'merged'
-	| 'conflict'
-	| 'unchanged'
-	| 'deleted'
-	| 'kept';
-
 export type Receipt = {
 	commit: string;
 	/** Each file's path, in the request's order. */
 	paths: string[];
 	/** The Git blob id at each path, the `base` of a later write; null where a delete landed. */
 	blobs: Record<string, string | null>;
-	outcomes: { path: string; outcome: Outcome }[];
 	attempts?: number;
 };
 
@@ -178,11 +157,10 @@ export function readWriteRequest(body: unknown): WriteRequest | Refusal {
 		if (seen.has(p)) return bad('a path appears twice', p);
 		seen.add(p);
 		if (
-			file.base !== undefined &&
 			file.base !== null &&
 			(typeof file.base !== 'string' || !OID.test(file.base))
 		)
-			return bad('base is a Git blob id, or null for nothing', p);
+			return bad('base is the Git blob id read there, or null for nothing', p);
 		const kinds = ['text', 'lfs', 'delete'].filter(
 			(k) => file[k] !== undefined,
 		);
@@ -226,12 +204,6 @@ async function readText(
 ): Promise<string | null> {
 	const found = await objects.read(oid, 'blob');
 	return found?.bytes ? decoder.decode(found.bytes) : null;
-}
-
-/** The house-style key order of `text`'s own front matter, when it parses. */
-function incomingKeys(text: string): readonly string[] | undefined {
-	const parsed = parseRowSource(text);
-	return parsed.error === null ? parsed.data.keyOrder : undefined;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -280,111 +252,44 @@ export async function applyWrite({
 			main === ZERO_OID
 				? null
 				: ((await readCommit(objects, main))?.tree ?? null);
-		const at = now();
-		const parties = {
-			current: { author: 'main', time: at.toISOString() },
-			incoming: { author: 'web', time: at.toISOString() },
-		};
 		const changes = new Map<string, Change>();
 		const blobs: PackObject[] = [];
-		const outcomes: Receipt['outcomes'] = [];
 		const landedBlobs: Record<string, string | null> = {};
-		let merged = false;
-
-		const land = (path: string, text: string | null) => {
-			if (text === null) {
-				changes.set(path, null);
-				landedBlobs[path] = null;
-				return;
-			}
-			const blob = makeObject('blob', text);
-			blobs.push(blob);
-			changes.set(path, { oid: blob.oid, mode: '100644' });
-			landedBlobs[path] = blob.oid;
-		};
 
 		for (const file of request.files) {
-			const current = await lookup(objects, root, file.path);
-			if (file.base === null && current)
+			const current = (await lookup(objects, root, file.path))?.oid ?? null;
+			if (current !== file.base)
 				return json(
-					{
-						error: 'occupied',
-						path: file.path,
-						message: `${file.path} is already on main`,
-					},
+					file.base === null
+						? {
+								error: 'occupied',
+								path: file.path,
+								message: `${file.path} is already on main`,
+							}
+						: {
+								error: 'stale',
+								path: file.path,
+								message: `${file.path} changed since ${file.base} was read`,
+							},
 					409,
 				);
-			const currentText = current ? await readText(objects, current.oid) : null;
-			let baseText: string | null = null;
-			if (typeof file.base === 'string') {
-				baseText = await readText(objects, file.base);
-				if (baseText === null)
-					return json(
-						{
-							error: 'base_not_found',
-							path: file.path,
-							message: `${file.base} is not a blob of this repository`,
-						},
-						409,
-					);
-			}
-			const unchanged = (outcome: Outcome) => {
-				outcomes.push({ path: file.path, outcome });
-				landedBlobs[file.path] = current?.oid ?? null;
-			};
-
-			if ('lfs' in file || !isNotePath(file.path)) {
-				// Every file that is not a note: kept whole, the later write winning.
-				const incoming =
-					'lfs' in file
-						? writePointer(file.lfs)
-						: 'delete' in file
-							? null
-							: file.text;
-				const settled = settlePointer(baseText, currentText, incoming);
-				if (settled === currentText)
-					unchanged(
-						incoming === null && currentText !== null ? 'kept' : 'unchanged',
-					);
-				else {
-					land(file.path, settled);
-					outcomes.push({
-						path: file.path,
-						outcome: settled === null ? 'deleted' : 'written',
-					});
-				}
+			if ('delete' in file) {
+				changes.set(file.path, null);
+				landedBlobs[file.path] = null;
 				continue;
 			}
-
-			// A note.
-			const incoming = 'delete' in file ? null : file.text;
-			const settled = settle(baseText, currentText, incoming, {
-				parties,
-				keys: incoming === null ? undefined : incomingKeys(incoming),
-			});
-			if (settled.text === currentText) {
-				unchanged(
-					incoming === null && currentText !== null ? 'kept' : 'unchanged',
-				);
-				continue;
-			}
-			land(file.path, settled.text);
-			const raced = typeof file.base === 'string' && current?.oid !== file.base;
-			if (raced) merged = true;
-			outcomes.push({
-				path: file.path,
-				outcome:
-					settled.text === null
-						? 'deleted'
-						: settled.blocks
-							? 'conflict'
-							: raced && settled.text !== incoming
-								? 'merged'
-								: 'written',
-			});
+			const blob = makeObject(
+				'blob',
+				'lfs' in file ? writePointer(file.lfs) : file.text,
+			);
+			landedBlobs[file.path] = blob.oid;
+			// The bytes already there land as nothing.
+			if (blob.oid === current) continue;
+			blobs.push(blob);
+			changes.set(file.path, { oid: blob.oid, mode: '100644' });
 		}
 
-		const paths = outcomes.map((o) => o.path);
+		const paths = request.files.map((file) => file.path);
 		// A repository's first commit holds the standard attributes
 		// (decision 59), unless the write brings its own.
 		if (
@@ -424,8 +329,8 @@ export async function applyWrite({
 				const commit = commitObject({
 					tree,
 					parents: main === ZERO_OID ? [] : [main],
-					author: { ...author, at },
-					message: `${subject}${merged ? ' (merged)' : ''}\n`,
+					author: { ...author, at: now() },
+					message: `${subject}\n`,
 				});
 				written.push(commit);
 				next = commit.oid;
@@ -435,10 +340,9 @@ export async function applyWrite({
 			commit: next,
 			paths,
 			blobs: landedBlobs,
-			outcomes,
 			attempts: attempt,
 		};
-		// Nothing changed (a resend of bytes already there): no commit.
+		// Nothing changed (the bytes already there): no commit.
 		if (next === main) return json(result);
 		const applied = await objects.apply(
 			[{ ref: MAIN, old: main, next }],

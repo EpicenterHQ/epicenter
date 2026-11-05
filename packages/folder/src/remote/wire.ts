@@ -66,12 +66,13 @@ export type RemoteError = InferErrors<typeof RemoteError>;
 
 /**
  * One file of a write request, as the translator takes it. `base` is the
- * version its writer read: null for nothing (refused as `occupied` where a
- * file is), absent for a create that merges with whatever is there.
+ * version its writer read, null for nothing: the server lands the file only
+ * while the path still holds it, and refuses the write (`occupied`, `stale`)
+ * otherwise.
  */
 export type FileWrite =
-	| { path: string; text: string; base?: Version | null }
-	| { path: string; lfs: LfsObject; base?: Version | null }
+	| { path: string; text: string; base: Version | null }
+	| { path: string; lfs: LfsObject; base: Version | null }
 	| { path: string; delete: true; base: Version };
 
 export type LfsObject = { oid: string; size: number };
@@ -81,16 +82,7 @@ export type WriteReceipt = {
 	commit: string;
 	paths: string[];
 	blobs: Record<string, string | null>;
-	outcomes: { path: string; outcome: Outcome }[];
 };
-
-export type Outcome =
-	| 'written'
-	| 'merged'
-	| 'conflict'
-	| 'unchanged'
-	| 'deleted'
-	| 'kept';
 
 /** A write's answer: the receipt, or a refusal the caller turns into a client error. */
 export type WriteAnswer =

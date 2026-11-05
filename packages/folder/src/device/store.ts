@@ -25,16 +25,8 @@ type Unavailable = InferError<typeof ClientError.Unavailable>;
  */
 export type DeviceExpectation = 'absent' | { readonly version: Version };
 
-/**
- * A write that landed: the version now at its path (null for a removal).
- * `merged` when the store holds other bytes than the ones sent: a
- * repository merges a note whose write raced another between the store's
- * check and its change (decision 15), and its writer reads what landed.
- */
-export type DeviceLanded = {
-	readonly landed: Version | null;
-	readonly merged?: true;
-};
+/** A write that landed: the version now at its path (null for a removal). */
+export type DeviceLanded = { readonly landed: Version | null };
 
 export type DeviceStore = {
 	/**
@@ -45,7 +37,9 @@ export type DeviceStore = {
 	 * can list less lists only the files below it, and one that cannot lists
 	 * every file, so a caller still checks each path.
 	 */
-	list(under?: string): Promise<
+	list(
+		under?: string,
+	): Promise<
 		Result<{ path: string; stamp: string; version?: Version }[], Unavailable>
 	>;
 	/** The file at `path`, or null when nothing is there. */

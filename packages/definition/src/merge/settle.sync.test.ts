@@ -6,22 +6,19 @@
  * function's edge, with the rules the owner set since: the later arrival
  * wins a key (decision 28), a clash is whole lines (decision 43), and what
  * settle writes is in house style (decision 29). `current` is the side that
- * reached the server first, `incoming` the later arrival.
+ * merged first, `incoming` the later arrival.
  *
  * Key behaviors:
  * - T1: different fields both land; one sentence both edited is one whole-line block
  * - T2: one field both set takes the later arrival's value, with no block
  * - T2b: the side named incoming wins, so the driver's rebase swap keeps the later arrival
  * - T3: an edit beats a delete, in both directions
- * - ADR-0771: of two binary writes, the later one wins
  */
 import { describe, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import { formatNote, parseRowSource } from '../note/index.js';
 import { findConflicts } from './conflict.js';
-import { lfsOid } from './hash.js';
-import { writePointer } from './pointer.js';
-import { settle, settlePointer } from './settle.js';
+import { settle } from './settle.js';
 
 const parties = {
 	current: { author: 'alice', time: '2026-10-30T10:00:00Z' },
@@ -152,22 +149,4 @@ describe('house style on what settle writes', () => {
 		);
 		expect(settled.text).toBe('---\na: [\ndone: false\n---\nbody\n');
 	});
-});
-
-test('ADR-0771: of two binary writes from one base, the later one wins', async () => {
-	const earlier = new TextEncoder().encode('webm bytes from Alice');
-	const later = new TextEncoder().encode('webm bytes from Bob');
-	const base = writePointer({
-		oid: await lfsOid(new Uint8Array([0])),
-		size: 1,
-	});
-	const current = writePointer({
-		oid: await lfsOid(earlier),
-		size: earlier.length,
-	});
-	const incoming = writePointer({
-		oid: await lfsOid(later),
-		size: later.length,
-	});
-	expect(settlePointer(base, current, incoming)).toBe(incoming);
 });

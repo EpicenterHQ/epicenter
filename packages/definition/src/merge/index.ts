@@ -1,15 +1,15 @@
 /**
- * `@epicenter/definition/merge`: the note merge as pure functions, shared by
- * the server (a web write landing on a moved `main`) and the desktop merge
- * driver (`epicenter merge-driver %O %A %B %P`).
+ * `@epicenter/definition/merge`: the note merge as pure functions, which
+ * the desktop merge driver runs (`epicenter merge-driver %O %A %B %P`), and
+ * the Git hashing a web write names its blobs with. The server never merges
+ * (ADR-0773).
  *
  * `settle(base, current, incoming, { parties })` is the entry point:
  * `current` is what `main` holds and `incoming` the write arriving after it,
  * the later arrival (decision 28). Front matter merges by key, the later
  * arrival winning a key both sides set, with no block; the body merges by
  * line, one conflict block per clash; an edit beats a delete (decision 15).
- * A binary file never merges: `settlePointer` lands the later write, and
- * the one that lost stays in history (ADR-0771).
+ * A binary file never merges.
  *
  * Ported from spike 7's `core/` (identical to `claude/repository-v2`
  * `core/{merge,settle,conflict,hash}.ts` at `c32dd466`).
@@ -46,5 +46,4 @@ export {
 	type Parties,
 	type Settled,
 	settle,
-	settlePointer,
 } from './settle.js';

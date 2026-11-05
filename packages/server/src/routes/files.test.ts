@@ -1,8 +1,9 @@
 /**
  * The write translator against the disk store and a real bare repository:
- * one commit per request, the note merge, the later binary write winning,
- * an edit beating a delete, and a resend after a lost reply judged like any write
- * (decision 68).
+ * one commit per request, every file landing only over the blob its writer
+ * read (null for nothing), checked in the step that moves `main`, and a
+ * resend after a lost reply judged like any write (decision 68). The server
+ * never merges (ADR-0773).
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -101,15 +102,18 @@ describe('POST writes', () => {
 	test('a capture (note plus audio) is one commit, and its reply names both blobs', async () => {
 		const repo = await repository();
 		const audio = new TextEncoder().encode('RIFF fake audio');
-		const files = [
-			{ path: 'recordings/a.md', text: note({ title: 'Standup' }, 'Hello\n') },
-			{ path: 'recordings/a.webm', lfs: { oid: 'x', size: 0 } },
-		];
 		const object = {
 			oid: createHash('sha256').update(audio).digest('hex'),
 			size: audio.length,
 		};
-		files[1] = { path: 'recordings/a.webm', lfs: object };
+		const files = [
+			{
+				path: 'recordings/a.md',
+				base: null,
+				text: note({ title: 'Standup' }, 'Hello\n'),
+			},
+			{ path: 'recordings/a.webm', base: null, lfs: object },
+		];
 		const before = await repo.write({ files });
 		expect(before.status).toBe(409);
 		expect(before.body.error).toBe('lfs_not_uploaded');
@@ -134,90 +138,56 @@ describe('POST writes', () => {
 		expect([...(await repo.objects.refs()).keys()]).toEqual([MAIN]);
 	});
 
-	test('a plain resend after a lost reply lands as nothing: same blobs, no new commit', async () => {
+	test('a resend after a lost reply is judged like any write: refused, and nothing moves', async () => {
 		const repo = await repository();
 		const audio = await upload(repo, new TextEncoder().encode('sound'));
 		const files = [
-			{ path: 'r/a.md', text: note({ title: 'Standup' }, 'Hello\n') },
-			{ path: 'r/a.webm', lfs: audio },
+			{
+				path: 'r/a.md',
+				base: null,
+				text: note({ title: 'Standup' }, 'Hello\n'),
+			},
+			{ path: 'r/a.webm', base: null, lfs: audio },
 		];
 		const landed = await repo.write({ files });
 		const resent = await repo.write({ files });
-		expect(resent.status).toBe(200);
-		expect(resent.body).toMatchObject({
-			commit: landed.body.commit,
-			paths: landed.body.paths,
-			blobs: landed.body.blobs,
+		expect(resent).toMatchObject({
+			status: 409,
+			body: { error: 'occupied', path: 'r/a.md' },
 		});
-		expect(resent.body.outcomes.map((o) => o.outcome)).toEqual([
-			'unchanged',
-			'unchanged',
-		]);
 		expect(await repo.main()).toBe(landed.body.commit);
+	});
+
+	test('writing the bytes a path holds over its own blob lands as nothing: no commit', async () => {
+		const repo = await repository();
+		const text = note({ title: 'Same' }, 'x\n');
+		const landed = await repo.write({
+			files: [{ path: 's.md', base: null, text }],
+		});
+		const blob = landed.body.blobs['s.md'] as string;
+		const again = await repo.write({
+			files: [{ path: 's.md', base: blob, text }],
+		});
+		expect(again.status).toBe(200);
+		expect(again.body).toMatchObject({
+			commit: landed.body.commit,
+			blobs: { 's.md': blob },
+		});
 		expect(
 			(await box.ok(repo.gitDir, ['rev-list', '--count', 'main'])).trim(),
 		).toBe('1');
 	});
 
-	test('a lost reply, an edit, then a resend: the note gets one conflict block and nothing is lost', async () => {
-		const repo = await repository();
-		const first = note({ title: 'Standup' }, 'first take\n');
-		const landed = await repo.write({
-			files: [{ path: 'c/x.md', text: first }],
-		});
-		expect(landed.status).toBe(200);
-		// The reply was lost; the person edited the still-pending note, and
-		// the device sends the same create with what it holds now.
-		const edited = note({ title: 'Retro' }, 'second take\n');
-		const resent = await repo.write({
-			files: [{ path: 'c/x.md', text: edited }],
-		});
-		expect(resent.status).toBe(200);
-		expect(resent.body.outcomes[0]?.outcome).toBe('conflict');
-		const text = await repo.show('c/x.md');
-		expect(text.match(/^<<<<<<< /gm)).toHaveLength(1);
-		expect(text.startsWith(first)).toBe(true);
-		for (const line of ['title: Retro', 'second take'])
-			expect(text).toContain(line);
-		expect(resent.body.blobs['c/x.md']).toBe(
-			(await box.ok(repo.gitDir, ['rev-parse', 'main:c/x.md'])).trim(),
-		);
-	});
-
-	test('a binary resent with other bytes replaces the first, which stays in history', async () => {
-		const repo = await repository();
-		const take1 = await upload(repo, new TextEncoder().encode('take one'));
-		const take2 = await upload(repo, new TextEncoder().encode('take two'));
-		const first = await repo.write({
-			files: [{ path: 'r/a.m4a', lfs: take1 }],
-		});
-		const resent = await repo.write({
-			files: [{ path: 'r/a.m4a', lfs: take2 }],
-		});
-		expect(resent.body.outcomes).toEqual([
-			{ path: 'r/a.m4a', outcome: 'written' },
-		]);
-		expect(await repo.show('r/a.m4a')).toContain(take2.oid);
-		expect(
-			(
-				await box.ok(repo.gitDir, ['ls-tree', '--name-only', 'main', 'r/'])
-			).trim(),
-		).toBe('r/a.m4a');
-		expect(
-			await box.ok(repo.gitDir, ['show', `${first.body.commit}:r/a.m4a`]),
-		).toContain(take1.oid);
-	});
-
 	test("a repository's first commit holds the standard .gitattributes (decision 59)", async () => {
 		const repo = await repository();
 		const first = await repo.write({
-			files: [{ path: 'recordings/a.md', text: 'a\n' }],
+			files: [{ path: 'recordings/a.md', base: null, text: 'a\n' }],
 		});
 		expect(await repo.show('.gitattributes')).toBe(REPOSITORY_ATTRIBUTES);
 		// The reply names the request's files only.
 		expect(first.body.paths).toEqual(['recordings/a.md']);
 		// Later writes leave it alone.
-		await repo.write({ files: [{ path: 'b.md', text: 'b\n' }] });
+		await repo.write({ files: [{ path: 'b.md', base: null, text: 'b\n' }] });
 		expect(
 			(
 				await box.ok(repo.gitDir, [
@@ -232,28 +202,24 @@ describe('POST writes', () => {
 		// A first write that brings its own keeps it.
 		const own = await repository();
 		await own.write({
-			files: [{ path: '.gitattributes', text: '*.bin filter=lfs\n' }],
+			files: [
+				{ path: '.gitattributes', base: null, text: '*.bin filter=lfs\n' },
+			],
 		});
 		expect(await own.show('.gitattributes')).toBe('*.bin filter=lfs\n');
 	});
 
-	test('a .MD path is a note in any case: it takes text and merges by line', async () => {
+	test('a .MD path is a note in any case: it takes text, never LFS', async () => {
 		const repo = await repository();
 		const seeded = await repo.write({
-			files: [{ path: 'n/Shout.MD', text: 'one\ntwo\n' }],
+			files: [{ path: 'n/Shout.MD', base: null, text: 'one\ntwo\n' }],
 		});
 		expect(seeded.status).toBe(200);
-		const base = seeded.body.blobs['n/Shout.MD'] as string;
-		await repo.write({
-			files: [{ path: 'n/Shout.MD', base, text: 'ONE\ntwo\n' }],
-		});
-		const raced = await repo.write({
-			files: [{ path: 'n/Shout.MD', base, text: 'one\nTWO\n' }],
-		});
-		expect(raced.body.outcomes[0]?.outcome).toBe('merged');
-		expect(await repo.show('n/Shout.MD')).toBe('ONE\nTWO\n');
+		expect(await repo.show('n/Shout.MD')).toBe('one\ntwo\n');
 		const lfsWrite = readWriteRequest({
-			files: [{ path: 'n/a.MD', lfs: { oid: 'a'.repeat(64), size: 1 } }],
+			files: [
+				{ path: 'n/a.MD', base: null, lfs: { oid: 'a'.repeat(64), size: 1 } },
+			],
 		});
 		expect('status' in lfsWrite && lfsWrite.status).toBe(400);
 	});
@@ -261,7 +227,7 @@ describe('POST writes', () => {
 	test('a hidden path takes text, being outside the contract (decision 58)', async () => {
 		const repo = await repository();
 		const written = await repo.write({
-			files: [{ path: '.epicenter/settings.json', text: '{}\n' }],
+			files: [{ path: '.epicenter/settings.json', base: null, text: '{}\n' }],
 		});
 		expect(written.status).toBe(200);
 	});
@@ -270,34 +236,40 @@ describe('POST writes', () => {
 		const repo = await repository();
 		const refused = async (request: unknown) =>
 			(await repo.write(request as WriteRequest)).status;
-		expect(await refused({ files: [{ path: 'a.webm', text: 'raw' }] })).toBe(
-			400,
-		);
+		expect(
+			await refused({ files: [{ path: 'a.webm', base: null, text: 'raw' }] }),
+		).toBe(400);
 		expect(
 			await refused({
-				files: [{ path: 'a.md', lfs: { oid: 'a'.repeat(64), size: 1 } }],
+				files: [
+					{ path: 'a.md', base: null, lfs: { oid: 'a'.repeat(64), size: 1 } },
+				],
 			}),
 		).toBe(400);
 		expect(
 			await refused({
 				root: 'notes',
-				files: [{ path: 'other/a.md', text: 'x' }],
+				files: [{ path: 'other/a.md', base: null, text: 'x' }],
 			}),
 		).toBe(400);
-		expect(await refused({ files: [{ path: '../a.md', text: 'x' }] })).toBe(
-			400,
-		);
-		expect(await refused({ files: [{ path: '.git/config', text: 'x' }] })).toBe(
-			400,
-		);
+		expect(
+			await refused({ files: [{ path: '../a.md', base: null, text: 'x' }] }),
+		).toBe(400);
+		expect(
+			await refused({
+				files: [{ path: '.git/config', base: null, text: 'x' }],
+			}),
+		).toBe(400);
 		expect(await refused({ files: [{ path: 'a.md', delete: true }] })).toBe(
 			400,
 		);
+		// Every write names what its writer read there.
+		expect(await refused({ files: [{ path: 'a.md', text: 'x' }] })).toBe(400);
 		expect(
 			await refused({
 				files: [
-					{ path: 'a.md', text: 'x' },
-					{ path: 'a.md', text: 'y' },
+					{ path: 'a.md', base: null, text: 'x' },
+					{ path: 'a.md', base: null, text: 'y' },
 				],
 			}),
 		).toBe(400);
@@ -357,143 +329,56 @@ describe('POST writes', () => {
 		expect(at).not.toBe(b.body.commit);
 	});
 
-	test('two writes from one base both land: fields by key, body by line, history linear', async () => {
+	test('of two writes from one base, the later is refused in the step that moves main, and nothing merges', async () => {
 		const repo = await repository();
-		const base = note(
-			{ title: 'Shared', status: 'draft' },
-			'line 1\nline 2\nline 3\n',
-		);
+		const base = note({ title: 'Shared', status: 'draft' }, 'line 1\n');
 		const seeded = await repo.write({
-			files: [{ path: 'notes/shared.md', text: base }],
+			files: [{ path: 'notes/shared.md', base: null, text: base }],
 		});
 		const baseBlob = seeded.body.blobs['notes/shared.md'] as string;
 		let release!: () => void;
 		const held = new Promise<void>((resolve) => {
 			release = resolve;
 		});
-		// A reads main, then waits while B lands, so A's swap is stale and it retries.
+		// A reads main, then waits while B lands, so A's swap is stale; its
+		// retry finds the path moved and refuses.
 		const a = repo.write(
 			{
 				files: [
 					{
 						path: 'notes/shared.md',
 						base: baseBlob,
-						text: note(
-							{ title: 'Shared (A)', status: 'draft' },
-							'line 1\nline 2 by A\nline 3\n',
-						),
+						text: note({ title: 'Shared (A)', status: 'draft' }, 'line 1\n'),
 					},
 				],
 			},
 			() => held,
 		);
 		await Bun.sleep(50);
+		const theirs = note({ title: 'Shared', status: 'done' }, 'line 1\n');
 		const b = await repo.write({
-			files: [
-				{
-					path: 'notes/shared.md',
-					base: baseBlob,
-					text: note(
-						{ title: 'Shared', status: 'done' },
-						'line 1\nline 2\nline 3\nline 4 by B\n',
-					),
-				},
-			],
+			files: [{ path: 'notes/shared.md', base: baseBlob, text: theirs }],
 		});
 		release();
-		const aDone = await a;
 		expect(b.status).toBe(200);
-		expect(aDone.status).toBe(200);
-		expect(aDone.body.attempts).toBe(2);
-		expect(aDone.body.outcomes[0]?.outcome).toBe('merged');
-		expect(await repo.show('notes/shared.md')).toBe(
-			note(
-				{ title: 'Shared (A)', status: 'done' },
-				'line 1\nline 2 by A\nline 3\nline 4 by B\n',
-			),
-		);
-		expect(
-			(
-				await box.ok(repo.gitDir, ['rev-list', '--merges', '--count', 'main'])
-			).trim(),
-		).toBe('0');
+		expect(await a).toMatchObject({
+			status: 409,
+			body: { error: 'stale', path: 'notes/shared.md' },
+		});
+		expect(await repo.show('notes/shared.md')).toBe(theirs);
+		expect(await repo.main()).toBe(b.body.commit);
 		expect(
 			(await box.ok(repo.gitDir, ['rev-list', '--count', 'main'])).trim(),
-		).toBe('3');
+		).toBe('2');
 	});
 
-	test('one key and one line both changed: the later arrival takes the key, the line gets one block', async () => {
-		const repo = await repository();
-		const seeded = await repo.write({
-			files: [
-				{ path: 'n.md', text: note({ title: 'T' }, 'one\ntwo\nthree\n') },
-			],
-		});
-		const base = seeded.body.blobs['n.md'] as string;
-		await repo.write({
-			files: [
-				{
-					path: 'n.md',
-					base,
-					text: note({ title: 'C' }, 'one\nrewritten by C\nthree\n'),
-				},
-			],
-		});
-		const late = await repo.write({
-			files: [
-				{
-					path: 'n.md',
-					base,
-					text: note({ title: 'E' }, 'one\nrewritten by E\nthree\n'),
-				},
-			],
-		});
-		expect(late.body.outcomes[0]?.outcome).toBe('conflict');
-		const text = await repo.show('n.md');
-		expect(text.startsWith('---\ntitle: E\n---\n')).toBe(true);
-		expect(text.match(/^<<<<<<< /gm)).toHaveLength(1);
-		expect(text).toContain('rewritten by E');
-		expect(text).toContain('rewritten by C');
-	});
-
-	test("the incoming note's key order stays, and keys only main has are appended (decision 47)", async () => {
-		const repo = await repository();
-		const seeded = await repo.write({
-			files: [
-				{ path: 'k.md', text: note({ title: 'T', status: 'a' }, 'body\n') },
-			],
-		});
-		const base = seeded.body.blobs['k.md'] as string;
-		await repo.write({
-			files: [
-				{
-					path: 'k.md',
-					base,
-					text: note({ title: 'T', status: 'a', added: 'by main' }, 'body\n'),
-				},
-			],
-		});
-		await repo.write({
-			files: [
-				{
-					path: 'k.md',
-					base,
-					text: note({ status: 'b', title: 'T', mood: 'x' }, 'body\n'),
-				},
-			],
-		});
-		expect(await repo.show('k.md')).toBe(
-			note({ status: 'b', title: 'T', mood: 'x', added: 'by main' }, 'body\n'),
-		);
-	});
-
-	test('a racing binary replace wins, and the one it replaced stays in history (ADR-0771)', async () => {
+	test('a file replaced over a blob it no longer holds is refused, and the bytes there stay', async () => {
 		const repo = await repository();
 		const first = await upload(repo, new TextEncoder().encode('first take'));
 		const mine = await upload(repo, new TextEncoder().encode('my take'));
 		const theirs = await upload(repo, new TextEncoder().encode('their take'));
 		const seeded = await repo.write({
-			files: [{ path: 'r/a.m4a', lfs: first }],
+			files: [{ path: 'r/a.m4a', base: null, lfs: first }],
 		});
 		const base = seeded.body.blobs['r/a.m4a'] as string;
 		const earlier = await repo.write({
@@ -502,29 +387,15 @@ describe('POST writes', () => {
 		const later = await repo.write({
 			files: [{ path: 'r/a.m4a', base, lfs: mine }],
 		});
-		expect(later.body.outcomes).toEqual([
-			{ path: 'r/a.m4a', outcome: 'written' },
-		]);
-		expect(await repo.show('r/a.m4a')).toContain(mine.oid);
-		expect(
-			(
-				await box.ok(repo.gitDir, ['ls-tree', '--name-only', 'main', 'r/'])
-			).trim(),
-		).toBe('r/a.m4a');
-		expect(
-			await box.ok(repo.gitDir, ['show', `${earlier.body.commit}:r/a.m4a`]),
-		).toContain(theirs.oid);
-		// Writing the same bytes again (with no base) changes nothing.
-		const again = await repo.write({
-			files: [{ path: 'r/a.m4a', lfs: mine }],
-		});
-		expect(again.body.outcomes[0]?.outcome).toBe('unchanged');
+		expect(later).toMatchObject({ status: 409, body: { error: 'stale' } });
+		expect(await repo.show('r/a.m4a')).toContain(theirs.oid);
+		expect(await repo.main()).toBe(earlier.body.commit);
 	});
 
-	test('an edit beats a delete, both ways', async () => {
+	test('a delete of a file changed since, and an edit of a file deleted since, are refused', async () => {
 		const repo = await repository();
 		const seeded = await repo.write({
-			files: [{ path: 'd.md', text: note({ title: 'D' }, 'x\n') }],
+			files: [{ path: 'd.md', base: null, text: note({ title: 'D' }, 'x\n') }],
 		});
 		const base = seeded.body.blobs['d.md'] as string;
 		await repo.write({
@@ -533,53 +404,34 @@ describe('POST writes', () => {
 		const deleted = await repo.write({
 			files: [{ path: 'd.md', base, delete: true }],
 		});
-		expect(deleted.body.outcomes[0]?.outcome).toBe('kept');
+		expect(deleted).toMatchObject({ status: 409, body: { error: 'stale' } });
 		expect(await repo.show('d.md')).toContain('Edited');
 
 		const current = (
-			await repo.write({ files: [{ path: 'e.md', text: 'e\n' }] })
+			await repo.write({ files: [{ path: 'e.md', base: null, text: 'e\n' }] })
 		).body.blobs['e.md'] as string;
 		const gone = await repo.write({
 			files: [{ path: 'e.md', base: current, delete: true }],
 		});
-		expect(gone.body.outcomes[0]?.outcome).toBe('deleted');
+		expect(gone.status).toBe(200);
+		expect(gone.body.blobs['e.md']).toBeNull();
 		const back = await repo.write({
 			files: [{ path: 'e.md', base: current, text: 'e edited\n' }],
 		});
-		expect(back.body.outcomes[0]?.outcome).toBe('written');
-		expect(await repo.show('e.md')).toBe('e edited\n');
+		expect(back).toMatchObject({ status: 409, body: { error: 'stale' } });
+		expect(await repo.main()).toBe(gone.body.commit);
 	});
 
-	test('a binary edit beats a delete too: the edited file is back at its path (decision 15)', async () => {
+	test('two identical creates at once: one lands, the other is occupied', async () => {
 		const repo = await repository();
-		const first = await upload(repo, new TextEncoder().encode('take one'));
-		const seeded = await repo.write({
-			files: [{ path: 'r/a.m4a', lfs: first }],
+		await repo.write({
+			files: [{ path: 'seed.md', base: null, text: 'seed\n' }],
 		});
-		const base = seeded.body.blobs['r/a.m4a'] as string;
-		const deleted = await repo.write({
-			files: [{ path: 'r/a.m4a', base, delete: true }],
-		});
-		expect(deleted.body.outcomes[0]?.outcome).toBe('deleted');
-		const second = await upload(repo, new TextEncoder().encode('take two'));
-		const edited = await repo.write({
-			files: [{ path: 'r/a.m4a', base, lfs: second }],
-		});
-		expect(edited.body.outcomes[0]).toEqual({
-			path: 'r/a.m4a',
-			outcome: 'written',
-		});
-		expect(await repo.show('r/a.m4a')).toContain(second.oid);
-	});
-
-	test('two identical creates at once make one commit', async () => {
-		const repo = await repository();
-		await repo.write({ files: [{ path: 'seed.md', text: 'seed\n' }] });
 		let release!: () => void;
 		const held = new Promise<void>((resolve) => {
 			release = resolve;
 		});
-		const request = { files: [{ path: 'c/1.md', text: 'one\n' }] };
+		const request = { files: [{ path: 'c/1.md', base: null, text: 'one\n' }] };
 		const both = [
 			repo.write(request, () => held),
 			repo.write(request, () => held),
@@ -587,10 +439,7 @@ describe('POST writes', () => {
 		await Bun.sleep(50);
 		release();
 		const [a, b] = await Promise.all(both);
-		expect(a?.body.commit).toBe(b?.body.commit as string);
-		expect(
-			[a?.body.outcomes[0]?.outcome, b?.body.outcomes[0]?.outcome].sort(),
-		).toEqual(['unchanged', 'written']);
+		expect([a?.status, b?.status].sort()).toEqual([200, 409]);
 		expect(
 			(await box.ok(repo.gitDir, ['rev-list', '--count', 'main'])).trim(),
 		).toBe('2');
@@ -598,9 +447,11 @@ describe('POST writes', () => {
 
 	test("a resend after an owner's rewrite dropped the first landing lands it again", async () => {
 		const repo = await repository();
-		await repo.write({ files: [{ path: 'seed.md', text: 'seed\n' }] });
+		await repo.write({
+			files: [{ path: 'seed.md', base: null, text: 'seed\n' }],
+		});
 		const seed = await repo.main();
-		const request = { files: [{ path: 'c/r.md', text: 'kept\n' }] };
+		const request = { files: [{ path: 'c/r.md', base: null, text: 'kept\n' }] };
 		const landed = await repo.write(request);
 		expect(
 			await repo.objects.apply(
@@ -609,7 +460,7 @@ describe('POST writes', () => {
 			),
 		).toEqual({ ok: true });
 		const relanded = await repo.write(request);
-		expect(relanded.body.outcomes[0]?.outcome).toBe('written');
+		expect(relanded.status).toBe(200);
 		expect(await repo.main()).toBe(relanded.body.commit);
 		expect(await repo.show('c/r.md')).toBe('kept\n');
 	});
@@ -623,11 +474,13 @@ describe('GET head', () => {
 				commit: string | null;
 			};
 		expect(await head()).toEqual({ commit: null });
-		const first = await repo.write({ files: [{ path: 'a.md', text: 'a\n' }] });
+		const first = await repo.write({
+			files: [{ path: 'a.md', base: null, text: 'a\n' }],
+		});
 		const { commit } = await head();
 		expect(commit).toBe(first.body.commit);
 		expect(commit).toBe(await repo.main());
-		await repo.write({ files: [{ path: 'b.md', text: 'b\n' }] });
+		await repo.write({ files: [{ path: 'b.md', base: null, text: 'b\n' }] });
 		expect((await head()).commit).toBe(await repo.main());
 		expect((await head()).commit).not.toBe(commit);
 	});
@@ -639,9 +492,9 @@ describe('GET files and file', () => {
 		const audio = await upload(repo, new TextEncoder().encode('sound'));
 		await repo.write({
 			files: [
-				{ path: 'rec/a.md', text: 'note\n' },
-				{ path: 'rec/a.webm', lfs: audio },
-				{ path: 'other/b.md', text: 'b\n' },
+				{ path: 'rec/a.md', base: null, text: 'note\n' },
+				{ path: 'rec/a.webm', base: null, lfs: audio },
+				{ path: 'other/b.md', base: null, text: 'b\n' },
 			],
 		});
 		const listed = (await (

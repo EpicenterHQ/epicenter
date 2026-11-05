@@ -16,7 +16,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { findConflicts } from './conflict.js';
-import { settle, settlePointer } from './settle.js';
+import { settle } from './settle.js';
 
 const parties = {
 	current: { author: 'main', time: 't1' },
@@ -181,34 +181,5 @@ describe('decision 15: two different insertions at one spot are one clash, as in
 				},
 			),
 		).toEqual({ text: 'Pay Bob ten dollars tomorrow\n', blocks: false });
-	});
-});
-
-describe('settlePointer: the later blob write wins, and an edit beats a delete', () => {
-	const [a, b, c] = ['pointer a', 'pointer b', 'pointer c'];
-	test('create, replace and delete land where nothing moved', () => {
-		expect(settlePointer(null, null, a)).toBe(a);
-		expect(settlePointer(a, a, b)).toBe(b);
-		expect(settlePointer(a, a, null)).toBe(null);
-	});
-	test('a create over a file added elsewhere wins (ADR-0771)', () => {
-		expect(settlePointer(null, b, a)).toBe(a);
-		expect(settlePointer(null, a, a)).toBe(a);
-	});
-	test('a replace over a file that changed wins (ADR-0771)', () => {
-		expect(settlePointer(a, b, c)).toBe(c);
-	});
-	test('a replace over a file that went brings it back: an edit beats a delete (decision 15)', () => {
-		expect(settlePointer(a, null, c)).toBe(c);
-	});
-	test('a delete of a file changed since leaves the file, with no refusal', () => {
-		expect(settlePointer(a, b, null)).toBe(b);
-	});
-	test('a delete then a create at one path are two writes that each pass', () => {
-		expect(settlePointer(a, a, null)).toBe(null);
-		expect(settlePointer(null, null, b)).toBe(b);
-	});
-	test('a path the writer did not change keeps what is there', () => {
-		expect(settlePointer(a, b, a)).toBe(b);
 	});
 });

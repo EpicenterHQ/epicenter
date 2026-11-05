@@ -113,7 +113,7 @@ async function typeAtEnd(text: string) {
 /**
  * What a note's file says, in any key order: its front matter lines sorted,
  * `createdAt`'s time elided, and its body. The move and the pin can race,
- * and the server's merge of the two does not keep house-style order.
+ * and the folder carries one over the other.
  */
 function said(text: string) {
 	const [, front = '', body = ''] =
