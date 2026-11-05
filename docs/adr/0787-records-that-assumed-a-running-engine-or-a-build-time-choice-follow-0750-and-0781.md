@@ -6,6 +6,7 @@
 - **Relates:** [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (sync at a person's moments), [ADR-0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) (the package picks when it runs).
 - **Amended by:** [ADR-0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) at the CLI and the Epicenter app sharing one credentials file: each program keeps its own.
 - **Amended by:** [ADR-0794](0794-a-sync-round-asks-its-host-to-settle-checks-out-only-what-did-not-move-and-retries-rather-than-guess.md) at "The core runs it in a round": the core asks its host.
+- **Amended by:** [ADR-0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) at what the `AGENTS.md` Epicenter writes says: it also states the front-matter grammar.
 - **Unbuilt:** the lock around a refresh of the CLI's and Epicenter's shared token file; the sync instruction in the `AGENTS.md` Epicenter writes.
 
 ## Context
