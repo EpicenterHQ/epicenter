@@ -974,12 +974,13 @@ When you add an ADR, add its row here.
 | [0776](0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md) | A note's name is its file name, and a rename is a set and a delete | Accepted |
 | [0777](0777-a-capability-has-no-ready-promise.md) | A capability has no ready promise | Accepted (amends 0767; amended by 0778) |
 | [0778](0778-a-page-connects-once-and-then-reads-synchronously.md) | A page connects once, and then reads synchronously | Accepted (amends 0767, 0775, and 0777; amended by 0779 and 0783) |
-| [0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) | A store is four verbs, and a browser recording lands whole | Accepted (amends 0773 and 0778; amended by 0786) |
+| [0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) | A store is four verbs, and a browser recording lands whole | Accepted (amends 0773 and 0778; amended by 0786 and 0788) |
 | [0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) | A surface uses what its platform gives, and parity is not a goal | Accepted |
 | [0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) | Apps branch on what a capability offers, and one build serves every surface | Accepted (amends 0701, 0755, and 0766; amended by 0784 and 0785) |
 | [0782](0782-a-waiting-write-the-folder-will-not-make-rejects.md) | A waiting write the folder will not make rejects | Accepted (amends 0775) |
 | [0783](0783-a-secret-lives-in-the-apps-credentials-file-and-is-read-by-the-request-that-uses-it.md) | A secret lives in the app's credentials file, and is read by the request that uses it | Accepted (amends 0778; amended by 0787) |
 | [0784](0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md) | Whispering is the web's local app, and Messages is a program on this computer | Accepted (amends 0746 and 0781; amended by 0786) |
 | [0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) | A desktop app signs in to sync its own folder | Accepted (amends 0781; amended by 0787) |
-| [0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) | Every web app is online, and browser storage leaves the platform | Accepted (amends 0746, 0773, 0779, and 0784) |
+| [0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) | Every web app is online, and browser storage leaves the platform | Accepted (amends 0746, 0773, 0779, and 0784; amended by 0788) |
 | [0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) | Records that assumed a running engine or a build-time choice follow ADR-0750 and ADR-0781 | Accepted (amends 0732, 0744, 0746, 0749, 0751, 0753, 0763, 0765, 0766, 0772, 0773, 0774, 0783, and 0785) |
+| [0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) | Everything in a folder syncs, and a recording's audio is kept in one of three places | Accepted (amends 0779 and 0786) |
