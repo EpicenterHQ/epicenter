@@ -1,109 +1,215 @@
 # Vision
 
-Every app keeps your things as files in its own folder, under the root your
-device shows you; one sync core moves those folders through your account; and
-Epicenter, where it exists, is the library over them.
+Where Epicenter is going, on one page. Each section links the records that
+decided it; read them for the reasons and the detail. This is direction, not
+current truth: most of it is unbuilt, and each record's `Unbuilt` line says
+what is missing. Built so far: one build for every surface, the online web,
+the account asking for what its capabilities need, and the folder's one write
+over stores of four verbs. [Positioning](positioning.md) owns what Epicenter
+claims today; [CONTEXT](CONTEXT.md) owns the vocabulary.
 
-Read this page first. It states Epicenter's doctrine, three roots and one
-rule for apps
-([ADR-0763](adr/0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md)),
-and links the records that hold the detail. Most of it is not built yet; each
-record's `Unbuilt` line says what is missing.
-[Positioning](positioning.md) owns what Epicenter claims today.
+Under all of it sit three roots and one rule for apps ([ADR-0763]):
 
-## Your things are files in a place you can see
+| Root or rule | What it means now |
+| --- | --- |
+| Your things are files in a place you can see | a folder under `~/Epicenter`, or the app's container on a phone |
+| Programs meet in shared places, never by calling each other | the folder, its `.git` and its lock; the model cache |
+| Speak the standard; invent only what none covers | Git, OAuth, JSON Schema, HTTP, MCP |
+| An app declares what it is and what it needs; the platform supplies where, how and when | `app.ts` composes capabilities; app code names no path, platform, or sync moment |
 
-What you keep is items: one Markdown file each, fields in front matter and
-then a body, in the app's folder. That folder sits under the root your device
-shows you, `~/Epicenter` on a computer and the app's container on a phone,
-and its name derives from the app's site, so no program stores where it is.
-Records: [ADR-0722](adr/0722-an-apps-names-derive-from-its-sites-host.md),
-[ADR-0730](adr/0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md),
-[ADR-0742](adr/0742-items-are-what-you-keep-documents-are-whats-live.md),
-[ADR-0746](adr/0746-the-web-is-online-offline-needs-an-installed-app.md),
-[ADR-0752](adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md).
+## A folder is files and one contract
 
-## Programs meet in shared places, never by calling each other
+```txt
+~/Epicenter/
+├── todos/                     your first team's Todos
+│   ├── AGENTS.md              names the contract; written once, then yours
+│   ├── todos/call-dentist.md  a note: front matter, then body
+│   ├── .git/                  the repository, so the team
+│   └── .epicenter/            this computer's unfinished writes
+└── Family/                    another team: its apps' folders inside
+    └── todos/
+```
 
-Any program can sync a folder, and none owns it: programs take turns through
-the folder's lock. Each native app carries the same sync core, so it needs
-nothing else running to sync. Apps share model files through the Hugging Face
-cache, not a server. The one exception is a browser extension, which calls
-Epicenter on the same computer because a browser cannot reach a folder.
-Records:
-[ADR-0750](adr/0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md),
-[ADR-0751](adr/0751-every-native-app-carries-one-sync-core.md),
-[ADR-0757](adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md),
-[ADR-0759](adr/0759-an-apps-native-shell-is-generated-on-every-build.md);
-the exception,
-[ADR-0745](adr/0745-a-browser-extension-writes-through-the-local-epicenter-engine.md).
+A folder's `AGENTS.md` names its contract, and Epicenter finds folders by
+reading it, never by a stored or derived path ([ADR-0772]). A note's name is
+its file name, and a rename is a write at the new name and a delete of the
+old ([ADR-0776]). Everything in a folder syncs ([ADR-0788]).
 
-## Speak the standard; invent only what none covers
+A note's front matter is the machine's; its body is the person's and the
+app's. Front matter is YAML restricted to one `key: <JSON>` per line
+([ADR-0796], [ADR-0797]):
 
-History is plain Git, sign-in is OAuth with one grant per app, fields are
-JSON Schema, and a model is any endpoint that speaks the OpenAI-compatible
-vocabulary. A tool that speaks the standard works with Epicenter unchanged.
-Epicenter invents three things: names derived from a site, merging a note's
-front matter by key (Git merges its body, ADR-0795), and the sync core.
-Records:
-[ADR-0727](adr/0727-json-schema-is-the-field-language.md),
-[ADR-0731](adr/0731-every-app-signs-in-as-its-site.md),
-[ADR-0733](adr/0733-your-own-git-in-an-epicenter-folder-is-plain-git.md),
-[ADR-0757](adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md),
-[ADR-0758](adr/0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md),
-[ADR-0762](adr/0762-epicenter-is-made-of-standards-and-places.md).
+```md
+---
+title: "Call dentist"
+done: false
+tags: ["health"]
+---
+Ask about the Thursday slot.
+```
 
-## An app declares what it is and what it needs; the platform supplies where, how and when
+A file outside that grammar has no front matter: it is all body and shows as
+invalid. Normalize rewrites another tool's YAML into the grammar when a
+person asks or a write touches the note, never on a read. Epicenter reads
+nothing in a body but conflict markers.
 
-An app is its contract, its site, and the capabilities it composes in
-`app.ts`. The platform picks the folder's root, the implementation for
-desktop, phone, or web, and the moments sync runs, so an app's code names no
-path, no platform, and no sync moment. Records:
-[ADR-0753](adr/0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md),
-[ADR-0754](adr/0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md),
-[ADR-0755](adr/0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md),
-[ADR-0756](adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md),
-[ADR-0759](adr/0759-an-apps-native-shell-is-generated-on-every-build.md),
-[ADR-0765](adr/0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md).
+## Merging
 
-## What this means for you
+| What | How it merges |
+| --- | --- |
+| a note's body | Git's three-way line merge; a clash leaves Git's markers |
+| a note's front matter | by key: a key one side changed takes that side; a key both changed takes the later write |
+| any other file | the later write; the other stays in history |
+| an edit against a delete | the edit |
 
-- **On a Mac,** Whispering's recordings are files in `~/Epicenter/whispering`,
-  which Finder shows. Whispering syncs its folder when it opens, a few seconds
-  after you save, when you come back to it, and when you press Sync. The
-  Epicenter app, if you install it, is the library: every folder by team,
-  each collection as a table you filter with `select * from todos where …`
-  and edit in place, and what needs a look across all of them (ADR-0790).
-- **On an iPhone,** no app exists yet. The first will keep its folder where
-  the Files app shows it, "On My iPhone > Whispering", and carry the same sync
-  core.
-- **In a browser,** every web app is online: you sign in and it works in your
-  team's repository (ADR-0786). Working offline needs an installed app. A
-  browser extension saves through Epicenter on the same computer.
-- **For an agent,** an item is a file it edits directly. Each folder's
-  `AGENTS.md` names the app's contract and tells the agent to run
-  `epicenter sync <dir>` before it starts and after it finishes.
+Epicenter's own merge is the key rule, about forty lines in TypeScript and in
+Rust under one fixture, and a round runs it with no page and no JavaScript
+([ADR-0795]). A note holding Git's markers shows ⚠ and is resolved in the
+repair editor ([ADR-0789]).
 
-## What Epicenter refuses
+A sync round checks out only the files that did not move while it ran. A
+file that moved ends the round `retry`, and the next round commits and
+merges it ([ADR-0794]). The server never merges: it refuses a write over a
+version it no longer holds ([ADR-0773]).
 
-- A registry of apps or folders, or a stored location for any folder
-  ([ADR-0721](adr/0721-an-apps-folder-is-derived-never-stored.md)).
-- Items in AppData, where you cannot see them
-  ([ADR-0752](adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md)).
-- One program that syncs for the others, and a file watcher, timer, or
-  background service to sync
-  ([ADR-0750](adr/0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md)).
-- A model server or model directory of its own
-  ([ADR-0757](adr/0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md)).
-- A format, store, or protocol of its own where a tool you have already
-  serves
-  ([ADR-0758](adr/0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md)).
-- Merging two unrelated histories, or adopting a folder whose Git history it
-  did not make
-  ([ADR-0735](adr/0735-sync-gives-files-a-history-it-never-merges-two.md),
-  [ADR-0761](adr/0761-sync-never-merges-two-unrelated-histories.md)).
-- A log or outbox of operations for sync
-  ([ADR-0744](adr/0744-sync-diffs-state-because-agents-edit-state.md)).
-- A committed native shell, or a package that wraps an app's capabilities
-  ([ADR-0756](adr/0756-an-apps-native-shell-is-linked-from-its-capabilities.md),
-  [ADR-0759](adr/0759-an-apps-native-shell-is-generated-on-every-build.md)).
+## Changes
+
+A store is a place: memory, a directory, the desktop shell's root, or the
+server's repository. Every store has five verbs ([ADR-0779], [ADR-0798]):
+
+```ts
+list(under)    read(paths)    watch(changed)
+write(path, bytes | null, over)  // text, deletes, attachments: lands only over the version read
+patch(path, { set, delete })     // fields: applied to the file as it is, never stale
+```
+
+A change is JSON discriminated by `op`, the same on every transport, in every
+queue, and in the conformance suite ([ADR-0798]). Over HTTP the verbs are
+conditional requests: `GET` with an `ETag`, `PUT` with `If-Match` or
+`If-None-Match: *`, `DELETE`, `412 Precondition Failed` for a stale write, and
+`PATCH` for fields ([ADR-0800]). An app writes with `set` and `delete`, and a
+write never fails: the folder keeps it, in order, until it lands
+([ADR-0774], [ADR-0775]).
+
+## Programs only compose
+
+A program holds no logic of its own. Each piece lives in one package, in the
+language every program that needs it can run ([ADR-0793]):
+
+| TypeScript: what Epicenter means | Rust: the OS, Git, and secrets |
+| --- | --- |
+| contracts, validation, notes, the folder engine, query tables, discovery by `AGENTS.md`, Normalize | a round's Git work, files and watching, credentials files, audio, local models, shortcuts |
+
+The front-matter primitive (read, patch, and merge a field) is the one piece
+written in both, under one fixture. Every program composes the same
+packages and differs only in its hands: an app's page, the library, the CLI,
+and the server, which holds the repository and never merges.
+
+## Surfaces
+
+| Surface | What it opens | Signing in |
+| --- | --- | --- |
+| Desktop app | its own folder, complete without an account | to sync that folder and to use hosted services ([ADR-0785]) |
+| Web app | the team's repository, online only ([ADR-0786]) | required |
+| Library (the Epicenter app) | every folder under `~/Epicenter`, by team | its own grant, reaching each team repository it syncs |
+| CLI | the folder it runs in, folders by path, or `--all` | its own OAuth client and credentials file ([ADR-0793]) |
+
+- One build serves the web and the desktop. An app branches on what a
+  capability offers, never on the platform ([ADR-0781]), and the surfaces
+  need not promise the same things ([ADR-0780]).
+- A team owns repositories, and sharing is membership. Consent picks the
+  team, and a folder's first sync moves it into that team's folder
+  ([ADR-0770], [ADR-0791]).
+- An account asks for what the capabilities handed it need; an app that hands
+  the account to nothing never shows sign-in ([ADR-0792]).
+- A sign-in serves one app, whose secrets stay in its own credentials file
+  and never reach the page ([ADR-0783]).
+
+## The library and the CLI
+
+The Epicenter app is the library, an app built like the others over every
+folder ([ADR-0790]). Each collection is a table filtered by
+`select * from <collection> where …`, and each cell is drawn and edited by
+its field's type. Beside the tables it gathers what needs a look: sync state,
+conflicts (⚠), notes that do not read, and duplicate folders. It syncs every
+folder, offers Sync all, and builds its tables in its own page.
+
+The CLI is its own install, for agents and terminals ([ADR-0793]):
+
+```sh
+epicenter query "select * from todos where done = false"
+epicenter set todos todos call-dentist --json '{"done": true}'
+epicenter normalize
+epicenter mcp --all
+```
+
+`epicenter mcp` serves each contract as typed MCP tools (`<collection>_query`,
+`_get`, `_set`, `_write`, `_delete`), derived with no app code
+([ADR-0799]). Apps and the library offer "Connect your agents": one click
+installs the command and adds `epicenter mcp --all` to the agent's MCP
+configuration ([ADR-0800]).
+
+## What Epicenter invents, and what it refuses
+
+Epicenter invents three things: names derived from a site ([ADR-0722]), the
+front-matter merge by key ([ADR-0795]), and the sync core ([ADR-0751]).
+Everything else is a standard ([ADR-0762]).
+
+It refuses:
+
+- a background service, file watcher, or timer, to sync or to serve agents;
+  each program syncs at a person's moments ([ADR-0750], [ADR-0800]).
+- programs calling each other; they meet in the folder ([ADR-0762]). The one
+  named exception is a browser extension, which cannot reach a folder
+  ([ADR-0745]).
+- a second store: no live documents, no browser storage, and no log of
+  operations for sync ([ADR-0771], [ADR-0786], [ADR-0744]).
+- renaming or moving a repository, and merging two unrelated histories
+  ([ADR-0771], [ADR-0761]).
+- a registry of folders or a stored location ([ADR-0772]).
+
+## Open: is a local Git repository a promise?
+
+Positioning promises "Git history beside it" and sync "over plain Git with a
+server you choose". [ADR-0794] holds both open until two results are in: an
+iOS spike shows whether a round must finish while the app is suspended, and
+a store-to-store prototype in TypeScript syncs a folder with the repository
+through the stores the folder already has, timed on an unchanged round of
+10,000 items. The founder decides against both before the core is linked
+into every app. Since [ADR-0795] a round merges by itself, so an embedded
+JavaScript engine is no longer part of the question.
+
+[ADR-0722]: adr/0722-an-apps-names-derive-from-its-sites-host.md
+[ADR-0744]: adr/0744-sync-diffs-state-because-agents-edit-state.md
+[ADR-0745]: adr/0745-a-browser-extension-writes-through-the-local-epicenter-engine.md
+[ADR-0750]: adr/0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md
+[ADR-0751]: adr/0751-every-native-app-carries-one-sync-core.md
+[ADR-0761]: adr/0761-sync-never-merges-two-unrelated-histories.md
+[ADR-0762]: adr/0762-epicenter-is-made-of-standards-and-places.md
+[ADR-0763]: adr/0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md
+[ADR-0770]: adr/0770-teams-own-repositories-and-sharing-is-membership.md
+[ADR-0771]: adr/0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md
+[ADR-0772]: adr/0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md
+[ADR-0773]: adr/0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md
+[ADR-0774]: adr/0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md
+[ADR-0775]: adr/0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md
+[ADR-0776]: adr/0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md
+[ADR-0779]: adr/0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md
+[ADR-0780]: adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md
+[ADR-0781]: adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md
+[ADR-0783]: adr/0783-a-secret-lives-in-the-apps-credentials-file-and-is-read-by-the-request-that-uses-it.md
+[ADR-0785]: adr/0785-a-desktop-app-signs-in-to-sync-its-own-folder.md
+[ADR-0786]: adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md
+[ADR-0788]: adr/0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md
+[ADR-0789]: adr/0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md
+[ADR-0790]: adr/0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md
+[ADR-0791]: adr/0791-a-folders-first-sync-places-it-in-its-teams-folder.md
+[ADR-0792]: adr/0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md
+[ADR-0793]: adr/0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md
+[ADR-0794]: adr/0794-a-sync-round-asks-its-host-to-settle-checks-out-only-what-did-not-move-and-retries-rather-than-guess.md
+[ADR-0795]: adr/0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md
+[ADR-0796]: adr/0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md
+[ADR-0797]: adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md
+[ADR-0798]: adr/0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md
+[ADR-0799]: adr/0799-a-folders-contract-is-also-an-mcp-server.md
+[ADR-0800]: adr/0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md
