@@ -151,8 +151,9 @@ export function createVocabChat({
 			const submitted = draft;
 			const text = submitted.trim();
 			if (!text) return;
-			// A reply needs the chat's saved messages, which list once it opens.
-			await loop.ready;
+			// A reply needs the chat's saved messages, which list once it opens,
+			// and the learner's saved model, which answers its default until read.
+			await Promise.all([loop.ready, choices.ready]);
 			if (loop.snapshot().messages.length === 0 || isBusy() || !captureTarget())
 				return;
 			const { error } = await loop.send(text);
@@ -172,8 +173,9 @@ export function createVocabChat({
 			asking = admitted;
 			try {
 				// A connection the learner chose answers once the saved ones are
+				// read, the learner's saved model answers its default until it is
 				// read, and what to ask depends on the chat's saved messages.
-				await Promise.all([ai.custom()?.ready, loop.ready]);
+				await Promise.all([ai.custom()?.ready, choices.ready, loop.ready]);
 				if (admitted.signal.aborted) return;
 				if (hasNothingToAsk() || !captureTarget()) return;
 				dismissedError = null;
