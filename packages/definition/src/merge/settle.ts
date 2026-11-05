@@ -12,7 +12,8 @@
  * an edit of the note `base` was: nothing tells the two apart, a visible
  * and repairable result the owner accepted. A block identical to one already in the
  * note is not written again, and one clash is one block however many
- * writes follow it (`merge`'s `continuedBlock`). A blob never merges.
+ * writes follow it (`merge`'s `continuedBlock`). A blob never merges:
+ * `settlePointer` is its rule, the later write winning.
  *
  * A merge never breaks a key: the header merges key by key, each key's
  * block whole, and a body after no header is kept from reading as one (a
@@ -51,6 +52,26 @@ const labelled = (
 	base: { version: versionOf(base) },
 	incoming: { ...parties.incoming, version: versionOf(incoming) },
 });
+
+/**
+ * Settle a blob path (every file that is not a note), which never merges:
+ * the later write wins (ADR-0771), `incoming` (the write arriving now) over
+ * `current`, and the version that lost stays in history, as a losing field
+ * value does. An edit beats a delete, as for a note (decision 15): a delete
+ * of a file changed since its writer read it (`base`) leaves the file, and
+ * a replace of a file deleted since brings it back at its path. Writing
+ * what is already there lands as nothing, so two writes of the same bytes
+ * are one file.
+ */
+export function settlePointer(
+	base: string | null,
+	current: string | null,
+	incoming: string | null,
+): string | null {
+	if (incoming === base) return current;
+	if (incoming === null && current !== base) return current;
+	return incoming;
+}
 
 /**
  * Settle `incoming` (the writer's text) against `current` (what is there

@@ -97,8 +97,9 @@ Pay Alice later
 A front matter key both sides set goes to the later arrival. The body merges
 by line, then by word within a line both sides changed; two different changes
 at the same spot make one conflict block of whole lines. An edit beats a
-delete. A binary file never merges. Whatever `settle` writes is in house
-style.
+delete. A binary file never merges: `settlePointer` lands the later write,
+and the version it replaced stays in history (ADR-0771). Whatever `settle`
+writes is in house style.
 
 ### How a folder is stored in Git
 

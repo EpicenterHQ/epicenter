@@ -13,12 +13,15 @@
  * - T2: one field both set takes the later arrival's value, with no block
  * - T2b: the side named incoming wins, so the driver's rebase swap keeps the later arrival
  * - T3: an edit beats a delete, in both directions
+ * - ADR-0771: of two binary writes, the later one wins
  */
 import { describe, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import { formatNote, parseRowSource } from '../note/index.js';
 import { findConflicts } from './conflict.js';
-import { settle } from './settle.js';
+import { lfsOid } from './hash.js';
+import { writePointer } from './pointer.js';
+import { settle, settlePointer } from './settle.js';
 
 const parties = {
 	current: { author: 'alice', time: '2026-10-30T10:00:00Z' },
@@ -149,4 +152,22 @@ describe('house style on what settle writes', () => {
 		);
 		expect(settled.text).toBe('---\na: [\ndone: false\n---\nbody\n');
 	});
+});
+
+test('ADR-0771: of two binary writes from one base, the later one wins', async () => {
+	const earlier = new TextEncoder().encode('webm bytes from Alice');
+	const later = new TextEncoder().encode('webm bytes from Bob');
+	const base = writePointer({
+		oid: await lfsOid(new Uint8Array([0])),
+		size: 1,
+	});
+	const current = writePointer({
+		oid: await lfsOid(earlier),
+		size: earlier.length,
+	});
+	const incoming = writePointer({
+		oid: await lfsOid(later),
+		size: later.length,
+	});
+	expect(settlePointer(base, current, incoming)).toBe(incoming);
 });

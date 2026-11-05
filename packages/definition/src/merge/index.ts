@@ -9,7 +9,8 @@
  * the later arrival (decision 28). Front matter merges by key, the later
  * arrival winning a key both sides set, with no block; the body merges by
  * line, one conflict block per clash; an edit beats a delete (decision 15).
- * A binary file never merges.
+ * A binary file never merges: `settlePointer` lands the later write, and
+ * the one that lost stays in history (ADR-0771).
  *
  * Ported from spike 7's `core/` (identical to `claude/repository-v2`
  * `core/{merge,settle,conflict,hash}.ts` at `c32dd466`).
@@ -46,4 +47,5 @@ export {
 	type Parties,
 	type Settled,
 	settle,
+	settlePointer,
 } from './settle.js';
