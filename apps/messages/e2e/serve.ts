@@ -1,9 +1,11 @@
 /**
  * Messages for its end-to-end suite: built into a scratch directory and
  * served by its own local program (`scripts/serve.ts`) on
- * `http://127.0.0.1:5189`, with a fake Beeper in place of the CLI's
- * connection, so no run ever reads the keychain or reaches a real Beeper
- * Desktop. The fake answers like one installation with one test account.
+ * `http://127.0.0.1:5189`, keeping its drafts in `E2E_FOLDER` (made empty
+ * here), with a fake Beeper in place of the CLI's connection, so no run
+ * ever reads the keychain, touches the drafts Messages keeps for real, or
+ * reaches a real Beeper Desktop. The fake answers like one installation
+ * with one test account.
  *
  *   bun apps/messages/e2e/serve.ts
  */
@@ -16,6 +18,7 @@ import type {
 	Message,
 } from '@epicenter/cli/messages-protocol';
 import { serveMessages } from '../scripts/serve.ts';
+import { E2E_FOLDER } from './folder.ts';
 
 export const E2E_PORT = 5189;
 
@@ -90,11 +93,18 @@ async function answer(input: unknown): Promise<BeeperAnswer> {
 	}
 }
 
-const server = serveMessages({ root: out, port: E2E_PORT, answer });
+await rm(E2E_FOLDER, { recursive: true, force: true });
+const server = serveMessages({
+	root: out,
+	folder: E2E_FOLDER,
+	port: E2E_PORT,
+	answer,
+});
 console.log(`Messages under test: ${server.url}`);
 const stop = async () => {
-	await server.stop(true);
+	await server.stop();
 	await rm(out, { recursive: true, force: true });
+	await rm(E2E_FOLDER, { recursive: true, force: true });
 	process.exit(0);
 };
 process.on('SIGTERM', stop);

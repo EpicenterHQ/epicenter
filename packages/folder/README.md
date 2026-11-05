@@ -31,6 +31,8 @@ A Svelte app reads it through `reactive` from
 | `@epicenter/folder/core` | The folder's types (`Folder`, `FolderNotes`, `FolderFiles`, `FolderLifecycle`, `FolderState`, `NoteEdit`, `Unavailable`, `Place`, ...), `OpenFolderError`, and the `FolderNotOpen` and `FolderClosed` errors, the same on every build, for a library that takes a folder or a collection. |
 | `@epicenter/folder/node` | `directory(path)`, a directory as a place, for scripts and tests (Bun or Node), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/memory` | `memory()`, a new place in memory, and `memoryFiles(placeOrFolder)`, the world outside it, for a test. |
+| `@epicenter/folder/served` | `served(url)`, the directory the program serving this page keeps on this computer, reached through that program (Messages; ADR-0784). |
+| `@epicenter/folder/serve` | `serveDirectory(path)`, the program's half: it answers its page's store verbs over a directory, in Bun or Node. |
 | `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager, and `syncWithEpicenter` and `syncedWithEpicenter` for Epicenter enrollment. What a capability keeps for this computer goes to AppData through `settings` from [`@epicenter/local`](../local/README.md), not through a folder. |
 | `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 
@@ -147,7 +149,7 @@ a listing never reads a recording to name it; the repository names a file
 by its Git blob id (for an attachment, the blob of its Git LFS pointer).
 Every store answers a hint only once a read of the path answers the change.
 `storeChecks` in `src/device/store.conformance.ts` holds memory, a Bun
-directory and the desktop shell to the same behavior in
+directory, the desktop shell and a served directory to the same behavior in
 `store.conformance.test.ts`, and the repository in
 `src/remote/remote.postgres.test.ts`.
 
@@ -159,6 +161,7 @@ directory and the desktop shell to the same behavior in
 | `home()` on the web | this origin's private file system (OPFS), for good |
 | `home({ site, account })` on the web | the account's repository for `site`, `<git audience>/~/<name derived from site>.git`, through `account.fetch`; it opens once the account is signed in, works online only, and stops when the account is retired |
 | `directory(path)` | a directory, made when missing (`Unreadable` when it cannot be) |
+| `served(url)` | the directory the program serving the page owns, through that program's `serveDirectory`; `StorageUnavailable` when nothing at `url` answers for one, and `Unavailable`, still opening, while the program is out of reach |
 | `memory()`, and `home()` under `test` | memory, for the life of the process |
 
 Opening a place either answers its store, a temporary failure the folder
@@ -305,6 +308,7 @@ committer, over the system `git` this package's `runGit` runs.
 | `src/device/` | The store contract and its conformance checks, the device stores (memory, Bun, OPFS, Tauri), and `check`/`format`. |
 | `src/browser.ts`, `desktop-folder.ts` | This browser's storage as a place, and the desktop folder's `AGENTS.md`. |
 | `src/remote/` | The repository as a store, and its wire to the server. |
+| `src/served/`, `served.ts`, `serve.ts` | A directory a program serves its page: the page's store, the program's handler, and the wire between them (four `POST`s of JSON; a watch is a stream of JSON lines, and a dropped one is heard as `'all'`). |
 | `src/native/`, `paths.ts`, `state.ts`, `path-turns.ts` | Watches, the shell's bindings, the path rule, where unfinished writes live, and per-path turns. |
 | `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
 | `evidence/`, `smoke/` | Recorded experiments and measurements, the closure check, and browser smoke runs. |
