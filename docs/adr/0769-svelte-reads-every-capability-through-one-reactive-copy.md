@@ -4,7 +4,7 @@
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) at the Svelte part of the six-part shape ("an optional `./svelte` export, `fromX`, built on one shared internal helper") and at the rejected "reactive Proxy, or one generic `from(x)` for every adapter": no capability has a Svelte export, and one generic adapter reads them all; [ADR-0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) at the action row of the standard shape and at "`fromClient` remains the one adapter that does work per item": every action answers a promise, a capability a method makes is the shape's fourth form, and the work `fromClient` did belongs to the folder.
 - **Relates:** [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) (reads answer at every moment, actions wait), [ADR-0768](0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md) (a failure's `retry()`).
-- **Amended by:** [ADR-0774](0774-a-write-that-meets-a-change-settles-it-the-way-sync-does.md) at writes "made over the version shown": the folder settles a write that meets a change, the way sync does.
+- **Amended by:** [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) at writes "made over the version shown": the folder reads a file just before writing it and settles a change, the way sync does.
 
 ## Context
 
