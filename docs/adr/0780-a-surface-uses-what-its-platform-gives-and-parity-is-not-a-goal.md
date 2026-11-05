@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-05)
 - **Date:** 2026-11-05
 - **Relates:** [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) (offline needs an installed app, which this generalizes), [ADR-0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) (Epicenter owns only what nothing else can), [ADR-0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) (a browser recording lands whole).
+- **Amended by:** [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) at the browser's own storage: a web app keeps none.
 - **Unbuilt:** a check of the browser builds for other machinery that imitates a process outliving the page (Messages' in-tab draft queue is gone).
 
 ## Context

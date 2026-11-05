@@ -958,7 +958,7 @@ When you add an ADR, add its row here.
 | [0760](0760-global-shortcuts-are-a-capability.md) | Global shortcuts are a capability | Accepted (amends 0753 and 0755) |
 | [0761](0761-sync-never-merges-two-unrelated-histories.md) | Sync never merges two unrelated histories | Accepted (amends 0735) |
 | [0762](0762-epicenter-is-made-of-standards-and-places.md) | Epicenter is made of standards and places | Accepted (amended by 0763 and 0764) |
-| [0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) | Epicenter's doctrine is three roots and one rule for apps | Accepted (amends 0719 and 0762; amended by 0787) |
+| [0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) | Epicenter's doctrine is three roots and one rule for apps | Accepted (amends 0719 and 0762; amended by 0787 and 0801) |
 | [0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) | Reaching a model is `@epicenter/ai`'s alone, in the OpenAI vocabulary | Accepted (amends 0740, 0755, 0757, and 0762) |
 | [0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) | Choose by value, not by name; every capability has the same shape | Accepted (amends 0754; amended by 0766, 0769, and 0787) |
 | [0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) | An app's capabilities are module values, opened synchronously | Accepted (amends 0753, 0754, 0756, and 0765; amended by 0767, 0768, 0769, 0781, and 0787) |
@@ -975,7 +975,7 @@ When you add an ADR, add its row here.
 | [0777](0777-a-capability-has-no-ready-promise.md) | A capability has no ready promise | Accepted (amends 0767; amended by 0778) |
 | [0778](0778-a-page-connects-once-and-then-reads-synchronously.md) | A page connects once, and then reads synchronously | Accepted (amends 0767, 0775, and 0777; amended by 0779 and 0783) |
 | [0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) | A store is four verbs, and a browser recording lands whole | Accepted (amends 0773 and 0778; amended by 0786, 0788, and 0798) |
-| [0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) | A surface uses what its platform gives, and parity is not a goal | Accepted |
+| [0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) | A surface uses what its platform gives, and parity is not a goal | Accepted (amended by 0801) |
 | [0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) | Apps branch on what a capability offers, and one build serves every surface | Accepted (amends 0701, 0755, and 0766; amended by 0784, 0785, and 0792) |
 | [0782](0782-a-waiting-write-the-folder-will-not-make-rejects.md) | A waiting write the folder will not make rejects | Accepted (amends 0775) |
 | [0783](0783-a-secret-lives-in-the-apps-credentials-file-and-is-read-by-the-request-that-uses-it.md) | A secret lives in the app's credentials file, and is read by the request that uses it | Accepted (amends 0778; amended by 0787) |
@@ -983,16 +983,17 @@ When you add an ADR, add its row here.
 | [0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) | A desktop app signs in to sync its own folder | Accepted (amends 0781; amended by 0787) |
 | [0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) | Every web app is online, and browser storage leaves the platform | Accepted (amends 0746, 0773, 0779, and 0784; amended by 0788) |
 | [0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) | Records that assumed a running engine or a build-time choice follow ADR-0750 and ADR-0781 | Accepted (amends 0732, 0744, 0746, 0749, 0751, 0753, 0763, 0765, 0766, 0772, 0773, 0774, 0783, and 0785; amended by 0793, 0794, and 0797) |
-| [0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) | Everything in a folder syncs, and a recording's audio is kept in one of three places | Accepted (amends 0779 and 0786; amended by 0789) |
+| [0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) | Everything in a folder syncs, and a recording's audio is kept in one of three places | Accepted (amends 0779 and 0786; amended by 0789 and 0801) |
 | [0789](0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md) | A conflict is a mark on its note, resolved in the repair editor | Accepted (amends 0788; amended by 0795) |
-| [0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) | The Epicenter app is a library over every folder, and the CLI answers its queries | Accepted (amends 0715; amended by 0793) |
+| [0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) | The Epicenter app is a library over every folder, and the CLI answers its queries | Accepted (amends 0715; amended by 0793 and 0801) |
 | [0791](0791-a-folders-first-sync-places-it-in-its-teams-folder.md) | A folder's first sync places it in its team's folder | Accepted (amends 0772) |
 | [0792](0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md) | An account asks for what the capabilities that take it need | Accepted (amends 0781) |
-| [0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) | Programs only compose: TypeScript holds what Epicenter means, and Rust holds the OS, Git, and secrets | Accepted (amends 0732, 0751, 0774, 0787, and 0790; amended by 0795) |
-| [0794](0794-a-sync-round-asks-its-host-to-settle-checks-out-only-what-did-not-move-and-retries-rather-than-guess.md) | A sync round asks its host to settle, checks out only what did not move, and retries rather than guess | Accepted (amends 0751, 0774, and 0787; amended by 0795) |
+| [0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) | Programs only compose: TypeScript holds what Epicenter means, and Rust holds the OS, Git, and secrets | Accepted (amends 0732, 0751, 0774, 0787, and 0790; amended by 0795 and 0801) |
+| [0794](0794-a-sync-round-asks-its-host-to-settle-checks-out-only-what-did-not-move-and-retries-rather-than-guess.md) | A sync round asks its host to settle, checks out only what did not move, and retries rather than guess | Accepted (amends 0751, 0774, and 0787; amended by 0795 and 0801) |
 | [0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) | Git merges a note's body, and Epicenter merges its front matter by key | Accepted (amends 0700, 0733, 0774, 0789, 0793, and 0794; amended by 0796 and 0797) |
 | [0796](0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md) | A field is a line, its value is JSON, and a write patches only the fields it changes | Accepted (amends 0700, 0774, and 0795; amended by 0797) |
 | [0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) | Front matter is a strict grammar, and anything else is body | Accepted (amends 0787, 0795, and 0796; amended by 0798) |
 | [0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) | A store patches fields and writes text, and a change is data | Accepted (amends 0774, 0779, and 0797; amended by 0800) |
-| [0799](0799-a-folders-contract-is-also-an-mcp-server.md) | A folder's contract is also an MCP server | Accepted (amended by 0800) |
+| [0799](0799-a-folders-contract-is-also-an-mcp-server.md) | A folder's contract is also an MCP server | Accepted (amended by 0800 and 0801) |
 | [0800](0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md) | A store's wire speaks HTTP's conditional requests, and apps connect agents to the CLI | Accepted (amends 0798 and 0799) |
+| [0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) | Records from 0763 to 0800 agree on the merge, Rust's part, the marks, and agents | Accepted (amends 0763, 0780, 0788, 0790, 0793, 0794, and 0799) |

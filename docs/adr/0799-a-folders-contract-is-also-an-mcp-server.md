@@ -4,6 +4,7 @@
 - **Date:** 2026-11-05
 - **Relates:** [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) (`epicenter query`), [ADR-0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) (patch and write, a change is data), [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) (a folder names its contract in `AGENTS.md`), [ADR-0727](0727-json-schema-is-the-field-language.md) (fields are JSON Schema), [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (speak the standard).
 - **Amended by:** [ADR-0800](0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md) at how an agent reaches `epicenter mcp`: an app connects it when a person asks.
+- **Amended by:** [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) at `<collection>_write`: it writes over the version `<collection>_get` returned, or over 'absent'.
 - **Unbuilt:** all of it: `epicenter mcp`, its tools derived from each contract, and the line in the `AGENTS.md` Epicenter writes that names it.
 
 ## Context
