@@ -18,6 +18,8 @@
  * - Invalid notes are shown with their text, and `replace` repairs one;
  *   a draft's `replace` over the version it began from refuses a change since
  * - A write is `saving()` on the folder from its call until it answers
+ * - A file collection appends where its store can, heard when the file is
+ *   made and announced; elsewhere `append` is `Unavailable`
  *
  * See also:
  * - `note-edit.test.ts` for the note editor
@@ -35,6 +37,8 @@ import {
 } from '@epicenter/definition/contract';
 import { Ok, unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { createDeviceClient } from './device/client.js';
+import type { DeviceStore } from './device/store.js';
 import { createFolder } from './folder.js';
 import { openDevice } from './node.js';
 
@@ -81,7 +85,10 @@ async function until(check: () => boolean) {
 }
 
 /** Listen through `subscribe`, recording what `read` answers now and after each change, until `stop`. */
-function watch<T>(subscribe: (listener: () => void) => () => void, read: () => T) {
+function watch<T>(
+	subscribe: (listener: () => void) => () => void,
+	read: () => T,
+) {
 	const values = [read()];
 	const stop = subscribe(() => values.push(read()));
 	return { values, stop };
@@ -196,7 +203,10 @@ test('a write shows at once, before any listing', async () => {
 	const { open } = await folder();
 	const { client, hold } = counted(await open());
 	const files = over(todos, client);
-	const shown = watch(files.todos.subscribe, () => files.todos.get({ id: 'a' })?.title);
+	const shown = watch(
+		files.todos.subscribe,
+		() => files.todos.get({ id: 'a' })?.title,
+	);
 	await until(() => !files.todos.loading());
 	const release = hold();
 
@@ -249,7 +259,10 @@ test('a listing a change interrupted never replaces a newer one', async () => {
 	const device = await open();
 	const { client, hold } = counted(device);
 	const files = over(todos, client);
-	const shown = watch(files.todos.subscribe, () => files.todos.get({ id: 'a' })?.title);
+	const shown = watch(
+		files.todos.subscribe,
+		() => files.todos.get({ id: 'a' })?.title,
+	);
 	await until(() => !files.todos.loading());
 
 	// A change arrives, and its listing is read but held...
@@ -270,7 +283,9 @@ test('update carries an edit over another writer’s other field; after a clash 
 	const { open, text } = await folder();
 	const files = over(todos, await open());
 	const other = await open();
-	const shown = watch(files.todos.subscribe, () => files.todos.get({ id: 'a' }));
+	const shown = watch(files.todos.subscribe, () =>
+		files.todos.get({ id: 'a' }),
+	);
 	await until(() => !files.todos.loading());
 	const created = expectOk(
 		await files.todos.create({ id: 'a', title: 'Milk', done: false }),
@@ -348,7 +363,10 @@ test('replace over the version a draft began from refuses another writer’s cha
 		join(root, 'todos/a.md'),
 		'---\ntitle: Milk\ndone: false\n---\n',
 	);
-	const shown = watch(files.todos.subscribe, () => files.todos.get({ id: 'a' })?.title);
+	const shown = watch(
+		files.todos.subscribe,
+		() => files.todos.get({ id: 'a' })?.title,
+	);
 	await until(() => shown.values.at(-1) === 'Milk');
 	const began = files.todos.get({ id: 'a' })?.version;
 
@@ -392,7 +410,9 @@ test('a write is saving on the folder from its call until it answers, and the fo
 test('a file collection lists its entries without bytes, and writes over what it shows', async () => {
 	const { open } = await folder();
 	const files = over(todos, await open());
-	const shown = watch(files.attachments.subscribe, () => files.attachments.items());
+	const shown = watch(files.attachments.subscribe, () =>
+		files.attachments.items(),
+	);
 	await until(() => !files.attachments.loading());
 	const created = expectOk(
 		await files.attachments.create({
@@ -429,4 +449,61 @@ test('a write over a note the folder has not listed reads it first', async () =>
 	expectOk(
 		await files.todos.replace({ id: 'b' }, '---\ntitle: B\ndone: false\n---\n'),
 	);
+});
+
+test('a file collection appends where its store can, and its listeners hear an announced append', async () => {
+	const held = new Map<string, Uint8Array>();
+	const store: DeviceStore = {
+		list: async () =>
+			Ok([...held.keys()].map((path) => ({ path, stamp: path }))),
+		read: async () => Ok(null),
+		write: async () => Ok({ landed: null }),
+		async append(path, added, { create }) {
+			const there = held.get(path);
+			if (create === (there !== undefined)) return Ok('stale');
+			held.set(path, new Uint8Array([...(there ?? []), ...added]));
+			return Ok('landed');
+		},
+		watch: () => () => {},
+	};
+	const files = over(todos, createDeviceClient(todos, store));
+	let heard = 0;
+	const stop = files.attachments.subscribe(() => heard++);
+	const at = { id: 'a', ext: 'm4a' };
+	const piece = (create: boolean, announce = false) =>
+		files.attachments.append(at, new Uint8Array([1]), { create, announce });
+
+	expectOk(await piece(true));
+	expect(expectErr(await piece(true)).name).toBe('Occupied');
+	expectOk(await piece(false));
+	expectOk(await piece(false));
+	await Bun.sleep(20);
+	const heardBefore = heard;
+	expectOk(await piece(false, true));
+	await until(() => heard > heardBefore);
+	expect(held.get('todos/a.m4a')).toEqual(new Uint8Array([1, 1, 1, 1]));
+	expect(
+		expectErr(
+			await files.attachments.append(
+				{ id: 'b', ext: 'm4a' },
+				new Uint8Array([2]),
+				{ create: false, announce: true },
+			),
+		).name,
+	).toBe('NotFound');
+	stop();
+});
+
+test('a file collection over a store that cannot append answers Unavailable', async () => {
+	const { open } = await folder();
+	const files = over(todos, await open());
+	expect(
+		expectErr(
+			await files.attachments.append(
+				{ id: 'a', ext: 'm4a' },
+				new Uint8Array([1]),
+				{ create: true, announce: false },
+			),
+		).name,
+	).toBe('Unavailable');
 });

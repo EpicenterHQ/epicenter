@@ -70,6 +70,8 @@ export type RevealFolderError = RevealRootError;
 const log = createLogger('folder');
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
+type Occupied = InferError<typeof ClientError.Occupied>;
+type NotFound = InferError<typeof ClientError.NotFound>;
 
 /**
  * Where the folder is in its life. Retrying belongs to a failure, so only
@@ -204,7 +206,9 @@ export type FolderFiles<TCollection extends Collection> = Reads<
 	/** The entry `args` names, as shown. */
 	get(args: PlaceholdersOf<TCollection>): FileEntryOf<TCollection> | undefined;
 	/** The file `args` names with its bytes, read now. */
-	read(args: PlaceholdersOf<TCollection>): Waits<FileClient<TCollection>['get']>;
+	read(
+		args: PlaceholdersOf<TCollection>,
+	): Waits<FileClient<TCollection>['get']>;
 	/** Every entry, read now. */
 	list(): Waits<FileClient<TCollection>['list']>;
 	create(
@@ -221,6 +225,22 @@ export type FolderFiles<TCollection extends Collection> = Reads<
 		args: PlaceholdersOf<TCollection>,
 		options?: { over?: Version },
 	): Waits<FileClient<TCollection>['delete']>;
+	/**
+	 * Add `bytes` to the end of the file `args` names, for a file written
+	 * while it is made, such as a recording. With `create` the file is made
+	 * with these bytes, never over one that is there (`Occupied`); without,
+	 * the bytes go after what is there (`NotFound` when it went). Listeners
+	 * hear the file when it is made, and after that only an append with
+	 * `announce`. Only this browser's storage appends: anywhere else the
+	 * answer is `Unavailable`.
+	 */
+	append(
+		args: PlaceholdersOf<TCollection>,
+		bytes: Uint8Array,
+		options: { create: boolean; announce: boolean },
+	): Promise<
+		Result<undefined, Occupied | NotFound | Unavailable | OpenFolderError>
+	>;
 };
 
 /** A folder's collection: notes for a path ending in `.md`, files for any other. */
@@ -470,8 +490,16 @@ type Declared = {
 /** An entry as listed: its placeholders, fields and version. */
 type Entry = { [key: string]: unknown; version: Version };
 type Args = Record<string, unknown>;
+/** A file collection's client, and the append its store may have. */
+type Files = FileClient<Collection> & {
+	append(
+		args: Args,
+		bytes: Uint8Array,
+		options: { create: boolean; announce: boolean },
+	): Promise<Result<undefined, Occupied | NotFound | Unavailable>>;
+};
 /** Either kind of collection client, as this module calls it. */
-type Raw = NoteClient<Collection> | FileClient<Collection>;
+type Raw = NoteClient<Collection> | Files;
 type Answer = Result<unknown, ClientError | OpenFolderError>;
 
 /** How long after a failed listing it is tried again, doubling per failure up to the most. */
@@ -787,6 +815,18 @@ function folderCollection(
 						if (collection.error !== null) return collection;
 						return collection.data.get(args as never);
 					},
+					append: (
+						args: Args,
+						bytes: Uint8Array,
+						options: { create: boolean; announce: boolean },
+					) =>
+						hold(
+							(async () => {
+								const collection = await raw();
+								if (collection.error !== null) return collection;
+								return (collection.data as Files).append(args, bytes, options);
+							})(),
+						),
 				};
 
 	return {

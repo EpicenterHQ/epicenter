@@ -23,8 +23,8 @@ file:
 
 | `Recorder` | What it does |
 | --- | --- |
-| `start({ folder, path, input?, signal? })` | Record into the store as it records; the handle's `stop` answers `{ path, durationMs }` |
-| `recover({ folder, under, unnamed })` | Repair recordings a quit, a crash, or a closed tab cut off, and answer each the app should now record, among them each of `unnamed` (audio at its path the app keeps no record of) that is whole: `{ recovered, unplaced }` |
+| `start({ files, path, input?, signal? })` | Record into the store as it records; the handle's `stop` answers `{ path, durationMs }` |
+| `recover({ files, under, unnamed })` | Repair recordings a quit, a crash, or a closed tab cut off, and answer each the app should now record, among them each of `unnamed` (audio at its path the app keeps no record of) that is whole: `{ recovered, unplaced }` |
 | `listInputs()` | The inputs connected now, `{ inputs: [{ deviceId, label }], namesWithheld? }`. Opens nothing and never asks for access |
 | `openMeter({ input?, signal? })` | Open one input for its level only, until `close` |
 | `allow?({ signal? })` | Browser only: ask for access so inputs are listed by name, releasing the default microphone at once |
@@ -38,22 +38,23 @@ one of them, on its own.
 // the module behind the app's #platform seam imports one, and the call is the same.
 import { recorder } from '@epicenter/recorder/browser';
 
-await recorder.recover({ folder, under: 'recordings', unnamed }); // when the folder opens, before anything records
+await recorder.recover({ files: folder.audio, under: 'recordings', unnamed }); // when the folder opens, before anything records
 const { data: recording, error } = await recorder.start({
-	folder, // the app's folder (openFolder), or reactive's copy of it
-	path: 'recordings/2026-10-15-0930', // no extension: the format's is added
+	files: folder.audio, // the folder's audio collection, at recordings/{id}.{ext}
+	path: 'recordings/2026-10-15-0930', // no extension: the format's is added; its last segment is the id
 	input: { deviceId, label }, // optional; undefined is the system default
 });
 const { data: stopped } = await recording.stop(); // { path, durationMs }: the microphone is released, and the audio is at its path
 stopped.path; // 'recordings/2026-10-15-0930.webm' (desktop, and a browser without MP4) or '.m4a' (browser): only stop says which
 ```
 
-`folder` is the app's own, so the audio lands beside the rest of its files:
-on the desktop the shell writes into the open `Data` root; in a browser the
-page appends through `filesOf(folder)` from `@epicenter/folder/browser`,
-whose Worker writes each piece to the end of the file with a sync access
-handle. A folder that keeps no files in this browser (an account's
-repository) is refused with `Unavailable` before any microphone opens.
+`files` is a file collection of the app's own folder whose files are named
+by `{ id, ext }` (`AudioFiles`), so the audio lands beside the rest of its
+files: on the desktop the shell writes into the open `Data` root; in a
+browser the page appends each piece through `files.append`, whose Worker
+writes it to the end of the file with a sync access handle. Files that
+cannot be appended to here (an account's repository, a private window) are
+refused with `Unavailable` before any microphone opens.
 
 | | Desktop | Browser |
 | --- | --- | --- |
@@ -63,7 +64,7 @@ repository) is refused with `Unavailable` before any microphone opens.
 | While it records | Each whole second is written as it is encoded | Each piece is appended as it arrives; the store's listeners hear the file made and finished, not every piece |
 | Quit, crash, closed window or tab | Audio kept up to about the last second | Every piece already written is kept |
 | `recover` | Finishes a recording a quit cut off from its whole seconds and places it as `stop` does. Answers `recovered`, each `{ path, durationMs }` placed, from the length its file states, and `unplaced`, each `{ path, pending }` whose path holds another file: that recording is never deleted, stays finished at `pending` under `.epicenter/recordings`, and is answered on every run until a person moves one of the two, so an app says where it is. Each of `unnamed` not placed now is answered too, its length unread: the shell places a recording at its path only whole. Run it before anything lists, plays, or transcribes a recording: a cut-off file reads wrong until it is finished | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for the recording's path, whatever extension its file took). Reads only `unnamed`, since a recording the app keeps a record of is whole, and nothing when it is empty. Answers `recovered`, `{ path, durationMs }` for each of them no tab is writing, cut or already whole, the length read from the file, so an app can tell a cut-off recording from one another tab is recording; `unplaced` is always empty |
-| Refused before the microphone opens | The folder or path may not be written, or a file is there | This browser keeps no files here (a private window), or a file is there |
+| Refused before the microphone opens | The folder or path may not be written, or a file is there | The files cannot be appended to here (a private window, an account's repository), or a file is there |
 | Chosen microphone | Asked for by the shell's ID, as `listInputs` answers it (`input.deviceId`) | Asked for by the browser's ID, as `listInputs` answers it (`input.deviceId`) |
 | Voice processing | None: cpal reads the device as it hears | Off: echo cancellation, noise suppression, and gain control are asked off, since Safari's take about 2 s to start and MediaRecorder drops that time |
 | `signal` aborted after the microphone opened | Stopped: the recording is finished and kept | Released; nothing was written |

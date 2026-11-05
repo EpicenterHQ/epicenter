@@ -475,5 +475,24 @@ function fileClient(
 			if (path.error !== null) return nowhere();
 			return remove(store, path.data, over);
 		},
+		async append(
+			args: Params,
+			bytes: Uint8Array,
+			options: { create: boolean; announce: boolean },
+		) {
+			const path = collection.pathOf(args);
+			if (path.error !== null) return nowhere();
+			if (store.append === undefined)
+				return ClientError.Unavailable({
+					cause: 'this folder’s storage cannot add to the end of a file',
+				});
+			const appended = await store.append(path.data, bytes, options);
+			if (appended.error !== null) return appended;
+			if (appended.data === 'stale')
+				return options.create
+					? ClientError.Occupied({ path: path.data })
+					: ClientError.NotFound({ path: path.data });
+			return Ok(undefined);
+		},
 	};
 }

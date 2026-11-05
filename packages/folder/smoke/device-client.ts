@@ -4,8 +4,9 @@
  * `globalThis.deviceSmoke`. Each step returns plain data the runner checks.
  */
 import { defineContract, type Version } from '@epicenter/definition/contract';
-import { unwrap } from 'wellcrafted/result';
-import { deviceFiles, openDevice } from '../src/browser.js';
+import { Ok, unwrap } from 'wellcrafted/result';
+import { openDevice } from '../src/browser.js';
+import { createFolder } from '../src/folder.js';
 
 const recorder = defineContract({
 	collections: {
@@ -22,6 +23,8 @@ const recorder = defineContract({
 });
 
 const device = unwrap(await openDevice(recorder));
+/** The folder over the same client, whose file collections append. */
+const folder = createFolder(recorder, async () => Ok(device));
 
 /** Deterministic bytes, so both engines and both pages agree on a hash. */
 function payload(size: number, seed: number) {
@@ -76,25 +79,23 @@ const smoke = {
 	/**
 	 * Append `count` pieces of 64 KB to a new file, as a recording does,
 	 * reading it over and over meanwhile: every read must answer. Then a
-	 * second create is `stale`, an empty announcing append lands, and the
+	 * second create is `Occupied`, an empty announcing append lands, and the
 	 * file reads back as every piece in order.
 	 */
 	async appendPieces(id: string, count: number) {
-		const files = deviceFiles(device);
-		const path = `recordings/${id}.webm`;
+		const at = { id, ext: 'webm' };
 		const pieces = Array.from({ length: count }, (_, index) =>
 			payload(64 * 1024, index + 1),
 		);
 		let done = false;
 		const appending = (async () => {
 			for (const [index, piece] of pieces.entries()) {
-				const appended = await files.append(path, piece, {
+				const appended = await folder.audio.append(at, piece, {
 					create: index === 0,
 					announce: false,
 				});
-				if (appended.error !== null) return appended.error.message;
-				if (appended.data !== 'landed')
-					return `piece ${index}: ${appended.data}`;
+				if (appended.error !== null)
+					return `piece ${index}: ${appended.error.message}`;
 			}
 			return null;
 		})().finally(() => {
@@ -109,11 +110,11 @@ const smoke = {
 				readFailures.push(read.error.message);
 		}
 		const problem = await appending;
-		const again = await files.append(path, pieces[0]!, {
+		const again = await folder.audio.append(at, pieces[0]!, {
 			create: true,
 			announce: false,
 		});
-		const announced = await files.append(path, new Uint8Array(), {
+		const announced = await folder.audio.append(at, new Uint8Array(), {
 			create: false,
 			announce: true,
 		});
@@ -125,8 +126,8 @@ const smoke = {
 			problem,
 			reads,
 			readFailures,
-			again: again.data,
-			announced: announced.data,
+			again: again.error?.name ?? 'landed',
+			announced: announced.error?.name ?? 'landed',
 			whole:
 				read.error === null &&
 				(await sha256(read.data.bytes)) === (await sha256(whole)),

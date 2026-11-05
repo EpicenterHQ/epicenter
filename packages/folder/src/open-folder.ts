@@ -8,7 +8,7 @@
 import type { Contract } from '@epicenter/definition/contract';
 import { hostFromSiteUrl, repositoryName } from '@epicenter/definition/site';
 import { Ok } from 'wellcrafted/result';
-import { closeDevice, holdOpening, openDevice } from './browser.js';
+import { closeDevice, openDevice } from './browser.js';
 import { createDeviceClient } from './device/client.js';
 import {
 	createFolder,
@@ -41,20 +41,10 @@ export type {
  * ```
  */
 export const openFolder: OpenFolder = (contract, options) => {
-	if (!options?.account) {
-		let opening: ReturnType<typeof openDevice<typeof contract>> | undefined;
-		const folder = createFolder(
-			contract,
-			() => {
-				opening = openDevice(contract);
-				return opening;
-			},
-			{ close: (client) => closeDevice(client) },
-		);
-		// What a recording appends to as it records (`filesOf`).
-		holdOpening(folder, () => opening);
-		return folder;
-	}
+	if (!options?.account)
+		return createFolder(contract, () => openDevice(contract), {
+			close: (client) => closeDevice(client),
+		});
 	return createFolder(
 		contract,
 		accountCopy(contract, options.account, options.site),

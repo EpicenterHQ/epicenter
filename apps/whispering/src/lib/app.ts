@@ -20,7 +20,7 @@
  *   `'chat'`.
  * - `speech` is transcription in this app's process on the desktop, null on
  *   the web: the handle `ai` merges and Settings administers.
- * - `recorder` records from the microphone into `folder`, as it records.
+ * - `recorder` records from the microphone into `folder.audio`, as it records.
  * - `shortcut` is the desktop's global shortcut, null on the web.
  */
 import { customEndpoints, hosted, modelChoices, openAi } from '@epicenter/ai';
@@ -48,5 +48,8 @@ export const ai = reactive(
 	openAi([hosted(signIn), customEndpoints(), localModelServers(), speech]),
 );
 export const choices = reactive(modelChoices<'transcribe' | 'chat'>());
-export const recorder = createMicrophoneDevice({ folder, recorder: microphone });
+export const recorder = createMicrophoneDevice({
+	files: folder.audio,
+	recorder: microphone,
+});
 export const shortcut = held && reactive(held);

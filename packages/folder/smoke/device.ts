@@ -20,7 +20,7 @@
  * 5. A listing taken while files are being deleted answers, without the
  *    files that went (a file removed mid-walk is skipped, not a failure).
  * 6. A file appended a piece at a time (a recording) reads back whole, every
- *    read taken while it grows answers, a second create is `stale`, and the
+ *    read taken while it grows answers, a second create is `Occupied`, and the
  *    other tab hears it made and announced, not each piece.
  * 7. Nothing is left staged, and the files survive a reload and a restart.
  *
@@ -191,7 +191,7 @@ try {
 			check(
 				appended.problem === null &&
 					appended.readFailures.length === 0 &&
-					appended.again === 'stale' &&
+					appended.again === 'Occupied' &&
 					appended.announced === 'landed' &&
 					appended.whole,
 				`appending: ${JSON.stringify(appended)}`,

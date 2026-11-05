@@ -31,7 +31,11 @@ async function folder() {
 	await mkdir(join(path, 'recordings'));
 	const device = unwrap(await openDevice(whispering, { path }));
 	// The app writes a recording's note through the folder over this directory.
-	return { path, device, files: createFolder(whispering, async () => Ok(device)) };
+	return {
+		path,
+		device,
+		files: createFolder(whispering, async () => Ok(device)),
+	};
 }
 
 const kept = (id: string, durationMs = 1000) => ({
@@ -139,7 +143,7 @@ test('recovery is asked about exactly the audio no note names, and names only wh
 		});
 	};
 	const capture = createMicrophoneDevice({
-		folder: files,
+		files: files.audio,
 		recorder: {
 			...NO_INPUTS,
 			start: async () => {
