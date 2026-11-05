@@ -1,10 +1,11 @@
 <!--
 	The end of sign-in: finish it, then load the page it started from, so the
-	app always starts with one account for the page's whole life. The desktop
-	window has no account and never signs in; if something sends it here, it
-	says so.
+	app always starts with one account for the page's whole life. A Tauri
+	window's sign-in ends in its shell; if something sends it here, it says
+	so.
 -->
 <script lang="ts">
+	import { isCallbackAuthClient } from '@epicenter/account';
 	import { resolve } from '$app/paths';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
@@ -13,8 +14,10 @@
 	let errorMessage = $state<string | null>(null);
 
 	$effect(() => {
+		// Only a browser's sign-in ends here; a Tauri window's ends in the shell.
+		if (!isCallbackAuthClient(account)) return;
 		void account
-			?.completeSignIn()
+			.completeSignIn()
 			.then(({ data, error }) => {
 				if (error !== null) errorMessage = error.message;
 				else window.location.replace(data.returnTo ?? resolve('/'));
@@ -22,10 +25,10 @@
 	});
 </script>
 
-{#if account === null}
+{#if !isCallbackAuthClient(account)}
 	<Empty.Root class="h-dvh">
 		<Empty.Title>Honeycrisp does not sign in here</Empty.Title>
-		<Empty.Description>Honeycrisp on this computer keeps its notes in a folder; Epicenter syncs it.</Empty.Description>
+		<Empty.Description>Honeycrisp on this computer signs in through its own window.</Empty.Description>
 		<a class="text-sm underline" href={resolve('/')}>Back to Honeycrisp</a>
 	</Empty.Root>
 {:else if errorMessage}
