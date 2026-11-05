@@ -1,7 +1,9 @@
 <!--
-	`#platform/chrome` in the desktop window: the header's account of its
-	store, Todos' folder on this computer, whether Epicenter manages it, and
-	Set up in Epicenter until it does. It never signs in.
+	When the folder is on this computer (`folder.reveal`): the header's account
+	of its store, Todos' folder on this computer, whether Epicenter manages it,
+	and Set up in Epicenter until it does. It offers no sign-in yet: signing in
+	syncs the folder, and this app's shell has no account until it does
+	(ADR-0785).
 -->
 <script lang="ts">
 	import { APPS } from '@epicenter/definition/site';

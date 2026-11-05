@@ -1,5 +1,5 @@
 <!--
-	`#platform/chrome` in the web build: the header's account of its store,
+	When the folder is the person's repository: the header's account of its store,
 	the person's repository, online only, whether it answers, and the
 	account.
 -->
@@ -21,8 +21,7 @@
 	/** Why the folder's store cannot be reached now, if it cannot. */
 	const unavailable = $derived(folder.unavailable());
 
-	// The web build always has an account: its folder is the account's copy.
-	const auth = account!;
+	const auth = account;
 
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };

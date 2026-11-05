@@ -13,7 +13,7 @@
 	let { children } = $props();
 </script>
 
-{#if account?.state().status === 'signed-out'}
+{#if folder.reveal === null && account.state().status === 'signed-out'}
 	<SignIn {account} />
 {:else}
 	<WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
