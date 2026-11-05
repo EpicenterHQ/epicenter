@@ -5,14 +5,16 @@ files the page connects to once, beside its folder
 ([ADR-0778](../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
 A capability names each file it keeps with `settings.file(name)` when it is
 made; the page connects to all of them at once, and from then every read
-is synchronous. The build picks the place; app code never opens or names
-it.
+is synchronous. The package picks the place when it loads, with
+`isTauri()`
+([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md));
+app code never opens or names it.
 
-| Build | Condition | The place |
-| --- | --- | --- |
-| desktop | `tauri` | the top of the app's AppData root (`app_data_dir()`), written only by the shell, whose watcher tells every window |
-| web | `default` | this browser's `localStorage` for the site, under `epicenter.local/<name>` |
-| tests | `test` | memory, empty at first; `outside` from `@epicenter/local/memory` plays another window |
+| Where the page runs | The place |
+| --- | --- |
+| a Tauri window | the top of the app's AppData root (`app_data_dir()`), written only by the shell, whose watcher tells every window; its code (`src/tauri.ts`) loads when the settings connect |
+| a browser | this browser's `localStorage` for the site, under `epicenter.local/<name>` |
+| tests (the `test` condition) | memory, empty at first; `outside` from `@epicenter/local/memory` plays another window |
 
 ```ts
 import { settings } from '@epicenter/local';
@@ -40,10 +42,10 @@ writer.
 | --- | --- |
 | `models.md` | `@epicenter/ai` (`modelChoices()`) |
 | `connections.md` | `@epicenter/ai` (`customEndpoints()`): each connection and the endpoint its key was entered for, never the key |
-| `connection-keys.json` | `@epicenter/ai` on the web only: each connection's key |
-| `account.json` | `@epicenter/account` on the desktop: who is signed in, written by the shell |
+| `connection-keys.json` | `@epicenter/ai` in a browser only: each connection's key |
+| `account.json` | `@epicenter/account` in a Tauri window: who is signed in, written by the shell |
 | `microphone.json` | Whispering: the chosen microphone |
-| `shortcuts.md` | Whispering on the desktop: this computer's shortcut override |
+| `shortcuts.md` | Whispering in a Tauri window: this computer's shortcut override |
 
 The desktop's `credentials.json` (the refresh token and provider keys,
 [ADR-0740](../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md))

@@ -1,22 +1,15 @@
 /**
- * `@epicenter/local` in a desktop build (the `tauri` leaf): this computer's
- * settings are files at the top of the app's AppData root, which the shell
- * names at startup (`app_data_dir()`, never synced). The shell is their only
- * writer: a page asks it to replace a file (`put_folder_file` expecting
- * `any`), and its watcher of the root tells every window, this one included,
- * which files changed. The page names the root, never a path.
+ * This computer's settings in a Tauri shell: files at the top of the app's
+ * AppData root, which the shell names at startup (`app_data_dir()`, never
+ * synced). The shell is their only writer: a page asks it to replace a file
+ * (`put_folder_file` expecting `any`), and its watcher of the root tells
+ * every window, this one included, which files changed. The page names the
+ * root, never a path. `index.ts` loads this module when the settings
+ * connect, so a browser never loads it.
  */
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { createSettings } from './settings.js';
-
-export {
-	type Settings,
-	SettingsError,
-	type SettingsFile,
-	SettingsNotOpen,
-	type SettingsState,
-} from './settings.js';
+import type { SettingsPlace } from './settings.js';
 
 const ROOT = 'AppData';
 
@@ -32,8 +25,8 @@ const isNotFound = (value: unknown) =>
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
-/** This computer's settings for this app: its AppData root, through the shell. */
-export const settings = createSettings({
+/** The app's AppData root, through the shell, as the place the settings are kept. */
+export const appData: SettingsPlace = {
 	async watch(changed) {
 		// Listen before the root opens, so nothing the shell sends is missed.
 		const stop = await listen<FolderEvent>('folder-changed', ({ payload }) => {
@@ -78,4 +71,4 @@ export const settings = createSettings({
 			},
 		);
 	},
-});
+};
