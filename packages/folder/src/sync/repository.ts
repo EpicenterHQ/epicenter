@@ -1,7 +1,8 @@
 /**
- * A store with history: what `sync` needs of the place it syncs with
- * (ADR-0803). The server's repository answers it (`remote/store.ts`), and
- * so does `memoryRepository`, the twin a test syncs two memory stores
+ * A repository's history: what `sync` needs of the place it syncs with
+ * (ADR-0803), beyond the store verbs it never calls there. The server's
+ * repository store answers it beside its store verbs (`remote/store.ts`),
+ * and so does `memoryRepository`, the twin a test syncs two memory stores
  * through.
  *
  * A repository's version of a file is fixed by its bytes at a commit, so a
@@ -12,8 +13,7 @@
  */
 import { ClientError, isNotePath } from '@epicenter/definition/contract';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { Listed, Store, Unavailable, Version } from '../device/store.js';
-import { within } from '../device/store.js';
+import type { Listed, Unavailable, Version } from '../device/store.js';
 import { hashBytes } from '../hash.js';
 
 /** One file at a commit: its version and bytes (null for an attachment read without them), or gone. */
@@ -34,7 +34,7 @@ export type BatchReceipt = {
 	versions: Record<string, Version | null>;
 };
 
-export type Repository = Store & {
+export type Repository = {
 	/**
 	 * The commit the repository is at (null before its first write), and
 	 * the paths that changed since `since`: null when `since` is null or
@@ -157,42 +157,6 @@ export function memoryRepository() {
 			);
 		},
 		writeAll,
-		async list(under: readonly string[]) {
-			return Ok(
-				[...tree(head)]
-					.filter(([path]) => within(path, under))
-					.map(([path, { bytes, version }]) => ({
-						path,
-						version,
-						size: bytes.byteLength,
-					})),
-			);
-		},
-		async read(paths: readonly string[]) {
-			const at = tree(head);
-			return Ok(
-				paths.map((path) => {
-					const file = at.get(path);
-					return file === undefined
-						? { path, gone: true as const }
-						: { path, bytes: file.bytes.slice(), version: file.version };
-				}),
-			);
-		},
-		async write(
-			path: string,
-			bytes: Uint8Array | null,
-			over: Version | 'absent',
-		) {
-			const written = await writeAll([{ path, bytes, over }]);
-			if (written.error !== null) return written;
-			if (written.data === 'stale') return Ok('stale' as const);
-			return Ok(written.data.versions[path] ?? null);
-		},
-		async watch() {
-			return Ok(() => {});
-		},
-		close() {},
 	} satisfies Repository;
 	return repository;
 }

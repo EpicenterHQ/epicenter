@@ -23,7 +23,7 @@
 import { ClientError, storedWithLfs } from '@epicenter/definition/contract';
 import { isNamespaceId, isRepositoryName } from '@epicenter/definition/site';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { FileRead, Unavailable, Version } from '../device/store.js';
+import type { FileRead, Store, Unavailable, Version } from '../device/store.js';
 import type { BatchWrite, RemoteFile, Repository } from '../sync/repository.js';
 import {
 	createWire,
@@ -58,7 +58,7 @@ export function repositoryStore(
 	account: RemoteAccount,
 	repository: string,
 	{ pollMs = POLL_MS }: { pollMs?: number } = {},
-): Repository {
+): Store & Repository {
 	const [owner = '', name = '', extra] = repository.split('/');
 	if (
 		extra !== undefined ||

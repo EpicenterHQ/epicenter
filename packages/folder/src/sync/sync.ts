@@ -1,8 +1,10 @@
 /**
  * Sync is a function of two stores and a manifest (ADR-0803):
  * `sync({ local, remote, manifest })`. `local` is any store (a folder's
- * directory, the web's memory); `remote` is a repository, a store with
- * history (`repository.ts`). No Git runs on this side.
+ * directory, the web's memory); `remote` is a repository's history
+ * (`repository.ts`): where it is, what changed, a file at a commit, and a
+ * batch write. Of the remote's store verbs, a sync needs none. No Git runs
+ * on this side.
  *
  * The manifest is the last state both sides agreed on: the repository's
  * `commit`, and each file's local `version`. A file this computer wrote to

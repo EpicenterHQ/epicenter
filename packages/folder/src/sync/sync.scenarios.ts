@@ -205,6 +205,14 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		expect(await b.read('todos/a.md')).toBe(merged);
 	},
 
+	async 'a delete on one side deletes on the other'(world) {
+		const { a, b } = await synced(world);
+		await a.write('todos/a.md', null);
+		expect((await syncOf(world, a)).pushed).toEqual(['todos/a.md']);
+		expect((await syncOf(world, b)).pulled).toEqual(['todos/a.md']);
+		expect(await b.paths()).toEqual([]);
+	},
+
 	async 'an edit beats a delete, whichever side deleted'(world) {
 		const { a, b } = await synced(world);
 		await b.write('todos/b.md', note('title: "B"\n'));
