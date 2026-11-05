@@ -15,16 +15,21 @@ application-data root and so runs only in Bun or Node.
 
 ## The file contract
 
-The package is six subpaths.
+The package is seven subpaths.
 
 | Subpath | What it holds |
 | --- | --- |
 | `@epicenter/definition/contract` | `defineContract`, path templates (`fill`, `match`), `compileContract`, `checkContract`, the shapes of a contract's notes and files (`NoteOf`, `FileEntryOf`, `InvalidNoteOf`, `NotePatch`), and a note as text (`noteText`, `readNoteText`) |
+| `@epicenter/definition/front-matter` | The front-matter primitive of ADR-0796 and ADR-0797, with no YAML: `parseFrontMatter`, `patchFrontMatter`, `merge3` (fields by key, the body by lines, ADR-0795), and `mergeLines`, a port of Git's three-way line merge. The engine and the apps do not use it yet |
 | `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
 | `@epicenter/definition/merge` | `settle`, the note merge the server and the merge driver run, plus conflict blocks and Git hashes |
 | `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files, and `timeOf()`, when a `timeId` was made |
 | `@epicenter/definition/site` | The names a site derives: the app registry (`APPS`, dev ports, `localUrl`, `resolveOAuthAudiences`), an app's folder, repository and data identifier from its production site (ADR-0722), and the repository name grammar |
 | `@epicenter/definition/site/app-data` | The application-data root on this machine (`epicenterDataRoot`), an app's directory below it, and `isAppId` |
+
+`fixtures/front-matter.json` holds every front-matter case with its exact
+output bytes, for the TypeScript primitive and a Rust twin; its test also
+checks each body merge against Git's own `merge-file`.
 
 `fixtures/app-names.json` holds the site naming cases. `site/app-names.test.ts`
 and the standalone desktop shell (`packages/tauri-epicenter-standalone`) both

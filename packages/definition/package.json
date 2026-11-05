@@ -7,6 +7,7 @@
 	"sideEffects": false,
 	"exports": {
 		"./contract": "./src/contract/index.ts",
+		"./front-matter": "./src/front-matter/index.ts",
 		"./ids": "./src/ids.ts",
 		"./merge": "./src/merge/index.ts",
 		"./note": "./src/note/index.ts",
