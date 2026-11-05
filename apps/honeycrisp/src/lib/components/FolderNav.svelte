@@ -9,7 +9,6 @@
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { Input } from '@epicenter/ui/input';
-	import { toast } from '@epicenter/ui/sonner';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import FolderIcon from '@lucide/svelte/icons/folder';
@@ -42,17 +41,10 @@
 		}
 		const target = folders.items().find((folder) => folder.id === current.id);
 		savingName = true;
-		const saved =
-			target === undefined
-				? await app.createFolder(name)
-				: name === target.name
-					? undefined
-					: await folders.update({ id: target.id }, { name });
+		// The field keeps showing the name until the folder shows it.
+		if (target === undefined) await app.createFolder(name);
+		else if (name !== target.name) await folders.set({ id: target.id }, { name });
 		savingName = false;
-		if (saved?.error) {
-			toast.error('Could not save the folder', { description: saved.error.message });
-			return;
-		}
 		if (naming === current && current.value.trim() === name) naming = undefined;
 	}
 
@@ -61,9 +53,8 @@
 			title: `Delete the folder “${folderLabel(folder)}”?`,
 			description: `This deletes ${folderPath(folder.id)}. Its notes are kept, in All Notes.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
-			async onConfirm() {
-				const { error } = await app.deleteFolder(folder.id);
-				if (error !== null) toast.error('Could not delete the folder', { description: error.message });
+			onConfirm() {
+				void app.deleteFolder(folder.id);
 			},
 		});
 	}

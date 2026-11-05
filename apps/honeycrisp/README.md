@@ -59,9 +59,10 @@ renewing; Sign out is beside it.
 - Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show
   without a reload, in the open note too.
 - A file at a note's or folder's path that does not read as one is listed
-  under "Needs repair" with why. It opens as its text; saving fixed text
-  replaces the file, written in house style, and text that still does not
-  fit is refused with why.
+  under "Needs repair" with why. It opens as its text, which says what is
+  wrong as it is typed; saving writes the text as typed, so fixed text
+  repairs the file, and text that still does not fit stays under "Needs
+  repair" with its new problems.
 
 Honeycrisp signs in as `so.epicenter.honeycrisp` for the server's Git
 audience only (`connectAccount()` in `src/lib/account.ts`, made once in
@@ -123,21 +124,25 @@ show as plain Markdown.
 
 The open note's title, body, folder and pin are one editor of its note
 (`folder.notes.edit({ id })`): saves go one at a
-time, the newest carrying every field changed since the last that landed,
-each made over what the person saw when they began typing. Another writer's
-change to other keys is carried over; their change to a key changed here
-(the title, the body, the folder or the pin) is a conflict: the editor keeps what was typed and shows
-**Not saved** with Save again (which saves over theirs), Discard and Copy. A
-change from elsewhere to the body while nothing is waiting is applied to the
-open editor as the smallest edits, outside Undo, so the cursor stays.
+time, the newest carrying every field changed since the last that landed. A
+save never fails: while the store cannot be reached it waits, the editor
+keeps showing what was typed, and the status line under the header says
+changes will save when the store is back (ADR-0775). Another writer's change
+to other keys is kept; on a key changed here (the title, the folder or the
+pin) the later write wins; and a body changed both here and elsewhere is
+merged by lines the way `epicenter sync` merges it, an overlap kept as a
+conflict block (ADR-0774). A change from elsewhere to the body while nothing
+is waiting is applied to the open editor as the smallest edits, outside
+Undo, so the cursor stays.
 
-When two computers' edits of a body overlap, the merge that `epicenter sync`
-runs writes a conflict block into the note; the server never merges. The editor shows each block as a card with
+When two edits of a body overlap, whether two computers' or this page's and
+another writer's, the merge writes a conflict block into the note; the
+server never merges. The editor shows each block as a card with
 Keep this, Keep that and Keep both; choosing is one edit, and Undo brings the
 block back.
 
-In the list, a note's folder and pin are commands: each saves at once and
-says so if it could not.
+In the list, a note's folder and pin are commands, and Delete asks first:
+each is one write the folder keeps until it lands.
 
 ## Run it
 

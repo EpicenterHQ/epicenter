@@ -99,16 +99,16 @@ test('a new note is made in the folder shown, and opens ready to write in, once'
 	// As the page composes it: the folder's own collections.
 	const app = createHoneycrisp(store);
 	app.showFolder('w');
-	const created = await app.createNote();
-	if (created.error !== null) throw created.error;
-	expect(created.data.folderId).toBe('w');
-	expect(app.selected).toEqual({ collection: 'notes', id: created.data.id });
+	const id = await app.createNote();
+	const created = store.notes.get({ id });
+	expect(created?.folderId).toBe('w');
+	expect(app.selected).toEqual({ collection: 'notes', id });
 	// Its editor takes focus when it opens, and only then.
-	expect(app.takeNew(created.data.id)).toBe(true);
-	expect(app.takeNew(created.data.id)).toBe(false);
-	expect(
-		await readFile(join(root, `notes/${created.data.id}.md`), 'utf8'),
-	).toBe(note(created.data.createdAt, 'folderId: w\n'));
+	expect(app.takeNew(id)).toBe(true);
+	expect(app.takeNew(id)).toBe(false);
+	expect(await readFile(join(root, `notes/${id}.md`), 'utf8')).toBe(
+		note(created?.createdAt ?? '', 'folderId: w\n'),
+	);
 });
 
 test('deleting a folder deletes its file alone; its notes keep naming it and show in All Notes', async () => {
@@ -122,7 +122,7 @@ test('deleting a folder deletes its file alone; its notes keep naming it and sho
 	);
 	await until(() => store.folders.items().length === 1);
 	app.showFolder('w');
-	expect((await app.deleteFolder('w')).error).toBeNull();
+	await app.deleteFolder('w');
 	await until(() => store.folders.items().length === 0);
 	expect(app.filter.folderId).toBeNull();
 	const [kept] = store.notes.items();
@@ -135,17 +135,11 @@ test('deleting a folder deletes its file alone; its notes keep naming it and sho
 });
 
 test('search matches a note’s title or text, within the folder shown', () => {
-	const at = {
-		version: '',
-		createdAt: '2026-10-31T00:00:00.000Z',
-	} as const;
+	const at = { createdAt: '2026-10-31T00:00:00.000Z' };
 	const groceries = { ...at, id: 'a', title: 'Groceries', body: 'oat milk\n' };
 	const plans = { ...at, id: 'b', folderId: 'w', body: 'Ship the port\n' };
 	const shown = (filter: { folderId: string | null; query: string }) =>
-		[groceries, plans]
-			// SAFETY: the version is opaque and never compared here.
-			.filter((n) => shownIn(filter, n as never))
-			.map((n) => n.id);
+		[groceries, plans].filter((n) => shownIn(filter, n)).map((n) => n.id);
 	expect(shown({ folderId: null, query: 'MILK' })).toEqual(['a']);
 	expect(shown({ folderId: null, query: 'grocer' })).toEqual(['a']);
 	expect(shown({ folderId: 'w', query: '' })).toEqual(['b']);

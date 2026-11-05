@@ -7,7 +7,6 @@
 	import { describeIssues } from '@epicenter/definition/contract';
 	import { Button } from '@epicenter/ui/button';
 	import * as ContextMenu from '@epicenter/ui/context-menu';
-	import { toast } from '@epicenter/ui/sonner';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { format } from 'date-fns';
@@ -44,11 +43,6 @@
 		for (const note of visible) if (!note.pinned) push(getDateLabel(note.createdAt), note);
 		return result;
 	});
-
-	async function report(action: string, written: Promise<{ error: { message: string } | null }>) {
-		const { error } = await written;
-		if (error !== null) toast.error(`Could not ${action}`, { description: error.message });
-	}
 
 	const open = (id: string) => app.open({ collection: 'notes', id });
 </script>
@@ -121,7 +115,7 @@
 									</ContextMenu.Trigger>
 									<ContextMenu.Content class="w-52">
 										<ContextMenu.Item
-											onSelect={() => void report('pin the note', notes.update({ id: note.id }, { pinned: !note.pinned }))}
+											onSelect={() => void notes.set({ id: note.id }, { pinned: !note.pinned })}
 										>
 											{note.pinned ? 'Unpin' : 'Pin'}
 										</ContextMenu.Item>
@@ -129,14 +123,14 @@
 											<ContextMenu.SubTrigger>Move to folder</ContextMenu.SubTrigger>
 											<ContextMenu.SubContent class="max-h-(--bits-menu-content-available-height) w-48 overflow-y-auto">
 												<ContextMenu.Item
-													onSelect={() => void report('move the note', notes.update({ id: note.id }, { folderId: undefined }))}
+													onSelect={() => void notes.set({ id: note.id }, { folderId: undefined })}
 												>
 													No folder
 												</ContextMenu.Item>
 												<ContextMenu.Separator />
 												{#each folders.items().toSorted(byName) as folder (folder.id)}
 													<ContextMenu.Item
-														onSelect={() => void report('move the note', notes.update({ id: note.id }, { folderId: folder.id }))}
+														onSelect={() => void notes.set({ id: note.id }, { folderId: folder.id })}
 													>
 														{folderLabel(folder)}
 													</ContextMenu.Item>

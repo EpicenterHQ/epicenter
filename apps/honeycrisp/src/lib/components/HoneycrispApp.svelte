@@ -6,7 +6,6 @@
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
-	import { toast } from '@epicenter/ui/sonner';
 	import { folder } from '$lib/app.js';
 	import { createHoneycrisp, setHoneycrisp } from '$lib/honeycrisp.svelte.js';
 	import AppHeader from './AppHeader.svelte';
@@ -17,10 +16,7 @@
 
 	const app = setHoneycrisp(createHoneycrisp({ notes: folder.notes, folders: folder.folders }));
 
-	async function createNote() {
-		const { error } = await app.createNote();
-		if (error !== null) toast.error('Could not create the note', { description: error.message });
-	}
+	const createNote = () => void app.createNote();
 </script>
 
 <svelte:window
@@ -28,7 +24,7 @@
 		const mod = event.metaKey || event.ctrlKey;
 		if (mod && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'n') {
 			event.preventDefault();
-			void createNote();
+			createNote();
 		}
 	}}
 />
@@ -42,7 +38,7 @@
 		</Resizable.Pane>
 		<Resizable.Handle />
 		<Resizable.Pane id="list" order={2} defaultSize={26} minSize={15}>
-			<NoteList onCreate={() => void createNote()} />
+			<NoteList onCreate={createNote} />
 		</Resizable.Pane>
 		<Resizable.Handle />
 		<Resizable.Pane id="detail" order={3} defaultSize={56} minSize={30}>

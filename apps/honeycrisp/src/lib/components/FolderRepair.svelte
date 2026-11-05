@@ -6,7 +6,6 @@
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Empty from '@epicenter/ui/empty';
-	import { toast } from '@epicenter/ui/sonner';
 	import { folder } from '$lib/app.js';
 	import { folderLabel, folderPath, getHoneycrisp } from '$lib/honeycrisp.svelte.js';
 	import RepairDetail from './RepairDetail.svelte';
@@ -19,6 +18,7 @@
 	// svelte-ignore state_referenced_locally
 	const id = shownId;
 	const invalid = $derived(folders.invalid().find((file) => file.id === id));
+	const edit = folders.edit({ id });
 	const repaired = $derived(folders.get({ id }));
 
 	function confirmDelete() {
@@ -26,9 +26,8 @@
 			title: `Delete ${id}.md?`,
 			description: `This deletes ${folderPath(id)}. Notes that name it are kept, in All Notes.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
-			async onConfirm() {
-				const { error } = await app.deleteFolder(id);
-				if (error !== null) toast.error('Could not delete the folder', { description: error.message });
+			onConfirm() {
+				void app.deleteFolder(id);
 			},
 		});
 	}
@@ -39,7 +38,7 @@
 		<RepairDetail
 			file={invalid}
 			kind="folder"
-			replace={(text, options) => folders.replace({ id }, text, options)}
+			{edit}
 			onDelete={confirmDelete}
 		/>
 	{:else if repaired}

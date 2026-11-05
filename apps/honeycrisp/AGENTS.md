@@ -22,7 +22,8 @@ for the layout and page flow, and verify it against the code.
 - A change to the layout is a change to `src/lib/contract.ts`, then
   `bun run contract`; the fit test fails until the two agree. No migration or
   compatibility code: there is no earlier data to read (decision 72).
-- A note's id is its file name; Honeycrisp mints it with `timeId()`. A note
+- A note's id is its file name (ADR-0776); Honeycrisp mints it with
+  `timeId()` and never renames a note: a title is a field. A note
   names its folder by id; deleting a folder never touches its notes.
 - Deletes are real. There is no trash and no `deletedAt`.
 
@@ -30,16 +31,17 @@ for the layout and page flow, and verify it against the code.
 
 - The open note's title, body, folder and pin go through its one editor
   (`folder.notes.edit({ id })`, every value read and bound through
-  `edit.fields`), with `<UnsavedEdit>` beside it. The list's commands (folder,
-  pin) and Delete call the notes' `update` or `delete` and say when they
-  fail.
+  `edit.fields`). The list's commands (folder, pin) and Delete call the
+  notes' `set` or `delete`. Writes never fail (ADR-0775): there is no error
+  branch at a write and no failed-save UI; `<WhenOpen>` says when the store
+  cannot be reached.
 - `NoteEditor.svelte` owns CodeMirror's state for as long as it is mounted:
   its mount reads nothing reactive, and a body that changes from elsewhere is
   applied as the smallest edits outside Undo (`applyExternal`). Do not make
   the mount depend on props; that recreates the editor and loses history.
 - The editor edits the Markdown text itself. Live preview only decorates; it
   never changes the text to show something.
-- A file that does not read is repaired with `replace` from its text
+- A file that does not read is repaired through its editor's whole `text`
   (`RepairDetail.svelte`), never with field edits.
 
 ## Words a person reads

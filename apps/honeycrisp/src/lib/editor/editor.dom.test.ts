@@ -82,11 +82,10 @@ async function boundNote(text: string) {
 	const file = join(root, 'notes/a.md');
 	const folder = openFolder(honeycrisp, directory(root));
 	cleanups.push(() => folder[Symbol.dispose]());
-	const written = await folder.notes.create({
-		id: 'a',
-		createdAt: '2026-10-31T12:00:00.000Z',
-	});
-	if (written.error !== null) throw written.error;
+	await folder.notes.set(
+		{ id: 'a' },
+		{ createdAt: '2026-10-31T12:00:00.000Z' },
+	);
 	await writeFile(file, text);
 	const target = document.createElement('div');
 	document.body.append(target);

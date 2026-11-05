@@ -1,11 +1,12 @@
 <!--
 	The open note as one immediate editor (`notes.edit`): its title, body,
 	folder and pin, and Delete. The body is CodeMirror over the Markdown text
-	itself. A note at its path that does not read shows its text and why, to
-	repair (`replace`) or delete.
+	itself. Each saves as it is typed, and a save never fails: while the
+	store is out of reach it waits, and `<WhenOpen>` says so. A note at its
+	path that does not read shows its text and why, to repair through the
+	same editor's whole `text`, or delete.
 -->
 <script lang="ts">
-	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
@@ -35,11 +36,6 @@
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
-	{#if edit.error() !== null}
-		<div class="px-3 py-2">
-			<UnsavedEdit {edit} />
-		</div>
-	{/if}
 	{#if edit.exists()}
 		{@const folderId = edit.fields.folderId}
 		<div class="flex flex-wrap items-center gap-2 border-b px-3 py-2">
@@ -91,7 +87,7 @@
 		<RepairDetail
 			file={invalid}
 			kind="note"
-			replace={(text, options) => notes.replace({ id }, text, options)}
+			{edit}
 			onDelete={() => confirmDeleteNote(app, { id, label: `${id}.md` })}
 		/>
 	{:else}

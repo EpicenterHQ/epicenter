@@ -116,37 +116,40 @@ export function createHoneycrisp({
 			selected = selection;
 		},
 
-		/** Make a note in the folder shown, and open it to be written in. */
+		/**
+		 * Make a note in the folder shown, and open it to be written in once
+		 * it is there; answers its id.
+		 */
 		async createNote() {
-			const created = await notes.create({
-				id: timeId(),
-				createdAt: new Date().toISOString(),
-				...(filter.folderId !== null && { folderId: filter.folderId }),
-			});
-			if (created.error !== null) return created;
-			newNote = created.data.id;
-			selected = { collection: 'notes', id: created.data.id };
-			return created;
+			const id = timeId();
+			await notes.set(
+				{ id },
+				{
+					createdAt: new Date().toISOString(),
+					...(filter.folderId !== null && { folderId: filter.folderId }),
+				},
+			);
+			newNote = id;
+			selected = { collection: 'notes', id };
+			return id;
 		},
 
 		/** Make a folder named `name`. */
-		createFolder: (name: string) => folders.create({ id: timeId(), name }),
+		createFolder: (name: string) => folders.set({ id: timeId() }, { name }),
 
-		/** Delete the note `id`; the detail stops showing it. */
+		/** Delete the note `id`; the detail stops showing it once it is gone. */
 		async deleteNote(id: string) {
-			const deleted = await notes.delete({ id });
-			if (deleted.error === null && selected?.id === id) selected = undefined;
-			return deleted;
+			await notes.delete({ id });
+			if (selected?.collection === 'notes' && selected.id === id)
+				selected = undefined;
 		},
 
 		/** Delete the folder `id`. Its notes keep naming it and show in All Notes. */
 		async deleteFolder(id: string) {
-			const deleted = await folders.delete({ id });
-			if (deleted.error !== null) return deleted;
+			await folders.delete({ id });
 			if (filter.folderId === id) filter = { ...filter, folderId: null };
 			if (selected?.collection === 'folders' && selected.id === id)
 				selected = undefined;
-			return deleted;
 		},
 	};
 }
