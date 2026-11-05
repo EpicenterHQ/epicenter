@@ -14,8 +14,10 @@ Signing in with Epicenter is optional and grants capabilities only. Read
 - **One store, chosen in one place.** `src/lib/app.ts` opens it,
   `openFolder(whispering, home({ site }))`, whose place the build picks (this browser's
   storage on the web, the data folder on the desktop, memory under `test`),
-  and `src/routes/(app)/+layout.svelte` renders the app over it with
-  `<WhenOpen>`. Components read through the library (`getLibrary`) and edit
+  and `src/routes/(app)/+layout.svelte` renders the app over it and this
+  computer's settings with `<WhenOpen>`, so every read inside is
+  synchronous; do not add a ready, loading, or start gate. Components read
+  through the library (`getLibrary`) and edit
   a note through the folder (`folder.recordings.edit({ id })`), never a
   store of their own.
 - **The build chooses the variant.** Everything that differs is a
@@ -32,8 +34,9 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   `src/lib/page-boundary.test.ts` enforces this; keep it passing.
 - **The folder keeps writes until they land; Whispering holds none.** A
   write (`set`, `delete`, an editor's save) answers once it has landed and
-  never fails (ADR-0775): while the store is out of reach the folder keeps
-  it, in order, and `<WhenOpen>` says so. Await a write where order
+  never fails while the folder lives (ADR-0775): while the store is out of
+  reach the folder keeps it, in order, and `<WhenOpen>` says so; when the
+  folder fails or closes it rejects with `FolderClosed`. Await a write where order
   matters (a recording's audio, then its note). Do not add an outbox, a
   failed-write state, or anything else that keeps a note, an answer, or a
   recording in the page to save again.
@@ -47,7 +50,7 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   or Bun, and only the desktop leaves import Tauri.
 - **Capabilities are module values; product state is the app's own.**
   `src/lib/app.ts` exports the capabilities (`folder`, `account`, `ai`,
-  `choices`, `speech`, `recorder`, `shortcut`) as module values opened once
+  `choices`, `settings`, `speech`, `recorder`, `shortcut`) as module values opened once
   per page, with no `await` and no hot-reload lines, and code imports them
   rather than receiving them through context
   ([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
@@ -59,10 +62,12 @@ Signing in with Epicenter is optional and grants capabilities only. Read
 - **A recording's note is written once, after Stop, when its audio is at
   its path** (on the desktop, once the shell has encoded it), so a note
   never names audio that is not there and the library never lists a take in
-  progress. Audio a quit, a crash, or a closed tab left without a note gets
-  one on the next start (`folder-recordings.ts`), which waits through the
-  folder's listing, never on its `state()`; do not add another path that
-  writes a recording's note. Its note holds facts only:
+  progress. A browser keeps a take in memory until Stop, so a crash or a
+  closed tab loses it; do not add streaming writes, locks, or recovery to
+  the web build (ADR-0780). On the desktop, audio a quit or a crash left
+  without a note gets one on the next launch, in the background
+  (`finishCutOffRecordings` in `folder-recordings.ts`); do not add another
+  path that writes a recording's note. Its note holds facts only:
   never add a status, pending, or interrupted field. Store no audio path in
   a note: the audio is `recordings/<id>.<ext>`; refuse ambiguous matches.
 - **A result is written when its answer arrives,** under an id fixed when
@@ -74,10 +79,11 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   again without the person asking.
 - **Provider requests are explicit.** Nothing is sent at launch or after a
   recording without the person asking; post-processing is a button.
-- **A key never reaches the files.** Connections, keys included, stay in
-  this site's `localStorage` (on the desktop, AppData's `connections.md`
-  with each key in the credential store, which only the shell reads), and
-  the model and microphone choices in `localStorage`. A key is never logged
+- **A key never reaches the files.** The model choices, connections and
+  microphone are this computer's settings (`@epicenter/local`: AppData on
+  the desktop, `localStorage` on the web). A key is never in
+  `connections.md`: on the web it is in `connection-keys.json`, on the
+  desktop in the app's `credentials.json`, which only the shell reads. A key is never logged
   or written, including inside an error message. A request goes only to the
   endpoint it was prepared for, and only while it is still at the address it
   had then; nothing falls back to another.
@@ -99,7 +105,7 @@ server runtime), `bun run build`, `cargo test -p whispering` (after
 and `bun run test:e2e` (Playwright in Chromium and WebKit over the local
 stack; port 1420 must be free). `bun run test:postgres` checks the sign-in
 against a real authorization server. Unit tests run under the `test`
-condition, where `app.ts`'s folder and this computer's files are memory;
+condition, where `app.ts`'s folder and this computer's settings are memory;
 Whispering's own tests open a place in memory (`memory()` from
 `@epicenter/folder/memory`) and a folder and library over it. Only the
 end-to-end suite, or using the app, establishes that it works in a browser.

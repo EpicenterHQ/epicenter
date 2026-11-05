@@ -1,39 +1,55 @@
 # @epicenter/local
 
-`localFile(name)` is one text file a capability keeps on this computer, in
-the app's one place for such state. The build picks the place
-([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md));
-app code never opens or names it.
+`settings` is this computer's settings for an app: one store of small text
+files the page connects to once, beside its folder
+([ADR-0778](../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
+A capability names each file it keeps with `settings.file(name)` when it is
+made; the page connects to all of them at once, and from then every read
+is synchronous. The build picks the place; app code never opens or names
+it.
 
 | Build | Condition | The place |
 | --- | --- | --- |
-| desktop | `tauri` | the top of the app's AppData root (`app_data_dir()`), through the shell's folder plugin by root name |
+| desktop | `tauri` | the top of the app's AppData root (`app_data_dir()`), written only by the shell, whose watcher tells every window |
 | web | `default` | this browser's `localStorage` for the site, under `epicenter.local/<name>` |
-| tests | `test` | memory, empty at first, for the process |
+| tests | `test` | memory, empty at first; `outside` from `@epicenter/local/memory` plays another window |
 
 ```ts
-import { localFile } from '@epicenter/local';
+import { settings } from '@epicenter/local';
 
-const models = localFile('models.md');
-const read = await models.read(); // Ok({ text, version }) or Ok(null)
-const written = await models.write(text, read.data?.version ?? 'absent'); // Ok({ version }) or Ok('stale')
-const stop = models.subscribe(() => reread());
+const models = settings.file('models.md');
+models.text(); // the file's text, or null; throws SettingsNotOpen before the settings connected
+await models.write(text); // replaces the file (null removes it), once connected
+await models.connected(); // for code that runs outside a page
+const stop = models.subscribe(() => render());
 ```
 
-A write lands only over the version its writer read (`'absent'` for a file
-that is not there), so two windows never overwrite each other unseen. A
-subscriber hears this window's writes, the desktop shell's watcher, and
-another tab's `storage` event. When the place cannot be reached, `read` and
-`write` answer `LocalFileError.Unavailable`.
+`<WhenOpen>` takes the app's `settings` beside its folder and renders the
+pages once both are open, so a page never reads a setting before it is
+known. `settings.state()` is `opening`, `open`, or `failed` with
+`SettingsError.Unavailable` and a `retry()`; settings that cannot be
+reached fail the open, as the folder's would. A file that does not read is
+the capability's to report, by a typed error naming the file; it never
+holds up the connection, and saving a new value replaces it. A write
+replaces the file without checking a version, because each place has one
+writer.
 
 ## Who uses it
 
-| Capability | File |
+| File | Kept by |
 | --- | --- |
-| `@epicenter/ai` | `models.md` (`modelChoices()`); on the desktop also `connections.md` (`customEndpoints()`), whose keys are in the keychain |
+| `models.md` | `@epicenter/ai` (`modelChoices()`) |
+| `connections.md` | `@epicenter/ai` (`customEndpoints()`): each connection and the endpoint its key was entered for, never the key |
+| `connection-keys.json` | `@epicenter/ai` on the web only: each connection's key |
+| `account.json` | `@epicenter/account` on the desktop: who is signed in, written by the shell |
+| `microphone.json` | Whispering: the chosen microphone |
+| `shortcuts.md` | Whispering on the desktop: this computer's shortcut override |
 
-Transcription's Rust plugin keeps `local-transcription.json` in the same
-AppData root on its own side.
+The desktop's `credentials.json` (the refresh token and provider keys,
+[ADR-0740](../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md))
+sits in the same AppData root but is not a setting: the shell refuses it to
+every page. Transcription's Rust plugin keeps `local-transcription.json`
+there on its own side.
 
 ## Why it is its own package
 

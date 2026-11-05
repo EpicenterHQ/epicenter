@@ -2,8 +2,8 @@
 
 This package reads Epicenter's capabilities in Svelte 5: any capability
 through one adapter, `reactive` (`@epicenter/svelte/reactive`), and the
-folder through the root that renders the pages when it is open
-(`<WhenOpen>`). It also holds the folder's shared interface: Recovery, a
+folder and this computer's settings through the root that renders the pages
+once they are open (`<WhenOpen>`). It also holds the folder's shared interface: Recovery, a
 note's repair as text (`<NoteRepair>`), and the status display.
 
 ## One adapter for every capability
@@ -47,31 +47,37 @@ so it holds no hot-reload lines:
 export const folder = reactive(openFolder(todos, home({ site: APPS.TODOS.url })));
 ```
 
-Each collection reads `items()`, `invalid()` (notes), `loading()` and
-`get(args)`, the entry shown, and writes with `set` and `delete`, which
-answer once they land and never fail
+Each collection reads `items()`, `invalid()` (notes) and `get(args)`, the
+entry shown, and writes with `set` and `delete`, which answer once they
+land and never fail while the folder lives
 ([ADR-0774](../../docs/adr/0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md),
-[ADR-0775](../../docs/adr/0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md)).
+[ADR-0775](../../docs/adr/0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md));
+when the folder fails or closes, a write still waiting rejects with
+`FolderClosed`
+([ADR-0782](../../docs/adr/0782-a-waiting-write-the-folder-will-not-make-rejects.md)).
 The folder reads `state()`, `unavailable()` and `saving()`, and has
-`reveal`. The reads are the folder's own (`@epicenter/folder`): a
-collection lists only while something reads it, and follows every change
-the folder hears. While the folder opens, a collection is empty and
-`loading()`, and a write waits for the open
-([ADR-0767](../../docs/adr/0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md)).
+`reveal`. The page connects to its stores once: the folder's snapshot and,
+where the app keeps any, this computer's settings (`@epicenter/local`).
+After that every read is synchronous; a read before it throws
+`FolderNotOpen`, a mistake in the code that made it
+([ADR-0778](../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
+Code that runs outside a page calls an action, such as `list()`, which
+waits for the connection and reads the collection from the store.
 
 The root layout renders `<WhenOpen>` from `@epicenter/svelte/when-open`, the
-only reader of `state()`. It shows a spinner while the folder opens, with
-why the store cannot be reached when `unavailable()` says so, and
-`Recovery` with the typed error when it failed. While the folder is open
-and its store cannot be reached, a status line says so, and whether
-changes are waiting for it. Recovery offers Retry (the
-failed state's `retry()`) and Show in Finder where `folder.reveal` is not
-null. Once the folder is open it shows the pages, and once it is closed it
-shows nothing. The pages sit inside one plain `<svelte:boundary>`, whose page
-error never shows the folder's Recovery.
+only reader of `state()`. It renders the pages once the folder and the
+settings it is given are open, so nothing that reads a store renders
+before. While they connect it shows a spinner after 150 ms, with why the
+folder cannot be reached when `unavailable()` says so; when one failed, it
+shows `Recovery` with the typed error. While the folder is open and its
+store cannot be reached, a status line says so, and whether changes are
+waiting for it. Recovery offers Retry (the failed state's `retry()`) and
+Show in Finder where `folder.reveal` is not null. Once the folder is closed
+it shows nothing. The pages sit inside one plain `<svelte:boundary>`, whose
+page error never shows the folder's Recovery.
 
 ```svelte
-<WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
+<WhenOpen app="Vocab" {folder} {settings}>{@render children()}</WhenOpen>
 ```
 
 `<WhenOpen>` also renders the page's leave guard, `<LeaveGuard {folder} />`

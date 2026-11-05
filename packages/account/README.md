@@ -129,22 +129,23 @@ instead: `createTauriAuth()` from `@epicenter/account/tauri` is an `AuthClient`
 over the [`epicenter-account`](../tauri-epicenter-account/README.md) crate's
 commands, which sign in as the app's native client
 (`so.epicenter.<app>.native`) in the system browser, keep the refresh token
-in the keychain, and relay each of the account's requests (`account_fetch`),
-so the page never holds a token. The person's provider keys are not the
-account's: `@epicenter/ai/tauri` saves them in the same shell and sends a
-connected endpoint's requests with them (`connection_fetch`), reading the
-answer through this entry's `relayThroughShell`, the one reader of the
-shell's streamed answers.
-[ADR-0740](../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)
-moves the refresh token and the API keys out of the keychain into one file in
-the app's AppData; that move is unbuilt.
+in the app's `credentials.json` in AppData
+([ADR-0740](../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)),
+and relay each of the account's requests (`account_fetch`), so the page
+never holds a token. Who is signed in is `account.json` in this computer's
+settings (`@epicenter/local`), which only the shell writes; the client reads
+it at once once the page connected (`<WhenOpen>`), so a signed-in person is
+never shown signed out first. The person's provider keys are not the
+account's: the shell keeps them in the same credentials file
+(`connection_key_set`, `connection_key_move`) and sends a connected
+endpoint's requests with them (`connection_fetch`), read through this
+entry's `relayThroughShell`, the one reader of the shell's streamed answers.
 
 ```ts
 import { createTauriAuth } from '@epicenter/account/tauri';
 import { reactive } from '@epicenter/svelte/reactive';
 
-const { client, ready } = createTauriAuth();
-export const auth = reactive(client);
+export const auth = reactive(createTauriAuth());
 ```
 
 ## Lifetime and policy

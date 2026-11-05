@@ -1,7 +1,7 @@
 //! Whispering's desktop app (`epicenter-standalone`, decisions 88 to 97): one
 //! window whose page opens Whispering's two roots by name: its AppData root
 //! and its data folder, `~/Epicenter/whispering`, which its bundle identifier
-//! names (`openDataFolder` from `@epicenter/folder/tauri`). It records into
+//! names (`home()` from `@epicenter/folder`). It records into
 //! that folder from the first sample (`tauri-plugin-epicenter-recorder`),
 //! transcribes on this computer
 //! (`tauri-plugin-epicenter-transcription`), through the signed-in Epicenter

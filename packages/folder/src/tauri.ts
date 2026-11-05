@@ -5,7 +5,7 @@
  * `syncedWithEpicenter`). An app opens its folder with
  * `openFolder(contract, home({ site }))` from `@epicenter/folder`, which on
  * the desktop is the `Data` root the shell named; what a capability keeps
- * on this computer goes to `AppData` through `localFile` from
+ * on this computer goes to `AppData` through `settings` from
  * `@epicenter/local`.
  */
 import { Ok, type Result } from 'wellcrafted/result';

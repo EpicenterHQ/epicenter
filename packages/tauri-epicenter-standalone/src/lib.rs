@@ -322,7 +322,7 @@ mod tests {
         .map(|body| body.deserialize::<Value>().expect("a JSON response"))
     }
 
-    /// `open_root` as `openDataFolder` and `openAppData` ask for it.
+    /// `open_root` as a page asks for its `Data` and `AppData` roots.
     fn open(window: &WebviewWindow<MockRuntime>, root: &str) -> Result<Value, Value> {
         call(window, "open_root", json!({ "root": root }))
     }

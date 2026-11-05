@@ -47,10 +47,11 @@ adding or moving a service.
 When a capability package owns both implementations, the package picks one
 by the same `tauri` condition and the app calls one name with no seam of its
 own (ADR-0765). `customEndpoints()` from `@epicenter/ai` resolves the
-package's `#device-settings` import: the web leaf keeps the person's
-connections in browser storage, keys included; the desktop leaf keeps the
-endpoint list in `connections.md` in the AppData root and each key in the
-keychain under the connection's id, applying a key only while the
+package's `#device-settings` import. Both builds keep the endpoint list
+in `connections.md` in this computer's settings (`@epicenter/local`); the
+web leaf keeps each key in `connection-keys.json` beside it, and the
+desktop leaf hands each key to the shell, which keeps it in the app's
+`credentials.json` under the connection's id and applies it only while the
 connection still names the endpoint it was saved for.
 
 ## Desktop services and the shared crates
@@ -61,10 +62,11 @@ and adds nothing that holds a credential in the page:
 
 | Need | Desktop leaf uses |
 | --- | --- |
-| A secret (API key, connection) | `keychain` from `@epicenter/account/tauri` |
+| A secret (API key, connection) | `connectionKey` from `@epicenter/ai/tauri`, kept in the shell's `credentials.json` |
 | A request with the person's account | `account.fetch` from `createTauriAuth`, relayed by `account_fetch` |
 | A request to a custom endpoint | the app's own shell command (Whispering's `send_request`) |
 | A native command over the data folder | `rootOf(device)` from `@epicenter/folder/tauri` as its `root` |
 
-The web leaf's equivalents are `localStorage`, browser OAuth's
-`account.fetch`, and `fetch` (which needs the endpoint's CORS rule).
+The web leaf's equivalents are this computer's settings (`localStorage`
+on the web), browser OAuth's `account.fetch`, and `fetch` (which needs the
+endpoint's CORS rule).

@@ -117,15 +117,20 @@ For contract apps, `src/lib/app.ts` exports the capabilities as module
 values ([ADR-0766](../../../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
 `openFolder(contract, home({ site, account }))` returns at once; where it is in its life is
 `folder.state()` (opening, open, failed with a typed error and the failure's
-`retry()`, or closed), and the root layout renders `<WhenOpen {folder}>`.
-Editing `app.ts`, or anything it imports, reloads the page in development, so
-it closes nothing by hand. Any code imports
+`retry()`, or closed), and the root layout renders `<WhenOpen {folder}
+{settings}>`, which waits for the folder and this computer's settings
+(`@epicenter/local`). Editing `app.ts`, or anything it imports, reloads the
+page in development, so it closes nothing by hand. Any code imports
 `folder`; none passes it through context. Only `<WhenOpen>` and Recovery read
-`state()`: a collection's reads answer while the folder opens (`items()`
-empty, `loading()` true), and its async methods wait for the open
-([ADR-0767](../../../../docs/adr/0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md)),
-so no other code checks or awaits readiness. Every app is on this shape; do
-not add a `Startup` root or a per-collection context. Key editors by note identity so each mounted editor owns one edit. See
+`state()`. The page connects once, and nothing that reads a store renders
+before: inside `<WhenOpen>` every read is synchronous and answers what is
+stored; a read before the connection throws `FolderNotOpen` (or
+`SettingsNotOpen`), a bug in the code that made it
+([ADR-0778](../../../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
+Code outside a page calls an action, such as `list()`, which waits. No
+capability exposes `ready` or `loading()`, so no code checks or awaits
+readiness. Every app is on this shape; do not add a `Startup` root, a
+per-collection context, or a gate of its own. Key editors by note identity so each mounted editor owns one edit. See
 [Contract reads and editing](#contract-reads-and-editing).
 
 ## Imperative Widgets: Own The Whole Runtime Boundary
@@ -159,7 +164,7 @@ and mount lifetime.
 
 ## Related
 
-- The sync-construction / async-ready-property / UI-render-gate pattern (see `factory-function-composition`, `references/sync-construction-render-gate.md`) covers the service-layer equivalent for clients with async-ready properties.
+- The sync-construction / UI-render-gate pattern (see `factory-function-composition`, `references/sync-construction-render-gate.md`) covers the service-layer equivalent: synchronous construction, one render gate, actions that wait.
 - `docs/articles/svelte-5-createsubscriber-pattern.md` covers `createSubscriber` for wrapping external event sources into reactive values: a different job than component-scoped handles.
 - `docs/articles/20260420T160000-state-handle-null-is-the-component-lifecycle-in-disguise.md` walks through why this rule exists and when Pattern B is still correct.
 
@@ -356,7 +361,8 @@ TanStack Table into an infinite loop. See
 # Contract reads and editing
 
 A folder read through `reactive` gives each collection tracking reads:
-`items()`, `invalid()`, `loading()`, `error()` and `get(args)` (ADR-0769).
+`items()`, `invalid()` (notes) and `get(args)` (ADR-0769), each answering at
+once inside `<WhenOpen>` (ADR-0778).
 Collections come straight off the module-level `folder` in
 `src/lib/app.ts` (ADR-0766):
 

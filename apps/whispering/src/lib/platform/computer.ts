@@ -4,8 +4,8 @@
  * desktop window's is `computer.tauri.ts`.
  *
  * - The microphone is the page's own (`@epicenter/recorder/browser`), which
- *   appends each piece of a recording to this browser's files as it
- *   arrives.
+ *   keeps a take in memory and writes it to this browser's files once, at
+ *   Stop.
  * - Ollama and LM Studio on this computer are looked for through the tab's
  *   own `fetch`, and are found only when they allow this origin.
  * - The web has no global shortcut.

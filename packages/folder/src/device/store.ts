@@ -12,7 +12,7 @@
  * file still holds it; the store checks that where the write lands, right
  * before the change.
  *
- * `storeConformance` (`store.conformance.ts`) holds every store to the same
+ * `storeChecks` (`store.conformance.ts`) holds every store to the same
  * behavior.
  */
 import { type ClientError, isNotePath } from '@epicenter/definition/contract';

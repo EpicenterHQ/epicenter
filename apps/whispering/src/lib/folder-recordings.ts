@@ -62,20 +62,20 @@ export function keepRecording(
 const RECORDED: readonly string[] = ['wav', 'm4a', 'webm'];
 
 /**
- * Give every recording a quit, a crash, or a closed tab cut off its note.
- * The capture device's `recover` repairs what was cut off (on the desktop it
- * also finishes it and places it at its path) and answers each recording
- * whose audio is whole at its path, with the length it read; any of those no note
- * names is given one, its length measured from its audio when `recover` did
- * not answer one. Audio whose length does not read is still given a note,
- * without a length, so no recording is kept where the library does not
- * list it. The desktop runs it once at launch, beside the pages.
+ * Give every desktop recording a quit or a crash cut off its note. The
+ * desktop recorder's `recover` finishes what was cut off, places it at its
+ * path, and answers each recording whose audio is whole at its path, with
+ * the length it read; any of those no note names is given one, its length
+ * measured from its audio when `recover` did not answer one. Audio whose
+ * length does not read is still given a note, without a length, so no
+ * recording is kept where the library does not list it. The desktop runs
+ * it once at launch, in the background.
  *
  * Answers the ids given a note (`noted`), and each recording `recover` kept
  * outside its path because another file is there (`unplaced`), for the
  * caller to say. `Unavailable` is the files refusing to be listed at all,
- * which the library's own listing reports too. Over a folder of a client
- * already open, the open's own error (`OpenFolderError`) never answers.
+ * which the library's own listing reports too; the folder's `OpenFolderError`
+ * answers when it failed or closed.
  */
 export async function finishCutOffRecordings(
 	files: Files,

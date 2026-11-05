@@ -11,7 +11,7 @@ grants capabilities, never storage
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 ```text
 src/lib/contract.ts          the contract (published as static/contract.json)
-src/lib/app.ts               the capabilities, opened once: folder, account, ai, choices, recorder, shortcut
+src/lib/app.ts               the capabilities, opened once: folder, account, ai, choices, settings, recorder, shortcut
 src/lib/files.svelte.ts      the folder's note lists, and its recordings' audio
 src/lib/whispering.svelte.ts models, microphone, recorder: Whispering over the capabilities
 src/lib/inference.ts         a request to a model, and how its failures read
@@ -40,6 +40,10 @@ Code imports what it uses from there, never through context:
   `epicenter-account` on the desktop (`platform/account.tauri.ts`).
 - `ai`, `choices` and `speech`: the models (see "Models, connections and
   sign-in").
+- `settings`: this computer's settings (`@epicenter/local`), which the
+  page connects to beside the folder: the model choices, the connections,
+  the microphone, and on the desktop the shortcut's override and who is
+  signed in.
 - `recorder`: the microphone device over `folder` (see "Recording").
 - `shortcut`: the desktop's global shortcut, null on the web.
 
@@ -51,11 +55,13 @@ recorder, the model servers on this computer, the shortcut),
 - `routes/+layout.svelte` is the chrome every route shares: tooltips, the
   confirmation dialog, toasts, and the theme.
 - `routes/(app)/+layout.svelte` is the app's root: `<WhenOpen app="Whispering"
-  {folder}>` from `@epicenter/svelte` shows a spinner while the folder opens,
-  Recovery when it cannot, and the app once it has, and asks before the page
-  is left while the folder is `saving()`. Under it a `<svelte:boundary>`
-  shows a spinner until `WhisperingApp` has started. No sign-in is asked
-  for. Its pages are `/`, `/recordings` and `/transformations`.
+  {folder} {settings}>` from `@epicenter/svelte` shows a spinner after
+  150 ms while they connect, Recovery when one cannot, and the app once both
+  have, and asks before the page is left while the folder is `saving()`.
+  Every read inside it is synchronous
+  ([ADR-0778](../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
+  No sign-in is asked for. Its pages are `/`, `/recordings` and
+  `/transformations`.
 - `routes/auth/callback/` is outside the group: it renders the build's
   `Callback`, which finishes a web sign-in and loads the page it started
   from. It reads no files.
@@ -63,10 +69,10 @@ recorder, the model servers on this computer, the shortcut),
   `createWhispering({ folder, ai, choices, capture: recorder, preferences })`
   (the models, the microphone and the recorder) and
   `createLibrary({ whispering, files: filesOf(folder) })`, puts both in
-  context (`setWhispering`, `setLibrary`), awaits `start()` (the model
-  choices, the saved connections, the saved microphone, and the recordings a
-  cut left), renders the frame (sidebar or bottom bar, and the header with
-  its status line), and disposes both when it leaves.
+  context (`setWhispering`, `setLibrary`), renders the frame (sidebar or
+  bottom bar, and the header with its status line), asks before the page is
+  left while a take runs, and disposes both when it leaves. It waits for
+  nothing: what it reads is already connected.
 
 Nothing below `WhisperingApp` knows which store it is; where only a
 sentence differs, a component reads `variant` from `#platform/variant`.
@@ -88,16 +94,18 @@ Tauri only in the desktop leaves.
 ## The files
 
 `files.svelte.ts` gives the pages one folder's note collections
-(`files.<collection>`, whose reads `items()`, `invalid()` and `loading()`
-track through `reactive`) and its recordings' audio. Every write (`set`,
-`delete`, an editor's save) answers once it has landed and never fails:
-while the store is out of reach the folder keeps it, in order, and the
-root's `<WhenOpen>` says so from `folder.unavailable()` and
-`folder.saving()` (ADR-0775). Whispering holds no write of its own.
+(`files.<collection>`, whose reads `items()` and `invalid()` track through
+`reactive`) and its recordings' audio. Every write (`set`, `delete`, an
+editor's save) answers once it has landed and never fails while the folder
+lives: while the store is out of reach the folder keeps it, in order, and
+the root's `<WhenOpen>` says so from `folder.unavailable()` and
+`folder.saving()` (ADR-0775); when the folder fails or closes, a write
+still waiting rejects with `FolderClosed` (ADR-0782). Whispering holds no
+write of its own.
 A recording's note is written through the same folder
 (`folder-recordings.ts`), so the lists show it as soon as it lands. The library
-sorts each list (`newest`, `byTitle`). Each list lists and listens only while
-something reactive reads it; a read outside an effect is a snapshot.
+sorts each list (`newest`, `byTitle`). The folder holds every list from
+the moment it connected; a read outside an effect is a snapshot.
 
 - A page edits one note with one editor from the folder itself
   (`folder.recordings.edit({ id })`): its saves go one at a time, each
@@ -113,7 +121,7 @@ something reactive reads it; a read outside an effect is a snapshot.
 
 Audio is a file collection, `recordings/{id}.{ext}`. `files.audioOf(id)`
 answers `here` with one file (its extension), `ambiguous` for
-more than one extension, `absent`, or `listing`. `files.readAudio(id)` reads
+more than one extension, or `absent`. `files.readAudio(id)` reads
 its bytes through the folder (`audio.read`).
 
 ## Recording
@@ -121,19 +129,21 @@ its bytes through the folder (`audio.read`).
 The capture device is `app.ts`'s `recorder`: one microphone device
 (`microphone.ts`, `createMicrophoneDevice`) made beside `folder`, over the
 `recorder` each build's `#platform/computer` leaf imports,
-`@epicenter/recorder`'s one interface. It writes the recording into the
-folder as it records (decision 84), through `recorder.start({ files, path })`
-and `recorder.recover({ files, under })` over `folder.audio`, and the
-microphone choice lists and tests inputs through the same recorder (`listInputs`, `openMeter`, and in a
-browser `allow` and `onInputsChange`). In a browser (`platform/computer.ts`,
-over `@epicenter/recorder/browser`) the recorder asks for AAC in MP4 first
-and Opus in WebM second, and appends each piece (about a second) to
-`recordings/<id>.m4a` or `.webm` in this browser's files as it arrives
-(`folder.audio.append`). On
-the desktop (`platform/computer.tauri.ts`, over `@epicenter/recorder/tauri`)
-it is the shell's microphone, which encodes Opus into a WebM from the first
-sample in the folder's `.epicenter/recordings`, a second at a time, and at
-Stop finishes it and places it at `recordings/<id>.webm`.
+`@epicenter/recorder`'s one interface. A recording lands at
+`recordings/<id>.<ext>` when Stop answers, through
+`recorder.start({ files, path })` over `folder.audio`, and the microphone
+choice lists and tests inputs through the same recorder (`listInputs`,
+`openMeter`, and in a browser `allow` and `onInputsChange`). The two builds
+need not promise the same things
+([ADR-0780](../../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
+In a browser (`platform/computer.ts`, over `@epicenter/recorder/browser`)
+the recorder asks for AAC in MP4 first and Opus in WebM second, keeps each
+piece in memory, and at Stop writes the take once with `folder.audio.set`
+(ADR-0779); a crash or a closed tab loses it. On the desktop
+(`platform/computer.tauri.ts`, over `@epicenter/recorder/tauri`) it is the
+shell's microphone, which encodes Opus into a WebM from the first sample in
+the folder's `.epicenter/recordings`, a second at a time, and at Stop
+finishes it and places it at `recordings/<id>.webm`.
 
 A recording has no note while it records: the record screen
 (`RecorderCard.svelte`) shows the take. Stop releases the microphone and
@@ -142,39 +152,27 @@ answers once the audio is at its path, with how long it plays; the note
 written then with `set` (`keepRecording` in `folder-recordings.ts`), after
 the audio has landed, so the library gains the row then and every note
 names audio that is there. While the store is out of reach the note waits
-in the folder; a page closed first leaves the audio for the next start. On the
-desktop Stop finishes the file and places it in the same few milliseconds
-for a recording of any length, so nothing waits after Stop. A recording
-that wrote no audio (the browser's storage refused an append, or nothing
-was captured), or whose audio could not be placed, leaves no note.
-Recording never waits on the network. Where the browser keeps no files (a
-private window) the recorder refuses before any microphone opens.
+in the folder. On the desktop Stop finishes the file and places it in the
+same few milliseconds for a recording of any length, so nothing waits after
+Stop. A recording that captured nothing, or whose audio could not be
+written or placed, leaves no note. Recording never waits on the network.
+While a take runs, leaving the page asks first (`WhisperingApp`).
 
-A quit, a crash, or a closed tab leaves audio that no note names. Each
-start first gives it one (`finishCutOffRecordings`), the only path by which
-a cut-off recording reaches the library: `capture.recover(unnamed)` repairs
-it (on the desktop finished from its whole seconds, as Stop would have,
-and placed at its path, or deleted when its path already holds the file
-placed before the cut; an `m4a` or `webm` cut back to its last whole piece
-in a browser, skipping one another tab is still writing) and answers each
-recording whose audio is whole at its path,
-and each one no note names gets a note titled "Recovered recording", its
-length the one recovery answered or read from the audio
-(`audioDurationMs`). In a browser nothing is read for repair unless some
-audio has no note; on the desktop, where a cut-off recording waits outside
-its path, recovery always looks, and audio at its path is finished (one
-the shell placed after its page left, or whose note was never written).
-Starting runs this before the app shows any page (`WhisperingApp` awaits
-`whispering.start()`); it waits through the folder's own listing
-(`folder.recordings.list()`), never on its `state()`, and a desktop cut-off recording is at no data path
-until recovery has finished it, so nothing lists, plays, or transcribes one
-first: such a file reads wrong (no length in a player, a torn block in the
-transcription decoder) until it is finished.
+On the desktop a quit or a crash leaves audio that no note names. Each
+launch gives it one, in the background beside the pages
+(`finishCutOffRecordings`, the only path by which a cut-off recording
+reaches the library): `capture.recover(unnamed)` finishes it from its whole
+seconds, as Stop would have, places it at its path, and answers each
+recording whose audio is whole there; each one no note names gets a note
+titled "Recovered recording", its length the one recovery answered or read
+from the audio (`audioDurationMs`). A cut-off recording is at no data path
+until it is finished, so nothing lists, plays, or transcribes one first. A
+browser has no `recover`: it keeps nothing through a crash.
 
 The microphone choice, its test, and Enable microphones belong to
 `microphone-input.svelte.ts`: one owner of at most one open microphone,
-released by choosing, recording, or closing. The choice is kept in
-`localStorage` (`microphone-preference.ts`).
+released by choosing, recording, or closing. The choice is
+`microphone.json` in this computer's settings (`microphone-preference.ts`).
 
 ## Requests and results
 
@@ -213,17 +211,18 @@ runs on this computer: Ollama and LM Studio (`localModelServers()` from
 desktop `localSpeech()` (`speech`, null on the web, which desktop Settings
 administers). Every entry
 is live, so a sign-in or a saved connection reaches the same `ai`. Where
-connections are kept is `@epicenter/ai`'s, picked by the build: the web
-keeps them, keys included, in this site's `localStorage` and sends from the
-tab; the desktop keeps them in AppData's `connections.md` with each key in
-the credential store, and sends every one of them, Ollama's and LM Studio's
-included, through the shell's fetch (`connection_fetch`), which adds the key.
+connections are kept is `@epicenter/ai`'s: `connections.md` in this
+computer's settings on both builds, never with a key. The web keeps each
+key in `connection-keys.json` beside it and sends from the tab; the desktop
+shell keeps each key in the app's `credentials.json` (ADR-0740) and sends
+every connection's request, Ollama's and LM Studio's included, through its
+fetch (`connection_fetch`), which adds the key.
 
 The person chooses one model for transcription and one for text
 (`ModelPicker` from `@epicenter/ai/picker`, in `ModelSetting.svelte`), kept
-by job, `'transcribe'` and `'chat'`, as a device setting (`modelChoices()`,
-`app.ts`'s `choices`): this site's `localStorage` on the web, AppData's
-`models.md` beside `connections.md` on the desktop. The same picker adds, edits and
+by job, `'transcribe'` and `'chat'`, in `models.md` in this computer's
+settings (`modelChoices()`, `app.ts`'s `choices`): this site's
+`localStorage` on the web, AppData on the desktop. The same picker adds, edits and
 removes a connection. `inference.ts` sends a prepared request through the
 endpoints merged at that moment, to its target alone, and refuses one whose
 endpoint was removed or moved. Signing in moves nothing: the hosted
@@ -266,7 +265,7 @@ the page is left while one is out.
 `bun run test` runs under Svelte's browser runtime (`--conditions=browser`
 with `packages/svelte/src/svelte-dom.test-support.ts`), since `reactive`
 notifies nothing on the server runtime, and under the `test` condition,
-where `app.ts`'s folder and this computer's files are memory
+where `app.ts`'s folder and this computer's settings are memory
 (`app.test.ts`). `services.test-support.ts` makes a place in memory
 (`memory()`) holding the contract's files at the paths the browser's OPFS
 holds them, with stubbed endpoints; `whispering.test-support.ts` makes the

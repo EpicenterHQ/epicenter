@@ -1,6 +1,6 @@
 ---
 name: services-layer
-description: Apply Epicenter's service-boundary patterns for UI-free capabilities, explicit inputs, Result fallibility, lifecycle factories, and per-build implementations behind a `#platform/*` seam. Use when creating or refactoring an app's services or their contract, provider or connection dispatch, or a desktop service over the shell, the keychain, or the account.
+description: Apply Epicenter's service-boundary patterns for UI-free capabilities, explicit inputs, Result fallibility, lifecycle factories, and per-build implementations behind a `#platform/*` seam. Use when creating or refactoring an app's services or their contract, provider or connection dispatch, or a desktop service over the shell, the credentials file, or the account.
 metadata:
   author: epicenter
   version: '4.0'
@@ -41,7 +41,7 @@ One seam, one type, two leaves (see the `platform-seams` skill):
 ```txt
 #platform/services
   default → src/lib/platform/browser.ts        the WebView microphone, fetch, localStorage
-  tauri   → src/lib/platform/services.tauri.ts the shell's microphone, send_request, the keychain, local models
+  tauri   → src/lib/platform/services.tauri.ts the shell's microphone, send_request, the credentials file, local models
 ```
 
 Each leaf is `export const createServices: CreateServices = (client) => ({ … })`,
@@ -51,14 +51,16 @@ annotated with the shared type in `platform/types.ts`. Shared code imports
 On the desktop, a service reaches native code only through the app's shell
 and the shared crates, never through a credential in the page:
 
-- **Secrets** go to the OS keychain through `epicenter-account`: `keychain`
-  from `@epicenter/account/tauri` (`keychain_get`, `keychain_set`). Whispering
-  keeps both connections as one entry; Vocab keeps each key under its
-  connection's id and the endpoint list in `connections.md` in AppData.
-  Never put a key in a settings note, the data folder, or WebView storage.
-  [ADR-0740](../../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)
-  moves every credential into one file in the app's AppData; until that
-  lands, the keychain is the place.
+- **Secrets** live in the app's `credentials.json` in AppData (mode
+  `0600`), which only `epicenter-account` reads and writes and no page
+  reaches
+  ([ADR-0740](../../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)).
+  A connection's key is handed to the shell once (`connectionKey` from
+  `@epicenter/ai/tauri`, over `connection_key_set` and
+  `connection_key_move`) and read by the request that uses it;
+  `connections.md` in this computer's settings records which endpoint it
+  was entered for, never the key. Never put a key in a settings file, the
+  data folder, or WebView storage.
 - **The account** is a relay: requests go through `account.fetch`, which
   the shell sends with `account_fetch` and a token the page never sees.
 - **Other requests** to a custom endpoint leave through the shell
@@ -111,5 +113,6 @@ across callers.
 - A factory owns construction or a lifecycle, not convention.
 - The build picks the implementation through one `#platform/*` seam, with
   one shared type.
-- On the desktop, secrets go through the keychain, account requests through
-  the relay, and no token or key reaches the page's storage.
+- On the desktop, secrets stay in the shell's credentials file, account
+  requests go through the relay, and no token or key reaches the page's
+  storage.

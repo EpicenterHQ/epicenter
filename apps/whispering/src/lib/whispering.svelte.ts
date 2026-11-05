@@ -4,17 +4,14 @@
  * files show is the library's (`library.svelte.ts`); both write through the
  * same folder, so the folder's `saving()` counts every note either writes.
  *
- * A recording is written into the folder as it records (decision 84): the
- * desktop shell encodes it into the data folder from the first sample, a
- * browser appends each piece to this browser's files as it arrives. Stop
- * answers once its audio is at its path, and its note is written then
- * (`folder-recordings.ts`). Starting first completes what a quit, a crash,
- * or a closed tab cut off and gives it a note, before any page lists,
- * plays, or transcribes a recording; that waits through the folder's own
- * listing, never on its `state()`. Where the folder keeps no files (a
- * private window), the browser's recorder refuses before any microphone
- * opens. Recording never waits on the network, and nothing kept here ever
- * moves (ADR-0700).
+ * Where a take is kept while it records depends on the build (ADR-0779,
+ * ADR-0780): the desktop shell encodes it into the data folder from the
+ * first sample, and on the next launch finishes, in the background, what a
+ * quit or a crash cut off (`capture.recover`); a browser keeps it in the
+ * page's memory and writes it once at Stop, so a crash or a closed tab
+ * loses it. Stop answers once its audio is at its path, and its note is
+ * written then (`folder-recordings.ts`). Recording never waits on the
+ * network, and nothing kept here ever moves (ADR-0700).
  *
  * The models are the build's one merge of endpoints (`ai`, ADR-0757):
  * Epicenter's hosted models through the account signed in now, the

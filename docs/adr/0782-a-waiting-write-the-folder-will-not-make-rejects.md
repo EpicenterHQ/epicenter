@@ -3,7 +3,6 @@
 - **Status:** Accepted (2026-11-05)
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) at "When the folder moves to `failed` or `closed`, the writes waiting then are not made": each one rejects.
-- **Unbuilt:** the folder rejecting its waiting writes with `FolderClosed` when it fails or closes; the conversation asking the model only after its message's `set` has answered.
 
 ## Context
 

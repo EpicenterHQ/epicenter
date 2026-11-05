@@ -16,9 +16,11 @@ macOS a stream at another rate changes the device's rate for every app using
 it, and leaves it changed. The writer converts to 16 kHz.
 
 A page reaches it through `@epicenter/recorder/tauri`, whose
-`recorder.start({ device, path })` and `recorder.recover({ device, under, unnamed })`
-are the same calls a browser build makes through `/browser`, which appends
-each piece of a recording to this browser's files instead (decision 84).
+`recorder.start({ files, path })` is the same call a browser build makes
+through `/browser`, which keeps a take in memory and writes it once at Stop
+instead. `recorder.recover({ files, under, unnamed })` is the desktop's
+alone: the shell outlives the page, so it can finish a take a cut left
+([ADR-0780](../../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
 
 ## Layout
 
@@ -77,7 +79,7 @@ AppData is open. The folder Data reached is read once when the command arrives.
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
 | `start(path, device, signals)` | Records `<path>.webm` in Data, from the microphone with id `device` or the system default, writing it in `.epicenter/recordings` until it stops. Answers the recording's `id`. |
 | `stop(id)` | Finishes the recording in place, places it at its path, and answers `{ path, durationMs }`. It takes the same few milliseconds for a recording of any length. A file already at the path is never replaced: the refusal says so, and where the finished recording is kept in `.epicenter/recordings`. Only the window that started it may stop it. |
-| `recover(under)` | Finishes every recording a cut left under `under` in Data's `.epicenter/recordings` from its whole seconds and places it at its path, leaving the recording still being written alone. Answers `{ recovered, unplaced }`: each recording it placed as `{ path, durationMs }`, from the length its file states, so a page never reads the audio back to measure it (a second run places none); and each one whose path holds another file as `{ path, pending }`, where `pending` is its folder-relative path under `.epicenter/recordings`. That one is never deleted and never placed beside the other file: it stays pending, finished, and is answered on every run until a person moves one of the two, so a page says where its audio is. A leftover with no whole second holds no audio and is deleted. A page runs it when it opens its folder, before it lists, plays, or transcribes a recording. |
+| `recover(under)` | Finishes every recording a cut left under `under` in Data's `.epicenter/recordings` from its whole seconds and places it at its path, leaving the recording still being written alone. Answers `{ recovered, unplaced }`: each recording it placed as `{ path, durationMs }`, from the length its file states, so a page never reads the audio back to measure it (a second run places none); and each one whose path holds another file as `{ path, pending }`, where `pending` is its folder-relative path under `.epicenter/recordings`. That one is never deleted and never placed beside the other file: it stays pending, finished, and is answered on every run until a person moves one of the two, so a page says where its audio is. A leftover with no whole second holds no audio and is deleted. A page runs it once its folder is open; a cut-off recording is at no data path until then, so nothing lists, plays, or transcribes it first. |
 
 `start` refuses before it opens anything:
 
@@ -149,8 +151,8 @@ The recording is finished and placed, never deleted, when:
 
 A process that ends before any of those leaves the file in
 `.epicenter/recordings` with every whole second but the one held in memory:
-a crash loses at most about a second. `recover`, which a page calls when it
-opens its folder, finishes it from those seconds (a torn one at its end is
+a crash loses at most about a second. `recover`, which a page calls once its
+folder is open, finishes it from those seconds (a torn one at its end is
 dropped) and places it. Until then nothing reads it: it is at no data path,
 and a cut-off file reads wrong in a player (no length) and in the
 transcription decoder (a torn block).

@@ -63,7 +63,7 @@ elsewhere (`resolveOAuthAudiences`).
 | `GET info/refs?service=git-receive-pack`, `POST git-receive-pack` | `folders:write`, the `push` role; a push that replaces `main`, the `rewrite` role (owner) |
 | `POST info/lfs/objects/batch` | download: `folders:read`, `read`; upload: `folders:write`, `push` |
 | `PUT`/`GET info/lfs/objects/<oid>`, `POST info/lfs/verify` | upload and verify: `push`; download: `read` |
-| `GET epicenter/files?root=`, `GET epicenter/file?path=` | `folders:read`, the `read` role |
+| `GET epicenter/files?root=`, `POST epicenter/read`, `GET epicenter/changes?since=` | `folders:read`, the `read` role |
 | `POST epicenter/writes` | `folders:write`, the `push` role |
 | `GET /api/repos` | `folders:read` on the Git audience |
 | `GET /api/repos/<namespace>/<name>/grants` | `folders:read` on the Git audience, the `manage` role (owner) |
@@ -100,7 +100,10 @@ a 64 MiB body, 256 MiB of inflated objects held at once, and 100,000 of
 `main`'s commits read, once per push, to place the push's stored commits); the
 receiver keeps commits, trees and pointer-sized blobs, and lets larger blobs
 go once hashed.
-Web writes go to the translator (`src/routes/files.ts`): one commit per
+The web reads through the translator (`src/routes/files.ts`) too: a
+listing under each `root`, the files at many `paths` in one `read`, and
+`changes?since=<commit>`, the commit `main` is at and the paths changed
+since. Web writes go to it as one commit per
 request, each file landing only over the blob its writer read, and the
 standard `.gitattributes` (`REPOSITORY_ATTRIBUTES`) in a repository's first
 commit. It never merges (ADR-0773), and keeps nothing about a request once
