@@ -8,6 +8,7 @@
 - **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at a folder committed "while the Epicenter app runs" and at `append`: a folder is committed at each round its app runs, and no store appends.
 - **Amended by:** [ADR-0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) at `settle` having two implementations: it has one.
 - **Amended by:** [ADR-0794](0794-a-sync-round-asks-its-host-to-settle-checks-out-only-what-did-not-move-and-retries-rather-than-guess.md) at a file other than a note named by its Git LFS object id: a store names it by a stamp, with the object id beside it.
+- **Amended by:** [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) at settling a body with `settle` and formatting the whole note: a body begun from shown text merges by the standard three-way line merge, and a write rewrites only the keys it changes.
 - **Unbuilt:** one content name per file on every store: device stores still name a note by the sha256 of its bytes, since the desktop shell's checked writes compare sha256 (a non-note file's sha256 is already its Git LFS object id). The version stays internal to the folder, so this changes no app.
 
 ## Context

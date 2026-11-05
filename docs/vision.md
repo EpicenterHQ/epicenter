@@ -43,8 +43,9 @@ the exception,
 History is plain Git, sign-in is OAuth with one grant per app, fields are
 JSON Schema, and a model is any endpoint that speaks the OpenAI-compatible
 vocabulary. A tool that speaks the standard works with Epicenter unchanged.
-Epicenter invents three things: names derived from a site, the merge rule
-`settle`, and the sync core. Records:
+Epicenter invents three things: names derived from a site, merging a note's
+front matter by key (Git merges its body, ADR-0795), and the sync core.
+Records:
 [ADR-0727](adr/0727-json-schema-is-the-field-language.md),
 [ADR-0731](adr/0731-every-app-signs-in-as-its-site.md),
 [ADR-0733](adr/0733-your-own-git-in-an-epicenter-folder-is-plain-git.md),

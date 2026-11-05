@@ -4,6 +4,7 @@
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) at the marks a person sees, synced and waiting: a note holding a conflict block also shows ⚠.
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (a body changed at the same spot on both sides becomes one conflict block of whole lines), [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) (a write settles the way sync does), [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) (a note that does not read is repaired as text).
+- **Amended by:** [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) at the markers `settle` writes: a conflict is Git's markers, with fixed labels.
 - **Unbuilt:** all of it: the folder reporting which notes hold a conflict block; the ⚠ mark in each app and in the library; `NoteRepair` showing a conflicted note's two versions and saving the resolved text.
 
 ## Context
