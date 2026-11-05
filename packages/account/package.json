@@ -6,6 +6,7 @@
 	"description": "An app's Epicenter account: sign-in, the account-bound fetch, and the PrincipalId that keys every storage partition.",
 	"exports": {
 		".": "./src/index.ts",
+		"./relay": "./src/relay.ts",
 		"./tauri": "./src/tauri.ts"
 	},
 	"scripts": {
@@ -13,6 +14,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@epicenter/definition": "workspace:*",
 		"@epicenter/local": "workspace:*",
 		"@tauri-apps/api": "catalog:",
 		"arktype": "catalog:",

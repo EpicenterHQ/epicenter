@@ -20,6 +20,13 @@ export {
 	createBrowserOAuth,
 } from './browser-oauth.js';
 export {
+	type AccountNeed,
+	type AppAccount,
+	type ConnectAccountOptions,
+	connectAccount,
+	openProfile,
+} from './connect.js';
+export {
 	type AccountIdentity,
 	asPrincipalId,
 	PrincipalId,
