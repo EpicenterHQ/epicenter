@@ -42,15 +42,17 @@ export function memoryStore(): DeviceStore & { outside: MemoryFiles } {
 	/** Writes of the folder's own are refused, for this reason, while it is set. */
 	let refusal: string | null = null;
 
+	/** Put `bytes` at `path`, or remove it for null; the version put there. */
 	async function put(path: string, bytes: Uint8Array | null) {
 		if (bytes === null) {
 			files.delete(path);
 			stampOf.delete(path);
-			return;
+			return null;
 		}
 		const version = (await hashBytes(bytes)) as Version;
 		files.set(path, { bytes: bytes.slice(), version });
 		stampOf.set(path, String(++stamps));
+		return version;
 	}
 
 	return {
@@ -78,10 +80,9 @@ export function memoryStore(): DeviceStore & { outside: MemoryFiles } {
 			const holds =
 				expected === 'absent'
 					? file === undefined
-					: file?.version === expected.sha256;
+					: file?.version === expected.version;
 			if (!holds) return Ok('stale');
-			await put(path, bytes);
-			return Ok('landed');
+			return Ok({ landed: await put(path, bytes) });
 		},
 		// The client hears its own writes itself; this hears `outside`'s.
 		watch(listener) {

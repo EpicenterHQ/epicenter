@@ -15,7 +15,11 @@
  * must already be uploaded and verified), or `{ path, delete: true, base }`.
  * Paths are repository-relative and must lie under `root` when it is given.
  * A body is at most `MAX_WRITE_BYTES` (16 MiB).
- * `base` is the Git blob id the writer read; without it a write is a create.
+ * `base` is the Git blob id the writer read. `base: null` says the writer
+ * read nothing there: that create is refused (`409 occupied`) when anything
+ * is at the path, checked against the `main` the commit moves, so it is
+ * atomic. Without `base` a write is a create that merges with whatever is
+ * there, so a device that lost the reply can send it again (decision 68).
  *
  * Each request reads `main`, settles every file against it, builds one
  * commit, and moves `main` only if it has not moved, retrying when it has:
@@ -115,8 +119,8 @@ function readRoot(root: unknown): string | null {
 }
 
 export type FileWrite =
-	| { path: string; text: string; base?: string }
-	| { path: string; lfs: LfsObject; base?: string }
+	| { path: string; text: string; base?: string | null }
+	| { path: string; lfs: LfsObject; base?: string | null }
 	| { path: string; delete: true; base: string };
 
 export type WriteRequest = {
@@ -175,9 +179,10 @@ export function readWriteRequest(body: unknown): WriteRequest | Refusal {
 		seen.add(p);
 		if (
 			file.base !== undefined &&
+			file.base !== null &&
 			(typeof file.base !== 'string' || !OID.test(file.base))
 		)
-			return bad('base is a Git blob id', p);
+			return bad('base is a Git blob id, or null for nothing', p);
 		const kinds = ['text', 'lfs', 'delete'].filter(
 			(k) => file[k] !== undefined,
 		);
@@ -185,7 +190,7 @@ export function readWriteRequest(body: unknown): WriteRequest | Refusal {
 			return bad('give exactly one of text, lfs and delete', p);
 		if (file.delete !== undefined) {
 			if (file.delete !== true) return bad('delete is true', p);
-			if (file.base === undefined)
+			if (typeof file.base !== 'string')
 				return bad('a delete names the base it read', p);
 		} else if (file.text !== undefined) {
 			if (typeof file.text !== 'string') return bad('text is a string', p);
@@ -300,9 +305,18 @@ export async function applyWrite({
 
 		for (const file of request.files) {
 			const current = await lookup(objects, root, file.path);
+			if (file.base === null && current)
+				return json(
+					{
+						error: 'occupied',
+						path: file.path,
+						message: `${file.path} is already on main`,
+					},
+					409,
+				);
 			const currentText = current ? await readText(objects, current.oid) : null;
 			let baseText: string | null = null;
-			if (file.base !== undefined) {
+			if (typeof file.base === 'string') {
 				baseText = await readText(objects, file.base);
 				if (baseText === null)
 					return json(
@@ -355,7 +369,7 @@ export async function applyWrite({
 				continue;
 			}
 			land(file.path, settled.text);
-			const raced = file.base !== undefined && current?.oid !== file.base;
+			const raced = typeof file.base === 'string' && current?.oid !== file.base;
 			if (raced) merged = true;
 			outcomes.push({
 				path: file.path,

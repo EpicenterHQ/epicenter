@@ -67,13 +67,13 @@ async function refreshAgentsNote<TContract extends Contract>(
 		const written = await store.write(
 			'AGENTS.md',
 			new TextEncoder().encode(wanted),
-			read.data === null ? 'absent' : { sha256: read.data.version },
+			read.data === null ? 'absent' : { version: read.data.version },
 		);
 		if (written.error !== null) {
 			log.debug('Could not write AGENTS.md', { error: written.error });
 			return false;
 		}
-		if (written.data === 'landed') return true;
+		if (written.data !== 'stale') return true;
 	}
 	log.debug('Could not update AGENTS.md after three attempts');
 	return false;

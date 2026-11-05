@@ -64,10 +64,14 @@ export const RemoteError = defineErrors({
 });
 export type RemoteError = InferErrors<typeof RemoteError>;
 
-/** One file of a write request, as the translator takes it. */
+/**
+ * One file of a write request, as the translator takes it. `base` is the
+ * version its writer read: null for nothing (refused as `occupied` where a
+ * file is), absent for a create that merges with whatever is there.
+ */
 export type FileWrite =
-	| { path: string; text: string; base?: Version }
-	| { path: string; lfs: LfsObject; base?: Version }
+	| { path: string; text: string; base?: Version | null }
+	| { path: string; lfs: LfsObject; base?: Version | null }
 	| { path: string; delete: true; base: Version };
 
 export type LfsObject = { oid: string; size: number };

@@ -230,7 +230,9 @@ test('each refusal reads as the error a person is shown', async () => {
 	});
 	shell.control.refuse = () => undefined;
 	shell = createNamedShell({ Data: shell.root });
-	expect(expectErr(await openDevice(notesSettings, { root: 'AppData' }))).toMatchObject({
+	expect(
+		expectErr(await openDevice(notesSettings, { root: 'AppData' })),
+	).toMatchObject({
 		name: 'StorageUnavailable',
 	});
 });
@@ -266,9 +268,9 @@ test('a create lands only where nothing is, and a version is checked as one', as
 	);
 	const store = storeOf(device);
 	const bytes = (text: string) => new TextEncoder().encode(text);
-	expect(expectOk(await store.write('a.bin', bytes('two'), 'absent'))).toBe(
-		'landed',
-	);
+	expect(expectOk(await store.write('a.bin', bytes('two'), 'absent'))).toEqual({
+		landed: expect.any(String),
+	});
 	expect(expectOk(await store.write('a.bin', bytes('other'), 'absent'))).toBe(
 		'stale',
 	);
@@ -277,14 +279,14 @@ test('a create lands only where nothing is, and a version is checked as one', as
 	expect(
 		expectOk(
 			await store.write('a.bin', bytes('three'), {
-				sha256: read!.version,
+				version: read!.version,
 			}),
 		),
-	).toBe('landed');
+	).toEqual({ landed: expect.any(String) });
 	expect(
 		expectOk(
 			await store.write('a.bin', bytes('four'), {
-				sha256: read!.version,
+				version: read!.version,
 			}),
 		),
 	).toBe('stale');

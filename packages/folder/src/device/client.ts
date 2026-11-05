@@ -11,7 +11,10 @@
  * Every update and delete carries the version its writer read (`over`), and
  * the store lands it only while the file still holds that version, so a
  * write never replaces bytes its writer did not see. A file deleted since it
- * was read is a `Conflict` whose `current` is null.
+ * was read is a `Conflict` whose `current` is null. Every version comes from
+ * the store: a device's names a file's sha256, a repository's its Git blob.
+ * A note the store merged with a write that raced this one (a repository
+ * does, decision 15) is read back, so the client answers with what landed.
  *
  * A collection's listeners hear every change that lands through this client
  * before the write resolves, and the store's outside changes (other tabs,
@@ -29,7 +32,6 @@ import {
 } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { createChanges, forCollection } from '../changes.js';
-import { hashBytes } from '../hash.js';
 import {
 	createdFields,
 	defined,
@@ -41,9 +43,12 @@ import {
 	pathOf,
 	type Value,
 } from '../note-codec.js';
-import type { DeviceStore } from './store.js';
+import type { DeviceLanded, DeviceStore } from './store.js';
 
 const encoder = new TextEncoder();
+
+/** How many notes a listing reads at once. */
+const READS_AT_ONCE = 8;
 
 /** The store under each client `createDeviceClient` made, for `storeOf`. */
 const stores = new WeakMap<object, DeviceStore>();
@@ -56,9 +61,39 @@ export function storeOf(device: object): DeviceStore {
 	return store;
 }
 
-/** The sha256 that is a device version. */
-export const versionOf = async (bytes: Uint8Array) =>
-	(await hashBytes(bytes)) as Version;
+/** Whether `a` and `b` hold the same bytes. */
+function sameBytes(a: Uint8Array, b: Uint8Array) {
+	if (a.byteLength !== b.byteLength) return false;
+	for (let index = 0; index < a.byteLength; index++)
+		if (a[index] !== b[index]) return false;
+	return true;
+}
+
+/** The version a write of bytes landed: never null, which only a removal lands. */
+function landedVersion({ landed }: DeviceLanded) {
+	if (landed === null) throw new Error('a write of bytes landed nothing');
+	return landed;
+}
+
+/** Run `task` over `items`, at most `limit` at once, keeping their order. */
+async function eachAtMost<T, R>(
+	items: T[],
+	limit: number,
+	task: (item: T) => Promise<R>,
+): Promise<R[]> {
+	const out: R[] = new Array(items.length);
+	let next = 0;
+	const worker = async () => {
+		while (next < items.length) {
+			const index = next++;
+			out[index] = await task(items[index] as T);
+		}
+	};
+	await Promise.all(
+		Array.from({ length: Math.min(limit, items.length) }, worker),
+	);
+	return out;
+}
 
 /**
  * The client of `contract` over `store`. A contract that is not well formed
@@ -96,7 +131,8 @@ function observed(store: DeviceStore): DeviceStore {
 		read: store.read,
 		async write(path, bytes, expected) {
 			const written = await store.write(path, bytes, expected);
-			if (written.data === 'landed') changes.emit([path]);
+			if (written.error === null && written.data !== 'stale')
+				changes.emit([path]);
 			return written;
 		},
 		...(store.append && {
@@ -124,13 +160,18 @@ async function claimed(
 ) {
 	const { data: listed, error } = await store.list();
 	if (error !== null) return { data: null, error };
-	const out: { path: string; params: Params; stamp: string }[] = [];
-	for (const { path, stamp } of listed.sort((a, b) =>
+	const out: {
+		path: string;
+		params: Params;
+		stamp: string;
+		version?: Version;
+	}[] = [];
+	for (const { path, stamp, version } of listed.sort((a, b) =>
 		a.path < b.path ? -1 : 1,
 	)) {
 		const claim = compiled.claim(path);
 		if (claim?.collection.name === collection.name)
-			out.push({ path, params: claim.params, stamp });
+			out.push({ path, params: claim.params, stamp, version });
 	}
 	return Ok(out);
 }
@@ -145,7 +186,7 @@ async function conflict(store: DeviceStore, path: string) {
 /** Remove the file at `path` while it holds `over`. */
 async function remove(store: DeviceStore, path: string, over: Version) {
 	const { data: outcome, error } = await store.write(path, null, {
-		sha256: over,
+		version: over,
 	});
 	if (error !== null) return { data: null, error };
 	if (outcome === 'stale') return conflict(store, path);
@@ -176,15 +217,40 @@ function noteClient(
 		});
 	}
 
+	/**
+	 * The note a write that landed left at `path`: `document` as sent, or,
+	 * when the store merged it with a write that raced it, the note there now.
+	 */
+	async function landedNote(
+		path: string,
+		params: Params,
+		document: Parameters<typeof noteValue>[1],
+		landed: DeviceLanded,
+	) {
+		if (!landed.merged)
+			return Ok(noteValue(params, document, landedVersion(landed)));
+		const read = await store.read(path);
+		if (read.error !== null) return read;
+		if (read.data === null)
+			return ClientError.Conflict({ path, current: null });
+		const decoded = decode(path, read.data.bytes);
+		if (decoded.error !== null) return decoded;
+		return Ok(noteValue(params, decoded.data, read.data.version));
+	}
+
 	return {
 		fieldNames: collection.keys,
 		async list() {
 			const { data: paths, error } = await claimed(compiled, collection, store);
 			if (error !== null) return { data: null, error };
+			const reads = await eachAtMost(paths, READS_AT_ONCE, ({ path }) =>
+				store.read(path),
+			);
 			const items: ReturnType<typeof noteValue>[] = [];
 			const unfit: ReturnType<typeof invalidNote>[] = [];
-			for (const { path, params } of paths) {
-				const read = await store.read(path);
+			for (const [index, { path, params }] of paths.entries()) {
+				const read = reads[index];
+				if (read === undefined) continue;
 				if (read.error !== null) return read;
 				// Removed since the listing: it is no longer the collection's.
 				if (read.data === null) continue;
@@ -223,7 +289,6 @@ function noteClient(
 				body,
 			});
 			if (encoded.error !== null) return encoded;
-			const version = await versionOf(encoded.data.bytes);
 			const written = await store.write(
 				path.data,
 				encoded.data.bytes,
@@ -232,7 +297,7 @@ function noteClient(
 			if (written.error !== null) return written;
 			if (written.data === 'stale')
 				return ClientError.Occupied({ path: path.data });
-			return Ok(noteValue(params, encoded.data.document, version));
+			return landedNote(path.data, params, encoded.data.document, written.data);
 		},
 		async update(args: Params, patch: Value, { over }: { over: Version }) {
 			const path = pathOf(collection, args);
@@ -256,16 +321,15 @@ function noteClient(
 				body,
 			});
 			if (encoded.error !== null) return encoded;
-			const version = await versionOf(encoded.data.bytes);
 			const params = paramsOf(collection, args);
-			if (version === over)
-				return Ok(noteValue(params, encoded.data.document, version));
+			if (sameBytes(encoded.data.bytes, read.data.bytes))
+				return Ok(noteValue(params, encoded.data.document, over));
 			const written = await store.write(path.data, encoded.data.bytes, {
-				sha256: over,
+				version: over,
 			});
 			if (written.error !== null) return written;
 			if (written.data === 'stale') return conflict(store, path.data);
-			return Ok(noteValue(params, encoded.data.document, version));
+			return landedNote(path.data, params, encoded.data.document, written.data);
 		},
 		async replace(args: Params, text: string, { over }: { over: Version }) {
 			const path = pathOf(collection, args);
@@ -276,14 +340,13 @@ function noteClient(
 			if (decoded.error !== null) return decoded;
 			const encoded = encode(path.data, decoded.data);
 			if (encoded.error !== null) return encoded;
-			const version = await versionOf(encoded.data.bytes);
 			const params = paramsOf(collection, args);
 			const written = await store.write(path.data, encoded.data.bytes, {
-				sha256: over,
+				version: over,
 			});
 			if (written.error !== null) return written;
 			if (written.data === 'stale') return conflict(store, path.data);
-			return Ok(noteValue(params, encoded.data.document, version));
+			return landedNote(path.data, params, encoded.data.document, written.data);
 		},
 		async delete(args: Params, { over }: { over: Version }) {
 			const path = pathOf(collection, args);
@@ -310,7 +373,12 @@ function fileClient(
 			const { data: paths, error } = await claimed(compiled, collection, store);
 			if (error !== null) return { data: null, error };
 			const items: (Params & { version: Version })[] = [];
-			for (const { path, params, stamp } of paths) {
+			for (const { path, params, stamp, version } of paths) {
+				// A store that lists versions spares reading every file's bytes.
+				if (version !== undefined) {
+					items.push({ ...params, version });
+					continue;
+				}
 				const cached = known.get(path);
 				if (cached?.stamp === stamp) {
 					items.push({ ...params, version: cached.version });
@@ -341,12 +409,14 @@ function fileClient(
 					path: path.data,
 					issues: [{ field: 'bytes', message: 'bytes is not a Uint8Array' }],
 				});
-			const version = await versionOf(bytes);
 			const written = await store.write(path.data, bytes, 'absent');
 			if (written.error !== null) return written;
 			if (written.data === 'stale')
 				return ClientError.Occupied({ path: path.data });
-			return Ok({ ...paramsOf(collection, value), version });
+			return Ok({
+				...paramsOf(collection, value),
+				version: landedVersion(written.data),
+			});
 		},
 		async update(
 			args: Params,
@@ -355,11 +425,13 @@ function fileClient(
 		) {
 			const path = collection.pathOf(args);
 			if (path.error !== null) return nowhere();
-			const version = await versionOf(bytes);
-			const written = await store.write(path.data, bytes, { sha256: over });
+			const written = await store.write(path.data, bytes, { version: over });
 			if (written.error !== null) return written;
 			if (written.data === 'stale') return conflict(store, path.data);
-			return Ok({ ...paramsOf(collection, args), version });
+			return Ok({
+				...paramsOf(collection, args),
+				version: landedVersion(written.data),
+			});
 		},
 		async delete(args: Params, { over }: { over: Version }) {
 			const path = collection.pathOf(args);
