@@ -13,17 +13,17 @@
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import {
-	type Client,
-	defineContract,
-	type NoteClient,
-} from '@epicenter/definition/contract';
-import { createFolder, OpenFolderError } from '@epicenter/folder/core';
-import type { Result } from 'wellcrafted/result';
+import { defineContract } from '@epicenter/definition/contract';
+import { openFolder } from '@epicenter/folder';
+import { OpenFolderError } from '@epicenter/folder/core';
+import { memory, memoryFiles } from '@epicenter/folder/memory';
+import { Ok } from 'wellcrafted/result';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { reactive } = await import('./reactive.js');
-const { default: WhenOpenHost } = await import('./fixtures/WhenOpenHost.svelte');
+const { default: WhenOpenHost } = await import(
+	'./fixtures/WhenOpenHost.svelte'
+);
 const { default: TodoCount } = await import('./fixtures/TodoCount.svelte');
 const { default: TodoEditor } = await import('./fixtures/TodoEditor.svelte');
 const app = await import('./fixtures/app.test-support.js');
@@ -31,39 +31,44 @@ const app = await import('./fixtures/app.test-support.js');
 const contract = defineContract({
 	collections: { todos: { path: 'todos/{id}.md' } },
 });
-type Opened = Result<Client<typeof contract>, OpenFolderError>;
-
-/** A folder whose opens the test answers, adapted as an app adapts it. */
+/**
+ * A folder in memory whose open waits until the test answers it, adapted as
+ * an app adapts it, with the reveal a desktop folder has.
+ */
 function controlled() {
-	const answers: ((opened: Opened) => void)[] = [];
+	const place = memory();
+	const world = memoryFiles(place);
+	let release = world.holdOpen();
+	let undo = () => {};
+	const raw = openFolder(contract, place);
+	const adapted = reactive(raw);
 	const revealed: string[] = [];
-	const raw = createFolder(
-		contract,
-		() => new Promise<Opened>((resolve) => answers.push(resolve)),
-		{
-			reveal: async () => {
-				revealed.push('Data');
-				return { data: null, error: null };
-			},
-		},
-	);
 	return {
 		raw,
-		folder: reactive(raw),
-		answers,
+		folder: {
+			state: () => adapted.state(),
+			saving: () => adapted.saving(),
+			todos: adapted.todos,
+			reveal: async () => {
+				revealed.push('Data');
+				return Ok(null);
+			},
+		},
 		revealed,
-		/** Answer the latest open with a client whose collection is empty. */
+		/** Fail the open waiting now with `error`. */
+		fail(error: OpenFolderError) {
+			undo();
+			undo = world.refuseOpen(error);
+			release();
+		},
+		/** Make the next open wait. */
+		hold() {
+			release = world.holdOpen();
+		},
+		/** Let the open waiting now, or the next, open. */
 		open() {
-			const todos = {
-				fieldNames: [],
-				list: async () => ({ data: { items: [], invalid: [] }, error: null }),
-				subscribe: () => () => {},
-				replace: async () => ({
-					data: { id: 'a', body: 'text', version: 'v2' },
-					error: null,
-				}),
-			} as unknown as NoteClient<(typeof contract)['collections']['todos']>;
-			answers.at(-1)?.({ data: { todos }, error: null });
+			undo();
+			release();
 		},
 	};
 }
@@ -83,7 +88,7 @@ const recovery = (main: HTMLElement) =>
 	main.querySelector('[data-testid="recovery"]');
 
 test('a spinner while opening, Recovery with the typed error, and Retry reopens until the pages show', async () => {
-	const { folder, answers, open, revealed } = controlled();
+	const { folder, fail, hold, open, revealed } = controlled();
 	const main = target();
 	const view = mount(WhenOpenHost, { target: main, props: { folder } });
 	flushSync();
@@ -91,11 +96,11 @@ test('a spinner while opening, Recovery with the typed error, and Retry reopens 
 	expect(recovery(main)).toBeNull();
 	expect(main.querySelector('[aria-live="polite"]')).not.toBeNull();
 
-	answers.at(-1)?.(
+	fail(
 		OpenFolderError.Disconnected({
 			folder: '/Users/me/Epicenter/todos',
 			target: '/Volumes/gone',
-		}),
+		}).error,
 	);
 	await settle();
 	expect(main.textContent).toContain('Todos could not open its folder');
@@ -105,9 +110,9 @@ test('a spinner while opening, Recovery with the typed error, and Retry reopens 
 	show?.click();
 	await settle();
 	expect(revealed).toEqual(['Data']);
+	hold();
 	retry?.click();
 	flushSync();
-	expect(answers).toHaveLength(2);
 	expect(recovery(main)).toBeNull();
 	open();
 	await settle();
@@ -132,9 +137,11 @@ test('the pages go once the folder is closed', async () => {
 });
 
 test('a folder with no place to show offers Retry alone', async () => {
-	const raw = createFolder(contract, async () =>
-		OpenFolderError.StorageUnavailable({ cause: 'no private storage' }),
+	const place = memory();
+	memoryFiles(place).refuseOpen(
+		OpenFolderError.StorageUnavailable({ cause: 'no private storage' }).error,
 	);
+	const raw = openFolder(contract, place);
 	const main = target();
 	const view = mount(WhenOpenHost, {
 		target: main,
@@ -188,7 +195,9 @@ test('leaving the page asks first while the folder is saving, and not once it is
 		return leaving.defaultPrevented;
 	};
 	expect(leavingAsks()).toBe(false);
-	const saving = folder.todos.replace({ id: 'a' }, 'text', { over: 'v' as never });
+	const saving = folder.todos.replace({ id: 'a' }, 'text', {
+		over: 'v' as never,
+	});
 	expect(leavingAsks()).toBe(true);
 	await saving;
 	expect(leavingAsks()).toBe(false);
@@ -210,8 +219,12 @@ test('an editor on the module-scope folder binds its fields to inputs, saves wha
 	await settle();
 	await settle();
 	if (editor === undefined) throw new Error('expected the editor');
-	const input = main.querySelector<HTMLInputElement>('[data-testid="title-input"]');
-	const done = main.querySelector<HTMLInputElement>('[data-testid="done-input"]');
+	const input = main.querySelector<HTMLInputElement>(
+		'[data-testid="title-input"]',
+	);
+	const done = main.querySelector<HTMLInputElement>(
+		'[data-testid="done-input"]',
+	);
 	expect(input?.value).toBe('Eggs');
 	expect(done?.checked).toBe(false);
 

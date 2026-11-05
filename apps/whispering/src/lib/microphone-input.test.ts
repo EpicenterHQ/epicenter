@@ -3,7 +3,7 @@
  *
  * Drives the session's microphone choice and test, and Whispering's
  * recorder over them, with a scripted capture device that counts what is
- * open. This browser's files are a real directory; no microphone is involved.
+ * open. This browser's files are a place in memory; no microphone is involved.
  *
  * Key behaviors:
  * - Opening a session reads the saved choice and opens, lists, and asks for
@@ -31,8 +31,6 @@ import { createTestWhispering } from './whispering.test-support.js';
 
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { readdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
 	type Meter,
 	RecorderError,
@@ -221,7 +219,7 @@ async function open({
 } = {}) {
 	const test = await openTestServices();
 	const { whispering, library, close } = await createTestWhispering({
-		client: test.device,
+		place: test.place,
 		services: {
 			...test.services,
 			capture: microphone.device,
@@ -230,7 +228,7 @@ async function open({
 	});
 	cleanups.push(async () => {
 		close();
-		await test.remove();
+		test.close();
 	});
 	await whispering.start();
 	return {
@@ -241,7 +239,6 @@ async function open({
 		microphone,
 		device,
 		test,
-		root: test.root,
 	};
 }
 
@@ -303,12 +300,7 @@ test('a choice is saved on this device, not in its files, and a new session star
 	await first.input.select(USB);
 
 	expect(device.store.saved).toEqual(USB);
-	// Nothing but the engine's own `.epicenter`, which its watcher stages in.
-	expect(
-		(
-			await readdir(join(first.root, 'device')).catch(() => [] as string[])
-		).filter((name) => name !== '.epicenter'),
-	).toEqual([]);
+	expect(first.test.outside.paths()).toEqual([]);
 	const second = await open({ device });
 	expect(second.input.choice).toEqual(USB);
 
@@ -677,7 +669,7 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 		const microphone = scriptedMicrophone();
 		const test = await openTestServices();
 		const { whispering, close } = await createTestWhispering({
-			client: test.device,
+			place: test.place,
 			services: {
 				...test.services,
 				capture: microphone.device,
@@ -685,7 +677,7 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 		});
 		cleanups.push(async () => {
 			close();
-			await test.remove();
+			test.close();
 		});
 		await whispering.start();
 		if (holding === 'test') await whispering.input.startTest();
@@ -707,12 +699,9 @@ test('closing releases a test’s microphone at once and leaves a recording to t
 		);
 		expect(whispering.input.test).toEqual({ phase: 'idle' });
 		await closing;
-		const audio = (
-			await readdir(join(test.root, 'device', 'recordings')).catch(
-				() => [] as string[],
-			)
-		).filter((name) => name.endsWith('.wav'));
-		expect(audio).toEqual([]);
+		expect(
+			test.outside.paths('recordings').filter((path) => path.endsWith('.wav')),
+		).toEqual([]);
 	}
 });
 
@@ -785,7 +774,7 @@ test('closing while a choice is being saved releases the microphone at once and 
 	const microphone = scriptedMicrophone();
 	const test = await openTestServices();
 	const { whispering, close } = await createTestWhispering({
-		client: test.device,
+		place: test.place,
 		services: {
 			...test.services,
 			capture: microphone.device,
@@ -794,7 +783,7 @@ test('closing while a choice is being saved releases the microphone at once and 
 	});
 	cleanups.push(async () => {
 		close();
-		await test.remove();
+		test.close();
 	});
 	await whispering.start();
 	const input = whispering.input;

@@ -27,9 +27,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createClient, custom, openAi } from '@epicenter/ai';
 import { agentMessageText, createConversation } from '@epicenter/ai/agent';
-import { createFolder } from '@epicenter/folder/core';
-import { openDevice } from '@epicenter/folder/node';
-import { Ok, unwrap } from 'wellcrafted/result';
+import { openFolder } from '@epicenter/folder';
+import { directory } from '@epicenter/folder/node';
 import { tutorOpening } from '../src/lib/chat/opening.js';
 import { vocab } from '../src/lib/contract.js';
 import { VOCAB_SYSTEM_PROMPT } from '../src/lib/data.js';
@@ -96,9 +95,8 @@ async function main(): Promise<void> {
 	await preflight();
 	const root = await mkdtemp(join(tmpdir(), 'vocab-smoke-'));
 	try {
-		const client = unwrap(await openDevice(vocab, { path: root }));
 		// The conversation reads the folder's messages as a page does.
-		const folder = createFolder(vocab, async () => Ok(client));
+		const folder = openFolder(vocab, directory(root));
 		const conversation = createConversation({
 			messages: folder.messages,
 			chat: 'smoke',

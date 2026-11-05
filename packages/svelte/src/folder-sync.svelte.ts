@@ -14,7 +14,7 @@ import { on } from 'svelte/events';
 /**
  * Call while a component initializes; it listens for the window's focus for
  * that component's life. `path` is the data folder's path as the shell named
- * it (`folder.displayPath`, or `displayPath(device)` for a client), and
+ * it (`folder.displayPath()`), and
  * `site` is the app's production site.
  */
 export function folderSync({ path, site }: { path: string; site: string }) {

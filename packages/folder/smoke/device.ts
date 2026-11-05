@@ -1,6 +1,7 @@
 /**
- * `openDevice` from `@epicenter/folder/browser` in real engines: OPFS through
- * the device's one Worker, in Playwright Chromium and WebKit. Run with Bun:
+ * A folder at this browser's storage (`home` from the web `@epicenter/folder`)
+ * in real engines: OPFS through the store's one Worker, in Playwright
+ * Chromium and WebKit. Run with Bun:
  *
  *   bun packages/folder/smoke/device.ts            # both engines
  *   bun packages/folder/smoke/device.ts webkit     # one

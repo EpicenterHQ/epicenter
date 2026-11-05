@@ -1,11 +1,7 @@
 /** Construct the real app over test files and test capabilities. */
-import type { Client } from '@epicenter/definition/contract';
-import { createFolder } from '@epicenter/folder/core';
-import { Ok } from 'wellcrafted/result';
-import {
-	type Whispering as WhisperingContract,
-	whispering as contract,
-} from './contract.js';
+import { openFolder } from '@epicenter/folder';
+import type { Place } from '@epicenter/folder/core';
+import { whispering as contract } from './contract.js';
 import type { Library } from './library.svelte.js';
 import type { TestCapabilities } from './services.test-support.js';
 import { headerStatus, ON_THIS_BROWSER } from './status.js';
@@ -16,16 +12,16 @@ export const headerLine = (library: Library) =>
 
 /**
  * Same construction as the app's root (`WhisperingApp`): Whispering and its
- * library over a folder of `client`, read through `reactive` as `app.ts`
- * reads its folder. The lists are followed as mounted pages follow them, so
+ * library over a folder opened at `place`, read through `reactive` as
+ * `app.ts` reads its folder. The lists are followed as mounted pages follow them, so
  * they list and hear changes.
  */
 export async function createTestWhispering({
 	services,
-	client,
+	place,
 }: {
 	services: TestCapabilities;
-	client: Client<WhisperingContract>;
+	place: Place;
 }) {
 	const { createWhispering } = await import('./whispering.svelte.js');
 	const { createLibrary } = await import('./library.svelte.js');
@@ -34,7 +30,8 @@ export async function createTestWhispering({
 		'../../../../packages/svelte/src/reactive.test-support.svelte.js'
 	);
 	const { reactive } = await import('@epicenter/svelte/reactive');
-	const folder = reactive(createFolder(contract, async () => Ok(client)));
+	const opened = openFolder(contract, place);
+	const folder = reactive(opened);
 	const whispering = createWhispering({ folder, ...services });
 	const files = filesOf(folder);
 	const library = createLibrary({ whispering, files });
@@ -56,6 +53,7 @@ export async function createTestWhispering({
 			followed.stop();
 			library.dispose();
 			whispering.dispose();
+			opened[Symbol.dispose]();
 		},
 	};
 }

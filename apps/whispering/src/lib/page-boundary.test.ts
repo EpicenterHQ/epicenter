@@ -93,24 +93,30 @@ test('the page imports no Node, Bun, or Tauri module', () => {
 
 test('the store is opened once, in app.ts, never over the account; nothing opens a repository', () => {
 	expect(callers('openFolder')).toEqual(['lib/app.ts']);
+	expect(callers('home')).toEqual(['lib/app.ts']);
 	// The build picks the store: this browser's on the web, the data folder
 	// on the desktop. Given an account, the web would open its repository.
-	expect(
-		files.find((file) => file.path === 'lib/app.ts')?.text,
-	).toContain('openFolder(whispering, { site: APPS.WHISPERING.url })');
+	expect(files.find((file) => file.path === 'lib/app.ts')?.text).toContain(
+		'openFolder(whispering, home({ site: APPS.WHISPERING.url }))',
+	);
 	for (const name of [
+		'createFolder',
 		'openDevice',
 		'openDataFolder',
 		'openAppData',
 		'openRemote',
 		'folderOf',
+		'directory',
+		'memory',
 	])
 		expect(callers(name)).toEqual([]);
+	// A page opens its folder at its home alone: a directory is a script's
+	// or a test's place, and memory a test's.
 	expect(
 		importers(
 			(specifier) =>
-				specifier === '@epicenter/folder/browser' ||
-				specifier === '@epicenter/folder/remote' ||
+				specifier === '@epicenter/folder/node' ||
+				specifier === '@epicenter/folder/memory' ||
 				specifier === '@epicenter/svelte/desktop-startup',
 		),
 	).toEqual([]);
@@ -136,7 +142,12 @@ test('the capabilities are made once, in app.ts, from the build’s leaves', () 
 		expect(importers((specifier) => specifier === seam)).toEqual([
 			`lib/app.ts imports ${seam}`,
 		]);
-	for (const name of ['connectAccount', 'openAi', 'modelChoices', 'localSpeech'])
+	for (const name of [
+		'connectAccount',
+		'openAi',
+		'modelChoices',
+		'localSpeech',
+	])
 		expect(callers(name)).toEqual(['lib/app.ts']);
 });
 

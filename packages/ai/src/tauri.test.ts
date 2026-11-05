@@ -2,9 +2,10 @@
  * Desktop Provider Key Tests
  *
  * A desktop app's connected endpoints (`createKeychainConnections`): the list
- * in `connections.md` of a real directory standing in for the AppData root
- * (`openDevice` from `@epicenter/folder/node`), each key in an in-memory
- * stand-in for the keychain. Then the shell's side as the page sees it: a
+ * in `connections.md` of a real directory standing in for the AppData root,
+ * read as the app reads it (`localNote` over a file, here one on disk in
+ * place of `localFile`), each key in an in-memory stand-in for the
+ * keychain. Then the shell's side as the page sees it: a
  * connection's fetch and the keychain, over a stand-in shell.
  *
  * Key behaviors:
@@ -23,13 +24,14 @@
  * - A page's keys go to the keychain by name
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TauriShell } from '@epicenter/account/tauri';
-import { defineContract } from '@epicenter/definition/contract';
-import { openDevice } from '@epicenter/folder/node';
-import { unwrap } from 'wellcrafted/result';
+import type { LocalFile } from '@epicenter/local';
+import { Ok, unwrap } from 'wellcrafted/result';
+import { localNote } from './local-note.js';
 import {
 	type ConnectionKeys,
 	connectionFetch,
@@ -38,10 +40,40 @@ import {
 	keychain,
 } from './tauri.js';
 
-/** An app's AppData contract, as an app adds the connections note to its own. */
-const settings = defineContract({
-	collections: { connections: connectionsCollection },
-});
+/**
+ * The file at `path` as `localFile` answers one: its text and version (the
+ * text's sha256), written only over the version read.
+ */
+function fileAt(path: string): LocalFile {
+	const listeners = new Set<() => void>();
+	const current = async () => {
+		const text = await readFile(path, 'utf8').catch(() => null);
+		return text === null
+			? null
+			: { text, version: createHash('sha256').update(text).digest('hex') };
+	};
+	return {
+		read: async () => Ok(await current()),
+		async write(text, over) {
+			const there = await current();
+			if ((there?.version ?? 'absent') !== over) return Ok('stale');
+			if (text === null) await rm(path, { force: true });
+			else await writeFile(path, text);
+			for (const listener of listeners) listener();
+			return Ok({ version: (await current())?.version ?? 'absent' });
+		},
+		subscribe(listener) {
+			listeners.add(listener);
+			return () => {
+				listeners.delete(listener);
+			};
+		},
+	};
+}
+
+/** The connections note in the directory at `root`, as the app reads it. */
+const connectionsAt = (root: string) =>
+	localNote(connectionsCollection, fileAt(join(root, 'connections.md')));
 
 const ENDPOINT = 'https://api.openai.com/v1';
 const roots: string[] = [];
@@ -81,10 +113,9 @@ async function open({
 } = {}) {
 	const path = root ?? (await mkdtemp(join(tmpdir(), 'ai-appdata-')));
 	if (root === undefined) roots.push(path);
-	const device = unwrap(await openDevice(settings, { path }));
 	const sent: string[] = [];
 	const connections = createKeychainConnections({
-		file: device.connections,
+		file: connectionsAt(path),
 		keys: keys.keys,
 		send: (id) => {
 			sent.push(id);
@@ -114,11 +145,8 @@ test('the list is connections.md at the top of the root, and the key is in the k
 			hasApiKey: true,
 		},
 	]);
-	// The note, beside the engine's own `.epicenter` (where saves stage).
-	expect((await readdir(root)).sort()).toEqual([
-		'.epicenter',
-		'connections.md',
-	]);
+	// The note alone: no key is written beside it.
+	expect(await readdir(root)).toEqual(['connections.md']);
 	const text = await note(root);
 	expect(text).toContain(ENDPOINT);
 	expect(text).toContain(id);
@@ -234,10 +262,10 @@ test('subscribers hear whether each key applies with the list; a change made to 
 	expect(heard.at(-1)).toEqual([true]);
 	await connections.update(id, { apiKey: '' });
 	const path = join(root, 'connections.md');
-	const other = unwrap(await openDevice(settings, { path: root }));
-	const read = unwrap(await other.connections.get({}));
+	const other = connectionsAt(root);
+	const read = unwrap(await other.get({}));
 	unwrap(
-		await other.connections.update(
+		await other.update(
 			{},
 			{
 				connections: read.connections.map((entry) => ({

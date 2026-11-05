@@ -65,7 +65,7 @@ const desktopLeaves = [
 ];
 /** What only the desktop build may carry from the shared packages. */
 const desktopPackages = [
-	'folder/src/open-folder.tauri.ts',
+	'folder/src/home.tauri.ts',
 	'recorder/src/tauri.ts',
 	'account/src/tauri.ts',
 	'ai/src/tauri.ts',
@@ -78,7 +78,7 @@ const desktopPackages = [
 const webPackages = [
 	'ai/src/device-settings.ts',
 	'local/src/browser.ts',
-	'folder/src/open-folder.ts',
+	'folder/src/home.ts',
 ];
 
 test(

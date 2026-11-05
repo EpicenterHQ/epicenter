@@ -1,7 +1,7 @@
 /**
  * Honeycrisp's state: its orders, and the actions over both collections, on
- * a stand-in client: a real device client (`@epicenter/folder/node`) in a
- * temporary directory, the same contract's client at the same paths, in
+ * a folder over a temporary directory (`directory` from
+ * `@epicenter/folder/node`), the contract's files at the same paths, in
  * place of the folder the page is given.
  *
  * Key behaviors:
@@ -19,11 +19,9 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Client } from '@epicenter/definition/contract';
-import { createFolder } from '@epicenter/folder/core';
-import { openDevice } from '@epicenter/folder/node';
-import { Ok, unwrap } from 'wellcrafted/result';
-import { type Honeycrisp, honeycrisp } from './contract.js';
+import { openFolder } from '@epicenter/folder';
+import { directory } from '@epicenter/folder/node';
+import { honeycrisp } from './contract.js';
 
 const { reactive } = await import('@epicenter/svelte/reactive');
 const { follow } = await import(
@@ -34,27 +32,26 @@ const { byName, createHoneycrisp, newestFirst, shownIn } = await import(
 	'./honeycrisp.svelte.js'
 );
 
-const folders: string[] = [];
+const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
-	await Promise.all(
-		folders.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-	);
+	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-/** A device client over a directory holding `files`. */
-async function deviceWith(files: Record<string, string>) {
+/**
+ * A directory holding `files`, and the folder over it, as `$lib/app` opens
+ * its own, read through `reactive`.
+ */
+async function folderWith(files: Record<string, string>) {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-honeycrisp-'));
-	folders.push(root);
+	cleanups.push(() => rm(root, { recursive: true, force: true }));
 	for (const [path, text] of Object.entries(files)) {
 		await mkdir(join(root, path, '..'), { recursive: true });
 		await writeFile(join(root, path), text);
 	}
-	return { root, client: unwrap(await openDevice(honeycrisp, { path: root })) };
+	const opened = openFolder(honeycrisp, directory(root));
+	cleanups.push(() => opened[Symbol.dispose]());
+	return { root, store: reactive(opened) };
 }
-
-/** The folder over a device client, as `$lib/app` opens its own, read through `reactive`. */
-const folderOver = (client: Client<Honeycrisp>) =>
-	reactive(createFolder(honeycrisp, async () => Ok(client)));
 
 /** A note in house style: `extra` holds the keys the contract orders before `createdAt`. */
 const note = (createdAt: string, extra = '') =>
@@ -72,14 +69,13 @@ async function until(done: () => boolean) {
 }
 
 test('notes sort newest first and folders by name', async () => {
-	const device = await deviceWith({
+	const { store } = await folderWith({
 		'notes/a.md': note('2026-10-31T00:00:00.000Z'),
 		'notes/b.md': note('2026-10-30T00:00:00.000Z'),
 		'notes/c.md': note('2026-10-29T00:00:00.000Z'),
 		'folders/w.md': folder('Work'),
 		'folders/h.md': folder('Home'),
 	});
-	const store = folderOver(device.client);
 	const shown = follow(() => ({
 		notes: store.notes
 			.items()
@@ -99,9 +95,9 @@ test('notes sort newest first and folders by name', async () => {
 });
 
 test('a new note is made in the folder shown, and opens ready to write in, once', async () => {
-	const device = await deviceWith({ 'folders/w.md': folder('Work') });
+	const { root, store } = await folderWith({ 'folders/w.md': folder('Work') });
 	// As the page composes it: the folder's own collections.
-	const app = createHoneycrisp(folderOver(device.client));
+	const app = createHoneycrisp(store);
 	app.showFolder('w');
 	const created = await app.createNote();
 	if (created.error !== null) throw created.error;
@@ -111,16 +107,15 @@ test('a new note is made in the folder shown, and opens ready to write in, once'
 	expect(app.takeNew(created.data.id)).toBe(true);
 	expect(app.takeNew(created.data.id)).toBe(false);
 	expect(
-		await readFile(join(device.root, `notes/${created.data.id}.md`), 'utf8'),
+		await readFile(join(root, `notes/${created.data.id}.md`), 'utf8'),
 	).toBe(note(created.data.createdAt, 'folderId: w\n'));
 });
 
 test('deleting a folder deletes its file alone; its notes keep naming it and show in All Notes', async () => {
-	const device = await deviceWith({
+	const { root, store } = await folderWith({
 		'folders/w.md': folder('Work'),
 		'notes/a.md': note('2026-10-31T00:00:00.000Z', 'folderId: w\n'),
 	});
-	const store = folderOver(device.client);
 	const app = createHoneycrisp(store);
 	const shown = follow(
 		() => [store.notes.items(), store.folders.items()] as const,
@@ -133,7 +128,7 @@ test('deleting a folder deletes its file alone; its notes keep naming it and sho
 	const [kept] = store.notes.items();
 	expect(kept?.folderId).toBe('w');
 	expect(kept && shownIn(app.filter, kept)).toBe(true);
-	expect(await readFile(join(device.root, 'notes/a.md'), 'utf8')).toBe(
+	expect(await readFile(join(root, 'notes/a.md'), 'utf8')).toBe(
 		note('2026-10-31T00:00:00.000Z', 'folderId: w\n'),
 	);
 	shown.stop();

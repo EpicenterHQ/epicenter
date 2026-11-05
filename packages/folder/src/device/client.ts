@@ -1,7 +1,9 @@
 /**
- * The typed client a contract derives (`Client<T>` from
- * `@epicenter/definition/contract`), over a device's files: what
- * `openDevice` returns from `/node` and `/browser`.
+ * The one typed client a contract derives (`Client<T>` from
+ * `@epicenter/definition/contract`), over any place's store: memory, this
+ * browser's storage, the desktop's folder, a directory, or the account's
+ * repository. A folder holds it (`openFolder`); nothing outside this
+ * package does.
  *
  * Every note this writes is in house style (decision 29): the contract's
  * keys first in its order, any other keys after them sorted, block YAML,
@@ -52,11 +54,11 @@ const READS_AT_ONCE = 8;
 /** The store under each client `createDeviceClient` made, for `storeOf`. */
 const stores = new WeakMap<object, DeviceStore>();
 
-/** The store under a client `openDevice` returned. */
+/** The store under a client `createDeviceClient` made. */
 export function storeOf(device: object): DeviceStore {
 	const store = stores.get(device);
 	if (store === undefined)
-		throw new Error('expected a client that openDevice returned');
+		throw new Error('expected a client that createDeviceClient made');
 	return store;
 }
 

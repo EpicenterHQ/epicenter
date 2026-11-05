@@ -1,8 +1,8 @@
 /**
  * Device Client Tests
  *
- * `openDevice` from `@epicenter/folder/node` is the typed client over a
- * directory: what an app writes there is what a desktop folder holds, so a
+ * The one typed client over a directory (`directory(path)` from
+ * `@epicenter/folder/node` opens a folder to it): what an app writes there is what a desktop folder holds, so a
  * miss here is a lost or clobbered file, or a note out of house style.
  *
  * Key behaviors:
@@ -20,10 +20,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { defineContract, type Version } from '@epicenter/definition/contract';
-import { Ok, unwrap } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { directoryClient } from '../directory.test-support.js';
 import { hashBytes } from '../hash.js';
-import { openDevice } from '../node.js';
+import { directory } from '../node.js';
+import { openFolder } from '../open-folder.js';
 import { createDeviceClient, storeOf } from './client.js';
 import type { DeviceStore } from './store.js';
 
@@ -52,7 +54,7 @@ async function setup() {
 	const parent = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
 	folders.push(parent);
 	const root = join(parent, 'data');
-	const device = unwrap(await openDevice(recorder, { path: root }));
+	const device = await directoryClient(recorder, root);
 	return {
 		root,
 		device,
@@ -284,10 +286,13 @@ test('a folder that cannot be made opens as Unreadable, not a throw', async () =
 	const { root, put } = await setup();
 	await put('file', 'not a directory');
 	const below = join(root, 'file', 'below');
-	const opened = await openDevice(recorder, { path: below });
-	expect(opened.error).toMatchObject({ name: 'Unreadable', folder: below });
-	const file = await openDevice(recorder, { path: join(root, 'file') });
-	expect(file.error?.name).toBe('Unreadable');
+	const opened = openFolder(recorder, directory(below));
+	expect(expectErr(await opened.recordings.list())).toMatchObject({
+		name: 'Unreadable',
+		folder: below,
+	});
+	const file = openFolder(recorder, directory(join(root, 'file')));
+	expect(expectErr(await file.recordings.list()).name).toBe('Unreadable');
 });
 
 test('a note that does not read is listed with its placeholders, text and version, and replace repairs it', async () => {

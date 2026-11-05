@@ -1,6 +1,6 @@
 /**
- * The folder `openFolder(contract)` returns, on every build (ADR-0766,
- * ADR-0767): handed over at once, already opening, with its lifecycle as
+ * The folder `openFolder(contract, place)` returns, on every build (ADR-0766,
+ * ADR-0767, ADR-0773): handed over at once, already opening, with its lifecycle as
  * synchronous state and its collections directly on it (`folder.todos`).
  *
  * - `state()` is `opening`, `open`, `failed` with the typed open error and
@@ -34,9 +34,10 @@
  * framework: `reactive(folder)` from `@epicenter/svelte/reactive` tracks the
  * reads as they are.
  *
- * This module is the same on every build; each build's `openFolder` hands
- * `createFolder` the open that build has (the shell's data folder, this
- * browser's storage, the account's copy, or memory under `test`).
+ * This module is the same on every build: `openFolder` hands `createFolder`
+ * the open of a place (the desktop's data folder, this browser's storage,
+ * the account's repository, a directory, or memory under `test`), as the
+ * typed client over that place's store.
  */
 import {
 	type Client,
@@ -283,46 +284,6 @@ export type Folder<TContract extends Contract> = FolderLifecycle & {
 		TContract['collections'][K]
 	>;
 };
-
-/**
- * What every build's `openFolder` takes. `site` is the app's production
- * site: on the desktop the folder's `AGENTS.md` links its published
- * contract, and on the web it names the account's repository. `account`
- * selects the account's copy on the web; the desktop opens its folder
- * whatever is passed, and Epicenter syncs it.
- */
-export type OpenFolderOptions = {
-	site: string;
-	/** Null or absent where the build has no account (`connectAccount()` on the desktop). */
-	account?: FolderAccount | null;
-};
-
-/**
- * The account a web folder opens the copy of: any `@epicenter/account`
- * auth client. The folder opens once it has an account, and keeps that
- * account for its life; a new account is a new page.
- */
-export type FolderAccount = {
-	state(): {
-		account?:
-			| {
-					readonly baseURL: string;
-					readonly signal: AbortSignal;
-					fetch(
-						input: Request | string | URL,
-						init?: RequestInit,
-					): Promise<Response>;
-			  }
-			| undefined;
-	};
-	subscribe(listener: () => void): () => void;
-};
-
-/** `openFolder` on every build: one signature, so either build's code typechecks against one. */
-export type OpenFolder = <TContract extends Contract>(
-	contract: TContract,
-	options?: OpenFolderOptions,
-) => Folder<TContract>;
 
 /** The lifecycle members, which no collection may be named. */
 const RESERVED = new Set([

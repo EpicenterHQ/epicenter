@@ -10,7 +10,7 @@
  * condition it is a folder in memory.
  */
 import { APPS } from '@epicenter/definition/site';
-import { openFolder } from '@epicenter/folder';
+import { home, openFolder } from '@epicenter/folder';
 import { reactive } from '@epicenter/svelte/reactive';
 import { connectAccount } from '#platform/account';
 import { todos } from './contract.js';
@@ -19,5 +19,5 @@ const signIn = connectAccount();
 
 export const account = signIn && reactive(signIn);
 export const folder = reactive(
-	openFolder(todos, { site: APPS.TODOS.url, account: signIn }),
+	openFolder(todos, home({ site: APPS.TODOS.url, account: signIn })),
 );

@@ -4,28 +4,28 @@
  * `fetch` is a stub. Nothing here reaches a network, a microphone, or a
  * provider.
  *
- * The files are the contract's client over a real directory
- * (`@epicenter/folder/node`), as the browser's OPFS holds them, at the same
- * paths.
+ * The files are a place in memory (`memory()` from `@epicenter/folder/memory`)
+ * holding the contract's files at the paths the browser's OPFS holds them:
+ * the app opens its folder there, the fixture device writes through a
+ * folder of its own there, and a test writes or refuses as another program
+ * through `memoryFiles`.
  *
  * The endpoint is a real `custom` endpoint over a plain function standing
  * where `fetch` would be (ADR-0757), so a test decides each answer and
  * counts each request while the request itself is built and read as in the
  * app.
  */
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { hosted, type LiveAccount, openAi } from '@epicenter/ai';
 import { createModelChoices, type SavedChoices } from '@epicenter/ai/choices';
 import {
 	createAiConnections,
 	customEndpointsOf,
 } from '@epicenter/ai/connections';
-import type { Client } from '@epicenter/definition/contract';
-import { openDevice } from '@epicenter/folder/node';
+import { openFolder } from '@epicenter/folder';
+import type { Folder } from '@epicenter/folder/core';
+import { memory, memoryFiles } from '@epicenter/folder/memory';
 import { audioDurationMs, RecorderError } from '@epicenter/recorder';
-import { Ok, type Result, unwrap } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import { extensionOf } from './audio-format.js';
 import type { CaptureDevice } from './capture.js';
 import { type Whispering, whispering } from './contract.js';
@@ -45,17 +45,18 @@ export const NO_INPUTS: CaptureDevice['inputs'] = {
 
 /**
  * A capture device that keeps the same fixture bytes as every recording,
- * under the fixture's own extension, written into `device` when it stops,
+ * under the fixture's own extension, written into `audio` when it stops,
  * over `NO_INPUTS`. `load` runs
  * at stop, so a missing or unreadable fixture fails that recording instead
  * of the session.
  */
 export function createFixtureDevice({
-	device,
+	audio,
 	name,
 	load,
 }: {
-	device: Client<Whispering>;
+	/** Whispering's audio files (`folder.audio`), as the microphone device takes them. */
+	audio: Folder<Whispering>['audio'];
 	name: string;
 	load: () => Promise<FixtureAudio>;
 }): CaptureDevice {
@@ -78,7 +79,7 @@ export function createFixtureDevice({
 						return RecorderError.Failed({ cause });
 					}
 					if (fixture.bytes.byteLength === 0) return RecorderError.Empty();
-					const written = await device.audio.create({
+					const written = await audio.create({
 						id,
 						ext,
 						bytes: fixture.bytes,
@@ -213,7 +214,7 @@ function memoryStorage() {
 export type TestCapabilities = Omit<WhisperingCapabilities, 'folder'>;
 
 /**
- * This browser's files in a temporary directory, and capabilities whose one
+ * This browser's files in a new place in memory, and capabilities whose one
  * endpoint is a saved connection answered by a stub `fetch`, chosen for
  * transcription and for text. Nothing reaches a network.
  */
@@ -221,10 +222,9 @@ export async function openTestServices({
 	transcribe,
 	transform,
 }: TestServicesOptions = {}) {
-	const root = await mkdtemp(join(tmpdir(), 'whispering-'));
-	const device = unwrap(
-		await openDevice(whispering, { path: join(root, 'device') }),
-	);
+	const place = memory();
+	// The capture device's own folder over the same files, as the app's is.
+	const files = openFolder(whispering, place);
 
 	const transformed: TransformedRequest[] = [];
 	const transcribed: TranscribedRequest[] = [];
@@ -301,7 +301,7 @@ export async function openTestServices({
 
 	const services: TestCapabilities = {
 		capture: createFixtureDevice({
-			device,
+			audio: files.audio,
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 		}),
@@ -317,9 +317,12 @@ export async function openTestServices({
 	};
 
 	return {
-		root,
-		/** This browser's files, as the contract's client. */
-		device,
+		/** Where this browser's files are: the app's folder opens here. */
+		place,
+		/** This browser's files, as another page of it opens them. */
+		files,
+		/** This browser's files as another program writes, reads, and refuses them. */
+		outside: memoryFiles(place),
 		services,
 		/** Every transformation request the endpoint stub received, in order. */
 		transformed,
@@ -330,9 +333,9 @@ export async function openTestServices({
 		connectionId,
 		/** This device's model choices, as another page of it would change them. */
 		choices,
-		/** Remove the directory. */
-		async remove() {
-			await rm(root, { recursive: true, force: true });
+		/** Close the files' folder. */
+		close() {
+			files[Symbol.dispose]();
 		},
 	};
 }

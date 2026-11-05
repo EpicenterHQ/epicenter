@@ -10,7 +10,7 @@
  * notes in. Under the `test` condition it is a folder in memory.
  */
 import { APPS } from '@epicenter/definition/site';
-import { openFolder } from '@epicenter/folder';
+import { home, openFolder } from '@epicenter/folder';
 import { reactive } from '@epicenter/svelte/reactive';
 import { connectAccount } from '#platform/account';
 import { honeycrisp } from './contract.js';
@@ -19,5 +19,5 @@ const signIn = connectAccount();
 
 export const account = signIn && reactive(signIn);
 export const folder = reactive(
-	openFolder(honeycrisp, { site: APPS.HONEYCRISP.url, account: signIn }),
+	openFolder(honeycrisp, home({ site: APPS.HONEYCRISP.url, account: signIn })),
 );

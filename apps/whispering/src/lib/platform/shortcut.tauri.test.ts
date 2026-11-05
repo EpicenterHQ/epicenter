@@ -1,8 +1,9 @@
 /**
  * The desktop's global shortcut (`openShortcut` in `shortcut.tauri.ts`) over the
- * data folder and this computer's `shortcuts.md`, both in memory under the
- * `test` condition (`openFolder` from `@epicenter/folder`, `localFile` from
- * `@epicenter/local`), with a stand-in for the shell's `set_shortcut`.
+ * data folder and this computer's `shortcuts.md`, both in memory (a
+ * `memory()` place from `@epicenter/folder/memory`, and `localFile` from
+ * `@epicenter/local` under the `test` condition), with a stand-in for the
+ * shell's `set_shortcut`.
  *
  * Key behaviors:
  * - The key resolves per note: the default, then the data folder's
@@ -17,6 +18,7 @@
  */
 import { afterEach, expect, mock, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder';
+import { memory } from '@epicenter/folder/memory';
 import { localFile } from '@epicenter/local';
 import { whispering } from '../contract.js';
 
@@ -60,7 +62,7 @@ const note = (key: string) => `---\ntoggleRecording: "${key}"\n---\n`;
 
 /** The shortcut over a new data folder and this computer's note, `shortcuts.md` written in each where given. */
 async function open({ data, mine }: { data?: string; mine?: string } = {}) {
-	const folder = openFolder(whispering);
+	const folder = openFolder(whispering, memory());
 	if (data) await folder.shortcuts.create({ toggleRecording: data });
 	if (mine) await here.write(note(mine), 'absent');
 	const shortcut = openShortcut(folder);

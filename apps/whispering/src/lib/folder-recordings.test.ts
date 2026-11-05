@@ -1,6 +1,6 @@
 /**
- * A recording's note over a real folder (`/node`'s device, the same client
- * the desktop window opens through the shell): written once at Stop, when
+ * A recording's note over a real folder (a `/node` directory, the same
+ * layout the desktop window opens through the shell): written once at Stop, when
  * its audio is at its path, and given on the next launch to audio a quit, a
  * crash, or a closed tab left without one, with the length recovery
  * answered, measured from its bytes when it answered none.
@@ -9,33 +9,41 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createFolder } from '@epicenter/folder/core';
-import { openDevice } from '@epicenter/folder/node';
+import { openFolder } from '@epicenter/folder';
+import type { Folder } from '@epicenter/folder/core';
+import { directory } from '@epicenter/folder/node';
 import type { Recorder } from '@epicenter/recorder';
-import { Ok, unwrap } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { whispering } from './contract.js';
+import { type Whispering, whispering } from './contract.js';
 import { finishCutOffRecordings, keepRecording } from './folder-recordings.js';
 import { createMicrophoneDevice } from './microphone.js';
 import { NO_INPUTS, toneWav } from './services.test-support.js';
 
-const folders: string[] = [];
+const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
-	for (const folder of folders.splice(0))
-		await rm(folder, { recursive: true, force: true });
+	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
+/** A temporary directory, and the folder the app writes a recording's note through over it. */
 async function folder() {
 	const path = await mkdtemp(join(tmpdir(), 'whispering-desktop-'));
-	folders.push(path);
+	cleanups.push(() => rm(path, { recursive: true, force: true }));
 	await mkdir(join(path, 'recordings'));
-	const device = unwrap(await openDevice(whispering, { path }));
-	// The app writes a recording's note through the folder over this directory.
-	return {
-		path,
-		device,
-		files: createFolder(whispering, async () => Ok(device)),
-	};
+	const files = openFolder(whispering, directory(path));
+	cleanups.push(() => files[Symbol.dispose]());
+	return { path, files };
+}
+
+/** Every recording note in `files`, read now. */
+const notesIn = async (files: Folder<Whispering>) =>
+	expectOk(await files.recordings.list()).items;
+
+/** The recording note `id` names, read now. */
+async function noteOf(files: Folder<Whispering>, id: string) {
+	const note = (await notesIn(files)).find((each) => each.id === id);
+	if (note === undefined) throw new Error(`no note for ${id}`);
+	return note;
 }
 
 const kept = (id: string, durationMs = 1000) => ({
@@ -68,11 +76,11 @@ const desktopRecover =
 		});
 
 test('Stop writes the note once, with its length, beside its audio', async () => {
-	const { path, device, files } = await folder();
+	const { path, files } = await folder();
 	const id = '20261031T093000000';
 	await writeFile(join(path, `recordings/${id}.webm`), 'placed by the shell');
 	expectOk(await keepRecording(files, kept(id, 1000.4)));
-	const note = expectOk(await device.recordings.get({ id }));
+	const note = await noteOf(files, id);
 	expect([note.title, note.durationMs]).toEqual(['Standup', 1000]);
 	// Plain Markdown beside the audio.
 	expect(await readFile(join(path, `recordings/${id}.md`), 'utf8')).toContain(
@@ -80,11 +88,11 @@ test('Stop writes the note once, with its length, beside its audio', async () =>
 	);
 	// A second note for the same id is refused, never written over the first.
 	expectErr(await keepRecording(files, { ...kept(id), title: 'Other' }));
-	expect(expectOk(await device.recordings.get({ id })).title).toBe('Standup');
+	expect((await noteOf(files, id)).title).toBe('Standup');
 });
 
 test('the next launch gives a cut-off recording its note, with the length recovery answered or read from its audio', async () => {
-	const { path, device, files } = await folder();
+	const { path, files } = await folder();
 	// The shell placed `cut` from `.epicenter/recordings` just now; bytes that
 	// read as no audio at all show its length is recover's, never read back.
 	const recover = async (unnamed: readonly string[]) => {
@@ -99,16 +107,12 @@ test('the next launch gives a cut-off recording its note, with the length recove
 	expect(
 		expectOk(await finishCutOffRecordings(files, { recover })).noted.sort(),
 	).toEqual(['cut', 'left']);
-	expect(expectOk(await device.recordings.get({ id: 'cut' }))).toMatchObject({
+	expect(await noteOf(files, 'cut')).toMatchObject({
 		title: 'Recovered recording',
 		durationMs: 2000,
 	});
-	expect(expectOk(await device.recordings.get({ id: 'left' })).durationMs).toBe(
-		3000,
-	);
-	expect(expectOk(await device.recordings.get({ id: 'done' })).title).toBe(
-		'Standup',
-	);
+	expect((await noteOf(files, 'left')).durationMs).toBe(3000);
+	expect((await noteOf(files, 'done')).title).toBe('Standup');
 	// Each has its note now, so the next launch makes none.
 	expect(
 		expectOk(await finishCutOffRecordings(files, { recover })).noted,
@@ -116,20 +120,18 @@ test('the next launch gives a cut-off recording its note, with the length recove
 });
 
 test('audio whose length does not read is still given a note, without a length', async () => {
-	const { path, device, files } = await folder();
+	const { path, files } = await folder();
 	await writeFile(join(path, 'recordings/odd.wav'), 'not a WAV');
 	expect(
 		expectOk(
 			await finishCutOffRecordings(files, { recover: desktopRecover([]) }),
 		).noted,
 	).toEqual(['odd']);
-	expect(
-		expectOk(await device.recordings.get({ id: 'odd' })).durationMs,
-	).toBeUndefined();
+	expect((await noteOf(files, 'odd')).durationMs).toBeUndefined();
 });
 
 test('recovery is asked about exactly the audio no note names, and names only what it answers', async () => {
-	const { path, device, files } = await folder();
+	const { path, files } = await folder();
 	const asked: (readonly string[])[] = [];
 	// The browser recorder's recovery: every one of `unnamed` no tab is
 	// writing, leaving out `writing`, whose Web Lock another tab holds.
@@ -169,10 +171,6 @@ test('recovery is asked about exactly the audio no note names, and names only wh
 		'recordings/cut.webm',
 		'recordings/writing.webm',
 	]);
-	expect(expectOk(await device.recordings.get({ id: 'cut' })).durationMs).toBe(
-		1500,
-	);
-	expect((await device.recordings.get({ id: 'writing' })).error?.name).toBe(
-		'NotFound',
-	);
+	expect((await noteOf(files, 'cut')).durationMs).toBe(1500);
+	expect((await notesIn(files)).map(({ id }) => id)).not.toContain('writing');
 });

@@ -35,12 +35,12 @@ import {
 	defineContract,
 	type NoteClient,
 } from '@epicenter/definition/contract';
-import { Ok, unwrap } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createDeviceClient } from './device/client.js';
 import type { DeviceStore } from './device/store.js';
+import { directoryClient } from './directory.test-support.js';
 import { createFolder } from './folder.js';
-import { openDevice } from './node.js';
 
 /** `client`, already open, as a folder of `contract`. */
 const over = <TContract extends Contract>(
@@ -74,7 +74,7 @@ async function folder() {
 	return {
 		root,
 		/** A client of the folder, as another tab or program would hold. */
-		open: async () => unwrap(await openDevice(todos, { path: root })),
+		open: () => directoryClient(todos, root),
 		text: (path: string) => readFile(join(root, path), 'utf8'),
 	};
 }

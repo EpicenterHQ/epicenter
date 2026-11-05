@@ -53,6 +53,9 @@ async function setup() {
 		entries,
 		/** The word as the list shows it. */
 		word: () => folder.lists.entries.get({ id }),
+		/** Refuse every write to the words until the returned undo. */
+		refuseEntries: () =>
+			folder.files.refuse('refused by the test', { under: 'entries' }),
 		id,
 		card,
 		target,
@@ -60,7 +63,7 @@ async function setup() {
 		async close() {
 			await unmount(mounted);
 			target.remove();
-			await folder[Symbol.asyncDispose]();
+			folder[Symbol.dispose]();
 		},
 	};
 }
@@ -72,7 +75,7 @@ test('note draft stays visible until save and then follows the row', async () =>
 	flushSync();
 	expect(note.value).toBe('clear');
 	await until(() => context.word()?.body === 'clear');
-	expect(await context.folder.text(`entries/${context.id}.md`)).toEndWith(
+	expect(context.folder.files.read(`entries/${context.id}.md`)).toEndWith(
 		'---\nclear',
 	);
 	flushSync();
@@ -82,15 +85,14 @@ test('note draft stays visible until save and then follows the row', async () =>
 
 test('typing again during a note save keeps the newer value', async () => {
 	const context = await setup();
-	const gate = Promise.withResolvers<void>();
-	context.folder.control.gate = gate.promise;
+	const release = context.folder.files.hold();
 	const note = noteOf(context.target);
 	type(note, 'first');
 	await Bun.sleep(10);
 	type(note, 'second');
 	flushSync();
 	expect(note.value).toBe('second');
-	gate.resolve();
+	release();
 	await until(() => context.word()?.body === 'second');
 	flushSync();
 	expect(note.value).toBe('second');
@@ -99,7 +101,7 @@ test('typing again during a note save keeps the newer value', async () => {
 
 test('a failed note keeps its typed text and can retry or discard', async () => {
 	const context = await setup();
-	context.folder.control.refuse = (collection) => collection === 'entries';
+	let undo = context.refuseEntries();
 	const note = noteOf(context.target);
 	type(note, 'failed text');
 	await until(
@@ -110,12 +112,12 @@ test('a failed note keeps its typed text and can retry or discard', async () => 
 	expect(context.target.textContent).toContain('Not saved:');
 	expect(context.target.textContent).toContain('Save again');
 	expect(context.word()?.body).toBe('');
-	context.folder.control.refuse = undefined;
+	undo();
 	click(context.target, 'Save again');
 	await until(() => context.word()?.body === 'failed text');
 	flushSync();
 	expect(context.target.textContent).not.toContain('Not saved:');
-	context.folder.control.refuse = (collection) => collection === 'entries';
+	undo = context.refuseEntries();
 	type(note, 'another attempt');
 	await until(
 		() => context.target.textContent?.includes('Not saved:') ?? false,
@@ -144,7 +146,7 @@ test('note and stage updates merge over one path', async () => {
 
 test('failed stage and delete commands show their errors', async () => {
 	const context = await setup();
-	context.folder.control.refuse = (collection) => collection === 'entries';
+	context.refuseEntries();
 	const errorToast = spyOn(toast, 'error');
 	try {
 		click(context.target, 'Understand');
@@ -171,6 +173,6 @@ test('Delete asks first; Cancel changes nothing, and confirming deletes the word
 	click(context.target, 'Delete');
 	await confirmationDialog.confirm();
 	expect(context.word()).toBeUndefined();
-	expect(await context.folder.files('entries')).toEqual([]);
+	expect(context.folder.files.paths('entries')).toEqual([]);
 	await context.close();
 });

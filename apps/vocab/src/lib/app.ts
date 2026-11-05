@@ -34,7 +34,7 @@ import {
 } from '@epicenter/ai';
 import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/ai/providers';
 import { APPS } from '@epicenter/definition/site';
-import { openFolder } from '@epicenter/folder';
+import { home, openFolder } from '@epicenter/folder';
 import { reactive } from '@epicenter/svelte/reactive';
 import { connectAccount } from '#platform/account';
 import { vocab } from './contract.js';
@@ -44,7 +44,7 @@ const signIn = connectAccount();
 
 export const account = reactive(signIn);
 export const folder = reactive(
-	openFolder(vocab, { site: APPS.VOCAB.url, account: signIn }),
+	openFolder(vocab, home({ site: APPS.VOCAB.url, account: signIn })),
 );
 
 /** Every model Vocab can reach. `hosted` reads the account at every use. */
