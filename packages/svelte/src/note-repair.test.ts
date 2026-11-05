@@ -34,7 +34,7 @@ async function until(check: () => boolean) {
 }
 
 test('problems follow the typed text, and Save repair writes it as typed until it reads', async () => {
-	const folder = openFolder(todos, home());
+	const folder = openFolder(todos, home({ site: 'https://todos.epicenter.so' }));
 	await memoryFiles(folder).write('todos/a.md', '---\ntitle: [Milk\n---\n');
 	const stop = folder.todos.subscribe(() => {});
 	await until(() => folder.todos.invalid().length === 1);
