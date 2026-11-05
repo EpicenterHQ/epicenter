@@ -188,7 +188,9 @@ describe('POST writes', () => {
 		const repo = await repository();
 		const take1 = await upload(repo, new TextEncoder().encode('take one'));
 		const take2 = await upload(repo, new TextEncoder().encode('take two'));
-		const first = await repo.write({ files: [{ path: 'r/a.m4a', lfs: take1 }] });
+		const first = await repo.write({
+			files: [{ path: 'r/a.m4a', lfs: take1 }],
+		});
 		const resent = await repo.write({
 			files: [{ path: 'r/a.m4a', lfs: take2 }],
 		});
@@ -197,7 +199,9 @@ describe('POST writes', () => {
 		]);
 		expect(await repo.show('r/a.m4a')).toContain(take2.oid);
 		expect(
-			(await box.ok(repo.gitDir, ['ls-tree', '--name-only', 'main', 'r/'])).trim(),
+			(
+				await box.ok(repo.gitDir, ['ls-tree', '--name-only', 'main', 'r/'])
+			).trim(),
 		).toBe('r/a.m4a');
 		expect(
 			await box.ok(repo.gitDir, ['show', `${first.body.commit}:r/a.m4a`]),
@@ -298,6 +302,59 @@ describe('POST writes', () => {
 			}),
 		).toBe(400);
 		expect(await repo.main()).toBe(ZERO_OID);
+	});
+
+	test('a create over nothing (base null) is refused where a file is, even one that raced it there', async () => {
+		const repo = await repository();
+		const audio = await upload(repo, new TextEncoder().encode('take'));
+		const landed = await repo.write({
+			files: [
+				{ path: 'c/a.md', base: null, text: note({ title: 'First' }, '') },
+				{ path: 'c/a.m4a', base: null, lfs: audio },
+			],
+		});
+		expect(landed.status).toBe(200);
+		const at = await repo.main();
+		for (const file of [
+			{ path: 'c/a.md', base: null, text: note({ title: 'First' }, '') },
+			{ path: 'c/a.m4a', base: null, lfs: audio },
+		]) {
+			const again = await repo.write({ files: [file] });
+			expect(again).toMatchObject({
+				status: 409,
+				body: { error: 'occupied', path: file.path },
+			});
+		}
+		expect(
+			(
+				await repo.write({
+					files: [{ path: 'c/a.md', base: null, delete: true }] as never,
+				})
+			).status,
+		).toBe(400);
+
+		// A reads main while c/b.md is free, then waits while B creates it, so
+		// A's swap is stale; its retry finds the file and lands nothing.
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const a = repo.write(
+			{
+				files: [{ path: 'c/b.md', base: null, text: note({ title: 'A' }, '') }],
+			},
+			() => held,
+		);
+		await Bun.sleep(50);
+		const b = await repo.write({
+			files: [{ path: 'c/b.md', base: null, text: note({ title: 'B' }, '') }],
+		});
+		release();
+		expect(b.status).toBe(200);
+		expect(await a).toMatchObject({ status: 409, body: { error: 'occupied' } });
+		expect(await repo.show('c/b.md')).toBe(note({ title: 'B' }, ''));
+		expect(await repo.main()).toBe(b.body.commit);
+		expect(at).not.toBe(b.body.commit);
 	});
 
 	test('two writes from one base both land: fields by key, body by line, history linear', async () => {
@@ -450,7 +507,9 @@ describe('POST writes', () => {
 		]);
 		expect(await repo.show('r/a.m4a')).toContain(mine.oid);
 		expect(
-			(await box.ok(repo.gitDir, ['ls-tree', '--name-only', 'main', 'r/'])).trim(),
+			(
+				await box.ok(repo.gitDir, ['ls-tree', '--name-only', 'main', 'r/'])
+			).trim(),
 		).toBe('r/a.m4a');
 		expect(
 			await box.ok(repo.gitDir, ['show', `${earlier.body.commit}:r/a.m4a`]),
