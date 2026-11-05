@@ -62,6 +62,7 @@ import {
 import { type } from 'arktype';
 import type { Context } from 'hono';
 import { every } from 'hono/combine';
+import { compress } from 'hono/compress';
 import pg from 'pg';
 import { buildFirstPartyClients } from './worker/oauth-registrations.js';
 import { buildEpicenterTrustedOrigins } from './worker/trusted-origins.js';
@@ -234,6 +235,14 @@ export async function startBunApiServer(): Promise<void> {
 	const lfsStore = env.LFS_STORE_ROOT
 		? createDiskLfsStore({ root: env.LFS_STORE_ROOT })
 		: null;
+	// Cloudflare's edge compresses the Worker's JSON replies; this host has
+	// no edge, so it compresses the repository's own: the listing and reads
+	// a web page takes at connect are megabytes of notes uncompressed.
+	// Hono's content-type filter leaves Git packs and LFS objects as sent.
+	app.use(
+		`${new URL(audiences.git).pathname.replace(/\/$/, '')}/*`,
+		compress(),
+	);
 	mountGitHost(app, {
 		setup: cloudContext,
 		resolveHost: () => gitHost,

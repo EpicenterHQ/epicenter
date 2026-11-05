@@ -73,6 +73,11 @@ export const MAX_WRITE_BYTES = 16 * 1024 * 1024;
 const MAX_ATTEMPTS = 12;
 const decoder = new TextDecoder();
 
+/**
+ * A JSON reply, compressed on its way out by the host: Cloudflare's edge for
+ * the Worker, `compress()` for the Bun entry. Both compress only a
+ * compressible type, and neither touches a reply marked `no-transform`.
+ */
 const json = (body: unknown, status = 200) =>
 	new Response(JSON.stringify(body), {
 		status,
