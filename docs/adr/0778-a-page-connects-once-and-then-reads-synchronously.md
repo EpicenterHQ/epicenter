@@ -4,7 +4,7 @@
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0777](0777-a-capability-has-no-ready-promise.md) at "Its reads answer at every moment, from what it has so far": a read of stored data answers after the page has connected, and nothing renders before; [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) at a collection's `loading()` staying "until listings are made per folder": they are, and it goes; [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) at a capability loading on its own: a page's stores load in one connection.
 - **Relates:** [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) (every place is a store), [ADR-0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) and [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (AppData and credentials), [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) (the web is online).
-- **Unbuilt:** all of it: the connection (subscribe, snapshot, buffered changes applied by version, a rescan diffed in); one replica per folder fed by changed paths; the settings store over AppData on the desktop (the shell its only writer, pushing to every window) and `localStorage` on the web; `<WhenOpen>` waiting on the connection and showing why after a moment; deleting `loading()` on collections, choices and connections, stand-in defaults, the conversation's `ready`, `listed` and `Unlisted`, the desktop account's signed-out stand-in, and Whispering's `start()` gate; secrets read by the action that uses them, with each connection's key binding in `connections.md` and the account's identity in AppData; the server answering a snapshot in one request; a first-paint measurement at about 5,000 recordings and on a remote folder over a slow link.
+- **Unbuilt:** all of it: `connect` in place of every store's `watch`, with arming before listing and per-path order in the page; the server's ordered pushes and one-request snapshot; the conformance suite over every store; `FolderNotOpen`; one replica per folder fed by changed paths; the settings store over AppData on the desktop (the shell its only writer, pushing to every window) and `localStorage` on the web; `<WhenOpen>` waiting on the connection and showing why after a moment; deleting `loading()` on collections, choices and connections, stand-in defaults, the conversation's `ready`, `listed` and `Unlisted`, the desktop account's signed-out stand-in, and Whispering's `start()` gate; secrets read by the action that uses them, with each connection's key binding in `connections.md` and the account's identity in AppData; the server answering a snapshot in one request; a first-paint measurement at about 5,000 recordings and on a remote folder over a slow link.
 
 ## Context
 
@@ -27,25 +27,62 @@ synchronously; it listed each collection again whenever anything changed.
 ## Decision
 
 **A page has one asynchronous moment: connecting to its stores.** At start
-the page connects to its folder and to this computer's settings. Each store
-answers with a snapshot and then streams what changes; the page subscribes
-first, takes the snapshot, and applies the changes that arrived meanwhile
-by version, so nothing in between is lost or applied twice. A rescan (a
-watcher that could not say what changed) is diffed into what the page holds
-without showing it empty. A reload connects again.
+the page connects to its folder and to this computer's settings. A reload
+connects again. Every store answers the same internal contract:
 
-**`<WhenOpen>` waits for the connection, and then every read of stored data
-is synchronous.** Nothing that reads a store renders before it, so no read
-answers a stand-in. `loading()` goes from collections, model choices and
-connections, and with it the conversation's `ready`, `listed` and
-`Unlisted`, the desktop account's signed-out stand-in, and Whispering's
-`start()` gate. While the folder cannot be reached, the spinner says why
-after a moment (`unavailable()`).
+```ts
+type FileState =
+	| { path: string; version: Version; size: number; text?: string } // text where the file is not Git LFS
+	| { path: string; version: null }; // gone
+type Heard =
+	| { paths: readonly string[] } // read these again
+	| { everything: true } // the store cannot say what changed: take a new snapshot
+	| { files: readonly FileState[] }; // the store already knows (the server's push)
+
+interface Store {
+	/** Answers once hearing is armed and a snapshot was taken after it. */
+	connect(
+		hear: (heard: Heard) => void,
+		scope: { under: readonly string[] },
+	): Promise<{ files: FileState[]; close(): void }>;
+	read(path: string): Promise<{ bytes: Uint8Array; version: Version } | null>;
+	write(path: string, bytes: Uint8Array | null, over: Version | 'absent'): Promise<{ landed: Version | null } | 'stale'>;
+	append?(path: string, bytes: Uint8Array, options: { create: boolean }): Promise<'landed' | 'stale'>;
+}
+```
+
+A store only says what to read again; it promises a hint arrives after the
+change can be read. The page keeps order itself: reads and writes of one
+path run one at a time, in the order they began, so a later read of a path
+is never older than an earlier one, and paths heard while connecting are
+read again once the snapshot is in. No store keeps a cursor for the page.
+The server alone orders its changes, along `main`: each push names the
+commit it starts from and the one it ends at, and the page applies it only
+when it starts from the commit the page holds, and otherwise takes a new
+snapshot; pushes to `main` are fast-forwards, so the change between two
+commits is defined. The snapshot is the first message on the same
+connection. A store's echo of the page's own write is read again like any
+other change. A snapshot taken for `everything` is diffed into what the
+page holds, without showing it empty. One conformance suite runs over every
+store: arming before listing, a write outside the page heard and then read
+new, and a write racing a read of the same path.
+
+**`<WhenOpen>` waits for every store the page connects to, and then every
+read of stored data is synchronous.** Nothing that reads a store renders
+before it, so no read answers a stand-in. A read of a store before it has
+connected throws `FolderNotOpen`, a mistake in the code that made it, so
+nothing outside a page can read a stand-in either. `loading()` goes from
+collections, model choices and connections, and with it the conversation's
+`ready`, `listed` and `Unlisted`, the desktop account's signed-out stand-in,
+and Whispering's `start()` gate. A spinner shows only after about 150 ms,
+and says why when the folder cannot be reached (`unavailable()`).
 
 **One replica per folder, fed by the paths that changed.** The page holds
-every note of the folder and the path, version and size of every other
-file, never their bytes; a change re-reads only its paths. The server
-answers a folder's snapshot in one request.
+the text of every file in the contract's directories that is not Git LFS,
+and the path, version and size of every other file, never their bytes; a
+change re-reads only its paths. A note is parsed against the contract when
+its collection is first read. The server answers a folder's snapshot in
+one request, kept per tree.
 
 **This computer's settings are a store.** On the desktop they are AppData
 files, and the shell is their only writer, pushing every change to every
@@ -81,4 +118,24 @@ connection, calls an action, and the action waits for what it needs.
 - The page holds the folder's notes in memory: fine at personal scale.
 - A keychain prompt comes with the first request that needs a key, and a
   refusal fails that request.
-- Test stores answer a snapshot and then stream changes.
+- Test stores answer a snapshot and then stream changes, and pass the
+  same conformance suite as every other store.
+- The desktop's echo of the page's own write costs one read.
+
+## Considered alternatives
+
+- **A cursor in every store** (a commit, a watcher's sequence, a counter).
+  The desktop watcher has no sequence and the browser's storage no counter
+  shared across tabs; ordering each path's reads and writes gives the same
+  guarantee without inventing either. The server keeps its commits, inside
+  its own store.
+- **One wire protocol that every place serves**, so the page has one store
+  client. It removes about 300 lines of page-side code for four new
+  servers; Tauri's custom protocol answers a whole body and cannot stream
+  the changes; a loopback port is a new way into the folder; and the rules
+  that matter (a create where nothing is, a write over the version read)
+  stay one implementation per place. What it would make possible, a program
+  reaching a running app, ADR-0762 refuses.
+- **A snapshot the desktop shell serves as a blocking script**, so the
+  desktop has no wait at all. A second path to keep in order with the
+  change stream, to save milliseconds the web cannot save.
