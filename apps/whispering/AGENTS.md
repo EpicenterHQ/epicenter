@@ -12,7 +12,7 @@ Signing in with Epicenter is optional and grants capabilities only. Read
 ## Constraints
 
 - **One store, chosen in one place.** `src/lib/app.ts` opens it,
-  `openFolder(whispering, { site })`, which the build picks (this browser's
+  `openFolder(whispering, home({ site }))`, whose place the build picks (this browser's
   storage on the web, the data folder on the desktop, memory under `test`),
   and `src/routes/(app)/+layout.svelte` renders the app over it with
   `<WhenOpen>`. Components read through the library (`getLibrary`) and edit
@@ -25,8 +25,8 @@ Signing in with Epicenter is optional and grants capabilities only. Read
   not `$lib`, so `src/lib/platform/platform.test.ts` can bundle them.
 - **Sign-in grants capabilities, never storage.** It asks for the API
   audience and `ai` only (`src/lib/platform/account.ts`), and `app.ts`
-  gives `openFolder` no account. Do not add a Git
-  audience, a `folders:*` scope, `openRemote`, an uploader, an
+  gives `home` no account. Do not add a Git
+  audience, a `folders:*` scope, an uploader, an
   outbox, a cache of uploaded audio, a repository view, or a switcher.
   Nothing a sign-in or sign-out does touches the files.
   `src/lib/page-boundary.test.ts` enforces this; keep it passing.
@@ -93,6 +93,6 @@ and `bun run test:e2e` (Playwright in Chromium and WebKit over the local
 stack; port 1420 must be free). `bun run test:postgres` checks the sign-in
 against a real authorization server. Unit tests run under the `test`
 condition, where `app.ts`'s folder and this computer's files are memory;
-Whispering's own tests open a `/node` device client over a temporary
-directory and a folder and library over it. Only the
+Whispering's own tests open a place in memory (`memory()` from
+`@epicenter/folder/memory`) and a folder and library over it. Only the
 end-to-end suite, or using the app, establishes that it works in a browser.

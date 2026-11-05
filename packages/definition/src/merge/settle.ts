@@ -1,8 +1,7 @@
 /**
- * Settling one path where two histories meet: the one producer of what
- * happened to a file, used by the server when a web write lands on a moved
- * `main` and by the desktop merge driver when `epicenter sync` merges. It
- * returns the text, and whether it wrote a conflict block.
+ * Settling one note where two histories meet: what the desktop merge driver
+ * writes when `epicenter sync` merges. It returns the text, and whether it
+ * wrote a conflict block. The server never merges (ADR-0773).
  *
  * Every conflict is text: overlaps are conflict blocks. A header key
  * both sides set takes the later write's value, `incoming`'s (the write
@@ -80,8 +79,8 @@ export function settlePointer(
  *
  * Whatever settle writes is in house style (decision 29): `keys`, the
  * contract's field order, first, then any other key sorted. Without `keys`
- * (the server, which holds no contract) a note keeps the key order the
- * merge gave it, and only its values are formatted. A note whose header
+ * a note keeps the key order the merge gave it, and only its values are
+ * formatted. A note whose header
  * does not parse is left as merged, for a person to repair. Where nothing
  * is written (`current` stands), `current` is returned as it was.
  */

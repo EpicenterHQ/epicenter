@@ -1,8 +1,8 @@
 # Epicenter architecture
 
 Epicenter apps edit ordinary files through their file contract: a published
-layout of notes and files that `openDevice` and `openRemote` from
-`@epicenter/folder` turn into a typed client
+layout of notes and files that `openFolder` from `@epicenter/folder` opens
+as a folder of the contract's collections
 ([ADR-0700](adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 A contract's schemas interpret source content; a note that does not fit
 reads as invalid, with its text kept for repair.
@@ -15,17 +15,22 @@ This page maps the current implementation. Read the
 ## Opening an app's files
 
 ```ts
-const device = await openDevice(todosContract);
-if (device.error !== null) throw device.error;
+export const folder = openFolder(todos, home({ site: APPS.TODOS.url, account }));
 ```
 
-A browser page keeps its files in the origin's private file system
-(`@epicenter/folder/browser`); a Bun process names a directory
-(`@epicenter/folder/node`); a desktop window opens a root the shell lets it
-reach (`@epicenter/folder/tauri`); an online page opens the signed-in
-person's repository (`openRemote`). Opening needs no Git repository or
-`epicenter.json`, and it writes no authored file. A refusal is returned to
-the caller; another store is never opened in its place.
+An app opens its folder at a place, and the folder opens at once
+([ADR-0773](adr/0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md)).
+`home` is the app's own place, which the build picks: a desktop window's
+data folder, the `Data` root the shell names; a browser page's origin
+private file system with no account; the signed-in person's repository
+with one; and memory under the `test` condition. A Bun process or script
+names a directory (`directory(path)` from `@epicenter/folder/node`).
+Opening needs no Git repository or `epicenter.json`; the only file it writes
+is a desktop data folder's `AGENTS.md`, whose Epicenter block and contract
+link it keeps current
+([ADR-0772](adr/0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md)).
+A refusal is the folder's failed state (`folder.state()`, with `retry()`);
+another store is never opened in its place.
 
 ## Editing and saving
 
@@ -73,7 +78,7 @@ makes that folder when nothing is there
 ([ADR-0725](adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md),
 [ADR-0726](adr/0726-an-apps-path-is-its-claim.md)).
 
-Each window owns its clients and the edits of its mounted editors. The
+Each window owns its folder and the edits of its mounted editors. The
 shell owns which roots a page reaches and atomic file publication. A window closes
 at once and Quit quits, without waiting for the page: a local write still in
 flight then is a small, rare loss at the edge

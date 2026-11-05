@@ -46,7 +46,7 @@ async function setup(initial: Record<string, string>) {
 		async [Symbol.asyncDispose]() {
 			await unmount(mounted);
 			target.remove();
-			await folder[Symbol.asyncDispose]();
+			folder[Symbol.dispose]();
 		},
 	};
 }
@@ -67,7 +67,7 @@ test('a broken word is repaired as text and shows as a word again', async () => 
 	expect(target.textContent).toContain('This text reads.');
 	click(target, 'Save repair');
 	await until(() => entries.repair.open === undefined);
-	expect(await folder.text('entries/broken.md')).toBe(word('lucid', 'clear'));
+	expect(folder.files.read('entries/broken.md')).toBe(word('lucid', 'clear'));
 	expect(entries.repairs).toEqual([]);
 	expect(entries.words[0]).toMatchObject({ id: 'broken', note: 'clear' });
 	flushSync();
@@ -92,14 +92,14 @@ test('switching repairs shows the selected note’s text', async () => {
 	expect(context.textOf('entries/a.md')).toBeNull();
 	expect(context.textOf('entries/b.md')?.value).toBe('broken b');
 	// Nothing typed is written until it is saved.
-	expect(await context.folder.text('entries/a.md')).toBe('broken a');
+	expect(context.folder.files.read('entries/a.md')).toBe('broken a');
 });
 
 test('a note deleted elsewhere while open says so, and the card closes', async () => {
 	await using context = await setup({ 'entries/broken.md': 'broken' });
 	context.entries.repair.start('broken');
 	flushSync();
-	const other = await context.folder.other();
+	const other = context.folder.other();
 	const listed = await other.entries.list();
 	const broken = listed.data?.invalid[0];
 	if (broken?.id !== 'broken') throw new Error('the broken note is not listed');

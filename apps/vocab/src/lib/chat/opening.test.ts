@@ -1,6 +1,6 @@
 /**
  * Tutor opening tests.
- * Real conversations over Vocab's notes in a stand-in client's folder add a
+ * Real conversations over Vocab's notes in a folder in memory add a
  * transient opening prompt without saving a learner turn, do not repeat on
  * remount, and discard a stopped partial opening before retry.
  */
@@ -47,7 +47,7 @@ function open(
 }
 
 test('empty tutor opening supplies model content without storing a learner message or restarting on remount', async () => {
-	await using folder = await openVocabFolder();
+	using folder = await openVocabFolder();
 	const requests: ChatRequest[] = [];
 	const respond = (request: ChatRequest) => {
 		requests.push(request);
@@ -63,7 +63,7 @@ test('empty tutor opening supplies model content without storing a learner messa
 	expect(chat.snapshot().messages.map((message) => message.role)).toEqual([
 		'assistant',
 	]);
-	expect(await folder.files('messages')).toHaveLength(1);
+	expect(folder.files.paths('messages')).toHaveLength(1);
 	chat[Symbol.dispose]();
 	const reopened = open(folder, respond);
 	await reopened.ready;
@@ -75,7 +75,7 @@ test('empty tutor opening supplies model content without storing a learner messa
 });
 
 test('stopped opening saves no partial answer and retries from empty history', async () => {
-	await using folder = await openVocabFolder();
+	using folder = await openVocabFolder();
 	let calls = 0;
 	const respond = (_request: ChatRequest, signal: AbortSignal | undefined) => {
 		calls++;
@@ -103,7 +103,7 @@ test('stopped opening saves no partial answer and retries from empty history', a
 	while (first.snapshot().streaming === null) await Bun.sleep(1);
 	first.stop();
 	await settle(first);
-	expect(await folder.files('messages')).toEqual([]);
+	expect(folder.files.paths('messages')).toEqual([]);
 	first[Symbol.dispose]();
 	const reopened = open(folder, respond);
 	reopened.retry();

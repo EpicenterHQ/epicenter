@@ -84,7 +84,8 @@ shared recovery screen with Retry. The files remain when the app is removed.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
-(`openFolder(honeycrisp, { site })`, whose `tauri` leaf opens the Data root)
+(`openFolder(honeycrisp, home({ site, account }))`, whose desktop `home` is the
+Data root)
 with no sign-in: Honeycrisp
 makes no inference calls, and Epicenter can keep the folder's local history.
 Its header says "On this computer" or "Kept by Epicenter" once the folder is
@@ -92,7 +93,7 @@ enrolled (asked again each time the window gains focus), offers **Set up in
 Epicenter** until then (`syncWithEpicenter({ contract })`, the
 contract at `APPS.HONEYCRISP.url`'s `contract.json`), and shows the shell's folder path in the status details. Closing the window or quitting does not wait.
 
-The build picks the folder: `openFolder` from `@epicenter/folder` resolves
+The build picks the folder: `home` from `@epicenter/folder` resolves
 to its desktop leaf under the `tauri` condition that `desktopVariant()` in
 `vite.config.ts` turns on, and to the web leaf otherwise. Two things are
 Honeycrisp's own and differ by build, through `#platform/*` seams
@@ -130,8 +131,8 @@ change to other keys is carried over; their change to a key changed here
 change from elsewhere to the body while nothing is waiting is applied to the
 open editor as the smallest edits, outside Undo, so the cursor stays.
 
-When two writers' edits of a body overlap in the repository, the merge writes
-a conflict block into the note. The editor shows each block as a card with
+When two computers' edits of a body overlap, the merge that `epicenter sync`
+runs writes a conflict block into the note; the server never merges. The editor shows each block as a card with
 Keep this, Keep that and Keep both; choosing is one edit, and Undo brings the
 block back.
 
@@ -163,7 +164,7 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 ```text
 src/lib/app.ts                 the page's values, each read through reactive:
                                account (#platform/account) and
-                               folder = reactive(openFolder(honeycrisp, { site, account }));
+                               folder = reactive(openFolder(honeycrisp, home({ site, account })));
                                editing it, or what it imports, reloads the page
 routes/+layout.svelte          every page: the chrome
 routes/(app)/+layout.svelte    signed out on the web: SignIn; otherwise
@@ -203,16 +204,17 @@ in, and a new account is a new page (sign-in returns through
 ## Tests
 
 ```sh
-bun run --cwd apps/honeycrisp test        # contract, state over a stand-in client, the editor over jsdom, both builds' seams
+bun run --cwd apps/honeycrisp test        # contract, state over a stand-in folder, the editor over jsdom, both builds' seams
 bun run --cwd apps/honeycrisp typecheck   # the web and the desktop leaves
 cargo test -p honeycrisp -p epicenter-standalone   # the desktop shell: capability, identity, the data folder, Quit
 bun x playwright test -c apps/honeycrisp/playwright.config.ts                    # both engines
 bun x playwright test -c apps/honeycrisp/playwright.config.ts --project=webkit   # one
 ```
 
-The unit tests run the state and the editor over a stand-in client: a
-folder client (`@epicenter/folder/node`) in a temporary directory, the same
-contract at the same paths, in place of the repository. `bun run test`
+The unit tests run the state and the editor over a stand-in folder: the
+contract's folder at a temporary directory (`directory` from
+`@epicenter/folder/node`), the same files at the same paths, in place of
+the repository. `bun run test`
 passes `--conditions=test`, so anything that imports `$lib/app.js` gets a
 folder in memory and a signed-out account.
 

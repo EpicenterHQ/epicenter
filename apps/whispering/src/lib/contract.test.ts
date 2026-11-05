@@ -9,8 +9,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { compileContract } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import { checkFiles, openDevice } from '@epicenter/folder/node';
-import { unwrap } from 'wellcrafted/result';
+import { openFolder } from '@epicenter/folder';
+import { checkFiles, directory } from '@epicenter/folder/node';
 import { expectOk } from 'wellcrafted/testing';
 import { whispering } from './contract.js';
 
@@ -33,19 +33,20 @@ test('the contract compiles', () => {
 test('the files Whispering writes fit its contract with no issues', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'whispering-contract-'));
 	cleanups.push(() => rm(root, { recursive: true, force: true }));
-	const device = unwrap(await openDevice(whispering, { path: root }));
+	const folder = openFolder(whispering, directory(root));
+	cleanups.push(async () => folder[Symbol.dispose]());
 	const at = new Date('2026-10-31T09:30:00.000Z');
 	const id = timeId(at);
 	// A recording, as Stop keeps it: its audio, then its note.
 	expectOk(
-		await device.audio.create({
+		await folder.audio.create({
 			id,
 			ext: 'm4a',
 			bytes: new Uint8Array([1, 2, 3]),
 		}),
 	);
 	expectOk(
-		await device.recordings.create({
+		await folder.recordings.create({
 			id,
 			title: 'Standup',
 			recordedAt: at.toISOString(),
@@ -54,7 +55,7 @@ test('the files Whispering writes fit its contract with no issues', async () => 
 	);
 	const transcription = timeId();
 	expectOk(
-		await device.transcriptions.create({
+		await folder.transcriptions.create({
 			id: transcription,
 			recordingId: id,
 			createdAt: new Date().toISOString(),
@@ -65,7 +66,7 @@ test('the files Whispering writes fit its contract with no issues', async () => 
 	);
 	const recipe = timeId();
 	expectOk(
-		await device.transformations.create({
+		await folder.transformations.create({
 			id: recipe,
 			title: 'Clean up',
 			model: null,
@@ -83,14 +84,14 @@ test('the files Whispering writes fit its contract with no issues', async () => 
 		body: 'A steady tone.\n',
 	};
 	expectOk(
-		await device.transformation_runs.create({
+		await folder.transformation_runs.create({
 			id: timeId(),
 			recordingId: id,
 			transcriptionId: transcription,
 			...run,
 		}),
 	);
-	expectOk(await device.text_runs.create({ id: timeId(), ...run }));
+	expectOk(await folder.text_runs.create({ id: timeId(), ...run }));
 
 	const checked = expectOk(await checkFiles(whispering, { path: root }));
 	expect(checked.issues).toEqual([]);

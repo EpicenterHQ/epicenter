@@ -7,7 +7,7 @@
  * - `folder` is the one store of the build: this browser's storage on the
  *   web, for good, and the data folder on the desktop; memory under the
  *   `test` condition. It is never the account's: signing in grants
- *   capabilities, never storage (ADR-0700), so `openFolder` is given no
+ *   capabilities, never storage (ADR-0700), so its `home` is given no
  *   account.
  * - `account` is the optional sign-in with Epicenter, for hosted
  *   transcription and AI alone.
@@ -20,12 +20,12 @@
  *   `'chat'`.
  * - `speech` is transcription in this app's process on the desktop, null on
  *   the web: the handle `ai` merges and Settings administers.
- * - `recorder` records from the microphone into `folder`, as it records.
+ * - `recorder` records from the microphone into `folder.audio`, as it records.
  * - `shortcut` is the desktop's global shortcut, null on the web.
  */
 import { customEndpoints, hosted, modelChoices, openAi } from '@epicenter/ai';
 import { APPS } from '@epicenter/definition/site';
-import { openFolder } from '@epicenter/folder';
+import { home, openFolder } from '@epicenter/folder';
 import { reactive } from '@epicenter/svelte/reactive';
 import { localSpeech } from '@epicenter/transcription';
 import { connectAccount } from '#platform/account';
@@ -38,7 +38,7 @@ import { whispering } from './contract.js';
 import { createMicrophoneDevice } from './microphone.js';
 
 const signIn = connectAccount();
-const files = openFolder(whispering, { site: APPS.WHISPERING.url });
+const files = openFolder(whispering, home({ site: APPS.WHISPERING.url }));
 const held = openShortcut(files);
 
 export const account = reactive(signIn);
@@ -48,5 +48,8 @@ export const ai = reactive(
 	openAi([hosted(signIn), customEndpoints(), localModelServers(), speech]),
 );
 export const choices = reactive(modelChoices<'transcribe' | 'chat'>());
-export const recorder = createMicrophoneDevice({ folder, recorder: microphone });
+export const recorder = createMicrophoneDevice({
+	files: folder.audio,
+	recorder: microphone,
+});
 export const shortcut = held && reactive(held);

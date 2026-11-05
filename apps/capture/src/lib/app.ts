@@ -10,7 +10,7 @@
  * Under the `test` condition it is a folder in memory.
  */
 import { APPS } from '@epicenter/definition/site';
-import { openFolder } from '@epicenter/folder';
+import { home, openFolder } from '@epicenter/folder';
 import { reactive } from '@epicenter/svelte/reactive';
 import { connectAccount } from '#platform/account';
 import { capture } from './model/index.js';
@@ -19,5 +19,5 @@ const signIn = connectAccount();
 
 export const account = signIn && reactive(signIn);
 export const folder = reactive(
-	openFolder(capture, { site: APPS.CAPTURE.url, account: signIn }),
+	openFolder(capture, home({ site: APPS.CAPTURE.url, account: signIn })),
 );

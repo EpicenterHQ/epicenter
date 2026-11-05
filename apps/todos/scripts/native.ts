@@ -1,16 +1,17 @@
 /**
- * Todos over a directory on this computer, through the contract's client
- * (`openDevice` from `@epicenter/folder/node`). No account, server or Git.
+ * Todos over a directory on this computer, through the folder opened there
+ * (`openFolder` at `directory` from `@epicenter/folder/node`). No account,
+ * server or Git.
  *
  *   bun apps/todos/scripts/native.ts <directory> <list|create|complete> [args]
  */
 import { timeId } from '@epicenter/definition/ids';
-import { openDevice } from '@epicenter/folder/node';
-import { unwrap } from 'wellcrafted/result';
+import { openFolder } from '@epicenter/folder';
+import { directory } from '@epicenter/folder/node';
 import { todos } from '../src/lib/contract.ts';
 
-const [directory, command, ...args] = process.argv.slice(2);
-if (directory === undefined || command === undefined) {
+const [root, command, ...args] = process.argv.slice(2);
+if (root === undefined || command === undefined) {
 	console.error(
 		'Usage: bun apps/todos/scripts/native.ts <directory> <list|create|complete> [args]',
 	);
@@ -18,12 +19,12 @@ if (directory === undefined || command === undefined) {
 }
 
 const print = (value: unknown) => console.log(JSON.stringify(value, null, 2));
-const device = unwrap(await openDevice(todos, { path: directory }));
+const folder = openFolder(todos, directory(root));
 
 async function main(): Promise<number> {
 	switch (command) {
 		case 'list': {
-			const listed = await device.todos.list();
+			const listed = await folder.todos.list();
 			if (listed.error !== null) {
 				print({ error: listed.error.message });
 				return 1;
@@ -47,7 +48,7 @@ async function main(): Promise<number> {
 				print({ error: 'create needs a title' });
 				return 2;
 			}
-			const created = await device.todos.create({
+			const created = await folder.todos.create({
 				id: timeId(),
 				title,
 				done: false,
@@ -65,16 +66,8 @@ async function main(): Promise<number> {
 				print({ error: 'complete needs an id' });
 				return 2;
 			}
-			const todo = await device.todos.get({ id });
-			if (todo.error !== null) {
-				print({ error: todo.error.message });
-				return 1;
-			}
-			const completed = await device.todos.update(
-				{ id },
-				{ done: true },
-				{ over: todo.data.version },
-			);
+			// Made over the note as read now: `NotFound` when there is none.
+			const completed = await folder.todos.update({ id }, { done: true });
 			if (completed.error !== null) {
 				print({ error: completed.error.message });
 				return 1;
@@ -88,4 +81,6 @@ async function main(): Promise<number> {
 	}
 }
 
-process.exit(await main());
+const code = await main();
+folder[Symbol.dispose]();
+process.exit(code);

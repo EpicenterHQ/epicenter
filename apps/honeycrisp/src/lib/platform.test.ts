@@ -52,9 +52,9 @@ test(
 			expect(modules.some(leaf(name)), name).toBe(true);
 		for (const name of desktopLeaves)
 			expect(modules.some(leaf(name)), name).toBe(false);
-		expect(modules.some(folderModule('open-folder.ts'))).toBe(true);
-		expect(modules.some(folderModule('remote/client.ts'))).toBe(true);
-		expect(modules.some(folderModule('open-folder.tauri.ts'))).toBe(false);
+		expect(modules.some(folderModule('home.ts'))).toBe(true);
+		expect(modules.some(folderModule('remote/store.ts'))).toBe(true);
+		expect(modules.some(folderModule('home.tauri.ts'))).toBe(false);
 		expect(modules.some(folderModule('tauri.ts'))).toBe(false);
 		expect(modules.some(authModule)).toBe(true);
 	},
@@ -69,10 +69,10 @@ test(
 			expect(modules.some(leaf(name)), name).toBe(true);
 		for (const name of webLeaves)
 			expect(modules.some(leaf(name)), name).toBe(false);
-		expect(modules.some(folderModule('open-folder.tauri.ts'))).toBe(true);
+		expect(modules.some(folderModule('home.tauri.ts'))).toBe(true);
 		expect(modules.some(folderModule('epicenter-sync.ts'))).toBe(true);
-		expect(modules.some(folderModule('open-folder.ts'))).toBe(false);
-		expect(modules.some(folderModule('remote/client.ts'))).toBe(false);
+		expect(modules.some(folderModule('home.ts'))).toBe(false);
+		expect(modules.some(folderModule('remote/store.ts'))).toBe(false);
 		expect(modules.some(authModule)).toBe(false);
 	},
 	BUNDLE_TIMEOUT,

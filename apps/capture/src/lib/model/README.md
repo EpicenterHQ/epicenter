@@ -29,9 +29,8 @@ repository `<handle>/capture`. Each note requires
 order captures by the parsed instant, never by the string. Other front matter
 keys are kept. Capture has no settings and no other files.
 
-Any folder or client over the contract (`openFolder` from
-`@epicenter/folder`, `openDevice` from `@epicenter/folder/node`) reads a
-capture as a `CaptureNote`:
+Any folder over the contract (`openFolder` from `@epicenter/folder`, at
+any place) reads a capture as a `CaptureNote`:
 `id`, `capturedAt`, any other front matter keys, `body`, and `version`. A file
 at a capture's path whose front matter does not parse or fit is listed in
 `invalid` as an `InvalidCapture`, with its text, not dropped. Every write is

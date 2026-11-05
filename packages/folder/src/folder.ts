@@ -1,6 +1,6 @@
 /**
- * The folder `openFolder(contract)` returns, on every build (ADR-0766,
- * ADR-0767): handed over at once, already opening, with its lifecycle as
+ * The folder `openFolder(contract, place)` returns, on every build (ADR-0766,
+ * ADR-0767, ADR-0773): handed over at once, already opening, with its lifecycle as
  * synchronous state and its collections directly on it (`folder.todos`).
  *
  * - `state()` is `opening`, `open`, `failed` with the typed open error and
@@ -34,9 +34,10 @@
  * framework: `reactive(folder)` from `@epicenter/svelte/reactive` tracks the
  * reads as they are.
  *
- * This module is the same on every build; each build's `openFolder` hands
- * `createFolder` the open that build has (the shell's data folder, this
- * browser's storage, the account's copy, or memory under `test`).
+ * This module is the same on every build: `openFolder` hands `createFolder`
+ * the open of a place (the desktop's data folder, this browser's storage,
+ * the account's repository, a directory, or memory under `test`), as the
+ * typed client over that place's store.
  */
 import {
 	type Client,
@@ -70,6 +71,8 @@ export type RevealFolderError = RevealRootError;
 const log = createLogger('folder');
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
+type Occupied = InferError<typeof ClientError.Occupied>;
+type NotFound = InferError<typeof ClientError.NotFound>;
 
 /**
  * Where the folder is in its life. Retrying belongs to a failure, so only
@@ -204,7 +207,9 @@ export type FolderFiles<TCollection extends Collection> = Reads<
 	/** The entry `args` names, as shown. */
 	get(args: PlaceholdersOf<TCollection>): FileEntryOf<TCollection> | undefined;
 	/** The file `args` names with its bytes, read now. */
-	read(args: PlaceholdersOf<TCollection>): Waits<FileClient<TCollection>['get']>;
+	read(
+		args: PlaceholdersOf<TCollection>,
+	): Waits<FileClient<TCollection>['get']>;
 	/** Every entry, read now. */
 	list(): Waits<FileClient<TCollection>['list']>;
 	create(
@@ -221,6 +226,22 @@ export type FolderFiles<TCollection extends Collection> = Reads<
 		args: PlaceholdersOf<TCollection>,
 		options?: { over?: Version },
 	): Waits<FileClient<TCollection>['delete']>;
+	/**
+	 * Add `bytes` to the end of the file `args` names, for a file written
+	 * while it is made, such as a recording. With `create` the file is made
+	 * with these bytes, never over one that is there (`Occupied`); without,
+	 * the bytes go after what is there (`NotFound` when it went). Listeners
+	 * hear the file when it is made, and after that only an append with
+	 * `announce`. Only this browser's storage appends: anywhere else the
+	 * answer is `Unavailable`.
+	 */
+	append(
+		args: PlaceholdersOf<TCollection>,
+		bytes: Uint8Array,
+		options: { create: boolean; announce: boolean },
+	): Promise<
+		Result<undefined, Occupied | NotFound | Unavailable | OpenFolderError>
+	>;
 };
 
 /** A folder's collection: notes for a path ending in `.md`, files for any other. */
@@ -263,46 +284,6 @@ export type Folder<TContract extends Contract> = FolderLifecycle & {
 		TContract['collections'][K]
 	>;
 };
-
-/**
- * What every build's `openFolder` takes. `site` is the app's production
- * site: on the desktop the folder's `AGENTS.md` links its published
- * contract, and on the web it names the account's repository. `account`
- * selects the account's copy on the web; the desktop opens its folder
- * whatever is passed, and Epicenter syncs it.
- */
-export type OpenFolderOptions = {
-	site: string;
-	/** Null or absent where the build has no account (`connectAccount()` on the desktop). */
-	account?: FolderAccount | null;
-};
-
-/**
- * The account a web folder opens the copy of: any `@epicenter/account`
- * auth client. The folder opens once it has an account, and keeps that
- * account for its life; a new account is a new page.
- */
-export type FolderAccount = {
-	state(): {
-		account?:
-			| {
-					readonly baseURL: string;
-					readonly signal: AbortSignal;
-					fetch(
-						input: Request | string | URL,
-						init?: RequestInit,
-					): Promise<Response>;
-			  }
-			| undefined;
-	};
-	subscribe(listener: () => void): () => void;
-};
-
-/** `openFolder` on every build: one signature, so either build's code typechecks against one. */
-export type OpenFolder = <TContract extends Contract>(
-	contract: TContract,
-	options?: OpenFolderOptions,
-) => Folder<TContract>;
 
 /** The lifecycle members, which no collection may be named. */
 const RESERVED = new Set([
@@ -470,8 +451,16 @@ type Declared = {
 /** An entry as listed: its placeholders, fields and version. */
 type Entry = { [key: string]: unknown; version: Version };
 type Args = Record<string, unknown>;
+/** A file collection's client, and the append its store may have. */
+type Files = FileClient<Collection> & {
+	append(
+		args: Args,
+		bytes: Uint8Array,
+		options: { create: boolean; announce: boolean },
+	): Promise<Result<undefined, Occupied | NotFound | Unavailable>>;
+};
 /** Either kind of collection client, as this module calls it. */
-type Raw = NoteClient<Collection> | FileClient<Collection>;
+type Raw = NoteClient<Collection> | Files;
 type Answer = Result<unknown, ClientError | OpenFolderError>;
 
 /** How long after a failed listing it is tried again, doubling per failure up to the most. */
@@ -787,6 +776,18 @@ function folderCollection(
 						if (collection.error !== null) return collection;
 						return collection.data.get(args as never);
 					},
+					append: (
+						args: Args,
+						bytes: Uint8Array,
+						options: { create: boolean; announce: boolean },
+					) =>
+						hold(
+							(async () => {
+								const collection = await raw();
+								if (collection.error !== null) return collection;
+								return (collection.data as Files).append(args, bytes, options);
+							})(),
+						),
 				};
 
 	return {

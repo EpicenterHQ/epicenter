@@ -1,15 +1,15 @@
 /**
  * The browser recorder over fakes of the browser's microphone, encoder,
  * audio graph, clock, and locks, each put in place of the global it stands
- * for for one test, and over a store's files kept in memory.
+ * for for one test, and over a folder's audio files kept in memory.
  *
  * Key behaviors:
  * - A recording is written into the store as it records: the first piece
  *   makes `<path>.<ext>`, each later one is appended the moment it arrives,
  *   and the store's listeners hear the file made and finished, not each piece
- * - A folder that keeps no files in this browser, a store that keeps none
- *   here, or a file already at the path, is refused before any microphone
- *   opens
+ * - Files that cannot be appended to here (a private window, an account's
+ *   repository), or a file already at the path, are refused before any
+ *   microphone opens
  * - A store that stops taking pieces ends the recording (`storageFailed`),
  *   keeping what landed
  * - Recovery cuts a file a closed tab left half-written back to its last
@@ -31,20 +31,13 @@
  *   aliases, and says when the browser withholds their names; inputs
  *   connected or removed are heard until the listener is removed
  */
-import { afterEach, expect, mock, setSystemTime, test } from 'bun:test';
-import type { DeviceFiles } from '@epicenter/folder/browser';
-import type { FolderLifecycle } from '@epicenter/folder/core';
+import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { ClientError, type Version } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { recorder } from './browser.js';
 import { audioDurationMs } from './container.js';
-import type { Recording } from './recording.js';
-
-/** Each test's store, by the folder its recordings are given. */
-const filesByFolder = new WeakMap<object, DeviceFiles>();
-mock.module('@epicenter/folder/browser', () => ({
-	filesOf: async (folder: object) => filesByFolder.get(folder) ?? null,
-}));
-const { recorder } = await import('./browser.js');
+import type { AudioFiles, Recording } from './recording.js';
 
 /** What every microphone request turns off: Safari's voice processing. */
 const UNPROCESSED = {
@@ -190,7 +183,7 @@ function browser({
 	getUserMedia?: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
 	Recorder?: ReturnType<typeof fakeRecorderClass>;
 	locks?: Pick<LockManager, 'request'>;
-	files?: DeviceFiles;
+	files?: AudioFiles;
 } = {}) {
 	stub(navigator, 'mediaDevices', { getUserMedia });
 	stub(navigator, 'locks', locks);
@@ -198,10 +191,8 @@ function browser({
 	stub(globalThis, 'AudioContext', FakeAudioContext);
 	let clock = 1_000;
 	setSystemTime(clock);
-	const folder = {} as FolderLifecycle;
-	filesByFolder.set(folder, files);
 	return {
-		folder,
+		files,
 		/** Move the clock on 1.5 s. */
 		tick() {
 			clock += 1_500;
@@ -210,61 +201,68 @@ function browser({
 	};
 }
 
-/** A store's files in memory, and what its listeners heard. */
+/** A folder's audio files in memory, at `recordings/{id}.{ext}`, and what their listeners heard. */
 function memoryFiles(initial: Record<string, Uint8Array> = {}) {
 	const held = new Map(Object.entries(initial));
 	const heard: string[] = [];
 	let unavailable: string | undefined;
-	const refuse = () =>
-		({
-			data: null,
-			error: { name: 'Unavailable', message: unavailable! },
-		}) as never;
-	const versionOf = (bytes: Uint8Array) => `v${bytes.join('.')}`;
-	const files: DeviceFiles = {
+	const refuse = () => ClientError.Unavailable({ cause: unavailable });
+	const versionOf = (bytes: Uint8Array) => `v${bytes.join('.')}` as Version;
+	const pathOf = ({ id, ext }: { id: string; ext: string }) =>
+		`recordings/${id}.${ext}`;
+	const files: AudioFiles = {
 		async list() {
 			if (unavailable) return refuse();
-			return Ok([...held.keys()].map((path) => ({ path, stamp: '' })));
+			const items = [];
+			for (const [path, bytes] of held) {
+				const named = /^recordings\/([^/]+)\.([^./]+)$/.exec(path);
+				if (named?.[1] && named[2])
+					items.push({
+						id: named[1],
+						ext: named[2],
+						version: versionOf(bytes),
+					});
+			}
+			return Ok({ items });
 		},
-		async read(path) {
+		async read(args) {
 			if (unavailable) return refuse();
+			const path = pathOf(args);
 			const bytes = held.get(path);
-			return Ok(
-				bytes === undefined
-					? null
-					: { bytes, version: versionOf(bytes) as never, stamp: '' },
-			);
+			if (bytes === undefined) return ClientError.NotFound({ path });
+			return Ok({ ...args, bytes, version: versionOf(bytes) });
 		},
-		async write(path, bytes, expected) {
+		async update(args, { bytes }, { over } = {}) {
 			if (unavailable) return refuse();
+			const path = pathOf(args);
 			const there = held.get(path);
 			// Recovery writes only over the version it read.
-			if (
-				typeof expected === 'string' ||
-				there === undefined ||
-				versionOf(there) !== expected.sha256
-			)
-				return Ok('stale');
-			if (bytes === null) held.delete(path);
-			else held.set(path, bytes);
+			if (there === undefined || versionOf(there) !== over)
+				return ClientError.Conflict({
+					path,
+					current: there === undefined ? null : versionOf(there),
+				});
+			held.set(path, bytes);
 			heard.push(`write ${path}`);
-			return Ok('landed');
+			return Ok({ ...args, version: versionOf(bytes) });
 		},
-		async append(path, bytes, { create, announce }) {
+		async append(args, bytes, { create, announce }) {
 			if (unavailable) return refuse();
+			const path = pathOf(args);
 			const there = held.get(path);
-			if (create === (there !== undefined)) return Ok('stale');
+			if (create && there !== undefined) return ClientError.Occupied({ path });
+			if (!create && there === undefined) return ClientError.NotFound({ path });
 			held.set(path, new Uint8Array([...(there ?? []), ...bytes]));
 			if (create || announce)
 				heard.push(`${create ? 'made' : 'finished'} ${path}`);
-			return Ok('landed');
+			return Ok(undefined);
 		},
 	};
 	return {
 		files,
 		held,
 		heard,
-		/** Every later call is `Unavailable`, as when the browser keeps no files. */
+		/** Every later call is `Unavailable`, as where the files cannot be kept or appended to. */
 		refuseWith(reason: string) {
 			unavailable = reason;
 		},
@@ -306,18 +304,18 @@ function startIn(
 		signal?: AbortSignal;
 	} = {},
 ) {
-	const { folder } = browser(options);
-	return recorder.start({ folder, path: 'recordings/a', ...start });
+	const { files } = browser(options);
+	return recorder.start({ files, path: 'recordings/a', ...start });
 }
 
 test('a recording is written into the store as it records, and heard made and finished', async () => {
 	const memory = memoryFiles();
-	const { folder, tick } = browser({
+	const { files, tick } = browser({
 		files: memory.files,
 		Recorder: fakeRecorderClass(() => new Uint8Array([9])),
 	});
 	const recording = expectOk(
-		await recorder.start({ folder, path: 'recordings/a' }),
+		await recorder.start({ files, path: 'recordings/a' }),
 	);
 	expect(memory.held.has('recordings/a.webm')).toBe(false);
 
@@ -357,7 +355,7 @@ test('stop answers how long the written audio plays, not how long the clock ran'
 	);
 	const cuts = [0, 1829, 1829 + 1255, 1829 + 1255 + 1330, audio.length];
 	const memory = memoryFiles();
-	const { folder, tick } = browser({
+	const { files, tick } = browser({
 		files: memory.files,
 		Recorder: fakeRecorderClass(
 			() => audio.slice(cuts[3], cuts[4]),
@@ -365,7 +363,7 @@ test('stop answers how long the written audio plays, not how long the clock ran'
 		),
 	});
 	const recording = expectOk(
-		await recorder.start({ folder, path: 'recordings/a' }),
+		await recorder.start({ files, path: 'recordings/a' }),
 	);
 	for (let piece = 0; piece < 3; piece++)
 		recorders.at(-1)!.piece(audio.slice(cuts[piece], cuts[piece + 1]));
@@ -379,7 +377,7 @@ test('stop answers how long the written audio plays, not how long the clock ran'
 
 test('AAC in MP4 is recorded into <path>.m4a where the browser records it', async () => {
 	const memory = memoryFiles();
-	const { folder } = browser({
+	const { files } = browser({
 		files: memory.files,
 		Recorder: fakeRecorderClass(
 			() => new Uint8Array([4, 5]),
@@ -387,13 +385,13 @@ test('AAC in MP4 is recorded into <path>.m4a where the browser records it', asyn
 		),
 	});
 	const recording = expectOk(
-		await recorder.start({ folder, path: 'recordings/a' }),
+		await recorder.start({ files, path: 'recordings/a' }),
 	);
 	expect(await placedPath(recording)).toBe('recordings/a.m4a');
 	expect(memory.held.get('recordings/a.m4a')).toEqual(new Uint8Array([4, 5]));
 });
 
-test('a folder with no files here, a store that keeps none, or a file at the path is refused before the microphone opens', async () => {
+test('files that cannot be appended to here, or a file at the path, are refused before the microphone opens', async () => {
 	let opened = 0;
 	const getUserMedia = async () => {
 		opened++;
@@ -405,44 +403,36 @@ test('a folder with no files here, a store that keeps none, or a file at the pat
 	);
 	const refused = expectErr(
 		await recorder.start({
-			folder: browser({ files: privateWindow.files, getUserMedia }).folder,
+			files: browser({ files: privateWindow.files, getUserMedia }).files,
 			path: 'recordings/a',
 		}),
 	);
-	expect(refused).toMatchObject({
-		name: 'Refused',
-		reason: 'This browser gives the page no private file storage',
-	});
+	expect(refused.name).toBe('Unavailable');
+	expect(refused.message).toContain(
+		'This browser gives the page no private file storage',
+	);
 
 	const taken = memoryFiles({ 'recordings/a.webm': new Uint8Array([7]) });
 	const occupied = expectErr(
 		await recorder.start({
-			folder: browser({ files: taken.files, getUserMedia }).folder,
+			files: browser({ files: taken.files, getUserMedia }).files,
 			path: 'recordings/a',
 		}),
 	);
 	expect(occupied.name).toBe('Refused');
 	expect(taken.held.get('recordings/a.webm')).toEqual(new Uint8Array([7]));
 
-	// A folder that keeps no files in this browser (an account's repository).
-	const elsewhere = expectErr(
-		await recorder.start({
-			folder: {} as FolderLifecycle,
-			path: 'recordings/a',
-		}),
-	);
-	expect(elsewhere.name).toBe('Unavailable');
 	expect(opened).toBe(0);
 });
 
 test('a store that stops taking pieces ends the recording, and stop keeps what landed', async () => {
 	const memory = memoryFiles();
-	const { folder } = browser({
+	const { files } = browser({
 		files: memory.files,
 		Recorder: fakeRecorderClass(() => new Uint8Array([9])),
 	});
 	const recording = expectOk(
-		await recorder.start({ folder, path: 'recordings/a' }),
+		await recorder.start({ files, path: 'recordings/a' }),
 	);
 	const endings: string[] = [];
 	recording.onEnded((reason) => endings.push(reason));
@@ -458,12 +448,12 @@ test('a store that stops taking pieces ends the recording, and stop keeps what l
 
 test('a recording that captured nothing writes nothing and is Empty', async () => {
 	const memory = memoryFiles();
-	const { folder } = browser({
+	const { files } = browser({
 		files: memory.files,
 		Recorder: fakeRecorderClass(() => new Uint8Array()),
 	});
 	const recording = expectOk(
-		await recorder.start({ folder, path: 'recordings/a' }),
+		await recorder.start({ files, path: 'recordings/a' }),
 	);
 	expect(expectErr(await recording.stop()).name).toBe('Empty');
 	expect(memory.held.size).toBe(0);
@@ -485,7 +475,7 @@ test('recovery cuts a file a closed tab left half-written, answers every unnamed
 		'elsewhere/cut.m4a': cut,
 	});
 	const locks = memoryLocks();
-	const { folder } = browser({ files: memory.files, locks });
+	const { files } = browser({ files: memory.files, locks });
 	locks.held.add('epicenter-recording:recordings/writing');
 
 	const unnamed = [
@@ -496,12 +486,12 @@ test('recovery cuts a file a closed tab left half-written, answers every unnamed
 	// With nothing unnamed, every recording has its record: nothing is read.
 	expect(
 		expectOk(
-			await recorder.recover({ folder, under: 'recordings', unnamed: [] }),
+			await recorder.recover({ files, under: 'recordings', unnamed: [] }),
 		),
 	).toEqual({ recovered: [], unplaced: [] });
 	expect(memory.held.get('recordings/cut.m4a')).toEqual(cut);
 	const { recovered, unplaced } = expectOk(
-		await recorder.recover({ folder, under: 'recordings', unnamed }),
+		await recorder.recover({ files, under: 'recordings', unnamed }),
 	);
 	expect(unplaced).toEqual([]);
 	const repaired = memory.held.get('recordings/cut.m4a')!;
@@ -529,20 +519,20 @@ test('recovery cuts a file a closed tab left half-written, answers every unnamed
 	);
 	// A second run repairs nothing more, and answers the same recordings.
 	expect(
-		expectOk(await recorder.recover({ folder, under: 'recordings', unnamed })),
+		expectOk(await recorder.recover({ files, under: 'recordings', unnamed })),
 	).toEqual({ recovered, unplaced: [] });
 	expect(memory.held.get('recordings/cut.m4a')).toEqual(repaired);
 });
 
 test('a recording holds its lock while it records, so recovery passes it by', async () => {
 	const locks = memoryLocks();
-	const { folder } = browser({ locks });
+	const { files } = browser({ locks });
 	const recording = expectOk(
-		await recorder.start({ folder, path: 'recordings/a' }),
+		await recorder.start({ files, path: 'recordings/a' }),
 	);
 	expect(locks.held).toEqual(new Set(['epicenter-recording:recordings/a']));
 	const again = expectErr(
-		await recorder.start({ folder, path: 'recordings/a' }),
+		await recorder.start({ files, path: 'recordings/a' }),
 	);
 	expect(again.name).toBe('Busy');
 	expectOk(await recording.stop());
@@ -557,7 +547,7 @@ test('the file is named by the type the recorder reports, however it spells it',
 		['', 'webm'],
 	] as const) {
 		const memory = memoryFiles();
-		const { folder } = browser({
+		const { files } = browser({
 			files: memory.files,
 			Recorder: fakeRecorderClass(
 				() => new Uint8Array([1]),
@@ -566,7 +556,7 @@ test('the file is named by the type the recorder reports, however it spells it',
 			),
 		});
 		const recording = expectOk(
-			await recorder.start({ folder, path: 'recordings/a' }),
+			await recorder.start({ files, path: 'recordings/a' }),
 		);
 		expect(await placedPath(recording)).toBe(`recordings/a.${extension}`);
 		expect([...memory.held.keys()]).toEqual([`recordings/a.${extension}`]);
@@ -576,7 +566,7 @@ test('the file is named by the type the recorder reports, however it spells it',
 test('a recording whose file takes a type it did not ask for still holds its lock, so recovery passes it by', async () => {
 	const memory = memoryFiles();
 	const locks = memoryLocks();
-	const { folder } = browser({
+	const { files } = browser({
 		files: memory.files,
 		locks,
 		// Asked for WebM, the browser records MP4.
@@ -587,7 +577,7 @@ test('a recording whose file takes a type it did not ask for still holds its loc
 		),
 	});
 	const recording = expectOk(
-		await recorder.start({ folder, path: 'recordings/a' }),
+		await recorder.start({ files, path: 'recordings/a' }),
 	);
 	recorders.at(-1)!.piece(new Uint8Array([1]));
 	await settle();
@@ -595,7 +585,7 @@ test('a recording whose file takes a type it did not ask for still holds its loc
 	expect(
 		expectOk(
 			await recorder.recover({
-				folder,
+				files,
 				under: 'recordings',
 				unnamed: ['recordings/a.m4a'],
 			}),
@@ -606,7 +596,7 @@ test('a recording whose file takes a type it did not ask for still holds its loc
 	expect(
 		expectOk(
 			await recorder.recover({
-				folder,
+				files,
 				under: 'recordings',
 				unnamed: ['recordings/a.m4a'],
 			}),
@@ -677,20 +667,20 @@ test('stop releases the microphone, and a second stop is NotRecording', async ()
 
 test('a start, a meter, or enabling withdrawn while the browser answers releases the late stream', async () => {
 	for (const request of [
-		(folder: FolderLifecycle, signal: AbortSignal) =>
-			recorder.start({ folder, path: 'recordings/a', signal }),
-		(_: FolderLifecycle, signal: AbortSignal) => recorder.openMeter({ signal }),
-		(_: FolderLifecycle, signal: AbortSignal) => recorder.allow({ signal }),
+		(files: AudioFiles, signal: AbortSignal) =>
+			recorder.start({ files, path: 'recordings/a', signal }),
+		(_: AudioFiles, signal: AbortSignal) => recorder.openMeter({ signal }),
+		(_: AudioFiles, signal: AbortSignal) => recorder.allow({ signal }),
 	]) {
 		const { stream, track } = fakeStream('default');
 		const controller = new AbortController();
-		const { folder } = browser({
+		const { files } = browser({
 			async getUserMedia() {
 				controller.abort();
 				return stream;
 			},
 		});
-		expect(expectErr(await request(folder, controller.signal)).name).toBe(
+		expect(expectErr(await request(files, controller.signal)).name).toBe(
 			'Cancelled',
 		);
 		expect(track.stopped).toBe(true);
@@ -713,13 +703,13 @@ test('an encoder that cannot be made, started, or stopped is a failure, and the 
 	for (const Recorder of [unmade, unstarted]) {
 		const { stream, track } = fakeStream('default');
 		const memory = memoryFiles();
-		const { folder } = browser({
+		const { files } = browser({
 			files: memory.files,
 			getUserMedia: async () => stream,
 			Recorder,
 		});
 		expect(
-			expectErr(await recorder.start({ folder, path: 'recordings/a' })).name,
+			expectErr(await recorder.start({ files, path: 'recordings/a' })).name,
 		).toBe('Failed');
 		expect(track.stopped).toBe(true);
 		expect(memory.held.size).toBe(0);
@@ -753,12 +743,12 @@ test('audio the page cannot read is a failure, not a thrown stop, and the microp
 	// A piece that cannot be read ends the recording there.
 	const written = fakeStream('default');
 	const memory = memoryFiles();
-	const { folder } = browser({
+	const { files } = browser({
 		files: memory.files,
 		getUserMedia: async () => written.stream,
 	});
 	const writing = expectOk(
-		await recorder.start({ folder, path: 'recordings/a' }),
+		await recorder.start({ files, path: 'recordings/a' }),
 	);
 	const endings: string[] = [];
 	writing.onEnded((reason) => endings.push(reason));
@@ -791,10 +781,10 @@ test('a window without a microphone, an encoder, or MP4 or WebM audio cannot rec
 		[navigator, 'mediaDevices'],
 		[globalThis, 'MediaRecorder'],
 	] as const) {
-		const { folder } = browser();
+		const { files } = browser();
 		stub(target, key, undefined);
 		expect(
-			expectErr(await recorder.start({ folder, path: 'recordings/a' })).name,
+			expectErr(await recorder.start({ files, path: 'recordings/a' })).name,
 		).toBe('Unavailable');
 	}
 	expect(

@@ -2,8 +2,8 @@
  * Note Editor DOM Tests
  *
  * The CodeMirror editor over jsdom, alone and bound to a note's body as
- * `NoteDetail` binds it (`notes.edit` over a stand-in client: a real device
- * client in a temporary directory, in place of the repository). jsdom has no layout, so these prove the text, the
+ * `NoteDetail` binds it (`notes.edit` of a folder over a temporary
+ * directory, in place of the repository). jsdom has no layout, so these prove the text, the
  * decorations, the history and the writes, not what a person sees; the
  * Playwright suite covers that.
  *
@@ -21,9 +21,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { undo } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
-import { createFolder } from '@epicenter/folder/core';
-import { openDevice } from '@epicenter/folder/node';
-import { Ok, unwrap } from 'wellcrafted/result';
+import { openFolder } from '@epicenter/folder';
+import { directory } from '@epicenter/folder/node';
 import { honeycrisp } from '../contract.js';
 import { changesTo } from './binding.js';
 import { conflictsIn, resolveConflict } from './conflicts.js';
@@ -76,13 +75,14 @@ async function until(done: () => boolean | Promise<boolean>) {
 	throw new Error('timed out');
 }
 
-/** A note on a device in a temporary directory, with the editor bound to its body. */
+/** A note in a folder over a temporary directory, with the editor bound to its body. */
 async function boundNote(text: string) {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-honeycrisp-'));
 	cleanups.push(() => rm(root, { recursive: true, force: true }));
 	const file = join(root, 'notes/a.md');
-	const device = unwrap(await openDevice(honeycrisp, { path: root }));
-	const written = await device.notes.create({
+	const folder = openFolder(honeycrisp, directory(root));
+	cleanups.push(() => folder[Symbol.dispose]());
+	const written = await folder.notes.create({
 		id: 'a',
 		createdAt: '2026-10-31T12:00:00.000Z',
 	});
@@ -93,7 +93,7 @@ async function boundNote(text: string) {
 	const host = mount(BodyHost, {
 		target,
 		props: {
-			notes: reactive(createFolder(honeycrisp, async () => Ok(device))).notes,
+			notes: reactive(folder).notes,
 			id: 'a',
 		},
 	});

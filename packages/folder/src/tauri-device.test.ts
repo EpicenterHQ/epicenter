@@ -1,15 +1,14 @@
 /**
- * `openDevice` from `@epicenter/folder/tauri` over either root the shell
- * names (`Data`, `AppData`), and the data folder `openFolder` opens on the
- * desktop (`openDataFolder`): the typed client over a root the
- * desktop shell named, through the folder plugin's storage commands. The
- * shell here is `createNamedShell`, real directories behind the plugin's
- * command names, so what lands is what a desktop folder holds.
+ * The desktop's `home` (`home.tauri.ts`), the data folder the shell names
+ * `Data`, and a root opened by name (`openRoot`): the typed client over a
+ * root the desktop shell named, through the folder plugin's storage
+ * commands. The shell here is `createNamedShell`, real directories behind
+ * the plugin's command names, so what lands is what a desktop folder holds.
  *
  * Key behaviors:
  * - A page opens a root by name and holds no path but the one it shows:
- *   `rootOf` answers the root's name, which every storage call names, and
- *   `displayPath` the path `open_root` answered
+ *   every storage call names the root, and the folder's `displayPath()` is
+ *   the path `open_root` answered
  * - A data folder behind a link whose
  *   target is gone is `Disconnected`, with words a person reads, and Retry
  *   opens it once it is back; a storage call on it is `Unavailable` with
@@ -21,8 +20,8 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { defineContract } from '@epicenter/definition/contract';
-import { unwrap } from 'wellcrafted/result';
+import { type Contract, defineContract } from '@epicenter/definition/contract';
+import { Ok, unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	createNamedShell,
@@ -67,11 +66,32 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
-const { displayPath, openDevice, revealRoot, rootOf } = await import(
-	'./tauri.js'
-);
-const { openDataFolder } = await import('./desktop-folder.js');
-const { storeOf } = await import('./device/client.js');
+const { revealRoot } = await import('./tauri.js');
+const { home } = await import('./home.tauri.js');
+const { openRoot } = await import('./native/root.js');
+const { openFolder } = await import('./open-folder.js');
+const { openingOf } = await import('./place.js');
+const { createDeviceClient, storeOf } = await import('./device/client.js');
+
+/** The client the desktop's `home` opens a folder of `contract` to, or why it did not open. */
+async function openDataFolder<TContract extends Contract>(
+	contract: TContract,
+	site: string,
+) {
+	const opened = await openingOf(home({ site }), contract).open();
+	if (opened.error !== null) return opened;
+	return Ok(createDeviceClient(contract, opened.data));
+}
+
+/** The client of `contract` over the root the shell named `root`, or why it did not open. */
+async function openDevice<TContract extends Contract>(
+	contract: TContract,
+	{ root }: { root: 'Data' | 'AppData' },
+) {
+	const opened = await openRoot(root);
+	if (opened.error !== null) return opened;
+	return Ok(createDeviceClient(contract, opened.data.store));
+}
 
 const notes = defineContract({
 	collections: {
@@ -141,16 +161,14 @@ test('the data folder opens by name, and a create lands there in house style', a
 });
 
 test('the page names roots, never paths, and shows the path the shell answered', async () => {
-	const device = unwrap(
-		await openDataFolder(notes, 'https://notes.example.com'),
-	);
-	expect(rootOf(device)).toBe('Data');
-	expect(displayPath(device)).toBe(shell.root);
+	const folder = openFolder(notes, home({ site: 'https://notes.example.com' }));
+	expect(folder.displayPath()).toBeNull();
+	expectOk(await folder.notes.create({ id: 'a', title: 'Here' }));
+	expect(folder.displayPath()).toBe(shell.root);
 	// The path comes from the open command.
 	expect(shell.calls[0]?.cmd).toBe('open_root');
-	expectOk(await device.notes.create({ id: 'a', title: 'Here' }));
 	expect(shell.calls.every(({ args }) => args.root === 'Data')).toBe(true);
-	expect(() => rootOf({} as typeof device)).toThrow();
+	folder[Symbol.dispose]();
 });
 
 test('AppData opens a settings contract beside the data folder', async () => {
@@ -164,7 +182,6 @@ test('AppData opens a settings contract beside the data folder', async () => {
 		'theme: dark',
 	);
 	expect(await shell.text('settings.md')).toBeUndefined();
-	expect(rootOf(settings)).toBe('AppData');
 });
 
 test('a data folder on a drive that is not connected is Disconnected, and Retry opens it once it is back', async () => {
@@ -230,7 +247,9 @@ test('each refusal reads as the error a person is shown', async () => {
 	});
 	shell.control.refuse = () => undefined;
 	shell = createNamedShell({ Data: shell.root });
-	expect(expectErr(await openDevice(notesSettings, { root: 'AppData' }))).toMatchObject({
+	expect(
+		expectErr(await openDevice(notesSettings, { root: 'AppData' })),
+	).toMatchObject({
 		name: 'StorageUnavailable',
 	});
 });
@@ -266,9 +285,9 @@ test('a create lands only where nothing is, and a version is checked as one', as
 	);
 	const store = storeOf(device);
 	const bytes = (text: string) => new TextEncoder().encode(text);
-	expect(expectOk(await store.write('a.bin', bytes('two'), 'absent'))).toBe(
-		'landed',
-	);
+	expect(expectOk(await store.write('a.bin', bytes('two'), 'absent'))).toEqual({
+		landed: expect.any(String),
+	});
 	expect(expectOk(await store.write('a.bin', bytes('other'), 'absent'))).toBe(
 		'stale',
 	);
@@ -277,14 +296,14 @@ test('a create lands only where nothing is, and a version is checked as one', as
 	expect(
 		expectOk(
 			await store.write('a.bin', bytes('three'), {
-				sha256: read!.version,
+				version: read!.version,
 			}),
 		),
-	).toBe('landed');
+	).toEqual({ landed: expect.any(String) });
 	expect(
 		expectOk(
 			await store.write('a.bin', bytes('four'), {
-				sha256: read!.version,
+				version: read!.version,
 			}),
 		),
 	).toBe('stale');

@@ -15,8 +15,7 @@
  * under. When that one cannot be opened, the answer is a refusal: no other
  * microphone is opened in its place.
  */
-import type { FolderLifecycle } from '@epicenter/folder/core';
-import type { Recorder } from '@epicenter/recorder';
+import type { AudioFiles, Recorder } from '@epicenter/recorder';
 import { Err, Ok } from 'wellcrafted/result';
 import type { CaptureDevice } from './capture.js';
 
@@ -24,11 +23,11 @@ import type { CaptureDevice } from './capture.js';
 const DIRECTORY = 'recordings';
 
 export function createMicrophoneDevice({
-	folder,
+	files,
 	recorder,
 }: {
-	/** Whispering's folder, which every recording is written into. */
-	folder: FolderLifecycle;
+	/** Whispering's audio files (`folder.audio`), which every recording is written into. */
+	files: AudioFiles;
 	/** Lists, tests, and records from the microphone. */
 	recorder: Recorder;
 }): CaptureDevice {
@@ -36,7 +35,7 @@ export function createMicrophoneDevice({
 		inputs: recorder,
 		async start({ id, input, signal }) {
 			const { data: recording, error } = await recorder.start({
-				folder,
+				files,
 				path: `${DIRECTORY}/${id}`,
 				input,
 				signal,
@@ -57,7 +56,7 @@ export function createMicrophoneDevice({
 			// Which of these is whole, and where else a cut-off one waits, is
 			// the recorder's to know.
 			const { data, error } = await recorder.recover({
-				folder,
+				files,
 				under: DIRECTORY,
 				unnamed,
 			});

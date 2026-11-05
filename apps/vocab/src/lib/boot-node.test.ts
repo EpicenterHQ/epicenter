@@ -68,7 +68,7 @@ describe('app.ts opens the one store', () => {
 		const app = await Bun.file(join(source, 'lib/app.ts')).text();
 		expect(app).toMatch(/const signIn = connectAccount\(\);/);
 		expect(app).toMatch(
-			/export const folder = reactive\(\s*openFolder\(vocab, \{ site: APPS\.VOCAB\.url, account: signIn \}\),\s*\);/,
+			/export const folder = reactive\(\s*openFolder\(vocab, home\(\{ site: APPS\.VOCAB\.url, account: signIn \}\)\),\s*\);/,
 		);
 		expect(app).not.toMatch(/\bawait\b|import\.meta\.hot/);
 	});
@@ -90,7 +90,7 @@ describe('app.ts opens the one store', () => {
 	test('no source opens a store of its own: app.ts’s folder is the only one', async () => {
 		const openers = (await shippedSources())
 			.filter(({ text }) =>
-				/@epicenter\/app\/(open|store|memory)|@epicenter\/folder\/(browser|remote|tauri)|\bopenDevice\b|\bopenRemote\b|\bopenDataFolder\b|\bfolderOf\b|desktop-startup|\bopenLocal\b|\bopenPersonal\b|PersistenceNotice|fromData\b/.test(
+				/@epicenter\/app\/(open|store|memory)|@epicenter\/folder\/(browser|remote|tauri|memory|node)|\bopenDevice\b|\bopenRemote\b|\bopenDataFolder\b|\bfolderOf\b|desktop-startup|\bopenLocal\b|\bopenPersonal\b|PersistenceNotice|fromData\b/.test(
 					text,
 				),
 			)

@@ -24,7 +24,7 @@ and [ADR-0636](adr/0636-an-app-opens-local-files-through-one-folder-handle.md).
 | --- | --- |
 | Epicenter | The toolkit and optional hosted services. It does not name one person's body of data. |
 | Local dataset | The local data an app opens, with identity independent of account, remote URL, or hosted repository ID. Say "local data" in ordinary explanations. |
-| Client | The typed client a contract derives (`Client<T>`), opened over a device's files (`openDevice`) or the signed-in person's repository (`openRemote`). A caller may open several. |
+| Place | Where a folder is, as a value `openFolder(contract, place)` opens: an app's `home`, a `directory` in Bun or Node, or `memory()` in a test. Every place opens to a store under one typed client inside `@epicenter/folder`. A caller may open several folders. |
 | Directory | A physical filesystem location. In ordinary explanations, folder can name a disk directory; qualify a browser folder when its private storage matters. |
 | Repository | A Git repository; repo is its shorthand, not another concept. A hosted repository also has a stable service ID, a changeable label, and membership. |
 | Clone | An independent local copy of a repository. A desktop folder set up with `epicenter init` is a clone; a web app never holds one. |
@@ -40,7 +40,7 @@ and [ADR-0636](adr/0636-an-app-opens-local-files-through-one-folder-handle.md).
 | Reference | A value interpreted by its app's format, or a literal Markdown link. Existing record IDs remain; automatic cross-repository navigation is deferred. |
 
 Browser local data lives under its web origin: in the origin's private file
-system for a contract's `openDevice`. It is not an ordinary folder that another app origin or desktop
+system, which `home` opens on the web when given no account. It is not an ordinary folder that another app origin or desktop
 editor can open. Disk data can be shared by cooperating clients at the same
 path. The web never syncs. An app has up to three variants, each with one
 store for its life: desktop (the folder, synced only by `epicenter sync`),
@@ -48,17 +48,20 @@ local web (this browser's files, for good), and online web (the repository
 through the server, online only). Nothing moves between stores, and signing
 in grants capabilities, never storage ([ADR-0700](adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
-Only a variant's root chooses its store. A desktop shell on
-`epicenter-standalone` names Data and AppData. Its root startup component
-opens machine-local AppData with `openAppData(settings)` when the app has a
-settings contract, then opens Data with `openDataFolder(contract, contractUrl)`.
-The shell names Data from the host of the app's site under `~/Epicenter`
-(`~/Epicenter Dev` in development). It makes the folder when nothing is at
-that path. A root that cannot open shows a recovery screen with Retry and a
+Only a variant's `src/lib/app.ts` chooses its store, by the place it opens
+its folder at: `openFolder(contract, home({ site, account }))` from
+`@epicenter/folder`, whose `home` the build picks
+([ADR-0773](adr/0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md)).
+A desktop shell on `epicenter-standalone` names Data and AppData. The
+desktop's `home` is Data, which the shell names from the host of the app's
+site under `~/Epicenter` (`~/Epicenter Dev` in development); what a
+capability keeps on one computer goes to AppData through `localFile` from
+`@epicenter/local`. The shell makes the folder when nothing is at that path.
+A root that cannot open shows a recovery screen with Retry and a
 file-manager action; the app does not ask a first-run question
-([ADR-0701](adr/0701-apps-run-as-separate-programs.md)). A local web variant
-awaits `openDevice(contract)` over the origin's private file system; an
-online web variant opens the repository with `openRemote`.
+([ADR-0701](adr/0701-apps-run-as-separate-programs.md)). On the web, `home`
+is the origin's private file system with no account, and the account's
+repository with one.
 
 Epicenter keeps no records of its own in the library, `~/Epicenter` (`~/Epicenter Dev`
 in development); the standalone apps keep their folders there.
@@ -197,7 +200,7 @@ additional current APIs.
 
 | Source | Names and current behavior |
 | --- | --- |
-| `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser`, `openDevice(contract, { path })` from `/node`, `openDevice(contract, { root })` from `/tauri` (a root the shell named, `Data` or `AppData`), and `openRemote(contract, { account, site })` from `/remote`, over a contract from `@epicenter/definition/contract`. |
+| `@epicenter/folder` places | `openFolder(contract, place)` from `@epicenter/folder`, over a contract from `@epicenter/definition/contract`, at `home({ site, account })` (the build's: the desktop's Data root, this browser's private files, or the account's repository), `directory(path)` from `/node`, or `memory()` from `/memory` in a test. |
 | CLI | Implemented commands include `auth`, `check`, `format`, `init`, `connect`, `sync`, `clone`, `forget`, `status`, `repos`, `share`, and `unshare`. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 

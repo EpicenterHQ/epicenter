@@ -27,7 +27,7 @@
  * reaches an implementation only through `@epicenter/recorder/tauri` or
  * `@epicenter/recorder/browser`.
  */
-import type { FolderLifecycle } from '@epicenter/folder/core';
+import type { FolderFiles } from '@epicenter/folder/core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 
@@ -54,23 +54,35 @@ export type RecordingStart = {
 };
 
 /**
- * The folder a recording is written into: the app's own (`openFolder`), or
- * `reactive`'s copy of it, so the audio stays where the rest of its files
- * are. On the desktop that is the data folder, whose root the shell writes
- * into; in a browser, this origin's private files, appended to as the
- * recording runs (`filesOf` from `@epicenter/folder/browser`).
+ * A file collection of the app's folder whose files are named by
+ * `{ id, ext }`, such as Whispering's `folder.audio` at
+ * `recordings/{id}.{ext}`, or `reactive`'s copy of it.
  */
-export type RecordingFolder = {
-	readonly folder: FolderLifecycle;
+export type AudioFiles = Pick<
+	FolderFiles<{ path: '{id}.{ext}' }>,
+	'list' | 'read' | 'update' | 'append'
+>;
+
+/**
+ * The files a recording is written into, so the audio stays where the rest
+ * of the app's files are. On the desktop the shell writes into the data
+ * folder itself; in a browser each piece is appended to the collection as
+ * the recording runs (`files.append`), which only this browser's storage
+ * can do.
+ */
+export type RecordingFiles = {
+	readonly files: AudioFiles;
 };
 
 /** Where a recording is written. */
 export type StartRecordingOptions = RecordingStart &
-	RecordingFolder & {
+	RecordingFiles & {
 		/**
 		 * Store-relative, without an extension, such as
-		 * `recordings/2026-10-15-0930`: the extension is the format's (`webm`
-		 * on the desktop; `m4a` or `webm` in a browser). Nothing may be there.
+		 * `recordings/2026-10-15-0930`: its last segment is the recording's
+		 * `id` in `files`, whose path is that directory's `{id}.{ext}`. The
+		 * extension is the format's (`webm` on the desktop; `m4a` or `webm` in
+		 * a browser). Nothing may be there.
 		 */
 		readonly path: string;
 	};
@@ -147,7 +159,7 @@ export type Recovery = {
 	readonly unplaced: readonly UnplacedRecording[];
 };
 
-export type RecoverRecordingsOptions = RecordingFolder & {
+export type RecoverRecordingsOptions = RecordingFiles & {
 	/** The store-relative directory recordings are kept in, such as `recordings`. */
 	readonly under: string;
 	/**
@@ -189,7 +201,7 @@ export type InputListing = {
  * Its functions need no `this`, so each can be passed on its own.
  */
 export type Recorder = {
-	/** Record from `input`, or the system default, into `folder` at `path`. */
+	/** Record from `input`, or the system default, into `files` at `path`. */
 	readonly start: (
 		options: StartRecordingOptions,
 	) => Promise<Result<Recording, RecorderError>>;

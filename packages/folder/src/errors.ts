@@ -7,8 +7,7 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 /**
- * Why a folder (`openFolder`) or a client (`openDevice`) did not open, on
- * every platform. A desktop folder can be disconnected, refused or
+ * Why a folder (`openFolder`) did not open, on every platform. A desktop folder can be disconnected, refused or
  * unreadable; storage itself can be unavailable anywhere (outside Tauri, a
  * browser that gives the page no private storage, a shell that did not
  * answer). Each message says what happened in words a person can act on; the

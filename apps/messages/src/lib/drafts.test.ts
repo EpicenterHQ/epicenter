@@ -1,7 +1,7 @@
 /**
- * Messages' send workflow, over a folder on disk (the page's is this
- * browser's files): another tab's write is a file written beside it, and a
- * storage failure is its client's.
+ * Messages' send workflow, over a folder in memory (the page's is this
+ * browser's files): another tab's write is a file written at the same place
+ * (`memoryFiles`), and a storage failure is one the place refuses.
  *
  * The attempt must land before Beeper is asked, an uncertain send needs an
  * explicit check, and the composer's typing after Send stays.
@@ -15,14 +15,10 @@
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { type Client, ClientError } from '@epicenter/definition/contract';
-import { createFolder, type Folder } from '@epicenter/folder/core';
-import { openDevice } from '@epicenter/folder/node';
+import { openFolder } from '@epicenter/folder';
+import type { Folder } from '@epicenter/folder/core';
+import { memory, memoryFiles } from '@epicenter/folder/memory';
 import { flushSync } from 'svelte';
-import { Ok, unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type Backend, createDemoBackend } from './backend.js';
 import { type Messages, messages } from './contract.js';
@@ -39,19 +35,15 @@ afterEach(async () => {
 });
 
 /**
- * A folder over a fresh directory, read through `reactive` as the page
- * reads its own, holding an empty draft for Maya's demo chat. `wrap`
- * changes what its client answers.
+ * A folder at a new place in memory, read through `reactive` as the page
+ * reads its own, holding an empty draft for Maya's demo chat. `files` is the
+ * place as another tab writes it, and refuses the folder's writes or reads
+ * below a directory.
  */
-async function setup(
-	wrap: (client: Client<Messages>) => Client<Messages> = (client) => client,
-) {
-	const root = await mkdtemp(join(tmpdir(), 'messages-drafts-'));
-	cleanup.push(() => rm(root, { recursive: true, force: true }));
-	const client = unwrap(await openDevice(messages, { path: root }));
-	const folder: Folder<Messages> = reactive(
-		createFolder(messages, async () => Ok(wrap(client))),
-	);
+async function setup() {
+	const place = memory();
+	const files = memoryFiles(place);
+	const folder: Folder<Messages> = reactive(openFolder(messages, place));
 	cleanup.push(() => folder[Symbol.dispose]());
 	const backend = createDemoBackend();
 	const id = await draftId(backend, 'demo-maya');
@@ -63,7 +55,7 @@ async function setup(
 			mode: backend.mode,
 		}),
 	);
-	return { root, folder, backend, id };
+	return { files, folder, backend, id };
 }
 
 /** Keep `folder`'s collections listing and following changes, as an open page does. */
@@ -144,16 +136,14 @@ function counting(backend: Backend) {
 }
 
 test('an uncertain attempt holds its text and blocks resending until checked', async () => {
-	const { folder, backend, id, root } = await setup();
+	const { folder, backend, id, files } = await setup();
 	const text = 'A draft with Markdown and "quotes".';
 	expectOk(await saveDraft(folder, id, text));
 	backend.failNext();
 	expectErr(await send(folder, id, backend, text));
 	expect(attemptOf(folder, id)).toMatchObject({ state: 'sending', body: text });
 	expect(draftOf(folder, id)?.body).toBe('');
-	expect(await readFile(join(root, `attempts/${id}.md`), 'utf8')).toContain(
-		'state: sending',
-	);
+	expect(files.read(`attempts/${id}.md`)).toContain('state: sending');
 	expectErr(await send(folder, id, backend, text));
 	expectOk(
 		await check(folder, id, backend, attemptOf(folder, id)?.attemptId ?? ''),
@@ -172,15 +162,8 @@ test('demo and live drafts use different IDs', async () => {
 });
 
 test('a failed attempt write never contacts Beeper', async () => {
-	const unavailable = ClientError.Unavailable({ cause: 'no disk' });
-	const { folder, backend, id } = await setup((client) => ({
-		...client,
-		attempts: {
-			...client.attempts,
-			create: async () => unavailable,
-			update: async () => unavailable,
-		},
-	}));
+	const { folder, backend, id, files } = await setup();
+	files.refuse('no disk', { under: 'attempts' });
 	const counted = counting(backend);
 	expectOk(await saveDraft(folder, id, 'Must not send'));
 	expect(
@@ -293,20 +276,10 @@ test('checking an older identical attempt cannot acknowledge a newer one', async
 });
 
 test('a failed clear sends nothing and acknowledges the attempt', async () => {
-	let failClear = false;
-	const { folder, backend, id } = await setup((client) => ({
-		...client,
-		drafts: {
-			...client.drafts,
-			update: (...args: Parameters<typeof client.drafts.update>) =>
-				failClear
-					? Promise.resolve(ClientError.Unavailable({ cause: 'no disk' }))
-					: client.drafts.update(...args),
-		},
-	}));
+	const { folder, backend, id, files } = await setup();
 	const counted = counting(backend);
 	expectOk(await saveDraft(folder, id, 'Prepared reply'));
-	failClear = true;
+	files.refuse('no disk', { under: 'drafts' });
 	expect(
 		expectErr(await send(folder, id, counted.backend, 'Prepared reply'))
 			.message,
@@ -317,13 +290,10 @@ test('a failed clear sends nothing and acknowledges the attempt', async () => {
 });
 
 test('broken draft front matter refuses a send', async () => {
-	const { folder, backend, id, root } = await setup();
+	const { folder, backend, id, files } = await setup();
 	watch(folder);
 	const counted = counting(backend);
-	await writeFile(
-		join(root, `drafts/${id}.md`),
-		'---\nchatId: [\n---\nOriginal',
-	);
+	await files.write(`drafts/${id}.md`, '---\nchatId: [\n---\nOriginal');
 	await until(() => folder.drafts.invalid().some((note) => note.id === id));
 	expect(
 		expectErr(await send(folder, id, counted.backend, 'Edited')).message,
@@ -332,10 +302,10 @@ test('broken draft front matter refuses a send', async () => {
 });
 
 test('an attempt on storage the page has not seen refuses a send', async () => {
-	const { folder, backend, id, root } = await setup();
+	const { folder, backend, id, files } = await setup();
 	// Nothing follows the page's attempts, so it shows none: another tab's write it has not heard of.
-	await Bun.write(
-		join(root, `attempts/${id}.md`),
+	await files.write(
+		`attempts/${id}.md`,
 		'---\nstate: sending\n---\nAnother send',
 	);
 	expect(
@@ -344,13 +314,13 @@ test('an attempt on storage the page has not seen refuses a send', async () => {
 });
 
 test('an attempt rewritten with a byte-order mark does not block the next send', async () => {
-	const { folder, backend, id, root } = await setup();
+	const { folder, backend, id, files } = await setup();
 	watch(folder);
 	expectOk(await saveDraft(folder, id, 'First reply'));
 	expectOk(await send(folder, id, backend, 'First reply'));
-	const path = join(root, `attempts/${id}.md`);
+	const path = `attempts/${id}.md`;
 	const before = attemptOf(folder, id)?.version;
-	await writeFile(path, `﻿${await readFile(path, 'utf8')}`);
+	await files.write(path, `﻿${files.read(path)}`);
 	await until(() => {
 		const shown = attemptOf(folder, id);
 		return shown !== undefined && shown.version !== before;
@@ -360,13 +330,8 @@ test('an attempt rewritten with a byte-order mark does not block the next send',
 });
 
 test('a failed storage read asks to try again', async () => {
-	const { folder, backend, id } = await setup((client) => ({
-		...client,
-		attempts: {
-			...client.attempts,
-			list: async () => ClientError.Unavailable({ cause: 'read failed' }),
-		},
-	}));
+	const { folder, backend, id, files } = await setup();
+	files.refuseReads('read failed', { under: 'attempts' });
 	expect(
 		expectErr(await send(folder, id, backend, 'Must not send')).message,
 	).toBe('Could not check storage; try again.');

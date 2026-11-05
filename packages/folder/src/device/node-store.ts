@@ -75,7 +75,7 @@ async function versionAt(target: string) {
 }
 
 const holds = (version: string | undefined, expected: DeviceExpectation) =>
-	expected === 'absent' ? version === undefined : version === expected.sha256;
+	expected === 'absent' ? version === undefined : version === expected.version;
 
 /**
  * Put `staged` at `target` only while nothing is there: a hard link, which
@@ -146,13 +146,15 @@ export function nodeStore(root: string): DeviceStore {
 			await mkdir(saves, { recursive: true, mode: 0o700 });
 			await writeFile(staged, bytes, { flag: 'wx', mode: 0o600 });
 			await mkdir(dirname(target), { recursive: true });
-			return await turns.run(target, async () => {
+			const landed = await turns.run(target, async () => {
 				if (expected === 'absent') return place(staged, target);
 				if (!holds(await versionAt(target), expected)) return 'stale' as const;
 				await chmod(staged, (await stat(target)).mode & 0o777);
 				await rename(staged, target);
 				return 'landed' as const;
 			});
+			if (landed === 'stale') return landed;
+			return { landed: (await hashBytes(bytes)) as Version };
 		} finally {
 			await rm(staged, { force: true });
 		}
@@ -220,7 +222,7 @@ export function nodeStore(root: string): DeviceStore {
 						const version = await versionAt(target);
 						if (!holds(version, expected)) return 'stale' as const;
 						if (version !== undefined) await rm(target);
-						return 'landed' as const;
+						return { landed: null };
 					}),
 				);
 			} catch (cause) {

@@ -6,7 +6,7 @@
  * function's edge, with the rules the owner set since: the later arrival
  * wins a key (decision 28), a clash is whole lines (decision 43), and what
  * settle writes is in house style (decision 29). `current` is the side that
- * reached the server first, `incoming` the later arrival.
+ * merged first, `incoming` the later arrival.
  *
  * Key behaviors:
  * - T1: different fields both land; one sentence both edited is one whole-line block

@@ -21,7 +21,7 @@ import './svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import { defineContract } from '@epicenter/definition/contract';
 import { openFolder } from '@epicenter/folder';
-import { memoryFiles } from '@epicenter/folder/memory';
+import { memory, memoryFiles } from '@epicenter/folder/memory';
 import { flushSync } from 'svelte';
 import { reactive } from './reactive.js';
 
@@ -107,7 +107,7 @@ test('an action passes through untracked: called in an effect, it subscribes not
 });
 
 test('get(args) that answers undefined still tracks, so its reader sees the note once it lands', async () => {
-	const folder = reactive(openFolder(todos));
+	const folder = reactive(openFolder(todos, memory()));
 	const shown = follow(() => folder.todos.get({ id: 'a' })?.title);
 	flushSync();
 	expect(shown.values).toEqual([undefined]);
@@ -117,12 +117,12 @@ test('get(args) that answers undefined still tracks, so its reader sees the note
 });
 
 test('a symbol-keyed member passes through as it is, whatever it holds', () => {
-	const raw = openFolder(todos);
+	const raw = openFolder(todos, memory());
 	expect(memoryFiles(reactive(raw))).toBe(memoryFiles(raw));
 });
 
 test('held capabilities, methods and returned data keep their identity', async () => {
-	const raw = openFolder(todos);
+	const raw = openFolder(todos, memory());
 	const folder = reactive(raw);
 	expect(reactive(raw)).toBe(folder);
 	expect(reactive(folder)).toBe(folder);
@@ -138,7 +138,7 @@ test('held capabilities, methods and returned data keep their identity', async (
 });
 
 test('a returned capability is adapted with its own subscribe, and making it tracks nothing', async () => {
-	const folder = reactive(openFolder(todos));
+	const folder = reactive(openFolder(todos, memory()));
 	await folder.todos.create({ id: 'a', title: 'Milk', done: false });
 	const made = follow(() => folder.todos.edit({ id: 'a' }));
 	flushSync();
@@ -156,7 +156,7 @@ test('a returned capability is adapted with its own subscribe, and making it tra
 });
 
 test('a plain object held without a subscribe inherits its holder’s, and its accessors set the capability’s', async () => {
-	const folder = reactive(openFolder(todos));
+	const folder = reactive(openFolder(todos, memory()));
 	await folder.todos.create({ id: 'a', title: 'Milk', done: false });
 	const todo = folder.todos.edit({ id: 'a' });
 	expect(todo.fields).toBe(todo.fields);
@@ -208,7 +208,8 @@ test('an openAi-shaped capability: models() tracks, refresh, chat and transcribe
 	});
 	flushSync();
 	expect(changes.listeners.size).toBe(0);
-	for await (const chunk of acting.values[0] ?? []) expect(chunk.data).toBe('Hi');
+	for await (const chunk of acting.values[0] ?? [])
+		expect(chunk.data).toBe('Hi');
 	acting.stop();
 });
 

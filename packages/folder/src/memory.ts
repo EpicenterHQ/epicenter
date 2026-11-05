@@ -1,9 +1,11 @@
 /**
- * `@epicenter/folder/memory`: the world outside a folder in memory, for a
- * test. Under the `test` condition `openFolder` opens a folder in memory
- * (`open-folder.memory.ts`), and a test reads and writes it through its
- * ordinary methods. What only something outside the folder does goes
- * through `memoryFiles(folder)`:
+ * `@epicenter/folder/memory`: folders in memory, for a test. Under the
+ * `test` condition `home()` is a new place in memory (`home.memory.ts`),
+ * and a test reads and writes its folder through the folder's ordinary
+ * methods. `memory()` is a new place in memory a test opens folders at
+ * itself; every folder opened at one place shares its files and hears the
+ * others' writes. What only something outside the folder does goes through
+ * `memoryFiles`:
  *
  * ```ts
  * import { folder } from '$lib/app.js';
@@ -11,23 +13,42 @@
  *
  * await memoryFiles(folder).write('todos/a.md', '---\ntitle: [\n---\n'); // a file that does not read
  * const release = memoryFiles(folder).hold(); // the next writes wait
- * const undo = memoryFiles(folder).refuse('disk full'); // the next writes fail
+ * const undo = memoryFiles(folder).refuse('disk full', { under: 'todos' }); // the next writes there fail
+ *
+ * const place = memory();
+ * memoryFiles(place).refuseOpen(OpenFolderError.StorageUnavailable({ cause: 'offline' }).error);
+ * const offline = openFolder(todos, place); // fails to open until the refusal is undone
  * ```
  */
-import { MEMORY_FILES, type MemoryFiles } from './device/memory-store.js';
+import { type MemoryFiles, memoryStore } from './device/memory-store.js';
+import { placeOf } from './open-folder.js';
+import { type Place, place } from './place.js';
 
 export type { MemoryFiles } from './device/memory-store.js';
 
+/** Where a place in memory keeps its `outside`. */
+const MEMORY_FILES = Symbol('epicenter.memoryFiles');
+
+/** A new, empty place in memory: a folder opened at it opens a microtask from now. */
+export function memory(): Place {
+	const store = memoryStore();
+	return Object.assign(
+		place(() => ({ open: store.opened })),
+		{ [MEMORY_FILES]: store.outside },
+	);
+}
+
 /**
- * The world outside `folder`, a folder `openFolder` opened in memory under
- * the `test` condition, or `reactive`'s copy of it. Throws for any other
- * folder.
+ * The world outside `target`: a place `memory()` made (the `test`
+ * condition's `home()` included), or a folder opened at one, or `reactive`'s
+ * copy of it. Throws for anything else.
  */
-export function memoryFiles(folder: object): MemoryFiles {
-	const files = (folder as { [MEMORY_FILES]?: MemoryFiles })[MEMORY_FILES];
+export function memoryFiles(target: object): MemoryFiles {
+	const at = placeOf(target) ?? target;
+	const files = (at as { [MEMORY_FILES]?: MemoryFiles })[MEMORY_FILES];
 	if (files === undefined)
 		throw new Error(
-			'expected a folder openFolder opened in memory, under the test condition',
+			'expected a place in memory, or a folder opened at one (the test condition’s home)',
 		);
 	return files;
 }

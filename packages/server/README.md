@@ -70,8 +70,8 @@ elsewhere (`resolveOAuthAudiences`).
 | `PUT`/`DELETE /api/repos/<namespace>/<name>/grants/<person>` | `folders:write` on the Git audience, the `manage` role (owner) |
 
 `<namespace>` may be `~`, the caller's personal namespace, so a web app reaches
-`<account>/<app>` from its token alone; `openRemote` in `@epicenter/folder/remote`
-uses it.
+`<account>/<app>` from its token alone; a web folder at
+`home({ site, account })` from `@epicenter/folder` uses it.
 
 **Grants.** The owner shares one repository with a person outside its
 namespace: `PUT .../grants/<person>` with `{ "level": "read" | "write" }`
@@ -101,35 +101,35 @@ a 64 MiB body, 256 MiB of inflated objects held at once, and 100,000 of
 receiver keeps commits, trees and pointer-sized blobs, and lets larger blobs
 go once hashed.
 Web writes go to the translator (`src/routes/files.ts`): one commit per
-request, notes merged with `@epicenter/definition/merge`'s `settle`, the
-later of two binary writes winning (ADR-0771), the standard
-`.gitattributes` (`REPOSITORY_ATTRIBUTES`) in a repository's first commit. It
-keeps nothing about a request once it answers. Both use the `GitObjects` port
+request, each file landing only over the blob its writer read, and the
+standard `.gitattributes` (`REPOSITORY_ATTRIBUTES`) in a repository's first
+commit. It never merges (ADR-0773), and keeps nothing about a request once
+it answers. Both use the `GitObjects` port
 (`src/git/objects.ts`): refs, object reads by kind, and an atomic
 compare-and-swap `apply` over several refs (the receiver moves `main` and its
 `replaced` backup together).
 
-A web write names each file with the Git blob id it read as `base`; without
-one it is a create. A file other than a note names an LFS object already
-uploaded through the batch API:
+A web write names each file with what its writer read there as `base`: the
+Git blob id, or null for nothing. A file other than a note names an LFS
+object already uploaded through the batch API:
 
 ```txt
 POST <git audience>/~/recorder.git/epicenter/writes
 { "files": [
-    { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.md", "text": "---\ntitle: Standup\n---\n" },
-    { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.m4a", "lfs": { "oid": "<sha256>", "size": 48213 } } ] }
--> 200 { "commit", "paths", "blobs": { "<path>": "<blob id>" }, "outcomes": [{ "path", "outcome" }] }
+    { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.md", "base": null, "text": "---\ntitle: Standup\n---\n" },
+    { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.m4a", "base": null, "lfs": { "oid": "<sha256>", "size": 48213 } } ] }
+-> 200 { "commit", "paths", "blobs": { "<path>": "<blob id>" } }
 ```
 
-An outcome is `written`, `merged`, `conflict`, `unchanged`, `deleted`, or
-`kept`. A body over 16 MiB is 413 `too_large`.
-
-A writer that lost the reply sends the same write again, and it is judged like
-any other. The same files with the same content are `unchanged` and make no
-commit (a note counts as the same when it is equal in house style). Other
-content at a path that was created meanwhile lands as two creates: a note keeps
-what is there and gains the incoming note as one conflict block, and a
-binary replaces what is there, which stays in history.
+The check and the move of `main` are one compare-and-swap step: when any
+path no longer holds its `base`, nothing lands and the write is `409`,
+`occupied` for a create where a file is, `stale` for a path that changed.
+The writer reads what is there and writes again over it; the folder does
+this for a note update (`updateNote`). Writing the bytes a path already
+holds lands as nothing, and a write that changes nothing makes no commit. A
+body over 16 MiB is 413 `too_large`. A writer that lost the reply and sends
+the same write again is judged like any other, and finds its own bytes when
+it reads.
 
 One statement decides each Git request (`authorizeResourceRequest`): the access
 token, given as a Bearer token or as the Basic password, its audience, scope,

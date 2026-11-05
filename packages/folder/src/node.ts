@@ -1,48 +1,47 @@
 /**
- * `@epicenter/folder/node`: a contract's typed client over a directory on
- * this computer (decision 7), and the checks `epicenter check` and
- * `epicenter format` run, in Bun or Node (`device/node-store.ts`).
+ * `@epicenter/folder/node`: a directory on this computer as a place, for
+ * scripts and tests, in Bun or Node (`device/node-store.ts`), and the checks
+ * `epicenter check` and `epicenter format` run.
  *
  * The directory holds the contract's files at the contract's paths, the
  * same layout a desktop folder and the browser's private storage hold.
  *
  * @example
  * ```ts
- * import { openDevice } from '@epicenter/folder/node';
+ * import { openFolder } from '@epicenter/folder';
+ * import { directory } from '@epicenter/folder/node';
  *
- * const device = unwrap(await openDevice(recorder, { path: '/Users/me/Recordings' }));
- * const note = await device.recordings.create({ id: timeId(), title: 'Standup' });
+ * const folder = openFolder(recorder, directory('/Users/me/Recordings'));
+ * const note = await folder.recordings.create({ id: timeId(), title: 'Standup' });
  * ```
  */
 import { mkdir, stat } from 'node:fs/promises';
-import type { Client, Contract } from '@epicenter/definition/contract';
-import { Ok, type Result } from 'wellcrafted/result';
-import { createDeviceClient } from './device/client.js';
+import { Ok } from 'wellcrafted/result';
 import { checkStore, formatStore } from './device/folder-tools.js';
 import { nodeStore } from './device/node-store.js';
 import { OpenFolderError } from './errors.js';
+import { type Place, place } from './place.js';
 
 /**
- * The typed client of `contract` over the directory at `path`, made now
- * with its missing parents if it does not exist: `Unreadable` when it
- * cannot be made or is not a directory. A contract that is not well formed
- * throws.
+ * The directory at `path`, made with its missing parents when a folder
+ * opens at it: `Unreadable` when it cannot be made or is not a directory.
  */
-export async function openDevice<TContract extends Contract>(
-	contract: TContract,
-	{ path }: { path: string },
-): Promise<Result<Client<TContract>, OpenFolderError>> {
-	try {
-		await mkdir(path, { recursive: true });
-		if (!(await stat(path)).isDirectory())
-			return OpenFolderError.Unreadable({
-				folder: path,
-				cause: 'it is not a directory',
-			});
-	} catch (cause) {
-		return OpenFolderError.Unreadable({ folder: path, cause });
-	}
-	return Ok(createDeviceClient(contract, nodeStore(path)));
+export function directory(path: string): Place {
+	return place(() => ({
+		async open() {
+			try {
+				await mkdir(path, { recursive: true });
+				if (!(await stat(path)).isDirectory())
+					return OpenFolderError.Unreadable({
+						folder: path,
+						cause: 'it is not a directory',
+					});
+			} catch (cause) {
+				return OpenFolderError.Unreadable({ folder: path, cause });
+			}
+			return Ok(nodeStore(path));
+		},
+	}));
 }
 
 /**

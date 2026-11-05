@@ -99,7 +99,7 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 ```text
 src/lib/app.ts                 the page's values, each read through reactive:
                                account (#platform/account) and
-                               folder = reactive(openFolder(capture, { site, account }));
+                               folder = reactive(openFolder(capture, home({ site, account })));
                                editing it, or what it imports, reloads the page
 routes/+layout.svelte          every page: the chrome
 routes/(app)/+layout.svelte    signed out on the web: SignIn; otherwise
@@ -151,7 +151,8 @@ shared recovery screen with Retry. The files remain when the app is removed.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
-(`openFolder(capture, { site })`, whose `tauri` leaf opens the Data root)
+(`openFolder(capture, home({ site, account }))`, whose desktop `home` is the
+Data root)
 with no sign-in: Capture makes no
 inference calls, and Epicenter can keep the folder's local history. Its header
 says whether Epicenter manages the folder, offers **Set up in Epicenter** until it does
@@ -159,7 +160,7 @@ says whether Epicenter manages the folder, offers **Set up in Epicenter** until 
 `contract.json`), and shows the shell's folder path in the status details.
 Closing the window or quitting does not wait.
 
-The build picks the folder: `openFolder` from `@epicenter/folder` resolves
+The build picks the folder: `home` from `@epicenter/folder` resolves
 to its desktop leaf under the `tauri` condition that `desktopVariant()` in
 `vite.config.ts` turns on, and to the web leaf otherwise. Three things are
 Capture's own and differ by build, through `#platform/*` seams
@@ -180,7 +181,7 @@ went missing.
 | --- | --- |
 | `bun test apps/capture/src/lib/model` | The contract and the body codec. |
 | `bun run --cwd apps/capture typecheck` | App, scripts, and end-to-end types. |
-| `bun run --cwd apps/capture test` | The contract's fit, the page state over a stand-in client (a folder client in a temporary directory, whose writes can fail or wait), the mounted views over the app's memory folder, and both builds' seams. |
+| `bun run --cwd apps/capture test` | The contract's fit, the page state over a folder at a place in memory (`memory()`), whose writes can fail or wait, the mounted views over the app's memory folder, and both builds' seams. |
 | `cargo test -p capture -p epicenter-standalone` | The desktop shell: its capability, the derived data folder and opening refusals. |
 | `bun x playwright test -c apps/capture/playwright.config.ts` | End to end in Chromium and WebKit (below). |
 

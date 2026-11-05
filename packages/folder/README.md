@@ -1,37 +1,37 @@
 # @epicenter/folder
 
-`openFolder(contract)` hands an app its folder at once, already opening,
-with the contract's collections directly on it. The contract openers below
-it, `openDevice` and `openRemote`, open an app's files as the typed client
-its file contract derives
-([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
+`openFolder(contract, place)` hands an app its folder at once, already
+opening, with the contract's collections directly on it. The place says
+where the folder is: the app's `home`, a `directory`, or memory under test
+([ADR-0773](../../docs/adr/0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md)).
 Each write is conditional on the version its writer read, so another
-writer's change since is a `Conflict` rather than overwritten. The folder
-has the shape every capability has: synchronous reads, actions that answer
-promises, and one `subscribe`. A Svelte app reads it through `reactive` from
-[`@epicenter/svelte/reactive`](../svelte/README.md); React reads it with
-`useSyncExternalStore`.
+writer's change since is a `Conflict` rather than overwritten
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
+The folder has the shape every capability has: synchronous reads, actions
+that answer promises, and one `subscribe`. A Svelte app reads it through
+`reactive` from [`@epicenter/svelte/reactive`](../svelte/README.md); React
+reads it with `useSyncExternalStore`.
 
 ## Entries
 
 | Import | Purpose |
 | --- | --- |
-| `@epicenter/folder` | `openFolder(contract, { site, account }?)`, which the build picks: the desktop's data folder (`tauri`), this browser's storage or, with an `account`, the account's copy (`default`), and a new folder in memory under the `test` condition. |
-| `@epicenter/folder/core` | The folder every build shares, with no platform code: its types, `createFolder` (a folder over any open; over a client already open, `createFolder(contract, async () => Ok(client))`), and `OpenFolderError`. |
-| `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `filesOf(folder)`, the files under a folder `openFolder` opened over this browser, by path (or `deviceFiles(device)` under a client), with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece). |
-| `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
-| `@epicenter/folder/memory` | `memoryFiles(folder)`: the world outside a folder `openFolder` opened in memory under the `test` condition, for a test: `write(path, content)` as another program would (a file that does not read, too), `hold()` the folder's writes, and `refuse(reason)` them as `Unavailable`. |
-| `@epicenter/folder/remote` | `openRemote(contract, { account, site })` over the signed-in person's repository. |
-| `@epicenter/folder/tauri` | `openDevice(contract, { root })` opens a root the shell named, `Data` or `AppData`; an app does not call it, since the desktop `openFolder` opens Data (and updates its root `AGENTS.md`) and `localFile` from `@epicenter/local` keeps per-computer state in AppData. `rootOf(device)` answers the root's name for local transcription, and `displayPath(device)` the path to show, which `open_root` answered. `syncWithEpicenter` and `syncedWithEpicenter` manage Epicenter enrollment. |
+| `@epicenter/folder` | `openFolder(contract, place)`, and `home({ site, account }?)`, the app's own place, which the build picks: the desktop's data folder (`tauri`), this browser's storage or, with an `account`, the account's repository (`default`), and a new place in memory under the `test` condition. |
+| `@epicenter/folder/core` | The folder's types (`Folder`, `FolderNotes`, `FolderFiles`, `FolderLifecycle`, `Place`, ...) and `OpenFolderError`, the same on every build, for a library that takes a folder or a collection. |
+| `@epicenter/folder/node` | `directory(path)`, a directory as a place, for scripts and tests (Bun or Node), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
+| `@epicenter/folder/memory` | `memory()`, a new place in memory, and `memoryFiles(placeOrFolder)`, the world outside it, for a test. |
+| `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager, and `syncWithEpicenter` and `syncedWithEpicenter` for Epicenter enrollment. Machine-local state goes to AppData through `localFile` from `@epicenter/local`, not through a folder. |
 | `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 
-Importing an entry does not open anything.
+Importing an entry does not open anything. A place is opaque: only this
+package makes one, and nothing outside it holds a store or the typed client
+under a folder.
 
 ## The folder
 
 ```ts
 // src/lib/app.ts
-export const folder = openFolder(todos, { site: APPS.TODOS.url });
+export const folder = openFolder(todos, home({ site: APPS.TODOS.url, account }));
 ```
 
 `openFolder` returns synchronously
@@ -43,130 +43,129 @@ export const folder = openFolder(todos, { site: APPS.TODOS.url });
 | `folder.state()` | `opening`, `open`, `failed` with the typed `OpenFolderError` and the `retry()` that opens again (answering once that attempt settles), or `closed` once disposed; the same object until it changes |
 | `folder.saving()` | whether a write is out, from its call or an editor's keystroke until it answers; `<WhenOpen>` reads it for the leave guard |
 | `folder.subscribe(fn)` | hears `state()`, `saving()` or `displayPath()` change; returns the unsubscribe |
-| `folder.displayPath()` | the desktop data folder's path as the shell named it, to show a person, once it opened; null before, and on the web and in memory |
-| `folder.reveal` | shows the desktop's data folder in the file manager, even when it did not open; null on the web and in memory |
+| `folder.displayPath()` | the desktop data folder's path as the shell named it, to show a person, once it opened; null before, and at any other place |
+| `folder.reveal` | shows the desktop's data folder in the file manager, even when it did not open; null at any other place |
 | `folder[Symbol.dispose]()` | closes what it opened, even an open still under way |
 | `folder.todos.items()`, `invalid()`, `loading()`, `error()`, `get(args)` | answer at once: empty and loading while the folder opens; listed while something subscribes to the collection; `get(args)` is the entry shown |
 | `folder.todos.edit(args)` | one note as an immediate editor (`NoteEdit`), with its own reads and `subscribe` |
-| `folder.todos.list()`, `create`, `update`, `replace`, `delete`, and a file collection's `read(args)` | wait for the open, then run; when it fails, answer `Err(OpenFolderError)`; writes are made over the version shown unless told otherwise |
+| `folder.todos.list()`, `create`, `update`, `replace`, `delete`, and a file collection's `read(args)` and `append` | wait for the open, then run; when it fails, answer `Err(OpenFolderError)`; writes are made over the version shown unless told otherwise |
 
 Only an interface reads `state()` (`<WhenOpen>` from `@epicenter/svelte`).
 Everything else reads and acts, and an action called while the folder opens
 completes once it has. A collection's writes show in its `items()` before
-they resolve. Under the `test` condition (`bun test --conditions=test`) the
-folder is a new one in memory; a test seeds it with `create` and mocks no
-module. A Node script opens a directory with `openDevice(contract, { path })`
-from `/node`, since its path varies by call.
+they resolve.
 
-## Contract openers
+Every note the folder writes is in house style, the contract's keys first.
+Every update and delete carries the version its writer read, and lands only
+while the file still holds it (`Conflict` otherwise); `create` never
+replaces a file (`Occupied`). A note `update` follows `updateNote`
+(`@epicenter/definition/contract`): it carries the edit over another
+writer's change to other fields and writes again, and answers `Conflict`,
+showing theirs, when they changed the same field. A note that does not read
+is listed in `invalid` with its placeholders, `text` (null when not UTF-8)
+and `version`; repair it with `update` when its front matter parses, else
+`replace(args, text, { over })`.
 
-`openDevice(contract, …)` opens the typed client an app's contract derives
-(`Client<T>` from `@epicenter/definition/contract`) over a device's files, at
-the contract's paths. It is async on every platform and answers a `Result`:
-the client, or an `OpenFolderError` saying why nothing opened
-(`Disconnected`, `Refused`, `Unreadable`, `StorageUnavailable`). An app opens it
-once, at its startup, and hands the client down:
+A file collection's `append(args, bytes, { create, announce })` adds bytes
+to the end of a file written while it is made, such as a recording
+(`@epicenter/recorder/browser` appends a piece at a time). With `create` the
+file is made, never over one there (`Occupied`); without, a file that went
+is `NotFound`. Listeners hear the file made, and after that only an append
+with `announce`. Only this browser's storage appends; at any other place
+`append` answers `Unavailable`.
+
+## Places
+
+| Place | Where | Version |
+| --- | --- | --- |
+| `home()` on the desktop | the `Data` root the shell named from the app's bundle identifier ([ADR-0752](../../docs/adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md)); opening it brings its root `AGENTS.md` up to date with the contract `site` publishes ([ADR-0772](../../docs/adr/0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md)) | sha256 |
+| `home()` on the web | this origin's private file system (OPFS), for good | sha256 |
+| `home({ site, account })` on the web | the account's repository for `site`, `<git audience>/~/<name derived from site>.git`, through `account.fetch`; it opens once the account is signed in, works online only, and stops when the account is retired | Git blob id on `main` |
+| `directory(path)` | a directory, made when missing (`Unreadable` when it cannot be) | sha256 |
+| `memory()`, and `home()` under `test` | memory, for the life of the process | sha256 |
+
+Every place opens to a store that holds bytes at paths, and one typed
+client over it gives the folder the contract's notes and files
+(`src/device/client.ts`). A listing passes the collection's directory as a
+hint (the repository reads only that folder), and a note listing reads only
+the notes whose stamp changed since the last.
+
+The places are separate stores, and nothing moves between them
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
+an app's local web variant keeps this browser's storage for its life, its
+online web variant the repository, and its desktop variant the data folder,
+which only `epicenter sync` moves. Sign-in grants capabilities, never
+storage.
+
+In the browser, one dedicated Worker owns the origin's private file system,
+with a Web Lock per path. A browser that gives the page no private storage
+still opens, and each call answers `Unavailable` with a
+`DeviceError.StorageRefused` cause, so an app keeps working in memory. Only
+a context with no Worker opens nothing (`StorageUnavailable`). An append
+makes its file whole like any new file, then adds each later piece at the
+end through a sync access handle opened and closed for that piece, so a
+crash keeps every piece written; a read that an append overtook reads
+again. In a Tauri window the folder works over the root the shell named,
+through the folder plugin's commands, each naming that root by name, never
+by path; the shell makes the data folder when nothing is at its path, checks
+each save, and watches each root a page opened. See the folder plugin's
+README, and `src/device/`; `bun run --cwd packages/folder smoke:device`
+drives a folder at this browser's storage in Playwright Chromium and WebKit.
+
+The repository never merges a web write: each file of a write names the
+blob its writer read (or null for nothing), and the server refuses the write
+when the path no longer holds it, in the step that moves `main`
+([`@epicenter/server`](../server/README.md)). The folder then reads what is
+there, and a note `update` carries the person's edit over it. A note
+travels as text; any other file's bytes travel as a Git LFS object,
+uploaded before the write names it. See `src/remote/`.
+
+A collection's `subscribe(listener)` hears that its files changed, and the
+folder lists again. The folder hears every write it makes before the write
+resolves, and outside writes as they come: other tabs through the Worker's
+`epicenter-device` broadcast channel, the shell's watcher in Tauri, a
+recursive watch in Bun (which stages a probe in `.epicenter/saves` until it
+hears one, so a change made while it started is not lost), and on the
+repository a read of `main` (`GET <repo>.git/epicenter/head`) every three
+seconds while anything listens, until the notify Durable Object replaces
+the poll.
+
+### Tests and scripts
+
+Under the `test` condition (`bun test --conditions=test`) `home()` is a new
+place in memory, so an app's `src/lib/app.ts` opens a folder in memory; a
+test seeds it with the folder's own methods and mocks no module. A test
+that opens its own folder uses `memory()`, or `directory(tmp)` for files on
+disk; a script uses `directory(path)`:
 
 ```ts
-import { openDevice } from '@epicenter/folder/browser'; // OPFS
-// import { openDevice } from '@epicenter/folder/node';           // a directory: openDevice(c, { path })
-// import { openDevice } from '@epicenter/folder/tauri';          // a root the shell named: openDevice(c, { root: 'Data' })
+import { openFolder } from '@epicenter/folder';
+import { memory, memoryFiles } from '@epicenter/folder/memory';
+import { directory } from '@epicenter/folder/node';
 
-const opened = await openDevice(recorder);
-if (opened.error !== null) return opened;
-const device = opened.data;
-const id = timeId();
-// The audio first: a note never names bytes that are not there yet.
-const audio = await device.audio.create({ id, ext: 'm4a', bytes });
-if (audio.error === null)
-	await device.recordings.create({ id, title: 'Standup' });
+const scratch = openFolder(todos, directory('/tmp/todos'));
+const place = memory();
+const folder = openFolder(todos, place);
+const other = openFolder(todos, place); // shares the files, hears folder's writes
 ```
 
-Every note it writes is in house style, the contract's keys first. Every
-update and delete carries the version (sha256) its writer read, and lands
-only while the file still holds it (`Conflict` otherwise); `create` never
-replaces a file (`Occupied`). No write lands over whatever is there. In the browser, one dedicated Worker owns the
-origin's private file system, with a Web Lock per path; a browser that gives
-the page no private storage still opens, and each call answers `Unavailable`
-with a `DeviceError.StorageRefused` cause, so an app keeps working in memory.
-An append (`deviceFiles(device).append`) makes its file whole like any new
-file, then adds each later piece at the end through a sync access handle
-opened and closed for that piece, so a crash keeps every piece written; a
-read that an append overtook reads again.
-Only a context with no Worker opens nothing (`StorageUnavailable`). In Bun
-the directory is made when missing (`Unreadable` when it cannot be). `/node` also exports `checkFiles`
-and `formatNotes`, which `epicenter check` and `epicenter format` run. In a
-Tauri window the client works over a root the shell named, through the
-folder plugin's commands, each naming that root by name, never by path; the
-shell makes the data folder when nothing is at its path, checks each save,
-and watches each root a page opened. See the folder plugin's README, and
-`src/device/`; `bun run --cwd packages/folder smoke:device` drives the
-browser opener in Playwright Chromium and WebKit.
-
-Each collection's `subscribe(listener)` hears that its files changed, with
-no word of what (read again to see). The device hears every write through
-it before the write resolves, and outside
-writes as they come: other tabs through the Worker's `epicenter-device`
-broadcast channel, the shell's watcher in Tauri, a recursive watch in Bun.
-Bun's watch starts listening some time after it is made, so it stages a
-probe in `.epicenter/saves` until it hears one, then tells its listeners to
-read again: a change made while it started is not lost. A remote hears its own writes the same way, and other writers' by reading
-`main` (`GET <repo>.git/epicenter/head`) every three seconds while anything
-listens, until the notify Durable Object replaces the poll. A listener can
-run when nothing it shows changed, never for a hidden path.
-
-A note that does not read is listed in `invalid` with its placeholders,
-`text` (null when not UTF-8) and `version`. Repair it with `update` when its
-front matter parses, else `replace(args, text, { over })`, which writes the
-whole note from text that reads and fits, in house style. `updateNote`
-(`@epicenter/definition/contract`) is the one rule for an edit that meets a
-`Conflict`; a folder's collections apply it to every `update` they make.
-
-`openRemote(contract, { account, site })` returns the same client over the
-signed-in person's repository for the app, `<git audience>/~/<name derived from site>.git`, through `account.fetch` (any `@epicenter/account` `Account`). A
-remote version is the Git blob id on `main`, and every write is one commit.
-It keeps nothing on the device: it works online only, and stops when the
-account is retired.
-
-```ts
-import { openRemote } from '@epicenter/folder/remote';
-
-const remote = openRemote(recorder, { account, site: 'https://whispering.epicenter.so' });
-const note = await remote.recordings.get({ id });
-if (note.error === null)
-	await remote.recordings.update({ id }, { title: 'Daily' }, { over: note.data.version });
-```
-
-The two openers are two stores, and nothing moves between them
-([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)): an app's local web variant opens the device
-for its life, its online web variant the remote, and its desktop variant the
-folder through `/tauri`, which only `epicenter sync` moves. Sign-in grants
-capabilities, never storage. See `src/remote/`.
+`memoryFiles(placeOrFolder)` is the world outside a place in memory:
+`write(path, content)` and `read(path)` as another program would (a file
+that does not read, too), `paths(under?)`, `hold()` the folder's writes,
+`refuse(reason, { under })` its writes and `refuseReads(reason, { under })`
+its reads and listings as `Unavailable`, and `holdOpen()` or
+`refuseOpen(error)` a folder's open.
 
 ### Settings
 
 An app's settings are flat notes at fixed paths, one per concern
-(`settings.md`, `shortcuts.md`, …), each a collection with no placeholders
-in an ordinary `defineContract`. A desktop app with machine-local settings has an AppData contract. The same
-notes may sit in both of its roots: the data folder holds the synced values (its contract claims the
-notes it syncs), the AppData root this computer's sparse overrides. A
-reader resolves each note with a shallow spread, where it reads it: a key
-in the AppData note wins, then the data folder's, then the default
-(`keysOf`, the app's own, drops what every note carries, its `body` and
-`version`; a missing note spreads nothing):
-
-```ts
-const shortcuts = {
-	...SHORTCUT_DEFAULTS,
-	...keysOf(device.shortcuts.get({})), // the data folder: synced
-	...keysOf(appData.shortcuts.get({})), // this computer only
-};
-```
-
-The shell derives the data folder from the app's site. A local web app
-spreads defaults and its device note; an online web app reads its notes
-from the repository. API keys never go in a settings note: they stay in the
-keychain.
+(`settings.md`, `shortcuts.md`, ...), each a collection with no
+placeholders in an ordinary `defineContract`, which sync with the folder.
+What a capability keeps for this computer only (model choices, connected
+endpoints, shortcut overrides) is not a folder's: it lives in AppData
+through `localFile` from `@epicenter/local`
+([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+API keys never go in a settings note: they stay in the keychain.
 
 ## Native directories
 
@@ -201,13 +200,13 @@ worker's copy;
 `bun run check:state-paths` fails when other production code spells it. Like
 every hidden path (`isHiddenPath`), it is not a folder's data: no watcher
 reports it, listings show it for their readers to skip, and `epicenter sync`
-never commits it. A native watcher reports outside changes, and a client's
+never commits it. A native watcher reports outside changes, and a folder's
 listeners hear them. Watching is best effort.
 Native listings compare opaque stamps made from file size, modification time,
 and file identity where available; a read returns the stamp of the file it
 read, and checked writes compare content hashes.
 
-History is not the client's: a folder gains Git only when `epicenter init`
+History is not the folder's: it gains Git only when `epicenter init`
 registers it, and `epicenter sync` (in `@epicenter/cli`) is its only
 committer, over the system `git` this package's `runGit` runs.
 
@@ -215,9 +214,12 @@ committer, over the system `git` this package's `runGit` runs.
 
 | Path | Responsibility |
 | --- | --- |
-| `src/browser.ts`, `tauri.ts`, `bun.ts`, `node.ts`, `remote.ts` | Public entries. |
-| `src/device/` | `openDevice`: the contract client, its Bun, OPFS and Tauri stores, and `check`/`format`. |
-| `src/remote/` | `openRemote` and its wire to the server. |
+| `src/home.ts`, `home.tauri.ts`, `home.memory.ts` | The root entry, one leaf per build: `openFolder` and that build's `home`. |
+| `src/core.ts`, `node.ts`, `memory.ts`, `tauri.ts`, `bun.ts` | The other public entries. |
+| `src/open-folder.ts`, `place.ts`, `folder.ts`, `note-edit.ts` | `openFolder` over a place, what a place is, the folder, and the note editor. |
+| `src/device/` | The one typed client, the stores (memory, Bun, OPFS, Tauri), and `check`/`format`. |
+| `src/browser.ts`, `desktop-folder.ts` | This browser's storage as a place, and the desktop folder's `AGENTS.md`. |
+| `src/remote/` | The repository as a store, and its wire to the server. |
 | `src/native/`, `paths.ts`, `state.ts`, `path-turns.ts` | Watches, the shell's bindings, the path rule, where unfinished writes live, and per-path turns. |
 | `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
 | `evidence/`, `smoke/` | Recorded experiments, the closure check, and browser smoke runs. |

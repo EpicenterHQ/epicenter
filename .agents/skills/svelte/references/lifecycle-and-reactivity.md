@@ -115,7 +115,7 @@ Svelte's deep proxy can break handles whose methods rely on `this` being the ori
 
 For contract apps, `src/lib/app.ts` exports the capabilities as module
 values ([ADR-0766](../../../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
-`openFolder(contract)` returns at once; where it is in its life is
+`openFolder(contract, home({ site, account }))` returns at once; where it is in its life is
 `folder.state()` (opening, open, failed with a typed error and the failure's
 `retry()`, or closed), and the root layout renders `<WhenOpen {folder}>`.
 Editing `app.ts`, or anything it imports, reloads the page in development, so
@@ -362,7 +362,7 @@ Collections come straight off the module-level `folder` in
 
 ```ts
 // src/lib/app.ts
-export const folder = reactive(openFolder(todos, { site, account }));
+export const folder = reactive(openFolder(todos, home({ site, account })));
 
 // any component
 import { folder } from '$lib/app.js';

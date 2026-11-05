@@ -1,16 +1,12 @@
 /**
- * A standalone desktop app's two roots, which the shell names at startup:
- * its data folder, `<library root>/<name>` from its bundle identifier, and
- * its AppData root for machine-local settings. Each opens by name; the page
- * never holds either one's path except to show it (`displayPath`).
+ * The desktop app's data folder: `<library root>/<name>` from its bundle
+ * identifier, which the shell names at startup as the `Data` root. Its root
+ * `AGENTS.md` links the contract the app's site publishes (ADR-0772).
  */
-import type { Client, Contract } from '@epicenter/definition/contract';
+import type { Contract } from '@epicenter/definition/contract';
 import { createLogger } from 'wellcrafted/logger';
-import { Ok, type Result } from 'wellcrafted/result';
 import { withAgentsNote } from './agents-note.js';
-import { storeOf } from './device/client.js';
-import type { OpenFolderError } from './errors.js';
-import { openDevice } from './tauri.js';
+import type { DeviceStore } from './device/store.js';
 
 const log = createLogger('folder/desktop');
 
@@ -18,33 +14,17 @@ const log = createLogger('folder/desktop');
 export type FolderRequest = { ok: true } | { ok: false; message: string };
 
 /**
- * Open the app's data folder, which the shell makes when nothing is at its
- * path, then bring its root `AGENTS.md` note up to date with the site's contract.
- * A data folder behind a link whose target is gone is `Disconnected`, and
- * nothing is made. The note is advice for agents, so a note that cannot be
- * read or updated (malformed by hand, or changing underneath) never stops
- * the app from opening its data: it is left as it is.
+ * Write or update the root `AGENTS.md` note in `store` so it links
+ * `contractUrl` and names `contract`'s paths; `true` once it is current.
+ * The note is advice for agents, so a note that cannot be read or updated
+ * (malformed by hand, or changing underneath) never stops the app from
+ * opening its data: it is left as it is.
  */
-export async function openDataFolder<TContract extends Contract>(
-	contract: TContract,
-	site: string,
-): Promise<Result<Client<TContract>, OpenFolderError>> {
-	const opened = await openDevice(contract, { root: 'Data' });
-	if (opened.error !== null) return opened;
-	await refreshAgentsNote(opened.data, contract, `${site}/contract.json`);
-	return Ok(opened.data);
-}
-
-/**
- * Write or update the folder's `AGENTS.md`; `true` once it is current.
- * Anything it cannot do leaves the note untouched.
- */
-async function refreshAgentsNote<TContract extends Contract>(
-	device: Client<TContract>,
-	contract: TContract,
+export async function refreshAgentsNote(
+	store: DeviceStore,
+	contract: Contract,
 	contractUrl: string,
 ): Promise<boolean> {
-	const store = storeOf(device);
 	for (let attempt = 0; attempt < 3; attempt++) {
 		const read = await store.read('AGENTS.md');
 		if (read.error !== null) {
@@ -67,13 +47,13 @@ async function refreshAgentsNote<TContract extends Contract>(
 		const written = await store.write(
 			'AGENTS.md',
 			new TextEncoder().encode(wanted),
-			read.data === null ? 'absent' : { sha256: read.data.version },
+			read.data === null ? 'absent' : { version: read.data.version },
 		);
 		if (written.error !== null) {
 			log.debug('Could not write AGENTS.md', { error: written.error });
 			return false;
 		}
-		if (written.data === 'landed') return true;
+		if (written.data !== 'stale') return true;
 	}
 	log.debug('Could not update AGENTS.md after three attempts');
 	return false;

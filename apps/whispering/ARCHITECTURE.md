@@ -31,7 +31,7 @@ each read through `reactive` there, once
 ([ADR-0769](../../docs/adr/0769-svelte-reads-every-capability-through-one-reactive-copy.md)).
 Code imports what it uses from there, never through context:
 
-- `folder`: `openFolder(whispering, { site })`, picked by the build: this
+- `folder`: `openFolder(whispering, home({ site }))`, picked by the build: this
   browser's OPFS on the web, the data folder on the desktop, memory under the
   `test` condition. It is given no account, so it is never the account's
   repository.
@@ -76,10 +76,11 @@ Each page route renders a page component (`HomePage`, `RecordingsPage`,
 keeps everything in progress, and a run under way still keeps its answer in
 the files unless Whispering itself is closing.
 
-`src/lib/page-boundary.test.ts` pins this: `openFolder` only in `app.ts`,
-with no account; nothing calls `openDevice`, `openDataFolder`,
-`openAppData`, `openRemote` or `folderOf`; the capabilities made only in
-`app.ts`, from `#platform/account` and `#platform/computer`;
+`src/lib/page-boundary.test.ts` pins this: `openFolder` and `home` only in
+`app.ts`, with no account; nothing calls `directory` or `memory` (a
+script's or a test's place) or the retired `createFolder`, `openDevice`,
+`openDataFolder`, `openAppData`, `openRemote` or `folderOf`; the
+capabilities made only in `app.ts`, from `#platform/account` and `#platform/computer`;
 `createWhispering`, `filesOf` and `createLibrary` only in `WhisperingApp`;
 the account only through the platform leaves; and nothing from Node or Bun,
 Tauri only in the desktop leaves.
@@ -115,13 +116,14 @@ The capture device is `app.ts`'s `recorder`: one microphone device
 (`microphone.ts`, `createMicrophoneDevice`) made beside `folder`, over the
 `recorder` each build's `#platform/computer` leaf imports,
 `@epicenter/recorder`'s one interface. It writes the recording into the
-folder as it records (decision 84), through `recorder.start({ folder, path })`
-and `recorder.recover({ folder, under })`, and the microphone choice lists and
-tests inputs through the same recorder (`listInputs`, `openMeter`, and in a
+folder as it records (decision 84), through `recorder.start({ files, path })`
+and `recorder.recover({ files, under })` over `folder.audio`, and the
+microphone choice lists and tests inputs through the same recorder (`listInputs`, `openMeter`, and in a
 browser `allow` and `onInputsChange`). In a browser (`platform/computer.ts`,
 over `@epicenter/recorder/browser`) the recorder asks for AAC in MP4 first
 and Opus in WebM second, and appends each piece (about a second) to
-`recordings/<id>.m4a` or `.webm` in this browser's files as it arrives. On
+`recordings/<id>.m4a` or `.webm` in this browser's files as it arrives
+(`folder.audio.append`). On
 the desktop (`platform/computer.tauri.ts`, over `@epicenter/recorder/tauri`)
 it is the shell's microphone, which encodes Opus into a WebM from the first
 sample in the folder's `.epicenter/recordings`, a second at a time, and at
@@ -254,8 +256,9 @@ ends with the page.
 with `packages/svelte/src/svelte-dom.test-support.ts`), since `reactive`
 notifies nothing on the server runtime, and under the `test` condition,
 where `app.ts`'s folder and this computer's files are memory
-(`app.test.ts`). `services.test-support.ts` opens a `/node` device client
-over a temporary directory, as the browser's OPFS holds it, with stubbed
-endpoints; `whispering.test-support.ts` makes the app as `WhisperingApp`
-does, over a folder of that client, and follows its lists. `e2e/` is the Playwright
+(`app.test.ts`). `services.test-support.ts` makes a place in memory
+(`memory()`) holding the contract's files at the paths the browser's OPFS
+holds them, with stubbed endpoints; `whispering.test-support.ts` makes the
+app as `WhisperingApp` does, over a folder opened at that place, and follows
+its lists. `e2e/` is the Playwright
 suite over the shared stack (`packages/cli/src/app-stack.test-support.ts`).

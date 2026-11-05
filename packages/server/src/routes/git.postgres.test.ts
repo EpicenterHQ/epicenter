@@ -624,7 +624,9 @@ describe('per-repository grants', () => {
 				authorization: `Bearer ${bob.token}`,
 				'content-type': 'application/json',
 			},
-			body: JSON.stringify({ files: [{ path: 'w.md', text: 'web\n' }] }),
+			body: JSON.stringify({
+				files: [{ path: 'w.md', base: null, text: 'web\n' }],
+			}),
 		});
 		expect(web.status).toBe(403);
 

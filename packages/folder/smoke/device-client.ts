@@ -1,11 +1,11 @@
 /**
- * The page side of `smoke/device.ts`: `openDevice` from the real
- * `@epicenter/folder/browser` entry, driven from Playwright through
- * `globalThis.deviceSmoke`. Each step returns plain data the runner checks.
+ * The page side of `smoke/folder.ts`: `openFolder` at `home` from the real
+ * `@epicenter/folder` web entry (this browser's storage), driven from
+ * Playwright through `globalThis.deviceSmoke`. Each step returns plain data
+ * the runner checks.
  */
 import { defineContract, type Version } from '@epicenter/definition/contract';
-import { unwrap } from 'wellcrafted/result';
-import { deviceFiles, openDevice } from '../src/browser.js';
+import { home, openFolder } from '../src/home.js';
 
 const recorder = defineContract({
 	collections: {
@@ -21,7 +21,10 @@ const recorder = defineContract({
 	},
 });
 
-const device = unwrap(await openDevice(recorder));
+const folder = openFolder(
+	recorder,
+	home({ site: 'https://recorder.epicenter.so' }),
+);
 
 /** Deterministic bytes, so both engines and both pages agree on a hash. */
 function payload(size: number, seed: number) {
@@ -46,7 +49,7 @@ async function sha256(bytes: Uint8Array) {
 		.join('');
 }
 
-/** The text at `path` in OPFS, read on this thread without the device. */
+/** The text at `path` in OPFS, read on this thread without the folder. */
 async function opfsText(path: string) {
 	let directory = await navigator.storage.getDirectory();
 	const segments = path.split('/');
@@ -57,44 +60,51 @@ async function opfsText(path: string) {
 	return file.text();
 }
 
+/** Wait until a collection's first listing answered, so what is heard after is a change. */
+async function listed(loading: () => boolean) {
+	while (loading()) await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
 /** How many times this page's listener heard the recordings change. */
 let heard = 0;
 /** How many times this page's listener heard the audio change. */
 let heardAudio = 0;
 
 const smoke = {
-	/** Start hearing the recordings change, from this tab or another. */
-	listen() {
-		device.recordings.subscribe(() => heard++);
+	/** Start hearing the recordings change, from this tab or another, once they are listed. */
+	async listen() {
+		folder.recordings.subscribe(() => heard++);
+		await listed(() => folder.recordings.loading());
+		heard = 0;
 	},
 	heard: () => heard,
-	/** Start hearing the audio change, from this tab or another. */
-	listenAudio() {
-		device.audio.subscribe(() => heardAudio++);
+	/** Start hearing the audio change, from this tab or another, once it is listed. */
+	async listenAudio() {
+		folder.audio.subscribe(() => heardAudio++);
+		await listed(() => folder.audio.loading());
+		heardAudio = 0;
 	},
 	heardAudio: () => heardAudio,
 	/**
 	 * Append `count` pieces of 64 KB to a new file, as a recording does,
 	 * reading it over and over meanwhile: every read must answer. Then a
-	 * second create is `stale`, an empty announcing append lands, and the
+	 * second create is `Occupied`, an empty announcing append lands, and the
 	 * file reads back as every piece in order.
 	 */
 	async appendPieces(id: string, count: number) {
-		const files = deviceFiles(device);
-		const path = `recordings/${id}.webm`;
+		const at = { id, ext: 'webm' };
 		const pieces = Array.from({ length: count }, (_, index) =>
 			payload(64 * 1024, index + 1),
 		);
 		let done = false;
 		const appending = (async () => {
 			for (const [index, piece] of pieces.entries()) {
-				const appended = await files.append(path, piece, {
+				const appended = await folder.audio.append(at, piece, {
 					create: index === 0,
 					announce: false,
 				});
-				if (appended.error !== null) return appended.error.message;
-				if (appended.data !== 'landed')
-					return `piece ${index}: ${appended.data}`;
+				if (appended.error !== null)
+					return `piece ${index}: ${appended.error.message}`;
 			}
 			return null;
 		})().finally(() => {
@@ -103,21 +113,21 @@ const smoke = {
 		const readFailures: string[] = [];
 		let reads = 0;
 		while (!done) {
-			const read = await device.audio.get({ id, ext: 'webm' });
+			const read = await folder.audio.read({ id, ext: 'webm' });
 			reads++;
 			if (read.error !== null && read.error.name !== 'NotFound')
 				readFailures.push(read.error.message);
 		}
 		const problem = await appending;
-		const again = await files.append(path, pieces[0]!, {
+		const again = await folder.audio.append(at, pieces[0]!, {
 			create: true,
 			announce: false,
 		});
-		const announced = await files.append(path, new Uint8Array(), {
+		const announced = await folder.audio.append(at, new Uint8Array(), {
 			create: false,
 			announce: true,
 		});
-		const read = await device.audio.get({ id, ext: 'webm' });
+		const read = await folder.audio.read({ id, ext: 'webm' });
 		const whole = new Uint8Array(count * 64 * 1024);
 		for (const [index, piece] of pieces.entries())
 			whole.set(piece, index * 64 * 1024);
@@ -125,8 +135,8 @@ const smoke = {
 			problem,
 			reads,
 			readFailures,
-			again: again.data,
-			announced: announced.data,
+			again: again.error?.name ?? 'landed',
+			announced: announced.error?.name ?? 'landed',
 			whole:
 				read.error === null &&
 				(await sha256(read.data.bytes)) === (await sha256(whole)),
@@ -134,7 +144,7 @@ const smoke = {
 	},
 	/** Create a note and 5 MB of audio, and read both back. */
 	async seed(id: string) {
-		const note = await device.recordings.create({
+		const note = await folder.recordings.create({
 			id,
 			durationMs: 1500,
 			title: 'Standup',
@@ -142,11 +152,11 @@ const smoke = {
 		});
 		if (note.error !== null) return { error: note.error.message };
 		const bytes = payload(5 * 1024 * 1024, 7);
-		const audio = await device.audio.create({ id, ext: 'm4a', bytes });
+		const audio = await folder.audio.create({ id, ext: 'm4a', bytes });
 		if (audio.error !== null) return { error: audio.error.message };
-		const read = await device.audio.get({ id, ext: 'm4a' });
+		const read = await folder.audio.read({ id, ext: 'm4a' });
 		if (read.error !== null) return { error: read.error.message };
-		const occupied = await device.recordings.create({ id, title: 'Again' });
+		const occupied = await folder.recordings.create({ id, title: 'Again' });
 		return {
 			noteText: await opfsText(`recordings/${id}.md`),
 			noteVersion: note.data.version,
@@ -160,9 +170,9 @@ const smoke = {
 	},
 	/** What the device lists now, as plain data. */
 	async read(id: string) {
-		const notes = await device.recordings.list();
-		const files = await device.audio.list();
-		const audio = await device.audio.get({ id, ext: 'm4a' });
+		const notes = await folder.recordings.list();
+		const files = await folder.audio.list();
+		const audio = await folder.audio.read({ id, ext: 'm4a' });
 		return {
 			notes:
 				notes.error !== null
@@ -177,16 +187,16 @@ const smoke = {
 	},
 	/** One writer's update over `over`, for two pages to race. */
 	async update(id: string, title: string, over: string) {
-		const updated = await device.recordings.update(
+		const updated = await folder.recordings.update(
 			{ id },
 			{ title },
-			{ over: over as Version },
+			{ base: { version: over as Version } },
 		);
 		return updated.error?.name ?? 'landed';
 	},
 	/** One writer's create, for two pages to race on one path. */
 	async create(id: string, title: string) {
-		const created = await device.recordings.create({ id, title });
+		const created = await folder.recordings.create({ id, title });
 		return created.error?.name ?? 'landed';
 	},
 	/**
@@ -195,22 +205,22 @@ const smoke = {
 	 * Lock lets exactly one of each land.
 	 */
 	async raceInOnePage(id: string) {
-		const created = await device.recordings.create({ id, title: 'Read' });
+		const created = await folder.recordings.create({ id, title: 'Read' });
 		if (created.error !== null) return { error: created.error.message };
 		const over = created.data.version;
 		const updates = await Promise.all(
 			['A', 'B'].map(async (title) => {
-				const updated = await device.recordings.update(
+				const updated = await folder.recordings.update(
 					{ id },
 					{ title },
-					{ over },
+					{ base: { version: over } },
 				);
 				return updated.error?.name ?? 'landed';
 			}),
 		);
 		const creates = await Promise.all(
 			['A', 'B'].map(async (title) => {
-				const made = await device.recordings.create({
+				const made = await folder.recordings.create({
 					id: `${id}-new`,
 					title,
 				});
@@ -226,7 +236,7 @@ const smoke = {
 	async listDuringDeletes(count: number) {
 		const made = [];
 		for (let index = 0; index < count; index++) {
-			const created = await device.recordings.create({
+			const created = await folder.recordings.create({
 				id: `gone${index}`,
 				title: 'Gone',
 			});
@@ -236,7 +246,7 @@ const smoke = {
 		let done = false;
 		const deletes = Promise.all(
 			made.map(({ id, version }) =>
-				device.recordings.delete({ id }, { over: version }),
+				folder.recordings.delete({ id }, { over: version }),
 			),
 		).finally(() => {
 			done = true;
@@ -245,7 +255,7 @@ const smoke = {
 		let listings = 0;
 		while (!done) {
 			const listed = await Promise.all(
-				[1, 2, 3].map(() => device.recordings.list()),
+				[1, 2, 3].map(() => folder.recordings.list()),
 			);
 			for (const { error } of listed) {
 				listings++;
@@ -257,15 +267,14 @@ const smoke = {
 	},
 	/** What a call answers where the browser refuses private storage. */
 	async refusal() {
-		const listed = await device.recordings.list();
+		const listed = await folder.recordings.list();
 		if (listed.error === null) return { name: null, cause: null };
-		const cause = listed.error.cause as { name?: string } | undefined;
-		return {
-			name: listed.error.name,
-			cause: listed.error.name === 'Unavailable' ? (cause?.name ?? null) : null,
-		};
+		const { error } = listed;
+		if (error.name !== 'Unavailable') return { name: error.name, cause: null };
+		const cause = error.cause as { name?: string } | undefined;
+		return { name: error.name, cause: cause?.name ?? null };
 	},
-	/** Files left in the device's `.epicenter/saves`: none after writes land. */
+	/** Files left in the folder's `.epicenter/saves`: none after writes land. */
 	async staged() {
 		try {
 			const root = await navigator.storage.getDirectory();

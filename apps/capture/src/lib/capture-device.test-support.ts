@@ -1,30 +1,17 @@
 /**
- * Capture's page state (`createCaptures`) over a stand-in client: a real
- * device client (`@epicenter/folder/node`) in a temporary directory, the
- * same contract's client at the same paths, in place of the folder the page
- * is given. The client the list writes through can be made to fail, or to
- * hold its writes until released, the way a lost connection or a slow write
- * would, and another program can write its files.
+ * Capture's page state (`createCaptures`) over a folder at a new place in
+ * memory (`@epicenter/folder/memory`), in place of the folder the page is
+ * given, read through `reactive` as `$lib/app` reads its own. The folder's
+ * writes can be made to fail, or to wait until released, the way a lost
+ * connection or a slow write would, and another program can write its
+ * files.
  *
  * Import `svelte-dom.test-support.js` (or `svelte-modules`) first: the store
  * and `reactive` need Svelte's client runtime.
  */
-import {
-	mkdir,
-	mkdtemp,
-	readdir,
-	readFile,
-	rm,
-	unlink,
-	writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { type Client, ClientError } from '@epicenter/definition/contract';
-import { createFolder } from '@epicenter/folder/core';
-import { openDevice } from '@epicenter/folder/node';
-import { Ok, unwrap } from 'wellcrafted/result';
-import { type Capture, capture } from './model/index.js';
+import { openFolder } from '@epicenter/folder';
+import { memory, memoryFiles } from '@epicenter/folder/memory';
+import { capture } from './model/index.js';
 
 const { reactive } = await import('@epicenter/svelte/reactive');
 const { follow } = await import(
@@ -34,19 +21,6 @@ const { flushSync } = await import('svelte');
 const { createCaptures } = await import('./captures.svelte.ts');
 
 type Files = Record<string, string | Uint8Array>;
-
-/** A temporary directory holding `files`. */
-async function directory(files: Files) {
-	const root = await mkdtemp(join(tmpdir(), 'epicenter-capture-'));
-	for (const [path, data] of Object.entries(files)) await put(root, path, data);
-	return root;
-}
-
-/** Write a file the way another program would: no client hears it from here. */
-async function put(root: string, path: string, data: string | Uint8Array) {
-	await mkdir(join(root, path, '..'), { recursive: true });
-	await writeFile(join(root, path), data);
-}
 
 /**
  * Wait for `check`, flushing Svelte's effects between looks. The wait ends
@@ -66,37 +40,16 @@ export async function until(
 }
 
 /**
- * The capture store over a client holding `files`, as the page composes it.
+ * The capture store over a folder holding `files`, as the page composes it.
  * Writes fail or wait on command.
  */
 export async function openCaptures(files: Files = {}) {
-	const root = await directory(files);
-	const device = unwrap(await openDevice(capture, { path: root }));
-
-	let failing: string | null = null;
-	let gate: Promise<void> | null = null;
-	const guarded = <TArgs extends unknown[], TResult>(
-		write: (...args: TArgs) => Promise<TResult>,
-	) =>
-		(async (...args: TArgs) => {
-			await gate;
-			if (failing !== null)
-				return ClientError.Unavailable({ cause: new Error(failing) });
-			return write(...args);
-		}) as (...args: TArgs) => Promise<TResult>;
-	const { captures: notes } = device;
-	const client: Client<Capture> = {
-		captures: {
-			...notes,
-			create: guarded(notes.create),
-			update: guarded(notes.update),
-			replace: guarded(notes.replace),
-			delete: guarded(notes.delete),
-		},
-	};
-
-	// A folder over the client, read through `reactive`, as `$lib/app` reads its own.
-	const list = reactive(createFolder(capture, async () => Ok(client))).captures;
+	const place = memory();
+	const outside = memoryFiles(place);
+	for (const [path, data] of Object.entries(files))
+		await outside.write(path, data);
+	const folder = openFolder(capture, place);
+	const list = reactive(folder).captures;
 	const captures = createCaptures(list);
 	// Read the list in an effect, as the page does, so it lists and listens.
 	const watching = follow(() => [list.items(), list.invalid(), list.loading()]);
@@ -105,43 +58,21 @@ export async function openCaptures(files: Files = {}) {
 	return {
 		captures,
 		list,
-		/** The text at `path` in the client's folder, or null. */
-		text: (path: string) =>
-			readFile(join(root, path), 'utf8').catch(() => null),
-		/** Every file in the client's folder, by path, but the engine's own `.epicenter` (where saves stage). */
-		files: async () =>
-			(await readdir(root, { recursive: true, withFileTypes: true }))
-				.filter((entry) => entry.isFile())
-				.map((entry) =>
-					join(entry.parentPath, entry.name).slice(root.length + 1),
-				)
-				.filter((path) => !path.startsWith('.epicenter/'))
-				.sort(),
-		/** Write `path` in the client's folder as another tab or program would. */
-		writeElsewhere: (path: string, text: string) => put(root, path, text),
-		/** Delete `path` in the client's folder as another tab or program would. */
-		deleteElsewhere: (path: string) => unlink(join(root, path)),
+		/** The text at `path` in the folder, or null. */
+		text: async (path: string) => outside.read(path),
+		/** Every file in the folder, by path. */
+		files: async () => outside.paths(),
+		/** Write `path` in the folder as another tab or program would. */
+		writeElsewhere: (path: string, text: string) => outside.write(path, text),
+		/** Delete `path` in the folder as another tab or program would. */
+		deleteElsewhere: (path: string) => outside.write(path, null),
 		/** Fail every write until the returned function is called. */
-		failWrites(reason = 'the disk is full') {
-			failing = reason;
-			return () => {
-				failing = null;
-			};
-		},
+		failWrites: (reason = 'the disk is full') => outside.refuse(reason),
 		/** Hold every write until the returned function is called. */
-		holdWrites() {
-			let release = () => {};
-			gate = new Promise<void>((resolve) => {
-				release = () => {
-					gate = null;
-					resolve();
-				};
-			});
-			return release;
-		},
+		holdWrites: () => outside.hold(),
 		async close() {
 			watching.stop();
-			await rm(root, { recursive: true, force: true });
+			folder[Symbol.dispose]();
 		},
 	};
 }

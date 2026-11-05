@@ -1,6 +1,7 @@
 /**
- * `openDevice` from `@epicenter/folder/browser` in real engines: OPFS through
- * the device's one Worker, in Playwright Chromium and WebKit. Run with Bun:
+ * A folder at this browser's storage (`home` from the web `@epicenter/folder`)
+ * in real engines: OPFS through the store's one Worker, in Playwright
+ * Chromium and WebKit. Run with Bun:
  *
  *   bun packages/folder/smoke/device.ts            # both engines
  *   bun packages/folder/smoke/device.ts webkit     # one
@@ -20,7 +21,7 @@
  * 5. A listing taken while files are being deleted answers, without the
  *    files that went (a file removed mid-walk is skipped, not a failure).
  * 6. A file appended a piece at a time (a recording) reads back whole, every
- *    read taken while it grows answers, a second create is `stale`, and the
+ *    read taken while it grows answers, a second create is `Occupied`, and the
  *    other tab hears it made and announced, not each piece.
  * 7. Nothing is left staged, and the files survive a reload and a restart.
  *
@@ -138,7 +139,8 @@ try {
 				await deviceSmoke.create('told', 'Told');
 				return deviceSmoke.heard();
 			});
-			check(toldSelf === 1, `own write heard ${toldSelf} times`);
+			// The folder shows its own write before the write answers.
+			check(toldSelf >= 1, `own write heard ${toldSelf} times`);
 			await b.waitForFunction(() => deviceSmoke.heard() > 0, null, {
 				timeout: 5000,
 			});
@@ -191,7 +193,7 @@ try {
 			check(
 				appended.problem === null &&
 					appended.readFailures.length === 0 &&
-					appended.again === 'stale' &&
+					appended.again === 'Occupied' &&
 					appended.announced === 'landed' &&
 					appended.whole,
 				`appending: ${JSON.stringify(appended)}`,

@@ -1,11 +1,11 @@
 /**
  * An app's `src/lib/app.ts`, for the module-scope tests: the folder opened
  * and wrapped once, at module scope. Under the `test` condition
- * `openFolder` is a memory folder; `raw` is kept here only so a test can
+ * `home()` is a place in memory; `raw` is kept here only so a test can
  * write behind the adapter's back.
  */
 import { defineContract } from '@epicenter/definition/contract';
-import { openFolder } from '@epicenter/folder';
+import { home, openFolder } from '@epicenter/folder';
 import { reactive } from '../reactive.js';
 
 export const todos = defineContract({
@@ -18,5 +18,8 @@ export const todos = defineContract({
 	},
 });
 
-export const raw = openFolder(todos);
+export const raw = openFolder(
+	todos,
+	home({ site: 'https://todos.epicenter.so' }),
+);
 export const folder = reactive(raw);

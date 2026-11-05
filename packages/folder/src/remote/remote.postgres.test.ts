@@ -1,17 +1,19 @@
 /**
- * Remote Client Tests
+ * Repository Store Tests
  *
- * `openRemote` against the real server app: the authorization server on a
- * disposable Postgres, a `Bun.serve` listener, the disk Git and LFS stores,
- * and an access token from a real code grant. The account is a stand-in for
- * `@epicenter/account`'s: it carries the token, can be retired, and records
- * every request. A miss here is a write landing over a version its writer
- * never read.
+ * The one typed client over a repository on the real server app
+ * (`createDeviceClient` over `repositoryStore`): the authorization server
+ * on a disposable Postgres, a `Bun.serve` listener, the disk Git and LFS
+ * stores, and an access token from a real code grant. The account is a
+ * stand-in for `@epicenter/account`'s: it carries the token, can be
+ * retired, and records every request. A miss here is a write landing over
+ * a version its writer never read.
  *
  * Key behaviors:
  * - Another person's repository is reached under their handle, as far as their grant goes
- * - The remote client refuses a stale version (`Conflict`) and an occupied path (`Occupied`)
+ * - A stale version is a `Conflict` and an occupied path `Occupied`, even for two creates at once
  * - A note that does not read on main is listed with its text, and `replace` repairs it
+ * - A listing reads only its collection's folder, and only the notes that changed since the last
  * - Listeners hear this client's writes at once and other writers' within a poll of `main`
  * - A retired account makes every call `Unavailable`, never a throw
  *
@@ -25,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import type { Account } from '@epicenter/account';
 import { defineContract, type Version } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
+import { hostFromSiteUrl, repositoryName } from '@epicenter/definition/site';
 import {
 	type CloudEnv,
 	createCloudContextMiddleware,
@@ -38,10 +41,13 @@ import {
 } from '@epicenter/server/bun';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { type Client, Pool } from 'pg';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { startDisposablePostgres } from '../../../server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../server/src/test-helpers/oauth-client.js';
-import { openRemote } from '../remote.js';
+import { createDeviceClient } from '../device/client.js';
+import { createFolder } from '../folder.js';
+import { repositoryStore } from './store.js';
 
 const recorder = defineContract({
 	collections: {
@@ -144,11 +150,28 @@ afterAll(async () => {
 
 type Sent = { method: string; url: string; body: unknown };
 
+type Location =
+	| { site: string; repository?: `${string}/${string}` }
+	| { site?: string; repository: `${string}/${string}` };
+
+/** The typed client of `contract` over the repository `account` reaches at `repository`, else the site's own. */
+const openRemote = (
+	contract: typeof recorder,
+	{ account, site, repository }: { account: Account } & Location,
+) =>
+	createDeviceClient(
+		contract,
+		repositoryStore(
+			account,
+			repository ?? `~/${repositoryName(hostFromSiteUrl(site ?? ''))}`,
+		),
+	);
+
 /**
  * A signed-in person's account, as `@epicenter/account` gives one: every
  * request to the server carries the token, and none leaves once retired.
  */
-async function signIn(label: string) {
+async function signInPerson(label: string) {
 	const person = await oauth.person(label);
 	const { access_token: token } = await oauth.codeGrant({
 		...demo,
@@ -158,6 +181,8 @@ async function signIn(label: string) {
 	});
 	const lifetime = new AbortController();
 	const sent: Sent[] = [];
+	/** Run once, right before the account's next write reaches the server. */
+	let beforeWrite: (() => Promise<void>) | undefined;
 	const account: Account = {
 		authorityId: 'test-authority',
 		principalId: person.id as Account['principalId'],
@@ -169,6 +194,11 @@ async function signIn(label: string) {
 			if (new URL(url).origin !== origin)
 				throw new TypeError('Account requests must target their own server.');
 			const method = init?.method ?? 'GET';
+			if (method === 'POST' && url.endsWith('/epicenter/writes')) {
+				const before = beforeWrite;
+				beforeWrite = undefined;
+				await before?.();
+			}
 			const headers = new Headers(init?.headers);
 			headers.set('authorization', `Bearer ${token}`);
 			const response = await fetch(url, {
@@ -196,10 +226,31 @@ async function signIn(label: string) {
 		requests: (pattern: RegExp) =>
 			sent.filter(({ method, url }) => pattern.test(`${method} ${url}`)),
 		retire: () => lifetime.abort(new Error('signed out')),
+		/** Make `task` run right before the account's next write reaches the server. */
+		raceNextWrite(task: () => Promise<void>) {
+			beforeWrite = task;
+		},
+		/** Write `files` as another writer to the person's own repository. */
+		async writeRaw(files: unknown[]) {
+			const response = await fetch(
+				`${audiences.git}/~/recorder.git/epicenter/writes`,
+				{
+					method: 'POST',
+					headers: {
+						authorization: `Bearer ${token}`,
+						'content-type': 'application/json',
+					},
+					body: JSON.stringify({ files }),
+				},
+			);
+			expect(response.status).toBe(200);
+		},
 	};
 }
 
-describe('the remote client', () => {
+describe('the typed client over a repository', () => {
+	const signIn = signInPerson;
+
 	test("another person's repository is reached under their handle, as far as their grant goes", async () => {
 		const alice = await signIn('shared-owner');
 		const bob = await signIn('shared-guest');
@@ -403,7 +454,7 @@ describe('the remote client', () => {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
-					files: [{ path: `recordings/${id}.md`, text: broken }],
+					files: [{ path: `recordings/${id}.md`, base: null, text: broken }],
 				}),
 			},
 		);
@@ -488,6 +539,165 @@ describe('the remote client', () => {
 		const polls = person.requests(HEAD).length;
 		await Bun.sleep(3500);
 		expect(person.requests(HEAD).length).toBe(polls);
+	}, 30_000);
+
+	test('two creates of one path at once: one lands, the other is Occupied', async () => {
+		const person = await signIn('create-race');
+		const remote = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
+		const id = timeId();
+		const notes = await Promise.all(
+			['A', 'B'].map((title) => remote.recordings.create({ id, title })),
+		);
+		expect(notes.map(({ error }) => error?.name ?? 'landed').sort()).toEqual([
+			'Occupied',
+			'landed',
+		]);
+		const audio = await Promise.all(
+			[1, 2].map((byte) =>
+				remote.audio.create({
+					id,
+					ext: 'webm',
+					bytes: new Uint8Array([byte]),
+				}),
+			),
+		);
+		expect(audio.map(({ error }) => error?.name ?? 'landed').sort()).toEqual([
+			'Occupied',
+			'landed',
+		]);
+	}, 30_000);
+
+	test("a file listing names each file's version without downloading its bytes", async () => {
+		const person = await signIn('list-no-lfs');
+		const remote = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
+		const ids = [timeId(), timeId()];
+		const created = [];
+		for (const id of ids)
+			created.push(
+				expectOk(
+					await remote.audio.create({
+						id,
+						ext: 'webm',
+						bytes: new TextEncoder().encode(`audio ${id}`),
+					}),
+				),
+			);
+		person.sent.length = 0;
+		const listed = expectOk(await remote.audio.list()).items;
+		expect(listed.map(({ version }) => version).sort()).toEqual(
+			created.map(({ version }) => version).sort(),
+		);
+		expect(person.requests(/lfs/)).toEqual([]);
+		expect(person.sent).toHaveLength(1);
+	}, 30_000);
+
+	test("a note listing reads only its collection's folder, and only the notes whose blob changed", async () => {
+		const person = await signIn('list-cache');
+		const remote = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
+		const other = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
+		const ids = [timeId(), timeId()];
+		const created = [];
+		for (const id of ids)
+			created.push(expectOk(await remote.recordings.create({ id, title: id })));
+		const FILE = /^GET .*\/epicenter\/file\?/;
+		const LIST = /^GET .*\/epicenter\/files\?root=recordings$/;
+		person.sent.length = 0;
+		expect(expectOk(await remote.recordings.list()).items).toHaveLength(2);
+		expect(person.requests(LIST)).toHaveLength(1);
+		expect(person.requests(FILE)).toHaveLength(2);
+
+		person.sent.length = 0;
+		expectOk(await remote.recordings.list());
+		expect(person.requests(FILE)).toHaveLength(0);
+
+		const [first] = created;
+		if (first === undefined) throw new Error('expected a note');
+		expectOk(
+			await other.recordings.update(
+				{ id: first.id },
+				{ title: 'Changed' },
+				{ over: first.version },
+			),
+		);
+		person.sent.length = 0;
+		const { items } = expectOk(await remote.recordings.list());
+		expect(person.requests(FILE)).toHaveLength(1);
+		expect(items.find(({ id }) => id === first.id)?.title).toBe('Changed');
+	}, 30_000);
+
+	test('a note update raced by another is a Conflict, never a merge on the server', async () => {
+		const person = await signIn('raced');
+		const remote = openRemote(recorder, {
+			account: person.account,
+			site: 'https://recorder.epicenter.so',
+		});
+		const id = timeId();
+		const path = `recordings/${id}.md`;
+		const created = expectOk(
+			await remote.recordings.create({ id, title: 'One', body: 'a\nb\nc\n' }),
+		);
+		const theirs = '---\ntitle: One\n---\na\nb\nC\n';
+		person.raceNextWrite(() =>
+			person.writeRaw([{ path, base: created.version, text: theirs }]),
+		);
+		const refused = expectErr(
+			await remote.recordings.update(
+				{ id },
+				{ title: 'Two' },
+				{ over: created.version },
+			),
+		);
+		const now = expectOk(await remote.recordings.get({ id }));
+		expect(refused).toMatchObject({ name: 'Conflict', current: now.version });
+		expect(now).toMatchObject({ title: 'One', body: 'a\nb\nC\n' });
+	}, 30_000);
+
+	test("a folder carries a raced update over the other writer's change: both land", async () => {
+		const person = await signIn('carried');
+		const site = 'https://recorder.epicenter.so';
+		const folder = createFolder(recorder, async () =>
+			Ok(openRemote(recorder, { account: person.account, site })),
+		);
+		const id = timeId();
+		const path = `recordings/${id}.md`;
+		const created = expectOk(
+			await folder.recordings.create({ id, title: 'One', body: 'a\nb\nc\n' }),
+		);
+		person.raceNextWrite(() =>
+			person.writeRaw([
+				{
+					path,
+					base: created.version,
+					text: '---\ntitle: One\n---\na\nb\nC\n',
+				},
+			]),
+		);
+		const updated = expectOk(
+			await folder.recordings.update({ id }, { title: 'Two' }),
+		);
+		expect(updated).toMatchObject({ id, title: 'Two', body: 'a\nb\nC\n' });
+		expect(folder.recordings.get({ id })).toEqual(updated);
+		expect(
+			expectOk(
+				await openRemote(recorder, {
+					account: person.account,
+					site,
+				}).recordings.get({ id }),
+			),
+		).toEqual(updated);
+		folder[Symbol.dispose]();
 	}, 30_000);
 
 	test('a retired account makes every call Unavailable, never a throw', async () => {

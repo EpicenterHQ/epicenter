@@ -20,7 +20,8 @@ import { createDeviceClient } from './device/client.js';
 import { memoryStore } from './device/memory-store.js';
 import { OpenFolderError } from './errors.js';
 import { createFolder, type FolderState } from './folder.js';
-import { openFolder } from './open-folder.memory.js';
+import { memory } from './memory.js';
+import { openFolder } from './open-folder.js';
 
 const todos = defineContract({
 	collections: {
@@ -306,7 +307,7 @@ describe('dispose', () => {
 	});
 
 	test('every action after it answers Unavailable, on every build', async () => {
-		const folder = openFolder(todos);
+		const folder = openFolder(todos, memory());
 		await folder.todos.create({ id: 'a', title: 'Milk', done: false });
 		folder[Symbol.dispose]();
 		const refused = await folder.todos.create({
@@ -348,17 +349,19 @@ test('a collection named like a lifecycle member throws', () => {
 	);
 });
 
-test('the test condition’s folder is in memory, seeded through its ordinary methods', async () => {
-	const folder = openFolder(todos);
+test('a folder in memory is seeded through its ordinary methods, and each place is a new one', async () => {
+	const folder = openFolder(todos, memory());
 	await folder.todos.create({ id: 'a', title: 'Milk', done: false });
 	const { data } = await folder.todos.list();
 	expect(data?.items.map((todo) => todo.title)).toEqual(['Milk']);
-	expect(openFolder(todos)).not.toBe(folder);
-	expect((await openFolder(todos).todos.list()).data?.items).toEqual([]);
+	expect(openFolder(todos, memory())).not.toBe(folder);
+	expect((await openFolder(todos, memory()).todos.list()).data?.items).toEqual(
+		[],
+	);
 });
 
 test('on the web, a folder over an account opens once the account is signed in', async () => {
-	const { openFolder: openWebFolder } = await import('./open-folder.js');
+	const { home } = await import('./home.js');
 	let signedIn:
 		| { baseURL: string; signal: AbortSignal; fetch: typeof fetch }
 		| undefined;
@@ -372,10 +375,10 @@ test('on the web, a folder over an account opens once the account is signed in',
 			};
 		},
 	};
-	const folder = openWebFolder(todos, {
-		site: 'https://todos.epicenter.so',
-		account,
-	});
+	const folder = openFolder(
+		todos,
+		home({ site: 'https://todos.epicenter.so', account }),
+	);
 	await tick();
 	expect(folder.state()).toEqual({ status: 'opening' });
 	signedIn = {

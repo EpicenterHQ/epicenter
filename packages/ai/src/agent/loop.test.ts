@@ -1,8 +1,8 @@
 /**
  * Agent Conversation Loop Tests
  *
- * The loop over a real folder's messages collection: the memory folder the
- * `test` condition opens, whose writes `memoryFiles(folder)` can hold open
+ * The loop over a real folder's messages collection: a folder at a place in
+ * memory (`memory()`), whose writes `memoryFiles(folder)` can hold open
  * or refuse and to which it writes files as another program would, and a
  * stand-in `ai` whose `chat` streams what each test's engine says.
  *
@@ -20,14 +20,10 @@
  * - Disposal stops following the collection; writes in flight still land
  */
 import { describe, expect, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
 import { openFolder } from '@epicenter/folder';
-import { createFolder, OpenFolderError } from '@epicenter/folder/core';
-import { memoryFiles } from '@epicenter/folder/memory';
-import { openDevice } from '@epicenter/folder/node';
+import { OpenFolderError } from '@epicenter/folder/core';
+import { memory, memoryFiles } from '@epicenter/folder/memory';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { AiError, type ChatChunk, type ChatRequest } from '../client.js';
@@ -66,7 +62,7 @@ const noteText = ({ role, createdAt, parts }: AgentMessage) =>
  * given it, counting each create the conversation asks for (`attempts`).
  */
 function makeMessages() {
-	const folder = openFolder(contract);
+	const folder = openFolder(contract, memory());
 	const attempts: string[] = [];
 	const messages: ConversationMessages = {
 		...folder.messages,
@@ -102,34 +98,32 @@ const idsOf = (messages: readonly AgentMessage[]) =>
 	messages.map((message) => message.id);
 
 /**
- * A folder that does not open (offline) until `reconnect()`, over a real
- * directory already holding `seed`: its first listing fails.
+ * A folder that does not open (offline) until `reconnect()`, at a place in
+ * memory already holding `seed`: its first listing fails.
  */
 async function offlineFolder(seed: AgentMessage[] = []) {
-	const root = await mkdtemp(join(tmpdir(), 'ai-loop-'));
-	const device = expectOk(await openDevice(contract, { path: root }));
+	const place = memory();
+	const seeding = openFolder(contract, place);
 	for (const message of seed)
 		expectOk(
-			await device.messages.create({ chat: CHAT, ...message, body: '' }),
+			await seeding.messages.create({ chat: CHAT, ...message, body: '' }),
 		);
-	let offline = true;
-	const folder = createFolder(contract, async () =>
-		offline
-			? OpenFolderError.StorageUnavailable({ cause: 'offline' })
-			: Ok(device),
+	seeding[Symbol.dispose]();
+	const online = memoryFiles(place).refuseOpen(
+		OpenFolderError.StorageUnavailable({ cause: 'offline' }).error,
 	);
+	const folder = openFolder(contract, place);
 	return {
 		folder,
 		/** Open again, now reachable. */
 		async reconnect() {
-			offline = false;
+			online();
 			const state = folder.state();
 			if (state.status !== 'failed') throw new Error('expected a failed open');
 			await state.retry();
 		},
 		async [Symbol.asyncDispose]() {
 			folder[Symbol.dispose]();
-			await rm(root, { recursive: true, force: true });
 		},
 	};
 }
@@ -856,7 +850,9 @@ describe('listing', () => {
 	});
 
 	test('ready settles on disposal when the folder never opens', async () => {
-		const folder = createFolder(contract, () => new Promise(() => {}));
+		const place = memory();
+		memoryFiles(place).holdOpen();
+		const folder = openFolder(contract, place);
 		const conversation = open(folder.messages, () => streamOf([]));
 		conversation[Symbol.dispose]();
 		await conversation.ready;

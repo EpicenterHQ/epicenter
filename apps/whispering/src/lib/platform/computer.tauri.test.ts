@@ -21,7 +21,7 @@
  */
 import { afterEach, expect, mock, test } from 'bun:test';
 import type { AuthClient } from '@epicenter/account';
-import type { FolderLifecycle } from '@epicenter/folder/core';
+import type { AudioFiles } from '@epicenter/recorder';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 
@@ -100,8 +100,8 @@ mock.module('@tauri-apps/api/event', () => ({
 	listen: async () => () => {},
 }));
 
-/** The data folder; the microphone only hands it to the recorder. */
-const dataFolder = {} as FolderLifecycle;
+/** The data folder's audio files; the microphone only hands them to the recorder. */
+const audioFiles = {} as AudioFiles;
 
 /** What the recorder was asked to start or repair. */
 const started: unknown[] = [];
@@ -259,7 +259,7 @@ test('transcription on this computer takes the uploaded audio', async () => {
 
 test('the shell’s microphone records recordings/<id> into the data folder, and recovery answers every finished recording by id', async () => {
 	const capture = createMicrophoneDevice({
-		folder: dataFolder,
+		files: audioFiles,
 		recorder: microphone,
 	});
 	expect(expectOk(await capture.inputs.listInputs()).inputs).toEqual([
@@ -268,7 +268,7 @@ test('the shell’s microphone records recordings/<id> into the data folder, and
 	const recording = expectOk(await capture.start({ id: '20261031T093000000' }));
 	expect(started).toEqual([
 		{
-			folder: dataFolder,
+			files: audioFiles,
 			path: 'recordings/20261031T093000000',
 			input: undefined,
 			signal: undefined,
@@ -293,7 +293,7 @@ test('the shell’s microphone records recordings/<id> into the data folder, and
 		unplaced,
 	});
 	expect(started.at(-1)).toEqual({
-		folder: dataFolder,
+		files: audioFiles,
 		under: 'recordings',
 		unnamed: [],
 	});
