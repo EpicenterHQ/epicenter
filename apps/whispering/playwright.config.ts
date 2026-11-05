@@ -9,7 +9,6 @@
  * port (1420, which must be free). Both projects record from the same
  * microphone, a generated tone the suite installs in the page
  * (`fakeMicrophone`), since WebKit under Playwright has no capture device.
- * Both run in a persistent profile, the only kind in which WebKit opens OPFS.
  */
 import { defineConfig } from 'playwright/test';
 
@@ -18,7 +17,7 @@ export default defineConfig({
 	globalSetup: './e2e/global-setup.ts',
 	timeout: 120_000,
 	expect: { timeout: 30_000 },
-	// The steps of one project share a browser profile, in order.
+	// The steps of one project share a browser profile and a repository, in order.
 	fullyParallel: false,
 	workers: 1,
 	reporter: [['list']],
