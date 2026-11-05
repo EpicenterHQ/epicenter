@@ -993,5 +993,6 @@ When you add an ADR, add its row here.
 | [0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) | Git merges a note's body, and Epicenter merges its front matter by key | Accepted (amends 0700, 0733, 0774, 0789, 0793, and 0794; amended by 0796 and 0797) |
 | [0796](0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md) | A field is a line, its value is JSON, and a write patches only the fields it changes | Accepted (amends 0700, 0774, and 0795; amended by 0797) |
 | [0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) | Front matter is a strict grammar, and anything else is body | Accepted (amends 0787, 0795, and 0796; amended by 0798) |
-| [0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) | A store patches fields and writes text, and a change is data | Accepted (amends 0774, 0779, and 0797) |
-| [0799](0799-a-folders-contract-is-also-an-mcp-server.md) | A folder's contract is also an MCP server | Accepted |
+| [0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) | A store patches fields and writes text, and a change is data | Accepted (amends 0774, 0779, and 0797; amended by 0800) |
+| [0799](0799-a-folders-contract-is-also-an-mcp-server.md) | A folder's contract is also an MCP server | Accepted (amended by 0800) |
+| [0800](0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md) | A store's wire speaks HTTP's conditional requests, and apps connect agents to the CLI | Accepted (amends 0798 and 0799) |
