@@ -4,6 +4,7 @@
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) above its principles, without changing their text: the principles sit under the three roots and the rule for apps; [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) at its decision: its two halves become root 2 (programs meet in shared places) and root 3 (speak the standard).
 - **Relates:** [ADR-0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) and [ADR-0741](0741-epicenter-reconciles-only-states-it-made.md), which stay records and do not become roots.
+- **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at root 1's "A folder's path derives from the app's site": a folder is found by its `AGENTS.md`.
 
 ## Context
 

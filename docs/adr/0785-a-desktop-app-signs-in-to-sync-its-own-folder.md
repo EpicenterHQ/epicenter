@@ -4,6 +4,7 @@
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) at "the desktop's place is synced by Epicenter and uses none. Desktop Todos shows no sign-in because nothing it uses asks for an account": the desktop's place is a directory and uses no account, but the app syncs that directory itself and offers sign-in to do it.
 - **Relates:** [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (sync at the moments a person expects), [ADR-0751](0751-every-native-app-carries-one-sync-core.md) (every native app carries the core), [ADR-0731](0731-every-app-signs-in-as-its-site.md) (every app signs in as its site, which this keeps), [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) (consent chooses a team), [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) (a desktop app's team is its setting), [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) and [ADR-0783](0783-a-secret-lives-in-the-apps-credentials-file-and-is-read-by-the-request-that-uses-it.md) (each app's credentials file).
+- **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at "no refresh needs a lock across processes": true of an app, not of the CLI.
 - **Unbuilt:** each desktop app's sync control offering sign-in; the rest is ADR-0751's `tauri-plugin-epicenter`.
 
 ## Context

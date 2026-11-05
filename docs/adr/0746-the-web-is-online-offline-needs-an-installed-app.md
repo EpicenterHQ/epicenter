@@ -5,6 +5,8 @@
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (the local web and online web variants, which stand), [ADR-0706](0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md) (a browser variant's weaker guarantees), [ADR-0744](0744-sync-diffs-state-because-agents-edit-state.md) (sync diffs state), [ADR-0745](0745-a-browser-extension-writes-through-the-local-epicenter-engine.md) (an extension writes through the engine), [ADR-0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) (a website needs the internet).
 - **Amended by:** [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) at "reads and writes the repository through `openRemote`": the repository is a place, `home({ site, account })`.
 - **Amended by:** [ADR-0784](0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md) at "A web app holds no unsent work": a write waits in the page until it lands, behind the leave guard (ADR-0775).
+- **Amended by:** [ADR-0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) at "A web app is either local only or online": every web app is online.
+- **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at "the desktop app with Epicenter": the installed app syncs its own folder.
 - **Unbuilt:** two-way offline sync in a browser and installed phone apps, both deferred until the triggers below.
 
 ## Context

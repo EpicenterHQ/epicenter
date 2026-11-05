@@ -6,6 +6,8 @@
 - **Relates:** [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) (the folder's synchronous reads), [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) (teams), [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) (the later write to an attachment wins), [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) (a folder says what it is), [ADR-0620](0620-history-in-a-repository-only-grows.md) (a push is a fast-forward).
 - **Amended by:** [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) at the folder carrying an edit over a change with `updateNote`: it settles it with `settle`.
 - **Amended by:** [ADR-0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) at "append where they can" and a file collection's `append`: no store and no collection appends; a browser recording lands whole.
+- **Amended by:** [ADR-0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) at `home` being this browser's storage with no account: on the web it is the team's repository.
+- **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at `home` being picked by the build: the package picks when it runs.
 
 ## Context
 

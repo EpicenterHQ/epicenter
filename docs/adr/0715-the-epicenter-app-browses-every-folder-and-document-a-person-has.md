@@ -6,7 +6,7 @@
 - **Amended by:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at `epicenter.root` marking a synced folder and at the deep link's `path` and `contract`: a folder at its derived path carrying `epicenter.synced` is synced, and both parameters follow from the app's site; [ADR-0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) at "'Add folder…' runs `epicenter link`": the person confirms the link's name, and the name has a space so no app could claim it.
 - **Amended by:** [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) at the document store: the folder is the only kind of store.
 - **Amended by:** [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) at the library-root scan: it reads the `AGENTS.md` of each folder under `~/Epicenter`.
-- **Unbuilt:** the library-root scan that follows links; "Add folder…" running `epicenter link`; the account's repository and document lists in the Folders window; generic collection views from the field vocabulary; opening documents through `~/.epicenter/documents`; removing the line in `apps/epicenter/AGENTS.md` that conflicts ("Epicenter opens no folder's files").
+- **Unbuilt:** the account's repository list in the Folders window; generic collection views from the field vocabulary; removing the line in `apps/epicenter/AGENTS.md` that conflicts ("Epicenter opens no folder's files").
 
 ## Context
 

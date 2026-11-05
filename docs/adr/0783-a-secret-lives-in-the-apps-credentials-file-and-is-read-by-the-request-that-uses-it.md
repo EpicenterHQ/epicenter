@@ -4,6 +4,7 @@
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0778](0778-a-page-connects-once-and-then-reads-synchronously.md) at "A secret is read by the action that uses it": a connection's key and the account's refresh token are read from the app's credentials file, not the keychain, and there is nothing to keep after a first read.
 - **Relates:** [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (every credential an app holds lives in its own place, which this keeps), [ADR-0731](0731-every-app-signs-in-as-its-site.md) (the desktop refresh token as a file in AppData).
+- **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at keychain entries: nothing reads, imports, or removes them, and no notice follows an upgrade.
 - **Unbuilt:** the shell reading the credentials file when it sends a request that needs a key or a token; removing `keyring` from `packages/tauri-epicenter-account`; the rest of ADR-0740's Unbuilt line.
 
 ## Context

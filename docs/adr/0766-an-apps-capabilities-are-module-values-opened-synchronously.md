@@ -7,7 +7,8 @@
 - **Relates:** [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) (the account's copy on the web), [ADR-0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) (where the folder is), [ADR-0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) (the build picks an implementation), [ADR-0760](0760-global-shortcuts-are-a-capability.md) (shortcut overrides), [ADR-0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) (`openAi`, `modelChoices()` and `customEndpoints()`).
 - **Amended by:** [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) at `openFolder(contract, { site, account })` and its table of openers: an app opens its folder at a place, and `openRemote` is no opener.
 - **Amended by:** [ADR-0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) at an app's `#platform/*` seams: an app has none; it branches on what a capability offers.
-- **Unbuilt:** the `test` build condition's in-memory account and AI; the `device` to `folder` renames beyond `OpenFolderError`. Every app opens its capabilities in `src/lib/app.ts`, and Whispering keeps its shortcut overrides in AppData through `localFile` from `@epicenter/local` rather than an `@epicenter/shortcut` package.
+- **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at the build picking the implementation: the package picks when it runs; the `test` condition stays.
+- **Unbuilt:** the `test` build condition's in-memory account and AI; the `device` to `folder` renames beyond `OpenFolderError`.
 
 ## Context
 
