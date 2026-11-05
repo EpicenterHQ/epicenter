@@ -12,14 +12,18 @@ on the desktop the shell records and outlives the page, so a quit or a
 crash keeps the take; in a browser the page keeps the take in memory until
 Stop, and a crash or a closed tab loses it
 ([ADR-0779](../../docs/adr/0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md)).
-Each entry exports one `recorder`, both satisfying the bare entry's
-`Recorder` interface, and every build calls it the same way, from the entry
-its `#platform` seam imports; nothing chooses at run time:
+`recorder` from `@epicenter/recorder` is this window's: the package
+chooses it when it loads, with `isTauri()`
+([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)),
+and the shell's code loads with its first call, so a browser never loads
+it. Both satisfy the `Recorder` interface, and every page calls it the
+same way:
 
 ```txt
-@epicenter/recorder           the shared vocabulary: Recorder, the types, RecorderError, audioDurationMs; no implementation
-  /tauri    → recorder over tauri-plugin-epicenter-recorder: the shell writes Opus in WebM under .epicenter/recordings from the first sample, and places it at <path>.webm at stop
-  /browser  → recorder over MediaRecorder: pieces kept in memory, written once at <path>.m4a (or .webm) at stop; VAD
+@epicenter/recorder           the shared vocabulary (Recorder, the types, RecorderError, audioDurationMs) and recorder, chosen when it loads
+  src/tauri.ts   → in a Tauri window, over tauri-plugin-epicenter-recorder: the shell writes Opus in WebM under .epicenter/recordings from the first sample, and places it at <path>.webm at stop
+  src/browser.ts → in a browser, over MediaRecorder: pieces kept in memory, written once at <path>.m4a (or .webm) at stop
+  /browser    → the page's own recorder and VAD, for code that records from the page in both (Vocab's dictation)
   /vad-assets → the VAD runtime files, for a build's static copy
 ```
 
@@ -36,9 +40,7 @@ The functions need no `this`, so an app passes the whole `recorder`, or any
 one of them, on its own.
 
 ```ts
-// From '@epicenter/recorder/tauri' in a desktop build, '@epicenter/recorder/browser' in a web one:
-// the module behind the app's #platform seam imports one, and the call is the same.
-import { recorder } from '@epicenter/recorder/tauri';
+import { recorder } from '@epicenter/recorder';
 
 await recorder.recover?.({ files: folder.audio, under: 'recordings', unnamed }); // desktop: when the folder opens
 const { data: recording, error } = await recorder.start({
@@ -96,11 +98,11 @@ ends with the page.
 
 ## Inputs and levels on the desktop
 
-A desktop page opens no microphone of its own.
-`@epicenter/recorder/tauri` asks the shell for the inputs and for a level:
+A page in a Tauri window opens no microphone of its own. Its `recorder`
+asks the shell for the inputs and for a level:
 
 ```ts
-import { recorder } from '@epicenter/recorder/tauri';
+import { recorder } from '@epicenter/recorder';
 
 const { data: listing } = await recorder.listInputs(); // { inputs: [{ deviceId, label }] }
 const { data: meter } = await recorder.openMeter({ input: listing.inputs[0] });
@@ -123,7 +125,7 @@ or records, and a denial is `PermissionDenied`.
 
 ## Inputs and levels in a browser
 
-`@epicenter/recorder/browser`'s `recorder` has the same `listInputs` and
+A browser's `recorder` has the same `listInputs` and
 `openMeter`, over the page's own microphone, and two the desktop has no use
 for: `allow`, which opens the default microphone and releases it at once so
 the browser lists inputs by name, and `onInputsChange`, the browser's
@@ -137,8 +139,8 @@ whoever opened it.
 
 ## Voice activity detection
 
-It calls `getUserMedia`, so it is in the browser entry; a desktop build
-imports `@epicenter/recorder/tauri` instead.
+It calls `getUserMedia`, so it is in the browser entry,
+`@epicenter/recorder/browser`.
 
 ```ts
 import {
