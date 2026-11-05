@@ -118,9 +118,10 @@ There is no default grant. Every permission is prefixed
 
 `@epicenter/transcription` exports:
 
-- `.`: `localSpeech()`, described last below. The build picks its
-  implementation: `guest-js/local-speech.ts` under the `tauri` condition,
-  and `guest-js/local-speech.web.ts`, which answers `null`, otherwise.
+- `.`: `localSpeech()`, described last below, which is null outside a
+  Tauri window (`isTauri()`, ADR-0781), and `openLocalSpeech()`, the same
+  handle for code that runs only in one. The generated bindings load with
+  the first command, so a browser never loads them.
 - `./bindings`: the generated bindings (`commands` and the wire types), such
   as `commands.listInferenceModels()` and
   `commands.transcribeAudio(modelId, audio, hints)`.
@@ -134,8 +135,9 @@ There is no default grant. Every permission is prefixed
   settings card built on `createLocalModels` and `@epicenter/ui`: download,
   use, show the folder, remove, and the unload policy. It takes the app's
   handle (`speech`, the same value its `openAi` merges, so a download reaches
-  the picker) and its choice (`choice`); with neither, it makes its own handle
-  and administers the shell's active model.
+  the picker) and its choice (`choice`); with neither, it opens its own handle
+  (`openLocalSpeech()`) and administers the shell's active model. It is a
+  Tauri window's view: an app shows it where `localSpeech()` is not null.
 - `localSpeech()` (the `.` export): this app's transcribe.cpp as an
   `@epicenter/ai` endpoint (ADR-0757), or `null` in a browser. Its `fetch`
   answers `audio/transcriptions` and `models` in-process through

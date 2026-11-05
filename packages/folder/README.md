@@ -27,7 +27,7 @@ A Svelte app reads it through `reactive` from
 
 | Import | Purpose |
 | --- | --- |
-| `@epicenter/folder` | `openFolder(contract, place)`, and `home({ site, account }?)`, the app's own place, which the build picks: the desktop's data folder (`tauri`), this browser's storage or, with an `account`, the account's repository (`default`), and a new place in memory under the `test` condition. |
+| `@epicenter/folder` | `openFolder(contract, place)`, and `home({ site, account })`, the app's own place, which the package picks when it runs ([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)): in a Tauri window the app's data folder, whose code loads when it opens; in a browser the account's repository, which needs the account; and a new place in memory under the `test` condition. |
 | `@epicenter/folder/core` | The folder's types (`Folder`, `FolderNotes`, `FolderFiles`, `FolderLifecycle`, `FolderState`, `NoteEdit`, `Unavailable`, `Place`, ...), `OpenFolderError`, and the `FolderNotOpen` and `FolderClosed` errors, the same on every build, for a library that takes a folder or a collection. |
 | `@epicenter/folder/node` | `directory(path)`, a directory as a place, for scripts and tests (Bun or Node), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/memory` | `memory()`, a new place in memory, and `memoryFiles(placeOrFolder)`, the world outside it, for a test. |
@@ -157,9 +157,8 @@ directory, the desktop shell and a served directory to the same behavior in
 
 | Place | Where |
 | --- | --- |
-| `home()` on the desktop | the `Data` root the shell named from the app's bundle identifier ([ADR-0752](../../docs/adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md)); opening it brings its root `AGENTS.md` up to date with the contract `site` publishes ([ADR-0772](../../docs/adr/0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md)) |
-| `home()` on the web | this origin's private file system (OPFS), for good |
-| `home({ site, account })` on the web | the account's repository for `site`, `<git audience>/~/<name derived from site>.git`, through `account.fetch`; it opens once the account is signed in, works online only, and stops when the account is retired |
+| `home({ site })` in a Tauri window | the `Data` root the shell named from the app's bundle identifier ([ADR-0752](../../docs/adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md)); opening it brings its root `AGENTS.md` up to date with the contract `site` publishes ([ADR-0772](../../docs/adr/0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md)) |
+| `home({ site, account })` in a browser | the account's repository for `site`, `<git audience>/~/<name derived from site>.git`, through `account.fetch`; it opens once the account is signed in, works online only, and stops when the account is retired |
 | `directory(path)` | a directory, made when missing (`Unreadable` when it cannot be) |
 | `served(url)` | the directory the program serving the page owns, through that program's `serveDirectory`; `StorageUnavailable` when nothing at `url` answers for one, and `Unavailable`, still opening, while the program is out of reach |
 | `memory()`, and `home()` under `test` | memory, for the life of the process |
@@ -170,28 +169,22 @@ an `OpenFolderError`, which fails the folder. Every `OpenFolderError` is
 something waiting will not fix: `Refused` (a place a folder can never be),
 `Unreadable` (there but not openable), `Disconnected` (a link to a drive
 that is not connected: the person connects it, then retries) and
-`StorageUnavailable` (a browser that gives the page no private storage, not
+`StorageUnavailable` (nothing at a served directory's URL answers, or not
 a Tauri window, a shell that named no root or did not answer).
 The account's repository waits for sign-in; a listing or write that cannot
 reach it is `unavailable()`.
 
 The places are separate stores, and nothing moves between them
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
-an app's local web variant keeps this browser's storage for its life, its
-online web variant the repository, and its desktop variant the data folder,
-which only `epicenter sync` moves. Sign-in grants capabilities, never
-storage.
+an app's web build keeps the account's repository and nothing in the
+browser ([ADR-0786](../../docs/adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md)),
+and its desktop window the data folder, which sync moves.
 
-In the browser, the page calls the origin's private file system itself
-(ADR-0784), with a Web Lock per path around each write. A browser that gives the page no private storage
-(WebKit's ephemeral contexts, Safari's private windows) fails the open with
-`StorageUnavailable`, its cause a `DeviceError.StorageRefused`. In a Tauri
-window the folder works over the root the shell named, through the folder
+In a Tauri window the folder works over the root the shell named, through the folder
 plugin's commands, each naming that root by name, never by path; the shell
 makes the data folder when nothing is at its path, checks each save, and
 watches each root a page opened. See the folder plugin's README, and
-`src/device/`; `bun run --cwd packages/folder smoke:device` drives a folder
-at this browser's storage in Playwright Chromium and WebKit.
+`src/device/`.
 
 The repository never merges a web write: each file of a write names the
 blob its writer read (or null for nothing), and the server refuses the write
@@ -287,8 +280,7 @@ a stopped Bun process left waits for the shell's sweep.
 `.epicenter` holds only unfinished writes: `saves/`, safe to delete when no
 app runs, and `recordings/`, a desktop recording until it stops or is
 recovered. `state.rs` in the folder core spells that layout, and `state.ts`
-here the `saves/` a page writes, both held to one fixture with the OPFS
-worker's copy;
+here the `saves/` a page writes, both held to one fixture;
 `bun run check:state-paths` fails when other production code spells it. Like
 every hidden path (`isHiddenPath`), it is not a folder's data: no watcher
 reports it, listings show it for their readers to skip, and `epicenter sync`
@@ -302,16 +294,16 @@ committer, over the system `git` this package's `runGit` runs.
 
 | Path | Responsibility |
 | --- | --- |
-| `src/home.ts`, `home.tauri.ts`, `home.memory.ts` | The root entry, one leaf per build: `openFolder` and that build's `home`. |
+| `src/home.ts`, `home.memory.ts` | The root entry and its `test` leaf: `openFolder` and `home`. |
 | `src/core.ts`, `node.ts`, `memory.ts`, `tauri.ts`, `bun.ts` | The other public entries. |
 | `src/open-folder.ts`, `place.ts`, `folder.ts`, `errors.ts`, `note-edit.ts`, `note-codec.ts` | `openFolder` over a place, what a place is, the folder's connection, replica and write queue, its errors, the note editor, and how a note's change becomes the text written. |
-| `src/device/` | The store contract and its conformance checks, the device stores (memory, Bun, OPFS, Tauri), and `check`/`format`. |
-| `src/browser.ts`, `desktop-folder.ts` | This browser's storage as a place, and the desktop folder's `AGENTS.md`. |
+| `src/device/` | The store contract and its conformance checks, the device stores (memory, Bun, Tauri), and `check`/`format`. |
+| `src/data-folder.ts`, `desktop-folder.ts` | The data folder a Tauri window opens, and its `AGENTS.md`. |
 | `src/remote/` | The repository as a store, and its wire to the server. |
 | `src/served/`, `served.ts`, `serve.ts` | A directory a program serves its page: the page's store, the program's handler, and the wire between them (four `POST`s of JSON; a watch is a stream of JSON lines, and a dropped one is heard as `'all'`). |
 | `src/native/`, `paths.ts`, `state.ts`, `path-turns.ts` | Watches, the shell's bindings, the path rule, where unfinished writes live, and per-path turns. |
 | `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
-| `evidence/`, `smoke/` | Recorded experiments and measurements, the closure check, and browser smoke runs. |
+| `evidence/` | Recorded experiments and measurements, and the closure check. |
 
 ## Commands
 

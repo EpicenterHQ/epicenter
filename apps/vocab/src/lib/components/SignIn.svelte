@@ -5,10 +5,10 @@
 	dictation. Signing in leaves the page and comes back to a new one.
 -->
 <script lang="ts">
-	import { accountPurpose } from '#platform/account';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { toast } from '@epicenter/ui/sonner';
+	import { accountPurpose } from '../account-purpose.js';
 	import { account } from '../app.js';
 
 	async function startSignIn() {

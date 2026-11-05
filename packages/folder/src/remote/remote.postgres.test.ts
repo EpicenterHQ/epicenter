@@ -47,6 +47,7 @@ import {
 	registerFirstPartyClients,
 } from '@epicenter/server/bun';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { compress } from 'hono/compress';
 import { type Client, Pool } from 'pg';
 import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -142,6 +143,8 @@ beforeAll(async () => {
 	});
 	const host = createDiskGitHost({ root: join(scratch, 'git-store') });
 	const lfs = createDiskLfsStore({ root: join(scratch, 'lfs-store') });
+	// As the Bun entry (`apps/api/server.ts`) does.
+	app.use('/git/*', compress());
 	mountGitHost(app, {
 		setup: createCloudContextMiddleware(context),
 		resolveHost: () => host,
@@ -393,7 +396,6 @@ describe('a repository: the store conformance checks', () => {
 						'stale',
 					);
 				},
-				hearingMs: 3000,
 			});
 		}, 30_000);
 });
@@ -833,6 +835,11 @@ describe('a repository as a store', () => {
  * first read, with about 5,000 recording notes, through an account whose
  * every request waits half a round trip each way and carries its bytes at
  * the link's rate. Run with `EPICENTER_MEASURE=1`; it prints what it took.
+ *
+ * A reply crosses the link as the server sent it: gzipped by the Bun host's
+ * `compress()`, as a browser that accepts it would receive it, and decoded
+ * after it is counted. The hosted Worker's replies are compressed by
+ * Cloudflare's edge instead (Brotli or Zstandard), which this does not run.
  */
 describe('a repository on a slow link', () => {
 	const site = 'https://recorder.epicenter.so';
@@ -852,7 +859,7 @@ describe('a repository on a slow link', () => {
 			const link = { roundTripMs: 100, bitsPerSecond: 3_000_000 };
 			const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 			const carried = (bytes: number) => (bytes * 8 * 1000) / link.bitsPerSecond;
-			const sent = { requests: 0, down: 0, gzipDown: 0 };
+			const sent = { requests: 0, up: 0, down: 0, decoded: 0 };
 			const slow: Account = {
 				...person.account,
 				async fetch(input, init) {
@@ -864,16 +871,32 @@ describe('a repository on a slow link', () => {
 								? body.byteLength
 								: 0;
 					await wait(link.roundTripMs / 2 + carried(up));
-					const response = await person.account.fetch(input, init);
-					const bytes = new Uint8Array(await response.arrayBuffer());
+					const headers = new Headers(init?.headers);
+					headers.set('authorization', `Bearer ${person.token}`);
+					headers.set('accept-encoding', 'gzip, deflate, br, zstd');
+					// The reply's bytes as they crossed the link, before decoding.
+					const response = await fetch(String(input), {
+						...init,
+						headers,
+						decompress: false,
+					});
+					const wire = new Uint8Array(await response.arrayBuffer());
+					const encoding = response.headers.get('content-encoding');
+					if (encoding !== null && encoding !== 'gzip')
+						throw new Error(`unexpected content-encoding ${encoding}`);
+					const bytes = encoding === 'gzip' ? Bun.gunzipSync(wire) : wire;
 					sent.requests++;
-					sent.down += bytes.byteLength;
-					sent.gzipDown += Bun.gzipSync(bytes).byteLength;
-					await wait(link.roundTripMs / 2 + carried(bytes.byteLength));
+					sent.up += up;
+					sent.down += wire.byteLength;
+					sent.decoded += bytes.byteLength;
+					await wait(link.roundTripMs / 2 + carried(wire.byteLength));
+					const decoded = new Headers(response.headers);
+					decoded.delete('content-encoding');
+					decoded.delete('content-length');
 					return new Response(bytes, {
 						status: response.status,
 						statusText: response.statusText,
-						headers: response.headers,
+						headers: decoded,
 					});
 				},
 			};
@@ -900,11 +923,9 @@ describe('a repository on a slow link', () => {
 					parseMs: Math.round(painted - connected),
 					firstPaintMs: Math.round(painted - started),
 					requests: sent.requests,
+					uploadedBytes: sent.up,
 					downloadedBytes: sent.down,
-					downloadedBytesGzipped: sent.gzipDown,
-					gzippedFirstPaintEstimateMs: Math.round(
-						painted - started - carried(sent.down) + carried(sent.gzipDown),
-					),
+					decodedBytes: sent.decoded,
 				}),
 			);
 		},

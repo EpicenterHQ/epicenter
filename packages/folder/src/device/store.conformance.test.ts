@@ -2,9 +2,8 @@
  * The store conformance checks (`store.conformance.ts`) over every store
  * Bun can run: memory, a directory, the desktop shell's commands over an
  * emulated shell whose watcher is a directory watch, and a directory a
- * program serves (`served/`) over HTTP. The repository runs
- * them in `remote.postgres.test.ts`, and this browser's private files in
- * `smoke/device.ts`.
+ * program serves (`served/`) over HTTP. The repository runs them in
+ * `remote.postgres.test.ts`.
  */
 import { afterAll, describe, mock, test } from 'bun:test';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -53,13 +52,12 @@ const subjects: Record<string, () => Promise<StoreSubject>> = {
 		return {
 			store,
 			outside: (path, bytes) => store.outside.write(path, bytes),
-			hearingMs: 100,
 		};
 	},
 	async directory() {
 		const root = await scratch('conformance-node-');
 		roots.push(root);
-		return { store: nodeStore(root), outside: outsideOf(root), hearingMs: 3000 };
+		return { store: nodeStore(root), outside: outsideOf(root) };
 	},
 	async 'desktop shell'() {
 		const root = await scratch('conformance-tauri-');
@@ -78,7 +76,7 @@ const subjects: Record<string, () => Promise<StoreSubject>> = {
 				return () => listeners.delete(changed);
 			},
 		});
-		return { store, outside: outsideOf(root), hearingMs: 3000 };
+		return { store, outside: outsideOf(root) };
 	},
 	async 'served directory'() {
 		const root = await scratch('conformance-served-');
@@ -96,7 +94,6 @@ const subjects: Record<string, () => Promise<StoreSubject>> = {
 		return {
 			store: servedStore(`http://127.0.0.1:${server.port}/folder`),
 			outside: outsideOf(root),
-			hearingMs: 3000,
 		};
 	},
 };
@@ -104,5 +101,5 @@ const subjects: Record<string, () => Promise<StoreSubject>> = {
 for (const [name, subject] of Object.entries(subjects))
 	describe(`a store: ${name}`, () => {
 		for (const [check, run] of Object.entries(storeChecks))
-			test(check, async () => run(await subject()), 10_000);
+			test(check, async () => run(await subject()), 30_000);
 	});

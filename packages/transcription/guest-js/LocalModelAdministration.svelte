@@ -24,10 +24,10 @@
 		createNativeChoice,
 		type LocalModelChoice,
 	} from './local-models.svelte.js';
-	import { type LocalSpeech, localSpeech } from './local-speech.js';
+	import { type LocalSpeech, openLocalSpeech } from './local-speech.js';
 
 	let {
-		speech = localSpeech(),
+		speech = openLocalSpeech(),
 		choice = createNativeChoice(),
 	}: {
 		/** The app's handle, the same value it merges in `openAi`. */

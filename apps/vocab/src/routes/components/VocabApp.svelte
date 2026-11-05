@@ -1,15 +1,17 @@
 <!--
-	Vocab over its folder (`$lib/app.js`): a header with the build's account
-	of its store and the account (`#platform/chrome`), then Words and Chat
+	Vocab over its folder (`$lib/app.js`): a header with the account of its
+	store and the account (`FolderChrome` for a folder on this computer,
+	`RepositoryChrome` for the learner's repository), then Words and Chat
 	over the folder's words, chats and messages.
 -->
 <script lang="ts">
-	import Chrome from '#platform/chrome';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 	import { folder } from '$lib/app.js';
+	import FolderChrome from '$lib/components/FolderChrome.svelte';
+	import RepositoryChrome from '$lib/components/RepositoryChrome.svelte';
 	import { createChats } from '$lib/chat/chats.js';
 	import type { FocusItem } from '$lib/data.js';
 	import { createEntries } from '$lib/entries.svelte.js';
@@ -78,7 +80,7 @@
 	<header class="contents md:flex md:items-center md:gap-2 md:border-b md:px-4 md:py-2">
 		<div class="flex items-center justify-between gap-2 border-b px-4 py-2 md:contents">
 			<h1 class="text-lg font-semibold">Vocab</h1>
-			<Chrome />
+			{#if folder.reveal === null}<RepositoryChrome />{:else}<FolderChrome />{/if}
 		</div>
 		<!--
 			Chat resumes the open chat; with none open, the chat section shows the

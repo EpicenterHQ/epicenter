@@ -1,72 +1,50 @@
 # Service Organization And Platform Variants
 
-This reference covers where an app's services live and how each build gets
-its own implementation.
+This reference covers where an app's services live and how each surface
+gets its own implementation.
 
-## One seam, one type
+## One build, the package picks
 
-An app keeps the contract its builds share in one types file and one leaf
-per build. Whispering:
-
-```txt
-src/lib/platform/
-|-- types.ts              WhisperingServices, CreateServices (the contract)
-|-- browser.ts            #platform/services in the web build
-|-- services.tauri.ts     #platform/services in the desktop build
-`-- fetch.tauri.ts        shellFetch over send_request, imported only by desktop leaves
-```
-
-```jsonc
-"#platform/services": {
-  "tauri": "./src/lib/platform/services.tauri.ts",
-  "default": "./src/lib/platform/browser.ts"
-}
-```
+An app has one build (ADR-0781). It makes every capability once, in
+`src/lib/app.ts`, and passes each service what it decides. A capability
+package that owns a browser and a desktop implementation picks one when the
+page runs: presence with `isTauri()` when its module loads, the desktop code
+with `import()` when it first acts.
 
 ```ts
-// types.ts
-export type CreateServices = (client: Client<Whispering>) => WhisperingServices;
-
-// services.tauri.ts
-export const createServices: CreateServices = (client) => ({ capture, ai, preferences, … });
+// @epicenter/recorder: src/index.ts
+const shell = () => import('./tauri.js').then((module) => module.recorder);
+export const recorder: Recorder = isTauri() ? shellRecorder : pageRecorder;
 ```
 
-Shared code imports `createServices` from `#platform/services` once, where
-the app is assembled. A desktop-only helper (`shellFetch` from
-`@epicenter/ai/tauri`) is imported by the desktop leaf directly, never
-through a seam. A capability only one build has is `null` in the other
-(`localSpeech()` on the web), not a second seam.
+Each implementation exports the same declared shape, so a consumer sees one
+contract wherever the page runs. A capability only one surface has is `null`
+on the other (`localSpeech()` in a browser), and the view that uses it is a
+branch on its presence (`{#if speech}`).
 
-Each leaf exports the same names with the same declared shape, so a consumer
-sees one contract whichever leaf the build selects. Check
-`package.json#imports` for the current seam list rather than copying it when
-adding or moving a service.
+## A capability that keeps a key
 
-## A capability that picks its own implementation
-
-When a capability package owns both implementations, the package picks one
-by the same `tauri` condition and the app calls one name with no seam of its
-own (ADR-0765). `customEndpoints()` from `@epicenter/ai` resolves the
-package's `#device-settings` import. Both builds keep the endpoint list
-in `connections.md` in this computer's settings (`@epicenter/local`); the
-web leaf keeps each key in `connection-keys.json` beside it, and the
-desktop leaf hands each key to the shell, which keeps it in the app's
-`credentials.json` under the connection's id and applies it only while the
-connection still names the endpoint it was saved for.
+`customEndpoints()` from `@epicenter/ai` keeps the endpoint list in
+`connections.md` in this computer's settings (`@epicenter/local`) on every
+surface. Where the key goes is `connection-keys.ts`'s choice: in a browser
+it is kept in `connection-keys.json` beside the list; in a Tauri window it
+is handed to the shell, which keeps it in the app's `credentials.json` under
+the connection's id and applies it only while the connection still names
+the endpoint it was saved for.
 
 ## Desktop services and the shared crates
 
-A standalone desktop app's shell is `epicenter-standalone` plus, for an app
-that signs in, `epicenter-account`. A desktop service uses what they expose
-and adds nothing that holds a credential in the page:
+A standalone desktop app's shell is `epicenter-standalone` plus
+`epicenter-account`. A desktop implementation uses what they expose and
+adds nothing that holds a credential in the page:
 
-| Need | Desktop leaf uses |
+| Need | The desktop implementation uses |
 | --- | --- |
-| A secret (API key, connection) | `connectionKey` from `@epicenter/ai/tauri`, kept in the shell's `credentials.json` |
+| A secret (API key, connection) | `connectionKey` in `@epicenter/ai`'s `tauri.ts`, kept in the shell's `credentials.json` |
 | A request with the person's account | `account.fetch` from `createTauriAuth`, relayed by `account_fetch` |
-| A request to a custom endpoint | the app's own shell command (Whispering's `send_request`) |
-| A native command over the data folder | `rootOf(device)` from `@epicenter/folder/tauri` as its `root` |
+| A request to a custom endpoint or a server on this computer | `connection_fetch` (`shellFetch` with no key) |
+| A native command over the data folder | the root's name (`'Data'`), which the shell resolves |
 
-The web leaf's equivalents are this computer's settings (`localStorage`
-on the web), browser OAuth's `account.fetch`, and `fetch` (which needs the
-endpoint's CORS rule).
+The browser's equivalents are this computer's settings (`localStorage`),
+browser OAuth's `account.fetch`, and `fetch` (which needs the endpoint's
+CORS rule).

@@ -29,14 +29,14 @@ mod tests {
     use super::*;
 
     /// The bundle is `so.epicenter.honeycrisp`, which names its folder,
-    /// `~/Epicenter/honeycrisp`, and it loads the desktop page, never the web
-    /// build.
+    /// `~/Epicenter/honeycrisp`, and it loads the one build the web serves
+    /// (ADR-0781).
     #[test]
     fn honeycrisp_is_its_own_app_with_a_folder_named_for_it() {
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(config["identifier"], "so.epicenter.honeycrisp");
         assert_eq!(config["productName"], HONEYCRISP.title);
-        assert_eq!(config["build"]["frontendDist"], "../build-desktop");
+        assert_eq!(config["build"]["frontendDist"], "../build");
         let dev: Value = serde_json::from_str(include_str!("../tauri.dev.conf.json")).unwrap();
         assert_eq!(dev["identifier"], "so.epicenter.honeycrisp.dev");
         // The environment is stated, never read from the identifier.
@@ -48,7 +48,8 @@ mod tests {
     }
 
     /// The window reaches its roots, and Epicenter's sync request and status,
-    /// through the folder plugin, by name; nothing else. No capability names
+    /// through the folder plugin, by name, and hears the folder's changes as
+    /// the shell's events; nothing else. No capability names
     /// a folder. Each configuration lists its capabilities, so nothing in
     /// `capabilities/` is enabled implicitly.
     #[test]
@@ -59,7 +60,11 @@ mod tests {
         assert_eq!(capability["local"], true);
         assert_eq!(
             capability["permissions"],
-            json!(["epicenter-folder:default"])
+            json!([
+                "epicenter-folder:default",
+                "core:event:allow-listen",
+                "core:event:allow-unlisten"
+            ])
         );
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let dev: Value = serde_json::from_str(include_str!("../tauri.dev.conf.json")).unwrap();

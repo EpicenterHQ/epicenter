@@ -56,7 +56,7 @@ function createWorld({
 }: {
 	principal?: string;
 	revoke?: () => Promise<Response>;
-	resources?: CreateBrowserOAuthOptions['resources'];
+	resources?: readonly [string, ...string[]];
 } = {}) {
 	const storage = createMemoryStorage();
 	let clock = 1_000_000;
@@ -186,8 +186,7 @@ function createWorld({
 		const options: CreateBrowserOAuthOptions = {
 			server: epicenterCloud(SERVER),
 			clientId: CLIENT_ID,
-			resources,
-			scope: SCOPE,
+			grant: () => ({ resources, scope: SCOPE }),
 			accountManagement: false,
 			storage,
 			attemptStorage: createMemoryStorage(),
@@ -277,12 +276,16 @@ test('sign-in navigates to the authorize endpoint with PKCE as the app client', 
 	expect(auth.state().status).toBe('signed-out');
 });
 
-test('a browser client refuses offline_access', () => {
+test('a browser client refuses to sign in asking for offline_access', async () => {
 	const world = createWorld();
 	const tab = world.openTab();
-	expect(() =>
-		createBrowserOAuth({ ...tab.options, scope: 'openid offline_access' }),
-	).toThrow(TypeError);
+	using auth = createBrowserOAuth({
+		...tab.options,
+		grant: () => ({ resources: [RESOURCE], scope: 'openid offline_access' }),
+	});
+	const { error } = await auth.startSignIn();
+	expect(error?.name).toBe('StartSignInFailed');
+	expect(tab.assigned).toEqual([]);
 });
 
 test('completing sign-in exchanges the code, stores the token, and returns where it started', async () => {
@@ -927,10 +930,14 @@ describe('one sign-in for several resources', () => {
 		expect(renewed.generation).toBe(cell.generation);
 	});
 
-	test('a resource named twice is refused', () => {
+	test('a sign-in naming a resource twice is refused', async () => {
 		const tab = createWorld().openTab();
-		expect(() =>
-			createBrowserOAuth({ ...tab.options, resources: [API, API] }),
-		).toThrow(TypeError);
+		using auth = createBrowserOAuth({
+			...tab.options,
+			grant: () => ({ resources: [API, API], scope: SCOPE }),
+		});
+		const { error } = await auth.startSignIn();
+		expect(error?.name).toBe('StartSignInFailed');
+		expect(tab.assigned).toEqual([]);
 	});
 });

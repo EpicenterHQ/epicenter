@@ -7,7 +7,6 @@
 - **Amended by:** [ADR-0784](0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md) at Whispering's service worker registering only outside a Tauri shell: the shared offline module decides it.
 - **Amended by:** [ADR-0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) at "the desktop's place is synced by Epicenter and uses none" and desktop Todos showing no sign-in: the app syncs its own folder and offers sign-in to do it.
 - **Amended by:** [ADR-0792](0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md) at "a place says whether it uses one": every capability that takes the account says what it needs, and the app lists nothing.
-- **Unbuilt:** all of it: every capability deciding presence with `isTauri()` and loading its desktop implementation in its async step; deleting every app's `#platform/*` imports and `src/lib/platform/`, the `tauri` package condition (`packages/ai`, `local`, `folder`, `transcription`, and the five SvelteKit apps), every `tsconfig.tauri.json` (the apps' and `packages/ai`'s), and `desktopVariant`; `@epicenter/account` choosing its own implementation; the place saying whether it uses an account; desktop-only views as branches on capabilities; Whispering's service worker registering only outside a Tauri shell; the test that the web's first load holds no desktop module; Whispering's direct import of `@epicenter/ai/tauri` moved inside the package; the `platform-seams` and `services-layer` skills and the `epicenter-standalone` README.
 
 ## Context
 

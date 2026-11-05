@@ -96,8 +96,8 @@ mod tests {
     }
 
     /// The bundle is `so.epicenter.whispering`, which names its folder,
-    /// `~/Epicenter/whispering`, and it loads the desktop page, never the web
-    /// build. The development configuration states its environment, so its
+    /// `~/Epicenter/whispering`, and it loads the one build the web serves
+    /// (ADR-0781). The development configuration states its environment, so its
     /// folder is `~/Epicenter Dev/whispering`, and its identifier is the
     /// production one with `.dev`, so it has its own AppData.
     #[test]
@@ -105,7 +105,7 @@ mod tests {
         let config = read(include_str!("../tauri.conf.json"));
         assert_eq!(config["identifier"], "so.epicenter.whispering");
         assert_eq!(config["productName"], WHISPERING.title);
-        assert_eq!(config["build"]["frontendDist"], "../build-desktop");
+        assert_eq!(config["build"]["frontendDist"], "../build");
         let dev = read(include_str!("../tauri.dev.conf.json"));
         assert_eq!(dev["identifier"], "so.epicenter.whispering.dev");
         // The environment is stated, never read from the identifier.

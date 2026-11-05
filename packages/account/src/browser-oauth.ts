@@ -42,15 +42,14 @@ export type CreateBrowserOAuthOptions = {
 	/** The app's own pre-registered public client id, e.g. `so.epicenter.todos`. */
 	clientId: string;
 	/**
-	 * The token audiences this app asks for, each its own access token. The
-	 * first also answers the server's own requests, such as userinfo.
+	 * What this app asks for, read at each sign-in and each request, so a
+	 * capability made after the client still adds to it: the token
+	 * audiences, each its own access token, the first also answering the
+	 * server's own requests, such as userinfo; and the space-separated
+	 * scopes. `offline_access` is refused: the client adds it itself when it
+	 * needs a refresh token for its callback.
 	 */
-	resources: readonly [string, ...string[]];
-	/**
-	 * Space-separated scopes. `offline_access` is refused: the client adds it
-	 * itself when it needs a refresh token for its callback.
-	 */
-	scope: string;
+	grant(): { resources: readonly [string, ...string[]]; scope: string };
 	/** Expose dashboard links in account UI. */
 	accountManagement: boolean;
 	/** The registered redirect path on the app's origin. */
@@ -179,8 +178,7 @@ function watchWindowStorage(onChange: () => void) {
 export function createBrowserOAuth({
 	server,
 	clientId,
-	resources,
-	scope,
+	grant,
 	accountManagement,
 	callbackPath = '/auth/callback',
 	storage = globalThis.localStorage,
@@ -198,31 +196,39 @@ export function createBrowserOAuth({
 }: CreateBrowserOAuthOptions): CallbackAuthClient {
 	const { baseURL, authorityId } = server;
 	const serverOrigin = new URL(baseURL).origin;
-	const [primary] = resources;
-	if (new Set(resources).size !== resources.length)
-		throw new TypeError('Each resource is named once.');
-	// Most specific first: local and self-hosted deployments serve Git at
-	// `/git` on the API's own origin.
-	const routes = resources
-		.map((resource) => {
-			const url = new URL(resource);
-			return {
-				resource,
-				origin: url.origin,
-				path: url.pathname.replace(/\/$/, ''),
-			};
-		})
-		.sort((a, b) => b.path.length - a.path.length);
 	if (
 		!callbackPath.startsWith('/') ||
 		callbackPath.startsWith('//') ||
 		/[?#\\]/.test(callbackPath)
 	)
 		throw new TypeError('The callback must be an absolute local path.');
-	if (scope.split(/\s+/).includes('offline_access'))
-		throw new TypeError('A browser app holds no refresh token.');
-	const requestedScope =
-		resources.length > 1 ? `${scope} offline_access` : scope;
+
+	/** What the app asks for now: its audiences, the first of them, where each is served, and the scopes a sign-in names. */
+	function asked() {
+		const { resources, scope } = grant();
+		if (new Set(resources).size !== resources.length)
+			throw new TypeError('Each resource is named once.');
+		if (scope.split(/\s+/).includes('offline_access'))
+			throw new TypeError('A browser app holds no refresh token.');
+		// Most specific first: local and self-hosted deployments serve Git at
+		// `/git` on the API's own origin.
+		const routes = resources
+			.map((resource) => {
+				const url = new URL(resource);
+				return {
+					resource,
+					origin: url.origin,
+					path: url.pathname.replace(/\/$/, ''),
+				};
+			})
+			.sort((a, b) => b.path.length - a.path.length);
+		return {
+			resources,
+			primary: resources[0],
+			routes,
+			scope: resources.length > 1 ? `${scope} offline_access` : scope,
+		};
+	}
 	const redirectUri = new URL(callbackPath, location.origin).href;
 	const onCallback =
 		new URL(location.href).href.split(/[?#]/)[0] === redirectUri;
@@ -251,6 +257,7 @@ export function createBrowserOAuth({
 
 	/** The resource whose token `target` carries, or undefined for another origin. */
 	function resourceFor(target: URL): string | undefined {
+		const { routes, primary } = asked();
 		const match = routes.find(
 			({ origin, path }) =>
 				target.origin === origin &&
@@ -261,7 +268,7 @@ export function createBrowserOAuth({
 	}
 
 	const primaryToken = (stored: StoredGrant | null) =>
-		stored?.tokens[primary]?.accessToken ?? null;
+		stored?.tokens[asked().primary]?.accessToken ?? null;
 
 	function publish() {
 		const next: AuthState = attachment
@@ -447,6 +454,7 @@ export function createBrowserOAuth({
 			attachmentGeneration: current?.generation ?? null,
 			accessToken: primaryToken(current),
 		};
+		const { resources, scope: requestedScope } = asked();
 		const url = new URL('/auth/oauth2/authorize', serverOrigin);
 		url.search = new URLSearchParams([
 			['response_type', 'code'],
@@ -545,6 +553,7 @@ export function createBrowserOAuth({
 		issued: { tokens: Record<string, AccessToken>; refreshToken?: string },
 	) {
 		const issuedAt = now();
+		const { primary, resources } = asked();
 		const keep = (resource: string, response: typeof TokenResponse.infer) => {
 			issued.tokens[resource] = {
 				accessToken: response.access_token,
@@ -635,7 +644,7 @@ export function createBrowserOAuth({
 			try {
 				await issueTokens(code, attempt.verifier, issued);
 				const principalId = await readPrincipal(
-					issued.tokens[primary]!.accessToken,
+					issued.tokens[asked().primary]!.accessToken,
 				);
 				const current = readToken();
 				if ((current?.generation ?? null) !== attempt.attachmentGeneration)

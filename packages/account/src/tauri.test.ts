@@ -17,7 +17,8 @@
 import { describe, expect, test } from 'bun:test';
 import { createSettings, SettingsNotOpen } from '@epicenter/local/settings';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createTauriAuth, relayFetch, type TauriShell } from './tauri.js';
+import { relayFetch } from './relay.js';
+import { createTauriAuth, type TauriShell } from './tauri.js';
 
 const ORIGIN = 'https://api.epicenter.so';
 const PERSON = { origin: ORIGIN, principalId: 'person-1' };

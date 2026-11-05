@@ -2,6 +2,10 @@
 	"$schema": "https://schema.tauri.app/config/2",
 	"productName": "Capture Dev",
 	"identifier": "so.epicenter.capture.dev",
+	"build": {
+		"devUrl": "http://localhost:5179",
+		"beforeDevCommand": "bun run dev"
+	},
 	"app": {
 		"security": {
 			"capabilities": ["capture"]

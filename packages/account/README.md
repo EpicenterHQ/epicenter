@@ -6,8 +6,10 @@ Auth selects an account; every application session keeps the Account it opened w
 const auth = createBrowserOAuth({
 	server: epicenterCloud('https://api.epicenter.so'),
 	clientId: 'so.epicenter.vocab',
-	resources: ['https://api.epicenter.so'],
-	scope: 'openid profile email ai',
+	grant: () => ({
+		resources: ['https://api.epicenter.so'],
+		scope: 'openid profile email ai',
+	}),
 	accountManagement: true,
 });
 const state = auth.state();
@@ -30,6 +32,34 @@ an operation the server already processed.
 
 `AuthClient` always exposes sign-in. `CallbackAuthClient` adds
 `completeSignIn` for a client whose sign-in returns to a callback page.
+
+## An app's account
+
+An app makes its account once, in `app.ts`, with `connectAccount`, which
+picks the browser's sign-in or the shell's where the page runs
+([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)).
+The app lists nothing it uses the account for: each capability it hands the
+account to says what it needs when it is made (`account.need`), and sign-in
+asks for all of them
+([ADR-0792](../../docs/adr/0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md)).
+
+```ts
+const signIn = connectAccount({ clientId: 'so.epicenter.vocab', api: APP_URLS.API, selfHosted: SELF_HOST_ORIGIN });
+export const folder = openFolder(vocab, home({ site: APPS.VOCAB.url, account: signIn })); // the repository
+export const ai = openAi([hosted(signIn)]); // the AI gateway
+export const profile = openProfile(signIn); // the person's name and email
+```
+
+| Need | Declared by | A browser sign-in asks for |
+| --- | --- | --- |
+| `repository` | `home` from `@epicenter/folder` | the Git audience, `folders:read folders:write` |
+| `ai` | `hosted` from `@epicenter/ai` | the API audience, `ai` |
+| `profile` | `openProfile` | the API audience, `profile email` |
+
+In a Tauri window the account is the shell's (`createTauriAuth`), which signs
+in through the system browser to sync the app's folder and to use hosted
+models ([ADR-0785](../../docs/adr/0785-a-desktop-app-signs-in-to-sync-its-own-folder.md)).
+Nothing in an app waits on sign-in.
 
 `PrincipalId` is the branded principal id and the partition key every server
 path and R2 key derives from.
@@ -55,10 +85,10 @@ A first-party browser app signs in with `createBrowserOAuth` as an OAuth 2.1
 public client of the deployment's authorization server (ADR-0549). Its
 `clientId` is the app id, its redirect URI is exactly
 `<app origin>/auth/callback`, and both must match the app's registration in
-`apps/api/worker/oauth-registrations.ts`. It names its `resources` (token
-audiences, from `resolveOAuthAudiences` in `@epicenter/definition/site`) and
-the scopes it needs. Each resource gets an access token of its own. The caller
-never asks for `offline_access`.
+`apps/api/worker/oauth-registrations.ts`. Its `grant` names its `resources`
+(token audiences, from `resolveOAuthAudiences` in `@epicenter/definition/site`)
+and the scopes it needs, read at each sign-in and request. Each resource gets
+an access token of its own. The caller never asks for `offline_access`.
 
 `startSignIn` saves one PKCE attempt (verifier, state, and the current path) in
 `sessionStorage` and navigates top level to `/auth/oauth2/authorize` with an

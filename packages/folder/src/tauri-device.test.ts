@@ -1,6 +1,7 @@
 /**
- * The desktop's `home` (`home.tauri.ts`), the data folder the shell names
- * `Data`, and a root opened by name (`openRoot`): the store over a root the
+ * `home` in a Tauri window (`home.ts`, loading `data-folder.ts`), the data
+ * folder the shell names `Data`, and a root opened by name (`openRoot`): the
+ * store over a root the
  * desktop shell named, through the folder plugin's storage commands, and the
  * folder over it. The shell here is `createNamedShell`, real directories
  * behind the plugin's command names, so what lands is what a desktop folder
@@ -71,7 +72,7 @@ mock.module('@tauri-apps/api/core', () => ({
 }));
 
 const { revealRoot } = await import('./tauri.js');
-const { home } = await import('./home.tauri.js');
+const { home } = await import('./home.js');
 const { openRoot } = await import('./native/root.js');
 const { openFolder } = await import('./open-folder.js');
 const { openingOf } = await import('./place.js');

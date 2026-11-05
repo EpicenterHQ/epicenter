@@ -1,6 +1,7 @@
 /**
  * `localSpeech()` over a fake Tauri invoke: the real generated bindings run,
- * so each request is checked down to the plugin command and its arguments.
+ * loaded with the first command, so each request is checked down to the
+ * plugin command and its arguments. Outside a Tauri window there is none.
  */
 import { expect, mock, test } from 'bun:test';
 import type { DownloadProgress } from './bindings.gen.js';
@@ -10,7 +11,10 @@ const calls: Call[] = [];
 let installed = ['whisper-tiny'];
 let replies: Record<string, (args?: Record<string, unknown>) => unknown> = {};
 
+let inTauri = true;
+
 mock.module('@tauri-apps/api/core', () => ({
+	isTauri: () => inTauri,
 	invoke: async (command: string, args?: Record<string, unknown>) => {
 		calls.push({ command, args });
 		const name = command.replace('plugin:epicenter-transcription|', '');
@@ -24,8 +28,14 @@ mock.module('@tauri-apps/api/core', () => ({
 		onmessage = (_progress: DownloadProgress) => {};
 	},
 }));
-const { localSpeech } = await import('./local-speech.js');
-const web = await import('./local-speech.web.js');
+const { localSpeech: maybeSpeech } = await import('./local-speech.js');
+
+/** The handle a Tauri window opens. */
+function localSpeech() {
+	const speech = maybeSpeech();
+	if (speech === null) throw new Error('no local speech in a Tauri window');
+	return speech;
+}
 
 function reset() {
 	calls.length = 0;
@@ -47,7 +57,8 @@ test('lists installed models when first subscribed, as transcription models', as
 	expect(speech.models()).toEqual([]);
 	let told = 0;
 	speech.subscribe?.(() => told++);
-	await Bun.sleep(0);
+	// The first listing waits for the plugin's bindings to load.
+	await speech.refresh?.();
 	expect(speech.models()).toEqual([
 		{ id: 'whisper-tiny', can: ['transcribe'] },
 	]);
@@ -145,7 +156,8 @@ test('download fetches through download_model, then lists the new model', async 
 	const speech = localSpeech();
 	let told = 0;
 	speech.subscribe?.(() => told++);
-	await Bun.sleep(0);
+	// The first listing waits for the plugin's bindings to load.
+	await speech.refresh?.();
 	expect(speech.models()).toEqual([]);
 	const result = await speech.download('whisper-small');
 	expect(result).toEqual({ data: null, error: null });
@@ -167,7 +179,8 @@ test('remove deletes through remove_model, then lists the model no longer', asyn
 	const speech = localSpeech();
 	let told = 0;
 	speech.subscribe?.(() => told++);
-	await Bun.sleep(0);
+	// The first listing waits for the plugin's bindings to load.
+	await speech.refresh?.();
 	expect(speech.models()).toEqual([
 		{ id: 'whisper-tiny', can: ['transcribe'] },
 	]);
@@ -225,6 +238,13 @@ test('the catalog, a folder, and the unload policy go to their commands', async 
 	]);
 });
 
-test('a browser build has no local speech', () => {
-	expect(web.localSpeech()).toBeNull();
+test('a browser has no local speech, and never asks the plugin', () => {
+	reset();
+	inTauri = false;
+	try {
+		expect(maybeSpeech()).toBeNull();
+	} finally {
+		inTauri = true;
+	}
+	expect(calls).toEqual([]);
 });

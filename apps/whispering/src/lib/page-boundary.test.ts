@@ -1,17 +1,16 @@
 /**
  * What the page may import, and who opens what.
  *
- * The page runs in a browser tab or in the desktop window, so nothing under
- * `src/` may reach Node or Bun, and only the desktop leaves (`*.tauri.ts`,
- * `*.tauri.svelte.ts`, `components/Desktop*.svelte`) reach Tauri. Its files
- * are Whispering's contract's folder (decision 10), opened once, in
- * `src/lib/app.ts`, with every other capability, and never over the
- * account: nothing opens or reads a repository, and nothing uploads
- * (ADR-0700).
- * Nothing in the app, its tests included, uses the retired folder and table
- * API. The build chooses every variant's piece through `#platform/*`, so no
- * shared code asks where it is running. This reads the sources, so a violation
- * names its file.
+ * One build runs in a browser tab and in a Tauri window (ADR-0781), so
+ * nothing under `src/` may reach Node or Bun, and the page reaches Tauri
+ * only through its capabilities: the packages choose where the page runs,
+ * and the one app-owned capability that does, the global shortcut
+ * (`lib/shortcut.ts`), loads the shell's event code when it listens. Its
+ * files are Whispering's contract's folder (decision 10), opened once, in
+ * `src/lib/app.ts`, with every other capability, over the account in a
+ * browser (ADR-0786). Nothing in the app, its tests included, uses the
+ * retired folder and table API, and no app code asks where it is running.
+ * This reads the sources, so a violation names its file.
  */
 import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -49,10 +48,9 @@ function* everything(directory: string): Generator<string> {
 	}
 }
 
-/** A module only the desktop build reaches: a `tauri` leaf, or what only those leaves import. */
-const desktopOnly = (path: string) =>
-	/\.tauri(\.svelte)?\.ts$/.test(path) ||
-	/^lib\/components\/Desktop\w*\.svelte$/.test(path);
+/** The views of a folder on this computer, which use the shell's folder sync. */
+const folderViews = (path: string) =>
+	/^lib\/components\/Folder\w*\.svelte$/.test(path);
 
 function importers(matches: (specifier: string) => boolean) {
 	const found: string[] = [];
@@ -63,7 +61,7 @@ function importers(matches: (specifier: string) => boolean) {
 	return found;
 }
 
-test('the page imports no Node, Bun, or Tauri module', () => {
+test('the page imports no Node or Bun module, and reaches Tauri only through a capability', () => {
 	expect(
 		importers(
 			(specifier) =>
@@ -78,26 +76,29 @@ test('the page imports no Node, Bun, or Tauri module', () => {
 			(specifier) =>
 				specifier.startsWith('@tauri-apps/') ||
 				specifier.endsWith('/tauri') ||
-				// The bare entry is picked by the build (null on the web);
-				// its subpaths are the desktop's alone.
-				specifier.startsWith('@epicenter/transcription/'),
-		).filter((source) => !desktopOnly(source.split(' imports ')[0]!)),
-	).toEqual([]);
-	// A desktop module is reached only from another, or through a seam.
+				specifier.endsWith('/browser'),
+		),
+	).toEqual([
+		'lib/shortcut.ts imports @tauri-apps/api/core',
+		'lib/shortcut.ts imports @tauri-apps/api/event',
+	]);
+	// The shell's event code loads when the shortcut listens, never with the page.
 	expect(
-		importers((specifier) =>
-			/\.tauri(\.svelte)?(\.js)?$|\/Desktop\w*\.svelte$/.test(specifier),
-		).filter((source) => !desktopOnly(source.split(' imports ')[0]!)),
+		files.find((file) => file.path === 'lib/shortcut.ts')?.text,
+	).not.toMatch(/^import .*'@tauri-apps\/api\/event'/m);
+	// No app code asks where it is running; a capability does.
+	expect(
+		callers('isTauri').filter((path) => path !== 'lib/shortcut.ts'),
 	).toEqual([]);
 });
 
 test('the store is opened once, in app.ts, never over the account; nothing opens a repository', () => {
 	expect(callers('openFolder')).toEqual(['lib/app.ts']);
 	expect(callers('home')).toEqual(['lib/app.ts']);
-	// The build picks the store: this browser's on the web, the data folder
-	// on the desktop. Given an account, the web would open its repository.
+	// The package picks the store: the account's repository in a browser,
+	// the data folder in a Tauri window.
 	expect(files.find((file) => file.path === 'lib/app.ts')?.text).toContain(
-		'openFolder(whispering, home({ site: APPS.WHISPERING.url }))',
+		'home({ site: APPS.WHISPERING.url, account: signIn })',
 	);
 	for (const name of [
 		'createFolder',
@@ -122,37 +123,35 @@ test('the store is opened once, in app.ts, never over the account; nothing opens
 	).toEqual([]);
 });
 
-test('a microphone is reached only through its build’s recorder entry', () => {
-	// Each build's `#platform/computer` leaf names its recorder, and `app.ts`
-	// makes the one microphone device over the folder with it. Shared code
-	// names the bare specifier, which is the recording contract alone.
-	expect(
-		importers((specifier) => specifier === '@epicenter/recorder/tauri'),
-	).toEqual([
-		'lib/platform/computer.tauri.ts imports @epicenter/recorder/tauri',
-	]);
-	expect(
-		importers((specifier) => specifier === '@epicenter/recorder/browser'),
-	).toEqual(['lib/platform/computer.ts imports @epicenter/recorder/browser']);
+test('a microphone is reached only through the recorder package, in app.ts', () => {
+	// `@epicenter/recorder` chooses the shell's or the page's microphone, and
+	// `app.ts` makes the one microphone device over the folder with it.
 	expect(callers('createMicrophoneDevice')).toEqual(['lib/app.ts']);
+	expect(
+		files
+			.filter((file) =>
+				/import \{[^}]*\brecorder\b[^}]*\} from '@epicenter\/recorder'/.test(
+					file.text,
+				),
+			)
+			.map((file) => file.path),
+	).toEqual(['lib/app.ts']);
 });
 
-test('the capabilities are made once, in app.ts, from the build’s leaves', () => {
-	for (const seam of ['#platform/account', '#platform/computer'])
-		expect(importers((specifier) => specifier === seam)).toEqual([
-			`lib/app.ts imports ${seam}`,
-		]);
+test('the capabilities are made once, in app.ts', () => {
 	for (const name of [
 		'connectAccount',
 		'openAi',
 		'modelChoices',
 		'localSpeech',
+		'openShortcut',
+		'customEndpoints',
 	])
 		expect(callers(name)).toEqual(['lib/app.ts']);
 });
 
-/** What only the desktop's leaves use of `@epicenter/svelte`: the data folder's sync and onboarding. */
-const DESKTOP_SVELTE = [
+/** What only the views of a folder on this computer use of `@epicenter/svelte`: its sync and onboarding. */
+const FOLDER_SVELTE = [
 	'@epicenter/svelte/folder-onboarding',
 	'@epicenter/svelte/folder-sync',
 	'@epicenter/svelte/folder-sync-actions',
@@ -184,19 +183,18 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 				specifier.startsWith('@epicenter/app/'),
 		).filter((source) => {
 			const [file, specifier] = source.split(' imports ');
-			return !(desktopOnly(file!) && DESKTOP_SVELTE.includes(specifier!));
+			return !(folderViews(file!) && FOLDER_SVELTE.includes(specifier!));
 		}),
 	).toEqual([]);
 });
 
-test('the platform leaves own auth composition; nothing else names the account', () => {
+test('app.ts composes the account; only the sign-in callback names it besides', () => {
 	expect(
-		importers((specifier) => specifier.startsWith('@epicenter/account')).filter(
-			(source) =>
-				!source.startsWith('lib/platform/') &&
-				!source.startsWith('lib/components/SignInCallback.svelte '),
-		),
-	).toEqual([]);
+		importers((specifier) => specifier.startsWith('@epicenter/account')),
+	).toEqual([
+		'lib/app.ts imports @epicenter/account',
+		'lib/components/SignInCallback.svelte imports @epicenter/account',
+	]);
 });
 
 /** Files whose source calls `name(` (or `name<T>(`), ignoring its own declaration. */
@@ -245,19 +243,19 @@ test('the app group has every page, and every page reads its library from contex
 				?.text,
 		).toContain('getLibrary()');
 	}
-	// The root renders the app only over the open folder, with no account
-	// asked for: signing in grants capabilities, never storage.
+	// The root renders the app only over the open folder; where the folder
+	// is the person's repository, a signed-out page asks to sign in first.
 	const layout = files.find(
 		(file) => file.path === 'routes/(app)/+layout.svelte',
 	)?.text;
 	expect(layout).toContain('<WhenOpen app="Whispering" {folder} {settings}>');
 	expect(layout).toContain('<WhisperingApp>');
-	expect(layout).not.toMatch(/import \{[^}]*\baccount\b/);
-	expect(layout).not.toContain('SignIn');
+	expect(layout).toContain(
+		"{#if folder.reveal === null && account.state().status === 'signed-out'}",
+	);
 	for (const callback of [
 		'routes/auth/callback/+page.svelte',
 		'lib/components/SignInCallback.svelte',
-		'lib/components/DesktopCallback.svelte',
 	])
 		expect(files.find((file) => file.path === callback)?.text).not.toMatch(
 			/getWhispering\(\)|getLibrary\(\)|device/,

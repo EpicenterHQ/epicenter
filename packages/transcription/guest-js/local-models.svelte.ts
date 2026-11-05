@@ -8,13 +8,26 @@
  * (`createNativeChoice`).
  */
 import { SvelteMap } from 'svelte/reactivity';
-import {
+import type {
 	commands as bindings,
-	type CatalogError,
-	type ModelInfo,
-	type UnloadPolicy,
+	CatalogError,
+	ModelInfo,
+	UnloadPolicy,
 } from './bindings.gen.js';
 import type { LocalSpeech } from './local-speech.js';
+
+type ActiveModelCommands = Pick<
+	typeof bindings,
+	'getActiveModel' | 'setActiveModel'
+>;
+
+/** The shell's active model commands, the plugin's bindings loaded with the first call. */
+const plugin = () =>
+	import('./bindings.gen.js').then((module) => module.commands);
+const activeModel: ActiveModelCommands = {
+	getActiveModel: async () => (await plugin()).getActiveModel(),
+	setActiveModel: async (modelId) => (await plugin()).setActiveModel(modelId),
+};
 
 /** What administration does through the handle. */
 export type LocalModelHandle = Pick<
@@ -61,10 +74,7 @@ const message = (cause: unknown) =>
  * choices of its own, such as the Epicenter app's dictation.
  */
 export function createNativeChoice(
-	commands: Pick<
-		typeof bindings,
-		'getActiveModel' | 'setActiveModel'
-	> = bindings,
+	commands: ActiveModelCommands = activeModel,
 ): LocalModelChoice {
 	let chosen = $state.raw<string | null>(null);
 	const read = async () => {

@@ -4,16 +4,17 @@
  * files show is the library's (`library.svelte.ts`); both write through the
  * same folder, so the folder's `saving()` counts every note either writes.
  *
- * Where a take is kept while it records depends on the build (ADR-0779,
- * ADR-0780): the desktop shell encodes it into the data folder from the
- * first sample, and on the next launch finishes, in the background, what a
- * quit or a crash cut off (`capture.recover`); a browser keeps it in the
- * page's memory and writes it once at Stop, so a crash or a closed tab
- * loses it. Stop answers once its audio is at its path, and its note is
- * written then (`folder-recordings.ts`). Recording never waits on the
- * network, and nothing kept here ever moves (ADR-0700).
+ * Where a take is kept while it records depends on where the page runs
+ * (ADR-0779, ADR-0780): the desktop shell encodes it into the data folder
+ * from the first sample, and on the next launch finishes, in the
+ * background, what a quit or a crash cut off (`capture.recover`); a browser
+ * keeps it in the page's memory and writes it once at Stop, so a crash or a
+ * closed tab loses it. Stop answers once its audio is at its path, and its
+ * note is written then (`folder-recordings.ts`). Recording never waits on
+ * the network; in a browser, the write at Stop does, since the folder is
+ * the person's repository (ADR-0786).
  *
- * The models are the build's one merge of endpoints (`ai`, ADR-0757):
+ * The models are the page's one merge of endpoints (`ai`, ADR-0757):
  * Epicenter's hosted models through the account signed in now, the
  * connections the person saved with their keys, then what runs on this
  * computer, each followed as it changes. The person chooses one model for

@@ -1,5 +1,5 @@
 <!--
-	The account: who is signed in, what the account does in this build
+	The account: who is signed in, what the account does here
 	(`accountPurpose`), and Sign out. On the web the one sign-in covers the
 	learner's repository and Epicenter's hosted tutor models and dictation,
 	and this shows only signed in; in the desktop window signing in is
@@ -7,11 +7,11 @@
 	offers Sign in.
 -->
 <script lang="ts">
-	import { accountPurpose } from '#platform/account';
 	import { Button } from '@epicenter/ui/button';
 	import * as Popover from '@epicenter/ui/popover';
 	import CircleUser from '@lucide/svelte/icons/circle-user';
-	import { account } from '../app.js';
+	import { accountPurpose } from '../account-purpose.js';
+	import { account, profile } from '../app.js';
 
 	let open = $state(false);
 	let pending = $state(false);
@@ -22,8 +22,8 @@
 	$effect(() => {
 		if (!open || signIn.status === 'signed-out') return;
 		let current = true;
-		void account.getProfile().then(({ data: profile, error }) => {
-			if (current) email = error === null ? (profile.email ?? '') : '';
+		void profile.read().then(({ data, error }) => {
+			if (current) email = error === null ? (data.email ?? '') : '';
 		});
 		return () => {
 			current = false;

@@ -4,10 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		".": {
-			"tauri": "./guest-js/local-speech.ts",
-			"default": "./guest-js/local-speech.web.ts"
-		},
+		".": "./guest-js/local-speech.ts",
 		"./bindings": "./guest-js/bindings.gen.ts",
 		"./local-models": "./guest-js/local-models.svelte.ts",
 		"./local-model-administration": "./guest-js/LocalModelAdministration.svelte"

@@ -1,4 +1,4 @@
-import type { Account, AuthClient } from '@epicenter/account';
+import type { Account, AppAccount } from '@epicenter/account';
 import {
 	type Endpoint,
 	type EndpointModel,
@@ -18,8 +18,8 @@ const HOSTED_MODELS: readonly EndpointModel[] = [
 
 /** What `hosted` reads of the account: who is signed in now, and when that changes. */
 export type LiveAccount = Pick<
-	AuthClient,
-	'state' | 'subscribe' | 'baseURL'
+	AppAccount,
+	'state' | 'subscribe' | 'baseURL' | 'need'
 >;
 
 /** Why a hosted request was not sent: no one is signed in. Its `name` says so to a caller sorting failures. */
@@ -45,12 +45,14 @@ const v1 = (origin: string) => `${origin.replace(/\/+$/, '')}/v1`;
  * prepared for.
  *
  * `models` narrows the catalog to the ids an app offers; by default every
- * hosted model is listed.
+ * hosted model is listed. Made, it says the account needs the AI gateway,
+ * which sign-in then asks for (ADR-0792).
  */
 export function hosted(
 	account: LiveAccount,
 	{ models }: { models?: readonly string[] } = {},
 ): Endpoint {
+	account.need('ai');
 	const offered = HOSTED_MODELS.filter(
 		(model) => !models || models.includes(model.id),
 	);

@@ -14,7 +14,6 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { variant } from '#platform/variant';
 	import { folder } from '$lib/app.js';
 	import { getLibrary, type Repair } from '$lib/library.svelte.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
@@ -157,7 +156,7 @@
 						<dd>{recording.fields.durationMs === undefined ? 'Not recorded' : `${(recording.fields.durationMs / 1000).toFixed(1)} s`}</dd>
 						<dt class="text-muted-foreground">Kept in</dt>
 						<dd data-testid="kept-in">
-							{variant === 'desktop' ? 'Your data folder' : 'This browser'}
+							{folder.reveal === null ? 'Your repository' : 'Your data folder'}
 						</dd>
 						<dt class="text-muted-foreground">Transcribes with</dt>
 						<dd class="min-w-0 break-words">

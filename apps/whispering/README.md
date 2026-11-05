@@ -27,23 +27,27 @@ so a transcript's `recordingId` never breaks. The one setting in its files
 is the desktop shortcut; its connections and the chosen microphone belong to
 one device and stay on it.
 
-Whispering's web build runs in a browser tab and keeps its files in that
-browser. Its desktop app keeps them in a folder on the computer (see
-[The desktop app](#the-desktop-app)). Both are the same pages over the same
-contract; nothing moves files between them (decision 77).
+Whispering on the web runs in a browser tab over the signed-in person's
+repository and keeps nothing in the browser. Its desktop app keeps the
+files in a folder on the computer (see [The desktop app](#the-desktop-app)).
+Both are the same pages, from one build, over the same contract; Whispering
+itself moves no files between them (decision 77).
 
 ## Where the files are
 
-Whispering's web build keeps its files in one place, for good: this
-browser's private files (OPFS: `openFolder` from `@epicenter/folder`, in
-`src/lib/app.ts`, given no account), at the same paths a folder holds. It opens
-without an account and works offline. Nothing syncs, uploads, or moves to a
-repository, and there is no other view
+Whispering on the web is online
+([ADR-0786](../../docs/adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md)):
+its files are the person's own repository, `<handle>/whispering`, through
+Epicenter (`openFolder(whispering, home({ site, account }))` in
+`src/lib/app.ts`), at the same paths a folder holds. Signed out it asks for
+a sign-in (`src/lib/components/SignIn.svelte`); signed in, every recording,
+edit, transcript and result is a commit there, and nothing is kept in the
+browser. It needs the network; there is no browser copy to fall back on
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
-- A recording lands whole at Stop: its audio, then its note with its
-  length (see [Recording](#recording)). Recording never waits on the
-  network.
+- A recording lands whole at Stop: its audio, as a Git LFS object, then its
+  note with its length (see [Recording](#recording)). Nothing is sent while
+  it records, and recording never waits on the network.
 - Transcripts, transformations, and their results are kept beside it when
   they are made.
 - Changes another tab makes show without a reload.
@@ -51,26 +55,25 @@ repository, and there is no other view
   repair" with why and its text. Saving fixed text there writes it; text
   that still does not fit is written as typed and stays listed to fix.
 
-The header's status line says where the recordings are: "On this browser".
-In Safari (any WebKit browser, by `navigator.vendor`) whose storage for the
-site is not persistent (`navigator.storage.persisted()`), Settings adds one
-line under the sign-in: "Safari may clear these recordings if you don’t
-visit for a while. The desktop app keeps them as files in your Epicenter
-folder." WebKit deletes a site's script-written storage after days without a
-visit; Chromium, Firefox, and the desktop app never show it
-(`src/lib/eviction-note.ts`).
+The header's status line says where the recordings are, "Your repository",
+and whether it answers: Online, Offline when it does not, or Sign in again
+when the sign-in needs renewing.
 
-### Signing in is optional
+### Signing in
 
-Signing in with Epicenter, from Settings, grants capabilities only:
+On the web the sign-in holds the recordings, so Whispering asks for it
+before it opens, and signing out asks for it again. The same sign-in adds
 Epicenter's models, listed beside every other model for transcription and
-text, which send through Epicenter's hosted API. It never opens a repository, never moves a
-recording, and signing out keeps every one. The app signs in as
-`so.epicenter.whispering` for the server's API audience alone, with
-`openid profile email ai` and no `folders:*` scope
-(`connectAccount()` in `src/lib/platform/account.ts`), with no automatic renewal, so a timer never
-navigates away mid-recording. The server is `VITE_EPICENTER_SERVER` at build
-time, else Epicenter's.
+text, which send through Epicenter's hosted API. In the desktop app signing
+in is optional, from Settings, and only adds Epicenter's models; it never
+moves a recording, and signing out keeps every one.
+
+The app signs in as `so.epicenter.whispering` (`connectAccount()` in
+`src/lib/app.ts`) and asks for what each capability given the account says
+it needs: `home` the repository, `hosted(account)` the AI gateway
+([ADR-0792](../../docs/adr/0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md)).
+It has no automatic renewal, so a timer never navigates away mid-recording.
+The server is `VITE_EPICENTER_SERVER` at build time, else Epicenter's.
 
 ## Using it
 
@@ -88,22 +91,21 @@ already saved.
 
 The header has the status line, a recorder control on every page but Home,
 and Settings (the transcription and text models, their connections, and
-the optional sign-in).
+the sign-in).
 
 ### Recording
 
 Press the microphone on Home to start and again to stop. The take is kept
 in the page's memory while it records (AAC in `.m4a`, else Opus in
-`.webm`); Stop writes the audio into this browser's files at once, then a
-note beside it titled with the time and holding its length, and the
-recording appears in the list. While a take runs, leaving the page asks
-first.
+`.webm`), and nothing is sent; Stop writes the audio to the repository at
+once, then a note beside it titled with the time and holding its length,
+and the recording appears in the list
+([ADR-0779](../../docs/adr/0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md)).
+While a take runs, leaving the page asks first.
 
 The web app does not promise to keep a take through a crash or a closed
 tab: one cut off that way is lost. The desktop app keeps it
 ([ADR-0780](../../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
-A browser that keeps no files for the site (a private window) cannot open
-Whispering's files, and the app says why.
 
 ### Recordings
 
@@ -214,38 +216,25 @@ bun run --cwd apps/whispering test:e2e     # Playwright, Chromium and WebKit
 ```
 
 The build is static: any host that answers unknown paths with `index.html`
-(for `/auth/callback`) serves it, at an origin the API registers. The web
-build has a service worker (`src/service-worker.js`, the shared `cacheSite`
-from `@epicenter/vite-config/offline`) that caches the page and its static
-files, so a page loaded once reopens offline, and a web manifest
-(`static/site.webmanifest`) that makes it installable (decision 85). It
-passes data and other origins' requests through untouched. The desktop
-build (`build:native`) has neither worker nor registration:
-`svelte.config.js` points Kit at no service worker there.
+(for `/auth/callback`) serves it, at an origin the API registers.
 
 `test:e2e` starts `e2e/stack.ts`: a disposable Postgres, the local API with
 temporary Git and LFS stores, a person per browser with a desktop sandbox for
 the `epicenter` CLI, and the app built against that API on
-`http://localhost:1420` (which must be free). With no account, it records
-(audio and note land in OPFS and nothing else does), edits a title and a
-transcript, transcribes over a stubbed custom endpoint, and deletes a
-recording, then reloads; it sees nothing written while a take records, a
-reload mid-recording lose the take, and a stopped take land as its audio
-and note together; offline, it records
-and edits; it shows the
-Safari line in Settings in WebKit and not in Chromium, and the
-Epicenter's transcription model refused until sign-in, then, signed in, sending the
-account's API token (to a stub of the API's transcription route) and
-keeping the transcript here, with this browser's files otherwise unchanged
-and no `whispering` repository in `epicenter repos`; signing out keeps
-every recording; and the page, loaded once, reopens offline from its
-service worker (in Chromium with `context.setOffline`; WebKit under
-Playwright blocks an offline navigation before any service worker sees it,
-so there the step checks that the worker controls the page and has cached
-it). The earlier steps run with service workers blocked, so the routes they
-stub see every request. `bun apps/whispering/e2e/stack.ts --demo` runs the same
-stack to try by hand. It needs `initdb`, `pg_ctl`, `git`, and `git-lfs` on
-`PATH`.
+`http://localhost:1420` (which must be free). It walks one person through
+five steps per engine (`e2e/whispering.spec.ts`): signed out, Whispering
+asks for a sign-in, and signed in it records into the repository (audio and
+note, never the browser's files), edits a title and a transcript,
+transcribes over a stubbed custom endpoint, and deletes a recording, all
+there after a reload; a take sends nothing until Stop, leaving
+mid-recording loses it, and a stopped take lands as its audio and note
+together; Epicenter's transcription model sends the account's API token (to
+a stub of the API's transcription route) and keeps the transcript in the
+repository; `epicenter clone` holds the recordings with their audio and
+`epicenter check` passes; and signing out asks for a sign-in again, with
+nothing left in the browser. `bun apps/whispering/e2e/stack.ts --demo` runs
+the same stack to try by hand. It needs `initdb`, `pg_ctl`, `git`, and
+`git-lfs` on `PATH`.
 
 ## The desktop app
 
@@ -264,37 +253,43 @@ beside the folder. A failed open shows the shared recovery screen with
 Retry. The
 status details and Settings show the shell's folder path. **Set up in
 Epicenter** enrolls the folder for local history; connecting a repository
-there enables transfer. Whispering never syncs it itself.
+there enables transfer. Whispering does not sync it itself yet
+([ADR-0785](../../docs/adr/0785-a-desktop-app-signs-in-to-sync-its-own-folder.md)).
 
-The pages are the web app's, built as the desktop variant
-(`bun run build:native`, into `build-desktop/`), with what differs behind
-build-time seams:
+The page is the web's own build (`build/`, the dev server in development).
+One build serves both
+([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)):
+each capability package decides where the page runs and loads its desktop
+code only there, and `src/lib/app.ts` makes every capability once, for the
+page's life, with no branch of its own:
 
-| Seam | Web leaf | Desktop leaf |
+| Capability | In a browser | In a Tauri window |
 | --- | --- | --- |
-| `#platform/account` | `account.ts`: browser OAuth | `account.tauri.ts`: `createTauriAuth` over `epicenter-account` |
-| `#platform/computer` | `computer.ts`: the WebView microphone, Ollama and LM Studio over the tab's `fetch`, no global shortcut | `computer.tauri.ts`: the shell's microphone, Ollama and LM Studio over the shell's fetch, the global shortcut |
-| `#platform/components` | `components.ts`: "On this browser", the end of a web sign-in | `components.tauri.ts`: the folder's status and sync, the shortcut's presses, Settings for the folder, local models and the shortcut |
-| `#platform/variant` | `'local'` | `'desktop'`, where only a sentence differs |
+| `folder` (`home` from `@epicenter/folder`) | the person's repository | the data folder |
+| `account` (`connectAccount()` from `@epicenter/account`) | browser OAuth | `createTauriAuth` over `epicenter-account` |
+| `recorder` (from `@epicenter/recorder`) | the WebView's microphone, the take in memory | the shell's microphone |
+| `ai`: `customEndpoints()`, `localServers()` (from `@epicenter/ai`) | requests from the tab | requests through the shell's fetch, each key kept by the shell |
+| `speech` (`localSpeech()` from `@epicenter/transcription`) | `null` | transcription in the app |
+| `shortcut` (`openShortcut` in `src/lib/shortcut.ts`) | `null` | the global shortcut |
 
-`src/lib/app.ts` makes the capabilities from these leaves once, for the
-page's life: the folder (`openFolder`, which the build also picks: this
-browser's storage, or the data folder), the account, the models
-(connections and `localSpeech()` are picked by their own packages' builds),
-the recorder, the settings, and the shortcut. The root renders the pages
-once the folder and the settings are open (`<WhenOpen>` from
-`@epicenter/svelte`), or the recovery screen when one cannot open.
-
-`src/lib/platform/platform.test.ts` bundles both builds and names a seam
-whose desktop leaf went missing.
+The root renders the pages once the folder and the settings are open
+(`<WhenOpen>` from `@epicenter/svelte`), or the recovery screen when one
+cannot open. The views branch on what the capabilities offer: the header
+shows `FolderChrome` (the folder's status and Set up in Epicenter) where
+`folder.reveal` is there and `RepositoryChrome` (the repository's status
+and Sign in again) otherwise, and Settings shows `FolderSettings`,
+`SpeechSettings` and `ShortcutSettings` (in `src/lib/components/`) only
+where there is a folder on this computer, transcription in the app, and a
+shortcut. `connectionsNote` (`src/lib/connections-note.ts`) says where a
+connection's key is kept and where its requests leave from.
 
 - **Recording** goes through the shell's microphone
   (`tauri-plugin-epicenter-recorder`), which encodes a recording to Opus
   in WebM in the data folder from the first sample and places it at
   `recordings/<id>.webm` when Stop answers, in the same few milliseconds
-  for a recording of any length. The call is the web build's,
-  `recorder.start({ files, path })` from `@epicenter/recorder`, imported
-  from `/tauri` here and `/browser` there (decision 84). The note, with its
+  for a recording of any length. The call is the same as in a browser,
+  `recorder.start({ files, path })` from `@epicenter/recorder`, which loads
+  the shell's recorder in a Tauri window (decision 84). The note, with its
   length, is written once Stop has answered (`folder-recordings.ts`). A
   recording a quit or a crash cut off is finished, placed and given its
   note on the next launch, in the background beside the pages; it is at no
@@ -317,7 +312,8 @@ whose desktop leaf went missing.
   [ADR-0740](../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)).
   A debug build started with `EPICENTER_SECRETS_FILE=<path>` keeps its
   credentials in that file instead.
-- **Sign-in** is `so.epicenter.whispering.native` through the shared
+- **Sign-in** is optional, from Settings, and adds Epicenter's models. It
+  is `so.epicenter.whispering.native` through the shared
   [`epicenter-account`](../../packages/tauri-epicenter-account/README.md)
   crate, in the system browser.
 - **The global shortcut** starts and stops a recording from any app:
@@ -343,15 +339,18 @@ build script declares, and how an accelerator parses.
 
 ## What is not supported
 
-- Syncing, uploading, or moving recordings to a repository or another
-  device, and a view of a repository.
+- Whispering syncing the desktop app's folder itself, which ADR-0785
+  decides and is not built, or moving recordings between that folder and
+  the repository.
 - In the web app, keeping a take through a crash or a closed tab, recording
-  in the background, and a global shortcut: these are the desktop app's.
+  in the background, working with no network, and a global shortcut: these
+  are the desktop app's.
 - A Files view, a Source tab for notes that read, renaming files, and files
   outside the contract. A note that does not read is repaired as text where
   it is listed.
-- Reading files an earlier build kept (its IndexedDB folder, or a Yjs store).
-  There is no migration.
+- Reading files an earlier build kept (its IndexedDB folder, a Yjs store,
+  or the recordings an earlier web build kept in a browser). There is no
+  migration.
 - System-wide dictation beyond the desktop's one start-and-stop shortcut:
   push-to-talk, voice-activated recording, and delivering text to the
   cursor. Copy buttons are the only way text leaves the app.

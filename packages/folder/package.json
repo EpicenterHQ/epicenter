@@ -7,7 +7,6 @@
 	"exports": {
 		".": {
 			"test": "./src/home.memory.ts",
-			"tauri": "./src/home.tauri.ts",
 			"default": "./src/home.ts"
 		},
 		"./core": "./src/core.ts",
@@ -20,8 +19,7 @@
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server-tests.json",
-		"test": "bun test --isolate",
-		"smoke:device": "bun smoke/device.ts"
+		"test": "bun test --isolate"
 	},
 	"dependencies": {
 		"@epicenter/definition": "workspace:*",
@@ -34,6 +32,7 @@
 		"@types/bun": "catalog:",
 		"@types/pg": "^8.18.0",
 		"drizzle-orm": "catalog:",
+		"hono": "catalog:",
 		"pg": "^8.20.0",
 		"playwright": "^1.61.1",
 		"typescript": "catalog:",

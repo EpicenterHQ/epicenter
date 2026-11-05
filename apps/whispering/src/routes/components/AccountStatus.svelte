@@ -1,16 +1,14 @@
 <!--
-	The optional sign-in with Epicenter. It grants capabilities only:
-	Epicenter's models for transcription and AI (the API audience). It
-	never opens a repository and never moves a recording, which stays where
-	the build keeps it either way: this browser, or the desktop's data folder
-	(ADR-0700).
+	The sign-in with Epicenter. Where the folder is the person's repository
+	it holds the recordings, and the app asks for it before it opens
+	(ADR-0786); where the folder is on this computer (`folder.reveal`) it is
+	optional and grants Epicenter's models for transcription and AI alone,
+	and a recording stays in the data folder either way.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { onMount } from 'svelte';
-	import { account } from '$lib/app.js';
-	import { variant } from '#platform/variant';
-	import type { Variant } from '$lib/platform/types.js';
+	import { account, folder } from '$lib/app.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 
 	const whispering = getWhispering();
@@ -21,8 +19,8 @@
 	let mounted = false;
 	let checkId = 0;
 
-	/** Where the recordings stay, signed in or not. */
-	const keptIn = { local: 'in this browser', desktop: 'in your data folder' } satisfies Record<Variant, string>;
+	/** Whether the recordings are in the person's repository, which the sign-in holds. */
+	const inRepository = folder.reveal === null;
 
 	const describe = (cause: unknown) =>
 		cause instanceof Error ? cause.message : String(cause);
@@ -71,11 +69,15 @@
 	{#if checking}
 		<p>Checking Epicenter sign-in…</p>
 	{:else if authState.status === 'signed-in'}
-		<p>Signed in to {new URL(authState.account.baseURL).host}, for hosted transcription and AI. Your recordings stay {keptIn[variant]}.</p>
+		{#if inRepository}
+			<p>Signed in to {new URL(authState.account.baseURL).host}. Your recordings are in your Epicenter repository, whispering, and this account also provides hosted transcription and AI.</p>
+		{:else}
+			<p>Signed in to {new URL(authState.account.baseURL).host}, for hosted transcription and AI. Your recordings stay in your data folder.</p>
+		{/if}
 	{:else if authState.status === 'reauth-required'}
-		<p>Your Epicenter sign-in needs to be renewed before hosted transcription and AI work again.</p>
+		<p>Your Epicenter sign-in needs to be renewed before {inRepository ? 'your recordings are saved' : 'hosted transcription and AI work'} again.</p>
 	{:else}
-		<p>Optional: sign in to Epicenter for hosted transcription and AI. Your recordings stay {keptIn[variant]} either way.</p>
+		<p>Optional: sign in to Epicenter for hosted transcription and AI. Your recordings stay in your data folder either way.</p>
 	{/if}
 	{#if problem}
 		<p class="text-destructive" role="alert">{problem}</p>

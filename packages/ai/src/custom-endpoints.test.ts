@@ -1,7 +1,7 @@
 /**
  * The person's connected endpoints (`customEndpoints()`) over this
- * computer's settings in memory (the `test` condition), with the web's keys
- * (`device-settings.ts`, the build's default leaf).
+ * computer's settings in memory (the `test` condition), with the page's
+ * keys (`connection-keys.ts` outside a Tauri window).
  *
  * Key behaviors:
  * - A connection is `connections.md`, never its key; the key is kept apart

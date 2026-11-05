@@ -1,15 +1,14 @@
 /**
- * The open data folder's path and Epicenter sync status in a desktop page.
+ * The open data folder's path and Epicenter sync status in a Tauri window.
  * The shell answers the path, which the page only shows; focus refreshes
- * whether Epicenter manages the folder.
+ * whether Epicenter manages the folder. The shell's code loads with the
+ * first question, so a page that never shows this never loads it.
  */
-import {
-	type FolderRequest,
-	syncedWithEpicenter,
-	syncWithEpicenter,
-} from '@epicenter/folder/tauri';
+import type { FolderRequest } from '@epicenter/folder/tauri';
 import { createContext } from 'svelte';
 import { on } from 'svelte/events';
+
+const shell = () => import('@epicenter/folder/tauri');
 
 /**
  * Call while a component initializes; it listens for the window's focus for
@@ -24,7 +23,7 @@ export function folderSync({ path, site }: { path: string; site: string }) {
 
 	/** Ask the shell again; the native predicate reads Epicenter enrollment. */
 	async function check() {
-		const { data } = await syncedWithEpicenter();
+		const { data } = await (await shell()).syncedWithEpicenter();
 		managed = data === true;
 	}
 
@@ -60,7 +59,7 @@ export function folderSync({ path, site }: { path: string; site: string }) {
 		},
 		requestSetup() {
 			void ask(async () => {
-				const { error } = await syncWithEpicenter({
+				const { error } = await (await shell()).syncWithEpicenter({
 					contract: `${site}/contract.json`,
 				});
 				return error === null

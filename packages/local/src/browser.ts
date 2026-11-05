@@ -1,24 +1,16 @@
 /**
- * `@epicenter/local` in a web build (the `default` leaf): this computer's
- * settings are entries of this browser's `localStorage` for the site, under
- * `epicenter.local/<name>`. Each app is its own site, so the key names no
- * app. A read and a write are synchronous steps, so the page connects at
- * once; another tab's write arrives as a `storage` event.
+ * This computer's settings in a browser: entries of this browser's
+ * `localStorage` for the site, under `epicenter.local/<name>`. Each app is
+ * its own site, so the key names no app. A read and a write are synchronous
+ * steps, so the page connects at once; another tab's write arrives as a
+ * `storage` event.
  */
-import { createSettings } from './settings.js';
-
-export {
-	type Settings,
-	SettingsError,
-	type SettingsFile,
-	SettingsNotOpen,
-	type SettingsState,
-} from './settings.js';
+import type { SettingsPlace } from './settings.js';
 
 const PREFIX = 'epicenter.local/';
 
-/** This computer's settings for this app: this browser's storage for the site. */
-export const settings = createSettings({
+/** This browser's storage for the site, as the place the settings are kept. */
+export const browserStorage: SettingsPlace = {
 	async watch(changed) {
 		if (typeof window === 'undefined') return () => {};
 		const heard = (event: StorageEvent) => {
@@ -37,4 +29,4 @@ export const settings = createSettings({
 		if (text === null) localStorage.removeItem(PREFIX + name);
 		else localStorage.setItem(PREFIX + name, text);
 	},
-});
+};

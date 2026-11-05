@@ -1,7 +1,7 @@
 <!--
 	Every page of Whispering: the chrome. The app is the `(app)` group at `/`,
-	whose layout opens the build's store (`folder` from `src/lib/app.ts`: this browser's files on the web, the
-	data folder on the desktop) and guards leaving while it saves
+	whose layout opens the store (`folder` from `src/lib/app.ts`: the person's
+	repository in a browser, the data folder in a Tauri window) and guards leaving while it saves
 	(`<WhenOpen>`); the sign-in callback is outside it and reads no files.
 -->
 <script lang="ts">

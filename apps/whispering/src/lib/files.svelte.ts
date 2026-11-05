@@ -1,9 +1,9 @@
 /**
  * Whispering's files over its folder: the note lists, and each recording's
- * audio beside them. The folder is the one `src/lib/app.ts` opened (this
- * browser's storage on the web, the data folder on the desktop), which
- * `WhisperingApp` hands in; which store it is is the build's choice, never
- * this module's. A page edits a note through the folder itself
+ * audio beside them. The folder is the one `src/lib/app.ts` opened (the
+ * person's repository in a browser, the data folder in a Tauri window),
+ * which `WhisperingApp` hands in; which store it is is `home`'s choice,
+ * never this module's. A page edits a note through the folder itself
  * (`folder.recordings.edit({ id })`).
  *
  * Reads are Svelte state through `reactive`: each list lists and listens

@@ -42,15 +42,14 @@ export function openingOf(at: Place, contract: Contract): Opening {
 }
 
 /**
- * What every build's `home` takes. `site` is the app's production site: on
- * the desktop the folder's `AGENTS.md` links its published contract, and on
- * the web it names the account's repository. `account` selects that
- * repository on the web; the desktop opens its folder whatever is passed,
- * and Epicenter syncs it.
+ * What `home` takes. `site` is the app's production site: in a Tauri window
+ * the data folder's `AGENTS.md` links its published contract, and in a
+ * browser it names the account's repository. `account` is that
+ * repository's, which a browser needs; the data folder opens without one.
  */
 export type HomeOptions = {
 	site: string;
-	/** Null or absent where the build has no account (`connectAccount()` on the desktop). */
+	/** The account whose repository a browser opens; a Tauri window's folder opens without one. */
 	account?: FolderAccount | null;
 };
 
@@ -61,6 +60,8 @@ export type HomeOptions = {
  * page.
  */
 export type FolderAccount = {
+	/** Say the folder needs the app's repository, which sign-in then asks for (ADR-0792). */
+	need(need: 'repository'): void;
 	state(): {
 		account?:
 			| {

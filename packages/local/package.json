@@ -2,13 +2,12 @@
 	"name": "@epicenter/local",
 	"version": "0.0.1",
 	"private": true,
-	"description": "This computer's settings for an app, as one store the page connects to once: AppData through the shell on the desktop, this browser's storage on the web.",
+	"description": "This computer's settings for an app, as one store the page connects to once: AppData through the shell in a Tauri window, this browser's storage in a browser.",
 	"type": "module",
 	"exports": {
 		".": {
 			"test": "./src/memory.ts",
-			"tauri": "./src/tauri.ts",
-			"default": "./src/browser.ts"
+			"default": "./src/index.ts"
 		},
 		"./memory": "./src/memory.ts",
 		"./settings": "./src/settings.ts"

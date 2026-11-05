@@ -7,7 +7,6 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./app-urls": "./src/app-urls.ts",
-		"./offline": "./src/offline.js",
 		"./module-graph": "./src/module-graph.ts"
 	},
 	"dependencies": {

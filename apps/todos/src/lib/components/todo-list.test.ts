@@ -60,5 +60,5 @@ test('adding a todo writes it to the folder and opens it', async () => {
 });
 
 test('the account starts signed out', () => {
-	expect(account?.state().status).toBe('signed-out');
+	expect(account.state().status).toBe('signed-out');
 });

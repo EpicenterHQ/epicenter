@@ -9,7 +9,7 @@
  * ADR-0780).
  *
  * The microphone device (`microphone.ts`) records with `@epicenter/recorder`'s
- * `recorder`, from the entry the build's platform leaf imports, and lists
+ * `recorder`, which chooses the shell's or the page's microphone, and lists
  * and tests inputs through it too; every failure here is that package's
  * `RecorderError`.
  */
@@ -56,7 +56,7 @@ export type CaptureStart = {
 	readonly signal?: AbortSignal;
 };
 
-/** What records each recording into Whispering's files: the build's services choose one. */
+/** What records each recording into Whispering's files: `app.ts` makes one over the microphone. */
 export type CaptureDevice = {
 	/** The inputs to choose and test: the recorder's own. */
 	readonly inputs: Pick<

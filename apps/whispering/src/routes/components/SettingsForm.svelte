@@ -1,58 +1,36 @@
 <script lang="ts">
-	import { Button } from '@epicenter/ui/button';
 	import { Separator } from '@epicenter/ui/separator';
-	import { onMount } from 'svelte';
-	import { Settings } from '#platform/components';
-	import { connectionsNote, variant } from '#platform/variant';
-	import { evictionNote, readPersisted } from '$lib/eviction-note.js';
-	import { folder } from '$lib/app.js';
+	import { folder, shortcut, speech } from '$lib/app.js';
+	import FolderSettings from '$lib/components/FolderSettings.svelte';
+	import ShortcutSettings from '$lib/components/ShortcutSettings.svelte';
+	import SpeechSettings from '$lib/components/SpeechSettings.svelte';
+	import { connectionsNote } from '$lib/connections-note.js';
 	import { getWhispering, type Operation } from '$lib/whispering.svelte.js';
 	import AccountStatus from './AccountStatus.svelte';
 	import ModelSetting from './ModelSetting.svelte';
 
 	/**
-	 * Settings: what only this build has (`Settings` from `#platform/components`:
-	 * on the desktop, the data folder and the models on this computer), the
-	 * optional sign-in, and the model this device uses for transcription and
-	 * for text, with the connections and keys it reaches them through.
-	 * Everything here stays on this device. `only` shows one model, as the
-	 * control beside the recorder does. Under the sign-in, which says where the
-	 * recordings stay, Safari on the web adds that it may clear them
-	 * (`evictionNote`).
+	 * Settings: what this page's capabilities offer beyond the models (a
+	 * folder on this computer, models that transcribe in this app's process,
+	 * a global shortcut; each only where there is one), the sign-in, and the
+	 * model this device uses for transcription and for text, with the
+	 * connections and keys it reaches them through. Everything here stays on
+	 * this device. `only` shows one model, as the control beside the
+	 * recorder does.
 	 */
 	let { only }: { only?: Operation } = $props();
 
 	const whispering = getWhispering();
-	let persisted = $state<boolean>();
-	onMount(() => {
-		let current = true;
-		void readPersisted().then((answer) => {
-			if (current) persisted = answer;
-		});
-		return () => {
-			current = false;
-		};
-	});
-	const note = $derived(
-		evictionNote({
-			variant,
-			vendor: navigator.vendor,
-			storageWorks: folder.unavailable() === null,
-			persisted,
-		}),
-	);
 	const operations = $derived<Operation[]>(only ? [only] : ['transcription', 'text']);
 </script>
 
 <div class="flex flex-col gap-4 text-sm">
-	{#if Settings && !only}
-		<Settings />
-		<Separator />
+	{#if !only}
+		{#if folder.reveal !== null}<FolderSettings /><Separator />{/if}
+		{#if speech}<SpeechSettings {speech} /><Separator />{/if}
+		{#if shortcut}<ShortcutSettings {shortcut} /><Separator />{/if}
 	{/if}
 	<AccountStatus />
-	{#if note && !only}
-		<p class="text-xs text-muted-foreground" data-testid="eviction-note">{note}</p>
-	{/if}
 	{#if whispering.connectionsProblem}
 		<p class="text-xs text-destructive" role="alert" data-testid="connections-problem">No saved connection is used: {whispering.connectionsProblem}</p>
 	{/if}

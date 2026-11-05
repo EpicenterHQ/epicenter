@@ -3,10 +3,10 @@
  * `Recorder`, the one interface both implement.
  *
  * A recording lands at its path, whole, when it stops (`Recorder.start`,
- * `Recording`). Every build calls the same `recorder`; which one a build
- * runs is the entry it imports (`@epicenter/recorder/tauri` or
- * `@epicenter/recorder/browser`), chosen by the app's `#platform` seam,
- * never at run time. The two need not promise the same things (ADR-0780):
+ * `Recording`). Every page calls the same `recorder` from
+ * `@epicenter/recorder`, which `index.ts` chooses when it loads: the
+ * shell's in a Tauri window, the page's own in a browser (ADR-0781). The
+ * two need not promise the same things (ADR-0780):
  *
  * - On the desktop the shell's recorder encodes the microphone to Opus from
  *   the first sample and writes it, a second at a time, into a WebM in the
@@ -22,10 +22,8 @@
  * Nothing here says whether a recording is running. That is the live handle
  * a start returns; it ends with the page.
  *
- * This is the package's bare entry, the same file for every build: shared
- * code names these types, errors, and `audioDurationMs`, and a build
- * reaches an implementation only through `@epicenter/recorder/tauri` or
- * `@epicenter/recorder/browser`.
+ * Shared code names these types, errors, and `audioDurationMs`; each
+ * implementation (`tauri.ts`, `browser.ts`) re-exports them.
  */
 import type { FolderFiles } from '@epicenter/folder/core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
@@ -187,9 +185,9 @@ export type InputListing = {
 };
 
 /**
- * What a host does with its microphones: the `recorder` that
- * `@epicenter/recorder/tauri` and `@epicenter/recorder/browser` each export.
- * Its functions need no `this`, so each can be passed on its own.
+ * What a host does with its microphones: the `recorder` that `tauri.ts` and
+ * `browser.ts` each export, and `@epicenter/recorder` chooses between. Its
+ * functions need no `this`, so each can be passed on its own.
  */
 export type Recorder = {
 	/** Record from `input`, or the system default, into `files` at `path`. */

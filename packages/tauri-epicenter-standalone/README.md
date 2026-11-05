@@ -4,7 +4,7 @@ A standalone Epicenter app is its own small Tauri program over a folder it
 owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
 shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines.
 On the page, `openFolder(contract, home({ site }))` from `@epicenter/folder`
-opens the data folder in the desktop build, `settings` from
+opens the data folder in a Tauri window, `settings` from
 `@epicenter/local` is this computer's settings in AppData, and
 `syncWithEpicenter` and `syncedWithEpicenter` from `@epicenter/folder/tauri`
 manage Epicenter enrollment. The page's recovery and sync UI is in
@@ -79,36 +79,26 @@ gives). The folder plugin must also be a direct dependency of the app, so
 `tauri-build` finds its permissions. The crate is a member of the root
 Cargo workspace (`cargo test -p epicenter-standalone`).
 
-## Making a web app's desktop variant
+## Giving a web app a desktop window
 
-The desktop variant is the web app's own UI, built with different leaves.
-The build chooses them, never a runtime check, and the routes stay the same
-(do not swap SvelteKit's `kit.files.routes`).
+The desktop window loads the web app's own build: one build and one
+typecheck serve both
+([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)).
+Nothing in the app chooses by surface; each capability package decides when
+the page runs (see the `platform-seams` skill), and the routes stay the same.
 
-1. **Seams.** The store needs none: `src/lib/app.ts` calls
-   `openFolder(contract, home({ site, account }))`, and the `tauri` build of
-   `@epicenter/folder` makes `home` the data folder. In the app's `package.json`,
-   map each thing the variants do differ in to two leaves, the desktop one
-   under `tauri`, usually the account and the chrome that shows where the
-   files are:
-
-   ```json
-   "imports": {
-     "#platform/account": { "tauri": "./src/lib/account.tauri.ts", "default": "./src/lib/account.ts" },
-     "#platform/chrome": { "tauri": "./src/lib/components/DesktopChrome.svelte", "default": "./src/lib/components/OnlineChrome.svelte" }
-   }
-   ```
-
-   Components import `#platform/*`, never a leaf, and leaves import with
-   relative paths (no `$lib`), so the bundle test can resolve them.
-   `apps/todos` is the smallest worked example.
-2. **Build.** Merge `desktopVariant()` from `@epicenter/vite-config` into
-   `vite.config.ts`, and add `"build:native": "EPICENTER_DESKTOP=1
-   <APP>_BUILD_DIR=build-desktop NODE_ENV=production vite build"`, plus
-   `dev:desktop` and `build:desktop` that run it before `tauri dev` or
-   `tauri build`. `src-tauri/tauri.conf.json` loads `../build-desktop`.
-3. **Typecheck.** `tsconfig.tauri.json` extends `tsconfig.json` with
-   `"customConditions": ["tauri"]`; run `svelte-check` with both.
-4. **Guard.** A bundle test (`apps/capture/src/lib/platform.test.ts`) bundles
-   the seams with `bundledModules` both ways and names any desktop leaf that
-   went missing, since a dropped `tauri` key silently ships the browser leaf.
+1. **Capabilities.** The store needs nothing: `src/lib/app.ts` calls
+   `openFolder(contract, home({ site, account }))`, and in a Tauri window
+   `home` is the data folder. Where a view differs, branch on what a
+   capability offers: `folder.reveal` is there for a folder on this
+   computer, so the header shows `FolderChrome` there and
+   `RepositoryChrome` otherwise. `apps/todos` is the smallest worked
+   example.
+2. **Build.** `src-tauri/tauri.conf.json` loads `../build` and builds it
+   first (`"beforeBuildCommand": "bun run build"`); `tauri.dev.conf.json`
+   loads the app's dev server (`"devUrl": "http://localhost:<port>"`,
+   `"beforeDevCommand": "bun run dev"`). The app's `dev:desktop` is
+   `tauri dev --config src-tauri/tauri.dev.conf.json`, and `build:desktop`
+   is `tauri build --bundles app`.
+3. **Guard.** `scripts/first-load.test.ts` holds the app's first load in a
+   browser to no desktop module; add the app to its list.

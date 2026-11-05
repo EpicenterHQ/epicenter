@@ -4,7 +4,8 @@
 	"version": "7.11.1",
 	"identifier": "so.epicenter.whispering",
 	"build": {
-		"frontendDist": "../build-desktop"
+		"frontendDist": "../build",
+		"beforeBuildCommand": "bun run build"
 	},
 	"app": {
 		"windows": [],

@@ -2,11 +2,11 @@
  * The person's connected endpoints as one live entry of `openAi([...])`:
  * the endpoint each saved connection makes, beside the actions that change
  * them. The list is `connections.md` in this computer's settings
- * (`@epicenter/local`: AppData on the desktop, this browser's storage on
- * the web): each connection's id, name, base URL and models, and the
+ * (`@epicenter/local`: AppData in a Tauri window, this browser's storage in
+ * a browser): each connection's id, name, base URL and models, and the
  * endpoint its key was entered for, never the key. Where a key is kept is
- * the build's (`#device-settings`): on the desktop the shell holds it and
- * sends each request with it; on the web the page holds it.
+ * `connection-keys.ts`'s: in a Tauri window the shell holds it and sends
+ * each request with it (`relayed`); in a browser the page holds it.
  *
  * The page reads the list once the settings connected (`<WhenOpen>`), so
  * `endpoints()` and `list()` are the truth. When `connections.md` does not
@@ -16,7 +16,7 @@
  */
 import { settings } from '@epicenter/local';
 import { nanoid } from 'nanoid';
-import { connectionKeys } from '#device-settings';
+import { connectionKeys } from './connection-keys.js';
 import type { Endpoint } from './endpoint.js';
 import { type SettingError, settingNote } from './setting-note.js';
 
@@ -74,6 +74,12 @@ export type CustomEndpoints = {
 	list(): readonly ConnectionSnapshot[];
 	/** Why `connections.md` does not read, or null. While it does not, none is merged. */
 	problem(): SettingError | null;
+	/**
+	 * Whether this computer's shell keeps each key and sends each request,
+	 * so any endpoint works; otherwise the page keeps the key and sends from
+	 * the tab, so the endpoint must allow this origin (CORS).
+	 */
+	readonly relayed: boolean;
 	add(input: CustomConnectionInput): Promise<string>;
 	update(id: string, patch: Partial<CustomConnectionInput>): Promise<void>;
 	remove(id: string): Promise<void>;
@@ -156,6 +162,7 @@ export function customEndpoints(): CustomEndpoints {
 				hasApiKey: key === record.baseUrl,
 			})),
 		problem: () => note.get().error,
+		relayed: connectionKeys.relayed,
 		add({ apiKey, ...input }) {
 			return change(async (list) => {
 				const record: ConnectionRecord = {

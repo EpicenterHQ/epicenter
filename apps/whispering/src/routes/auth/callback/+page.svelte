@@ -1,11 +1,11 @@
 <!--
-	The sign-in callback, outside the app's group: it reads no files. The
-	build's `Callback` (`#platform/components`) finishes a web sign-in; the desktop
-	window never signs in here.
+	The sign-in callback, outside the app's group: it reads no files.
+	`SignInCallback` finishes a browser's sign-in; a Tauri window never signs
+	in here.
 -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { Callback } from '#platform/components';
+	import SignInCallback from '$lib/components/SignInCallback.svelte';
 </script>
 
-<Callback home={resolve('/')} />
+<SignInCallback home={resolve('/')} />
