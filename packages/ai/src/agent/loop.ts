@@ -5,8 +5,11 @@
  * runs the tools the host offers, and saves each finished message as its
  * own note. The folder lists and follows the collection while the
  * conversation listens; the conversation keeps no copy of its own.
+ *
+ * A message is saved with the folder's `set`, which never fails: the folder
+ * keeps it, in order, until it lands (ADR-0775). Whether the store can be
+ * reached is the folder's to say, not the conversation's.
  */
-import { sameValue } from '@epicenter/definition/note';
 import type { FolderNotes } from '@epicenter/folder/core';
 import {
 	defineErrors,
@@ -15,7 +18,7 @@ import {
 } from 'wellcrafted/error';
 import type { JsonValue } from 'wellcrafted/json';
 import { createLogger } from 'wellcrafted/logger';
-import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { ChatMessage } from '../client.js';
 import type { Ai, ModelChoice } from '../open-ai.js';
 import {
@@ -39,28 +42,9 @@ const log = createLogger('ai/agent');
 
 export type ConversationError = { message: string; code?: string };
 
-/** Why a message is still unsaved after the collection was asked to write it. */
-export const MessageSaveError = defineErrors({
-	/** The collection answered: the message is not saved. */
-	WriteFailed: ({ cause }: { cause: unknown }) => ({
-		message: `The message was not saved: ${extractErrorMessage(cause)}`,
-		cause,
-	}),
-	/** The collection threw instead of answering, so whether the write landed is unknown. */
-	Threw: ({ cause }: { cause: unknown }) => ({
-		message: `The message collection threw instead of answering: ${extractErrorMessage(cause)}`,
-		cause,
-	}),
-});
-export type MessageSaveError = InferErrors<typeof MessageSaveError>;
-
 export const ConversationAdmissionError = defineErrors({
 	/** The conversation took no action: nothing was written and no model ran. */
-	NotAdmitted: ({
-		reason,
-	}: {
-		reason: 'empty' | 'busy' | 'unsaved' | 'disposed';
-	}) => ({
+	NotAdmitted: ({ reason }: { reason: 'empty' | 'busy' | 'disposed' }) => ({
 		message: `The conversation did not admit the request: ${reason}`,
 		reason,
 	}),
@@ -73,33 +57,20 @@ export type ConversationAdmissionError = InferErrors<
 export type UnreadableMessage = { path: string; reason: string };
 
 export type ConversationSnapshot = {
-	/** The saved transcript, then `unsaved`, then the live turn's finished steps. */
+	/** The saved transcript, then the messages handed to the folder and not yet shown, then the live turn's finished steps. */
 	messages: AgentMessage[];
 	streaming: AgentMessage | null;
 	isThinking: boolean;
 	isGenerating: boolean;
-	/** Why the last model turn ended without an answer. Never a save failure. */
+	/** Why the last model turn ended without an answer. */
 	error: ConversationError | null;
-	/**
-	 * Whole messages the collection has not confirmed, oldest first: a sent
-	 * learner message, or a fully received answer. Each also appears once in
-	 * `messages`.
-	 */
-	unsaved: AgentMessage[];
-	/** A write for `unsaved` is in flight. */
-	isSaving: boolean;
-	/**
-	 * Why the last write left `unsaved` unconfirmed. Stays while `save()` tries
-	 * again and clears when everything is saved.
-	 */
-	saveError: MessageSaveError | null;
 	/** This chat's message notes that do not read. */
 	unreadable: UnreadableMessage[];
 	/**
 	 * Whether the chat's saved messages were ever listed. Until then the
-	 * transcript may be missing what is saved, so no model turn runs: it
-	 * ends with the error code `Unlisted`. A listing that fails after one
-	 * succeeded keeps this true.
+	 * transcript may be missing what is saved, so a turn waits for the
+	 * listing, and one stopped or disposed while it waits ends with the
+	 * error code `Unlisted`, having asked no model.
 	 */
 	listed: boolean;
 };
@@ -108,35 +79,26 @@ export type ConversationHandle = {
 	snapshot(): ConversationSnapshot;
 	subscribe(listener: () => void): () => void;
 	/**
-	 * Settles once the first listing of the chat's saved messages answered,
-	 * listed or failed (`listed` says which), or once the conversation is
-	 * disposed.
+	 * Settles once the chat's saved messages were first listed, or once the
+	 * conversation is disposed. A listing that cannot reach the store is
+	 * tried again by the folder, and this waits for it.
 	 */
 	readonly ready: Promise<void>;
 	/**
 	 * Save one learner message, then start the model turn in the background.
 	 *
-	 * Resolves when the collection has answered. `Ok` means the message is
-	 * saved; the turn has started unless `stop` or disposal arrived first. On
-	 * `Err` no model ran. A failed write keeps the message in `unsaved` under
-	 * its id.
+	 * Answers once the message is handed to the folder, which keeps it
+	 * until it lands; it shows in `snapshot().messages` from then. On `Err`
+	 * nothing was written and no model ran.
 	 */
-	send(
-		content: string,
-	): Promise<Result<void, ConversationAdmissionError | MessageSaveError>>;
+	send(content: string): Promise<Result<void, ConversationAdmissionError>>;
 	/** Abort the model turn, or cancel the one a pending `send` would start; answers once no turn runs. */
 	stop(): Promise<void>;
 	/**
 	 * Run a model turn over the saved transcript, answering once it ends.
-	 * Ignored while busy or unsaved; ends as `Unlisted` until the saved
-	 * messages were listed.
+	 * Ignored while busy; it waits for the saved messages to be listed.
 	 */
 	retry(): Promise<void>;
-	/**
-	 * Write `unsaved` again under the same ids. Never runs the model or a tool,
-	 * and never writes a message the collection already confirmed.
-	 */
-	save(): Promise<Result<void, ConversationAdmissionError | MessageSaveError>>;
 	/** Stops following the collection; writes already in flight still land. */
 	[Symbol.dispose](): void;
 };
@@ -144,13 +106,12 @@ export type ConversationHandle = {
 /**
  * What a conversation reads and calls on the folder's messages collection
  * (`folder.messages`, of `messagesCollection`): the notes as the folder
- * shows them, its listing state, and `create`. Subscribing starts the
- * folder's listing; a create the folder refuses as `Occupied` answers once
- * `get` shows what is there.
+ * shows them, its listing state, and `set`. Subscribing starts the
+ * folder's listing.
  */
 export type ConversationMessages = Pick<
 	FolderNotes<MessagesCollection>,
-	'items' | 'invalid' | 'get' | 'loading' | 'error' | 'subscribe' | 'create'
+	'items' | 'invalid' | 'loading' | 'subscribe' | 'set'
 >;
 
 export type ConversationOptions = {
@@ -173,12 +134,6 @@ export type ConversationOptions = {
 };
 
 const MAX_STEPS = 50;
-
-/** Whether `note` holds `message`, whole. */
-const holds = (note: MessageNote, message: AgentMessage) =>
-	note.role === message.role &&
-	note.createdAt === message.createdAt &&
-	sameValue(note.parts, message.parts);
 
 /** Create one UI-free conversation over a messages collection, a model, and tools. */
 export function createConversation({
@@ -224,6 +179,18 @@ export function createConversation({
 		return transcript;
 	}
 
+	/**
+	 * The saved transcript, then the messages handed to the folder and not
+	 * yet listed: the folder shows a saved message before its write answers,
+	 * so the saved copy wins.
+	 */
+	function shown(): AgentMessage[] {
+		const saved = persisted();
+		const stored = new Set(saved.map((message) => message.id));
+		const waiting = writing.filter((message) => !stored.has(message.id));
+		return waiting.length > 0 ? [...saved, ...waiting] : saved;
+	}
+
 	/** This chat's notes that do not read, as the folder shows them. */
 	function unreadableNow(): UnreadableMessage[] {
 		const invalid = messages.invalid();
@@ -241,11 +208,11 @@ export function createConversation({
 	const { promise: ready, resolve: settleReady } =
 		Promise.withResolvers<void>();
 
-	/** Note the folder's listing: `ready` once the first answered, `listed` once one succeeded. */
+	/** Note the folder's listing: `listed` and `ready` once the first landed. */
 	function observe() {
 		if (messages.loading()) return;
+		listed = true;
 		settleReady();
-		if (messages.error() === null) listed = true;
 	}
 
 	/** A time after every saved message and every one this conversation stamped. */
@@ -255,30 +222,38 @@ export function createConversation({
 		return lastCreatedAt;
 	};
 
-	/** Save `message` as its own note; a note already there holding it counts as saved. */
-	async function write(
-		message: AgentMessage,
-	): Promise<Result<void, MessageSaveError>> {
-		// SAFETY: JSON serialization removes unsupported values from the typed message.
-		const value = JSON.parse(JSON.stringify(message)) as AgentMessage;
-		const created = await messages.create({
-			chat,
-			id: message.id,
-			role: value.role,
-			createdAt: value.createdAt,
-			// SAFETY: the agent's parts are the collection's parts, as JSON.
-			parts: value.parts as MessageNote['parts'],
-			body: '',
-		});
-		if (created.error === null) return Ok(undefined);
-		if (created.error.name !== 'Occupied')
-			return MessageSaveError.WriteFailed({ cause: created.error });
-		// The folder answers `Occupied` once it shows the note that is there.
-		const there = messages.get({ chat, id: message.id });
-		if (there !== undefined && holds(there, value)) return Ok(undefined);
-		return MessageSaveError.WriteFailed({
-			cause: `Another message is already saved at '${created.error.path}'.`,
-		});
+	/** Messages handed to the folder and not yet shown in its listing, oldest first. */
+	let writing: AgentMessage[] = [];
+
+	/**
+	 * Save `saving` in order, each as its own note, answering once all have
+	 * landed: the folder keeps them, in order, while the store is out of
+	 * reach. Each shows in `snapshot().messages` from the moment it is handed
+	 * over.
+	 */
+	async function save(saving: AgentMessage[]): Promise<void> {
+		if (saving.length === 0) return;
+		writing = [...writing, ...saving];
+		notify();
+		await Promise.all(
+			saving.map((message) => {
+				// SAFETY: JSON serialization removes unsupported values from the typed message.
+				const value = JSON.parse(JSON.stringify(message)) as AgentMessage;
+				return messages.set(
+					{ chat, id: message.id },
+					{
+						role: value.role,
+						createdAt: value.createdAt,
+						// SAFETY: the agent's parts are the collection's parts, as JSON.
+						parts: value.parts as MessageNote['parts'],
+						body: '',
+					},
+				);
+			}),
+		);
+		const landed = new Set(saving.map(({ id }) => id));
+		writing = writing.filter(({ id }) => !landed.has(id));
+		notify();
 	}
 
 	const unsubscribe = messages.subscribe(() => {
@@ -294,15 +269,12 @@ export function createConversation({
 	/** The model turn running now, or the last one; settled once it ended. */
 	let running: Promise<void> = Promise.resolve();
 	let streamingId: string | null = null;
-	let unsaved: AgentMessage[] = [];
-	let saveError: MessageSaveError | null = null;
-	let isSaving = false;
-	// One send, retry, or save at a time, reserved before its first await and
-	// held through every write and model step it owns.
+	// One send or retry at a time, reserved before its first await and held
+	// through every write and model step it owns.
 	let isBusy = false;
 
 	function snapshot(): ConversationSnapshot {
-		const saved = persisted();
+		const saved = shown();
 		const turnMessages = turn ?? [];
 		const filling = turnMessages.find((message) => message.id === streamingId);
 		const streaming =
@@ -312,57 +284,20 @@ export function createConversation({
 		const completed = turnMessages.filter(
 			(message) => message.id !== streamingId && isPersistableMessage(message),
 		);
-		// The folder shows a saved message before its create answers, so a
-		// message is in both lists for a moment; the saved copy is rendered.
-		const stored = new Set(saved.map((message) => message.id));
-		const retained = unsaved.filter((message) => !stored.has(message.id));
 		return {
-			messages:
-				retained.length > 0 || completed.length > 0
-					? [...saved, ...retained, ...completed]
-					: saved,
+			messages: completed.length > 0 ? [...saved, ...completed] : saved,
 			streaming,
 			isThinking: turn !== null && streaming === null && completed.length === 0,
 			isGenerating: turn !== null,
 			error,
-			unsaved: [...unsaved],
-			isSaving,
-			saveError,
 			unreadable: [...unreadableNow()],
 			listed,
 		};
 	}
 
-	/**
-	 * Write `unsaved` in order and stop at the first message the collection
-	 * does not confirm, so a later message is never saved ahead of an earlier
-	 * one. One attempt per message: a failed or thrown write may still have
-	 * landed, and only an explicit `save()` asks again.
-	 */
-	async function saveUnsaved(): Promise<Result<void, MessageSaveError>> {
-		isSaving = true;
-		notify();
-		let failure: MessageSaveError | null = null;
-		for (const message of [...unsaved]) {
-			const { data: saved, error: writeError } = await tryAsync({
-				try: () => write(message),
-				catch: (cause) => MessageSaveError.Threw({ cause }),
-			});
-			failure = writeError !== null ? writeError : saved.error;
-			if (failure !== null) break;
-			// The folder shows a saved message before its create answers.
-			unsaved = unsaved.filter((pending) => pending.id !== message.id);
-			notify();
-		}
-		isSaving = false;
-		saveError = failure;
-		return failure === null ? Ok(undefined) : Err(failure);
-	}
-
 	function refusal() {
 		if (isDisposed) return 'disposed';
 		if (isBusy) return 'busy';
-		if (unsaved.length > 0) return 'unsaved';
 		return null;
 	}
 
@@ -442,7 +377,14 @@ export function createConversation({
 		let failure: ConversationError | undefined;
 		let count = 0;
 		try {
-			await ready;
+			// Wait for the saved messages, which the folder lists again while
+			// the store is out of reach; a stop ends the wait.
+			await Promise.race([
+				ready,
+				new Promise((resolve) =>
+					signal.addEventListener('abort', resolve, { once: true }),
+				),
+			]);
 			const chosen = model();
 			// Until the saved messages were listed, a turn would answer a
 			// transcript that may be missing them.
@@ -461,9 +403,14 @@ export function createConversation({
 				failure !== undefined
 					? undefined
 					: typeof system === 'function'
-						? system(persisted())
+						? system(shown())
 						: system;
-			while (failure === undefined && chosen !== null && !signal.aborted) {
+			while (
+				failure === undefined &&
+				chosen !== null &&
+				listed &&
+				!signal.aborted
+			) {
 				if (count++ >= MAX_STEPS) {
 					failure = {
 						message: `Stopped after ${MAX_STEPS} steps without a final answer.`,
@@ -471,7 +418,7 @@ export function createConversation({
 					};
 					break;
 				}
-				const history = [...persisted(), ...steps];
+				const history = [...shown(), ...steps];
 				const assistant: AgentMessage = {
 					id: generateId(),
 					role: 'assistant',
@@ -510,13 +457,11 @@ export function createConversation({
 		streamingId = null;
 		controller = null;
 		error = failure ?? null;
-		// A fully received answer outlives a failed write: it stays in `unsaved`
-		// under its ids until `save()` lands it.
-		unsaved =
-			!signal.aborted && failure === undefined
-				? steps.filter(isPersistableMessage)
-				: [];
-		if (unsaved.length > 0) await saveUnsaved();
+		// A fully received answer is handed to the folder, which keeps it, in
+		// order after the learner's message, until it lands; one stopped or
+		// failed is not saved.
+		if (!signal.aborted && failure === undefined)
+			void save(steps.filter(isPersistableMessage));
 		isBusy = false;
 		notify();
 	}
@@ -539,27 +484,18 @@ export function createConversation({
 			isBusy = true;
 			const admitted = new AbortController();
 			controller = admitted;
-			// A learner message comes after every message already saved.
-			await ready;
-			unsaved = [
+			// Handed to the folder, which keeps it until it lands; the turn
+			// reads it from there or from what is handed over.
+			void save([
 				{
 					id: generateId(),
 					role: 'user',
 					createdAt: nextCreatedAt(),
 					parts: [{ type: 'text', text }],
 				},
-			];
-			const saved = await saveUnsaved();
-			// The write may finish after a stop or disposal, both of which abort
-			// this admission; the model turn it would have started does not.
-			if (saved.error !== null || admitted.signal.aborted) {
-				controller = null;
-				isBusy = false;
-				notify();
-				return saved;
-			}
+			]);
 			running = runTurn(admitted);
-			return saved;
+			return Ok(undefined);
 		},
 		async stop() {
 			controller?.abort();
@@ -571,19 +507,6 @@ export function createConversation({
 			controller = new AbortController();
 			running = runTurn(controller);
 			await running;
-		},
-		async save() {
-			if (isDisposed || isBusy) {
-				return ConversationAdmissionError.NotAdmitted({
-					reason: isDisposed ? 'disposed' : 'busy',
-				});
-			}
-			if (unsaved.length === 0) return Ok(undefined);
-			isBusy = true;
-			const saved = await saveUnsaved();
-			isBusy = false;
-			notify();
-			return saved;
 		},
 		[Symbol.dispose]() {
 			if (isDisposed) return;

@@ -263,19 +263,20 @@ test('subscribers hear whether each key applies with the list; a change made to 
 	await connections.update(id, { apiKey: '' });
 	const path = join(root, 'connections.md');
 	const other = connectionsAt(root);
-	const read = unwrap(await other.get({}));
-	unwrap(
-		await other.update(
-			{},
+	const read = unwrap(await other.get());
+	if (read === null) throw new Error('expected the connections note');
+	const written = unwrap(
+		await other.write(
 			{
 				connections: read.connections.map((entry) => ({
 					...entry,
 					name: 'Renamed',
 				})),
 			},
-			{ over: read.version },
+			read.version,
 		),
 	);
+	expect(written).not.toBe('stale');
 	expect(await readFile(path, 'utf8')).toContain('Renamed');
 	await connections.update(id, { models: ['gpt-5'] });
 	expect(connections.getAll()).toMatchObject([

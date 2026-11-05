@@ -2,97 +2,90 @@
  * One note `@epicenter/ai` keeps on this computer: a collection with no
  * placeholders, at the top of the app's place for such state
  * (`localFile(name)` from `@epicenter/local`), read and written in house
- * style like any note. It answers as much of a note client as the settings
- * need (`get`, `create`, `update`, `subscribe`), so `createKeychainConnections`
- * and `modelChoices` read the same notes on the desktop and the web.
+ * style like any note. It is not a folder's: it never syncs, so it keeps
+ * its own small shape, a read that carries the file's version and a write
+ * over it, which `createKeychainConnections` and `modelChoices` read and
+ * write again over when another window wrote first.
  */
 import {
 	ClientError,
 	type Collection,
-	type NoteClient,
+	type FieldsOf,
 	type NoteOf,
 	noteText,
 	readNoteText,
-	type Version,
 } from '@epicenter/definition/contract';
 import type { LocalFile } from '@epicenter/local';
-import { Ok } from 'wellcrafted/result';
+import type { InferError } from 'wellcrafted/error';
+import { Ok, type Result } from 'wellcrafted/result';
 
-/** The part of a note client a setting note answers. */
-export type LocalNote<TCollection extends Collection> = Pick<
-	NoteClient<TCollection>,
-	'get' | 'create' | 'update' | 'subscribe'
->;
+type Invalid = InferError<typeof ClientError.Invalid>;
+type Unavailable = InferError<typeof ClientError.Unavailable>;
+
+/** The note as read, with the version of the file it was read from, to write over. */
+export type LocalNoteRead<TCollection extends Collection> =
+	NoteOf<TCollection> & {
+		version: string;
+	};
+
+/** A setting note kept on this computer. */
+export type LocalNote<TCollection extends Collection> = {
+	/** The note, or null when none is there; `Invalid` when it does not read. */
+	get(): Promise<
+		Result<LocalNoteRead<TCollection> | null, Invalid | Unavailable>
+	>;
+	/**
+	 * Write the note with `fields` (and `body`, empty when absent) over
+	 * `over`, the version read (null: none was there): the note written, or
+	 * `'stale'` when the file changed since, and nothing was written.
+	 */
+	write(
+		fields: FieldsOf<TCollection> & { body?: string },
+		over: string | null,
+	): Promise<
+		Result<LocalNoteRead<TCollection> | 'stale', Invalid | Unavailable>
+	>;
+	/** Hear that the file changed; returns the stop. */
+	subscribe(listener: () => void): () => void;
+};
 
 /** The note of `collection`, whose path names no placeholder, kept in `file`. */
 export function localNote<TCollection extends Collection>(
 	collection: TCollection,
 	file: LocalFile,
 ): LocalNote<TCollection> {
-	type Note = NoteOf<TCollection>;
-	const path = collection.path;
+	type Read = LocalNoteRead<TCollection>;
 	const unavailable = (cause: unknown) => ClientError.Unavailable({ cause });
-
-	/** `fields` and `body` as the note written at `version`, after house style. */
-	function noteOf(value: Record<string, unknown>, version: string): Note {
-		return { ...value, version: version as Version } as Note;
-	}
-
-	/** Write `value` (its fields and body) over `over`. */
-	async function write(value: Record<string, unknown>, over: string) {
-		const text = noteText(collection, noteOf(value, ''));
-		if (text.error !== null) return text;
-		const written = await file.write(text.data, over);
-		if (written.error !== null) return unavailable(written.error);
-		if (written.data === 'stale') return null;
-		const read = readNoteText(collection, text.data);
-		if (read.error !== null) return read;
-		return Ok(
-			noteOf(
-				{ ...read.data.fields, body: read.data.body },
-				written.data.version,
-			),
-		);
-	}
 
 	return {
 		async get() {
 			const read = await file.read();
 			if (read.error !== null) return unavailable(read.error);
-			if (read.data === null) return ClientError.NotFound({ path });
+			if (read.data === null) return Ok(null);
 			const note = readNoteText(collection, read.data.text);
 			if (note.error !== null) return note;
-			return Ok(
-				noteOf(
-					{ ...note.data.fields, body: note.data.body },
-					read.data.version,
-				),
-			);
+			return Ok({
+				...note.data.fields,
+				body: note.data.body,
+				version: read.data.version,
+			} as Read);
 		},
-		async create({ body = '', ...fields }) {
-			const written = await write({ ...fields, body }, 'absent');
-			return written ?? ClientError.Occupied({ path });
-		},
-		async update(_args, patch, { over }) {
-			const read = await file.read();
-			if (read.error !== null) return unavailable(read.error);
-			if (read.data === null || read.data.version !== over)
-				return ClientError.Conflict({
-					path,
-					current: (read.data?.version ?? null) as Version | null,
-				});
-			const note = readNoteText(collection, read.data.text);
-			if (note.error !== null) return note;
-			const written = await write(
-				{ ...note.data.fields, body: note.data.body, ...patch },
-				over,
-			);
-			if (written !== null) return written;
-			const now = await file.read();
-			return ClientError.Conflict({
-				path,
-				current: (now.data?.version ?? null) as Version | null,
-			});
+		async write({ body = '', ...fields }, over) {
+			const text = noteText(collection, {
+				...fields,
+				body,
+			} as NoteOf<TCollection>);
+			if (text.error !== null) return text;
+			const written = await file.write(text.data, over ?? 'absent');
+			if (written.error !== null) return unavailable(written.error);
+			if (written.data === 'stale') return Ok('stale');
+			const read = readNoteText(collection, text.data);
+			if (read.error !== null) return read;
+			return Ok({
+				...read.data.fields,
+				body: read.data.body,
+				version: written.data.version,
+			} as Read);
 		},
 		subscribe: (listener) => file.subscribe(listener),
 	};

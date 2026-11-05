@@ -41,13 +41,13 @@ function notePlace(): ChoicesPlace {
 	const models = localNote(modelsCollection, localFile('models.md'));
 
 	async function read() {
-		const note = await models.get({});
-		if (note.error?.name === 'NotFound')
-			return { choices: {} as SavedChoices, version: null };
+		const note = await models.get();
 		if (note.error !== null)
 			throw new Error(`models.md could not be read: ${note.error.message}`, {
 				cause: note.error,
 			});
+		if (note.data === null)
+			return { choices: {} as SavedChoices, version: null };
 		return {
 			choices: Object.fromEntries(
 				note.data.choices.map(({ job, endpoint, model }) => [
@@ -72,18 +72,16 @@ function notePlace(): ChoicesPlace {
 						model,
 					})),
 				};
-				const written =
-					version === null
-						? await models.create(fields)
-						: await models.update({}, fields, { over: version });
-				if (written.error === null) return next;
-				const raced =
-					written.error.name === 'Conflict' ||
-					written.error.name === 'Occupied';
-				if (!raced || attempt === ATTEMPTS)
+				const written = await models.write(fields, version);
+				if (written.error !== null)
 					throw new Error(
 						`models.md could not be saved: ${written.error.message}`,
 						{ cause: written.error },
+					);
+				if (written.data !== 'stale') return next;
+				if (attempt === ATTEMPTS)
+					throw new Error(
+						'models.md could not be saved: other windows kept changing it.',
 					);
 			}
 		},

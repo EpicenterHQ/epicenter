@@ -27,7 +27,6 @@ import {
 	type TauriShell,
 	tauriShell,
 } from '@epicenter/account/tauri';
-import type { NoteClient, Version } from '@epicenter/definition/contract';
 import { nanoid } from 'nanoid';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
@@ -38,6 +37,7 @@ import type {
 	CustomConnectionInput,
 } from './ai-connections.js';
 import { custom } from './custom.js';
+import type { LocalNote } from './local-note.js';
 
 const log = createLogger('ai/tauri');
 
@@ -151,11 +151,8 @@ export const connectionsCollection = {
 	required: ['connections'],
 } as const;
 
-/** The note client of an app's `connections.md`: as much as the connections read and write. */
-export type ConnectionsFile = Pick<
-	NoteClient<typeof connectionsCollection>,
-	'get' | 'create' | 'update' | 'subscribe'
->;
+/** An app's `connections.md`, kept on this computer (`localNote`). */
+export type ConnectionsFile = LocalNote<typeof connectionsCollection>;
 
 /** What the keychain keeps for one connection: its key, and the endpoint it was entered for. */
 type SavedKey = { endpoint: string; key: string };
@@ -170,7 +167,7 @@ function parseSaved(text: string): SavedKey | undefined {
 }
 
 /** `connections.md` as read: its records, and the version to write over (null while it does not exist). */
-type Listed = { list: AiConnectionRecord[]; version: Version | null };
+type Listed = { list: AiConnectionRecord[]; version: string | null };
 
 /**
  * Connections whose list is `file` (which never holds a key) and whose keys
@@ -211,13 +208,13 @@ export function createKeychainConnections({
 	}
 
 	async function read(): Promise<Listed> {
-		const note = await file.get({});
-		if (note.error?.name === 'NotFound') return { list: [], version: null };
+		const note = await file.get();
 		if (note.error !== null)
 			throw new Error(
 				`The connections note could not be read: ${note.error.message}`,
 				{ cause: note.error },
 			);
+		if (note.data === null) return { list: [], version: null };
 		return {
 			list: note.data.connections.map(({ id, name, baseUrl, models }) => ({
 				id,
@@ -229,21 +226,22 @@ export function createKeychainConnections({
 		};
 	}
 
-	async function write(list: AiConnectionRecord[], version: Version | null) {
+	async function write(list: AiConnectionRecord[], version: string | null) {
 		const connections = list.map(({ id, name, baseUrl, models }) => ({
 			id,
 			name,
 			baseUrl,
 			models,
 		}));
-		const written =
-			version === null
-				? await file.create({ connections })
-				: await file.update({}, { connections }, { over: version });
+		const written = await file.write({ connections }, version);
 		if (written.error !== null)
 			throw new Error(
 				`The connections note could not be saved: ${written.error.message}`,
 				{ cause: written.error },
+			);
+		if (written.data === 'stale')
+			throw new Error(
+				'The connections note could not be saved: another window changed it first.',
 			);
 		records = list;
 	}

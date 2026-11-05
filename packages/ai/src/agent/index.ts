@@ -13,7 +13,6 @@ export {
 	type ConversationOptions,
 	type ConversationSnapshot,
 	createConversation,
-	MessageSaveError,
 	type UnreadableMessage,
 } from './loop.js';
 export {
