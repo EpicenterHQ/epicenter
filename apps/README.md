@@ -26,7 +26,7 @@ store where the page runs:
 
 | Surface | Store | The account |
 | --- | --- | --- |
-| Desktop (a Tauri window) | a folder on the computer | optional: signing in syncs the folder ([ADR-0785](../docs/adr/0785-a-desktop-app-signs-in-to-sync-its-own-folder.md)) |
+| Desktop (a Tauri window) | a folder on the computer | not needed for the folder, which Epicenter (`epicenter sync`) syncs today; the app signing in to sync it is unbuilt ([ADR-0785](../docs/adr/0785-a-desktop-app-signs-in-to-sync-its-own-folder.md)) |
 | Web | the person's repository, behind sign-in | required |
 
 | App | Surfaces |
