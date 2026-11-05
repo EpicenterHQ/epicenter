@@ -137,11 +137,45 @@ export type SyncReport = {
 const READ_CHUNK = 2000;
 const WRITE_CHUNK = 500;
 const WRITE_BYTES = 8 * 1024 * 1024;
+/**
+ * Local writes in flight at once while pulling. Four halves a 10,000-note
+ * restore into a directory on APFS; sixteen is slower than one, as the
+ * directory's entries are one lock.
+ */
+const PULL_PARALLEL = 4;
 
 const chunks = <T>(items: readonly T[], size: number) =>
 	Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
 		items.slice(index * size, (index + 1) * size),
 	);
+
+/**
+ * `work` over `items`, at most `limit` at a time, answering each item's
+ * outcome by index. Once an outcome `failed`, no more start: the items not
+ * started are `undefined`, and every one started has finished.
+ */
+async function inParallel<T, R>(
+	items: readonly T[],
+	limit: number,
+	work: (item: T) => Promise<R>,
+	failed: (outcome: R) => boolean,
+): Promise<(R | undefined)[]> {
+	const outcomes: (R | undefined)[] = new Array(items.length).fill(undefined);
+	let next = 0;
+	let stopped = false;
+	const worker = async () => {
+		while (!stopped && next < items.length) {
+			const index = next++;
+			const outcome = await work(items[index] as T);
+			outcomes[index] = outcome;
+			if (failed(outcome)) stopped = true;
+		}
+	};
+	await Promise.all(
+		Array.from({ length: Math.min(limit, items.length) }, worker),
+	);
+	return outcomes;
+}
 
 const sameBytes = (a: Uint8Array, b: Uint8Array) =>
 	a.byteLength === b.byteLength && a.every((byte, index) => byte === b[index]);
@@ -468,6 +502,9 @@ async function syncPass({
 				if (!('gone' in file) && file.bytes !== null)
 					fetched.set(file.path, file.bytes);
 		}
+	// A pull whose bytes cannot be had fails the sync before any pull is written.
+	const pulling: { step: (typeof pulls)[number]; bytes: Uint8Array | null }[] =
+		[];
 	for (const step of pulls) {
 		const file = step.remote;
 		const bytes =
@@ -476,13 +513,26 @@ async function syncPass({
 			return ClientError.Unavailable({
 				cause: `${step.path} could not be read at ${head}`,
 			});
-		const written = await local.write(step.path, bytes, step.local ?? 'absent');
+		pulling.push({ step, bytes });
+	}
+	// Writes to different paths do not wait for each other, up to PULL_PARALLEL
+	// at a time; their outcomes are taken in pull order, so what is reported
+	// and kept does not depend on which write finished first.
+	const outcomes = await inParallel(
+		pulling,
+		PULL_PARALLEL,
+		({ step, bytes }) => local.write(step.path, bytes, step.local ?? 'absent'),
+		(written) => written.error !== null,
+	);
+	for (const [index, { step }] of pulling.entries()) {
+		const written = outcomes[index];
+		if (written === undefined) break;
 		if (written.error !== null) return written;
 		if (written.data === 'stale') {
 			kept.push(step.path);
 			continue;
 		}
-		settled(step.path, written.data, versionOf(file));
+		settled(step.path, written.data, versionOf(step.remote));
 		report.pulled.push(step.path);
 	}
 

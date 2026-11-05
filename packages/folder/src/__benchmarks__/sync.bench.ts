@@ -9,7 +9,9 @@
  *   bun src/__benchmarks__/sync.bench.ts
  *
  * Each row also splits the time by where it went: the local store, the
- * repository, the manifest, and the rest (planning and merging).
+ * repository, the manifest, and the rest (planning and merging). A column
+ * sums its calls' durations, so overlapping calls (a restore's local writes
+ * run four at a time) can sum to more than the row's seconds.
  */
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
