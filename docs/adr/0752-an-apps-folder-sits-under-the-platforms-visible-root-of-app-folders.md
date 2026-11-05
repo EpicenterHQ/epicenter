@@ -3,7 +3,7 @@
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Relates:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) (an app's folder is derived, never stored), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (names derive from the site's host), [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) (when a phone app is built), [ADR-0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) (your files are in a folder you can see), [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (what an app's AppData holds).
-- **Amended by:** [ADR-0772](0772-epicenter-finds-every-folder-by-what-it-says-inside.md) at what sits under `~/Epicenter`: a team's folder holds its apps' folders, and every folder is found by what it says inside.
+- **Amended by:** [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) at what sits under `~/Epicenter`: another team's apps sit in that team's folder, and every folder is found by its `AGENTS.md`.
 - **Unbuilt:** every phone app, and with it a folder in an app's own container; the choice on Android between the app's own storage and a folder granted through the Storage Access Framework.
 
 ## Context
