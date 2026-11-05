@@ -15,7 +15,8 @@
 		"./node": "./src/node.ts",
 		"./memory": "./src/memory.ts",
 		"./served": "./src/served.ts",
-		"./serve": "./src/serve.ts"
+		"./serve": "./src/serve.ts",
+		"./sync": "./src/sync/index.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server-tests.json",
