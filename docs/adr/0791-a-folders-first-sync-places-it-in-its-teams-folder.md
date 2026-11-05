@@ -5,6 +5,7 @@
 - **Amends:** [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) at "A folder that has never synced sits at the top level" and "A folder whose repository names another team than the folder it sits in syncs with its repository, and Epicenter says where it sits": a first sync moves the folder into its team's folder, so only a folder the person moved sits outside it.
 - **Relates:** [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) (consent chooses a team), [ADR-0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) (a desktop app signs in to sync), [ADR-0735](0735-sync-gives-files-a-history-it-never-merges-two.md) (first contact puts local files on top of the account's).
 - **Amended by:** [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) at a team's folder: a space's folder.
+- **Amended by:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) at the core's first sync placing a folder: the sync package does.
 - **Unbuilt:** all of it: the core's first sync moving a never-synced folder into `~/Epicenter/<team>/`, making the team folder when it is missing, and putting the folder's files on top of the team's existing folder for the app when there is one.
 
 ## Context

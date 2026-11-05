@@ -7,6 +7,7 @@
 - **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at "Epicenter writes the note once": the one write carries the sync instruction.
 - **Amended by:** [ADR-0791](0791-a-folders-first-sync-places-it-in-its-teams-folder.md) at a never-synced folder sitting at the top level and the note about where a folder sits: a first sync moves the folder into its team's folder.
 - **Amended by:** [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) at a contract named by URL or path and an app's team as a setting: `contract.json` in the folder, and a space switcher.
+- **Amended by:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) at `.git/` naming the repository and space: `.epicenter/synced.json` does, and a folder holds no `.git/`.
 - **Unbuilt:** all of it: finding folders by `AGENTS.md` in the shell, the CLI, and the Epicenter app, with derived paths, the owner-level scan, the space rule for link names, and link-making deleted; team folders; `AGENTS.md` written once, with `refreshAgentsNote` deleted; `.epicenter/.gitignore` with the managed `.gitignore` block deleted; sync applying the Git LFS rule itself; no commit before the first sync, with the commit-subject matching in `foreign_commit` deleted; the duplicate and mismatch messages; the file-sync warning.
 
 ## Context
