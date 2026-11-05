@@ -32,6 +32,41 @@ export async function lookup(
 	return null;
 }
 
+/**
+ * `lookup` for many paths of one tree: each tree on the way is read and
+ * indexed by name once, so looking up every file of a folder costs one read
+ * of that folder, not one per file.
+ */
+export function treeLookup(objects: GitObjects, root: string | null) {
+	const indexed = new Map<string, Promise<Map<string, TreeEntry> | null>>();
+	const entriesOf = (oid: string) => {
+		let found = indexed.get(oid);
+		if (found === undefined) {
+			found = readTree(objects, oid).then((entries) =>
+				entries === null
+					? null
+					: new Map(entries.map((entry) => [entry.name, entry])),
+			);
+			indexed.set(oid, found);
+		}
+		return found;
+	};
+	return async (path: string): Promise<TreeEntry | null> => {
+		let tree = root;
+		const parts = path.split('/');
+		for (const [index, name] of parts.entries()) {
+			if (tree === null) return null;
+			const entry = (await entriesOf(tree))?.get(name);
+			if (!entry) return null;
+			if (index === parts.length - 1)
+				return entry.mode === TREE_MODE ? null : entry;
+			if (entry.mode !== TREE_MODE) return null;
+			tree = entry.oid;
+		}
+		return null;
+	};
+}
+
 /** Every file under tree `root`, below `prefix` (`''` for all), with its path. */
 export async function listFiles(
 	objects: GitObjects,

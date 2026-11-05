@@ -826,3 +826,88 @@ describe('a repository as a store', () => {
 		folder[Symbol.dispose]();
 	}, 30_000);
 });
+
+/**
+ * First paint over the repository on a slow link (ADR-0778): the time from
+ * the page starting to the folder's snapshot landing and the recordings'
+ * first read, with about 5,000 recording notes, through an account whose
+ * every request waits half a round trip each way and carries its bytes at
+ * the link's rate. Run with `EPICENTER_MEASURE=1`; it prints what it took.
+ */
+describe('a repository on a slow link', () => {
+	const site = 'https://recorder.epicenter.so';
+	test.skipIf(!process.env.EPICENTER_MEASURE)(
+		'first paint with about 5,000 recording notes at 3 Mbps and 100 ms',
+		async () => {
+			const NOTES = 5000;
+			const person = await signIn('first-paint');
+			for (let start = 0; start < NOTES; start += 1000)
+				await person.writeRaw(
+					Array.from({ length: Math.min(1000, NOTES - start) }, (_, offset) => ({
+						path: `recordings/2026-10-31T09-30-00-${String(start + offset).padStart(6, '0')}.md`,
+						base: null,
+						text: `---\ntitle: Recording ${start + offset}\n---\n${'A sentence of what was said, as a transcript keeps it. '.repeat(4)}\n`,
+					})),
+				);
+			const link = { roundTripMs: 100, bitsPerSecond: 3_000_000 };
+			const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+			const carried = (bytes: number) => (bytes * 8 * 1000) / link.bitsPerSecond;
+			const sent = { requests: 0, down: 0, gzipDown: 0 };
+			const slow: Account = {
+				...person.account,
+				async fetch(input, init) {
+					const body = init?.body;
+					const up =
+						typeof body === 'string'
+							? new TextEncoder().encode(body).byteLength
+							: body instanceof Uint8Array
+								? body.byteLength
+								: 0;
+					await wait(link.roundTripMs / 2 + carried(up));
+					const response = await person.account.fetch(input, init);
+					const bytes = new Uint8Array(await response.arrayBuffer());
+					sent.requests++;
+					sent.down += bytes.byteLength;
+					sent.gzipDown += Bun.gzipSync(bytes).byteLength;
+					await wait(link.roundTripMs / 2 + carried(bytes.byteLength));
+					return new Response(bytes, {
+						status: response.status,
+						statusText: response.statusText,
+						headers: response.headers,
+					});
+				},
+			};
+			const started = performance.now();
+			const folder = folderAt({ account: slow, site });
+			await new Promise<void>((resolve) => {
+				const stop = folder.subscribe(() => {
+					if (folder.state().status !== 'open') return;
+					stop();
+					resolve();
+				});
+			});
+			const connected = performance.now();
+			const shown = folder.recordings.items().length;
+			const painted = performance.now();
+			folder[Symbol.dispose]();
+			expect(shown).toBe(NOTES);
+			console.log(
+				JSON.stringify({
+					store: 'repository',
+					link,
+					notes: NOTES,
+					connectMs: Math.round(connected - started),
+					parseMs: Math.round(painted - connected),
+					firstPaintMs: Math.round(painted - started),
+					requests: sent.requests,
+					downloadedBytes: sent.down,
+					downloadedBytesGzipped: sent.gzipDown,
+					gzippedFirstPaintEstimateMs: Math.round(
+						painted - started - carried(sent.down) + carried(sent.gzipDown),
+					),
+				}),
+			);
+		},
+		300_000,
+	);
+});

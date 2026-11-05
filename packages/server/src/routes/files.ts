@@ -62,6 +62,7 @@ import {
 	editTree,
 	listFiles,
 	lookup,
+	treeLookup,
 } from '../git/tree-edit.js';
 import { LFS_OID, type LfsObject, type LfsStore } from '../lfs/lfs-store.js';
 
@@ -437,9 +438,10 @@ export async function readRepositoryFiles(
 	const tree = main
 		? ((await readCommit(objects, main))?.tree ?? null)
 		: null;
+	const lookupIn = treeLookup(objects, tree);
 	const files = await Promise.all(
 		(paths as string[]).map(async (path) => {
-			const entry = await lookup(objects, tree, path);
+			const entry = await lookupIn(path);
 			if (!entry) return { path, gone: true };
 			if (storedWithLfs(path))
 				return { path, blob: entry.oid, lfs: await readLfsPointer(objects, entry.oid) };
