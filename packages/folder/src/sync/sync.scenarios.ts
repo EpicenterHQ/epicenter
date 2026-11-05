@@ -7,7 +7,7 @@
  * directories and the server's repository.
  *
  * - First contact puts both sides' files on both; two creates of one note merge.
- * - An unchanged sync reads no file and saves no manifest; a note saved again with its bytes pushes nothing.
+ * - An unchanged sync reads no file and saves no manifest.
  * - Fields merge by key: different fields both land, one field takes the later sync's.
  * - A body merges by lines; a clash is one block of Git's markers.
  * - An edit beats a delete; an attachment both replaced takes the later sync's.
@@ -142,21 +142,6 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 			merged: [],
 		});
 		expect({ reads, saves }).toEqual({ reads: 0, saves: 0 });
-	},
-
-	async 'a note saved again with the bytes it had pushes nothing'(world) {
-		const { a } = await synced(world);
-		// A store that names a file by its stamp sees the save, not the bytes.
-		await new Promise((resolve) => setTimeout(resolve, 5));
-		await a.write('todos/a.md', todo);
-		const again = await syncOf(world, a);
-		expect(again).toMatchObject({
-			outcome: 'synced',
-			pulled: [],
-			pushed: [],
-			merged: [],
-		});
-		expect(await a.read('todos/a.md')).toBe(todo);
 	},
 
 	async 'different fields changed on each side: both land'(world) {

@@ -3,15 +3,10 @@
  * store that writes as ADR-0702 decides, without the desktop shell's
  * edge-case checks (the folder core's `storage.rs` stays the strict host).
  *
- * - A version is the file's stamp, whatever it holds: its size,
- *   modification time in nanoseconds, and identity, spelled as the desktop
- *   shell spells an attachment's. A listing names every file from its
- *   directory entry alone and never reads one, so a folder of ten thousand
- *   notes lists in the time of a walk. (The desktop shell hashes a note's
- *   bytes for its version; a version is opaque and belongs to the store that
- *   gave it, so a sync that meets another kind of version reads the file and
- *   finds the same bytes.) A write lands only while its path holds the
- *   version its writer read, checked right before the change. Its bytes are staged in the
+ * - A version is a note's sha256 and an attachment's stamp (its size,
+ *   modification time in nanoseconds, and inode: `versionedByContent`). A
+ *   write lands only while its path holds the version its writer read,
+ *   checked right before the change. Its bytes are staged in the
  *   directory's `.epicenter/saves` (`savesDirectory`), so another program
  *   sees the old file or the new one, never part of either. A replacement
  *   is renamed over the path, keeping the replaced file's permission bits.
@@ -46,6 +41,7 @@ import {
 	mkdir,
 	open,
 	readdir,
+	readFile,
 	rename,
 	rm,
 	stat,
@@ -54,6 +50,7 @@ import {
 import { dirname, join } from 'node:path';
 import { ClientError } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
+import { hashBytes } from '../hash.js';
 import { watchDirectory } from '../native/watch.js';
 import { createPathTurns } from '../path-turns.js';
 import { pathProblem, readablePath, writableExistingPath } from '../paths.js';
@@ -62,6 +59,7 @@ import {
 	type Listed,
 	type Store,
 	type Version,
+	versionedByContent,
 	within,
 } from './store.js';
 
@@ -70,21 +68,30 @@ const turns = createPathTurns();
 
 const codeOf = (cause: unknown) => (cause as { code?: unknown } | null)?.code;
 
-/**
- * A file's version: its stamp, which every save changes. The form is the
- * shell's (`stamp_of` in the folder core's `storage.rs`): `v1`, the size,
- * the modification time in nanoseconds, then the device and inode where the
- * file system has one.
- */
+/** A file's stamp: its size, modification time, and identity, which every save changes. */
 const stampOf = (stats: BigIntStats) =>
-	(stats.ino === 0n
-		? `v1:${stats.size}:${stats.mtimeNs}`
-		: `v1:${stats.size}:${stats.mtimeNs}:${stats.dev}:${stats.ino}`) as Version;
+	`${stats.size}:${stats.mtimeNs}:${stats.ino}` as Version;
 
-/** The version of the file at `target`, or undefined when nothing is there. */
-async function versionAt(target: string) {
+/** The version of the file at `path` with `stats`, whose bytes are read only for a note. */
+async function versionOf(
+	path: string,
+	stats: BigIntStats,
+	bytes: () => Promise<Uint8Array>,
+): Promise<Version> {
+	return versionedByContent(path)
+		? ((await hashBytes(await bytes())) as Version)
+		: stampOf(stats);
+}
+
+/** The version of the file at `target` (the folder's `path`), or undefined when nothing is there. */
+async function versionAt(target: string, path: string) {
 	try {
-		return stampOf(await lstat(target, { bigint: true }));
+		const stats = await lstat(target, { bigint: true });
+		return await versionOf(
+			path,
+			stats,
+			async () => new Uint8Array(await readFile(target)),
+		);
 	} catch (cause) {
 		if (codeOf(cause) === 'ENOENT') return undefined;
 		throw cause;
@@ -142,9 +149,10 @@ export function nodeStore(root: string): Store {
 	const saves = savesDirectory(root);
 	const unavailable = (cause: unknown) => ClientError.Unavailable({ cause });
 
-	/** Land `bytes` at `target` over `over`, staged in `saves`. */
+	/** Land `bytes` at `target` (the folder's `path`) over `over`, staged in `saves`. */
 	async function save(
 		target: string,
+		path: string,
 		bytes: Uint8Array,
 		over: Version | 'absent',
 	) {
@@ -154,12 +162,16 @@ export function nodeStore(root: string): Store {
 			await writeFile(staged, bytes, { flag: 'wx', mode: 0o600 });
 			await mkdir(dirname(target), { recursive: true });
 			return await turns.run(target, async () => {
-				if (!holds(await versionAt(target), over))
+				if (!holds(await versionAt(target, path), over))
 					return 'stale' as const;
 				if (over !== 'absent')
 					await chmod(staged, (await stat(target)).mode & 0o777);
 				// A rename or a link keeps the staged file's stamp: it is what lands.
-				const landed = stampOf(await lstat(staged, { bigint: true }));
+				const landed = await versionOf(
+					path,
+					await lstat(staged, { bigint: true }),
+					async () => bytes,
+				);
 				if (over !== 'absent') await rename(staged, target);
 				else if ((await place(staged, target)) === 'stale')
 					return 'stale' as const;
@@ -175,11 +187,12 @@ export function nodeStore(root: string): Store {
 		try {
 			const stats = await lstat(at, { bigint: true });
 			if (!stats.isFile()) return undefined;
-			return {
+			const version = await versionOf(
 				path,
-				version: stampOf(stats),
-				size: Number(stats.size),
-			} satisfies Listed;
+				stats,
+				async () => new Uint8Array(await readFile(at)),
+			);
+			return { path, version, size: Number(stats.size) } satisfies Listed;
 		} catch (cause) {
 			if (codeOf(cause) === 'ENOENT') return undefined;
 			throw cause;
@@ -188,9 +201,6 @@ export function nodeStore(root: string): Store {
 
 	/** Every regular file below `directory` (the folder's `prefix`), into `files`. */
 	async function visit(directory: string, prefix: string, files: Listed[]) {
-		// The files of one directory are stamped together; they list in the
-		// order `readdir` gave them, after the directories walked before them.
-		const stamped: Promise<Listed | undefined>[] = [];
 		for (const entry of await readdir(directory, { withFileTypes: true })) {
 			const path = prefix + entry.name;
 			const at = join(directory, entry.name);
@@ -201,13 +211,10 @@ export function nodeStore(root: string): Store {
 					});
 				continue;
 			}
-			if (entry.isFile()) stamped.push(describe(at, path));
-		}
-		const stamps = Promise.all(stamped);
-		// A walk that throws before the stamps are awaited leaves none unhandled.
-		stamps.catch(() => {});
-		for (const listed of await stamps)
+			if (!entry.isFile()) continue;
+			const listed = await describe(at, path);
 			if (listed !== undefined) files.push(listed);
+		}
 	}
 
 	/** The file at `path` now: its bytes and version from the one file opened, or gone. */
@@ -230,7 +237,7 @@ export function nodeStore(root: string): Store {
 			return {
 				path,
 				bytes,
-				version: stampOf(stats),
+				version: await versionOf(path, stats, async () => bytes),
 			};
 		} finally {
 			await file.close();
@@ -284,10 +291,10 @@ export function nodeStore(root: string): Store {
 			if (refused !== undefined) return unavailable(refused);
 			const target = join(root, path);
 			try {
-				if (bytes !== null) return Ok(await save(target, bytes, over));
+				if (bytes !== null) return Ok(await save(target, path, bytes, over));
 				return Ok(
 					await turns.run(target, async () => {
-						const version = await versionAt(target);
+						const version = await versionAt(target, path);
 						if (!holds(version, over)) return 'stale' as const;
 						if (version !== undefined) await rm(target);
 						return null;

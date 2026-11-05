@@ -6,9 +6,8 @@
  * The shell named each root at startup (`Data`, and `AppData` when given),
  * and the page opens one by name (`open_root`), which answers its path to
  * show. Every storage command names its root. The Bun store over the same
- * directory (`nodeStore`), versioning a note by the sha256 of its bytes as
- * the shell does (`byContent`), answers each, as the plugin answers: its
- * value, or a rejection with the
+ * directory (`nodeStore`)
+ * answers each, as the plugin answers: its value, or a rejection with the
  * plugin's `FolderError`: `NotFound` for a read of nothing, `Io` for any
  * other storage failure, and `control.refuse`'s root error when unavailable.
  * `control.refuse` answers an open, and every storage command, with the
@@ -22,14 +21,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ClientError } from '@epicenter/definition/contract';
 import type { InferError } from 'wellcrafted/error';
-import { Ok, type Result } from 'wellcrafted/result';
+import type { Result } from 'wellcrafted/result';
 import { nodeStore } from './device/node-store.js';
 import {
 	type Store,
 	type Version,
 	versionedByContent,
 } from './device/store.js';
-import { hashBytes } from './hash.js';
 import type {
 	FolderError,
 	Root,
@@ -72,71 +70,6 @@ async function answered<T>(
 	return data;
 }
 
-/**
- * `store` with a note's version the sha256 of its bytes, as the desktop
- * shell names it (the Bun store names every file by its stamp). A listing
- * and a read hash the notes they answer; a write over a note's hash lands
- * only while the note's bytes still hash to it.
- */
-function byContent(store: Store): Store {
-	const hash = async (bytes: Uint8Array) => (await hashBytes(bytes)) as Version;
-	return {
-		...store,
-		async list(under) {
-			const listed = await store.list(under);
-			if (listed.error !== null) return listed;
-			const notes = listed.data.filter(({ path }) => versionedByContent(path));
-			const read = await store.read(notes.map(({ path }) => path));
-			if (read.error !== null) return read;
-			const hashes = new Map<string, Version>();
-			for (const file of read.data)
-				if (!('gone' in file)) hashes.set(file.path, await hash(file.bytes));
-			return Ok(
-				listed.data.flatMap((file) => {
-					if (!versionedByContent(file.path)) return [file];
-					const version = hashes.get(file.path);
-					return version === undefined ? [] : [{ ...file, version }];
-				}),
-			);
-		},
-		async read(paths) {
-			const read = await store.read(paths);
-			if (read.error !== null) return read;
-			return Ok(
-				await Promise.all(
-					read.data.map(async (file) =>
-						'gone' in file || !versionedByContent(file.path)
-							? file
-							: { ...file, version: await hash(file.bytes) },
-					),
-				),
-			);
-		},
-		async write(path, bytes, over) {
-			if (!versionedByContent(path) || over === 'absent')
-				return resolved(path, bytes, await store.write(path, bytes, over));
-			const [there] = await storeRead(store, path);
-			if (there === undefined || 'gone' in there || (await hash(there.bytes)) !== over)
-				return Ok('stale');
-			return resolved(path, bytes, await store.write(path, bytes, there.version));
-		},
-	};
-	async function resolved(
-		path: string,
-		bytes: Uint8Array | null,
-		written: Awaited<ReturnType<Store['write']>>,
-	) {
-		if (written.error !== null || bytes === null) return written;
-		if (written.data === 'stale' || !versionedByContent(path)) return written;
-		return Ok(await hash(bytes));
-	}
-}
-
-async function storeRead(store: Store, path: string) {
-	const read = await store.read([path]);
-	return read.error === null ? read.data : [];
-}
-
 /** A new, empty directory to name as a root, resolved to the spelling the shell reports. */
 export async function namedDirectory(prefix = 'named-'): Promise<string> {
 	return nodeFs.realpath(await nodeFs.mkdtemp(join(tmpdir(), prefix)));
@@ -159,7 +92,7 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 		Root,
 		string | undefined,
 	][])
-		if (path !== undefined) stores.set(root, byContent(nodeStore(path)));
+		if (path !== undefined) stores.set(root, nodeStore(path));
 	/** The storage of the root a call named, or the plugin's refusal. */
 	function storageFor(args: Record<string, unknown>): Store {
 		const named = args.root as Root;
