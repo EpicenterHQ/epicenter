@@ -24,11 +24,15 @@ export type Unavailable = InferError<typeof ClientError.Unavailable>;
 
 /**
  * The version of a file a store answered: the repository's Git blob id (of
- * a note, or of an attachment's Git LFS pointer); on a device, the sha256 of
- * a note's bytes, and an attachment's stamp (its size, modification time
- * and identity), so a listing never reads a recording's bytes to name them
+ * a note, or of an attachment's Git LFS pointer); in memory, the sha256 of
+ * a file's bytes; in a directory in Bun, a file's stamp (its size,
+ * modification time and identity), so a listing never reads a file to name
+ * it; in the desktop shell, a note's sha256 and an attachment's stamp
  * (`versionedByContent`). Opaque and internal: the folder compares it and
- * writes over it, and no app ever holds one (ADR-0774).
+ * writes over it, and no app ever holds one (ADR-0774). A version says
+ * whether a file changed, not whether two files hold the same bytes: a
+ * stamp changes when a file is saved with the bytes it had, so a sync that
+ * finds a changed version compares bytes before it copies.
  */
 export type Version = string & Brand<'Version'>;
 
@@ -84,7 +88,7 @@ export type Store = {
 };
 
 /**
- * Whether a device store names the file at `path` by the sha256 of its
+ * Whether the desktop shell names the file at `path` by the sha256 of its
  * bytes (a note: small, and read whole anyway), rather than by its stamp
  * (an attachment, which the later write wins, ADR-0771: the stamp tells
  * that it changed without reading what may be a long recording).

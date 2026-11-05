@@ -328,6 +328,18 @@ async function syncPass({
 			steps.push(settle());
 			continue;
 		}
+		// The same bytes on both sides agree, whichever version moved: a stamp
+		// changes when a file is saved with the bytes it had.
+		if (
+			mine !== undefined &&
+			there !== undefined &&
+			!('gone' in there) &&
+			there.bytes !== null &&
+			sameBytes(there.bytes, mine.bytes)
+		) {
+			steps.push(settle());
+			continue;
+		}
 		const pull = (): Step => ({
 			kind: 'pull',
 			path,
@@ -353,8 +365,6 @@ async function syncPass({
 		if (mine === undefined && remoteVersion === null) steps.push(settle());
 		else if (mine === undefined) steps.push(pull());
 		else if (there === undefined || 'gone' in there) steps.push(push());
-		else if (there.bytes !== null && sameBytes(there.bytes, mine.bytes))
-			steps.push(settle());
 		else if (!isNotePath(path)) steps.push(push());
 		else toMerge.push({ path, local: mine, remote: there });
 	}
