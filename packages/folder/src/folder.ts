@@ -97,8 +97,22 @@ const log = createLogger('folder');
 
 const encoder = new TextEncoder();
 
-/** Where a folder keeps its store view; a symbol member, so `reactive`'s copy carries it. */
+/** Where a folder keeps what sync reads of it; a symbol member, so `reactive`'s copy carries it. */
 const LOCAL = Symbol('epicenter.folderLocalStore');
+
+/** What sync reads of a folder: it as a store, and its own saves. */
+type SyncSide = {
+	store: Store;
+	/** Call `listener` each time a write the folder's collections made lands; returns the unsubscribe. */
+	hearSaves(listener: () => void): () => void;
+};
+
+function syncSideOf(folder: object): SyncSide {
+	const side = (folder as { [LOCAL]?: SyncSide })[LOCAL];
+	if (side === undefined)
+		throw new Error('expected a folder made by openFolder or createFolder');
+	return side;
+}
 
 /**
  * `folder` (or `reactive`'s copy of it) as a store, for `sync`: its listing
@@ -107,10 +121,16 @@ const LOCAL = Symbol('epicenter.folderLocalStore');
  * the folder to close it. Throws for anything `createFolder` did not make.
  */
 export function localStoreOf(folder: object): Store {
-	const view = (folder as { [LOCAL]?: Store })[LOCAL];
-	if (view === undefined)
-		throw new Error('expected a folder made by openFolder or createFolder');
-	return view;
+	return syncSideOf(folder).store;
+}
+
+/**
+ * Call `listener` each time a save of `folder`'s own lands (a collection's
+ * write, never one made through `localStoreOf`), for sync's moment after a
+ * save; returns the unsubscribe.
+ */
+export function hearSaves(folder: object, listener: () => void): () => void {
+	return syncSideOf(folder).hearSaves(listener);
 }
 
 /**
@@ -777,6 +797,45 @@ export function createFolder<TContract extends Contract>(
 		}
 	}
 
+	/** Who hears each of the folder's own saves land. */
+	const saveListeners = new Set<() => void>();
+
+	/**
+	 * Queue a write at `path`; throws once the folder is disposed, rejects
+	 * with `FolderClosed` once it failed. A `save` (a collection's write, not
+	 * sync's) is told to `hearSaves` when it lands.
+	 */
+	function enqueue(
+		path: string,
+		write: (store: Store) => Promise<Result<void, Unavailable>>,
+		{ save }: { save: boolean },
+	) {
+		if (phase === 'closed')
+			throw new Error(
+				'The folder was disposed: a write made after it has nowhere to land.',
+			);
+		if (phase === 'failed') return Promise.reject(new FolderClosed('failed'));
+		return new Promise<void>((resolve, reject) => {
+			queue.push({
+				path,
+				run: (to) => lanes.run(path, () => write(to)),
+				resolve() {
+					resolve();
+					if (save)
+						for (const listener of [...saveListeners])
+							try {
+								listener();
+							} catch (cause) {
+								log.error(new Error('A save listener failed.', { cause }));
+							}
+				},
+				reject,
+			});
+			if (queue.length === 1) notify();
+			void drain();
+		});
+	}
+
 	const host: Host = {
 		async connected() {
 			while (phase === 'opening') await changed();
@@ -801,23 +860,7 @@ export function createFolder<TContract extends Contract>(
 					paths.push(path);
 			return paths.sort();
 		},
-		enqueue(path, write) {
-			if (phase === 'closed')
-				throw new Error(
-					'The folder was disposed: a write made after it has nowhere to land.',
-				);
-			if (phase === 'failed') return Promise.reject(new FolderClosed('failed'));
-			return new Promise<void>((resolve, reject) => {
-				queue.push({
-					path,
-					run: (to) => lanes.run(path, () => write(to)),
-					resolve,
-					reject,
-				});
-				if (queue.length === 1) notify();
-				void drain();
-			});
-		},
+		enqueue: (path, write) => enqueue(path, write, { save: true }),
 		queuedAt,
 		landed: hold,
 		heldOf,
@@ -870,19 +913,23 @@ export function createFolder<TContract extends Contract>(
 		async write(path, bytes, over) {
 			let outcome: Version | null | 'stale' = 'stale';
 			try {
-				await host.enqueue(path, async (to) => {
-					const written = await to.write(path, bytes, over);
-					if (written.error !== null) return written;
-					outcome = written.data;
-					if (visible(path) && written.data !== 'stale')
-						host.landed(
-							path,
-							bytes === null || written.data === null
-								? null
-								: host.heldOf(path, bytes, written.data),
-						);
-					return Ok(undefined);
-				});
+				await enqueue(
+					path,
+					async (to) => {
+						const written = await to.write(path, bytes, over);
+						if (written.error !== null) return written;
+						outcome = written.data;
+						if (visible(path) && written.data !== 'stale')
+							host.landed(
+								path,
+								bytes === null || written.data === null
+									? null
+									: host.heldOf(path, bytes, written.data),
+							);
+						return Ok(undefined);
+					},
+					{ save: false },
+				);
 			} catch (cause) {
 				return ClientError.Unavailable({ cause });
 			}
@@ -930,7 +977,17 @@ export function createFolder<TContract extends Contract>(
 			store = null;
 		},
 	};
-	Object.defineProperty(lifecycle, LOCAL, { value: view });
+	Object.defineProperty(lifecycle, LOCAL, {
+		value: {
+			store: view,
+			hearSaves(listener) {
+				saveListeners.add(listener);
+				return () => {
+					saveListeners.delete(listener);
+				};
+			},
+		} satisfies SyncSide,
+	});
 	return Object.assign(
 		lifecycle,
 		Object.fromEntries(
