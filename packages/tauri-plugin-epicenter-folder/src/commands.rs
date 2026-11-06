@@ -1,31 +1,34 @@
 //! The IPC surface: opening a named root, and one command per method of the
 //! page's folder storage (`storage`, ADR-0581).
 //!
-//! A page names a root (`Root::Data` or `Root::AppData`) and a relative path
-//! in it, never an absolute path; the shared path rule keeps the path inside
-//! the root. `open_root` answers its display path for the page to show.
+//! A page names a root (`Root::Data`, `Root::AppData`, and in the Epicenter
+//! app `Root::Folder` and `Root::Epicenter`) and a relative path in it, never
+//! an absolute path; the shared path rule keeps the path inside the root. `open_root` answers its display path for the page to show.
 //! A storage command works in the folder its root reached when the app
 //! opened it (`Roots::opened`), cloned when the command is admitted, so
 //! nothing that happens meanwhile redirects it. A root it cannot use is a
 //! `RootError` (`Disconnected` for a link whose target is gone), and a
 //! storage refusal or failure a `StorageError` (`FolderError`). The shell's
-//! own credentials, `credentials.json` at the top of the AppData root
-//! (`epicenter-account`, ADR-0740), are never listed, read, or written by a
-//! page: `InvalidPath`. Every command that touches
+//! own files at the top of the AppData root (`SHELL_FILES`: its credentials,
+//! ADR-0740, and its record of its data folder) are never listed, read, or
+//! written by a page: `InvalidPath`. Every command that touches
 //! the disk runs on the blocking pool, never on the thread that drives the
 //! windows. The folder's Git is not here: the `epicenter` CLI runs it
 //! (ADR-0559).
 
 use std::ffi::OsString;
 use std::path::Path;
-use std::path::PathBuf;
 use std::process::Command;
 
+use epicenter_folder_core::identity::{identity_at, FolderIdentity};
+use epicenter_folder_core::state;
 use epicenter_folder_core::storage::{self, Landing, ListedFile, StorageError};
+use epicenter_folder_core::sweep;
 use serde::Serialize;
 use specta::Type;
 use tauri::{Emitter, Manager, Runtime, Webview};
 
+use crate::records::{self, FolderRecord};
 use crate::roots::{EpicenterEntry, EpicenterListing};
 use crate::{Directory, FolderEvent, Root, RootError, Roots};
 
@@ -63,25 +66,39 @@ impl From<StorageError> for FolderError {
     }
 }
 
-/// The shell's own credentials, at the top of the AppData root: the refresh
-/// token and the provider keys `epicenter-account` keeps (ADR-0740), which
-/// no page reaches.
-const CREDENTIALS: &str = "credentials.json";
+/// Where a standalone shell remembers its Data root's identity, at the top
+/// of the AppData root (`epicenter-standalone`, ADR-0822).
+pub const DATA_FOLDER_FILE: &str = "data-folder.json";
 
-/// Whether `path` in `root` is the shell's own credentials.
-fn is_credentials(root: &Root, path: &str) -> bool {
-    *root == Root::AppData && path == CREDENTIALS
+/// The shell's own files at the top of the AppData root, which no page
+/// reaches, each with why: the refresh token and the provider keys
+/// `epicenter-account` keeps (ADR-0740), and the identity of the folder the
+/// shell opens as Data, which a page that wrote it could point at another.
+const SHELL_FILES: [(&str, &str); 2] = [
+    ("credentials.json", "it is the shell's own credentials"),
+    (DATA_FOLDER_FILE, "it is the shell's own record of its data folder"),
+];
+
+/// Why `path` in `root` is the shell's own, or `None` when it is not.
+fn shell_file(root: &Root, path: &str) -> Option<&'static str> {
+    if *root != Root::AppData {
+        return None;
+    }
+    SHELL_FILES
+        .iter()
+        .find(|(name, _)| *name == path)
+        .map(|(_, reason)| *reason)
 }
 
-/// Refuse the shell's own credentials to a page.
-fn refuse_credentials(root: &Root, path: &str) -> Result<(), StorageError> {
-    if !is_credentials(root, path) {
-        return Ok(());
+/// Refuse the shell's own files to a page.
+fn refuse_shell_file(root: &Root, path: &str) -> Result<(), StorageError> {
+    match shell_file(root, path) {
+        None => Ok(()),
+        Some(reason) => Err(StorageError::InvalidPath {
+            path: path.to_string(),
+            reason: reason.to_string(),
+        }),
     }
-    Err(StorageError::InvalidPath {
-        path: path.to_string(),
-        reason: "it is the shell's own credentials".to_string(),
-    })
 }
 
 fn failed(path: &str, operation: &str, message: String) -> StorageError {
@@ -97,8 +114,9 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
 /// whose target is gone is `Disconnected`, and nothing is made. Each call
 /// looks again, so Retry finds a folder that came back. The root's one watch
 /// sends its changes as an app event. The page listens before opening. Opening
-/// removes the staged files a stopped save left an hour or more ago
-/// (`storage::sweep_stale_scratch`).
+/// removes the saves a stopped writer left more than an hour ago, anywhere in
+/// the folder, and clears what an older build kept in its `.epicenter`
+/// (`sweep::sweep_now`).
 #[tauri::command]
 #[specta::specta]
 pub async fn open_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<String, RootError> {
@@ -109,7 +127,7 @@ pub async fn open_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<St
         move || {
             let roots = app.state::<Roots>();
             let directory = roots.open(&root)?;
-            storage::sweep_stale_scratch(directory.root());
+            sweep::sweep_now(directory.root());
             let events = app.clone();
             let event_root = root.clone();
             roots.watch(&root, &directory, move |change| {
@@ -247,8 +265,9 @@ fn opened<R: Runtime>(webview: &Webview<R>, root: &Root) -> Result<Directory, Fo
 
 /// Every regular file in `root` at or below each of `under` (a directory or
 /// a file path; empty is the whole root), `.git` aside, hidden ones
-/// included, none of them followed, each with its version and size
-/// (`storage::list`). The shell's own credentials are left out.
+/// included but never a save or recording in progress, none of them
+/// followed, each with its version and size (`storage::list`). The shell's
+/// own files are left out.
 #[tauri::command]
 #[specta::specta]
 pub async fn list_folder<R: Runtime>(
@@ -260,7 +279,7 @@ pub async fn list_folder<R: Runtime>(
     blocking(
         move || {
             let mut listing = storage::list(directory.root(), &under)?;
-            listing.retain(|file| !is_credentials(&root, &file.path));
+            listing.retain(|file| shell_file(&root, &file.path).is_none());
             Ok(listing)
         },
         |message| Err(failed("", "list", message).into()),
@@ -273,14 +292,14 @@ pub async fn list_folder<R: Runtime>(
 /// array of numbers. tauri-specta cannot type a raw response, so the
 /// generated bindings leave this command out and `device/tauri-store.ts`
 /// invokes it by name; `init` dispatches it beside the typed commands. The
-/// shell's own credentials are refused.
+/// shell's own files are refused.
 #[tauri::command]
 pub async fn read_folder_file<R: Runtime>(
     webview: Webview<R>,
     path: String,
     root: Root,
 ) -> Result<tauri::ipc::Response, FolderError> {
-    refuse_credentials(&root, &path)?;
+    refuse_shell_file(&root, &path)?;
     let directory = opened(&webview, &root)?;
     let at = path.clone();
     blocking(
@@ -302,8 +321,8 @@ pub async fn read_folder_file<R: Runtime>(
 ///
 /// The bytes are the request's raw body, so file content crosses IPC as it
 /// is rather than as a JSON array of numbers. Percent-encoded headers carry
-/// the rest: `path`, `root` (`Data`, `AppData`, or `Folder/<name>`:
-/// `Root::header`), `remove` (`true` to
+/// the rest: `path`, `root` (`Data`, `AppData`, `Epicenter`, or
+/// `Folder/<name>`: `Root::header`), `remove` (`true` to
 /// remove the file, when the body is ignored), and `expected`, the version
 /// the page read there (`absent` for a create, `blob:` and the Git blob id of a note or
 /// hidden file, or `stamp:` and the stamp of an attachment: `storage::Expectation`). A JSON array of bytes is accepted
@@ -314,7 +333,7 @@ pub async fn read_folder_file<R: Runtime>(
 /// path take turns from the check to the change (`storage::put`).
 /// tauri-specta cannot type a raw request, so the generated bindings leave
 /// this command out and `device/tauri-store.ts` invokes it by name; `init`
-/// dispatches it beside the typed commands. The shell's own credentials are
+/// dispatches it beside the typed commands. The shell's own files are
 /// refused.
 #[tauri::command]
 pub async fn put_folder_file<R: Runtime>(
@@ -359,7 +378,7 @@ pub async fn put_folder_file<R: Runtime>(
             })?)
         }
     };
-    refuse_credentials(&root, &path)?;
+    refuse_shell_file(&root, &path)?;
     let operation = if remove { "remove" } else { "write" };
     let directory = opened(&webview, &root)?;
     let at = path.clone();
@@ -373,20 +392,54 @@ pub async fn put_folder_file<R: Runtime>(
     .await
 }
 
-/// The folder `root` reached, and the path the shell named it at, for a
-/// command that names the folder to another program.
-pub(crate) fn named<R: Runtime>(
-    webview: &Webview<R>,
+/// The identity of the folder an open `root` reached, its link followed
+/// (`identity::identity_of`): its inode and birth time. Null where the
+/// system has none. A page names a cache of the folder's hashes by it.
+#[tauri::command]
+#[specta::specta]
+pub async fn root_identity<R: Runtime>(
+    webview: Webview<R>,
     root: Root,
-) -> Result<(Directory, PathBuf), RootError> {
-    let roots = webview.state::<Roots>();
-    Ok((roots.opened(&root)?, roots.path(&root)?))
+) -> Result<Option<FolderIdentity>, FolderError> {
+    let directory = opened(&webview, &root)?;
+    blocking(
+        move || {
+            identity_at(directory.root())
+                .map_err(|cause| failed("", "identity", cause.to_string()).into())
+        },
+        |message| Err(failed("", "identity", message).into()),
+    )
+    .await
 }
 
-/// The Epicenter folder's listing (ADR-0813): every directory directly
-/// inside it, links followed, hidden names skipped, each with its name (its
-/// root is `Root::Folder(name)`) and its identity, and what is there but
-/// cannot be a folder, with why. The folder is made when it is missing.
+/// The record Epicenter keeps for the open Data root, read from the
+/// Epicenter folder's `.epicenter/synced/` (`records::proving`): the one
+/// whose inode and birth time prove the folder's, when both have a real
+/// birth time. Null when there is none, as for a folder Epicenter does not
+/// sync. Nothing is written.
+#[tauri::command]
+#[specta::specta]
+pub async fn data_record<R: Runtime>(
+    webview: Webview<R>,
+) -> Result<Option<FolderRecord>, FolderError> {
+    let directory = opened(&webview, &Root::Data)?;
+    let library = webview.state::<Roots>().library()?;
+    blocking(
+        move || {
+            let identity = identity_at(directory.root())
+                .map_err(|cause| failed("", "record", cause.to_string()))?;
+            Ok(identity.and_then(|identity| records::proving(&state::records(&library), &identity)))
+        },
+        |message| Err(failed("", "record", message).into()),
+    )
+    .await
+}
+
+/// The Epicenter folder's listing (ADR-0813): where it is and where it
+/// really is, every directory directly inside it, links followed, hidden
+/// names skipped, each with its name (its root is `Root::Folder(name)`), its
+/// identity, and whether Git keeps it, and what is there but cannot be a
+/// folder, with why. The folder is made when it is missing.
 #[tauri::command]
 #[specta::specta]
 pub async fn list_epicenter<R: Runtime>(

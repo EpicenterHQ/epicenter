@@ -13,8 +13,15 @@
 //! build. The environment is stated in the Tauri configuration, which only
 //! the development configuration (`tauri.dev.conf.json`) does
 //! (`data_folder::Environment`); a development build's identifier is the
-//! production one with `.dev` appended. Only the data root is ever synced
-//! (by Epicenter).
+//! production one with `.dev` appended. Only the data root is ever synced,
+//! and only by Epicenter (ADR-0822).
+//!
+//! An app finds its folder by its identity (`data_identity`): the shell
+//! remembers the data root's inode and birth time in its AppData root each
+//! time the page opens it, and at start names the directory in the library
+//! root that they prove before its derived path, so a folder the person
+//! renamed is still the app's. Open with names any directory directly in the
+//! library root (`--folder <name or path>`).
 //!
 //! Startup names both roots, then opens the window. The page opens the data
 //! root off the window thread, making the folder when nothing is at its path
@@ -39,11 +46,12 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_epicenter_folder::admission::resolved;
-use tauri_plugin_epicenter_folder::{Root, RootsExt};
+use tauri_plugin_epicenter_folder::{identity_at, FolderIdentity, Root, RootsExt};
 
 use crate::data_folder::{Environment, EnvironmentError, FolderNameError};
 
 pub mod data_folder;
+pub mod data_identity;
 
 /// The app's data folder is named by its bundle identifier, the reversed host
 /// of its production site (`data_folder::identity`), so nothing here names it.
@@ -68,6 +76,9 @@ pub enum StartupError {
     Environment(EnvironmentError),
     /// The bundle identifier names no data folder in this environment.
     Identity(FolderNameError),
+    /// The folder the app was opened with (`--folder`) cannot be its folder:
+    /// why, in one line.
+    Folder(String),
     /// The window could not be built.
     Window(tauri::Error),
 }
@@ -81,6 +92,7 @@ impl fmt::Display for StartupError {
             ),
             Self::Environment(error) => write!(formatter, "The app is misconfigured: {error}."),
             Self::Identity(error) => write!(formatter, "The app is misconfigured: {error}."),
+            Self::Folder(reason) => formatter.write_str(reason),
             Self::Window(error) => write!(formatter, "The window could not open: {error}"),
         }
     }
@@ -106,7 +118,9 @@ pub fn builder(app: StandaloneApp) -> tauri::Builder<tauri::Wry> {
         })
 }
 
-/// Start the app under the person's home folder: name its roots, then open its window.
+/// Start the app under the person's home folder, opened with the folder the
+/// launch arguments name (`--folder <name or path>`) if any: name its roots,
+/// then open its window.
 pub fn start<R: Runtime>(
     handle: &AppHandle<R>,
     app: StandaloneApp,
@@ -114,37 +128,81 @@ pub fn start<R: Runtime>(
     let path = handle.path();
     let home = path.home_dir().map_err(StartupError::Paths)?;
     let app_data = path.app_data_dir().map_err(StartupError::Paths)?;
-    start_in(handle, app, &home, app_data)
+    let arguments: Vec<String> = std::env::args().collect();
+    let startup = Startup {
+        home: &home,
+        app_data,
+        folder: data_identity::folder_argument(&arguments),
+        identity: &|path| identity_at(path).ok().flatten(),
+    };
+    start_in(handle, app, startup)
 }
 
-/// `start` for `home` and `app_data`.
+/// Where a start looks: the person's home folder, the app's AppData root,
+/// the folder it was opened with, and how a directory's identity is read
+/// (`identity_at`, which a test replaces to stand in for a file system
+/// without birth times).
+struct Startup<'a> {
+    home: &'a Path,
+    app_data: PathBuf,
+    folder: Option<String>,
+    identity: &'a dyn Fn(&Path) -> Option<FolderIdentity>,
+}
+
+/// `start` for `startup`.
 fn start_in<R: Runtime>(
     handle: &AppHandle<R>,
     app: StandaloneApp,
-    home: &Path,
-    app_data: PathBuf,
+    startup: Startup<'_>,
 ) -> Result<WebviewWindow<R>, StartupError> {
-    name_roots(handle, home, app_data)?;
+    name_roots(handle, startup)?;
     open_window(handle, app)
 }
 
-/// Name the roots: AppData, and the data folder the bundle identifier
-/// derives under `home` in the environment the configuration states.
-fn name_roots<R: Runtime>(
-    handle: &AppHandle<R>,
-    home: &Path,
-    app_data: PathBuf,
-) -> Result<(), StartupError> {
+/// Name the roots: AppData, and the data folder: the one the app was opened
+/// with, else the directory in the library root its remembered identity
+/// proves, else the one the bundle identifier derives under `home` in the
+/// environment the configuration states. Each time the page opens Data,
+/// its identity is remembered.
+fn name_roots<R: Runtime>(handle: &AppHandle<R>, startup: Startup<'_>) -> Result<(), StartupError> {
+    let Startup {
+        home,
+        app_data,
+        folder,
+        identity: read_identity,
+    } = startup;
     let config = handle.config();
     let environment = Environment::from_config(config.plugins.0.get(data_folder::CONFIG_KEY))
         .map_err(StartupError::Environment)?;
     let identity =
         data_folder::identity(&config.identifier, environment).map_err(StartupError::Identity)?;
     let library = data_folder::root(home, environment);
-    let data =
+    let derived =
         library.join(data_folder::relative_path(&identity.host).map_err(StartupError::Identity)?);
+    let data = match folder {
+        Some(folder) => data_identity::opened_with(&library, &folder).map_err(StartupError::Folder)?,
+        None => {
+            let remembered = data_identity::remembered(&app_data);
+            data_identity::find(&library, &derived, remembered.as_ref(), read_identity)
+                .unwrap_or(derived)
+        }
+    };
     let roots = handle.roots();
-    roots.name(Root::AppData, app_data, |_| None);
+    roots.name(Root::AppData, app_data.clone(), |_| None);
+    roots.name_library(library.clone());
+    roots.on_open(move |root, directory| {
+        if *root != Root::Data {
+            return;
+        }
+        let remembered = identity_at(directory.root())
+            .and_then(|identity| match identity {
+                Some(identity) => data_identity::remember(&app_data, &identity),
+                None => Ok(()),
+            });
+        if let Err(error) = remembered {
+            log::warn!("The data folder's identity was not remembered: {error}");
+        }
+    });
     let home = home.to_path_buf();
     roots.name(Root::Data, data, move |location| {
         refusal(&home, &library, location)
@@ -253,7 +311,29 @@ mod tests {
 
         /// Start with `home` spelled as given.
         fn start_at(&self, home: &Path) -> Result<WebviewWindow<MockRuntime>, StartupError> {
-            start_in(self.app.handle(), NOTES, home, self.config.clone())
+            self.start_with(home, None, &|path| identity_at(path).ok().flatten())
+        }
+
+        /// Start opened with `folder`, reading identities with `identity`.
+        fn start_with(
+            &self,
+            home: &Path,
+            folder: Option<&str>,
+            identity: &dyn Fn(&Path) -> Option<FolderIdentity>,
+        ) -> Result<WebviewWindow<MockRuntime>, StartupError> {
+            let startup = Startup {
+                home,
+                app_data: self.config.clone(),
+                folder: folder.map(str::to_string),
+                identity,
+            };
+            start_in(self.app.handle(), NOTES, startup)
+        }
+
+        /// Quit, and launch the app again over the same home.
+        fn restart(&mut self) {
+            self.app.roots().shutdown();
+            self.app = mock_app("so.epicenter.notes", None);
         }
 
         /// Whether startup opened no window.
@@ -267,6 +347,22 @@ mod tests {
     fn fixture_for(identifier: &str, setting: Option<Value>) -> Fixture {
         let temp = tempfile::tempdir().unwrap();
         let base = fs::canonicalize(temp.path()).unwrap();
+        let app = mock_app(identifier, setting);
+        let home = base.join("home");
+        fs::create_dir_all(&home).unwrap();
+        Fixture {
+            app,
+            config: home.join("Library/Application Support/so.epicenter.notes"),
+            data: home.join("Epicenter/notes"),
+            home,
+            base,
+            _temp: temp,
+        }
+    }
+
+    /// The mock app for `identifier`, with `setting` as its
+    /// `plugins.epicenter-standalone` when given.
+    fn mock_app(identifier: &str, setting: Option<Value>) -> App<MockRuntime> {
         let mut context = mock_context(noop_assets());
         context.config_mut().identifier = identifier.into();
         if let Some(setting) = setting {
@@ -282,20 +378,10 @@ mod tests {
                 ExecutionContext::Local,
             );
         }
-        let app = mock_builder()
+        mock_builder()
             .plugin(tauri_plugin_epicenter_folder::init())
             .build(context)
-            .expect("mock app");
-        let home = base.join("home");
-        fs::create_dir_all(&home).unwrap();
-        Fixture {
-            app,
-            config: home.join("Library/Application Support/so.epicenter.notes"),
-            data: home.join("Epicenter/notes"),
-            home,
-            base,
-            _temp: temp,
-        }
+            .expect("mock app")
     }
 
     fn fixture() -> Fixture {
@@ -502,6 +588,116 @@ mod tests {
                 ),
                 "{leads_to}: {failed:?}"
             );
+        }
+    }
+
+    /// The page's open of Data is what makes the folder, and the shell then
+    /// remembers its identity, which no page reaches.
+    #[test]
+    fn opening_data_remembers_its_identity() {
+        let fixture = fixture();
+        let window = fixture.start().unwrap();
+        open(&window, "Data").unwrap();
+        let identity = identity_at(&fixture.data).unwrap().unwrap();
+        assert_eq!(data_identity::remembered(&fixture.config), Some(identity));
+        open(&window, "AppData").unwrap();
+        assert!(list(&window, "AppData").unwrap().is_empty());
+    }
+
+    /// A folder the person renamed is still the app's: the next start opens
+    /// it by its new name, even when an empty folder was made at the old one
+    /// meanwhile.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_renamed_folder_is_opened_by_its_new_name() {
+        let mut fixture = fixture();
+        let window = fixture.start().unwrap();
+        open(&window, "Data").unwrap();
+        fs::write(fixture.data.join("a.md"), "---\n---\n").unwrap();
+        let renamed = fixture.home.join("Epicenter/My notes");
+        fs::rename(&fixture.data, &renamed).unwrap();
+        fs::create_dir(&fixture.data).unwrap();
+
+        fixture.restart();
+        let window = fixture.start().unwrap();
+        assert_eq!(open(&window, "Data").unwrap(), json!(renamed));
+        assert_eq!(list(&window, "Data").unwrap(), ["a.md"]);
+
+        // Gone altogether, the app makes its folder at its usual path again.
+        fs::remove_dir_all(&renamed).unwrap();
+        fixture.restart();
+        let window = fixture.start().unwrap();
+        assert_eq!(open(&window, "Data").unwrap(), json!(fixture.data));
+    }
+
+    /// Where the file system records no birth time, an inode alone proves
+    /// nothing: the derived folder opens, whatever directory has the inode.
+    #[test]
+    fn without_birth_times_the_derived_folder_opens() {
+        let mut fixture = fixture();
+        let unborn = |path: &Path| {
+            identity_at(path).ok().flatten().map(|identity| FolderIdentity {
+                birthtime: None,
+                ..identity
+            })
+        };
+        let window = fixture.start_with(&fixture.home, None, &unborn).unwrap();
+        open(&window, "Data").unwrap();
+        let renamed = fixture.home.join("Epicenter/My notes");
+        fs::rename(&fixture.data, &renamed).unwrap();
+        // What a file system without birth times remembers.
+        let remembered = identity_at(&renamed).unwrap().unwrap();
+        data_identity::remember(
+            &fixture.config,
+            &FolderIdentity {
+                birthtime: None,
+                ..remembered
+            },
+        )
+        .unwrap();
+
+        fixture.restart();
+        let window = fixture.start_with(&fixture.home, None, &unborn).unwrap();
+        assert_eq!(open(&window, "Data").unwrap(), json!(fixture.data));
+    }
+
+    /// Open with names any folder directly inside the Epicenter folder, by
+    /// name or path, and the app remembers it; anything else does not start.
+    #[test]
+    fn open_with_names_a_folder_in_the_epicenter_folder() {
+        let mut fixture = fixture();
+        let recipes = fixture.home.join("Epicenter/Recipes");
+        fs::create_dir_all(&recipes).unwrap();
+        let window = fixture
+            .start_with(&fixture.home, Some("Recipes"), &|path| {
+                identity_at(path).ok().flatten()
+            })
+            .unwrap();
+        assert_eq!(open(&window, "Data").unwrap(), json!(recipes));
+        assert_eq!(
+            data_identity::remembered(&fixture.config),
+            identity_at(&recipes).unwrap()
+        );
+
+        fixture.restart();
+        let path = recipes.display().to_string();
+        let window = fixture
+            .start_with(&fixture.home, Some(&path), &|path| {
+                identity_at(path).ok().flatten()
+            })
+            .unwrap();
+        assert_eq!(open(&window, "Data").unwrap(), json!(recipes));
+
+        for refused in ["Missing", ".hidden", "../home"] {
+            fixture.restart();
+            assert!(
+                matches!(
+                    fixture.start_with(&fixture.home, Some(refused), &|_| None),
+                    Err(StartupError::Folder(_))
+                ),
+                "{refused}"
+            );
+            assert!(fixture.no_window());
         }
     }
 

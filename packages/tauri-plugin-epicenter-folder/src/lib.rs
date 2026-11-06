@@ -43,14 +43,16 @@ pub use epicenter_folder_core::storage::{Landing, PutOutcome, StorageError};
 
 mod command_names;
 mod commands;
-pub mod epicenter;
+mod records;
 mod roots;
 mod watch;
 
 pub use command_names::COMMANDS;
-pub use commands::FolderError;
+pub use commands::{FolderError, DATA_FOLDER_FILE};
+pub use epicenter_folder_core::identity::{identity_at, identity_key, proves, FolderIdentity};
+pub use records::FolderRecord;
 pub use roots::{
-    folder_name_problem, EpicenterEntry, EpicenterListing, Root, RootError, RootIdentity, Roots,
+    folder_name_problem, kept_by_git, EpicenterEntry, EpicenterListing, Root, RootError, Roots,
     RootsExt, Unreadable,
 };
 pub use watch::{FolderChanged, FolderEvent};
@@ -72,8 +74,8 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::list_folder::<tauri::Wry>,
             commands::list_epicenter::<tauri::Wry>,
             commands::make_epicenter_folder::<tauri::Wry>,
-            epicenter::sync_with_epicenter::<tauri::Wry>,
-            epicenter::synced_with_epicenter::<tauri::Wry>,
+            commands::root_identity::<tauri::Wry>,
+            commands::data_record::<tauri::Wry>,
         ])
         .typ::<Landing>()
         .typ::<FolderEvent>()

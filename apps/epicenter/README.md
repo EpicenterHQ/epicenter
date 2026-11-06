@@ -118,9 +118,8 @@ Epicenter opens the [Folders window](#the-folders-window) (ADR-0537):
 launching Epicenter, reopening it from the Dock, and `epicenter://` without a
 path all show it. It opens Settings from its Settings button with
 `open_home`. The tray (Show Folders, Show Settings, Quit) and deep links are
-shortcuts into the same windows; no link opens an app. An
-`epicenter://init?path=…` link, which a standalone app opens to ask that its
-folder sync, shows the Folders window:
+shortcuts into the same windows; no link opens an app, and a link with a
+query, such as the retired `epicenter://init?path=…`, opens nothing:
 
 ```bash
 open 'epicenter://'

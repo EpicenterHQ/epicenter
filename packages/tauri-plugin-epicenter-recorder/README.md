@@ -5,9 +5,9 @@ records: a page in the shell opens no microphone of its own.
 A recording is written from the first sample
 into a folder the recording window opened
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
-`start` creates a WebM in the folder's `.epicenter/recordings` and encodes
-the microphone into it as Opus as it captures, a second at a time, and
-`stop` finishes it in place and places it at `<path>.webm`. Nothing
+`start` creates a WebM beside `<path>.webm` under a reserved name and
+encodes the microphone into it as Opus as it captures, a second at a time,
+and `stop` finishes it in place and places it at `<path>.webm`. Nothing
 deletes a recording's audio. A quit, a crash, or a closed window keeps the
 audio up to the cut. A recording adds no Close or Quit warning.
 
@@ -30,7 +30,7 @@ alone: the shell outlives the page, so it can finish a take a cut left
 | `src/rate.rs` | The conversion from the microphone's rate to the recording's 16 kHz, on the writer thread. |
 | `src/opus.rs` | The encoder: 20 ms at a time, to Opus at 24 kbps, as the recording arrives. |
 | `src/webm.rs` | The WebM it is written in, a whole second at a time (`LiveWebm`), and `finish_cut_off`, which finishes a file a crash cut off from its whole seconds. |
-| `src/staging.rs` | Where a recording is written while it records (`pending`), how it reaches its path without replacing a file (`place_recording`, through the folder core's `storage::place`), and `recover`, which finishes and places what a cut left in `.epicenter/recordings`. |
+| `src/staging.rs` | Where a recording is written while it records (`pending`), how it reaches its path without replacing a file (`place_recording`, through the folder core's `storage::place`), and `recover`, which finishes and places what a cut left. |
 | `src/meter.rs` | A microphone opened for its level only, closed by its page or with it, or on its own when its stream dies or its page stops hearing it. |
 | `src/permission.rs` | Microphone access through AVFoundation, asked before any microphone opens. |
 | `src/commands.rs` | `inputs`, `open_meter`, `close_meter`, `start`, `stop`, and `recover`. |
@@ -77,16 +77,15 @@ AppData is open. The folder Data reached is read once when the command arrives.
 | `inputs()` | Lists the input devices connected now as `{ id, name, isDefault }`. Opens nothing, so it needs no microphone permission. |
 | `open_meter(device, levels)` | Opens the microphone with id `device`, or the system default, and sends its level on `levels` until `close_meter(id)`, or until the window's page reloads or the window is destroyed. Nothing is recorded. Answers the meter's `id` and the microphone's name. |
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
-| `start(path, device, signals)` | Records `<path>.webm` in Data, from the microphone with id `device` or the system default, writing it in `.epicenter/recordings` until it stops. Answers the recording's `id`. |
-| `stop(id)` | Finishes the recording in place, places it at its path, and answers `{ path, durationMs }`. It takes the same few milliseconds for a recording of any length. A file already at the path is never replaced: the refusal says so, and where the finished recording is kept in `.epicenter/recordings`. Only the window that started it may stop it. |
-| `recover(under)` | Finishes every recording a cut left under `under` in Data's `.epicenter/recordings` from its whole seconds and places it at its path, leaving the recording still being written alone. Answers `{ recovered, unplaced }`: each recording it placed as `{ path, durationMs }`, from the length its file states, so a page never reads the audio back to measure it (a second run places none); and each one whose path holds another file as `{ path, pending }`, where `pending` is its folder-relative path under `.epicenter/recordings`. That one is never deleted and never placed beside the other file: it stays pending, finished, and is answered on every run until a person moves one of the two, so a page says where its audio is. A leftover with no whole second holds no audio and is deleted. A page runs it once its folder is open; a cut-off recording is at no data path until then, so nothing lists, plays, or transcribes it first. |
+| `start(path, device, signals)` | Records `<path>.webm` in Data, from the microphone with id `device` or the system default, writing it beside that path under a reserved name until it stops. Answers the recording's `id`. |
+| `stop(id)` | Finishes the recording in place, places it at its path, and answers `{ path, durationMs }`. It takes the same few milliseconds for a recording of any length. A file already at the path is never replaced: the refusal says so, and where the finished recording is kept under its reserved name. Only the window that started it may stop it. |
+| `recover(under)` | Finishes every recording a cut left at or below `under` in Data from its whole seconds and places it at its path, leaving the recording still being written alone. It also finishes a take an older build left in `.epicenter/recordings/<under>`. Answers `{ recovered, unplaced }`: each recording it placed as `{ path, durationMs }`, from the length its file states, so a page never reads the audio back to measure it (a second run places none); and each one whose path holds another file as `{ path, pending }`, where `pending` is the folder-relative path of its audio, `.ep-<random>-<base>.recording` beside `path` (or in `.epicenter/recordings` for an older build's take). That one is never deleted and never placed beside the other file: it stays pending, finished, and is answered on every run until a person moves one of the two, so a page says where its audio is. A leftover with no whole second holds no audio and is deleted. A page runs it once its folder is open; a cut-off recording is at no data path until then, so nothing lists, plays, or transcribes it first. |
 
 `start` refuses before it opens anything:
 
 - `Refused`: the page did not open the Data root, the path is not a data path
   the shared path rule accepts (`page_files::data_path` in the folder
-  plugin's core, no link on the way), or a file is already at `<path>.webm`
-  or at its place in `.epicenter/recordings`.
+  plugin's core, no link on the way), or a file is already at `<path>.webm`.
 - `PermissionDenied`: macOS does not allow Epicenter the microphone.
 - `InputUnavailable`: no microphone with the id `device` is connected.
   Another is never opened in its place. `open_meter` refuses the same way.
@@ -98,15 +97,17 @@ file could not be written. What was captured stays the owner's to `stop`.
 
 ## The file in the folder
 
-While it records, the recording is one of the folder's unfinished writes,
-at `.epicenter/recordings/<path>.webm` (`state::recording` in the folder
-core, which alone lays out `.epicenter`): a hidden path, which no watcher
-reports and `epicenter sync` never commits, so sync never commits a
-half-written recording and no reader sees one at a data path. The
-folder's sweep never reads `recordings/`: a cut-off recording waits there
-until the app opens once. It is created with `create_new` there
-(`.epicenter` made `0700` when missing, and refused when it is a link), so
-nothing already there is written through.
+While it records, the recording waits beside its path under a reserved
+name, `<directory>/.ep-<random>-<base>.recording` for
+`<directory>/<base>.webm` (`state::pending_recording` in the folder core,
+which alone spells these names; ADR-0822). The random part is 8 lowercase
+base 36 characters, so the name reads back to the path it goes to. A
+reserved name is hidden: no listing describes it, no watcher reports it,
+and sync never commits it, so no reader sees a half-written recording at a
+data path. The folder's sweep never removes one: a cut-off recording waits
+there until the app opens once. It is created with `create_new`, so nothing
+already there is written through. A folder holds nothing else of the
+recorder's.
 
 It is Opus in WebM from the first sample, as Safari and Chromium play it to
 the exact length:
@@ -131,11 +132,9 @@ Segment states its size is finished. It then places the file at
 `<path>.webm` without replacing anything there: a rename that fails when
 a name is already there (`storage::place` in the folder core, the one
 placement a save expecting nothing at its path uses too), or, where the
-disk has no such rename, a hard link then the pending name removed. A path below a mount point inside the folder is on
-another file system: placing there fails saying it cannot save across a
-mount point, nothing is copied, and the file stays in
-`.epicenter/recordings`. All of it takes the same few milliseconds for a
-recording of any length.
+disk has no such rename, a hard link then the pending name removed. The
+pending file is on its path's own file system, so the move is one step.
+All of it takes the same few milliseconds for a recording of any length.
 
 A write the disk refuses (it is full, or its volume went) ends the capture
 with `storageFailed`, and the second it was writing is cut back off the
@@ -149,8 +148,8 @@ The recording is finished and placed, never deleted, when:
 - the app exits;
 - `stop` is called after the capture ended on its own.
 
-A process that ends before any of those leaves the file in
-`.epicenter/recordings` with every whole second but the one held in memory:
+A process that ends before any of those leaves the file under its reserved
+name with every whole second but the one held in memory:
 a crash loses at most about a second. `recover`, which a page calls once its
 folder is open, finishes it from those seconds (a torn one at its end is
 dropped) and places it. Until then nothing reads it: it is at no data path,

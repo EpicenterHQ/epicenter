@@ -1,57 +1,170 @@
-//! Where a folder's unfinished writes live: `.epicenter/` at its root.
+//! Where Epicenter's own files are (ADR-0822): a folder holds only its
+//! content.
 //!
-//! A file in `.epicenter/` is on its way somewhere. It finishes (moves to its
-//! real path), or the next open recovers or removes it. Each kind of
-//! unfinished write has a part named for the operation that owns it:
+//! A write in progress waits beside its target under a reserved name, on the
+//! target's own file system:
 //!
-//! - `saves/`: a save's bytes waiting to be renamed over its target. Always
-//!   safe to delete when no app runs; opening a folder removes stale ones
-//!   (`storage::sweep_scratch`).
-//! - `recordings/<target path>`: a desktop recording, from its first sample
-//!   until it stops or the next open recovers it. It may hold audio until
-//!   the app opens once, so nothing sweeps it.
+//! - a save stages its bytes in `.ep-<random>.save` (`staged_name`), then
+//!   renames it over the target. Opening a folder removes one a stopped save
+//!   left (`sweep`).
+//! - a recording grows in `.ep-<8 base36 characters>-<base>.recording`
+//!   (`pending_recording`) beside its final path `<base>.webm`, which the
+//!   name carries (`recording_final`), so recovery after a crash knows where
+//!   it goes. Nothing but the recorder ever removes one.
 //!
-//! `.epicenter` is a hidden path, so it is never a folder's data: no
-//! watcher reports it and `epicenter sync` never commits it. This module is
-//! the one place Rust spells the layout; `state.ts` in `@epicenter/folder`
-//! spells the `saves/` a page writes, and `fixtures/state-layout.json` holds
-//! both to it. A new kind of unfinished write gets its own part here, never
-//! from its caller.
+//! No listing, watcher, or sync describes a reserved name (`is_reserved`),
+//! at any depth; each is hidden too (`paths::is_hidden_path`).
+//!
+//! `.epicenter` (`DIRECTORY`) is the Epicenter folder's own: its records,
+//! `synced/<folder-id>.json`, and its hash caches, `hashes/<key>.json`. In a
+//! folder an older build wrote, `.epicenter` holds what that build left
+//! (`saves/`, `recordings/`, `synced.json`, `hashes.json`), which opening the
+//! folder empties and removes (`sweep`). This module is the one place Rust
+//! spells these names; `fixtures/reserved-names.json` holds it and
+//! `@epicenter/folder` to the same ones.
 
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-/// The directory at the top of a folder that holds its unfinished writes.
+use sha2::{Digest, Sha256};
+
+/// The Epicenter folder's own directory (its records and hash caches), and in
+/// a folder an older build wrote, that build's unfinished writes.
 pub const DIRECTORY: &str = ".epicenter";
 
-/// The part of `DIRECTORY` where a save stages its bytes.
-pub const SAVES: &str = "saves";
+/// The part of the Epicenter folder's `DIRECTORY` holding one record per
+/// synced folder, `<folder-id>.json`.
+pub const SYNCED: &str = "synced";
 
-/// The part of `DIRECTORY` where a desktop recording is written while it
-/// records, at its own folder-relative path.
-pub const RECORDINGS: &str = "recordings";
+/// The part of an older build's `DIRECTORY` in a folder where saves staged.
+pub const LEGACY_SAVES: &str = "saves";
 
-/// `.epicenter` inside `root`.
-pub fn directory(root: &Path) -> PathBuf {
-    root.join(DIRECTORY)
+/// The part of an older build's `DIRECTORY` in a folder where a recording
+/// grew, at `<its folder-relative stem>.webm`.
+pub const LEGACY_RECORDINGS: &str = "recordings";
+
+/// Every reserved name starts with this.
+const PREFIX: &str = ".ep-";
+/// A staged save's suffix.
+const SAVE: &str = ".save";
+/// A recording in progress's suffix.
+const RECORDING: &str = ".recording";
+/// How many base 36 characters a recording's random part has, so its name
+/// reads back to its base.
+pub const RECORDING_RANDOM: usize = 8;
+
+/// `.epicenter` inside `directory`: the Epicenter folder's own, or an older
+/// build's in a folder.
+pub fn directory(directory: &Path) -> PathBuf {
+    directory.join(DIRECTORY)
 }
 
-/// `.epicenter/saves` inside `root`: on the root's own file system, so a
-/// staged save's rename over its path is one step.
-pub fn saves(root: &Path) -> PathBuf {
-    directory(root).join(SAVES)
+/// Where the Epicenter folder at `epicenter` keeps its records:
+/// `.epicenter/synced`.
+pub fn records(epicenter: &Path) -> PathBuf {
+    directory(epicenter).join(SYNCED)
 }
 
-/// The folder-relative path the recording of the folder-relative `stem`
-/// (its path without an extension) is written to while it records:
-/// `.epicenter/recordings/<stem>.webm`.
-pub fn recording(stem: &str) -> String {
-    format!("{}.webm", recordings_under(stem))
+/// Whether the name `name` (one segment) is reserved: `.ep-`, at least one
+/// character, then `.save` or `.recording`.
+pub fn is_reserved_name(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix(PREFIX) else {
+        return false;
+    };
+    let middle = rest
+        .strip_suffix(SAVE)
+        .or_else(|| rest.strip_suffix(RECORDING));
+    middle.is_some_and(|middle| !middle.is_empty() && !middle.contains('/'))
 }
 
-/// The folder-relative directory the recordings in progress under the
-/// folder-relative directory `under` are in: `.epicenter/recordings/<under>`.
-pub fn recordings_under(under: &str) -> String {
-    format!("{DIRECTORY}/{RECORDINGS}/{under}")
+/// Whether the folder-relative `path` names a reserved name, by its last
+/// segment.
+pub fn is_reserved(path: &str) -> bool {
+    is_reserved_name(path.rsplit('/').next().unwrap_or(path))
+}
+
+/// Whether the name `name` is a staged save's.
+pub fn is_staged_save(name: &str) -> bool {
+    is_reserved_name(name) && name.ends_with(SAVE)
+}
+
+/// A new staged save's name: `.ep-` and 16 random lowercase hexadecimal
+/// characters, then `.save`.
+pub fn staged_name() -> String {
+    format!("{PREFIX}{}{SAVE}", random(16, b"0123456789abcdef"))
+}
+
+/// The folder-relative path a recording of the folder-relative `stem` (its
+/// final path without `.webm`) grows at: `.ep-<random>-<base>.recording`
+/// beside `<stem>.webm`, where `<random>` is `RECORDING_RANDOM` lowercase
+/// base 36 characters.
+pub fn pending_recording(stem: &str) -> String {
+    let (directory, base) = match stem.rsplit_once('/') {
+        Some((directory, base)) => (Some(directory), base),
+        None => (None, stem),
+    };
+    let name = format!(
+        "{PREFIX}{}-{base}{RECORDING}",
+        random(RECORDING_RANDOM, b"0123456789abcdefghijklmnopqrstuvwxyz")
+    );
+    match directory {
+        Some(directory) => format!("{directory}/{name}"),
+        None => name,
+    }
+}
+
+/// The folder-relative final path of the recording growing at the
+/// folder-relative `pending`, `<directory>/<base>.webm`, or `None` when its
+/// last segment is not a recording's name: `.ep-`, `RECORDING_RANDOM`
+/// lowercase base 36 characters, `-`, a nonempty base, `.recording`.
+pub fn recording_final(pending: &str) -> Option<String> {
+    let (directory, name) = match pending.rsplit_once('/') {
+        Some((directory, name)) => (Some(directory), name),
+        None => (None, pending),
+    };
+    let rest = name.strip_prefix(PREFIX)?.strip_suffix(RECORDING)?;
+    let random = rest.get(..RECORDING_RANDOM)?;
+    if !random
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase())
+    {
+        return None;
+    }
+    let base = rest[RECORDING_RANDOM..].strip_prefix('-')?;
+    if base.is_empty() {
+        return None;
+    }
+    Some(match directory {
+        Some(directory) => format!("{directory}/{base}.webm"),
+        None => format!("{base}.webm"),
+    })
+}
+
+/// `count` characters drawn from `alphabet`, unpredictable across processes
+/// and distinct within one: a digest of this process, the time, a counter,
+/// and the standard library's per-process random keys.
+fn random(count: usize, alphabet: &[u8]) -> String {
+    static DRAWN: AtomicU64 = AtomicU64::new(0);
+    let mut seed = Sha256::new();
+    seed.update(std::process::id().to_le_bytes());
+    seed.update(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+            .to_le_bytes(),
+    );
+    seed.update(DRAWN.fetch_add(1, Ordering::SeqCst).to_le_bytes());
+    let mut keyed = RandomState::new().build_hasher();
+    keyed.write_u64(0);
+    seed.update(keyed.finish().to_le_bytes());
+    seed.finalize()
+        .iter()
+        .take(count)
+        .map(|byte| char::from(alphabet[usize::from(*byte) % alphabet.len()]))
+        .collect()
 }
 
 #[cfg(test)]
@@ -60,34 +173,64 @@ mod tests {
 
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
-    struct Layout {
-        directory: String,
-        saves: String,
-        recordings: String,
-        saves_directory: String,
-        recording_paths: Vec<RecordingPath>,
+    struct Names {
+        legacy_directory: String,
+        reserved: Vec<String>,
+        not_reserved: Vec<String>,
+        recordings: Vec<Recording>,
     }
 
     #[derive(serde::Deserialize)]
-    struct RecordingPath {
-        stem: String,
-        path: String,
+    struct Recording {
+        pending: String,
+        #[serde(rename = "final")]
+        landed: String,
     }
 
-    /// The layout `state.test.ts` reads too, so both languages build the
-    /// same paths.
+    /// The names `@epicenter/folder` reads too, so both languages agree.
     #[test]
-    fn the_layout_follows_the_shared_fixture() {
-        let layout: Layout =
-            serde_json::from_str(include_str!("../../fixtures/state-layout.json")).unwrap();
-        assert_eq!(DIRECTORY, layout.directory);
-        assert_eq!(SAVES, layout.saves);
-        assert_eq!(RECORDINGS, layout.recordings);
-        let root = Path::new("/folder");
-        assert_eq!(saves(root), root.join(&layout.saves_directory));
-        assert!(!layout.recording_paths.is_empty());
-        for example in &layout.recording_paths {
-            assert_eq!(recording(&example.stem), example.path, "{}", example.stem);
+    fn the_names_follow_the_shared_fixture() {
+        let names: Names =
+            serde_json::from_str(include_str!("../../fixtures/reserved-names.json")).unwrap();
+        assert_eq!(DIRECTORY, names.legacy_directory);
+        for path in &names.reserved {
+            assert!(is_reserved(path), "{path:?} is not reserved");
+            assert!(crate::paths::is_hidden_path(path), "{path:?} is not hidden");
+        }
+        for path in &names.not_reserved {
+            assert!(!is_reserved(path), "{path:?} is reserved");
+        }
+        assert!(!names.recordings.is_empty());
+        for recording in &names.recordings {
+            assert!(is_reserved(&recording.pending), "{}", recording.pending);
+            assert_eq!(
+                recording_final(&recording.pending).as_deref(),
+                Some(recording.landed.as_str())
+            );
+        }
+    }
+
+    #[test]
+    fn a_new_name_is_reserved_and_reads_back_to_its_target() {
+        let staged = staged_name();
+        assert!(is_staged_save(&staged), "{staged}");
+        assert_eq!(staged.len(), ".ep-".len() + 16 + ".save".len());
+        assert_ne!(staged, staged_name());
+        for stem in ["a", "recordings/2026-11-06 take", "x/y/.hidden"] {
+            let pending = pending_recording(stem);
+            assert!(is_reserved(&pending), "{pending}");
+            assert!(!is_staged_save(pending.rsplit('/').next().unwrap()));
+            assert_eq!(recording_final(&pending), Some(format!("{stem}.webm")));
+        }
+        for refused in [
+            ".ep-k3j9x2a-a.recording",
+            ".ep-K3J9X2AB-a.recording",
+            ".ep-k3j9x2ab-.recording",
+            ".ep-k3j9x2aba.recording",
+            ".ep-k3j9x2ab-a.save",
+            "ep-k3j9x2ab-a.recording",
+        ] {
+            assert_eq!(recording_final(refused), None, "{refused}");
         }
     }
 }

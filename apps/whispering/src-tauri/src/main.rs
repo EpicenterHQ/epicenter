@@ -9,8 +9,8 @@
 //! endpoint the person connected, whose key the shell adds
 //! (`connection_fetch`), and starts and stops a recording from a
 //! global shortcut, the one the page resolves from `shortcuts.md` and asks
-//! for (`set_shortcut`). It asks Epicenter to sync the folder and never
-//! syncs it itself.
+//! for (`set_shortcut`). Only Epicenter syncs the folder (ADR-0822); the app
+//! never does.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -129,11 +129,11 @@ mod tests {
         }
     }
 
-    /// The window reaches its roots and Epicenter's sync request through
-    /// the folder plugin, by name, records, transcribes uploaded audio and
-    /// administers local models, hears the global shortcut, and calls
-    /// exactly the commands the build script declares. No capability names
-    /// a folder.
+    /// The window reaches its roots and the record Epicenter keeps for its
+    /// folder through the folder plugin, by name, records, transcribes
+    /// uploaded audio and administers local models, hears the global
+    /// shortcut, and calls exactly the commands the build script declares.
+    /// No capability names a folder.
     #[test]
     fn the_capability_grants_plugins_and_the_declared_commands_and_no_folder() {
         let capability = read(include_str!("../capabilities/whispering.json"));

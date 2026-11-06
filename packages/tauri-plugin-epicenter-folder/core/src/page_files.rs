@@ -9,8 +9,8 @@
 //! can be assembled and no name reaches `.git` by another spelling.
 //!
 //! Nothing in `.git` is made or changed here, whether or not `.git` exists:
-//! a page's save stages its bytes in the root's `.epicenter/saves`
-//! (`state::saves`), never in `.git`. A link another program swaps
+//! a page's save stages its bytes beside its target (`state::staged_name`),
+//! never in `.git`. A link another program swaps
 //! in between the check and the change is not defended against.
 //!
 //! Writers beside the page name their data paths through `data_path`: the
@@ -276,7 +276,7 @@ mod tests {
         assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
     }
 
-    /// A save stages in `.epicenter`, so nothing in `.git` is ever made: not
+    /// A save stages beside its target, so nothing in `.git` is ever made: not
     /// `.git` itself in a folder with no repository, and nothing inside one
     /// that exists.
     #[test]

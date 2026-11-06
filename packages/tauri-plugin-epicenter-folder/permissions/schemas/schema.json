@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the data_record command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-data-record",
+          "markdownDescription": "Enables the data_record command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the data_record command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-data-record",
+          "markdownDescription": "Denies the data_record command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_epicenter command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-epicenter",
@@ -379,34 +391,22 @@
           "markdownDescription": "Denies the reveal_root command without any pre-configured scope."
         },
         {
-          "description": "Enables the sync_with_epicenter command without any pre-configured scope.",
+          "description": "Enables the root_identity command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-sync-with-epicenter",
-          "markdownDescription": "Enables the sync_with_epicenter command without any pre-configured scope."
+          "const": "allow-root-identity",
+          "markdownDescription": "Enables the root_identity command without any pre-configured scope."
         },
         {
-          "description": "Denies the sync_with_epicenter command without any pre-configured scope.",
+          "description": "Denies the root_identity command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-sync-with-epicenter",
-          "markdownDescription": "Denies the sync_with_epicenter command without any pre-configured scope."
+          "const": "deny-root-identity",
+          "markdownDescription": "Denies the root_identity command without any pre-configured scope."
         },
         {
-          "description": "Enables the synced_with_epicenter command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-synced-with-epicenter",
-          "markdownDescription": "Enables the synced_with_epicenter command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the synced_with_epicenter command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-synced-with-epicenter",
-          "markdownDescription": "Denies the synced_with_epicenter command without any pre-configured scope."
-        },
-        {
-          "description": "Open and reveal the roots the shell named (Data and AppData), show their paths, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-reveal-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`",
+          "description": "Open and reveal the roots the shell named, show their paths, read and change their files through the shell, read an open root's identity, and read the record Epicenter keeps for the Data root.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-reveal-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-root-identity`\n- `allow-data-record`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Open and reveal the roots the shell named (Data and AppData), show their paths, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-reveal-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`"
+          "markdownDescription": "Open and reveal the roots the shell named, show their paths, read and change their files through the shell, read an open root's identity, and read the record Epicenter keeps for the Data root.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-reveal-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-root-identity`\n- `allow-data-record`"
         },
         {
           "description": "List the Epicenter folder the shell named, and make a folder in it.\n#### This permission set includes:\n\n- `allow-list-epicenter`\n- `allow-make-epicenter-folder`",

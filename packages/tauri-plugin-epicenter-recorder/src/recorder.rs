@@ -25,7 +25,7 @@
 //!
 //! # A recording is a file from the first sample
 //!
-//! The WebM is created in the folder's `.epicenter/recordings` when the
+//! The WebM is created beside its path, under a reserved name, when the
 //! recording starts, and each second of it is written there whole as soon as
 //! it is encoded (ADR-0543), so a process that ends mid-recording leaves
 //! every second but the last behind a head that does not yet state its
@@ -140,8 +140,8 @@ enum RecorderCmd {
     EndCapture,
 }
 
-/// The recording one capture is writing, at its place in the folder's
-/// `.epicenter/recordings`.
+/// The recording one capture is writing, beside its path under a reserved
+/// name.
 ///
 /// Owned entirely by the worker thread, which is what lets the writer stay
 /// unsynchronized: nothing else in this process writes the file, so there is
@@ -371,8 +371,8 @@ struct HeldRecording {
     id: String,
     /// Label of the window that called `start`. Stop is restricted to it.
     owner_label: String,
-    /// The recording's file while it records, absolute, in the folder's
-    /// `.epicenter/recordings`, which `recover` leaves alone.
+    /// The recording's file while it records, absolute, beside its path
+    /// under a reserved name, which `recover` leaves alone.
     path: PathBuf,
     /// The folder it is placed in once it stops.
     root: PathBuf,
@@ -515,7 +515,7 @@ impl Recorder {
     /// default.
     ///
     /// `pending` is the checked absolute path the recording is written to
-    /// while it records, in the folder's `.epicenter/recordings`; `root` is
+    /// while it records, beside its path under a reserved name; `root` is
     /// the folder it is placed in when it stops, and `stem` its
     /// folder-relative path there without an extension, as the page named it. The file is created
     /// only after the device and its configuration resolve, and never over
@@ -832,7 +832,7 @@ impl Recorder {
 
 /// End a recording and keep it: tell the worker to finish the file, join it
 /// so the cpal stream is released, and place the file at its path. A file
-/// that could not be finished or placed stays in `.epicenter/recordings`,
+/// that could not be finished or placed stays beside its path,
 /// where the next `recover` finishes and places it, or, when another file
 /// took its path, answers where it is.
 ///
@@ -1719,7 +1719,11 @@ pub(crate) mod tests {
                 recovery.unplaced,
                 [crate::staging::UnplacedRecording {
                     path: "recordings/1.webm".to_string(),
-                    pending: epicenter_folder_core::state::recording("recordings/1"),
+                    pending: kept
+                        .strip_prefix(&root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
                 }]
             );
             assert_eq!(samples_in(&kept), TEST_RATE as usize);

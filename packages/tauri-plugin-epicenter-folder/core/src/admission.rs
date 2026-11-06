@@ -1,5 +1,6 @@
 //! Which directories may be a folder: any directory, except one inside a
-//! `.git` or `.epicenter` directory, which belong to Git and to Epicenter;
+//! `.git` or `.epicenter` directory, which belong to Git and to Epicenter's
+//! own records;
 //! never one overlapping Epicenter's machine-local application data; and
 //! never the library root (`~/Epicenter`), which holds every app's folder, or
 //! a directory holding it. Containment compares canonical paths and
@@ -10,8 +11,9 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::state;
 
-/// The directory names no folder is ever inside: Git's, and Epicenter's
-/// unfinished writes (`state::DIRECTORY`).
+/// The directory names no folder is ever inside: Git's, and Epicenter's own
+/// (`state::DIRECTORY`: the Epicenter folder's records, or what an older
+/// build left in a folder).
 const RESERVED: [&str; 2] = [".git", state::DIRECTORY];
 
 /// Whether Epicenter may set `path` up for sync: never inside a `.git` or
@@ -45,9 +47,9 @@ pub fn check_sync_directory(
 }
 
 /// Whether some segment of `root`, a canonical path (`resolved`), is `.git`
-/// or `.epicenter`, in any case: a folder there would be Git's state or
-/// another folder's unfinished writes, which that folder recovers and
-/// removes. Any other hidden directory, `~/.notes` among them, may be a
+/// or `.epicenter`, in any case: a folder there would be Git's state, the
+/// Epicenter folder's records, or what an older build left in another
+/// folder, which opening it removes. Any other hidden directory, `~/.notes` among them, may be a
 /// folder. Case is ignored because a canonical path keeps a name as it was
 /// made, and on a disk that ignores case Git and Epicenter take a directory
 /// made as `.GIT` or `.Epicenter` for their own. The hub's sync admission and
@@ -105,7 +107,7 @@ mod tests {
         let library = base.join("Epicenter");
         fs::create_dir_all(data.join("logs")).unwrap();
         let notes = library.join("Notes");
-        let saves = state::saves(&notes);
+        let saves = state::directory(&notes).join(state::LEGACY_SAVES);
         fs::create_dir_all(&saves).unwrap();
         fs::create_dir_all(notes.join(".git/objects")).unwrap();
         for refused in [

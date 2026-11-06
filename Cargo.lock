@@ -1215,6 +1215,8 @@ dependencies = [
 name = "epicenter-standalone"
 version = "0.0.1"
 dependencies = [
+ "dunce",
+ "log",
  "serde",
  "serde_json",
  "tauri",
@@ -4949,7 +4951,6 @@ dependencies = [
  "specta-typescript",
  "tauri",
  "tauri-plugin",
- "tauri-plugin-opener",
  "tauri-specta",
  "tempfile",
 ]

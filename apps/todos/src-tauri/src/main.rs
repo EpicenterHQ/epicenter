@@ -1,8 +1,8 @@
 //! Todos' desktop app (`epicenter-standalone`, decisions 88 to 97): one
 //! window whose page opens Todos' data folder by name, `~/Epicenter/todos`,
 //! which its bundle identifier names (`openFolder` from `@epicenter/folder`,
-//! whose `tauri` leaf opens the Data root). It asks Epicenter to sync the
-//! folder (`syncWithEpicenter`) and never signs in.
+//! whose `tauri` leaf opens the Data root). Only Epicenter syncs the folder
+//! (ADR-0822), and the app never signs in.
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -47,11 +47,11 @@ mod tests {
         assert!(config["plugins"]["epicenter-standalone"].is_null());
     }
 
-    /// The window reaches its roots, and Epicenter's sync request and status,
-    /// through the folder plugin, by name, and hears the folder's changes as
-    /// the shell's events; nothing else. No capability names
-    /// a folder. Each configuration lists its capabilities, so nothing in
-    /// `capabilities/` is enabled implicitly.
+    /// The window reaches its roots, their identities, and the record
+    /// Epicenter keeps for its folder through the folder plugin, by name, and
+    /// hears the folder's changes as the shell's events; nothing else. No
+    /// capability names a folder. Each configuration lists its capabilities,
+    /// so nothing in `capabilities/` is enabled implicitly.
     #[test]
     fn the_capability_grants_plugins_and_names_no_folder() {
         let capability: Value =
