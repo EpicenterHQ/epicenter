@@ -127,10 +127,11 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 			]),
 		),
 		...NATIVE_APPS.map((app) => nativeClient(app, audiences.api)),
-		// The desktop app signs in through a loopback redirect on any port
-		// (RFC 8252), and holds the only refresh token a first-party app keeps.
+		// The Epicenter app signs in through a loopback redirect on any port
+		// (RFC 8252), its shell keeping the refresh token (`epicenter-account`).
 		// It is the platform: it reaches every folder its person holds
-		// (`folders:all`), where an app reaches the folders attached to it.
+		// (`folders:all`), where an app reaches the folders attached to it, and
+		// shows who it is signed in as (`email`).
 		{
 			clientId: 'so.epicenter',
 			name: 'Epicenter',
@@ -140,6 +141,7 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 				'openid',
 				'offline_access',
 				'profile',
+				'email',
 				'ai',
 				'folders:read',
 				'folders:write',

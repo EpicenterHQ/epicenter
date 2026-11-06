@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-make-epicenter-folder"
+description = "Enables the make_epicenter_folder command without any pre-configured scope."
+commands.allow = ["make_epicenter_folder"]
+
+[[permission]]
+identifier = "deny-make-epicenter-folder"
+description = "Denies the make_epicenter_folder command without any pre-configured scope."
+commands.deny = ["make_epicenter_folder"]

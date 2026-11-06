@@ -47,9 +47,9 @@ let server: ReturnType<typeof Bun.serve>;
 let sql: Client;
 let pool: Pool;
 let client: OAuthTestClient;
-let owner: { person: Person; token: string };
+let maker: { person: Person; token: string };
 let member: { person: Person; token: string };
-/** The folder the owner shares with the member, attached to the recorder. */
+/** The folder the maker shares with the member, attached to the recorder. */
 let shared: string;
 
 beforeAll(async () => {
@@ -128,7 +128,7 @@ beforeAll(async () => {
 		});
 		return { person, token: tokens.access_token };
 	};
-	owner = await signedIn('owner');
+	maker = await signedIn('maker');
 	member = await signedIn('member');
 	const json = (token: string, method: string, body?: unknown) => ({
 		method,
@@ -138,16 +138,16 @@ beforeAll(async () => {
 		},
 		body: body === undefined ? undefined : JSON.stringify(body),
 	});
-	// The recorder's first sync makes its folder; the owner shares it, and the
+	// The recorder's first sync makes its folder; the maker shares it, and the
 	// member accepts.
 	const made = await fetch(
 		`${audiences.git}/folders`,
-		json(owner.token, 'POST', {}),
+		json(maker.token, 'POST', {}),
 	);
 	shared = ((await made.json()) as { folder: string }).folder;
 	const invited = await fetch(
 		`${origin}/api/folders/${shared}/members/${encodeURIComponent(member.person.email)}`,
-		json(owner.token, 'PUT', { role: 'writer' }),
+		json(maker.token, 'PUT', { role: 'member' }),
 	);
 	if (invited.status !== 200) throw new Error(await invited.text());
 	const accepted = await fetch(
@@ -307,7 +307,7 @@ describe('the file contract on the local server', () => {
 	let first: Receipt;
 
 	test('a web capture (note plus audio) is one commit, and a resend has moved, landing nothing', async () => {
-		web = webClient(owner.token, shared);
+		web = webClient(maker.token, shared);
 		const before = await web.write(
 			capture('a', { oid: sha256(audio), size: audio.length }),
 		);
@@ -553,34 +553,22 @@ describe('the file contract on the local server', () => {
 		});
 	}, 60_000);
 
-	test("a member's force-push is refused; the owner's lands and keeps the old main", async () => {
-		// The tip is a capture, which the owner's rewrite then drops.
+	test("a member's force-push lands and keeps the old main, though another member made the folder", async () => {
+		// The tip is a capture, which the member's rewrite then drops.
 		const object = await web.upload(randomBytes(1000));
 		const tipCapture = await web.write(capture('b', object));
 		expect(tipCapture.status).toBe(200);
 		const memberDir = await desktop(member.token, web.repo);
-		const forced = await box.git(memberDir, [
-			'push',
-			'--force',
-			'origin',
-			'HEAD~1:main',
-		]);
-		expect(forced.code).not.toBe(0);
-		expect(forced.stderr).toContain(
-			'only the repository owner may rewrite main',
-		);
-
-		const ownerDir = await desktop(owner.token, web.repo);
-		const old = (await box.ok(ownerDir, ['rev-parse', 'HEAD'])).trim();
+		const old = (await box.ok(memberDir, ['rev-parse', 'HEAD'])).trim();
 		expect(old).toBe(tipCapture.body.commit);
-		const rewritten = await box.git(ownerDir, [
+		const rewritten = await box.git(memberDir, [
 			'push',
 			'--force',
 			'origin',
 			'HEAD~1:main',
 		]);
 		expect(rewritten.code).toBe(0);
-		const refs = await box.ok(ownerDir, ['ls-remote', 'origin']);
+		const refs = await box.ok(memberDir, ['ls-remote', 'origin']);
 		expect(refs).toMatch(
 			new RegExp(`^${old}\\trefs/epicenter/replaced/\\d{8}-\\d{9}Z$`, 'm'),
 		);

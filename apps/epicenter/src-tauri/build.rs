@@ -17,13 +17,14 @@ fn main() {
 }
 
 /// The commands this build registers, which are the ones the Tauri manifest
-/// declares: the dictation commands join the page API's only with the
-/// `dictation` feature.
+/// declares: the page API, the sign-in's, and the dictation commands only
+/// with the `dictation` feature.
 fn registered_commands() -> &'static [&'static str] {
-    if env::var_os("CARGO_FEATURE_DICTATION").is_none() {
-        return COMMANDS;
+    let mut commands = [COMMANDS, ACCOUNT_COMMANDS].concat();
+    if env::var_os("CARGO_FEATURE_DICTATION").is_some() {
+        commands.extend_from_slice(DICTATION_COMMANDS);
     }
-    Box::leak([COMMANDS, DICTATION_COMMANDS].concat().into_boxed_slice())
+    Box::leak(commands.into_boxed_slice())
 }
 
 /// Remove the permission files a `dictation` build generated, so a default

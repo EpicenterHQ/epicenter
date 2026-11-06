@@ -27,6 +27,19 @@ export const commands = {
 	 */
 	listFolder: (root: Root, under: string[]) => typedError<ListedFile[], FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root, under })),
 	/**
+	 *  The Epicenter folder's listing (ADR-0813): every directory directly
+	 *  inside it, links followed, hidden names skipped, each with its name (its
+	 *  root is `Root::Folder(name)`) and its identity, and what is there but
+	 *  cannot be a folder, with why. The folder is made when it is missing.
+	 */
+	listEpicenter: () => typedError<EpicenterListing, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|list_epicenter")),
+	/**
+	 *  Make the directory `name` in the Epicenter folder, for a folder cloned or
+	 *  accepted into it: refused when anything has that name, or the name is not
+	 *  one every disk keeps. It opens as `Root::Folder(name)`.
+	 */
+	makeEpicenterFolder: (name: string) => typedError<EpicenterEntry, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|make_epicenter_folder", { name })),
+	/**
 	 *  Ask the operating system to open Epicenter with a request to sync the
 	 *  Data folder, after the app opened it, under `contract`, the URL its
 	 *  contract is published at. Answers once the system took the request;
@@ -41,6 +54,24 @@ export const commands = {
 };
 
 /* Types */
+/**  One directory directly inside the Epicenter folder. */
+export type EpicenterEntry = {
+	/**  Its name there, the person's own label for it, and its root's name. */
+	name: string,
+	/**  Its identity now, its link followed; null where the system has none. */
+	identity: RootIdentity | null,
+};
+
+/**
+ *  The Epicenter folder's listing: where it is, as a person reads it, its
+ *  folders by name, and what is there but could not be read.
+ */
+export type EpicenterListing = {
+	path: string,
+	folders: EpicenterEntry[],
+	unreadable: Unreadable[],
+};
+
 /**
  *  Why a storage command answered no: the root it named cannot be used
  *  (`RootError`, such as `Disconnected` with the link's folder and target),
@@ -85,7 +116,13 @@ export type Root =
  *  The operating system's application data directory for this app:
  *  machine-local settings, never synced.
  */
-"AppData";
+"AppData" |
+/**
+ *  The directory `name` directly inside the Epicenter folder, which the
+ *  Epicenter app names (`Roots::name_epicenter`): one of the person's
+ *  folders, followed through a link there to wherever it lives.
+ */
+{ Folder: string };
 
 /**  Why a root did not open or cannot be used: what the page is told. */
 export type RootError =
@@ -109,6 +146,16 @@ export type RootError =
 { name: "Unavailable"; folder: string; message: string } |
 /**  The shell is shutting its roots down. */
 { name: "ShuttingDown" };
+
+/**
+ *  A directory's identity on this computer (its device and inode), which a
+ *  folder's manifest records so a copy is told apart from a move (ADR-0811):
+ *  `rootIdentity` in `@epicenter/folder/node` reads the same two numbers.
+ */
+export type RootIdentity = {
+	device: string,
+	inode: string,
+};
 
 /**
  *  Why a storage call answered no. The page's store (`device/tauri-store.ts`)
@@ -141,6 +188,12 @@ export type SyncRequestError =
 { name: "Contract"; url: string } |
 /**  The operating system did not open the link (Epicenter may not be installed). */
 { name: "NotOpened"; message: string };
+
+/**  Something in the Epicenter folder that is not a folder it can open, and why. */
+export type Unreadable = {
+	name: string,
+	reason: string,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ data: T; error: null } | { data: null; error: E }> {

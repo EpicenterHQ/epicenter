@@ -9,8 +9,8 @@
  *   the client leaves out only what the advertised `main` already reaches,
  *   so a push that extends `main` carries a path of commits from its tip to
  *   `main`. Merge commits are ordinary. No server history is walked.
- * - A push that is not a fast-forward is accepted only from the repository
- *   owner, and saves the `main` it replaces as
+ * - A push that is not a fast-forward is accepted only from a role that may
+ *   rewrite (every `member`), and saves the `main` it replaces as
  *   `refs/epicenter/replaced/<time>` in the same transaction (decision 33).
  * - Every file other than a `.md` note or a hidden path (decision 58) must
  *   be a Git LFS pointer whose object is stored and verified, whatever
@@ -346,7 +346,7 @@ export async function checkPushedTrees(
 	};
 }
 
-/** A ref name for the `main` an owner's rewrite replaces, from `now`. */
+/** A ref name for the `main` a rewrite replaces, from `now`. */
 export function replacedRef(now: Date): string {
 	const stamp = now
 		.toISOString()
@@ -358,7 +358,7 @@ export function replacedRef(now: Date): string {
 
 /**
  * Receive one push: decide it, check it, and apply it atomically.
- * `mayRewrite` is whether the pusher owns the repository.
+ * `mayRewrite` is whether the pusher's role may rewrite `main`.
  */
 export async function receivePush({
 	objects,
@@ -426,7 +426,7 @@ export async function receivePush({
 	if (!fastForward && !mayRewrite)
 		return reply(
 			MAIN,
-			'non-fast-forward: only the repository owner may rewrite main; fetch, merge and push again',
+			'non-fast-forward: your role may not rewrite main; fetch, merge and push again',
 		);
 	const checked = await checkPushedTrees(
 		objects,

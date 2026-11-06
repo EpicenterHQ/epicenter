@@ -8,12 +8,17 @@
 //
 // `build.rs` pulls this in with `include!`, so it cannot drift from the crate.
 
-/// The commands every build registers: the page API.
-pub const COMMANDS: &[&str] = &[
-    "open_home",
-    "auth_login",
-    "auth_status",
-    "auth_logout",
+/// The commands every build registers in its typed page API.
+pub const COMMANDS: &[&str] = &["open_home", "start_at_login", "set_start_at_login"];
+
+/// The sign-in's commands (`epicenter_account::COMMANDS`), which the shell
+/// registers beside the typed API: the page's side is `createTauriAuth`, not
+/// the generated bindings. A test holds this list to the crate's.
+pub const ACCOUNT_COMMANDS: &[&str] = &[
+    "account_sign_in",
+    "account_sign_out",
+    "account_fetch",
+    "account_fetch_cancel",
 ];
 
 /// The native dictation commands, registered only by a build with the

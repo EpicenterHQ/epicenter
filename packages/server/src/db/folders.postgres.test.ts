@@ -1,8 +1,9 @@
 /**
  * Migration `0009` carries the namespace model's repositories into folders
- * (ADR-0811), on a disposable Postgres cluster: the migrations before it are
- * applied, a namespace's repositories, members, and grants are written as
- * that model wrote them, and `0009` then runs over them.
+ * (ADR-0811), and `0010` carries shares waiting into invitations to an email
+ * and every owner and writer into a member (ADR-0820), on a disposable
+ * Postgres cluster: the migrations before each are applied, rows are written
+ * as the model before it wrote them, and the migration then runs over them.
  * Requires initdb and pg_ctl on PATH; never connects to a configured database.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
@@ -24,25 +25,32 @@ const migrations = fileURLToPath(
 
 let cluster: DisposablePostgres;
 let sql: Client;
-let before: string;
+const made: string[] = [];
+
+/** The migrations as they stood before `tag`. */
+async function before(tag: string) {
+	const folder = await mkdtemp(join(tmpdir(), 'epicenter-migrations-'));
+	made.push(folder);
+	await cp(migrations, folder, { recursive: true });
+	const journal = JSON.parse(
+		await readFile(join(folder, 'meta/_journal.json'), 'utf8'),
+	) as { entries: { tag: string }[] };
+	journal.entries = journal.entries.filter((entry) => entry.tag < tag);
+	await writeFile(join(folder, 'meta/_journal.json'), JSON.stringify(journal));
+	return folder;
+}
 
 beforeAll(async () => {
 	cluster = await startDisposablePostgres();
 	sql = cluster.clients[0];
-	// The migrations as they stood before folders.
-	before = await mkdtemp(join(tmpdir(), 'epicenter-migrations-'));
-	await cp(migrations, before, { recursive: true });
-	const journal = JSON.parse(
-		await readFile(join(before, 'meta/_journal.json'), 'utf8'),
-	) as { entries: { tag: string }[] };
-	journal.entries = journal.entries.filter(({ tag }) => tag !== '0009_folders');
-	await writeFile(join(before, 'meta/_journal.json'), JSON.stringify(journal));
-	await migrate(createDb(sql), { migrationsFolder: before });
+	await migrate(createDb(sql), {
+		migrationsFolder: await before('0009_folders'),
+	});
 }, 60_000);
 
 afterAll(async () => {
 	await cluster?.stop();
-	if (before) await rm(before, { recursive: true, force: true });
+	for (const folder of made) await rm(folder, { recursive: true, force: true });
 });
 
 async function account(id: string) {
@@ -91,7 +99,9 @@ test("each repository becomes the folder of its id, held by its namespace's memb
 		['a'.repeat(64)],
 	);
 
-	await migrate(createDb(sql), { migrationsFolder: migrations });
+	await migrate(createDb(sql), {
+		migrationsFolder: await before('0010_invitations'),
+	});
 
 	const members = await sql.query<{
 		folder_id: string;
@@ -176,43 +186,85 @@ test("each repository becomes the folder of its id, held by its namespace's memb
 	).toBe(0);
 }, 60_000);
 
-test('a folder goes with its last member, and its last owner leaving makes the earliest member an owner', async () => {
-	await sql.query("insert into folder (id) values ('left000000000000')");
+test('each share waiting becomes an invitation to its email, every owner and writer a member, and a folder goes with its last member', async () => {
 	await sql.query(
-		`insert into folder_member (folder_id, account_id, role, accepted_at) values
-		 ('left000000000000', 'alice', 'owner', now() - interval '2 days'),
-		 ('left000000000000', 'bob', 'writer', now() - interval '1 day'),
-		 ('left000000000000', 'carol', 'reader', now())`,
+		`insert into "user" (id, name, email, email_verified, created_at, updated_at)
+		 values ('erin', 'erin', 'Erin@Example.test', true, now(), now())`,
 	);
 	await sql.query(
-		"insert into folder_member (folder_id, account_id, role) values ('left000000000000', 'dave', 'owner')",
+		"insert into folder (id) values ('waiting000000000'), ('left000000000000')",
 	);
+	await sql.query(
+		`insert into folder_member (folder_id, account_id, role, shared_by, accepted_at) values
+		 ('waiting000000000', 'alice', 'owner', null, now()),
+		 ('waiting000000000', 'bob', 'writer', 'alice', now()),
+		 ('waiting000000000', 'carol', 'reader', 'alice', now()),
+		 ('waiting000000000', 'erin', 'owner', 'alice', null),
+		 ('waiting000000000', 'dave', 'reader', 'bob', null),
+		 ('left000000000000', 'alice', 'owner', null, now()),
+		 ('left000000000000', 'bob', 'writer', 'alice', now())`,
+	);
+
+	await migrate(createDb(sql), { migrationsFolder: migrations });
+
+	expect(
+		(
+			await sql.query(
+				'select folder_id, account_id, role from folder_member order by folder_id, account_id',
+			)
+		).rows.filter(({ folder_id }) =>
+			['waiting000000000', 'left000000000000'].includes(folder_id),
+		),
+	).toEqual([
+		{ folder_id: 'left000000000000', account_id: 'alice', role: 'member' },
+		{ folder_id: 'left000000000000', account_id: 'bob', role: 'member' },
+		{ folder_id: 'waiting000000000', account_id: 'alice', role: 'member' },
+		{ folder_id: 'waiting000000000', account_id: 'bob', role: 'member' },
+		{ folder_id: 'waiting000000000', account_id: 'carol', role: 'reader' },
+	]);
+	expect(
+		(
+			await sql.query(
+				'select folder_id, email, role, shared_by from folder_invitation order by email',
+			)
+		).rows,
+	).toEqual([
+		{
+			folder_id: 'waiting000000000',
+			email: 'dave@example.test',
+			role: 'reader',
+			shared_by: 'bob',
+		},
+		{
+			folder_id: 'waiting000000000',
+			email: 'erin@example.test',
+			role: 'member',
+			shared_by: 'alice',
+		},
+	]);
+	await expect(
+		sql.query(
+			"insert into folder_member (folder_id, account_id, role) values ('left000000000000', 'carol', 'owner')",
+		),
+	).rejects.toThrow();
+
+	// No one is promoted when someone leaves; the folder goes with the last.
 	await sql.query(
 		"delete from folder_member where folder_id = 'left000000000000' and account_id = 'alice'",
 	);
-	const roles = async () =>
+	expect(
 		(
 			await sql.query(
-				"select account_id, role from folder_member where folder_id = 'left000000000000' order by account_id",
+				"select account_id, role from folder_member where folder_id = 'left000000000000'",
 			)
-		).rows;
-	expect(await roles()).toEqual([
-		{ account_id: 'bob', role: 'owner' },
-		{ account_id: 'carol', role: 'reader' },
-		{ account_id: 'dave', role: 'owner' },
-	]);
+		).rows,
+	).toEqual([{ account_id: 'bob', role: 'member' }]);
 	await sql.query('delete from "user" where id = $1', ['bob']);
-	expect(await roles()).toEqual([
-		{ account_id: 'carol', role: 'owner' },
-		{ account_id: 'dave', role: 'owner' },
-	]);
-	// Dave never accepted: the folder lives while Carol remains, and goes with her.
-	await sql.query(
-		"delete from folder_member where folder_id = 'left000000000000' and account_id = 'carol'",
-	);
 	expect(
 		(await sql.query("select 1 from folder where id = 'left000000000000'"))
 			.rowCount,
 	).toBe(0);
-	expect(await roles()).toEqual([]);
+	// Its invitations go with a folder.
+	await sql.query("delete from folder where id = 'waiting000000000'");
+	expect((await sql.query('select 1 from folder_invitation')).rowCount).toBe(0);
 }, 60_000);

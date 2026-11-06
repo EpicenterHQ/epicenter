@@ -1,13 +1,10 @@
 /**
  * `epicenter auth login | logout | status | token`
  * (ADR-0558): what `auth.ts` does, as text for a person or JSON for a
- * program. Without `--desktop` every command uses the device grant from
- * `epicenter auth login`; with it, the desktop app's grant, which only Rust
- * passes.
+ * program, over the CLI's device grant from `epicenter auth login`.
  *
  * `auth login --json` prints NDJSON: `{"device": {...}}` with the code and
- * link, or `{"open": "<url>"}` with `--desktop`, then one result line,
- * `{"signedIn": {...}}` or `{"error"}`.
+ * link, then one result line, `{"signedIn": {...}}` or `{"error"}`.
  */
 
 import {
@@ -15,10 +12,7 @@ import {
 	accessToken,
 	authContext,
 	authStatus,
-	type GrantKind,
-	type GrantStatus,
 	loginWithDevice,
-	loginWithLoopback,
 	logout,
 	type StoredGrant,
 } from './auth.ts';
@@ -33,22 +27,8 @@ const who = (account: StoredGrant['account']) =>
 			? `${account.name} (${account.id})`
 			: account.id;
 
-/** Open `url` in the person's browser with macOS's `open` (ADR-0567). */
-function openInBrowser(url: string) {
-	try {
-		Bun.spawn(['open', url], { stdio: ['ignore', 'ignore', 'ignore'] });
-	} catch {
-		// The URL is printed as well; a person can open it by hand.
-	}
-}
-
-function signedInResult(
-	ctx: AuthContext,
-	grant: GrantKind,
-	stored: StoredGrant,
-) {
+function signedInResult(ctx: AuthContext, stored: StoredGrant) {
 	return {
-		grant,
 		client: stored.client,
 		origin: ctx.deployment.origin,
 		account: stored.account,
@@ -56,36 +36,9 @@ function signedInResult(
 	};
 }
 
-/**
- * `epicenter auth login`: the device grant. With `--desktop`, the desktop
- * app's sign-in as `so.epicenter` through a loopback redirect, which only
- * Settings runs.
- */
-export async function authLogin(
-	json: boolean,
-	grant: GrantKind,
-): Promise<number> {
+/** `epicenter auth login`: the device grant. */
+export async function authLogin(json: boolean): Promise<number> {
 	const ctx = authContext();
-	if (grant === 'desktop') {
-		const { data, error } = await loginWithLoopback(ctx, {
-			onUrl: (url) => {
-				if (json) writeJson({ open: url });
-				else {
-					writeErr(
-						`Opening your browser to sign in. If it does not open, visit:\n${url}`,
-					);
-					openInBrowser(url);
-				}
-			},
-		});
-		if (error !== null) return fail(error.message, json);
-		if (json) writeJson({ signedIn: signedInResult(ctx, 'desktop', data) });
-		else
-			writeOut(
-				`The Epicenter app is signed in to ${ctx.deployment.origin} as ${who(data.account)}.`,
-			);
-		return EXIT.ok;
-	}
 	const { data, error } = await loginWithDevice(ctx, {
 		onCode: (code) => {
 			if (json) writeJson({ device: code });
@@ -100,7 +53,7 @@ export async function authLogin(
 		},
 	});
 	if (error !== null) return fail(error.message, json);
-	if (json) writeJson({ signedIn: signedInResult(ctx, 'device', data) });
+	if (json) writeJson({ signedIn: signedInResult(ctx, data) });
 	else {
 		writeOut(
 			`This computer is signed in to ${ctx.deployment.origin} as ${who(data.account)}.`,
@@ -113,14 +66,13 @@ export async function authLogin(
 export async function authToken(
 	options: Options,
 	json: boolean,
-	grant: GrantKind,
 ): Promise<number> {
 	const ctx = authContext();
 	const resource =
 		typeof options.resource === 'string'
 			? options.resource
 			: ctx.deployment.audiences.api;
-	const { data, error } = await accessToken(ctx, grant, resource);
+	const { data, error } = await accessToken(ctx, resource);
 	if (error !== null) return fail(error.message, json);
 	if (json)
 		writeJson({
@@ -132,50 +84,32 @@ export async function authToken(
 	return EXIT.ok;
 }
 
-function statusLine(status: GrantStatus) {
-	const name =
-		status.grant === 'device'
-			? 'This computer (epicenter auth login)'
-			: 'The Epicenter app';
-	return status.signedIn
-		? `${name}: signed in as ${who(status.account)} since ${status.signedInAt}`
-		: `${name}: signed out`;
-}
-
-/** `epicenter auth status`: each grant on this machine, from the keychain alone. */
+/** `epicenter auth status`: this machine's sign-in, from the keychain alone. */
 export async function authStatusCommand(json: boolean): Promise<number> {
 	const ctx = authContext();
 	const { data, error } = await authStatus(ctx);
 	if (error !== null) return fail(error.message, json);
-	if (json) writeJson({ origin: ctx.deployment.origin, grants: data });
+	if (json) writeJson({ origin: ctx.deployment.origin, ...data });
 	else {
 		writeOut(ctx.deployment.origin);
-		for (const status of data) writeOut(statusLine(status));
+		writeOut(
+			data.signedIn
+				? `Signed in as ${who(data.account)} since ${data.signedInAt}`
+				: 'Signed out: run epicenter auth login',
+		);
 	}
 	return EXIT.ok;
 }
 
-/** `epicenter auth logout`: the device grant, or with `--desktop` the app's. */
-export async function authLogout(
-	json: boolean,
-	grant: GrantKind,
-): Promise<number> {
+/** `epicenter auth logout`: revoke and forget this machine's sign-in. */
+export async function authLogout(json: boolean): Promise<number> {
 	const ctx = authContext();
-	const { data, error } = await logout(ctx, grant);
+	const { data, error } = await logout(ctx);
 	if (error !== null) return fail(error.message, json);
-	if (json) writeJson({ grant, ...data });
-	else if (!data.signedOut)
-		writeOut(
-			grant === 'desktop'
-				? 'The Epicenter app was not signed in.'
-				: 'This computer was not signed in.',
-		);
+	if (json) writeJson(data);
+	else if (!data.signedOut) writeOut('This computer was not signed in.');
 	else {
-		writeOut(
-			grant === 'desktop'
-				? 'Signed the Epicenter app out.'
-				: 'Signed this computer out.',
-		);
+		writeOut('Signed this computer out.');
 		if (!data.revoked)
 			writeErr(
 				`${ctx.deployment.origin} could not be told, so its tokens stay valid until they expire. Revoke this device from your account page.`,

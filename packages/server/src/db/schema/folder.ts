@@ -4,13 +4,14 @@
  * repository that storage names by that id. It keeps no name or title: its
  * title is in its `epicenter.json`, read from its files.
  *
- * Its members are people (`folder_member`). A share is a member row whose
- * `accepted_at` is null: it grants nothing and shows only to the person it
- * names, until they accept it. Any member may be an owner. A folder lives
- * while an accepted member remains: the `folder_member_left` trigger in
- * `apps/api/drizzle` deletes it when its last one leaves, account deletion
- * included, and makes the earliest member an owner when its last owner
- * leaves others behind.
+ * Its members are people who accepted it (`folder_member`), and equal: a
+ * `member` or a `reader`, and no owner (ADR-0820). A share is an invitation
+ * to an email (`folder_invitation`): it names no account, grants nothing,
+ * and shows only to the person whose verified email it names, whether they
+ * had an account when it was made or signed up later, until they accept it
+ * and become a member. A folder lives while a member remains: the
+ * `folder_member_left` trigger in `apps/api/drizzle` deletes it when its
+ * last one leaves, account deletion included.
  *
  * `folder_app` records the apps a folder is attached to (ADR-0811), by the
  * OAuth client id the app signs in as. A token from an app reaches the
@@ -44,8 +45,8 @@ export const folder = pgTable(
 	(table) => [check('folder_id_format', sql`${table.id} ~ '^[a-z0-9]{16}$'`)],
 );
 
-/** What a member may do: read; also write; also rewrite `main` and manage the folder. */
-export const FOLDER_ROLES = ['owner', 'writer', 'reader'] as const;
+/** What a person holding a folder may do: everything, or read (`folder-roles.ts`). */
+export const FOLDER_ROLES = ['member', 'reader'] as const;
 
 export const folderMember = pgTable(
 	'folder_member',
@@ -61,8 +62,8 @@ export const folderMember = pgTable(
 		sharedBy: text('shared_by').references(() => user.id, {
 			onDelete: 'set null',
 		}),
-		/** When the person accepted the share; null while it waits. */
-		acceptedAt: timestamp('accepted_at'),
+		/** When the person became a member: made the folder, or accepted its invitation. */
+		acceptedAt: timestamp('accepted_at').defaultNow().notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(table) => [
@@ -70,8 +71,41 @@ export const folderMember = pgTable(
 		index('folder_member_account_id_idx').on(table.accountId),
 		check(
 			'folder_member_role',
-			sql`${table.role} in ('owner', 'writer', 'reader')`,
+			sql`${table.role} in ('member', 'reader')`,
 		),
+	],
+);
+
+/**
+ * A share waiting to be accepted (ADR-0820): an invitation to an email, in
+ * lower case, never to an account, so making one says nothing about whether
+ * anyone signs in with it. The person whose account has that email, verified,
+ * sees it and may accept it; accepting makes them a member and removes it.
+ */
+export const folderInvitation = pgTable(
+	'folder_invitation',
+	{
+		folderId: text('folder_id')
+			.notNull()
+			.references(() => folder.id, { onDelete: 'cascade' }),
+		/** The email it is for, in lower case. */
+		email: text('email').notNull(),
+		/** The role accepting gives. */
+		role: text('role', { enum: FOLDER_ROLES }).notNull(),
+		/** The member who shared it; null once they are gone. */
+		sharedBy: text('shared_by').references(() => user.id, {
+			onDelete: 'set null',
+		}),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.folderId, table.email] }),
+		index('folder_invitation_email_idx').on(table.email),
+		check(
+			'folder_invitation_role',
+			sql`${table.role} in ('member', 'reader')`,
+		),
+		check('folder_invitation_email_lower', sql`${table.email} = lower(${table.email})`),
 	],
 );
 
@@ -93,8 +127,19 @@ export const folderApp = pgTable(
 
 export const folderRelations = relations(folder, ({ many }) => ({
 	members: many(folderMember),
+	invitations: many(folderInvitation),
 	apps: many(folderApp),
 }));
+
+export const folderInvitationRelations = relations(
+	folderInvitation,
+	({ one }) => ({
+		folder: one(folder, {
+			fields: [folderInvitation.folderId],
+			references: [folder.id],
+		}),
+	}),
+);
 
 export const folderMemberRelations = relations(folderMember, ({ one }) => ({
 	folder: one(folder, {

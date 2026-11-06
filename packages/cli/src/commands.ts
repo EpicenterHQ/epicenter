@@ -95,9 +95,9 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<folder> [<email>]',
 		minArgs: 1,
 		maxArgs: 2,
-		options: [{ name: 'read' }, { name: 'write' }, { name: 'owner' }],
+		options: [{ name: 'role', value: 'member|reader' }],
 		summary:
-			'share a folder with a person, who accepts it, or change their role; or list who holds it',
+			'invite an email to a folder, or change the role of someone who holds it; or list who holds it',
 	},
 	{
 		path: ['unshare'],
@@ -105,7 +105,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 2,
 		maxArgs: 2,
 		summary:
-			'take a person out of a folder you own; with your own email, leave it or decline its share',
+			'take a person out of a folder or cancel their invitation; with your own email, leave it or decline',
 	},
 	{
 		path: ['accept'],

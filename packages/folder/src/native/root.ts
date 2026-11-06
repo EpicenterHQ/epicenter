@@ -7,7 +7,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Changed, Store } from '../device/store.js';
-import { tauriStore } from '../device/tauri-store.js';
+import { sameRoot, tauriStore } from '../device/tauri-store.js';
 import { OpenFolderError } from '../errors.js';
 import { commands, type FolderEvent, type Root } from './bindings.gen.js';
 import { rootRefusal } from './open-refusal.js';
@@ -48,7 +48,7 @@ async function askShell(root: Root): Promise<Result<OpenedRoot, NotOpened>> {
 		// Keep a successful open's event listener for the page's lifetime: a
 		// client may subscribe again after its last collection listener stops.
 		unlisten = await listen<FolderEvent>('folder-changed', ({ payload }) => {
-			if (payload.root !== root) return;
+			if (!sameRoot(payload.root, root)) return;
 			for (const listener of listeners) listener(payload.paths ?? 'all');
 		});
 	} catch (cause) {

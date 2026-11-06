@@ -24,7 +24,6 @@
 		"publisher": "Epicenter",
 		"copyright": "Copyright © 2026 Epicenter",
 		"shortDescription": "Registers, syncs, and shares your Epicenter folders",
-		"externalBin": ["binaries/epicenter-cli"],
 		"resources": {
 			"../dist": "apps-dist"
 		},

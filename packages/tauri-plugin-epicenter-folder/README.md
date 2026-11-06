@@ -60,6 +60,20 @@ holding it, or the Epicenter folder itself).
 Nothing is granted: a capability lets a window call the plugin, and the
 roots are the app's, so every window of the app reaches the same ones.
 
+The Epicenter app names no Data root: it names the Epicenter folder
+(`roots.name_epicenter(path, refusal)`, ADR-0813), and every directory
+directly inside it is a root of its own, `Root::Folder(name)` (`{ Folder:
+name }` to a page, `Folder/<name>` in a raw request's `root` header). The
+page lists them with `list_epicenter` (links followed, hidden names
+skipped, each with its device and inode, which a manifest records to tell a
+copy from a move; ADR-0811) and makes one with `make_epicenter_folder`.
+Opening a folder root follows a link at its path and never makes the folder;
+its location may not be the Epicenter folder, a folder holding it, or inside
+`.git` or `.epicenter`, besides the shell's own refusal. Both commands are
+the `epicenter-folder:epicenter` permission set, not the default one; a
+shell that named no Epicenter folder answers `NotNamed`. The page's side is
+`epicenterRoot()` from `@epicenter/folder/tauri`.
+
 A shell gives its window the plugin's commands in a capability:
 `{ "windows": ["todos:*"], "permissions": ["epicenter-folder:default", "core:event:allow-listen", "core:event:allow-unlisten"] }`.
 It grants no `fs` command and names no folder.

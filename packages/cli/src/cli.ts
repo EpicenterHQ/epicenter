@@ -36,67 +36,62 @@ const HANDLERS: Record<string, Run> = {
 			dir ?? '.',
 			json,
 		),
-	status: async ({ json, grant }) =>
-		(await import('./folder-commands.ts')).statusCommand(json, grant),
+	status: async ({ json }) =>
+		(await import('./folder-commands.ts')).statusCommand(json),
 	init: async ({ positionals: [path], options, json }) =>
 		(await import('./folder-commands.ts')).initCommand(path, options, json),
-	sync: async ({ positionals: [dir], options, json, grant }) =>
-		(await import('./sync/commands.ts')).syncCommand(dir, options, json, grant),
-	clone: async ({ positionals: [source, dir], json, grant }) =>
-		(await import('./sync/commands.ts')).cloneCommand(source, dir, json, grant),
-	log: async ({ positionals: [dir], options, json, grant }) =>
-		(await import('./sync/commands.ts')).logCommand(dir, options, json, grant),
-	diff: async ({ positionals: [dir], options, json, grant }) =>
-		(await import('./sync/commands.ts')).diffCommand(dir, options, json, grant),
-	restore: async ({ positionals: [commit, dir], options, json, grant }) =>
+	sync: async ({ positionals: [dir], options, json }) =>
+		(await import('./sync/commands.ts')).syncCommand(dir, options, json),
+	clone: async ({ positionals: [source, dir], json }) =>
+		(await import('./sync/commands.ts')).cloneCommand(source, dir, json),
+	log: async ({ positionals: [dir], options, json }) =>
+		(await import('./sync/commands.ts')).logCommand(dir, options, json),
+	diff: async ({ positionals: [dir], options, json }) =>
+		(await import('./sync/commands.ts')).diffCommand(dir, options, json),
+	restore: async ({ positionals: [commit, dir], options, json }) =>
 		(await import('./sync/commands.ts')).restoreCommand(
 			commit as string,
 			dir,
 			options,
 			json,
-			grant,
 		),
-	share: async ({ positionals: [folder, person], options, json, grant }) =>
+	share: async ({ positionals: [folder, person], options, json }) =>
 		(await import('./folder-commands.ts')).shareCommand(
 			folder as string,
 			person,
 			options,
 			json,
-			grant,
 		),
-	unshare: async ({ positionals: [folder, person], json, grant }) =>
+	unshare: async ({ positionals: [folder, person], json }) =>
 		(await import('./folder-commands.ts')).unshareCommand(
 			folder as string,
 			person as string,
 			json,
-			grant,
 		),
-	accept: async ({ positionals: [folder], json, grant }) =>
-		(await import('./folder-commands.ts')).acceptCommand(folder, json, grant),
-	attach: async ({ positionals: [folder, app], json, grant }) =>
+	accept: async ({ positionals: [folder], json }) =>
+		(await import('./folder-commands.ts')).acceptCommand(folder, json),
+	attach: async ({ positionals: [folder, app], json }) =>
 		(await import('./folder-commands.ts')).attachCommand(
 			folder as string,
 			app as string,
 			true,
 			json,
-			grant,
 		),
-	detach: async ({ positionals: [folder, app], json, grant }) =>
+	detach: async ({ positionals: [folder, app], json }) =>
 		(await import('./folder-commands.ts')).attachCommand(
 			folder as string,
 			app as string,
 			false,
 			json,
-			grant,
 		),
-	'auth login': async ({ json, grant }) =>
-		(await import('./auth-commands.ts')).authLogin(json, grant),
-	'auth logout': async ({ json, grant }) =>
-		(await import('./auth-commands.ts')).authLogout(json, grant),
+	'auth login': async ({ json }) =>
+		(await import('./auth-commands.ts')).authLogin(json),
+	'auth logout': async ({ json }) =>
+		(await import('./auth-commands.ts')).authLogout(json),
 	'auth status': async ({ json }) =>
 		(await import('./auth-commands.ts')).authStatusCommand(json),
-	'auth token': async ({ options, json, grant }) =>
-		(await import('./auth-commands.ts')).authToken(options, json, grant),
+	'auth token': async ({ options, json }) =>
+		(await import('./auth-commands.ts')).authToken(options, json),
 };
 
 /** What `epicenter <command> --help` adds below the usage line. */
@@ -143,19 +138,21 @@ values; its other files another. Files directly in the folder, and notes
 whose front matter does not read, are left out, each with why. A folder
 needs no epicenter.json to sync; it adds checking. Refuses a folder that has
 one. --dry-run prints the proposal and writes nothing.`,
-	share: `Shares the folder (a path that has synced, or a folder id) with the person
-who signs in as <email>, as a writer, or with --read a reader, or with
---owner an owner, who may share it on. It shows for them once they accept
-it (epicenter accept). For someone who holds it already, it changes their
-role. Without <email>, lists who holds the folder and who has not accepted
-yet. Only owners share. With --json, {"share": {"folder", "person", "role",
-"pending"}}, or the folder. Exits 2 when refused.`,
-	unshare: `Takes the person who signs in as <email> out of the folder; their next sync
-is refused, and the files they have stay with them. Only an owner takes
-someone else out; with your own email, you leave the folder, or decline a
-share waiting for you. When the last person leaves, the folder is deleted
-from the server. With --json, {"unshare": {"folder", "person", "removed",
-"folderGone"}}.`,
+	share: `Invites <email> to the folder (a path that has synced, or a folder id), as
+a member, or with --role reader as a reader, who syncs it without changing
+it. The folder is theirs once whoever signs in with that email, verified,
+accepts it (epicenter accept), whether they have an account now or sign up
+later; the answer is the same either way. For someone who holds it already,
+it changes their role. Without <email>, lists who holds the folder and who
+is invited. Every member shares; a reader does not. With --json, {"share":
+{"folder", "person", "role", "pending"}}, or the folder. Exits 2 when
+refused.`,
+	unshare: `Takes the person who signs in as <email> out of the folder, or cancels the
+invitation to <email>; their next sync is refused, and the files they have
+stay with them. Every member does this; with your own email, you leave the
+folder, or decline an invitation waiting for you. When the last person
+leaves, the folder is deleted from the server. With --json, {"unshare":
+{"folder", "person", "removed", "folderGone"}}.`,
 	accept: `Accepts the share of <folder> (its id, or its title) waiting for you, and
 brings it into the Epicenter folder beside your own, in a new folder named
 for its title. Without <folder>, lists the shares waiting for you.`,

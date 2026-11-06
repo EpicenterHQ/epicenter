@@ -2,7 +2,9 @@
  * `@epicenter/folder/tauri`: what a desktop page asks the shell about its
  * folder beyond reading and writing it: show a root in the file manager
  * (`revealRoot`), and Epicenter's sync enrollment (`syncWithEpicenter`,
- * `syncedWithEpicenter`). An app opens its folder with
+ * `syncedWithEpicenter`); and, in the Epicenter app, the Epicenter folder
+ * with every folder in it (`epicenterRoot`), which the platform's
+ * functions in `@epicenter/folder/platform` take. An app opens its folder with
  * `openFolder(contract, home({ site }))` from `@epicenter/folder`, which on
  * the desktop is the `Data` root the shell named; what a capability keeps
  * on this computer goes to `AppData` through `settings` from
@@ -15,6 +17,7 @@ import { commands, type Root } from './native/bindings.gen.js';
 export type { FolderRequest } from './desktop-folder.js';
 export { syncedWithEpicenter, syncWithEpicenter } from './epicenter-sync.js';
 export type { Root } from './native/bindings.gen.js';
+export { epicenterRoot } from './native/epicenter-root.js';
 
 /** Ask the shell to show the location it named for `root`, even if it did not open. */
 export async function revealRoot(

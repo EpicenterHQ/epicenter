@@ -31,7 +31,7 @@ export function rootRefusal(refusal: unknown) {
 			});
 		case 'NotNamed':
 			return OpenFolderError.StorageUnavailable({
-				cause: `the desktop shell named no ${error.root} root for this app`,
+				cause: `the desktop shell named no ${typeof error.root === 'string' ? error.root : error.root.Folder} root for this app`,
 			});
 		case 'Invalid':
 			return OpenFolderError.StorageUnavailable({ cause: error.root });

@@ -476,6 +476,30 @@ export async function checkConsent(h: OAuthHarness) {
 	});
 	expect(new URL(reauthorized.location).searchParams.get('code')).toBeString();
 
+	// A device code asking for every folder reaches the consent page with
+	// `folders:all` in its signed request, which the page shows (ADR-0820).
+	const started = await client.request('/auth/device/code', {
+		form: {
+			client_id: h.cli.clientId,
+			scope: 'offline_access folders:read folders:all',
+			resource,
+		},
+	});
+	expect(started.status).toBe(200);
+	const { user_code } = await client.json<{ user_code: string }>(started);
+	const asked = await client.request(
+		`/auth/oauth2/authorize?user_code=${encodeURIComponent(user_code)}`,
+		{ cookie: person.cookie },
+	);
+	const deviceConsent = new URL(
+		asked.headers.get('location') ?? '',
+		client.origin,
+	);
+	expect(deviceConsent.pathname).toBe('/consent');
+	expect(deviceConsent.searchParams.get('scope')?.split(' ')).toContain(
+		'folders:all',
+	);
+
 	// A device code is approved on the consent page.
 	const device = await client.deviceGrant({
 		clientId: h.cli.clientId,

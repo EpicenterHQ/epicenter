@@ -6,11 +6,11 @@
  * the server by its id; a person by the email they sign in with.
  *
  * The credential is an access token for the deployment's Git audience, from
- * the grant the command runs under (`--desktop` selects the desktop app's).
+ * the CLI's sign-in (`epicenter auth login`).
  */
 import { basename } from 'node:path';
 import {
-	type FolderMember,
+	FOLDER_ROLES,
 	type FolderRole,
 	isFolderId,
 	isPersonEmail,
@@ -20,6 +20,7 @@ import { epicenterRoot, localFolder } from '@epicenter/folder/node';
 import {
 	acceptIntoHome,
 	attachFolder,
+	describeMembers,
 	getFolder,
 	type HomeFolder,
 	initFolder,
@@ -32,7 +33,7 @@ import {
 import { storeManifest } from '@epicenter/folder/sync';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { resolveAppPaths } from './app-paths.ts';
-import { authContext, type GrantKind } from './auth.ts';
+import { authContext } from './auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 import { signedInAccount } from './sync/account.ts';
 
@@ -40,19 +41,6 @@ type Options = Record<string, string | true>;
 
 /** The Epicenter folder on this computer. */
 export const homeRoot = () => epicenterRoot(resolveAppPaths().folderDir);
-
-/** "Only you", "You and Jess", "Ana and Jess": who holds a folder, as a person reads it. */
-export function describeMembers(members: readonly FolderMember[]): string {
-	const others = members
-		.filter(({ you }) => !you)
-		.map(({ name, email }) => name || email);
-	const you = members.some((member) => member.you);
-	if (others.length === 0) return you ? 'Only you' : 'No one';
-	const named = you ? ['You', ...others] : others;
-	return named.length === 1
-		? (named[0] as string)
-		: `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`;
-}
 
 /**
  * The folder id `target` names: an id, or the path of a folder on this
@@ -76,12 +64,9 @@ export async function folderIdOf(
 }
 
 /** `epicenter status`: the folders in the Epicenter folder, each one's state, and the shares waiting. */
-export async function statusCommand(json: boolean, grant: GrantKind) {
+export async function statusCommand(json: boolean) {
 	const root = homeRoot();
-	let account: RemoteAccount | undefined = signedInAccount(
-		authContext(),
-		grant,
-	);
+	let account: RemoteAccount | undefined = signedInAccount(authContext());
 	let home = await listHome({ root, account });
 	let offline: string | null = null;
 	if (home.error !== null) {
@@ -174,19 +159,12 @@ export async function initCommand(
 	return EXIT.ok;
 }
 
-const ROLE_OPTIONS: Record<string, FolderRole> = {
-	read: 'reader',
-	write: 'writer',
-	owner: 'owner',
-};
-
-/** The role `--read`, `--write`, or `--owner` asks for, `writer` by default, or why none can be chosen. */
-function roleOf(options: Options): FolderRole | string {
-	const asked = Object.keys(ROLE_OPTIONS).filter(
-		(key) => options[key] === true,
-	);
-	if (asked.length > 1) return 'Give one of --read, --write, and --owner.';
-	return ROLE_OPTIONS[asked[0] ?? 'write'] as FolderRole;
+/** The role `--role` names, `member` by default, or why it names none. */
+function roleOf(options: Options): FolderRole | { refused: string } {
+	const asked = options.role ?? 'member';
+	return FOLDER_ROLES.includes(asked as FolderRole)
+		? (asked as FolderRole)
+		: { refused: `--role is ${FOLDER_ROLES.join(' or ')}, not '${asked}'.` };
 }
 
 function printFolder(folder: ListedFolder) {
@@ -197,27 +175,26 @@ function printFolder(folder: ListedFolder) {
 				`  ${role.padEnd(6)}  ${name ? `${name} <${email}>` : email}${you ? ' (you)' : ''}`,
 		),
 		...folder.invited.map(
-			({ email, role }) => `  ${role.padEnd(6)}  ${email} (not accepted yet)`,
+			({ email, role }) => `  ${role.padEnd(6)}  ${email} (invited)`,
 		),
 	];
 	writeOut(lines.join('\n'));
 }
 
 /**
- * `epicenter share <folder> [<email>] [--read | --write | --owner]`: share
- * the folder with a person, who accepts it, or change their role; without
- * a person, who holds it.
+ * `epicenter share <folder> [<email>] [--role member|reader]`: invite an
+ * email to the folder, or change the role of someone who holds it; without
+ * an email, who holds it and who is invited.
  */
 export async function shareCommand(
 	target: string,
 	person: string | undefined,
 	options: Options,
 	json: boolean,
-	grant: GrantKind,
 ) {
 	const folder = await folderIdOf(target);
 	if (folder.error !== null) return fail(folder.error, json);
-	const account = signedInAccount(authContext(), grant);
+	const account = signedInAccount(authContext());
 	if (person === undefined) {
 		const listed = await getFolder(account, folder.data);
 		if (listed.error !== null) return fail(listed.error.message, json);
@@ -231,32 +208,31 @@ export async function shareCommand(
 			json,
 		);
 	const role = roleOf(options);
-	if (!['owner', 'writer', 'reader'].includes(role)) return fail(role, json);
+	if (typeof role !== 'string') return fail(role.refused, json);
 	const shared = await shareFolder(account, {
 		folder: folder.data,
 		email: person,
-		role: role as FolderRole,
+		role,
 	});
 	if (shared.error !== null) return fail(shared.error.message, json);
 	if (json) writeJson({ share: { folder: folder.data, ...shared.data } });
 	else
 		writeOut(
 			shared.data.pending
-				? `Shared with ${person} as ${role}; it shows for them once they accept it.`
-				: `${person} is now ${role === 'owner' ? 'an' : 'a'} ${role}.`,
+				? `Invited ${person} as a ${role}: the folder is theirs once whoever signs in with that email accepts it.`
+				: `${person} is now a ${role}.`,
 		);
 	return EXIT.ok;
 }
 
 /**
- * `epicenter unshare <folder> <email>`: take a person out of a folder you
- * own; with your own email, leave it, or decline a share.
+ * `epicenter unshare <folder> <email>`: take a person out of a folder, or
+ * cancel their invitation; with your own email, leave it, or decline one.
  */
 export async function unshareCommand(
 	target: string,
 	person: string,
 	json: boolean,
-	grant: GrantKind,
 ) {
 	const folder = await folderIdOf(target);
 	if (folder.error !== null) return fail(folder.error, json);
@@ -265,7 +241,7 @@ export async function unshareCommand(
 			`Name a person by the email they sign in with, not '${person}'.`,
 			json,
 		);
-	const removed = await unshareFolder(signedInAccount(authContext(), grant), {
+	const removed = await unshareFolder(signedInAccount(authContext()), {
 		folder: folder.data,
 		email: person,
 	});
@@ -275,7 +251,7 @@ export async function unshareCommand(
 		writeOut(
 			removed.data.folderGone
 				? `${person} left, the last to hold it: the folder is gone from the server. Its files here stay.`
-				: `${person} no longer holds the folder; the files they have stay with them.`,
+				: `${person} no longer holds the folder or is invited to it; any files they have stay with them.`,
 		);
 	return EXIT.ok;
 }
@@ -284,12 +260,8 @@ export async function unshareCommand(
  * `epicenter accept [<folder>]`: accept a share and bring the folder into
  * the Epicenter folder beside your own; without one, the shares waiting.
  */
-export async function acceptCommand(
-	target: string | undefined,
-	json: boolean,
-	grant: GrantKind,
-) {
-	const account = signedInAccount(authContext(), grant);
+export async function acceptCommand(target: string | undefined, json: boolean) {
+	const account = signedInAccount(authContext());
 	const listing = await listFolders(account);
 	if (listing.error !== null) return fail(listing.error.message, json);
 	const { pending } = listing.data;
@@ -338,11 +310,10 @@ export async function attachCommand(
 	app: string,
 	attached: boolean,
 	json: boolean,
-	grant: GrantKind,
 ) {
 	const folder = await folderIdOf(target);
 	if (folder.error !== null) return fail(folder.error, json);
-	const done = await attachFolder(signedInAccount(authContext(), grant), {
+	const done = await attachFolder(signedInAccount(authContext()), {
 		folder: folder.data,
 		app,
 		attached,

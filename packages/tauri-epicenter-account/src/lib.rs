@@ -25,6 +25,7 @@
 //!     client_id: "so.epicenter.vocab.native",
 //!     name: "Vocab",
 //!     scope: AccountApp::HOSTED_MODELS,
+//!     audiences: AccountApp::API,
 //! };
 //!
 //! epicenter_account::manage(builder, ACCOUNT)
@@ -45,9 +46,9 @@ mod relay;
 use std::sync::Arc;
 
 use tauri::plugin::TauriPlugin;
-use tauri::{Manager, Runtime};
+use tauri::{Manager, RunEvent, Runtime};
 
-pub use account::{deployment_origin, Account, AccountApp, Identity, IDENTITY_FILE};
+pub use account::{deployment_origin, Account, AccountApp, Audience, Identity, IDENTITY_FILE};
 pub use connection::Connections;
 pub use credentials::{Credentials, CREDENTIALS_FILE};
 
@@ -73,8 +74,18 @@ pub const CONNECTION_COMMANDS: &[&str] = &[
 /// app's AppData directory, and its connections' requests. Both files are
 /// placed once the app runs.
 pub fn manage<R: Runtime>(builder: tauri::Builder<R>, app: AccountApp) -> tauri::Builder<R> {
+    manage_at(builder, app, deployment_origin())
+}
+
+/// `manage` against the deployment at `origin`, for a shell that names its
+/// own (the Epicenter app, which a self-hosted build compiles for its server).
+pub fn manage_at<R: Runtime>(
+    builder: tauri::Builder<R>,
+    app: AccountApp,
+    origin: String,
+) -> tauri::Builder<R> {
     let credentials = Arc::new(Credentials::default());
-    let account = Arc::new(Account::new(app, deployment_origin(), credentials.clone()));
+    let account = Arc::new(Account::new(app, origin, credentials.clone()));
     builder
         .manage(Arc::new(Connections::new(credentials.clone())))
         .manage(account.clone())
@@ -84,7 +95,17 @@ pub fn manage<R: Runtime>(builder: tauri::Builder<R>, app: AccountApp) -> tauri:
 /// Place the credentials file and `account.json` at the top of the app's
 /// AppData directory, then write who the credentials say is signed in.
 fn place<R: Runtime>(credentials: Arc<Credentials>, account: Arc<Account>) -> TauriPlugin<R> {
+    let exiting = account.clone();
     tauri::plugin::Builder::new("epicenter-account")
+        // A refresh the server already rotated must reach the credentials
+        // file before the process ends, or the stored refresh token is spent
+        // and the next start asks for a sign-in. Plugin Exit hooks run before
+        // an app's own exit (`tauri_plugin_epicenter_transcription::run`).
+        .on_event(move |_app, event| {
+            if let RunEvent::Exit = event {
+                exiting.finish_refreshing(account::EXIT_WAIT);
+            }
+        })
         .setup(move |app, _api| {
             // A startup that cannot name AppData says so itself
             // (`epicenter-standalone`); until then a secret reads as an error.

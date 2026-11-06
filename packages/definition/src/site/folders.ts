@@ -6,7 +6,8 @@
  * by the server at its first sync and kept in its manifest. Its title is in
  * its `epicenter.json`, which the server reads from its files; the server
  * keeps no name. Its members are people, each named by the email they sign
- * in with, any of whom may own it.
+ * in with, and equal: no member owns it. A share is an invitation to an
+ * email, which waits until the person who signs in with it accepts.
  *
  * Its addresses under a deployment:
  *
@@ -17,7 +18,7 @@
  * <api>/api/folders                   the person's folders, and the shares waiting for them
  * <api>/api/folders/<id>              one folder
  * <api>/api/folders/<id>/accept       POST: accept a share
- * <api>/api/folders/<id>/members/<email>   PUT { role } shares or changes a role; DELETE unshares or leaves
+ * <api>/api/folders/<id>/members/<email>   PUT { role } invites or changes a role; DELETE unshares, cancels, or leaves
  * <api>/api/folders/<id>/apps/<app>   PUT attaches the folder to an app; DELETE detaches it
  * ```
  */
@@ -76,20 +77,24 @@ export function foldersApiUrl(
 }
 
 /**
- * What a member may do to a folder: `reader` reads it; `writer` also syncs
- * changes to it; `owner` also rewrites its history with Git and manages who
- * holds it. Any member may be an owner.
+ * What a person holding a folder may do (ADR-0820): a `member` changes its
+ * files, shares and unshares it, and changes roles, as every other member
+ * may; a `reader` syncs it without pushing and manages nothing. No member
+ * owns a folder.
  */
-export type FolderRole = 'owner' | 'writer' | 'reader';
+export type FolderRole = 'member' | 'reader';
 
-export const FOLDER_ROLES: readonly FolderRole[] = [
-	'owner',
-	'writer',
-	'reader',
-];
+export const FOLDER_ROLES: readonly FolderRole[] = ['member', 'reader'];
 
 /** A person, as a folder's members and shares name them. */
 export type FolderPerson = { email: string; name: string };
+
+/**
+ * An email a folder is shared with, waiting for the person who signs in with
+ * it to accept: named by the email alone, so nobody learns whether anyone has
+ * an account with it.
+ */
+export type FolderInvitee = { email: string; role: FolderRole };
 
 /** One member of a folder: a person who accepted it, and their role. */
 export type FolderMember = FolderPerson & {
@@ -107,8 +112,8 @@ export type ListedFolder = {
 	role: FolderRole;
 	/** Who holds it, in the order they joined. */
 	members: FolderMember[];
-	/** The people it is shared with who have not accepted yet: shown to its owners only. */
-	invited: (FolderPerson & { role: FolderRole })[];
+	/** The emails it is shared with that have not accepted yet: shown to members, not readers. */
+	invited: FolderInvitee[];
 	/** The apps it is attached to, by the client id each signs in as. */
 	apps: string[];
 	/** Its history as a Git remote (`folderRemoteUrl`). */

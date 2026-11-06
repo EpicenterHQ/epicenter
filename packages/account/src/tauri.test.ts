@@ -210,6 +210,28 @@ describe('the account’s fetch', () => {
 		expect(sent).toEqual([]);
 	});
 
+	test('a folder request names the Git audience and may reach its origin', async () => {
+		const { fake, sent } = shell(
+			replying({ kind: 'head', status: 204, headers: [] }, { kind: 'end' }),
+		);
+		const fetch = relayFetch(fake, ORIGIN, live, () => {}, 'git');
+		await fetch('https://git.epicenter.so/folders');
+		await fetch(`${ORIGIN}/api/folders`);
+		expect(
+			sent.map(({ args }) => {
+				const request = args?.request as Record<string, unknown>;
+				return [request.url, request.audience];
+			}),
+		).toEqual([
+			['https://git.epicenter.so/folders', 'git'],
+			[`${ORIGIN}/api/folders`, 'git'],
+		]);
+		// The API's account reaches no Git origin.
+		await expect(
+			relayFetch(fake, ORIGIN, live, () => {})('https://git.epicenter.so/x'),
+		).rejects.toThrow(TypeError);
+	});
+
 	test('a refusal is AccountUnavailable and is reported', async () => {
 		const refusals: string[] = [];
 		const { fake } = shell(

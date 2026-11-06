@@ -8,8 +8,6 @@
  * read as a positional. After `--`, every token is a positional.
  */
 
-import type { GrantKind } from './auth.ts';
-
 /** An option a command declares. `value` names its argument; without one it is a switch. */
 export type OptionSpec = {
 	readonly name: string;
@@ -32,7 +30,7 @@ export type CommandSpec = {
 	readonly summary: string;
 	/** Prints NDJSON progress lines and one result line with `--json`. */
 	readonly long?: boolean;
-	/** Left out of `--help`: run by the desktop app, not typed. */
+	/** Left out of `--help`: run by another program, not typed. */
 	readonly hidden?: boolean;
 };
 
@@ -46,12 +44,6 @@ export type Invocation =
 			positionals: string[];
 			options: Record<string, string | true>;
 			json: boolean;
-			/**
-			 * The grant a command uses: `desktop` under the hidden `--desktop`,
-			 * which Rust runs every command with, and `device` otherwise
-			 * (ADR-0558).
-			 */
-			grant: GrantKind;
 	  }
 	| { kind: 'usage'; message: string; group?: string; json: boolean };
 
@@ -67,7 +59,6 @@ export function parseArgs(
 	let help = false;
 	let version = false;
 	let literal = false;
-	let grant: GrantKind = 'device';
 	for (const token of argv) {
 		if (literal) rest.push(token);
 		else if (token === '--') {
@@ -76,9 +67,6 @@ export function parseArgs(
 		} else if (token === '--json') json = true;
 		else if (token === '--help' || token === '-h') help = true;
 		else if (token === '--version' || token === '-V') version = true;
-		// Hidden: Rust runs every command with it to select the desktop grant
-		// (ADR-0558).
-		else if (token === '--desktop') grant = 'desktop';
 		else rest.push(token);
 	}
 
@@ -180,7 +168,7 @@ export function parseArgs(
 			message: `Usage: ${usageLine(command)}`,
 			json,
 		};
-	return { kind: 'command', command, positionals, options, json, grant };
+	return { kind: 'command', command, positionals, options, json };
 }
 
 /** `epicenter restore <commit> [<dir>] [--path <path>]`, without hidden options. */

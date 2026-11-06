@@ -70,7 +70,7 @@ release version.
 
 The **Build Epicenter release draft** workflow runs on that tag or a manual
 dispatch naming an existing tag. Native Apple Silicon and Intel runners each
-build their own CLI sidecar and full application, and sign and notarize them.
+build the full application, and sign and notarize it.
 A preparation job creates one unpublished draft before either build starts.
 Each build uploads its binaries directly to that draft, followed by its build
 receipt. Signed binaries never pass through Actions artifacts, which repository

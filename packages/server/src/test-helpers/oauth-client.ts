@@ -99,16 +99,26 @@ export class OAuthTestClient {
 		}
 	}
 
-	/** An account and a signed-in browser session on the authorization server. */
-	async person(label: string): Promise<Person> {
+	/**
+	 * An account and a signed-in browser session on the authorization
+	 * server: what a social sign-up makes, with `email` (one made from the
+	 * label by default) verified unless `emailVerified` is false.
+	 */
+	async person(
+		label: string,
+		{
+			email: given,
+			emailVerified = true,
+		}: { email?: string; emailVerified?: boolean } = {},
+	): Promise<Person> {
 		const id = `${label}-${crypto.randomUUID()}`;
-		const email = `${id}@example.test`;
+		const email = given ?? `${id}@example.test`;
 		const sessionId = crypto.randomUUID();
 		const token = base64url(crypto.getRandomValues(new Uint8Array(24)));
 		const now = new Date();
 		await this.db.query(
-			'insert into "user" (id, name, email, email_verified, created_at, updated_at) values ($1, $2, $3, true, $4, $4)',
-			[id, label, email, now],
+			'insert into "user" (id, name, email, email_verified, created_at, updated_at) values ($1, $2, $3, $4, $5, $5)',
+			[id, label, email, emailVerified, now],
 		);
 		await this.db.query(
 			'insert into session (id, token, user_id, expires_at, created_at, updated_at) values ($1, $2, $3, $4, $5, $5)',

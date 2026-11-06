@@ -182,7 +182,7 @@ async function machine(label: string) {
 		},
 	});
 	expect(login.error).toBeNull();
-	expectOk(await accessToken(ctx, 'device', ctx.deployment.audiences.git));
+	expectOk(await accessToken(ctx, ctx.deployment.audiences.git));
 	const entry = `device ${ctx.deployment.origin}`;
 	const stored = JSON.parse((await secrets.get(entry)) as string);
 	const env = {
@@ -342,7 +342,8 @@ test('share waits for accept, which lands the folder in the other Epicenter fold
 		'share',
 		mine,
 		bob.email,
-		'--read',
+		'--role',
+		'reader',
 		'--json',
 	);
 	expect(shared.stderr).toBe('');
@@ -390,9 +391,10 @@ test('share waits for accept, which lands the folder in the other Epicenter fold
 	expect((await alice.epicenter('sync', mine)).code).toBe(0);
 	expect(await readFile(aliceNote, 'utf8')).toBe(note('Kitchen'));
 
-	// A writer's edit lands on his next sync, and Alice syncs it down.
+	// As a member, his edit lands on his next sync, and Alice syncs it down.
 	expect(
-		(await alice.epicenter('share', folder, bob.email, '--write')).code,
+		(await alice.epicenter('share', folder, bob.email, '--role', 'member'))
+			.code,
 	).toBe(0);
 	expect((await bob.epicenter('sync', copy)).code).toBe(0);
 	expect((await alice.epicenter('sync', mine)).code).toBe(0);

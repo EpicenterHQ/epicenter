@@ -1,8 +1,17 @@
 /**
- * Folders as rows (ADR-0811): making one at its first sync, joining one the
- * person holds before making another, listing a person's folders and the
- * shares waiting for them, sharing with a person by their email, accepting,
- * leaving, and attaching a folder to an app.
+ * Folders as rows (ADR-0811, ADR-0820): making one at its first sync, joining
+ * one the person holds before making another, listing a person's folders and
+ * the invitations waiting for them, sharing by email, accepting, leaving, and
+ * attaching a folder to an app.
+ *
+ * A share is an invitation to an email (`folder_invitation`), never to an
+ * account: sharing answers the same whether or not anyone signs in with that
+ * email, and a member sees an invitation by its email alone. The person whose
+ * account has that email, verified, sees it among the shares waiting for them
+ * and may accept it, whether they had an account when it was made or signed
+ * up later; nothing is copied at sign-up, since the invitation is matched to
+ * the account's verified email whenever it is read. Accepting makes them a
+ * member (`folder_member`), and every member has accepted.
  *
  * Storage is not touched here; it names a folder's repository by the
  * folder's id. A folder's title is in its files, which the routes read.
@@ -13,6 +22,7 @@
  * the folders attached to that app.
  */
 import type {
+	FolderInvitee,
 	FolderPerson,
 	FolderRole,
 	PendingShare,
@@ -38,7 +48,7 @@ export function newFolderId(): string {
 
 /**
  * Record the folder `id`, whose storage already exists, held by `accountId`
- * as its owner, and attached to `app` when an app made it.
+ * as a member, and attached to `app` when an app made it.
  */
 export async function createFolder(
 	db: Db,
@@ -47,8 +57,8 @@ export async function createFolder(
 	await db.transaction(async (tx) => {
 		await tx.execute(sql`insert into folder (id) values (${id})`);
 		await tx.execute(sql`
-			insert into folder_member (folder_id, account_id, role, accepted_at)
-			values (${id}, ${accountId}, 'owner', now())
+			insert into folder_member (folder_id, account_id, role)
+			values (${id}, ${accountId}, 'member')
 		`);
 		if (app !== null)
 			await tx.execute(sql`
@@ -77,7 +87,6 @@ export async function heldFolders(
 		select m.folder_id as id, m.role
 		from folder_member m
 		where m.account_id = ${accountId}
-		  and m.accepted_at is not null
 		  and (${app}::text is null or exists (
 		    select 1 from folder_app a where a.folder_id = m.folder_id and a.app = ${app}
 		  ))
@@ -86,7 +95,7 @@ export async function heldFolders(
 	return rows;
 }
 
-/** Each folder's members who accepted it, and the people invited to it, by folder. */
+/** Each folder's members, the emails invited to it, and its apps, by folder. */
 export async function membersOf(
 	db: Runner,
 	{ folders, accountId }: { folders: readonly string[]; accountId: string },
@@ -95,7 +104,7 @@ export async function membersOf(
 		string,
 		{
 			members: (FolderPerson & { role: FolderRole; you: boolean })[];
-			invited: (FolderPerson & { role: FolderRole })[];
+			invited: FolderInvitee[];
 			apps: string[];
 		}
 	>
@@ -104,7 +113,7 @@ export async function membersOf(
 		string,
 		{
 			members: (FolderPerson & { role: FolderRole; you: boolean })[];
-			invited: (FolderPerson & { role: FolderRole })[];
+			invited: FolderInvitee[];
 			apps: string[];
 		}
 	>();
@@ -119,24 +128,34 @@ export async function membersOf(
 		email: string;
 		name: string;
 		role: FolderRole;
-		accepted: boolean;
 		you: boolean;
 	}>(sql`
 		select m.folder_id, u.email, u.name, m.role,
-		       m.accepted_at is not null as accepted,
 		       m.account_id = ${accountId} as you
 		from folder_member m
 		join "user" u on u.id = m.account_id
 		where m.folder_id in (${ids})
-		order by m.accepted_at nulls last, m.created_at, u.email
+		order by m.accepted_at, m.created_at, u.email
 	`);
-	for (const row of members.rows) {
-		const entry = out.get(row.folder_id);
-		if (entry === undefined) continue;
-		const person = { email: row.email, name: row.name, role: row.role };
-		if (row.accepted) entry.members.push({ ...person, you: row.you });
-		else entry.invited.push(person);
-	}
+	for (const row of members.rows)
+		out.get(row.folder_id)?.members.push({
+			email: row.email,
+			name: row.name,
+			role: row.role,
+			you: row.you,
+		});
+	// An invitation is its email: whether anyone signs in with it is not said.
+	const invited = await db.execute<{
+		folder_id: string;
+		email: string;
+		role: FolderRole;
+	}>(sql`
+		select folder_id, email, role from folder_invitation
+		where folder_id in (${ids})
+		order by created_at, email
+	`);
+	for (const row of invited.rows)
+		out.get(row.folder_id)?.invited.push({ email: row.email, role: row.role });
 	const apps = await db.execute<{ folder_id: string; app: string }>(sql`
 		select folder_id, app from folder_app
 		where folder_id in (${ids})
@@ -147,8 +166,9 @@ export async function membersOf(
 }
 
 /**
- * The shares waiting for `accountId` that `app` reaches (null: every one):
- * a share of a folder attached to the app shows in it.
+ * The invitations waiting for `accountId` that `app` reaches (null: every
+ * one): those to its email, once that email is verified, of folders it does
+ * not hold. An invitation of a folder attached to the app shows in it.
  */
 export async function pendingShares(
 	db: Runner,
@@ -160,16 +180,21 @@ export async function pendingShares(
 		from_email: string | null;
 		from_name: string | null;
 	}>(sql`
-		select m.folder_id as folder, m.role,
-		       u.email as from_email, u.name as from_name
-		from folder_member m
-		left join "user" u on u.id = m.shared_by
-		where m.account_id = ${accountId}
-		  and m.accepted_at is null
+		select i.folder_id as folder, i.role,
+		       s.email as from_email, s.name as from_name
+		from "user" u
+		join folder_invitation i on i.email = lower(u.email)
+		left join "user" s on s.id = i.shared_by
+		where u.id = ${accountId}
+		  and u.email_verified
+		  and not exists (
+		    select 1 from folder_member m
+		    where m.folder_id = i.folder_id and m.account_id = u.id
+		  )
 		  and (${app}::text is null or exists (
-		    select 1 from folder_app a where a.folder_id = m.folder_id and a.app = ${app}
+		    select 1 from folder_app a where a.folder_id = i.folder_id and a.app = ${app}
 		  ))
-		order by m.created_at, m.folder_id
+		order by i.created_at, i.folder_id
 	`);
 	return rows.map((row) => ({
 		folder: row.folder,
@@ -183,38 +208,23 @@ export async function pendingShares(
 
 /** Why sharing could not be done or undone. */
 export const ShareError = defineErrors({
-	UnknownPerson: ({ person }: { person: string }) => ({
-		message: `No one signs in to Epicenter as ${person}.`,
-		person,
-	}),
 	NotMember: ({ person }: { person: string }) => ({
-		message: `${person} does not hold that folder and no share of it waits for them.`,
+		message: `${person} does not hold that folder and is not invited to it.`,
 		person,
-	}),
-	LastOwner: () => ({
-		message:
-			'A folder keeps at least one owner while others hold it: make someone else an owner first.',
 	}),
 	NotYours: () => ({
 		message:
-			"Only the folder's owners may share it, or change or remove another member.",
+			'A reader may not share the folder, or change or remove anyone else.',
 	}),
 });
 export type ShareError = InferErrors<typeof ShareError>;
 
-/** The account that signs in as `email`, compared without case. */
-async function accountOf(db: Runner, email: string) {
-	const { rows } = await db.execute<{ id: string }>(sql`
-		select id from "user" where lower(email) = lower(${email})
-	`);
-	return rows[0]?.id;
-}
-
 /**
- * Share `folder` with the person who signs in as `email`, as `role`, from
- * `by`, who owns it. A person who holds it already has their role changed;
- * anyone else gets a share that waits for them to accept it. Answers whether
- * the share waits.
+ * Share `folder` with `email`, as `role`, from `by`, a member who may
+ * manage it. Someone holding it who signs in with that email has their role
+ * changed; otherwise the email is invited, or its invitation given the new
+ * role. Answers whether the share waits, which is the same whether or not
+ * anyone signs in with `email`.
  */
 export async function shareFolder(
 	db: Db,
@@ -224,82 +234,106 @@ export async function shareFolder(
 		email,
 		role,
 	}: { folder: string; by: string; email: string; role: FolderRole },
-): Promise<Result<{ pending: boolean }, ShareError>> {
-	return db.transaction(async (tx) => {
-		const accountId = await accountOf(tx, email);
-		if (accountId === undefined)
-			return ShareError.UnknownPerson({ person: email });
-		const { rows } = await tx.execute<{
-			accepted: boolean;
-			role: FolderRole;
-		}>(sql`
-			select accepted_at is not null as accepted, role from folder_member
-			where folder_id = ${folder} and account_id = ${accountId}
-			for update
-		`);
-		const held = rows[0];
-		if (held === undefined) {
-			await tx.execute(sql`
-				insert into folder_member (folder_id, account_id, role, shared_by)
-				values (${folder}, ${accountId}, ${role}, ${by})
-			`);
-			return Ok({ pending: true });
-		}
-		if (held.accepted && held.role === 'owner' && role !== 'owner') {
-			const owners = await tx.execute(sql`
-				select 1 from folder_member
-				where folder_id = ${folder} and role = 'owner'
-				  and accepted_at is not null and account_id <> ${accountId}
-			`);
-			if (owners.rows.length === 0) return ShareError.LastOwner();
-		}
-		await tx.execute(sql`
-			update folder_member set role = ${role}
-			where folder_id = ${folder} and account_id = ${accountId}
-		`);
-		return Ok({ pending: !held.accepted });
-	});
+): Promise<{ pending: boolean }> {
+	const changed = await db.execute(sql`
+		update folder_member m set role = ${role}
+		from "user" u
+		where m.folder_id = ${folder} and u.id = m.account_id
+		  and lower(u.email) = lower(${email})
+		returning 1
+	`);
+	if (changed.rows.length > 0) return { pending: false };
+	await db.execute(sql`
+		insert into folder_invitation (folder_id, email, role, shared_by)
+		values (${folder}, lower(${email}), ${role}, ${by})
+		on conflict (folder_id, email)
+		do update set role = excluded.role, shared_by = excluded.shared_by
+	`);
+	return { pending: true };
 }
 
 /**
- * Take the person who signs in as `email` out of `folder`: a member, or a
- * share that waits for them. `byOwner` says whether the caller owns the
- * folder; anyone else may only take themselves out (`accountId`). Answers
- * whether the folder is gone with them: the last member took it along.
+ * Take `email` out of `folder`: the member who signs in with it, or its
+ * invitation. `manages` says whether the caller (`accountId`) holds the
+ * folder as a `member`; anyone else (a reader, or someone invited) may only
+ * take out themselves, leaving or declining an invitation to their verified
+ * email. Answers whether the folder is gone with them: the last member took
+ * it along.
  */
 export async function removeMember(
 	db: Db,
 	{
 		folder,
 		accountId,
-		byOwner,
+		manages,
 		email,
-	}: { folder: string; accountId: string; byOwner: boolean; email: string },
+	}: { folder: string; accountId: string; manages: boolean; email: string },
 ): Promise<Result<{ folderGone: boolean }, ShareError>> {
-	const target = await accountOf(db, email);
-	if (target === undefined) return ShareError.UnknownPerson({ person: email });
-	if (target !== accountId && !byOwner) return ShareError.NotYours();
-	const { rows } = await db.execute(sql`
-		delete from folder_member
-		where folder_id = ${folder} and account_id = ${target}
+	const { rows: callers } = await db.execute<{ self: boolean; verified: boolean }>(
+		sql`
+			select lower(email) = lower(${email}) as self, email_verified as verified
+			from "user" where id = ${accountId}
+		`,
+	);
+	const caller = callers[0];
+	const self = caller?.self === true;
+	if (!self && !manages) return ShareError.NotYours();
+	const member = await db.execute(sql`
+		delete from folder_member m
+		using "user" u
+		where m.folder_id = ${folder} and u.id = m.account_id
+		  and lower(u.email) = lower(${email})
 		returning 1
 	`);
-	if (rows.length === 0) return ShareError.NotMember({ person: email });
-	return Ok({ folderGone: !(await folderExists(db, folder)) });
+	if (member.rows.length > 0)
+		return Ok({ folderGone: !(await folderExists(db, folder)) });
+	// Declining reaches only an invitation to the caller's verified email.
+	if (manages || caller?.verified === true) {
+		const invitation = await db.execute(sql`
+			delete from folder_invitation
+			where folder_id = ${folder} and email = lower(${email})
+			returning 1
+		`);
+		if (invitation.rows.length > 0) return Ok({ folderGone: false });
+	}
+	return ShareError.NotMember({ person: email });
 }
 
-/** Accept the share of `folder` waiting for `accountId`: false when none waits. */
+/**
+ * Accept the invitation of `folder` to the verified email of `accountId`:
+ * they become a member with its role, and it is gone. Null when none waits.
+ */
 export async function acceptShare(
-	db: Runner,
+	db: Db,
 	{ folder, accountId }: { folder: string; accountId: string },
-): Promise<boolean> {
-	const { rows } = await db.execute(sql`
-		update folder_member set accepted_at = now()
-		where folder_id = ${folder} and account_id = ${accountId}
-		  and accepted_at is null
-		returning 1
-	`);
-	return rows.length > 0;
+): Promise<{ role: FolderRole } | null> {
+	return db.transaction(async (tx) => {
+		const { rows } = await tx.execute<{
+			email: string;
+			role: FolderRole;
+			shared_by: string | null;
+		}>(sql`
+			select i.email, i.role, i.shared_by
+			from "user" u
+			join folder_invitation i on i.email = lower(u.email)
+			where u.id = ${accountId} and u.email_verified
+			  and i.folder_id = ${folder}
+			for update of i
+		`);
+		const invitation = rows[0];
+		if (invitation === undefined) return null;
+		await tx.execute(sql`
+			delete from folder_invitation
+			where folder_id = ${folder} and email = ${invitation.email}
+		`);
+		const joined = await tx.execute(sql`
+			insert into folder_member (folder_id, account_id, role, shared_by)
+			values (${folder}, ${accountId}, ${invitation.role}, ${invitation.shared_by})
+			on conflict do nothing
+			returning 1
+		`);
+		return joined.rows.length > 0 ? { role: invitation.role } : null;
+	});
 }
 
 /** Attach `folder` to `app`, or detach it; answers whether anything changed. */

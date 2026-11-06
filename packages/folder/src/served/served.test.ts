@@ -15,8 +15,8 @@ import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { memoryStore } from '../device/memory-store.js';
-import { scratch } from '../scratch.test-support.js';
 import { openFolder } from '../open-folder.js';
+import { scratch } from '../scratch.test-support.js';
 import { serveDirectory } from '../serve.js';
 import { served } from '../served.js';
 import { storeHandler } from './handler.js';
@@ -38,15 +38,14 @@ afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
 });
 
-/** A program serving a new directory at `/folder`, on `port` (any free one by default). */
-async function program(root?: string, port = 0) {
-	const directory = root ?? (await scratch('served-'));
-	if (root === undefined)
-		cleanup.push(() => rm(directory, { recursive: true, force: true }));
+/** A program serving a new directory at `/folder`, on any free port. */
+async function program() {
+	const directory = await scratch('served-');
+	cleanup.push(() => rm(directory, { recursive: true, force: true }));
 	const handler = serveDirectory(directory);
 	const server = Bun.serve({
 		hostname: '127.0.0.1',
-		port,
+		port: 0,
 		fetch(request) {
 			if (new URL(request.url).pathname.startsWith('/folder/'))
 				return handler.fetch(request);
@@ -63,21 +62,53 @@ async function program(root?: string, port = 0) {
 	return {
 		root: directory,
 		url: `http://127.0.0.1:${server.port}`,
-		port: server.port,
 		stop,
 	};
 }
 
-test('a folder opens at a served directory and writes its files there', async () => {
-	const { root, url } = await program();
-	const folder = openFolder(notes, served(`${url}/folder`));
-	cleanup.push(() => folder[Symbol.dispose]());
-	await folder.notes.set({ id: 'a' }, { title: 'One', body: 'Hello' });
-	expect(await readFile(join(root, 'notes/a.md'), 'utf8')).toBe(
-		'---\ntitle: One\n---\nHello',
-	);
-	expect(folder.notes.get({ id: 'a' })?.title).toBe('One');
-});
+/**
+ * A program serving a store in memory at `/folder`, on `port` (any free one
+ * by default): its watch answers at once, where a directory's waits until
+ * the operating system's watcher hears it (`watchDirectory`), which on a
+ * loaded macOS can take seconds.
+ */
+function memoryProgram(port = 0) {
+	const handler = storeHandler(async () => Ok(memoryStore()));
+	const server = Bun.serve({
+		hostname: '127.0.0.1',
+		port,
+		fetch: handler.fetch,
+	});
+	const stop = async () => {
+		handler.close();
+		await server.stop(true);
+	};
+	cleanup.push(stop);
+	return { url: `http://127.0.0.1:${server.port}`, port: server.port, stop };
+}
+
+/**
+ * How long a test that opens a folder over a served directory may take. Its
+ * watch answers once macOS's watcher hears a probe, seconds on a loaded
+ * machine; how fast a watcher hears is not what these tests hold
+ * (`HEARD_WITHIN_MS` in `store.conformance.ts`).
+ */
+const DIRECTORY_WATCH_MS = 30_000;
+
+test(
+	'a folder opens at a served directory and writes its files there',
+	async () => {
+		const { root, url } = await program();
+		const folder = openFolder(notes, served(`${url}/folder`));
+		cleanup.push(() => folder[Symbol.dispose]());
+		await folder.notes.set({ id: 'a' }, { title: 'One', body: 'Hello' });
+		expect(await readFile(join(root, 'notes/a.md'), 'utf8')).toBe(
+			'---\ntitle: One\n---\nHello',
+		);
+		expect(folder.notes.get({ id: 'a' })?.title).toBe('One');
+	},
+	DIRECTORY_WATCH_MS,
+);
 
 test('a page something else served fails to open, saying so', async () => {
 	const { url } = await program();
@@ -99,7 +130,9 @@ test('a program out of reach keeps the folder opening', async () => {
 });
 
 test('a dropped watch is heard as all, and again once the program answers', async () => {
-	const first = await program();
+	// What is held is the watch's connection to the program, so the program
+	// serves memory: a directory would add its watcher's start each time.
+	const first = memoryProgram();
 	const store = servedStore(`${first.url}/folder`, { retryMs: 50 });
 	cleanup.push(() => store.close());
 	const heard: (readonly string[] | 'all')[] = [];
@@ -108,7 +141,7 @@ test('a dropped watch is heard as all, and again once the program answers', asyn
 	await first.stop();
 	await until(() => heard.includes('all'));
 	expect(heard).toEqual(['all']);
-	await program(first.root, first.port);
+	memoryProgram(first.port);
 	await until(() => heard.length === 2);
 	expect(heard).toEqual(['all', 'all']);
 	watched.data?.();

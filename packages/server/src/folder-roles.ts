@@ -1,26 +1,25 @@
 /**
- * What each member's role may do to a folder (ADR-0811). Any member may be
- * an owner; a role is one row of `folder_member`, given when the folder is
- * shared and changed by an owner.
+ * What each role may do to a folder (ADR-0820). Members are equal: no member
+ * owns a folder. A role is one row of `folder_member`, given when the folder
+ * is shared and changed by any member.
  *
  * | Role     | read | push | rewrite | manage |
  * | -------- | ---- | ---- | ------- | ------ |
- * | `owner`  | yes  | yes  | yes     | yes    |
- * | `writer` | yes  | yes  | no      | no     |
+ * | `member` | yes  | yes  | yes     | yes    |
  * | `reader` | yes  | no   | no      | no     |
  *
  * `read` is sync's reads, fetch, LFS download, and listing the folder; `push`
  * is a commit, a push that moves `main` forward, an upload, and attaching the
  * folder to an app; `rewrite` is a push that replaces `main` (the receiver
- * keeps the old one under `refs/epicenter/replaced/<time>`); `manage` shares
- * and unshares the folder and changes its members' roles. Every member may
+ * keeps the old one under `refs/epicenter/replaced/<time>`, so a member's
+ * rewrite loses nothing another member cannot restore); `manage` shares and
+ * unshares the folder and changes its members' roles. Every member may
  * leave.
  */
 import type { FolderRole } from '@epicenter/definition/site';
 
 const ROLES = {
-	owner: ['read', 'push', 'rewrite', 'manage'],
-	writer: ['read', 'push'],
+	member: ['read', 'push', 'rewrite', 'manage'],
 	reader: ['read'],
 } as const satisfies Record<FolderRole, readonly FolderOperation[]>;
 

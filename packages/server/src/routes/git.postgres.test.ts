@@ -8,8 +8,9 @@
  * Key behaviors:
  * - A folder exists from its first sync, which joins before it creates, and
  *   plain Git reaches its history at `<git>/folders/<id>.git`
- * - A share is invisible and grants nothing until its person accepts it
- * - Any member may own; a folder survives while any member remains
+ * - A share is an invitation to an email, invisible and granting nothing
+ *   until the person who signs in with it, verified, accepts it
+ * - Members are equal; a folder survives while any member remains
  * - An app reaches only the folders attached to it; Epicenter attaches one
  * - A listing reads each folder's title from its `epicenter.json`
  */
@@ -248,7 +249,7 @@ const share = (
 	token: string,
 	folder: string,
 	email: string,
-	role: FolderRole = 'writer',
+	role: FolderRole = 'member',
 ) =>
 	call(token, 'api', `folders/${folder}/members/${encodeURIComponent(email)}`, {
 		method: 'PUT',
@@ -373,43 +374,37 @@ describe("a folder's Git remote", () => {
 		).toBe((await git(first, null, 'rev-parse', 'HEAD')).stdout.trim());
 	}, 120_000);
 
-	test("unrelated history is refused for a writer, even forced; an owner's forced push lands and keeps the old main", async () => {
-		const owner = await signedIn('rewrite-owner');
-		const writer = await signedIn('rewrite-writer');
-		const folder = await made(owner.token);
-		expect((await share(owner.token, folder, writer.person.email)).status).toBe(
-			200,
-		);
-		expect((await accept(writer.token, folder)).status).toBe(200);
+	test("a reader's forced push is refused; any member's lands and keeps the old main", async () => {
+		const maker = await signedIn('rewrite-maker');
+		const member = await signedIn('rewrite-member');
+		const reader = await signedIn('rewrite-reader');
+		const folder = await made(maker.token);
+		await share(maker.token, folder, member.person.email);
+		await share(maker.token, folder, reader.person.email, 'reader');
+		expect((await accept(member.token, folder)).status).toBe(200);
+		expect((await accept(reader.token, folder)).status).toBe(200);
 		const url = remote(folder);
 		const first = await workingCopy('one', { 'a.md': 'one\n' });
 		expect(
-			(await git(first, writer.token, 'push', url, 'HEAD:main')).code,
+			(await git(first, maker.token, 'push', url, 'HEAD:main')).code,
 		).toBe(0);
 		const old = (await git(first, null, 'rev-parse', 'HEAD')).stdout.trim();
 		const other = await workingCopy('other', { 'z.md': 'other\n' });
+		expect(
+			(await git(other, reader.token, 'push', '--force', url, 'HEAD:main'))
+				.code,
+		).not.toBe(0);
+		// No member owns the folder: the one who did not make it rewrites it too.
 		const forced = await git(
 			other,
-			writer.token,
+			member.token,
 			'push',
 			'--force',
 			url,
 			'HEAD:main',
 		);
-		expect(forced.code).not.toBe(0);
-		expect(forced.stderr).toContain(
-			'only the repository owner may rewrite main',
-		);
-		const owned = await git(
-			other,
-			owner.token,
-			'push',
-			'--force',
-			url,
-			'HEAD:main',
-		);
-		expect(owned.code).toBe(0);
-		const refs = (await git(other, owner.token, 'ls-remote', url)).stdout;
+		expect(forced.code).toBe(0);
+		const refs = (await git(other, member.token, 'ls-remote', url)).stdout;
 		expect(refs).toMatch(
 			new RegExp(`^${old}\\trefs/epicenter/replaced/\\d{8}-\\d{9}Z$`, 'm'),
 		);
@@ -502,8 +497,8 @@ describe("a folder's Git remote", () => {
 	}, 60_000);
 });
 
-describe('sharing a folder with a person', () => {
-	test('share, then accept: the folder appears and is reached only once accepted', async () => {
+describe('sharing a folder is an invitation to an email', () => {
+	test('invite, then accept: the folder appears and is reached only once accepted', async () => {
 		const alice = await signedIn('share-alice');
 		const bob = await signedIn('share-bob');
 		const folder = await made(alice.token);
@@ -519,15 +514,15 @@ describe('sharing a folder with a person', () => {
 		const shared = await share(alice.token, folder, bob.person.email);
 		expect((await shared.json()) as unknown).toEqual({
 			person: bob.person.email,
-			role: 'writer',
+			role: 'member',
 			pending: true,
 		});
-		// The owner sees the invitation; Bob sees a share waiting, and no folder.
+		// A member sees the invitation by its email alone; Bob sees it waiting, and no folder.
 		const owned = (await listing(alice.token)).folders.find(
 			({ id }) => id === folder,
 		);
 		expect(owned?.invited).toEqual([
-			{ email: bob.person.email, name: 'share-bob', role: 'writer' },
+			{ email: bob.person.email, role: 'member' },
 		]);
 		expect(await listing(bob.token)).toEqual({
 			folders: [],
@@ -535,7 +530,7 @@ describe('sharing a folder with a person', () => {
 				{
 					folder,
 					title: 'Reading list',
-					role: 'writer',
+					role: 'member',
 					from: { email: alice.person.email, name: 'share-alice' },
 				},
 			],
@@ -550,10 +545,10 @@ describe('sharing a folder with a person', () => {
 		expect(listed).toMatchObject({
 			id: folder,
 			title: 'Reading list',
-			role: 'writer',
+			role: 'member',
 			members: [
-				{ email: alice.person.email, role: 'owner', you: false },
-				{ email: bob.person.email, role: 'writer', you: true },
+				{ email: alice.person.email, role: 'member', you: false },
+				{ email: bob.person.email, role: 'member', you: true },
 			],
 			invited: [],
 		});
@@ -561,7 +556,7 @@ describe('sharing a folder with a person', () => {
 		expect(
 			(await listing(bob.token)).folders.map(({ id, title }) => [id, title]),
 		).toEqual([[folder, 'Reading list']]);
-		// A writer writes; a share cannot be accepted twice.
+		// A member writes; an invitation cannot be accepted twice.
 		expect(
 			(await write(bob.token, folder, { 'books/dune.md': 'Read it.\n' }))
 				.status,
@@ -569,11 +564,11 @@ describe('sharing a folder with a person', () => {
 		expect((await accept(bob.token, folder)).status).toBe(404);
 	}, 60_000);
 
-	test('a share that is not accepted stays invisible and grants nothing; declining removes it', async () => {
+	test('an invitation that is not accepted stays invisible and grants nothing; declining removes it', async () => {
 		const alice = await signedIn('waiting-alice');
 		const carol = await signedIn('waiting-carol');
 		const folder = await made(alice.token);
-		await share(alice.token, folder, carol.person.email, 'owner');
+		await share(alice.token, folder, carol.person.email);
 		// Not a member yet: no folder, no reads, no writes, no sharing on.
 		expect((await listing(carol.token)).folders).toEqual([]);
 		expect((await call(carol.token, 'api', `folders/${folder}`)).status).toBe(
@@ -591,28 +586,137 @@ describe('sharing a folder with a person', () => {
 			heads: Record<string, string | null>;
 		};
 		expect(heads.heads).toEqual({});
-		// Declining is leaving before accepting: the share is gone.
+		// Declining is leaving before accepting: the invitation is gone.
 		expect(
 			(await unshare(carol.token, folder, carol.person.email)).status,
 		).toBe(200);
 		expect((await listing(carol.token)).pending).toEqual([]);
 		expect((await accept(carol.token, folder)).status).toBe(404);
-		// Sharing names a person who signs in; no one else.
-		expect(
-			(await share(alice.token, folder, 'nobody@example.test')).status,
-		).toBe(404);
 	}, 60_000);
 
-	test('a reader reads and cannot write; only owners share; an owner unshares, and the next request is refused', async () => {
+	test('sharing and unsharing answer the same whether or not anyone signs in with the email', async () => {
+		const alice = await signedIn('same-alice');
+		const known = (await client.person('same-known')).email;
+		const unknown = `same-nobody-${crypto.randomUUID()}@example.test`;
+		const folder = await made(alice.token);
+		/** A response's status and body, the email it names replaced. */
+		const answer = async (response: Response, email: string) => ({
+			status: response.status,
+			body: JSON.parse((await response.text()).replaceAll(email, '<email>')),
+		});
+
+		const toKnown = await answer(
+			await share(alice.token, folder, known),
+			known,
+		);
+		const toUnknown = await answer(
+			await share(alice.token, folder, unknown),
+			unknown,
+		);
+		expect(toKnown).toEqual({
+			status: 200,
+			body: { person: '<email>', role: 'member', pending: true },
+		});
+		expect(toUnknown).toEqual(toKnown);
+		// The listing names each by its email alone, so neither says more.
+		const [held] = (await listing(alice.token)).folders;
+		expect(held?.invited).toEqual([
+			{ email: known, role: 'member' },
+			{ email: unknown, role: 'member' },
+		]);
+
+		// Cancelling each answers the same, and so does cancelling again.
+		for (const expected of [
+			{ status: 200, body: { person: '<email>', removed: true, folderGone: false } },
+			{ status: 404 },
+		]) {
+			const cancelKnown = await answer(
+				await unshare(alice.token, folder, known),
+				known,
+			);
+			const cancelUnknown = await answer(
+				await unshare(alice.token, folder, unknown),
+				unknown,
+			);
+			expect(cancelKnown).toMatchObject(expected);
+			expect(cancelUnknown).toEqual(cancelKnown);
+		}
+		expect((await listing(alice.token)).folders[0]?.invited).toEqual([]);
+	}, 60_000);
+
+	test('an invitation to an email with no account is accepted after sign-up with that email verified', async () => {
+		const alice = await signedIn('later-alice');
+		const folder = await made(alice.token);
+		await write(alice.token, folder, {
+			'epicenter.json': JSON.stringify({ title: 'Recipes' }),
+		});
+		const email = `later-${crypto.randomUUID()}@example.test`;
+		// Shared before anyone signs in with it, in another case than they sign up with.
+		expect(
+			(await share(alice.token, folder, email.toUpperCase(), 'reader')).status,
+		).toBe(200);
+
+		// They sign up with that email, verified by their provider.
+		const later = await client.person('later', { email });
+		const token = await tokenFor(later);
+		expect((await listing(token)).pending).toMatchObject([
+			{ folder, title: 'Recipes', role: 'reader' },
+		]);
+		const accepted = await accept(token, folder);
+		expect(accepted.status).toBe(200);
+		expect((await accepted.json()) as ListedFolder).toMatchObject({
+			id: folder,
+			role: 'reader',
+			members: [
+				{ email: alice.person.email, role: 'member' },
+				{ email, role: 'reader', you: true },
+			],
+			invited: [],
+		});
+		expect(
+			(await call(token, 'git', `folders/${folder}/changes`)).status,
+		).toBe(200);
+		expect((await write(token, folder, { 'a.md': 'mine\n' })).status).toBe(
+			403,
+		);
+	}, 60_000);
+
+	test('an unverified email neither sees, accepts, nor declines its invitation until it is verified', async () => {
+		const alice = await signedIn('unverified-alice');
+		const folder = await made(alice.token);
+		const email = `unverified-${crypto.randomUUID()}@example.test`;
+		await share(alice.token, folder, email);
+		const claimant = await client.person('unverified', {
+			email,
+			emailVerified: false,
+		});
+		const token = await tokenFor(claimant);
+		expect((await listing(token)).pending).toEqual([]);
+		expect((await accept(token, folder)).status).toBe(404);
+		expect((await unshare(token, folder, email)).status).toBe(404);
+		expect(
+			(await call(token, 'git', `folders/${folder}/changes`)).status,
+		).toBe(403);
+		// Verified, the same account finds it waiting.
+		await sql.query('update "user" set email_verified = true where id = $1', [
+			claimant.id,
+		]);
+		expect((await listing(token)).pending.map((s) => s.folder)).toEqual([
+			folder,
+		]);
+		expect((await accept(token, folder)).status).toBe(200);
+	}, 60_000);
+
+	test('a reader reads and manages nothing; every member shares, changes roles, and unshares anyone, the maker included', async () => {
 		const alice = await signedIn('roles-alice');
 		const reader = await signedIn('roles-reader');
-		const writer = await signedIn('roles-writer');
+		const member = await signedIn('roles-member');
 		const folder = await made(alice.token);
 		await write(alice.token, folder, { 'a.md': 'a\n' });
 		await share(alice.token, folder, reader.person.email, 'reader');
-		await share(alice.token, folder, writer.person.email, 'writer');
+		await share(alice.token, folder, member.person.email);
 		await accept(reader.token, folder);
-		await accept(writer.token, folder);
+		await accept(member.token, folder);
 		expect(
 			(await call(reader.token, 'git', `folders/${folder}/changes`)).status,
 		).toBe(200);
@@ -620,38 +724,53 @@ describe('sharing a folder with a person', () => {
 			403,
 		);
 		expect(
-			(await share(writer.token, folder, reader.person.email, 'owner')).status,
+			(await share(reader.token, folder, 'someone@example.test')).status,
 		).toBe(403);
 		expect(
-			(await unshare(writer.token, folder, reader.person.email)).status,
+			(await unshare(reader.token, folder, member.person.email)).status,
 		).toBe(403);
+		// A reader sees who holds the folder, not who is invited.
+		await share(alice.token, folder, 'invited@example.test');
 		expect(
-			(await unshare(alice.token, folder, reader.person.email)).status,
+			(
+				(await (
+					await call(reader.token, 'api', `folders/${folder}`)
+				).json()) as ListedFolder
+			).invited,
+		).toEqual([]);
+		// A member who did not make the folder changes roles and takes its maker out.
+		const promoted = await share(member.token, folder, reader.person.email);
+		expect((await promoted.json()) as unknown).toEqual({
+			person: reader.person.email,
+			role: 'member',
+			pending: false,
+		});
+		expect((await write(reader.token, folder, { 'a.md': 'b\n' })).status).toBe(
+			200,
+		);
+		expect(
+			(await unshare(member.token, folder, alice.person.email)).status,
 		).toBe(200);
 		expect(
-			(await call(reader.token, 'git', `folders/${folder}/changes`)).status,
+			(await call(alice.token, 'git', `folders/${folder}/changes`)).status,
 		).toBe(403);
-		// The last owner may not step down while others hold the folder.
-		expect(
-			(await share(alice.token, folder, alice.person.email, 'writer')).status,
-		).toBe(409);
 	}, 60_000);
 
-	test('a folder survives its first owner leaving, and goes with its last member', async () => {
+	test('a folder survives its maker leaving, and goes with its last member', async () => {
 		const alice = await signedIn('survive-alice');
 		const bob = await signedIn('survive-bob');
 		const folder = await made(alice.token);
 		await write(alice.token, folder, { 'a.md': 'kept\n' });
-		await share(alice.token, folder, bob.person.email, 'writer');
+		await share(alice.token, folder, bob.person.email);
 		await accept(bob.token, folder);
 
-		// Alice's account is deleted: Bob holds the folder, now as its owner.
+		// Alice's account is deleted: Bob holds the folder as he did.
 		await sql.query('delete from "user" where id = $1', [alice.person.id]);
 		const [kept] = (await listing(bob.token)).folders;
 		expect(kept).toMatchObject({
 			id: folder,
-			role: 'owner',
-			members: [{ email: bob.person.email, role: 'owner', you: true }],
+			role: 'member',
+			members: [{ email: bob.person.email, role: 'member', you: true }],
 		});
 		expect(
 			(await write(bob.token, folder, { 'a.md': 'still here\n' })).status,
@@ -683,7 +802,7 @@ describe('a first sync joins before it creates', () => {
 		const his = await join_(bob.token, folder);
 		expect(his.status).toBe(201);
 		expect(his.body.folder).not.toBe(folder);
-		// Once he accepts a share of it, the same request joins it.
+		// Once he accepts an invitation to it, the same request joins it.
 		await share(alice.token, folder, bob.person.email);
 		expect((await join_(bob.token, folder)).body.made).toBe(true);
 		await accept(bob.token, folder);
@@ -757,7 +876,7 @@ describe('an app reaches the folders attached to it', () => {
 		expect((await unshare(vocabToken, folder, person.email)).status).toBe(403);
 	}, 60_000);
 
-	test('a share of a folder attached to an app shows in that app once accepted', async () => {
+	test('an invitation of a folder attached to an app shows in that app, and it joins once accepted', async () => {
 		const alice = await client.person('app-share-alice');
 		const bob = await client.person('app-share-bob');
 		const aliceTodos = await tokenFor(alice, todos);

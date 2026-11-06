@@ -3,7 +3,7 @@
 	"productName": "Epicenter Dev",
 	"identifier": "so.epicenter.dev",
 	"build": {
-		"beforeDevCommand": { "script": "bun run build:desktop:dev", "wait": true }
+		"beforeDevCommand": { "script": "bun run build:desktop", "wait": true }
 	},
 	"plugins": {
 		"epicenter-standalone": { "environment": "development" }

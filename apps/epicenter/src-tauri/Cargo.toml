@@ -46,8 +46,11 @@ tauri = { version = "2.12", features = ["test"] }
 
 [dependencies]
 dunce = "1"
+tauri-plugin-autostart = "2.5"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+# The app's own sign-in as `so.epicenter`, and the credentials file it keeps.
+epicenter-account = { path = "../../../packages/tauri-epicenter-account" }
 epicenter-standalone = { path = "../../../packages/tauri-epicenter-standalone" }
 # Settings' local model administration, and the model cache dictation prewarms.
 tauri-plugin-epicenter-transcription = { path = "../../../packages/transcription" }
@@ -76,12 +79,7 @@ tokio = { version = "1", features = ["full"] }
 # DEP_TRANSCRIBE_CPP_* metadata `epicenter_transcription_build` reads.
 transcribe-cpp = { version = "0.1.0", default-features = false }
 
-[target.'cfg(unix)'.dependencies]
-# Ends a window's `epicenter` children with their process groups (`history.rs`).
-libc = "0.2"
-
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 windows = { version = "0.62", optional = true, features = ["Media_Control", "Foundation", "Foundation_Collections", "Win32_System_Com"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

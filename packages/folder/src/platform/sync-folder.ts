@@ -230,6 +230,14 @@ async function changedHere(store: Store, manifest: Manifest) {
 export type EverySync = {
 	name: string;
 	path: string;
+	/** The folder, as the root listed it. */
+	local: LocalFolder;
+	/**
+	 * It has no folder on the server to sync with, so nothing ran: it never
+	 * synced, or it is a copy of another folder. A person's first sync of it
+	 * makes or joins one.
+	 */
+	waiting?: true;
 	/** How its sync ended, or why it did not run; absent when nothing moved on either side. */
 	result?: Result<FolderSync, Unavailable>;
 };
@@ -238,7 +246,8 @@ export type EverySync = {
  * Sync every synced folder in the Epicenter folder that moved on either
  * side, from one request for where every folder the person holds is
  * (ADR-0819): a folder whose server moved past its manifest, or whose files
- * changed here. A folder never synced, or a copy, waits for a person.
+ * changed here. A folder never synced, or a copy, waits for a person
+ * (`waiting`).
  */
 export async function syncEvery({
 	account,
@@ -257,13 +266,15 @@ export async function syncEvery({
 	for (const local of listed.data.folders) {
 		const read = await storeManifest(local.store).read();
 		const manifest = read.data?.manifest;
+		const entry: EverySync = { name: local.name, path: local.path, local };
 		if (
 			manifest?.folder === undefined ||
 			copyOf(manifest, local.identity) !== null
-		)
+		) {
+			out.push({ ...entry, waiting: true });
 			continue;
+		}
 		const head = heads.data[manifest.folder];
-		const entry: EverySync = { name: local.name, path: local.path };
 		// One the person no longer holds is named, without asking the server again.
 		if (head === undefined)
 			entry.result = ClientError.Unavailable({

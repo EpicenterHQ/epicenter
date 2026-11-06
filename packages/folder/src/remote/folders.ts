@@ -84,16 +84,18 @@ export async function folderHeads(
 }
 
 /**
- * Share `folder` with the person who signs in as `email`, as `role` (the
- * person's own role must be `owner`), or change the role of someone who
- * holds it. A new share waits for them to accept it.
+ * Invite `email` to `folder` as `role` (the person's own role must be
+ * `member`), or change the role of someone who holds it. An invitation
+ * waits until the person who signs in with that email, verified, accepts
+ * it, whether they have an account now or sign up later; the answer is the
+ * same either way (`pending: true`), so it never says whether they do.
  */
 export function shareFolder(
 	account: RemoteAccount,
 	{
 		folder,
 		email,
-		role = 'writer',
+		role = 'member',
 	}: { folder: string; email: string; role?: FolderRole },
 ) {
 	return request<{ person: string; role: FolderRole; pending: boolean }>(
@@ -104,9 +106,10 @@ export function shareFolder(
 }
 
 /**
- * Take the person who signs in as `email` out of `folder`: an owner's
- * unshare, or, for the person's own email, leaving or declining a share.
- * `folderGone` when the last member left, and the folder with them.
+ * Take `email` out of `folder`: a member's unshare of someone who holds it,
+ * or the cancelling of its invitation; or, for the person's own email,
+ * leaving or declining. `folderGone` when the last member left, and the
+ * folder with them.
  */
 export function unshareFolder(
 	account: RemoteAccount,
@@ -119,7 +122,7 @@ export function unshareFolder(
 	);
 }
 
-/** Accept the share of `folder` waiting for the person: it is theirs, as listed. */
+/** Accept the invitation of `folder` waiting for the person: it is theirs, as listed. */
 export function acceptShare(
 	account: RemoteAccount,
 	{ folder }: { folder: string },

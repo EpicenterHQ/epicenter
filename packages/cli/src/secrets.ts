@@ -1,9 +1,9 @@
 /**
  * This computer's keychain, as the `epicenter` CLI reaches it (ADR-0556):
- * `Bun.secrets`, one entry per sign-in under {@link AUTH_KEYCHAIN_SERVICE}
+ * `Bun.secrets`, the sign-in's entry under {@link AUTH_KEYCHAIN_SERVICE}
  * (ADR-0558), and Messages' Beeper token under its own service. The CLI is
- * the only program that reads or writes these entries; the desktop shell asks
- * it through fixed commands.
+ * the only program that reads or writes these entries; the Epicenter app
+ * keeps its own sign-in in its own credentials file (ADR-0793).
  *
  * `EPICENTER_TEST_SECRETS` replaces the keychain with stores held in memory
  * for one process, the sign-ins' seeded from its `$auth` member
@@ -46,7 +46,7 @@ export function createMemorySecrets(
 	};
 }
 
-/** The keychain service each grant's refresh token and cached access tokens are filed under. */
+/** The keychain service the sign-in's refresh token and cached access tokens are filed under. */
 export const AUTH_KEYCHAIN_SERVICE = 'so.epicenter.auth';
 
 type BunSecrets = {
