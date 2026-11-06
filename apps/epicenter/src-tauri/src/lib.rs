@@ -323,7 +323,7 @@ pub fn run() {
             let mut opened_window = false;
             if let Some(urls) = current {
                 for url in &urls {
-                    if let Some(link) = parse_deep_link(url) {
+                    if let Some(link) = parse_app_deep_link(url) {
                         follow_deep_link(app.handle(), link);
                         opened_window = true;
                     }
@@ -370,7 +370,7 @@ fn links_from_arguments(arguments: &[String]) -> Vec<DeepLink> {
         let Ok(url) = tauri::Url::parse(argument) else {
             continue;
         };
-        let Some(link) = parse_deep_link(&url) else {
+        let Some(link) = parse_app_deep_link(&url) else {
             continue;
         };
         if !links.contains(&link) {
@@ -382,7 +382,7 @@ fn links_from_arguments(arguments: &[String]) -> Vec<DeepLink> {
 
 fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
     for url in urls {
-        if let Some(link) = parse_deep_link(url) {
+        if let Some(link) = parse_app_deep_link(url) {
             follow_deep_link(app, link);
         }
     }
@@ -390,16 +390,6 @@ fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
 
 /// What an `epicenter://` link asks for: a built-in window to show.
 type DeepLink = BuiltInApp;
-
-/// The window `url` names (`parse_app_deep_link`). A standalone app's request
-/// to sync its folder, `epicenter://init?…`, shows the Folders window, where a
-/// folder's first sync is the person's (ADR-0813); nothing is queued from it.
-fn parse_deep_link(url: &tauri::Url) -> Option<DeepLink> {
-    parse_app_deep_link(url).or_else(|| {
-        (url.scheme() == "epicenter" && url.host_str() == Some("init"))
-            .then_some(BuiltInApp::Folders)
-    })
-}
 
 /// Show the window `link` names.
 fn follow_deep_link(app: &DesktopAppHandle, link: DeepLink) {
@@ -1007,6 +997,10 @@ mod tests {
             "epicenter://?mode=other",
             "epicenter:///home",
             "https://app/home",
+            // A standalone app no longer asks Epicenter to sync its folder
+            // (ADR-0822), and a query never names a window.
+            "epicenter://init?path=%2FUsers%2Fme%2FNotes",
+            "epicenter://app/folders?path=%2FUsers%2Fme%2FNotes",
         ] {
             assert_eq!(parse_app_deep_link(&denied.parse().unwrap()), None);
         }
@@ -1060,26 +1054,5 @@ mod tests {
             links_from_arguments(&arguments),
             vec![BuiltInApp::Home, BuiltInApp::Folders]
         );
-    }
-
-    /// A standalone app's request to sync its folder shows the Folders window;
-    /// the built-in table takes no query.
-    #[test]
-    fn a_sync_request_shows_the_folders_window() {
-        assert_eq!(
-            parse_deep_link(
-                &"epicenter://init?path=%2FUsers%2Fme%2FNotes"
-                    .parse()
-                    .unwrap()
-            ),
-            Some(BuiltInApp::Folders)
-        );
-        for denied in [
-            "epicenter://app/folders?path=%2FUsers%2Fme%2FNotes",
-            "epicenter://?path=%2FUsers%2Fme%2FNotes",
-            "epicenter://open?path=%2FUsers%2Fme%2FNotes",
-        ] {
-            assert_eq!(parse_deep_link(&denied.parse().unwrap()), None, "{denied}");
-        }
     }
 }
