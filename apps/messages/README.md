@@ -66,7 +66,7 @@ attempts/<id>.md    the latest send from that composer: chatId, profile, mode,
 `<id>` is `<mode>-<sha256 of mode, profile and chat>`, so demo and live
 drafts never share a file. The files live in Messages' own directory under
 Epicenter's application data, `<data root>/apps/so.epicenter.messages`
-(`messagesFolder()` in `scripts/serve.ts`; on macOS
+(`messagesFolder()` in `apps/messages/scripts/serve.ts`; on macOS
 `~/Library/Application Support/so.epicenter/apps/so.epicenter.messages`,
 and `EPICENTER_DATA_DIR` names the root instead), not under `~/Epicenter`:
 nothing syncs them. `bun dev:messages` keeps its own under the development
