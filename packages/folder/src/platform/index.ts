@@ -22,14 +22,11 @@ export {
 	unshareFolder,
 } from '../remote/folders.js';
 export {
-	type Joined,
-	joinFolder,
 	type RemoteAccount,
 	RemoteError,
 } from '../remote/repository.js';
 export type { RootIdentity } from '../sync/sync.js';
 export {
-	copyOf,
 	type EpicenterRoot,
 	freeName,
 	type Home,
@@ -37,8 +34,6 @@ export {
 	type HomeState,
 	type LocalFolder,
 	listHome,
-	localTitle,
-	sameRoot,
 } from './epicenter-folder.js';
 export { InitError, initFolder } from './init.js';
 export {

@@ -264,8 +264,12 @@ export async function syncEvery({
 			continue;
 		const head = heads.data[manifest.folder];
 		const entry: EverySync = { name: local.name, path: local.path };
-		if (
-			head === undefined ||
+		// One the person no longer holds is named, without asking the server again.
+		if (head === undefined)
+			entry.result = ClientError.Unavailable({
+				cause: `${local.path} syncs with ${manifest.folder}, which you no longer hold, or which is gone`,
+			});
+		else if (
 			head !== manifest.commit ||
 			(await changedHere(local.store, manifest))
 		)

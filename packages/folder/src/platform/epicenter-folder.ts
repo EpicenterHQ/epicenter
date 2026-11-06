@@ -62,7 +62,7 @@ export type EpicenterRoot = {
 };
 
 /** Whether two directory identities are one directory. */
-export const sameRoot = (a: RootIdentity, b: RootIdentity) =>
+const sameRoot = (a: RootIdentity, b: RootIdentity) =>
 	a.device === b.device && a.inode === b.inode;
 
 /**
@@ -112,7 +112,7 @@ export type Home = {
 const decoder = new TextDecoder();
 
 /** The `title` of the `epicenter.json` in `store`, or null. */
-export async function localTitle(store: Store): Promise<string | null> {
+async function localTitle(store: Store): Promise<string | null> {
 	const read = await store.read([CONTRACT_PATH]);
 	const [file] = read.data ?? [];
 	if (file === undefined || 'gone' in file) return null;
