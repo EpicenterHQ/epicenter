@@ -36,17 +36,17 @@ Honeycrisp has no settings, so it has no settings note, and keeps no other
 files.
 
 Honeycrisp has two variants, one store each and nothing moving between them
-(decisions 77 to 79): the online web app over the signed-in person's
-repository, and a desktop app over a folder of notes it keeps on the
-computer (below). A folder of notes on a computer, the desktop app's or a
-clone of the person's repository (`epicenter clone <handle>/honeycrisp`), is
-synced by Epicenter (`epicenter sync`), never by Honeycrisp, and any editor
-can change it.
+(decisions 77 to 79): the online web app over the folder attached to
+Honeycrisp on the server, and a desktop app over a folder of notes it keeps on
+the computer (below). A folder of notes on a computer, the desktop app's or a
+clone of that folder (`epicenter clone`), is synced by `epicenter sync`,
+never by Honeycrisp, and any editor can change it.
 
 ## The web app
 
-Honeycrisp in a browser is its online variant only: the person's own
-repository, `<handle>/honeycrisp`, through Epicenter, at `/`. Signed out it
+Honeycrisp in a browser is its online variant only: the folder attached to
+Honeycrisp on the server (its history is the repository at `/folders/<id>`),
+at `/`. Signed out it
 asks for a sign-in; signed in, every create, edit, move, pin and delete is a
 commit there, and nothing is kept in the browser. It needs the network;
 there is no browser copy to fall back on

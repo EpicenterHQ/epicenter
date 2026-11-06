@@ -11,16 +11,17 @@ file `epicenter check <url>/contract.json <dir>` checks a folder against. Any
 program that writes the layout is a valid writer.
 
 Capture has two variants, one store each and nothing moving between them
-(decisions 77 to 79): the online web app over the signed-in person's
-repository, and a desktop app over a folder of captures it keeps on the
+(decisions 77 to 79): the online web app over the folder attached to Capture
+on the server, and a desktop app over a folder of captures it keeps on the
 computer (below). A folder of captures on a computer, the desktop app's or a
-clone of the person's repository (`epicenter clone`), is synced by Epicenter
-(`epicenter sync`), never by Capture.
+clone of that folder (`epicenter clone`), is synced by `epicenter sync`,
+never by Capture.
 
 ## What it does
 
-Capture in a browser is its online variant only: the person's own
-repository, `<handle>/capture`, through Epicenter, at `/`. Signed out it
+Capture in a browser is its online variant only: the folder attached to
+Capture on the server (its history is the repository at `/folders/<id>`), at
+`/`. Signed out it
 asks for a sign-in; signed in, every add, edit and delete is a commit
 there, and nothing is kept in the browser. It needs the network; there is
 no browser copy to fall back on
