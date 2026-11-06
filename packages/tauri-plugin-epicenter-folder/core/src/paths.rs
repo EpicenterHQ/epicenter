@@ -157,6 +157,10 @@ mod tests {
         allowed: Vec<String>,
         hidden: Vec<String>,
         visible: Vec<String>,
+        #[serde(rename = "byContent")]
+        by_content: Vec<String>,
+        #[serde(rename = "byStamp")]
+        by_stamp: Vec<String>,
     }
 
     /// The vectors `paths.test.ts` reads too, so both languages agree.
@@ -175,6 +179,18 @@ mod tests {
         }
         for path in &rules.visible {
             assert!(!is_hidden_path(path), "{path:?} hidden");
+        }
+        for path in &rules.by_content {
+            assert!(
+                crate::storage::versioned_by_content(path),
+                "{path:?} named by its stamp"
+            );
+        }
+        for path in &rules.by_stamp {
+            assert!(
+                !crate::storage::versioned_by_content(path),
+                "{path:?} named by its content"
+            );
         }
     }
 

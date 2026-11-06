@@ -85,6 +85,28 @@ fn list_and_read_report_the_same_stamp_and_a_write_changes_it() {
 }
 
 #[test]
+fn the_contract_is_listed_by_the_blob_id_of_its_bytes_as_a_note_is() {
+    // Listed by its stamp, the page would read `epicenter.json` as changed
+    // here on every sync, and two computers would overwrite each other's
+    // title and contract.
+    let contract: &[u8] = b"{\"title\":\"Notes\"}\n";
+    let (_temp, root) = folder(
+        "storage-contract",
+        &[("epicenter.json", contract), ("sub/epicenter.json", b"x")],
+    );
+    let listing = list(&root, &[String::new()]).unwrap();
+    let version = |path: &str| {
+        listing
+            .iter()
+            .find(|file| file.path == path)
+            .map(|file| file.version.clone())
+            .unwrap()
+    };
+    assert_eq!(version("epicenter.json"), blob(contract));
+    assert_ne!(version("sub/epicenter.json"), blob(b"x"));
+}
+
+#[test]
 fn an_attachment_is_named_by_the_stamp_that_landed_and_written_over_it() {
     let (_temp, root) = folder("storage-landing", &[("todos/a.md", b"note")]);
     let Landing::Landed(stamp) = put_landing(&root, "audio.webm", b(b"one"), &Expectation::Absent).unwrap() else {

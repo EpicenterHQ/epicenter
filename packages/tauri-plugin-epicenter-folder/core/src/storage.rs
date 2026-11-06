@@ -107,13 +107,19 @@ pub enum Landing {
 }
 
 /// Whether a listing names the file at `path` by the Git blob id of its
-/// bytes (a note, `.md` in any case, or a hidden file) rather than by its
+/// bytes (a note, `.md` in any case, a hidden file, or the folder's contract,
+/// `epicenter.json` at its root, which is stored as it is) rather than by its
 /// stamp (an attachment, whose version the page derives from its hash,
-/// cached by that stamp): `storedWithLfs` in `@epicenter/definition`.
+/// cached by that stamp): the opposite of `storedWithLfs` in
+/// `@epicenter/definition`, held to it by `fixtures/path-rules.json`.
 pub fn versioned_by_content(path: &str) -> bool {
     (path.len() >= 3 && path[path.len() - 3..].eq_ignore_ascii_case(".md"))
         || crate::paths::is_hidden_path(path)
+        || path == CONTRACT_PATH
 }
+
+/// The folder's contract, at its root: stored as it is, never as a pointer.
+pub const CONTRACT_PATH: &str = "epicenter.json";
 
 /// The bytes and stamp of one opened file.
 #[derive(Debug, Clone, PartialEq, Eq)]
