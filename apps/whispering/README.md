@@ -275,7 +275,7 @@ page's life, with no branch of its own:
 The root renders the pages once the folder and the settings are open
 (`<WhenOpen>` from `@epicenter/svelte`), or the recovery screen when one
 cannot open. The views branch on what the capabilities offer: the header
-shows `FolderChrome` (the folder's status and Set up in Epicenter) where
+shows `FolderChrome` (the folder's status and whether Epicenter syncs it) where
 `folder.reveal` is there and `RepositoryChrome` (the repository's status
 and Sign in again) otherwise, and Settings shows `FolderSettings`,
 `SpeechSettings` and `ShortcutSettings` (in `src/lib/components/`) only

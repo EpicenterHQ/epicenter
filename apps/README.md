@@ -38,7 +38,7 @@ store where the page runs:
 
 | Surface | Store | The account |
 | --- | --- | --- |
-| Desktop (a Tauri window) | a folder on the computer | not needed for the folder, which `epicenter sync` syncs today; the app signing in to sync it is unbuilt ([ADR-0785](../docs/adr/0785-a-desktop-app-signs-in-to-sync-its-own-folder.md)) |
+| Desktop (a Tauri window) | a folder on the computer, which Epicenter (the app, the CLI) syncs, never the app | only for hosted features: its token holds only `ai`, and its shell relays only inference ([ADR-0822](../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)) |
 | Web | the folder attached to the app, on the server, behind sign-in | required |
 
 | App | Surfaces |
@@ -103,10 +103,10 @@ One build serves every surface
 ([ADR-0781](../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)):
 each capability package decides where the page runs, and a view branches
 on what a capability offers, such as the header's `FolderChrome` where
-`folder.reveal` is there and `RepositoryChrome` otherwise. (`FolderChrome`'s
-"Set up in Epicenter" is the enrollment that preceded ADR-0804; the platform's
-sync and sharing replace it as apps become views.) Components import `folder`
-from `$lib/app.js`.
+`folder.reveal` is there and `RepositoryChrome` otherwise. (`FolderChrome`
+says whether Epicenter syncs the folder, from the record Epicenter keeps,
+and where to get Epicenter until it does: a desktop app never syncs,
+ADR-0822.) Components import `folder` from `$lib/app.js`.
 
 UI components read a collection off `folder`, sort with the app's own
 order, and read and write through it: `items()`, `invalid()` (notes that

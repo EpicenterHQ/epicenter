@@ -273,8 +273,9 @@ impl State {
                 }
                 if is_reserved_directory(location) {
                     return Some(format!(
-                        "{} is inside a .git or .epicenter folder, so it cannot be a folder.",
-                        location.display()
+                        "{} is inside a .git or {} folder, so it cannot be a folder.",
+                        location.display(),
+                        epicenter_folder_core::state::DIRECTORY
                     ));
                 }
                 outer(location)
@@ -419,9 +420,8 @@ impl Roots {
     fn epicenter_path(&self) -> Result<PathBuf, RootError> {
         let state = self.state();
         state.running()?;
-        state
-            .epicenter
-            .as_ref()
+        let named = state.epicenter.as_ref();
+        named
             .map(|named| named.path.clone())
             .ok_or(RootError::NotNamed {
                 root: Root::Folder(String::new()),

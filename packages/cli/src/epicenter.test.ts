@@ -84,7 +84,7 @@ test('--help lists every command but the hidden ones, and --json describes them'
 	])
 		expect(help.stdout).toContain(usage);
 	expect(help.stdout).not.toContain('--desktop');
-	expect(run('sync', '--help').stdout).toContain('.epicenter/synced/');
+	expect(run('sync', '--help').stdout).toContain('one\nrecord per folder');
 	const described = JSON.parse(run('--help', '--json').stdout).commands;
 	expect(described.map((c: { command: string }) => c.command)).toEqual([
 		'check',

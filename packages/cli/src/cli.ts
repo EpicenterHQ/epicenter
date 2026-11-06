@@ -172,8 +172,8 @@ body by line with one conflict block per clash. An edit beats a delete, and a
 file both sides replaced keeps this computer's; the other stays in the
 folder's history.
 
-What this computer synced is recorded in the Epicenter folder's
-.epicenter/synced/, and a folder syncs from that record only when this
+What this computer synced is recorded at the Epicenter folder's root, one
+record per folder, and a folder syncs from that record only when this
 directory is proven the one that synced it: the same inode and birth time, or,
 after a move to a new computer, the same name and exactly the same files in a
 folder only you hold. A folder not proven so asks which folder it is before
