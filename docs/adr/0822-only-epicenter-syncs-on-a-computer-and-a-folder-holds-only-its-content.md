@@ -4,7 +4,7 @@
 - **Date:** 2026-11-06
 - **Amends:** [ADR-0819](0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md) at "Every program keeps the folders it has open in sync": on a computer only Epicenter's programs sync, and a web app syncs its own folder; [ADR-0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) at a desktop app signing in to sync its own folder: a desktop app signs in only for hosted features; [ADR-0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) at the stamp, `root.json`, the "Epicenter folder moved" branch, a shell command writing records, and a first-party desktop app reaching every folder: a folder's identity is its inode and birth time with one fallback, only Epicenter writes records, and a desktop app reaches no folder on the server; [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) at each folder's `.epicenter/`: a folder holds no Epicenter state.
 - **Relates:** [ADR-0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) (one engine per computer syncs every app's folder, retired by 0750), [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (any program can sync a folder), [ADR-0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) (an app inherits everything about folders).
-- **Unbuilt:** all of it: records and hash caches named by identity at the Epicenter folder's root; the identity rules; temporary files beside their targets under reserved names; desktop apps without sync, with tokens holding only `ai`; an app finding its folder by identity, reading its record for marks, and opening any folder in the Epicenter folder; "Get Epicenter to sync" in apps; removing the stamp, `.epicenter/` in folders, and the record command from the shells.
+- **Unbuilt:** all of it: records and hash caches named by identity at the Epicenter folder's root; the identity rules; temporary files beside their targets under reserved names; desktop apps without sync, with tokens holding only `ai`; an app finding its folder by identity, reading its record for marks, and opening any folder in the Epicenter folder; "Get Epicenter to sync" in apps; leaving Git working trees unsynced; removing the stamp, `.epicenter/` in folders, and the record command from the shells.
 
 ## Context
 
@@ -73,6 +73,12 @@ contract that fits the app, counts as made by that app. Every binding not proven
 by rules 1 and 2 starts from first contact, which never deletes, and a sync that
 would push many deletions stops and asks.
 
+**Epicenter never syncs a Git working tree.** A folder whose real path is in a
+Git working tree (`.git` at its root, or in a directory above the target of a
+folder that is a link) is shown as kept by Git, and apps open it as any folder;
+Epicenter does not sync it, so a branch switch never reaches another computer
+as edits.
+
 **An app finds its folder by its identity.** Its shell remembers its folder's
 inode and birth time, and at start opens the directory in the Epicenter folder
 that matches them before making one at its usual path, when both sides have a
@@ -84,6 +90,7 @@ Open with can open it.
 - A desktop app has no sync, no folder access on the server, and no record to
   write; its page cannot reach a folder it does not show.
 - Syncing across devices needs Epicenter installed, and runs while it does.
+- A folder kept in Git syncs through Git, never through Epicenter.
 - Copying, zipping, or handing on a folder carries nothing of Epicenter's.
 - Restoring older contents into the same directory pushes their deletions, which
   the deletion guard and the folder's history recover.
