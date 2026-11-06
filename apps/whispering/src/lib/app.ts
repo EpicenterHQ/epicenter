@@ -10,8 +10,8 @@
  *   data folder in a Tauri window; memory under the `test` condition.
  * - `account` is the sign-in with Epicenter. In a browser it holds the
  *   repository and adds hosted transcription and AI; in a Tauri window the
- *   data folder needs none, and signing in adds those and syncs it
- *   (ADR-0785).
+ *   data folder needs none, and signing in adds only those: Epicenter, not
+ *   the app, syncs the folder (ADR-0822).
  * - `ai` is every model this page reaches (ADR-0757), in the order the
  *   model picker lists them: Epicenter's hosted models through the account
  *   signed in now, the person's connected endpoints, then what runs on this

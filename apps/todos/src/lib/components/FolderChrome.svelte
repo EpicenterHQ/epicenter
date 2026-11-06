@@ -1,12 +1,10 @@
 <!--
 	When the folder is on this computer (`folder.reveal`): the header's account
-	of its store, Todos' folder on this computer, whether Epicenter manages it,
-	and Set up in Epicenter until it does. It offers no sign-in yet: signing in
-	syncs the folder, and this app's shell has no account until it does
-	(ADR-0785).
+	of its store, Todos' folder on this computer, whether Epicenter syncs it,
+	and where to get Epicenter until it does. A desktop app never syncs
+	(ADR-0822).
 -->
 <script lang="ts">
-	import { APPS } from '@epicenter/definition/site';
 	import { folderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
 	import FolderOnboarding from '@epicenter/svelte/folder-onboarding';
@@ -26,12 +24,12 @@
 	const unavailable = $derived(folder.unavailable());
 
 	// `<WhenOpen>` renders the pages, and so this, only over the open folder.
-	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.TODOS.url });
+	const sync = folderSync({ path: folder.displayPath() ?? '' });
 
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
 		if (unavailable !== null) return { label: 'Not reachable', detail: unavailable.message, tone: 'error' };
-		if (sync.managed) return { label: 'Kept by Epicenter', tone: 'good' };
+		if (sync.synced) return { label: 'Synced by Epicenter', tone: 'good' };
 		return { label: 'On this computer', tone: 'neutral' };
 	});
 </script>
@@ -41,10 +39,10 @@
 		<span class="font-medium" data-testid="status-where">This computer</span>
 		<FolderOnboarding noun="todos" path={sync.path} />
 		<span class="mt-0.5 block text-xs text-muted-foreground">
-			{#if sync.managed}
-				Epicenter keeps its local history. Connect a repository in Epicenter to use it on other devices.
+			{#if sync.synced}
+				Epicenter keeps it in sync across your devices.
 			{:else}
-				Set it up in Epicenter to keep its history and connect a repository.
+				On this computer only. Epicenter syncs it across your devices.
 			{/if}
 		</span>
 	</StatusRow>
