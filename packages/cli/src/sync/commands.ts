@@ -200,7 +200,7 @@ export async function syncCommand(
 			);
 		const every = await syncEvery({ account, root, apps: firstPartyApps() });
 		if (every.error !== null) return fail(every.error.message, json);
-		if (every.data.warning !== null) writeErr(every.data.warning);
+		for (const warning of every.data.warnings) writeErr(warning);
 		let code: number = EXIT.ok;
 		for (const { path, result, waiting } of every.data.folders) {
 			if (waiting === 'local' || waiting === 'git') {

@@ -1,17 +1,18 @@
 /**
- * The Epicenter folder in a Tauri window (ADR-0813, ADR-0819, ADR-0822): the
- * `EpicenterRoot` the platform's functions take, over the folder plugin of
- * the shell that named the Epicenter folder (the Epicenter app). The shell
- * lists the directories directly inside it, links followed and hidden names
- * skipped, each with its identity (inode and birth time) and whether Git
- * keeps it; each directory opens as a root of its own, `{ Folder: <name> }`,
+ * The Epicenter folder in a Tauri window (ADR-0813, ADR-0819, ADR-0822,
+ * ADR-0825): the `EpicenterRoot` the platform's functions take, over the
+ * folder plugin of the shell that named the Epicenter folder (the Epicenter
+ * app). The shell lists the real directories directly inside it, hidden
+ * names skipped, each with its identity (inode and birth time) and whether
+ * Git keeps it, and the links there as outside it; each directory opens as
+ * a root of its own, `{ Folder: <name> }`,
  * whose store is the shell's storage commands and whose changes are the
  * shell's watch of it. The Epicenter folder's own `.epicenter`, with the
  * records and hash caches, is the root `Epicenter`.
  *
  * A folder's root opens when a listing first finds it, and again when its
- * identity changed (a folder replaced, or a link pointed elsewhere); one
- * that does not open is listed as unreadable, with why. The shell's open
+ * identity changed (a folder replaced); one that does not open is listed as
+ * unreadable, with why. The shell's open
  * sweeps stale saves and recovers what an older build left in it.
  */
 import { ClientError } from '@epicenter/definition/contract';
@@ -23,6 +24,7 @@ import { type FolderIdentity, sameIdentity } from '../identity.js';
 import type {
 	EpicenterRoot,
 	LocalFolder,
+	OutsideLink,
 } from '../platform/epicenter-folder.js';
 import { type Records, recordsIn } from '../platform/records.js';
 import {
@@ -110,9 +112,7 @@ export function epicenterRoot(): EpicenterRoot {
 				records = undefined;
 				return unavailable(answer.error.cause);
 			}
-			return Ok(
-				recordsIn(tauriStore({ root, listen: listenTo('Epicenter') })),
-			);
+			return Ok(recordsIn(tauriStore({ root, listen: listenTo('Epicenter') })));
 		})();
 		return records;
 	}
@@ -175,7 +175,10 @@ export function epicenterRoot(): EpicenterRoot {
 			}
 			for (const name of opened.keys())
 				if (!present.has(name)) opened.delete(name);
-			return Ok({ folders, unreadable, realPath: listed.data.realPath });
+			const outside: OutsideLink[] = listed.data.outside.map(
+				({ name, target }) => ({ name, path: `${path}/${name}`, target }),
+			);
+			return Ok({ folders, outside, unreadable, git: listed.data.git });
 		},
 		async make(name): Promise<Result<LocalFolder, Unavailable>> {
 			try {

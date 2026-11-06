@@ -71,9 +71,10 @@ A self-hosted build takes precedence over that development override.
 ### Where things are
 
 The Epicenter folder is `~/Epicenter` in production and `~/Epicenter Dev` in
-development (`tauri.dev.conf.json` states the environment). Every directory
-directly inside it is a folder (ADR-0813); one elsewhere joins by a symbolic
-link there. Nothing registers a folder.
+development (`tauri.dev.conf.json` states the environment). Every real
+directory directly inside it is a folder (ADR-0813); a link there is shown as
+outside it and never synced, so a folder kept at another path moves in and a
+link at that path points to it (ADR-0825). Nothing registers a folder.
 
 The app's own data is the operating system's application data directory for
 its identifier, `so.epicenter` or `so.epicenter.dev` (`~/Library/Application
@@ -142,7 +143,8 @@ every folder in sync until the person shows it.
 The Folders window (`folders`, served at `/folders/`, source `src/folders`)
 shows every folder in the Epicenter folder with its title, its mark (✓
 synced, ◌ waiting, ⚠ conflict or deletions waiting, ✗ refused), its state
-(on this computer only, synced, shared, or kept by Git), and who holds it;
+(on this computer only, synced, shared, kept by Git, or a link outside the
+Epicenter folder), and who holds it;
 the shares waiting for the person; and the folders they hold that this
 computer does not. From it a person syncs now, answers which folder a
 folder not synced here is (one they hold, or a new one), says whether
@@ -167,8 +169,10 @@ computer, its name and exact files in a folder held alone. A copied folder
 stays on this computer as a local folder until the person syncs it, which
 asks which folder it is. A folder an app made (its usual name and a
 contract that fits the app) syncs without asking when nothing else fits.
-Epicenter never syncs a folder Git keeps, nor an Epicenter folder inside a
-file-sync service.
+Epicenter never syncs a folder Git keeps (`.git` at its root) or a link, nor
+anything while the Epicenter folder is inside a file-sync service; it says
+once when the Epicenter folder is itself a Git repository.
+
 
 ### Capabilities
 

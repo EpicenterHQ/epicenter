@@ -45,6 +45,7 @@
 		synced: 'Synced',
 		shared: 'Shared',
 		git: 'Kept by Git, so Epicenter does not sync it',
+		outside: 'A link to a folder outside the Epicenter folder, so Epicenter does not sync it',
 	} satisfies Record<HomeFolder['state'], string>;
 
 	const question = $derived(folder.question);
@@ -94,7 +95,7 @@
 				{#if folder.folder !== null}
 					<DropdownMenu.Item onSelect={onManage}>Share and apps…</DropdownMenu.Item>
 				{/if}
-				{#if folder.title === null && folder.state !== 'git'}
+				{#if folder.title === null && folder.state !== 'git' && folder.state !== 'outside'}
 					<DropdownMenu.Item onSelect={() => folders.init(folder)}>
 						Add epicenter.json
 					</DropdownMenu.Item>

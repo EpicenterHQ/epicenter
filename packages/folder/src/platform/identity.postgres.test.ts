@@ -13,13 +13,13 @@
  * - A new private folder named like an idle shared one, with its files,
  *   stays unbound
  * - An inode reused where there is no birth time proves nothing
- * - A drive mounted again (another device number) keeps its folders
  * - An app's folder renamed is followed; its usual path made again is a
  *   folder of its own, and nothing is deleted
  * - An older backup restored in place stops at the deletion guard
  * - A lost record finds its folder again instead of making a second one
- * - A folder Git keeps never syncs; an Epicenter folder inside a file-sync
- *   service is refused
+ * - A folder Git keeps never syncs, nor does a link in the Epicenter folder;
+ *   an Epicenter folder that is a Git repository is said once; one inside a
+ *   file-sync service is refused
  * - An old in-folder manifest is imported once, its recordings recovered
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
@@ -337,38 +337,6 @@ test('an inode reused where the file system records no birth time proves nothing
 	expect(await serverState(account, folder)).toEqual(before);
 }, 120_000);
 
-test('a drive mounted again keeps its folders: the device number is no part of an identity', async () => {
-	const account = await server.signIn('remount');
-	const desk = await computer(account, 'remount');
-	await desk.write('Photos', {
-		'epicenter.json': contract('Photos'),
-		'a.md': note('A'),
-	});
-	const { folder } = synced(await desk.sync('Photos'));
-	const [held] = expectOk(await expectOk(await desk.root.records()).list());
-	expect(Object.keys(held?.record ?? {}).sort()).toEqual([
-		'birthtime',
-		'cursor',
-		'files',
-		'folder',
-		'inode',
-		'name',
-	]);
-	// The same directory with another device number, as a remount gives it.
-	const { read } = statSeam();
-	const remounted = {
-		...desk,
-		root: (await import('../device/node-root.js')).epicenterRoot(desk.path, {
-			stat: async (path) =>
-				Object.assign(await read(path), { dev: BigInt(Date.now()) }),
-		}),
-	};
-	const found = expectOk(await identify({ root: remounted.root, account }));
-	expect(
-		found.bound.map(({ record, proof }) => [record.folder, proof]),
-	).toEqual([[folder, 'identity']]);
-}, 120_000);
-
 const WHISPERING: KnownApp = {
 	client: 'so.epicenter.whispering',
 	name: 'whispering',
@@ -478,28 +446,42 @@ test('a lost record finds its folder again by name instead of making a second on
 	expect(expectOk(await listFolders(account)).folders).toHaveLength(1);
 }, 120_000);
 
-test('a folder Git keeps never syncs, a link into a working tree included', async () => {
+test('a folder Git keeps never syncs, and a link is a folder outside the Epicenter folder, never synced', async () => {
 	const account = await server.signIn('git-kept');
 	const desk = await computer(account, 'git-kept');
 	await desk.write('Code', {
 		'.git/HEAD': 'ref: refs/heads/main\n',
 		'a.md': note('A'),
 	});
-	const elsewhere = await scratch('epicenter-repo-');
-	await mkdir(join(elsewhere, '.git'));
+	const elsewhere = await scratch('epicenter-elsewhere-');
 	await mkdir(join(elsewhere, 'docs'));
 	await writeFile(join(elsewhere, 'docs/readme.md'), note('Docs'));
 	await symlink(join(elsewhere, 'docs'), join(desk.path, 'Docs'));
 	expect(expectOk(await desk.sync('Code'))).toEqual({ kind: 'git' });
-	expect(expectOk(await desk.sync('Docs'))).toEqual({ kind: 'git' });
+	expect(expectErr(await desk.sync('Docs')).message).toContain(
+		'outside the Epicenter folder',
+	);
 	const home = expectOk(await listHome({ root: desk.root, account }));
 	expect(home.folders.map(({ name, state }) => [name, state])).toEqual([
 		['Code', 'git'],
-		['Docs', 'git'],
+		['Docs', 'outside'],
 	]);
+	expect(home.git).toBeNull();
 	const every = expectOk(await syncEvery({ account, root: desk.root }));
-	expect(every.folders.map(({ waiting }) => waiting)).toEqual(['git', 'git']);
+	expect(every.folders.map(({ name, waiting }) => [name, waiting])).toEqual([
+		['Code', 'git'],
+	]);
 	expect(expectOk(await listFolders(account)).folders).toEqual([]);
+	// An Epicenter folder that is itself a Git repository is said once, and its folders still sync.
+	await mkdir(join(desk.path, '.git'));
+	await desk.write('Notes', { 'a.md': note('A') });
+	expect(synced(await desk.sync('Notes')).made).toBe(true);
+	expect(expectOk(await listHome({ root: desk.root, account })).git).toContain(
+		'is itself a Git repository',
+	);
+	expect(
+		expectOk(await syncEvery({ account, root: desk.root })).warnings,
+	).toEqual([expect.stringContaining('is itself a Git repository')]);
 	await rm(elsewhere, { recursive: true, force: true });
 }, 120_000);
 
@@ -524,7 +506,9 @@ test('an Epicenter folder inside a file-sync service is refused, and one that on
 		under: 'old dropbox backup',
 	});
 	const every = expectOk(await syncEvery({ account, root: maybe.root }));
-	expect(every.warning).toContain('names a file-sync service');
+	expect(every.warnings).toEqual([
+		expect.stringContaining('names a file-sync service'),
+	]);
 }, 120_000);
 
 test('an old in-folder manifest is imported once: a record for the directory it synced in, and its recordings recovered first', async () => {

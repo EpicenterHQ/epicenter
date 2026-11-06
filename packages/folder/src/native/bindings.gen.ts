@@ -29,11 +29,12 @@ export const commands = {
 	 */
 	listFolder: (root: Root, under: string[]) => typedError<ListedFile[], FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root, under })),
 	/**
-	 *  The Epicenter folder's listing (ADR-0813): where it is and where it
-	 *  really is, every directory directly inside it, links followed, hidden
-	 *  names skipped, each with its name (its root is `Root::Folder(name)`), its
-	 *  identity, and whether Git keeps it, and what is there but cannot be a
-	 *  folder, with why. The folder is made when it is missing.
+	 *  The Epicenter folder's listing (ADR-0813, ADR-0825): where it is and
+	 *  whether it is itself a Git repository, every real directory directly
+	 *  inside it, hidden names skipped, each with its name (its root is
+	 *  `Root::Folder(name)`), its identity, and whether Git keeps it, the links
+	 *  in it, shown as outside it, and what is there but cannot be a folder,
+	 *  with why. The folder is made when it is missing.
 	 */
 	listEpicenter: () => typedError<EpicenterListing, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|list_epicenter")),
 	/**
@@ -75,32 +76,36 @@ export const commands = {
 };
 
 /* Types */
-/**  One directory directly inside the Epicenter folder. */
+/**  One real directory directly inside the Epicenter folder. */
 export type EpicenterEntry = {
 	/**  Its name there, the person's own label for it, and its root's name. */
 	name: string,
 	/**
-	 *  Its identity now, its link followed (`identity::identity_of`): the
-	 *  inode and birth time a record names it by. Null where the system has
-	 *  none.
+	 *  Its identity now (`identity::identity_of`): the inode and birth time
+	 *  a record names it by. Null where the system has none.
 	 */
 	identity: FolderIdentity | null,
 	/**
 	 *  Whether Git keeps it (`kept_by_git`): Epicenter never syncs a Git
-	 *  working tree (ADR-0822).
+	 *  working tree (ADR-0822, ADR-0825).
 	 */
 	git: boolean,
 };
 
 /**
- *  The Epicenter folder's listing: where it is, as a person reads it, and
- *  where it really is (every link resolved), its folders by name, and what
- *  is there but could not be read.
+ *  The Epicenter folder's listing: where it is, as a person reads it,
+ *  whether it is itself a Git repository, its folders by name, the links in
+ *  it, and what is there but could not be read.
  */
 export type EpicenterListing = {
 	path: string,
-	realPath: string,
+	/**
+	 *  Whether the Epicenter folder holds `.git` at its root, which
+	 *  Epicenter says once (ADR-0825).
+	 */
+	git: boolean,
 	folders: EpicenterEntry[],
+	outside: Outside[],
 	unreadable: Unreadable[],
 };
 
@@ -165,6 +170,16 @@ export type ListedFile = {
 	size: number | null,
 };
 
+/**
+ *  A link directly inside the Epicenter folder: shown as outside it, never
+ *  opened as one of its folders, and never synced (ADR-0825).
+ */
+export type Outside = {
+	name: string,
+	/**  Where the link points, as it is written. */
+	target: string,
+};
+
 /**  A root an app reaches by name. */
 export type Root =
 /**
@@ -178,9 +193,9 @@ export type Root =
  */
 "AppData" |
 /**
- *  The directory `name` directly inside the Epicenter folder, which the
- *  Epicenter app names (`Roots::name_epicenter`): one of the person's
- *  folders, followed through a link there to wherever it lives.
+ *  The real directory `name` directly inside the Epicenter folder, which
+ *  the Epicenter app names (`Roots::name_epicenter`): one of the
+ *  person's folders. A link there is not one (ADR-0825).
  */
 { Folder: string } |
 /**

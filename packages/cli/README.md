@@ -86,15 +86,17 @@ Beeper, which ADR-0817's "no program calls the CLI" does not yet describe.
 
 A folder (ADR-0811) is synced and shared: the server mints its id at its
 first sync, its members are people, equal and none its owner, and its title
-is the `title` of its `epicenter.json`. Every directory directly inside the
-Epicenter folder (`~/Epicenter`, or `~/Epicenter Dev` in development) is a
-folder; one elsewhere joins by a symbolic link there.
+is the `title` of its `epicenter.json`. Every real directory directly inside
+the Epicenter folder (`~/Epicenter`, or `~/Epicenter Dev` in development) is
+a folder; a link there is a folder outside it, never synced (ADR-0825).
 
 - `status` lists every folder there with its title and state (on this
   computer only, with the folders it could be; synced; shared, with who
-  holds it; or kept by Git, which Epicenter never syncs), then the shares
-  waiting for you and the folders you hold that are not on this computer,
-  and a refusal when the Epicenter folder is inside a file-sync service.
+  holds it; kept by Git, or a link outside the Epicenter folder, neither of
+  which Epicenter syncs), then the shares waiting for you and the folders
+  you hold that are not on this computer, a refusal when the Epicenter
+  folder is inside a file-sync service, and a note when it is itself a Git
+  repository.
   Signed out or offline, it lists what this computer holds.
 - `init [<path>]` writes the folder's `epicenter.json`: its title (the
   directory's name, or `--title`), and the collections its files suggest,
@@ -151,8 +153,9 @@ computer.
   brings them back. `--all` syncs every folder in the Epicenter folder that
   moved on either side, from one request for where every folder is
   (ADR-0819), and a folder an app made as if you had named it. A folder Git
-  keeps is never synced, and an Epicenter folder inside a file-sync service
-  is refused. A sync copies what changed on one side to the other, and merges a
+  keeps (`.git` at its root) and a link are never synced, and an Epicenter
+  folder inside a file-sync service is refused.
+ A sync copies what changed on one side to the other, and merges a
   note both sides changed: front matter by key, this computer's change
   winning a key both changed, and the body by line with one conflict block
   per clash. An edit beats a delete, and a file both sides replaced keeps

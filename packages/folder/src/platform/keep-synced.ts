@@ -60,8 +60,8 @@ export type KeptState = {
 	syncing: boolean;
 	/** How the last round ended (null before the first): when, and why it could not run. */
 	last: { at: number; error: string | null } | null;
-	/** What the last round could not tell about where the Epicenter folder is, if anything. */
-	warning: string | null;
+	/** What the last round said about the Epicenter folder: what the file-sync check could not rule out, and that it is a Git repository. */
+	warnings: string[];
 };
 
 /** How long after the last change of a burst a round runs. */
@@ -125,8 +125,8 @@ export function keepEverySynced({
 	let marks = new Map<string, FolderMark>();
 	let syncing = false;
 	let last: KeptState['last'] = null;
-	let warning: string | null = null;
-	let state: KeptState = { marks, syncing, last, warning };
+	let warnings: string[] = [];
+	let state: KeptState = { marks, syncing, last, warnings };
 	/** The person's answers to folders stopped for many deletions, by path, for the next round. */
 	const answers = new Map<string, Deletions>();
 	let stopped = false;
@@ -139,7 +139,7 @@ export function keepEverySynced({
 	let checkTimer: ReturnType<typeof setTimeout> | undefined;
 
 	function publish() {
-		state = { marks, syncing, last, warning };
+		state = { marks, syncing, last, warnings };
 		for (const listener of [...listeners]) listener();
 	}
 
@@ -212,7 +212,7 @@ export function keepEverySynced({
 			publish();
 			return null;
 		}
-		warning = ran.data.warning;
+		warnings = ran.data.warnings;
 		const every = ran.data.folders;
 		const next = new Map<string, FolderMark>();
 		for (const entry of every) {

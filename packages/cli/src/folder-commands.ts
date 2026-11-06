@@ -108,6 +108,7 @@ export async function statusCommand(json: boolean) {
 	const check = home.data.fileSync;
 	if (check !== null)
 		lines.push('', 'refused' in check ? check.refused : check.warning);
+	if (home.data.git !== null) lines.push('', home.data.git);
 	writeOut(lines.join('\n'));
 	if (offline !== null)
 		writeErr(`Members and shares are not shown: ${offline}`);
@@ -122,11 +123,13 @@ function folderLine(folder: HomeFolder): string {
 	const state =
 		folder.state === 'git'
 			? 'kept by Git, so Epicenter does not sync it'
-			: folder.state === 'local'
-				? localState(folder)
-				: folder.members === null
-					? folder.state
-					: `${folder.state}, ${describeMembers(folder.members)}`;
+			: folder.state === 'outside'
+				? 'a link to a folder outside the Epicenter folder, so Epicenter does not sync it (move the folder in, and leave a link where it was)'
+				: folder.state === 'local'
+					? localState(folder)
+					: folder.members === null
+						? folder.state
+						: `${folder.state}, ${describeMembers(folder.members)}`;
 	return `${label}: ${state}${folder.unlisted ? ` (${folder.unlisted})` : ''}`;
 }
 
@@ -353,8 +356,7 @@ export async function attachCommand(
 /**
  * The name, in the Epicenter folder `root`, of the folder `target` names:
  * its path, or its name there. A directory anywhere else is refused: a
- * folder syncs only inside the Epicenter folder, and one elsewhere joins by
- * a link there (ADR-0821).
+ * folder syncs only as a real directory in the Epicenter folder (ADR-0825).
  */
 export async function folderNameIn(
 	root: EpicenterRoot,
@@ -363,16 +365,13 @@ export async function folderNameIn(
 	const real = (path: string) => realpath(path).catch(() => resolve(path));
 	const absolute = resolve(target);
 	const parent = dirname(absolute);
-	if (
-		parent === root.path ||
-		(await real(parent)) === (await real(root.path))
-	)
+	if (parent === root.path || (await real(parent)) === (await real(root.path)))
 		return Ok(basename(absolute));
 	// A bare name names the folder in the Epicenter folder, wherever this runs.
 	const bare = !target.includes('/') && target !== '.' && target !== '..';
 	if (bare && (await realpath(join(root.path, target)).catch(() => null)))
 		return Ok(target);
 	return Err(
-		`${absolute} is not a folder in ${root.path}: Epicenter syncs the folders in it. Move the folder there, or link it there.`,
+		`${absolute} is not a folder in ${root.path}: Epicenter syncs the folders in it. Move the folder there, and leave a link where it was.`,
 	);
 }
