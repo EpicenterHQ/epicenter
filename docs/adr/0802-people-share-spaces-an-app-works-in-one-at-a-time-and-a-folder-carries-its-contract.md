@@ -6,6 +6,7 @@
 - **Relates:** [ADR-0742](0742-items-are-what-you-keep-documents-are-whats-live.md) (items are what you keep), [ADR-0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md) (the folder's `AGENTS.md`), [ADR-0799](0799-a-folders-contract-is-also-an-mcp-server.md) (tools derived from the contract), [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (sync like save).
 - **Amended by:** [ADR-0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) at `AGENTS.md` naming `contract.json`: the contract is `epicenter.json`, and `AGENTS.md` names nothing.
 - **Amended by:** [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) at spaces and the space switcher: an app works in one folder at a time, with a folder picker.
+- **Amended by:** [ADR-0814](0814-one-window-shows-one-folder.md) at an app later opening several folders together: no app does; views across folders are the library's.
 - **Unbuilt:** all of it: `team` renamed `space` in the server, the CLI, and the screens (ADR-0770's `namespace` tables become `space` and `space_member`); consent choosing several spaces; an app's space switcher; `contract.json` written and updated by the app, and `AGENTS.md` naming it by path; "note" renamed "item" where it names an entry of a collection; "round" renamed "sync" in code and records that follow.
 
 ## Context

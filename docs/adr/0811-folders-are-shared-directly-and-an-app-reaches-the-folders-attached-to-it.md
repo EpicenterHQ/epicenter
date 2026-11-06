@@ -7,6 +7,7 @@
 - **Relates:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) (the manifest), [ADR-0806](0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md) (an open app checks for changes), [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) (the library).
 - **Amended by:** [ADR-0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) at `$id` marking an app that keeps the contract: no app owns it, and there is no `$id`.
 - **Amended by:** [ADR-0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) at `epicenter init` making a folder: it adds a contract to one.
+- **Amended by:** [ADR-0814](0814-one-window-shows-one-folder.md) at an app's folder picker: a window shows one folder, and another folder opens in another window.
 - **Unbuilt:** all of it: a folder's id minted at first sync, `title` in `epicenter.json` read by the server, its members, owners among them, sharing managed by person, and its survival while any member remains; `/folders/<id>`; the folder-to-app attachment and "Use this folder with" an app; join-before-create; the manifest's `folder` and root identity, and the question a copy asks; accepting a share; each app's folder picker and a name asked for each new folder; `epicenter init` proposing collections and converting YAML; the CLI listing folders by label and owner for `clone`; deleting spaces, `namespace` tables, and ADR-0791's move.
 
 ## Context
