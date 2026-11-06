@@ -130,8 +130,9 @@ The probe demonstrated:
   compare-and-swap failed and retried. Native `git fsck --full` passed.
 
 This establishes a local mechanism, not the feasibility or cost of hosting it.
-The current `apps/api/worker/git-repositories.ts` authorizes and forwards Git
-HTTP requests to Artifacts; it does not construct commits or merge repositories.
+The Worker of the time forwarded Git HTTP requests to Artifacts; it did not
+construct commits or merge repositories. A folder's history is a log in
+Postgres now (ADR-0824).
 The probe used native Git, which is not the hosted Worker implementation.
 Authentication, arbitrary files, request versioning/streaming, atomic browser
 adoption, and Artifacts support remain unbuilt.

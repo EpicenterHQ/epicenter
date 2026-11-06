@@ -49,9 +49,15 @@ built yet.
 | `epicenter init [<path>] [--title <title>] [--dry-run]` | built | `initFolder`, through `src/folder-commands.ts` |
 | `epicenter sync [<folder>] [--join <id> \| --create] [--push-deletions \| --restore-deletions] [--all]` | built | `syncFolder` and `syncEvery`, through `src/sync/commands.ts` |
 | `epicenter clone [<folder> [<name>]]` | built | `listFolders` and `cloneIntoHome`, through `src/sync/commands.ts` |
-| `epicenter log [<dir>] [--limit <n>]` | built | `src/sync/commands.ts` |
-| `epicenter diff [<dir>] [--since <commit>]` | built | `src/sync/commands.ts` |
-| `epicenter restore <commit> [<dir>] [--path <path>]` | built | `src/sync/commands.ts` |
+| `epicenter log [<dir>] [--path <path>] [--at <moment>] [--limit <n>]` | built | `src/sync/history.ts` |
+| `epicenter history <path> [--at <moment>] [--limit <n>]` | built | `src/sync/history.ts` |
+| `epicenter show <path> [--at <moment>]` | built | `src/sync/history.ts` |
+| `epicenter at <moment> [<dir>]` | built | `src/sync/history.ts` |
+| `epicenter mark [<name> [<dir>]] [--move]` | built | `src/sync/history.ts` |
+| `epicenter diff [<dir>] [--since <moment>]` | built | `src/sync/history.ts` |
+| `epicenter restore <moment> [<dir>] [--path <path>]` | built | `src/sync/history.ts` |
+| `epicenter export [<dir>] --git <repository>` | built | `src/git/export.ts` |
+| `epicenter import --git <path or URL> [--branch <name>] [--name <name>] [--replace-original]` | built | `src/git/import.ts` |
 | `epicenter share <folder> [<email>] [--role member\|reader]` | built | `shareFolder` and `getFolder`, through `src/folder-commands.ts` |
 | `epicenter unshare <folder> <email>` | built | `unshareFolder` |
 | `epicenter accept [<folder>]` | built | `listFolders` and `acceptIntoHome` |
@@ -118,12 +124,13 @@ machine of their own, against the real server.
 
 ## Sync
 
-`sync`, `clone`, `log`, `diff`, and `restore` live in `src/sync/`. What
+`sync` and `clone` live in `src/sync/commands.ts`, and the history commands in
+`src/sync/history.ts`. What
 this computer synced is recorded at the Epicenter folder's root, one record
 per folder at `.epicenter/synced/<folder-id>.json`: the folder's id, the
 name and identity (inode and birth time) of the directory that agreed it,
-the commit both sides last agreed at, and each file's Git blob id there
-(ADR-0808, ADR-0822). A folder holds only its files. The CLI signs every
+the cursor of the folder's log both sides last agreed at, and each file's
+version there, the SHA-256 of its bytes (ADR-0822, ADR-0824). A folder holds only its files. The CLI signs every
 request to the deployment with the grant's Git-audience token
 (`src/sync/account.ts`), sent over `https`, or over `http` only to this
 computer.
@@ -151,8 +158,8 @@ computer.
   note both sides changed: front matter by key, this computer's change
   winning a key both changed, and the body by line with one conflict block
   per clash. An edit beats a delete, and a file both sides replaced keeps
-  this computer's, the other staying in the repository's history. A path
-  the repository refuses (one differing only in case from a path it holds)
+  this computer's, the other staying in the folder's history. A path
+  the server refuses (one differing only in case from a path it holds)
   stays here and is named. `--json` prints one `{"sync": {...}}` or
   `{"question": {...}}` line. Exit codes: 0 synced, 1 run again, a file
   refused, a question, or deletions waiting, 2 could not sync.
@@ -160,17 +167,35 @@ computer.
   `clone <folder> [<name>]` brings one (by id, or by a title one folder
   has) into a new directory in the Epicenter folder, named `<name>` or for
   its title, and syncs it.
-  Plain Git clones the same history at `<git origin>/folders/<id>.git`.
-- `log [<dir>]` lists the repository's history, newest first, marking the
-  commit the folder last agreed at.
-- `diff [<dir>]` lists the files the folder changed since its last sync,
-  from the folder alone; `--since <commit>` lists the files the repository
-  changed between that commit and its head.
-- `restore <commit> [<dir>]` writes the folder's files as they were at
-  `<commit>` (or the one at `--path`), removing files made since; the next
-  sync records it as a new change.
 
-`git` is not needed on this computer for any of these.
+History is the folder's log on the server (ADR-0824). A moment is a
+change's number, a mark's name, or a time.
+
+- `log [<dir>]` lists the folder's changes, newest first, with their marks,
+  noting the one this folder last agreed at; `--path` lists one file's.
+- `history <path>` lists one file's versions, who wrote each, and when;
+  `show <path> [--at <moment>]` writes the file as it is or was.
+- `at <moment> [<dir>]` lists the folder's files as they were then.
+- `mark <name> [<dir>]` names the folder's last change (ADR-0826); a name
+  marking another change moves only with `--move`.
+- `diff [<dir>]` lists the files the folder changed since its last sync,
+  from the folder alone; `--since <moment>` lists the files the server
+  changed since then.
+- `restore <moment> [<dir>]` makes one change on the server giving the
+  folder's files (or the one at `--path`) back the versions they held then,
+  removing files made since; it names versions the server keeps, so no bytes
+  travel, and the next sync brings it here.
+- `export [<dir>] --git <repository>` writes the folder's history into a Git
+  repository (`src/git/export.ts`, projection v1): a commit per change, notes
+  as files and every other file as a Git LFS pointer with its object in
+  `.git/lfs/objects`, marks as tags. It is deterministic and incremental.
+- `import --git <path or URL>` makes a folder of a Git repository's
+  first-parent history, never writing the source (`src/git/import.ts`); with
+  `--replace-original`, a clean local repository moves aside, its `.git`
+  within it, and a link at its path points to the new folder.
+
+`git` is needed on this computer only for `export` and `import`, and Git
+LFS only to import a repository that uses it.
 
 Without `Bun.secrets` in the binary, every keychain command fails and says
 so. `EPICENTER_TEST_SECRETS` replaces the keychain with in-memory stores,

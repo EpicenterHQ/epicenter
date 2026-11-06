@@ -45,7 +45,7 @@ edit, transcript and result is a commit there, and nothing is kept in the
 browser. It needs the network; there is no browser copy to fall back on
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
-- A recording lands whole at Stop: its audio, as a Git LFS object, then its
+- A recording lands whole at Stop: its audio, kept by its SHA-256, then its
   note with its length (see [Recording](#recording)). Nothing is sent while
   it records, and recording never waits on the network.
 - Transcripts, transformations, and their results are kept beside it when

@@ -10,15 +10,17 @@ plain files, with no Git on the computer
 ([ADR-0804](adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).
 It syncs only with an Epicenter server, hosted or self-hosted, with an access
 token ([ADR-0803](adr/0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md)).
-The server keeps each folder as a Git repository at `/folders/<id>`, so its
-history is on the server. The files that carry it:
+The server keeps each folder's history as a log of versions at
+`/folders/<id>`, in Postgres, with its larger bytes in a blob store
+([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)).
+The files that carry it:
 
 - `packages/folder/src/sync/` and `packages/folder/src/remote/`: the sync
-  function, and the requests it makes of a folder's repository
-- `packages/server/src/routes/folder.ts` and `routes/git.ts`: a folder's sync
-  routes and its history as a Git remote, with a token for one folder
-- `apps/api/worker/git-repositories.ts`: where Epicenter's hosted server keeps
-  repositories, in Cloudflare Artifacts
+  function, and the requests it makes of a folder on the server
+- `packages/server/src/routes/folder.ts` and `routes/folders.ts`: a folder's
+  routes, with a token for one folder, and `packages/server/src/log/`: its log
+- `apps/api/worker/index.ts`: where Epicenter's hosted server keeps bytes, in
+  Cloudflare R2
 
 The Yjs store sync that came before this, an authority that held each document's
 updates as opaque bytes, is removed, and the next deploy deletes what it stored
@@ -37,19 +39,22 @@ The full argument is in `docs/articles/20260615T140000-dont-encrypt-the-data-don
 
 Nothing is encrypted before it leaves your device, so the server your folder
 syncs with holds your files as files: readable Markdown and JSON, with their
-whole Git history. Whoever operates that server can read them with `git clone`.
+whole history. Whoever operates that server can read them, in its database and
+its blob store.
 
 Who that is depends on the server you choose:
 
 | Server | Who can read your files |
 | --- | --- |
 | A self-hosted Epicenter server (`apps/api/server.ts`, Bun with Postgres) | you, and anyone who reaches your box |
-| Epicenter's hosted server | Epicenter's operators, and Cloudflare, which stores it |
+| Epicenter's hosted server | Epicenter's operators, and the providers that store it: Cloudflare (R2) and the Postgres host |
 
 A folder does not sync with GitHub, GitLab, or another Git host: a client syncs
-only with an Epicenter server. The history on the server can be cloned to
-anywhere with `epicenter clone` or plain `git clone`
-([ADR-0803](adr/0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md)).
+only with an Epicenter server. Its files come to any computer with
+`epicenter clone`, and its history leaves as a Git repository with
+`epicenter export --git`
+([ADR-0803](adr/0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md),
+[ADR-0826](adr/0826-history-enters-and-leaves-epicenter-as-git.md)).
 
 A folder's readers are its members, and each member is an owner, a writer, or a
 reader. A share is an invitation to an email that waits until that person accepts
@@ -60,28 +65,28 @@ already hold. A token reaches the folders attached to its app, or every folder
 its person holds when it carries `folders:all`, which the CLI and the Epicenter
 app ask for.
 
-Epicenter's hosted server passes every byte through Epicenter's Worker to
-Cloudflare Artifacts, which stores each folder as a repository. The Worker
+Epicenter's hosted server passes every byte through Epicenter's Worker, which
 checks your access token, your membership in the folder, and the token's reach
-on every request, then reaches Artifacts with its own 24-hour token for that one
-repository; your token never reaches Artifacts.
+on every request, then reads or writes the folder's log in Postgres and its
+larger bytes in R2 with the Worker's own bindings; your token reaches neither.
 
 Content is only half of what a server learns. The server also sees the metadata
-around the bytes: who pushed, to which repository, when, how much, and from which
-IP. Run the server yourself and that metadata is yours too.
+around the bytes: who wrote, to which folder, when, how much, and from which
+IP. Each change records its author's name and email and the program that made
+it. Run the server yourself and that metadata is yours too.
 
 ## Recordings and other attachments sync with the folder
 
 Every visible file in a folder syncs, a hidden path does not
 ([ADR-0804](adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).
 A recording's audio is a file beside its note, so it goes to the server with
-the folder and is as readable there as a note. The server stores an
-attachment's bytes apart from its repository: in R2 on the hosted cloud and on
-disk on a self-hosted Bun server, at `blobs/<sha256>` within the folder, and
-Git LFS pointers stand in for them in the repository
-([ADR-0808](adr/0808-a-files-version-is-its-git-blob-id-on-every-store.md)). The
-bytes are never shared between folders, so one folder cannot learn whether a
-file exists in another.
+the folder and is as readable there as a note. The server keeps a file's bytes
+by their SHA-256: up to 16 KiB in Postgres, and larger ones in R2 on the hosted
+cloud or on disk on a self-hosted Bun server, at `folders/<id>/blobs/<sha256>`
+([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)).
+The bytes are never shared between folders, so one folder cannot learn whether
+a file exists in another. Purging a version deletes its bytes; the log keeps
+its name and size.
 
 A setting that keeps audio on the computer that recorded it, or does not keep it
 at all, is decided and not built

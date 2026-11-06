@@ -4,7 +4,7 @@ The desktop shell's side of an Epicenter folder: the roots an app reaches,
 which the shell names at startup, and the app's folder storage over them,
 one command per storage method, under checks the page cannot get around. It
 runs no Git, and neither does anything else on a computer: a folder's history is
-its repository's on the server, which sync commits to from TypeScript
+its log on the server, which sync commits to from TypeScript
 ([ADR-0804](../../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).
 
 The page opens the folder itself, with `@epicenter/folder`'s engine
@@ -250,11 +250,13 @@ array of numbers. Its arguments are headers, each percent-encoded: `path`,
 `root` (`Data`, `AppData`, `Epicenter`, or `Folder/<name>`), `remove`
 (`true` to remove the file, when the body is ignored), and
 `expected`, the version the page read there: `absent` for a create,
-`blob:` and the Git blob id of a note or hidden file (`core/src/blob.rs`),
-`stamp:` and an attachment's stamp, or `any` for the page's own cache files
-(`storage::Expectation`). A listing names a note or hidden file by its blob
-id and an attachment by its stamp; the page turns that stamp into the blob
-id of the attachment's Git LFS pointer through its stamp cache (ADR-0808).
+`sha256:` and the SHA-256 of the file's bytes, which the shell hashes again
+before the rename (`core/src/version.rs`, with the `sha2` crate), `stamp:`
+and a file's stamp, or `any` for the page's own cache files
+(`storage::Expectation`). A listing tags each file's version by its size,
+never its path (ADR-0824): `sha256:` and the hash of a file up to 64 KiB,
+read whole, or `stamp:` and the stamp of a larger one, which the page turns
+into its version through its stamp cache.
 There is no other unconditional put. Each case has its own spelling, so a hash is
 never read as a keyword; anything else is refused as `Io`. Removing nothing
 that expects nothing has landed. A new file must pass the shared path rule;
@@ -347,8 +349,8 @@ may hold audio until the app opens once, and only its recorder removes it.
 ## Git
 
 No Git runs on a computer (ADR-0804): this plugin offers file storage, and a
-folder's history is its repository's on the server, which sync commits to
-from TypeScript. The page capabilities grant no native history command.
+folder's history is its log on the server, which sync commits to from
+TypeScript. The page capabilities grant no native history command.
 
 ## Changes outside the page
 

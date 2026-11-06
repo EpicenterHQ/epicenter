@@ -24,7 +24,7 @@ The package is seven subpaths.
 | `@epicenter/definition/contract` | `defineContract`, path templates (`fill`, `match`), `compileContract`, `checkContract`, the shapes of a contract's notes and files (`NoteOf`, `FileEntryOf`, `InvalidNoteOf`, `NotePatch`), and a note as text (`noteText`, `readNoteText`) |
 | `@epicenter/definition/front-matter` | The front-matter primitive of ADR-0796 and ADR-0797, with no YAML: `parseFrontMatter`, `patchFrontMatter`, `merge3` (fields by key, the body by lines, ADR-0795), and `mergeLines`, a port of Git's three-way line merge. `sync` in `@epicenter/folder/sync` merges with `merge3`; a folder's own write and its note codec do not use the primitive yet |
 | `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
-| `@epicenter/definition/merge` | `settle`, the note merge a folder runs over a note that changed under its write, plus conflict blocks, Git hashes, and Git LFS pointers |
+| `@epicenter/definition/merge` | `settle`, the note merge a folder runs over a note that changed under its write, plus conflict blocks and the hashes their labels use |
 | `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files, and `timeOf()`, when a `timeId` was made |
 | `@epicenter/definition/site` | The names a site derives: the app registry (`APPS`, dev ports, `localUrl`, `resolveOAuthAudiences`), an app's folder and data identifier from its production site (ADR-0722), and a folder's id, addresses, and listing on the server (ADR-0811) |
 | `@epicenter/definition/site/app-data` | The application-data root on this machine (`epicenterDataRoot`), an app's directory below it, and `isAppId` |
@@ -118,16 +118,12 @@ writes is in house style.
 
 ### How a folder is stored on the server
 
-A computer keeps no Git (ADR-0804); the server's repository for the folder
-stores it. `storedWithLfs(path)` (`/contract`) is true for every path that is
-neither a `.md` note (in any case), nor the folder's `epicenter.json` (kept as
-plain text, ADR-0820), nor hidden (a segment starting with `.`): those files
-are Git LFS pointers, whose canonical layout makes a file's version its blob
-id (ADR-0808). `REPOSITORY_ATTRIBUTES` is the `.gitattributes` block that says
-so, which the server writes in a repository's first commit; its
-`merge=epicenter` on notes names the merge driver ADR-0804 retired, and the
-line remains until the block changes. A hidden path is not a folder's data
-(`isHiddenPath`) and does not sync.
+A computer keeps no Git (ADR-0804); the server keeps the folder's history as
+a log of versions (ADR-0824). A file's version is the SHA-256 of its bytes for
+every path, and how its bytes are kept depends on their size, never the path,
+so `/contract` names only how a path is read: `isNotePath` (a `.md` note, in
+any case, which merges), `isHiddenPath` (a segment starting with `.`, not a
+folder's data, never synced), and `CONTRACT_PATH`.
 
 ## A note field is plain JSON
 
