@@ -97,15 +97,62 @@ export async function listFiles(
 export type Change = { oid: string; mode: string } | null;
 
 /**
+ * A name as a disk that ignores case compares it (a Mac's or a Windows
+ * computer's default): `Todo.md` and `todo.md`, or a composed and a
+ * decomposed `é`, are one file there.
+ */
+const foldedName = (name: string) => name.normalize('NFC').toLowerCase();
+
+/**
+ * The first of `added` that differs only in case from another of `names`,
+ * with that other name, or null. A disk that ignores case cannot keep the
+ * two apart, so the repository never takes a second: the rule a web write
+ * (`editTree`) and a push (`checkPushedTrees`) apply to the names they add
+ * at one place.
+ */
+export function caseClash(
+	names: Iterable<string>,
+	added: Iterable<string>,
+): { name: string; held: string } | null {
+	const byFold = new Map<string, string[]>();
+	for (const name of names) {
+		const fold = foldedName(name);
+		byFold.set(fold, [...(byFold.get(fold) ?? []), name]);
+	}
+	for (const name of added) {
+		const held = byFold.get(foldedName(name))?.find((other) => other !== name);
+		if (held !== undefined) return { name, held };
+	}
+	return null;
+}
+
+/** A write that would leave two names at one place differing only in case. */
+export class CaseCollision extends Error {
+	constructor(
+		readonly path: string,
+		readonly held: string,
+	) {
+		super(
+			`${path} differs only in case from ${held}, which the repository holds: a disk that ignores case cannot keep them apart`,
+		);
+		this.name = 'CaseCollision';
+	}
+}
+
+/**
  * Apply `changes` (path to entry) to tree `root`, pushing every new tree
  * object onto `written`. Returns the new root, or null when it is empty.
- * Throws when a path runs through a file, or names a folder.
+ * Throws when a path runs through a file, or names a folder, and
+ * `CaseCollision` when a name it adds differs only in case from another the
+ * tree then holds at that place (a rename in one write, the old name
+ * deleted, is none).
  */
 export async function editTree(
 	objects: GitObjects,
 	root: string | null,
 	changes: Map<string, Change>,
 	written: PackObject[],
+	prefix = '',
 ): Promise<string | null> {
 	const entries = new Map(
 		((root === null ? [] : await readTree(objects, root)) ?? []).map((e) => [
@@ -113,14 +160,18 @@ export async function editTree(
 			e,
 		]),
 	);
+	const added = new Set<string>();
 	const below = new Map<string, Map<string, Change>>();
 	for (const [path, change] of changes) {
 		const slash = path.indexOf('/');
 		if (slash < 0) {
 			if (entries.get(path)?.mode === TREE_MODE)
-				throw new Error(`${path} is a folder`);
+				throw new Error(`${prefix}${path} is a folder`);
 			if (change === null) entries.delete(path);
-			else entries.set(path, { name: path, ...change });
+			else {
+				if (!entries.has(path)) added.add(path);
+				entries.set(path, { name: path, ...change });
+			}
 			continue;
 		}
 		const dir = path.slice(0, slash);
@@ -134,11 +185,23 @@ export async function editTree(
 	for (const [dir, sub] of below) {
 		const existing = entries.get(dir);
 		if (existing && existing.mode !== TREE_MODE)
-			throw new Error(`${dir} is a file`);
-		const tree = await editTree(objects, existing?.oid ?? null, sub, written);
+			throw new Error(`${prefix}${dir} is a file`);
+		const tree = await editTree(
+			objects,
+			existing?.oid ?? null,
+			sub,
+			written,
+			`${prefix}${dir}/`,
+		);
 		if (tree === null) entries.delete(dir);
-		else entries.set(dir, { name: dir, mode: TREE_MODE, oid: tree });
+		else {
+			if (existing === undefined) added.add(dir);
+			entries.set(dir, { name: dir, mode: TREE_MODE, oid: tree });
+		}
 	}
+	const clash = caseClash(entries.keys(), added);
+	if (clash !== null)
+		throw new CaseCollision(`${prefix}${clash.name}`, `${prefix}${clash.held}`);
 	if (entries.size === 0) return null;
 	const tree = treeObject(entries.values());
 	written.push(tree);

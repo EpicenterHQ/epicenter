@@ -9,7 +9,8 @@
  * sync asks where the repository is, what changed since the commit both
  * sides last agreed at, and what a note held there: its base for a merge.
  * It writes a batch of files in one commit, each over the version its
- * writer read, or nothing.
+ * writer read, or nothing; a batch adding a path that differs only in case
+ * from one the repository holds is refused, naming that path (ADR-0804).
  */
 import { ClientError, isNotePath } from '@epicenter/definition/contract';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -27,6 +28,13 @@ export type BatchWrite = {
 	bytes: Uint8Array | null;
 	over: Version | 'absent';
 };
+
+/**
+ * A batch the repository refused for one place, which no retry fixes: a
+ * path that differs only in case from one it holds (`refused` is that
+ * path, or the folder whose name clashes), and why.
+ */
+export type BatchRefusal = { refused: string; reason: string };
 
 /** A batch that landed: its commit, and the version now at each path (null where a delete landed). */
 export type BatchReceipt = {
@@ -60,11 +68,12 @@ export type Repository = {
 	): Promise<Result<RemoteFile[], Unavailable>>;
 	/**
 	 * Land every write in one commit, or none: `'stale'` when any path holds
-	 * something other than its `over`.
+	 * something other than its `over`, and a `BatchRefusal` when a path
+	 * would differ only in case from one the repository then holds.
 	 */
 	writeAll(
 		writes: readonly BatchWrite[],
-	): Promise<Result<BatchReceipt | 'stale', Unavailable>>;
+	): Promise<Result<BatchReceipt | 'stale' | BatchRefusal, Unavailable>>;
 };
 
 /**
@@ -80,9 +89,43 @@ export function memoryRepository() {
 	const tree = (commit: string | null): Tree =>
 		commit === null ? new Map() : (commits.get(commit) ?? new Map());
 
+	/**
+	 * The first place an added path names (itself, or a folder on its way)
+	 * that differs only in case from another place `next` holds, as the
+	 * server's `caseClash` finds it, or null.
+	 */
+	function caseClash(next: Tree, added: readonly string[]) {
+		const fold = (place: string) => place.normalize('NFC').toLowerCase();
+		const places = new Map<string, Set<string>>();
+		for (const path of next.keys()) {
+			const segments = path.split('/');
+			for (let end = 1; end <= segments.length; end++) {
+				const place = segments.slice(0, end).join('/');
+				const same = places.get(fold(place)) ?? new Set<string>();
+				same.add(place);
+				places.set(fold(place), same);
+			}
+		}
+		for (const path of added) {
+			const segments = path.split('/');
+			for (let end = 1; end <= segments.length; end++) {
+				const place = segments.slice(0, end).join('/');
+				const held = [...(places.get(fold(place)) ?? [])].find(
+					(other) => other !== place,
+				);
+				if (held !== undefined)
+					return {
+						refused: place,
+						reason: `${place} differs only in case from ${held}, which the repository holds: a disk that ignores case cannot keep them apart`,
+					} satisfies BatchRefusal;
+			}
+		}
+		return null;
+	}
+
 	async function writeAll(
 		writes: readonly BatchWrite[],
-	): Promise<Result<BatchReceipt | 'stale', Unavailable>> {
+	): Promise<Result<BatchReceipt | 'stale' | BatchRefusal, Unavailable>> {
 		const prepared = await Promise.all(
 			writes.map(async (write) => ({
 				...write,
@@ -106,6 +149,13 @@ export function memoryRepository() {
 			if (bytes === null || version === null) next.delete(path);
 			else next.set(path, { bytes: bytes.slice(), version });
 		}
+		const clash = caseClash(
+			next,
+			prepared
+				.filter(({ path, bytes }) => bytes !== null && !current.has(path))
+				.map(({ path }) => path),
+		);
+		if (clash !== null) return Ok(clash);
 		const commit = `c${++count}`;
 		commits.set(commit, next);
 		head = commit;

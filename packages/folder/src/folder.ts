@@ -5,16 +5,19 @@
  * (`folder.todos`).
  *
  * **The connection.** Opening a place answers its store (`Store`, four
- * verbs). The folder then connects: it starts watching, lists the
- * contract's directories, reads the text of every note there in one
- * request, and then reads again, one path at a time, every path heard in
- * between. `state()` is `opening` until that snapshot lands; a listing or
+ * verbs). The folder then connects: it starts watching, lists every visible
+ * file, reads the text of every note the contract claims in one request,
+ * and then reads again, one path at a time, every path heard in between.
+ * `state()` is `opening` until that snapshot lands; a listing or
  * read that cannot reach the store is tried again, `unavailable()` saying
  * why.
  *
- * **One replica.** The folder holds the text of every note in the
- * contract's directories and the version and size of every other file,
- * never an attachment's bytes. A change the store hears re-reads only its
+ * **One replica.** The folder holds every visible file (no segment of its
+ * path starts with `.`): the text of every note the contract claims, and
+ * the version and size of every other file, an attachment, `AGENTS.md`, or
+ * a person's own file alike, never their bytes. Only the contract's notes
+ * and files are items: a collection reads its own paths, and any other
+ * file is there for sync. A change the store hears re-reads only its
  * paths; `'all'` lists, compares each version with what is held, and reads
  * what differs, so nothing shows empty while it does. Reads and writes of
  * one path run one at a time, in the order they began, so a later read of
@@ -36,12 +39,13 @@
  * rejects with `FolderClosed` (ADR-0782).
  *
  * **One replica, read by sync.** `localStoreOf(folder)` is the connected
- * folder as a store (`sync({ local, remote, manifest })`, ADR-0803): its
- * listing and a note's read answer from the replica, with the versions it
- * holds, so a sync that finds nothing changed reads no file; its writes
- * wait their turn in the folder's queue and update the replica as the
- * folder's own do. It holds the contract's files: a path outside it, where
- * it is not hidden, is `'stale'`, never written and never listed.
+ * folder as a store (`sync({ local, remote, manifest })`, ADR-0804): its
+ * listing answers every visible file from the replica, with the versions
+ * it holds, once the paths heard so far are read again, so a sync that
+ * finds nothing changed reads no file; a note's read answers its held
+ * text, and any other file's is read from the store. Its writes wait their
+ * turn in the folder's queue and update the replica as the folder's own
+ * do; a hidden path (the manifest) is written, never held or listed.
  *
  * Only an interface reads `state()` (`<WhenOpen>` from `@epicenter/svelte`);
  * everything else reads and acts. Nothing here knows a framework:
@@ -93,8 +97,22 @@ const log = createLogger('folder');
 
 const encoder = new TextEncoder();
 
-/** Where a folder keeps its store view; a symbol member, so `reactive`'s copy carries it. */
+/** Where a folder keeps what sync reads of it; a symbol member, so `reactive`'s copy carries it. */
 const LOCAL = Symbol('epicenter.folderLocalStore');
+
+/** What sync reads of a folder: it as a store, and its own saves. */
+type SyncSide = {
+	store: Store;
+	/** Call `listener` each time a write the folder's collections made lands; returns the unsubscribe. */
+	hearSaves(listener: () => void): () => void;
+};
+
+function syncSideOf(folder: object): SyncSide {
+	const side = (folder as { [LOCAL]?: SyncSide })[LOCAL];
+	if (side === undefined)
+		throw new Error('expected a folder made by openFolder or createFolder');
+	return side;
+}
 
 /**
  * `folder` (or `reactive`'s copy of it) as a store, for `sync`: its listing
@@ -103,10 +121,16 @@ const LOCAL = Symbol('epicenter.folderLocalStore');
  * the folder to close it. Throws for anything `createFolder` did not make.
  */
 export function localStoreOf(folder: object): Store {
-	const view = (folder as { [LOCAL]?: Store })[LOCAL];
-	if (view === undefined)
-		throw new Error('expected a folder made by openFolder or createFolder');
-	return view;
+	return syncSideOf(folder).store;
+}
+
+/**
+ * Call `listener` each time a save of `folder`'s own lands (a collection's
+ * write, never one made through `localStoreOf`), for sync's moment after a
+ * save; returns the unsubscribe.
+ */
+export function hearSaves(folder: object, listener: () => void): () => void {
+	return syncSideOf(folder).hearSaves(listener);
 }
 
 /**
@@ -360,8 +384,8 @@ export function createFolder<TContract extends Contract>(
 	if (error !== null) throw new Error(error.message, { cause: error });
 	const compiled = data;
 
-	/** The places the folder holds, each once. */
-	const under = [...new Set(compiled.collections.map(directoryOf))];
+	/** Whether the folder holds the file at `path`: every file but a hidden one. */
+	const visible = (path: string) => !isHiddenPath(path);
 	/** Whether the file at `path` is one the folder holds the text of: a note of a note collection. */
 	const isNote = (path: string) =>
 		compiled.claim(path)?.collection.kind === 'note';
@@ -396,6 +420,8 @@ export function createFolder<TContract extends Contract>(
 	/** Paths heard and not yet read again; `'all'` when the store could not say which. */
 	let pending: Set<string> | 'all' = new Set();
 	let catchingUp = false;
+	/** The catch-up running now, or the last one: a sync's listing waits for it. */
+	let caughtUp: Promise<void> = Promise.resolve();
 	let catchUpFailures = 0;
 	let catchUpTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -487,31 +513,28 @@ export function createFolder<TContract extends Contract>(
 		if (phase === 'closed') return;
 		if (paths === 'all') pending = 'all';
 		else if (pending !== 'all')
-			for (const path of paths)
-				if (compiled.claim(path) !== null) pending.add(path);
-		if (connected) void catchUp();
+			for (const path of paths) if (visible(path)) pending.add(path);
+		if (connected) catchUp();
 	}
 
 	/**
-	 * Take what the store holds below the contract's places into the
-	 * replica: list, compare each version with what is held, and read the
-	 * notes that differ, in one request. A path whose held state changed
+	 * Take what the store holds below `places` (everything by default) into
+	 * the replica: list, compare each version with what is held, and read
+	 * the notes that differ, in one request. A path whose held state changed
 	 * while the read ran is read again in its lane. Nothing held shows empty
 	 * meanwhile.
 	 */
 	async function snapshot(
 		from: Store,
-		places: readonly string[] = under,
+		places: readonly string[] = [''],
 	): Promise<Result<void, Unavailable>> {
 		const listed = await from.list(places);
 		if (listed.error !== null) return listed;
-		const claimed = listed.data.filter(
-			({ path }) => compiled.claim(path) !== null,
-		);
-		const present = new Set(claimed.map(({ path }) => path));
+		const shown = listed.data.filter(({ path }) => visible(path));
+		const present = new Set(shown.map(({ path }) => path));
 		const stale: string[] = [];
 		const began = new Map<string, number>();
-		for (const { path, version, size } of claimed) {
+		for (const { path, version, size } of shown) {
 			if (held.get(path)?.version === version) continue;
 			if (isNote(path)) {
 				stale.push(path);
@@ -570,10 +593,13 @@ export function createFolder<TContract extends Contract>(
 	 * `'all'`, a new snapshot. While the store cannot be reached it tries
 	 * again, `unavailable()` saying why.
 	 */
-	async function catchUp() {
+	function catchUp() {
 		if (catchingUp || store === null) return;
+		caughtUp = catchUpRun(store);
+	}
+
+	async function catchUpRun(from: Store) {
 		catchingUp = true;
-		const from = store;
 		let failed: Unavailable | null = null;
 		/** What could not be read this time: tried again after a while, while anything new is read now. */
 		let later: Set<string> | 'all' = new Set();
@@ -615,7 +641,7 @@ export function createFolder<TContract extends Contract>(
 				const now = pending as Set<string> | 'all';
 				if (later === 'all') pending = 'all';
 				else if (now !== 'all') for (const path of later) now.add(path);
-				void catchUp();
+				catchUp();
 			}, backoff(catchUpFailures++));
 			return;
 		}
@@ -705,7 +731,7 @@ export function createFolder<TContract extends Contract>(
 		reading = null;
 		refresh();
 		for (const collection of collections.values()) collection.opened();
-		void catchUp();
+		catchUp();
 		void drain();
 		return Ok(undefined);
 	}
@@ -771,6 +797,45 @@ export function createFolder<TContract extends Contract>(
 		}
 	}
 
+	/** Who hears each of the folder's own saves land. */
+	const saveListeners = new Set<() => void>();
+
+	/**
+	 * Queue a write at `path`; throws once the folder is disposed, rejects
+	 * with `FolderClosed` once it failed. A `save` (a collection's write, not
+	 * sync's) is told to `hearSaves` when it lands.
+	 */
+	function enqueue(
+		path: string,
+		write: (store: Store) => Promise<Result<void, Unavailable>>,
+		{ save }: { save: boolean },
+	) {
+		if (phase === 'closed')
+			throw new Error(
+				'The folder was disposed: a write made after it has nowhere to land.',
+			);
+		if (phase === 'failed') return Promise.reject(new FolderClosed('failed'));
+		return new Promise<void>((resolve, reject) => {
+			queue.push({
+				path,
+				run: (to) => lanes.run(path, () => write(to)),
+				resolve() {
+					resolve();
+					if (save)
+						for (const listener of [...saveListeners])
+							try {
+								listener();
+							} catch (cause) {
+								log.error(new Error('A save listener failed.', { cause }));
+							}
+				},
+				reject,
+			});
+			if (queue.length === 1) notify();
+			void drain();
+		});
+	}
+
 	const host: Host = {
 		async connected() {
 			while (phase === 'opening') await changed();
@@ -795,23 +860,7 @@ export function createFolder<TContract extends Contract>(
 					paths.push(path);
 			return paths.sort();
 		},
-		enqueue(path, write) {
-			if (phase === 'closed')
-				throw new Error(
-					'The folder was disposed: a write made after it has nowhere to land.',
-				);
-			if (phase === 'failed') return Promise.reject(new FolderClosed('failed'));
-			return new Promise<void>((resolve, reject) => {
-				queue.push({
-					path,
-					run: (to) => lanes.run(path, () => write(to)),
-					resolve,
-					reject,
-				});
-				if (queue.length === 1) notify();
-				void drain();
-			});
-		},
+		enqueue: (path, write) => enqueue(path, write, { save: true }),
 		queuedAt,
 		landed: hold,
 		heldOf,
@@ -833,6 +882,8 @@ export function createFolder<TContract extends Contract>(
 		async list(wanted) {
 			const ready = await host.connected();
 			if (ready.error !== null) return Err(unavailableFrom(ready.error));
+			// What was heard before the listing is read again first.
+			await caughtUp;
 			const files: Listed[] = [];
 			for (const [path, { version, size }] of held)
 				if (within(path, wanted)) files.push({ path, version, size });
@@ -860,23 +911,25 @@ export function createFolder<TContract extends Contract>(
 			return Ok(answers);
 		},
 		async write(path, bytes, over) {
-			const claimed = compiled.claim(path) !== null;
-			if (!claimed && !isHiddenPath(path)) return Ok('stale');
 			let outcome: Version | null | 'stale' = 'stale';
 			try {
-				await host.enqueue(path, async (to) => {
-					const written = await to.write(path, bytes, over);
-					if (written.error !== null) return written;
-					outcome = written.data;
-					if (claimed && written.data !== 'stale')
-						host.landed(
-							path,
-							bytes === null || written.data === null
-								? null
-								: host.heldOf(path, bytes, written.data),
-						);
-					return Ok(undefined);
-				});
+				await enqueue(
+					path,
+					async (to) => {
+						const written = await to.write(path, bytes, over);
+						if (written.error !== null) return written;
+						outcome = written.data;
+						if (visible(path) && written.data !== 'stale')
+							host.landed(
+								path,
+								bytes === null || written.data === null
+									? null
+									: host.heldOf(path, bytes, written.data),
+							);
+						return Ok(undefined);
+					},
+					{ save: false },
+				);
 			} catch (cause) {
 				return ClientError.Unavailable({ cause });
 			}
@@ -924,7 +977,17 @@ export function createFolder<TContract extends Contract>(
 			store = null;
 		},
 	};
-	Object.defineProperty(lifecycle, LOCAL, { value: view });
+	Object.defineProperty(lifecycle, LOCAL, {
+		value: {
+			store: view,
+			hearSaves(listener) {
+				saveListeners.add(listener);
+				return () => {
+					saveListeners.delete(listener);
+				};
+			},
+		} satisfies SyncSide,
+	});
 	return Object.assign(
 		lifecycle,
 		Object.fromEntries(

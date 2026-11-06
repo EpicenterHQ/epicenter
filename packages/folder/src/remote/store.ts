@@ -24,7 +24,12 @@ import { ClientError, storedWithLfs } from '@epicenter/definition/contract';
 import { isNamespaceId, isRepositoryName } from '@epicenter/definition/site';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FileRead, Store, Unavailable, Version } from '../device/store.js';
-import type { BatchWrite, RemoteFile, Repository } from '../sync/repository.js';
+import type {
+	BatchRefusal,
+	BatchWrite,
+	RemoteFile,
+	Repository,
+} from '../sync/repository.js';
 import {
 	createWire,
 	type FileWrite,
@@ -111,7 +116,11 @@ export function repositoryStore(
 		return Ok(files);
 	}
 
-	/** One write request: the receipt, `'stale'` for a refusal of its expectation. */
+	/**
+	 * One write request: the receipt, `'stale'` for a refusal of its
+	 * expectation, and a `BatchRefusal` for a path that differs only in case
+	 * from one the repository holds.
+	 */
 	async function send(files: FileWrite[]) {
 		const written = await wire.write({ files });
 		if (written.error !== null) return written;
@@ -119,6 +128,11 @@ export function repositoryStore(
 		if (answer.landed) return Ok(answer.receipt);
 		if (answer.code !== null && STALE_CODES.has(answer.code))
 			return Ok('stale' as const);
+		if (answer.code === 'case_collision' && answer.path !== null)
+			return Ok({
+				refused: answer.path,
+				reason: answer.message,
+			} satisfies BatchRefusal);
 		return refused(answer);
 	}
 
@@ -156,7 +170,10 @@ export function repositoryStore(
 				}
 				const sent = await send([{ path, delete: true, base: over }]);
 				if (sent.error !== null) return sent;
-				return Ok(sent.data === 'stale' ? sent.data : null);
+				if (sent.data === 'stale') return Ok(sent.data);
+				if ('refused' in sent.data)
+					return ClientError.Unavailable({ cause: sent.data.reason });
+				return Ok(null);
 			}
 			const base: Version | null = over === 'absent' ? null : over;
 			let file: FileWrite;
@@ -170,6 +187,9 @@ export function repositoryStore(
 			const sent = await send([file]);
 			if (sent.error !== null) return sent;
 			if (sent.data === 'stale') return sent;
+			// A store write has no refusal: the folder keeps it, saying why.
+			if ('refused' in sent.data)
+				return ClientError.Unavailable({ cause: sent.data.reason });
 			const landed = sent.data.blobs[path] as Version | null | undefined;
 			if (landed === null || landed === undefined)
 				return refused({
@@ -225,7 +245,7 @@ export function repositoryStore(
 				});
 			const sent = await send(files);
 			if (sent.error !== null) return sent;
-			if (sent.data === 'stale') return sent;
+			if (sent.data === 'stale' || 'refused' in sent.data) return Ok(sent.data);
 			return Ok({
 				commit: sent.data.commit,
 				versions: sent.data.blobs as Record<string, Version | null>,

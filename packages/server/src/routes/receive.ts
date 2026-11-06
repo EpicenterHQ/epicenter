@@ -22,7 +22,8 @@
  *   history per push, only as deep as the push's stored commits lie, and
  *   at most `ReceiveLimits.mainCommits` deep. Only entries a commit changes
  *   against its first parent are checked. Symlinks and submodules are
- *   refused.
+ *   refused, and so is a name a commit adds that differs only in case
+ *   from another in its tree (`caseClash`, as a web write).
  *
  * The advertisement shows `main` alone, offers `ofs-delta`, and asks for
  * no thin packs, so the pack can be read without the server's objects.
@@ -44,6 +45,7 @@ import {
 } from '../git/objects.js';
 import { type PackedObject, readPack } from '../git/pack.js';
 import { FLUSH, pktLine, readCommandLines } from '../git/pkt.js';
+import { caseClash } from '../git/tree-edit.js';
 import { LFS_OID, type LfsStore } from '../lfs/lfs-store.js';
 
 const CAPABILITIES =
@@ -278,6 +280,14 @@ export async function checkPushedTrees(
 			return;
 		}
 		const previous = new Map((old ?? []).map((e) => [e.name, e]));
+		const clash = caseClash(
+			now.map((entry) => entry.name),
+			now.filter((entry) => !previous.has(entry.name)).map(({ name }) => name),
+		);
+		if (clash !== null) {
+			problem = `${prefix}${clash.name} in ${commit.slice(0, 8)} differs only in case from ${prefix}${clash.held}; a disk that ignores case cannot keep them apart`;
+			return;
+		}
 		for (const entry of now) {
 			if (problem) return;
 			const was = previous.get(entry.name);

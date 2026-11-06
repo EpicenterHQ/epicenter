@@ -716,7 +716,7 @@ describe('a repository as a store', () => {
 				),
 			);
 		const READ = /^POST .*\/epicenter\/read$/;
-		const LIST = /^GET .*\/epicenter\/files\?root=recordings$/;
+		const LIST = /^GET .*\/epicenter\/files\?root=$/;
 		person.sent.length = 0;
 		const folder = folderAt({ account: person.account, site }, 100);
 		for (let turn = 0; turn < 200 && folder.state().status !== 'open'; turn++)

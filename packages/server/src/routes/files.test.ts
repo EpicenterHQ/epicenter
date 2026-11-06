@@ -445,6 +445,57 @@ describe('POST writes', () => {
 		).toBe('2');
 	});
 
+	test('a path differing only in case from one held is refused, a file or a folder, and nothing moves', async () => {
+		const repo = await repository();
+		const seeded = await repo.write({
+			files: [{ path: 'todos/a.md', base: null, text: 'a\n' }],
+		});
+		for (const [written, path, held] of [
+			['todos/A.md', 'todos/A.md', 'todos/a.md'],
+			['todos/a.MD', 'todos/a.MD', 'todos/a.md'],
+			['Todos/b.md', 'Todos', 'todos'],
+		] as const) {
+			const refused = await repo.write({
+				files: [{ path: written, base: null, text: 'clash\n' }],
+			});
+			expect(refused).toMatchObject({
+				status: 409,
+				body: { error: 'case_collision', path, held },
+			});
+		}
+		// Two new names that clash with each other, in one write.
+		const both = await repo.write({
+			files: [
+				{ path: 'notes/x.md', base: null, text: 'x\n' },
+				{ path: 'notes/X.md', base: null, text: 'X\n' },
+			],
+		});
+		expect(both).toMatchObject({
+			status: 409,
+			body: { error: 'case_collision' },
+		});
+		expect(await repo.main()).toBe(seeded.body.commit);
+	});
+
+	test('a rename that changes only case lands as a delete and a create in one write', async () => {
+		const repo = await repository();
+		const seeded = await repo.write({
+			files: [{ path: 'todos/a.md', base: null, text: 'a\n' }],
+		});
+		const renamed = await repo.write({
+			files: [
+				{
+					path: 'todos/a.md',
+					delete: true,
+					base: seeded.body.blobs['todos/a.md'] as string,
+				},
+				{ path: 'todos/A.md', base: null, text: 'a\n' },
+			],
+		});
+		expect(renamed.status).toBe(200);
+		expect(await repo.show('todos/A.md')).toBe('a\n');
+	});
+
 	test("a resend after an owner's rewrite dropped the first landing lands it again", async () => {
 		const repo = await repository();
 		await repo.write({
