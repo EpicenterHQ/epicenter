@@ -67,9 +67,9 @@ in `.md` holds items, any other holds files, and files sharing a directory
 and a name are one item ([ADR-0805], [ADR-0818]). An item's name is its file
 name, and a rename is a write and a delete ([ADR-0776]). The folder's people
 own the contract; an app's schema is a view that must fit it, and attaching
-an app only adds ([ADR-0812]). The code still says note, round, and `{id}`
-where the records decided item, sync, and `{name}` ([ADR-0802]); the rename
-is pending.
+an app only adds ([ADR-0812]). The code still says note and `{id}`
+where the records decided item and `{name}` ([ADR-0802]); the rename is
+pending.
 
 An item's front matter is the machine's; its body is the person's and the
 app's. Front matter is YAML restricted to one `key: <JSON>` per line
