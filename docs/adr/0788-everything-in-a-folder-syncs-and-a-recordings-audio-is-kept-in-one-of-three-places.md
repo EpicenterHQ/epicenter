@@ -7,6 +7,7 @@
 - **Amended by:** [ADR-0789](0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md) at the marks: a note holding a conflict block also shows ⚠.
 - **Amended by:** [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) at the synced and waiting marks: they are ✓ and ◌.
 - **Amended by:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) at "Everything in a folder syncs": every visible file syncs; a hidden path does not.
+- **Amended by:** [ADR-0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) at the marks: a refused file shows ✗ with the reason.
 - **Unbuilt:** all of it: Whispering's "Keep audio" setting and transcribing from the take in memory; audio kept in the app's storage, with Show in Finder, and removed when its note goes; a recording whose audio is elsewhere, shown as "Audio is on <computer>"; the shell reporting the paths waiting to sync after each save and round, and the synced and waiting marks; the app showing once that it is not signed in.
 
 ## Context

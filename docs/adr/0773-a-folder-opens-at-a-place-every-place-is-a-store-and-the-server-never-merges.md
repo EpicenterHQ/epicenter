@@ -8,6 +8,7 @@
 - **Amended by:** [ADR-0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) at "append where they can" and a file collection's `append`: no store and no collection appends; a browser recording lands whole.
 - **Amended by:** [ADR-0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) at `home` being this browser's storage with no account: on the web it is the team's repository.
 - **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at `home` being picked by the build: the package picks when it runs.
+- **Amended by:** [ADR-0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) at `home` on the web being the repository: a memory store seeded from it.
 
 ## Context
 
