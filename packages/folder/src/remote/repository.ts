@@ -38,6 +38,7 @@ import {
 	type BlobId,
 	type FileRead,
 	type Listed,
+	type Moved,
 	type Store,
 	StoreError,
 	type Unavailable,
@@ -101,6 +102,13 @@ export type FolderCommit = {
 
 /** How often a watch asks the server what changed. */
 const POLL_MS = 3000;
+
+/**
+ * How long a put waits for others to land with it as one change, after the
+ * last one made, and at most after the first (ADR-0823).
+ */
+const BATCH_MS = 50;
+const BATCH_MAX_MS = 300;
 
 const decoder = new TextDecoder();
 // A note's bytes travel as text only when they decode exactly, a byte-order mark kept.
@@ -226,7 +234,10 @@ export async function joinApp(
 export function folderRepository(
 	account: RemoteAccount,
 	folder: string,
-	{ pollMs = POLL_MS }: { pollMs?: number } = {},
+	{
+		pollMs = POLL_MS,
+		batchMs = BATCH_MS,
+	}: { pollMs?: number; batchMs?: number } = {},
 ): Store &
 	Repository & {
 		log(limit?: number): Promise<Result<FolderCommit[], Unavailable>>;
@@ -450,6 +461,64 @@ export function folderRepository(
 		return Ok(at.data.commit);
 	}
 
+	/** One put, landed alone: `Moved` to what the path holds when it moved. */
+	async function putAlone({
+		path,
+		bytes,
+		expect,
+	}: Waiting['write']): Promise<Result<BlobId | null, Moved | Unavailable>> {
+		const landed = await commit([{ path, bytes, expect }]);
+		if (landed.error !== null) return landed;
+		if (landed.data === 'moved') {
+			const at = await head();
+			if (at.error !== null) return at;
+			const tree = at.data === null ? Ok([]) : await treeOf(at.data, [path]);
+			if (tree.error !== null) return tree;
+			return StoreError.Moved({ path, now: tree.data[0]?.blob ?? null });
+		}
+		// A store's put has no refusal: the folder keeps it, saying why.
+		if ('refused' in landed.data)
+			return ClientError.Unavailable({ cause: landed.data.reason });
+		return Ok(landed.data.blobs[path] ?? null);
+	}
+
+	/** A put made within a moment of others, waiting to land with them. */
+	type Waiting = {
+		write: { path: string; bytes: Uint8Array | null; expect: BlobId | null };
+		resolve(result: Result<BlobId | null, Moved | Unavailable>): void;
+	};
+	let waiting: Waiting[] = [];
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let firstAt: number | null = null;
+
+	/**
+	 * Land every waiting put as one change (ADR-0823). When one of them
+	 * moved, or the server refuses one, nothing lands, and each is put again
+	 * alone, so each hears its own answer.
+	 */
+	async function flush() {
+		const batch = waiting;
+		waiting = [];
+		firstAt = null;
+		const paths = new Set(batch.map(({ write }) => write.path));
+		if (batch.length === 1 || paths.size !== batch.length) {
+			for (const { write, resolve } of batch) resolve(await putAlone(write));
+			return;
+		}
+		const landed = await commit(batch.map(({ write }) => write));
+		if (landed.error !== null) {
+			for (const { resolve } of batch) resolve(landed);
+			return;
+		}
+		const receipt = landed.data;
+		if (receipt === 'moved' || 'refused' in receipt) {
+			for (const { write, resolve } of batch) resolve(await putAlone(write));
+			return;
+		}
+		for (const { write, resolve } of batch)
+			resolve(Ok(receipt.blobs[write.path] ?? null));
+	}
+
 	return {
 		...repository,
 		/** `main`'s history, newest first, along first parents: at most `limit` commits. */
@@ -507,20 +576,18 @@ export function folderRepository(
 				}),
 			);
 		},
-		async put(path, bytes, expect) {
-			const landed = await commit([{ path, bytes, expect }]);
-			if (landed.error !== null) return landed;
-			if (landed.data === 'moved') {
-				const at = await head();
-				if (at.error !== null) return at;
-				const tree = at.data === null ? Ok([]) : await treeOf(at.data, [path]);
-				if (tree.error !== null) return tree;
-				return StoreError.Moved({ path, now: tree.data[0]?.blob ?? null });
-			}
-			// A store's put has no refusal: the folder keeps it, saying why.
-			if ('refused' in landed.data)
-				return ClientError.Unavailable({ cause: landed.data.reason });
-			return Ok(landed.data.blobs[path] ?? null);
+		batches: true,
+		put(path, bytes, expect) {
+			return new Promise((resolve) => {
+				waiting.push({ write: { path, bytes, expect }, resolve });
+				clearTimeout(timer);
+				firstAt ??= Date.now();
+				const wait = Math.max(
+					0,
+					Math.min(batchMs, firstAt + BATCH_MAX_MS - Date.now()),
+				);
+				timer = setTimeout(() => void flush(), wait);
+			});
 		},
 		async watch(changed) {
 			if (account.signal.aborted)

@@ -108,6 +108,12 @@ export type Store = {
 	watch(changed: Changed): Promise<Result<() => void, Unavailable>>;
 	/** Release what the store holds open; every later call is `Unavailable`. */
 	close(): void;
+	/**
+	 * Whether puts made at once land together (the folder on the server
+	 * commits them as one), so the folder runs the writes waiting at
+	 * different paths at once rather than one after another.
+	 */
+	readonly batches?: true;
 };
 
 /**

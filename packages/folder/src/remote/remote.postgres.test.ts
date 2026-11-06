@@ -769,6 +769,34 @@ describe('a repository as a store', () => {
 		folder[Symbol.dispose]();
 	}, 30_000);
 
+	test('saves made within a moment of each other land as one commit, and each answers', async () => {
+		const person = await signIn('batched');
+		const folder = folderAt(person.at, 100);
+		for (let turn = 0; turn < 200 && folder.state().status !== 'open'; turn++)
+			await Bun.sleep(10);
+		const ids = [timeId(), timeId(), timeId()];
+		person.sent.length = 0;
+		await Promise.all(
+			ids.map((id) => folder.recordings.set({ id }, { title: id })),
+		);
+		expect(person.requests(/^POST .*\/commits$/)).toHaveLength(1);
+		expect(
+			folder.recordings
+				.items()
+				.map(({ title }) => title)
+				.sort(),
+		).toEqual([...ids].sort());
+		// One that moved under it is answered alone, and the rest still land.
+		const [first] = ids;
+		const raced = folder.recordings.set({ id: first as string }, { title: 'Mine' });
+		const other = timeId();
+		const alongside = folder.recordings.set({ id: other }, { title: other });
+		await Promise.all([raced, alongside]);
+		expect(folder.recordings.get({ id: first as string })?.title).toBe('Mine');
+		expect(folder.recordings.get({ id: other })?.title).toBe(other);
+		folder[Symbol.dispose]();
+	}, 30_000);
+
 	test("a note write raced by another is 'stale', never a merge on the server", async () => {
 		const person = await signIn('raced');
 		const { recordings } = filesAt(person.at);
