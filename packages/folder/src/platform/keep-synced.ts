@@ -18,12 +18,18 @@
  * that went. It stops when disposed or when the account is retired.
  *
  * Each folder carries a mark (ADR-0788, ADR-0789, ADR-0801, ADR-0807): ✓
- * `synced`, ◌ `waiting` (a change not yet synced, or a folder with no folder
- * on the server yet), ⚠ `conflict` (a note a merge
- * left with conflict blocks, until they are resolved), and ✗ `refused` (the
- * server refused a file, or the sync could not run), with why.
+ * `synced`, ◌ `waiting` (a change not yet synced, a folder not synced here,
+ * or one asking which folder it is), ⚠ `conflict` (a note a merge left with
+ * conflict blocks, until they are resolved), ⚠ `deletions` (a sync that
+ * would delete many files on the server, stopped until the person says to
+ * delete them there or bring them back: `answer`), `git` (Git keeps it, so
+ * Epicenter does not sync it), and ✗ `refused` (the server refused a file,
+ * or the sync could not run), with why.
  */
+import { sameIdentity } from '../identity.js';
 import type { RemoteAccount } from '../remote/repository.js';
+import type { Deletions } from '../sync/sync.js';
+import type { KnownApp } from './apps.js';
 import type { EpicenterRoot, LocalFolder } from './epicenter-folder.js';
 import { type EverySync, type FolderSync, syncEvery } from './sync-folder.js';
 
@@ -32,13 +38,17 @@ export type FolderMark =
 	/** ✓ It agrees with its folder on the server. */
 	| { mark: 'synced' }
 	/**
-	 * ◌ It waits: a change here not yet synced (`changed`), or a folder that
-	 * has no folder on the server yet (`local`: never synced, or a copy of
-	 * another folder, which stays local).
+	 * ◌ It waits: a change here not yet synced (`changed`), a folder not
+	 * synced here that stays local until the person syncs it (`local`), or
+	 * one asking which folder it is (`question`, in the home).
 	 */
-	| { mark: 'waiting'; why: 'changed' | 'local' }
+	| { mark: 'waiting'; why: 'changed' | 'local' | 'question' }
 	/** ⚠ Notes a merge left holding conflict blocks. */
 	| { mark: 'conflict'; paths: string[] }
+	/** ⚠ The sync would delete these files on the server, and waits for the person (`answer`). */
+	| { mark: 'deletions'; paths: string[] }
+	/** Git keeps it: Epicenter never syncs it. */
+	| { mark: 'git' }
 	/** ✗ The server refused files (`paths`), or the sync could not run (none). */
 	| { mark: 'refused'; reason: string; paths: string[] };
 
@@ -50,6 +60,8 @@ export type KeptState = {
 	syncing: boolean;
 	/** How the last round ended (null before the first): when, and why it could not run. */
 	last: { at: number; error: string | null } | null;
+	/** What the last round could not tell about where the Epicenter folder is, if anything. */
+	warning: string | null;
 };
 
 /** How long after the last change of a burst a round runs. */
@@ -76,8 +88,10 @@ async function stillConflicted(local: LocalFolder, paths: readonly string[]) {
 
 /** The mark a folder's sync left. */
 function markOf(sync: FolderSync): FolderMark {
-	if (sync.kind !== 'synced') return { mark: 'waiting', why: 'local' };
-	const { refused, conflicts } = sync.report;
+	if (sync.kind === 'git') return { mark: 'git' };
+	if (sync.kind === 'question') return { mark: 'waiting', why: 'question' };
+	const { refused, conflicts, outcome, deletions } = sync.report;
+	if (outcome === 'deletions') return { mark: 'deletions', paths: deletions };
 	if (refused.length > 0)
 		return {
 			mark: 'refused',
@@ -97,18 +111,24 @@ function markOf(sync: FolderSync): FolderMark {
 export function keepEverySynced({
 	account,
 	root,
+	apps = [],
 	afterChangeMs = AFTER_CHANGE_MS,
 	checkEveryMs = CHECK_EVERY_MS,
 }: {
 	account: RemoteAccount;
 	root: EpicenterRoot;
+	/** The apps a folder can be made by: such a folder syncs as if the person chose to. */
+	apps?: readonly KnownApp[];
 	afterChangeMs?: number;
 	checkEveryMs?: number;
 }) {
 	let marks = new Map<string, FolderMark>();
 	let syncing = false;
 	let last: KeptState['last'] = null;
-	let state: KeptState = { marks, syncing, last };
+	let warning: string | null = null;
+	let state: KeptState = { marks, syncing, last, warning };
+	/** The person's answers to folders stopped for many deletions, by path, for the next round. */
+	const answers = new Map<string, Deletions>();
 	let stopped = false;
 	const listeners = new Set<() => void>();
 	/** Each folder's watch, by its path. */
@@ -119,7 +139,7 @@ export function keepEverySynced({
 	let checkTimer: ReturnType<typeof setTimeout> | undefined;
 
 	function publish() {
-		state = { marks, syncing, last };
+		state = { marks, syncing, last, warning };
 		for (const listener of [...listeners]) listener();
 	}
 
@@ -133,7 +153,11 @@ export function keepEverySynced({
 		changesHeard++;
 		heardAt.set(path, changesHeard);
 		const mark = marks.get(path);
-		if (mark?.mark !== 'refused' && mark?.mark !== 'conflict') {
+		if (
+			mark?.mark !== 'refused' &&
+			mark?.mark !== 'conflict' &&
+			mark?.mark !== 'deletions'
+		) {
 			marks = new Map(marks).set(path, { mark: 'waiting', why: 'changed' });
 			publish();
 		}
@@ -153,8 +177,7 @@ export function keepEverySynced({
 			// The same directory keeps its watch, whatever object listed it.
 			if (
 				kept !== undefined &&
-				kept.local.identity?.device === local.identity?.device &&
-				kept.local.identity?.inode === local.identity?.inode
+				sameIdentity(kept.local.identity, local.identity)
 			)
 				continue;
 			kept?.stop();
@@ -179,20 +202,27 @@ export function keepEverySynced({
 		const began = changesHeard;
 		syncing = true;
 		publish();
-		const every = await syncEvery({ account, root });
+		const answered = new Map(answers);
+		answers.clear();
+		const ran = await syncEvery({ account, root, apps, deletions: answered });
 		syncing = false;
 		if (stopped) return null;
-		if (every.error !== null) {
-			last = { at: Date.now(), error: every.error.message };
+		if (ran.error !== null) {
+			last = { at: Date.now(), error: ran.error.message };
 			publish();
 			return null;
 		}
+		warning = ran.data.warning;
+		const every = ran.data.folders;
 		const next = new Map<string, FolderMark>();
-		for (const entry of every.data) {
+		for (const entry of every) {
 			const { local, result, waiting } = entry;
 			const before = marks.get(local.path);
 			let mark: FolderMark;
-			if (waiting) mark = { mark: 'waiting', why: 'local' };
+			if (waiting === 'git') mark = { mark: 'git' };
+			else if (waiting === 'question')
+				mark = { mark: 'waiting', why: 'question' };
+			else if (waiting === 'local') mark = { mark: 'waiting', why: 'local' };
 			else if ((heardAt.get(local.path) ?? 0) > began)
 				// Changed while this round ran: the next round takes it up.
 				mark = { mark: 'waiting', why: 'changed' };
@@ -201,6 +231,7 @@ export function keepEverySynced({
 				// could not run before is no reason to show ✗ now.
 				mark =
 					before?.mark === 'conflict' ||
+					before?.mark === 'deletions' ||
 					(before?.mark === 'refused' && before.paths.length > 0)
 						? before
 						: { mark: 'synced' };
@@ -217,11 +248,11 @@ export function keepEverySynced({
 		}
 		marks = next;
 		// Watching before the round says it ended, so a change made after is heard.
-		await watchEvery(every.data);
+		await watchEvery(every);
 		if (stopped) return null;
 		last = { at: Date.now(), error: null };
 		publish();
-		return every.data;
+		return every;
 	}
 
 	/** A round now, or once after the round running now. */
@@ -286,6 +317,15 @@ export function keepEverySynced({
 		 * not ask the server.
 		 */
 		now: request,
+		/**
+		 * The person's answer to the folder at `path` stopped for many
+		 * deletions: `push` deletes them on the server, `restore` brings them
+		 * back here. A round runs with it.
+		 */
+		answer(path: string, deletions: Exclude<Deletions, 'ask'>) {
+			answers.set(path, deletions);
+			return request();
+		},
 		/** Stop: no moment runs a round after this; a round running now finishes. */
 		[Symbol.dispose]: stop,
 	};

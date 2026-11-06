@@ -8,7 +8,8 @@
  * Key behaviors:
  * - A listing passes the paths asked for and keeps the shell's versions of
  *   notes and sizes; an attachment's stamp becomes its pointer's blob id,
- *   hashed once and then cached by that stamp; every call names the root
+ *   hashed once and then cached by that stamp in the cache it is given,
+ *   never in the folder; every call names the root
  * - A read names every file by the blob id `blobIdOf` gives its bytes
  * - A put sends its expectation in its own spelling (absent, a note's blob
  *   id, or an attachment's stamp, read and hashed again first) and names
@@ -43,10 +44,7 @@ mock.module('@tauri-apps/api/core', () => ({
 		if (command === 'plugin:epicenter-folder|read_folder_file') {
 			readArgs = body;
 			reads.push(body?.path ?? '');
-			if (
-				body?.path === 'notes/missing.md' ||
-				body?.path === '.epicenter/hashes.json'
-			)
+			if (body?.path === 'notes/missing.md')
 				throw { name: 'NotFound', path: body.path };
 			return Uint8Array.from([
 				...new TextEncoder().encode('v1:3:1000000:3:4'),
@@ -55,11 +53,7 @@ mock.module('@tauri-apps/api/core', () => ({
 			]).buffer;
 		}
 		if (command === 'plugin:epicenter-folder|put_folder_file') {
-			if (
-				decodeURIComponent(options?.headers?.path ?? '') !==
-				'.epicenter/hashes.json'
-			)
-				putHeaders = options?.headers;
+			putHeaders = options?.headers;
 			return landing;
 		}
 		throw new Error(`Unexpected command ${command}`);
@@ -68,7 +62,19 @@ mock.module('@tauri-apps/api/core', () => ({
 
 const { tauriStore } = await import('./tauri-store.js');
 const ROOT = 'Data';
-const store = () => tauriStore({ root: ROOT, listen: () => () => {} });
+/** The hash cache the store keeps, outside the folder. */
+let cached: Uint8Array | null = null;
+const store = () =>
+	tauriStore({
+		root: ROOT,
+		listen: () => () => {},
+		hashes: {
+			load: async () => cached,
+			save: async (bytes) => {
+				cached = bytes;
+			},
+		},
+	});
 const old = new TextEncoder().encode('old');
 
 afterEach(() => {
@@ -91,10 +97,15 @@ test('a listing keeps a note’s blob id, hashes an attachment once by its stamp
 	];
 	expect(expectOk(await listing.list(['notes']))).toEqual(expected);
 	expect(listed).toEqual({ root: ROOT, under: ['notes'] });
-	expect(reads).toEqual(['.epicenter/hashes.json', 'notes/a.webm']);
+	expect(reads).toEqual(['notes/a.webm']);
+	expect(putHeaders).toBeUndefined();
 	reads.length = 0;
 	expect(expectOk(await listing.list(['notes']))).toEqual(expected);
 	expect(reads).toEqual([]);
+	// A new store over the same cache reads no attachment either.
+	expect(expectOk(await store().list(['notes']))).toEqual(expected);
+	expect(reads).toEqual([]);
+	expect(Object.keys(JSON.parse(new TextDecoder().decode(cached ?? new Uint8Array())))).toEqual(['notes/a.webm']);
 });
 
 test('a read names every file by its blob id', async () => {

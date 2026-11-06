@@ -5,8 +5,11 @@
  * a stand-in folder plugin, as the Epicenter app's window reaches it.
  *
  * Key behaviors:
- * - A listing names each folder with its path and identity, opening its
- *   root once; one whose root does not open is unreadable, with why
+ * - A listing names each folder with its path, identity (inode and birth
+ *   time), and whether Git keeps it, opening its root once; one whose root
+ *   does not open is unreadable, with why
+ * - The Epicenter folder's own `.epicenter` is the root `Epicenter`, opened
+ *   once, which holds the records and each folder's hash cache
  * - A folder opens again only when its identity changed
  * - Each folder's store hears only its own changes, and names its root in
  *   every command, `Folder/<name>` in a raw request's header
@@ -23,7 +26,7 @@ const asked: Asked[] = [];
 let listing: unknown;
 let refuseOpen = new Set<string>();
 let heard: ((event: { payload: unknown }) => void) | undefined;
-const identity = (inode: string) => ({ device: '1', inode });
+const identity = (inode: string) => ({ inode, birthtime: '1700000000000000000' });
 
 mock.module('@tauri-apps/api/core', () => ({
 	Channel: class {},
@@ -37,6 +40,8 @@ mock.module('@tauri-apps/api/core', () => ({
 		asked.push({ command, body, headers: options?.headers });
 		if (command === 'plugin:epicenter-folder|list_epicenter') return listing;
 		if (command === 'plugin:epicenter-folder|open_root') {
+			if ((body?.root as unknown) === 'Epicenter')
+				return '/Users/me/Epicenter/.epicenter';
 			const name = body?.root?.Folder ?? '';
 			if (refuseOpen.has(name))
 				throw {
@@ -47,7 +52,9 @@ mock.module('@tauri-apps/api/core', () => ({
 			return `/Users/me/Epicenter/${name}`;
 		}
 		if (command === 'plugin:epicenter-folder|make_epicenter_folder')
-			return { name: body?.name, identity: identity('9') };
+			return { name: body?.name, identity: identity('9'), git: false };
+		if (command === 'plugin:epicenter-folder|read_folder_file')
+			throw { name: 'NotFound' };
 		if (command === 'plugin:epicenter-folder|put_folder_file')
 			return { landed: 'v1:1:2:3:4' };
 		throw new Error(`Unexpected command ${command}`);
@@ -74,15 +81,19 @@ afterEach(() => {
 const opens = () =>
 	asked
 		.filter(({ command }) => command === 'plugin:epicenter-folder|open_root')
-		.map(({ body }) => (body as { root: { Folder: string } }).root.Folder);
+		.map(({ body }) => {
+			const { root } = body as { root: { Folder: string } | string };
+			return typeof root === 'string' ? root : root.Folder;
+		});
 
 test('a listing opens each folder once and names one that does not open', async () => {
 	listing = {
 		path: '/Users/me/Epicenter',
+		realPath: '/Users/me/Epicenter',
 		folders: [
-			{ name: 'Notes', identity: identity('1') },
-			{ name: 'Recipes', identity: identity('2') },
-			{ name: 'Everything', identity: identity('3') },
+			{ name: 'Notes', identity: identity('1'), git: false },
+			{ name: 'Recipes', identity: identity('2'), git: true },
+			{ name: 'Everything', identity: identity('3'), git: false },
 		],
 		unreadable: [{ name: 'Gone', reason: 'it links to a folder that is gone' }],
 	};
@@ -91,22 +102,26 @@ test('a listing opens each folder once and names one that does not open', async 
 	expect(root.path).toBe('');
 	const listed = expectOk(await root.list());
 	expect(root.path).toBe('/Users/me/Epicenter');
+	expect(listed.realPath).toBe('/Users/me/Epicenter');
 	expect(
-		listed.folders.map(({ name, path, identity }) => ({
+		listed.folders.map(({ name, path, identity, git }) => ({
 			name,
 			path,
 			identity,
+			git,
 		})),
 	).toEqual([
 		{
 			name: 'Notes',
 			path: '/Users/me/Epicenter/Notes',
 			identity: identity('1'),
+			git: false,
 		},
 		{
 			name: 'Recipes',
 			path: '/Users/me/Epicenter/Recipes',
 			identity: identity('2'),
+			git: true,
 		},
 	]);
 	expect(listed.unreadable.map(({ name }) => name)).toEqual([
@@ -116,16 +131,17 @@ test('a listing opens each folder once and names one that does not open', async 
 	expect(listed.unreadable[1]?.reason).toContain(
 		'holds every Epicenter folder',
 	);
-	expect(opens()).toEqual(['Notes', 'Recipes', 'Everything']);
+	expect(opens()).toEqual(['Epicenter', 'Notes', 'Recipes', 'Everything']);
 
 	// The same folders open nothing again; one replaced opens again.
 	asked.length = 0;
 	refuseOpen = new Set(['Everything']);
 	listing = {
 		path: '/Users/me/Epicenter',
+		realPath: '/Users/me/Epicenter',
 		folders: [
-			{ name: 'Notes', identity: identity('1') },
-			{ name: 'Recipes', identity: identity('7') },
+			{ name: 'Notes', identity: identity('1'), git: false },
+			{ name: 'Recipes', identity: identity('7'), git: false },
 		],
 		unreadable: [],
 	};
@@ -133,12 +149,35 @@ test('a listing opens each folder once and names one that does not open', async 
 	expect(opens()).toEqual(['Recipes']);
 });
 
+test("a folder's hash cache is kept in the Epicenter folder's .epicenter, by identity", async () => {
+	listing = {
+		path: '/Users/me/Epicenter',
+		realPath: '/Users/me/Epicenter',
+		folders: [{ name: 'Tapes', identity: identity('5'), git: false }],
+		unreadable: [],
+	};
+	const root = epicenterRoot();
+	const [tapes] = expectOk(await root.list()).folders;
+	expect(tapes?.identity).toEqual(identity('5'));
+	const records = expectOk(await root.records());
+	expect(records.store).toBeDefined();
+	await records.hashes(identity('5')).load();
+	expect(
+		asked
+			.filter(({ command }) => command === 'plugin:epicenter-folder|read_folder_file')
+			.map(({ body }) => body),
+	).toEqual([
+		{ path: 'hashes/5-1700000000000000000.json', root: 'Epicenter' },
+	]);
+});
+
 test("each folder's store hears its own changes and names its root", async () => {
 	listing = {
 		path: '/Users/me/Epicenter',
+		realPath: '/Users/me/Epicenter',
 		folders: [
-			{ name: 'Notes', identity: identity('1') },
-			{ name: 'Recipes', identity: identity('2') },
+			{ name: 'Notes', identity: identity('1'), git: false },
+			{ name: 'Recipes', identity: identity('2'), git: false },
 		],
 		unreadable: [],
 	};
@@ -175,5 +214,7 @@ test('making a folder makes its directory, then opens it', async () => {
 	expect(asked.map(({ command }) => command)).toEqual([
 		'plugin:epicenter-folder|make_epicenter_folder',
 		'plugin:epicenter-folder|open_root',
+		'plugin:epicenter-folder|open_root',
 	]);
+	expect(opens()).toEqual(['Epicenter', 'Shared notes']);
 });

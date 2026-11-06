@@ -11,18 +11,13 @@
  * `'all'`, since it cannot tell what it missed.
  */
 import { watch } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, relative, sep } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { isHiddenPath } from '@epicenter/definition/contract';
 import type { Changed } from '../device/store.js';
 import { readablePath } from '../paths.js';
-import {
-	SAVES,
-	STATE_DIRECTORY,
-	savesDirectory,
-	scratchName,
-} from '../state.js';
+import { saveName } from '../state.js';
 
 /** How long a probe waits to be heard before the next is written, and how many are. */
 const PROBE_MS = 25;
@@ -45,8 +40,8 @@ export async function watchDirectory(
 	const report = (paths: readonly string[] | 'all') => {
 		if (!closed) changed(paths);
 	};
-	/** Staged like a save, so the desktop's sweep removes one a crash left. */
-	const probe = `${STATE_DIRECTORY}/${SAVES}/${scratchName()}`;
+	/** Named like a staged save, so no listing describes it and a sweep removes one a crash left. */
+	const probe = saveName();
 	const watcher = watch(
 		root,
 		{ recursive: true, persistent: false, encoding: 'utf8' },
@@ -62,9 +57,9 @@ export async function watchDirectory(
 				live.resolve();
 				return;
 			}
-			// A hidden path is not the folder's data: Git's state, and every
-			// unfinished write in `.epicenter` (a staged save, a recording in
-			// progress). A name outside the root is no hidden path of this folder's.
+			// A hidden path is not the folder's data: Git's state, a staged
+			// save or a recording in progress beside its target. A name outside
+			// the root is no hidden path of this folder's.
 			const outside = path === '..' || path.startsWith('../');
 			if (!outside && isHiddenPath(path)) return;
 			if (readablePath(path)) return report([path]);
@@ -78,7 +73,6 @@ export async function watchDirectory(
 		watcher.close();
 	};
 	try {
-		await mkdir(savesDirectory(root), { recursive: true, mode: 0o700 });
 		for (let tries = 0; !closed && !isLive && tries < PROBES; tries++) {
 			await writeFile(`${root}/${probe}`, `${tries}`, { mode: 0o600 });
 			await Promise.race([live.promise, sleep(PROBE_MS, undefined, { ref: false })]);

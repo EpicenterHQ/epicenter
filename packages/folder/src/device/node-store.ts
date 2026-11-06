@@ -6,35 +6,34 @@
  * - A version is the file's Git blob id (ADR-0808): a note's (and any
  *   hidden file's) hashed from its bytes, an attachment's from its sha256,
  *   kept by its stamp (its size, modification time in nanoseconds, and
- *   inode) in `.epicenter/hashes.json` (`stamp-cache.ts`), so a listing
+ *   inode) in the hash cache the caller names (`hashes`; the Epicenter
+ *   folder keeps one per directory, named by its identity), so a listing
  *   reads no recording it hashed before. A write lands only while its path
  *   holds the version its writer expects, checked right before the change,
- *   an attachment hashed again first. Its bytes are staged in the
- *   directory's `.epicenter/saves` (`savesDirectory`), so another program
- *   sees the old file or the new one, never part of either. A replacement
- *   is renamed over the path, keeping the replaced file's permission bits.
- *   A create is placed by a hard link, which the file system refuses when
- *   anything has the name, so of writers creating one path, in any process,
- *   exactly one lands.
+ *   an attachment hashed again first. Its bytes are staged beside the
+ *   target in `.ep-<random>.save` (`saveName`), made exclusively with mode
+ *   0600, so another program sees the old file or the new one, never part
+ *   of either (ADR-0822). A replacement is renamed over the path, keeping
+ *   the replaced file's permission bits. A create is placed by a hard link,
+ *   which the file system refuses when anything has the name, so of writers
+ *   creating one path, in any process, exactly one lands.
  * - Within this process, writes to one path take turns from the check to the
  *   change (`createPathTurns`): of two writers over one version, one lands
  *   and the other finds it `Moved`. Across processes nothing holds a path between
  *   a replacement's check and its rename; Git history is the backstop.
- * - A path on another file system than `.epicenter` (a mount point inside
- *   the directory) is one no rename reaches: that save fails saying so, and
- *   nothing is copied.
  * - A path that leaves the directory or names `.git` is refused, and a name
  *   only some disks hold (`pathProblem`) is never made; an existing one is
  *   replaced or removed over its version like any other.
  * - A listing is every regular file below the directories asked for, `.git`
- *   at the root aside, hidden ones included for its reader to skip
- *   (`isHiddenPath`). A file or directory removed while it lists is not
- *   listed.
+ *   and an older build's `.epicenter` at the root aside, hidden ones
+ *   included for its reader to skip (`isHiddenPath`), except a reserved
+ *   name (`isReservedName`), which nothing describes. A file or directory
+ *   removed while it lists is not listed.
  * - A watch answers once Node's recursive watcher is live (`watchDirectory`).
  *
- * A save a crash stopped leaves its staged file in `saves/`, hidden, never
- * committed, and safe to delete; the desktop shell sweeps it at its next
- * open of the folder, by the name `scratchName` gave it.
+ * A save a crash stopped leaves its staged file beside its target, hidden,
+ * never listed, and safe to delete; a sweep removes it once it is an hour
+ * old (`sweepSaves`, and the desktop shell's at each open).
  */
 import type { BigIntStats } from 'node:fs';
 import {
@@ -57,8 +56,8 @@ import { blobIdOf, gitBlobId, sha256Of } from '../hash.js';
 import { watchDirectory } from '../native/watch.js';
 import { createPathTurns } from '../path-turns.js';
 import { pathProblem, readablePath, writableExistingPath } from '../paths.js';
-import { STATE_DIRECTORY, savesDirectory, scratchName } from '../state.js';
-import { createStampCache, HASHES_PATH } from './stamp-cache.js';
+import { isReservedName, LEGACY_DIRECTORY, saveName } from '../state.js';
+import { createStampCache, type StampFile } from './stamp-cache.js';
 import {
 	type BlobId,
 	type Listed,
@@ -135,41 +134,58 @@ function refusal(
 /** What a write at one path found: the version it landed, or what the path held instead. */
 type Landing = { landed: BlobId | null } | { moved: BlobId | null };
 
-/** The store of the existing directory at `root`. */
-export function nodeStore(root: string): Store {
-	const saves = savesDirectory(root);
+/**
+ * The hash cache kept in the file at `path`, written through a staged save
+ * beside it: what `nodeStore` takes as its `hashes`.
+ */
+export function stampFileAt(path: string): StampFile {
+	return {
+		async load() {
+			try {
+				return new Uint8Array(await readFile(path));
+			} catch {
+				return null;
+			}
+		},
+		async save(bytes) {
+			await mkdir(dirname(path), { recursive: true });
+			const staged = join(dirname(path), saveName());
+			try {
+				await writeFile(staged, bytes, { flag: 'wx', mode: 0o600 });
+				await rename(staged, path);
+			} finally {
+				await rm(staged, { force: true });
+			}
+		},
+	};
+}
+
+/**
+ * The store of the existing directory at `root`. `hashes` is where it keeps
+ * its attachments' hashes between runs; without one it keeps them for the
+ * store's life only.
+ */
+export function nodeStore(
+	root: string,
+	{ hashes: file = null }: { hashes?: StampFile | null } = {},
+): Store {
 	const unavailable = (cause: unknown) => ClientError.Unavailable({ cause });
 	const hashes = createStampCache({
-		file: {
-			async load() {
-				try {
-					return new Uint8Array(await readFile(join(root, HASHES_PATH)));
-				} catch {
-					return null;
-				}
-			},
-			async save(bytes) {
-				const staged = `${saves}/${scratchName()}`;
-				await mkdir(saves, { recursive: true, mode: 0o700 });
-				await writeFile(staged, bytes, { mode: 0o600 });
-				await rename(staged, join(root, HASHES_PATH));
-			},
-		},
+		file: file ?? { load: async () => null, save: async () => {} },
 	});
 
-	/** Land `bytes` at `target` (the folder's `path`) over `expect`, staged in `saves`. */
+	/** Land `bytes` at `target` (the folder's `path`) over `expect`, staged beside it. */
 	async function save(
 		target: string,
 		path: string,
 		bytes: Uint8Array,
 		expect: BlobId | null,
 	): Promise<Landing> {
-		const staged = `${saves}/${scratchName()}`;
+		const staged = join(dirname(target), saveName());
 		const landed = await blobIdOf(path, bytes);
 		try {
-			await mkdir(saves, { recursive: true, mode: 0o700 });
-			await writeFile(staged, bytes, { flag: 'wx', mode: 0o600 });
 			await mkdir(dirname(target), { recursive: true });
+			await writeFile(staged, bytes, { flag: 'wx', mode: 0o600 });
 			return await turns.run(target, async (): Promise<Landing> => {
 				const now = (await versionAt(target, path)) ?? null;
 				if (now !== expect) return { moved: now };
@@ -210,14 +226,14 @@ export function nodeStore(root: string): Store {
 			const path = prefix + entry.name;
 			const at = join(directory, entry.name);
 			if (entry.isDirectory()) {
-				// Git's state, and this computer's own, are never a folder's files.
-				if (path !== '.git' && path !== STATE_DIRECTORY)
+				// Git's state, and an older build's, are never a folder's files.
+				if (path !== '.git' && path !== LEGACY_DIRECTORY)
 					await visit(at, `${path}/`, files).catch((cause) => {
 						if (codeOf(cause) !== 'ENOENT') throw cause;
 					});
 				continue;
 			}
-			if (!entry.isFile()) continue;
+			if (!entry.isFile() || isReservedName(path)) continue;
 			const listed = await describe(at, path);
 			if (listed !== undefined) files.push(listed);
 		}
@@ -271,7 +287,7 @@ export function nodeStore(root: string): Store {
 						await visit(at, `${prefix}/`, files).catch((cause) => {
 							if (codeOf(cause) !== 'ENOENT') throw cause;
 						});
-					else {
+					else if (!isReservedName(prefix)) {
 						const listed = await describe(at, prefix);
 						if (listed !== undefined) files.push(listed);
 					}
@@ -307,10 +323,7 @@ export function nodeStore(root: string): Store {
 								return { landed: null };
 							});
 			} catch (cause) {
-				if (codeOf(cause) !== 'EXDEV') return unavailable(cause);
-				return unavailable(
-					`cannot save across a mount point: '${path}' is on another file system than the folder's ${STATE_DIRECTORY}, so nothing was written there`,
-				);
+				return unavailable(cause);
 			}
 			if ('moved' in landing)
 				return StoreError.Moved({ path, now: landing.moved });

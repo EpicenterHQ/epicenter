@@ -4,15 +4,17 @@
  * symbolic link there. Nothing registers a folder; discovery lists the
  * directory. `EpicenterRoot` is that directory as a surface reaches it: Bun
  * or Node through `@epicenter/folder/node`'s `epicenterRoot(path)`, and the
- * desktop shell's root later.
+ * Epicenter app's shell through `@epicenter/folder/tauri`'s. It also holds
+ * the Epicenter folder's own `.epicenter`, the records of what this computer
+ * synced (`records.ts`, ADR-0822).
  *
  * `listHome` is the platform's home (ADR-0815): each folder with its title,
- * its state (never synced, synced, or shared), and, with an account, its
- * members, beside the shares waiting for the person and the folders they
- * hold that this computer does not. The CLI's `status`, the Epicenter app,
- * and every app's home read it.
+ * its state (on this computer only, synced, shared, or kept by Git), and,
+ * with an account, its members and, for a folder not synced here, the
+ * question of which folder it is (`identify.ts`); beside them the shares
+ * waiting for the person and the folders they hold that this computer does
+ * not. The CLI's `status` and the Epicenter app read it.
  */
-import { CONTRACT_PATH } from '@epicenter/definition/contract';
 import type {
 	FolderMember,
 	FolderRole,
@@ -21,13 +23,11 @@ import type {
 } from '@epicenter/definition/site';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Store, Unavailable } from '../device/store.js';
-import { listFolders } from '../remote/folders.js';
+import type { FolderIdentity } from '../identity.js';
 import type { RemoteAccount } from '../remote/repository.js';
-import {
-	type Manifest,
-	type RootIdentity,
-	storeManifest,
-} from '../sync/sync.js';
+import type { KnownApp } from './apps.js';
+import { fileSyncOf, identify, type Question, questionOf } from './identify.js';
+import type { Records } from './records.js';
 
 /** One directory directly inside the Epicenter folder. */
 export type LocalFolder = {
@@ -36,8 +36,10 @@ export type LocalFolder = {
 	/** Where it is, to show a person and to name it on the command line. */
 	path: string;
 	store: Store;
-	/** The directory's identity now (device and inode); null where the store has none. */
-	identity: RootIdentity | null;
+	/** The directory's identity now (inode and birth time); null where the store has none. */
+	identity: FolderIdentity | null;
+	/** Whether Git keeps it (`.git` at its root, or above a link's target): Epicenter never syncs it. */
+	git: boolean;
 };
 
 /** The Epicenter folder as a surface reaches it. */
@@ -46,31 +48,32 @@ export type EpicenterRoot = {
 	path: string;
 	/**
 	 * Every directory directly inside it, links followed, hidden names
-	 * skipped, by name; and what is there but could not be read, with why.
+	 * skipped, by name; what is there but could not be read, with why; and
+	 * the Epicenter folder's real path, links resolved, where it is known.
 	 */
 	list(): Promise<
 		Result<
 			{
 				folders: LocalFolder[];
 				unreadable: { name: string; reason: string }[];
+				realPath: string | null;
 			},
 			Unavailable
 		>
 	>;
 	/** Make the directory `name` inside it, refused when anything has that name. */
 	make(name: string): Promise<Result<LocalFolder, Unavailable>>;
+	/** The records of what this computer synced, in its own `.epicenter`. */
+	records(): Promise<Result<Records, Unavailable>>;
 };
 
-/** Whether two directory identities are one directory. */
-const sameRoot = (a: RootIdentity, b: RootIdentity) =>
-	a.device === b.device && a.inode === b.inode;
-
 /**
- * A folder's state (ADR-0811): `local` before its first sync (a copy of
- * another folder included), `synced` once it has an id, and `shared` once
- * someone else holds it too.
+ * A folder's state (ADR-0811, ADR-0822): `local` while nothing proves it is
+ * a folder synced here (never synced, a copy, or one waiting for the
+ * person's answer), `synced` once it is, `shared` once someone else holds it
+ * too, and `git` when Git keeps it, so Epicenter does not sync it.
  */
-export type HomeState = 'local' | 'synced' | 'shared';
+export type HomeState = 'local' | 'synced' | 'shared' | 'git';
 
 /** One folder in the home. */
 export type HomeFolder = {
@@ -79,14 +82,8 @@ export type HomeFolder = {
 	/** The `title` of its `epicenter.json`; null without one, when its name stands in. */
 	title: string | null;
 	state: HomeState;
-	/** Its id on the server, once it synced. */
+	/** Its id on the server, once it synced here. */
 	folder: string | null;
-	/**
-	 * The id of the folder this directory is a copy of (its manifest names
-	 * one, but it synced in another directory): it is a new local folder, and
-	 * its first sync asks whether it is that folder or a new one.
-	 */
-	copyOf: string | null;
 	/** Who holds it, when the server was asked; null otherwise. */
 	members: FolderMember[] | null;
 	/** The person's role in it, when the server was asked. */
@@ -96,6 +93,11 @@ export type HomeFolder = {
 	 * holds it, or it is gone. Null otherwise, and without an account.
 	 */
 	unlisted: string | null;
+	/**
+	 * For a folder not synced here, with an account: the folders it could be
+	 * (ADR-0822), which a person answers by syncing it with one, or as new.
+	 */
+	question: Question | null;
 };
 
 /** The home: the folders here, the shares waiting, and the folders held elsewhere. */
@@ -103,106 +105,98 @@ export type Home = {
 	folders: HomeFolder[];
 	/** The shares waiting for the person; empty without an account. */
 	pending: PendingShare[];
-	/** The folders the person holds that this computer does not; empty without an account. */
+	/** The folders the person holds that this computer does not sync; empty without an account. */
 	elsewhere: ListedFolder[];
 	/** What is in the Epicenter folder but could not be read, with why. */
 	unreadable: { name: string; reason: string }[];
+	/** Why Epicenter will not sync here, or what it could not tell (`fileSyncOf`). */
+	fileSync: { refused: string } | { warning: string } | null;
 };
-
-const decoder = new TextDecoder();
-
-/** The `title` of the `epicenter.json` in `store`, or null. */
-async function localTitle(store: Store): Promise<string | null> {
-	const read = await store.read([CONTRACT_PATH]);
-	const [file] = read.data ?? [];
-	if (file === undefined || 'gone' in file) return null;
-	try {
-		const { title } = JSON.parse(decoder.decode(file.bytes)) as {
-			title?: unknown;
-		};
-		return typeof title === 'string' && title.trim() !== '' ? title : null;
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Whether `manifest` was written for another directory than `identity`: a
- * copy, which must not sync as the folder it names. A manifest with no
- * directory recorded, or a store with no identity, is not a copy.
- */
-export function copyOf(
-	manifest: Manifest,
-	identity: RootIdentity | null,
-): string | null {
-	if (
-		manifest.folder === undefined ||
-		manifest.root === undefined ||
-		identity === null
-	)
-		return null;
-	return sameRoot(manifest.root, identity) ? null : manifest.folder;
-}
 
 /**
  * The home: every folder in `root` with its title and state, and, with an
- * `account`, each one's members as the server lists them, the shares waiting
- * for the person, and the folders they hold that are not here. Without an
- * account a synced folder is `synced`, since whether it is shared is the
- * server's to say.
+ * `account`, each one's members as the server lists them, the question for
+ * each folder not synced here, the shares waiting for the person, and the
+ * folders they hold that are not here. Without an account a synced folder is
+ * `synced`, since whether it is shared is the server's to say.
  */
 export async function listHome({
 	root,
 	account,
+	apps = [],
 }: {
 	root: EpicenterRoot;
 	account?: RemoteAccount;
+	apps?: readonly KnownApp[];
 }): Promise<Result<Home, Unavailable>> {
-	const listed = await root.list();
-	if (listed.error !== null) return listed;
-	const server = account === undefined ? null : await listFolders(account);
-	if (server !== null && server.error !== null) return server;
+	const found = await identify({ root, account });
+	if (found.error !== null) return found;
+	const identified = found.data;
+	const server = await identified.server();
+	if (account !== undefined && server === null) {
+		const listed = await identified.serverError();
+		if (listed !== null) return listed;
+	}
 	const remote = new Map(
-		(server?.data.folders ?? []).map((folder) => [folder.id, folder]),
+		(server?.folders ?? []).map((folder) => [folder.id, folder]),
 	);
 	const here = new Set<string>();
 	const folders: HomeFolder[] = [];
-	for (const local of listed.data.folders) {
-		const [title, read] = await Promise.all([
-			localTitle(local.store),
-			storeManifest(local.store).read(),
-		]);
-		const manifest = read.data?.manifest;
-		const copy =
-			manifest === undefined ? null : copyOf(manifest, local.identity);
-		const folder = copy === null ? (manifest?.folder ?? null) : null;
-		if (folder !== null) here.add(folder);
-		const listing = folder === null ? undefined : remote.get(folder);
+	for (const { local, record, title } of identified.bound) {
+		here.add(record.folder);
+		const listing = remote.get(record.folder);
 		folders.push({
 			name: local.name,
 			path: local.path,
 			title,
 			state:
-				folder === null
-					? 'local'
-					: (listing?.members.length ?? 0) + (listing?.invited.length ?? 0) > 1
-						? 'shared'
-						: 'synced',
-			folder,
-			copyOf: copy,
+				(listing?.members.length ?? 0) + (listing?.invited.length ?? 0) > 1
+					? 'shared'
+					: 'synced',
+			folder: record.folder,
 			members: listing?.members ?? null,
 			role: listing?.role ?? null,
 			unlisted:
-				server === null || folder === null || listing !== undefined
+				server === null || listing !== undefined
 					? null
 					: 'The server does not list this folder: it was unshared with you, or it is gone.',
+			question: null,
 		});
 	}
+	for (const unbound of identified.unbound)
+		folders.push({
+			name: unbound.local.name,
+			path: unbound.local.path,
+			title: unbound.title,
+			state: 'local',
+			folder: null,
+			members: null,
+			role: null,
+			unlisted: null,
+			question:
+				server === null
+					? null
+					: await questionOf(unbound, identified, server, apps),
+		});
+	for (const local of identified.git)
+		folders.push({
+			name: local.name,
+			path: local.path,
+			title: null,
+			state: 'git',
+			folder: null,
+			members: null,
+			role: null,
+			unlisted: null,
+			question: null,
+		});
+	folders.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 	return Ok({
 		folders,
-		pending: server?.data.pending ?? [],
-		elsewhere: (server?.data.folders ?? []).filter(({ id }) => !here.has(id)),
-		unreadable: listed.data.unreadable,
+		pending: server?.pending ?? [],
+		elsewhere: (server?.folders ?? []).filter(({ id }) => !here.has(id)),
+		unreadable: identified.unreadable,
+		fileSync: fileSyncOf(identified.realPath),
 	});
 }
 

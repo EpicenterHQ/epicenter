@@ -1,18 +1,51 @@
 /**
  * The app's data folder in a Tauri window: the `Data` root the shell named
- * at startup from the app's bundle identifier (ADR-0752). Opening it brings
- * its root `AGENTS.md` up to date with the site's contract (ADR-0772).
- * `home()` loads this module when the folder opens, so a browser never
- * loads it.
+ * at startup, the directory in the Epicenter folder its shell remembers by
+ * identity, or its usual path (ADR-0752, ADR-0822). Opening it brings its
+ * root `AGENTS.md` up to date with the site's contract (ADR-0772). Its hash
+ * cache is kept in the app's own data, `hashes/<identity>.json` in the
+ * `AppData` root, never in the folder. `home()` loads this module when the
+ * folder opens, so a browser never loads it.
  */
 import type { Contract } from '@epicenter/definition/contract';
 import { Ok, type Result } from 'wellcrafted/result';
 import { refreshAgentsNote } from './desktop-folder.js';
+import type { StampFile } from './device/stamp-cache.js';
 import type { Store } from './device/store.js';
 import type { OpenFolderError } from './errors.js';
+import { commands } from './native/bindings.gen.js';
 import { openRoot } from './native/root.js';
+import { hashesPath, storeStampFile } from './platform/records.js';
 
 export { revealRoot } from './tauri.js';
+
+/** A cache file made once it is first used. */
+function lazily(make: () => Promise<StampFile | null>): StampFile {
+	let file: Promise<StampFile | null> | undefined;
+	return {
+		async load() {
+			file ??= make();
+			return (await (await file)?.load()) ?? null;
+		},
+		async save(bytes) {
+			file ??= make();
+			await (await file)?.save(bytes);
+		},
+	};
+}
+
+/** The Data root's hash cache in the app's own data, named by the Data root's identity. */
+async function dataHashes(): Promise<StampFile | null> {
+	try {
+		const identity = await commands.rootIdentity('Data');
+		if (identity.error !== null || identity.data === null) return null;
+		const appData = await openRoot('AppData');
+		if (appData.error !== null) return null;
+		return storeStampFile(appData.data.store, hashesPath(identity.data));
+	} catch {
+		return null;
+	}
+}
 
 /**
  * Open the data folder as a store, with the path the shell answered for it
@@ -23,7 +56,7 @@ export async function openDataFolder(
 	contract: Contract,
 	site: string | undefined,
 ): Promise<Result<{ store: Store; path: string }, OpenFolderError>> {
-	const opened = await openRoot('Data');
+	const opened = await openRoot('Data', { hashes: lazily(dataHashes) });
 	if (opened.error !== null) return opened;
 	if (site !== undefined)
 		await refreshAgentsNote(

@@ -6,6 +6,7 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { StampFile } from '../device/stamp-cache.js';
 import type { Changed, Store } from '../device/store.js';
 import { sameRoot, tauriStore } from '../device/tauri-store.js';
 import { OpenFolderError } from '../errors.js';
@@ -19,10 +20,12 @@ import { rootRefusal } from './open-refusal.js';
  * root's path, following a link there, and makes the folder when nothing
  * is there; a link whose target is gone is `Disconnected`, and nothing is
  * made. Each call asks again, so a folder that came back opens, and one
- * that went is refused.
+ * that went is refused. `hashes` is where the store keeps its attachments'
+ * hashes between runs, outside the folder (ADR-0822).
  */
 export async function openRoot(
 	root: Root,
+	{ hashes = null }: { hashes?: StampFile | null } = {},
 ): Promise<Result<{ store: Store; path: string }, OpenFolderError>> {
 	if (!isTauri())
 		return OpenFolderError.StorageUnavailable({
@@ -31,7 +34,7 @@ export async function openRoot(
 	const opened = await askShell(root);
 	if (opened.error !== null) return rootRefusal(opened.error.cause);
 	const { path, hear } = opened.data;
-	return Ok({ store: tauriStore({ root, listen: hear }), path });
+	return Ok({ store: tauriStore({ root, listen: hear, hashes }), path });
 }
 
 /** A root the shell opened: its display path, and how to hear its watcher. */

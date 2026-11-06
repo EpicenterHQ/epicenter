@@ -1,72 +1,106 @@
 /**
- * Where a folder's unfinished writes live: `.epicenter/` at its root.
+ * Where Epicenter's own files live (ADR-0822). A folder holds only its
+ * content; what Epicenter keeps is either a hidden file beside its target,
+ * under a reserved name, or at the Epicenter folder's root.
  *
- * A file in `.epicenter/` is on its way somewhere. It finishes (moves to its
- * real path), or the next open recovers or removes it. Each kind of
- * unfinished write has a part named for the operation that owns it:
+ * - A save stages its bytes in `.ep-<random>.save` beside its target, made
+ *   with mode 0600, and renames it over the target (`saveName`).
+ * - A recording in progress is `.ep-<random>-<name>.recording` beside its
+ *   final path `<name>.webm`; only its recorder writes or recovers one.
+ * - No listing, watcher, or sync ever describes a reserved name
+ *   (`isReservedName`), and a recovery sweep removes stale saves anywhere
+ *   in a folder, never a recording nor any other hidden file.
+ * - The Epicenter folder keeps the rest in its own `.epicenter/`
+ *   (`EPICENTER_STATE`): `synced/<folder-id>.json`, one record per synced
+ *   folder, and `hashes/<identity>.json`, a cache whose loss costs only
+ *   speed.
  *
- * - `saves/`: a save's bytes waiting to be renamed over its target, under a
- *   name `scratchName` makes. Always safe to delete when no app runs; the
- *   desktop shell's open removes ones an hour old (`sweep_scratch`), and so
- *   does this browser's store at its first call (`isStaleSave`).
- * - `recordings/<target path>`: a desktop recording, from its first sample
- *   until it stops or the next open recovers it. It may hold audio until the
- *   app opens once, so nothing sweeps it. Only the desktop shell writes
- *   here.
+ * A folder synced by an older build kept `.epicenter/` inside it
+ * (`LEGACY_DIRECTORY`): its manifest `synced.json`, its hash cache
+ * `hashes.json`, staged saves in `saves/`, and recordings in progress in
+ * `recordings/`. The platform imports the manifest once and removes the rest
+ * (`platform/legacy.ts`); nothing writes there now.
  *
- * `.epicenter` is a hidden path (`isHiddenPath`), so it is never a folder's
- * data: no watcher reports it and `epicenter sync` never commits it. This
- * module is the one place TypeScript spells the layout, as far as a page
- * writes it (`saves/`); the folder core's `state.rs` spells all of it, and
- * `fixtures/state-layout.json` holds both to it.
+ * This module and the folder core's `state.rs` are the two places that
+ * spell these names; `fixtures/reserved-names.json` holds both to them, and
+ * `bun run check:state-paths` fails when other production code spells
+ * `.epicenter`.
  */
 
-/** The directory at the top of a folder that holds its unfinished writes. */
-export const STATE_DIRECTORY = '.epicenter';
+/** The Epicenter folder's own directory of records and caches, and an old folder's directory of unfinished writes. */
+export const EPICENTER_STATE = '.epicenter';
 
-/** The part of `STATE_DIRECTORY` where a save stages its bytes. */
-export const SAVES = 'saves';
+/** In `EPICENTER_STATE`: one record per synced folder, `synced/<folder-id>.json`. */
+export const RECORDS = 'synced';
 
-/**
- * `.epicenter/saves` inside the directory at `root`, written with `/`: on
- * the root's own file system, so a staged save's rename over its path is one
- * step.
- */
-export const savesDirectory = (root: string) =>
-	`${root}/${STATE_DIRECTORY}/${SAVES}`;
+/** In `EPICENTER_STATE`: each directory's hash cache, `hashes/<identity>.json`. */
+export const HASHES = 'hashes';
 
-/**
- * This process's id in the names it stages under, so two never pick one
- * name. Made at the first stage, not at import.
- */
-let engine: string | undefined;
-let staged = 0;
+/** The directory an older build kept inside each folder. */
+export const LEGACY_DIRECTORY = EPICENTER_STATE;
 
-/**
- * A new staged file's name: its creation time and a per-process counter in
- * base 36, around this process's id. The desktop shell's sweep reads a
- * name of this shape, and only this shape, for its age (`is_stale_scratch`
- * in the folder core), so a save a crash stopped is removed at its next
- * open; `isStaleSave` reads it the same way.
- */
-export const scratchName = () => {
-	engine ??= crypto.randomUUID().replaceAll('-', '');
-	return `${Date.now().toString(36)}-${engine}-${(staged++).toString(36)}`;
-};
+/** An old folder's manifest, inside it. */
+export const LEGACY_MANIFEST = `${LEGACY_DIRECTORY}/synced.json`;
 
-/** How old a staged file must be before it is swept: its writer stopped. */
-const STALE_SAVE_MS = 60 * 60 * 1000;
+/** An old folder's hash cache, inside it. */
+export const LEGACY_HASHES = `${LEGACY_DIRECTORY}/hashes.json`;
 
-const STAGED_NAME = /^([0-9a-z]+)-[0-9a-f]{32}-[0-9a-z]+$/;
+/** An old folder's staged saves, inside it. */
+export const LEGACY_SAVES = `${LEGACY_DIRECTORY}/saves`;
 
-/**
- * Whether the staged file `name` was made more than an hour before `now`,
- * as the folder core's `is_stale_scratch` reads it. A name no host made is
- * never stale.
- */
-export function isStaleSave(name: string, now: number): boolean {
-	const time = STAGED_NAME.exec(name)?.[1];
-	if (time === undefined) return false;
-	const created = Number.parseInt(time, 36);
-	return Number.isSafeInteger(created) && now - created > STALE_SAVE_MS;
+/** An old folder's recordings in progress, inside it, at their final paths. */
+export const LEGACY_RECORDINGS = `${LEGACY_DIRECTORY}/recordings`;
+
+const PREFIX = '.ep-';
+const SAVE = '.save';
+const RECORDING = '.recording';
+
+/** A file name Epicenter reserves: `.ep-<something>.save` or `.ep-<something>.recording`. */
+const RESERVED = /^\.ep-[^/]+\.(save|recording)$/;
+
+/** Whether the last segment of `path` is a reserved name, which nothing lists. */
+export function isReservedName(path: string): boolean {
+	const name = path.slice(path.lastIndexOf('/') + 1);
+	return RESERVED.test(name);
 }
+
+/** Whether the last segment of `path` is a staged save's name. */
+export function isSaveName(path: string): boolean {
+	return isReservedName(path) && path.endsWith(SAVE);
+}
+
+/** Lowercase letters and digits, `length` of them, from the system's random source. */
+function random(length: number) {
+	const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+	let out = '';
+	for (const byte of crypto.getRandomValues(new Uint8Array(length)))
+		out += alphabet[byte % 36];
+	return out;
+}
+
+/** A new staged save's name, beside its target: `.ep-<random>.save`. */
+export const saveName = () => `${PREFIX}${random(16)}${SAVE}`;
+
+/**
+ * A recording in progress's name beside its final path `<name>.webm`:
+ * `.ep-<8 random>-<name>.recording`, so a recorder recovering it after a
+ * crash knows where it goes.
+ */
+export const recordingName = (name: string) =>
+	`${PREFIX}${random(8)}-${name}${RECORDING}`;
+
+/**
+ * The final path of the recording in progress at `pending`
+ * (`dir/.ep-<8>-<name>.recording`): `dir/<name>.webm`, or null when it is
+ * no recording's name.
+ */
+export function recordingFinal(pending: string): string | null {
+	const slash = pending.lastIndexOf('/');
+	const dir = pending.slice(0, slash + 1);
+	const name = pending.slice(slash + 1);
+	const found = /^\.ep-[0-9a-z]{8}-(.+)\.recording$/.exec(name);
+	return found === null ? null : `${dir}${found[1]}.webm`;
+}
+
+/** How old a staged save must be before a sweep removes it: its writer stopped. */
+export const STALE_SAVE_MS = 60 * 60 * 1000;

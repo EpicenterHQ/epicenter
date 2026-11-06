@@ -2,18 +2,20 @@
  * The Bun device store over a directory (`nodeStore`).
  *
  * Key behaviors:
- * - A save stages in the directory's own `.epicenter/saves` and makes
- *   nothing beside the directory; a replaced file keeps its permission bits
+ * - A save stages beside its target in `.ep-<random>.save`, made with mode
+ *   0600, and makes nothing beside the directory; a replaced file keeps its
+ *   permission bits
+ * - A listing never describes a reserved name (a staged save, a recording
+ *   in progress), nor an older build's `.epicenter`
  * - Two processes replacing one file each land whole, and the last one wins
  * - Of two creates of one path, in one process or two, exactly one lands
  * - Within one process, two replacements over one version take turns: one
  *   lands, the other finds it moved
  * - An attachment's version is its Git LFS pointer's blob id, cached by its
- *   stamp in `.epicenter/hashes.json`; a file changed within the second it
- *   was hashed is hashed again
+ *   stamp in the hash cache the store is given, outside the folder; a file
+ *   changed within the second it was hashed is hashed again
  * - A name only some disks hold is never made, and an existing one is
  *   replaced over its version
- * - A save across a mount point fails saying so, and leaves nothing behind
  * - A directory removed during a listing is not listed; a root removed
  *   fails the listing
  */
@@ -22,20 +24,13 @@ import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { scratch } from '../scratch.test-support.js';
-import { savesDirectory } from '../state.js';
+import { isReservedName } from '../state.js';
 import { blobIdOf } from '../hash.js';
-import { HASHES_PATH } from './stamp-cache.js';
 import type { BlobId, Moved, Unavailable } from './store.js';
 import type { Result } from 'wellcrafted/result';
 
-/** Whether the next link or rename fails as one to another file system does. */
-let crossDevice = false;
-const crossed = () =>
-	Promise.reject(
-		Object.assign(new Error('EXDEV: cross-device link not permitted'), {
-			code: 'EXDEV',
-		}),
-	);
+/** Told the staged file each link or rename places, before it is placed. */
+let beforeRename: ((from: string) => Promise<void>) | undefined;
 /** A directory removed just before the next read of its entries. */
 let removedBeforeReading: string | undefined;
 // A copy, since mocking the module updates the namespace imported above.
@@ -49,12 +44,27 @@ mock.module('node:fs/promises', () => ({
 		}
 		return real.readdir(...args);
 	},
-	link: (...args: Parameters<typeof fs.link>) =>
-		crossDevice ? crossed() : real.link(...args),
-	rename: (...args: Parameters<typeof fs.rename>) =>
-		crossDevice ? crossed() : real.rename(...args),
+	link: async (...args: Parameters<typeof fs.link>) => {
+		await beforeRename?.(String(args[0]));
+		return real.link(...args);
+	},
+	rename: async (...args: Parameters<typeof fs.rename>) => {
+		await beforeRename?.(String(args[0]));
+		return real.rename(...args);
+	},
 }));
-const { nodeStore } = await import('./node-store.js');
+const { nodeStore, stampFileAt } = await import('./node-store.js');
+
+/** Every reserved name left anywhere below `root`. */
+async function leftovers(root: string): Promise<string[]> {
+	const found: string[] = [];
+	for (const entry of await real.readdir(root, {
+		withFileTypes: true,
+		recursive: true,
+	}))
+		if (isReservedName(entry.name)) found.push(entry.name);
+	return found;
+}
 
 const STORE = JSON.stringify(join(import.meta.dir, 'node-store.ts'));
 const text = (value: string) => new TextEncoder().encode(value);
@@ -141,7 +151,7 @@ test('two creates of one path in one process: one lands, one finds it moved, one
 		expect(['a', 'b']).toContain(
 			await readFile(join(root, 'words/one.md'), 'utf8'),
 		);
-		expect(await readdir(savesDirectory(root))).toEqual([]);
+		expect(await leftovers(root)).toEqual([]);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -160,7 +170,7 @@ test('two replacements over one version in one process: one lands, one finds it 
 		);
 		expect(outcomes.toSorted()).toEqual(['landed', 'moved']);
 		expect(['a', 'b']).toContain(await readFile(join(root, 'note.md'), 'utf8'));
-		expect(await readdir(savesDirectory(root))).toEqual([]);
+		expect(await leftovers(root)).toEqual([]);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -217,18 +227,30 @@ test('two processes creating one path: exactly one lands each round', async () =
 	}
 }, 60_000);
 
-test('a save stages inside the folder, makes nothing beside it, and keeps a replaced file’s mode', async () => {
+test('a save stages beside its target as a private reserved name, makes nothing else, and keeps a replaced file’s mode', async () => {
 	const parent = await scratch('node-store-state-');
 	const root = join(parent, 'notes');
 	try {
 		await mkdir(root);
 		const store = nodeStore(root);
+		const staged: { name: string; mode: number }[] = [];
+		beforeRename = async (from) => {
+			staged.push({
+				name: from.slice(from.lastIndexOf('/') + 1),
+				mode: (await stat(from)).mode & 0o777,
+			});
+		};
 		expect(expectOk(await store.put('todos/a.md', text('milk'), null))).toEqual(
 			await versionIn(store, 'todos/a.md'),
 		);
+		beforeRename = undefined;
+		expect(staged).toHaveLength(1);
+		expect(isReservedName(staged[0]?.name ?? '')).toBe(true);
+		expect(staged[0]?.name).toEndWith('.save');
+		if (process.platform !== 'win32') expect(staged[0]?.mode).toBe(0o600);
 		expect(await readdir(parent)).toEqual(['notes']);
-		expect((await readdir(root)).sort()).toEqual(['.epicenter', 'todos']);
-		expect(await readdir(savesDirectory(root))).toEqual([]);
+		expect(await readdir(root)).toEqual(['todos']);
+		expect(await readdir(join(root, 'todos'))).toEqual(['a.md']);
 		const listed = expectOk(await store.list(['']));
 		expect(listed.map(({ path }) => path)).toEqual(['todos/a.md']);
 
@@ -244,8 +266,34 @@ test('a save stages inside the folder, makes nothing beside it, and keeps a repl
 			),
 		).toEqual(await versionIn(store, 'todos/a.md'));
 		expect((await stat(join(root, 'todos/a.md'))).mode & 0o777).toBe(0o755);
+		expect(await readdir(join(root, 'todos'))).toEqual(['a.md']);
 	} finally {
+		beforeRename = undefined;
 		await rm(parent, { recursive: true, force: true });
+	}
+});
+
+test('a listing never describes a staged save, a recording in progress, or an older build’s .epicenter', async () => {
+	const root = await scratch('node-store-reserved-');
+	try {
+		await mkdir(join(root, 'recordings'), { recursive: true });
+		await mkdir(join(root, '.epicenter/saves'), { recursive: true });
+		await writeFile(join(root, 'recordings/take.webm'), 'audio');
+		await writeFile(join(root, 'recordings/.ep-k3j9x2ab-next.recording'), 'x');
+		await writeFile(join(root, '.ep-0123abcd.save'), 'half');
+		await writeFile(join(root, '.epicenter/synced.json'), '{}');
+		await writeFile(join(root, '.DS_Store'), 'finder');
+		const store = nodeStore(root);
+		expect(
+			expectOk(await store.list(['']))
+				.map(({ path }) => path)
+				.sort(),
+		).toEqual(['.DS_Store', 'recordings/take.webm']);
+		expect(
+			expectOk(await store.list(['recordings/.ep-k3j9x2ab-next.recording'])),
+		).toEqual([]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
 	}
 });
 
@@ -273,23 +321,6 @@ test('a name only some disks hold is never made; an existing one is replaced ove
 	}
 });
 
-test('a save across a mount point fails saying so, and leaves nothing behind', async () => {
-	const root = await scratch('node-store-exdev-');
-	try {
-		const store = nodeStore(root);
-		crossDevice = true;
-		const error = expectErr(await store.put('mounted/a.md', text('x'), null));
-		crossDevice = false;
-		expect(error.name === 'Unavailable' && String(error.cause)).toContain(
-			"cannot save across a mount point: 'mounted/a.md'",
-		);
-		expect(await readdir(savesDirectory(root))).toEqual([]);
-		expect(await readdir(join(root, 'mounted'))).toEqual([]);
-	} finally {
-		crossDevice = false;
-		await rm(root, { recursive: true, force: true });
-	}
-});
 
 test('a directory removed during a listing is not listed; a root removed fails the listing', async () => {
 	const root = await scratch('node-store-list-removed-');
@@ -312,9 +343,11 @@ test('a directory removed during a listing is not listed; a root removed fails t
 
 test('an attachment is named by its pointer, hashed once, and again when it changes within the second it was hashed', async () => {
 	const root = await scratch('node-store-stamps-');
+	const cache = `${root}-hashes.json`;
+	const cached_ = () => nodeStore(root, { hashes: stampFileAt(cache) });
 	try {
 		await writeFile(join(root, 'take.webm'), 'one');
-		const listedOnce = expectOk(await nodeStore(root).list(['']));
+		const listedOnce = expectOk(await cached_().list(['']));
 		expect(listedOnce).toEqual([
 			{
 				path: 'take.webm',
@@ -322,17 +355,19 @@ test('an attachment is named by its pointer, hashed once, and again when it chan
 				size: 3,
 			},
 		]);
-		const cached = JSON.parse(await readFile(join(root, HASHES_PATH), 'utf8'));
+		const cached = JSON.parse(await readFile(cache, 'utf8'));
 		expect(Object.keys(cached)).toEqual(['take.webm']);
+		// Nothing of the cache is in the folder.
+		expect(await readdir(root)).toEqual(['take.webm']);
 		// Rewritten within the same second, to the same length: the stamp's
 		// time could match, so the racy entry is hashed again, never trusted.
 		await writeFile(join(root, 'take.webm'), 'two');
-		const [again] = expectOk(await nodeStore(root).list(['']));
+		const [again] = expectOk(await cached_().list(['']));
 		expect(again?.version).toBe(await blobIdOf('take.webm', text('two')));
 		// A cache that holds a hash under an old enough stamp answers without reading.
 		const stats = await stat(join(root, 'take.webm'), { bigint: true });
 		await writeFile(
-			join(root, HASHES_PATH),
+			cache,
 			JSON.stringify({
 				'take.webm': {
 					stamp: `${stats.size}:${stats.mtimeNs}:${stats.ino}`,
@@ -342,9 +377,10 @@ test('an attachment is named by its pointer, hashed once, and again when it chan
 				},
 			}),
 		);
-		const [trusted] = expectOk(await nodeStore(root).list(['']));
+		const [trusted] = expectOk(await cached_().list(['']));
 		expect(trusted?.version).not.toBe(await blobIdOf('take.webm', text('two')));
 	} finally {
 		await rm(root, { recursive: true, force: true });
+		await rm(cache, { force: true });
 	}
 });

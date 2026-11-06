@@ -15,6 +15,7 @@ let failure: () => void;
 let closed = 0;
 const base = fs.mkdtempSync(join(tmpdir(), 'epicenter-watch-'));
 const root = join(base, 'folder');
+fs.mkdirSync(root);
 afterAll(() => fs.rmSync(base, { recursive: true, force: true }));
 // A module mock outlives this file when tests share a process, so any other
 // directory is watched for real.
@@ -41,12 +42,11 @@ mock.module('node:fs', () => ({
 	},
 }));
 const { watchDirectory } = await import('./watch.js');
+const { isSaveName } = await import('../state.js');
 
-/** The probes a watcher of `at` has staged so far, by their paths below it. */
+/** The probes a watcher of `at` has staged so far: staged saves' names at its root. */
 const probes = (at: string) =>
-	fs
-		.readdirSync(join(at, '.epicenter', 'saves'), { withFileTypes: true })
-		.map((entry) => `.epicenter/saves/${entry.name}`);
+	fs.readdirSync(at).filter((name) => isSaveName(name));
 
 async function until(check: () => boolean) {
 	for (let turn = 0; turn < 200 && !check(); turn++) await Bun.sleep(5);
@@ -56,7 +56,6 @@ async function until(check: () => boolean) {
 /** A watcher of `root` heard live: its probe written and heard; answers its stop. */
 async function live(hints: unknown[]) {
 	const watching = watchDirectory(root, (paths) => hints.push(paths));
-	await until(() => fs.existsSync(join(root, '.epicenter', 'saves')));
 	await until(() => probes(root).length === 1);
 	event('rename', probes(root)[0] ?? '');
 	return watching;
@@ -83,11 +82,12 @@ test('absent filenames and errors reconcile all, while closed callbacks are igno
 test('a hidden path never reports a change', async () => {
 	const hints: unknown[] = [];
 	const stop = await live(hints);
-	// Unfinished writes live in `.epicenter`, so a save does not echo as a
-	// change, and a recording's header rewrite wakes nothing.
+	// A staged save and a recording in progress sit beside their targets
+	// under reserved hidden names, so a save does not echo as a change, and
+	// a recording's growth wakes nothing.
 	event('rename', '.epicenter');
-	event('change', join('.epicenter', 'recordings', 'recordings', 'a.wav'));
-	event('rename', join('.epicenter', 'saves', 'staged'));
+	event('change', join('recordings', '.ep-k3j9x2ab-a.recording'));
+	event('rename', join('notes', '.ep-0123456789abcdef.save'));
 	// Anything hidden, at any depth, is not the folder's data either.
 	event('change', join('notes', '.epicenter'));
 	event('change', join('notes', '.obsidian', 'workspace.json'));
@@ -106,7 +106,6 @@ test('a watcher writes a probe until it hears one, and answers then', async () =
 			return stop;
 		},
 	);
-	await until(() => fs.existsSync(join(root, '.epicenter', 'saves')));
 	await until(() => probes(root).length === 1);
 	const [probe = ''] = probes(root);
 	// Not live yet: it has not answered, and what it hears is reported as ever.
@@ -124,9 +123,8 @@ test('a watcher writes a probe until it hears one, and answers then', async () =
 });
 
 test('a folder that takes no probe answers at once, saying anything may have changed', async () => {
-	const unwritable = join(base, 'unwritable');
-	fs.mkdirSync(unwritable);
-	fs.writeFileSync(join(unwritable, '.epicenter'), 'not a directory');
+	// A folder gone from under its watch takes no probe.
+	const unwritable = join(base, 'gone');
 	const hints: unknown[] = [];
 	const stop = await watchDirectory(unwritable, (paths) => hints.push(paths));
 	expect(hints).toEqual(['all']);
