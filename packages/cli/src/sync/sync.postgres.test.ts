@@ -590,6 +590,46 @@ test("history, show, at, and mark read a folder's log by change, mark, or time",
 		(await me.epicenter('log', desk, '--path', 'days/b.md', '--json')).stdout,
 	).log as { files: { path: string }[] }[];
 	expect(log).toHaveLength(1);
+
+	// The history leaves as Git, and a Git history enters as a folder.
+	const exported = await me.epicenter(
+		'export',
+		desk,
+		'--git',
+		join(me.home, 'journal-git'),
+		'--json',
+	);
+	expect(exported.code, exported.stderr).toBe(0);
+	expect(JSON.parse(exported.stdout).export).toMatchObject({
+		from: 0,
+		tags: ['v1'],
+		checkout: 'made',
+	});
+	expect(
+		await readFile(join(me.home, 'journal-git', 'days/b.md'), 'utf8'),
+	).toBe(note('B'));
+	const imported = await me.epicenter(
+		'import',
+		'--git',
+		join(me.home, 'journal-git'),
+		'--name',
+		'Imported',
+		'--json',
+	);
+	expect(imported.code, imported.stderr).toBe(0);
+	expect(JSON.parse(imported.stdout).import).toMatchObject({
+		marks: ['v1'],
+		path: me.at('Imported'),
+	});
+	expect(await readFile(join(me.at('Imported'), 'days/a.md'), 'utf8')).toBe(
+		note('A', 'second\n'),
+	);
+	const status = await me.epicenter('sync', me.at('Imported'), '--json');
+	expect(JSON.parse(status.stdout).sync).toMatchObject({
+		outcome: 'synced',
+		pulled: [],
+		pushed: [],
+	});
 }, 120_000);
 
 test('a sync that would delete many files stops until --push-deletions or --restore-deletions', async () => {

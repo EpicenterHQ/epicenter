@@ -100,6 +100,8 @@ test('--help lists every command but the hidden ones, and --json describes them'
 		'mark',
 		'diff',
 		'restore',
+		'export',
+		'import',
 		'share',
 		'unshare',
 		'accept',

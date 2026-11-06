@@ -136,6 +136,29 @@ export const COMMANDS: readonly CommandSpec[] = [
 			"give a folder's files, or one with --path, back what they held at a moment, as a new change",
 	},
 	{
+		path: ['export'],
+		args: '[<dir>]',
+		minArgs: 0,
+		maxArgs: 1,
+		options: [{ name: 'git', value: '<repository>' }],
+		summary:
+			"write a folder's history into a Git repository, adding what is new since the last export",
+	},
+	{
+		path: ['import'],
+		args: '',
+		minArgs: 0,
+		maxArgs: 0,
+		options: [
+			{ name: 'git', value: '<path or URL>' },
+			{ name: 'branch', value: '<name>' },
+			{ name: 'name', value: '<name>' },
+			{ name: 'replace-original' },
+		],
+		summary:
+			"make a folder from a Git repository's history, in the Epicenter folder and synced",
+	},
+	{
 		path: ['share'],
 		args: '<folder> [<email>]',
 		minArgs: 1,

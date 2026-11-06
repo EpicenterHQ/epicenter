@@ -126,6 +126,8 @@ export const MAX_NAMED = 10_000;
 export const MAX_COMMIT_BYTES = 16 * 1024 * 1024;
 /** The most files one change writes. */
 export const MAX_FILES = 1000;
+/** The most files one imported change writes: a commit's first tree can be large. */
+export const MAX_IMPORTED_FILES = 5000;
 /** The most changes one import request brings. */
 const MAX_IMPORTED = 200;
 /** The most changes one log request answers. */
@@ -423,9 +425,10 @@ export async function putBlobRoute({
 /** The writes of a commit request's `files`, or why they are refused. */
 export function readCommitFiles(
 	files: unknown,
+	most = MAX_FILES,
 ): CommitWrite[] | { message: string; path?: string } {
-	if (!Array.isArray(files) || files.length === 0 || files.length > MAX_FILES)
-		return { message: `files: 1 to ${MAX_FILES}` };
+	if (!Array.isArray(files) || files.length === 0 || files.length > most)
+		return { message: `files: 1 to ${most}` };
 	const seen = new Set<string>();
 	const out: CommitWrite[] = [];
 	for (const file of files as Record<string, unknown>[]) {
@@ -598,7 +601,7 @@ export async function folderImport(
 			return invalid(
 				'each change is { author, at: an ISO time, message, files }',
 			);
-		const files = readCommitFiles(change.files);
+		const files = readCommitFiles(change.files, MAX_IMPORTED_FILES);
 		if (!Array.isArray(files)) return invalid(files.message, files.path);
 		read.push({
 			imported: { author, at: new Date(time), message },

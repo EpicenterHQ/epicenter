@@ -71,6 +71,10 @@ const HANDLERS: Record<string, Run> = {
 			options,
 			json,
 		),
+	export: async ({ positionals: [dir], options, json }) =>
+		(await import('./git/commands.ts')).exportCommand(dir, options, json),
+	import: async ({ options, json }) =>
+		(await import('./git/commands.ts')).importCommand(options, json),
 	share: async ({ positionals: [folder, person], options, json }) =>
 		(await import('./folder-commands.ts')).shareCommand(
 			folder as string,
@@ -157,6 +161,23 @@ values; its other files another. Files directly in the folder, and notes
 whose front matter does not read, are left out, each with why. A folder
 needs no epicenter.json to sync; it adds checking. Refuses a folder that has
 one. --dry-run prints the proposal and writes nothing.`,
+	export: `Writes the history of the folder <dir> names (this directory by default)
+into the Git repository at --git <repository>, made when absent: one commit per
+change on main, with its author and time, notes as files and every other file
+as a Git LFS pointer, its object in .git/lfs/objects, and each mark as a tag.
+Run again, it adds only the changes since the last export, and a new export of
+the same history makes the same commits. A file whose bytes were purged keeps
+its pointer and is named. Push the repository anywhere to keep a mirror.`,
+	import: `Reads the Git repository at --git (a path or a URL) without writing it, and
+makes a folder of its history: each commit of the default branch's first-parent
+line, or --branch's, becomes a change with its author, time, and message, a tag
+becomes a mark, and Git LFS files become their bytes. Files keep their bytes as
+they are; epicenter format rewrites front matter as its own step. Submodules,
+links, and hidden files are left out, each named. The folder is written to a new
+directory in the Epicenter folder (--name, or the repository's), without .git,
+and synced. --replace-original moves a repository on this computer aside, its
+.git kept within it, and leaves a link at its path to the new folder; it refuses
+a repository with uncommitted changes.`,
 	share: `Invites <email> to the folder (a path that has synced, or a folder id), as
 a member, or with --role reader as a reader, who syncs it without changing
 it. The folder is theirs once whoever signs in with that email, verified,

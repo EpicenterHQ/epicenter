@@ -105,6 +105,10 @@ export async function startRepositoryServer() {
 
 	return {
 		origin,
+		/** The database, for a test that reaches below the routes (a purge). */
+		db: requestDb,
+		/** Where larger bytes live. */
+		blobs,
 		/**
 		 * A signed-in person, as a repository store takes an account: every
 		 * request to the server carries the token.
