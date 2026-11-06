@@ -7,8 +7,11 @@ On the page, `openFolder(contract, home({ site }))` from `@epicenter/folder`
 opens the data folder in a Tauri window, `settings` from
 `@epicenter/local` is this computer's settings in AppData, and
 `syncWithEpicenter` and `syncedWithEpicenter` from `@epicenter/folder/tauri`
-manage Epicenter enrollment. The page's recovery and sync UI is in
-`@epicenter/svelte`.
+ask the Epicenter app to set the folder up for sync, a flow from before ADR-0804
+that the code still carries: a folder now syncs with `epicenter sync`, and the
+decided rule is that every program keeps the folders it has open in sync
+([ADR-0819](../../docs/adr/0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md)).
+The page's recovery and sync UI is in `@epicenter/svelte`.
 
 ## Two named roots
 
@@ -22,10 +25,11 @@ plugin; nothing is granted or stored
   too: [`epicenter-account`](../tauri-epicenter-account/README.md) writes
   `credentials.json`, which no page reaches, and `account.json`, who is
   signed in, which the page reads like any setting.
-- **Data** is `<library root>/<name>`. The name comes from the app's bundle
+- **Data** is `<Epicenter folder>/<name>`. The name comes from the app's bundle
   identifier, the reversed host of its site (`so.epicenter.whispering` is
-  `~/Epicenter/whispering`). The library root is `~/Epicenter`, or
-  `~/Epicenter Dev` in development.
+  `~/Epicenter/whispering`). The Epicenter folder is `~/Epicenter`, or
+  `~/Epicenter Dev` in development (ADR-0816; the Rust code and its comments
+  still call it the library root).
 
 The environment is stated, never guessed from the identifier. Only the
 development configuration (`tauri.dev.conf.json`, used by
@@ -46,7 +50,7 @@ off the window thread. Whatever is at its path is the app's
 ([ADR-0726](../../docs/adr/0726-an-apps-path-is-its-claim.md)): the folder is
 made when nothing is there, and a link there is followed. A link whose target
 is gone makes nothing and answers `Disconnected`. A data root that resolves to
-the person's home folder, a folder holding it, or the library root itself
+the person's home folder, a folder holding it, or the Epicenter folder itself
 answers `Refused` (`refusal`, the one refusal). The page shows either failure
 in Recovery with Retry. `open_root` also answers the named path the page shows.
 

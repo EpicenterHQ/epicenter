@@ -3,8 +3,9 @@
 The desktop shell's side of an Epicenter folder: the roots an app reaches,
 which the shell names at startup, and the app's folder storage over them,
 one command per storage method, under checks the page cannot get around. It
-runs no `git`: the folder's history runs in the `epicenter` CLI
-([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
+runs no Git, and neither does anything else on a computer: a folder's history is
+its repository's on the server, which sync commits to from TypeScript
+([ADR-0804](../../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).
 
 The page opens the folder itself, with `@epicenter/folder`'s engine
 ([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
@@ -51,9 +52,11 @@ tauri::Builder::default()
 
 The apps on [`epicenter-standalone`](../tauri-epicenter-standalone/README.md)
 (Capture, Honeycrisp, Todos, Vocab, Whispering) name their AppData root and
-their data folder, `<library root>/<site-derived path>`, this way. Their
-pages open the named Data root after the window opens; that crate holds the one
-refusal (the home folder, a folder holding it, or the library root).
+their data folder, `<Epicenter folder>/<site-derived path>`, this way (the
+Epicenter folder is `~/Epicenter`, ADR-0816; the Rust code and its comments
+still call it the library root). Their pages open the named Data root after the
+window opens; that crate holds the one refusal (the home folder, a folder
+holding it, or the Epicenter folder itself).
 Nothing is granted: a capability lets a window call the plugin, and the
 roots are the app's, so every window of the app reaches the same ones.
 
@@ -61,23 +64,22 @@ A shell gives its window the plugin's commands in a capability:
 `{ "windows": ["todos:*"], "permissions": ["epicenter-folder:default", "core:event:allow-listen", "core:event:allow-unlisten"] }`.
 It grants no `fs` command and names no folder.
 
-`admission::check_sync_directory`, which Epicenter runs before
-`epicenter init`, refuses a directory when any segment of its canonical path
+`admission::check_sync_directory`, written for the retired setup flow in which
+Epicenter set a directory up for sync (nothing in the TypeScript model calls it
+now), refuses a directory when any segment of its canonical path
 is `.git` or `.epicenter` (`state::DIRECTORY`), in any case
 (`admission::is_reserved_directory`): those belong to Git and to another
 folder's unfinished writes. Any other hidden directory, `~/.notes` among them,
 may be a folder. It also refuses a directory inside, equal to, or holding
-application data, and the library root or a directory holding it, so the
-folders in it never become one repository.
+application data, and the Epicenter folder or a directory holding it.
 Containment compares canonical paths and directory identity, so a linked
 parent or another spelling of a protected directory is no route around it.
 `Directory` is the canonical directory value both use. What `.git` is, if
 anything, does not matter to storage, as it does not to the Bun host
 (`nodeStore` in `@epicenter/folder/node`): a directory with no `.git`, with a `.git` file or
 link (a linked worktree or submodule), or with a repository opens and saves
-alike, and the shell never changes `.git`. Git state that would send history
-writes elsewhere is the `epicenter` CLI's to refuse, before each history
-operation.
+alike, and the shell never changes `.git`. A computer runs no Git, so nothing
+here depends on it.
 
 ## Opening
 
@@ -129,7 +131,7 @@ rename (see Storage), and a save another writer overtook is answered
 `stale`; the page reads again and merges. Within the app's process, puts of
 one path take turns from the check to the rename, so of two saves over one
 version exactly one lands. Across processes no lock spans the check and the
-rename; Git history is the backstop
+rename; the next sync's versioned writes are the backstop
 ([ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).
 
 ## Storage
@@ -265,8 +267,7 @@ leaves nothing behind: not
 its staged file, and not a directory it made, unless another writer put
 something in it.
 
-A folder has no repository until `epicenter init` and no commit until its
-first sync, and saving never makes either: a put stages in `.epicenter`, so it makes
+A folder has no repository on this computer, and saving makes none: a put stages in `.epicenter`, so it makes
 nothing in the root but the files saved, their directories, and
 `.epicenter`, nothing beside the root, and nothing in `.git` is reachable, with or without `HEAD` (`page_files.rs`).
 
@@ -278,9 +279,7 @@ placed at its path whole
 It asks `app.roots().opened(Root::Data)` for the folder the app opened,
 checks the path with `page_files::data_path` (the same rule and link check
 as a put), and creates the file with `create_new`. A directory is removed
-only when empty; nothing removes a tree whole. The page writes no Git
-object: the `epicenter` CLI stores each with `git hash-object -w`, which
-names and checks it.
+only when empty; nothing removes a tree whole.
 
 ### Unfinished writes
 
@@ -348,8 +347,8 @@ file or the new one. A late change is refused as `ShuttingDown` and writes nothi
 - The expectation is checked right before the rename. Within the shell's
   process, puts of one path take turns across the two; across processes no
   lock spans them. A writer in another process that changes a path in that
-  instant is not seen, and its save can be replaced; Git history keeps what
-  sync committed.
+  instant is not seen, and its save can be replaced; the server's history keeps
+  what sync committed.
 - Epicenter ships for macOS only
   ([ADR-0567](../../docs/adr/0567-epicenter-ships-for-macos-only-for-now.md)).
 

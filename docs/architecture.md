@@ -18,7 +18,9 @@ Every directory directly inside `~/Epicenter` is a folder. `epicenter.json`
 (`$schema`, `title`, `collections`) is optional: it adds a title and a contract,
 the collections of items with their paths and JSON Schema fields, which give
 checking, tables, and merging by field. `epicenter init` proposes one from the
-files already there. `AGENTS.md` is prose for agents. A computer keeps the
+files already there. `AGENTS.md` is written for agents; ADR-0805 makes it carry no front matter, but
+a desktop app's data folder still gets one with a `contract` key, which
+`epicenter check` reads. A computer keeps the
 folder's files and a manifest, `.epicenter/synced.json`, which is a cache, and no
 Git: no client links a Git library, and the Rust sync core is deleted
 ([ADR-0804](adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).

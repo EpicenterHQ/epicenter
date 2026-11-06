@@ -45,7 +45,7 @@ asks for all of them
 
 ```ts
 const signIn = connectAccount({ clientId: 'so.epicenter.vocab', api: APP_URLS.API, selfHosted: SELF_HOST_ORIGIN });
-export const folder = openFolder(vocab, home({ site: APPS.VOCAB.url, account: signIn })); // the repository
+export const folder = openFolder(vocab, home({ site: APPS.VOCAB.url, account: signIn })); // the folder on the server
 export const ai = openAi([hosted(signIn)]); // the AI gateway
 export const profile = openProfile(signIn); // the person's name and email
 ```
@@ -103,7 +103,7 @@ With more than one resource, the client adds `offline_access` to the one
 redirect, then spends the refresh token once per further resource
 (`grant_type=refresh_token` with that `resource`, RFC 8707), carrying the
 rotated one forward, and drops the last. Whispering signs in this way for
-transcription and its folder's Git remote. If any token request fails, the
+transcription and its folder on the server. If any token request fails, the
 sign-in fails, nothing is stored, and what was issued is revoked. The server
 keeps a browser grant bound to its session and refuses a token that names more
 than one audience (ADR-0549).
