@@ -4,6 +4,7 @@
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) at "'Add folder…' runs `epicenter link`, which puts a link to a folder from anywhere inside the root": the link's name is one the person confirms and no app could claim; [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at its example `ln -s whispering ~/Epicenter/voice`: a name without a dot belongs to Epicenter's apps, so a person's own link takes a name with a space.
 - **Relates:** [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (names without a dot belong to Epicenter's apps, names with a dot to owners), [ADR-0729](0729-a-link-is-followed-only-at-or-above-a-root.md) (a link is followed at or above a root), [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) (the scan of the root).
+- **Amended by:** [ADR-0825](0825-the-epicenter-folder-contains-its-folders.md) at a folder outside joining through a link: the folder moves into the Epicenter folder, and a link outside reaches it.
 
 ## Context
 

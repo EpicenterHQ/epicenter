@@ -931,7 +931,7 @@ When you add an ADR, add its row here.
 | [0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) | Your own git in an Epicenter folder is plain Git | Accepted (amends 0565, 0713, and 0718; amended by 0748, 0751, 0795, 0803, and 0804) |
 | [0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) | Every file other than a note is kept whole in Git LFS | Accepted (supersedes 0714; amended by 0824) |
 | [0735](0735-sync-gives-files-a-history-it-never-merges-two.md) | Sync gives files a history; it never merges two | Accepted (amends 0700 and 0721; amended by 0761) |
-| [0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) | A folder outside the library is enrolled through a link the person names | Accepted (amends 0715 and 0721) |
+| [0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) | A folder outside the library is enrolled through a link the person names | Accepted (amends 0715 and 0721; amended by 0825) |
 | [0737](0737-an-apps-actions-are-request-notes-it-watches-in-this-devices-place.md) | An app's actions are request notes it watches in this device's place | Accepted |
 | [0738](0738-a-script-reaches-an-app-through-a-handle-module-written-from-its-site.md) | A script reaches an app through a handle module written from its site | Accepted |
 | [0739](0739-a-document-body-uses-a-standard-codec-until-an-app-needs-its-own.md) | A document body uses a standard codec until an app needs its own | Accepted (amends 0705 and 0727) |
@@ -1010,13 +1010,14 @@ When you add an ADR, add its row here.
 | [0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) | An app's schema is a view that must fit a folder's contract | Accepted (amends 0805, 0810, and 0811) |
 | [0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) | Epicenter is your folders, and apps are lenses | Accepted (amends 0763, 0805, and 0811) |
 | [0814](0814-one-window-shows-one-folder.md) | One window shows one folder | Accepted (amends 0802 and 0811) |
-| [0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) | The platform gives a window its folder, and every app the same home | Accepted (amends 0773, 0790, 0792, and 0804; amended by 0816) |
+| [0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) | The platform gives a window its folder, and every app the same home | Accepted (amends 0773, 0790, 0792, and 0804; amended by 0816 and 0825) |
 | [0816](0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md) | The Epicenter app is where a person sees and manages every folder | Accepted (amends 0790, 0800, and 0815; amended by 0819) |
 | [0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) | The CLI exposes every platform operation, and an app inherits everything about folders | Accepted |
 | [0818](0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md) | An app is a view, a window, and its capabilities, and everything is repairable by hand | Accepted (amends 0763; amended by 0821) |
 | [0819](0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md) | Every program keeps the folders it has open in sync, and the Epicenter app has them all open | Accepted (amends 0750, 0806, and 0816; amended by 0821 and 0822) |
 | [0820](0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md) | A share is an invitation to an email, and reaching every folder is a permission | Accepted (amends 0811; amended by 0821) |
 | [0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) | A computer remembers what it synced, and a shell limits each window to its folder | Accepted (amends 0804, 0811, 0818, 0819, and 0820; amended by 0822) |
-| [0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) | Only Epicenter syncs on a computer, and a folder holds only its content | Accepted (amends 0785, 0804, 0819, and 0821) |
+| [0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) | Only Epicenter syncs on a computer, and a folder holds only its content | Accepted (amends 0785, 0804, 0819, and 0821; amended by 0825) |
 | [0823](0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md) | On the web, the folder on the server is the app's store | Accepted (amends 0807) |
 | [0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) | A folder's history is a log of versions, and Git is how it leaves | Accepted (amends 0734, 0762, 0803, 0808, 0809, and 0811) |
+| [0825](0825-the-epicenter-folder-contains-its-folders.md) | The Epicenter folder contains its folders | Accepted (amends 0736, 0815, and 0822) |
