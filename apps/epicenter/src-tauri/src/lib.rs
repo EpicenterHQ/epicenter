@@ -584,6 +584,14 @@ fn window_for(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<WebviewWin
     // These windows hide on close, so neither joins another's tab group.
     #[cfg(target_os = "macos")]
     let builder = builder.tabbing_identifier(built_in.id());
+    // The Folders window's page keeps every folder in sync while hidden
+    // (ADR-0819); by default the web view suspends a hidden page's timers
+    // after about five minutes (macOS 14 and later honor this).
+    let builder = if built_in == BuiltInApp::Folders {
+        builder.background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
+    } else {
+        builder
+    };
     let window = builder.build()?;
     let close_window = window.clone();
     window.on_window_event(move |event| {
