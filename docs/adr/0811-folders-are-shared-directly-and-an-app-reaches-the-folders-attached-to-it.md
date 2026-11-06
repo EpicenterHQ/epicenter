@@ -8,7 +8,7 @@
 - **Amended by:** [ADR-0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) at `$id` marking an app that keeps the contract: no app owns it, and there is no `$id`.
 - **Amended by:** [ADR-0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) at `epicenter init` making a folder: it adds a contract to one.
 - **Amended by:** [ADR-0814](0814-one-window-shows-one-folder.md) at an app's folder picker: a window shows one folder, and another folder opens in another window.
-- **Amended by:** [ADR-0820](0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md) at sharing, owners, and app reach: a share is an invitation to an email; a member is an owner, a writer, or a reader; `folders:all` reaches every folder, and only it attaches a folder to an app.
+- **Amended by:** [ADR-0820](0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md) at sharing, owners, and app reach: a share is an invitation to an email; members are equal, and a reader only reads; `folders:all` reaches every folder, and only it attaches a folder to an app.
 - **Unbuilt:** sharing managed by person (removing someone from every folder, sharing what another person has); "Use this folder with" an app and the question a copy asks, in a window (the CLI asks with `--new` or `--same`); `epicenter init` converting YAML front matter.
 
 ## Context
