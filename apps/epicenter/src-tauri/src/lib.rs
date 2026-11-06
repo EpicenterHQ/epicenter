@@ -45,12 +45,14 @@ const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 /// Who the Epicenter app signs in as: its own client, reaching every folder
 /// the person holds (`folders:all`, ADR-0820), on the API and Git audiences.
 /// Its shell keeps the refresh token in its credentials file and sends every
-/// request a page makes on the account (`epicenter-account`).
+/// request a page makes on the account (`epicenter-account`) to those
+/// audiences: it is the one desktop program that syncs (ADR-0822).
 const ACCOUNT: epicenter_account::AccountApp = epicenter_account::AccountApp {
     client_id: "so.epicenter",
     name: "Epicenter",
     scope: epicenter_account::AccountApp::EVERY_FOLDER,
     audiences: epicenter_account::AccountApp::API_AND_FOLDERS,
+    relays: epicenter_account::Relays::AnyRoute,
 };
 
 /// Epicenter's own windows.

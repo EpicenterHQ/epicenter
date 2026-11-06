@@ -15,7 +15,7 @@
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use epicenter_account::AccountApp;
+use epicenter_account::{AccountApp, Relays};
 use epicenter_standalone::StandaloneApp;
 
 include!("command_names.rs");
@@ -27,12 +27,14 @@ const VOCAB: StandaloneApp = StandaloneApp {
     size: (1100.0, 760.0),
 };
 
-/// Signs in only for Epicenter's hosted tutor models and dictation.
+/// Signs in only for Epicenter's hosted tutor models and dictation, and
+/// its page sends nothing else on the account (ADR-0822).
 const ACCOUNT: AccountApp = AccountApp {
     client_id: "so.epicenter.vocab.native",
     name: "Vocab",
     scope: AccountApp::HOSTED_MODELS,
     audiences: AccountApp::API,
+    relays: Relays::Inference,
 };
 
 fn main() {
@@ -65,12 +67,15 @@ mod tests {
 
     /// Vocab is its own native client, `so.epicenter.<app>.native`
     /// (decision 84), the id `apps/api/worker/oauth-registrations.ts`
-    /// registers, and asks only for hosted models.
+    /// registers. It signs in only for hosted models, on the API audience,
+    /// and its page sends only hosted inference on the account (ADR-0822).
     #[test]
-    fn vocab_signs_in_as_its_own_native_client() {
+    fn vocab_signs_in_as_its_own_native_client_for_hosted_models_only() {
         assert_eq!(ACCOUNT.client_id, "so.epicenter.vocab.native");
         assert_eq!(ACCOUNT.name, "Vocab");
-        assert_eq!(ACCOUNT.scope, AccountApp::HOSTED_MODELS);
+        assert_eq!(ACCOUNT.scope, "openid offline_access profile email ai");
+        assert_eq!(ACCOUNT.audiences, [epicenter_account::Audience::Api]);
+        assert_eq!(ACCOUNT.relays, Relays::Inference);
     }
 
     /// The build script declares every account and connection command, and
