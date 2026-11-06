@@ -5,6 +5,10 @@
  * the folder opens; in a browser it is the folder on the server attached to
  * the app (ADR-0811). The `test` condition's leaf is `home.memory.ts`.
  */
+import {
+	appDataIdentifier,
+	hostFromSiteUrl,
+} from '@epicenter/definition/site';
 import { isTauri } from '@tauri-apps/api/core';
 import { Ok } from 'wellcrafted/result';
 import {
@@ -13,7 +17,11 @@ import {
 	type Place,
 	place,
 } from './place.js';
-import { folderRepository, joinFolder } from './remote/repository.js';
+import {
+	folderRepository,
+	joinApp,
+	makeFolder,
+} from './remote/repository.js';
 
 export { FolderClosed, FolderNotOpen, OpenFolderError } from './errors.js';
 export type {
@@ -51,7 +59,7 @@ export function home({ site, account }: HomeOptions): Place {
 		throw new TypeError(
 			"A browser opens the app's repository, so home needs its account.",
 		);
-	return attached(account);
+	return attached(account, appDataIdentifier(hostFromSiteUrl(site), 'production'));
 }
 
 /** The app's data folder, its code loaded when the folder opens. */
@@ -73,12 +81,14 @@ function dataFolder(site: string): Place {
 }
 
 /**
- * The folder attached to the app `account` signs in as, which opens once it
- * has an account: the one its person holds, made at its first open. With
- * several, the first; a folder of the window's own is `openFolder(view)`'s,
- * a later pass (ADR-0815).
+ * The folder attached to `app` (the client id the account signs in as, the
+ * reversed host of the app's site), which opens once it has an account: a
+ * join that names the app (ADR-0822), and, when the person holds none, a
+ * folder made for it, which never joins. With several, the first; a folder
+ * of the window's own is `openFolder(view)`'s, a later pass (ADR-0815). The
+ * folder on the server is the store (ADR-0823).
  */
-function attached(account: FolderAccount): Place {
+function attached(account: FolderAccount, app: string): Place {
 	return place(() => ({
 		async open() {
 			const signedIn = await new Promise<
@@ -95,13 +105,15 @@ function attached(account: FolderAccount): Place {
 					if (answer()) stop();
 				});
 			});
-			const joined = await joinFolder(signedIn);
+			const joined = await joinApp(signedIn, app);
 			if (joined.error !== null) return joined;
-			const folder =
-				'choose' in joined.data
-					? (joined.data.choose[0] as string)
-					: joined.data.folder;
-			return Ok(folderRepository(signedIn, folder));
+			if ('folder' in joined.data)
+				return Ok(folderRepository(signedIn, joined.data.folder));
+			if ('choose' in joined.data)
+				return Ok(folderRepository(signedIn, joined.data.choose[0] as string));
+			const made = await makeFolder(signedIn);
+			if (made.error !== null) return made;
+			return Ok(folderRepository(signedIn, made.data));
 		},
 	}));
 }

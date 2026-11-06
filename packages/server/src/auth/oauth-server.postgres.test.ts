@@ -547,7 +547,7 @@ describe('the protected routes', () => {
 		// A first sync from the app makes its folder, attached to the app.
 		const joined = await call('/git/folders', git.token, {
 			method: 'POST',
-			body: {},
+			body: { create: true },
 		});
 		expect(joined.status).toBe(201);
 		const { folder } = (await joined.json()) as { folder: string };

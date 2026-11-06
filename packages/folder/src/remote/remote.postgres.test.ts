@@ -59,7 +59,7 @@ import { createFolder } from '../folder.js';
 import { blobIdOf } from '../hash.js';
 import { noteCodec } from '../note-codec.js';
 import { acceptShare, shareFolder } from './folders.js';
-import { folderRepository, joinFolder } from './repository.js';
+import { folderRepository, makeFolder } from './repository.js';
 
 const recorder = defineContract({
 	collections: {
@@ -326,10 +326,8 @@ async function signInPerson(label: string) {
 			throw new Error('not used');
 		},
 	};
-	// The app's first sync makes the person's folder, attached to the app.
-	const joined = expectOk(await joinFolder(account));
-	if (!('folder' in joined)) throw new Error('expected one folder');
-	const { folder } = joined;
+	// The person's folder, made for the app.
+	const folder = expectOk(await makeFolder(account));
 	sent.length = 0;
 	return {
 		account,

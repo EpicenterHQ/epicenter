@@ -21,10 +21,9 @@
  * unreachable is heard as `'all'`. It stops with the stop it answered, or
  * with the account.
  *
- * `joinFolder` is a folder's first sync on the server (ADR-0811): it joins
- * the folder a manifest names when the person holds it, or from an app the
- * one folder attached to it, and otherwise makes one, answering its id:
- * what a manifest stores (`RepositoryAddress`).
+ * `makeFolder` makes a new folder on the server and never joins one
+ * (ADR-0822); `joinApp` joins the one folder attached to an app, naming the
+ * app, as a web app's first open does (ADR-0823).
  */
 import { ClientError, storedWithLfs } from '@epicenter/definition/contract';
 import { parsePointer } from '@epicenter/definition/merge';
@@ -152,29 +151,57 @@ const json = (body: unknown): RequestInit => ({
 	body: JSON.stringify(body),
 });
 
-/** What a first sync on the server answered. */
-export type Joined =
-	/** The folder joined (`made: false`) or made. */
-	| { folder: string; made: boolean }
-	/** An app's person holds several folders attached to it: which one is theirs to say. */
-	| { choose: string[] };
+/** The folder id in a 200 or 201 answer to `POST <git>/folders`, or the refusal. */
+function folderOf(status: number, body: unknown) {
+	if (
+		(status !== 200 && status !== 201) ||
+		!isRecord(body) ||
+		typeof body.folder !== 'string' ||
+		!isFolderId(body.folder)
+	)
+		return refused(status, body);
+	return Ok(body.folder);
+}
 
 /**
- * A folder's first sync on the server: join `folder` (the id its manifest
- * names) when `account`'s person holds it, or, from an app with none named,
- * the one folder attached to the app; otherwise the server makes a folder,
- * attached to the app that made it.
+ * Make a new folder on the server, held by `account`'s person, and answer
+ * its id. It never joins one. From a token that reaches every folder, `app`
+ * attaches it to that app (the client id it signs in as); an app's own
+ * token attaches it to itself.
  */
-export async function joinFolder(
+export async function makeFolder(
 	account: RemoteAccount,
-	{ folder }: { folder?: string } = {},
-): Promise<Result<Joined, Unavailable>> {
+	{ app }: { app?: string } = {},
+): Promise<Result<string, Unavailable>> {
 	const { git } = resolveOAuthAudiences(account.baseURL);
 	const answered = await ask(
 		account,
 		folderUrl(git),
-		json(folder === undefined ? {} : { folder }),
+		json(app === undefined ? { create: true } : { create: true, app }),
 	);
+	if (answered.error !== null) return answered;
+	return folderOf(answered.data.status, answered.data.body);
+}
+
+/** What joining an app's folder answered. */
+export type Joined =
+	/** The one folder attached to the app that the person holds. */
+	| { folder: string }
+	/** The person holds several: which one is theirs to say. */
+	| { choose: string[] }
+	/** The person holds none. */
+	| { none: true };
+
+/**
+ * Join the one folder attached to `app` (the client id it signs in as) that
+ * `account`'s person holds. An app's token joins only its own app's folder.
+ */
+export async function joinApp(
+	account: RemoteAccount,
+	app: string,
+): Promise<Result<Joined, Unavailable>> {
+	const { git } = resolveOAuthAudiences(account.baseURL);
+	const answered = await ask(account, folderUrl(git), json({ join: app }));
 	if (answered.error !== null) return answered;
 	const { status, body } = answered.data;
 	if (
@@ -184,14 +211,11 @@ export async function joinFolder(
 		Array.isArray(body.folders)
 	)
 		return Ok({ choose: body.folders as string[] });
-	if (
-		(status !== 200 && status !== 201) ||
-		!isRecord(body) ||
-		typeof body.folder !== 'string' ||
-		!isFolderId(body.folder)
-	)
-		return refused(status, body);
-	return Ok({ folder: body.folder, made: body.made === true });
+	if (status === 404 && isRecord(body) && body.error === 'none')
+		return Ok({ none: true });
+	const folder = folderOf(status, body);
+	if (folder.error !== null) return folder;
+	return Ok({ folder: folder.data });
 }
 
 /**

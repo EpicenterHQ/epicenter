@@ -11,6 +11,7 @@
  * erasable TypeScript, so these imports name `.ts` files and the modules use
  * no TypeScript-only runtime syntax.
  */
+export { isAppId } from './app-id.ts';
 export {
 	type AppEnvironment,
 	AppNameError,
@@ -35,6 +36,7 @@ export {
 	type FolderMember,
 	type FolderInvitee,
 	type FolderPerson,
+	type FolderRequest,
 	type FolderRole,
 	folderRemoteUrl,
 	foldersApiUrl,
